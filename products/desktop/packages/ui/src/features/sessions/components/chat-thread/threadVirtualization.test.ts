@@ -6,7 +6,11 @@ import {
   computeStickyAnchor,
   countFlatRows,
   flattenTurnRows,
+  keyTurnRows,
+  nextThreadFollowState,
   type StickyAnchorEntry,
+  sampleThreadScroll,
+  type ThreadScrollSample,
   type TurnRow,
 } from "./threadVirtualization";
 
@@ -52,6 +56,44 @@ function agentTurn(
 ): AgentTurn {
   return { type: "agent_turn", id, items: items as AgentTurn["items"], prompt };
 }
+
+describe("keyTurnRows", () => {
+  const thought = sessionUpdate("t1");
+  const tool1 = sessionUpdate("c1");
+  const tool2 = sessionUpdate("c2");
+
+  const skillAction = (id: string): TurnRow => ({
+    type: "skill_button_action",
+    id,
+    buttonId: "review" as never,
+  });
+
+  // A row whose id moves while the row stays in place. Keying on the id remounts it, and the
+  // scroller engine answers that remount by scrolling to the first user message.
+  it.each([
+    {
+      name: "tool grouping moves a turn's id to its first tool call",
+      before: [userMessage("u1"), agentTurn("t1", [thought, tool1])],
+      after: [
+        userMessage("u1"),
+        agentTurn("c1", [toolGroup("c1", [thought, tool1, tool2])]),
+      ],
+      keys: ["user-turn-0", "agent-turn-0"],
+    },
+    {
+      name: "a skill-button row swaps its optimistic id for the real one",
+      before: [
+        userMessage("u1"),
+        skillAction("optimistic-1700000000000-ab12cd"),
+      ],
+      after: [userMessage("u1"), skillAction("turn-1-skill-action")],
+      keys: ["user-turn-0", "skill-action-0"],
+    },
+  ])("holds the key steady when $name", ({ before, after, keys }) => {
+    expect(keyTurnRows(before).map((r) => r.key)).toEqual(keys);
+    expect(keyTurnRows(after).map((r) => r.key)).toEqual(keys);
+  });
+});
 
 describe("flattenTurnRows", () => {
   it("passes standalone rows through with ordinal keys for user messages", () => {
@@ -112,7 +154,7 @@ describe("flattenTurnRows", () => {
     ]);
   });
 
-  it("leads the copy text with the prompt that opened the turn", () => {
+  it("copies only the agent response", () => {
     const done = agentTurn(
       "d",
       [
@@ -124,9 +166,7 @@ describe("flattenTurnRows", () => {
       ],
       userMessage("u1"),
     );
-    expect(flattenTurnRows([done]).at(-1)?.turnCopyText).toBe(
-      "msg u1\n\nreply",
-    );
+    expect(flattenTurnRows([done]).at(-1)?.turnCopyText).toBe("reply");
   });
 
   it("leaves copy text off a turn that is still streaming", () => {
@@ -177,6 +217,118 @@ describe("countFlatRows", () => {
 
   it("is zero for an empty thread", () => {
     expect(countFlatRows([])).toBe(0);
+  });
+});
+
+describe("nextThreadFollowState", () => {
+  const sample = (
+    over: Partial<ThreadScrollSample> = {},
+  ): ThreadScrollSample => ({
+    atEnd: false,
+    atExactEnd: false,
+    scrolledUp: false,
+    scrolledDown: false,
+    farFromEnd: false,
+    ...over,
+  });
+
+  it.each([
+    [
+      "holds following while an append measures short of the end",
+      { following: true, leftEnd: false },
+      sample(),
+      { following: true, leftEnd: false },
+    ],
+    [
+      "drops following once the reader scrolls up past the tolerance",
+      { following: true, leftEnd: false },
+      sample({ scrolledUp: true }),
+      { following: false, leftEnd: false },
+    ],
+    [
+      "drops following when the end has drifted far below the fold",
+      { following: true, leftEnd: false },
+      sample({ farFromEnd: true }),
+      { following: false, leftEnd: false },
+    ],
+    [
+      "re-arms inside the tolerance when the reader never left the end",
+      { following: false, leftEnd: false },
+      sample({ atEnd: true }),
+      { following: true, leftEnd: false },
+    ],
+    [
+      "stays off when streamed content grows past a reader parked inside the tolerance",
+      { following: false, leftEnd: true },
+      sample({ atEnd: true }),
+      { following: false, leftEnd: true },
+    ],
+    [
+      "resumes when the reader scrolls back down into the tolerance",
+      { following: false, leftEnd: true },
+      sample({ atEnd: true, scrolledDown: true }),
+      { following: true, leftEnd: false },
+    ],
+    [
+      "ignores a downward scroll that stops short of the tolerance",
+      { following: false, leftEnd: true },
+      sample({ scrolledDown: true }),
+      { following: false, leftEnd: true },
+    ],
+    [
+      "resumes once the reader is back against the bottom",
+      { following: false, leftEnd: true },
+      sample({ atEnd: true, atExactEnd: true }),
+      { following: true, leftEnd: false },
+    ],
+    [
+      "drops following on an upward scroll that stays inside the tolerance",
+      { following: true, leftEnd: false },
+      sample({ atEnd: true, scrolledUp: true }),
+      { following: false, leftEnd: false },
+    ],
+  ])("%s", (_name, state, event, expected) => {
+    expect(nextThreadFollowState(state, event)).toEqual(expected);
+  });
+});
+
+describe("sampleThreadScroll", () => {
+  // Scroll range is 0..1500.
+  const viewport = (scrollTop: number) => ({
+    scrollTop,
+    scrollHeight: 2000,
+    clientHeight: 500,
+  });
+
+  it.each([
+    [
+      "a downward move that stops just short of the bottom",
+      1450,
+      1400,
+      { atEnd: true, atExactEnd: false, scrolledDown: true },
+    ],
+    [
+      "a downward move that stops outside the tolerance",
+      1300,
+      1200,
+      { atEnd: false, atExactEnd: false, scrolledDown: true },
+    ],
+    [
+      "sub-pixel drift, which is neither direction",
+      900,
+      900.5,
+      { atEnd: false, atExactEnd: false, scrolledDown: false },
+    ],
+    [
+      "the true bottom",
+      1500,
+      1450,
+      { atEnd: true, atExactEnd: true, scrolledDown: true },
+    ],
+  ])("measures %s", (_name, scrollTop, previous, expected) => {
+    expect(sampleThreadScroll(viewport(scrollTop), previous)).toMatchObject(
+      expected,
+    );
   });
 });
 

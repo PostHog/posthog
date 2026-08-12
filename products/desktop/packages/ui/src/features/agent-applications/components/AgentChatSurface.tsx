@@ -79,7 +79,8 @@ export function AgentChatSurface({
           <ThreadView
             events={messages}
             isPromptPending={isStreaming}
-            collapseMode="none"
+            // This pane is the agent's work; a chip over it would hide the point of the surface.
+            groupToolCalls={false}
             scrollX={scrollX}
           />
         )}

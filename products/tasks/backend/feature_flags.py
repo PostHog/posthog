@@ -10,6 +10,7 @@ from products.tasks.backend.constants import (
     AGENT_OTEL_TELEMETRY_STATE_KEY,
     AGENT_RUN_OTEL_TELEMETRY_FEATURE_FLAG,
     DEV_STACK_IMAGE_BAKE_FEATURE_FLAG,
+    get_required_model_flag,
 )
 
 logger = logging.getLogger(__name__)
@@ -83,6 +84,39 @@ def is_agent_otel_telemetry_enabled(*, distinct_id: str, organization_id: str) -
     except Exception:
         logger.exception("agent_otel_telemetry_flag_check_failed")
         return False
+
+
+def get_model_access_error(model: str | None, *, distinct_id: str | None) -> str | None:
+    """Reject a gated model the caller isn't entitled to; `None` when the selection is allowed.
+
+    Fail-closed on purpose. Only a model in `MODEL_ACCESS_FLAGS` reaches an evaluation at all,
+    so an evaluation outage withholds a preview model from everyone rather than opening it to
+    everyone — the opposite trade to the telemetry flags above, because this one decides spend.
+    """
+    flag_key = get_required_model_flag(model)
+    if flag_key is None:
+        return None
+
+    # The analytics SDK is disabled in local dev, where every flag reads as off.
+    if settings.DEBUG:
+        return None
+
+    not_available = f"'{model}' is not available for your account."
+    if not distinct_id:
+        return not_available
+
+    try:
+        enabled = posthoganalytics.feature_enabled(
+            flag_key,
+            distinct_id=distinct_id,
+            only_evaluate_locally=False,
+            send_feature_flag_events=False,
+        )
+    except Exception:
+        logger.exception("model_access_flag_check_failed", extra={"flag": flag_key, "model": model})
+        return not_available
+
+    return None if enabled else not_available
 
 
 def agent_otel_telemetry_enabled_for_state(state: dict | None) -> bool:

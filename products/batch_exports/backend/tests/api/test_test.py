@@ -95,11 +95,32 @@ async def delete_all_from_s3(object_storage_client, bucket_name: str, key_prefix
                 await object_storage_client.delete_object(Bucket=bucket_name, Key=obj["Key"])
 
 
+@pytest.fixture
+def object_storage_integration(team, user):
+    """An s3-compatible Integration pointing at the local object storage used by these tests.
+
+    The shared `s3_compatible_integration` fixture points at a fake provider, and its endpoint and
+    credentials would override the inline ones when running a destination test step.
+    """
+    return Integration.objects.create(
+        team=team,
+        kind=Integration.IntegrationKind.S3_COMPATIBLE,
+        integration_id="local-object-storage",
+        config={"name": "local-object-storage", "endpoint_url": settings.OBJECT_STORAGE_ENDPOINT},
+        sensitive_config={
+            "aws_access_key_id": "object_storage_root_user",
+            "aws_secret_access_key": "object_storage_root_password",
+        },
+        created_by=user,
+    )
+
+
 def test_can_run_s3_test_step_for_new_destination(
-    client: HttpClient, bucket_name, object_storage_client, organization, team, user
+    client: HttpClient, bucket_name, object_storage_client, organization, team, user, object_storage_integration
 ):
     destination_data = {
         "type": "S3Compatible",
+        "integration": object_storage_integration.id,
         "config": {
             "bucket_name": bucket_name,
             "region": "us-east-1",
@@ -133,10 +154,18 @@ def test_can_run_s3_test_step_for_new_destination(
 
 
 def test_can_run_s3_test_step_for_destination(
-    client: HttpClient, bucket_name, object_storage_client, temporal, organization, team, user
+    client: HttpClient,
+    bucket_name,
+    object_storage_client,
+    temporal,
+    organization,
+    team,
+    user,
+    object_storage_integration,
 ):
     destination_data = {
         "type": "S3Compatible",
+        "integration": object_storage_integration.id,
         "config": {
             "bucket_name": bucket_name,
             "region": "us-east-1",
@@ -175,7 +204,9 @@ def test_can_run_s3_test_step_for_destination(
     assert destination_test["result"]["message"] is None
 
 
-def test_run_test_step_rejects_destination_type_change(client: HttpClient, temporal, organization, team, user):
+def test_run_test_step_rejects_destination_type_change(
+    client: HttpClient, temporal, organization, team, user, aws_s3_integration
+):
     """A test step must not be able to change the destination type of an existing export.
 
     Otherwise a caller could, for example, switch an "AwsS3" export (no `endpoint_url`) to the
@@ -185,6 +216,7 @@ def test_run_test_step_rejects_destination_type_change(client: HttpClient, tempo
 
     destination_data = {
         "type": "AwsS3",
+        "integration": aws_s3_integration.id,
         "config": {
             "bucket_name": "my-production-s3-bucket",
             "region": "us-east-1",
@@ -338,7 +370,14 @@ def test_can_run_snowflake_test_step_for_partial_config(
 
 
 def test_can_run_s3_test_step_with_additional_fields(
-    client: HttpClient, bucket_name, object_storage_client, temporal, organization, team, user
+    client: HttpClient,
+    bucket_name,
+    object_storage_client,
+    temporal,
+    organization,
+    team,
+    user,
+    object_storage_integration,
 ):
     """Test we can run test steps successfully even with additional configuration fields.
 
@@ -349,6 +388,7 @@ def test_can_run_s3_test_step_with_additional_fields(
 
     destination_data = {
         "type": "S3Compatible",
+        "integration": object_storage_integration.id,
         "config": {
             "bucket_name": bucket_name,
             "region": "us-east-1",

@@ -104,8 +104,11 @@ def propose_certification(
     table_name: str | None = None,
     view_name: str | None = None,
     notes: str = "",
+    proposed_status: str = CertificationStatus.CERTIFIED,
     request: "Request | None" = None,
 ) -> TableCertification:
+    if proposed_status not in (CertificationStatus.CERTIFIED, CertificationStatus.DEPRECATED):
+        raise ValidationError({"proposed_status": "Must be 'certified' or 'deprecated'."})
     selectors = {
         "table_id": table_id,
         "saved_query_id": saved_query_id,
@@ -133,6 +136,7 @@ def propose_certification(
                 table=target_table,
                 saved_query=target_saved_query,
                 notes=notes,
+                proposed_status=proposed_status,
                 created_by=user,
             )
     except IntegrityError:

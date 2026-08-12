@@ -18,7 +18,7 @@ from ..models.skills import (
 MAX_SKILL_VERSION = 2000
 MAX_SKILL_BODY_BYTES = 1_000_000
 MAX_SKILL_FILE_BYTES = 1_000_000
-MAX_SKILL_FILE_COUNT = 50
+MAX_SKILL_FILE_COUNT = 200
 
 
 class LLMSkillNotFoundError(Exception):
@@ -223,6 +223,7 @@ def publish_skill_version(
     files: list[dict[str, str]] | None = None,
     file_edits: list[dict[str, Any]] | None = None,
     base_version: int,
+    version_description: str | None = None,
 ) -> LLMSkill:
     with transaction.atomic():
         current_latest = (
@@ -263,6 +264,7 @@ def publish_skill_version(
             category=current_latest.category,
             version=current_latest.version + 1,
             is_latest=True,
+            version_description=version_description,
             created_by=user,
         )
 

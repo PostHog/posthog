@@ -41,7 +41,10 @@ class UserIntegration(UUIDModel):
 
     Contents for Slack (user identity link):
     - `integration_id` holds the Slack user id (e.g. "U123ABC"), workspace-scoped
-    - `config` holds {slack_team_id, slack_team_name, slack_email_at_link, linked_at}
+    - `config` holds {slack_team_id, slack_team_name, slack_email_at_link, scope,
+      linked_at}; `scope` is the user scopes Slack granted, space-delimited as OIDC
+      returns them (the workspace row's `Integration.config["scope"]` is Slack's
+      comma-separated bot list, so don't parse the two the same way)
     - `sensitive_config` holds {user_access_token, user_refresh_token?} — the
       Slack user-to-server token plus, when the Slack app has
       `token_rotation_enabled`, a refresh token used to rotate it. Today's
@@ -604,6 +607,7 @@ def user_slack_integration_from_identity(
     slack_email_at_link: str | None,
     user_access_token: str,
     user_refresh_token: str | None = None,
+    user_scopes: str = "",
 ) -> UserIntegration:
     """Create or refresh a Slack ``UserIntegration`` from a Sign-in-with-Slack
     identity.
@@ -615,11 +619,17 @@ def user_slack_integration_from_identity(
     Storing both fields now means flipping rotation on later requires no
     schema or callback-shape change. ``slack_email_at_link`` is stored for
     support diagnostics and is not consulted at resolve time.
+
+    ``user_scopes`` records what Slack granted this link. Nothing gates on it today
+    — the OIDC consent screen grants ``OIDC_SCOPES`` all-or-nothing, so the row
+    existing already implies them — but it's what tells you, after the fact, which
+    scopes an older link was created with.
     """
     config: dict[str, Any] = {
         "slack_team_id": slack_team_id,
         "slack_team_name": slack_team_name,
         "slack_email_at_link": slack_email_at_link,
+        "scope": user_scopes,
         "linked_at": int(time.time()),
     }
     sensitive_config: dict[str, Any] = {

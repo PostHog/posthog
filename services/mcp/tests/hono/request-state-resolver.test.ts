@@ -82,6 +82,7 @@ import type { RedisLike } from '@/hono/cache/RedisCache'
 import { RequestStateResolver } from '@/hono/request-state-resolver'
 import { resolveFeatureFlagOverrides } from '@/lib/posthog/flags'
 import type { RequestProperties } from '@/lib/request-properties'
+import { TASKS_CONTEXT_TOOL_NAMES } from '@/tools/tasksContext'
 import type { Env } from '@/tools/types'
 
 function makeProps(overrides: Partial<RequestProperties> = {}): RequestProperties {
@@ -100,10 +101,21 @@ function makeProps(overrides: Partial<RequestProperties> = {}): RequestPropertie
 }
 
 function makeResolver(): RequestStateResolver {
+    return makeResolverWithCatalog().resolver
+}
+
+function makeResolverWithCatalog(): {
+    resolver: RequestStateResolver
+    getFilteredTools: ReturnType<typeof vi.fn>
+} {
+    const getFilteredTools = vi.fn(() => [])
     const catalog = {
-        getFilteredTools: vi.fn(() => []),
+        getFilteredTools,
     }
-    return new RequestStateResolver(catalog as any, {} as RedisLike, {} as Env)
+    return {
+        resolver: new RequestStateResolver(catalog as any, {} as RedisLike, {} as Env),
+        getFilteredTools,
+    }
 }
 
 describe('RequestStateResolver MCP client contexts', () => {
@@ -335,5 +347,22 @@ describe('RequestStateResolver MCP client contexts', () => {
         expect(result.requestContext.mcpConsumer).toBe('posthog-code')
         expect(result.sessionContext?.mcpConsumer).toBe('posthog-code')
         expect(mockSessionStore.get('mcpConsumer')).toBe('posthog-code')
+    })
+
+    it.each([
+        ['PostHog Code task', { mcpConsumer: 'posthog-code', taskId: 'task-1' }, false],
+        ['PostHog Code without a task', { mcpConsumer: 'posthog-code', taskId: undefined }, true],
+        ['non-PostHog Code task', { mcpConsumer: 'other', taskId: 'task-1' }, true],
+    ] as const)('advertises task artifacts and comments for %s', async (_label, overrides, excluded) => {
+        const { resolver, getFilteredTools } = makeResolverWithCatalog()
+
+        await resolver.resolve(makeProps(overrides))
+
+        const options = getFilteredTools.mock.calls[0]?.[0]
+        expect(options?.excludeTools).toEqual(
+            excluded
+                ? expect.arrayContaining([...TASKS_CONTEXT_TOOL_NAMES])
+                : expect.not.arrayContaining([...TASKS_CONTEXT_TOOL_NAMES])
+        )
     })
 })

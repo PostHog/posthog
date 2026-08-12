@@ -81,6 +81,7 @@ export interface Task {
   created_by?: UserBasic | null;
   origin_product: string;
   repository?: string | null; // Format: "organization/repository" (e.g., "posthog/posthog-js")
+  repositories?: string[];
   github_integration?: number | null;
   github_user_integration?: string | null;
   json_schema?: Record<string, unknown> | null;
@@ -90,6 +91,17 @@ export interface Task {
   /** Backend channel (tasks product Channel UUID) this task is owned by. */
   channel?: string | null;
   latest_run?: TaskRun;
+}
+
+export interface TaskSearchResult {
+  id: string;
+  kind: "task" | "pull_request" | "artifact" | "channel";
+  title: string;
+  subtitle: string;
+  task_id: string | null;
+  task_run_id: string | null;
+  channel_id: string | null;
+  metadata: Record<string, unknown>;
 }
 
 /**
@@ -102,6 +114,8 @@ export interface TaskChannel {
   name: string;
   channel_type: "public" | "personal";
   starred: boolean;
+  github_integration?: number | null;
+  repositories?: string[];
   created_at: string;
   created_by?: UserBasic | null;
 }
@@ -169,6 +183,8 @@ export type TaskActivityKind =
   | "completed"
   | "message"
   | "mention"
+  | "thread_reply"
+  | "owned_item_comment"
   | "created";
 
 /**
@@ -187,6 +203,9 @@ export interface TaskActivity {
   snippet: string;
   latest_author?: UserBasic | null;
   latest_message_id?: string | null;
+  latest_comment_id?: string | null;
+  latest_comment_scope?: string | null;
+  latest_comment_item_id?: string | null;
   is_unread: boolean;
 }
 
@@ -201,6 +220,7 @@ export interface TaskActivityPage {
 export interface TaskActivityReadMarker {
   task_id: string;
   seen_before: string;
+  activity_id?: string;
 }
 
 export interface TaskActivityMarkReadResult {
@@ -250,6 +270,9 @@ export interface TaskRunArtifact {
   metadata?: TaskRunArtifactMetadata;
   storage_path?: string;
   uploaded_at?: string;
+  uploaded_by?: "agent" | "user";
+  uploaded_by_user_id?: number;
+  dismissed_at?: string | null;
 }
 
 export const TERMINAL_STATUSES = ["completed", "failed", "cancelled"] as const;
@@ -521,6 +544,21 @@ export type CommaSeparatedSignalReportStatuses =
   | `${SignalReportStatus},${SignalReportStatus},${SignalReportStatus},${SignalReportStatus}`
   | `${SignalReportStatus},${SignalReportStatus},${SignalReportStatus},${SignalReportStatus},${SignalReportStatus}`;
 
+export type SignalReportChartSize = "small" | "medium" | "large";
+
+/**
+ * One chart attached to a report (`SignalReport.charts` on the backend serializer).
+ * `query` is stored unparsed; the backend only guarantees `kind` is one of
+ * InsightVizNode, DataVisualizationNode, or SavedInsightNode.
+ */
+export interface SignalReportChart {
+  chart_id: string;
+  title: string;
+  query: unknown;
+  caption?: string | null;
+  size?: SignalReportChartSize | null;
+}
+
 export interface SignalReport {
   id: string;
   title: string | null;
@@ -548,6 +586,27 @@ export interface SignalReport {
   source_products?: string[];
   /** PR URL from the latest implementation task run, if available. */
   implementation_pr_url?: string | null;
+  /** Charts the report shows, placed by `[label](chart:<chart_id>)` links in the summary. */
+  charts?: SignalReportChart[];
+  /** The report's PR refund, when one exists (one refund per report, ever). */
+  refund?: SignalReportRefund | null;
+  /** Marks reports that were never billable ("Free"), so there is nothing to refund. */
+  billing_exempt_reason?: string | null;
+  /** Backend-owned refund eligibility: why a refund would be rejected right now, null when it would be accepted. */
+  refund_ineligibility_reason?: string | null;
+}
+
+export type SignalReportRefundReason =
+  | "pr_incorrect"
+  | "pr_not_useful"
+  | "duplicate"
+  | "other";
+
+export interface SignalReportRefund {
+  id: string;
+  reason: SignalReportRefundReason;
+  note?: string | null;
+  created_at?: string;
 }
 
 export interface SignalReportArtefactContent {

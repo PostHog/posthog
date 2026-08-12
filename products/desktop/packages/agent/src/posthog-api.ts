@@ -1,4 +1,9 @@
-import type { StoredLogEntry } from "@posthog/shared";
+import type {
+  McpServerConnection,
+  McpToolApprovalState,
+  McpToolPolicy,
+  StoredLogEntry,
+} from "@posthog/shared";
 import packageJson from "../package.json" with { type: "json" };
 import type {
   ArtifactSource,
@@ -178,6 +183,82 @@ export class PostHogAPIClient {
   async getTask(taskId: string): Promise<Task> {
     const teamId = this.getTeamId();
     return this.apiRequest<Task>(`/api/projects/${teamId}/tasks/${taskId}/`);
+  }
+
+  async getMcpRuntimeConfiguration(
+    servers: McpServerConnection[],
+  ): Promise<{ servers: McpServerConnection[]; policies: McpToolPolicy[] }> {
+    const resolved = await Promise.all(
+      servers.map(async (server) => {
+        const installationId = this.mcpInstallationId(server.url);
+        if (!installationId) {
+          return { server, policies: [] };
+        }
+
+        try {
+          const response = await this.apiRequest<{
+            results?: Array<{
+              tool_name: string;
+              approval_state?: McpToolApprovalState;
+              description?: string;
+            }>;
+          }>(
+            `/api/environments/${this.getTeamId()}/mcp_server_installations/${installationId}/tools/`,
+          );
+          const policies = (response.results ?? []).flatMap((tool) =>
+            tool.approval_state
+              ? [
+                  {
+                    serverName: server.name,
+                    toolName: tool.tool_name,
+                    installationId,
+                    approvalState: tool.approval_state,
+                    ...(tool.description
+                      ? { description: tool.description }
+                      : {}),
+                  } satisfies McpToolPolicy,
+                ]
+              : [],
+          );
+          return { server, policies };
+        } catch {
+          return null;
+        }
+      }),
+    );
+
+    return {
+      servers: resolved.flatMap((entry) => (entry ? [entry.server] : [])),
+      policies: resolved.flatMap((entry) => entry?.policies ?? []),
+    };
+  }
+
+  async approveMcpTool(
+    installationId: string,
+    toolName: string,
+  ): Promise<void> {
+    await this.apiRequest(
+      `/api/environments/${this.getTeamId()}/mcp_server_installations/${installationId}/tools/${encodeURIComponent(toolName)}/`,
+      {
+        method: "PATCH",
+        body: JSON.stringify({ approval_state: "approved" }),
+      },
+    );
+  }
+
+  private mcpInstallationId(url: string): string | null {
+    try {
+      const serverUrl = new URL(url);
+      if (serverUrl.origin !== new URL(this.baseUrl).origin) {
+        return null;
+      }
+      const match = serverUrl.pathname.match(
+        /\/mcp_server_installations\/([^/]+)\/proxy\/?$/,
+      );
+      return match?.[1] ? decodeURIComponent(match[1]) : null;
+    } catch {
+      return null;
+    }
   }
 
   async getTaskRun(taskId: string, runId: string): Promise<TaskRun> {

@@ -1,5 +1,6 @@
 import { ArrowSquareOut } from "@phosphor-icons/react";
 import { buildPostHogUrl } from "@posthog/core/settings/posthogUrl";
+import { useServiceOptional } from "@posthog/di/react";
 import { useHostTRPC } from "@posthog/host-router/react";
 import { ANALYTICS_EVENTS } from "@posthog/shared";
 import {
@@ -9,9 +10,9 @@ import {
 } from "@posthog/shared/domain-types";
 import { useAuthStateValue } from "@posthog/ui/features/auth/store";
 import {
-  COLLAPSE_MODE_OPTIONS,
-  type CollapseMode,
-} from "@posthog/ui/features/sessions/components/new-thread/conversationThreadConfig";
+  MISSION_CONTROL_CLIENT,
+  type MissionControlClient,
+} from "@posthog/ui/features/mission-control/identifiers";
 import {
   ReasoningLevelDropdown,
   type ReasoningLevelOption,
@@ -31,7 +32,7 @@ import type { ThemePreference } from "@posthog/ui/shell/themeStore";
 import { useThemeStore } from "@posthog/ui/shell/themeStore";
 import { useHostCapabilities } from "@posthog/ui/shell/useHostCapabilities";
 import { Button, Flex, Link, Select, Switch, Text } from "@radix-ui/themes";
-import { useMutation, useQuery } from "@tanstack/react-query";
+import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useCallback, useEffect } from "react";
 
 const DEFAULT_EFFORT_OPTIONS: ReasoningLevelOption[] = [
@@ -90,6 +91,40 @@ export function GeneralSettings() {
     [setPreventSleepWhileRunning, preventSleepMutation],
   );
 
+  // Mission Control overlay state. The client is bound on desktop only, so on
+  // other hosts this resolves to null and the setting is hidden.
+  const queryClient = useQueryClient();
+  const missionControl = useServiceOptional<MissionControlClient>(
+    MISSION_CONTROL_CLIENT,
+  );
+  const { data: missionControlSupported } = useQuery({
+    queryKey: ["missionControlOverlay", "supported"],
+    queryFn: () => missionControl?.isSupported() ?? false,
+    enabled: missionControl != null,
+  });
+  const { data: missionControlEnabled } = useQuery({
+    queryKey: ["missionControlOverlay", "enabled"],
+    queryFn: () => missionControl?.getEnabled() ?? false,
+    enabled: missionControl != null && missionControlSupported === true,
+  });
+  const missionControlMutation = useMutation({
+    mutationFn: (enabled: boolean) =>
+      missionControl?.setEnabled(enabled) ?? Promise.resolve(),
+  });
+
+  const handleMissionControlOverlayChange = useCallback(
+    (checked: boolean) => {
+      track(ANALYTICS_EVENTS.SETTING_CHANGED, {
+        setting_name: "mission_control_overlay",
+        new_value: checked,
+        old_value: !checked,
+      });
+      queryClient.setQueryData(["missionControlOverlay", "enabled"], checked);
+      missionControlMutation.mutate(checked);
+    },
+    [missionControlMutation, queryClient],
+  );
+
   // Chat state
   const {
     autoConvertLongText,
@@ -99,7 +134,6 @@ export function GeneralSettings() {
     defaultReasoningEffort,
     diffOpenMode,
     sendMessagesWith,
-    conversationCollapseMode,
     hedgehogMode,
     slotMachineMode,
     brainrotMode,
@@ -110,7 +144,6 @@ export function GeneralSettings() {
     setDefaultReasoningEffort,
     setDiffOpenMode,
     setSendMessagesWith,
-    setConversationCollapseMode,
     setHedgehogMode,
     setSlotMachineMode,
     setBrainrotMode,
@@ -200,18 +233,6 @@ export function GeneralSettings() {
       setDefaultReasoningEffort(value);
     },
     [defaultReasoningEffort, setDefaultReasoningEffort],
-  );
-
-  const handleConversationCollapseModeChange = useCallback(
-    (value: CollapseMode) => {
-      track(ANALYTICS_EVENTS.SETTING_CHANGED, {
-        setting_name: "conversation_collapse_mode",
-        new_value: value,
-        old_value: conversationCollapseMode,
-      });
-      setConversationCollapseMode(value);
-    },
-    [conversationCollapseMode, setConversationCollapseMode],
   );
 
   const handleSendMessagesWithChange = useCallback(
@@ -305,6 +326,19 @@ export function GeneralSettings() {
           </Select.Content>
         </Select.Root>
       </SettingRow>
+
+      {missionControl != null && missionControlSupported === true && (
+        <SettingRow
+          label="Mission Control overlay"
+          description="Show the PostHog logo over the window while macOS Mission Control is open, so it's easy to spot among your other windows"
+        >
+          <Switch
+            checked={missionControlEnabled ?? false}
+            onCheckedChange={handleMissionControlOverlayChange}
+            size="1"
+          />
+        </SettingRow>
+      )}
 
       {/* Input */}
       <Text className="mb-2 block border-gray-6 border-t pt-4 font-medium text-sm">
@@ -448,34 +482,6 @@ export function GeneralSettings() {
             <Select.Item value="split">Split pane</Select.Item>
             <Select.Item value="same-pane">Same pane</Select.Item>
             <Select.Item value="last-active-pane">Last active pane</Select.Item>
-          </Select.Content>
-        </Select.Root>
-      </SettingRow>
-
-      {/* Conversation */}
-      <Text className="mb-2 block border-gray-6 border-t pt-4 font-medium text-sm">
-        Conversation
-      </Text>
-
-      <SettingRow
-        label="Collapse tool calls"
-        description="Group each turn's tool calls into a collapsible summary. Partial keeps the active turn expanded and folds completed turns."
-        noBorder
-      >
-        <Select.Root
-          value={conversationCollapseMode}
-          onValueChange={(value) =>
-            handleConversationCollapseModeChange(value as CollapseMode)
-          }
-          size="1"
-        >
-          <Select.Trigger className="min-w-[140px]" />
-          <Select.Content>
-            {COLLAPSE_MODE_OPTIONS.map((opt) => (
-              <Select.Item key={opt.value} value={opt.value}>
-                {opt.label}
-              </Select.Item>
-            ))}
           </Select.Content>
         </Select.Root>
       </SettingRow>

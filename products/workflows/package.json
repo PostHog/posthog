@@ -12,6 +12,7 @@
         "kea-loaders": "catalog:",
         "kea-router": "catalog:",
         "kea-subscriptions": "catalog:",
+        "papaparse": "^5.4.1",
         "posthog-js": "catalog:",
         "use-debounce": "catalog:",
         "zod": "^4.0.0"
@@ -19,6 +20,7 @@
     "devDependencies": {
         "@storybook/react": "catalog:",
         "@testing-library/react": "*",
+        "@types/papaparse": "*",
         "kea-test-utils": "catalog:"
     },
     "peerDependencies": {

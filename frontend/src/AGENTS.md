@@ -37,7 +37,7 @@ Django serializers are the source of truth. `hogli build:openapi` generates Type
 - Types: `import type { UserAuthSessionApi } from '~/generated/core/api.schemas'`
   (exemplar: `frontend/src/scenes/settings/user/loginSessionsLogic.ts`)
 - Request functions: `import { getExportsContentRetrieveUrl } from '~/generated/core/api'`
-  (exemplar: `frontend/src/scenes/inbox/components/signalCards/ScannerFindingSignalCard.tsx`)
+  (exemplar: `products/signals/frontend/inbox/components/signalCards/ScannerFindingSignalCard.tsx`)
 - Generated output lives in `frontend/src/generated/core/` and `products/*/frontend/generated/`. **These files are codegen output — never edit them by hand.** Change the serializer and rerun.
 
 When touching `lib/api`, `api.get<`, `api.create<`, or any handwritten API interface, invoke the `/adopting-generated-api-types` skill first.

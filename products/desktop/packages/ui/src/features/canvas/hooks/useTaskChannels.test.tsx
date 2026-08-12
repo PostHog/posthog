@@ -1,17 +1,22 @@
 import type { TaskChannel } from "@posthog/shared/domain-types";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
-import { renderHook, waitFor } from "@testing-library/react";
+import { act, renderHook, waitFor } from "@testing-library/react";
 import type { ReactNode } from "react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
 const mockClient = vi.hoisted(() => ({
   getTaskChannels: vi.fn(),
+  updateTaskChannelRepositories: vi.fn(),
 }));
 vi.mock("@posthog/ui/features/auth/authClient", () => ({
   useOptionalAuthenticatedClient: () => mockClient,
 }));
 
-import { useTaskChannels } from "./useTaskChannels";
+import {
+  TASK_CHANNELS_QUERY_KEY,
+  useTaskChannels,
+  useUpdateTaskChannelRepositories,
+} from "./useTaskChannels";
 
 function taskChannel(
   id: string,
@@ -64,5 +69,52 @@ describe("useTaskChannels", () => {
     expect(result.current.isLoading).toBe(true);
     expect(result.current.channels).toEqual([]);
     expect(result.current.personalChannel).toBeUndefined();
+  });
+
+  it("updates repository links immediately while the request is pending", async () => {
+    const channel = taskChannel("1", "growth");
+    queryClient.setQueryData<TaskChannel[]>(TASK_CHANNELS_QUERY_KEY, [channel]);
+    let finishUpdate: (updated: TaskChannel) => void = () => {};
+    mockClient.updateTaskChannelRepositories.mockReturnValue(
+      new Promise((resolve) => {
+        finishUpdate = resolve;
+      }),
+    );
+
+    const { result } = renderHook(() => useUpdateTaskChannelRepositories(), {
+      wrapper,
+    });
+    act(() => {
+      result.current.mutate({
+        channelId: channel.id,
+        githubIntegration: 42,
+        repositories: ["posthog/posthog"],
+      });
+    });
+
+    await waitFor(() => expect(result.current.isPending).toBe(true));
+    expect(
+      queryClient.getQueryData<TaskChannel[]>(TASK_CHANNELS_QUERY_KEY),
+    ).toEqual([
+      {
+        ...channel,
+        github_integration: 42,
+        repositories: ["posthog/posthog"],
+      },
+    ]);
+
+    await act(async () => {
+      finishUpdate({
+        ...channel,
+        github_integration: 42,
+        repositories: ["posthog/posthog"],
+      });
+    });
+    await waitFor(() => expect(result.current.isPending).toBe(false));
+    expect(mockClient.updateTaskChannelRepositories).toHaveBeenCalledWith(
+      "1",
+      42,
+      ["posthog/posthog"],
+    );
   });
 });

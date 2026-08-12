@@ -1,4 +1,7 @@
-import { CANVAS_PLATFORM_MANIFEST } from "@posthog/shared";
+import {
+  CANVAS_PLATFORM_MANIFEST,
+  canvasBuildStatusSchema,
+} from "@posthog/shared";
 import { z } from "zod";
 
 // A canvas record from the PostHog canvases API, normalized to camelCase and
@@ -23,8 +26,6 @@ export const dashboardRecordSchema = z.object({
   updatedAt: z.number(),
   // Epoch ms the canvas was pinned to its channel; absent = not pinned.
   pinnedAt: z.number().optional(),
-  // Whether this is the channel's home board (at most one per channel).
-  isHome: z.boolean().default(false),
   // Head source version — pass as expected_current_version_id when publishing.
   currentVersionId: z.string().nullish(),
   // The live (last successful, still-eligible) build.
@@ -43,6 +44,19 @@ export const canvasVersionSchema = z.object({
   createdAt: z.number(),
 });
 export type CanvasVersion = z.infer<typeof canvasVersionSchema>;
+
+// A staged draft version and the status of its latest build. Drafts are kept
+// out of the published version history (canvasVersionSchema); they are surfaced
+// separately so the head/live timeline stays clean.
+export const canvasDraftSchema = z.object({
+  versionId: z.string(),
+  prompt: z.string().nullish(),
+  createdBy: z.string().optional(),
+  createdAt: z.number(),
+  buildStatus: canvasBuildStatusSchema.nullish(),
+  buildId: z.string().nullish(),
+});
+export type CanvasDraft = z.infer<typeof canvasDraftSchema>;
 
 // A canvas source project — the multi-file write format the agent publishes.
 export const canvasSourceProjectSchema = z.object({
@@ -75,6 +89,11 @@ export const createDashboardInput = z.object({
 
 export const dashboardIdInput = z.object({ id: z.string().min(1) });
 
+export const canvasBuildsInput = z.object({
+  id: z.string().min(1),
+  versionId: z.string().min(1).optional(),
+});
+
 export const canvasSourceInput = z.object({
   id: z.string().min(1),
   // Read a historical version's files instead of the head.
@@ -88,15 +107,18 @@ export const revertCanvasInput = z.object({
   expectedCurrentVersionId: z.string().nullable(),
 });
 
+// Promote a draft version to the canvas's live head (and build it if needed).
+export const promoteCanvasInput = z.object({
+  id: z.string().min(1),
+  versionId: z.string().min(1),
+  expectedCurrentVersionId: z.string().nullable(),
+});
+
 // Persist the author-written context (markdown) shown in the Context tab and
 // passed to generation tasks.
 export const saveContextInput = z.object({
   id: z.string().min(1),
   context: z.string(),
-});
-
-export const ensureHomeCanvasInput = z.object({
-  channelId: z.string().min(1),
 });
 
 // Rename a canvas (its display title).

@@ -819,6 +819,16 @@ describe('sessionRecordingsPlaylistLogic', () => {
                 expect(logic.values.filters.session_ids).toBeUndefined()
                 expect(listSpy).toHaveBeenLastCalledWith(expect.objectContaining({ session_ids: undefined }))
             })
+
+            it('counts session_ids in totalFiltersCount so the badge and reset button reflect them', async () => {
+                await expectLogic(logic, () => {
+                    logic.actions.setFilters({ session_ids: ['s1', 's2'] })
+                }).toMatchValues({ totalFiltersCount: 1 })
+
+                await expectLogic(logic, () => {
+                    logic.actions.setFilters({ session_ids: undefined })
+                }).toMatchValues({ totalFiltersCount: 0 })
+            })
         })
 
         describe('deleting recordings', () => {
@@ -957,6 +967,47 @@ describe('sessionRecordingsPlaylistLogic', () => {
                         otherRecordings: [bRecording],
                     })
             })
+
+            it('clears a stale selection when filters change, instead of deleting recordings the user can no longer see', async () => {
+                await expectLogic(logic)
+                    .toDispatchActions(['loadSessionRecordingsSuccess'])
+                    .toMatchValues({ otherRecordings: [aRecording, bRecording] })
+
+                logic.actions.setSelectedRecordingsIds(['abc', 'def'])
+                await expectLogic(logic).toMatchValues({ selectedRecordingsIds: ['abc', 'def'] })
+
+                logic.actions.setFilters({ date_from: '-30d' })
+
+                await expectLogic(logic).toMatchValues({ selectedRecordingsIds: [] })
+            })
+
+            it('ignores a second delete request while one is already in flight', async () => {
+                let resolveDelete: (value: {
+                    success: boolean
+                    deleted_count: number
+                    total_requested: number
+                    failed_ids: string[]
+                }) => void = () => {}
+                jest.spyOn(api.recordings, 'bulkDeleteRecordings').mockReturnValue(
+                    new Promise((resolve) => {
+                        resolveDelete = resolve
+                    })
+                )
+
+                await expectLogic(logic)
+                    .toDispatchActions(['loadSessionRecordingsSuccess'])
+                    .toMatchValues({ otherRecordings: [aRecording, bRecording] })
+
+                logic.actions.setSelectedRecordingsIds(['abc', 'def'])
+
+                logic.actions.handleDeleteSelectedRecordings(undefined)
+                logic.actions.handleDeleteSelectedRecordings(undefined)
+
+                resolveDelete({ success: true, deleted_count: 2, total_requested: 2, failed_ids: [] })
+                await expectLogic(logic).toDispatchActions(['addDeletedRecordings'])
+
+                expect(api.recordings.bulkDeleteRecordings).toHaveBeenCalledTimes(1)
+            })
         })
     })
 
@@ -1077,6 +1128,38 @@ describe('sessionRecordingsPlaylistLogic', () => {
 
             expect(logic.values.matchingEventsMatchType.matchType).toBe('backend')
         })
+
+        it('does not classify a bare visited_page filter as backend', () => {
+            // visited_page is sent to the backend as a recording-type property (matched against
+            // the session's all_urls array), which `matching_events` can't highlight against -
+            // it only matches event uuids. Classifying it as 'backend' made the player call an
+            // endpoint that 400s on every request with no event/action/event-property filter.
+            logic = sessionRecordingsPlaylistLogic({
+                logicKey: 'match-type-tests-visited-page',
+                filters: {
+                    ...DEFAULT_RECORDING_FILTERS,
+                    filter_group: {
+                        type: FilterLogicalOperator.And,
+                        values: [
+                            {
+                                type: FilterLogicalOperator.And,
+                                values: [
+                                    {
+                                        key: 'visited_page',
+                                        type: PropertyFilterType.Recording,
+                                        value: ['https://example-url.com'],
+                                        operator: PropertyOperator.Exact,
+                                    },
+                                ],
+                            },
+                        ],
+                    },
+                },
+            })
+            logic.mount()
+
+            expect(logic.values.matchingEventsMatchType.matchType).toBe('none')
+        })
     })
 
     describe('resetting filters', () => {
@@ -1111,6 +1194,33 @@ describe('sessionRecordingsPlaylistLogic', () => {
                 })
                 logic.actions.resetFilters()
             }).toMatchValues({ totalFiltersCount: 0 })
+        })
+    })
+
+    describe('rehydrating persisted filters', () => {
+        const props = { logicKey: 'persist_regression', personUUID: 'persist_regression', updateSearchParams: false }
+
+        it('resets a malformed persisted filters value to defaults on mount', async () => {
+            // A first mount writes the persist key. Discover its exact name rather than hardcoding
+            // kea-localstorage's prefix/path format.
+            const seed = sessionRecordingsPlaylistLogic(props)
+            seed.mount()
+            const filtersKey = Object.keys(localStorage).find(
+                (k) => k.includes('persist_regression') && k.endsWith('.filters')
+            )
+            expect(typeof filtersKey).toBe('string')
+            seed.unmount()
+
+            // Poison the persisted entry, then reset the kea context so the reducer rehydrates from
+            // storage on the next build - exactly what a stale localStorage entry does in production.
+            localStorage.setItem(filtersKey!, JSON.stringify({ filter_group: 'not-a-group', duration: 'nope' }))
+            initKeaTests()
+            featureFlagLogic.mount()
+
+            logic = sessionRecordingsPlaylistLogic(props)
+            logic.mount()
+
+            expect(logic.values.filters).toEqual(getDefaultFilters('persist_regression'))
         })
     })
 

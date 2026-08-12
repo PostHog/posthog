@@ -15,7 +15,7 @@ from temporalio import activity, workflow
 from temporalio.common import RetryPolicy
 
 from posthog.exceptions_capture import capture_exception
-from posthog.ph_client import get_client
+from posthog.ph_client import get_regional_ph_client
 from posthog.temporal.common.base import PostHogWorkflow
 from posthog.temporal.common.logger import get_logger
 from posthog.temporal.common.utils import close_db_connections
@@ -31,7 +31,8 @@ ENRICHMENT_SIGNAL_EVENT = "signup_enrichment_completed"
 ENRICHMENT_RECHECK_EVENT = "signup_enrichment_recheck"
 
 # Hard cap per attempt. The Harmonic client tries up to two domain variations at 30s each,
-# so a single lookup can legitimately run ~60s; give it headroom then stop.
+# plus a parent-company profile fetch capped at 10s, so a single lookup can legitimately run
+# ~70s; give it headroom then stop.
 ENRICH_ACTIVITY_TIMEOUT = dt.timedelta(seconds=90)
 
 # A couple of retries for transient provider/network blips, then give up quietly. Kept as a
@@ -99,7 +100,12 @@ async def enrich_signup_organization_activity(
             logger.info("signup_enrichment_recheck_skipped_org_deleted")
             return {"matched": False, "fields_filled": 0, "org_deleted": True}
 
-    pha_client = get_client()
+    # Region-local on purpose: EU enrichment lands in the EU internal project, US in US — the
+    # same split the usage report uses. Never fall back to a cross-region client here.
+    pha_client = get_regional_ph_client()
+    if pha_client is None:
+        logger.error("signup_enrichment_no_regional_client")
+        return {"matched": False, "fields_filled": 0}
 
     try:
         fields = await enrich_organization(

@@ -7,11 +7,13 @@ import pytest
 from unittest import mock
 from unittest.mock import MagicMock, patch
 
+from django.conf import settings
 from django.db.utils import OperationalError as DjangoOperationalError
 
 import pyarrow as pa
 import pyarrow.parquet as pq
 from asgiref.sync import sync_to_async
+from parameterized import parameterized
 
 from products.cdp.backend.models.hog_functions.hog_function import HogFunction
 from products.warehouse_sources.backend.models.external_data_schema import ExternalDataSchema
@@ -39,7 +41,7 @@ def _patch_async_producer_scope(mock_producer):
 
 @pytest.mark.django_db(transaction=True)
 @pytest.mark.asyncio
-async def test_should_produce_table_no_hog_function(team):
+async def test_should_run_no_hog_function(team):
     source = await sync_to_async(ExternalDataSource.objects.create)(
         team=team, source_type=ExternalDataSourceType.POSTGRES
     )
@@ -51,12 +53,12 @@ async def test_should_produce_table_no_hog_function(team):
     )
 
     producer = CDPProducer(team_id=team.id, schema_id=str(schema.id), job_id="", logger=mock.AsyncMock())
-    assert await producer.should_produce_table() is False
+    assert await producer.should_run() is False
 
 
 @pytest.mark.django_db(transaction=True)
 @pytest.mark.asyncio
-async def test_should_produce_table_with_matching_hog_function(team):
+async def test_should_run_with_matching_hog_function(team):
     source = await sync_to_async(ExternalDataSource.objects.create)(
         team=team, source_type=ExternalDataSourceType.POSTGRES
     )
@@ -74,7 +76,7 @@ async def test_should_produce_table_with_matching_hog_function(team):
     )
 
     producer = CDPProducer(team_id=team.id, schema_id=str(schema.id), job_id="", logger=mock.AsyncMock())
-    assert await producer.should_produce_table() is True
+    assert await producer.should_run() is True
 
 
 @pytest.mark.django_db(transaction=True)
@@ -97,7 +99,7 @@ async def test_should_not_produce_table_with_disabled_matching_hog_function(team
     )
 
     producer = CDPProducer(team_id=team.id, schema_id=str(schema.id), job_id="", logger=mock.AsyncMock())
-    assert await producer.should_produce_table() is False
+    assert await producer.should_run() is False
 
 
 @pytest.mark.django_db(transaction=True)
@@ -121,12 +123,12 @@ async def test_should_not_produce_table_with_deleted_matching_hog_function(team)
     )
 
     producer = CDPProducer(team_id=team.id, schema_id=str(schema.id), job_id="", logger=mock.AsyncMock())
-    assert await producer.should_produce_table() is False
+    assert await producer.should_run() is False
 
 
 @pytest.mark.django_db(transaction=True)
 @pytest.mark.asyncio
-async def test_should_produce_table_with_new_style_table_name(team):
+async def test_should_run_with_new_style_table_name(team):
     source = await sync_to_async(ExternalDataSource.objects.create)(
         team=team, source_type=ExternalDataSourceType.POSTGRES
     )
@@ -144,12 +146,12 @@ async def test_should_produce_table_with_new_style_table_name(team):
     )
 
     producer = CDPProducer(team_id=team.id, schema_id=str(schema.id), job_id="", logger=mock.AsyncMock())
-    assert await producer.should_produce_table() is True
+    assert await producer.should_run() is True
 
 
 @pytest.mark.django_db(transaction=True)
 @pytest.mark.asyncio
-async def test_should_produce_table_with_source_prefix(team):
+async def test_should_run_with_source_prefix(team):
     source = await sync_to_async(ExternalDataSource.objects.create)(
         team=team, source_type=ExternalDataSourceType.POSTGRES, prefix="eu"
     )
@@ -167,12 +169,12 @@ async def test_should_produce_table_with_source_prefix(team):
     )
 
     producer = CDPProducer(team_id=team.id, schema_id=str(schema.id), job_id="", logger=mock.AsyncMock())
-    assert await producer.should_produce_table() is True
+    assert await producer.should_run() is True
 
 
 @pytest.mark.django_db(transaction=True)
 @pytest.mark.asyncio
-async def test_should_produce_table_with_leading_underscore_source_prefix(team):
+async def test_should_run_with_leading_underscore_source_prefix(team):
     source = await sync_to_async(ExternalDataSource.objects.create)(
         team=team, source_type=ExternalDataSourceType.POSTGRES, prefix="_eu"
     )
@@ -190,12 +192,12 @@ async def test_should_produce_table_with_leading_underscore_source_prefix(team):
     )
 
     producer = CDPProducer(team_id=team.id, schema_id=str(schema.id), job_id="", logger=mock.AsyncMock())
-    assert await producer.should_produce_table() is True
+    assert await producer.should_run() is True
 
 
 @pytest.mark.django_db(transaction=True)
 @pytest.mark.asyncio
-async def test_should_produce_table_with_matching_hog_flow(team):
+async def test_should_run_with_matching_hog_flow(team):
     source = await sync_to_async(ExternalDataSource.objects.create)(
         team=team, source_type=ExternalDataSourceType.POSTGRES
     )
@@ -213,7 +215,7 @@ async def test_should_produce_table_with_matching_hog_flow(team):
     )
 
     producer = CDPProducer(team_id=team.id, schema_id=str(schema.id), job_id="", logger=mock.AsyncMock())
-    assert await producer.should_produce_table() is True
+    assert await producer.should_run() is True
 
 
 @pytest.mark.django_db(transaction=True)
@@ -236,7 +238,7 @@ async def test_should_not_produce_table_with_draft_hog_flow(team):
     )
 
     producer = CDPProducer(team_id=team.id, schema_id=str(schema.id), job_id="", logger=mock.AsyncMock())
-    assert await producer.should_produce_table() is False
+    assert await producer.should_run() is False
 
 
 @pytest.mark.django_db(transaction=True)
@@ -259,12 +261,12 @@ async def test_should_not_produce_table_with_non_matching_hog_flow_table(team):
     )
 
     producer = CDPProducer(team_id=team.id, schema_id=str(schema.id), job_id="", logger=mock.AsyncMock())
-    assert await producer.should_produce_table() is False
+    assert await producer.should_run() is False
 
 
 @pytest.mark.django_db(transaction=True)
 @pytest.mark.asyncio
-async def test_should_produce_table_with_both_hog_function_and_flow(team):
+async def test_should_run_with_both_hog_function_and_flow(team):
     source = await sync_to_async(ExternalDataSource.objects.create)(
         team=team, source_type=ExternalDataSourceType.POSTGRES
     )
@@ -287,13 +289,25 @@ async def test_should_produce_table_with_both_hog_function_and_flow(team):
     )
 
     producer = CDPProducer(team_id=team.id, schema_id=str(schema.id), job_id="", logger=mock.AsyncMock())
-    assert await producer.should_produce_table() is True
+    assert await producer.should_run() is True
 
 
 @pytest.mark.django_db(transaction=True)
 @pytest.mark.asyncio
-async def test_should_produce_table_posthog_database_connection_failure_stays_retryable(team):
-    # `should_produce_table` queries PostHog's own database (HogFunction/HogFlow), not the
+@pytest.mark.parametrize(
+    "error_cls,message",
+    [
+        (DjangoOperationalError, "[Errno -2] Name or service not known"),
+        # Fd exhaustion opening the connection's selector surfaces as a bare OSError, unwrapped by
+        # Django, rather than a DjangoOperationalError — same transient condition, different
+        # exception type depending on which connect step runs out of file descriptors first.
+        (OSError, "[Errno 24] Too many open files"),
+    ],
+)
+async def test_should_run_posthog_database_connection_failure_stays_retryable(
+    error_cls: type[Exception], message: str, team
+):
+    # `should_run` queries PostHog's own database (HogFunction/HogFlow), not the
     # source being synced. A transient connection failure there (e.g. a DNS blip resolving our
     # host) surfaces the same "Name or service not known" wording a customer's misconfigured
     # source host would, so it must be re-raised as PostHogInternalDatabaseError to avoid being
@@ -313,9 +327,9 @@ async def test_should_produce_table_posthog_database_connection_failure_stays_re
     with patch(
         "products.warehouse_sources.backend.temporal.data_imports.pipelines.core.cdp_producer.HogFunction.objects"
     ) as mock_hog_function_objects:
-        mock_hog_function_objects.filter.side_effect = DjangoOperationalError("[Errno -2] Name or service not known")
+        mock_hog_function_objects.filter.side_effect = error_cls(message)
         with pytest.raises(PostHogInternalDatabaseError) as exc_info:
-            await producer.should_produce_table()
+            await producer.should_run()
 
     non_retryable = PostgresSource().get_non_retryable_errors()
     error_msg = str(exc_info.value)
@@ -615,7 +629,7 @@ async def test_produce_to_kafka_from_s3_with_large_batch(mock_get_s3_client, tea
 
 @pytest.mark.django_db(transaction=True)
 @pytest.mark.asyncio
-async def test_write_chunk_for_cdp_producer(team):
+async def test_stage_chunk(team):
     source = await sync_to_async(ExternalDataSource.objects.create)(
         team=team, source_type=ExternalDataSourceType.POSTGRES
     )
@@ -635,7 +649,7 @@ async def test_write_chunk_for_cdp_producer(team):
         "products.warehouse_sources.backend.temporal.data_imports.pipelines.core.cdp_producer.write_table"
     ) as mock_write_table:
         with patch.object(producer, "_get_fs", return_value=mock_fs):
-            await producer.write_chunk_for_cdp_producer(chunk=5, table=test_data)
+            await producer.stage_chunk(chunk=5, table=test_data)
 
     mock_write_table.assert_called_once()
     call_args = mock_write_table.call_args
@@ -648,7 +662,7 @@ async def test_write_chunk_for_cdp_producer(team):
 
 @pytest.mark.django_db(transaction=True)
 @pytest.mark.asyncio
-async def test_write_chunk_for_cdp_producer_with_empty_table(team):
+async def test_stage_chunk_with_empty_table(team):
     source = await sync_to_async(ExternalDataSource.objects.create)(
         team=team, source_type=ExternalDataSourceType.POSTGRES
     )
@@ -668,7 +682,7 @@ async def test_write_chunk_for_cdp_producer_with_empty_table(team):
         "products.warehouse_sources.backend.temporal.data_imports.pipelines.core.cdp_producer.write_table"
     ) as mock_write_table:
         with patch.object(producer, "_get_fs", return_value=mock_fs):
-            await producer.write_chunk_for_cdp_producer(chunk=0, table=test_data)
+            await producer.stage_chunk(chunk=0, table=test_data)
 
     mock_write_table.assert_called_once()
 
@@ -676,7 +690,7 @@ async def test_write_chunk_for_cdp_producer_with_empty_table(team):
 @pytest.mark.django_db(transaction=True)
 @pytest.mark.asyncio
 @patch("products.warehouse_sources.backend.temporal.data_imports.pipelines.core.cdp_producer.aget_s3_client")
-async def test_clear_s3_chunks_with_files(mock_get_s3_client, team):
+async def test_clear_with_files(mock_get_s3_client, team):
     source = await sync_to_async(ExternalDataSource.objects.create)(
         team=team, source_type=ExternalDataSourceType.POSTGRES
     )
@@ -697,7 +711,7 @@ async def test_clear_s3_chunks_with_files(mock_get_s3_client, team):
 
     producer = CDPProducer(team_id=team.id, schema_id=str(schema.id), job_id="test_job", logger=mock.AsyncMock())
 
-    await producer.clear_s3_chunks()
+    await producer.clear()
 
     mock_s3_client._rm.assert_called_once()
 
@@ -705,7 +719,7 @@ async def test_clear_s3_chunks_with_files(mock_get_s3_client, team):
 @pytest.mark.django_db(transaction=True)
 @pytest.mark.asyncio
 @patch("products.warehouse_sources.backend.temporal.data_imports.pipelines.core.cdp_producer.aget_s3_client")
-async def test_clear_s3_chunks_with_no_files(mock_get_s3_client, team):
+async def test_clear_with_no_files(mock_get_s3_client, team):
     source = await sync_to_async(ExternalDataSource.objects.create)(
         team=team, source_type=ExternalDataSourceType.POSTGRES
     )
@@ -723,7 +737,7 @@ async def test_clear_s3_chunks_with_no_files(mock_get_s3_client, team):
 
     producer = CDPProducer(team_id=team.id, schema_id=str(schema.id), job_id="test_job", logger=mock.AsyncMock())
 
-    await producer.clear_s3_chunks()
+    await producer.clear()
 
     mock_s3_client._rm.assert_not_called()
 
@@ -731,7 +745,7 @@ async def test_clear_s3_chunks_with_no_files(mock_get_s3_client, team):
 @pytest.mark.django_db(transaction=True)
 @pytest.mark.asyncio
 @patch("products.warehouse_sources.backend.temporal.data_imports.pipelines.core.cdp_producer.aget_s3_client")
-async def test_clear_s3_chunks_handles_file_not_found_on_delete(mock_get_s3_client, team):
+async def test_clear_handles_file_not_found_on_delete(mock_get_s3_client, team):
     source = await sync_to_async(ExternalDataSource.objects.create)(
         team=team, source_type=ExternalDataSourceType.POSTGRES
     )
@@ -753,7 +767,7 @@ async def test_clear_s3_chunks_handles_file_not_found_on_delete(mock_get_s3_clie
     producer = CDPProducer(team_id=team.id, schema_id=str(schema.id), job_id="test_job", logger=mock.AsyncMock())
 
     with patch.object(producer, "_get_fs", return_value=mock_fs):
-        await producer.clear_s3_chunks()
+        await producer.clear()
 
 
 @pytest.mark.django_db(transaction=True)
@@ -877,6 +891,30 @@ async def test_serialize_json_raises_on_non_dict_unsupported(team):
 
 def _make_producer(job_id: str) -> CDPProducer:
     return CDPProducer(team_id=1, schema_id="schema_1", job_id=job_id, logger=mock.AsyncMock())
+
+
+@parameterized.expand([("local_setup", True), ("non_local_setup", False)])
+def test_get_fs_reuses_the_same_filesystem_across_calls(_name, use_local_setup):
+    # stage_chunk() calls _get_fs() once per chunk over a whole sync (potentially thousands of
+    # chunks); constructing a fresh S3FileSystem per call leaks its underlying connections/file
+    # descriptors until the process runs out of them. Both branches build their own S3FileSystem,
+    # so both must cache it.
+    producer = _make_producer("job_1")
+
+    with (
+        patch.object(settings, "USE_LOCAL_SETUP", use_local_setup),
+        patch(
+            "products.warehouse_sources.backend.temporal.data_imports.pipelines.core.cdp_producer.pa_fs.S3FileSystem"
+        ) as mock_s3_filesystem,
+        patch(
+            "products.warehouse_sources.backend.temporal.data_imports.pipelines.core.cdp_producer.ensure_bucket_exists"
+        ),
+    ):
+        first = producer._get_fs()
+        second = producer._get_fs()
+
+    mock_s3_filesystem.assert_called_once()
+    assert first is second
 
 
 def test_build_event_id_is_a_valid_uuid():
