@@ -3,7 +3,7 @@
 The workflow wraps the orchestration-agnostic enrichment core (products/growth), writes the
 live stores, wires the write-once at-signup snapshot, and emits a launch fill-rate/failure
 signal. It is dispatched from the signup request path behind a kill switch and must never
-block or fail signup — see posthog/temporal/signup_enrichment/trigger.py.
+block or fail signup — see products/growth/backend/temporal/signup_enrichment/trigger.py.
 """
 
 import json

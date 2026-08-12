@@ -142,10 +142,6 @@ from posthog.temporal.session_replay.surfacing_scoring_sweep import (
     SURFACING_SCORING_SWEEP_ACTIVITIES,
     SURFACING_SCORING_SWEEP_WORKFLOWS,
 )
-from posthog.temporal.signup_enrichment import (
-    ACTIVITIES as SIGNUP_ENRICHMENT_ACTIVITIES,
-    WORKFLOWS as SIGNUP_ENRICHMENT_WORKFLOWS,
-)
 from posthog.temporal.sync_events_retention import SYNC_EVENTS_RETENTION_ACTIVITIES, SYNC_EVENTS_RETENTION_WORKFLOWS
 from posthog.temporal.sync_person_distinct_ids import (
     ACTIVITIES as SYNC_PERSON_DISTINCT_IDS_ACTIVITIES,
@@ -205,6 +201,10 @@ from products.experiments.backend.temporal import (
 from products.exports.backend.temporal.subscriptions import (
     ACTIVITIES as SUBSCRIPTION_ACTIVITIES,
     WORKFLOWS as SUBSCRIPTION_WORKFLOWS,
+)
+from products.growth.backend.temporal.signup_enrichment import (
+    ACTIVITIES as SIGNUP_ENRICHMENT_ACTIVITIES,
+    WORKFLOWS as SIGNUP_ENRICHMENT_WORKFLOWS,
 )
 from products.logs.backend.facade.temporal import (
     ACTIVITIES as LOGS_ALERTING_ACTIVITIES,
