@@ -48,6 +48,7 @@ from __future__ import annotations
 import os
 import csv
 import json
+import time
 from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
@@ -78,9 +79,12 @@ PERSON_COLUMNS = (
     "is_deleted",
 )
 
-# Reference counts per member row of a duplicate group. lifecycle_op_person and
-# posthog_person_reconciliation_backup are expected to be empty for these teams and are
-# counted defensively: if either is ever non-zero the row stops being deletable.
+# Reference counts per member row of a duplicate group.
+# posthog_person_reconciliation_backup (the Dagster property-reconciliation pre-image
+# table) is counted defensively: a row it references stops being deletable. The
+# personhog lifecycle/shadow tables are deliberately NOT consulted -- personhog does not
+# run in production, its tables are empty there, and their ACLs are owner-only, so a
+# subquery against them fails with permission denied for the operator role.
 _MEMBERS_CTE = """
 WITH dups AS (
     SELECT team_id, uuid FROM posthog_person
@@ -95,8 +99,6 @@ members AS (
              WHERE cp.person_id = p.id) AS n_cohort,
            (SELECT count(*) FROM posthog_featureflaghashkeyoverride ff
              WHERE ff.team_id = p.team_id AND ff.person_id = p.id) AS n_ff,
-           (SELECT count(*) FROM lifecycle_op_person lop
-             WHERE lop.team_id = p.team_id AND lop.person_id = p.id) AS n_lifecycle,
            (SELECT count(*) FROM posthog_person_reconciliation_backup rb
              WHERE rb.team_id = p.team_id AND rb.person_id = p.id) AS n_recon
     FROM posthog_person p
@@ -104,7 +106,7 @@ members AS (
     WHERE p.team_id = %(team)s
 ),
 scored AS (
-    SELECT *, (n_did + n_cohort + n_ff + n_lifecycle + n_recon) AS refs FROM members
+    SELECT *, (n_did + n_cohort + n_ff + n_recon) AS refs FROM members
 ),
 ranked AS (
     SELECT *,
@@ -131,7 +133,7 @@ SELECT
     (SELECT count(*) FROM (SELECT uuid FROM ranked GROUP BY uuid
                             HAVING count(*) FILTER (WHERE n_did > 0) > 1) x),
     COALESCE(sum(n_did), 0), COALESCE(sum(n_cohort), 0), COALESCE(sum(n_ff), 0),
-    COALESCE(sum(n_lifecycle), 0), COALESCE(sum(n_recon), 0)
+    COALESCE(sum(n_recon), 0)
 FROM ranked
 """
 )
@@ -156,7 +158,6 @@ INSERT INTO {VICTIMS_TABLE} (team_id, id, uuid)
 SELECT team_id, id, uuid FROM ranked
 WHERE rn > 1
   AND n_did = 0
-  AND n_lifecycle = 0
   AND n_recon = 0
   AND uuid IN (SELECT uuid FROM ranked GROUP BY uuid
                 HAVING count(*) FILTER (WHERE n_did > 0) <= 1)
@@ -179,8 +180,6 @@ GATE_REACHABLE_SQL = f"""
 SELECT count(*) FROM {VICTIMS_TABLE}_batch v
 WHERE EXISTS (SELECT 1 FROM posthog_persondistinctid pdi
                WHERE pdi.team_id = v.team_id AND pdi.person_id = v.id)
-   OR EXISTS (SELECT 1 FROM lifecycle_op_person lop
-               WHERE lop.team_id = v.team_id AND lop.person_id = v.id)
    OR EXISTS (SELECT 1 FROM posthog_person_reconciliation_backup rb
                WHERE rb.team_id = v.team_id AND rb.person_id = v.id)
 """
@@ -256,6 +255,32 @@ WHERE pdi.team_id = %(team)s
 """
 
 
+# Every (table, privilege) pair the command exercises. Probed up front so a missing
+# grant aborts cleanly before any work, instead of surfacing as a raw permission
+# error mid-CTE (lifecycle_op_person in production is owner-only, which is exactly
+# how such a gap presents).
+REQUIRED_PRIVILEGES = (
+    ("posthog_person", "SELECT"),
+    ("posthog_person", "DELETE"),
+    ("posthog_persondistinctid", "SELECT"),
+    ("posthog_featureflaghashkeyoverride", "SELECT"),
+    ("posthog_cohortpeople", "SELECT"),
+    ("posthog_cohortpeople", "DELETE"),
+    ("posthog_person_reconciliation_backup", "SELECT"),
+)
+
+
+def _check_privileges(conn: psycopg.Connection) -> list[str]:
+    missing = []
+    with conn.cursor() as cur:
+        for table, privilege in REQUIRED_PRIVILEGES:
+            cur.execute("SELECT has_table_privilege(%s, %s)", (table, privilege))
+            row = cur.fetchone()
+            if not (row and row[0]):
+                missing.append(f"{privilege} on {table}")
+    return missing
+
+
 def _scalar(conn: psycopg.Connection, sql: str, params: dict | None = None) -> int:
     with conn.cursor() as cur:
         cur.execute(sql, params or {})
@@ -272,6 +297,12 @@ class Command(BaseCommand):
         parser.add_argument("--apply", action="store_true", help="actually delete; omit for a dry run")
         parser.add_argument("--batch-size", type=int, default=500)
         parser.add_argument("--outdir", default="persons_dedup_backups")
+        parser.add_argument(
+            "--sleep-ms",
+            type=int,
+            default=200,
+            help="pause between batches so writers blocked on our row locks drain (0 disables)",
+        )
 
     def handle(self, *args: Any, **options: Any) -> None:
         team: int = options["team"]
@@ -291,6 +322,13 @@ class Command(BaseCommand):
             with conn.cursor() as cur:
                 cur.execute("SET statement_timeout = 0")
 
+            missing = _check_privileges(conn)
+            if missing:
+                raise CommandError(
+                    "operator role lacks required grants: " + ", ".join(missing) + ". "
+                    "Ask for the grants before running; nothing was changed."
+                )
+
             if mode == "classify":
                 self._classify(conn, team)
                 return
@@ -309,7 +347,7 @@ class Command(BaseCommand):
             cur.execute(CLASSIFY_SQL, {"team": team})
             row = cur.fetchone()
         assert row is not None
-        groups, orphaned, one_ref, needs_merge, multi_did, dids, cohort, ff, lifecycle, recon = (int(v) for v in row)
+        groups, orphaned, one_ref, needs_merge, multi_did, dids, cohort, ff, recon = (int(v) for v in row)
         logger.info(
             "persons_dedup.classify",
             team_id=team,
@@ -321,13 +359,12 @@ class Command(BaseCommand):
             distinct_ids=dids,
             cohort_rows=cohort,
             flag_overrides=ff,
-            lifecycle_rows=lifecycle,
             reconciliation_rows=recon,
         )
         if multi_did:
             logger.warning("persons_dedup.needs_real_merge", team_id=team, groups=multi_did)
-        if lifecycle or recon:
-            logger.warning("persons_dedup.unexpected_references", team_id=team, lifecycle=lifecycle, recon=recon)
+        if recon:
+            logger.warning("persons_dedup.reconciliation_backup_references", team_id=team, recon=recon)
 
     def _verify(self, conn: psycopg.Connection, team: int) -> None:
         dups = _scalar(conn, VERIFY_DUPS_SQL, {"team": team})
@@ -398,6 +435,12 @@ class Command(BaseCommand):
             with conn.cursor() as cur:
                 cur.execute("BEGIN")
                 cur.execute("SET LOCAL lock_timeout = '2s'")
+                # The session runs with statement_timeout = 0 for the big staging scan;
+                # inside the write transaction we hold FOR UPDATE row locks that live
+                # ingestion can block on (updatePersonsBatch matches persons by
+                # (team_id, uuid), which duplicates share), so every statement here
+                # must be bounded.
+                cur.execute("SET LOCAL statement_timeout = '5min'")
                 cur.execute(LOCK_VICTIMS_SQL, {"team": team})
                 locked = cur.rowcount
                 # Re-check inside the transaction: these teams still receive writes, and a
@@ -444,6 +487,8 @@ class Command(BaseCommand):
             with conn.cursor() as cur:
                 cur.execute(RETIRE_BATCH_SQL)
             deleted += removed
+            if options["sleep_ms"] > 0:
+                time.sleep(options["sleep_ms"] / 1000.0)
             logger.info("persons_dedup.batch_done", team_id=team, batch=batches, deleted=removed, total=deleted)
 
         logger.info(

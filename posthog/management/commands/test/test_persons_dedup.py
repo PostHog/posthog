@@ -78,6 +78,7 @@ def _cleanup(conn: psycopg.Connection) -> None:
             (TEAM,),
         )
         cur.execute("DELETE FROM posthog_persondistinctid WHERE team_id = %s", (TEAM,))
+        cur.execute("DELETE FROM posthog_person_reconciliation_backup WHERE team_id = %s", (TEAM,))
         cur.execute("DELETE FROM posthog_person WHERE team_id = %s", (TEAM,))
 
 
@@ -136,6 +137,16 @@ def _orphaned_cohort_rows(conn: psycopg.Connection, cohort_id: int = 4242) -> in
     )
 
 
+def _add_recon_backup_row(conn: psycopg.Connection, person_id: int, uuid: str) -> None:
+    with conn.cursor() as cur:
+        cur.execute(
+            "INSERT INTO posthog_person_reconciliation_backup "
+            "(job_id, team_id, person_id, uuid, properties, is_identified, created_at, pending_operations) "
+            "VALUES ('test-job', %s, %s, %s, '{}'::jsonb, false, now(), '{}'::jsonb)",
+            (TEAM, person_id, uuid),
+        )
+
+
 def _count(conn: psycopg.Connection, sql: str, params: tuple = ()) -> int:
     with conn.cursor() as cur:
         cur.execute(sql, params)
@@ -164,6 +175,7 @@ def _dup_groups(conn: psycopg.Connection) -> int:
 
 
 def _run(mode: str, tmp_path: Any, **kwargs: Any) -> None:
+    kwargs.setdefault("sleep_ms", 0)
     call_command("persons_dedup", mode=mode, team=TEAM, outdir=str(tmp_path), **kwargs)
 
 
@@ -373,6 +385,22 @@ class TestPersonsDedupRepair:
 
         assert _persons(persons_conn) == 1
         assert _cohort_rows(persons_conn) == 1
+
+    def test_never_deletes_a_row_the_reconciliation_backup_references(self, persons_conn, tmp_path):
+        # The Dagster property-reconciliation job restores person properties by
+        # (team_id, person_id) from its pre-image table. Deleting a person it references
+        # would leave the restore path pointing at a row that no longer exists, so such
+        # rows are excluded from staging and the group is left for a later pass.
+        uuid = _uuid(27)
+        live = _add_person(persons_conn, uuid)
+        _add_distinct_id(persons_conn, live, "did-27")
+        held = _add_person(persons_conn, uuid)
+        _add_recon_backup_row(persons_conn, held, uuid)
+
+        _run("repair", tmp_path, apply=True)
+
+        assert _persons(persons_conn) == 2, "the referenced row must be skipped, not deleted"
+        assert _dup_groups(persons_conn) == 1
 
 
 class TestPersonsDedupVerify:
