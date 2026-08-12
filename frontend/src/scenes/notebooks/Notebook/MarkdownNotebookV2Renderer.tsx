@@ -8,6 +8,7 @@ import { lemonToast } from '@posthog/lemon-ui'
 import {
     MarkdownNotebook,
     NotebookComponentRunStatusContext,
+    PRODUCTS_INSERT_COMMAND_CATEGORY,
     parseMarkdownNotebook,
 } from 'lib/components/MarkdownNotebook'
 import type {
@@ -448,7 +449,7 @@ export function MarkdownNotebookV2({ debugOpen, onDebugOpenChange }: MarkdownNot
         ): InsertCommand => ({
             key,
             label,
-            category: 'Products',
+            category: PRODUCTS_INSERT_COMMAND_CATEGORY,
             icon,
             aliases,
             run: (targetNodeId) => {
