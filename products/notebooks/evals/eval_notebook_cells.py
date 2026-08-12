@@ -21,6 +21,18 @@ from products.posthog_ai.eval_harness.scorers import RequiredToolCall
 async def eval_notebook_cells(ctx: EvalContext) -> None:
     cases: list[SandboxedEvalCase] = [
         SandboxedEvalCase(
+            # Cheapest possible kernel-lane check: no query, no dataframe, no dependency
+            # between cells. When this passes and the cases below fail, the sandbox is fine
+            # and the agent's analysis is what broke.
+            name="python_cell_arithmetic",
+            prompt=("Create a notebook called 'Kernel smoke test'. Add a Python cell that prints the result of 1 + 2."),
+            expected={
+                "notebook_created": {},
+                "cell_runs_completed": {"node_types": ["python"]},
+            },
+            setup=seed_case_team,
+        ),
+        SandboxedEvalCase(
             name="sql_cell_report",
             prompt=(
                 "Create a notebook called 'Signup momentum'. Add a SQL cell that returns weekly counts "
