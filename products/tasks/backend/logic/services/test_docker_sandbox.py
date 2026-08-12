@@ -1,5 +1,6 @@
 import os
 import shlex
+import logging
 import subprocess
 from typing import Any
 
@@ -140,7 +141,7 @@ class TestDockerSandboxUnit:
         result = DockerSandbox._transform_url_for_docker(input_url)
         assert result == expected_url
 
-    def test_get_local_posthog_code_root(self, tmp_path, monkeypatch):
+    def test_get_local_posthog_code_root(self, tmp_path, monkeypatch, caplog):
         for file_name in (".npmrc", "package.json", "pnpm-workspace.yaml", "pnpm-lock.yaml"):
             (tmp_path / file_name).touch()
         (tmp_path / "patches").mkdir()
@@ -149,8 +150,11 @@ class TestDockerSandboxUnit:
             package_path.mkdir(parents=True)
             (package_path / "package.json").touch()
         monkeypatch.setenv("LOCAL_POSTHOG_CODE_MONOREPO_ROOT", str(tmp_path))
+        caplog.set_level(logging.INFO, logger="products.tasks.backend.logic.services.docker_sandbox")
 
         assert DockerSandbox._get_local_posthog_code_root() == str(tmp_path)
+        assert "local_posthog_code_monorepo_root_configured" in caplog.text
+        assert str(tmp_path) in caplog.text
 
     def test_build_local_image_copies_minimal_workspace_into_docker_context(self, tmp_path):
         monorepo_path = tmp_path / "code"

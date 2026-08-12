@@ -169,9 +169,16 @@ class DockerSandbox(SandboxBase):
             "LOCAL_POSTHOG_CODE_MONOREPO_ROOT", os.environ.get("LOCAL_TWIG_MONOREPO_ROOT", "")
         )
         if not monorepo_root:
+            logger.info("local_posthog_code_monorepo_root_not_configured")
             return None
 
-        monorepo_root = os.path.abspath(monorepo_root)
+        resolved_monorepo_root = os.path.abspath(monorepo_root)
+        logger.info(
+            "local_posthog_code_monorepo_root_configured raw=%r resolved=%r",
+            monorepo_root,
+            resolved_monorepo_root,
+        )
+        monorepo_root = resolved_monorepo_root
         required_paths = [
             os.path.join(monorepo_root, ".npmrc"),
             os.path.join(monorepo_root, "package.json"),
