@@ -52,9 +52,7 @@ describe('DashboardsTable move to folder', () => {
             tableSorting: null,
             filters: { search: '' },
             currentTeam: { id: 1 },
-            moveTargetsById: Object.fromEntries(
-                filedRows.map((id) => [id, { id: `fs-${id}`, path: `Marketing/Dashboard ${id}` }])
-            ),
+            filedDashboardIds: new Set(filedRows),
         })
         mockCtx = { selectedKeys, clearSelection, setSelectedKeys }
         render(

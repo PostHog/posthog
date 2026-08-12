@@ -623,21 +623,14 @@ export const dashboardsModel = kea<dashboardsModelType>([
                     }
                 },
                 reparentDashboardFolders: (state, { oldPath, newPath }) => {
-                    const moved = Object.values(state)
-                        .map(
-                            (dashboard) =>
-                                [dashboard, reparentPath(dashboard.file_system_path, oldPath, newPath)] as const
-                        )
-                        .filter((pair): pair is [(typeof pair)[0], string] => pair[1] !== null)
-                    if (moved.length === 0) {
-                        return state
+                    const moved: typeof state = {}
+                    for (const dashboard of Object.values(state)) {
+                        const path = reparentPath(dashboard.file_system_path, oldPath, newPath)
+                        if (path !== null) {
+                            moved[dashboard.id] = filedAt(dashboard, path)
+                        }
                     }
-                    return {
-                        ...state,
-                        ...Object.fromEntries(
-                            moved.map(([dashboard, path]) => [dashboard.id, filedAt(dashboard, path)])
-                        ),
-                    }
+                    return Object.keys(moved).length === 0 ? state : { ...state, ...moved }
                 },
             },
         ],

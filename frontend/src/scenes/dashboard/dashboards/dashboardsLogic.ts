@@ -51,6 +51,19 @@ export const DEFAULT_FILTERS: DashboardsFilters = {
 }
 
 /** Router may coerce numeric-looking query values to numbers; search text must stay a string. */
+/** A dashboard with no file system entry has never been filed, so there is nothing to move. */
+function moveTargetFor(dashboard: DashboardBasicType | undefined): FileSystemEntry | null {
+    if (!dashboard?.file_system_id || !dashboard.file_system_path) {
+        return null
+    }
+    return {
+        id: dashboard.file_system_id,
+        path: dashboard.file_system_path,
+        type: 'dashboard',
+        ref: String(dashboard.id),
+    }
+}
+
 function urlSearchParamToString(value: unknown): string {
     return `${value ?? ''}`
 }
@@ -63,10 +76,10 @@ export interface dashboardsLogicValues {
     breadcrumbs: Breadcrumb[]
     currentTab: DashboardsTab
     dashboards: DashboardBasicType[]
+    filedDashboardIds: Set<number>
     filteredTags: string[]
     filters: DashboardsFilters
     isFiltering: boolean
-    moveTargetsById: Record<string, FileSystemEntry>
     searchedDashboards: DashboardBasicType[] | null
     searchedDashboardsLoading: boolean
     showTagPopover: boolean
@@ -84,6 +97,9 @@ export interface dashboardsLogicActions {
         count: number
         method: 'bulk' | 'single'
     } // eventUsageLogic
+    closedMoveToModal: () => {
+        value: true
+    } // moveToLogic
     openMoveToModal: (items: FileSystemEntry[]) => {
         items: FileSystemEntry[]
     } // moveToLogic
@@ -180,7 +196,7 @@ export interface dashboardsLogicMeta {
             currentTab: DashboardsTab,
             user: UserType | null
         ) => DashboardBasicType[]
-        moveTargetsById: (dashboards: DashboardBasicType[]) => Record<string, FileSystemEntry>
+        filedDashboardIds: (dashboards: DashboardBasicType[]) => Set<number>
     }
 }
 
@@ -197,7 +213,7 @@ export const dashboardsLogic = kea<dashboardsLogicType>([
         values: [userLogic, ['user'], featureFlagLogic, ['featureFlags'], tagsModel, ['tags']],
         actions: [
             moveToLogic,
-            ['openMoveToModal'],
+            ['openMoveToModal', 'closedMoveToModal'],
             eventUsageLogic,
             ['reportDashboardMoveInitiated'],
             projectTreeDataLogic,
@@ -392,22 +408,10 @@ export const dashboardsLogic = kea<dashboardsLogicType>([
             },
         ],
 
-        moveTargetsById: [
+        filedDashboardIds: [
             (s) => [s.dashboards],
-            (dashboards: DashboardBasicType[]): Record<string, FileSystemEntry> =>
-                Object.fromEntries(
-                    dashboards
-                        .filter((dashboard) => dashboard.file_system_id && dashboard.file_system_path)
-                        .map((dashboard) => [
-                            dashboard.id,
-                            {
-                                id: dashboard.file_system_id,
-                                path: dashboard.file_system_path,
-                                type: 'dashboard',
-                                ref: String(dashboard.id),
-                            } as FileSystemEntry,
-                        ])
-                ),
+            (dashboards: DashboardBasicType[]): Set<number> =>
+                new Set(dashboards.filter((dashboard) => moveTargetFor(dashboard)).map(({ id }) => id)),
         ],
 
         breadcrumbs: [
@@ -558,9 +562,14 @@ export const dashboardsLogic = kea<dashboardsLogicType>([
                 awaiting.onStillSelected?.([...awaiting.ids])
             }
         },
+        // Nothing moved, so the pending deselection belongs to a table render that is gone.
+        closedMoveToModal: () => {
+            cache.awaitingMove = undefined
+        },
         moveDashboardsToFolder: ({ ids, method, onStillSelected }) => {
-            const entries = values.moveTargetsById
-            const moving = ids.map((id) => entries[id]).filter((entry): entry is FileSystemEntry => !!entry)
+            const moving = ids
+                .map((id) => moveTargetFor(dashboardsModel.values.rawDashboards[id] as DashboardBasicType))
+                .filter((entry): entry is FileSystemEntry => !!entry)
             if (moving.length === 0) {
                 return
             }

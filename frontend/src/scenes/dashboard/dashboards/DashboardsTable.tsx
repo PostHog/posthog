@@ -58,7 +58,7 @@ export function DashboardsTable({
 }: DashboardsTableProps): JSX.Element {
     const { unpinDashboard, pinDashboard } = useActions(dashboardsModel)
     const { tableSortingChanged, setFilters, moveDashboardsToFolder } = useActions(dashboardsLogic)
-    const { tableSorting, filters, moveTargetsById } = useValues(dashboardsLogic)
+    const { tableSorting, filters, filedDashboardIds } = useValues(dashboardsLogic)
     // Server-side fuzzy search ranks results by relevance; re-sorting alphabetically by name
     // would push the exact match below partial matches. Suppress the persisted column sort
     // while the user has an active search term.
@@ -246,7 +246,7 @@ export function DashboardsTable({
                                           <LemonButton
                                               onClick={() => moveDashboardsToFolder([id], 'single')}
                                               disabledReason={
-                                                  moveTargetsById[id]
+                                                  filedDashboardIds.has(id)
                                                       ? undefined
                                                       : 'This dashboard is not filed anywhere yet'
                                               }
@@ -332,7 +332,7 @@ export function DashboardsTable({
                                     moveDashboardsToFolder([...ctx.selectedKeys], 'bulk', ctx.setSelectedKeys)
                                 }
                                 disabledReason={
-                                    ctx.selectedKeys.some((key) => moveTargetsById[key])
+                                    ctx.selectedKeys.some((key) => filedDashboardIds.has(key))
                                         ? undefined
                                         : 'None of the selected dashboards are filed anywhere yet'
                                 }

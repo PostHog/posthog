@@ -2387,20 +2387,24 @@ class DashboardsViewSet(
         # and avoids the row multiplication a join could cause when shortcuts/multiple surfaces exist.
         # The default surface matches both NULL and "web" rows, so order by id to keep the picked path
         # stable when more than one non-shortcut entry exists for the same dashboard.
-        entry_for_dashboard = FileSystem.objects.filter(
-            surface_q(DEFAULT_SURFACE),
-            team_id=OuterRef("team_id"),
-            type="dashboard",
-            ref=OuterRef("_ref_id"),
-        ).exclude(shortcut=True)
+        entry_for_dashboard = (
+            FileSystem.objects.filter(
+                surface_q(DEFAULT_SURFACE),
+                team_id=OuterRef("team_id"),
+                type="dashboard",
+                ref=OuterRef("_ref_id"),
+            )
+            .exclude(shortcut=True)
+            .order_by("id")
+        )
         queryset = queryset.annotate(_ref_id=Cast(F("id"), output_field=CharField())).annotate(
             _folder_path=Subquery(
-                entry_for_dashboard.order_by("id").values("path")[:1],
+                entry_for_dashboard.values("path")[:1],
                 output_field=CharField(),
             ),
             # Same row as `_folder_path`, so a caller can move the dashboard without fetching the entry.
             _folder_id=Subquery(
-                entry_for_dashboard.order_by("id").values("id")[:1],
+                entry_for_dashboard.values("id")[:1],
                 output_field=UUIDField(),
             ),
         )

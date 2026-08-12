@@ -34,6 +34,7 @@ import {
     escapePath,
     formatUrlAsName,
     isGroupViewShortcut,
+    isPathUnder,
     joinPath,
     matchesRefType,
     parentPath,
@@ -804,9 +805,7 @@ export const projectTreeDataLogic = kea<projectTreeDataLogicType>([
                                                       }))
                                                   )
                                                   const foldersToReload = new Set(
-                                                      undoableEntries.map((entry) =>
-                                                          joinPath(splitPath(entry.path || '').slice(0, -1))
-                                                      )
+                                                      undoableEntries.map((entry) => parentPath(entry.path))
                                                   )
                                                   for (const folder of foldersToReload) {
                                                       actions.loadFolder(folder, true)
@@ -949,7 +948,7 @@ export const projectTreeDataLogic = kea<projectTreeDataLogicType>([
                 },
                 addLoadedResults: (state, { results }) => appendResultsToFolders(results, state),
                 createSavedItem: (state, { savedItem }) => {
-                    const folder = joinPath(splitPath(savedItem.path).slice(0, -1))
+                    const folder = parentPath(savedItem.path)
                     return {
                         ...state,
                         [folder]: (state[folder] || []).find((f) => f.id === savedItem.id)
@@ -958,7 +957,7 @@ export const projectTreeDataLogic = kea<projectTreeDataLogicType>([
                     }
                 },
                 deleteSavedItem: (state, { savedItem }) => {
-                    const folder = joinPath(splitPath(savedItem.path).slice(0, -1))
+                    const folder = parentPath(savedItem.path)
                     const newState = { ...state }
                     // The parent folder may not be loaded into the store yet (folders load lazily); only
                     // prune it when it's present — otherwise state[folder] is undefined and .filter throws.
@@ -967,7 +966,7 @@ export const projectTreeDataLogic = kea<projectTreeDataLogicType>([
                     }
                     if (savedItem.type === 'folder') {
                         for (const folder of Object.keys(newState)) {
-                            if (folder === savedItem.path || folder.startsWith(savedItem.path + '/')) {
+                            if (isPathUnder(folder, savedItem.path)) {
                                 delete newState[folder]
                             }
                         }
@@ -987,7 +986,7 @@ export const projectTreeDataLogic = kea<projectTreeDataLogicType>([
                 },
                 movedItem: (state, { oldPath, newPath, item }) => {
                     const newState = { ...state }
-                    const oldParentFolder = joinPath(splitPath(oldPath).slice(0, -1))
+                    const oldParentFolder = parentPath(oldPath)
                     for (const folder of Object.keys(newState)) {
                         if (folder === oldParentFolder) {
                             newState[folder] = newState[folder].filter((i) => i.id !== item.id)

@@ -498,6 +498,24 @@ describe('dashboardsLogic', () => {
         expect(moveToLogic.values.isOpen).toBe(true)
     })
 
+    it('drops a pending deselection when the move modal is closed without moving', async () => {
+        moveToLogic.mount()
+        const [first, second] = logic.values.dashboards.filter((d) => d.file_system_id)
+        const onStillSelected = jest.fn()
+
+        logic.actions.moveDashboardsToFolder([first.id, second.id], 'bulk', onStillSelected)
+        moveToLogic.actions.closedMoveToModal()
+
+        // A later unrelated move of the same dashboard must not call back into a table that is gone
+        projectTreeDataLogic.actions.movedItem(
+            { id: first.file_system_id, type: 'dashboard', ref: String(first.id), path: first.file_system_path } as any,
+            first.file_system_path!,
+            'Revenue/Filed'
+        )
+
+        expect(onStillSelected).not.toHaveBeenCalled()
+    })
+
     it('does nothing for a dashboard that is not filed anywhere', async () => {
         moveToLogic.mount()
         const unfiled = logic.values.dashboards.find((d) => !d.file_system_id)!

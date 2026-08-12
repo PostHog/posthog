@@ -486,6 +486,21 @@ class TestDashboard(APIBaseTest, QueryMatchingTest):
         # Unlike `folder`, the path keeps the dashboard's own name as its last segment
         assert result["file_system_path"] == "Marketing/Website/Filed dashboard"
 
+    def test_list_picks_the_same_entry_every_time_when_a_dashboard_has_several(self):
+        dashboard_id, _ = self.dashboard_api.create_dashboard({"name": "Twice filed", "_create_in_folder": "First"})
+        second = FileSystem.objects.create(
+            team=self.team, path="Second/Twice filed", type="dashboard", ref=str(dashboard_id), created_by=self.user
+        )
+        first = FileSystem.objects.get(team=self.team, type="dashboard", ref=str(dashboard_id), shortcut=False)
+        first = min([first, second], key=lambda entry: entry.id)
+
+        response = self.dashboard_api.list_dashboards(parent="environment")
+        result = {dashboard["id"]: dashboard for dashboard in response["results"]}[dashboard_id]
+
+        # Both annotations must resolve the same row, or a move would target one and report the other
+        assert result["file_system_id"] == str(first.id)
+        assert result["file_system_path"] == first.path
+
     def test_list_reports_no_file_system_entry_when_the_dashboard_has_none(self):
         dashboard_id, _ = self.dashboard_api.create_dashboard({"name": "Entryless dashboard"})
         FileSystem.objects.filter(team=self.team, type="dashboard", ref=str(dashboard_id)).delete()

@@ -38,6 +38,8 @@ import {
     findInProjectTree,
     formatUrlAsName,
     joinPath,
+    matchesRefType,
+    refTypeParams,
     sortFilesAndFolders,
     splitPath,
     splitProtocolPath,
@@ -686,11 +688,7 @@ export const projectTreeLogic = kea<projectTreeLogicType>([
                 deleteTypeAndRef: (state, { type, ref }) => {
                     return {
                         ...state,
-                        results: state.results.filter(
-                            (file) =>
-                                (type.endsWith('/') ? !file.type?.startsWith(type) : file.type !== type) ||
-                                file.ref !== ref
-                        ),
+                        results: state.results.filter((file) => !matchesRefType(file.type, type) || file.ref !== ref),
                     }
                 },
                 addLoadedResults: (state, { results }) => {
@@ -736,11 +734,7 @@ export const projectTreeLogic = kea<projectTreeLogicType>([
                 deleteTypeAndRef: (state, { type, ref }) => {
                     return {
                         ...state,
-                        results: state.results.filter(
-                            (file) =>
-                                (type.endsWith('/') ? !file.type?.startsWith(type) : file.type !== type) ||
-                                file.ref !== ref
-                        ),
+                        results: state.results.filter((file) => !matchesRefType(file.type, type) || file.ref !== ref),
                     }
                 },
                 createSavedItem: (state, { savedItem }) => {
@@ -1563,22 +1557,17 @@ export const projectTreeLogic = kea<projectTreeLogicType>([
                     return
                 }
 
-                const treeItem = projectTreeRef.type.endsWith('/')
-                    ? values.viableItems.find(
-                          (item) => item.type?.startsWith(projectTreeRef.type) && item.ref === projectTreeRef.ref
-                      )
-                    : values.viableItems.find(
-                          (item) => item.type === projectTreeRef.type && item.ref === projectTreeRef.ref
-                      )
+                const treeItem = values.viableItems.find(
+                    (item) => matchesRefType(item.type, projectTreeRef.type) && item.ref === projectTreeRef.ref
+                )
                 let path: string | undefined
                 if (treeItem) {
                     path = treeItem.path
                 } else if (projectTreeRef.ref !== null) {
-                    const resp = await api.fileSystem.list(
-                        projectTreeRef.type.endsWith('/')
-                            ? { ref: projectTreeRef.ref, type__startswith: projectTreeRef.type }
-                            : { ref: projectTreeRef.ref, type: projectTreeRef.type }
-                    )
+                    const resp = await api.fileSystem.list({
+                        ref: projectTreeRef.ref,
+                        ...refTypeParams(projectTreeRef.type),
+                    })
                     breakpoint() // bail if we opened some other item in the meanwhile
                     if (resp.users?.length > 0) {
                         actions.addLoadedUsers(resp.users)
