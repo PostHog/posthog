@@ -371,6 +371,16 @@ jobs:
                   docker pull postgres:15.12-alpine >/dev/null 2>&1 \
                       && echo "docker pull postgres:15.12-alpine: OK" \
                       || echo "docker pull postgres:15.12-alpine: FAILED"
+                  # The stored depot.dev registry auth suggests pulls are proxied through a
+                  # pull-through mirror. A mirror fetches upstream under its own identity, so
+                  # our Docker Hub credential would never reach Docker Hub on a cache miss.
+                  echo "--- daemon registry config (mirrors?) ---"
+                  docker info --format '{{json .RegistryConfig}}' 2>/dev/null | jq . || echo "(docker info failed)"
+                  echo "--- /etc/docker/daemon.json ---"
+                  cat /etc/docker/daemon.json 2>/dev/null || echo "(absent)"
+                  echo "--- who serves a cold pull? ---"
+                  docker rmi postgres:15.12-alpine >/dev/null 2>&1 || true
+                  docker pull postgres:15.12-alpine 2>&1 | tail -5
 
             - name: Start stack with Docker Compose
               env:
