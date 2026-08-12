@@ -767,7 +767,7 @@ def _compute_inline_query_results_for_shared_notebook(
     # cache_age_seconds is deliberately unused: blocking-if-stale passes through the whitelist
     # without a throttle override, so there is nothing to thread into process_query_dict here.
     execution_mode = shared_insights_execution_mode(
-        ExecutionMode.RECENT_CACHE_CALCULATE_BLOCKING_IF_STALE
+        ExecutionMode.RECENT_CACHE_CALCULATE_BLOCKING_IF_STALE, team=team
     ).execution_mode
     for node_id, query in inline_nodes:
         serialized: dict | None = None
@@ -1260,7 +1260,7 @@ class SharingViewerPageViewSet(mixins.RetrieveModelMixin, viewsets.GenericViewSe
                 raise NotFound()
             source_query = resource.export_context["source"]
             execution_mode = shared_insights_execution_mode(
-                ExecutionMode.RECENT_CACHE_CALCULATE_BLOCKING_IF_STALE
+                ExecutionMode.RECENT_CACHE_CALCULATE_BLOCKING_IF_STALE, team=resource.team
             ).execution_mode
             try:
                 query_response = process_query_dict(

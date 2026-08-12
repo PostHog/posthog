@@ -323,7 +323,9 @@ class SharedExecutionSettings(NamedTuple):
     cache_age_seconds: int | None
 
 
-def shared_insights_execution_mode(execution_mode: ExecutionMode) -> SharedExecutionSettings:
+def shared_insights_execution_mode(
+    execution_mode: ExecutionMode, team: Optional[Team] = None
+) -> SharedExecutionSettings:
     """Map a requested execution mode to the one allowed on shared/embedded resources.
 
     Returns the mode plus an optional `cache_age_seconds` override for the query runner.
@@ -331,7 +333,20 @@ def shared_insights_execution_mode(execution_mode: ExecutionMode) -> SharedExecu
     staleness threshold: a cached result younger than the window is served as-is, anything
     older (or missing) recomputes synchronously — throttling forced recomputes without a
     separate clock.
+
+    When `team` is passed and its organization is over its api_queries quota, this clamps to
+    cache-only regardless of the requested mode. Shared/embedded links are reachable by anyone
+    with the URL, not just members of the org, so without this clamp an over-quota org's public
+    link would let anonymous traffic keep triggering the fresh calculations the quota is meant
+    to stop. `team=None` preserves the pre-quota mapping exactly, for callers with no team in
+    scope.
     """
+    if team is not None and get_api_queries_quota_limited_until(team) is not None:
+        if _api_queries_enforcement_enabled(team):
+            API_QUERIES_QUOTA_LIMITED_COUNTER.labels(surface="shared", outcome="enforced").inc()
+            return SharedExecutionSettings(ExecutionMode.CACHE_ONLY_NEVER_CALCULATE, None)
+        API_QUERIES_QUOTA_LIMITED_COUNTER.labels(surface="shared", outcome="observed").inc()
+
     if execution_mode == ExecutionMode.CALCULATE_BLOCKING_ALWAYS:
         return SharedExecutionSettings(
             ExecutionMode.RECENT_CACHE_CALCULATE_BLOCKING_IF_STALE,
@@ -347,7 +362,7 @@ API_QUERIES_QUOTA_ENFORCEMENT_FLAG = "api-queries-quota-enforcement"
 API_QUERIES_QUOTA_LIMITED_COUNTER = Counter(
     "posthog_api_queries_quota_limited_total",
     "Query executions for teams whose organization is over its api_queries_read_bytes quota.",
-    labelnames=["surface", "outcome"],  # surface: api; outcome: observed | enforced
+    labelnames=["surface", "outcome"],  # surface: api | shared; outcome: observed | enforced
 )
 
 
