@@ -9,7 +9,7 @@ use tokio::sync::Notify;
 use tokio_util::sync::CancellationToken;
 
 use assignment_coordination::store::parse_watch_value;
-use k8s_awareness::types::ControllerKind;
+use k8s_awareness::types::{ControllerKind, ControllerRef};
 use k8s_awareness::{classify_departure, ClusterIntent, DepartureReason, K8sAwareness};
 
 use crate::error::{Error, Result};
@@ -1363,9 +1363,126 @@ async fn members_for_k8s(
     pods: &[RegisteredPod],
     total_partitions: u32,
 ) -> Vec<Member> {
+    let mut intents: HashMap<ControllerRef, ClusterIntent> = HashMap::new();
+    for pod in pods {
+        let Some(controller) = pod.controller.as_ref() else {
+            continue;
+        };
+        if pod.generation.is_empty() || intents.contains_key(controller) {
+            continue;
+        }
+        // Lazily start the controller watch from the registration's own
+        // ref — the coordinator has no pod of its own to discover from,
+        // and without a watch `classify_departure` has no intent to
+        // consult. Idempotent, so calling per evaluation is cheap; the
+        // first evaluation after a watch starts may still have no intent,
+        // which safely leaves the pod on its status-only policy until
+        // intent arrives.
+        if let Err(e) = k8s.watch_controller(controller).await {
+            tracing::warn!(
+                controller = %controller,
+                error = %e,
+                "failed to start controller watch; using status-only policy"
+            );
+            continue;
+        }
+        if let Some(intent) = k8s.cluster_intent(controller).await {
+            intents.insert(controller.clone(), intent);
+        }
+    }
+
+    let members = derive_members(pods, &intents, total_partitions);
+    let mut holds = 0u64;
+    let mut capped = 0u64;
+    for member in &members {
+        match member.policy {
+            PlacementPolicy::Hold => {
+                holds += 1;
+                tracing::debug!(
+                    pod = %member.name,
+                    "holding old-gen deployment pod during generation transition"
+                );
+            }
+            PlacementPolicy::Active { cap: Some(cap) } => {
+                capped += 1;
+                tracing::debug!(
+                    pod = %member.name,
+                    cap,
+                    "capping new-gen pod at its rollout quota"
+                );
+            }
+            PlacementPolicy::Active { cap: None } => {}
+        }
+    }
+    gauge!("personhog_coordination_generation_hold_pods").set(holds as f64);
+    gauge!("personhog_coordination_generation_capped_pods").set(capped as f64);
+    members
+}
+
+/// Derive placement policies from pod registrations and controller
+/// intents. Pure so the policy rules are unit-testable.
+///
+/// The cap is keyed on departing-generation *siblings*, not on the
+/// controller's rollout flag: a Deployment reports the rollout complete
+/// the moment its last new-gen pod is up, while the old-gen pods are
+/// still registered, still serving, and about to be SIGTERMed. The
+/// transition is live — and new-gen pods must keep pulling, capped at
+/// their final share — for exactly as long as any departing-generation
+/// pod of the same controller remains registered. Otherwise partitions
+/// sit on the old generation until termination forces every transfer
+/// into the pods' termination grace window.
+fn derive_members(
+    pods: &[RegisteredPod],
+    intents: &HashMap<ControllerRef, ClusterIntent>,
+    total_partitions: u32,
+) -> Vec<Member> {
+    let transitioning: HashSet<&ControllerRef> = pods
+        .iter()
+        .filter_map(|pod| {
+            let (controller, intent) = pod_intent(pod, intents)?;
+            (controller.kind == ControllerKind::Deployment
+                && classify_departure(intent, &pod.generation) == DepartureReason::Rollout)
+                .then_some(controller)
+        })
+        .collect();
+
     let mut members: Vec<Member> = Vec::new();
     for pod in pods {
-        if let Some(policy) = resolve_pod_policy(k8s, pod, total_partitions).await {
+        let policy = match pod_intent(pod, intents) {
+            None => base_policy(pod.status),
+            Some((controller, intent)) => {
+                let reason = classify_departure(intent, &pod.generation);
+                match (&controller.kind, pod.status, reason) {
+                    // Old-gen Ready pod keeps serving and keeps its
+                    // assignments, but receives nothing new and sheds
+                    // toward the incoming generation.
+                    (ControllerKind::Deployment, PodStatus::Ready, DepartureReason::Rollout) => {
+                        Some(PlacementPolicy::Hold)
+                    }
+                    // Incoming-generation Ready pod is capped at its
+                    // final share while the transition is live, computed
+                    // fresh each evaluation so an HPA change mid-rollout
+                    // adjusts the quota.
+                    (ControllerKind::Deployment, PodStatus::Ready, _)
+                        if transitioning.contains(controller) && intent.desired_replicas > 0 =>
+                    {
+                        Some(PlacementPolicy::Active {
+                            cap: Some(total_partitions.div_ceil(intent.desired_replicas)),
+                        })
+                    }
+                    // StatefulSet rollout: Draining pod stays a member
+                    // (hold assignment) — the same pod name comes back
+                    // with a new revision.
+                    (
+                        ControllerKind::StatefulSet,
+                        PodStatus::Draining,
+                        DepartureReason::Rollout,
+                    ) => Some(PlacementPolicy::Active { cap: None }),
+                    _ => base_policy(pod.status),
+                }
+            }
+        };
+        if let Some(policy) = policy {
             members.push(Member {
                 name: pod.pod_name.clone(),
                 policy,
@@ -1376,113 +1493,17 @@ async fn members_for_k8s(
     members
 }
 
-/// Fetch the controller intent for one pod and derive its placement
-/// policy, falling back to status-only membership whenever K8s state is
-/// unavailable.
-async fn resolve_pod_policy(
-    k8s: &K8sAwareness,
-    pod: &RegisteredPod,
-    total_partitions: u32,
-) -> Option<PlacementPolicy> {
-    let (Some(controller), generation) = (&pod.controller, &pod.generation) else {
-        return base_policy(pod.status);
-    };
-
-    if generation.is_empty() {
-        return base_policy(pod.status);
+/// A pod's controller ref and watched intent, when both are usable.
+fn pod_intent<'p, 'i>(
+    pod: &'p RegisteredPod,
+    intents: &'i HashMap<ControllerRef, ClusterIntent>,
+) -> Option<(&'p ControllerRef, &'i ClusterIntent)> {
+    let controller = pod.controller.as_ref()?;
+    if pod.generation.is_empty() {
+        return None;
     }
-
-    // Lazily start the controller watch from the registration's own
-    // ref — the coordinator has no pod of its own to discover from,
-    // and without a watch `classify_departure` has no intent to
-    // consult. Idempotent, so calling per evaluation is cheap; the
-    // first evaluation after a watch starts may still have no intent,
-    // which safely leaves the pod on its status-only policy until
-    // intent arrives.
-    if let Err(e) = k8s.watch_controller(controller).await {
-        tracing::warn!(
-            controller = %controller,
-            error = %e,
-            "failed to start controller watch; using status-only policy"
-        );
-        return base_policy(pod.status);
-    }
-
-    let Some(intent) = k8s.cluster_intent(controller).await else {
-        return base_policy(pod.status);
-    };
-
-    let policy = pod_policy(
-        &controller.kind,
-        pod.status,
-        &intent,
-        generation,
-        total_partitions,
-    );
-    match policy {
-        Some(PlacementPolicy::Hold) => {
-            tracing::info!(
-                pod = %pod.pod_name,
-                controller = %controller,
-                generation = %generation,
-                "holding old-gen deployment pod during rollout"
-            );
-        }
-        Some(PlacementPolicy::Active { cap: Some(cap) }) => {
-            tracing::info!(
-                pod = %pod.pod_name,
-                controller = %controller,
-                generation = %generation,
-                cap,
-                "capping new-gen pod at its rollout quota"
-            );
-        }
-        Some(PlacementPolicy::Active { cap: None }) if pod.status == PodStatus::Draining => {
-            tracing::info!(
-                pod = %pod.pod_name,
-                controller = %controller,
-                generation = %generation,
-                "holding assignment for statefulset pod during rollout"
-            );
-        }
-        _ => {}
-    }
-    policy
-}
-
-/// Placement policy from controller kind, pod status, and cluster intent.
-fn pod_policy(
-    kind: &ControllerKind,
-    status: PodStatus,
-    intent: &ClusterIntent,
-    generation: &str,
-    total_partitions: u32,
-) -> Option<PlacementPolicy> {
-    let reason = classify_departure(intent, generation);
-    match (kind, status, reason) {
-        // Deployment rollout: old-gen Ready pod keeps serving and keeps
-        // its assignments, but receives nothing new and sheds toward the
-        // incoming generation.
-        (ControllerKind::Deployment, PodStatus::Ready, DepartureReason::Rollout) => {
-            Some(PlacementPolicy::Hold)
-        }
-        // Deployment rollout: incoming-generation Ready pod is capped at
-        // its final share, computed fresh each evaluation so an HPA
-        // change mid-rollout adjusts the quota.
-        (ControllerKind::Deployment, PodStatus::Ready, _)
-            if intent.rollout_in_progress && intent.desired_replicas > 0 =>
-        {
-            Some(PlacementPolicy::Active {
-                cap: Some(total_partitions.div_ceil(intent.desired_replicas)),
-            })
-        }
-        // StatefulSet rollout: Draining pod stays a member (hold
-        // assignment) — the same pod name comes back with a new revision.
-        (ControllerKind::StatefulSet, PodStatus::Draining, DepartureReason::Rollout) => {
-            Some(PlacementPolicy::Active { cap: None })
-        }
-        _ => base_policy(status),
-    }
+    let intent = intents.get(controller)?;
+    Some((controller, intent))
 }
 
 /// Membership when there is no K8s signal: Ready pods are uncapped
@@ -1534,114 +1555,186 @@ mod tests {
         }
     }
 
+    fn deploy_ref() -> ControllerRef {
+        ControllerRef {
+            kind: ControllerKind::Deployment,
+            name: "deploy".to_string(),
+        }
+    }
+
+    fn ss_ref() -> ControllerRef {
+        ControllerRef {
+            kind: ControllerKind::StatefulSet,
+            name: "ss".to_string(),
+        }
+    }
+
+    fn k8s_pod(
+        name: &str,
+        generation: &str,
+        status: PodStatus,
+        controller: ControllerRef,
+    ) -> RegisteredPod {
+        RegisteredPod {
+            pod_name: name.to_string(),
+            generation: generation.to_string(),
+            status,
+            registered_at: 0,
+            last_heartbeat: 0,
+            controller: Some(controller),
+            advertise_address: None,
+        }
+    }
+
+    fn policy_of(members: &[Member], name: &str) -> Option<PlacementPolicy> {
+        members.iter().find(|m| m.name == name).map(|m| m.policy)
+    }
+
     #[test]
     fn deployment_rollout_holds_old_gen_and_caps_new_gen() {
-        let intent = rollout_intent(3, true, "old", Some("new"));
+        let intents = HashMap::from([(deploy_ref(), rollout_intent(3, true, "old", Some("new")))]);
+        let pods = vec![
+            k8s_pod("old-0", "old", PodStatus::Ready, deploy_ref()),
+            k8s_pod("new-0", "new", PodStatus::Ready, deploy_ref()),
+        ];
+        let members = derive_members(&pods, &intents, 12);
+        assert_eq!(policy_of(&members, "old-0"), Some(PlacementPolicy::Hold));
         assert_eq!(
-            pod_policy(
-                &ControllerKind::Deployment,
-                PodStatus::Ready,
-                &intent,
-                "old",
-                12
-            ),
-            Some(PlacementPolicy::Hold)
+            policy_of(&members, "new-0"),
+            Some(PlacementPolicy::Active { cap: Some(4) })
+        );
+    }
+
+    /// The regression the k3s rollout test caught: after k8s reports the
+    /// rollout complete, still-registered old-gen pods must keep the
+    /// caps alive or the placement freezes with everything on the old
+    /// generation until termination.
+    #[test]
+    fn caps_survive_rollout_completion_while_old_gen_registered() {
+        let intents = HashMap::from([(deploy_ref(), rollout_intent(2, false, "new", None))]);
+        let pods = vec![
+            k8s_pod("old-0", "old", PodStatus::Ready, deploy_ref()),
+            k8s_pod("old-1", "old", PodStatus::Ready, deploy_ref()),
+            k8s_pod("new-0", "new", PodStatus::Ready, deploy_ref()),
+            k8s_pod("new-1", "new", PodStatus::Ready, deploy_ref()),
+        ];
+        let members = derive_members(&pods, &intents, 8);
+        assert_eq!(policy_of(&members, "old-0"), Some(PlacementPolicy::Hold));
+        assert_eq!(policy_of(&members, "old-1"), Some(PlacementPolicy::Hold));
+        assert_eq!(
+            policy_of(&members, "new-0"),
+            Some(PlacementPolicy::Active { cap: Some(4) })
         );
         assert_eq!(
-            pod_policy(
-                &ControllerKind::Deployment,
-                PodStatus::Ready,
-                &intent,
-                "new",
-                12
-            ),
+            policy_of(&members, "new-1"),
+            Some(PlacementPolicy::Active { cap: Some(4) })
+        );
+    }
+
+    /// A draining old-gen pod is not a member but still marks the
+    /// transition as live, so its incoming replacements stay capped.
+    #[test]
+    fn draining_old_gen_pod_keeps_the_transition_live() {
+        let intents = HashMap::from([(deploy_ref(), rollout_intent(2, false, "new", None))]);
+        let pods = vec![
+            k8s_pod("old-0", "old", PodStatus::Draining, deploy_ref()),
+            k8s_pod("new-0", "new", PodStatus::Ready, deploy_ref()),
+        ];
+        let members = derive_members(&pods, &intents, 8);
+        assert_eq!(policy_of(&members, "old-0"), None);
+        assert_eq!(
+            policy_of(&members, "new-0"),
             Some(PlacementPolicy::Active { cap: Some(4) })
         );
     }
 
     #[test]
-    fn deployment_draining_pod_is_not_a_member() {
-        let intent = rollout_intent(3, true, "old", Some("new"));
-        assert_eq!(
-            pod_policy(
-                &ControllerKind::Deployment,
-                PodStatus::Draining,
-                &intent,
-                "old",
-                12
-            ),
-            None
-        );
-    }
-
-    #[test]
     fn deployment_steady_state_is_uncapped() {
-        let intent = rollout_intent(3, false, "gen", None);
+        let intents = HashMap::from([(deploy_ref(), rollout_intent(2, false, "gen", None))]);
+        let pods = vec![
+            k8s_pod("pod-0", "gen", PodStatus::Ready, deploy_ref()),
+            k8s_pod("pod-1", "gen", PodStatus::Ready, deploy_ref()),
+        ];
+        let members = derive_members(&pods, &intents, 8);
         assert_eq!(
-            pod_policy(
-                &ControllerKind::Deployment,
-                PodStatus::Ready,
-                &intent,
-                "gen",
-                12
-            ),
+            policy_of(&members, "pod-0"),
             Some(PlacementPolicy::Active { cap: None })
         );
-    }
-
-    #[test]
-    fn completed_rollout_still_holds_departing_old_gen() {
-        let intent = rollout_intent(3, false, "new", None);
         assert_eq!(
-            pod_policy(
-                &ControllerKind::Deployment,
-                PodStatus::Ready,
-                &intent,
-                "old",
-                12
-            ),
-            Some(PlacementPolicy::Hold)
+            policy_of(&members, "pod-1"),
+            Some(PlacementPolicy::Active { cap: None })
         );
     }
 
     #[test]
     fn zero_desired_replicas_leaves_new_gen_uncapped() {
-        let intent = rollout_intent(0, true, "old", Some("new"));
+        let intents = HashMap::from([(deploy_ref(), rollout_intent(0, true, "old", Some("new")))]);
+        let pods = vec![
+            k8s_pod("old-0", "old", PodStatus::Ready, deploy_ref()),
+            k8s_pod("new-0", "new", PodStatus::Ready, deploy_ref()),
+        ];
+        let members = derive_members(&pods, &intents, 12);
         assert_eq!(
-            pod_policy(
-                &ControllerKind::Deployment,
-                PodStatus::Ready,
-                &intent,
-                "new",
-                12
-            ),
+            policy_of(&members, "new-0"),
             Some(PlacementPolicy::Active { cap: None })
         );
     }
 
     #[test]
-    fn statefulset_draining_held_only_during_rollout() {
-        let rollout = rollout_intent(3, true, "old", Some("new"));
+    fn missing_intent_falls_back_to_status_only_membership() {
+        let intents = HashMap::new();
+        let pods = vec![
+            k8s_pod("pod-0", "old", PodStatus::Ready, deploy_ref()),
+            k8s_pod("pod-1", "old", PodStatus::Draining, deploy_ref()),
+        ];
+        let members = derive_members(&pods, &intents, 8);
         assert_eq!(
-            pod_policy(
-                &ControllerKind::StatefulSet,
-                PodStatus::Draining,
-                &rollout,
-                "old",
-                12
-            ),
+            policy_of(&members, "pod-0"),
             Some(PlacementPolicy::Active { cap: None })
         );
-        let steady = rollout_intent(3, false, "gen", None);
+        assert_eq!(policy_of(&members, "pod-1"), None);
+    }
+
+    #[test]
+    fn statefulset_draining_held_only_during_rollout() {
+        let rollout = HashMap::from([(ss_ref(), rollout_intent(3, true, "old", Some("new")))]);
+        let pods = vec![k8s_pod("ss-0", "old", PodStatus::Draining, ss_ref())];
+        let members = derive_members(&pods, &rollout, 8);
         assert_eq!(
-            pod_policy(
-                &ControllerKind::StatefulSet,
-                PodStatus::Draining,
-                &steady,
-                "gen",
-                12
-            ),
-            None
+            policy_of(&members, "ss-0"),
+            Some(PlacementPolicy::Active { cap: None })
+        );
+
+        let steady = HashMap::from([(ss_ref(), rollout_intent(3, false, "gen", None))]);
+        let pods = vec![k8s_pod("ss-0", "gen", PodStatus::Draining, ss_ref())];
+        let members = derive_members(&pods, &steady, 8);
+        assert_eq!(policy_of(&members, "ss-0"), None);
+    }
+
+    /// Old-gen pods of one controller must not cap pods of another.
+    #[test]
+    fn transition_is_scoped_per_controller() {
+        let other = ControllerRef {
+            kind: ControllerKind::Deployment,
+            name: "other".to_string(),
+        };
+        let intents = HashMap::from([
+            (deploy_ref(), rollout_intent(2, false, "new", None)),
+            (other.clone(), rollout_intent(2, false, "gen", None)),
+        ]);
+        let pods = vec![
+            k8s_pod("old-0", "old", PodStatus::Ready, deploy_ref()),
+            k8s_pod("new-0", "new", PodStatus::Ready, deploy_ref()),
+            k8s_pod("other-0", "gen", PodStatus::Ready, other),
+        ];
+        let members = derive_members(&pods, &intents, 8);
+        assert_eq!(
+            policy_of(&members, "new-0"),
+            Some(PlacementPolicy::Active { cap: Some(4) })
+        );
+        assert_eq!(
+            policy_of(&members, "other-0"),
+            Some(PlacementPolicy::Active { cap: None })
         );
     }
 }

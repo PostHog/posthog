@@ -111,17 +111,15 @@ impl K8sAwareness {
 
     /// The watcher's current view of a controller's intent, if watched.
     ///
-    /// Returns `None` when the controller isn't being watched, hasn't
-    /// reported yet, or the lock is contended — callers must treat that
-    /// as "no rollout signal" and fall back to policy-free behavior.
+    /// Returns `None` when the controller isn't being watched or hasn't
+    /// reported yet — callers must treat that as "no rollout signal" and
+    /// fall back to policy-free behavior. Waits for the lock (writers
+    /// hold it only for map updates): a `try_read` here would blank the
+    /// intent under contention, and a blanked intent flips a whole
+    /// rollout's placement policies to plain balancing for that
+    /// evaluation, churning partitions in both directions.
     pub async fn cluster_intent(&self, controller: &ControllerRef) -> Option<ClusterIntent> {
-        match self.controllers.try_read() {
-            Ok(controllers) => controllers.get(controller).cloned(),
-            Err(_) => {
-                debug!(controller = %controller, "controllers lock contended, returning no intent");
-                None
-            }
-        }
+        self.controllers.read().await.get(controller).cloned()
     }
 
     /// Start watching a controller if not already watching.

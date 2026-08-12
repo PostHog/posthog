@@ -134,6 +134,13 @@ fn balanced_assignments(
 /// A cap never forces shedding: a member already above its cap (the cap
 /// shrank under it) keeps what it has and simply receives nothing new —
 /// shedding would move partitions the rollout is about to move again.
+///
+/// Most partitions move once, straight to their final owner, but not
+/// all: orphans that overflow onto Hold members (phase 3, when no capped
+/// member has room) move again when capacity appears, and ceil-rounded
+/// caps can leave the final post-transition balance one leveling move
+/// away. Both are the cost of assigning every partition an owner at
+/// every step.
 fn quota_assignments(
     current: &HashMap<u32, String>,
     members: &[Member],
