@@ -5,7 +5,7 @@ from typing import Any, ClassVar, Optional
 
 from django.conf import settings
 from django.core.cache import cache
-from django.db.models import QuerySet
+from django.db.models import Q, QuerySet
 from django.http import HttpRequest, JsonResponse
 
 import jwt
@@ -37,6 +37,7 @@ from posthog.exceptions import QuotaLimitExceeded
 from posthog.exceptions_capture import capture_exception
 from posthog.models.integration import Integration
 from posthog.rate_limit import SubscriptionTestDeliveryThrottle
+from posthog.rbac.user_access_control import UserAccessControl
 from posthog.resource_limits import LimitKey, check_count_limit, get_organization_limit
 from posthog.slo.context import SloSpec, slo_operation
 from posthog.slo.types import SloArea, SloOperation
@@ -94,6 +95,15 @@ def _count_active_summaries(organization) -> int:
 
 def _invalidate_summary_quota_cache(organization_id) -> None:
     cache.delete(_summary_quota_cache_key(organization_id))
+
+
+def _require_viewer_access(context: dict[str, Any], obj: Insight | Dashboard, field: str) -> None:
+    # Team scoping alone doesn't gate per-object access controls, and `subscription` isn't an
+    # access-control resource — so require viewer access explicitly. Saving a subscription renders
+    # its target server-side and delivers the results to an arbitrary address, so subscription:write
+    # must not become a way to read a restricted insight or dashboard.
+    if not context["view"].user_access_control.check_access_level_for_object(obj, "viewer"):
+        raise ValidationError({field: [f"Viewer access to this {field} is required."]})
 
 
 def _ai_create_gate_reason(organization, distinct_id: str) -> Optional[str]:
@@ -418,6 +428,16 @@ class SubscriptionSerializer(serializers.ModelSerializer):
         if attrs.get("insight") and attrs["insight"].team.id != self.context["team_id"]:
             raise ValidationError({"insight": ["This insight does not belong to your team."]})
 
+        # Gate on the target the row will have *after* this write, falling back to the persisted one,
+        # so a PATCH that omits insight/dashboard can't skip the check.
+        dashboard_after = attrs.get("dashboard") or (existing.dashboard if existing else None)
+        if dashboard_after is not None:
+            _require_viewer_access(self.context, dashboard_after, "dashboard")
+
+        insight_after = attrs.get("insight") or (existing.insight if existing else None)
+        if insight_after is not None:
+            _require_viewer_access(self.context, insight_after, "insight")
+
         if existing is None:
             # Create: a subscription must export an insight, a dashboard, or an AI prompt.
             if not attrs.get("dashboard") and not attrs.get("insight") and not attrs.get("prompt"):
@@ -677,11 +697,23 @@ class SubscriptionSerializer(serializers.ModelSerializer):
                 )
 
             # Ensure all selected insights belong to the team
-            if Insight.objects.filter(id__in=selected_ids, team_id=self.context["team_id"]).count() != len(
-                selected_ids
-            ):
+            team_insights = Insight.objects.filter(id__in=selected_ids, team_id=self.context["team_id"])
+            if team_insights.count() != len(selected_ids):
                 raise ValidationError(
                     {"dashboard_export_insights": ["Some insights do not belong to your team or do no longer exist."]}
+                )
+
+            # Each selected tile is rendered and delivered on its own, and an insight can be restricted
+            # independently of the dashboard it sits on, so viewer access to the dashboard doesn't cover
+            # them. The dashboard API redacts such tiles for the same reason.
+            viewable_ids = set(
+                self.context["view"]
+                .user_access_control.filter_queryset_by_access_level(team_insights, include_all_if_admin=True)
+                .values_list("id", flat=True)
+            )
+            if selected_ids - viewable_ids:
+                raise ValidationError(
+                    {"dashboard_export_insights": ["Viewer access to every selected insight is required."]}
                 )
 
             # Ensure all selected insights belong to the dashboard (and are not deleted)
@@ -909,6 +941,36 @@ class SubscriptionSerializer(serializers.ModelSerializer):
             pass
 
         return instance
+
+
+def _viewable_target_filter(user_access_control: UserAccessControl, team_id: int, prefix: str = "") -> Q:
+    """Match only subscriptions whose insight/dashboard target the caller can view.
+
+    Subscription read/write access does not imply access to the target's results, and `subscription`
+    isn't an access-control resource — so without this a restricted insight or dashboard leaks its
+    name and rendered results, and a PATCH that omits `insight`/`dashboard` skips the create-time
+    check. Applying this to the viewset queryset covers list, retrieve, update, delete, and the
+    nested delivery routes, since get_object() resolves detail routes from that queryset.
+    AI prompt subscriptions have no insight or dashboard; they're gated on query access instead.
+    """
+    if not user_access_control.access_controls_supported:
+        # No entitlement means no rules to enforce, and the filter below would resolve to a no-op
+        # anyway — return early so every list request doesn't carry two pointless subqueries.
+        return Q()
+
+    # include_all_if_admin mirrors check_access_level_for_object, which org admins bypass outright —
+    # without it an admin could save a subscription the read side then hides from them.
+    viewable_insights = user_access_control.filter_queryset_by_access_level(
+        Insight.objects.filter(team_id=team_id), include_all_if_admin=True
+    )
+    viewable_dashboards = user_access_control.filter_queryset_by_access_level(
+        Dashboard.objects.filter(team_id=team_id), include_all_if_admin=True
+    )
+    return (
+        Q(**{f"{prefix}insight_id__in": viewable_insights.values("id")})
+        | Q(**{f"{prefix}dashboard_id__in": viewable_dashboards.values("id")})
+        | Q(**{f"{prefix}insight_id__isnull": True, f"{prefix}dashboard_id__isnull": True})
+    )
 
 
 def _parse_int_param(value: str, param: str) -> int:
@@ -1140,7 +1202,7 @@ class SubscriptionViewSet(TeamAndOrgViewSetMixin, ForbidDestroyModel, viewsets.M
             elif key == "deleted":
                 queryset = queryset.filter(deleted=str_to_bool(request_params["deleted"]))
 
-        return queryset
+        return queryset.filter(_viewable_target_filter(self.user_access_control, self.team_id))
 
     @extend_schema(
         extensions={"x-product": "subscriptions"},
@@ -1477,7 +1539,9 @@ class SubscriptionDeliveryViewSet(TeamAndOrgViewSetMixin, viewsets.ReadOnlyModel
                         {"status": [f"Must be one of: {', '.join(sorted(valid))}."]},
                     )
                 queryset = queryset.filter(status=status_param)
-        return queryset
+        # A delivery row carries the rendered target (content_snapshot holds each insight's
+        # query_results), so it needs the same target-access gate as the parent subscription.
+        return queryset.filter(_viewable_target_filter(self.user_access_control, self.team_id, prefix="subscription__"))
 
 
 def unsubscribe(request: HttpRequest):

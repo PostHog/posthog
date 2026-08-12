@@ -24,6 +24,7 @@ from posthog.models.utils import generate_random_token_personal, hash_key_value
 from posthog.slo.context import slo_operation
 
 from products.dashboards.backend.models.dashboard import Dashboard
+from products.dashboards.backend.models.dashboard_tile import DashboardTile
 from products.exports.backend.models.subscription import (
     SUBSCRIPTION_COUNT_ALLOWED_ON_FREE_TIER,
     Subscription,
@@ -3104,3 +3105,184 @@ class TestAISubscriptionAPI(APILicensedTest):
         response = self.client.post(f"/api/projects/{self.team.id}/subscriptions", payload)
         assert response.status_code == status.HTTP_400_BAD_REQUEST, response.json()
         assert "ai_prompt_config" in str(response.json()), response.json()
+
+
+@patch("ee.api.subscription.sync_connect")
+class TestSubscriptionObjectAccessControl(APILicensedTest):
+    """Object-level access control on a subscription's insight/dashboard target.
+
+    Saving a subscription renders the target server-side and delivers it to an arbitrary address,
+    so `subscription:write` on its own must never reach a restricted insight or dashboard.
+    """
+
+    def setUp(self):
+        super().setUp()
+        self.organization.available_product_features = [
+            {"key": AvailableFeature.ACCESS_CONTROL, "name": AvailableFeature.ACCESS_CONTROL}
+        ]
+        self.organization.save(update_fields=["available_product_features"])
+        # Owners and creators bypass access controls, so the caller has to be a plain member and the
+        # restricted objects must belong to nobody.
+        self.organization_membership.level = OrganizationMembership.Level.MEMBER
+        self.organization_membership.save(update_fields=["level"])
+
+        self.open_insight = Insight.objects.create(team=self.team, filters={"events": [{"id": "$pageview"}]})
+        self.restricted_insight = Insight.objects.create(team=self.team, filters={"events": [{"id": "$pageview"}]})
+        self.restricted_dashboard = Dashboard.objects.create(team=self.team, name="Private numbers")
+        for resource, obj in (("insight", self.restricted_insight), ("dashboard", self.restricted_dashboard)):
+            AccessControl.objects.create(
+                team=self.team,
+                resource=resource,
+                resource_id=str(obj.id),
+                organization_member=self.organization_membership,
+                access_level="none",
+            )
+        cache.clear()
+
+    def _payload(self, **overrides):
+        payload = {
+            "target_type": "email",
+            "target_value": "attacker@example.com",
+            "frequency": "daily",
+            "interval": 1,
+            "start_date": "2022-01-01T00:00:00Z",
+            "title": "Exfil",
+        }
+        payload.update(overrides)
+        return payload
+
+    def _subscription_for(self, **kwargs) -> Subscription:
+        return Subscription.objects.create(
+            team=self.team,
+            created_by=self.user,
+            target_type="email",
+            target_value="owner@example.com",
+            frequency="daily",
+            interval=1,
+            start_date=datetime(2022, 1, 1, 0, 0, 0, tzinfo=UTC),
+            title="Existing",
+            **kwargs,
+        )
+
+    @parameterized.expand(
+        [
+            ("restricted_insight", "insight", "restricted_insight", status.HTTP_400_BAD_REQUEST),
+            ("restricted_dashboard", "dashboard", "restricted_dashboard", status.HTTP_400_BAD_REQUEST),
+            # The open insight proves the gate doesn't block a member's ordinary subscription.
+            ("open_insight", "insight", "open_insight", status.HTTP_201_CREATED),
+        ]
+    )
+    def test_create_requires_viewer_access_to_target(self, mock_sync, _name, field, target_attr, expected_status):
+        mock_client = MagicMock()
+        mock_client.start_workflow = AsyncMock()
+        mock_sync.return_value = mock_client
+
+        target = getattr(self, target_attr)
+        extra = {}
+        if field == "dashboard":
+            DashboardTile.objects.create(dashboard=target, insight=self.open_insight)
+            extra = {"dashboard_export_insights": [self.open_insight.id]}
+
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/subscriptions", self._payload(**{field: target.id}, **extra)
+        )
+
+        assert response.status_code == expected_status, response.json()
+        if expected_status == status.HTTP_201_CREATED:
+            return
+        assert "Viewer access" in str(response.json()), response.json()
+        # No delivery may be enqueued for a rejected target — send_test_now defaults to true on create.
+        mock_client.start_workflow.assert_not_called()
+
+    def test_create_rejects_restricted_insight_among_dashboard_exports(self, mock_sync):
+        # An insight can be restricted independently of the dashboard it sits on, and each selected
+        # tile is rendered and delivered on its own.
+        dashboard = Dashboard.objects.create(team=self.team, name="Team dashboard")
+        DashboardTile.objects.create(dashboard=dashboard, insight=self.open_insight)
+        DashboardTile.objects.create(dashboard=dashboard, insight=self.restricted_insight)
+
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/subscriptions",
+            self._payload(
+                dashboard=dashboard.id,
+                dashboard_export_insights=[self.open_insight.id, self.restricted_insight.id],
+            ),
+        )
+
+        body = response.json()
+        assert response.status_code == status.HTTP_400_BAD_REQUEST, body
+        assert body["attr"] == "dashboard_export_insights", body
+        assert "Viewer access" in body["detail"], body
+
+    @parameterized.expand(
+        [
+            # A PATCH that omits insight/dashboard must not skip the check, and neither may a
+            # soft-delete or a test delivery on someone else's subscription.
+            ("patch", "patch"),
+            ("retrieve", "get"),
+            ("test_delivery", "post"),
+        ]
+    )
+    def test_restricted_subscription_is_not_reachable_by_id(self, mock_sync, flow, method):
+        mock_sync.return_value = MagicMock(start_workflow=AsyncMock())
+        subscription = self._subscription_for(insight=self.restricted_insight)
+        url = f"/api/projects/{self.team.id}/subscriptions/{subscription.id}"
+        if flow == "test_delivery":
+            url = f"{url}/test-delivery"
+
+        args = ({"target_value": "attacker@example.com"},) if flow == "patch" else ()
+        response = getattr(self.client, method)(url, *args)
+
+        assert response.status_code == status.HTTP_404_NOT_FOUND, response.json()
+
+    def test_list_and_filters_hide_subscriptions_on_restricted_targets(self, mock_sync):
+        visible = self._subscription_for(insight=self.open_insight)
+        hidden_insight_sub = self._subscription_for(insight=self.restricted_insight)
+        self._subscription_for(dashboard=self.restricted_dashboard)
+
+        listed = self.client.get(f"/api/projects/{self.team.id}/subscriptions")
+        assert listed.status_code == status.HTTP_200_OK
+        assert [row["id"] for row in listed.json()["results"]] == [visible.id]
+
+        # Filtering by the restricted insight's id must not confirm the subscription exists or leak its name.
+        filtered = self.client.get(f"/api/projects/{self.team.id}/subscriptions?insight={self.restricted_insight.id}")
+        assert filtered.status_code == status.HTTP_200_OK
+        assert filtered.json()["results"] == []
+        assert Subscription.objects.filter(pk=hidden_insight_sub.pk).exists()
+
+    def test_deliveries_of_restricted_subscription_are_hidden(self, mock_sync):
+        # A delivery row carries the rendered target: content_snapshot holds each insight's query_results.
+        subscription = self._subscription_for(insight=self.restricted_insight)
+        SubscriptionDelivery.objects.create(
+            subscription=subscription,
+            team=self.team,
+            temporal_workflow_id="wf-restricted",
+            idempotency_key="restricted-key",
+            trigger_type="scheduled",
+            target_type="email",
+            target_value="owner@example.com",
+            status=SubscriptionDelivery.Status.COMPLETED,
+            content_snapshot={"insights": [{"id": 1, "name": "Secret", "query_results": [[1, 2, 3]]}]},
+        )
+
+        response = self.client.get(f"/api/environments/{self.team.id}/subscriptions/{subscription.id}/deliveries/")
+
+        assert response.status_code == status.HTTP_200_OK
+        assert response.json()["results"] == []
+
+    def test_org_admin_still_sees_subscription_on_a_private_insight(self, mock_sync):
+        # Org admins bypass object-level access control when a subscription is saved, so the read side
+        # has to let them through too — otherwise a save succeeds and the follow-up GET 404s.
+        self.organization_membership.level = OrganizationMembership.Level.ADMIN
+        self.organization_membership.save(update_fields=["level"])
+        private_insight = Insight.objects.create(team=self.team, filters={"events": [{"id": "$pageview"}]})
+        # "Private" means a project-default deny on the object, with no member or role attached.
+        AccessControl.objects.create(
+            team=self.team, resource="insight", resource_id=str(private_insight.id), access_level="none"
+        )
+        cache.clear()
+        subscription = self._subscription_for(insight=private_insight)
+
+        response = self.client.get(f"/api/projects/{self.team.id}/subscriptions/{subscription.id}")
+
+        assert response.status_code == status.HTTP_200_OK, response.json()
