@@ -145,22 +145,19 @@ class CanvasViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
             sandbox_task_id = self._sandbox_task_id(self.request)
             if sandbox_task_id is None:
                 return queryset.none()
-            task_creator_id = tasks_facade.task_creator_id(sandbox_task_id, self.team_id)
             public_canvas_q = tasks_facade.visible_channels_q(None, relation="channel")
-            if user is None or user.id != task_creator_id:
+            if user is None:
                 queryset = (
                     queryset.filter(public_canvas_q)
                     if self.action in self.scope_object_read_actions
                     else queryset.none()
                 )
             else:
-                creator_canvas_q = Q(created_by_id=task_creator_id) & tasks_facade.visible_channels_q(
-                    task_creator_id, relation="channel"
-                )
+                actor_canvas_q = Q(created_by_id=user.id) & tasks_facade.visible_channels_q(user.id, relation="channel")
                 queryset = queryset.filter(
-                    public_canvas_q | creator_canvas_q
+                    public_canvas_q | actor_canvas_q
                     if self.action in self.scope_object_read_actions
-                    else creator_canvas_q
+                    else actor_canvas_q
                 )
         else:
             # Channels are per-user for the personal kind: the facade's visibility

@@ -754,13 +754,6 @@ def task_exists(task_id: str | UUID, team_id: int) -> bool:
     return Task.objects.filter(id=task_id, team_id=team_id, deleted=False).exists()
 
 
-def task_creator_id(task_id: str | UUID, team_id: int) -> int | None:
-    """Return the creator of a non-deleted task in the team."""
-    return (
-        Task.objects.filter(id=task_id, team_id=team_id, deleted=False).values_list("created_by_id", flat=True).first()
-    )
-
-
 def task_is_in_channel(task_id: str | UUID, team_id: int, channel_id: str | UUID) -> bool:
     return Task.objects.filter(id=task_id, team_id=team_id, channel_id=channel_id, deleted=False).exists()
 

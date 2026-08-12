@@ -225,7 +225,7 @@ class TestCanvasCrud(CanvasAPIBaseTest):
         assert Canvas.objects.unscoped().get(id=allowed.json()["id"]).generation_task_id == bound_task.id
         assert denied.status_code == status.HTTP_403_FORBIDDEN
 
-    def test_task_bound_sandbox_can_read_canvases_created_by_the_task_creator(self):
+    def test_task_bound_sandbox_can_read_canvases_created_by_the_authenticated_user(self):
         bound_task = Task.objects.create(
             team=self.team,
             channel=self.channel,
@@ -335,6 +335,45 @@ class TestCanvasCrud(CanvasAPIBaseTest):
         assert public_write.status_code == status.HTTP_404_NOT_FOUND
         assert personal_read.status_code == status.HTTP_404_NOT_FOUND
 
+    def test_rebound_sandbox_can_write_canvas_created_by_actor(self) -> None:
+        actor = self._create_user("sandbox-canvas-author@example.com")
+        bound_task = Task.objects.create(
+            team=self.team,
+            channel=self.channel,
+            created_by=self.user,
+            title="Bound",
+            description="d",
+            origin_product=Task.OriginProduct.USER_CREATED,
+        )
+        client = self._sandbox_client(bound_task.id, user=actor)
+        headers = {"HTTP_X_POSTHOG_TASK_ID": str(bound_task.id)}
+
+        create_response = client.post(
+            f"/api/projects/{self.team.id}/canvases/",
+            {"name": "Actor canvas", "channel_id": str(self.channel.id)},
+            format="json",
+            **headers,
+        )
+        assert create_response.status_code == status.HTTP_201_CREATED
+        canvas_id = create_response.json()["id"]
+
+        update_response = client.patch(
+            f"/api/projects/{self.team.id}/canvases/{canvas_id}/",
+            {"name": "Updated by actor"},
+            format="json",
+            **headers,
+        )
+        publish_response = client.post(
+            f"/api/projects/{self.team.id}/canvases/{canvas_id}/publish/",
+            {"project": self._project()},
+            format="json",
+            **headers,
+        )
+
+        assert update_response.status_code == status.HTTP_200_OK
+        assert update_response.json()["name"] == "Updated by actor"
+        assert publish_response.status_code == status.HTTP_200_OK
+
     def test_task_bound_sandbox_can_read_but_not_write_another_creators_public_canvas(self):
         other_user = self._create_user("other-canvas-creator@example.com")
         bound_task = Task.objects.create(
@@ -367,7 +406,7 @@ class TestCanvasCrud(CanvasAPIBaseTest):
         assert read_response.status_code == status.HTTP_200_OK
         assert write_response.status_code == status.HTTP_404_NOT_FOUND
 
-    def test_personal_space_task_can_read_its_creators_canvas(self):
+    def test_personal_space_sandbox_can_read_authenticated_users_canvas(self):
         with team_scope(self.team.id):
             personal_channel = Channel.objects.create(
                 team=self.team,
