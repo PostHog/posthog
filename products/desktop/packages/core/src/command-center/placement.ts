@@ -1,6 +1,8 @@
 import {
   getCellCount,
   getLayoutToFit,
+  isBrainrotCell,
+  isTerminalCell,
   type LayoutPreset,
   reflowCells,
 } from "./grid";
@@ -20,6 +22,15 @@ export interface PlacementInput {
   cells: readonly (string | null)[];
   layout: LayoutPreset;
   taskIds: readonly string[];
+  /**
+   * The tasks that still exist. Cells are persisted and only pruned when a task
+   * is archived, so a deleted task's id lingers in the array; the grid renders
+   * that tile empty, and placement has to see the same free tile the user does.
+   *
+   * `null` when the task list isn't known yet, which holds every non-empty cell.
+   * Guessing the other way would tile over sessions that are still on the grid.
+   */
+  liveTaskIds: ReadonlySet<string> | null;
 }
 
 /**
@@ -27,19 +38,29 @@ export interface PlacementInput {
  * first, in display order, growing the grid when the batch outgrows them.
  *
  * Occupied tiles are never overwritten, which also covers the brainrot and
- * terminal sentinels — they read as occupied like any other non-empty cell.
+ * terminal sentinels — they hold something the grid draws, so they read as
+ * occupied like any cell holding a session.
  */
 export function planCommandCenterPlacement(
   input: PlacementInput,
 ): PlacementPlan {
-  const { layout, taskIds } = input;
-  const occupants = new Set(
-    input.cells.filter((cell): cell is string => cell != null),
-  );
+  const { layout, liveTaskIds, taskIds } = input;
+  const batch = new Set(taskIds);
+  // A cell is occupied when it holds something the grid actually draws. The
+  // batch counts as live too, so a session already tiled is left where it is
+  // rather than placed a second time.
+  const isOccupied = (cell: string | null): cell is string =>
+    cell != null &&
+    (liveTaskIds == null ||
+      isBrainrotCell(cell) ||
+      isTerminalCell(cell) ||
+      liveTaskIds.has(cell) ||
+      batch.has(cell));
+  const occupants = new Set(input.cells.filter(isOccupied));
 
   const alreadyPresent: string[] = [];
   const queue: string[] = [];
-  for (const id of new Set(taskIds)) {
+  for (const id of batch) {
     if (occupants.has(id)) alreadyPresent.push(id);
     else queue.push(id);
   }
@@ -65,7 +86,7 @@ export function planCommandCenterPlacement(
 
   const placed: string[] = [];
   for (let i = 0; i < cells.length && queue.length > 0; i++) {
-    if (cells[i] != null) continue;
+    if (isOccupied(cells[i])) continue;
     const id = queue.shift() as string;
     cells[i] = id;
     placed.push(id);

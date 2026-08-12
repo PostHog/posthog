@@ -11,6 +11,7 @@ const hoisted = vi.hoisted(() => ({
   fileTask: vi.fn(),
   useChannels: vi.fn(),
   useFeatureFlag: vi.fn(),
+  useTasks: vi.fn(),
   pinnedTaskIds: new Set<string>(),
   toast: {
     success: vi.fn(),
@@ -47,6 +48,10 @@ vi.mock("./usePinnedTasks", () => ({
     setPinnedMany: hoisted.setPinnedMany,
     isSettingPinnedMany: false,
   }),
+}));
+
+vi.mock("@posthog/ui/features/tasks/useTasks", () => ({
+  useTasks: hoisted.useTasks,
 }));
 
 vi.mock("@posthog/ui/primitives/toast", () => ({ toast: hoisted.toast }));
@@ -88,6 +93,7 @@ describe("useSidebarBulkActions", () => {
       isLoading: false,
     });
     hoisted.useFeatureFlag.mockReturnValue(true);
+    hoisted.useTasks.mockReturnValue({ data: [{ id: "t1" }, { id: "t2" }] });
     hoisted.setPinnedMany.mockResolvedValue({
       succeeded: ["t1", "t2"],
       failed: [],
@@ -213,6 +219,28 @@ describe("useSidebarBulkActions", () => {
 
       expect(hoisted.toast.warning).toHaveBeenCalledWith(
         "1 added to Command Center, 1 didn't fit",
+      );
+    });
+
+    // A cell holding a deleted task draws empty, so placement needs the live
+    // list to see the same free tile — and null, not an empty set, while that
+    // list is still loading, or it would tile over sessions already on the grid.
+    it.each([
+      {
+        name: "the loaded task ids",
+        data: [{ id: "t9" }],
+        live: new Set(["t9"]),
+      },
+      { name: "null before the list loads", data: undefined, live: null },
+    ])("places against $name", ({ data, live }) => {
+      hoisted.useTasks.mockReturnValue({ data });
+      const { result } = render();
+
+      act(() => result.current.addSelectedToCommandCenter());
+
+      expect(hoisted.placeTasksInCommandCenter).toHaveBeenCalledWith(
+        ["t1", "t2"],
+        live,
       );
     });
   });

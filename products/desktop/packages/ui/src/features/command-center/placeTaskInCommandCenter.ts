@@ -33,12 +33,14 @@ export interface BulkPlacementResult {
  */
 export function placeTasksInCommandCenter(
   taskIds: string[],
+  liveTaskIds: ReadonlySet<string> | null,
 ): BulkPlacementResult {
   const state = useCommandCenterStore.getState();
   const plan = planCommandCenterPlacement({
     cells: state.cells,
     layout: state.layout,
     taskIds,
+    liveTaskIds,
   });
 
   if (plan.placed.length > 0) {

@@ -19,6 +19,7 @@ import { useFeatureFlag } from "@posthog/ui/features/feature-flags/useFeatureFla
 import { useArchivingTasksStore } from "@posthog/ui/features/sidebar/archivingTasksStore";
 import { useTaskSelectionStore } from "@posthog/ui/features/sidebar/taskSelectionStore";
 import { usePinnedTasks } from "@posthog/ui/features/sidebar/usePinnedTasks";
+import { useTasks } from "@posthog/ui/features/tasks/useTasks";
 import { toast } from "@posthog/ui/primitives/toast";
 import { logger } from "@posthog/ui/shell/logger";
 import { useQueryClient } from "@tanstack/react-query";
@@ -91,6 +92,15 @@ export function useSidebarBulkActions(
   });
   const channels = bluebirdEnabled ? fetchedChannels : EMPTY_CHANNELS;
   const { fileTask } = useChannelTaskMutations();
+
+  // The command centre's own task list, so a cell counts as free here exactly
+  // when the grid draws it empty. Same query key the grid uses, so this is a
+  // cache read rather than a second poll.
+  const { data: liveTasks } = useTasks();
+  const liveTaskIds = useMemo(
+    () => (liveTasks ? new Set(liveTasks.map((t) => t.id)) : null),
+    [liveTasks],
+  );
 
   const [isArchiving, setIsArchiving] = useState(false);
   const [isFiling, setIsFiling] = useState(false);
@@ -189,8 +199,10 @@ export function useSidebarBulkActions(
 
   const addSelectedToCommandCenter = useCallback(() => {
     if (selectedCount === 0) return;
-    const { placed, overflow, alreadyPresent } =
-      placeTasksInCommandCenter(taskIds);
+    const { placed, overflow, alreadyPresent } = placeTasksInCommandCenter(
+      taskIds,
+      liveTaskIds,
+    );
     clearSelection();
     if (overflow > 0) {
       toast.warning(
@@ -205,7 +217,7 @@ export function useSidebarBulkActions(
       return;
     }
     report("added to Command Center", placed, 0);
-  }, [clearSelection, report, selectedCount, taskIds]);
+  }, [clearSelection, liveTaskIds, report, selectedCount, taskIds]);
 
   const fileSelectedTo = useCallback(
     async (channelId: string) => {

@@ -685,10 +685,9 @@ export function ChannelSidebar({ channelId }: { channelId: string }) {
         runningCount={bulkArchiveConfirm?.runningCount ?? 0}
         stopsCloudSandbox={Boolean(bulkArchiveConfirm?.stopsCloudSandbox)}
         isArchiving={bulkActions.isArchiving}
-        onConfirm={() => {
-          void bulkActions.archiveSelected().then(() => {
-            setBulkArchiveConfirm(null);
-          });
+        onConfirm={async () => {
+          await bulkActions.archiveSelected();
+          setBulkArchiveConfirm(null);
         }}
         onCancel={() => setBulkArchiveConfirm(null)}
       />
