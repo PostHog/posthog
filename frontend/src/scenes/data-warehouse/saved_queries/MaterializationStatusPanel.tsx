@@ -25,6 +25,7 @@ import {
     SyncFrequencySelect,
     SyncFrequencyValue,
     defaultCadenceWithin,
+    modeDisabledReason,
     unsatisfiableReason,
 } from './SyncFrequencySelect'
 
@@ -250,6 +251,7 @@ export function MaterializationStatusPanel({ viewId, kind = 'view' }: Materializ
                                                 tooltip="Stop refreshing on a schedule. The table stays, holding what it last loaded."
                                                 disabledReason={
                                                     materializationAccessReason ||
+                                                    modeDisabledReason(savedQuery.sync_frequency_bounds) ||
                                                     (isPaused ? 'Already paused. Pick a cadence to resume.' : undefined)
                                                 }
                                                 loading={updatingDataWarehouseSavedQuery}

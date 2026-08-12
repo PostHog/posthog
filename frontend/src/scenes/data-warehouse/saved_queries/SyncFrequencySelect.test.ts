@@ -1,6 +1,12 @@
 import { SyncFrequencyBoundsApi } from 'products/data_warehouse/frontend/generated/api.schemas'
 
-import { buildExplanation, buildOptions, defaultCadenceWithin, unsatisfiableReason } from './SyncFrequencySelect'
+import {
+    buildExplanation,
+    buildOptions,
+    defaultCadenceWithin,
+    modeDisabledReason,
+    unsatisfiableReason,
+} from './SyncFrequencySelect'
 
 describe('SyncFrequencySelect', () => {
     const blocker = (name: string): { id: string; name: string } => ({ id: `id-${name}`, name })
@@ -174,6 +180,21 @@ describe('SyncFrequencySelect', () => {
             )
 
             expect(explanation).toContain('hubspot_contacts and other sources upstream have no sync schedule')
+        })
+    })
+    describe('modeDisabledReason', () => {
+        it.each([
+            ['dag_schedule', "This project runs one schedule per DAG, so this view follows its DAG's frequency."],
+            ['managed_viewset', 'PostHog manages this view, including how often it refreshes.'],
+            ['no_node', 'This view is not set up for scheduled refreshes yet. Save it again, then pick a cadence.'],
+        ])('locks %s, where the backend refuses the write', (mode, reason) => {
+            const locked = bounds({ frequency_mode: mode as SyncFrequencyBoundsApi['frequency_mode'] })
+
+            expect(modeDisabledReason(locked)).toBe(reason)
+        })
+
+        it('leaves a tiered view editable', () => {
+            expect(modeDisabledReason(bounds())).toBeNull()
         })
     })
 })

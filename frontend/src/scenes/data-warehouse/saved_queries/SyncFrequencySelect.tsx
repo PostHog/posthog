@@ -37,14 +37,20 @@ const CADENCE_SEGMENTS: Record<DataModelingSyncInterval, string> = {
 const ORDERED_CADENCES = Object.keys(CADENCE_LABELS) as DataModelingSyncInterval[]
 
 /**
- * Why the picker is read-only, for the modes where cadence is not this view's to set.
+ * Why the cadence controls are read-only, for the modes where cadence is not this view's to set.
  *
- * `no_node` is deliberately absent. A view missing from the modeling graph has no bounds to show, but
- * disabling there would leave the one population that most needs a way forward with a locked control.
+ * `no_node` belongs here despite having no bounds to show: the missing-node guard refuses every
+ * cadence write, so a live control only buys a 400. The reason carries the way out instead.
  */
 const MODE_DISABLED_REASONS: Record<string, string> = {
     dag_schedule: "This project runs one schedule per DAG, so this view follows its DAG's frequency.",
     managed_viewset: 'PostHog manages this view, including how often it refreshes.',
+    no_node: 'This view is not set up for scheduled refreshes yet. Save it again, then pick a cadence.',
+}
+
+/** Why the view's frequency mode locks its cadence controls, or null where the mode allows them. */
+export function modeDisabledReason(bounds?: SyncFrequencyBoundsApi | null): string | null {
+    return (bounds && MODE_DISABLED_REASONS[bounds.frequency_mode]) || null
 }
 
 export interface SyncFrequencySelectProps {
@@ -80,7 +86,8 @@ export function SyncFrequencySelect({
         disabledReason ??
         (loading ? 'Saving the new cadence.' : undefined) ??
         unsatisfiableReason(bounds) ??
-        (bounds ? MODE_DISABLED_REASONS[bounds.frequency_mode] : undefined)
+        modeDisabledReason(bounds) ??
+        undefined
 
     return (
         <div className="flex flex-col gap-1 items-start" data-attr={dataAttr}>
