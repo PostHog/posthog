@@ -238,11 +238,8 @@ class TestServicesQueryDateRange(ClickhouseTestMixin, APIBaseTest):
 
     @freeze_time("2025-12-16T10:33:00Z")
     def test_sparkline_covers_exactly_the_returned_services(self):
-        # The sparkline must line up exactly with the aggregates result: never a
-        # service the table won't render (extra), and never a displayed service
-        # missing its trend. Exact equality holds because the fixture's 12
-        # services fit within SPARKLINE_SERVICES_LIMIT; beyond it the sparkline
-        # covers only the top services (see the scoping test below).
+        # Exact equality holds because the fixture's 12 services fit within
+        # SPARKLINE_SERVICES_LIMIT; past the limit only the top services get a trend.
         result = self._services("2025-12-16T00:00:00Z", "2025-12-16T23:59:59Z")
         service_names = {s["service_name"] for s in result["services"]}
         sparkline_services = {row["service_name"] for row in result["sparkline"]}
@@ -250,29 +247,20 @@ class TestServicesQueryDateRange(ClickhouseTestMixin, APIBaseTest):
         self.assertTrue(service_names)
         self.assertEqual(sparkline_services, service_names)
 
-    # The new tests below pass absolute date ranges, so they skip freeze_time:
-    # the first request of a test process imports the URLconf, and transitively
-    # pydantic.v1, whose date subclasses cannot be built while freezegun has
-    # datetime.date patched.
+    # The tests below pass absolute date ranges instead of freezing time: the first
+    # request of a test process imports the URLconf, and transitively pydantic.v1,
+    # whose date subclasses cannot be built while freezegun has datetime.date patched.
     def test_cap_limits_services_but_not_total_count(self):
-        # If the row cap stops being applied the response grows unbounded with
-        # service-name cardinality; if total_services gets computed from the
-        # capped rows instead of a separate uncapped count, the UI's truncation
-        # banner can never show. The fixture has 12 services.
         with patch.object(services_query_runner, "SERVICES_LIMIT", 5):
             result = self._services("2025-12-16T00:00:00Z", "2025-12-16T23:59:59Z")
 
         self.assertEqual(len(result["services"]), 5)
         self.assertEqual(result["total_services"], 12)
-        # The cap keeps the highest-volume services: every fixture service kept
-        # has 97+ rows, the smallest ones (11 and 3 rows) must be the ones cut.
+        # The cap keeps the highest-volume services: every kept fixture service has
+        # 97+ rows, so the smallest two (11 and 3 rows) are the ones cut.
         self.assertTrue(all(s["log_count"] >= 97 for s in result["services"]))
 
     def test_sparkline_scoped_to_top_services_when_over_limit(self):
-        # Scoping the sparkline query to every returned service would put
-        # services × buckets rows behind a single row LIMIT that silently drops
-        # the most recent buckets first; the scan must stay bounded to the top
-        # services of this response instead.
         with patch.object(services_query_runner, "SPARKLINE_SERVICES_LIMIT", 3):
             result = self._services("2025-12-16T00:00:00Z", "2025-12-16T23:59:59Z")
 
@@ -287,9 +275,8 @@ class TestServicesQueryDateRange(ClickhouseTestMixin, APIBaseTest):
                 "CDP",
                 {"cdp-legacy-events-consumer", "cdp-api", "cdp-api-webhooks", "cdp-behavioural-events-consumer"},
             ),
-            # % and _ are LIKE wildcards and \ is the LIKE escape character;
-            # unescaped, "%_" matches every service name. No fixture service
-            # contains any of them literally.
+            # Unescaped, "%_" matches every service name; no fixture name contains
+            # a literal %, _, or backslash.
             ("wildcards_matched_literally", "%_", set()),
             ("backslash_matched_literally", "\\", set()),
         ]
