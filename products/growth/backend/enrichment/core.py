@@ -17,6 +17,7 @@ from posthog.exceptions_capture import capture_exception
 from posthog.models.person.util import get_person_by_distinct_id
 
 from products.growth.backend.enrichment.bridge import ClayBridgeInputs, read_clay_bridge_inputs
+from products.growth.backend.enrichment.clearbit import ClearbitInputs, clearbit_inputs_from_person_properties
 from products.growth.backend.enrichment.fields import EnrichmentFields
 from products.growth.backend.enrichment.providers import EnrichmentProvider
 from products.growth.backend.enrichment.score import IcpScoreInputs, compute_icp_score
@@ -51,25 +52,27 @@ def _reconstruct_fields_from_record(organization_id: str) -> Optional[Enrichment
     return fields if fields.to_dict() else None
 
 
-def _person_score_is_ours_to_write(distinct_id: str) -> bool:
-    """False when the signer's person profile already carries a Clay-written score.
+def _fetch_recheck_person_inputs(distinct_id: str) -> tuple[bool, ClearbitInputs]:
+    """Fetch the signer's person once for the two recheck-only reads: mirror eligibility and Clearbit's fallback inputs.
 
     Clay's own writes never stamp icp_score_version; ours always do, so an unversioned icp_score
-    on the person is Clay's — never clobber it with a possibly-lower mirror. A person lookup
-    failure also says no, preferring a missed mirror over a possible clobber.
+    on the person is Clay's — never clobber it with a possibly-lower mirror. A lookup failure or
+    a malformed person record (unreadable properties) degrades both reads (no mirror, no
+    Clearbit fallback) rather than raising out of the scoring path, preferring a missed mirror
+    over a possible clobber.
     """
     try:
         person = get_person_by_distinct_id(team_id=settings.GROWTH_ENRICHMENT_INTERNAL_TEAM_ID, distinct_id=distinct_id)
+        if person is None:
+            return True, ClearbitInputs()
+
+        properties = person.properties or {}
+        clay_owned = properties.get("icp_score") is not None and properties.get("icp_score_version") is None
     except Exception as e:
         capture_exception(e)
-        return False
+        return False, ClearbitInputs()
 
-    if person is None:
-        return True
-
-    properties = person.properties or {}
-    clay_owned = properties.get("icp_score") is not None and properties.get("icp_score_version") is None
-    return not clay_owned
+    return not clay_owned, clearbit_inputs_from_person_properties(properties)
 
 
 def _score_and_mirror(
@@ -80,13 +83,14 @@ def _score_and_mirror(
     is_recheck: bool,
     distinct_id: Optional[str],
 ) -> tuple[Optional[int], Optional[str]]:
-    """Score one org and decide whether to mirror the score onto the signer's person profile.
+    """Score one org; on the recheck, also mirror the score onto the signer's person profile.
 
     Clay's bridge columns are read as an optional input on every attempt — used when present,
     never waited for. Clay's own write lands after ours far more often than not, so most orgs
     score on our fields alone at signup; the +4h recheck re-reads the bridge and can upgrade the
-    score if Clay's columns landed since. The person mirror stays recheck-only, and is skipped
-    entirely when the person already carries a Clay-written score.
+    score if Clay's columns landed since. The recheck adds one person lookup that serves two
+    things: the mirror-ownership check and the Clearbit fallback for est_revenue and company_type
+    (Clay wins when both exist).
 
     Wrapped so a bridge-read or score failure degrades to no score rather than taking down the
     firmographic write below — see enrich_organization's docstring.
@@ -104,26 +108,32 @@ def _score_and_mirror(
             return None, None
         clay = ClayBridgeInputs()
 
+    mirror_ok = False
+    clearbit = ClearbitInputs()
+    if is_recheck and distinct_id:
+        mirror_ok, clearbit = _fetch_recheck_person_inputs(distinct_id)
+
     icp_score = compute_icp_score(
         IcpScoreInputs(
             employees=fields.headcount,
-            est_revenue=clay.est_revenue,
+            # A Clay-written 0 is not information the formula can use either (_in_band is false
+            # at 0 same as at None), so it must not shadow a real Clearbit band.
+            est_revenue=clay.est_revenue or clearbit.est_revenue,
             role=role,
             # Clay never projects its GitHub column into PostHog, so this input is always
             # absent here — product-role orgs score 3, not 6, until v-next substitutes the
             # signup's own GitHub auth. Kept on IcpScoreInputs for formula fidelity.
             github_profile_url=None,
-            # Clay's own vocabulary ("private"/"public"), which our Harmonic `company_type`
-            # (raw enum, e.g. "STARTUP") does not share — so this stays a bridge read for now.
-            company_type=clay.company_type,
+            # Clearbit's company.type uses the same private/public vocabulary the formula
+            # matches on, unlike our Harmonic `company_type` (raw enum, e.g. "STARTUP") —
+            # safe to fall back to directly, same as Clay's own bridge-read value.
+            company_type=clay.company_type or clearbit.company_type,
             founded_year=fields.founded_year,
             country=fields.country,
         )
     )
 
-    mirror_distinct_id = None
-    if is_recheck and distinct_id and _person_score_is_ours_to_write(distinct_id):
-        mirror_distinct_id = distinct_id
+    mirror_distinct_id = distinct_id if mirror_ok else None
 
     return icp_score, mirror_distinct_id
 

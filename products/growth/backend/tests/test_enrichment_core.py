@@ -99,10 +99,10 @@ class TestEnrichmentCore(BaseTest):
 
         record = OrganizationEnrichment.objects.get(organization=self.organization)
         assert record.data["icp_score"] == 21
-        assert record.data["icp_score_version"] == "clay-parity-1"
+        assert record.data["icp_score_version"] == "clay-parity-2"
         properties = pha_client.group_identify.call_args.kwargs["properties"]
         assert properties["icp_score"] == 21
-        assert properties["icp_score_version"] == "clay-parity-1"
+        assert properties["icp_score_version"] == "clay-parity-2"
         pha_client.set.assert_not_called()
 
     def test_first_attempt_scores_without_waiting_for_clay(self):
@@ -114,7 +114,7 @@ class TestEnrichmentCore(BaseTest):
         assert result is fields
         record = OrganizationEnrichment.objects.get(organization=self.organization)
         assert record.data["icp_score"] == 12
-        assert record.data["icp_score_version"] == "clay-parity-1"
+        assert record.data["icp_score_version"] == "clay-parity-2"
 
     def test_first_attempt_miss_reconstructs_fields_from_a_prior_record_and_scores(self):
         # A re-dispatched first attempt (e.g. via the backfill command) can land on an org that
@@ -217,6 +217,100 @@ class TestEnrichmentCore(BaseTest):
         )
 
         assert pha_client.set.called is expect_mirror
+
+    def test_first_attempt_does_not_look_up_the_person(self):
+        # The Clearbit hog function and the mirror check both need the signer's person, but
+        # neither is recheck-independent — a first-attempt lookup would usually just read a
+        # not-yet-written profile.
+        fields = EnrichmentFields(headcount=750, country="US", founded_year=2021)
+        with (
+            patch("products.growth.backend.enrichment.core.read_clay_bridge_inputs", return_value=ClayBridgeInputs()),
+            patch("products.growth.backend.enrichment.core.get_person_by_distinct_id") as person_mock,
+        ):
+            async_to_sync(enrich_organization)(
+                organization_id=str(self.organization.id),
+                domain="stripe.com",
+                provider=_FakeProvider(ProviderLookup(fields=fields, raw_payload={"n": 1})),
+                pha_client=MagicMock(),
+                is_recheck=False,
+                role_at_organization="engineering",
+                distinct_id="signer-distinct-id",
+            )
+
+        person_mock.assert_not_called()
+
+    def test_recheck_person_lookup_failure_still_scores_from_non_clearbit_inputs(self):
+        pha_client = MagicMock()
+        fields = EnrichmentFields(headcount=750, country="US", founded_year=2021)
+        self._enrich(
+            ProviderLookup(fields=fields, raw_payload={"n": 1}),
+            is_recheck=True,
+            role_at_organization="engineering",
+            pha_client=pha_client,
+            distinct_id="signer-distinct-id",
+            person=RuntimeError("personhog down"),
+        )
+
+        record = OrganizationEnrichment.objects.get(organization=self.organization)
+        assert record.data["icp_score"] == 12
+        pha_client.set.assert_not_called()
+
+    @parameterized.expand(
+        [
+            (
+                "clay_wins_when_both_present",
+                ClayBridgeInputs(est_revenue=5_000_000, company_type="private"),
+                {"clearbit": {"company": {"metrics": {"estimatedAnnualRevenue": "$100M-$250M"}, "type": "public"}}},
+                9,
+            ),
+            (
+                "clearbit_fills_in_when_clay_is_absent",
+                ClayBridgeInputs(),
+                {"clearbit": {"company": {"metrics": {"estimatedAnnualRevenue": "$1M-$10M"}, "type": "private"}}},
+                9,
+            ),
+            (
+                "clay_zero_revenue_falls_back_to_clearbit",
+                # Clay's own _numeric coerces a written 0 (or "0") into 0.0, which the formula's
+                # strict bands treat exactly like a missing value — it must not shadow Clearbit's.
+                ClayBridgeInputs(est_revenue=0.0),
+                {"clearbit": {"company": {"metrics": {"estimatedAnnualRevenue": "$1M-$10M"}, "type": "private"}}},
+                9,
+            ),
+            ("both_absent_scores_neither_branch", ClayBridgeInputs(), {}, 0),
+        ]
+    )
+    def test_clearbit_fallback_composition_precedence(self, _name, clay, person_properties, expected_score):
+        fields = EnrichmentFields(country="US")
+        self._enrich(
+            ProviderLookup(fields=fields, raw_payload={"n": 1}),
+            is_recheck=True,
+            clay=clay,
+            distinct_id="signer-distinct-id",
+            person=MagicMock(properties=person_properties),
+        )
+
+        record = OrganizationEnrichment.objects.get(organization=self.organization)
+        assert record.data["icp_score"] == expected_score
+
+    def test_clearbit_fallback_does_not_block_the_mirror(self):
+        pha_client = MagicMock()
+        fields = EnrichmentFields(country="US")
+        self._enrich(
+            ProviderLookup(fields=fields, raw_payload={"n": 1}),
+            is_recheck=True,
+            clay=ClayBridgeInputs(),
+            distinct_id="signer-distinct-id",
+            person=MagicMock(
+                properties={
+                    "clearbit": {"company": {"metrics": {"estimatedAnnualRevenue": "$1M-$10M"}, "type": "private"}}
+                }
+            ),
+            pha_client=pha_client,
+        )
+
+        pha_client.set.assert_called_once()
+        assert pha_client.set.call_args.kwargs["properties"]["icp_score"] == 9
 
     def test_recheck_miss_reconstructs_fields_from_the_prior_record_and_scores(self):
         OrganizationEnrichment.objects.create(
