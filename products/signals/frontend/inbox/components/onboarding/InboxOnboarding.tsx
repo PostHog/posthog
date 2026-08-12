@@ -18,6 +18,8 @@ import { inboxOnboardingLogic } from '../../logics/inboxOnboardingLogic'
 import { SELF_DRIVING_WIZARD_COMMAND } from './constants'
 import { PullRequestPreview, ReportPreview } from './InboxOnboardingPreviews'
 
+export { SELF_DRIVING_WIZARD_COMMAND } from './constants'
+
 /** What the wizard wires up, shown as a reassuring checklist under the command. */
 const WIZARD_SETS_UP: { icon: JSX.Element; label: string }[] = [
     { icon: <IconGithub />, label: 'Connects your GitHub, so agents can open pull requests' },
