@@ -39,13 +39,16 @@ export class ElectronNotifier implements INotifier {
     notification.show();
   }
 
-  public setUnreadIndicator(on: boolean): void {
-    if (on) {
-      app.dock?.setBadge("•");
-    } else {
-      app.dock?.setBadge("");
+  public setUnreadCount(count: number): void {
+    // `app.dock` is macOS-only; Windows and Linux signal through flashFrame.
+    app.dock?.setBadge(count > 0 ? String(count) : "");
+    if (count === 0) {
       this.mainWindow.getBrowserWindow()?.flashFrame(false);
     }
+  }
+
+  public clearAttention(): void {
+    this.mainWindow.getBrowserWindow()?.flashFrame(false);
   }
 
   public requestAttention(): void {

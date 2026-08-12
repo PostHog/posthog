@@ -828,16 +828,26 @@ function NotificationTestHarness({
       {localWorkspaces && (
         <SettingRow
           label="Dock badge"
-          description="Adds the unread dot to the dock icon (clears on next focus)."
+          description="Puts a 3 on the dock icon. The real badge counts unread activity, so it returns to that count on the next change."
         >
-          <Button
-            variant="soft"
-            size="1"
-            onClick={() => notifications?.showUnreadIndicator()}
-            disabled={nativeUnavailable}
-          >
-            Show
-          </Button>
+          <div className="flex gap-2">
+            <Button
+              variant="soft"
+              size="1"
+              onClick={() => notifications?.setUnreadCount(3)}
+              disabled={nativeUnavailable}
+            >
+              Show
+            </Button>
+            <Button
+              variant="soft"
+              size="1"
+              onClick={() => notifications?.setUnreadCount(0)}
+              disabled={nativeUnavailable}
+            >
+              Clear
+            </Button>
+          </div>
         </SettingRow>
       )}
 

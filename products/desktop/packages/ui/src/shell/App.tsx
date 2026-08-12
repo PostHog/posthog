@@ -16,6 +16,7 @@ import { useIsOrgAdmin } from "@posthog/ui/features/auth/useOrgRole";
 import { CanvasGenerationToaster } from "@posthog/ui/features/canvas/freeform/useCanvasGenerationToasts";
 import { AddDirectoryDialog } from "@posthog/ui/features/folder-picker/AddDirectoryDialog";
 import { ErrorDetailsDialog } from "@posthog/ui/features/notifications/ErrorDetailsDialog";
+import { DockBadgeSync } from "@posthog/ui/features/notifications/useDockBadgeSync";
 import { OnboardingFlow } from "@posthog/ui/features/onboarding/components/OnboardingFlow";
 import { useOnboardingStore } from "@posthog/ui/features/onboarding/onboardingStore";
 import { SettingsDialog } from "@posthog/ui/features/settings/SettingsDialog";
@@ -218,6 +219,10 @@ function App({ devToolbar }: AppProps) {
             across every route (not just the canvas space). Renders null. */}
         <CanvasGenerationToaster />
         <PendingPromptRecovery />
+        {/* Keeps the dock badge in step with unread activity. Sibling of the
+            router because the settings route drops the app chrome, and the
+            sidebar row feeding the same count is one the user can hide. */}
+        <DockBadgeSync />
       </motion.div>
     );
   };

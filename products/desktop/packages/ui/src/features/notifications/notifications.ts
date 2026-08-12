@@ -122,8 +122,9 @@ export class NotificationBus {
         target: descriptor.target,
       });
     }
-    if (settings.dockBadgeNotifications)
-      this.notifications.showUnreadIndicator();
+    // The badge isn't set here: it mirrors the unread activity count through
+    // DockBadgeSync, so writing it from an event too would race that value.
+    // Bounce stays, being a momentary signal rather than state.
     if (settings.dockBounceNotifications) this.notifications.requestAttention();
   }
 
