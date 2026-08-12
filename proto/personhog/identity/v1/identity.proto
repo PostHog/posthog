@@ -147,6 +147,9 @@ message MergePersonsRequest {
   // merge-mode policy to handle. Required, at least 1; unlimited is not a
   // supported mode.
   optional int64 move_limit = 8;
+  // Merge event created_at, epoch millis. Used as the survivor's
+  // created_at when it predates the current value.
+  int64 created_at = 9;
 }
 
 enum MergeSourceOutcome {
@@ -186,7 +189,8 @@ message MergePersonsResponse {
   string op_id = 1;
   // The surviving person's document. Authoritative (the folded document
   // the leader produced) when a merge ran; the resolved person otherwise.
-  // Absent when the operation aborted without merging anything.
+  // An aborted operation still answers the person the event's writes were
+  // delivered to; absent only when the target no longer resolves.
   optional personhog.types.v1.Person survivor = 2;
   // One result per requested source, same order as the request.
   repeated MergeSourceResult results = 3;

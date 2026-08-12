@@ -170,7 +170,9 @@ def is_slack_app_canvas_file_artifacts_enabled(integration: Integration) -> bool
     install authorized earlier won't have them until it reconnects.
 
     The flag alone: the two adapters need one scope each, so they check theirs at point
-    of use and can name the one to grant. Keyed on the Slack workspace + PostHog org."""
+    of use and can name the one to grant, and chart images post by public url on
+    ``chat:write`` alone, so this flag can roll charts out ahead of those grants. Keyed
+    on the Slack workspace + PostHog org."""
     try:
         return bool(
             posthoganalytics.feature_enabled(

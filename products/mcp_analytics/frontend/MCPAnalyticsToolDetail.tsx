@@ -504,6 +504,7 @@ function MCPAnalyticsToolDetailContent({ toolName }: { toolName: string }): JSX.
         dateRangeLabel,
         dateFilter,
         interval,
+        pinnedInterval,
         incompleteTail,
     } = useValues(mcpAnalyticsToolDetailLogic({ toolName }))
     const { selectFailure } = useActions(mcpAnalyticsToolDetailLogic({ toolName }))
@@ -532,7 +533,7 @@ function MCPAnalyticsToolDetailContent({ toolName }: { toolName: string }): JSX.
                 resourceType={{ type: 'mcp_analytics' }}
                 forceBackTo={{
                     name: 'Tool quality',
-                    path: mcpToolQualityUrlWithDates(dateFilter),
+                    path: mcpToolQualityUrlWithDates(dateFilter, pinnedInterval),
                     key: 'mcp-analytics-tool-quality',
                 }}
             />
