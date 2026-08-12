@@ -9155,9 +9155,7 @@ After component`,
                 onChange,
             })
         )
-        fireEvent.doubleClick(
-            container.querySelector('.MarkdownNotebook__component-toolbar-title--button') as HTMLElement
-        )
+        fireEvent.click(container.querySelector('.MarkdownNotebook__component-toolbar-title--button') as HTMLElement)
         const titleInput = container.querySelector(
             'input.MarkdownNotebook__component-toolbar-title--input'
         ) as HTMLInputElement
@@ -9171,6 +9169,32 @@ After component`,
         expect(onChange.mock.calls.at(-1)?.[0]).toContain('title="Weekly signups"')
     })
 
+    it('collapses from the toolbar chevron, leaving the title click to rename only', () => {
+        const { container } = render(
+            createElement(MarkdownNotebook, {
+                value: '<Query query={{"kind":"DataTableNode","source":{"kind":"EventsQuery"}}} />',
+            })
+        )
+
+        fireEvent.click(container.querySelector('.MarkdownNotebook__component-toolbar-title--button') as HTMLElement)
+
+        expect(container.querySelector('input.MarkdownNotebook__component-toolbar-title--input')).toBeInstanceOf(
+            HTMLInputElement
+        )
+        expect(container.querySelector('.MarkdownNotebook__component-edit')).toBeInstanceOf(HTMLElement)
+        expect(container.querySelector('.MarkdownNotebook__component-preview')).toBeInstanceOf(HTMLElement)
+
+        fireEvent.click(container.querySelector('.MarkdownNotebook__component-toolbar-toggle') as HTMLElement)
+
+        expect(container.querySelector('.MarkdownNotebook__component-edit')).toBeNull()
+        expect(container.querySelector('.MarkdownNotebook__component-preview')).toBeNull()
+
+        fireEvent.click(container.querySelector('.MarkdownNotebook__component-toolbar-toggle') as HTMLElement)
+
+        expect(container.querySelector('.MarkdownNotebook__component-edit')).toBeInstanceOf(HTMLElement)
+        expect(container.querySelector('.MarkdownNotebook__component-preview')).toBeInstanceOf(HTMLElement)
+    })
+
     it('discards the title edit on Escape without persisting', () => {
         const onChange = jest.fn()
         const { container } = render(
@@ -9179,9 +9203,7 @@ After component`,
                 onChange,
             })
         )
-        fireEvent.doubleClick(
-            container.querySelector('.MarkdownNotebook__component-toolbar-title--button') as HTMLElement
-        )
+        fireEvent.click(container.querySelector('.MarkdownNotebook__component-toolbar-title--button') as HTMLElement)
         const titleInput = container.querySelector(
             'input.MarkdownNotebook__component-toolbar-title--input'
         ) as HTMLInputElement
@@ -9223,9 +9245,7 @@ After component`,
         const { container } = render(
             createElement(MarkdownNotebook, { value: '<SummaryCard id="summary-id" />', registry })
         )
-        fireEvent.doubleClick(
-            container.querySelector('.MarkdownNotebook__component-toolbar-title--button') as HTMLElement
-        )
+        fireEvent.click(container.querySelector('.MarkdownNotebook__component-toolbar-title--button') as HTMLElement)
         const titleInput = container.querySelector(
             'input.MarkdownNotebook__component-toolbar-title--input'
         ) as HTMLInputElement
@@ -9239,7 +9259,7 @@ After component`,
     it('does not suggest the query body or schema kinds as the title placeholder', () => {
         const getPlaceholder = (): string => {
             if (!container.querySelector('input.MarkdownNotebook__component-toolbar-title--input')) {
-                fireEvent.doubleClick(
+                fireEvent.click(
                     container.querySelector('.MarkdownNotebook__component-toolbar-title--button') as HTMLElement
                 )
             }
@@ -9341,7 +9361,7 @@ After component`,
         ])
         const getTitleInput = (): HTMLInputElement => {
             if (!container.querySelector('input.MarkdownNotebook__component-toolbar-title--input')) {
-                fireEvent.doubleClick(
+                fireEvent.click(
                     container.querySelector('.MarkdownNotebook__component-toolbar-title--button') as HTMLElement
                 )
             }

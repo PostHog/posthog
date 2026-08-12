@@ -579,6 +579,13 @@
     border-left: 2px solid var(--markdown-notebook-section-border);
 }
 
+// Room below the last card for the trailing insert boundary, so a new block can be dropped
+// inside the section rather than landing past its end marker. A collapsed section has no
+// cards to append to, so it keeps the tight header-only height.
+.MarkdownNotebook__section:not(.MarkdownNotebook__section--collapsed) {
+    padding-bottom: 0.75rem;
+}
+
 .MarkdownNotebook__canvas > .MarkdownNotebook__section:first-child,
 .MarkdownNotebook__canvas > .MarkdownNotebook__insert-boundary:first-child + .MarkdownNotebook__section {
     margin-top: 0;
@@ -1798,6 +1805,38 @@ h3.MarkdownNotebook__text-block--heading {
     gap: 0.5rem;
     align-items: center;
     min-width: 0;
+}
+
+.MarkdownNotebook__component-toolbar-toggle {
+    display: flex;
+    flex: 0 0 auto;
+    align-items: center;
+    justify-content: center;
+    width: 1.25rem;
+    height: 1.25rem;
+    appearance: none;
+    cursor: pointer;
+    background: transparent;
+    border: 1px solid transparent;
+    border-radius: 0.25rem;
+
+    &:hover {
+        background: var(--color-bg-fill-tertiary);
+    }
+
+    &:focus-visible {
+        border-color: var(--color-accent);
+        outline: none;
+    }
+}
+
+.MarkdownNotebook__component-toolbar-chevron {
+    color: var(--color-text-secondary);
+    transition: transform 120ms ease;
+}
+
+.MarkdownNotebook__component-toolbar-chevron--open {
+    transform: rotate(90deg);
 }
 
 .MarkdownNotebook__component-toolbar-title {

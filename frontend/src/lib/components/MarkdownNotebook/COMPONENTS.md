@@ -76,7 +76,8 @@ The notebook shell renders those above the component.
 If omitted, the shell falls back to string props such as `title`, `name`, `url`, `href`, `src`, or `id`.
 
 Every component also has a generic, user-editable title backed by the `title` prop.
-In edit mode the shell renders an editable title field in the toolbar, watermarked with the `getTitle` value (or "Add a title").
+In edit mode the shell renders an editable title field in the toolbar, watermarked with the `getTitle` value (or "Add a title"); clicking it starts a rename.
+Collapsing the component is a separate chevron next to that title, mirroring the section header, so renaming never folds the panels away.
 In view mode the shell shows the user's title if set, otherwise the `getTitle` value.
 A `title` equal to the component's own label (e.g. code blocks default `title` to "Python") is treated as no user title, so the field reads as empty by default.
 
