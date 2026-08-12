@@ -18,10 +18,6 @@ const mocks = vi.hoisted(() => ({
   taskRunsRefreshKeys: [] as number[],
 }));
 
-vi.mock("@posthog/ui/features/sessions/useCommentsEnabled", () => ({
-  useCommentsEnabled: () => true,
-}));
-
 vi.mock("@posthog/core/sessions/sessionService", () => ({
   SESSION_SERVICE: Symbol("SESSION_SERVICE"),
 }));
