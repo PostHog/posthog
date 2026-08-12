@@ -182,6 +182,7 @@ export const FEATURE_FLAGS = {
     UX_HIDE_PROJECT_NOTICE: 'ux-hide-project-notice', // owner: #team-platform-ux, hides the project notice banner across all scenes
 
     // Feature flags used to control opt-in for different behaviors, should not be removed
+    ACCESS_CONTROL_DETAIL_PANEL: 'access-control-detail-panel', // owner: @a-lider #team-platform-features, gates the member and role access detail side panel
     AI_OBSERVABILITY_SELF_DRIVING: 'ai-observability-daily-digest-scout', // owner: #team-ai-observability, gates the AI observability Self-driving tab
     AI_TRAINING: 'ai-training', // owner: @nicowaltz #team-replay #ai-research, gates the AI training opt-out UI and API enforcement
     AUDIT_LOGS_ACCESS: 'audit-logs-access', // owner: #team-platform-features, used to control access to audit logs

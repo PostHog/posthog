@@ -16,7 +16,7 @@ use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
 use std::sync::Arc;
 use std::time::Duration;
 
-use tokio::sync::{Mutex, RwLock};
+use tokio::sync::{Mutex, Notify, RwLock};
 use tokio_util::sync::CancellationToken;
 
 use assignment_coordination::store::parse_watch_value;
@@ -4085,4 +4085,256 @@ async fn phase_advance_refuses_a_handoff_that_was_replaced() {
         !advanced,
         "a replaced handoff must not be advanced by its predecessor's quorum"
     );
+}
+
+/// Records `verify_serving` calls — the repair a data-plane repair
+/// request exists to trigger.
+struct RepairProbeHandler {
+    events: Arc<Mutex<Vec<HandoffEvent>>>,
+    verified: Arc<AtomicUsize>,
+}
+
+#[async_trait]
+impl personhog_coordination::pod::HandoffHandler for RepairProbeHandler {
+    async fn drain_partition_inflight(&self, partition: u32) -> Result<()> {
+        self.events
+            .lock()
+            .await
+            .push(HandoffEvent::Drained(partition));
+        Ok(())
+    }
+
+    async fn warm_partition(&self, partition: u32) -> Result<()> {
+        self.events
+            .lock()
+            .await
+            .push(HandoffEvent::Warmed(partition));
+        Ok(())
+    }
+
+    async fn verify_serving(&self, _partition: u32) -> Result<bool> {
+        self.verified.fetch_add(1, Ordering::SeqCst);
+        Ok(false)
+    }
+
+    async fn release_partition(&self, partition: u32) -> Result<()> {
+        self.events
+            .lock()
+            .await
+            .push(HandoffEvent::Released(partition));
+        Ok(())
+    }
+
+    async fn resume_partition(&self, partition: u32) -> Result<()> {
+        self.events
+            .lock()
+            .await
+            .push(HandoffEvent::Resumed(partition));
+        Ok(())
+    }
+}
+
+/// A data-plane repair nudge must converge immediately. The
+/// condemned-producer incident this pins: every write on the partition
+/// bounces until `verify_serving` re-takes the fence, and with the
+/// reconcile tick as the only trigger that wait is a whole interval.
+/// Here reconcile is parked at a day and no etcd event fires, so the
+/// only thing that can drive the second `verify_serving` is the nudge
+/// arm itself.
+#[tokio::test]
+async fn a_repair_nudge_converges_without_waiting_for_reconcile() {
+    let store = test_store("repair-request-converges").await;
+    let cancel = CancellationToken::new();
+
+    store
+        .put_assignments(&[PartitionAssignment {
+            partition: 0,
+            owner: "repair-pod".to_string(),
+            status: AssignmentStatus::Active,
+            advertise_address: None,
+        }])
+        .await
+        .expect("write assignment");
+
+    let events: Arc<Mutex<Vec<HandoffEvent>>> = Arc::new(Mutex::new(Vec::new()));
+    let verified = Arc::new(AtomicUsize::new(0));
+    let handler = RepairProbeHandler {
+        events: Arc::clone(&events),
+        verified: Arc::clone(&verified),
+    };
+    let nudge = Arc::new(Notify::new());
+    let pod = personhog_coordination::pod::PodHandle::new(
+        Arc::clone(&store),
+        personhog_coordination::pod::PodConfig {
+            pod_name: "repair-pod".to_string(),
+            // A session restart re-runs the seed convergence, which also
+            // bumps `verified`; a 30s lease keeps restarts out of this
+            // test's window so only the repair arm can move the counter.
+            lease_ttl: 30,
+            heartbeat_interval: Duration::from_secs(10),
+            reconcile_interval: Duration::from_secs(86_400),
+            ..Default::default()
+        },
+        Arc::new(handler),
+        None,
+        Arc::new(AuthorityClock::unclaimed()),
+    )
+    .with_repair_nudge(Arc::clone(&nudge));
+    let token = cancel.child_token();
+    tokio::spawn(async move { pod.run(token).await });
+
+    // The seed convergence serves the partition and runs the first
+    // verification on its way.
+    wait_for_condition(WAIT_TIMEOUT, POLL_INTERVAL, || {
+        let verified = Arc::clone(&verified);
+        async move { verified.load(Ordering::SeqCst) >= 1 }
+    })
+    .await;
+    let baseline = verified.load(Ordering::SeqCst);
+
+    nudge.notify_one();
+
+    wait_for_condition_named(
+        WAIT_TIMEOUT,
+        POLL_INTERVAL,
+        "repair nudge drives a convergence",
+        || {
+            let verified = Arc::clone(&verified);
+            async move { verified.load(Ordering::SeqCst) > baseline }
+        },
+    )
+    .await;
+
+    // A second nudge inside the cooldown must not run another pass: the
+    // condemn-heal-condemn flap would otherwise drive passes at broker
+    // speed, resetting the budgets that exist to catch it. The cooldown
+    // is the reconcile interval, parked at a day here, so nothing but
+    // the suppression can be holding the counter still.
+    let after_first = verified.load(Ordering::SeqCst);
+    nudge.notify_one();
+    tokio::time::sleep(Duration::from_millis(1_500)).await;
+    assert_eq!(
+        verified.load(Ordering::SeqCst),
+        after_first,
+        "a nudge inside the cooldown must fall to the reconcile tick"
+    );
+
+    cancel.cancel();
+}
+
+/// Records `prepare_acquire` calls — the pending-ownership hint.
+struct PrepareProbeHandler {
+    events: Arc<Mutex<Vec<HandoffEvent>>>,
+    prepared: Arc<AtomicUsize>,
+}
+
+#[async_trait]
+impl personhog_coordination::pod::HandoffHandler for PrepareProbeHandler {
+    async fn drain_partition_inflight(&self, partition: u32) -> Result<()> {
+        self.events
+            .lock()
+            .await
+            .push(HandoffEvent::Drained(partition));
+        Ok(())
+    }
+
+    async fn warm_partition(&self, partition: u32) -> Result<()> {
+        self.events
+            .lock()
+            .await
+            .push(HandoffEvent::Warmed(partition));
+        Ok(())
+    }
+
+    async fn prepare_acquire(&self, _partition: u32) {
+        self.prepared.fetch_add(1, Ordering::SeqCst);
+    }
+
+    async fn release_partition(&self, partition: u32) -> Result<()> {
+        self.events
+            .lock()
+            .await
+            .push(HandoffEvent::Released(partition));
+        Ok(())
+    }
+
+    async fn resume_partition(&self, partition: u32) -> Result<()> {
+        self.events
+            .lock()
+            .await
+            .push(HandoffEvent::Resumed(partition));
+        Ok(())
+    }
+}
+
+/// The incoming owner of a handoff still freezing or draining must see
+/// the pending-ownership hint — the window where connection setup can
+/// run ahead of the fence — while warming stays forbidden until the
+/// phase says the HWM is stable.
+#[tokio::test]
+async fn a_pending_new_owner_is_hinted_but_not_warmed() {
+    let store = test_store("pending-owner-hint").await;
+    let cancel = CancellationToken::new();
+
+    store
+        .put_assignments(&[PartitionAssignment {
+            partition: 0,
+            owner: "old-pod".to_string(),
+            status: AssignmentStatus::Active,
+            advertise_address: None,
+        }])
+        .await
+        .expect("write assignment");
+
+    let events: Arc<Mutex<Vec<HandoffEvent>>> = Arc::new(Mutex::new(Vec::new()));
+    let prepared = Arc::new(AtomicUsize::new(0));
+    let handler = PrepareProbeHandler {
+        events: Arc::clone(&events),
+        prepared: Arc::clone(&prepared),
+    };
+    let pod = personhog_coordination::pod::PodHandle::new(
+        Arc::clone(&store),
+        personhog_coordination::pod::PodConfig {
+            pod_name: "pre-pod".to_string(),
+            lease_ttl: 30,
+            heartbeat_interval: Duration::from_secs(10),
+            reconcile_interval: Duration::from_secs(86_400),
+            ..Default::default()
+        },
+        Arc::new(handler),
+        None,
+        Arc::new(AuthorityClock::unclaimed()),
+    );
+    let token = cancel.child_token();
+    tokio::spawn(async move { pod.run(token).await });
+
+    put_handoff(
+        &store,
+        0,
+        Some("old-pod"),
+        "pre-pod",
+        HandoffPhase::Draining,
+    )
+    .await;
+
+    wait_for_condition_named(
+        WAIT_TIMEOUT,
+        POLL_INTERVAL,
+        "pending new owner receives the prepare hint",
+        || {
+            let prepared = Arc::clone(&prepared);
+            async move { prepared.load(Ordering::SeqCst) >= 1 }
+        },
+    )
+    .await;
+    assert!(
+        !events
+            .lock()
+            .await
+            .iter()
+            .any(|e| matches!(e, HandoffEvent::Warmed(0))),
+        "a draining handoff must hint the new owner without warming it"
+    );
+
+    cancel.cancel();
 }

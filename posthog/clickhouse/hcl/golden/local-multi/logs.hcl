@@ -1119,9 +1119,9 @@ SQL
   }
 
   table "logs_volume_buckets" {
-    order_by     = ["team_id", "bucket_start", "generation", "service_name", "namespace", "environment", "severity_text"]
-    partition_by = "toDate(bucket_start)"
-    ttl          = "bucket_start + toIntervalDay(42)"
+    order_by     = ["team_id", "time_bucket", "generation", "service_name", "namespace", "environment", "severity_text"]
+    partition_by = "toDate(time_bucket)"
+    ttl          = "time_bucket + toIntervalDay(42)"
     settings = {
       index_granularity   = "8192"
       ttl_only_drop_parts = "1"
@@ -1129,7 +1129,7 @@ SQL
     column "team_id" {
       type = "Int32"
     }
-    column "bucket_start" {
+    column "time_bucket" {
       type  = "DateTime('UTC')"
       codec = "DoubleDelta, ZSTD(1)"
     }
@@ -1161,7 +1161,7 @@ SQL
     column "team_id" {
       type = "Int32"
     }
-    column "bucket_start" {
+    column "time_bucket" {
       type  = "DateTime('UTC')"
       codec = "DoubleDelta, ZSTD(1)"
     }
