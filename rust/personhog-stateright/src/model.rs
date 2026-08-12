@@ -11,7 +11,7 @@ use personhog_coordination::pod::{desired_state, DesiredState};
 use personhog_coordination::protocol::{
     drain_satisfied, freeze_quorum_met, plan_partial_rebalance, warm_satisfied,
 };
-use personhog_coordination::strategy::{AssignmentStrategy, StickyBalancedStrategy};
+use personhog_coordination::strategy::{AssignmentStrategy, Member, StickyBalancedStrategy};
 use personhog_coordination::types::{
     AssignmentStatus, HandoffState, PartitionAssignment, PodDrainedAck, PodStatus, PodWarmedAck,
     RegisteredPod, RegisteredRouter, RouterFreezeAck,
@@ -220,7 +220,8 @@ impl HandoffModel {
             .map(|(id, _)| pod_name(*id))
             .collect();
         active.sort();
-        StickyBalancedStrategy.compute_assignments(&current, &active, self.partitions as u32)
+        let members = Member::active_all(&active);
+        StickyBalancedStrategy.compute_assignments(&current, &members, self.partitions as u32)
     }
 
     fn target_owner(&self, state: &SystemState, partition: Partition) -> Option<PodId> {
@@ -682,11 +683,12 @@ impl HandoffModel {
             .map(|(id, _)| pod_name(*id))
             .collect();
         active.sort();
+        let members = Member::active_all(&active);
         let mut plan = plan_partial_rebalance(
             &StickyBalancedStrategy,
             &current,
             &in_flight,
-            &active,
+            &members,
             self.partitions as u32,
         );
         if plan.handoffs.is_empty() {

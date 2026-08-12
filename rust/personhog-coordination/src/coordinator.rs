@@ -10,7 +10,7 @@ use tokio_util::sync::CancellationToken;
 
 use assignment_coordination::store::parse_watch_value;
 use k8s_awareness::types::ControllerKind;
-use k8s_awareness::{DepartureReason, K8sAwareness};
+use k8s_awareness::{classify_departure, ClusterIntent, DepartureReason, K8sAwareness};
 
 use crate::error::{Error, Result};
 use crate::protocol::{
@@ -18,7 +18,7 @@ use crate::protocol::{
     plan_partial_rebalance, warm_satisfied,
 };
 use crate::store::{self, PersonhogStore};
-use crate::strategy::AssignmentStrategy;
+use crate::strategy::{AssignmentStrategy, Member, PlacementPolicy};
 use crate::types::{
     AssignmentPrecondition, HandoffPhase, HandoffReplacement, HandoffState, PodStatus,
     RegisteredPod, RegisteredRouter,
@@ -837,12 +837,11 @@ impl Coordinator {
             Err(e) => return Err(e),
         };
 
-        let mut active_pods = active_pod_names(&pods);
-
-        // K8s-aware pod filtering for smarter rebalancing
-        if let Some(k8s) = k8s_awareness {
-            active_pods = filter_pods_for_k8s(k8s, &pods, active_pods).await;
-        }
+        // K8s-aware placement policies for smarter rebalancing
+        let members = match k8s_awareness {
+            Some(k8s) => members_for_k8s(k8s, &pods, total_partitions).await,
+            None => Member::active_all(&active_pod_names(&pods)),
+        };
 
         // Classify the in-flight handoffs. One whose new owner's
         // registration is gone can never advance (no WarmedAck will ever
@@ -890,13 +889,8 @@ impl Coordinator {
         // model. Cancelled partitions are deliberately not pinned: the
         // plan is free to place them, and whatever it decides becomes
         // their replacement below.
-        let plan = plan_partial_rebalance(
-            strategy,
-            &current_map,
-            &pinned,
-            &active_pods,
-            total_partitions,
-        );
+        let plan =
+            plan_partial_rebalance(strategy, &current_map, &pinned, &members, total_partitions);
 
         if plan.handoffs.is_empty() && cancelled.is_empty() {
             tracing::debug!("no handoffs needed");
@@ -1346,80 +1340,158 @@ fn active_pod_names(pods: &[RegisteredPod]) -> Vec<String> {
     active.iter().map(|p| p.pod_name.clone()).collect()
 }
 
-/// Adjust the active pod list based on K8s controller intent.
+/// Derive assignment members and placement policies from pod
+/// registrations and K8s controller intent.
 ///
+/// Outside a rollout every Ready pod is an uncapped active member.
 /// Two adjustments during rollouts:
 ///
-/// 1. **Deployment rollout** — old-gen Ready pods are excluded from the
-///    active list so the strategy never assigns partitions to them. Existing
-///    assignments move to new-gen pods via handoff.
+/// 1. **Deployment rollout** — old-gen Ready pods become Hold members:
+///    they stay serving and keep their assignments, but shed toward the
+///    incoming generation, whose Ready pods are capped at their final
+///    share (`total_partitions / desired_replicas`) so the first new pod
+///    up is never handed the whole partition space. Partitions actually
+///    move when an old pod drains (drops out of the member list) or when
+///    a below-cap new pod pre-drains a Hold member.
 ///
-/// 2. **StatefulSet rollout** — Draining pods are *added back* to the
-///    active list so their assignments are held. In a StatefulSet rollout the
-///    same pod name comes back with a new revision, so there's no point
-///    handing off to a different pod.
-async fn filter_pods_for_k8s(
+/// 2. **StatefulSet rollout** — Draining pods are *kept* as members so
+///    their assignments are held. In a StatefulSet rollout the same pod
+///    name comes back with a new revision, so there's no point handing
+///    off to a different pod.
+async fn members_for_k8s(
     k8s: &K8sAwareness,
     pods: &[RegisteredPod],
-    mut active: Vec<String>,
-) -> Vec<String> {
+    total_partitions: u32,
+) -> Vec<Member> {
+    let mut members: Vec<Member> = Vec::new();
     for pod in pods {
-        let (Some(controller), generation) = (&pod.controller, &pod.generation) else {
-            continue;
-        };
-
-        if generation.is_empty() {
-            continue;
-        }
-
-        // Lazily start the controller watch from the registration's own
-        // ref — the coordinator has no pod of its own to discover from,
-        // and without a watch `classify_departure` has no intent to
-        // consult. Idempotent, so calling per evaluation is cheap; the
-        // first evaluation after a watch starts may still classify
-        // Unknown, which safely leaves the pod active until intent
-        // arrives.
-        if let Err(e) = k8s.watch_controller(controller).await {
-            tracing::warn!(
-                controller = %controller,
-                error = %e,
-                "failed to start controller watch; treating pod as active"
-            );
-            continue;
-        }
-
-        let reason = k8s.classify_departure(controller, generation).await;
-
-        match (&controller.kind, pod.status, reason) {
-            // Deployment rollout: old-gen Ready pod → exclude
-            (ControllerKind::Deployment, PodStatus::Ready, DepartureReason::Rollout) => {
-                tracing::info!(
-                    pod = %pod.pod_name,
-                    controller = %controller,
-                    generation = %generation,
-                    "excluding old-gen deployment pod from active list"
-                );
-                active.retain(|name| name != &pod.pod_name);
-            }
-            // StatefulSet rollout: Draining pod → add back (hold assignment)
-            (ControllerKind::StatefulSet, PodStatus::Draining, DepartureReason::Rollout) => {
-                tracing::info!(
-                    pod = %pod.pod_name,
-                    controller = %controller,
-                    generation = %generation,
-                    "holding assignment for statefulset pod during rollout"
-                );
-                if !active.contains(&pod.pod_name) {
-                    active.push(pod.pod_name.clone());
-                }
-            }
-            _ => {}
+        if let Some(policy) = resolve_pod_policy(k8s, pod, total_partitions).await {
+            members.push(Member {
+                name: pod.pod_name.clone(),
+                policy,
+            });
         }
     }
+    members.sort_by(|a, b| a.name.cmp(&b.name));
+    members
+}
 
-    active.sort();
-    active.dedup();
-    active
+/// Fetch the controller intent for one pod and derive its placement
+/// policy, falling back to status-only membership whenever K8s state is
+/// unavailable.
+async fn resolve_pod_policy(
+    k8s: &K8sAwareness,
+    pod: &RegisteredPod,
+    total_partitions: u32,
+) -> Option<PlacementPolicy> {
+    let (Some(controller), generation) = (&pod.controller, &pod.generation) else {
+        return base_policy(pod.status);
+    };
+
+    if generation.is_empty() {
+        return base_policy(pod.status);
+    }
+
+    // Lazily start the controller watch from the registration's own
+    // ref — the coordinator has no pod of its own to discover from,
+    // and without a watch `classify_departure` has no intent to
+    // consult. Idempotent, so calling per evaluation is cheap; the
+    // first evaluation after a watch starts may still have no intent,
+    // which safely leaves the pod on its status-only policy until
+    // intent arrives.
+    if let Err(e) = k8s.watch_controller(controller).await {
+        tracing::warn!(
+            controller = %controller,
+            error = %e,
+            "failed to start controller watch; using status-only policy"
+        );
+        return base_policy(pod.status);
+    }
+
+    let Some(intent) = k8s.cluster_intent(controller).await else {
+        return base_policy(pod.status);
+    };
+
+    let policy = pod_policy(
+        &controller.kind,
+        pod.status,
+        &intent,
+        generation,
+        total_partitions,
+    );
+    match policy {
+        Some(PlacementPolicy::Hold) => {
+            tracing::info!(
+                pod = %pod.pod_name,
+                controller = %controller,
+                generation = %generation,
+                "holding old-gen deployment pod during rollout"
+            );
+        }
+        Some(PlacementPolicy::Active { cap: Some(cap) }) => {
+            tracing::info!(
+                pod = %pod.pod_name,
+                controller = %controller,
+                generation = %generation,
+                cap,
+                "capping new-gen pod at its rollout quota"
+            );
+        }
+        Some(PlacementPolicy::Active { cap: None }) if pod.status == PodStatus::Draining => {
+            tracing::info!(
+                pod = %pod.pod_name,
+                controller = %controller,
+                generation = %generation,
+                "holding assignment for statefulset pod during rollout"
+            );
+        }
+        _ => {}
+    }
+    policy
+}
+
+/// Placement policy from controller kind, pod status, and cluster intent.
+fn pod_policy(
+    kind: &ControllerKind,
+    status: PodStatus,
+    intent: &ClusterIntent,
+    generation: &str,
+    total_partitions: u32,
+) -> Option<PlacementPolicy> {
+    let reason = classify_departure(intent, generation);
+    match (kind, status, reason) {
+        // Deployment rollout: old-gen Ready pod keeps serving and keeps
+        // its assignments, but receives nothing new and sheds toward the
+        // incoming generation.
+        (ControllerKind::Deployment, PodStatus::Ready, DepartureReason::Rollout) => {
+            Some(PlacementPolicy::Hold)
+        }
+        // Deployment rollout: incoming-generation Ready pod is capped at
+        // its final share, computed fresh each evaluation so an HPA
+        // change mid-rollout adjusts the quota.
+        (ControllerKind::Deployment, PodStatus::Ready, _)
+            if intent.rollout_in_progress && intent.desired_replicas > 0 =>
+        {
+            Some(PlacementPolicy::Active {
+                cap: Some(total_partitions.div_ceil(intent.desired_replicas)),
+            })
+        }
+        // StatefulSet rollout: Draining pod stays a member (hold
+        // assignment) — the same pod name comes back with a new revision.
+        (ControllerKind::StatefulSet, PodStatus::Draining, DepartureReason::Rollout) => {
+            Some(PlacementPolicy::Active { cap: None })
+        }
+        _ => base_policy(status),
+    }
+}
+
+/// Membership when there is no K8s signal: Ready pods are uncapped
+/// active members, Draining pods are not members at all.
+fn base_policy(status: PodStatus) -> Option<PlacementPolicy> {
+    match status {
+        PodStatus::Ready => Some(PlacementPolicy::Active { cap: None }),
+        PodStatus::Draining => None,
+    }
 }
 
 #[cfg(test)]
@@ -1445,5 +1517,131 @@ mod tests {
         let pods = vec![make_pod("pod-2"), draining, make_pod("pod-1")];
         let names = active_pod_names(&pods);
         assert_eq!(names, vec!["pod-1", "pod-2"]);
+    }
+
+    fn rollout_intent(
+        desired: u32,
+        rollout: bool,
+        current: &str,
+        target: Option<&str>,
+    ) -> ClusterIntent {
+        ClusterIntent {
+            desired_replicas: desired,
+            previous_replicas: None,
+            rollout_in_progress: rollout,
+            current_generation: current.to_string(),
+            target_generation: target.map(String::from),
+        }
+    }
+
+    #[test]
+    fn deployment_rollout_holds_old_gen_and_caps_new_gen() {
+        let intent = rollout_intent(3, true, "old", Some("new"));
+        assert_eq!(
+            pod_policy(
+                &ControllerKind::Deployment,
+                PodStatus::Ready,
+                &intent,
+                "old",
+                12
+            ),
+            Some(PlacementPolicy::Hold)
+        );
+        assert_eq!(
+            pod_policy(
+                &ControllerKind::Deployment,
+                PodStatus::Ready,
+                &intent,
+                "new",
+                12
+            ),
+            Some(PlacementPolicy::Active { cap: Some(4) })
+        );
+    }
+
+    #[test]
+    fn deployment_draining_pod_is_not_a_member() {
+        let intent = rollout_intent(3, true, "old", Some("new"));
+        assert_eq!(
+            pod_policy(
+                &ControllerKind::Deployment,
+                PodStatus::Draining,
+                &intent,
+                "old",
+                12
+            ),
+            None
+        );
+    }
+
+    #[test]
+    fn deployment_steady_state_is_uncapped() {
+        let intent = rollout_intent(3, false, "gen", None);
+        assert_eq!(
+            pod_policy(
+                &ControllerKind::Deployment,
+                PodStatus::Ready,
+                &intent,
+                "gen",
+                12
+            ),
+            Some(PlacementPolicy::Active { cap: None })
+        );
+    }
+
+    #[test]
+    fn completed_rollout_still_holds_departing_old_gen() {
+        let intent = rollout_intent(3, false, "new", None);
+        assert_eq!(
+            pod_policy(
+                &ControllerKind::Deployment,
+                PodStatus::Ready,
+                &intent,
+                "old",
+                12
+            ),
+            Some(PlacementPolicy::Hold)
+        );
+    }
+
+    #[test]
+    fn zero_desired_replicas_leaves_new_gen_uncapped() {
+        let intent = rollout_intent(0, true, "old", Some("new"));
+        assert_eq!(
+            pod_policy(
+                &ControllerKind::Deployment,
+                PodStatus::Ready,
+                &intent,
+                "new",
+                12
+            ),
+            Some(PlacementPolicy::Active { cap: None })
+        );
+    }
+
+    #[test]
+    fn statefulset_draining_held_only_during_rollout() {
+        let rollout = rollout_intent(3, true, "old", Some("new"));
+        assert_eq!(
+            pod_policy(
+                &ControllerKind::StatefulSet,
+                PodStatus::Draining,
+                &rollout,
+                "old",
+                12
+            ),
+            Some(PlacementPolicy::Active { cap: None })
+        );
+        let steady = rollout_intent(3, false, "gen", None);
+        assert_eq!(
+            pod_policy(
+                &ControllerKind::StatefulSet,
+                PodStatus::Draining,
+                &steady,
+                "gen",
+                12
+            ),
+            None
+        );
     }
 }

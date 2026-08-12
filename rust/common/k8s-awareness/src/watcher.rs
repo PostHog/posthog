@@ -109,6 +109,21 @@ impl K8sAwareness {
         }
     }
 
+    /// The watcher's current view of a controller's intent, if watched.
+    ///
+    /// Returns `None` when the controller isn't being watched, hasn't
+    /// reported yet, or the lock is contended — callers must treat that
+    /// as "no rollout signal" and fall back to policy-free behavior.
+    pub async fn cluster_intent(&self, controller: &ControllerRef) -> Option<ClusterIntent> {
+        match self.controllers.try_read() {
+            Ok(controllers) => controllers.get(controller).cloned(),
+            Err(_) => {
+                debug!(controller = %controller, "controllers lock contended, returning no intent");
+                None
+            }
+        }
+    }
+
     /// Start watching a controller if not already watching.
     async fn ensure_watching(&self, controller: &ControllerRef) -> Result<(), K8sAwarenessError> {
         let mut watching = self.watching.write().await;
