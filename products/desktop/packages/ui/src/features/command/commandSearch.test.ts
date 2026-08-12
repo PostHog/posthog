@@ -1,4 +1,7 @@
-import { prioritizeExactCommandMatches } from "@posthog/ui/features/command/commandSearch";
+import {
+  matchesCommandSearch,
+  prioritizeExactCommandMatches,
+} from "@posthog/ui/features/command/commandSearch";
 import type {
   Command,
   CommandSection,
@@ -29,5 +32,11 @@ describe("prioritizeExactCommandMatches", () => {
     expect(
       prioritized.map((section) => section.items.map((item) => item.id)),
     ).toEqual([["release"], ["new"]]);
+  });
+
+  it("matches a query with surrounding whitespace", () => {
+    expect(
+      matchesCommandSearch(command("release", "Release"), " release "),
+    ).toBe(true);
   });
 });

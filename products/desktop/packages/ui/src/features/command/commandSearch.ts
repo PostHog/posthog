@@ -1,5 +1,16 @@
 import type { CommandSection } from "@posthog/ui/features/command/useSearchSections";
 
+export function matchesCommandSearch(
+  command: { label: string; keywords?: string },
+  query: string,
+): boolean {
+  const normalizedQuery = query.trim().toLowerCase();
+  if (!normalizedQuery) return true;
+
+  const haystack = `${command.label} ${command.keywords ?? ""}`.toLowerCase();
+  return haystack.includes(normalizedQuery);
+}
+
 export function prioritizeExactCommandMatches(
   sections: CommandSection[],
   query: string,

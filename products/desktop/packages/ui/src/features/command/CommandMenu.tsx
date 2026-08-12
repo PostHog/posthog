@@ -40,7 +40,10 @@ import { useTaskChannelMap } from "@posthog/ui/features/canvas/hooks/useTaskChan
 import { getDefaultReviewMode } from "@posthog/ui/features/code-review/getDefaultReviewMode";
 import { useReviewNavigationStore } from "@posthog/ui/features/code-review/reviewNavigationStore";
 import { CommandKeyHints } from "@posthog/ui/features/command/CommandKeyHints";
-import { prioritizeExactCommandMatches } from "@posthog/ui/features/command/commandSearch";
+import {
+  matchesCommandSearch,
+  prioritizeExactCommandMatches,
+} from "@posthog/ui/features/command/commandSearch";
 import { useFileSearchStore } from "@posthog/ui/features/command/fileSearchStore";
 import {
   formatHotkeyParts,
@@ -627,11 +630,7 @@ export function CommandMenu({ open, onOpenChange }: CommandMenuProps) {
               setQuery(val);
             }
           }}
-          filter={(cmd, q) => {
-            if (!q) return true;
-            const haystack = `${cmd.label} ${cmd.keywords ?? ""}`.toLowerCase();
-            return haystack.includes(q.toLowerCase());
-          }}
+          filter={matchesCommandSearch}
         >
           <AutocompleteInput
             placeholder={
