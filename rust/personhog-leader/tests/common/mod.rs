@@ -656,6 +656,7 @@ pub fn fenced_producers_for(topic: &str) -> personhog_leader::fencing::FencedCha
             commit_timeout: Duration::from_secs(10),
             broker_txn_timeout: BROKER_TXN_TIMEOUT,
             window: Duration::from_millis(5),
+            window_max_writes: 32,
             settle_budget: Duration::from_secs(5),
         },
     )
