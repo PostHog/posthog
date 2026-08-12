@@ -94,6 +94,10 @@ mark-changed = []
 # deps like personhog-proto flow through the graph already). Mark the
 # harness affected whenever a service it spawns changes so the CI gate
 # runs against those changes.
+#
+# The merge queue needs the same edge to keep a harness change out of a lane
+# parallel to one of these services, so it is mirrored in RUNTIME_SPAWN_EDGES in
+# .github/scripts/trunk-impacted-targets.js. Change both; a test compares them.
 [[package-rule]]
 on-affected = [
     "personhog-replica",

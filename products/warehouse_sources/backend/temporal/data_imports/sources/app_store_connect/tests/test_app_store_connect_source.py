@@ -93,13 +93,16 @@ class TestAppStoreConnectSource:
         schemas = {schema.name: schema for schema in AppStoreConnectSource().get_schemas(_config(), team_id=1)}
 
         for name, schema in schemas.items():
-            is_report = name in REPORT_ENDPOINTS
+            kind = APP_STORE_CONNECT_ENDPOINTS[name].kind
+            is_report_stream = kind in ("sales_report", "analytics_report")
             # Apple exposes no server-side timestamp filter on the JSON:API collections, so only the
-            # report streams (filtered by reportDate) can sync incrementally.
-            assert schema.supports_incremental is is_report
-            assert schema.should_sync_default is not is_report
-            if is_report:
+            # report streams (walked by report date or instance processing date) sync incrementally.
+            assert schema.supports_incremental is is_report_stream
+            assert schema.should_sync_default is not is_report_stream
+            if kind == "sales_report":
                 assert [field["field"] for field in schema.incremental_fields] == ["report_date"]
+            if kind == "analytics_report":
+                assert [field["field"] for field in schema.incremental_fields] == ["processing_date"]
 
     def test_canonical_descriptions_cover_the_catalog(self) -> None:
         descriptions = AppStoreConnectSource().get_canonical_descriptions()
@@ -201,3 +204,23 @@ class TestAppStoreConnectSource:
         assert any("401" in key for key in errors)
         assert any("403" in key for key in errors)
         assert all(message for message in errors.values())
+
+    @parameterized.expand(
+        [
+            (
+                "connection_error",
+                "HTTPSConnectionPool(host='api.appstoreconnect.apple.com', port=443): Max retries exceeded "
+                'with url: /v1/apps?limit=200 (Caused by ReadTimeoutError("HTTPSConnectionPool'
+                "(host='api.appstoreconnect.apple.com', port=443): Read timed out. (read timeout=60)\"))",
+            ),
+            (
+                "read_timeout",
+                "HTTPSConnectionPool(host='api.appstoreconnect.apple.com', port=443): Read timed out. (read timeout=60)",
+            ),
+        ]
+    )
+    def test_retryable_errors_match_transient_network_failures(self, _name: str, observed_error: str) -> None:
+        # `_get` has no retry loop of its own — it relies on the tracked session's urllib3 adapter.
+        # Once that's exhausted, this keeps the benign, self-recovering failure out of error tracking.
+        retryable_errors = AppStoreConnectSource().get_retryable_errors()
+        assert any(key in observed_error for key in retryable_errors)

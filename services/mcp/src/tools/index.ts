@@ -28,6 +28,8 @@ import notebookUpdateCell from './notebooks/updateCell'
 // Organizations
 import getOrganizations from './organizations/getOrganizations'
 import setActiveOrganization from './organizations/setActive'
+// PostHog connections (run this project's tools against a connected project in another org/region)
+import { createConnectionCallTool } from './posthogConnections/call'
 // PostHog AI tools
 import {
     EXECUTE_SQL_TOOL_NAME,
@@ -141,8 +143,17 @@ export const TOOL_MAP: Record<string, () => ToolBase<ZodObjectAny>> = {
     'workflows-run-batch': workflowsRunBatch,
     'workflows-schedule-create': workflowsScheduleCreate,
 
+    // PostHog connections — runs any other tool in this map (or a generated one) against a connected
+    // project. The registry is injected rather than imported over there so the two don't form a cycle.
+    'posthog-connection-call': () => createConnectionCallTool(resolveToolBase),
+
     // Skills — deprecated llma-skill-* aliases forwarding to the renamed skill-* tools.
     ...SKILL_DEPRECATED_ALIASES,
+}
+
+/** Build one tool by name, from the hand-written and generated registries alike. */
+function resolveToolBase(name: string): ToolBase<ZodObjectAny> | undefined {
+    return { ...TOOL_MAP, ...GENERATED_TOOL_MAP }[name]?.()
 }
 
 export const getToolsFromContext = async (
