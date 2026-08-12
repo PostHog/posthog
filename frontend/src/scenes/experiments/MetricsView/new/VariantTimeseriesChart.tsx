@@ -57,7 +57,7 @@ export function VariantTimeseriesChart({
 
     const config = useChartConfig<TimeSeriesLineChartConfig>(
         () => ({
-            xAxis: { interval: 'day', timezone, tickLabelRotation: -45 },
+            xAxis: { interval: 'day', timezone },
             yAxis: { format: 'percentage_scaled', decimalPlaces: 0 },
             confidenceIntervals: [{ seriesKey: DELTA_SERIES_KEY, lower: lowerBounds, upper: upperBounds }],
             // A goal line rather than an overlay child: it also stretches the axis so zero stays
