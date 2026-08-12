@@ -2696,6 +2696,14 @@ snapshots:
         hash: v1.k794b7964.cc64ca6ab10ef0f936dd479fb6a76716fd5935b3dee59833377c03cb3e36569a.kVka0mzCaVBMto0uHpEx5cTwdVDK0wlESIquSCaBrjk
     insights-insightstable--sql-breakdown--light:
         hash: v1.k794b7964.710a5fa22da7eff24e97e754426977214d9cdb9fd0252415534110bc7d9bbf95.EmqhUt-YOAWJV1nbFZ2BA-Let9QcaeDgslu9bcPR_mE
+    insights-journeys-journeygrid--anchored--dark:
+        hash: v1.k794b7964.d960a6965fe0b701f77dc4cf3f1c668aa6c19f5369e5e4aaa5423a7158474deb.DVpy9fBOuJdH6MLVhfwTvQ1o2va4L7JaUwIpTqcGkRA
+    insights-journeys-journeygrid--anchored--light:
+        hash: v1.k794b7964.ab4a24132cd2d415118a5774326bafba3c0b2d4fae5e5b570da87455533622e9.tPiEyEEmflVExg0bWR8fYc8BzqZrg2y1R_MhCFUI5Pw
+    insights-journeys-journeygrid--anchored-with-chain-highlight--dark:
+        hash: v1.k794b7964.c43b6a6002a1ef2b9030a352ca4840e137fd436de0409060f4c4a97ee740b43d.GCVkRokuWvEmIuwR2cxsJGcIbNIGjN-7qfskI1Zap_8
+    insights-journeys-journeygrid--anchored-with-chain-highlight--light:
+        hash: v1.k794b7964.3c25339f2d35ecfb164f4c2d10f656af32dadc9fb61738f1615ca0472c68b362.DNXsvy-7s5WAmO8ITB50rk5n2SuIl2H4wQnZ7L_QFwk
     insights-metric--default--dark:
         hash: v1.k794b7964.bdc893ac78b0c99cb12fe2d3fa70346f932cccab0ae49df0d8e47e4740224266.KsZ8mkjoktS-Fzlo_tl1EQBX5t3-L0MWAbrR6yO2yCo
     insights-metric--default--light:
