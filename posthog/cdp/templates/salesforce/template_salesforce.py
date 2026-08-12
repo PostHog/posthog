@@ -250,9 +250,15 @@ let assertApiName := (value, label, pattern) -> {
   }
 }
 
+// Backslash goes first, otherwise the sequences introduced below get escaped a second time.
 let escapeSoql := (value) -> {
   let escaped := replaceAll(value, '\\', '\\\\')
   escaped := replaceAll(escaped, '\'', '\\\'')
+  escaped := replaceAll(escaped, '\n', '\\n')
+  escaped := replaceAll(escaped, '\r', '\\r')
+  escaped := replaceAll(escaped, '\t', '\\t')
+  escaped := replaceAll(escaped, '\b', '\\b')
+  escaped := replaceAll(escaped, '\f', '\\f')
   return escaped
 }
 

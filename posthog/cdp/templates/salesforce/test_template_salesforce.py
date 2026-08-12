@@ -206,6 +206,7 @@ class TestTemplateSalesforceLookup(BaseHogFunctionTemplateTest):
             ("single quote", "x' OR Name != '", "%27x%5C%27%20OR%20Name%20!%3D%20%5C%27%27"),
             ("plus addressing", "a+b@posthog.com", "%27a%2Bb@posthog.com%27"),
             ("backslash", "a\\b@posthog.com", "%27a%5C%5Cb@posthog.com%27"),
+            ("embedded newline", "a@\nb.com", "%27a@%5Cnb.com%27"),
         ]
     )
     def test_escapes_the_match_value(self, _name: str, match_value: str, expected: str):
