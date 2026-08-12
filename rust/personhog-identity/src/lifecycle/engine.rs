@@ -31,6 +31,7 @@ pub const STEP_COMPLETED: &str = "completed";
 pub const STEP_ABORTED: &str = "aborted";
 
 const OPS_COMPLETED_TOTAL: &str = "personhog_lifecycle_ops_completed_total";
+const OP_DURATION_MS: &str = "personhog_lifecycle_op_duration_ms";
 const SWEEPER_RESUMED_TOTAL: &str = "personhog_lifecycle_sweeper_resumed_total";
 const STEP_FAILURES_TOTAL: &str = "personhog_lifecycle_step_failures_total";
 const OPS_PARKED_TOTAL: &str = "personhog_lifecycle_ops_parked_total";
@@ -38,6 +39,11 @@ const OPS_PARKED: &str = "personhog_lifecycle_ops_parked";
 
 /// How many abandoned ops one sweep pass will pick up.
 const SWEEP_BATCH_SIZE: i64 = 100;
+
+/// Pause before re-driving a step that lost a database conflict. Long
+/// enough for the competing statement (typically a writer flush) to finish;
+/// the execute deadline still bounds the total retry time.
+const DB_CONFLICT_BACKOFF: Duration = Duration::from_millis(50);
 
 pub type Tx<'a> = sqlx::Transaction<'a, sqlx::Postgres>;
 
@@ -77,6 +83,30 @@ impl SagaError {
             SagaError::Leader(Box::new(status))
         }
     }
+
+    /// A database conflict Postgres asks callers to retry: deadlock victim
+    /// (40P01), serialization failure (40001), or a cancelled statement
+    /// (57014, the statement timeout under lock contention). Steps commit
+    /// their work and their step advance together, so re-driving one is
+    /// always safe — the engine retries these instead of surfacing them.
+    pub fn is_db_conflict(&self) -> bool {
+        let SagaError::Db(sqlx::Error::Database(db)) = self else {
+            return false;
+        };
+        matches!(db.code().as_deref(), Some("40P01" | "40001" | "57014"))
+    }
+
+    /// The Postgres error detail for a database conflict. For a deadlock it
+    /// names the processes, lock targets, and relations in the cycle — the
+    /// only place that evidence surfaces when server-side error logging is
+    /// disabled (dev RDS logs no ERROR lines).
+    pub fn db_detail(&self) -> Option<&str> {
+        let SagaError::Db(sqlx::Error::Database(db)) = self else {
+            return None;
+        };
+        db.try_downcast_ref::<sqlx::postgres::PgDatabaseError>()
+            .and_then(|e| e.detail())
+    }
 }
 
 impl From<SagaError> for Status {
@@ -110,6 +140,7 @@ pub struct OpRow {
     pub attempt: i32,
     pub request: Value,
     pub outcome: Option<Value>,
+    pub created_at: DateTime<Utc>,
     pub completed_at: Option<DateTime<Utc>>,
 }
 
@@ -274,7 +305,7 @@ impl Engine {
                     "op {op_id} vanished while being driven"
                 )));
             };
-            if row.completed_at.is_some() {
+            if let Some(completed_at) = row.completed_at {
                 if claim_attempt.is_some() {
                     // We drove it over the line (vs attaching to an op that
                     // was already done).
@@ -285,6 +316,13 @@ impl Engine {
                             ("final_step".to_string(), row.step.clone()),
                         ],
                         1,
+                    );
+                    // Creation to terminal commit, so a sweeper-resumed op
+                    // reports its full lifetime, not the last drive's.
+                    common_metrics::histogram(
+                        OP_DURATION_MS,
+                        &[("op_type".to_string(), row.op_type.clone())],
+                        (completed_at - row.created_at).num_milliseconds() as f64,
                     );
                 }
                 return Ok(row);
@@ -336,6 +374,7 @@ impl Engine {
                 // counter climbing for one op_type/kind, not as generic
                 // retry noise. Alert on it — a wedged op can hold fences.
                 let kind = match &err {
+                    SagaError::Db(_) if err.is_db_conflict() => "db_conflict",
                     SagaError::Db(_) => "db",
                     SagaError::Leader(_) => "leader",
                     SagaError::LeaderRefused(_) => "leader_refused",
@@ -352,6 +391,24 @@ impl Engine {
                     ],
                     1,
                 );
+                if err.is_db_conflict() {
+                    // Concurrent multi-row writers (a writer flush, another
+                    // saga) can deadlock or time out against a step's
+                    // transaction; the loser rolls back whole and the step
+                    // is safe to repeat. Keep the lease and re-drive after a
+                    // pause instead of surfacing an error the caller would
+                    // retry anyway; the execute deadline bounds the loop.
+                    tracing::warn!(
+                        op_id = %op_id,
+                        op_type = %row.op_type,
+                        step = %row.step,
+                        error = %err,
+                        detail = %err.db_detail().unwrap_or(""),
+                        "lifecycle step lost a database conflict; retrying"
+                    );
+                    tokio::time::sleep(DB_CONFLICT_BACKOFF).await;
+                    continue;
+                }
                 if let SagaError::LeaderRefused(status) = &err {
                     // Retrying a refusal cannot succeed, and the sweeper
                     // looping on it would hold this op's fences forever.
@@ -390,7 +447,8 @@ impl Engine {
             OpRow,
             r#"
             SELECT op_id, op_type, team_id::bigint as "team_id!", step, attempt,
-                   request as "request: Value", outcome as "outcome: Value", completed_at
+                   request as "request: Value", outcome as "outcome: Value",
+                   created_at, completed_at
             FROM lifecycle_op
             WHERE op_id = $1
             "#,

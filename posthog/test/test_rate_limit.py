@@ -893,6 +893,29 @@ class TestAIObservabilitySummarizationRateThrottle(SimpleTestCase):
             self.assertFalse(throttle_class().allow_request(request, view))
 
 
+class TestLeakedKeyReportThrottle(SimpleTestCase):
+    def setUp(self) -> None:
+        cache.clear()
+
+    def tearDown(self) -> None:
+        cache.clear()
+
+    def test_scope_and_rate(self) -> None:
+        throttle = rate_limit.LeakedKeyReportThrottle()
+        self.assertEqual(throttle.scope, "leaked_key_report")
+        self.assertEqual(throttle.rate, "10/minute")
+
+    def test_limits_requests_per_ip(self) -> None:
+        request = Mock(headers={}, META={"REMOTE_ADDR": "203.0.113.5"})
+        other_request = Mock(headers={}, META={"REMOTE_ADDR": "203.0.113.6"})
+        view = Mock()
+
+        with patch.object(rate_limit.LeakedKeyReportThrottle, "rate", "1/minute"):
+            self.assertTrue(rate_limit.LeakedKeyReportThrottle().allow_request(request, view))
+            self.assertFalse(rate_limit.LeakedKeyReportThrottle().allow_request(request, view))
+            self.assertTrue(rate_limit.LeakedKeyReportThrottle().allow_request(other_request, view))
+
+
 class _PSAKTeamThrottleForTest(rate_limit.ProjectSecretApiKeyTeamRateThrottle):
     scope = "test_psak_team"
     rate = "100/minute"
