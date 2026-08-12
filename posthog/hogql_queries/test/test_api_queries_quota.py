@@ -10,7 +10,7 @@ from parameterized import parameterized
 
 from posthog.schema import HogQLQuery
 
-from posthog.api_queries_quota import increment_api_queries_bytes
+from posthog.api_queries_quota import API_QUERIES_QUOTA_ERRORS_COUNTER, increment_api_queries_bytes
 from posthog.exceptions import APIQueriesQuotaExceeded
 from posthog.hogql_queries.hogql_query_runner import HogQLQueryRunner
 from posthog.hogql_queries.query_runner import (
@@ -57,6 +57,14 @@ class TestGetApiQueriesQuotaLimitedUntil(BaseTest):
         self._set(False, 2000)
         with patch("posthog.hogql_queries.query_runner.get_api_queries_bytes", side_effect=Exception("redis down")):
             assert get_api_queries_quota_limited_until(self.team) is None
+
+    def test_counter_error_increments_error_counter(self):
+        self._set(False, 2000)
+        before = API_QUERIES_QUOTA_ERRORS_COUNTER.labels(op="check")._value.get()
+        with patch("posthog.hogql_queries.query_runner.get_api_queries_bytes", side_effect=Exception("redis down")):
+            get_api_queries_quota_limited_until(self.team)
+        after = API_QUERIES_QUOTA_ERRORS_COUNTER.labels(op="check")._value.get()
+        assert after == before + 1
 
     @override_settings(API_QUERIES_ENABLED=False)
     def test_disabled_setting_returns_none(self):

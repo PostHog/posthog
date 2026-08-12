@@ -3,7 +3,12 @@ from datetime import UTC, datetime
 from posthog.test.base import BaseTest, ClickhouseTestMixin
 from unittest.mock import patch
 
-from posthog.api_queries_quota import get_api_queries_bytes, increment_api_queries_bytes, next_counter_reset
+from posthog.api_queries_quota import (
+    API_QUERIES_QUOTA_ERRORS_COUNTER,
+    get_api_queries_bytes,
+    increment_api_queries_bytes,
+    next_counter_reset,
+)
 from posthog.clickhouse.client import sync_execute
 from posthog.clickhouse.query_tagging import reset_query_tags, tag_queries
 
@@ -25,6 +30,20 @@ class TestApiQueriesQuotaCounter(BaseTest):
         with patch("posthog.api_queries_quota.get_client", side_effect=Exception("redis down")):
             increment_api_queries_bytes("org-a", 1000)  # must not raise
             assert get_api_queries_bytes("org-a") == 0
+
+    def test_increment_error_increments_error_counter(self):
+        before = API_QUERIES_QUOTA_ERRORS_COUNTER.labels(op="increment")._value.get()
+        with patch("posthog.api_queries_quota.get_client", side_effect=Exception("redis down")):
+            increment_api_queries_bytes("org-a", 1000)
+        after = API_QUERIES_QUOTA_ERRORS_COUNTER.labels(op="increment")._value.get()
+        assert after == before + 1
+
+    def test_read_error_increments_error_counter(self):
+        before = API_QUERIES_QUOTA_ERRORS_COUNTER.labels(op="read")._value.get()
+        with patch("posthog.api_queries_quota.get_client", side_effect=Exception("redis down")):
+            get_api_queries_bytes("org-a")
+        after = API_QUERIES_QUOTA_ERRORS_COUNTER.labels(op="read")._value.get()
+        assert after == before + 1
 
     def test_next_counter_reset_rolls_month_and_year(self):
         assert next_counter_reset(datetime(2026, 8, 12, tzinfo=UTC)) == datetime(2026, 9, 1, tzinfo=UTC)

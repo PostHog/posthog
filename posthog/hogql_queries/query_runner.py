@@ -104,7 +104,7 @@ from posthog.hogql.timings import HogQLTimings
 from posthog.hogql.warehouse_warnings import accumulator_scope
 
 from posthog import settings
-from posthog.api_queries_quota import get_api_queries_bytes, next_counter_reset
+from posthog.api_queries_quota import API_QUERIES_QUOTA_ERRORS_COUNTER, get_api_queries_bytes, next_counter_reset
 from posthog.caching.utils import ThresholdMode, cache_target_age, is_stale, last_refresh_from_cached_result
 from posthog.clickhouse.client.connection import ClickHouseUser, Workload
 from posthog.clickhouse.client.execute_async import QueryNotFoundError, enqueue_process_query_task, get_query_status
@@ -382,6 +382,7 @@ def get_api_queries_quota_limited_until(team: Team) -> Optional[datetime]:
             return None
         return next_counter_reset(datetime.now(UTC))
     except Exception:
+        API_QUERIES_QUOTA_ERRORS_COUNTER.labels(op="check").inc()
         return None
 
 
@@ -2313,8 +2314,8 @@ class QueryRunner(ABC, Generic[Q, R, CR]):
     def _enforce_api_queries_quota(self) -> None:
         """402 chargeable API queries for orgs over quota, when enforcement is flagged on.
 
-        Observe-only (counter, no block) when the flag is off. Never blocks without a
-        direct-Redis confirmation of the verdict.
+        Observe-only (counter, no block) when the flag is off. Never blocks unless the
+        live counter confirms over-quota.
         """
         limited_until = get_api_queries_quota_limited_until(self.team)
         if limited_until is None:

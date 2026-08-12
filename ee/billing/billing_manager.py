@@ -535,10 +535,12 @@ class BillingManager:
             organization.never_drop_data = never_drop_data
             org_modified = True
 
-        has_active_subscription = data.get("has_active_subscription")
-        if has_active_subscription != organization.has_active_subscription:
-            organization.has_active_subscription = has_active_subscription
-            org_modified = True
+        # A missing key (partial or error-path response) must not reset a known value to unknown.
+        if "has_active_subscription" in data:
+            has_active_subscription = data.get("has_active_subscription")
+            if has_active_subscription != organization.has_active_subscription:
+                organization.has_active_subscription = has_active_subscription
+                org_modified = True
 
         customer_trust_scores = data.get("customer_trust_scores", {})
 

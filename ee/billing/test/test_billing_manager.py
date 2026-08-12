@@ -704,6 +704,26 @@ class TestBillingManager(BaseTest):
         organization.refresh_from_db()
         assert organization.has_active_subscription is False
 
+    def test_update_org_details_missing_key_keeps_existing_has_active_subscription(self):
+        organization = self.organization
+        organization.has_active_subscription = False
+        organization.save()
+        billing_status = {
+            "customer": {
+                "usage_summary": {
+                    "events": {"usage": 1000, "limit": None},
+                    "recordings": {"usage": 0, "limit": None},
+                },
+                "billing_period": {
+                    "current_period_start": "2026-08-01T00:00:00Z",
+                    "current_period_end": "2026-09-01T00:00:00Z",
+                },
+            }
+        }
+        BillingManager(license=None).update_org_details(organization, cast(BillingStatus, billing_status))
+        organization.refresh_from_db()
+        assert organization.has_active_subscription is False
+
 
 class TestBillingProviderWebhookSigning(SimpleTestCase):
     def setUp(self):

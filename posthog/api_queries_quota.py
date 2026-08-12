@@ -7,11 +7,19 @@ dependency-light (Redis only) so both layers can import it without cycles.
 
 from datetime import UTC, datetime
 
+from prometheus_client import Counter
+
 from posthog.redis import get_client
 
 COUNTER_KEY_PREFIX = "@posthog/api-queries-bytes/"
 # Keys are month-scoped; TTL only has to outlive the month it closes over.
 COUNTER_TTL_SECONDS = 63 * 24 * 3600
+
+API_QUERIES_QUOTA_ERRORS_COUNTER = Counter(
+    "posthog_api_queries_quota_errors_total",
+    "Errors swallowed by the fail-open api queries quota paths.",
+    labelnames=["op"],
+)
 
 
 def _counter_key(org_id: str, now: datetime) -> str:
@@ -29,7 +37,7 @@ def increment_api_queries_bytes(org_id: str, bytes_read: int) -> None:
         pipe.expire(key, COUNTER_TTL_SECONDS)
         pipe.execute()
     except Exception:
-        pass
+        API_QUERIES_QUOTA_ERRORS_COUNTER.labels(op="increment").inc()
 
 
 def get_api_queries_bytes(org_id: str) -> int:
@@ -38,6 +46,7 @@ def get_api_queries_bytes(org_id: str) -> int:
         value = get_client().get(_counter_key(org_id, datetime.now(UTC)))
         return int(value) if value else 0
     except Exception:
+        API_QUERIES_QUOTA_ERRORS_COUNTER.labels(op="read").inc()
         return 0
 
 
