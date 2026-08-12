@@ -70,11 +70,18 @@ describe('queryDatabaseLogic', () => {
         mockPropertyDefinitionsList
             .mockReset()
             .mockResolvedValueOnce({
-                count: 2,
-                results: [{ id: 'browser', name: '$browser', property_type: 'String' }],
+                count: 3,
+                results: [
+                    { id: 'browser', name: '$browser', property_type: 'String' },
+                    {
+                        id: 'quoted-property',
+                        name: '"foo" OR 1=1 OR properties."foo"',
+                        property_type: 'String',
+                    },
+                ],
             })
             .mockResolvedValueOnce({
-                count: 2,
+                count: 3,
                 results: [{ id: 'checkout-step', name: 'checkout.step', property_type: 'Numeric' }],
             })
             .mockResolvedValueOnce({
@@ -110,7 +117,14 @@ describe('queryDatabaseLogic', () => {
             expect.any(String),
             expect.objectContaining({ limit: 25, offset: 0, type: 'event' })
         )
-        expect(propertyNode()?.children?.map((item) => item.name)).toEqual(['$browser', 'Load more'])
+        expect(propertyNode()?.children?.map((item) => item.name)).toEqual([
+            '$browser',
+            '"foo" OR 1=1 OR properties."foo"',
+            'Load more',
+        ])
+        expect(propertyNode()?.children?.[1].record?.hogqlExpression).toEqual(
+            'properties.`"foo" OR 1=1 OR properties."foo"`'
+        )
 
         await expectLogic(logic, () =>
             propertyNode()
@@ -120,10 +134,14 @@ describe('queryDatabaseLogic', () => {
 
         expect(mockPropertyDefinitionsList).toHaveBeenLastCalledWith(
             expect.any(String),
-            expect.objectContaining({ offset: 1, type: 'event' })
+            expect.objectContaining({ offset: 2, type: 'event' })
         )
-        expect(propertyNode()?.children?.map((item) => item.name)).toEqual(['$browser', 'checkout.step'])
-        expect(propertyNode()?.children?.[1].record?.hogqlExpression).toEqual('properties."checkout.step"')
+        expect(propertyNode()?.children?.map((item) => item.name)).toEqual([
+            '$browser',
+            '"foo" OR 1=1 OR properties."foo"',
+            'checkout.step',
+        ])
+        expect(propertyNode()?.children?.[2].record?.hogqlExpression).toEqual('properties."checkout.step"')
 
         await expectLogic(logic, () =>
             logic.actions.setPropertyDefinitionSearch('events:properties', { type: 'event' }, 'browser')
@@ -147,6 +165,45 @@ describe('queryDatabaseLogic', () => {
         expect(propertyNode()?.children?.map((item) => item.name)).toEqual(['$browser'])
         expect(propertyNode()?.record?.propertyDefinitionSearch).toEqual('browser')
 
+        logic.unmount()
+    })
+
+    it('keeps newer property results when overlapping requests resolve out of order', async () => {
+        initKeaTests()
+        let releaseStaleResponse = (): void => {}
+        const staleResponseReleased = new Promise<void>((resolve) => {
+            releaseStaleResponse = resolve
+        })
+        mockPropertyDefinitionsList
+            .mockReset()
+            .mockImplementationOnce(async () => {
+                await staleResponseReleased
+                return {
+                    count: 1,
+                    results: [{ id: 'stale', name: 'stale', property_type: 'String' }],
+                }
+            })
+            .mockResolvedValueOnce({
+                count: 1,
+                results: [{ id: 'fresh', name: 'fresh', property_type: 'String' }],
+            })
+        const logic = queryDatabaseLogic()
+        logic.mount()
+
+        logic.actions.loadPropertyDefinitions('events:properties', { type: 'event' }, 0)
+        await expectLogic(logic, () =>
+            logic.actions.loadPropertyDefinitions('events:properties', { type: 'event' }, 0)
+        ).toDispatchActions(['loadPropertyDefinitionsSuccess'])
+        expect(logic.values.propertyDefinitionLists['events:properties'].definitions.map(({ name }) => name)).toEqual([
+            'fresh',
+        ])
+
+        releaseStaleResponse()
+        await expectLogic(logic).toFinishAllListeners()
+
+        expect(logic.values.propertyDefinitionLists['events:properties'].definitions.map(({ name }) => name)).toEqual([
+            'fresh',
+        ])
         logic.unmount()
     })
 

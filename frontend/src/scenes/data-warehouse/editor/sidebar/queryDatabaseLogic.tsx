@@ -22,6 +22,7 @@ import { TreeItem } from 'lib/components/DatabaseTableTree/DatabaseTableTree'
 import { FEATURE_FLAGS } from 'lib/constants'
 import { LemonTreeRef, TreeDataItem } from 'lib/lemon-ui/LemonTree/LemonTree'
 import { FeatureFlagsSet, featureFlagLogic } from 'lib/logic/featureFlagLogic'
+import { uuid } from 'lib/utils/dom'
 import { createFuse, IFuseOptions } from 'lib/utils/fuseSearch'
 import { newInternalTab } from 'lib/utils/newInternalTab'
 import { databaseTableListLogic } from 'scenes/data-management/database/databaseTableListLogic'
@@ -39,7 +40,7 @@ import {
     DatabaseSchemaManagedViewTable,
     DatabaseSchemaTable,
 } from '~/queries/schema/schema-general'
-import { escapeDottedHogQLIdentifier, escapePropertyAsHogQLIdentifier } from '~/queries/utils'
+import { escapeDottedHogQLIdentifier, escapeRawPropertyAsHogQLIdentifier } from '~/queries/utils'
 import {
     DataWarehouseSavedQuery,
     DataWarehouseSavedQueryDraft,
@@ -167,6 +168,7 @@ export type SidebarPropertyDefinitionTarget = {
 }
 
 export type SidebarPropertyDefinitionList = {
+    activeRequestId: string | null
     count: number
     definitions: EnterprisePropertyDefinitionApi[]
     error: boolean
@@ -362,7 +364,7 @@ const createPropertyDefinitionChildren = (
 
     const propertyNodes = propertyDefinitionList.definitions.map((propertyDefinition) => {
         const propertyPath = `${columnPath}.${propertyDefinition.name}`
-        const hogqlExpression = `${escapeDottedHogQLIdentifier(columnPath)}.${escapePropertyAsHogQLIdentifier(
+        const hogqlExpression = `${escapeDottedHogQLIdentifier(columnPath)}.${escapeRawPropertyAsHogQLIdentifier(
             propertyDefinition.name
         )}`
 
@@ -1903,19 +1905,23 @@ export interface queryDatabaseLogicActions {
     ) => {
         offset: number
         propertyFieldKey: string
+        requestId: string
         target: SidebarPropertyDefinitionTarget
     }
     loadPropertyDefinitionsFailure: (
         propertyFieldKey: string,
-        search: string
+        search: string,
+        requestId: string
     ) => {
         propertyFieldKey: string
+        requestId: string
         search: string
     }
     loadPropertyDefinitionsSuccess: (
         propertyFieldKey: string,
         search: string,
         offset: number,
+        requestId: string,
         response: {
             count: number
             results: EnterprisePropertyDefinitionApi[]
@@ -1923,6 +1929,7 @@ export interface queryDatabaseLogicActions {
     ) => {
         offset: number
         propertyFieldKey: string
+        requestId: string
         response: {
             count: number
             results: EnterprisePropertyDefinitionApi[]
@@ -2192,16 +2199,18 @@ export const queryDatabaseLogic = kea<queryDatabaseLogicType>([
             propertyFieldKey: string,
             target: SidebarPropertyDefinitionTarget,
             offset: number
-        ) => ({ propertyFieldKey, target, offset }),
+        ) => ({ propertyFieldKey, target, offset, requestId: uuid() }),
         loadPropertyDefinitionsSuccess: (
             propertyFieldKey: string,
             search: string,
             offset: number,
+            requestId: string,
             response: { count: number; results: EnterprisePropertyDefinitionApi[] }
-        ) => ({ propertyFieldKey, search, offset, response }),
-        loadPropertyDefinitionsFailure: (propertyFieldKey: string, search: string) => ({
+        ) => ({ propertyFieldKey, search, offset, requestId, response }),
+        loadPropertyDefinitionsFailure: (propertyFieldKey: string, search: string, requestId: string) => ({
             propertyFieldKey,
             search,
+            requestId,
         }),
         clearSearch: true,
         clearTableToLocate: true,
@@ -2346,6 +2355,7 @@ export const queryDatabaseLogic = kea<queryDatabaseLogicType>([
                 setPropertyDefinitionSearch: (state, { propertyFieldKey, search }) => ({
                     ...state,
                     [propertyFieldKey]: {
+                        activeRequestId: null,
                         count: 0,
                         definitions: [],
                         error: false,
@@ -2353,8 +2363,9 @@ export const queryDatabaseLogic = kea<queryDatabaseLogicType>([
                         search,
                     },
                 }),
-                loadPropertyDefinitions: (state, { propertyFieldKey, offset }) => {
+                loadPropertyDefinitions: (state, { propertyFieldKey, offset, requestId }) => {
                     const current = state[propertyFieldKey] ?? {
+                        activeRequestId: null,
                         count: 0,
                         definitions: [],
                         error: false,
@@ -2366,15 +2377,16 @@ export const queryDatabaseLogic = kea<queryDatabaseLogicType>([
                         ...state,
                         [propertyFieldKey]: {
                             ...current,
+                            activeRequestId: requestId,
                             definitions: offset === 0 ? [] : current.definitions,
                             error: false,
                             loading: true,
                         },
                     }
                 },
-                loadPropertyDefinitionsSuccess: (state, { propertyFieldKey, search, offset, response }) => {
+                loadPropertyDefinitionsSuccess: (state, { propertyFieldKey, search, offset, requestId, response }) => {
                     const current = state[propertyFieldKey]
-                    if (!current || current.search !== search) {
+                    if (!current || current.search !== search || current.activeRequestId !== requestId) {
                         return state
                     }
 
@@ -2383,6 +2395,7 @@ export const queryDatabaseLogic = kea<queryDatabaseLogicType>([
                         ...state,
                         [propertyFieldKey]: {
                             ...current,
+                            activeRequestId: null,
                             count: response.count,
                             definitions: Array.from(
                                 new Map(definitions.map((definition) => [definition.id, definition])).values()
@@ -2392,9 +2405,9 @@ export const queryDatabaseLogic = kea<queryDatabaseLogicType>([
                         },
                     }
                 },
-                loadPropertyDefinitionsFailure: (state, { propertyFieldKey, search }) => {
+                loadPropertyDefinitionsFailure: (state, { propertyFieldKey, search, requestId }) => {
                     const current = state[propertyFieldKey]
-                    if (!current || current.search !== search) {
+                    if (!current || current.search !== search || current.activeRequestId !== requestId) {
                         return state
                     }
 
@@ -2402,6 +2415,7 @@ export const queryDatabaseLogic = kea<queryDatabaseLogicType>([
                         ...state,
                         [propertyFieldKey]: {
                             ...current,
+                            activeRequestId: null,
                             error: true,
                             loading: false,
                         },
@@ -2498,7 +2512,7 @@ export const queryDatabaseLogic = kea<queryDatabaseLogicType>([
             await breakpoint(250)
             actions.loadPropertyDefinitions(propertyFieldKey, target, 0)
         },
-        loadPropertyDefinitions: async ({ propertyFieldKey, target, offset }) => {
+        loadPropertyDefinitions: async ({ propertyFieldKey, target, offset, requestId }) => {
             const search = values.propertyDefinitionLists[propertyFieldKey]?.search ?? ''
 
             try {
@@ -2511,9 +2525,9 @@ export const queryDatabaseLogic = kea<queryDatabaseLogicType>([
                     search: search.trim() || undefined,
                     type: target.type,
                 })
-                actions.loadPropertyDefinitionsSuccess(propertyFieldKey, search, offset, response)
+                actions.loadPropertyDefinitionsSuccess(propertyFieldKey, search, offset, requestId, response)
             } catch {
-                actions.loadPropertyDefinitionsFailure(propertyFieldKey, search)
+                actions.loadPropertyDefinitionsFailure(propertyFieldKey, search, requestId)
             }
         },
     })),

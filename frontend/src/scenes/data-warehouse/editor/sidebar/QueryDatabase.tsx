@@ -16,7 +16,6 @@ import {
     IconDatabase,
     IconExternal,
     IconPlusSmall,
-    IconSearch,
 } from '@posthog/icons'
 import { LemonDialog, Tooltip } from '@posthog/lemon-ui'
 
@@ -578,17 +577,7 @@ export const QueryDatabase = ({
             }}
             itemSideAction={(item) => {
                 if (item.record?.type === 'property-field') {
-                    const propertyDefinitionKey = item.record.propertyDefinitionKey
-                    const propertyDefinitionTarget = item.record.propertyDefinitionTarget
-
-                    return (
-                        <PropertyDefinitionFilter
-                            propertyDefinitionKey={propertyDefinitionKey}
-                            propertyDefinitionSearch={item.record.propertyDefinitionSearch ?? ''}
-                            propertyDefinitionTarget={propertyDefinitionTarget}
-                            setPropertyDefinitionSearch={setPropertyDefinitionSearch}
-                        />
-                    )
+                    return null
                 }
 
                 const joinMenu =
@@ -1253,17 +1242,13 @@ export const QueryDatabase = ({
             }}
             itemSideActionButton={(item) => {
                 if (item.record?.type === 'property-field') {
-                    const hasActiveSearch = !!item.record.propertyDefinitionSearch
-
                     return (
-                        <ButtonPrimitive
-                            iconOnly
-                            isSideActionRight
-                            tooltip="Filter properties"
-                            className={cn('absolute right-0 z-10 -outline-offset-2', hasActiveSearch && 'text-accent')}
-                        >
-                            <IconSearch className={cn('size-3', hasActiveSearch ? 'text-accent' : 'text-tertiary')} />
-                        </ButtonPrimitive>
+                        <PropertyDefinitionFilter
+                            propertyDefinitionKey={item.record.propertyDefinitionKey}
+                            propertyDefinitionSearch={item.record.propertyDefinitionSearch ?? ''}
+                            propertyDefinitionTarget={item.record.propertyDefinitionTarget}
+                            setPropertyDefinitionSearch={setPropertyDefinitionSearch}
+                        />
                     )
                 }
 
