@@ -50,7 +50,9 @@ class LeakedKeyReportResponseSerializer(serializers.Serializer):
 class PublicLeakedKeyReport(APIView):
     """
     Public, unauthenticated self-service endpoint: submit a leaked PostHog token and,
-    if it's live, it's revoked immediately and the owner is notified. Safety relies on
+    if it matches a real credential, it's revoked immediately and the owner is
+    notified — even if the submitted OAuth access token has itself already expired,
+    since the paired refresh token it protects may still be live. Safety relies on
     possession of the plaintext token, not a signature — see secret_revocation.py.
 
     Region-local only, no cross-region relay: a "found": false result does not rule
@@ -78,7 +80,9 @@ class PublicLeakedKeyReport(APIView):
         description=(
             "Public, unauthenticated endpoint for self-service revocation of a leaked PostHog "
             "personal API key, project secret API key, or OAuth access/refresh token. If the "
-            "token is live it is revoked immediately and the owner is notified by email.\n\n"
+            "token matches a real credential, it is revoked immediately and the owner is "
+            "notified by email. This includes an expired OAuth access token: the paired "
+            "refresh token it protects may still be live.\n\n"
             'This endpoint only checks the region it is running on. `"found": false` does not '
             "guarantee the token is safe. If you're not sure which region issued it, check "
             "both: https://app.posthog.com/api/revoke_leaked_key and "

@@ -687,10 +687,14 @@ def revoke_oauth_session(
             refresh_token.revoked = now
             refresh_token.save(update_fields=["revoked"])
     else:
-        # Revoke refresh tokens before deleting access tokens, in one transaction, so a
-        # mid-way failure can't leave a refresh token live after its access token is
-        # already gone (same reasoning as revoke_application_sessions below).
+        # Same ordering as revoke_application_sessions below, for the same two reasons:
+        # grants deleted first so this blocks on a racing code exchange's grant-row lock
+        # instead of missing tokens it mints; refresh revoked before access deleted so a
+        # mid-way failure can't leave a refresh token live after its access token is gone.
         with transaction.atomic():
+            # Delete all grants for this user+application
+            OAuthGrant.objects.filter(user=user, application=application).delete()
+
             # Revoke all refresh tokens for this user+application
             OAuthRefreshToken.objects.filter(user=user, application=application, revoked__isnull=True).update(
                 revoked=now
@@ -698,9 +702,6 @@ def revoke_oauth_session(
 
             # Delete all access tokens for this user+application
             OAuthAccessToken.objects.filter(user=user, application=application).delete()
-
-            # Delete all grants for this user+application
-            OAuthGrant.objects.filter(user=user, application=application).delete()
 
 
 def _refresh_token_may_have_untracked_access_tokens(refresh_token: OAuthRefreshToken) -> bool:
