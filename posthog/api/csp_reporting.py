@@ -25,6 +25,10 @@ MAX_PROPERTIES_CHARS = 50_000
 # rest of its text read as instructions.
 UNTRUSTED_BLOCK_TAG_PREFIX = "untrusted_csp_report"
 
+# The popover is interactive, so a slow provider should surface as an error rather than hold a
+# worker for the SDK's much longer default.
+EXPLAIN_TIMEOUT_SECONDS = 30.0
+
 PROMPT_TEMPLATE = r"""
 You are a security consultant that explains CSP violation reports.
     The report has been converted to a set of properties in a JSON object.
@@ -106,6 +110,10 @@ class CSPReportingViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
             messages=build_explain_messages(report, truncated=truncated),
             user="ph/csp/explain",
             stream=False,
+            # This request holds a synchronous worker for its whole duration, and the SDK's default
+            # timeout plus its retries runs far past the point where anyone is still looking at the
+            # popover.
+            timeout=EXPLAIN_TIMEOUT_SECONDS,
         )
 
         return response.Response({"response": llm_response.choices[0].message.content})
