@@ -115,6 +115,57 @@ export function buildConversionGoalStep(conversion: HogFlow['conversion'], workf
     }
 }
 
+export function conversionWindowMinutes(windowMinutes: number | null): number {
+    return windowMinutes && windowMinutes > 0 ? Math.floor(windowMinutes) : UNBOUNDED_WINDOW_DAYS * 24 * 60
+}
+
+/**
+ * Entering the workflow, then meeting the goal.
+ *
+ * Step one is what scopes the whole thing to this workflow: the goal's own events carry no workflow
+ * id, so on their own they match anyone in the project who ever did them. Anything built from this
+ * query keeps that scoping, which is why the drill-down link uses it rather than the goal alone.
+ *
+ * The range runs past `dateTo` by the conversion window, so someone entering at the end of the range
+ * still has their whole window to convert.
+ */
+export function buildConversionFunnelQuery(
+    request: WorkflowConversionRequest,
+    goalStep: EventsNode,
+    windowMinutes: number,
+    vizType: FunnelVizType
+): FunnelsQuery {
+    return {
+        kind: NodeKind.FunnelsQuery,
+        tags: { scene: 'Workflow', productKey: 'messaging' },
+        interval: request.interval,
+        dateRange: {
+            date_from: request.dateFrom,
+            date_to: dayjs(request.dateTo).add(windowMinutes, 'minute').toISOString(),
+        },
+        series: [
+            {
+                kind: NodeKind.EventsNode,
+                event: ENROLLED_EVENT,
+                properties: [
+                    {
+                        type: PropertyFilterType.Event,
+                        key: '$workflow_id',
+                        operator: PropertyOperator.Exact,
+                        value: request.workflowId,
+                    },
+                ],
+            },
+            goalStep,
+        ],
+        funnelsFilter: {
+            funnelVizType: vizType,
+            funnelWindowInterval: windowMinutes,
+            funnelWindowIntervalUnit: FunnelConversionWindowTimeUnit.Minute,
+        },
+    }
+}
+
 /**
  * Property-only goals, counted by pairing each run's enrollment with its conversion on the run id.
  *
@@ -205,42 +256,9 @@ export async function loadWorkflowConversionSeries(
         return await loadPropertyGoalSeries(request, timezone)
     }
 
-    const windowMinutes =
-        request.windowMinutes && request.windowMinutes > 0
-            ? Math.floor(request.windowMinutes)
-            : UNBOUNDED_WINDOW_DAYS * 24 * 60
+    const windowMinutes = conversionWindowMinutes(request.windowMinutes)
 
-    // Someone entering at the end of the range still has the whole window to convert, and that
-    // conversion belongs to their entrance bucket. Asking for the window past `dateTo` lets the funnel
-    // see it; the trailing buckets it also generates are dropped below.
-    const dateToWithWindow = dayjs(request.dateTo).add(windowMinutes, 'minute')
-
-    const query: FunnelsQuery = {
-        kind: NodeKind.FunnelsQuery,
-        tags: { scene: 'Workflow', productKey: 'messaging' },
-        interval: request.interval,
-        dateRange: { date_from: request.dateFrom, date_to: dateToWithWindow.toISOString() },
-        series: [
-            {
-                kind: NodeKind.EventsNode,
-                event: ENROLLED_EVENT,
-                properties: [
-                    {
-                        type: PropertyFilterType.Event,
-                        key: '$workflow_id',
-                        operator: PropertyOperator.Exact,
-                        value: request.workflowId,
-                    },
-                ],
-            },
-            goalStep,
-        ],
-        funnelsFilter: {
-            funnelVizType: FunnelVizType.Trends,
-            funnelWindowInterval: windowMinutes,
-            funnelWindowIntervalUnit: FunnelConversionWindowTimeUnit.Minute,
-        },
-    }
+    const query = buildConversionFunnelQuery(request, goalStep, windowMinutes, FunnelVizType.Trends)
 
     // The funnel reports each bucket's conversion rate but not the two counts behind it, so the
     // entrants are counted alongside it and the conversions are read back off the rate. Both sides

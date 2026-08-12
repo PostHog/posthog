@@ -15,15 +15,21 @@ import { buildHogInvocationsSearchParams } from 'scenes/hog-functions/invocation
 import { urls } from 'scenes/urls'
 
 import { defaultDataTableColumns } from '~/queries/nodes/DataTable/utils'
-import { DataTableNode, EventsQuery, NodeKind } from '~/queries/schema/schema-general'
-import { ActivityTab, LogEntryLevel, PropertyFilterType, PropertyOperator } from '~/types'
+import { DataTableNode, EventsQuery, InsightVizNode, NodeKind } from '~/queries/schema/schema-general'
+import { ActivityTab, FunnelVizType, LogEntryLevel, PropertyFilterType, PropertyOperator } from '~/types'
 
 import type { AppMetricsCommonParams } from '../../../../frontend/src/lib/components/AppMetrics/appMetricsLogic'
 import type { Dayjs } from '../../../../frontend/src/lib/dayjs'
 import type { TeamPublicType, TeamType } from '../../../../frontend/src/types'
 import { isEmailAction, isPushAction } from './hogflows/steps/types'
 import type { HogFlow } from './hogflows/types'
-import { buildConversionGoalStep, loadWorkflowConversionSeries } from './workflowConversionQuery'
+import {
+    buildConversionFunnelQuery,
+    buildConversionGoalStep,
+    conversionWindowMinutes,
+    hasEventGoal,
+    loadWorkflowConversionSeries,
+} from './workflowConversionQuery'
 import { workflowLogic } from './workflowLogic'
 
 // Each conversion is emitted as a `$workflows_conversion` PostHog event carrying `$workflow_id`, so
@@ -1191,14 +1197,13 @@ export const workflowMetricsSummaryLogic = kea<workflowMetricsSummaryLogicType>(
 
         // Only surface the conversion tiles when a goal is actually configured — without one the
         // backend never emits conversion metrics/events, so the tiles would always read empty.
+        // Read off the same builder the query uses, so the tile only appears when there is a goal it
+        // can actually count. A goal row left half-filled in the editor (an event with no name, say)
+        // otherwise shows a tile that can never resolve, stuck on the "runs predate this" message.
         hasConversionGoal: [
-            (s) => [s.workflow],
-            (workflow: import('./hogflows/types').HogFlow): boolean => {
-                const filters = workflow.conversion?.filters
-                const hasPropertyGoal = Array.isArray(filters) && filters.length > 0
-                const hasEventGoal = (workflow.conversion?.events?.length ?? 0) > 0
-                return hasPropertyGoal || hasEventGoal
-            },
+            (s) => [s.workflow, (_, p: WorkflowMetricsSummaryLogicProps) => p.id],
+            (workflow: import('./hogflows/types').HogFlow, id: string): boolean =>
+                buildConversionGoalStep(workflow.conversion, id) !== null,
         ],
 
         convertedUsersUrl: [
@@ -1212,33 +1217,50 @@ export const workflowMetricsSummaryLogic = kea<workflowMetricsSummaryLogicType>(
                 workflow: import('./hogflows/types').HogFlow,
                 id: string
             ): string => {
-                const { dateFrom } = getDateRangeAbsolute()
-                // Same goal definition the tile counts from, so the two can't disagree about what a
-                // conversion is. Falls back to the conversion event for a workflow whose goal no
-                // longer resolves, which is all there is left to show.
+                const { dateFrom, dateTo } = getDateRangeAbsolute()
                 const goalStep = buildConversionGoalStep(workflow.conversion, id)
+
+                // Open the funnel the tile counts from, so the two describe the same people. A goal's
+                // own events carry no workflow id, so listing them on their own would show everyone in
+                // the project who ever did them; the funnel's first step is what scopes it to people
+                // who entered this workflow.
+                if (goalStep && hasEventGoal(workflow.conversion)) {
+                    const funnelInsight: InsightVizNode = {
+                        kind: NodeKind.InsightVizNode,
+                        source: buildConversionFunnelQuery(
+                            {
+                                workflowId: id,
+                                dateFrom: dateFrom.toISOString(),
+                                dateTo: dateTo.toISOString(),
+                                interval: 'day',
+                                windowMinutes: workflow.conversion?.window_minutes ?? null,
+                                conversion: workflow.conversion,
+                            },
+                            goalStep,
+                            conversionWindowMinutes(workflow.conversion?.window_minutes ?? null),
+                            FunnelVizType.Steps
+                        ),
+                    }
+                    return urls.insightNew({ query: funnelInsight })
+                }
+
+                // A property goal is only ever recorded as this event, which already carries the
+                // workflow id, so the events table can show it directly. Deliberately open-ended at
+                // the top: someone who entered inside the range can convert after it.
                 const source: EventsQuery = {
                     kind: NodeKind.EventsQuery,
                     select: defaultDataTableColumns(NodeKind.EventsQuery),
                     orderBy: ['timestamp DESC'],
                     after: dateFrom.toISOString(),
-                    // Deliberately open-ended: someone who entered inside the range can convert after
-                    // it, and those are exactly the conversions the tile counts. It still can't align
-                    // exactly with the tile, which only counts a conversion for someone who entered
-                    // first, so it errs toward showing more rather than hiding late conversions.
-                    ...(goalStep
-                        ? { event: goalStep.event, fixedProperties: goalStep.properties }
-                        : {
-                              event: CONVERSION_EVENT,
-                              properties: [
-                                  {
-                                      type: PropertyFilterType.Event,
-                                      key: '$workflow_id',
-                                      operator: PropertyOperator.Exact,
-                                      value: id,
-                                  },
-                              ],
-                          }),
+                    event: CONVERSION_EVENT,
+                    properties: [
+                        {
+                            type: PropertyFilterType.Event,
+                            key: '$workflow_id',
+                            operator: PropertyOperator.Exact,
+                            value: id,
+                        },
+                    ],
                 }
                 const query: DataTableNode = {
                     kind: NodeKind.DataTableNode,

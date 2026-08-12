@@ -110,15 +110,18 @@ function hasConversionGoal(hogFlow: HogFlow): boolean {
     return Boolean(hogFlow.conversion?.filters?.length || hogFlow.conversion?.events?.length)
 }
 
-// The denominator for conversion rate: one event per run, at the moment the run starts. Conversions
-// are counted by querying these against `$workflows_conversion` on `$workflow_run_id`, which is what
+// The denominator for conversion rate: one event per run, at the moment the run starts. It is what
 // lets the metric see conversions that land after the run has finished — the run's cyclotron job is
-// gone by then, so nothing in the live pipeline can still observe them.
+// gone by then, so nothing in the live pipeline can still observe them. Event and action goals are
+// then counted from the goal's own events, joined to this one by person; property goals pair with
+// `$workflows_conversion` on `$workflow_run_id`, since the executor emits both itself.
 //
-// A run is starting iff it has no `currentAction` yet: every dispatch path (events, warehouse,
-// webhooks, batch children, reruns) creates the invocation without one, and `ensureCurrentAction`
-// fills it in on the first execution. A run that errors before its state persists can re-emit on
-// retry, so consumers must count runs distinctly rather than assume exactly-once.
+// A run is starting iff it has no `currentAction` yet. Every dispatch path creates the invocation
+// without one and `ensureCurrentAction` fills it in on the first execution, except a rerun, which
+// restores the persisted `currentAction` so it resumes where the original stopped (see
+// `rerun-paginator.service.ts`) and so does not enroll again. A run that errors before its state
+// persists can re-emit on retry, so consumers must count runs distinctly rather than assume
+// exactly-once.
 function buildEnrollmentEvent(invocation: CyclotronJobInvocationHogFlow): HogFunctionCapturedEvent | null {
     if (invocation.state.currentAction || !hasConversionGoal(invocation.hogFlow)) {
         return null
@@ -442,7 +445,11 @@ export class HogFlowExecutorService {
                     properties: {
                         $workflow_id: hogFlow.id,
                         $workflow_run_id: invocation.id,
-                        $workflow_version: hogFlow.version,
+                        // The version the run started under, not the live one. `hogFlow` is re-read on
+                        // every dequeue, so a republish mid-run would otherwise file this conversion
+                        // under a version that never sent to this person, while its own enrollment
+                        // event stayed on the old one.
+                        $workflow_version: invocation.state.flowVersion,
                         $workflow_conversion_type: 'property',
                     },
                 }
