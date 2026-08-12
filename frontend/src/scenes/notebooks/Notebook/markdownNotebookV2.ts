@@ -18,6 +18,7 @@ import {
 import { getInlineText, isNotebookPropValue, toSerializablePropValue } from 'lib/components/MarkdownNotebook/utils'
 import { JSONContent } from 'lib/components/RichContentEditor/types'
 import { removeProjectIdIfPresent } from 'lib/utils/kea-router'
+import { OutputTab } from 'scenes/data-warehouse/editor/outputPaneLogic'
 import { urlToResource } from 'scenes/urls'
 
 import { DocumentBlock, VisualizationBlock } from '~/queries/schema/schema-assistant-artifacts'
@@ -263,6 +264,34 @@ export function buildDroppedLinkParagraphNode(url: string): NotebookBlockNode {
         type: 'paragraph',
         children: [{ type: 'text', text: url, ...(href ? { marks: [{ type: 'link', href }] } : {}) }],
     }
+}
+
+/** A SQL cell keeps its query in `code`, but authors (the AI especially) reach for the
+ * `<Query query={…} />` prop shape instead, which leaves the editor blank and unrunnable. Read the
+ * HogQL back out of such a query so the cell shows what it was written with. Returns the props to
+ * merge over the cell's own, or null when there is nothing to recover. */
+export function getSqlV2PropsFromQueryProp(props: NotebookComponentProps): NotebookComponentProps | null {
+    if (typeof props.code === 'string' && props.code.trim()) {
+        return null
+    }
+    if (typeof props.query === 'string') {
+        return props.query.trim() ? { code: props.query } : null
+    }
+    if (!props.query || typeof props.query !== 'object' || Array.isArray(props.query)) {
+        return null
+    }
+
+    const query = props.query as Record<string, NotebookPropValue>
+    // Both the wrapped shapes (data table, visualization) and a bare HogQL query show up.
+    const source = (isHogQLQuery(query) ? query : query.source) as Record<string, NotebookPropValue> | undefined
+    const code = source?.kind === NodeKind.HogQLQuery && typeof source.query === 'string' ? source.query : null
+    if (!code?.trim()) {
+        return null
+    }
+
+    // A visualization query also carries the chart the author picked. The node rewrites the source
+    // from its own code on render, so keeping the whole query here costs nothing.
+    return isDataVisualizationNode(query) ? { code, vizQuery: query, outputTab: OutputTab.Visualization } : { code }
 }
 
 export function serializeMarkdownNotebookComponent(tagName: string, props: NotebookComponentProps): string {
