@@ -6,8 +6,7 @@ function position(index: number, x: number, y: number, radius = 4): ScatterPoint
 }
 
 describe('findNearestPointIndex', () => {
-    // Two points share an x pixel: the case an x-only bisector (what line and bar charts use) can't
-    // resolve, and the reason the scatter chart hit-tests in 2D.
+    // Two points on one x pixel: what an x-only bisector can't resolve.
     const stacked = [position(0, 100, 20), position(1, 100, 200)]
 
     it.each([
@@ -21,15 +20,15 @@ describe('findNearestPointIndex', () => {
         expect(findNearestPointIndex(stacked, 400, 110, 4)).toBe(-1)
     })
 
-    it('hits a marker from just outside its edge but not from beyond the slop', () => {
+    it('hits a marker from just outside its edge but not from beyond the tolerance', () => {
         const points = [position(7, 100, 100, 4)]
         expect(findNearestPointIndex(points, 109, 100, 4)).toBe(7)
         expect(findNearestPointIndex(points, 111, 100, 4)).toBe(-1)
     })
 
     it('prefers a large marker the cursor sits inside over a small one whose center is nearer', () => {
-        // The small marker's center is 5px away, the large one's is 8px, but the cursor is inside the
-        // large marker, so that is what the user is pointing at.
+        // The small marker's center is 5px away and the large one's 8px, but the cursor is inside
+        // the large marker.
         const points = [position(0, 92, 100, 10), position(1, 105, 100, 2)]
         expect(findNearestPointIndex(points, 100, 100, 10)).toBe(0)
     })

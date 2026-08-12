@@ -28,8 +28,8 @@ export function xTickCountForWidth(plotWidth: number): number {
     return Math.max(2, Math.min(MAX_X_TICKS, Math.floor(plotWidth / X_TICK_SPACING_PX)))
 }
 
-/** A pinned domain is used as-is; otherwise the shared value-scale builder derives one, so a scatter
- *  axis gets the same log, degenerate-range, and `nice()` handling as every other value axis. */
+/** Derived through the shared value-scale builder when unpinned, so a scatter axis gets the same log,
+ *  degenerate-range, and `nice()` handling as every other value axis. */
 export function buildScatterAxisScale(
     points: FlatScatterPoint[],
     axis: 'x' | 'y',
@@ -54,8 +54,7 @@ export function buildScatterAxisScale(
     })
 }
 
-/** Thinned by label collision: a log axis offers more ticks than it can label, and a grid line under
- *  no label reads as a stray. */
+/** Thinned by label collision, since a grid line under no label reads as a stray. */
 export function resolveXTicks(
     xScale: D3YScale,
     tickCount: number,

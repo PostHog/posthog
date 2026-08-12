@@ -33,7 +33,6 @@ export function drawScatterMarkers(
     ctx.restore()
 }
 
-/** Halos the marker in the chart background, so it lifts off whatever it overlaps. */
 export function drawScatterHoverMarker(
     ctx: CanvasRenderingContext2D,
     position: ScatterPointPosition,

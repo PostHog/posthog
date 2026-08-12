@@ -50,15 +50,12 @@ const EMPTY_AXIS_CONFIG: ScatterAxisConfig = {}
 const NO_CATEGORY_X_LABELS = (): null => null
 
 export interface ScatterChartProps<Meta = unknown> {
-    /** One entry per group of points. A single-group scatter is one series. */
     series: ScatterSeries<Meta>[]
     theme: ChartTheme
     config?: ScatterChartConfig<Meta>
-    /** Custom tooltip for the hovered point. `ctx.point` is the point under the cursor. */
     tooltip?: (ctx: ScatterTooltipContext<Meta>) => React.ReactNode
     onPointClick?: (point: ScatterPointDatum<Meta>) => void
-    /** Enables drag-to-select: the user drags a rectangle and the callback fires once with its
-     *  data-space bounds. Feed those back as the axes' `domain` to zoom. */
+    /** Fires once per completed drag. Feed its bounds back as the axes' `domain` to zoom. */
     onAreaSelect?: (selection: ScatterAreaSelection) => void
     className?: string
     /** `data-attr` applied to the chart wrapper. See `ChartProps.dataAttr`. */

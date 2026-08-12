@@ -15,8 +15,8 @@ const TICK_STYLE: React.CSSProperties = {
     transform: 'translateX(-50%)',
 }
 
-/** Numeric x-axis tick labels, standing in for the base chart's one-label-per-category x-axis layer.
- *  Carries the base x ticks' `data-attr`, so test accessors read either chart the same way. */
+/** Stands in for the base chart's one-label-per-category x-axis layer, carrying the same
+ *  `data-attr` so test accessors read either chart alike. */
 export function ScatterXAxisLabels(): React.ReactElement | null {
     const { scales, dimensions, theme } = useChartLayout()
     const ticks = readScatterLayout(scales)?.xTicks

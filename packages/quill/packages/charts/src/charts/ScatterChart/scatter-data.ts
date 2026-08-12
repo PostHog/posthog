@@ -23,8 +23,8 @@ function isPlottable(value: number, logScale: boolean): boolean {
     return Number.isFinite(value) && (!logScale || value > 0)
 }
 
-/** Flatten every series' points into one list, sorted by x so the hit test can binary-search it.
- *  Unplottable points are dropped here, so everything downstream works off a drawable list. */
+/** Flattened into one list, sorted by x so the hit test can binary-search it. Unplottable points are
+ *  dropped here, so everything downstream works off a drawable list. */
 export function flattenScatterPoints<Meta>(
     series: ScatterSeries<Meta>[],
     options: { xLogScale?: boolean; yLogScale?: boolean } = {}
@@ -41,7 +41,6 @@ export function flattenScatterPoints<Meta>(
             flat.push({ ...point, seriesIndex, seriesKey: s.key, pointIndex })
         }
     }
-    // Stable on ties, so the index space is deterministic across renders.
     return flat.sort((a, b) => a.x - b.x)
 }
 

@@ -7,7 +7,6 @@ import { buildScatterAxisScale, domainBounds, resolveXTicks, xTickCountForWidth 
 import type { ScatterAxisScale, ScatterXTick } from './scatter-scales'
 import type { ScatterSeries } from './types'
 
-/** A visible point resolved to canvas pixels and final marker style, ready to draw or hit-test. */
 export interface ScatterPointPosition {
     /** Global index into the flattened point list. */
     index: number
@@ -40,7 +39,7 @@ export function readScatterLayout(scales: ChartScales): ScatterLayout | undefine
 
 export interface ScatterScalesInput {
     points: FlatScatterPoint[]
-    /** Per-series marker defaults, indexed by `FlatScatterPoint.seriesIndex`. */
+    /** Indexed by `FlatScatterPoint.seriesIndex`. */
     seriesStyles: Pick<ScatterSeries, 'pointRadius' | 'shape'>[]
     coloredSeries: ResolvedSeries[]
     dimensions: ChartDimensions

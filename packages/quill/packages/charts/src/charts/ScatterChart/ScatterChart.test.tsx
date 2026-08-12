@@ -17,8 +17,8 @@ const THEME: ChartTheme = {
     gridColor: '#eeeeee',
 }
 
-// The jsdom mock sizes every element 800×400; zeroing the margins makes the plot area the whole
-// canvas, so a data coordinate maps to a client pixel the test can compute exactly.
+// Zeroed margins make the plot the whole 800×400 jsdom canvas, so a data coordinate maps to a
+// client pixel the test can compute exactly.
 const MARGINS: Partial<ChartMargins> = { top: 0, right: 0, bottom: 0, left: 0 }
 const PLOT_WIDTH = 800
 const PLOT_HEIGHT = 400
@@ -33,8 +33,7 @@ const SERIES: ScatterSeries[] = [
         points: [
             { x: 0, y: 0, label: 'Bottom left' },
             { x: 100, y: 100, label: 'Top right' },
-            // The one point whose coordinates differ, so a tooltip that swapped the two axes
-            // couldn't still read correctly.
+            // Off the diagonal, so a tooltip that swapped the two axes couldn't still read correctly.
             { x: 25, y: 80, label: 'Off diagonal' },
         ],
     },
@@ -74,7 +73,6 @@ describe('ScatterChart', () => {
     })
 
     it('labels the x axis with its own domain, not with one tick per point', () => {
-        // Three points would give category ticks '0'–'2'; a continuous axis ticks the data range.
         const { chart } = renderScatter()
         expect(chart.xTicks()).toContain('100')
         expect(chart.xAxisLabel()).toBe('Reads')
@@ -86,8 +84,7 @@ describe('ScatterChart', () => {
     })
 
     it('resolves the hovered point by both axes, not by x alone', async () => {
-        // Both points sit at x = 0, so an x-only hit test (what the line and bar charts use)
-        // couldn't tell them apart.
+        // Both points sit at x = 0, so an x-only hit test couldn't tell them apart.
         const { chart } = renderScatter()
         const tooltip = createDefaultTooltipAccessor(await hoverPoint(chart.element, 0, 100))
         expect(tooltip.label()).toBe('Top left')
@@ -112,7 +109,6 @@ describe('ScatterChart', () => {
     })
 
     it('falls back to a linear x axis when a log domain starts at a non-positive bound', () => {
-        // log(0) is undefined, so honoring the scale type here would map the whole plot to NaN.
         const { chart } = renderScatter({
             config: { margins: MARGINS, xAxis: { scaleType: 'log', domain: [0, 100] } },
         })
@@ -142,8 +138,7 @@ describe('ScatterChart', () => {
             />,
             { nativeTooltip: true }
         )
-        // A log scale clamps, so the excluded point would otherwise sit on the plot's top edge —
-        // hoverable, and reading as a value it doesn't have.
+        // A log scale clamps, so the excluded point would otherwise sit hoverable on the top edge.
         await waitForHogChartTooltip(3000, () => {
             act(() => {
                 fireEvent.mouseMove(chart.element, { clientX: clientX(10), clientY: PLOT_HEIGHT / 2 })
@@ -157,8 +152,7 @@ describe('ScatterChart', () => {
 
     it('drops a legend-hidden series from the plot, not just from the legend', async () => {
         const { chart } = renderScatter({ config: { margins: MARGINS, legend: { hiddenKeys: ['writes'] } } })
-        // Hover a visible point first: an absent tooltip would otherwise pass simply because the
-        // chart had not committed its scales yet.
+        // Hover a visible point first, or an absent tooltip passes on uncommitted scales alone.
         await hoverPoint(chart.element, 100, 100)
         act(() => {
             fireEvent.mouseMove(chart.element, { clientX: clientX(0), clientY: clientY(100) })
@@ -167,8 +161,7 @@ describe('ScatterChart', () => {
     })
 
     it('shows nothing when the cursor is over empty plot area', async () => {
-        // Hover a real point first: asserting on an absent tooltip would otherwise pass simply
-        // because the chart had not committed its scales yet.
+        // Hover a real point first, or an absent tooltip passes on uncommitted scales alone.
         const { chart } = renderScatter()
         await hoverPoint(chart.element, 100, 100)
         act(() => {
@@ -220,8 +213,6 @@ describe('ScatterChart', () => {
     })
 
     it('bounds a drag that overshoots the plot to the axes own range', async () => {
-        // Brushing into a corner routinely leaves the plot; without clamping, the pixels past the
-        // axis extrapolate and report a range wider than the rectangle the user saw.
         const onAreaSelect = jest.fn()
         const { chart } = renderScatter({ onAreaSelect })
         await hoverPoint(chart.element, 100, 100)

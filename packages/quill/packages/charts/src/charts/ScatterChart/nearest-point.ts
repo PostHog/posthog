@@ -1,8 +1,8 @@
 import type { ScatterPointPosition } from './scatter-layout'
 
-// Slop past a marker's edge that still counts as hovering it, so a small dot doesn't demand
+// How far past a marker's edge still counts as hovering it, so a small dot doesn't demand
 // pixel-perfect aim while empty plot area still reads as empty.
-const HOVER_SLOP_PX = 6
+const HOVER_TOLERANCE_PX = 6
 
 /** Global index of the marker nearest the cursor, or -1 when none is in reach. Ranking by distance to
  *  a marker's *edge* lets a large marker the cursor sits inside beat a small one centered nearer.
@@ -27,7 +27,7 @@ export function findNearestPointIndex(
     }
 
     let best = -1
-    let bestScore = HOVER_SLOP_PX
+    let bestScore = HOVER_TOLERANCE_PX
     const scoreAt = (i: number, dx: number): void => {
         const score = Math.hypot(dx, positions[i].y - cursorY) - positions[i].radius
         if (score < bestScore) {

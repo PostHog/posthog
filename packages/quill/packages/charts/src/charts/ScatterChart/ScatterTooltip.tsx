@@ -5,15 +5,10 @@ import type { ScatterPointDatum } from './types'
 
 export interface ScatterTooltipProps<Meta = unknown> {
     point: ScatterPointDatum<Meta>
-    /** Overrides the header. Defaults to the point's label, falling back to its series label. */
     header?: React.ReactNode
-    /** Row label for the x readout. Defaults to 'X'. */
     xLabel?: string
-    /** Row label for the y readout. Defaults to 'Y'. */
     yLabel?: string
-    /** Preformatted x value. Defaults to the raw number, locale-formatted. */
     xValue?: React.ReactNode
-    /** Preformatted y value. Defaults to the raw number, locale-formatted. */
     yValue?: React.ReactNode
 }
 
@@ -30,9 +25,9 @@ function Row({ label, value }: { label: string; value: React.ReactNode }): React
     )
 }
 
-/** Which point this is, then its two coordinates. `DefaultTooltip` can't serve, because its rows are
- *  series values at one x-axis label, whereas a scatter point *is* the reading and both of its axes
- *  matter. The `data-attr` hooks are the same ones, so `createDefaultTooltipAccessor` reads this too. */
+/** `DefaultTooltip` can't serve, because its rows are series values at one x-axis label, whereas a
+ *  scatter point *is* the reading. Its `data-attr` hooks are reused, so the shared tooltip test
+ *  accessor reads this one too. */
 export function ScatterTooltip<Meta = unknown>({
     point,
     header,
