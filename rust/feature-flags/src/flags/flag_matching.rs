@@ -1707,7 +1707,10 @@ impl FeatureFlagMatcher {
                         ],
                         1,
                     );
-                    with_canonical_log(|log| log.eval.person_properties_not_cached = true);
+                    with_canonical_log(|log| {
+                        log.eval.property_cache_misses += 1;
+                        log.eval.person_properties_not_cached = true;
+                    });
                     tracing::error!(
                         "Cohort filters not evaluated — DB prep never ran, so the condition fails closed"
                     );
