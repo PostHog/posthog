@@ -582,8 +582,14 @@ class AdvancedActivityLogsViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSe
     @property
     def field_discovery(self) -> AdvancedActivityLogFieldDiscovery:
         if self._field_discovery is None:
+            team_id = self._field_discovery_team_id()
             self._field_discovery = AdvancedActivityLogFieldDiscovery(
-                self.organization.id, team_id=self._field_discovery_team_id()
+                self.organization.id,
+                team_id=team_id,
+                # `self.team` is only resolvable on the project route, and the org route is
+                # organization-wide already, so it needs no widening.
+                include_org_scoped=bool(self.team.receive_org_level_activity_logs) if team_id is not None else False,
+                user_id=getattr(self.request.user, "pk", None),
             )
         return self._field_discovery
 

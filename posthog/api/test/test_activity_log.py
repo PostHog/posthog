@@ -11,6 +11,7 @@ from django.utils import timezone
 
 from parameterized import parameterized
 from rest_framework import status
+from rest_framework.response import Response
 
 from posthog.api.advanced_activity_logs.fields_cache import cache_fields, delete_cached_fields, get_cached_fields
 from posthog.constants import AvailableFeature
@@ -461,8 +462,10 @@ class TestAdvancedActivityLogsAvailableFiltersScoping(APIBaseTest):
     def _clear_caches(self) -> None:
         delete_cached_fields(str(self.organization.id))
         delete_cached_fields(str(self.organization.id), team_id=self.team.id)
+        for user in (self.user, self.other_user):
+            delete_cached_fields(str(self.organization.id), team_id=self.team.id, user_id=user.pk)
 
-    def _log(self, team_id: int, scope: str, activity: str, detail: dict, user: User) -> None:
+    def _log(self, team_id: int | None, scope: str, activity: str, detail: dict, user: User) -> None:
         ActivityLog.objects.create(
             organization_id=self.organization.id,
             team_id=team_id,
@@ -473,7 +476,7 @@ class TestAdvancedActivityLogsAvailableFiltersScoping(APIBaseTest):
             detail=detail,
         )
 
-    def _available_filters(self) -> Any:
+    def _available_filters(self) -> Response:
         return self.client.get(f"/api/projects/{self.team.id}/advanced_activity_logs/available_filters/")
 
     @staticmethod
@@ -499,9 +502,38 @@ class TestAdvancedActivityLogsAvailableFiltersScoping(APIBaseTest):
         assert self._available_filters().status_code == status.HTTP_200_OK
 
         assert get_cached_fields(str(self.organization.id)) is None
-        cached = get_cached_fields(str(self.organization.id), team_id=self.team.id)
+        assert get_cached_fields(str(self.organization.id), team_id=self.team.id) is None
+        cached = get_cached_fields(str(self.organization.id), team_id=self.team.id, user_id=self.user.pk)
         assert cached is not None
         assert {entry["value"] for entry in cached["static_filters"]["scopes"]} == {"Dashboard"}
+
+    def test_available_filters_do_not_serve_another_members_cache(self) -> None:
+        assert self._available_filters().status_code == status.HTTP_200_OK
+
+        self.other_user.current_team = self.team
+        self.other_user.save()
+        self.client.force_login(self.other_user)
+
+        with patch("posthog.api.advanced_activity_logs.field_discovery.SMALL_ORG_THRESHOLD", 0):
+            res = self._available_filters()
+
+        assert res.status_code == status.HTTP_200_OK
+        body = res.json()
+        assert self._values(body, "scopes") == set()
+        assert body["detail_fields"] == {}
+
+    def test_record_count_covers_the_organization_scoped_rows_the_project_can_read(self) -> None:
+        self.team.receive_org_level_activity_logs = True
+        self.team.save()
+        self._log(None, "Organization", "updated", {"org_scoped_field": "o"}, self.user)
+
+        # Two project rows plus one organization-scoped row. A count that misses the last one stays
+        # at or below this threshold and takes the live branch the threshold exists to avoid.
+        with patch("posthog.api.advanced_activity_logs.field_discovery.SMALL_ORG_THRESHOLD", 2):
+            res = self._available_filters()
+
+        assert res.status_code == status.HTTP_200_OK
+        assert res.json()["detail_fields"] == {}
 
     def test_available_filters_omit_detail_fields_of_restricted_scopes(self) -> None:
         res = self._available_filters()

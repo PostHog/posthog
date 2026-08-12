@@ -5,7 +5,7 @@ from datetime import timedelta
 from typing import Any, TypedDict
 
 from django.db import connection
-from django.db.models import QuerySet
+from django.db.models import Q, QuerySet
 from django.utils import timezone
 
 from posthog.models.activity_logging.activity_log import ActivityLog, Change
@@ -27,12 +27,23 @@ class AdvancedActivityLogFieldDiscovery:
 
     `team_id` narrows every query and the cache key to a single project. It stays `None` for the
     organization-wide callers (the org-scoped endpoint and the background cache task), which are
-    allowed to see across projects.
+    allowed to see across projects. `include_org_scoped` widens a project's scope to the
+    organization-scoped rows that project's feed also shows, matching
+    `apply_organization_scoped_filter`. `user_id` identifies the caller a cached entry belongs to,
+    and stays `None` for the background task, which computes with no caller.
     """
 
-    def __init__(self, organization_id: UUIDT, team_id: int | None = None):
+    def __init__(
+        self,
+        organization_id: UUIDT,
+        team_id: int | None = None,
+        include_org_scoped: bool = False,
+        user_id: int | None = None,
+    ):
         self.organization_id = organization_id
         self.team_id = team_id
+        self.include_org_scoped = include_org_scoped
+        self.user_id = user_id
 
     def get_available_filters(self, base_queryset: QuerySet) -> dict[str, Any]:
         # The filter options themselves come from the caller's authorized queryset below, so they can
@@ -44,7 +55,11 @@ class AdvancedActivityLogFieldDiscovery:
         record_count = self._get_record_count()
 
         if record_count > SMALL_ORG_THRESHOLD:
-            cached = get_cached_fields(str(self.organization_id), self.team_id)
+            cached = get_cached_fields(str(self.organization_id), self.team_id, self.user_id)
+            if cached is None and self.team_id is None:
+                # The background task computes one organization-wide entry with no caller attached.
+                # Only an organization-wide caller may read it, and that route is admin-gated.
+                cached = get_cached_fields(str(self.organization_id))
             if cached:
                 return cached
             return {
@@ -60,7 +75,7 @@ class AdvancedActivityLogFieldDiscovery:
             "detail_fields": detail_fields,
         }
 
-        cache_fields(str(self.organization_id), result, record_count, self.team_id)
+        cache_fields(str(self.organization_id), result, record_count, self.team_id, self.user_id)
         return result
 
     def _get_static_filters(self, queryset: QuerySet) -> dict[str, list[dict[str, str]]]:
@@ -133,7 +148,8 @@ class AdvancedActivityLogFieldDiscovery:
         params: list[Any] = [str(self.organization_id)]
         team_clause = ""
         if self.team_id is not None:
-            team_clause = "AND team_id = %s"
+            # Mirrors `_get_base_queryset`, so sampling covers the same rows the count sizes.
+            team_clause = "AND (team_id = %s OR team_id IS NULL)" if self.include_org_scoped else "AND team_id = %s"
             params.append(self.team_id)
         params.extend([limit, offset])
 
@@ -171,7 +187,7 @@ class AdvancedActivityLogFieldDiscovery:
         batch_fields = self._extract_fields_from_records(records)
         batch_converted = self._convert_to_discovery_format(batch_fields)
 
-        existing_cache = get_cached_fields(str(self.organization_id), self.team_id)
+        existing_cache = get_cached_fields(str(self.organization_id), self.team_id, self.user_id)
         if existing_cache and "detail_fields" in existing_cache:
             current_detail_fields = existing_cache["detail_fields"]
             self._merge_fields_into_result(current_detail_fields, batch_converted)
@@ -201,13 +217,17 @@ class AdvancedActivityLogFieldDiscovery:
         }
 
         record_count = self._get_record_count()
-        cache_fields(str(self.organization_id), cache_data, record_count, self.team_id)
+        cache_fields(str(self.organization_id), cache_data, record_count, self.team_id, self.user_id)
 
     def _get_base_queryset(self) -> QuerySet:
         queryset = ActivityLog.objects.filter(organization_id=self.organization_id)
-        if self.team_id is not None:
-            queryset = queryset.filter(team_id=self.team_id)
-        return queryset
+        if self.team_id is None:
+            return queryset
+        if self.include_org_scoped:
+            return queryset.filter(
+                Q(team_id=self.team_id) | Q(team_id__isnull=True, organization_id=self.organization_id)
+            )
+        return queryset.filter(team_id=self.team_id)
 
     def _merge_fields_into_result(self, result: DetailFieldsResult, fields: list[tuple[str, str, list[str]]]) -> None:
         for scope, field_name, field_types in fields:
