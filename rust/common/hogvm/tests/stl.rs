@@ -8,6 +8,12 @@ use serde_json::{json, Value};
 
 // Opcode numeric values (mirror common/hogvm/python/operation.py).
 const OP_CALL_GLOBAL: i64 = 2;
+const OP_EQ: i64 = 11;
+const OP_NOT_EQ: i64 = 12;
+const OP_GT: i64 = 13;
+const OP_GT_EQ: i64 = 14;
+const OP_LT: i64 = 15;
+const OP_LT_EQ: i64 = 16;
 const OP_STRING: i64 = 32;
 const OP_INTEGER: i64 = 33;
 const OP_RETURN: i64 = 38;
@@ -54,6 +60,33 @@ fn collection(op: i64, elems: &[Vec<Value>]) -> Vec<Value> {
 /// Single-string-arg native returning a string — the shape most STL functions take.
 fn call_str(name: &str, arg: &str) -> Value {
     run(call(name, &[str_lit(arg)]))
+}
+
+#[test]
+fn sortable_semver_arrays_support_every_comparison_operation() {
+    // Tilde, caret, and wildcard ranges compile to a lower-bound GT_EQ and an upper-bound LT.
+    let cases = [
+        ("equals", OP_EQ, "1.2.3", "1.2.3", true),
+        ("equals", OP_EQ, "1.2.3", "1.2.4", false),
+        ("not equals", OP_NOT_EQ, "1.2.3", "1.2.4", true),
+        ("not equals", OP_NOT_EQ, "1.2.3", "1.2.3", false),
+        ("greater than", OP_GT, "2.0.0", "1.9.9", true),
+        ("greater than", OP_GT, "1.9.9", "2.0.0", false),
+        ("greater than or equal", OP_GT_EQ, "2.0.0", "2.0.0", true),
+        ("greater than or equal", OP_GT_EQ, "1.9.9", "2.0.0", false),
+        ("less than", OP_LT, "2.9.0", "2.10.0", true),
+        ("less than", OP_LT, "2.10.0", "2.10.0", false),
+        ("less than or equal", OP_LT_EQ, "2.10.0", "2.10.0", true),
+        ("less than or equal", OP_LT_EQ, "2.10.1", "2.10.0", false),
+    ];
+
+    for (label, operation, left, right, expected) in cases {
+        let mut comparison = call("sortableSemver", &[str_lit(right)]);
+        comparison.extend(call("sortableSemver", &[str_lit(left)]));
+        comparison.push(json!(operation));
+
+        assert_eq!(run(comparison), json!(expected), "{left} {label} {right}");
+    }
 }
 
 #[test]

@@ -17,6 +17,7 @@ const OP_STRING: i64 = 32;
 const OP_INTEGER: i64 = 33;
 const OP_FLOAT: i64 = 34;
 const OP_RETURN: i64 = 38;
+const OP_ARRAY: i64 = 43;
 
 /// `left <op> right`. The compiler emits operands as `[right…, left…, op]`.
 fn compare(left: &[Value], right: &[Value], op: i64) -> Vec<Value> {
@@ -54,6 +55,12 @@ fn string(s: &str) -> Vec<Value> {
 
 fn boolean(b: bool) -> Vec<Value> {
     vec![json!(if b { OP_TRUE } else { OP_FALSE })]
+}
+
+fn array(values: &[Vec<Value>]) -> Vec<Value> {
+    let mut bytecode = values.iter().flatten().cloned().collect::<Vec<_>>();
+    bytecode.extend([json!(OP_ARRAY), json!(values.len())]);
+    bytecode
 }
 
 #[test]
@@ -211,6 +218,23 @@ fn legacy_default_keeps_strict_comparisons_for_other_consumers() {
         run_legacy(compare(&boolean(true), &int(0), OP_GT)).is_err(),
         "bool vs number must error on the legacy path, not coerce",
     );
+    for (label, left, right) in [
+        (
+            "shared numeric prefix",
+            array(&[int(1), string("invalid")]),
+            array(&[int(1)]),
+        ),
+        (
+            "different numeric prefix",
+            array(&[int(2), string("invalid")]),
+            array(&[int(1)]),
+        ),
+    ] {
+        assert!(
+            run_legacy(compare(&left, &right, OP_GT)).is_err(),
+            "a nonnumeric array suffix must error after a {label}",
+        );
+    }
     // Pure numeric comparisons are identical on both paths.
     assert_eq!(
         run_legacy(compare(&int(20), &int(10), OP_GT)).unwrap(),
