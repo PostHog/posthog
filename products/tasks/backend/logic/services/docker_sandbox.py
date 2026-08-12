@@ -17,6 +17,8 @@ from typing import TYPE_CHECKING, Optional
 
 from django.conf import settings
 
+import structlog
+
 if TYPE_CHECKING:
     from products.tasks.backend.temporal.process_task.utils import McpServerConfig
 
@@ -62,6 +64,7 @@ from .sandbox import (
 )
 
 logger = logging.getLogger(__name__)
+diagnostic_logger = structlog.get_logger(__name__)
 
 DEFAULT_IMAGE_NAME = "posthog-sandbox-base"
 NOTEBOOK_IMAGE_NAME = "posthog-sandbox-notebook"
@@ -169,14 +172,14 @@ class DockerSandbox(SandboxBase):
             "LOCAL_POSTHOG_CODE_MONOREPO_ROOT", os.environ.get("LOCAL_TWIG_MONOREPO_ROOT", "")
         )
         if not monorepo_root:
-            logger.info("local_posthog_code_monorepo_root_not_configured")
+            diagnostic_logger.info("local_posthog_code_monorepo_root_not_configured")
             return None
 
         resolved_monorepo_root = os.path.abspath(monorepo_root)
-        logger.info(
-            "local_posthog_code_monorepo_root_configured raw=%r resolved=%r",
-            monorepo_root,
-            resolved_monorepo_root,
+        diagnostic_logger.info(
+            "local_posthog_code_monorepo_root_configured",
+            raw=monorepo_root,
+            resolved=resolved_monorepo_root,
         )
         monorepo_root = resolved_monorepo_root
         required_paths = [
