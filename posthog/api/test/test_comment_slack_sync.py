@@ -386,6 +386,30 @@ class TestReplyMirror(APIBaseTest):
         mock_slack.assert_not_called()
 
     @patch("posthog.tasks.comment_slack_sync.SlackIntegration")
+    def test_email_thread_reply_is_not_mirrored(self, mock_slack):
+        parent = Comment.objects.create(team=self.team, scope="EmailThread", item_id="thread-42", content="root")
+        CommentSlackThread.objects.for_team(self.team.id).create(
+            team=self.team,
+            scope="EmailThread",
+            item_id="thread-42",
+            source_comment=parent,
+            integration=self.integration,
+            slack_channel_id="C1",
+            slack_thread_ts="100.1",
+        )
+        reply = Comment.objects.create(
+            team=self.team,
+            scope="EmailThread",
+            item_id="thread-42",
+            content="reply",
+            source_comment=parent,
+        )
+
+        mirror_comment_reply_to_slack.apply(kwargs={"comment_id": str(reply.id)})
+
+        mock_slack.assert_not_called()
+
+    @patch("posthog.tasks.comment_slack_sync.SlackIntegration")
     def test_reply_posts_once_across_task_reruns(self, mock_slack):
         mock_slack.return_value.client.chat_postMessage.return_value = {"ts": "100.2"}
         self._mirror()
