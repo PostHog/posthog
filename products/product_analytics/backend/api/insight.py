@@ -1320,10 +1320,12 @@ class InsightSerializer(InsightBasicSerializer):
         with upgrade_query(insight):
             try:
                 is_shared = self.context.get("is_shared", False)
+                get_team = self.context.get("get_team")
                 execution_mode, shared_cache_age_seconds = resolve_execution_mode(
                     self.context["request"],
                     surface=self.context.get("compute_surface", ComputeSurface.LEGACY_UNKNOWN),
                     is_shared=is_shared,
+                    team=get_team() if get_team else None,
                 )
                 filters_override = filters_override_requested_by_client(
                     self.context["request"], dashboard, is_shared=is_shared

@@ -10,7 +10,7 @@ rule that an explicit client `?refresh=` always wins.
 """
 
 from enum import StrEnum
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Optional
 
 from posthog.hogql_queries.query_runner import (
     ExecutionMode,
@@ -22,6 +22,8 @@ from posthog.utils import refresh_requested_by_client
 
 if TYPE_CHECKING:
     from rest_framework.request import Request
+
+    from posthog.models import Team
 
 
 class ComputeSurface(StrEnum):
@@ -69,7 +71,7 @@ def _refresh_param_present(request: "Request") -> bool:
 
 
 def resolve_execution_mode(
-    request: "Request", *, surface: ComputeSurface, is_shared: bool = False
+    request: "Request", *, surface: ComputeSurface, is_shared: bool = False, team: Optional["Team"] = None
 ) -> SharedExecutionSettings:
     """Resolve the execution mode (and shared staleness window) for one insight computation.
 
@@ -78,6 +80,10 @@ def resolve_execution_mode(
     recompute — and that clamp also carries the `cache_age_seconds` staleness window. Returns
     a `SharedExecutionSettings(execution_mode, cache_age_seconds)`; `cache_age_seconds` is None
     off the shared path.
+
+    `team` is forwarded to the shared clamp so an over-quota org's public link also degrades to
+    cache-only; it's a no-op when `is_shared` is False, and callers with no team in scope can
+    omit it.
     """
     # An explicit ?refresh= (any value, including false/0/no) is honored via
     # execution_mode_from_refresh, matching historical behavior — so a client that opts out of
@@ -89,5 +95,5 @@ def resolve_execution_mode(
         execution_mode = SURFACE_DEFAULT_EXECUTION_MODE[surface]
 
     if is_shared:
-        return shared_insights_execution_mode(execution_mode)
+        return shared_insights_execution_mode(execution_mode, team=team)
     return SharedExecutionSettings(execution_mode, None)
