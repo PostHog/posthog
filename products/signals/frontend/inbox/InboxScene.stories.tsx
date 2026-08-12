@@ -14,6 +14,7 @@ import {
     mockTeamConfig,
 } from './__mocks__/inboxMocks'
 import { InboxScene } from './InboxScene'
+import { INBOX_LAST_UI_STATE_STORAGE_KEY } from './logics/inboxOnboardingLogic'
 
 // Full Inbox scene with a populated report list. Use this to polish the holistic
 // layout: header, tab bar + single border, scope picker, filter bar, and the
@@ -39,6 +40,7 @@ const sceneMocks = mswDecorator({
         '/api/projects/:id/signals/config': () => [200, mockTeamConfig],
         '/api/projects/:id/signals/scout/configs': () => [200, []],
         '/api/projects/:id/signals/scout/runs': () => [200, []],
+        '/api/projects/:id/signals/scout/runs/recent-per-scout': () => [200, []],
         '/api/projects/:id/external_data_sources': () => [200, { results: [], count: 0 }],
         '/api/projects/:id/external_data_sources/': () => [200, { results: [], count: 0 }],
     },
@@ -84,6 +86,44 @@ export const SelfDrivingOnboarding: Story = {
                 '/api/projects/:id/signals/reports': () => [200, { results: [], count: 0, next: null, previous: null }],
                 '/api/projects/:id/signals/source_configs': () => [200, { results: [], count: 0 }],
                 '/api/projects/:id/signals/scout/configs': () => [200, []],
+            },
+        }),
+    ],
+}
+
+// The same fresh-project state with the welcome-redesign experiment's test arm pinned → the
+// full-pane hero welcome (no tab row) instead of the locked "Welcome" tab.
+export const SelfDrivingOnboardingRedesign: Story = {
+    parameters: {
+        // Story parameters replace the meta's, so the meta-level flag is re-listed here.
+        featureFlags: { [FEATURE_FLAGS.PRODUCT_AUTONOMY]: true, [FEATURE_FLAGS.INBOX_WELCOME_REDESIGN]: 'test' },
+    },
+    decorators: [
+        mswDecorator({
+            get: {
+                '/api/projects/:id/signals/reports': () => [200, { results: [], count: 0, next: null, previous: null }],
+                '/api/projects/:id/signals/source_configs': () => [200, { results: [], count: 0 }],
+                '/api/projects/:id/signals/scout/configs': () => [200, []],
+            },
+        }),
+    ],
+}
+
+// First-ever visit while the set-up verdict is still loading (config + count requests hang, no
+// cached verdict) → the neutral skeleton, with no tab bar and no welcome page. Guards the
+// regression where the normal tabbed inbox rendered first and was then swapped for the takeover.
+export const SelfDrivingVerdictPending: Story = {
+    decorators: [
+        (StoryFn) => {
+            // Other stories cache their settled verdict; this story is the no-history first visit.
+            window.localStorage.removeItem(INBOX_LAST_UI_STATE_STORAGE_KEY)
+            return <StoryFn />
+        },
+        mswDecorator({
+            get: {
+                '/api/projects/:id/signals/reports': () => new Promise(() => {}),
+                '/api/projects/:id/signals/source_configs': () => new Promise(() => {}),
+                '/api/projects/:id/signals/scout/configs': () => new Promise(() => {}),
             },
         }),
     ],
