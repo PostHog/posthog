@@ -40,7 +40,10 @@ import {
 } from "@posthog/ui/features/settings/settingsSearch";
 import { getHiddenSettingsCategories } from "@posthog/ui/features/settings/settingsVisibility";
 import { useSettingsPageStore } from "@posthog/ui/features/settings/stores/settingsPageStore";
-import type { SettingsCategory } from "@posthog/ui/features/settings/types";
+import {
+  SETTINGS_PAGE_LABELS,
+  type SettingsCategory,
+} from "@posthog/ui/features/settings/types";
 import { useSpendAnalysisEnabled } from "@posthog/ui/features/usage/useSpendAnalysisEnabled";
 import * as nav from "@posthog/ui/router/navigationBridge";
 import { useHostCapabilities } from "@posthog/ui/shell/useHostCapabilities";
@@ -49,7 +52,6 @@ import { useHotkeys } from "react-hotkeys-hook";
 
 interface SidebarItem {
   id: SettingsCategory;
-  label: string;
   icon: ReactNode;
   hasChevron?: boolean;
 }
@@ -60,70 +62,53 @@ interface SidebarGroup {
 }
 
 // Grouped by the question being asked: how the app behaves, where code
-// lives, what agents can do, what's connected.
+// lives, what agents can do, what's connected. Page names come from
+// SETTINGS_PAGE_LABELS, keyed by id.
 const SIDEBAR_GROUPS: SidebarGroup[] = [
   {
     label: "App",
     items: [
-      { id: "general", label: "General", icon: <GearSix size={16} /> },
-      { id: "notifications", label: "Notifications", icon: <Bell size={16} /> },
-      {
-        id: "personalization",
-        label: "Personalization",
-        icon: <Palette size={16} />,
-      },
-      { id: "sidebar", label: "Sidebar", icon: <SidebarSimple size={16} /> },
-      { id: "shortcuts", label: "Shortcuts", icon: <Keyboard size={16} /> },
+      { id: "general", icon: <GearSix size={16} /> },
+      { id: "notifications", icon: <Bell size={16} /> },
+      { id: "personalization", icon: <Palette size={16} /> },
+      { id: "sidebar", icon: <SidebarSimple size={16} /> },
+      { id: "shortcuts", icon: <Keyboard size={16} /> },
     ],
   },
   {
     label: "Account",
-    items: [
-      {
-        id: "plan-usage",
-        label: "Plan & usage",
-        icon: <CreditCard size={16} />,
-      },
-    ],
+    items: [{ id: "plan-usage", icon: <CreditCard size={16} /> }],
   },
   {
     label: "Code",
     items: [
-      { id: "workspaces", label: "Workspaces", icon: <Folder size={16} /> },
-      {
-        id: "worktrees",
-        label: "Worktrees",
-        icon: <TreeStructure size={16} />,
-      },
-      { id: "environments", label: "Environments", icon: <Cube size={16} /> },
-      { id: "terminal", label: "Terminal", icon: <Terminal size={16} /> },
+      { id: "workspaces", icon: <Folder size={16} /> },
+      { id: "worktrees", icon: <TreeStructure size={16} /> },
+      { id: "environments", icon: <Cube size={16} /> },
+      { id: "terminal", icon: <Terminal size={16} /> },
     ],
   },
   {
     label: "Agents",
     items: [
-      { id: "agents", label: "Agents", icon: <Robot size={16} /> },
-      {
-        id: "signals",
-        label: "Self-driving",
-        icon: <TrafficSignal size={16} />,
-      },
-      { id: "skills", label: "Skills", icon: <Lightbulb size={16} /> },
-      { id: "mcp-servers", label: "MCP servers", icon: <Plugs size={16} /> },
-      { id: "harness", label: "Harness", icon: <Code size={16} /> },
+      { id: "agents", icon: <Robot size={16} /> },
+      { id: "signals", icon: <TrafficSignal size={16} /> },
+      { id: "skills", icon: <Lightbulb size={16} /> },
+      { id: "mcp-servers", icon: <Plugs size={16} /> },
+      { id: "harness", icon: <Code size={16} /> },
     ],
   },
   {
     label: "Connections",
     items: [
-      { id: "github", label: "GitHub", icon: <GithubLogo size={16} /> },
-      { id: "slack", label: "Slack", icon: <SlackLogo size={16} /> },
-      { id: "discord", label: "Discord", icon: <DiscordLogo size={16} /> },
+      { id: "github", icon: <GithubLogo size={16} /> },
+      { id: "slack", icon: <SlackLogo size={16} /> },
+      { id: "discord", icon: <DiscordLogo size={16} /> },
     ],
   },
   {
     label: "System",
-    items: [{ id: "advanced", label: "Advanced", icon: <Wrench size={16} /> }],
+    items: [{ id: "advanced", icon: <Wrench size={16} /> }],
   },
 ];
 
@@ -403,7 +388,7 @@ function SettingsSearchResults({
             {result.label}
           </span>
           <span className="shrink-0 text-[11px] text-gray-9">
-            {result.page}
+            {SETTINGS_PAGE_LABELS[result.category]}
           </span>
         </button>
       ))}
@@ -427,7 +412,7 @@ function SidebarNavItem({ item, isActive, onClick }: SidebarNavItemProps) {
     >
       <span className="flex items-center gap-2">
         <span className="text-gray-10">{item.icon}</span>
-        <span>{item.label}</span>
+        <span>{SETTINGS_PAGE_LABELS[item.id]}</span>
       </span>
       {item.hasChevron && <CaretRight size={12} className="text-gray-9" />}
     </button>
