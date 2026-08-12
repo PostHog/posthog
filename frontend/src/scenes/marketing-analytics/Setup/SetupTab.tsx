@@ -17,7 +17,7 @@ import { setupPlanLogic } from 'scenes/web-analytics/tabs/marketing-analytics/fr
 import { runNavigateOp } from './navigateOps'
 import { suggestionsForSection } from './sectionRouting'
 import { SectionSuggestions } from './SectionSuggestions'
-import { SETUP_SECTIONS } from './SETUP_SECTIONS'
+import { SETUP_SECTIONS } from './setupSections'
 import { SuggestionModal } from './SuggestionModal'
 
 /** Count of open suggestions in a section, and whether any of them is blocking.
