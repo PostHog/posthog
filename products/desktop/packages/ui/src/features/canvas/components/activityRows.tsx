@@ -61,6 +61,7 @@ export function TimelineRow({
   defaultOpen = false,
   connectedAbove = true,
   connectedBelow = true,
+  onShowInChat,
   ariaLabel,
 }: {
   gutter: ReactNode;
@@ -68,6 +69,9 @@ export function TimelineRow({
   timestamp: string;
   /** Shown when the row is opened. Absent means there is nothing more to say. */
   detail?: ReactNode;
+  /** Takes the transcript to the moment this row describes. Absent when no transcript is
+   *  mounted to answer, or when the row has nothing in the transcript to point at. */
+  onShowInChat?: () => void;
   defaultOpen?: boolean;
   /** Draw the line down to the next row. False on the last row, which has nothing to
    *  connect to. */
@@ -76,7 +80,20 @@ export function TimelineRow({
   ariaLabel?: string;
 }) {
   const [open, setOpen] = useState(defaultOpen);
-  const hasDetail = detail !== undefined && detail !== null;
+  // The jump counts as detail: a row whose only content is the action still opens, so
+  // every row on the timeline can take you to its moment in the chat.
+  const body =
+    detail !== undefined && detail !== null ? (
+      <div className="space-y-1.5">
+        {detail}
+        {onShowInChat && (
+          <DetailAction onClick={onShowInChat}>Show in chat</DetailAction>
+        )}
+      </div>
+    ) : onShowInChat ? (
+      <DetailAction onClick={onShowInChat}>Show in chat</DetailAction>
+    ) : null;
+  const hasDetail = body !== null;
   const header = (
     <div className="flex min-w-0 flex-1 items-center gap-1.5 text-[12.5px] leading-[22px]">
       <span className="min-w-0 truncate">{children}</span>
@@ -141,7 +158,7 @@ export function TimelineRow({
             >
               {header}
             </button>
-            {open && <div className="mt-1.5">{detail}</div>}
+            {open && <div className="mt-1.5">{body}</div>}
           </>
         ) : (
           header
@@ -499,9 +516,11 @@ export function ActivityEventRow({
   detail,
   connectedAbove = true,
   connectedBelow = true,
+  onShowInChat,
 }: {
   connectedAbove?: boolean;
   connectedBelow?: boolean;
+  onShowInChat?: () => void;
   event: ActivityEvent;
   timestamp: string;
   /** How many runs the task has, so a single-run task doesn't say "run 1". */
@@ -516,6 +535,7 @@ export function ActivityEventRow({
     <TimelineRow
       connectedAbove={connectedAbove}
       connectedBelow={connectedBelow}
+      onShowInChat={onShowInChat}
       gutter={
         <EventBead tone={EVENT_TONES[event.kind]}>
           {EVENT_ICONS[event.kind]}
@@ -536,17 +556,20 @@ export function RunStatusRow({
   timestamp,
   connectedAbove = true,
   connectedBelow = true,
+  onShowInChat,
 }: {
   status: string;
   timestamp: string;
   connectedAbove?: boolean;
   connectedBelow?: boolean;
+  onShowInChat?: () => void;
 }) {
   const succeeded = status === "completed";
   return (
     <TimelineRow
       connectedAbove={connectedAbove}
       connectedBelow={connectedBelow}
+      onShowInChat={onShowInChat}
       gutter={
         <EventBead tone={succeeded ? "green" : "red"}>
           {succeeded ? (
@@ -578,9 +601,11 @@ export function CommentRow({
   onSelect,
   connectedAbove = true,
   connectedBelow = true,
+  onShowInChat,
 }: {
   connectedAbove?: boolean;
   connectedBelow?: boolean;
+  onShowInChat?: () => void;
   thread: TaskCommentThreadSummary;
   /** The current user was mentioned somewhere in the thread. */
   isMentioned: boolean;
@@ -593,6 +618,7 @@ export function CommentRow({
     <TimelineRow
       connectedAbove={connectedAbove}
       connectedBelow={connectedBelow}
+      onShowInChat={onShowInChat}
       gutter={
         // A mention is amber because it is asking for something; a plain comment isn't.
         <PersonBead
@@ -642,11 +668,13 @@ export function CommentStateRow({
   state,
   connectedAbove = true,
   connectedBelow = true,
+  onShowInChat,
 }: {
   thread: TaskCommentThreadSummary;
   state: string;
   connectedAbove?: boolean;
   connectedBelow?: boolean;
+  onShowInChat?: () => void;
 }) {
   const author = thread.state_event?.author ?? null;
   const resolved = state === "resolved";
@@ -654,6 +682,7 @@ export function CommentStateRow({
     <TimelineRow
       connectedAbove={connectedAbove}
       connectedBelow={connectedBelow}
+      onShowInChat={onShowInChat}
       gutter={
         <PersonBead
           user={author}
@@ -715,18 +744,21 @@ export function ThreadReplyRow({
   timestamp,
   connectedAbove = true,
   connectedBelow = true,
+  onShowInChat,
 }: {
   author?: UserBasic | null;
   content: string;
   timestamp: string;
   connectedAbove?: boolean;
   connectedBelow?: boolean;
+  onShowInChat?: () => void;
 }) {
   const firstLine = content.trim().split("\n", 1)[0] ?? "";
   return (
     <TimelineRow
       connectedAbove={connectedAbove}
       connectedBelow={connectedBelow}
+      onShowInChat={onShowInChat}
       gutter={<PersonBead user={author} badge={MESSAGE_BADGE} />}
       timestamp={timestamp}
       detail={<MessageBubble content={content} />}

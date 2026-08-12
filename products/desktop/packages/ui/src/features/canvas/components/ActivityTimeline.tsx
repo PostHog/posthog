@@ -38,6 +38,10 @@ import { extractCanvasInstructions } from "@posthog/ui/features/sessions/compone
 import { extractChannelContext } from "@posthog/ui/features/sessions/components/session-update/channelContext";
 import { extractCustomInstructions } from "@posthog/ui/features/sessions/components/session-update/customInstructions";
 import { collapsePiSkillInvocation } from "@posthog/ui/features/sessions/components/session-update/piSkillInvocation";
+import {
+  useHasTranscriptListener,
+  useThreadNavigationStore,
+} from "@posthog/ui/features/sessions/threadNavigationStore";
 import { Fragment, useMemo } from "react";
 
 type ConversationItem = ReturnType<
@@ -52,12 +56,14 @@ function UserMessageRow({
   timestamp,
   connectedAbove,
   connectedBelow,
+  onShowInChat,
 }: {
   author?: UserBasic | null;
   content: string;
   timestamp: string;
   connectedAbove: boolean;
   connectedBelow: boolean;
+  onShowInChat?: () => void;
 }) {
   const name = author ? userDisplayName(author) : "You";
   const channelContext = useMemo(
@@ -88,6 +94,7 @@ function UserMessageRow({
       connectedBelow={connectedBelow}
       gutter={<PersonBead user={author} badge={MESSAGE_BADGE} />}
       timestamp={timestamp}
+      onShowInChat={onShowInChat}
       detail={
         <div className="space-y-1.5">
           <MessageBubble content={displayContent} />
@@ -245,6 +252,27 @@ export function ActivityTimeline({
       );
   };
 
+  const hasTranscript = useHasTranscriptListener(task.id);
+  const requestScrollToMessage = useThreadNavigationStore(
+    (state) => state.requestScrollToMessage,
+  );
+
+  /**
+   * The jump into the chat, offered only by a row that *is* a chat row — a prompt, which
+   * points at itself.
+   *
+   * Nothing else can point anywhere reliably. The transcript resolves a jump against its
+   * top-level rows, and everything inside a turn is nested in one, so an agent-side target
+   * scrolls nowhere at all; and an event row is stamped by the API rather than by the
+   * session, so it has no transcript id to name in the first place. Landing every other
+   * row on the nearest prompt was the alternative, and it put you somewhere that wasn't
+   * what you clicked.
+   */
+  const showInChat = (promptId: string) => {
+    if (!hasTranscript) return undefined;
+    return () => requestScrollToMessage(task.id, promptId);
+  };
+
   const renderRow = (
     row: ActivityRow<TaskThreadMessage>,
     connectedAbove: boolean,
@@ -270,6 +298,8 @@ export function ActivityTimeline({
             author={task.created_by}
             content={row.item.content}
             timestamp={new Date(row.item.timestamp).toISOString()}
+            // A prompt is a transcript row, so it points at itself.
+            onShowInChat={showInChat(row.item.id)}
           />
         );
       case "human_message":

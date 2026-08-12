@@ -1147,12 +1147,24 @@ export interface ChatThreadProps extends SharedChatThreadProps {
 function ThreadScrollRequestBridge({
   taskId,
   jumpToMessage,
+  onFocusMessage,
 }: {
   taskId?: string;
   jumpToMessage?: (id: string) => void;
+  /** Marks the arrived-at message, so a jump from another pane lands as visibly as the
+   *  keyboard's own — otherwise the thread moves and nothing says where to. */
+  onFocusMessage?: (id: string) => void;
 }) {
   const { scrollToMessage } = useChatMessageScroller();
-  useThreadScrollRequest(taskId, jumpToMessage ?? scrollToMessage);
+  const jump = jumpToMessage ?? scrollToMessage;
+  const handleRequest = useCallback(
+    (id: string) => {
+      onFocusMessage?.(id);
+      jump(id);
+    },
+    [jump, onFocusMessage],
+  );
+  useThreadScrollRequest(taskId, handleRequest);
   return null;
 }
 
@@ -1367,6 +1379,7 @@ function ChatThreadRenderer({
       <ThreadScrollRequestBridge
         taskId={taskId}
         jumpToMessage={jumpToMessage}
+        onFocusMessage={setKeyboardFocusedMessageId}
       />
     </>
   );

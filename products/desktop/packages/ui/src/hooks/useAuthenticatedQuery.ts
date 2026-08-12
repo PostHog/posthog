@@ -23,7 +23,7 @@ export function useAuthenticatedQuery<
   >,
 ): UseQueryResult<TData, TError> {
   const client = useOptionalAuthenticatedClient();
-  const { meta, ...restOptions } = options ?? {};
+  const { meta, enabled, ...restOptions } = options ?? {};
 
   return useQuery({
     queryKey,
@@ -31,13 +31,18 @@ export function useAuthenticatedQuery<
       if (!client) throw new Error("Not authenticated");
       return await queryFn(client);
     },
+    ...restOptions,
+    // After the caller's options, not before: spreading them last used to drop this gate
+    // for every caller that passes its own `enabled`. Such a query fired before the client
+    // existed, threw "Not authenticated", and then sat out three retry backoffs — seconds
+    // of a loading state for data that was one round trip away.
     enabled:
-      !!client &&
-      (restOptions.enabled !== undefined ? restOptions.enabled : true),
+      typeof enabled === "function"
+        ? (query) => !!client && enabled(query)
+        : !!client && (enabled ?? true),
     meta: {
       ...AUTH_SCOPED_QUERY_META,
       ...meta,
     },
-    ...restOptions,
   });
 }

@@ -42,6 +42,11 @@ vi.mock("@posthog/ui/features/canvas/hooks/useTaskCommentActivity", () => ({
     hasLoaded: loaded.comments,
   }),
 }));
+// The panel warms this from the task id before the task itself arrives, so it is mounted
+// even in the tests that never get a task.
+vi.mock("@posthog/ui/features/canvas/hooks/useTaskThread", () => ({
+  useTaskThread: () => ({ messages: [], isLoading: false, hasLoaded: true }),
+}));
 vi.mock("@posthog/ui/features/canvas/hooks/useTaskRuns", () => ({
   useTaskRuns: () => ({ runs: [], isLoading: false, refreshRuns: vi.fn() }),
 }));

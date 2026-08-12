@@ -302,6 +302,47 @@ describe("ActivityTimeline events and comments", () => {
   });
 });
 
+describe("ActivityTimeline chat jump", () => {
+  it("takes the transcript to the row's own message", () => {
+    useThreadNavigationStore.getState().registerTranscript("task-1");
+    renderTimeline(true);
+
+    fireEvent.click(screen.getByRole("button", { name: /second thing/ }));
+    fireEvent.click(screen.getByRole("button", { name: "Show in chat" }));
+
+    expect(useThreadNavigationStore.getState().scrollRequests["task-1"]).toBe(
+      "turn-2-2-user",
+    );
+  });
+
+  it("offers the jump only from rows the chat actually contains", () => {
+    // The transcript resolves a jump against its top-level rows, so only a prompt has a
+    // target that can be scrolled to. A row that isn't in the chat — this task's creation —
+    // stays inert rather than growing a button that goes nowhere.
+    useThreadNavigationStore.getState().registerTranscript("task-1");
+    renderTimeline(true);
+
+    expect(
+      screen.queryByRole("button", { name: /created this task/ }),
+    ).toBeNull();
+
+    for (const prompt of ["first thing", "second thing"]) {
+      fireEvent.click(screen.getByRole("button", { name: new RegExp(prompt) }));
+    }
+    expect(
+      screen.getAllByRole("button", { name: "Show in chat" }),
+    ).toHaveLength(2);
+  });
+
+  it("offers no jump when no transcript is mounted to answer it", () => {
+    renderTimeline(true);
+
+    fireEvent.click(screen.getByRole("button", { name: /second thing/ }));
+
+    expect(screen.queryByRole("button", { name: "Show in chat" })).toBeNull();
+  });
+});
+
 describe("ActivityTimeline connectors", () => {
   it("runs the line between every pair of beads, and no further", () => {
     // Each row draws the half above and the half below its own bead, so consecutive rows
