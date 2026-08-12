@@ -39,6 +39,7 @@ jobs:
             - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
               with:
                   clean: false
+                  persist-credentials: false
             - name: Force all scans for oversized pull requests
               id: oversized
               if: github.event_name == 'pull_request' && github.event.pull_request.changed_files > 3000
@@ -50,6 +51,8 @@ jobs:
               with:
                   client-id: ${{ secrets.GH_APP_POSTHOG_PATHS_FILTER_APP_ID }}
                   private-key: ${{ secrets.GH_APP_POSTHOG_PATHS_FILTER_PRIVATE_KEY }}
+                  # paths-filter only calls pulls.listFiles
+                  permission-pull-requests: read
             - uses: ./.github/actions/paths-filter
               id: filter
               if: github.event_name != 'push' && steps.oversized.outputs.force_all != 'true'
@@ -391,6 +394,8 @@ jobs:
 
             - name: Checkout
               uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+              with:
+                  persist-credentials: false
 
             # Pass 1: print WARNING-severity findings. No --error — this step
             # does not fail CI. Backlogs from migration-in-progress rules show
@@ -445,6 +450,8 @@ jobs:
 
             - name: Checkout
               uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+              with:
+                  persist-credentials: false
 
             - name: Test custom Semgrep rules
               run: |
@@ -477,6 +484,8 @@ jobs:
 
             - name: Checkout
               uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+              with:
+                  persist-credentials: false
 
             - name: Run Semgrep (desktop, universal security packs)
               run: |
