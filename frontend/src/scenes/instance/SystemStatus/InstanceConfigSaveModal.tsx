@@ -8,7 +8,7 @@ import { pluralize } from 'lib/utils/strings'
 import { SystemStatusRow } from '~/types'
 
 import { RenderMetricValue } from './RenderMetricValue'
-import { systemStatusLogic } from './systemStatusLogic'
+import { EMAIL_TRANSPORT_SETTINGS, systemStatusLogic } from './systemStatusLogic'
 
 interface ChangeRowInterface extends Pick<SystemStatusRow, 'value'> {
     oldValue?: boolean | string | number | number[] | null
@@ -62,7 +62,9 @@ export function InstanceConfigSaveModal({ onClose, isOpen }: { onClose: () => vo
     const isChangingEnabledEmailSettings =
         instanceConfigEditingState.EMAIL_ENABLED !== false &&
         Object.keys(instanceConfigEditingState).find((key) => key.startsWith('EMAIL'))
-    const isEnablingEmail = instanceConfigEditingState.EMAIL_ENABLED === true
+    const isChangingEmailTransport = Object.keys(instanceConfigEditingState).some((key) =>
+        EMAIL_TRANSPORT_SETTINGS.includes(key)
+    )
     const changeNoun = Object.keys(instanceConfigEditingState).length === 1 ? 'change' : 'changes'
 
     return (
@@ -88,10 +90,15 @@ export function InstanceConfigSaveModal({ onClose, isOpen }: { onClose: () => vo
             }
         >
             <div className="deprecated-space-y-2">
+                {isChangingEmailTransport && (
+                    <LemonBanner type="warning">
+                        Changing the mail host, port, or encryption clears the stored email password. Enter it again
+                        after saving, so it is never sent to a server you did not set it up for.
+                    </LemonBanner>
+                )}
                 {isChangingEnabledEmailSettings && (
                     <LemonBanner type="info">
-                        As you are changing email settings and {isEnablingEmail ? 'enabling email' : 'email is enabled'}
-                        , we'll attempt to send a test email so you can verify everything works.
+                        Saving does not send a test email. Use the send test email button once your changes are applied.
                     </LemonBanner>
                 )}
                 {Object.keys(instanceConfigEditingState).includes('RECORDINGS_PERFORMANCE_EVENTS_TTL_WEEKS') && (

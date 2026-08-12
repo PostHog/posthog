@@ -3,8 +3,11 @@ import json
 from typing import Any, Optional, Union, cast, get_args, get_origin
 
 import structlog
+from drf_spectacular.utils import OpenApiResponse, extend_schema
 from rest_framework import exceptions, mixins, permissions, serializers, viewsets
+from rest_framework.decorators import action
 from rest_framework.request import Request
+from rest_framework.response import Response
 
 from posthog.cloud_utils import is_cloud
 from posthog.email import is_email_available
@@ -29,6 +32,12 @@ logger = structlog.get_logger(__name__)
 
 REDACTED = "<redacted>"
 UNSET = "<unset>"
+
+# Settings that decide which server the SMTP credentials are handed to. The stored password was
+# entered for one destination, so changing any of these has to invalidate it rather than replay it
+# against a host its owner never approved.
+EMAIL_TRANSPORT_SETTINGS = frozenset({"EMAIL_HOST", "EMAIL_PORT", "EMAIL_USE_TLS", "EMAIL_USE_SSL"})
+EMAIL_CREDENTIAL_SETTING = "EMAIL_HOST_PASSWORD"
 
 
 def _redact_if_secret(key: str, value: Any) -> Any:
@@ -156,17 +165,16 @@ class InstanceSettingsSerializer(serializers.Serializer):
 
             sync_execute(UPDATE_PERFORMANCE_EVENTS_TABLE_TTL_SQL(), {"weeks": new_value_parsed})
 
+        # Clear before the new destination is stored, never after: a failure between the two writes
+        # would otherwise leave the instance pointing at the new host with the old password intact.
+        if instance.key in EMAIL_TRANSPORT_SETTINGS and before_value != new_value_parsed:
+            self._clear_email_credential(request)
+
         set_instance_setting_raw(instance.key, new_value_parsed)
         instance.value = new_value_parsed
 
         if request is not None:
             self._log_setting_change(request, instance.key, before_value, new_value_parsed)
-
-            if instance.key.startswith("EMAIL_"):
-                # Partial EMAIL_* updates (e.g. setting EMAIL_HOST_PASSWORD before EMAIL_HOST)
-                # would otherwise raise ImproperlyConfigured and fail the request with a 500.
-                if is_email_available(with_absolute_urls=True):
-                    send_canary_email.apply_async(kwargs={"user_email": request.user.email})
 
         if instance.key.startswith("ASYNC_MIGRATION") and not SKIP_ASYNC_MIGRATIONS_SETUP:
             from posthog.async_migrations.setup import setup_async_migrations
@@ -174,6 +182,16 @@ class InstanceSettingsSerializer(serializers.Serializer):
             setup_async_migrations()
 
         return instance
+
+    def _clear_email_credential(self, request: Optional[Request]) -> None:
+        before_value = get_instance_setting_raw(EMAIL_CREDENTIAL_SETTING)
+        if not before_value:
+            return
+
+        set_instance_setting_raw(EMAIL_CREDENTIAL_SETTING, "")
+
+        if request is not None:
+            self._log_setting_change(request, EMAIL_CREDENTIAL_SETTING, before_value, "")
 
     def _log_setting_change(self, request: Request, key: str, before_value: Any, new_value: Any) -> None:
         if before_value == new_value:
@@ -213,6 +231,10 @@ class InstanceSettingsSerializer(serializers.Serializer):
         )
 
 
+class SendTestEmailResponseSerializer(serializers.Serializer):
+    success = serializers.BooleanField(help_text="True when the test email was queued for delivery.")
+
+
 class InstanceSettingsViewset(
     viewsets.GenericViewSet,
     mixins.ListModelMixin,
@@ -222,6 +244,29 @@ class InstanceSettingsViewset(
     permission_classes = [permissions.IsAuthenticated, IsStaffUser]
     serializer_class = InstanceSettingsSerializer
     lookup_field = "key"
+
+    @extend_schema(
+        request=None,
+        responses={
+            200: SendTestEmailResponseSerializer,
+            400: OpenApiResponse(description="Email is not configured on this instance."),
+        },
+        extensions={"x-product": "core"},
+        description="Send a test email to the requesting user to check the instance's email configuration.",
+    )
+    @action(detail=False, methods=["POST"])
+    def send_test_email(self, request: Request) -> Response:
+        # A partially configured instance (e.g. EMAIL_HOST_PASSWORD set before EMAIL_HOST) makes
+        # EmailMessage raise ImproperlyConfigured, which would surface as a 500 instead of a 400.
+        if not is_email_available(with_absolute_urls=True):
+            raise serializers.ValidationError(
+                "Email is not set up on this instance. Add a mail host, turn on email, then try again.",
+                code="email_not_configured",
+            )
+
+        # IsAuthenticated + IsStaffUser permission classes guarantee this is a real User.
+        send_canary_email.apply_async(kwargs={"user_email": cast(User, request.user).email})
+        return Response({"success": True})
 
     def get_queryset(self):
         output = []

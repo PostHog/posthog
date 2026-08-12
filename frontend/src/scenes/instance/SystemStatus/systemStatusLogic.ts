@@ -20,6 +20,14 @@ export enum ConfigMode {
 export type InstanceStatusTabName = 'overview' | 'metrics' | 'settings' | 'staff_users'
 
 /**
+ * Settings that decide which server the SMTP credentials are handed to. The backend clears the
+ * stored password whenever one of them changes, so the UI has to warn before that happens.
+ */
+export const EMAIL_TRANSPORT_SETTINGS = ['EMAIL_HOST', 'EMAIL_PORT', 'EMAIL_USE_TLS', 'EMAIL_USE_SSL']
+
+export const EMAIL_CREDENTIAL_SETTING = 'EMAIL_HOST_PASSWORD'
+
+/**
  * We allow the specific instance settings that can be edited via the /instance/status page.
  * Even if some settings are editable in the frontend according to the API, we may don't want to expose them here.
  * For example: async migrations settings are handled in their own page.
@@ -80,6 +88,8 @@ export interface systemStatusLogicValues {
     systemStatus: SystemStatus | null
     systemStatusLoading: boolean
     tab: InstanceStatusTabName
+    testEmailSent: boolean
+    testEmailSentLoading: boolean
     updatedInstanceConfigCount: number | null
 }
 
@@ -139,6 +149,21 @@ export interface systemStatusLogicActions {
     saveInstanceConfig: () => {
         value: true
     }
+    sendTestEmail: () => any
+    sendTestEmailFailure: (
+        error: string,
+        errorObject?: any
+    ) => {
+        error: string
+        errorObject?: any
+    }
+    sendTestEmailSuccess: (
+        testEmailSent: boolean,
+        payload?: any
+    ) => {
+        testEmailSent: boolean
+        payload?: any
+    }
     setInstanceConfigMode: (mode: ConfigMode) => {
         mode: ConfigMode
     }
@@ -189,6 +214,21 @@ export const systemStatusLogic = kea<systemStatusLogicType>([
         increaseUpdatedInstanceConfigCount: true,
     }),
     loaders(() => ({
+        testEmailSent: [
+            false,
+            {
+                sendTestEmail: async () => {
+                    try {
+                        await api.create('api/instance_settings/send_test_email')
+                        lemonToast.success('Test email sent. Check your inbox.')
+                        return true
+                    } catch (error: any) {
+                        lemonToast.error(error?.detail || 'Could not send the test email.')
+                        return false
+                    }
+                },
+            },
+        ],
         systemStatus: [
             null as SystemStatus | null,
             {
@@ -297,15 +337,23 @@ export const systemStatusLogic = kea<systemStatusLogicType>([
         },
         saveInstanceConfig: async (_, breakpoint) => {
             actions.setUpdatedInstanceConfigCount(0)
-            await Promise.all(
-                Object.entries(values.instanceConfigEditingState).map(async ([key, value]) => {
-                    await api.update(`api/instance_settings/${key}`, {
-                        value,
-                    })
-                    eventUsageLogic.actions.reportInstanceSettingChange(key, value)
-                    actions.increaseUpdatedInstanceConfigCount()
+            const saveSetting = async ([key, value]: [string, boolean | number | string]): Promise<void> => {
+                await api.update(`api/instance_settings/${key}`, {
+                    value,
                 })
-            )
+                eventUsageLogic.actions.reportInstanceSettingChange(key, value)
+                actions.increaseUpdatedInstanceConfigCount()
+            }
+
+            // The backend clears the stored password whenever a transport setting changes, so a
+            // password edited in the same save has to be written after everything else. Sending
+            // them together would let the clear land on the password the operator just entered.
+            const edits = Object.entries(values.instanceConfigEditingState)
+            const passwordEdits = edits.filter(([key]) => key === EMAIL_CREDENTIAL_SETTING)
+            const otherEdits = edits.filter(([key]) => key !== EMAIL_CREDENTIAL_SETTING)
+
+            await Promise.all(otherEdits.map(saveSetting))
+            await Promise.all(passwordEdits.map(saveSetting))
             await breakpoint(1000)
             if (values.updatedInstanceConfigCount === Object.keys(values.instanceConfigEditingState).length) {
                 actions.loadInstanceSettings()

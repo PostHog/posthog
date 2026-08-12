@@ -209,8 +209,11 @@ class TestInstanceSettings(APIBaseTest):
                 f"/api/instance_settings/EMAIL_DEFAULT_FROM",
                 {"value": "hellohello@posthog.com"},
             )
-        self.assertEqual(response.status_code, status.HTTP_200_OK)
-        self.assertEqual(response.json()["value"], "hellohello@posthog.com")
+            self.assertEqual(response.status_code, status.HTTP_200_OK)
+            self.assertEqual(response.json()["value"], "hellohello@posthog.com")
+
+            response = self.client.post("/api/instance_settings/send_test_email")
+        self.assertEqual(response.status_code, status.HTTP_200_OK, response.content)
 
         self.assertEqual(mail.outbox[0].from_email, "hellohello@posthog.com")
         self.assertEqual(mail.outbox[0].subject, "This is a test email of your PostHog instance")
@@ -471,3 +474,113 @@ class TestInstanceSettings(APIBaseTest):
         # The setting itself must still be persisted; only the audit row is skipped.
         self.assertEqual(get_instance_setting("AUTO_START_ASYNC_MIGRATIONS"), True)
         self.assertEqual(self._instance_setting_logs().count(), initial_count)
+
+
+TRANSPORT_CHANGES = [
+    ("host", "EMAIL_HOST", "smtp.elsewhere.example.com"),
+    ("port", "EMAIL_PORT", 2525),
+    ("use_tls", "EMAIL_USE_TLS", True),
+    ("use_ssl", "EMAIL_USE_SSL", True),
+]
+
+CONFIGURED_HOST = "smtp.relay.example.com"
+CONFIGURED_PASSWORD = "relay-password"
+
+
+class TestEmailCredentialBinding(APIBaseTest):
+    def setUp(self):
+        super().setUp()
+        self.user.is_staff = True
+        self.user.save()
+        set_instance_setting("EMAIL_ENABLED", True)
+        set_instance_setting("EMAIL_HOST", CONFIGURED_HOST)
+        set_instance_setting("EMAIL_HOST_PASSWORD", CONFIGURED_PASSWORD)
+
+    def _patch(self, key: str, value: object):
+        with self.settings(CELERY_TASK_ALWAYS_EAGER=True):
+            return self.client.patch(f"/api/instance_settings/{key}", {"value": value})
+
+    @parameterized.expand(TRANSPORT_CHANGES)
+    def test_changing_transport_clears_stored_password(self, _name: str, key: str, new_value: object):
+        response = self._patch(key, new_value)
+        self.assertEqual(response.status_code, status.HTTP_200_OK, response.content)
+
+        self.assertEqual(get_instance_setting("EMAIL_HOST_PASSWORD"), "")
+
+    @parameterized.expand(TRANSPORT_CHANGES)
+    def test_changing_transport_does_not_send_mail(self, _name: str, key: str, new_value: object):
+        response = self._patch(key, new_value)
+        self.assertEqual(response.status_code, status.HTTP_200_OK, response.content)
+
+        self.assertEqual(mail.outbox, [])
+
+    @parameterized.expand(TRANSPORT_CHANGES)
+    def test_no_op_transport_update_keeps_stored_password(self, _name: str, key: str, _new_value: object):
+        response = self._patch(key, get_instance_setting(key))
+        self.assertEqual(response.status_code, status.HTTP_200_OK, response.content)
+
+        self.assertEqual(get_instance_setting("EMAIL_HOST_PASSWORD"), CONFIGURED_PASSWORD)
+
+    @parameterized.expand(
+        [
+            ("default_from", "EMAIL_DEFAULT_FROM", "noreply@example.com"),
+            ("host_user", "EMAIL_HOST_USER", "relay-user"),
+        ]
+    )
+    def test_non_transport_email_update_keeps_stored_password(self, _name: str, key: str, new_value: object):
+        response = self._patch(key, new_value)
+        self.assertEqual(response.status_code, status.HTTP_200_OK, response.content)
+
+        self.assertEqual(get_instance_setting("EMAIL_HOST_PASSWORD"), CONFIGURED_PASSWORD)
+
+    def test_clearing_the_password_is_logged_without_disclosing_it(self):
+        response = self._patch("EMAIL_HOST", "smtp.elsewhere.example.com")
+        self.assertEqual(response.status_code, status.HTTP_200_OK, response.content)
+
+        logs = ActivityLog.objects.filter(scope="InstanceSetting", item_id="EMAIL_HOST_PASSWORD")
+        self.assertEqual(logs.count(), 1)
+
+        log = logs.first()
+        assert log is not None
+        assert log.detail is not None
+        change = log.detail["changes"][0]
+        self.assertEqual(change["before"], REDACTED)
+        self.assertEqual(change["after"], UNSET)
+        self.assertNotIn(CONFIGURED_PASSWORD, json.dumps(log.detail))
+
+    def test_password_re_entered_after_a_host_change_is_kept(self):
+        response = self._patch("EMAIL_HOST", "smtp.elsewhere.example.com")
+        self.assertEqual(response.status_code, status.HTTP_200_OK, response.content)
+        self.assertEqual(get_instance_setting("EMAIL_HOST_PASSWORD"), "")
+
+        response = self._patch("EMAIL_HOST_PASSWORD", "new-password")
+        self.assertEqual(response.status_code, status.HTTP_200_OK, response.content)
+
+        self.assertEqual(get_instance_setting("EMAIL_HOST_PASSWORD"), "new-password")
+
+    def test_send_test_email_sends_mail(self):
+        with self.settings(CELERY_TASK_ALWAYS_EAGER=True):
+            response = self.client.post("/api/instance_settings/send_test_email")
+        self.assertEqual(response.status_code, status.HTTP_200_OK, response.content)
+
+        self.assertEqual(len(mail.outbox), 1)
+        self.assertEqual(mail.outbox[0].subject, "This is a test email of your PostHog instance")
+
+    def test_send_test_email_rejects_unconfigured_instance(self):
+        set_instance_setting("EMAIL_HOST", "")
+
+        with self.settings(CELERY_TASK_ALWAYS_EAGER=True):
+            response = self.client.post("/api/instance_settings/send_test_email")
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST, response.content)
+
+        self.assertEqual(mail.outbox, [])
+
+    def test_send_test_email_is_staff_only(self):
+        self.user.is_staff = False
+        self.user.save()
+
+        with self.settings(CELERY_TASK_ALWAYS_EAGER=True):
+            response = self.client.post("/api/instance_settings/send_test_email")
+        self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN, response.content)
+
+        self.assertEqual(mail.outbox, [])

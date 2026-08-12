@@ -19,10 +19,20 @@ import { ConfigMode, systemStatusLogic } from './systemStatusLogic'
 
 export function InstanceConfigTab(): JSX.Element {
     const { configOptions, preflightLoading } = useValues(preflightLogic)
-    const { editableInstanceSettings, instanceSettingsLoading, instanceConfigMode, instanceConfigEditingState } =
-        useValues(systemStatusLogic)
-    const { loadInstanceSettings, setInstanceConfigMode, updateInstanceConfigValue, clearInstanceConfigEditing } =
-        useActions(systemStatusLogic)
+    const {
+        editableInstanceSettings,
+        instanceSettingsLoading,
+        instanceConfigMode,
+        instanceConfigEditingState,
+        testEmailSentLoading,
+    } = useValues(systemStatusLogic)
+    const {
+        loadInstanceSettings,
+        setInstanceConfigMode,
+        updateInstanceConfigValue,
+        clearInstanceConfigEditing,
+        sendTestEmail,
+    } = useActions(systemStatusLogic)
 
     useOnMountEffect(loadInstanceSettings)
 
@@ -118,6 +128,15 @@ export function InstanceConfigTab(): JSX.Element {
                 </div>
                 {instanceConfigMode === ConfigMode.View ? (
                     <>
+                        <LemonButton
+                            type="secondary"
+                            onClick={sendTestEmail}
+                            data-attr="instance-config-send-test-email-button"
+                            loading={testEmailSentLoading}
+                            disabledReason={testEmailSentLoading ? 'Sending' : undefined}
+                        >
+                            Send test email
+                        </LemonButton>
                         <LemonButton
                             type="primary"
                             onClick={() => setInstanceConfigMode(ConfigMode.Edit)}
