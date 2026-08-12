@@ -1,25 +1,31 @@
 // Wires the service together and owns its lifecycle.
 //
-// Shutdown order is fixed: mark draining, wait out the prestop delay so Kubernetes has
-// stopped routing here, drain the HTTP server, exit. unhandledRejection and
-// uncaughtException take the same path rather than dropping in-flight requests.
+// Shutdown order is fixed: mark draining, wait out the prestop delay, drain the HTTP server,
+// flush the usage recorder, end the pool. The flush sits after the drain so in-flight
+// requests still record, and before the pool closes so it has somewhere to write. A crash
+// takes the same path, so it still flushes the reads that prove a caller has moved on.
 
 import { serve } from '@hono/node-server'
 import type { Hono } from 'hono'
 import { createServer, type Server } from 'node:http'
 import type { AddressInfo } from 'node:net'
+import type { Pool } from 'pg'
 
 import { JwtVerifier } from './auth/jwt'
 import { SigningKeyLoader } from './auth/registry'
+import { createPool, observeVersion } from './db/client'
 import { createApp } from './http/app'
 import type { Config } from './lib/config'
 import { logger } from './lib/logging'
 import { register, shuttingDown } from './metrics'
 import { SecretMount } from './mount'
 import type { Lifecycle } from './types'
+import { UsageRecorder } from './usage/recorder'
 
 /** How long a drain may take once the prestop window has passed. */
 const DRAIN_TIMEOUT_MS = 10_000
+
+const PRUNE_INTERVAL_MS = 24 * 60 * 60 * 1000
 
 interface DrainableServer {
     close(cb: () => void): void
@@ -32,6 +38,7 @@ type ServeFn = (
 
 /** Test seams. Production construction passes none of these. */
 export interface IntegrationServerOverrides {
+    pool?: Pool
     serve?: ServeFn
     exit?: (code: number) => void
 }
@@ -53,8 +60,10 @@ export function every(intervalMs: number, task: () => Promise<void>): () => void
 
 export class IntegrationServer {
     private readonly lifecycle: Lifecycle = { shuttingDown: false, ready: false }
+    private pool: Pool | undefined
     private server: DrainableServer | undefined
     private metricsServer: Server | undefined
+    private recorder: UsageRecorder | undefined
     private mount: SecretMount | undefined
     private signingKeys: SigningKeyLoader | undefined
     private cancelTimers: (() => void)[] = []
@@ -89,17 +98,36 @@ export class IntegrationServer {
     async start(): Promise<void> {
         const config = this.config
 
+        if (this.overrides.pool) {
+            this.pool = this.overrides.pool
+        } else if (config.databaseUrl) {
+            this.pool = await createPool(config.databaseUrl)
+            logger.info('db:connected', {})
+        } else {
+            // Guarded in loadConfig for production. Locally the service runs without usage
+            // recording, which costs the rollup and nothing else.
+            logger.warn('db:disabled', { reason: 'INTEGRATION_SERVICE_DATABASE_URL is unset, so no usage recording' })
+        }
+        const pool = this.pool
+
         const signingKeys = new SigningKeyLoader(config.mountDir)
         this.signingKeys = signingKeys
         await signingKeys.load()
 
-        const mount = new SecretMount({ dir: config.mountDir })
+        const recorder = new UsageRecorder({ pool })
+        this.recorder = recorder
+        const mount = new SecretMount({
+            dir: config.mountDir,
+            // Without Postgres there is no shared record of when content first appeared.
+            observeVersion: (hash) => (pool ? observeVersion(pool, hash) : Promise.resolve(null)),
+        })
         this.mount = mount
 
         const app = createApp({
             verifier: new JwtVerifier(signingKeys),
             lifecycle: this.lifecycle,
             secrets: () => mount.current(),
+            recorder,
         })
 
         await mount.reload()
@@ -135,7 +163,11 @@ export class IntegrationServer {
         })
         this.metricsServer.listen(config.metricsPort, config.host)
 
-        this.cancelTimers.push(every(config.reloadSeconds * 1000, () => this.reload()))
+        this.cancelTimers.push(
+            every(config.reloadSeconds * 1000, () => this.reload()),
+            every(config.usageFlushMs, () => recorder.flush()),
+            every(PRUNE_INTERVAL_MS, () => recorder.prune(config.retentionDays))
+        )
 
         this.setupProcessListeners()
     }
@@ -164,6 +196,14 @@ export class IntegrationServer {
         }
         this.metricsServer?.close()
 
+        // Write what accumulated since the last flush, so a rolling restart does not lose
+        // the reads that prove a caller has moved onto a new value.
+        await this.recorder?.flush()
+        if (this.pool) {
+            await this.pool.end().catch((err: unknown) => {
+                logger.error('shutdown:db_close_failed', { error: err instanceof Error ? err.message : String(err) })
+            })
+        }
         logger.info('shutdown:complete', {})
         const exit = this.overrides.exit ?? process.exit
         exit(error ? 1 : 0)

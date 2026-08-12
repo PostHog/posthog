@@ -10,11 +10,13 @@ import { logger } from '../lib/logging'
 import { authFailuresTotal, httpRequestDurationSeconds, httpRequestsTotal } from '../metrics'
 import { resolveKeys } from '../resolve'
 import type { Lifecycle, MountedSecrets } from '../types'
+import type { UsageRecorder } from '../usage/recorder'
 
 export interface AppOptions {
     verifier: JwtVerifier
     lifecycle: Lifecycle
     secrets: () => MountedSecrets | null
+    recorder: UsageRecorder
 }
 
 export function createApp(opts: AppOptions): Hono {
@@ -70,7 +72,7 @@ export function createApp(opts: AppOptions): Hono {
             return c.json({ error: 'Secret store unavailable' }, 503)
         }
 
-        return c.json(resolveKeys(identity, mounted))
+        return c.json(resolveKeys(identity, mounted, opts.recorder))
     })
 
     return app
