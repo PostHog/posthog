@@ -24,10 +24,11 @@ use crate::lifecycle::merge::{
     OUTCOME_SKIPPED_CONFLICT, OUTCOME_SKIPPED_MOVE_LIMIT,
 };
 use crate::lifecycle::validation::{is_distinct_id_illegal, validate_merge_persons};
-use crate::storage::IdentityStorage;
+use crate::storage::{AttachOutcome, IdentityStorage};
 
-/// The handler-decided outcome for a source that never reaches the saga.
+/// Handler-decided outcomes that never reach the saga.
 const OUTCOME_SKIPPED_ILLEGAL: &str = "skipped_illegal";
+const OUTCOME_ATTACHED: &str = "attached";
 
 /// The full MergePersons flow, owned by the identity side of the crate.
 pub struct MergeEntrance {
@@ -114,6 +115,7 @@ impl MergeEntrance {
         let target_person = target_person.clone();
 
         let mut inline_results: HashMap<String, String> = HashMap::new();
+        let mut attach: Vec<String> = Vec::new();
         let mut saga_sources: Vec<MergeSourceEntry> = Vec::new();
         for source in &request.sources {
             let did = &source.source_distinct_id;
@@ -122,10 +124,7 @@ impl MergeEntrance {
                 continue;
             }
             match resolved.get(&(request.team_id, did.clone())) {
-                None => {
-                    // Unresolved-source attach is not implemented yet.
-                    inline_results.insert(did.clone(), OUTCOME_ERROR.to_string());
-                }
+                None => attach.push(did.clone()),
                 Some(person) if person.id == target_person.id => {
                     inline_results.insert(did.clone(), OUTCOME_NOOP_SAME_PERSON.to_string());
                 }
@@ -136,6 +135,30 @@ impl MergeEntrance {
             }
         }
 
+        // Unresolved sources attach to the target with plain mapping
+        // inserts. A source that resolved elsewhere between classification
+        // and attach is a retryable conflict, unless it landed on the
+        // target anyway.
+        if !attach.is_empty() {
+            let attached = self
+                .storage
+                .attach_distinct_ids(request.team_id, target_person.id, &attach)
+                .await
+                .map_err(|e| Status::internal(format!("attach failed: {e}")))?;
+            for did in attach {
+                let outcome = match attached.get(&did) {
+                    Some(AttachOutcome::Attached { .. }) => OUTCOME_ATTACHED,
+                    Some(AttachOutcome::AlreadyMapped { person_id })
+                        if *person_id == target_person.id =>
+                    {
+                        OUTCOME_ATTACHED
+                    }
+                    Some(AttachOutcome::AlreadyMapped { .. }) | None => OUTCOME_SKIPPED_CONFLICT,
+                };
+                inline_results.insert(did, outcome.to_string());
+            }
+        }
+
         if saga_sources.is_empty() {
             // Nothing to destroy, so no op row. Inline settlement is
             // idempotent: a retry re-executes against the current world,
@@ -143,8 +166,9 @@ impl MergeEntrance {
             // the only semantics available, since recorded outcomes are
             // GC'd after retention and a late replay re-classifies
             // regardless. The op row resumes interrupted destruction; it
-            // is not a dedupe of idempotent work. The event's properties
-            // still reach the survivor.
+            // is not a dedupe of idempotent work (an attached source
+            // re-answers noop_same_person). The event's properties still
+            // reach the survivor.
             let pushed = self
                 .push_event_properties(&request, target_person.id)
                 .await?;
@@ -266,6 +290,7 @@ fn outcome_enum(outcome: &str) -> MergeSourceOutcome {
     match outcome {
         OUTCOME_MERGED => MergeSourceOutcome::Merged,
         OUTCOME_NOOP_SAME_PERSON => MergeSourceOutcome::NoopSamePerson,
+        OUTCOME_ATTACHED => MergeSourceOutcome::Attached,
         OUTCOME_SKIPPED_ILLEGAL => MergeSourceOutcome::SkippedIllegal,
         OUTCOME_SKIPPED_ALREADY_IDENTIFIED => MergeSourceOutcome::SkippedAlreadyIdentified,
         OUTCOME_SKIPPED_CONFLICT => MergeSourceOutcome::SkippedConflict,
