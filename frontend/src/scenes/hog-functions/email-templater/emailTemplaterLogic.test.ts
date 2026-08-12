@@ -546,6 +546,23 @@ describe('emailTemplaterLogic', () => {
             expect(logic.values.isModalOpen).toBe(true)
         })
 
+        it('unmounting while open strips the param, so the next editor does not auto-open', async () => {
+            logic = emailTemplaterLogic(makeProps())
+            logic.mount()
+            logic.actions.setIsModalOpen(true)
+            await expectLogic(logic).toFinishAllListeners()
+            expect(router.values.searchParams.editor).toBe('email')
+
+            // Switching nodes or closing the step panel unmounts the templater without closing it.
+            logic.unmount()
+            expect(router.values.searchParams.editor).toBeUndefined()
+
+            logic = emailTemplaterLogic(makeProps())
+            logic.mount()
+            await expectLogic(logic).toFinishAllListeners()
+            expect(logic.values.isModalOpen).toBe(false)
+        })
+
         it('the inline layout neither writes nor reads the param', async () => {
             router.actions.push('/some-page', { editor: 'email' })
 

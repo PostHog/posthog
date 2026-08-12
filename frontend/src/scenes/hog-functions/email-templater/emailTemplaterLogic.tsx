@@ -2,6 +2,7 @@ import {
     MakeLogicType,
     actions,
     afterMount,
+    beforeUnmount,
     connect,
     kea,
     listeners,
@@ -864,6 +865,23 @@ export const emailTemplaterLogic = kea<emailTemplaterLogicType>([
 
         actions.loadTemplates()
         actions.loadPersonPropertyDefinitions()
+    }),
+
+    beforeUnmount(({ props, values }) => {
+        // An unmount while open (switching nodes, closing the step panel) skips the close action,
+        // and the node URL sync preserves foreign search params - so strip ours here, or the next
+        // email editor to mount would read the lingering param and auto-open.
+        if (
+            props.layout !== 'inline' &&
+            values.isModalOpen &&
+            router.values.searchParams[EMAIL_EDITOR_URL_PARAM] === EMAIL_EDITOR_URL_VALUE
+        ) {
+            const { pathname, searchParams, hashParams } = router.values.currentLocation
+            const next = { ...searchParams }
+            delete next[EMAIL_EDITOR_URL_PARAM]
+            // A replace, not a push: teardown must not add history entries.
+            router.actions.replace(pathname, next, hashParams)
+        }
     }),
 ])
 
