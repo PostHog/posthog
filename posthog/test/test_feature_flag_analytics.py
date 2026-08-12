@@ -1036,6 +1036,34 @@ class TestEnrichedAnalytics(BaseTest):
         self.assertEqual(f1.has_enriched_analytics, True)
         self.assertEqual(f1.usage_dashboard, None)
 
+    def test_find_flags_with_enriched_analytics_via_feature_interaction_only(self):
+        # A flag that only ever receives $feature_interaction (no $feature_view) should still be
+        # detected as enriched — the docs present the two events as interchangeable triggers.
+        flag = FeatureFlag.objects.create(
+            team=self.team,
+            name="Interaction only feature",
+            key="interaction-only-flag",
+            created_by=self.user,
+        )
+
+        _create_event(
+            team=self.team,
+            distinct_id="test",
+            event="$feature_interaction",
+            properties={"feature_flag": "interaction-only-flag"},
+            timestamp="2021-01-01T12:00:00Z",
+        )
+
+        flush_persons_and_events()
+
+        start = datetime.datetime(2021, 1, 1, 0, 0, 0)
+        end = datetime.datetime(2021, 1, 2, 0, 0, 0)
+
+        find_flags_with_enriched_analytics(start, end)
+
+        flag.refresh_from_db()
+        self.assertEqual(flag.has_enriched_analytics, True)
+
 
 class TestFindFlagsWithEnrichedAnalyticsTask(BaseTest):
     @patch("products.feature_flags.backend.flag_analytics.find_flags_with_enriched_analytics")
