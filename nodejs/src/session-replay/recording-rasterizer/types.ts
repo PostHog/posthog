@@ -3,6 +3,10 @@ import type { InactivityPeriod as BaseInactivityPeriod } from '@posthog/replay-h
 export interface RasterizeRecordingInput {
     session_id: string
     team_id: number
+    // Team-scoped read token minted by the Python build_rasterization_input activity and relayed to
+    // recording-api (the rasterizer cannot mint its own). Optional only during migration, before the
+    // minting side has shipped.
+    recording_api_token?: string
     max_virtual_time?: number // max virtual-time seconds before stopping capture (default: unlimited)
     playback_speed?: number // 1-360, defaults to 4
     start_offset_s?: number // seconds from session start to begin playback
