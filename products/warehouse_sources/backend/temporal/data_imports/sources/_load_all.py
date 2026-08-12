@@ -761,6 +761,7 @@ from .moodle.source import MoodleSource
 from .motherduck.source import MotherduckSource
 from .motion.source import MotionSource
 from .moxie.source import MoxieSource
+from .msg91.source import MSG91Source
 from .mssql.source import MSSQLSource
 from .mux.source import MuxSource
 from .my_hours.source import MyHoursSource
@@ -1232,6 +1233,7 @@ from .webflow.source import WebflowSource
 from .weights_and_biases.source import WeightsAndBiasesSource
 from .whatsapp_business_management.source import WhatsappBusinessManagementSource
 from .when_i_work.source import WhenIWorkSource
+from .whmcs.source import WHMCSSource
 from .who_gho.source import WhoGhoSource
 from .whop.source import WhopSource
 from .wikipedia_pageviews.source import WikipediaPageviewsSource

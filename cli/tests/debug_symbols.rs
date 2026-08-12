@@ -313,6 +313,7 @@ fn dedup_preserves_per_format_chunk_id_casing() {
         chunk_id: chunk_id.to_string(),
         release_id: None,
         data: data.to_vec(),
+        content_hash: None,
     };
 
     let deduped = dedup_uploads_by_chunk_id(vec![
