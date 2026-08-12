@@ -40,6 +40,11 @@ class TestThrottleMath:
         }
         assert sweep_spend_bytes_24h(buckets, _NOW) == 300
 
+    def test_naive_bucket_key_is_treated_as_utc_not_raised(self) -> None:
+        # This runs inside the sweep, so raising here would stop the scanner rather than mis-report it.
+        naive = (_NOW - dt.timedelta(hours=1)).replace(tzinfo=None).isoformat()
+        assert sweep_spend_bytes_24h({naive: 7}, _NOW) == 7
+
     def test_spend_of_empty_buckets_is_zero(self) -> None:
         assert sweep_spend_bytes_24h(None, _NOW) == 0
         assert sweep_spend_bytes_24h({}, _NOW) == 0
@@ -47,6 +52,26 @@ class TestThrottleMath:
 
 @pytest.mark.django_db(transaction=True)
 class TestMeterScannerReadsActivity:
+    def test_junk_scanner_tag_does_not_take_down_the_run(self) -> None:
+        # scanner_id is a free-form string in the query log, so a non-UUID must be skipped rather
+        # than blowing up the pk__in lookup for every other scanner in the batch.
+        from products.replay_vision.backend.tests.test_sweep import _make_scanner
+
+        scanner = _make_scanner()
+        hour = dt.datetime.now(dt.UTC).replace(minute=0, second=0, microsecond=0)
+        with patch(
+            "products.replay_vision.backend.temporal.activities.meter_scanner_reads.sync_execute",
+            return_value=[
+                ("not-a-uuid", hour.replace(tzinfo=None), 11),
+                (str(scanner.id), hour.replace(tzinfo=None), 22),
+            ],
+        ):
+            result = meter_scanner_read_bytes_activity()
+
+        assert result.scanners_updated == 1
+        scanner.refresh_from_db()
+        assert scanner.sweep_read_bytes_by_hour == {hour.isoformat(): 22}
+
     def test_folds_query_log_rows_into_hour_buckets_and_prunes(self) -> None:
         from products.replay_vision.backend.tests.test_sweep import _make_scanner
 

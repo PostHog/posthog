@@ -1,4 +1,5 @@
 import datetime as dt
+from uuid import UUID
 
 from temporalio import activity
 
@@ -17,13 +18,16 @@ _FULL_HOURS_RESCANNED = 2
 _READ_BYTES_BY_SCANNER_HOUR_SQL = """
 SELECT
     JSONExtractString(log_comment, 'scanner_id') AS scanner_id,
-    toStartOfHour(event_time) AS hour,
+    toStartOfHour(toTimeZone(event_time, 'UTC')) AS hour,
     sum(read_bytes) AS read_bytes
 FROM clusterAllReplicas(%(cluster)s, system.query_log)
 WHERE event_date >= today() - 1
   AND event_time >= %(since)s
   AND type > 1
   AND is_initial_query
+  -- Substring match first so the JSON parsing only runs on this product's rows rather than on
+  -- every query the cluster logged.
+  AND log_comment LIKE '%%replay_vision%%'
   AND JSONExtractString(log_comment, 'product') = 'replay_vision'
   AND scanner_id != ''
 GROUP BY scanner_id, hour
@@ -48,11 +52,14 @@ def meter_scanner_read_bytes_activity() -> MeterScannerReadsResult:
 
     by_scanner: dict[str, dict[str, int]] = {}
     for scanner_id, hour, read_bytes in rows:
+        # The tag is a free-form string in the query log, so a junk value must not take the run down.
+        if not _is_uuid(scanner_id):
+            continue
         by_scanner.setdefault(scanner_id, {})[hour.replace(tzinfo=dt.UTC).isoformat()] = int(read_bytes)
 
     prune_cutoff = now - dt.timedelta(hours=25)
-    updated = 0
-    for scanner in ReplayScanner.objects.filter(pk__in=by_scanner.keys()).only("id", "sweep_read_bytes_by_hour"):
+    scanners = list(ReplayScanner.objects.filter(pk__in=by_scanner.keys()).only("id", "sweep_read_bytes_by_hour"))
+    for scanner in scanners:
         buckets = dict(scanner.sweep_read_bytes_by_hour or {})
         buckets.update(by_scanner[str(scanner.id)])
         fresh = {}
@@ -60,15 +67,26 @@ def meter_scanner_read_bytes_activity() -> MeterScannerReadsResult:
             hour = _parse_hour(hour_iso)
             if hour is not None and hour >= prune_cutoff:
                 fresh[hour_iso] = read_bytes
-        ReplayScanner.objects.filter(pk=scanner.pk).update(sweep_read_bytes_by_hour=fresh)
-        updated += 1
+        scanner.sweep_read_bytes_by_hour = fresh
+    # One statement per batch rather than per scanner: this runs hourly over every active scanner.
+    ReplayScanner.objects.bulk_update(scanners, ["sweep_read_bytes_by_hour"], batch_size=500)
 
-    activity.logger.info("replay_vision.read_meter_updated", extra={"scanners": updated})
-    return MeterScannerReadsResult(scanners_updated=updated)
+    activity.logger.info("replay_vision.read_meter_updated", extra={"scanners": len(scanners)})
+    return MeterScannerReadsResult(scanners_updated=len(scanners))
+
+
+def _is_uuid(value: str) -> bool:
+    try:
+        UUID(value)
+    except ValueError:
+        return False
+    return True
 
 
 def _parse_hour(hour_iso: str) -> dt.datetime | None:
+    """Parse a bucket key, treating a naive value as UTC so comparisons cannot raise."""
     try:
-        return dt.datetime.fromisoformat(hour_iso)
-    except ValueError:
+        hour = dt.datetime.fromisoformat(hour_iso)
+    except (TypeError, ValueError):
         return None
+    return hour if hour.tzinfo is not None else hour.replace(tzinfo=dt.UTC)
