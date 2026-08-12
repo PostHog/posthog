@@ -27,6 +27,7 @@ from products.tasks.backend.logic.services.sandbox import (
     SandboxConfig,
     SandboxTemplate,
     parse_sandbox_repo_mount_map,
+    workload_for_origin_product,
 )
 from products.tasks.backend.logic.services.sandbox_usage import measure_sandbox_cpu_usage, open_sandbox_session
 from products.tasks.backend.models import SandboxSnapshot, Task, TaskRun
@@ -302,6 +303,7 @@ def get_sandbox_for_repository(input: GetSandboxForRepositoryInput) -> GetSandbo
         config = SandboxConfig(
             name=get_sandbox_name_for_task(ctx.task_id),
             template=SandboxTemplate.VM_BASE if use_vm_sandbox else SandboxTemplate.DEFAULT_BASE,
+            workload=workload_for_origin_product(ctx.origin_product),
             custom_image_name=custom_image_name,
             vm_runtime=use_vm_sandbox,
             environment_variables=environment_variables,
