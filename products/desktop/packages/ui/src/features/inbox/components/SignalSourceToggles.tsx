@@ -9,14 +9,13 @@ import {
   VideoIcon,
 } from "@phosphor-icons/react";
 import type { SignalSourceConfig } from "@posthog/api-client/posthog-client";
-import { Button } from "@posthog/quill";
+import { Button, Spinner, Switch } from "@posthog/quill";
 import {
   EXTERNAL_INBOX_SOURCES,
   type ToggleableSourceProduct,
 } from "@posthog/shared";
 import { getSourceProductMeta } from "@posthog/ui/features/inbox/components/utils/source-product-icons";
 import { Badge } from "@posthog/ui/primitives/Badge";
-import { Box, Flex, Spinner, Switch, Text } from "@radix-ui/themes";
 import { memo, useCallback } from "react";
 
 export type SignalSourceValues = Record<ToggleableSourceProduct, boolean>;
@@ -74,8 +73,10 @@ const SignalSourceToggleCard = memo(function SignalSourceToggleCard({
   const statusInfo = checked ? syncStatusLabel(syncStatus) : null;
 
   return (
-    <Box
-      p="3"
+    // biome-ignore lint/a11y/useSemanticElements: the card contains interactive controls
+    <div
+      role="button"
+      tabIndex={disabled || loading ? -1 : 0}
       onClick={
         disabled || loading
           ? undefined
@@ -83,33 +84,43 @@ const SignalSourceToggleCard = memo(function SignalSourceToggleCard({
             ? onSetup
             : () => onCheckedChange(!checked)
       }
+      onKeyDown={(event) => {
+        if (
+          event.target !== event.currentTarget ||
+          (event.key !== "Enter" && event.key !== " ")
+        ) {
+          return;
+        }
+        event.preventDefault();
+        event.currentTarget.click();
+      }}
       className={[
-        "rounded-(--radius-3) border bg-(--color-panel-solid) transition duration-150",
+        "rounded-(--radius-3) border bg-(--color-panel-solid) p-3 transition duration-150",
         checked ? "border-(--accent-6)" : "border-border",
         disabled || loading
           ? "cursor-default"
           : "cursor-pointer hover:border-(--gray-6) hover:bg-(--gray-2) hover:shadow-sm",
       ].join(" ")}
     >
-      <Flex align="center" justify="between" gap="4">
-        <Flex align="center" gap="3">
-          <Box className="shrink-0 text-gray-11">{icon}</Box>
-          <Flex direction="column" gap="1">
-            <Flex align="center" gap="2">
-              <Text className="font-medium text-gray-12 text-sm">{label}</Text>
+      <div className="flex items-center justify-between gap-4">
+        <div className="flex items-center gap-3">
+          <div className="shrink-0 text-gray-11">{icon}</div>
+          <div className="flex flex-col gap-1">
+            <div className="flex items-center gap-2">
+              <span className="font-medium text-gray-12 text-sm">{label}</span>
               {labelSuffix}
               {statusInfo && (
-                <Text
+                <span
                   style={{ color: statusInfo.color }}
                   className="text-[13px]"
                 >
                   {statusInfo.text}
-                </Text>
+                </span>
               )}
-            </Flex>
-            <Text className="text-[13px] text-gray-11">{description}</Text>
+            </div>
+            <span className="text-[13px] text-gray-11">{description}</span>
             {docsUrl && (
-              <Text className="text-[13px] text-gray-11">
+              <span className="text-[13px] text-gray-11">
                 <a
                   href={docsUrl}
                   target="_blank"
@@ -124,10 +135,10 @@ const SignalSourceToggleCard = memo(function SignalSourceToggleCard({
                   Learn about {docsLabel ?? label}
                   <ArrowSquareOutIcon size={11} />
                 </a>
-              </Text>
+              </span>
             )}
-          </Flex>
-        </Flex>
+          </div>
+        </div>
         {loading ? (
           <Spinner size="2" />
         ) : requiresSetup ? (
@@ -150,9 +161,9 @@ const SignalSourceToggleCard = memo(function SignalSourceToggleCard({
             onClick={(e) => e.stopPropagation()}
           />
         )}
-      </Flex>
-      {statusSection && <Box className="ml-[32px]">{statusSection}</Box>}
-    </Box>
+      </div>
+      {statusSection && <div className="ml-[32px]">{statusSection}</div>}
+    </div>
   );
 });
 
@@ -221,10 +232,10 @@ function SourceRunningIndicator({
     return null;
   }
   return (
-    <Flex align="center" gap="2" mt="2">
+    <div className="mt-2 flex items-center gap-2">
       <CircleNotchIcon size={14} className="animate-spin text-(--accent-11)" />
-      <Text className="text-(--accent-11) text-[13px]">{message}</Text>
-    </Flex>
+      <span className="text-(--accent-11) text-[13px]">{message}</span>
+    </div>
   );
 }
 
@@ -265,13 +276,13 @@ export function SignalSourceToggles({
   );
 
   return (
-    <Flex gap="4">
+    <div className="flex flex-col gap-5">
       {/* PostHog data */}
-      <Flex direction="column" gap="2" className="min-w-0 flex-1">
-        <Text className="font-medium text-(--gray-9) text-[13px]">
+      <section className="flex min-w-0 flex-col gap-2">
+        <span className="font-medium text-(--gray-9) text-[13px]">
           PostHog data
-        </Text>
-        <Flex direction="column" gap="3">
+        </span>
+        <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
           <SignalSourceToggleCard
             icon={<BugIcon size={20} />}
             label="Error Tracking"
@@ -333,15 +344,15 @@ export function SignalSourceToggles({
             docsUrl="https://posthog.com/docs/ai-evals"
             docsLabel="evaluations"
           />
-        </Flex>
-      </Flex>
+        </div>
+      </section>
 
       {/* External sources — data-driven from the shared source registry */}
-      <Flex direction="column" gap="2" className="min-w-0 flex-1">
-        <Text className="font-medium text-(--gray-9) text-[13px]">
+      <section className="flex min-w-0 flex-col gap-2">
+        <span className="font-medium text-(--gray-9) text-[13px]">
           External sources
-        </Text>
-        <Flex direction="column" gap="3">
+        </span>
+        <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
           {EXTERNAL_INBOX_SOURCES.map((source) => {
             const product = source.product;
             return (
@@ -358,57 +369,54 @@ export function SignalSourceToggles({
               />
             );
           })}
-        </Flex>
-      </Flex>
-    </Flex>
+        </div>
+      </section>
+    </div>
   );
 }
 
 function SignalSourceToggleCardSkeleton() {
   return (
-    <Box
-      p="3"
-      className="rounded-(--radius-3) border border-border bg-(--color-panel-solid)"
-    >
-      <Flex align="center" justify="between" gap="4">
-        <Flex align="center" gap="3" className="min-w-0 flex-1">
-          <Box className="size-[20px] shrink-0 animate-pulse rounded bg-gray-4" />
-          <Flex direction="column" gap="2" className="min-w-0 flex-1">
-            <Box className="h-[12px] w-[50%] animate-pulse rounded bg-gray-4" />
-            <Box className="h-[11px] w-[80%] animate-pulse rounded bg-gray-3" />
-          </Flex>
-        </Flex>
-        <Box className="h-[18px] w-[32px] shrink-0 animate-pulse rounded-full bg-gray-3" />
-      </Flex>
-    </Box>
+    <div className="rounded-(--radius-3) border border-border bg-(--color-panel-solid) p-3">
+      <div className="flex items-center justify-between gap-4">
+        <div className="flex min-w-0 flex-1 items-center gap-3">
+          <div className="size-[20px] shrink-0 animate-pulse rounded bg-gray-4" />
+          <div className="flex min-w-0 flex-1 flex-col gap-2">
+            <div className="h-[12px] w-[50%] animate-pulse rounded bg-gray-4" />
+            <div className="h-[11px] w-[80%] animate-pulse rounded bg-gray-3" />
+          </div>
+        </div>
+        <div className="h-[18px] w-[32px] shrink-0 animate-pulse rounded-full bg-gray-3" />
+      </div>
+    </div>
   );
 }
 
 export function SignalSourceTogglesSkeleton() {
   return (
-    <Flex gap="4">
-      <Flex direction="column" gap="2" className="min-w-0 flex-1">
-        <Text className="font-medium text-(--gray-9) text-[13px]">
+    <div className="flex flex-col gap-5">
+      <section className="flex min-w-0 flex-col gap-2">
+        <span className="font-medium text-(--gray-9) text-[13px]">
           PostHog data
-        </Text>
-        <Flex direction="column" gap="3">
+        </span>
+        <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
           {Array.from({ length: 4 }).map((_, index) => (
             // biome-ignore lint/suspicious/noArrayIndexKey: static loading placeholders
             <SignalSourceToggleCardSkeleton key={index} />
           ))}
-        </Flex>
-      </Flex>
-      <Flex direction="column" gap="2" className="min-w-0 flex-1">
-        <Text className="font-medium text-(--gray-9) text-[13px]">
+        </div>
+      </section>
+      <section className="flex min-w-0 flex-col gap-2">
+        <span className="font-medium text-(--gray-9) text-[13px]">
           External sources
-        </Text>
-        <Flex direction="column" gap="3">
+        </span>
+        <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
           {Array.from({ length: 4 }).map((_, index) => (
             // biome-ignore lint/suspicious/noArrayIndexKey: static loading placeholders
             <SignalSourceToggleCardSkeleton key={index} />
           ))}
-        </Flex>
-      </Flex>
-    </Flex>
+        </div>
+      </section>
+    </div>
   );
 }
