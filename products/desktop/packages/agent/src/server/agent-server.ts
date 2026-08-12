@@ -2291,6 +2291,7 @@ export class AgentServer {
   ): Promise<void> {
     if (!this.session || !this.resumeState) return;
     const resumeState = this.resumeState;
+    taskRun = await this.refreshTaskRunForResume(payload, taskRun);
 
     await this.runResumeTurn(payload, taskRun, "Resume message", async () => {
       const conversationSummary = formatConversationForResume(
@@ -2299,11 +2300,7 @@ export class AgentServer {
 
       const checkpointApplied = await this.applyResumeGitCheckpoint(payload);
 
-      const currentTaskRun = await this.refreshTaskRunForResume(
-        payload,
-        taskRun,
-      );
-      const pendingUserPrompt = await this.getPendingUserPrompt(currentTaskRun);
+      const pendingUserPrompt = await this.getPendingUserPrompt(taskRun);
 
       const checkpointContext = checkpointApplied
         ? `The workspace environment (all files, packages, and code changes) has been fully restored from the latest checkpoint.`
@@ -2358,6 +2355,7 @@ export class AgentServer {
     taskRun: TaskRun | null,
   ): Promise<void> {
     if (!this.session) return;
+    taskRun = await this.refreshTaskRunForResume(payload, taskRun);
 
     await this.runResumeTurn(
       payload,
@@ -2368,12 +2366,7 @@ export class AgentServer {
           ? false
           : await this.applyResumeGitCheckpoint(payload);
 
-        const currentTaskRun = await this.refreshTaskRunForResume(
-          payload,
-          taskRun,
-        );
-        const pendingUserPrompt =
-          await this.getPendingUserPrompt(currentTaskRun);
+        const pendingUserPrompt = await this.getPendingUserPrompt(taskRun);
         const prompt: ContentBlock[] = pendingUserPrompt?.prompt.length
           ? pendingUserPrompt.prompt
           : [

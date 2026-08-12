@@ -3465,8 +3465,12 @@ describe("AgentServer HTTP Mode", () => {
       await s.start();
 
       const prompt = vi.fn(async () => ({ stopReason: "cancelled" }));
+      const updateTaskRun = vi.fn(async () => ({}));
       const internals = s as unknown as {
-        posthogAPI: { getTaskRun: ReturnType<typeof vi.fn> };
+        posthogAPI: {
+          getTaskRun: ReturnType<typeof vi.fn>;
+          updateTaskRun: typeof updateTaskRun;
+        };
         session: {
           clientConnection: { prompt: typeof prompt };
         };
@@ -3478,6 +3482,7 @@ describe("AgentServer HTTP Mode", () => {
       };
       internals.session.clientConnection.prompt = prompt;
       internals.nativeResume = { sessionId: "prior-session", warm: true };
+      internals.posthogAPI.updateTaskRun = updateTaskRun;
       vi.spyOn(internals.posthogAPI, "getTaskRun").mockResolvedValue(
         createTaskRun({
           id: "test-run-id",
@@ -3508,6 +3513,13 @@ describe("AgentServer HTTP Mode", () => {
       expect(promptBlocks).toEqual([
         { type: "text", text: "keep my follow-up" },
       ]);
+      expect(updateTaskRun).toHaveBeenCalledWith(
+        "test-task-id",
+        "test-run-id",
+        {
+          state_remove_keys: ["pending_user_message"],
+        },
+      );
     });
   });
 
