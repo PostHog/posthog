@@ -2,7 +2,7 @@ import { useActions, useValues } from 'kea'
 import { useState } from 'react'
 
 import { IconFilter, IconWarning } from '@posthog/icons'
-import { LemonButton, LemonMenu, LemonMenuItems } from '@posthog/lemon-ui'
+import { LemonButton, LemonMenu, LemonMenuItems, Link } from '@posthog/lemon-ui'
 
 import { CLICK_OUTSIDE_BLOCK_CLASS } from 'lib/hooks/useOutsideClickHandler'
 
@@ -72,15 +72,31 @@ export function QueryFiltersMenu(): JSX.Element | null {
                 >
                     {filtersMissingPlaceholder ? (
                         <div className="text-xs text-warning">
-                            Filters are present, but this SQL query doesn't include a <code>{'{filters}'}</code> tag.
-                            Add it to your SQL query <code>where</code> clause to apply these filters. Supported source
-                            tables are <code>events</code>, <code>sessions</code>, <code>groups</code>.
+                            Filters are set, but this SQL query doesn't include a <code>{'{filters}'}</code>{' '}
+                            placeholder, so they aren't applied. Add <code>{'{filters}'}</code> to your{' '}
+                            <code>where</code> clause when selecting from PostHog tables like <code>events</code>,{' '}
+                            <code>persons</code>, <code>groups</code>, or <code>sessions</code>. For any other table or
+                            view, bind your own columns, for example{' '}
+                            <code>{"{filters(created_at AS timestamp, plan AS 'plan')}"}</code>.{' '}
+                            <Link
+                                to="https://posthog.com/docs/data-warehouse/sql/variables#applying-dashboard-filters"
+                                target="_blank"
+                            >
+                                Learn more
+                            </Link>
                         </div>
                     ) : (
                         <div className="text-xs text-muted">
                             Use <code>{'{filters}'}</code> in your SQL query <code>where</code> clause to apply these
-                            filters. Supported source tables are <code>events</code>, <code>sessions</code>,{' '}
-                            <code>groups</code>.
+                            filters when selecting from PostHog tables like <code>events</code>, <code>persons</code>,{' '}
+                            <code>groups</code>, or <code>sessions</code>. For any other table or view, bind your own
+                            columns, for example <code>{"{filters(created_at AS timestamp, plan AS 'plan')}"}</code>.{' '}
+                            <Link
+                                to="https://posthog.com/docs/data-warehouse/sql/variables#applying-dashboard-filters"
+                                target="_blank"
+                            >
+                                Learn more
+                            </Link>
                         </div>
                     )}
                     <div className="space-y-1">

@@ -33,6 +33,7 @@ from django.db.models import (
     Case,
     CharField,
     Count,
+    DateTimeField,
     Exists,
     F,
     Func,
@@ -46,6 +47,7 @@ from django.db.models import (
     When,
 )
 from django.db.models.fields.json import KeyTextTransform
+from django.db.models.functions import Coalesce
 from django.utils import timezone as django_timezone
 from django.utils.http import content_disposition_header
 
@@ -382,6 +384,8 @@ _TASK_RUN_PUBLIC_STATE_KEYS = frozenset(
         "initial_permission_mode",
         "mode",
         "model",
+        "pending_user_artifact_ids",
+        "pending_user_message",
         "pr_authorship_mode",
         "pr_base_branch",
         "provider",
@@ -1046,9 +1050,21 @@ def collect_task_run_state_metrics(
     The caller (a core celery task) owns which statuses count as open/age/terminal and the
     recency window; this returns the raw numbers grouped by (status, environment,
     parent origin_product) so no ORM leaks across the boundary.
+
+    A QUEUED run's age counts from ``queued_at``, not from row creation:
+    ``prepare_for_cloud_handoff`` re-queues an existing run without resetting ``created_at``,
+    so a desktop-to-cloud handoff would otherwise report the whole prior run's lifetime as
+    queue wait. Rows queued before ``queued_at`` existed fall back to ``created_at``, which is
+    exact for a run that was only ever queued once. Every other non-terminal status counts
+    from creation, where elapsed lifetime is the useful age.
     """
     now = django_timezone.now()
     window_start = now - timedelta(seconds=window_seconds)
+    age_anchor = Case(
+        When(status=TaskRun.Status.QUEUED, then=Coalesce(F("queued_at"), F("created_at"))),
+        default=F("created_at"),
+        output_field=DateTimeField(),
+    )
     return contracts.TaskRunStateMetricsDTO(
         runs_in_status=_gauge_rows(
             TaskRun.objects.filter(status__in=open_statuses)
@@ -1060,8 +1076,8 @@ def collect_task_run_state_metrics(
         oldest_open_age_seconds=_gauge_rows(
             TaskRun.objects.filter(status__in=age_statuses)
             .values("status", "environment", "task__origin_product")
-            .annotate(oldest_created_at=Min("created_at")),
-            "oldest_created_at",
+            .annotate(oldest_waiting_since=Min(age_anchor)),
+            "oldest_waiting_since",
             with_status=True,
             now=now,
         ),
@@ -4128,6 +4144,7 @@ def resume_task_run_in_cloud(
         prior_status = run.status
         prior_environment = run.environment
         prior_completed_at = run.completed_at
+        prior_queued_at = run.queued_at
         prior_state = dict(run.state or {})
         run.prepare_for_cloud_handoff()
 
@@ -4147,9 +4164,20 @@ def resume_task_run_in_cloud(
             run.status = prior_status
             run.environment = prior_environment
             run.completed_at = prior_completed_at
+            run.queued_at = prior_queued_at
             run.state = prior_state
             run.error_message = "Failed to start cloud workflow"
-            run.save(update_fields=["status", "environment", "completed_at", "state", "error_message", "updated_at"])
+            run.save(
+                update_fields=[
+                    "status",
+                    "environment",
+                    "completed_at",
+                    "queued_at",
+                    "state",
+                    "error_message",
+                    "updated_at",
+                ]
+            )
         run.publish_stream_state_event()
         return "workflow_failed", None, None
 

@@ -158,6 +158,17 @@ _PRIORITY_RANK = {IssuePriority.CONSIDER: 0, IssuePriority.SHOULD_FIX: 1, IssueP
 # The threshold applied when no per-user setting is available (matches `ReviewUserSettings`' default).
 DEFAULT_URGENCY_THRESHOLD = IssuePriority.CONSIDER
 
+# Severities most urgent first — the order every count breakdown is read in.
+PRIORITIES_BY_URGENCY = (IssuePriority.MUST_FIX, IssuePriority.SHOULD_FIX, IssuePriority.CONSIDER)
+
+# Human-readable severity labels, shared by the PR-facing renderers (the review body and the status
+# comment) so their count lines read the same.
+PRIORITY_LABELS = {
+    IssuePriority.MUST_FIX: "must fix",
+    IssuePriority.SHOULD_FIX: "should fix",
+    IssuePriority.CONSIDER: "consider",
+}
+
 
 def published_priorities_for(threshold: IssuePriority) -> set[IssuePriority]:
     """Priorities at or above the acting user's urgency threshold — the set that gates publishing.

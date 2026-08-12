@@ -2027,6 +2027,15 @@ export namespace Schemas {
       P99CountPerActor: 'p99_count_per_actor',
     } as const;
 
+    export type GroupMathType = typeof GroupMathType[keyof typeof GroupMathType];
+
+
+    export const GroupMathType = {
+      UniqueGroup: 'unique_group',
+      FirstTimeForGroup: 'first_time_for_group',
+      FirstMatchingEventForGroup: 'first_matching_event_for_group',
+    } as const;
+
     export type ExperimentMetricMathType = typeof ExperimentMetricMathType[keyof typeof ExperimentMetricMathType];
 
 
@@ -2230,7 +2239,7 @@ export namespace Schemas {
       fixedProperties?: (EventPropertyFilter | PersonPropertyFilter | PersonMetadataPropertyFilter | ElementPropertyFilter | EventMetadataPropertyFilter | SessionPropertyFilter | CohortPropertyFilter | RecordingPropertyFilter | LogEntryPropertyFilter | GroupPropertyFilter | FeaturePropertyFilter | FlagPropertyFilter | HogQLPropertyFilter | EmptyPropertyFilter | DataWarehousePropertyFilter | DataWarehousePersonPropertyFilter | ErrorTrackingIssueFilter | LogPropertyFilter | MetricPropertyFilter | SpanPropertyFilter | RevenueAnalyticsPropertyFilter | AccountCustomPropertyFilter | WorkflowVariablePropertyFilter)[] | null;
       id: number;
       kind?: 'ActionsNode';
-      math?: BaseMathType | FunnelMathType | PropertyMathType | CountPerActorMathType | ExperimentMetricMathType | CalendarHeatmapMathType | 'unique_group' | 'hogql' | null;
+      math?: BaseMathType | FunnelMathType | PropertyMathType | CountPerActorMathType | GroupMathType | ExperimentMetricMathType | CalendarHeatmapMathType | 'hogql' | null;
       math_group_type_index?: MathGroupTypeIndex | null;
       math_hogql?: string | null;
       math_multiplier?: number | null;
@@ -2911,7 +2920,7 @@ export namespace Schemas {
       fixedProperties?: (EventPropertyFilter | PersonPropertyFilter | PersonMetadataPropertyFilter | ElementPropertyFilter | EventMetadataPropertyFilter | SessionPropertyFilter | CohortPropertyFilter | RecordingPropertyFilter | LogEntryPropertyFilter | GroupPropertyFilter | FeaturePropertyFilter | FlagPropertyFilter | HogQLPropertyFilter | EmptyPropertyFilter | DataWarehousePropertyFilter | DataWarehousePersonPropertyFilter | ErrorTrackingIssueFilter | LogPropertyFilter | MetricPropertyFilter | SpanPropertyFilter | RevenueAnalyticsPropertyFilter | AccountCustomPropertyFilter | WorkflowVariablePropertyFilter)[] | null;
       kind?: 'EventsNode';
       limit?: number | null;
-      math?: BaseMathType | FunnelMathType | PropertyMathType | CountPerActorMathType | ExperimentMetricMathType | CalendarHeatmapMathType | 'unique_group' | 'hogql' | null;
+      math?: BaseMathType | FunnelMathType | PropertyMathType | CountPerActorMathType | GroupMathType | ExperimentMetricMathType | CalendarHeatmapMathType | 'hogql' | null;
       math_group_type_index?: MathGroupTypeIndex | null;
       math_hogql?: string | null;
       math_multiplier?: number | null;
@@ -2940,7 +2949,7 @@ export namespace Schemas {
       id: string;
       id_field: string;
       kind?: 'DataWarehouseNode';
-      math?: BaseMathType | FunnelMathType | PropertyMathType | CountPerActorMathType | ExperimentMetricMathType | CalendarHeatmapMathType | 'unique_group' | 'hogql' | null;
+      math?: BaseMathType | FunnelMathType | PropertyMathType | CountPerActorMathType | GroupMathType | ExperimentMetricMathType | CalendarHeatmapMathType | 'hogql' | null;
       math_group_type_index?: MathGroupTypeIndex | null;
       math_hogql?: string | null;
       math_multiplier?: number | null;
@@ -2966,7 +2975,7 @@ export namespace Schemas {
       fixedProperties?: (EventPropertyFilter | PersonPropertyFilter | PersonMetadataPropertyFilter | ElementPropertyFilter | EventMetadataPropertyFilter | SessionPropertyFilter | CohortPropertyFilter | RecordingPropertyFilter | LogEntryPropertyFilter | GroupPropertyFilter | FeaturePropertyFilter | FlagPropertyFilter | HogQLPropertyFilter | EmptyPropertyFilter | DataWarehousePropertyFilter | DataWarehousePersonPropertyFilter | ErrorTrackingIssueFilter | LogPropertyFilter | MetricPropertyFilter | SpanPropertyFilter | RevenueAnalyticsPropertyFilter | AccountCustomPropertyFilter | WorkflowVariablePropertyFilter)[] | null;
       kind?: 'GroupNode';
       limit?: number | null;
-      math?: BaseMathType | FunnelMathType | PropertyMathType | CountPerActorMathType | ExperimentMetricMathType | CalendarHeatmapMathType | 'unique_group' | 'hogql' | null;
+      math?: BaseMathType | FunnelMathType | PropertyMathType | CountPerActorMathType | GroupMathType | ExperimentMetricMathType | CalendarHeatmapMathType | 'hogql' | null;
       math_group_type_index?: MathGroupTypeIndex | null;
       math_hogql?: string | null;
       math_multiplier?: number | null;
@@ -3278,7 +3287,7 @@ export namespace Schemas {
       funnelToStep: number;
       kind?: 'EventsNode';
       limit?: number | null;
-      math?: BaseMathType | FunnelMathType | PropertyMathType | CountPerActorMathType | ExperimentMetricMathType | CalendarHeatmapMathType | 'unique_group' | 'hogql' | null;
+      math?: BaseMathType | FunnelMathType | PropertyMathType | CountPerActorMathType | GroupMathType | ExperimentMetricMathType | CalendarHeatmapMathType | 'hogql' | null;
       math_group_type_index?: MathGroupTypeIndex | null;
       math_hogql?: string | null;
       math_multiplier?: number | null;
@@ -3306,7 +3315,7 @@ export namespace Schemas {
       funnelToStep: number;
       id: number;
       kind?: 'ActionsNode';
-      math?: BaseMathType | FunnelMathType | PropertyMathType | CountPerActorMathType | ExperimentMetricMathType | CalendarHeatmapMathType | 'unique_group' | 'hogql' | null;
+      math?: BaseMathType | FunnelMathType | PropertyMathType | CountPerActorMathType | GroupMathType | ExperimentMetricMathType | CalendarHeatmapMathType | 'hogql' | null;
       math_group_type_index?: MathGroupTypeIndex | null;
       math_hogql?: string | null;
       math_multiplier?: number | null;
@@ -3449,7 +3458,7 @@ export namespace Schemas {
       id: string;
       id_field: string;
       kind?: 'FunnelsDataWarehouseNode';
-      math?: BaseMathType | FunnelMathType | PropertyMathType | CountPerActorMathType | ExperimentMetricMathType | CalendarHeatmapMathType | 'unique_group' | 'hogql' | null;
+      math?: BaseMathType | FunnelMathType | PropertyMathType | CountPerActorMathType | GroupMathType | ExperimentMetricMathType | CalendarHeatmapMathType | 'hogql' | null;
       math_group_type_index?: MathGroupTypeIndex | null;
       math_hogql?: string | null;
       math_multiplier?: number | null;
@@ -4114,7 +4123,7 @@ export namespace Schemas {
       fixedProperties?: (EventPropertyFilter | PersonPropertyFilter | PersonMetadataPropertyFilter | ElementPropertyFilter | EventMetadataPropertyFilter | SessionPropertyFilter | CohortPropertyFilter | RecordingPropertyFilter | LogEntryPropertyFilter | GroupPropertyFilter | FeaturePropertyFilter | FlagPropertyFilter | HogQLPropertyFilter | EmptyPropertyFilter | DataWarehousePropertyFilter | DataWarehousePersonPropertyFilter | ErrorTrackingIssueFilter | LogPropertyFilter | MetricPropertyFilter | SpanPropertyFilter | RevenueAnalyticsPropertyFilter | AccountCustomPropertyFilter | WorkflowVariablePropertyFilter)[] | null;
       id: string;
       kind?: 'LifecycleDataWarehouseNode';
-      math?: BaseMathType | FunnelMathType | PropertyMathType | CountPerActorMathType | ExperimentMetricMathType | CalendarHeatmapMathType | 'unique_group' | 'hogql' | null;
+      math?: BaseMathType | FunnelMathType | PropertyMathType | CountPerActorMathType | GroupMathType | ExperimentMetricMathType | CalendarHeatmapMathType | 'hogql' | null;
       math_group_type_index?: MathGroupTypeIndex | null;
       math_hogql?: string | null;
       math_multiplier?: number | null;
@@ -4562,7 +4571,7 @@ export namespace Schemas {
       /** Fixed properties in the query, can't be edited in the interface (e.g. scoping down by person) */
       fixedProperties?: (EventPropertyFilter | PersonPropertyFilter | PersonMetadataPropertyFilter | ElementPropertyFilter | EventMetadataPropertyFilter | SessionPropertyFilter | CohortPropertyFilter | RecordingPropertyFilter | LogEntryPropertyFilter | GroupPropertyFilter | FeaturePropertyFilter | FlagPropertyFilter | HogQLPropertyFilter | EmptyPropertyFilter | DataWarehousePropertyFilter | DataWarehousePersonPropertyFilter | ErrorTrackingIssueFilter | LogPropertyFilter | MetricPropertyFilter | SpanPropertyFilter | RevenueAnalyticsPropertyFilter | AccountCustomPropertyFilter | WorkflowVariablePropertyFilter)[] | null;
       kind?: 'ExperimentDataWarehouseNode';
-      math?: BaseMathType | FunnelMathType | PropertyMathType | CountPerActorMathType | ExperimentMetricMathType | CalendarHeatmapMathType | 'unique_group' | 'hogql' | null;
+      math?: BaseMathType | FunnelMathType | PropertyMathType | CountPerActorMathType | GroupMathType | ExperimentMetricMathType | CalendarHeatmapMathType | 'hogql' | null;
       math_group_type_index?: MathGroupTypeIndex | null;
       math_hogql?: string | null;
       math_multiplier?: number | null;
@@ -7201,7 +7210,7 @@ export namespace Schemas {
       fixedProperties?: (EventPropertyFilter | PersonPropertyFilter | PersonMetadataPropertyFilter | ElementPropertyFilter | EventMetadataPropertyFilter | SessionPropertyFilter | CohortPropertyFilter | RecordingPropertyFilter | LogEntryPropertyFilter | GroupPropertyFilter | FeaturePropertyFilter | FlagPropertyFilter | HogQLPropertyFilter | EmptyPropertyFilter | DataWarehousePropertyFilter | DataWarehousePersonPropertyFilter | ErrorTrackingIssueFilter | LogPropertyFilter | MetricPropertyFilter | SpanPropertyFilter | RevenueAnalyticsPropertyFilter | AccountCustomPropertyFilter | WorkflowVariablePropertyFilter)[] | null;
       kind?: 'EventsNode';
       limit?: number | null;
-      math?: BaseMathType | FunnelMathType | PropertyMathType | CountPerActorMathType | ExperimentMetricMathType | CalendarHeatmapMathType | 'unique_group' | 'hogql' | null;
+      math?: BaseMathType | FunnelMathType | PropertyMathType | CountPerActorMathType | GroupMathType | ExperimentMetricMathType | CalendarHeatmapMathType | 'hogql' | null;
       math_group_type_index?: MathGroupTypeIndex | null;
       math_hogql?: string | null;
       math_multiplier?: number | null;
@@ -7236,7 +7245,7 @@ export namespace Schemas {
       fixedProperties?: (EventPropertyFilter | PersonPropertyFilter | PersonMetadataPropertyFilter | ElementPropertyFilter | EventMetadataPropertyFilter | SessionPropertyFilter | CohortPropertyFilter | RecordingPropertyFilter | LogEntryPropertyFilter | GroupPropertyFilter | FeaturePropertyFilter | FlagPropertyFilter | HogQLPropertyFilter | EmptyPropertyFilter | DataWarehousePropertyFilter | DataWarehousePersonPropertyFilter | ErrorTrackingIssueFilter | LogPropertyFilter | MetricPropertyFilter | SpanPropertyFilter | RevenueAnalyticsPropertyFilter | AccountCustomPropertyFilter | WorkflowVariablePropertyFilter)[] | null;
       id: number;
       kind?: 'ActionsNode';
-      math?: BaseMathType | FunnelMathType | PropertyMathType | CountPerActorMathType | ExperimentMetricMathType | CalendarHeatmapMathType | 'unique_group' | 'hogql' | null;
+      math?: BaseMathType | FunnelMathType | PropertyMathType | CountPerActorMathType | GroupMathType | ExperimentMetricMathType | CalendarHeatmapMathType | 'hogql' | null;
       math_group_type_index?: MathGroupTypeIndex | null;
       math_hogql?: string | null;
       math_multiplier?: number | null;
@@ -7272,7 +7281,7 @@ export namespace Schemas {
       id: string;
       id_field: string;
       kind?: 'DataWarehouseNode';
-      math?: BaseMathType | FunnelMathType | PropertyMathType | CountPerActorMathType | ExperimentMetricMathType | CalendarHeatmapMathType | 'unique_group' | 'hogql' | null;
+      math?: BaseMathType | FunnelMathType | PropertyMathType | CountPerActorMathType | GroupMathType | ExperimentMetricMathType | CalendarHeatmapMathType | 'hogql' | null;
       math_group_type_index?: MathGroupTypeIndex | null;
       math_hogql?: string | null;
       math_multiplier?: number | null;
@@ -9468,6 +9477,8 @@ export namespace Schemas {
        * * `14` - 14 days
        * * `30` - 30 days */
       window_days?: WindowDaysEnum;
+      /** When true, each example line in the alert message includes the scanner's full reasoning for that observation, not just its verdict/score/tags. Useful when piping the message somewhere else to read or act on. Defaults to false. */
+      include_reasoning?: boolean;
     }
 
     export interface AlertSimulate {
@@ -16994,7 +17005,7 @@ export namespace Schemas {
       fixedProperties?: (EventPropertyFilter | PersonPropertyFilter | PersonMetadataPropertyFilter | ElementPropertyFilter | EventMetadataPropertyFilter | SessionPropertyFilter | CohortPropertyFilter | RecordingPropertyFilter | LogEntryPropertyFilter | GroupPropertyFilter | FeaturePropertyFilter | FlagPropertyFilter | HogQLPropertyFilter | EmptyPropertyFilter | DataWarehousePropertyFilter | DataWarehousePersonPropertyFilter | ErrorTrackingIssueFilter | LogPropertyFilter | MetricPropertyFilter | SpanPropertyFilter | RevenueAnalyticsPropertyFilter | AccountCustomPropertyFilter | WorkflowVariablePropertyFilter)[] | null;
       kind?: 'EventsNode' | null;
       limit?: number | null;
-      math?: BaseMathType | FunnelMathType | PropertyMathType | CountPerActorMathType | ExperimentMetricMathType | CalendarHeatmapMathType | 'unique_group' | 'hogql' | null;
+      math?: BaseMathType | FunnelMathType | PropertyMathType | CountPerActorMathType | GroupMathType | ExperimentMetricMathType | CalendarHeatmapMathType | 'hogql' | null;
       math_group_type_index?: MathGroupTypeIndex | null;
       math_hogql?: string | null;
       math_multiplier?: number | null;
@@ -17026,7 +17037,7 @@ export namespace Schemas {
       fixedProperties?: (EventPropertyFilter | PersonPropertyFilter | PersonMetadataPropertyFilter | ElementPropertyFilter | EventMetadataPropertyFilter | SessionPropertyFilter | CohortPropertyFilter | RecordingPropertyFilter | LogEntryPropertyFilter | GroupPropertyFilter | FeaturePropertyFilter | FlagPropertyFilter | HogQLPropertyFilter | EmptyPropertyFilter | DataWarehousePropertyFilter | DataWarehousePersonPropertyFilter | ErrorTrackingIssueFilter | LogPropertyFilter | MetricPropertyFilter | SpanPropertyFilter | RevenueAnalyticsPropertyFilter | AccountCustomPropertyFilter | WorkflowVariablePropertyFilter)[] | null;
       id?: number | null;
       kind?: 'ActionsNode' | null;
-      math?: BaseMathType | FunnelMathType | PropertyMathType | CountPerActorMathType | ExperimentMetricMathType | CalendarHeatmapMathType | 'unique_group' | 'hogql' | null;
+      math?: BaseMathType | FunnelMathType | PropertyMathType | CountPerActorMathType | GroupMathType | ExperimentMetricMathType | CalendarHeatmapMathType | 'hogql' | null;
       math_group_type_index?: MathGroupTypeIndex | null;
       math_hogql?: string | null;
       math_multiplier?: number | null;
@@ -17060,7 +17071,7 @@ export namespace Schemas {
       id?: string | null;
       id_field?: string | null;
       kind?: 'DataWarehouseNode' | null;
-      math?: BaseMathType | FunnelMathType | PropertyMathType | CountPerActorMathType | ExperimentMetricMathType | CalendarHeatmapMathType | 'unique_group' | 'hogql' | null;
+      math?: BaseMathType | FunnelMathType | PropertyMathType | CountPerActorMathType | GroupMathType | ExperimentMetricMathType | CalendarHeatmapMathType | 'hogql' | null;
       math_group_type_index?: MathGroupTypeIndex | null;
       math_hogql?: string | null;
       math_multiplier?: number | null;
@@ -21094,6 +21105,8 @@ export namespace Schemas {
      * * `ImpactPartner` - ImpactPartner
      * * `Cloudinary` - Cloudinary
      * * `Uploadcare` - Uploadcare
+     * * `WHMCS` - WHMCS
+     * * `MSG91` - MSG91
      */
     export type ExternalDataSourceTypeEnum = typeof ExternalDataSourceTypeEnum[keyof typeof ExternalDataSourceTypeEnum];
 
@@ -22386,6 +22399,8 @@ export namespace Schemas {
       ImpactPartner: 'ImpactPartner',
       Cloudinary: 'Cloudinary',
       Uploadcare: 'Uploadcare',
+      Whmcs: 'WHMCS',
+      Msg91: 'MSG91',
     } as const;
 
     /**
@@ -23691,7 +23706,9 @@ export namespace Schemas {
        * * `Motion` - Motion
        * * `ImpactPartner` - ImpactPartner
        * * `Cloudinary` - Cloudinary
-       * * `Uploadcare` - Uploadcare */
+       * * `Uploadcare` - Uploadcare
+       * * `WHMCS` - WHMCS
+       * * `MSG91` - MSG91 */
       source_type: ExternalDataSourceTypeEnum;
     }
 
@@ -25685,7 +25702,9 @@ export namespace Schemas {
        * * `Motion` - Motion
        * * `ImpactPartner` - ImpactPartner
        * * `Cloudinary` - Cloudinary
-       * * `Uploadcare` - Uploadcare */
+       * * `Uploadcare` - Uploadcare
+       * * `WHMCS` - WHMCS
+       * * `MSG91` - MSG91 */
       readonly source_type: ExternalDataSourceTypeEnum;
       /** Human-readable name to show in the picker (falls back to the source type). */
       readonly label: string;
@@ -33405,7 +33424,9 @@ export namespace Schemas {
        * * `Motion` - Motion
        * * `ImpactPartner` - ImpactPartner
        * * `Cloudinary` - Cloudinary
-       * * `Uploadcare` - Uploadcare */
+       * * `Uploadcare` - Uploadcare
+       * * `WHMCS` - WHMCS
+       * * `MSG91` - MSG91 */
       readonly source_type: ExternalDataSourceTypeEnum;
       /** 'direct' for pure live-query sources; 'warehouse' for synced sources with direct query enabled.
        *
@@ -34729,7 +34750,9 @@ export namespace Schemas {
        * * `Motion` - Motion
        * * `ImpactPartner` - ImpactPartner
        * * `Cloudinary` - Cloudinary
-       * * `Uploadcare` - Uploadcare */
+       * * `Uploadcare` - Uploadcare
+       * * `WHMCS` - WHMCS
+       * * `MSG91` - MSG91 */
       source_type: ExternalDataSourceTypeEnum;
       /** Connection credentials and a 'schemas' array. Keys depend on source_type. */
       payload: ExternalDataSourceCreatePayload;
@@ -37506,6 +37529,11 @@ export namespace Schemas {
     export interface HogFlowRevisionRestoreRequest {
       /** Replace the open staged draft with this revision's content. Without it, restoring while a draft is open returns 409. */
       overwrite?: boolean;
+      /**
+         * The draft_updated_at of the staged draft this overwrite was confirmed against. If a draft exists with a different stamp (it was staged or edited since the confirmation was shown), the restore returns 409 instead of overwriting it. Omit to overwrite unconditionally.
+         * @nullable
+         */
+      expected_draft_updated_at?: string | null;
     }
 
     /**
@@ -44838,7 +44866,7 @@ export namespace Schemas {
       custom_name?: string | null;
       id: number;
       kind: 'ActionsNode';
-      math?: BaseMathType | FunnelMathType | PropertyMathType | CountPerActorMathType | ExperimentMetricMathType | CalendarHeatmapMathType | 'unique_group' | 'hogql' | null;
+      math?: BaseMathType | FunnelMathType | PropertyMathType | CountPerActorMathType | GroupMathType | ExperimentMetricMathType | CalendarHeatmapMathType | 'hogql' | null;
       math_group_type_index?: MathGroupTypeIndex | null;
       math_hogql?: string | null;
       math_multiplier?: number | null;
@@ -44883,7 +44911,7 @@ export namespace Schemas {
       event?: string | null;
       kind: 'EventsNode';
       limit?: number | null;
-      math?: BaseMathType | FunnelMathType | PropertyMathType | CountPerActorMathType | ExperimentMetricMathType | CalendarHeatmapMathType | 'unique_group' | 'hogql' | null;
+      math?: BaseMathType | FunnelMathType | PropertyMathType | CountPerActorMathType | GroupMathType | ExperimentMetricMathType | CalendarHeatmapMathType | 'hogql' | null;
       math_group_type_index?: MathGroupTypeIndex | null;
       math_hogql?: string | null;
       math_multiplier?: number | null;
@@ -44921,7 +44949,7 @@ export namespace Schemas {
       id: string;
       id_field: string;
       kind: 'DataWarehouseNode';
-      math?: BaseMathType | FunnelMathType | PropertyMathType | CountPerActorMathType | ExperimentMetricMathType | CalendarHeatmapMathType | 'unique_group' | 'hogql' | null;
+      math?: BaseMathType | FunnelMathType | PropertyMathType | CountPerActorMathType | GroupMathType | ExperimentMetricMathType | CalendarHeatmapMathType | 'hogql' | null;
       math_group_type_index?: MathGroupTypeIndex | null;
       math_hogql?: string | null;
       math_multiplier?: number | null;
@@ -71411,7 +71439,9 @@ export namespace Schemas {
        * * `Motion` - Motion
        * * `ImpactPartner` - ImpactPartner
        * * `Cloudinary` - Cloudinary
-       * * `Uploadcare` - Uploadcare */
+       * * `Uploadcare` - Uploadcare
+       * * `WHMCS` - WHMCS
+       * * `MSG91` - MSG91 */
       source_type: ExternalDataSourceTypeEnum;
       /** Connection details as flat keys for the source_type — the same fields the create flow accepts (host, port, password, API key, …). Checked against a live connection before being stored. */
       payload: SourceCredentialCreatePayload;
@@ -72745,7 +72775,9 @@ export namespace Schemas {
        * * `Motion` - Motion
        * * `ImpactPartner` - ImpactPartner
        * * `Cloudinary` - Cloudinary
-       * * `Uploadcare` - Uploadcare */
+       * * `Uploadcare` - Uploadcare
+       * * `WHMCS` - WHMCS
+       * * `MSG91` - MSG91 */
       source_type: ExternalDataSourceTypeEnum;
       /** Source config as flat keys. For source_type 'Custom': 'manifest_json' (a stringified RESTAPIConfig describing client.base_url, auth, and resources) plus the credential for the manifest's declared auth type — 'auth_token' (bearer), 'auth_api_key' (api_key), or 'auth_password' (http_basic). Secrets stay in these auth_* keys, never inline in the manifest. */
       payload?: SourcePreviewRequestPayload;
@@ -74069,7 +74101,9 @@ export namespace Schemas {
        * * `Motion` - Motion
        * * `ImpactPartner` - ImpactPartner
        * * `Cloudinary` - Cloudinary
-       * * `Uploadcare` - Uploadcare */
+       * * `Uploadcare` - Uploadcare
+       * * `WHMCS` - WHMCS
+       * * `MSG91` - MSG91 */
       source_type: ExternalDataSourceTypeEnum;
       /** Connection details as flat keys for the source_type (discover required fields with the wizard tool). Prefer references over raw secrets: pass {'credential_id': <id>} referencing the connection details the user stored via the connect-link page (discover ids with the stored_credentials endpoint) — they are merged in server-side and deleted once consumed. An already-connected OAuth integration can be passed via its id key instead (e.g. {'hubspot_integration_id': 123}). For source_type 'Custom' (a user-defined REST API) the keys are 'manifest_json' (a stringified RESTAPIConfig describing client.base_url, auth, and resources) plus the credential for the auth type the manifest declares — 'auth_token' (bearer), 'auth_api_key' (api_key), or 'auth_password' (http_basic); keep secrets in these auth_* keys, never inline in the manifest. A 'schemas' array is NOT required — all discovered tables are enabled automatically with sensible sync defaults. */
       payload?: SourceSetupPayload;
