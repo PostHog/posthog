@@ -741,6 +741,9 @@ class TestAnalyticsReportStreams:
             ("analytics_app_store_preorders", "App Store Pre-Orders Standard"),
             # Case and hyphen differences must resolve too, not just exact tuple members.
             ("analytics_app_store_preorders", "App Store Pre-orders Standard"),
+            # Apple's docs punctuate with a non-breaking hyphen; replacing only the ASCII one
+            # left this resolving nothing, which is the same silent empty table by another route.
+            ("analytics_app_store_preorders", "App Store Pre‑Orders Standard"),
         ]
     )
     def test_apple_real_report_names_resolve(self, endpoint: str, apple_name: str) -> None:

@@ -665,11 +665,13 @@ def _ensure_report_request(
 
 
 def _normalize_report_name(name: str) -> str:
-    # Match Apple's report names loosely: it varies the casing and hyphenation of a report
-    # between docs and the live API (e.g. "Pre-Orders" vs "Pre-orders"), and an exact test
-    # silently resolves nothing when only that differs. Word differences (singular vs plural,
-    # extra words) still need an explicit fallback in analytics_report_names.
-    return re.sub(r"\s+", " ", name.replace("-", " ")).strip().casefold()
+    # Match Apple's report names loosely: it varies the casing, hyphenation and punctuation of a
+    # report between docs and the live API (e.g. "Pre-Orders" vs "Pre-orders"), and an exact test
+    # silently resolves nothing when only that differs. Every run of non-alphanumerics collapses
+    # to one space, so an ASCII hyphen, a typographic dash and a stray comma all compare equal.
+    # Word differences (singular vs plural, extra words) still need an explicit fallback in
+    # analytics_report_names.
+    return re.sub(r"[\W_]+", " ", name.casefold()).strip()
 
 
 def _find_analytics_report(
