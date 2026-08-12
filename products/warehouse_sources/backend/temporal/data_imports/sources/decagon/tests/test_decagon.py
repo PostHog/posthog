@@ -611,6 +611,27 @@ class TestTags:
 
 
 class TestAdminLogs:
+    @parameterized.expand(
+        [
+            ("full_refresh", {}),
+            (
+                "first_incremental_run_without_watermark",
+                {"should_use_incremental_field": True, "incremental_field": "created_at"},
+            ),
+        ]
+    )
+    def test_walk_without_a_watermark_still_sends_the_required_start_bound(
+        self, _name: str, incremental_kwargs: dict[str, Any]
+    ) -> None:
+        # /admin_log/get 400s ("At least one of start or end dates is required") on a bare
+        # request, so a full refresh or an incremental sync's first run must not omit it.
+        manager = _fresh_manager()
+        responses = [_make_response({"admin_logs": [{"id": "a1"}], "total": 1})]
+        sent_params, batches = _drive_rows(manager, responses, endpoint="admin_logs", **incremental_kwargs)
+
+        assert sent_params == [{"offset": "0", "limit": "100", "start": "1970-01-01T00:00:00+00:00"}]
+        assert [len(b) for b in batches] == [1]
+
     def test_incremental_walk_sends_iso_start_and_pages_on_offset(self) -> None:
         # `start` takes a different value format from the exports' epoch min_timestamp;
         # sending an epoch here is the cross-endpoint confusion the spec warns about.
