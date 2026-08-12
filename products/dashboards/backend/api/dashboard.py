@@ -184,15 +184,28 @@ def dashboard_file_system_entries(team_id: Any, ref: Any) -> QuerySet[FileSystem
     )
 
 
-def set_file_system_entry(dashboard: Dashboard) -> None:
+def read_file_system_entry(dashboard: Dashboard) -> None:
     """
-    Mutation responses have to read the entry back, because the list annotation is evaluated before
-    `FileSystemSyncMixin`'s post-save signal runs: a create carries no annotation at all, and a rename leaves
-    the pre-rename path, which a later move would re-file the entry under.
+    Reads the entry onto the attributes `dangerously_get_queryset` normally annotates. Callers that hand the
+    serializer a dashboard the annotation never touched, or one whose annotation the save has since
+    invalidated, need this: a response claiming no entry disables the list's move action, and one carrying a
+    pre-rename path makes the next move re-file the row under the old name.
     """
     entry = dashboard_file_system_entries(dashboard.team_id, str(dashboard.id)).values("id", "path").first()
     dashboard._folder_id = entry["id"] if entry else None  # type: ignore[attr-defined]
     dashboard._folder_path = entry["path"] if entry else None  # type: ignore[attr-defined]
+
+
+def ensure_file_system_entry(dashboard: Dashboard) -> None:
+    """
+    Fills the annotation in for a dashboard that did not come from `dangerously_get_queryset`, which several
+    endpoints serialize directly (`create_from_template_json`, `create_unlisted_dashboard`, the tile move and
+    copy responses). Missing is distinguishable from empty: the annotation sets the attributes to None for a
+    dashboard with no entry, so an annotated instance never reaches the query below. Every such response
+    serializes a single dashboard, so this costs at most one query and never fans out over a list.
+    """
+    if not hasattr(dashboard, "_folder_path"):
+        read_file_system_entry(dashboard)
 
 
 DASHBOARD_SHARED_FIELDS = [
@@ -1121,11 +1134,9 @@ class DashboardBasicSerializer(
 
     @extend_schema_field(serializers.CharField(allow_null=True))
     def get_folder(self, dashboard: Dashboard) -> str | None:
-        # Don't expose the project-tree location to anonymous viewers of a publicly shared dashboard —
-        # the folder name can encode internal organisational structure.
         if self.context.get("is_shared"):
             return None
-        # `_folder_path` is annotated on DashboardsViewSet.dangerously_get_queryset (all actions).
+        ensure_file_system_entry(dashboard)
         # The file system path's last segment is the dashboard's own name; the folder is everything above it.
         path = getattr(dashboard, "_folder_path", None)
         if not path:
@@ -1134,11 +1145,19 @@ class DashboardBasicSerializer(
 
     @extend_schema_field(serializers.UUIDField(allow_null=True))
     def get_file_system_id(self, dashboard: Dashboard) -> str | None:
+        if self.context.get("is_shared"):
+            return None
+        ensure_file_system_entry(dashboard)
         entry_id = getattr(dashboard, "_folder_id", None)
         return str(entry_id) if entry_id else None
 
     @extend_schema_field(serializers.CharField(allow_null=True))
     def get_file_system_path(self, dashboard: Dashboard) -> str | None:
+        # The path carries every folder above the dashboard, so it withholds for the same reason `folder`
+        # does: an anonymous viewer of a public dashboard must not learn the internal folder structure.
+        if self.context.get("is_shared"):
+            return None
+        ensure_file_system_entry(dashboard)
         return getattr(dashboard, "_folder_path", None)
 
 
@@ -1540,7 +1559,6 @@ class DashboardSerializer(DashboardMetadataSerializer):
             request=request,
         )
 
-        set_file_system_entry(dashboard)
         return dashboard
 
     def _deep_duplicate_tiles(
@@ -1775,7 +1793,9 @@ class DashboardSerializer(DashboardMetadataSerializer):
                 )
 
         self.user_permissions.reset_insights_dashboard_cached_results()
-        set_file_system_entry(instance)
+        # A rename re-paths the entry in a post-save signal, so the annotation bound before the save is stale.
+        # Unlike a create, the attribute is present, so `ensure_file_system_entry` would leave it alone.
+        read_file_system_entry(instance)
         return instance
 
     # Display-only tile fields that may appear in PATCH payloads. Safe to pass to

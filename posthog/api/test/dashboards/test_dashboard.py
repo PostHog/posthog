@@ -513,6 +513,21 @@ class TestDashboard(APIBaseTest, QueryMatchingTest):
         assert updated["file_system_id"] == str(entry.id)
         assert updated["file_system_path"] == entry.path
 
+    def test_creating_a_dashboard_from_a_template_returns_its_file_system_entry(self):
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/dashboards/create_from_template_json",
+            {"template": valid_template, "_create_in_folder": "Unfiled/Dashboards"},
+        )
+        assert response.status_code == 200, response.content
+
+        created = response.json()
+        entry = FileSystem.objects.get(team=self.team, type="dashboard", ref=str(created["id"]), shortcut=False)
+        # This endpoint serializes a dashboard the list annotation never touched, and the list stores the
+        # response as-is, so without the entry the new row offers no way to file it until a reload.
+        assert created["file_system_id"] == str(entry.id)
+        assert created["file_system_path"] == entry.path
+        assert created["folder"] == "Unfiled/Dashboards"
+
     def test_creating_a_dashboard_returns_its_file_system_entry(self):
         dashboard_id, created = self.dashboard_api.create_dashboard(
             {"name": "Fresh dashboard", "_create_in_folder": "Marketing/Website"}
@@ -734,6 +749,23 @@ class TestDashboard(APIBaseTest, QueryMatchingTest):
 
         response = self.client.get("/shared_dashboard/testtoken")
         self.assertEqual(response.status_code, status.HTTP_200_OK)
+
+    def test_shared_dashboard_does_not_expose_where_it_is_filed(self):
+        dashboard_id, _ = self.dashboard_api.create_dashboard(
+            {"name": "public dashboard", "_create_in_folder": "Acquisitions/Project Falcon"}
+        )
+        dashboard = Dashboard.objects.get(id=dashboard_id)
+        SharingConfiguration.objects.create(team=self.team, dashboard=dashboard, access_token="testtoken", enabled=True)
+        self.client.logout()
+
+        response = self.client.get("/shared_dashboard/testtoken")
+        assert response.status_code == status.HTTP_200_OK
+
+        # The share page serializes the dashboard straight off the sharing configuration, so the fields fall
+        # back to reading the entry. Every one of them names a folder an anonymous viewer must not see.
+        payload = response.content.decode()
+        assert "Project Falcon" not in payload
+        assert "Acquisitions" not in payload
 
     def test_return_cached_results_bleh(self):
         dashboard = Dashboard.objects.create(team=self.team, name="dashboard")
