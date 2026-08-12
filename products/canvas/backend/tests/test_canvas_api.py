@@ -1,6 +1,6 @@
 from datetime import timedelta
 from typing import Any, cast
-from uuid import uuid4
+from uuid import UUID, uuid4
 
 from posthog.test.base import APIBaseTest
 from unittest.mock import patch
@@ -13,6 +13,7 @@ from rest_framework.test import APIClient
 from posthog.models.activity_logging.activity_log import ActivityLog
 from posthog.models.oauth import OAuthAccessToken, OAuthApplication
 from posthog.models.scoping import team_scope
+from posthog.models.user import User
 from posthog.temporal.oauth import ARRAY_APP_CLIENT_ID_DEV
 
 from products.canvas.backend import activity_visibility, build_service
@@ -79,7 +80,8 @@ class CanvasAPIBaseTest(APIBaseTest):
         assert entry.detail is not None
         return entry.detail["changes"]
 
-    def _sandbox_client(self, task_id) -> APIClient:
+    def _sandbox_client(self, task_id: UUID, *, user: User | None = None) -> APIClient:
+        actor = user or self.user
         application = OAuthApplication.objects.create(
             name="Canvas sandbox",
             client_id=ARRAY_APP_CLIENT_ID_DEV,
@@ -88,10 +90,10 @@ class CanvasAPIBaseTest(APIBaseTest):
             algorithm="RS256",
             redirect_uris="https://example.com/callback",
             organization=self.organization,
-            user=self.user,
+            user=actor,
         )
         access_token = OAuthAccessToken.objects.create(
-            user=self.user,
+            user=actor,
             application=application,
             token=f"pha_canvas_{uuid4().hex}",
             expires=timezone.now() + timedelta(hours=1),
@@ -281,6 +283,57 @@ class TestCanvasCrud(CanvasAPIBaseTest):
         assert update.status_code == status.HTTP_200_OK
         assert update.json()["name"] == "Updated by later task"
         assert linked_update.status_code == status.HTTP_404_NOT_FOUND
+
+    def test_rebound_sandbox_does_not_inherit_task_creator_canvas_access(self) -> None:
+        actor = self._create_user("rebound-sandbox-actor@example.com")
+        with team_scope(self.team.id):
+            personal_channel = Channel.objects.create(
+                team=self.team,
+                name=Channel.PERSONAL_CHANNEL_NAME,
+                channel_type=Channel.ChannelType.PERSONAL,
+                created_by=self.user,
+            )
+        bound_task = Task.objects.create(
+            team=self.team,
+            channel=self.channel,
+            created_by=self.user,
+            title="Bound",
+            description="d",
+            origin_product=Task.OriginProduct.USER_CREATED,
+        )
+        creator_public_canvas = Canvas.objects.unscoped().create(
+            team=self.team,
+            channel=self.channel,
+            name="Creator public canvas",
+            created_by=self.user,
+        )
+        creator_personal_canvas = Canvas.objects.unscoped().create(
+            team=self.team,
+            channel=personal_channel,
+            name="Creator personal canvas",
+            created_by=self.user,
+        )
+        client = self._sandbox_client(bound_task.id, user=actor)
+        headers = {"HTTP_X_POSTHOG_TASK_ID": str(bound_task.id)}
+
+        public_read = client.get(
+            f"/api/projects/{self.team.id}/canvases/{creator_public_canvas.id}/",
+            **headers,
+        )
+        public_write = client.patch(
+            f"/api/projects/{self.team.id}/canvases/{creator_public_canvas.id}/",
+            {"name": "Not allowed"},
+            format="json",
+            **headers,
+        )
+        personal_read = client.get(
+            f"/api/projects/{self.team.id}/canvases/{creator_personal_canvas.id}/",
+            **headers,
+        )
+
+        assert public_read.status_code == status.HTTP_200_OK
+        assert public_write.status_code == status.HTTP_404_NOT_FOUND
+        assert personal_read.status_code == status.HTTP_404_NOT_FOUND
 
     def test_task_bound_sandbox_can_read_but_not_write_another_creators_public_canvas(self):
         other_user = self._create_user("other-canvas-creator@example.com")

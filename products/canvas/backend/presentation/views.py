@@ -147,7 +147,7 @@ class CanvasViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
                 return queryset.none()
             task_creator_id = tasks_facade.task_creator_id(sandbox_task_id, self.team_id)
             public_canvas_q = tasks_facade.visible_channels_q(None, relation="channel")
-            if task_creator_id is None:
+            if user is None or user.id != task_creator_id:
                 queryset = (
                     queryset.filter(public_canvas_q)
                     if self.action in self.scope_object_read_actions
