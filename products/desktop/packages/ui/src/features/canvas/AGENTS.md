@@ -89,6 +89,28 @@ The root `AGENTS.md` architecture rules still apply.
   whole list and passed through `SpaceTaskActionsProvider`, which keeps one pin
   and one archive mutation for the tree instead of one per row and keeps them
   out of the memo comparisons.
+- **There is one card, not one per row.** `ChannelItemPreviewCardProvider`,
+  mounted once around the whole sidebar, owns the popup; a row is only a
+  `PreviewCard.Trigger` on its handle, carrying what the card should say as the
+  trigger's payload.
+  So the card's queries and derivations run for the row being pointed at rather
+  than once per row in the list, and Base UI skips the open delay when the
+  pointer crosses to another trigger of a card that is already open — which is
+  the point: sliding down the list moves one card instead of re-waiting 400ms
+  on every row.
+  Two things keep that working: a row's payload has to stay referentially stable
+  (memoize the `menu`), and a surface that lists rows has to sit under the
+  provider, or its rows get no card at all.
+- **The card names the row's marks rather than inventing a second scale.**
+  It spells out the dot's own label and the badges' (`taskDot`, `taskBadges`),
+  and shows the last thing the agent said.
+  It used to show the run's raw status ("Ready", "In progress"), a vocabulary
+  the rows dropped when the dot took over, which left a quiet row sitting under
+  a green "Ready".
+  The message comes from `useLatestTurnMessage`: the live session's events where
+  this window has the session, otherwise the closing prose a cloud run persists
+  to `latest_run.output.final_message`.
+  Neither costs a request.
 - **A row's own colour utilities outrank quill's highlight styling.** quill
   brings a highlighted option's contents to `--foreground` with
   `.quill-autocomplete__item[data-highlighted] *`, but that rule lives in the

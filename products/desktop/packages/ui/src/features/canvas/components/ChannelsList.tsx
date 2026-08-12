@@ -453,17 +453,23 @@ const SpaceTaskRow = memo(function SpaceTaskRow({
   // The tree only lists sessions, so this is always the task menu. Rename is
   // the one item the space's own list has and this doesn't, because it edits in
   // place and there is no inline editor on a row the keyboard is walking.
-  const menu: TaskRowMenuProps = {
-    kind: "task",
-    id: item.id,
-    title: item.title,
-    isPinned: item.pinned,
-    // Ticks the space the session is already in, inside "File to…".
-    channelId: spaceId,
-    onAddToCommandCenter: actions.commandCenterAssigner(item.id),
-    onTogglePin: () => actions.togglePin(item),
-    onArchive: () => actions.archive(item),
-  };
+  //
+  // Memoized because it travels to the shared preview card as the trigger's
+  // payload, which is written to the card's store whenever its identity changes.
+  const menu: TaskRowMenuProps = useMemo(
+    () => ({
+      kind: "task",
+      id: item.id,
+      title: item.title,
+      isPinned: item.pinned,
+      // Ticks the space the session is already in, inside "File to…".
+      channelId: spaceId,
+      onAddToCommandCenter: actions.commandCenterAssigner(item.id),
+      onTogglePin: () => actions.togglePin(item),
+      onArchive: () => actions.archive(item),
+    }),
+    [item, spaceId, actions],
+  );
 
   const row = (
     <SpaceRowSurface
