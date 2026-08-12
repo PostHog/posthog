@@ -5182,8 +5182,11 @@ def _activate_warm_run(
         activation_state_updates["auto_publish"] = auto_publish
     if reasoning_effort is not None:
         activation_state_updates["reasoning_effort"] = reasoning_effort
-    if activation_state_updates:
-        TaskRun.update_state_atomic(run.id, updates=activation_state_updates)
+    TaskRun.update_state_atomic(
+        run.id,
+        updates=activation_state_updates,
+        remove_keys=["reasoning_effort"] if reasoning_effort is None else None,
+    )
     signal_task_run_user_message(run.id, task.id, team_id, content=message, artifact_ids=artifact_ids)
     TaskRun.update_state_atomic(run.id, remove_keys=["await_user_message"])
     # Only count activations of Runs that actually carry the prewarmed marker, so the activation

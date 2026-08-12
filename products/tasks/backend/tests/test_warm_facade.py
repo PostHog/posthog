@@ -438,6 +438,23 @@ class TestCreateTaskWarmReuse(APIBaseTest):
         _, kwargs = mock_signal.call_args
         assert kwargs["artifact_ids"] == ["artifact-1"]
 
+    def test_reuses_warm_task_without_reasoning_effort_and_clears_prewarm_value(self):
+        warm_task, run = self._warm_run(
+            extra_state={
+                "runtime_adapter": "codex",
+                "model": "gpt-5.6-sol",
+                "reasoning_effort": "high",
+            }
+        )
+
+        with patch(f"{FACADE}.signal_task_run_user_message", return_value=True):
+            dto = self._create(runtime_adapter="codex", model="gpt-5.6-sol")
+
+        assert str(dto.id) == str(warm_task.id)
+        run.refresh_from_db()
+        assert "reasoning_effort" not in run.state
+        assert "await_user_message" not in run.state
+
     def test_reuses_matching_multi_repository_warm_task(self):
         repositories = ["posthog/posthog", "posthog/posthog-js"]
         warm_task, run = self._warm_run(repositories=repositories)
