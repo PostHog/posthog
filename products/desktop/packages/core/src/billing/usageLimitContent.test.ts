@@ -14,6 +14,17 @@ describe("usageLimitContent", () => {
     expect(content.actionLabel).toBe("Add payment method");
   });
 
+  it("directs members to an administrator for a restricted model", () => {
+    const content = usageLimitContent({
+      cause: "model_gate",
+      resetLabel: null,
+      subscribed: false,
+      canManageBilling: false,
+    });
+    expect(content.description).toContain("organization administrator");
+    expect(content.actionLabel).toBeNull();
+  });
+
   it.each([
     // Confirmed-free org: allocation used up, the fix is adding a card.
     [false, "Free usage used up", "Add payment method"],

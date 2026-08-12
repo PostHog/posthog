@@ -50,6 +50,7 @@ TRIGGER_CONTEXT_MAX_BYTES = 64 * 1024
 DISABLED_REASON_USAGE_LIMITED = "usage_limited"
 DISABLED_REASON_REPEATED_FAILURES = "repeated_failures"
 COMPUTE_BILLING_LIMIT_ERROR_TYPE = "ComputeBillingLimitError"
+LOOP_TERMINAL_BOOKKEEPING_STATE_KEY = "loop_terminal_bookkeeping_complete"
 
 _NON_TERMINAL_TASK_RUN_STATUSES = (TaskRun.Status.NOT_STARTED, TaskRun.Status.QUEUED, TaskRun.Status.IN_PROGRESS)
 _TERMINAL_TASK_RUN_STATUSES = (TaskRun.Status.COMPLETED, TaskRun.Status.FAILED, TaskRun.Status.CANCELLED)
@@ -858,18 +859,23 @@ def handle_loop_run_terminal(task_run: TaskRun, *, error_type: str | None = None
     auto-pausing the loop (and its schedules) at `LOOP_AUTO_PAUSE_THRESHOLD`. No-op
     for runs that aren't loop-spawned or aren't yet terminal.
     """
-    state = task_run.state if isinstance(task_run.state, dict) else {}
-    loop_id = state.get("loop_id")
-    if not loop_id:
-        return
-    if task_run.status not in _TERMINAL_TASK_RUN_STATUSES:
-        return
-
-    is_success = task_run.status == TaskRun.Status.COMPLETED
-    is_billing_denial = error_type == COMPUTE_BILLING_LIMIT_ERROR_TYPE
     should_pause = False
 
     with transaction.atomic():
+        locked_task_run = TaskRun.objects.select_for_update().filter(id=task_run.id).first()
+        if locked_task_run is None or locked_task_run.status not in _TERMINAL_TASK_RUN_STATUSES:
+            return
+        state = locked_task_run.state if isinstance(locked_task_run.state, dict) else {}
+        if state.get(LOOP_TERMINAL_BOOKKEEPING_STATE_KEY):
+            return
+        loop_id = state.get("loop_id")
+        if not loop_id:
+            return
+
+        task_run = locked_task_run
+        is_success = task_run.status == TaskRun.Status.COMPLETED
+        is_billing_denial = error_type == COMPUTE_BILLING_LIMIT_ERROR_TYPE
+
         # Scope the loop to the run's own team. `loop_id` lives in run state, which is
         # writable through the run-update endpoint; without this a caller in team B could
         # set their run's state loop_id to a team A loop and steer its bookkeeping,
@@ -902,6 +908,8 @@ def handle_loop_run_terminal(task_run: TaskRun, *, error_type: str | None = None
             update_fields.extend(["enabled", "disabled_reason"])
             should_pause = True
         loop.save(update_fields=update_fields)
+        task_run.state = {**state, LOOP_TERMINAL_BOOKKEEPING_STATE_KEY: True}
+        task_run.save(update_fields=["state", "updated_at"])
 
     if should_pause:
         pause_loop_schedules(loop)

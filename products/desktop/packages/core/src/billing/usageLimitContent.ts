@@ -16,6 +16,15 @@ export function usageLimitContent(args: {
   const { cause, resetLabel, subscribed, canManageBilling } = args;
 
   if (cause === "model_gate") {
+    if (!canManageBilling) {
+      return {
+        title: "This model isn't included",
+        description:
+          "Contact an organization administrator to add a payment method, or switch to an included model.",
+        actionLabel: null,
+        dismissLabel: "Got it",
+      };
+    }
     return {
       title: "Unlock premium models",
       description:
