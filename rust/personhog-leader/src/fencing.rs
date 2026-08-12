@@ -13,10 +13,14 @@
 //! transaction each. A transactional producer admits one open
 //! transaction at a time, so per-write transactions would serialize a
 //! partition's writes on the commit round trip. A window opens on the
-//! first write, admits concurrent writes for a short interval (their
-//! records ride librdkafka's normal batching), then commits once and
-//! resolves every waiter. Under light load a window holds one write and
-//! costs one commit; under load the commit amortizes across the window.
+//! first write, admits concurrent writes (their records ride
+//! librdkafka's normal batching), then commits once and resolves every
+//! waiter. The window closes on whichever comes first: its timer, which
+//! bounds ack latency at light load, or its fill threshold, so a
+//! backlog commits at once instead of idling out the timer. Under light
+//! load a window holds one write and costs one commit; under load the
+//! commit amortizes across the window and a drain cycle is bounded by
+//! the commit round trip rather than the window.
 //!
 //! The price of sharing a transaction is shared failure: an aborted
 //! window fails all of its writes together. Readers never observe
@@ -125,6 +129,28 @@ struct Gate {
     committing: bool,
     /// Commit-outcome subscribers for the open window.
     waiters: Vec<oneshot::Sender<Result<(), FencedProduceError>>>,
+    /// Writes admitted to the open window. Counted against the fill
+    /// threshold; unlike `in_flight` it never decrements, so a window
+    /// whose early writes settle quickly still fills.
+    joined: usize,
+    /// Fires the open window's fill close. Armed at open, consumed by
+    /// the seat that reaches the threshold, cleared when the window
+    /// closes.
+    fill_tx: Option<oneshot::Sender<()>>,
+}
+
+impl Gate {
+    /// Count a seat toward the fill threshold, closing the window early
+    /// when it is reached. A close trigger, not a hard cap: seats taken
+    /// while the close propagates still ride the window.
+    fn admit(&mut self, fill_threshold: usize) {
+        self.joined += 1;
+        if self.joined >= fill_threshold {
+            if let Some(tx) = self.fill_tx.take() {
+                let _ = tx.send(());
+            }
+        }
+    }
 }
 
 /// Initialize a connected producer on the blocking pool, claiming the
@@ -324,6 +350,9 @@ impl CommittingMark {
             let mut gate = fence.gate.lock().unwrap();
             gate.open = false;
             gate.committing = true;
+            // The window is closed; an unfired fill sender is stale and
+            // must not linger into the next window's gate state.
+            gate.fill_tx = None;
         }
         Self { fence, partition }
     }
@@ -438,8 +467,13 @@ pub struct FencedChangelogProducers {
     /// abandoning it; distinct from `commit_timeout`, which bounds only
     /// this process's wait on the commit call.
     broker_txn_timeout: Duration,
-    /// How long an open window admits joiners before committing.
+    /// How long an open window admits joiners before committing, when
+    /// it does not fill first.
     window: Duration,
+    /// Fill threshold: joiners that close the window early. Bounds a
+    /// backlog's drain cycle by the commit round trip instead of the
+    /// window.
+    window_max_writes: usize,
     /// Ceiling on the drain's wait for an open window to commit. Set
     /// well under the pre-revoke self-fence's allowance for a whole
     /// drain, so a shutdown with an open window does not truncate here
@@ -480,6 +514,7 @@ pub struct FencedProducerConfig {
     pub commit_timeout: Duration,
     pub broker_txn_timeout: Duration,
     pub window: Duration,
+    pub window_max_writes: usize,
     pub settle_budget: Duration,
 }
 
@@ -492,6 +527,7 @@ impl FencedChangelogProducers {
             commit_timeout,
             broker_txn_timeout,
             window,
+            window_max_writes,
             settle_budget,
         } = config;
         Self {
@@ -501,6 +537,7 @@ impl FencedChangelogProducers {
             commit_timeout,
             broker_txn_timeout,
             window,
+            window_max_writes,
             settle_budget,
             partitions: DashMap::new(),
             repair_nudge: None,
@@ -578,6 +615,8 @@ impl FencedChangelogProducers {
             gate: Mutex::new(Gate {
                 open: false,
                 in_flight: 0,
+                joined: 0,
+                fill_tx: None,
                 poisoned: false,
                 committing: false,
                 waiters: Vec::new(),
@@ -955,17 +994,22 @@ impl FencedChangelogProducers {
                 let mut gate = fence.gate.lock().unwrap();
                 if gate.open {
                     gate.in_flight += 1;
-                    break false;
+                    gate.admit(self.window_max_writes);
+                    break None;
                 }
                 if !gate.committing && gate.in_flight == 0 && gate.waiters.is_empty() {
                     // Idle: open a new window. BeginTxn is a local
                     // librdkafka state transition, safe inline.
                     match fence.producer.inner().begin_transaction() {
                         Ok(()) => {
+                            let (fill_tx, fill_rx) = oneshot::channel();
                             gate.open = true;
                             gate.in_flight = 1;
+                            gate.joined = 0;
                             gate.poisoned = false;
-                            break true;
+                            gate.fill_tx = Some(fill_tx);
+                            gate.admit(self.window_max_writes);
+                            break Some(fill_rx);
                         }
                         Err(e) => Some(e),
                     }
@@ -989,13 +1033,13 @@ impl FencedChangelogProducers {
         histogram!("personhog_leader_fence_window_wait_ms", "partition" => partition.to_string())
             .record(join_start.elapsed().as_secs_f64() * 1000.0);
 
-        if opened {
+        if let Some(fill) = opened {
             let fence_for_commit = Arc::clone(&fence);
             let window = self.window;
             let topic = self.topic.clone();
             let part = partition;
             tokio::spawn(async move {
-                commit_window_after(fence_for_commit, window, topic, part).await;
+                commit_window_after(fence_for_commit, window, fill, topic, part).await;
             });
         }
 
@@ -1309,10 +1353,24 @@ fn abort_window<C: ClientContext>(
 async fn commit_window_after(
     fence: Arc<PartitionFence>,
     window: Duration,
+    fill: oneshot::Receiver<()>,
     topic: String,
     partition: u32,
 ) {
-    sleep(window).await;
+    // The fill branch also covers the sender dropping unfired, which
+    // cannot happen while this window is open: the sender lives in the
+    // gate of a fence this task holds, and nothing replaces it until
+    // the CommittingMark below has been dropped.
+    tokio::select! {
+        _ = sleep(window) => {
+            counter!("personhog_leader_fence_window_closed_total", "reason" => "timer")
+                .increment(1);
+        }
+        _ = fill => {
+            counter!("personhog_leader_fence_window_closed_total", "reason" => "filled")
+                .increment(1);
+        }
+    }
 
     // Stop admitting joiners, then wait for outstanding sends. The mark
     // holds until this function returns — by any path — so no writer can
@@ -1528,6 +1586,9 @@ pub fn preregister_fencing_metrics(partitions: u32) {
         counter!("personhog_leader_fence_settle_total", "outcome" => outcome).increment(0);
     }
     counter!("personhog_leader_fence_slots_abandoned_total").increment(0);
+    for reason in ["timer", "filled"] {
+        counter!("personhog_leader_fence_window_closed_total", "reason" => reason).increment(0);
+    }
     counter!("personhog_leader_fence_abandoned_total").increment(0);
     counter!("personhog_leader_fence_abort_failed_total").increment(0);
     for outcome in ["ok", "error", "duplicate", "swept", "init_failed"] {
