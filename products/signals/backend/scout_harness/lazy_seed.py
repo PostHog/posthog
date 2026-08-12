@@ -163,11 +163,6 @@ def _parse_config_tags(frontmatter: dict, skill_file: Path, *, is_scout: bool) -
     raw_tags = frontmatter["scout-tags"]
     if not isinstance(raw_tags, list) or not all(isinstance(t, str) for t in raw_tags):
         raise CanonicalSkillParseError(f"SKILL.md frontmatter 'scout-tags' must be a list of strings: {skill_file}")
-    if len(raw_tags) > SignalScoutConfig.MAX_TAGS:
-        raise CanonicalSkillParseError(
-            f"SKILL.md frontmatter 'scout-tags' has {len(raw_tags)} tags, over the "
-            f"{SignalScoutConfig.MAX_TAGS} limit: {skill_file}"
-        )
     tags: set[str] = set()
     for raw in raw_tags:
         tag = slugify_tag(raw)
@@ -181,6 +176,13 @@ def _parse_config_tags(frontmatter: dict, skill_file: Path, *, is_scout: bool) -
                 f"{SignalScoutConfig.MAX_TAG_LENGTH} limit: {skill_file}"
             )
         tags.add(tag)
+    # Counted after normalization, like the length cap above is measured on the slug: the cap is
+    # about what lands on the config, so spellings that collapse to one tag cost one tag.
+    if len(tags) > SignalScoutConfig.MAX_TAGS:
+        raise CanonicalSkillParseError(
+            f"SKILL.md frontmatter 'scout-tags' has {len(tags)} tags once normalized, over the "
+            f"{SignalScoutConfig.MAX_TAGS} limit: {skill_file}"
+        )
     return tuple(sorted(tags))
 
 
