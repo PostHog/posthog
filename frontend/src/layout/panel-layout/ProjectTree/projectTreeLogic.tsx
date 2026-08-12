@@ -215,6 +215,15 @@ export interface projectTreeLogicActions {
         newPath: string
         projectTreeLogicKey: string
     } // projectTreeDataLogic
+    moveItems: (
+        moves: { item: FileSystemEntry; newPath: string }[],
+        force: boolean,
+        projectTreeLogicKey: string
+    ) => {
+        force: boolean
+        moves: { item: FileSystemEntry; newPath: string }[]
+        projectTreeLogicKey: string
+    } // projectTreeDataLogic
     movedItem: (
         item: FileSystemEntry,
         oldPath: string,
@@ -532,6 +541,7 @@ export const projectTreeLogic = kea<projectTreeLogicType>([
                 'queueAction',
                 'deleteItem',
                 'moveItem',
+                'moveItems',
                 'linkItem',
                 'pruneClosedFolders',
             ],
@@ -1361,9 +1371,9 @@ export const projectTreeLogic = kea<projectTreeLogicType>([
         moveCheckedItems: ({ path }) => {
             const { checkedItems } = values
             let skipInFolder: string | null = null
-            // Count only the moves actually issued — descendants of a moved folder are skipped,
-            // so the checked count would overstate how many items moved.
-            let movedCount = 0
+            // Only the moves actually issued — descendants of a moved folder are skipped, so the checked
+            // count would overstate how many items moved.
+            const moves: { item: FileSystemEntry; newPath: string }[] = []
             for (const item of values.sortedItems) {
                 if (skipInFolder !== null) {
                     if (item.path.startsWith(skipInFolder + '/')) {
@@ -1374,16 +1384,16 @@ export const projectTreeLogic = kea<projectTreeLogicType>([
                 }
                 const itemId = item.type === 'folder' ? `project://${item.path}` : `project/${item.id}`
                 if (checkedItems[itemId]) {
-                    actions.moveItem(item, joinPath([...splitPath(path), ...splitPath(item.path).slice(-1)]), true, key)
-                    movedCount++
+                    moves.push({ item, newPath: joinPath([...splitPath(path), ...splitPath(item.path).slice(-1)]) })
                     if (item.type === 'folder') {
                         skipInFolder = item.path
                     }
                 }
             }
+            actions.moveItems(moves, true, key)
             posthog.capture('project tree items moved', {
                 root: props.root ?? 'project://',
-                count: movedCount,
+                count: moves.length,
                 is_bulk: true,
             })
         },

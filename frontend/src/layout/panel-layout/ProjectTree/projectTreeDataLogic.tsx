@@ -70,6 +70,19 @@ const PRODUCTS_SHOWN_WITH_SELECTED_PRODUCTS: Record<string, string[]> = {
     'LLM analytics': ['MCP analytics'],
 }
 
+// Every move goes through `moveItems` as a batch of one or more, so a group of moves reports and undoes as
+// one. Reporting per item instead would toast N times for a bulk move, and since react-toastify dedupes
+// identical messages the user would see a single toast whose Undo reverts only the item it was built for.
+interface MoveBatch {
+    // Ids of items whose move has not settled yet. The batch reports once this empties.
+    pending: Set<string>
+    moved: { item: FileSystemEntry; oldPath: string; newPath: string }[]
+    failed: { error: unknown }[]
+    projectTreeLogicKey: string
+}
+
+let lastMoveBatchId = 0
+
 // Returns `shortcuts` reordered to match `orderedIds`. Any shortcut not referenced in
 // `orderedIds` is appended at the end so a partial input never silently drops items.
 function applyOrder(shortcuts: FileSystemEntry[], orderedIds: string[]): FileSystemEntry[] {
@@ -379,6 +392,15 @@ export interface projectTreeDataLogicActions {
         newPath: string
         projectTreeLogicKey: string
     }
+    moveItems: (
+        moves: { item: FileSystemEntry; newPath: string }[],
+        force: boolean,
+        projectTreeLogicKey: string
+    ) => {
+        force: boolean
+        moves: { item: FileSystemEntry; newPath: string }[]
+        projectTreeLogicKey: string
+    }
     movedItem: (
         item: FileSystemEntry,
         oldPath: string,
@@ -583,6 +605,17 @@ export const projectTreeDataLogic = kea<projectTreeDataLogicType>([
             force,
             projectTreeLogicKey,
         }),
+        // Moves a whole selection at once. Prefer this over looping `moveItem`: the group reports one toast
+        // with an Undo that reverts every item (see MoveBatch).
+        moveItems: (
+            moves: { item: FileSystemEntry; newPath: string }[],
+            force: boolean,
+            projectTreeLogicKey: string
+        ) => ({
+            moves,
+            force,
+            projectTreeLogicKey,
+        }),
         movedItem: (item: FileSystemEntry, oldPath: string, newPath: string) => ({ item, oldPath, newPath }),
         // Emitted after an undo-delete restores items, so consumers (e.g. the dashboards tree) can refetch.
         restoredItems: true,
@@ -608,7 +641,7 @@ export const projectTreeDataLogic = kea<projectTreeDataLogicType>([
 
         pruneClosedFolders: (expandedFolders: string[]) => ({ expandedFolders }),
     }),
-    loaders(({ actions, values }) => ({
+    loaders(({ actions, values, cache }) => ({
         unfiledItems: [
             false as boolean,
             {
@@ -633,6 +666,46 @@ export const projectTreeDataLogic = kea<projectTreeDataLogicType>([
             false,
             {
                 queueAction: async ({ action, projectTreeLogicKey }) => {
+                    // Marks one move of a batch as settled and, once the batch has none left in flight, reports
+                    // the whole group in one toast whose Undo reverts every item that landed.
+                    const settleMoveBatch = (settle: (batch: MoveBatch) => void): void => {
+                        const batch: MoveBatch | undefined = action.batchId
+                            ? cache.moveBatches?.get(action.batchId)
+                            : undefined
+                        if (!batch || !action.item.id || !batch.pending.delete(action.item.id)) {
+                            return
+                        }
+                        settle(batch)
+                        if (batch.pending.size > 0) {
+                            return
+                        }
+                        cache.moveBatches.delete(action.batchId)
+                        if (batch.moved.length > 0) {
+                            lemonToast.success(`Moved ${pluralize(batch.moved.length, 'item')}`, {
+                                button: {
+                                    label: 'Undo',
+                                    dataAttr: 'undo-project-tree-move',
+                                    action: () => {
+                                        actions.moveItems(
+                                            batch.moved.map(({ item, oldPath, newPath }) => ({
+                                                item: { ...item, path: newPath },
+                                                newPath: oldPath,
+                                            })),
+                                            false,
+                                            batch.projectTreeLogicKey
+                                        )
+                                    },
+                                },
+                            })
+                        }
+                        if (batch.failed.length === 1) {
+                            // A lone failure keeps the underlying error, which is the only place a user (or a
+                            // support ticket) can see why the move was rejected.
+                            lemonToast.error(`Error moving item: ${batch.failed[0].error}`)
+                        } else if (batch.failed.length > 1) {
+                            lemonToast.error(`Could not move ${pluralize(batch.failed.length, 'item')}. Try again.`)
+                        }
+                    }
                     if ((action.type === 'prepare-move' || action.type === 'prepare-link') && action.newPath) {
                         const verb = action.type === 'prepare-link' ? 'link' : 'move'
                         const verbing = action.type === 'prepare-link' ? 'linking' : 'moving'
@@ -642,13 +715,20 @@ export const projectTreeDataLogic = kea<projectTreeDataLogicType>([
                             if (response && response.count > MOVE_ALERT_LIMIT) {
                                 const confirmMessage = `You're about to ${verb} ${response.count} items. Are you sure?`
                                 if (!confirm(confirmMessage)) {
+                                    // Declining ends this item's move, so settle it as neither moved nor failed
+                                    // rather than leaving the rest of the batch waiting on it.
+                                    settleMoveBatch(() => {})
                                     return false
                                 }
                             }
                             actions.queueAction({ ...action, type: verb }, projectTreeLogicKey)
                         } catch (error) {
                             console.error(`Error ${verbing} item:`, error)
-                            lemonToast.error(`Error ${verbing} item: ${error}`)
+                            if (action.type === 'prepare-link') {
+                                lemonToast.error(`Error ${verbing} item: ${error}`)
+                            } else {
+                                settleMoveBatch((batch) => batch.failed.push({ error }))
+                            }
                             actions.removeQueuedAction(action)
                         }
                     } else if (action.type === 'move' && action.newPath) {
@@ -673,23 +753,10 @@ export const projectTreeDataLogic = kea<projectTreeDataLogicType>([
                                     toUnfiled: newPath.startsWith('Unfiled/'),
                                 })
                             }
-                            lemonToast.success('Item moved successfully', {
-                                button: {
-                                    label: 'Undo',
-                                    dataAttr: 'undo-project-tree-move',
-                                    action: () => {
-                                        actions.moveItem(
-                                            { ...action.item, path: newPath },
-                                            oldPath,
-                                            false,
-                                            projectTreeLogicKey
-                                        )
-                                    },
-                                },
-                            })
+                            settleMoveBatch((batch) => batch.moved.push({ item: action.item, oldPath, newPath }))
                         } catch (error) {
                             console.error('Error moving item:', error)
-                            lemonToast.error(`Error moving item: ${error}`)
+                            settleMoveBatch((batch) => batch.failed.push({ error }))
                             actions.removeQueuedAction(action)
                         }
                     } else if (action.type === 'link' && action.newPath) {
@@ -1588,7 +1655,7 @@ export const projectTreeDataLogic = kea<projectTreeDataLogicType>([
             },
         ],
     }),
-    listeners(({ actions, values }) => ({
+    listeners(({ actions, values, cache }) => ({
         reorderShortcutByDrag: ({ activeTreeId, overTreeId, position }) => {
             const map = values.shortcutEntryIdMap
             const activeEntryId = map.get(activeTreeId)
@@ -1684,23 +1751,43 @@ export const projectTreeDataLogic = kea<projectTreeDataLogicType>([
                 projectTreeLogicKey
             )
         },
-        moveItem: async ({ item, newPath, force, projectTreeLogicKey }) => {
-            if (newPath === item.path) {
+        moveItem: ({ item, newPath, force, projectTreeLogicKey }) => {
+            actions.moveItems([{ item, newPath }], force, projectTreeLogicKey)
+        },
+        moveItems: ({ moves, force, projectTreeLogicKey }) => {
+            const moving = moves.filter(({ item, newPath }) => {
+                if (newPath === item.path) {
+                    return false
+                }
+                if (!item.id) {
+                    lemonToast.error("Sorry, can't move an unsaved item (no id)")
+                    return false
+                }
+                return true
+            })
+            if (moving.length === 0) {
                 return
             }
-            if (!item.id) {
-                lemonToast.error("Sorry, can't move an unsaved item (no id)")
-                return
+            const batchId = String(++lastMoveBatchId)
+            cache.moveBatches = cache.moveBatches ?? new Map<string, MoveBatch>()
+            cache.moveBatches.set(batchId, {
+                pending: new Set(moving.map(({ item }) => item.id as string)),
+                moved: [],
+                failed: [],
+                projectTreeLogicKey,
+            })
+            for (const { item, newPath } of moving) {
+                actions.queueAction(
+                    {
+                        type: !force && item.type === 'folder' ? 'prepare-move' : 'move',
+                        item,
+                        path: item.path,
+                        newPath,
+                        batchId,
+                    },
+                    projectTreeLogicKey
+                )
             }
-            actions.queueAction(
-                {
-                    type: !force && item.type === 'folder' ? 'prepare-move' : 'move',
-                    item,
-                    path: item.path,
-                    newPath: newPath,
-                },
-                projectTreeLogicKey
-            )
         },
         linkItem: async ({ oldPath, newPath, force, projectTreeLogicKey }) => {
             if (newPath === oldPath) {
