@@ -63,8 +63,8 @@ export class ImageFetchConsumerMetrics {
     })
     private static readonly urlsPerRecord = new Histogram({
         name: 'ml_image_fetch_consumer_urls_per_record',
-        help: 'URLs carried by one Kafka record. The producer caps this, so a distribution pinned at the cap means records are being split and the cap is the binding constraint',
-        buckets: [1, 2, 4, 8, 16, 32, 64],
+        help: 'URLs carried by one Kafka record. The producer packs a record to a byte budget, so a distribution pinned at the top means the count bound rather than the byte budget is what split it',
+        buckets: [1, 8, 32, 64, 128, 256, 512],
     })
     private static readonly storeErrors = new Counter({
         name: 'ml_image_fetch_consumer_store_errors_total',
