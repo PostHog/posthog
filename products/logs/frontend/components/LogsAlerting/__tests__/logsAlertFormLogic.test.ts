@@ -13,7 +13,7 @@ import {
     LogsAlertConfigurationStateEnumApi,
 } from 'products/logs/frontend/generated/api.schemas'
 
-import { LogsAlertFormType, logsAlertFormLogic } from '../logsAlertFormLogic'
+import { buildFormDefaults, LogsAlertFormType, logsAlertFormLogic } from '../logsAlertFormLogic'
 
 jest.mock('products/logs/frontend/generated/api', () => ({
     logsAlertsCreate: jest.fn(),
@@ -456,6 +456,12 @@ describe('logsAlertFormLogic', () => {
             expect(logic.values.alertForm.severityLevels).toEqual(['error'])
         })
 
+        it('allows existing alerts without filters', () => {
+            const existingAlertWithoutFilters = { ...MOCK_ALERT, filters: null } as unknown as LogsAlertConfigurationApi
+
+            expect(buildFormDefaults(existingAlertWithoutFilters).severityLevels).toEqual([])
+        })
+
         it('pre-populates numeric fields from existing alert', () => {
             expect(logic.values.alertForm.thresholdCount).toBe(MOCK_ALERT.threshold_count)
             expect(logic.values.alertForm.windowMinutes).toBe(MOCK_ALERT.window_minutes)
@@ -503,7 +509,7 @@ describe('logsAlertFormLogic', () => {
 
             expect(logic.values.alertForm).toMatchObject({
                 name: '',
-                severityLevels: [],
+                severityLevels: ['trace', 'debug', 'info', 'warn', 'error', 'fatal'],
                 serviceNames: [],
                 thresholdOperator: 'above',
                 thresholdCount: 100,
