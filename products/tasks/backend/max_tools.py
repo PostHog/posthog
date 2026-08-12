@@ -7,8 +7,10 @@ from posthog.storage import object_storage
 
 from ee.hogai.tool import MaxTool
 
+from .facade import api as tasks_facade
 from .models import Task, TaskRun
 from .temporal.client import execute_task_processing_workflow_async
+from .visibility import task_control_q, task_visibility_q
 
 
 class CreateTaskArgs(BaseModel):
@@ -74,6 +76,7 @@ By default, the task will be created and immediately executed. Set run=false to 
             task = Task.objects.create(
                 team=self._team,
                 created_by=self._user,
+                channel_id=tasks_facade.ensure_personal_channel_id(self._team.id, self._user.id),
                 title=title,
                 description=description,
                 origin_product=Task.OriginProduct.USER_CREATED,
@@ -148,7 +151,11 @@ Use this tool when the user wants to:
     async def _arun_impl(self, task_id: str) -> tuple[str, dict[str, Any]]:
         @sync_to_async
         def get_task_and_create_run():
-            task = Task.objects.filter(id=task_id, team=self._team, deleted=False).first()
+            task = (
+                Task.objects.filter(id=task_id, team=self._team, deleted=False)
+                .filter(task_control_q(self._user.id))
+                .first()
+            )
 
             if not task:
                 return None
@@ -207,7 +214,11 @@ Use this tool when the user wants to:
     async def _arun_impl(self, task_id: str, run_id: str | None = None) -> tuple[str, dict[str, Any]]:
         @sync_to_async
         def get_task_and_run():
-            task = Task.objects.filter(id=task_id, team=self._team, deleted=False).first()
+            task = (
+                Task.objects.filter(id=task_id, team=self._team, deleted=False)
+                .filter(task_visibility_q(self._user.id))
+                .first()
+            )
 
             if not task:
                 return {"error": "not_found", "task_id": task_id}
@@ -290,7 +301,11 @@ Use this tool when the user wants to:
     async def _arun_impl(self, task_id: str, run_id: str | None = None) -> tuple[str, dict[str, Any]]:
         @sync_to_async
         def get_task_and_run():
-            task = Task.objects.filter(id=task_id, team=self._team, deleted=False).first()
+            task = (
+                Task.objects.filter(id=task_id, team=self._team, deleted=False)
+                .filter(task_visibility_q(self._user.id))
+                .first()
+            )
 
             if not task:
                 return {"error": "not_found"}
@@ -362,7 +377,11 @@ Use this tool when the user wants to:
     ) -> tuple[str, dict[str, Any]]:
         @sync_to_async
         def query_tasks():
-            qs = Task.objects.filter(team=self._team, deleted=False).order_by("-created_at")
+            qs = (
+                Task.objects.filter(team=self._team, deleted=False, internal=False)
+                .filter(task_visibility_q(self._user.id))
+                .order_by("-created_at")
+            )
 
             if origin_product:
                 qs = qs.filter(origin_product=origin_product)
@@ -422,7 +441,11 @@ Use this tool when the user wants to:
     async def _arun_impl(self, task_id: str, limit: int = 10) -> tuple[str, dict[str, Any]]:
         @sync_to_async
         def get_task_and_runs():
-            task = Task.objects.filter(id=task_id, team=self._team, deleted=False).first()
+            task = (
+                Task.objects.filter(id=task_id, team=self._team, deleted=False)
+                .filter(task_visibility_q(self._user.id))
+                .first()
+            )
 
             if not task:
                 return {"error": "not_found"}
