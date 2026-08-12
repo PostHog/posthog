@@ -2542,6 +2542,8 @@ class ExternalDataSourceType(StrEnum):
     FRAMER = "Framer"
     CLOUDINARY = "Cloudinary"
     UPLOADCARE = "Uploadcare"
+    WHMCS = "WHMCS"
+    MSG91 = "MSG91"
 
 
 class ExternalQueryErrorCode(StrEnum):
