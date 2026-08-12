@@ -403,6 +403,7 @@ class QueryTags(BaseModel):
     workload: Optional[str] = None  # enum connection.Workload
     dashboard_id: Optional[int] = None
     insight_id: Optional[int] = None
+    scanner_id: Optional[str] = None  # replay-vision scanner, for per-scanner read metering
     exported_asset_id: Optional[int] = None
     export_format: Optional[str] = None
     chargeable: Optional[int] = None
