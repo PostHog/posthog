@@ -600,7 +600,9 @@ def _analytics_api(
     return _FakeAnalyticsApi(bodies, segment_payloads=segment_payloads)
 
 
-def _collect_analytics(api: _FakeAnalyticsApi, manager: _FakeManager, **kwargs: Any) -> list[dict[str, Any]]:
+def _collect_analytics(
+    api: _FakeAnalyticsApi, manager: _FakeManager, endpoint: str = "analytics_app_sessions", **kwargs: Any
+) -> list[dict[str, Any]]:
     session = MagicMock()
     session.get.side_effect = api.get
     session.post.side_effect = api.post
@@ -614,7 +616,7 @@ def _collect_analytics(api: _FakeAnalyticsApi, manager: _FakeManager, **kwargs: 
             key_id="KEY123",
             private_key=PRIVATE_KEY_PEM,
             vendor_number=None,
-            endpoint="analytics_app_sessions",
+            endpoint=endpoint,
             logger=MagicMock(),
             resumable_source_manager=manager,
             **kwargs,
@@ -730,6 +732,32 @@ class TestAnalyticsReportStreams:
         )
 
         assert _collect_analytics(api, _FakeManager()) == []
+
+    @parameterized.expand(
+        [
+            # The names Apple actually returns for the streams whose configured names were wrong.
+            ("analytics_app_store_downloads", "App Downloads Standard"),
+            ("analytics_installations_deletions", "App Store Installation and Deletion Standard"),
+            ("analytics_app_store_preorders", "App Store Pre-Orders Standard"),
+            # Case and hyphen differences must resolve too, not just exact tuple members.
+            ("analytics_app_store_preorders", "App Store Pre-orders Standard"),
+        ]
+    )
+    def test_apple_real_report_names_resolve(self, endpoint: str, apple_name: str) -> None:
+        # An exact membership test resolved none of these, so the stream synced an empty table
+        # while reporting success. The only prior fixture used "App Sessions Standard", spelled
+        # the same in our config and at Apple, so it never exercised the mismatch.
+        payload = _gzip_csv("Date,Sessions\n2026-08-01,5\n")
+        api = _analytics_api(
+            reports=[_resource("analyticsReports", "REP1", name=apple_name, category="APP_USAGE")],
+            instances=[_instance("I1", "2026-08-01")],
+            segments_by_instance={"I1": [_segment("S1", "https://r.s3.amazonaws.com/1", payload)]},
+            segment_payloads={"https://r.s3.amazonaws.com/1": payload},
+        )
+
+        rows = _collect_analytics(api, _FakeManager(), endpoint=endpoint)
+
+        assert [row["sessions"] for row in rows] == ["5"]
 
     def test_instance_without_segments_stops_the_walk_at_that_date(self) -> None:
         # Emitting a later date past a not-ready gap would let the table watermark advance

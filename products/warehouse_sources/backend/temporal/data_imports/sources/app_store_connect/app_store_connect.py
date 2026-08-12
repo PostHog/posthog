@@ -664,6 +664,14 @@ def _ensure_report_request(
     return (str(request_id) if request_id else None), True
 
 
+def _normalize_report_name(name: str) -> str:
+    # Match Apple's report names loosely: it varies the casing and hyphenation of a report
+    # between docs and the live API (e.g. "Pre-Orders" vs "Pre-orders"), and an exact test
+    # silently resolves nothing when only that differs. Word differences (singular vs plural,
+    # extra words) still need an explicit fallback in analytics_report_names.
+    return re.sub(r"\s+", " ", name.replace("-", " ")).strip().casefold()
+
+
 def _find_analytics_report(
     session: requests.Session,
     token_provider: AppStoreConnectTokenProvider,
@@ -673,6 +681,7 @@ def _find_analytics_report(
 ) -> str | None:
     url = f"{BASE_URL}/v1/analyticsReportRequests/{request_id}/reports"
     report_ids: dict[str, str] = {}
+    report_ids_normalized: dict[str, str] = {}
     for page in _iter_pages(
         session, token_provider, logger, url, {"filter[category]": config.analytics_report_category}
     ):
@@ -680,15 +689,18 @@ def _find_analytics_report(
             row = _flatten_resource(resource)
             if row.get("name") and row.get("id"):
                 report_ids[str(row["name"])] = str(row["id"])
+                report_ids_normalized.setdefault(_normalize_report_name(str(row["name"])), str(row["id"]))
 
     for name in config.analytics_report_names:
-        if name in report_ids:
-            return report_ids[name]
+        report_id = report_ids_normalized.get(_normalize_report_name(name))
+        if report_id is not None:
+            return report_id
 
-    logger.warning(
+    logger.error(
         f"App Store Connect: no report named {config.analytics_report_names} under this request "
-        f"(endpoint={config.name}, available={sorted(report_ids)}). The account may not be entitled "
-        f"to this report, Apple may have renamed it, or the first reports may still be generating."
+        f"(endpoint={config.name}, available={sorted(report_ids)}). The table will stay empty. "
+        f"The account may not be entitled to this report, Apple may have renamed it, or the first "
+        f"reports may still be generating."
     )
     return None
 

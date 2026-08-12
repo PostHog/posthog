@@ -230,8 +230,11 @@ APP_STORE_CONNECT_ENDPOINTS: dict[str, AppStoreConnectEndpointConfig] = {
     ),
     # Analytics Reports API streams: the behavioural data (sessions, downloads, installs
     # and deletions, discovery, crashes, pre-orders, App Clips) that has no sales-report
-    # equivalent. The suffix-less fallbacks cover Apple renaming a variant; the crashes
-    # and App Clip reports carry no "Standard" suffix today, so their plain name leads.
+    # equivalent. The first name is the one Apple returns today; the rest are fallbacks that
+    # cover Apple renaming a variant in either direction. `_find_analytics_report` matches
+    # these case-, whitespace-, and hyphen-insensitively, so only real word differences
+    # (Downloads vs Store Downloads, singular vs plural) need a separate fallback here. The
+    # crashes and App Clip reports carry no "Standard" suffix today, so their plain name leads.
     "analytics_app_sessions": _analytics_endpoint(
         "analytics_app_sessions",
         ("App Sessions Standard", "App Sessions"),
@@ -239,12 +242,17 @@ APP_STORE_CONNECT_ENDPOINTS: dict[str, AppStoreConnectEndpointConfig] = {
     ),
     "analytics_app_store_downloads": _analytics_endpoint(
         "analytics_app_store_downloads",
-        ("App Store Downloads Standard", "App Store Downloads"),
+        ("App Downloads Standard", "App Downloads", "App Store Downloads Standard", "App Store Downloads"),
         "COMMERCE",
     ),
     "analytics_installations_deletions": _analytics_endpoint(
         "analytics_installations_deletions",
-        ("App Store Installations and Deletions Standard", "App Store Installations and Deletions"),
+        (
+            "App Store Installation and Deletion Standard",
+            "App Store Installation and Deletion",
+            "App Store Installations and Deletions Standard",
+            "App Store Installations and Deletions",
+        ),
         "APP_USAGE",
     ),
     "analytics_discovery_engagement": _analytics_endpoint(
@@ -259,7 +267,7 @@ APP_STORE_CONNECT_ENDPOINTS: dict[str, AppStoreConnectEndpointConfig] = {
     ),
     "analytics_app_store_preorders": _analytics_endpoint(
         "analytics_app_store_preorders",
-        ("App Store Pre-orders Standard", "App Store Pre-orders"),
+        ("App Store Pre-Orders Standard", "App Store Pre-Orders", "App Store Pre-orders Standard"),
         "COMMERCE",
     ),
     "analytics_app_clip_usage": _analytics_endpoint(
