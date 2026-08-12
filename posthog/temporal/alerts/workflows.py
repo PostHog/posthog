@@ -16,16 +16,23 @@ from posthog.temporal.alerts.activities import (
     evaluate_alert,
     notify_alert,
     prepare_alert,
+    record_failed_evaluation,
     retrieve_due_alerts,
     run_investigation_safety_net,
 )
-from posthog.temporal.alerts.retry_policy import ALERT_NOTIFY_RETRY_POLICY, ALERT_PREPARE_RETRY_POLICY, alert_timeouts
+from posthog.temporal.alerts.retry_policy import (
+    ALERT_NOTIFY_RETRY_POLICY,
+    ALERT_PREPARE_RETRY_POLICY,
+    AlertTimeouts,
+    alert_timeouts,
+)
 from posthog.temporal.alerts.types import (
     CheckAlertWorkflowInputs,
     EvaluateAlertActivityInputs,
     NotifyAlertActivityInputs,
     PrepareAction,
     PrepareAlertActivityInputs,
+    RecordFailedEvaluationActivityInputs,
 )
 from posthog.temporal.common.base import PostHogWorkflow
 
@@ -143,14 +150,25 @@ class CheckAlertWorkflow(PostHogWorkflow):
                 return
 
             # Phase 2 — evaluate: CH query + state machine + persist AlertCheck
-            evaluation = await temporalio.workflow.execute_activity(
-                evaluate_alert,
-                EvaluateAlertActivityInputs(alert_id=inputs.alert_id),
-                start_to_close_timeout=timeouts.evaluate_start_to_close,
-                schedule_to_close_timeout=timeouts.activity_schedule_to_close,
-                heartbeat_timeout=timeouts.heartbeat_timeout,
-                retry_policy=timeouts.evaluate_retry_policy,
-            )
+            try:
+                evaluation = await temporalio.workflow.execute_activity(
+                    evaluate_alert,
+                    EvaluateAlertActivityInputs(alert_id=inputs.alert_id),
+                    start_to_close_timeout=timeouts.evaluate_start_to_close,
+                    schedule_to_close_timeout=timeouts.activity_schedule_to_close,
+                    heartbeat_timeout=timeouts.heartbeat_timeout,
+                    retry_policy=timeouts.evaluate_retry_policy,
+                )
+            except Exception as evaluation_error:
+                # evaluate_alert re-raises transient ClickHouse errors for the retry policy above.
+                # When those attempts run out, or a timeout cuts the chain short, no AlertCheck
+                # exists and next_check_at is still in the past, so the one-minute sweep would
+                # start the whole chain again. Recording the failure caps a permanently failing
+                # alert at one chain per cadence period and tells its owner.
+                if not temporalio.workflow.patched("alerts-record-failed-evaluation-2026-08"):
+                    raise
+                await self._record_failed_evaluation(inputs, timeouts, evaluation_error)
+                raise
             new_state = evaluation.new_state
 
             # Phase 3 — notify (optional)
@@ -205,6 +223,33 @@ class CheckAlertWorkflow(PostHogWorkflow):
         # Re-raise after cleanup completes. Same Temporal SDK quirk as ProcessSubscriptionWorkflow
         if caught_error:
             raise caught_error
+
+    async def _record_failed_evaluation(
+        self,
+        inputs: CheckAlertWorkflowInputs,
+        timeouts: AlertTimeouts,
+        evaluation_error: BaseException,
+    ) -> None:
+        """Write the errored AlertCheck the failed evaluation never got to write, then notify."""
+        recorded = await temporalio.workflow.execute_activity(
+            record_failed_evaluation,
+            RecordFailedEvaluationActivityInputs(alert_id=inputs.alert_id, message=str(evaluation_error)),
+            start_to_close_timeout=dt.timedelta(minutes=1),
+            retry_policy=ALERT_PREPARE_RETRY_POLICY,
+        )
+        if not recorded.should_notify or not recorded.alert_check_id:
+            return
+
+        await temporalio.workflow.execute_activity(
+            notify_alert,
+            NotifyAlertActivityInputs(
+                alert_id=inputs.alert_id,
+                alert_check_id=recorded.alert_check_id,
+                breaches=None,
+            ),
+            start_to_close_timeout=timeouts.notify_start_to_close,
+            retry_policy=ALERT_NOTIFY_RETRY_POLICY,
+        )
 
 
 @temporalio.workflow.defn(name="run-investigation-safety-net")

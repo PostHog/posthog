@@ -42,6 +42,8 @@ from posthog.temporal.alerts.types import (
     PrepareAction,
     PrepareAlertActivityInputs,
     PrepareAlertResult,
+    RecordFailedEvaluationActivityInputs,
+    RecordFailedEvaluationResult,
     SkipReason,
 )
 from posthog.temporal.common.heartbeat import Heartbeater
@@ -353,6 +355,44 @@ async def evaluate_alert(inputs: EvaluateAlertActivityInputs) -> EvaluateAlertRe
 
     async with Heartbeater():
         return await _evaluate()
+
+
+@temporalio.activity.defn
+async def record_failed_evaluation(inputs: RecordFailedEvaluationActivityInputs) -> RecordFailedEvaluationResult:
+    """Persist an errored AlertCheck for an evaluation that never got to write one itself.
+
+    evaluate_alert re-raises transient ClickHouse errors so its retry policy can get past a busy
+    cluster. Nothing has written an AlertCheck by the time those attempts run out, and next_check_at
+    is still in the past, so the one-minute sweep would start the whole chain over again: an alert
+    whose query fails every time would run forever, and its owner would never be told. Recording the
+    failure here advances next_check_at to the alert's normal cadence slot, which caps a permanently
+    failing alert at one chain of attempts per cadence period.
+    """
+
+    @database_sync_to_async(thread_sensitive=False)
+    def _record() -> RecordFailedEvaluationResult:
+        try:
+            with transaction.atomic():
+                alert = (
+                    AlertConfiguration.objects.select_for_update(of=("self",))
+                    .select_related("insight", "team", "threshold")
+                    .get(id=inputs.alert_id)
+                )
+                alert_check, should_notify = add_alert_check(alert, None, None, {"message": inputs.message})
+        except AlertConfiguration.DoesNotExist:
+            logger.warning("Alert gone before its failure could be recorded", alert_id=inputs.alert_id)
+            return RecordFailedEvaluationResult()
+
+        logger.warning(
+            "alerts.recorded_failed_evaluation",
+            alert_id=inputs.alert_id,
+            alert_check_id=str(alert_check.id),
+            next_check_at=alert.next_check_at,
+        )
+        return RecordFailedEvaluationResult(alert_check_id=str(alert_check.id), should_notify=should_notify)
+
+    async with Heartbeater():
+        return await _record()
 
 
 def dispatch_alert_firing_realtime_notification(alert: AlertConfiguration, breaches: list[str]) -> None:

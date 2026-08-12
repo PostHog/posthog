@@ -1,5 +1,6 @@
 import uuid
 from collections.abc import Callable
+from datetime import UTC, datetime
 from typing import Any
 
 import pytest
@@ -9,6 +10,7 @@ from django.conf import settings
 
 import pytest_asyncio
 from asgiref.sync import sync_to_async
+from temporalio.client import WorkflowFailureError
 from temporalio.testing import WorkflowEnvironment
 from temporalio.worker import UnsandboxedWorkflowRunner, Worker
 
@@ -22,10 +24,12 @@ from posthog.schema import (
     TrendsQuery,
 )
 
+from posthog.exceptions import ClickHouseClusterMemoryLimitExceeded
 from posthog.models import User
 from posthog.slo.types import SloArea, SloConfig, SloOperation, SloOutcome
 from posthog.tasks.alerts.utils import AlertEvaluationResult
-from posthog.temporal.alerts.activities import evaluate_alert, notify_alert, prepare_alert
+from posthog.temporal.alerts.activities import evaluate_alert, notify_alert, prepare_alert, record_failed_evaluation
+from posthog.temporal.alerts.retry_policy import ALERT_EVALUATE_RETRY_POLICY
 from posthog.temporal.alerts.schedule import create_schedule_due_alert_checks_schedule
 from posthog.temporal.alerts.types import AlertInfo, CheckAlertWorkflowInputs, SkipReason
 from posthog.temporal.alerts.workflows import CheckAlertWorkflow, ScheduleDueAlertChecksWorkflow
@@ -34,7 +38,12 @@ from posthog.temporal.common.slo_interceptor import SloInterceptor
 from products.alerts.backend.models.alert import AlertCheck, AlertConfiguration, Threshold
 from products.product_analytics.backend.models.insight import Insight
 
-CHECK_ALERT_ACTIVITIES: list[Callable[..., Any]] = [prepare_alert, evaluate_alert, notify_alert]
+CHECK_ALERT_ACTIVITIES: list[Callable[..., Any]] = [
+    prepare_alert,
+    evaluate_alert,
+    notify_alert,
+    record_failed_evaluation,
+]
 
 
 @pytest.mark.asyncio
@@ -337,6 +346,47 @@ async def test_check_alert_workflow_records_errored_check_on_permanent_evaluatio
     # Errored evaluation = degraded alert, not a workflow failure → SLO stays SUCCESS.
     assert completed_props["outcome"] == SloOutcome.SUCCESS
     assert completed_props["alert_state"] == AlertState.ERRORED
+
+
+@patch("posthog.slo.events.posthoganalytics")
+@pytest.mark.asyncio
+@pytest.mark.django_db(transaction=True)
+async def test_check_alert_workflow_records_failure_when_transient_error_outlives_retries(
+    mock_slo_analytics: MagicMock,
+    alert_with_subscriber: AlertConfiguration,
+) -> None:
+    # Cluster memory pressure re-raises so the retry policy can get past it. When it never clears,
+    # the workflow still has to leave an errored check behind and push next_check_at into the
+    # future: a next_check_at left in the past keeps the alert due, so the one-minute sweep would
+    # restart the whole chain forever and never tell the owner.
+    with (
+        patch(
+            "posthog.temporal.alerts.activities.check_alert_for_insight",
+            side_effect=ClickHouseClusterMemoryLimitExceeded(),
+        ) as mock_ch_query,
+        patch(
+            "posthog.tasks.alerts.utils.send_notifications_for_errors",
+            return_value=["alerts-wf-test@posthog.com"],
+        ) as mock_send_errors,
+        pytest.raises(WorkflowFailureError),
+    ):
+        await _run_check_alert_workflow(
+            alert_id=str(alert_with_subscriber.id),
+            slo=_slo_config(alert_with_subscriber),
+            team_id=alert_with_subscriber.team_id,
+            insight_id=alert_with_subscriber.insight_id,
+        )
+
+    # Every attempt the policy allows ran, and no more.
+    assert mock_ch_query.call_count == ALERT_EVALUATE_RETRY_POLICY.maximum_attempts
+
+    check = await sync_to_async(AlertCheck.objects.get)(alert_configuration=alert_with_subscriber)
+    assert check.state == AlertState.ERRORED
+    mock_send_errors.assert_called_once()
+
+    refreshed = await sync_to_async(AlertConfiguration.objects.get)(pk=alert_with_subscriber.pk)
+    assert refreshed.next_check_at is not None
+    assert refreshed.next_check_at > datetime.now(UTC)
 
 
 @patch("posthog.slo.events.posthoganalytics")
