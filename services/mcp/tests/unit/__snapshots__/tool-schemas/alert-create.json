@@ -175,6 +175,17 @@
                                                         "anyOf": [
                                                             {
                                                                 "properties": {
+                                                                    "deseasonalize": {
+                                                                        "anyOf": [
+                                                                            {
+                                                                                "type": "boolean"
+                                                                            },
+                                                                            {
+                                                                                "type": "null"
+                                                                            }
+                                                                        ],
+                                                                        "description": "Subtract a day-of-week and hour-of-day baseline before detection, so a normal weekly cycle is not read as a level shift (default: false)"
+                                                                    },
                                                                     "diffs_n": {
                                                                         "anyOf": [
                                                                             {
@@ -253,6 +264,17 @@
                                                         "anyOf": [
                                                             {
                                                                 "properties": {
+                                                                    "deseasonalize": {
+                                                                        "anyOf": [
+                                                                            {
+                                                                                "type": "boolean"
+                                                                            },
+                                                                            {
+                                                                                "type": "null"
+                                                                            }
+                                                                        ],
+                                                                        "description": "Subtract a day-of-week and hour-of-day baseline before detection, so a normal weekly cycle is not read as a level shift (default: false)"
+                                                                    },
                                                                     "diffs_n": {
                                                                         "anyOf": [
                                                                             {
@@ -342,6 +364,17 @@
                                                         "anyOf": [
                                                             {
                                                                 "properties": {
+                                                                    "deseasonalize": {
+                                                                        "anyOf": [
+                                                                            {
+                                                                                "type": "boolean"
+                                                                            },
+                                                                            {
+                                                                                "type": "null"
+                                                                            }
+                                                                        ],
+                                                                        "description": "Subtract a day-of-week and hour-of-day baseline before detection, so a normal weekly cycle is not read as a level shift (default: false)"
+                                                                    },
                                                                     "diffs_n": {
                                                                         "anyOf": [
                                                                             {
@@ -420,6 +453,17 @@
                                                         "anyOf": [
                                                             {
                                                                 "properties": {
+                                                                    "deseasonalize": {
+                                                                        "anyOf": [
+                                                                            {
+                                                                                "type": "boolean"
+                                                                            },
+                                                                            {
+                                                                                "type": "null"
+                                                                            }
+                                                                        ],
+                                                                        "description": "Subtract a day-of-week and hour-of-day baseline before detection, so a normal weekly cycle is not read as a level shift (default: false)"
+                                                                    },
                                                                     "diffs_n": {
                                                                         "anyOf": [
                                                                             {
@@ -487,6 +531,17 @@
                                                         "anyOf": [
                                                             {
                                                                 "properties": {
+                                                                    "deseasonalize": {
+                                                                        "anyOf": [
+                                                                            {
+                                                                                "type": "boolean"
+                                                                            },
+                                                                            {
+                                                                                "type": "null"
+                                                                            }
+                                                                        ],
+                                                                        "description": "Subtract a day-of-week and hour-of-day baseline before detection, so a normal weekly cycle is not read as a level shift (default: false)"
+                                                                    },
                                                                     "diffs_n": {
                                                                         "anyOf": [
                                                                             {
@@ -565,6 +620,17 @@
                                                         "anyOf": [
                                                             {
                                                                 "properties": {
+                                                                    "deseasonalize": {
+                                                                        "anyOf": [
+                                                                            {
+                                                                                "type": "boolean"
+                                                                            },
+                                                                            {
+                                                                                "type": "null"
+                                                                            }
+                                                                        ],
+                                                                        "description": "Subtract a day-of-week and hour-of-day baseline before detection, so a normal weekly cycle is not read as a level shift (default: false)"
+                                                                    },
                                                                     "diffs_n": {
                                                                         "anyOf": [
                                                                             {
@@ -654,6 +720,17 @@
                                                         "anyOf": [
                                                             {
                                                                 "properties": {
+                                                                    "deseasonalize": {
+                                                                        "anyOf": [
+                                                                            {
+                                                                                "type": "boolean"
+                                                                            },
+                                                                            {
+                                                                                "type": "null"
+                                                                            }
+                                                                        ],
+                                                                        "description": "Subtract a day-of-week and hour-of-day baseline before detection, so a normal weekly cycle is not read as a level shift (default: false)"
+                                                                    },
                                                                     "diffs_n": {
                                                                         "anyOf": [
                                                                             {
@@ -755,6 +832,17 @@
                                                         "anyOf": [
                                                             {
                                                                 "properties": {
+                                                                    "deseasonalize": {
+                                                                        "anyOf": [
+                                                                            {
+                                                                                "type": "boolean"
+                                                                            },
+                                                                            {
+                                                                                "type": "null"
+                                                                            }
+                                                                        ],
+                                                                        "description": "Subtract a day-of-week and hour-of-day baseline before detection, so a normal weekly cycle is not read as a level shift (default: false)"
+                                                                    },
                                                                     "diffs_n": {
                                                                         "anyOf": [
                                                                             {
@@ -844,6 +932,17 @@
                                                         "anyOf": [
                                                             {
                                                                 "properties": {
+                                                                    "deseasonalize": {
+                                                                        "anyOf": [
+                                                                            {
+                                                                                "type": "boolean"
+                                                                            },
+                                                                            {
+                                                                                "type": "null"
+                                                                            }
+                                                                        ],
+                                                                        "description": "Subtract a day-of-week and hour-of-day baseline before detection, so a normal weekly cycle is not read as a level shift (default: false)"
+                                                                    },
                                                                     "diffs_n": {
                                                                         "anyOf": [
                                                                             {
@@ -933,6 +1032,17 @@
                                                         "anyOf": [
                                                             {
                                                                 "properties": {
+                                                                    "deseasonalize": {
+                                                                        "anyOf": [
+                                                                            {
+                                                                                "type": "boolean"
+                                                                            },
+                                                                            {
+                                                                                "type": "null"
+                                                                            }
+                                                                        ],
+                                                                        "description": "Subtract a day-of-week and hour-of-day baseline before detection, so a normal weekly cycle is not read as a level shift (default: false)"
+                                                                    },
                                                                     "diffs_n": {
                                                                         "anyOf": [
                                                                             {
@@ -1033,6 +1143,17 @@
                                                         "anyOf": [
                                                             {
                                                                 "properties": {
+                                                                    "deseasonalize": {
+                                                                        "anyOf": [
+                                                                            {
+                                                                                "type": "boolean"
+                                                                            },
+                                                                            {
+                                                                                "type": "null"
+                                                                            }
+                                                                        ],
+                                                                        "description": "Subtract a day-of-week and hour-of-day baseline before detection, so a normal weekly cycle is not read as a level shift (default: false)"
+                                                                    },
                                                                     "diffs_n": {
                                                                         "anyOf": [
                                                                             {
@@ -1111,6 +1232,17 @@
                                                         "anyOf": [
                                                             {
                                                                 "properties": {
+                                                                    "deseasonalize": {
+                                                                        "anyOf": [
+                                                                            {
+                                                                                "type": "boolean"
+                                                                            },
+                                                                            {
+                                                                                "type": "null"
+                                                                            }
+                                                                        ],
+                                                                        "description": "Subtract a day-of-week and hour-of-day baseline before detection, so a normal weekly cycle is not read as a level shift (default: false)"
+                                                                    },
                                                                     "diffs_n": {
                                                                         "anyOf": [
                                                                             {
@@ -1207,6 +1339,17 @@
                                     "anyOf": [
                                         {
                                             "properties": {
+                                                "deseasonalize": {
+                                                    "anyOf": [
+                                                        {
+                                                            "type": "boolean"
+                                                        },
+                                                        {
+                                                            "type": "null"
+                                                        }
+                                                    ],
+                                                    "description": "Subtract a day-of-week and hour-of-day baseline before detection, so a normal weekly cycle is not read as a level shift (default: false)"
+                                                },
                                                 "diffs_n": {
                                                     "anyOf": [
                                                         {
@@ -1285,6 +1428,17 @@
                                     "anyOf": [
                                         {
                                             "properties": {
+                                                "deseasonalize": {
+                                                    "anyOf": [
+                                                        {
+                                                            "type": "boolean"
+                                                        },
+                                                        {
+                                                            "type": "null"
+                                                        }
+                                                    ],
+                                                    "description": "Subtract a day-of-week and hour-of-day baseline before detection, so a normal weekly cycle is not read as a level shift (default: false)"
+                                                },
                                                 "diffs_n": {
                                                     "anyOf": [
                                                         {
@@ -1374,6 +1528,17 @@
                                     "anyOf": [
                                         {
                                             "properties": {
+                                                "deseasonalize": {
+                                                    "anyOf": [
+                                                        {
+                                                            "type": "boolean"
+                                                        },
+                                                        {
+                                                            "type": "null"
+                                                        }
+                                                    ],
+                                                    "description": "Subtract a day-of-week and hour-of-day baseline before detection, so a normal weekly cycle is not read as a level shift (default: false)"
+                                                },
                                                 "diffs_n": {
                                                     "anyOf": [
                                                         {
@@ -1452,6 +1617,17 @@
                                     "anyOf": [
                                         {
                                             "properties": {
+                                                "deseasonalize": {
+                                                    "anyOf": [
+                                                        {
+                                                            "type": "boolean"
+                                                        },
+                                                        {
+                                                            "type": "null"
+                                                        }
+                                                    ],
+                                                    "description": "Subtract a day-of-week and hour-of-day baseline before detection, so a normal weekly cycle is not read as a level shift (default: false)"
+                                                },
                                                 "diffs_n": {
                                                     "anyOf": [
                                                         {
@@ -1519,6 +1695,17 @@
                                     "anyOf": [
                                         {
                                             "properties": {
+                                                "deseasonalize": {
+                                                    "anyOf": [
+                                                        {
+                                                            "type": "boolean"
+                                                        },
+                                                        {
+                                                            "type": "null"
+                                                        }
+                                                    ],
+                                                    "description": "Subtract a day-of-week and hour-of-day baseline before detection, so a normal weekly cycle is not read as a level shift (default: false)"
+                                                },
                                                 "diffs_n": {
                                                     "anyOf": [
                                                         {
@@ -1597,6 +1784,17 @@
                                     "anyOf": [
                                         {
                                             "properties": {
+                                                "deseasonalize": {
+                                                    "anyOf": [
+                                                        {
+                                                            "type": "boolean"
+                                                        },
+                                                        {
+                                                            "type": "null"
+                                                        }
+                                                    ],
+                                                    "description": "Subtract a day-of-week and hour-of-day baseline before detection, so a normal weekly cycle is not read as a level shift (default: false)"
+                                                },
                                                 "diffs_n": {
                                                     "anyOf": [
                                                         {
@@ -1686,6 +1884,17 @@
                                     "anyOf": [
                                         {
                                             "properties": {
+                                                "deseasonalize": {
+                                                    "anyOf": [
+                                                        {
+                                                            "type": "boolean"
+                                                        },
+                                                        {
+                                                            "type": "null"
+                                                        }
+                                                    ],
+                                                    "description": "Subtract a day-of-week and hour-of-day baseline before detection, so a normal weekly cycle is not read as a level shift (default: false)"
+                                                },
                                                 "diffs_n": {
                                                     "anyOf": [
                                                         {
@@ -1787,6 +1996,17 @@
                                     "anyOf": [
                                         {
                                             "properties": {
+                                                "deseasonalize": {
+                                                    "anyOf": [
+                                                        {
+                                                            "type": "boolean"
+                                                        },
+                                                        {
+                                                            "type": "null"
+                                                        }
+                                                    ],
+                                                    "description": "Subtract a day-of-week and hour-of-day baseline before detection, so a normal weekly cycle is not read as a level shift (default: false)"
+                                                },
                                                 "diffs_n": {
                                                     "anyOf": [
                                                         {
@@ -1876,6 +2096,17 @@
                                     "anyOf": [
                                         {
                                             "properties": {
+                                                "deseasonalize": {
+                                                    "anyOf": [
+                                                        {
+                                                            "type": "boolean"
+                                                        },
+                                                        {
+                                                            "type": "null"
+                                                        }
+                                                    ],
+                                                    "description": "Subtract a day-of-week and hour-of-day baseline before detection, so a normal weekly cycle is not read as a level shift (default: false)"
+                                                },
                                                 "diffs_n": {
                                                     "anyOf": [
                                                         {
@@ -1965,6 +2196,17 @@
                                     "anyOf": [
                                         {
                                             "properties": {
+                                                "deseasonalize": {
+                                                    "anyOf": [
+                                                        {
+                                                            "type": "boolean"
+                                                        },
+                                                        {
+                                                            "type": "null"
+                                                        }
+                                                    ],
+                                                    "description": "Subtract a day-of-week and hour-of-day baseline before detection, so a normal weekly cycle is not read as a level shift (default: false)"
+                                                },
                                                 "diffs_n": {
                                                     "anyOf": [
                                                         {
@@ -2065,6 +2307,17 @@
                                     "anyOf": [
                                         {
                                             "properties": {
+                                                "deseasonalize": {
+                                                    "anyOf": [
+                                                        {
+                                                            "type": "boolean"
+                                                        },
+                                                        {
+                                                            "type": "null"
+                                                        }
+                                                    ],
+                                                    "description": "Subtract a day-of-week and hour-of-day baseline before detection, so a normal weekly cycle is not read as a level shift (default: false)"
+                                                },
                                                 "diffs_n": {
                                                     "anyOf": [
                                                         {
@@ -2143,6 +2396,17 @@
                                     "anyOf": [
                                         {
                                             "properties": {
+                                                "deseasonalize": {
+                                                    "anyOf": [
+                                                        {
+                                                            "type": "boolean"
+                                                        },
+                                                        {
+                                                            "type": "null"
+                                                        }
+                                                    ],
+                                                    "description": "Subtract a day-of-week and hour-of-day baseline before detection, so a normal weekly cycle is not read as a level shift (default: false)"
+                                                },
                                                 "diffs_n": {
                                                     "anyOf": [
                                                         {
