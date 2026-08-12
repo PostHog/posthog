@@ -1,5 +1,4 @@
 import { personhogStoreShadowErrorsCounter, personhogStoreShadowSkipsCounter } from '~/common/persons/metrics'
-import { PersonRepositoryTransaction } from '~/common/persons/repositories/person-repository-transaction'
 import { InternalPerson } from '~/types'
 
 import { EventOps } from './person-update'
@@ -51,8 +50,6 @@ function mockStore(): jest.Mocked<PersonsStore> {
 }
 
 describe('RoutingPersonsStore', () => {
-    const fakeTx = {} as PersonRepositoryTransaction
-
     const person = (teamId: number, id = '1'): InternalPerson =>
         ({ id, team_id: teamId, properties: {}, is_identified: false }) as unknown as InternalPerson
 
@@ -96,7 +93,7 @@ describe('RoutingPersonsStore', () => {
     })
 
     describe('personhog mode', () => {
-        it('routes every team to personhog', async () => {
+        it('routes every verb to personhog, never touching pg', async () => {
             const stores = makeStores()
             const store = makeStore(stores, 'personhog')
 
@@ -106,32 +103,19 @@ describe('RoutingPersonsStore', () => {
             expect(stores.pg.fetchForUpdate).not.toHaveBeenCalled()
         })
 
-        it('a transactional create stays on pg in personhog mode', async () => {
-            const stores = makeStores()
-            const store = makeStore(stores, 'personhog')
-            await store.createPerson(
-                undefined as never,
-                {},
-                {},
-                {},
-                1,
-                null,
-                false,
-                'u',
-                { distinctId: 'd' },
-                undefined,
-                fakeTx,
-                0
-            )
-            expect(stores.pg.createPerson).toHaveBeenCalled()
-            expect(stores.personhogMock.createPerson).not.toHaveBeenCalled()
-        })
-
         it('a personhog flush failure propagates, because the store is authoritative', async () => {
             const stores = makeStores()
             stores.personhogMock.flush.mockRejectedValue(new Error('leader down'))
             const store = makeStore(stores, 'personhog')
             await expect(store.flush()).rejects.toThrow('leader down')
+        })
+
+        it('flush never runs the pg side, and returns the personhog results', async () => {
+            const stores = makeStores()
+            const store = makeStore(stores, 'personhog')
+            await expect(store.flush()).resolves.toEqual([])
+            expect(stores.personhogMock.flush).toHaveBeenCalled()
+            expect(stores.pg.flush).not.toHaveBeenCalled()
         })
     })
 
@@ -165,6 +149,26 @@ describe('RoutingPersonsStore', () => {
             stores.personhogMock.flush.mockRejectedValue(new Error('leader down'))
             const store = makeStore(stores, 'shadow')
             await expect(store.flush()).resolves.toEqual([])
+        })
+
+        it('prefetch warms both worlds', async () => {
+            const stores = makeStores()
+            const store = makeStore(stores, 'shadow')
+            await store.prefetchPersons([{ teamId: 1, distinctId: 'd', batchId: 0 }])
+            expect(stores.pg.prefetchPersons).toHaveBeenCalled()
+            expect(stores.personhogMock.prefetchPersons).toHaveBeenCalled()
+        })
+
+        it('getFlushStats counts a batch once when both worlds reference it', () => {
+            const stores = makeStores()
+            stores.pg.getFlushStats.mockReturnValue({ dirtyEntryCount: 2, referencedBatchCount: 1, cacheEntryCount: 3 })
+            stores.personhogMock.getFlushStats.mockReturnValue({
+                dirtyEntryCount: 1,
+                referencedBatchCount: 1,
+                cacheEntryCount: 2,
+            })
+            const store = makeStore(stores, 'shadow')
+            expect(store.getFlushStats()).toEqual({ dirtyEntryCount: 3, referencedBatchCount: 1, cacheEntryCount: 5 })
         })
     })
 

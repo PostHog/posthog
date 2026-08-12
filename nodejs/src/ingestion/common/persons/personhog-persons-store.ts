@@ -123,6 +123,8 @@ export class PersonhogPersonsStore implements PersonsStore {
      * service state.
      */
     private personState: Map<number, Map<string, InternalPerson>> = new Map()
+    /** Serializes flush passes; see flush(). */
+    private flushChain: Promise<void> = Promise.resolve()
 
     constructor(
         private repository: PersonHogPersonWriteRepository,
@@ -357,7 +359,7 @@ export class PersonhogPersonsStore implements PersonsStore {
      * never delegates this member. Reaching it is a wiring bug.
      */
     inTransaction<T>(_description: string, _transaction: (tx: PersonsStoreTransaction) => Promise<T>): Promise<T> {
-        throw new PersonhogPendingRpcError('inTransaction', 'merge saga')
+        return Promise.reject(new PersonhogPendingRpcError('inTransaction', 'merge saga'))
     }
 
     // Merge execution is the merge saga's once it lands; until then every
@@ -370,7 +372,7 @@ export class PersonhogPersonsStore implements PersonsStore {
         _batchId: number,
         _tx?: PersonRepositoryTransaction
     ): Promise<[InternalPerson, PersonMessage[], boolean]> {
-        throw new PersonhogPendingRpcError('updatePersonForMerge', 'merge saga')
+        return Promise.reject(new PersonhogPendingRpcError('updatePersonForMerge', 'merge saga'))
     }
 
     claimLifecycleMarks(
@@ -380,7 +382,7 @@ export class PersonhogPersonsStore implements PersonsStore {
         _distinctId: string,
         _tx?: PersonRepositoryTransaction
     ): Promise<void> {
-        throw new PersonhogPendingRpcError('claimLifecycleMarks', 'merge saga')
+        return Promise.reject(new PersonhogPendingRpcError('claimLifecycleMarks', 'merge saga'))
     }
 
     releaseLifecycleMarks(
@@ -389,11 +391,11 @@ export class PersonhogPersonsStore implements PersonsStore {
         _distinctId: string,
         _tx?: PersonRepositoryTransaction
     ): Promise<void> {
-        throw new PersonhogPendingRpcError('releaseLifecycleMarks', 'merge saga')
+        return Promise.reject(new PersonhogPendingRpcError('releaseLifecycleMarks', 'merge saga'))
     }
 
     isPersonLive(_person: InternalPerson, _distinctId: string, _tx?: PersonRepositoryTransaction): Promise<boolean> {
-        throw new PersonhogPendingRpcError('isPersonLive', 'merge saga')
+        return Promise.reject(new PersonhogPendingRpcError('isPersonLive', 'merge saga'))
     }
 
     addDistinctId(
@@ -403,7 +405,7 @@ export class PersonhogPersonsStore implements PersonsStore {
         _tx: PersonRepositoryTransaction | undefined,
         _batchId: number
     ): Promise<PersonMessage[]> {
-        throw new PersonhogPendingRpcError('addDistinctId', 'merge saga')
+        return Promise.reject(new PersonhogPendingRpcError('addDistinctId', 'merge saga'))
     }
 
     moveDistinctIds(
@@ -414,7 +416,7 @@ export class PersonhogPersonsStore implements PersonsStore {
         _tx: PersonRepositoryTransaction,
         _batchId: number
     ): Promise<MoveDistinctIdsResult> {
-        throw new PersonhogPendingRpcError('moveDistinctIds', 'merge saga')
+        return Promise.reject(new PersonhogPendingRpcError('moveDistinctIds', 'merge saga'))
     }
 
     moveDistinctIdsFromPersons(
@@ -424,7 +426,7 @@ export class PersonhogPersonsStore implements PersonsStore {
         _tx: PersonRepositoryTransaction,
         _batchId: number
     ): Promise<MoveDistinctIdsResult> {
-        throw new PersonhogPendingRpcError('moveDistinctIdsFromPersons', 'merge saga')
+        return Promise.reject(new PersonhogPendingRpcError('moveDistinctIdsFromPersons', 'merge saga'))
     }
 
     // Postgres bookkeeping with nothing to answer in this world: shadow
@@ -473,7 +475,7 @@ export class PersonhogPersonsStore implements PersonsStore {
         _distinctId: string,
         _tx?: PersonRepositoryTransaction
     ): Promise<PersonMessage[]> {
-        throw new PersonhogPendingRpcError('deletePersons', 'merge saga')
+        return Promise.reject(new PersonhogPendingRpcError('deletePersons', 'merge saga'))
     }
 
     deletePerson(
@@ -481,7 +483,7 @@ export class PersonhogPersonsStore implements PersonsStore {
         _distinctId: string,
         _tx?: PersonRepositoryTransaction
     ): Promise<PersonMessage[]> {
-        throw new PersonhogPendingRpcError('deletePerson', 'merge saga')
+        return Promise.reject(new PersonhogPendingRpcError('deletePerson', 'merge saga'))
     }
 
     /**
@@ -610,7 +612,7 @@ export class PersonhogPersonsStore implements PersonsStore {
     }
 
     /**
-     * Ships the batch's folded lanes to the leader, one entry per
+     * Ships every batch's folded lanes to the leader, one entry per
      * person, segments in order. There is deliberately no Postgres
      * fallback. A missing person (deleted or merged mid-batch) and the
      * leader's size rejection are counted and skipped, since neither can
@@ -619,87 +621,142 @@ export class PersonhogPersonsStore implements PersonsStore {
      * response's no-change flag: a retried call whose lost first attempt
      * landed replays into the leader's no-change fast path, and the
      * version still tells the truth. Any other failure fails the flush
-     * so the batch retries whole; lanes are batch-scoped, so one batch's
-     * failure never discards a sibling's shipped results.
+     * so the batch retries whole.
      *
-     * A lane with no update-worthy change — every refined change
+     * Passes serialize, one at a time, with later calls queueing behind
+     * the running one. A pass claims a synchronous snapshot of every
+     * lane before shipping, so ops folded mid-pass land in fresh entries
+     * and ship on the next pass, never into an entry already in flight.
+     * A failed ship restores its entry, ahead of anything folded since:
+     * the failing flush call fails its own batch, but the entry may
+     * belong to a sibling batch that never acked its events, and folds
+     * are idempotent, so re-shipping on a later pass is safe.
+     *
+     * A lane entry with no update-worthy change — every refined change
      * filtered, nothing forced, no scalar movement — is suppressed here
      * rather than shipped, the same no-op classification the Postgres
-     * store applies at its flush. The leader never sees the noise.
+     * store applies at its flush. The exception is a person a sibling
+     * batch also holds ops for: the no-change verdict was judged against
+     * this batch's own baseline, so the entry ships instead and the
+     * leader's refinement no-ops it if it truly is one.
      */
     async flush(): Promise<FlushResult[]> {
-        const results = await Promise.all([...this.lanes.keys()].map((batchId) => this.flushBatch(batchId)))
-        return results.flat()
+        const run = this.flushChain.then(() => this.flushPass())
+        this.flushChain = run.then(
+            () => undefined,
+            () => undefined
+        )
+        return run
     }
 
-    private async flushBatch(batchId: number): Promise<FlushResult[]> {
-        const lane = this.lanes.get(batchId)
-        if (!lane) {
-            return []
+    private async flushPass(): Promise<FlushResult[]> {
+        const captured: { batchId: number; personKey: string; entry: OpsLaneEntry }[] = []
+        for (const [batchId, lane] of this.lanes) {
+            for (const [personKey, entry] of lane) {
+                captured.push({ batchId, personKey, entry })
+            }
         }
-        this.lanes.delete(batchId)
+        // One entry per person per lane, so the number of captured
+        // entries for a person is the number of batches holding it.
+        const entriesPerPerson = new Map<string, number>()
+        for (const { personKey } of captured) {
+            entriesPerPerson.set(personKey, (entriesPerPerson.get(personKey) ?? 0) + 1)
+        }
+        for (const { batchId, personKey } of captured) {
+            this.lanes.get(batchId)?.delete(personKey)
+        }
         const limit = pLimit(this.options.maxConcurrentUpdates)
-        const entries = [...lane.values()]
-
-        const results = await Promise.all(
-            entries.map((entry) =>
-                limit(async (): Promise<FlushResult[]> => {
-                    if (!entry.triggersUpdate) {
-                        personhogStoreFlushCounter.inc({ outcome: 'filtered' })
-                        return []
-                    }
-                    let finalPerson: InternalPerson | null = null
-                    try {
-                        for (const ops of entry.segments) {
-                            const { person } = await this.repository.updatePersonProperties(
-                                {
-                                    teamId: entry.teamId,
-                                    personId: entry.personId,
-                                    eventName: ops.eventName,
-                                    setProperties: ops.set,
-                                    setOnceProperties: ops.setOnce,
-                                    unsetProperties: ops.unset,
-                                    isIdentified: ops.isIdentified,
-                                    lastSeenAtMs: ops.lastSeenAtMs,
-                                },
-                                CALLER_TAG
-                            )
-                            finalPerson = person ?? finalPerson
-                        }
-                        personhogStoreFlushCounter.inc({ outcome: 'success' })
-                    } catch (error) {
-                        if (error instanceof NoRowsUpdatedError) {
-                            // The person was merged or deleted since
-                            // the fold. In-batch that is fine: the
-                            // merge carried the pending projection to
-                            // its target. Merge events are gated off
-                            // this store, so this counter firing means
-                            // a bug, not a cross-batch race.
-                            personhogStoreFlushCounter.inc({ outcome: 'not_found' })
-                        } else if (error instanceof PersonhogPropertiesSizeError) {
-                            // Counted only: the store holds no outputs
-                            // handle, so the size-violation ingestion
-                            // warning the Postgres store emits has no
-                            // path from here.
-                            personhogStoreFlushCounter.inc({ outcome: 'size_violation' })
-                        } else {
-                            personhogStoreFlushCounter.inc({ outcome: 'error' })
-                            logger.error('Failed to flush folded update to personhog', {
-                                teamId: entry.teamId,
-                                personId: entry.personId,
-                                error,
-                            })
-                            throw error
-                        }
-                    }
-                    // No FlushResult: the leader's changelog is the
-                    // ClickHouse person feed, so a flush publishes
-                    // nothing — shipping the segments is the whole job.
-                    return []
-                })
+        const outcomes = await Promise.allSettled(
+            captured.map(({ batchId, personKey, entry }) =>
+                limit(() => this.shipEntry(batchId, personKey, entry, (entriesPerPerson.get(personKey) ?? 0) > 1))
             )
         )
-        return results.flat()
+        for (const [batchId, lane] of this.lanes) {
+            if (lane.size === 0) {
+                this.lanes.delete(batchId)
+            }
+        }
+        const failed = outcomes.find((outcome): outcome is PromiseRejectedResult => outcome.status === 'rejected')
+        if (failed) {
+            throw failed.reason
+        }
+        // No FlushResults: the leader's changelog is the ClickHouse
+        // person feed, so a flush publishes nothing — shipping the
+        // segments is the whole job.
+        return []
+    }
+
+    private async shipEntry(
+        batchId: number,
+        personKey: string,
+        entry: OpsLaneEntry,
+        siblingPending: boolean
+    ): Promise<void> {
+        if (!entry.triggersUpdate && !siblingPending) {
+            personhogStoreFlushCounter.inc({ outcome: 'filtered' })
+            return
+        }
+        try {
+            for (const ops of entry.segments) {
+                await this.repository.updatePersonProperties(
+                    {
+                        teamId: entry.teamId,
+                        personId: entry.personId,
+                        eventName: ops.eventName,
+                        setProperties: ops.set,
+                        setOnceProperties: ops.setOnce,
+                        unsetProperties: ops.unset,
+                        isIdentified: ops.isIdentified,
+                        lastSeenAtMs: ops.lastSeenAtMs,
+                    },
+                    CALLER_TAG
+                )
+            }
+            personhogStoreFlushCounter.inc({ outcome: 'success' })
+        } catch (error) {
+            if (error instanceof NoRowsUpdatedError) {
+                // The person was merged or deleted since the fold.
+                // In-batch that is fine: the merge carried the pending
+                // projection to its target. Merge events are gated off
+                // this store, so this counter firing means a bug, not a
+                // cross-batch race.
+                personhogStoreFlushCounter.inc({ outcome: 'not_found' })
+            } else if (error instanceof PersonhogPropertiesSizeError) {
+                // Counted only: the store holds no outputs handle, so
+                // the size-violation ingestion warning the Postgres
+                // store emits has no path from here.
+                personhogStoreFlushCounter.inc({ outcome: 'size_violation' })
+            } else {
+                personhogStoreFlushCounter.inc({ outcome: 'error' })
+                logger.error('Failed to flush folded update to personhog', {
+                    teamId: entry.teamId,
+                    personId: entry.personId,
+                    error,
+                })
+                this.restoreEntry(batchId, personKey, entry)
+                throw error
+            }
+        }
+    }
+
+    /**
+     * Puts a failed entry back in its lane, its segments ahead of any
+     * folded since the pass claimed it, preserving order for the next
+     * pass. A released batch stays released: its redelivery re-folds
+     * these ops.
+     */
+    private restoreEntry(batchId: number, personKey: string, entry: OpsLaneEntry): void {
+        const lane = this.lanes.get(batchId)
+        if (!lane) {
+            return
+        }
+        const newer = lane.get(personKey)
+        if (!newer) {
+            lane.set(personKey, entry)
+            return
+        }
+        newer.segments = [...entry.segments, ...newer.segments]
+        newer.triggersUpdate = newer.triggersUpdate || entry.triggersUpdate
     }
 
     /**

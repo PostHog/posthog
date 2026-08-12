@@ -55,10 +55,6 @@ export function assertPersonsStoreModeConfig(
  * store cannot serve yet answer with its pending-saga placeholders, so
  * unsupported paths fail loudly in personhog mode and surface as counted
  * shadow errors in shadow mode.
- *
- * `personPropertiesSize` routes by mode but is not shadowed: the
- * personhog store answers it with a constant because the leader enforces
- * the size ceiling at admission.
  */
 export class RoutingPersonsStore implements PersonsStore {
     constructor(
@@ -83,24 +79,22 @@ export class RoutingPersonsStore implements PersonsStore {
     /**
      * The whole mode semantics, once: personhog mode runs the personhog
      * call, shadow runs pg as the authoritative result and the personhog
-     * call after it, swallowed. A verb invoked under a live Postgres
-     * transaction stays on pg — its work is already inside that
-     * transaction's world.
+     * call after it, swallowed. Verbs carrying a live Postgres
+     * transaction never arrive here, because the transaction wrapper
+     * pg's inTransaction hands out pins every tx-scoped call to the
+     * store that opened it.
      */
     private async route<T>(
         verb: string,
         pg: () => Promise<T>,
         personhog: () => Promise<T>,
-        opts?: { tx?: unknown; shadow?: () => Promise<unknown> }
+        opts?: { shadow?: () => Promise<unknown> }
     ): Promise<T> {
-        const mode = opts?.tx ? 'pg' : this.mode
-        if (mode === 'personhog') {
+        if (this.mode === 'personhog') {
             return personhog()
         }
         const result = await pg()
-        if (mode === 'shadow') {
-            await this.shadowed(verb, opts?.shadow ?? personhog)
-        }
+        await this.shadowed(verb, opts?.shadow ?? personhog)
         return result
     }
 
@@ -217,8 +211,7 @@ export class RoutingPersonsStore implements PersonsStore {
                     extraDistinctIds,
                     tx,
                     batchId
-                ),
-            { tx }
+                )
         )
     }
 
@@ -276,7 +269,6 @@ export class RoutingPersonsStore implements PersonsStore {
                     tx
                 ),
             {
-                tx,
                 shadow: () =>
                     this.withShadowPerson(
                         'updatePersonWithPropertiesDiffForUpdate',
@@ -490,9 +482,11 @@ export class RoutingPersonsStore implements PersonsStore {
     }
 
     personPropertiesSize(personId: string, teamId: number): Promise<number> {
-        return this.mode === 'personhog'
-            ? this.personhog.personPropertiesSize(personId, teamId)
-            : this.pg.personPropertiesSize(personId, teamId)
+        return this.route(
+            'personPropertiesSize',
+            () => this.pg.personPropertiesSize(personId, teamId),
+            () => this.personhog.personPropertiesSize(personId, teamId)
+        )
     }
 
     removeDistinctIdFromCache(teamId: number, distinctId: string): void {
@@ -500,24 +494,12 @@ export class RoutingPersonsStore implements PersonsStore {
         this.personhog.removeDistinctIdFromCache(teamId, distinctId)
     }
 
-    async prefetchPersons(teamDistinctIds: { teamId: number; distinctId: string; batchId: number }[]): Promise<void> {
-        if (this.mode === 'shadow') {
-            await this.pg.prefetchPersons(teamDistinctIds)
-        }
-        await this.shadowedOrDirect('prefetchPersons', () => this.personhog.prefetchPersons(teamDistinctIds))
-    }
-
-    /**
-     * The personhog side of a fan-out: swallowed in shadow, propagated in
-     * personhog mode, where the store is authoritative and redelivery is
-     * the retry.
-     */
-    private async shadowedOrDirect(verb: string, run: () => Promise<unknown>): Promise<void> {
-        if (this.mode === 'shadow') {
-            await this.shadowed(verb, run)
-        } else {
-            await run()
-        }
+    prefetchPersons(teamDistinctIds: { teamId: number; distinctId: string; batchId: number }[]): Promise<void> {
+        return this.route(
+            'prefetchPersons',
+            () => this.pg.prefetchPersons(teamDistinctIds),
+            () => this.personhog.prefetchPersons(teamDistinctIds)
+        )
     }
 
     getFlushStats(): BatchWritingStoreFlushStats {
@@ -525,15 +507,20 @@ export class RoutingPersonsStore implements PersonsStore {
         const personhog = this.personhog.getFlushStats()
         return {
             dirtyEntryCount: pg.dirtyEntryCount + personhog.dirtyEntryCount,
-            referencedBatchCount: pg.referencedBatchCount + personhog.referencedBatchCount,
+            // Both stores see the same batches in shadow mode, so batch
+            // references overlap rather than add; entries and cache
+            // slots are per-store and sum.
+            referencedBatchCount: Math.max(pg.referencedBatchCount, personhog.referencedBatchCount),
             cacheEntryCount: pg.cacheEntryCount + personhog.cacheEntryCount,
         }
     }
 
-    async flush(): Promise<FlushResult[]> {
-        const results = await this.pg.flush()
-        await this.shadowedOrDirect('flush', () => this.personhog.flush())
-        return results
+    flush(): Promise<FlushResult[]> {
+        return this.route(
+            'flush',
+            () => this.pg.flush(),
+            () => this.personhog.flush()
+        )
     }
 
     releaseBatch(batchId: number): void {

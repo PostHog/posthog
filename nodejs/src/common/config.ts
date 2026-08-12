@@ -112,7 +112,12 @@ export type CommonConfig = BaseServerConfig & {
 
     // PersonHog gRPC
     PERSONHOG_ENABLED: boolean
-    /** Which world the ingestion persons store writes: 'pg' (default), 'personhog', or 'shadow' (pg authoritative, personhog best-effort). */
+    /**
+     * Which world the ingestion persons store writes: 'pg' (default),
+     * 'personhog', or 'shadow' (pg authoritative, personhog best-effort).
+     * Until the merge saga lands, merge events fail loudly in personhog
+     * mode, so it is only safe for traffic that produces none.
+     */
     PERSONS_STORE_MODE: string
     /** Host and port of the personhog identity server. */
     PERSONHOG_IDENTITY_ADDR: string
