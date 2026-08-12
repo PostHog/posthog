@@ -572,6 +572,7 @@ class Integration(models.Model):
         GOOGLE_PUBSUB = "google-pubsub"
         GOOGLE_SEARCH_CONSOLE = "google-search-console"
         GOOGLE_SHEETS = "google-sheets"
+        HELPSCOUT = "helpscout"
         HUBSPOT = "hubspot"
         INSTAGRAM = "instagram"
         INTERCOM = "intercom"
@@ -854,6 +855,7 @@ class OauthIntegration:
         "meta-ads",
         "instagram",
         "intercom",
+        "helpscout",
         "linear",
         "clickup",
         "jira",
@@ -972,6 +974,23 @@ class OauthIntegration:
                 id_path="instance_url",
                 name_path="instance_url",
                 pkce=True,
+            )
+        elif kind == "helpscout":
+            if not settings.HELPSCOUT_APP_CLIENT_ID or not settings.HELPSCOUT_APP_CLIENT_SECRET:
+                raise NotImplementedError("Help Scout app not configured")
+
+            return OauthConfig(
+                authorize_url="https://secure.helpscout.net/authentication/authorizeClientApplication",
+                token_url="https://api.helpscout.net/v2/oauth2/token",
+                token_info_url="https://api.helpscout.net/v2/users/me",
+                client_id=settings.HELPSCOUT_APP_CLIENT_ID,
+                client_secret=settings.HELPSCOUT_APP_CLIENT_SECRET,
+                # Help Scout grants the authorizing user's full Mailbox API access and takes no
+                # scope parameter on the authorize URL.
+                scope="",
+                id_path="id",
+                name_path="email",
+                token_info_config_fields=["id", "email"],
             )
         elif kind == "hubspot":
             if not settings.HUBSPOT_APP_CLIENT_ID or not settings.HUBSPOT_APP_CLIENT_SECRET:
