@@ -102,7 +102,7 @@ function buildLogsAlertWizardSteps({
             title: 'Set trigger',
             description: 'Set the log count that fires the alert and reduce notification noise if needed.',
             content: (
-                <div className="max-w-2xl space-y-6">
+                <div className="space-y-6">
                     <LogsAlertTrigger />
                     <LogsAlertSimulation embedded />
                 </div>
