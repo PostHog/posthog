@@ -2,6 +2,7 @@
 
 from django.urls import path, re_path
 
+from .captured_email_threads import CapturedEmailThreadDetailView, CapturedEmailThreadListView
 from .email_events import email_inbound_handler
 from .email_settings import (
     EmailConnectView,
@@ -61,6 +62,12 @@ urlpatterns = [
     re_path(r"^v1/email/set-default/?$", EmailSetDefaultView.as_view(), name="email-set-default"),
     re_path(r"^v1/email/verify-domain/?$", EmailVerifyDomainView.as_view(), name="email-verify-domain"),
     re_path(r"^v1/email/send-test/?$", EmailSendTestView.as_view(), name="email-send-test"),
+    path("v1/email/threads", CapturedEmailThreadListView.as_view(), name="captured-email-thread-list"),
+    path(
+        "v1/email/threads/<uuid:thread_id>",
+        CapturedEmailThreadDetailView.as_view(),
+        name="captured-email-thread-detail",
+    ),
     # GitHub Issues channel
     re_path(r"^v1/github/status/?$", GithubStatusView.as_view(), name="github-status"),
     re_path(r"^v1/github/connect/?$", GithubConnectView.as_view(), name="github-connect"),

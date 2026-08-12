@@ -5,6 +5,7 @@ from .email_outbox_message import EmailOutboxMessage
 from .email_thread import (
     EMAIL_THREAD_COMMENT_SCOPE,
     EmailThread,
+    EmailThreadAccess,
     EmailThreadMessage,
     EmailThreadMessageDirection,
     EmailThreadParticipant,
@@ -32,6 +33,7 @@ __all__ = [
     "EmailOutboxMessage",
     "EMAIL_THREAD_COMMENT_SCOPE",
     "EmailThread",
+    "EmailThreadAccess",
     "EmailThreadMessage",
     "EmailThreadMessageDirection",
     "EmailThreadParticipant",

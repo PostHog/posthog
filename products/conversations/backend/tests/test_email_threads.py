@@ -12,6 +12,7 @@ from posthog.models.comment import Comment
 from products.conversations.backend.models import (
     EMAIL_THREAD_COMMENT_SCOPE,
     EmailThread,
+    EmailThreadAccess,
     EmailThreadMessage,
     EmailThreadMessageDirection,
     EmailThreadParticipant,
@@ -202,6 +203,11 @@ class TestEmailThreadPersistence(BaseTest):
             display_name="Example customer",
             kind=EmailThreadParticipantKind.CUSTOMER,
         )
+        EmailThreadAccess.objects.for_team(self.team.id).create(
+            team=self.team,
+            thread=thread,
+            user=self.user,
+        )
         orphaned_content = Comment.objects.create(
             team=self.team,
             scope=EMAIL_THREAD_COMMENT_SCOPE,
@@ -220,5 +226,6 @@ class TestEmailThreadPersistence(BaseTest):
         assert not EmailThread.objects.for_team(self.team.id).filter(id=thread.id).exists()
         assert not EmailThreadMessage.objects.for_team(self.team.id).filter(id=message.id).exists()
         assert not EmailThreadParticipant.objects.for_team(self.team.id).filter(thread_id=thread.id).exists()
+        assert not EmailThreadAccess.objects.for_team(self.team.id).filter(thread_id=thread.id).exists()
         assert not Comment.objects.filter(id__in=[message.comment_id, orphaned_content.id]).exists()
         assert Comment.objects.filter(id=unrelated.id).exists()

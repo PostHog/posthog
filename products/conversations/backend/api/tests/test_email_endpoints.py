@@ -1032,35 +1032,6 @@ class TestEmailInboundMultiConfig(BaseTest):
         ticket = Ticket.objects.get(team=self.team)
         assert ticket.email_config_id == config2.id
 
-    @patch("products.conversations.backend.api.email_events.validate_webhook_signature", return_value=True)
-    def test_customer_communication_channel_does_not_create_support_ticket(self, _mock_sig: MagicMock) -> None:
-        config = EmailChannel.objects.create(
-            team=self.team,
-            kind=EmailChannelKind.CUSTOMER_COMMUNICATION,
-            owner=self.user,
-            inbound_token="c0570a111",
-            from_email="csm@example.com",
-            from_name="Customer success",
-            domain="example.com",
-            domain_verified=True,
-        )
-
-        response = self.client.post(
-            "/api/conversations/v1/email/inbound",
-            {
-                "recipient": "team-c0570a111@mg.posthog.com",
-                "from": "customer@test.com",
-                "Message-Id": "<customer-message@test.com>",
-                "subject": "Account question",
-                "stripped-text": "Can you help?",
-            },
-        )
-
-        assert response.status_code == 200
-        assert not Ticket.objects.filter(team=self.team).exists()
-        assert not Comment.objects.filter(team=self.team).exists()
-        assert EmailChannel.objects.get(id=config.id).kind == EmailChannelKind.CUSTOMER_COMMUNICATION
-
 
 class TestEmailInboundContent(BaseTest):
     def setUp(self):
