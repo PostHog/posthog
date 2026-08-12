@@ -229,6 +229,7 @@ interface TestableServer {
   ): Promise<void>;
   detectedPrUrl: string | null;
   slackArtifactDelivery: "none" | "message" | "canvas_file" | null;
+  slackChartDelivery: boolean;
   buildCloudSystemPrompt(
     prUrl?: string | null,
     slackThreadUrl?: string | null,
@@ -4147,6 +4148,59 @@ describe("AgentServer HTTP Mode", () => {
 
       expect(s.buildCloudSystemPrompt()).not.toContain(
         "## Delivering to Slack",
+      );
+    });
+
+    // Charts need only the rollout flag, while canvas/file also needs Slack scopes still in
+    // review, so the chart offer has to be independent of the delivery mode in both
+    // directions: present on a message-only workspace, absent on a canvas_file one whose
+    // backend never sent the key.
+    it.each([
+      { delivery: "canvas_file" as const, charts: true },
+      { delivery: "message" as const, charts: true },
+    ])(
+      "offers the chart endpoint on a $delivery workspace when charts are on",
+      ({ delivery, charts }) => {
+        const s = createServer() as unknown as TestableServer;
+        s.slackArtifactDelivery = delivery;
+        s.slackChartDelivery = charts;
+
+        const prompt = s.buildCloudSystemPrompt();
+
+        expect(prompt).toContain("living_artifacts/chart/");
+        expect(prompt).toContain("deliver a chart image by default");
+      },
+    );
+
+    it.each([
+      { delivery: "canvas_file" as const },
+      { delivery: "message" as const },
+      { delivery: "none" as const },
+    ])(
+      "never mentions charts on a $delivery workspace when charts are off",
+      ({ delivery }) => {
+        const s = createServer() as unknown as TestableServer;
+        s.slackArtifactDelivery = delivery;
+        s.slackChartDelivery = false;
+
+        expect(s.buildCloudSystemPrompt()).not.toContain(
+          "living_artifacts/chart/",
+        );
+      },
+    );
+
+    it("tells a message-only workspace that charts are the exception to the no-file rule", () => {
+      // Without this the two bullets contradict each other: one forbids file delivery, the
+      // other tells the agent to deliver an image.
+      const s = createServer() as unknown as TestableServer;
+      s.slackArtifactDelivery = "message";
+      s.slackChartDelivery = true;
+
+      const prompt = s.buildCloudSystemPrompt();
+
+      expect(prompt).toContain("Chart images are the one exception");
+      expect(prompt).toContain(
+        "cannot be expressed as a Slack message or a chart image",
       );
     });
 

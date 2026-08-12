@@ -136,6 +136,7 @@ export function LogsAlertFilters({ filterError }: { filterError?: string }): JSX
                     <SeverityLevelsFilter
                         value={alertForm.severityLevels}
                         onChange={(levels) => setAlertFormValue('severityLevels', levels)}
+                        showBulkActions
                     />
                 </LemonField>
                 <LemonField.Pure label="Service">
