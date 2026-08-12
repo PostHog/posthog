@@ -129,6 +129,15 @@ class TestGithubSource:
         retryable_errors = self.source.get_retryable_errors()
         assert error_message_matches(observed_error, retryable_errors)
 
+    def test_transient_5xx_error_is_retryable_not_non_retryable(self):
+        # A GithubRetryableError (any transient upstream 5xx) that exhausts _fetch_page's tenacity
+        # retry must stay retryable, so a GitHub-side outage doesn't disable the source.
+        observed_error = "Github API error (retryable): status=503, url=https://api.github.com/repos/o/r/issues"
+        non_retryable_errors = self.source.get_non_retryable_errors()
+        assert not any(key in observed_error for key in non_retryable_errors)
+        retryable_errors = self.source.get_retryable_errors()
+        assert error_message_matches(observed_error, retryable_errors)
+
     @pytest.mark.parametrize(
         "raised_message,expected_key",
         [
