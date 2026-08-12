@@ -1323,6 +1323,37 @@ class TestQueryUpgrade(APIBaseTest):
         )
 
 
+class TestQueryNonObjectBody(APIBaseTest):
+    @parameterized.expand(
+        [
+            ("query", "/query/"),
+            ("upgrade", "/query/upgrade/"),
+        ]
+    )
+    def test_non_object_json_body_is_rejected(self, _name, path):
+        for body in ([{"kind": "HogQLQuery"}], "nope", 5):
+            response = self.client.post(
+                f"/api/environments/{self.team.id}{path}", body, content_type="application/json"
+            )
+
+            self.assertEqual(response.status_code, 400, f"{body!r} returned {response.status_code}")
+
+    @parameterized.expand(
+        [
+            ("query", "/query/"),
+            ("upgrade", "/query/upgrade/"),
+        ]
+    )
+    def test_form_encoded_body_is_rejected(self, _name, path):
+        response = self.client.post(
+            f"/api/environments/{self.team.id}{path}",
+            "query=nope",
+            content_type="application/x-www-form-urlencoded",
+        )
+
+        self.assertEqual(response.status_code, 400)
+
+
 class TestQueryLLMFormatting(ClickhouseTestMixin, APIBaseTest):
     ENDPOINT = "query"
 

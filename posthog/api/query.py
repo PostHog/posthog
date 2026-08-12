@@ -3,7 +3,7 @@ from time import perf_counter
 from typing import NoReturn
 
 from django.core.cache import cache
-from django.http import JsonResponse
+from django.http import JsonResponse, QueryDict
 from django.http.response import HttpResponseBase
 
 import orjson
@@ -126,6 +126,18 @@ def _mark_explicit_date_boundaries(query: BaseModel) -> None:
         date_range.explicitDate = True
 
 
+def _mutable_object_body(request: Request) -> dict:
+    """Return the request body as a plain mutable dict, rejecting anything that isn't a JSON object.
+
+    `upgrade_node` migrates schema versions by assigning into the body, so a body it cannot assign
+    into has to be turned away here. A form-encoded body arrives as an immutable QueryDict, and its
+    values are lists of strings rather than the nested objects a query is made of.
+    """
+    if not isinstance(request.data, dict) or isinstance(request.data, QueryDict):
+        raise ValidationError("Query body must be a JSON object.")
+    return dict(request.data)
+
+
 def _process_query_request(
     request_data: QueryRequest, team, client_query_id: str | None = None, user=None
 ) -> tuple[BaseModel, str, ExecutionMode]:
@@ -212,9 +224,10 @@ class QueryViewSet(QueryCoalescingMixin, TeamAndOrgViewSetMixin, PydanticModelMi
             or (settings.API_QUERIES_LEGACY_TEAM_LIST and self.team_id not in settings.API_QUERIES_LEGACY_TEAM_LIST)
         ):
             return [APIQueriesBurstThrottle(), APIQueriesSustainedThrottle()]
-        if query := self.request.data.get("query"):
-            if isinstance(query, dict) and query.get("kind") == "HogQLQuery":
-                return [HogQLQueryThrottle()]
+        # Runs before the handler, so it has to tolerate a body the handler would reject.
+        query = self.request.data.get("query") if isinstance(self.request.data, dict) else None
+        if query and isinstance(query, dict) and query.get("kind") == "HogQLQuery":
+            return [HogQLQueryThrottle()]
         return [ClickHouseBurstRateThrottle(), ClickHouseSustainedRateThrottle()]
 
     def check_team_api_queries_concurrency(self):
@@ -244,7 +257,7 @@ class QueryViewSet(QueryCoalescingMixin, TeamAndOrgViewSetMixin, PydanticModelMi
         self._validate_query_kind(request, kwargs.get("query_kind"))
         start_time = perf_counter()
         with tracer.start_as_current_span("posthog.query.upgrade"):
-            upgraded_query = upgrade(request.data)
+            upgraded_query = upgrade(_mutable_object_body(request))
         data = self.get_model(upgraded_query, QueryRequest)
 
         query = None
@@ -439,7 +452,7 @@ class QueryViewSet(QueryCoalescingMixin, TeamAndOrgViewSetMixin, PydanticModelMi
     )
     @action(methods=["POST"], detail=False, url_path="upgrade")
     def upgrade(self, request: Request, *args, **kwargs) -> Response:
-        upgraded_query = upgrade(request.data)
+        upgraded_query = upgrade(_mutable_object_body(request))
         return Response({"query": upgraded_query["query"]}, status=200)
 
     @extend_schema(

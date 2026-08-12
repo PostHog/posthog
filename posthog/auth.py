@@ -230,7 +230,8 @@ class PersonalAPIKeyAuthentication(authentication.BaseAuthentication):
                 return token, cls.SOURCE_HEADER
         data = request.data if request_data is None and isinstance(request, Request) else request_data
 
-        if data and "personal_api_key" in data:
+        # Authentication runs before any body validation, so `data` can be any JSON value.
+        if isinstance(data, dict) and "personal_api_key" in data:
             return data["personal_api_key"], cls.SOURCE_BODY
         if "personal_api_key" in request.GET:
             return request.GET["personal_api_key"], cls.SOURCE_QUERY_STRING
