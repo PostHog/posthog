@@ -89,6 +89,11 @@ describe('DashboardsTable move to folder', () => {
         expect(moveDashboardsToFolder).not.toHaveBeenCalled()
     })
 
+    it('says how many of the selection will be left behind', () => {
+        renderTable([1, 2, 3], [1, 2, 3], [1])
+        expect(screen.getByText('Move 1 to folder')).toBeInTheDocument()
+    })
+
     it('disables the bulk move when nothing selected is filed anywhere', () => {
         renderTable([1, 2], [1, 2], [])
         fireEvent.click(screen.getByText('Move to folder'))

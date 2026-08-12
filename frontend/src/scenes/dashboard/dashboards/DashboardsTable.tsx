@@ -36,6 +36,35 @@ import { UNFILED_DASHBOARDS_FOLDER } from '../dashboardConstants'
 import { DASHBOARD_CANNOT_EDIT_MESSAGE } from '../DashboardHeader'
 import { DashboardsFiltersBar } from './DashboardsFiltersBar'
 
+function BulkMoveToFolderButton({
+    ctx,
+    filedIds,
+    onMove,
+}: {
+    ctx: { selectedKeys: ReadonlyArray<number>; setSelectedKeys: (keys: ReadonlyArray<number>) => void }
+    filedIds: Set<number>
+    onMove: (ids: number[], method: 'single' | 'bulk', onStillSelected?: (ids: number[]) => void) => void
+}): JSX.Element {
+    const movable = ctx.selectedKeys.filter((key) => filedIds.has(key))
+    const skipped = ctx.selectedKeys.length - movable.length
+    return (
+        <LemonButton
+            size="small"
+            type="secondary"
+            onClick={() => onMove([...ctx.selectedKeys], 'bulk', ctx.setSelectedKeys)}
+            disabledReason={movable.length === 0 ? 'None of the selected dashboards are filed anywhere yet' : undefined}
+            tooltip={
+                skipped > 0 && movable.length > 0
+                    ? `${skipped} of the ${ctx.selectedKeys.length} selected are not filed anywhere yet, so they stay put`
+                    : undefined
+            }
+            data-attr="dashboards-bulk-move-to-folder"
+        >
+            {skipped > 0 && movable.length > 0 ? `Move ${movable.length} to folder` : 'Move to folder'}
+        </LemonButton>
+    )
+}
+
 export function DashboardsTableContainer(): JSX.Element {
     const { dashboardsLoading } = useValues(dashboardsModel)
     const { dashboards } = useValues(dashboardsLogic)
@@ -325,21 +354,11 @@ export function DashboardsTable({
                     headerAriaLabel: 'Select all dashboards on this page',
                     renderActions: (ctx) => (
                         <>
-                            <LemonButton
-                                size="small"
-                                type="secondary"
-                                onClick={() =>
-                                    moveDashboardsToFolder([...ctx.selectedKeys], 'bulk', ctx.setSelectedKeys)
-                                }
-                                disabledReason={
-                                    ctx.selectedKeys.some((key) => filedDashboardIds.has(key))
-                                        ? undefined
-                                        : 'None of the selected dashboards are filed anywhere yet'
-                                }
-                                data-attr="dashboards-bulk-move-to-folder"
-                            >
-                                Move to folder
-                            </LemonButton>
+                            <BulkMoveToFolderButton
+                                ctx={ctx}
+                                filedIds={filedDashboardIds}
+                                onMove={moveDashboardsToFolder}
+                            />
                             <BulkUpdateTagsButton
                                 resource="dashboards"
                                 selectedIds={ctx.selectedKeys}
