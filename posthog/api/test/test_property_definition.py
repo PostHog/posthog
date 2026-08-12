@@ -1276,5 +1276,5 @@ class TestPropertyDefinitionUsage(APIBaseTest):
         self.assertEqual(names, expected_names)
 
     def test_saving_insight_extracts_property_references_into_query_metadata(self):
-        refs = self.insight.query_metadata.get("properties")
-        self.assertEqual(refs, [{"name": "plan", "type": "person"}])
+        assert self.insight.query_metadata is not None
+        self.assertEqual(self.insight.query_metadata.get("properties"), [{"name": "plan", "type": "person"}])
