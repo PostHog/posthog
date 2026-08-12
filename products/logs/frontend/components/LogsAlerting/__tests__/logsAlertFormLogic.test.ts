@@ -14,7 +14,6 @@ import {
 } from 'products/logs/frontend/generated/api.schemas'
 
 import { LogsAlertFormType, logsAlertFormLogic } from '../logsAlertFormLogic'
-import { logsAlertingLogic } from '../logsAlertingLogic'
 
 jest.mock('products/logs/frontend/generated/api', () => ({
     logsAlertsCreate: jest.fn(),
@@ -88,8 +87,6 @@ const VALID_FORM_VALUES: LogsAlertFormType = {
 }
 
 describe('logsAlertFormLogic', () => {
-    let alertingLogic: ReturnType<typeof logsAlertingLogic.build>
-
     beforeEach(() => {
         initKeaTests()
         jest.clearAllMocks()
@@ -99,12 +96,6 @@ describe('logsAlertFormLogic', () => {
             results: [],
             count: 0,
         })
-        alertingLogic = logsAlertingLogic.build()
-        alertingLogic.mount()
-    })
-
-    afterEach(() => {
-        alertingLogic?.unmount()
     })
 
     describe('errors validation', () => {
@@ -258,10 +249,12 @@ describe('logsAlertFormLogic', () => {
 
     describe('create path (props.alert is null)', () => {
         let logic: ReturnType<typeof logsAlertFormLogic.build>
+        let onCreateSuccess: jest.Mock
 
         beforeEach(() => {
             mockLogsAlertsCreate.mockResolvedValue(MOCK_CREATED_ALERT)
-            logic = logsAlertFormLogic({ alert: null })
+            onCreateSuccess = jest.fn()
+            logic = logsAlertFormLogic({ alert: null, onCreateSuccess })
             logic.mount()
         })
 
@@ -307,6 +300,7 @@ describe('logsAlertFormLogic', () => {
             }).toFinishAllListeners()
 
             expect(lemonToast.success).toHaveBeenCalledWith('Alert created')
+            expect(onCreateSuccess).toHaveBeenCalledTimes(1)
         })
 
         it('trims whitespace from name in create payload', async () => {
@@ -383,16 +377,6 @@ describe('logsAlertFormLogic', () => {
             const calledWith = mockLogsAlertsCreate.mock.calls[0][1]!
             expect((calledWith.filters as Record<string, unknown>).serviceNames).toBeUndefined()
             expect((calledWith.filters as Record<string, unknown>).filterGroup).toBeUndefined()
-        })
-
-        it('dispatches setEditingAlert(null) and setIsCreating(false) after create', async () => {
-            await expectLogic(logic, () => {
-                logic.actions.setAlertFormValues(VALID_FORM_VALUES)
-                logic.actions.submitAlertForm()
-            }).toFinishAllListeners()
-
-            expect(alertingLogic.values.editingAlert).toBeNull()
-            expect(alertingLogic.values.isCreating).toBe(false)
         })
 
         it('shows error toast when create API throws with detail', async () => {
@@ -508,16 +492,6 @@ describe('logsAlertFormLogic', () => {
             }).toFinishAllListeners()
 
             expect(lemonToast.error).toHaveBeenCalledWith('Permission denied')
-        })
-
-        it('dispatches setEditingAlert(null) and setIsCreating(false) after update', async () => {
-            await expectLogic(logic, () => {
-                logic.actions.setAlertFormValues(VALID_FORM_VALUES)
-                logic.actions.submitAlertForm()
-            }).toFinishAllListeners()
-
-            expect(alertingLogic.values.editingAlert).toBeNull()
-            expect(alertingLogic.values.isCreating).toBe(false)
         })
     })
 
