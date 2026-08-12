@@ -24,7 +24,7 @@ export interface Credential {
 /** Every credential on the mount, as one read of it saw them. */
 export interface MountedCredentials {
     fetchedAt: string
-    /** Hash of the whole mounted key set. Identifies the content, not an AWS version. */
+    /** Hash of the whole mounted key set, so unchanged content keeps one id. */
     versionId: string
     credentials: Record<string, Credential>
 }

@@ -11,8 +11,6 @@ import { authFailuresTotal, httpRequestDurationSeconds, httpRequestsTotal } from
 import { resolveKeys } from '../resolve'
 import type { Lifecycle, MountedCredentials } from '../types'
 
-const KNOWN_PATHS = new Set(['/_liveness', '/_readiness', '/v1/secrets/resolve'])
-
 export interface AppOptions {
     verifier: JwtVerifier
     lifecycle: Lifecycle
@@ -23,14 +21,13 @@ export function createApp(opts: AppOptions): Hono {
     const app = new Hono()
 
     app.use('*', async (c, next) => {
-        const pathname = new URL(c.req.url).pathname
-        // An unmatched path must not become a label value, or anyone can grow the series set.
-        const route = KNOWN_PATHS.has(pathname) ? pathname : 'other'
         const start = performance.now()
         try {
             await next()
         } finally {
-            const labels = { method: c.req.method, route, status: String(c.res.status) }
+            // The registered route pattern, not the raw path: an unmatched request labels
+            // as the router's catch-all, so nobody can grow the series set with URLs.
+            const labels = { method: c.req.method, route: c.req.routePath, status: String(c.res.status) }
             httpRequestsTotal.labels(labels).inc()
             httpRequestDurationSeconds.labels(labels).observe((performance.now() - start) / 1000)
         }

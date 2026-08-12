@@ -113,8 +113,7 @@ export class SecretMount {
     }
 
     private build(values: Record<string, string>): MountedCredentials | null {
-        // Hash the whole set, sorted, so the id is stable and identifies the content rather
-        // than an AWS version we can no longer see from a mount.
+        // Sorted so the same content always hashes to the same version id.
         const contentHash = createHash('sha256')
             .update(
                 Object.keys(values)

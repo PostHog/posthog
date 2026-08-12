@@ -162,12 +162,14 @@ describe('http surface', () => {
 
     // An unmatched path must not become a label value, or anyone can grow the series set
     // by requesting random URLs.
-    it('collapses an unknown route to a constant metric label', async () => {
+    it('collapses every unknown route to one constant metric label', async () => {
         const { app } = build()
         await app.request('http://svc/definitely-not-a-route-9f2a')
+        await app.request('http://svc/another-invented-route-c81d')
 
         const labels = (await httpRequestsTotal.get()).values.map((v) => String(v.labels['route']))
         expect(labels).not.toContain('/definitely-not-a-route-9f2a')
-        expect(labels).toContain('other')
+        expect(labels).not.toContain('/another-invented-route-c81d')
+        expect(new Set(labels).size).toBe(1)
     })
 })
