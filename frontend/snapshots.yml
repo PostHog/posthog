@@ -20,6 +20,26 @@ snapshots:
         hash: v1.k794b7964.8e7770037014d788ef5b7299b6b2f834c2afcad14dd6c6033ddd8ac885faa1c6.buSflXKIcQC5dcm7fbQWsczrZY8TleOkvO86ugYW8yw
     charts-heatmap--linear-color-scale--light:
         hash: v1.k794b7964.c94c02704b7f9b4972f811336d019e15b77cff047551902ca74d65c1571ea6ff.PA6k_wyPYr-SNYm1-Mv8sa0DFCLb2-8QxOVNlDn4hE8
+    charts-scatterchart--clusters-with-centroids--dark:
+        hash: v1.k794b7964.21db57f09c276546fb27d3a6ba87bdb6e91c323ea1070df94f9ab87a8c1945d3.tANHwlLV16_HsvrEm1NqaeZNbmXRJRRk1P26nJ1hH6c
+    charts-scatterchart--clusters-with-centroids--light:
+        hash: v1.k794b7964.03ab0bc96065b4d9fd29c44294a5ca9fe190888bf2b25d62781e3a12ee5cc28c.Xy62i5CD7gue5KBERU9SjmQSiUV74Egkhqr8spYc860
+    charts-scatterchart--default--dark:
+        hash: v1.k794b7964.aebd76878009b31fe2b80abc4e763126c03de0f30720987699655562b66e3c20.fnDgKQRhUD2VHDe1F4Y2i2R-8ezNHmywjBC9c8j22Ug
+    charts-scatterchart--default--light:
+        hash: v1.k794b7964.cb01f3479b7f8c16fc97c63f3b1ed50a9ad0b3add055c8c34be783af33528a54.iKjjzFL-X7IH43v6VBoH5NDgBY8kFJNobPSGixUoZF8
+    charts-scatterchart--host-chrome--dark:
+        hash: v1.k794b7964.0cb579a6053bad39bf97315f2786192cca1ac72365b562366f060f1933a960aa.XqEqyyhRx6TR3_j7P74hBJDh3YntsUt4Ob0q7AB41C0
+    charts-scatterchart--host-chrome--light:
+        hash: v1.k794b7964.c7eadd07aadab92bf308c2dd24717d65acca0ee337d84172093e3cba44204851.1mt2G1j78u-of7RjwAlND--A6SCVQanxAWBORROMXkg
+    charts-scatterchart--log-scales--dark:
+        hash: v1.k794b7964.d2d05a7fe8441d56372fe8197954f9d10ed8b3d3822b01333e4f75ec0adfc012.DXnKqZq_G6CC3Y-PZhUtBMbTooMHmBc7Wo6bPgyltvE
+    charts-scatterchart--log-scales--light:
+        hash: v1.k794b7964.f2f83cf6a99be2ae5faba7dc8db617a78fa6d037bb9c28b0fd88f90b8ae291bd.8yH79camnLhL5YEVVTyB5YhEedP879UtEDg7d1UR6ZY
+    charts-scatterchart--multiple-series--dark:
+        hash: v1.k794b7964.814e966199ad4afdc5b65654bfa99d4b989f6ea7a1fb95f5ba9cb27f51d49723.5k5z4yZFuEgVgKOj36M_XSN5PTSqJ6C0d90l1CHw8YY
+    charts-scatterchart--multiple-series--light:
+        hash: v1.k794b7964.687da6d6d700f2ca42e09504d32be843fa131cf829abdd331e4a3bf7c03f385a.xgZefYbeMslA7TIrSIqk8AgQGyqHCgaiRo0KfAEB69M
     components-account-project-switcher--no-pending-invite--dark:
         hash: v1.k794b7964.ddbb5d27187cb1eb9341734e0b780c762cdfbc09aae81833c970369bd7ad4f32.3HNFMfb4Lflcg3uKD1-KNl09d3leMhmfuhR2WVLjLRE
     components-account-project-switcher--no-pending-invite--light:
