@@ -205,6 +205,8 @@ services:
             OBJECT_STORAGE_ENABLED: true
             CDP_REDIS_HOST: redis7
             CDP_REDIS_PORT: 6379
+            LOGS_REDIS_TLS: 'false'
+            TRACES_REDIS_TLS: 'false'
             # Every CDP process dual-writes to Valkey and refuses to start without a host.
             CDP_VALKEY_HOST: valkey
             CDP_VALKEY_PORT: 6379
@@ -297,6 +299,8 @@ services:
             service: ingestion-logs
         image: ${REGISTRY_URL}-node:${POSTHOG_NODE_TAG:-latest}
         logging: *default-logging
+        environment:
+            LOGS_REDIS_TLS: 'false'
         depends_on:
             - db
             - redis7
@@ -308,6 +312,8 @@ services:
             service: ingestion-traces
         image: ${REGISTRY_URL}-node:${POSTHOG_NODE_TAG:-latest}
         logging: *default-logging
+        environment:
+            TRACES_REDIS_TLS: 'false'
         depends_on:
             - db
             - redis7
