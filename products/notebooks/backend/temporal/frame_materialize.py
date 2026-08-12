@@ -900,7 +900,7 @@ def materialize_frame(inputs: FrameMaterializeInputs) -> str:
             # Post-write verification failed: the object is missing or predates this write
             # (see stat_frame). Retryable — a transient object-store blip should re-run — but
             # log it, because a deterministic cause (CH wrote to a store the app can't read,
-            # endpoint/bucket skew) would otherwise re-scan the whale silently up to 10 times.
+            # endpoint/bucket skew) would otherwise re-scan the whale silently on every attempt.
             logger.warning(
                 "notebook_frame_materialize_object_unverified",
                 team_id=inputs.team_id,
@@ -1011,10 +1011,10 @@ class NotebookFrameMaterializeWorkflow(PostHogWorkflow):
                     initial_interval=dt.timedelta(seconds=5),
                     backoff_coefficient=2.0,
                     maximum_interval=dt.timedelta(seconds=30),
-                    # Bound the storm. A transient mid-stream tear re-runs the entire scan, and
-                    # schedule_to_close only caps that for queries slow enough to fill the
-                    # window, so a fast query could otherwise repeat its scan on every attempt.
-                    # The deterministic failures are already non-retryable in the activity.
+                    # Bound the storm. A transient failure re-runs the entire scan on either
+                    # transport, and schedule_to_close only caps that for queries slow enough to
+                    # fill the window, so a fast query could otherwise repeat its scan on every
+                    # attempt. The deterministic failures are already non-retryable in the activity.
                     maximum_attempts=3,
                 ),
             )
