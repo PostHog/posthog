@@ -5,7 +5,6 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { IconFlask, IconGraph, IconMessage, IconPeople, IconRocket, IconToggle } from '@posthog/icons'
 import { lemonToast } from '@posthog/lemon-ui'
 
-import api from 'lib/api'
 import {
     MarkdownNotebook,
     NotebookComponentRunStatusContext,
@@ -26,7 +25,6 @@ import {
 import type { MarkdownNotebookCaretPosition, RemoteNotebookCaret } from 'lib/components/MarkdownNotebook/remoteCarets'
 import type { NotebookBlockNode, NotebookComponentProps } from 'lib/components/MarkdownNotebook/types'
 import { getInlineText } from 'lib/components/MarkdownNotebook/utils'
-import { TaxonomicFilterGroupType, TaxonomicFilterValue } from 'lib/components/TaxonomicFilter/types'
 import { uploadFile } from 'lib/hooks/useUploadFiles'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { uuid } from 'lib/utils/dom'
@@ -34,10 +32,10 @@ import { uuid } from 'lib/utils/dom'
 import type { NotebookArtifactContent } from '~/queries/schema/schema-assistant-messages'
 
 import {
-    MarkdownNotebookEntityListPicker,
-    type MarkdownNotebookEntityListPickerItem,
-} from './MarkdownNotebookEntityListPicker'
-import { MarkdownNotebookExperimentPicker } from './MarkdownNotebookExperimentPicker'
+    MarkdownNotebookEntityPicker,
+    MarkdownNotebookEntityPickerKind,
+    MarkdownNotebookEntityPickerSelection,
+} from './MarkdownNotebookEntityPicker'
 import { InlineAIAssistantMessage, InlineAICompletion, InlineNotebookAIRunner } from './MarkdownNotebookInlineAI'
 import {
     getHiddenInsertCommandKeysForFeatureFlags,
@@ -52,8 +50,6 @@ import {
     getInlineNotebookAIPanelId,
     getInlineNotebookAIUIContext,
 } from './markdownNotebookRuntime'
-import { MarkdownNotebookSavedInsightPicker } from './MarkdownNotebookSavedInsightPicker'
-import { MarkdownNotebookTaxonomicPicker } from './MarkdownNotebookTaxonomicPicker'
 import {
     buildDroppedLinkParagraphNode,
     convertDroppedPostHogUrlToMarkdownNode,
@@ -78,19 +74,16 @@ type MarkdownNotebookV2Props = {
     onDebugOpenChange?: (isOpen: boolean) => void
 }
 
-/** Which "Products" insert-menu picker modal is open. */
-type MarkdownNotebookEntityPickerKind =
-    | 'saved-insight'
-    | 'experiment'
-    | 'feature-flag'
-    | 'survey'
-    | 'early-access-feature'
-    | 'cohort'
-
 export function MarkdownNotebookV2({ debugOpen, onDebugOpenChange }: MarkdownNotebookV2Props): JSX.Element {
     const mountedNotebookLogic = useMountedLogic(notebookLogic)
-    const { isEditable, notebook, markdownEditorValue, markdownEditorInteractionActive, markdownRemoteCarets } =
-        useValues(notebookLogic)
+    const {
+        isEditable,
+        isShared,
+        notebook,
+        markdownEditorValue,
+        markdownEditorInteractionActive,
+        markdownRemoteCarets,
+    } = useValues(notebookLogic)
     const { featureFlags } = useValues(featureFlagLogic)
     const markdownRegistry = useMemo(() => getMarkdownRegistryForFeatureFlags(featureFlags), [featureFlags])
     const hiddenInsertCommandKeys = useMemo(
@@ -483,65 +476,13 @@ export function MarkdownNotebookV2({ debugOpen, onDebugOpenChange }: MarkdownNot
 
     // Inserts the picked entity's component into the node the picker command targeted, then
     // closes the picker.
-    const insertPickedComponent = useCallback((tagName: string, props: NotebookComponentProps): void => {
+    const insertPickedComponent = useCallback(({ tagName, props }: MarkdownNotebookEntityPickerSelection): void => {
         const pending = pendingEntityInsertRef.current
         if (pending) {
-            pending.api.insertComponent(pending.targetNodeId, tagName, props)
+            pending.api.insertComponent(pending.targetNodeId, tagName, props as NotebookComponentProps)
         }
         pendingEntityInsertRef.current = null
         setOpenEntityPicker(null)
-    }, [])
-
-    const handleSavedInsightPicked = useCallback(
-        (shortId: string, title: string): void => {
-            insertPickedComponent('Query', {
-                query: { kind: 'SavedInsightNode', shortId },
-                // The insight is already configured via the picker, so render results-only — hiding the
-                // settings panel (the "Edit the insight" / "Detach from insight" controls) by default.
-                hideFilters: true,
-                // Label the node with the insight's name so the toolbar shows it instead of the short id.
-                ...(title ? { title } : {}),
-            })
-        },
-        [insertPickedComponent]
-    )
-
-    const handleExperimentPicked = useCallback(
-        (experimentId: number): void => {
-            insertPickedComponent('Experiment', { id: experimentId })
-        },
-        [insertPickedComponent]
-    )
-
-    const handleTaxonomicEntityPicked = useCallback(
-        (value: TaxonomicFilterValue): void => {
-            const tagName = openEntityPicker === 'feature-flag' ? 'FeatureFlag' : 'Cohort'
-            const id = Number(value)
-            if (!Number.isInteger(id) || id <= 0) {
-                closeEntityPicker()
-                return
-            }
-            insertPickedComponent(tagName, { id })
-        },
-        [closeEntityPicker, insertPickedComponent, openEntityPicker]
-    )
-
-    const loadSurveyPickerItems = useCallback(async (): Promise<MarkdownNotebookEntityListPickerItem[]> => {
-        const response = await api.surveys.list({ limit: 100 })
-        return response.results.map((survey) => ({
-            id: survey.id,
-            name: survey.name,
-            description: survey.description,
-        }))
-    }, [])
-
-    const loadEarlyAccessFeaturePickerItems = useCallback(async (): Promise<MarkdownNotebookEntityListPickerItem[]> => {
-        const response = await api.earlyAccessFeatures.list()
-        return response.results.map((feature) => ({
-            id: feature.id,
-            name: feature.name,
-            description: feature.description,
-        }))
     }, [])
 
     const convertExternalDataTransferToNodes = useCallback(
@@ -749,6 +690,7 @@ export function MarkdownNotebookV2({ debugOpen, onDebugOpenChange }: MarkdownNot
                     remoteValue={remoteMarkdown}
                     remoteVersion={notebook?.version}
                     mode={isEditable ? 'edit' : 'view'}
+                    hideResourceLinks={isShared}
                     registry={markdownRegistry}
                     extraInsertCommands={isEditable ? buildExtraInsertCommands : undefined}
                     hiddenInsertCommandKeys={hiddenInsertCommandKeys}
@@ -762,6 +704,7 @@ export function MarkdownNotebookV2({ debugOpen, onDebugOpenChange }: MarkdownNot
                     createAIConversationId={uuid}
                     deferRemoteValue={markdownEditorInteractionActive}
                     onInteractionStateChange={setMarkdownEditorInteractionActive}
+                    allowViewModeFilters={mountedNotebookLogic.props.mode === 'canvas'}
                     className="Notebook__markdown-v2"
                     data-attr="notebook-markdown-v2"
                     autoFocus={isEditable}
@@ -781,55 +724,14 @@ export function MarkdownNotebookV2({ debugOpen, onDebugOpenChange }: MarkdownNot
                     onAssistantMessage={handleInlineAIAssistantMessage}
                 />
             ))}
-            {isEditable && (
-                <MarkdownNotebookSavedInsightPicker
-                    isOpen={openEntityPicker === 'saved-insight'}
+            {isEditable ? (
+                <MarkdownNotebookEntityPicker
+                    action="add"
+                    kind={openEntityPicker}
                     onClose={closeEntityPicker}
-                    onSelect={handleSavedInsightPicked}
+                    onSelect={insertPickedComponent}
                 />
-            )}
-            {isEditable && (
-                <MarkdownNotebookExperimentPicker
-                    isOpen={openEntityPicker === 'experiment'}
-                    onClose={closeEntityPicker}
-                    onSelect={handleExperimentPicked}
-                />
-            )}
-            {isEditable && (
-                <MarkdownNotebookTaxonomicPicker
-                    isOpen={openEntityPicker === 'feature-flag' || openEntityPicker === 'cohort'}
-                    title={openEntityPicker === 'cohort' ? 'Add cohort to notebook' : 'Add feature flag to notebook'}
-                    groupType={
-                        openEntityPicker === 'cohort'
-                            ? TaxonomicFilterGroupType.Cohorts
-                            : TaxonomicFilterGroupType.FeatureFlags
-                    }
-                    onClose={closeEntityPicker}
-                    onSelect={handleTaxonomicEntityPicked}
-                />
-            )}
-            {isEditable && (
-                <MarkdownNotebookEntityListPicker
-                    isOpen={openEntityPicker === 'survey'}
-                    title="Add survey to notebook"
-                    searchPlaceholder="Search surveys"
-                    entityIcon={<IconMessage />}
-                    loadItems={loadSurveyPickerItems}
-                    onClose={closeEntityPicker}
-                    onSelect={(item) => insertPickedComponent('Survey', { id: String(item.id) })}
-                />
-            )}
-            {isEditable && (
-                <MarkdownNotebookEntityListPicker
-                    isOpen={openEntityPicker === 'early-access-feature'}
-                    title="Add early access feature to notebook"
-                    searchPlaceholder="Search early access features"
-                    entityIcon={<IconRocket />}
-                    loadItems={loadEarlyAccessFeaturePickerItems}
-                    onClose={closeEntityPicker}
-                    onSelect={(item) => insertPickedComponent('EarlyAccessFeature', { id: String(item.id) })}
-                />
-            )}
+            ) : null}
         </MarkdownNotebookRuntimeContext.Provider>
     )
 }

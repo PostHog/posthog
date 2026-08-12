@@ -56,16 +56,25 @@ function PanelEmpty({ loading, message }: { loading: boolean; message: string })
 // Cap the rows so a panel can't outgrow the one beside it.
 const RANKED_ROWS = 5
 
-// The bar is the row background rather than a column, so long friction phrases wrap instead of truncating.
+/**
+ * Two row shapes, because the terms differ in kind:
+ * - `tag` renders short vocabulary terms as pills, which is what marks them as tags rather than prose.
+ * - `phrase` renders model-written sentences as plain text with the bar behind the row, so they wrap
+ *   instead of being truncated into a pill.
+ */
+type RankedTermVariant = 'tag' | 'phrase'
+
 function RankedTermList({
     ranked,
     loading,
     emptyMessage,
+    variant,
     renderAction,
 }: {
     ranked: [string, number][]
     loading: boolean
     emptyMessage: string
+    variant: RankedTermVariant
     renderAction?: (term: string) => JSX.Element
 }): JSX.Element {
     if (ranked.length === 0) {
@@ -75,6 +84,34 @@ function RankedTermList({
     const maxCount = top[0][1]
     // When no term repeats, every bar is full width and falsely reads as "these all dominate", so drop the bars.
     const showBars = maxCount > 1
+    const percent = (count: number): number => Math.round((count / maxCount) * 100)
+
+    if (variant === 'tag') {
+        return (
+            <div className="space-y-1.5">
+                {top.map(([term, count]) => (
+                    <div key={term} className="flex items-center gap-2">
+                        {/* Fixed-width label column so every bar shares the same left edge and their lengths stay comparable. */}
+                        <div className="w-24 sm:w-40 shrink-0 flex">
+                            <LemonTag type="option" title={term} className="max-w-full truncate">
+                                {term}
+                            </LemonTag>
+                        </div>
+                        {showBars ? (
+                            <LemonProgress percent={percent(count)} className="flex-1" />
+                        ) : (
+                            <div className="flex-1" />
+                        )}
+                        <span className="text-xs text-muted tabular-nums text-right whitespace-nowrap shrink-0 w-12">
+                            {count.toLocaleString()}
+                        </span>
+                        {renderAction?.(term)}
+                    </div>
+                ))}
+            </div>
+        )
+    }
+
     return (
         <div className="space-y-1">
             {top.map(([term, count]) => (
@@ -84,7 +121,7 @@ function RankedTermList({
                             className="absolute inset-y-0 left-0 bg-accent-highlight-secondary"
                             // Width is data-derived, so it can't live in a class.
                             // eslint-disable-next-line react/forbid-dom-props
-                            style={{ width: `${Math.round((count / maxCount) * 100)}%` }}
+                            style={{ width: `${percent(count)}%` }}
                         />
                     )}
                     <div className="relative flex items-baseline justify-between gap-2 px-2 py-1">
@@ -126,7 +163,7 @@ function ImpactOverview({ scannerId }: { scannerId: string }): JSX.Element | nul
     }
     return (
         <OverviewPanel title="Impact" subtitle={`last ${overviewImpact.window_days} days`} fill>
-            <div className="flex items-center justify-between gap-4">
+            <div className="flex flex-wrap items-center justify-between gap-4">
                 <div className="text-sm">
                     Matched{' '}
                     <strong className="tabular-nums">{overviewImpact.affected_sessions.toLocaleString()}</strong>{' '}
@@ -245,6 +282,7 @@ function ClassifierOverview({ scannerId }: { scannerId: string }): JSX.Element |
                     ranked={fixedRanked}
                     loading={overviewStatsApiLoading}
                     emptyMessage={fixedEmpty}
+                    variant="tag"
                     renderAction={cohortAction}
                 />
             </OverviewPanel>
@@ -260,6 +298,7 @@ function ClassifierOverview({ scannerId }: { scannerId: string }): JSX.Element |
                         ranked={freeformRanked}
                         loading={overviewStatsApiLoading}
                         emptyMessage={freeformEmpty}
+                        variant="tag"
                         renderAction={cohortAction}
                     />
                 ) : (
@@ -303,7 +342,7 @@ function ScorerOverview({ scannerId }: { scannerId: string }): JSX.Element {
                     theme={theme}
                 />
             </div>
-            <div className="flex justify-between gap-4 text-xs text-muted tabular-nums pt-1 border-t">
+            <div className="flex flex-wrap justify-between gap-x-4 gap-y-1 text-xs text-muted tabular-nums pt-1 border-t">
                 <span>min {scorerSummary.min.toFixed(1)}</span>
                 <span>median {scorerSummary.median.toFixed(1)}</span>
                 <span>avg {scorerSummary.mean.toFixed(1)}</span>
@@ -344,10 +383,16 @@ function SummarizerOverview({ scannerId }: { scannerId: string }): JSX.Element |
                     ranked={frictionRanked}
                     loading={overviewStatsApiLoading}
                     emptyMessage={frictionEmpty}
+                    variant="phrase"
                 />
             </OverviewPanel>
             <OverviewPanel title="Common keywords" subtitle={keywordSubtitle} fill>
-                <RankedTermList ranked={keywordRanked} loading={overviewStatsApiLoading} emptyMessage={keywordEmpty} />
+                <RankedTermList
+                    ranked={keywordRanked}
+                    loading={overviewStatsApiLoading}
+                    emptyMessage={keywordEmpty}
+                    variant="tag"
+                />
             </OverviewPanel>
         </div>
     )

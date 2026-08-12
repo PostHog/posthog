@@ -26,7 +26,7 @@ The linters own the mechanical rules (below); this skill is the **judgment calls
 ## What the linters already enforce
 
 Run `bin/hogli lint:workflows` and `actionlint` before pushing — they gate CI, and they (not this list) are the source of truth for what's enforced.
-Today that's: `timeout-minutes` on every job, the canonical PR concurrency block, `dorny/paths-filter` negation safety, justification for full-depth checkouts, cache-write gating, semgrep service coverage, required-check gate hygiene, and generic GHA correctness (bad `secrets.*` / `needs:` refs, deprecated `::set-output`, unknown runner labels).
+Today that's: `timeout-minutes` on every job, the canonical PR concurrency block, a repo-wide budget for unscoped PR event dispatches, `dorny/paths-filter` negation safety, justification for full-depth checkouts, cache-write gating, semgrep service coverage, required-check gate hygiene, and generic GHA correctness (bad `secrets.*` / `needs:` refs, deprecated `::set-output`, unknown runner labels).
 Third-party action digests are bumped by Renovate.
 
 ## The dispatch budget (500 runs / 10s / repo)
@@ -75,6 +75,8 @@ concurrency:
 ```
 
 - Cancel superseded **PR** runs; never cancel across **master** pushes.
+  `WF002` rejects a bare `cancel-in-progress: true` on any push-triggered workflow.
+  Where latest-wins is genuinely right (a cache warmer), say so with `# hogli-lint: allow-master-cancel -- <reason>`.
 - Use `github.ref` as the fallback, never `github.run_id` — `run_id` is unique per run, so it silently gives every push its own group and dedup is lost.
 - Publish-on-push workflows must not let two master pushes race `:latest` / a deploy dispatch.
   Key the push arm per-SHA (see `ci-backend.yml`):

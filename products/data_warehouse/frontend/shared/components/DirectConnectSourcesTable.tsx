@@ -28,6 +28,7 @@ export function DirectConnectSourcesTable(): JSX.Element {
                 dataSource={filteredDirectSources}
                 loading={dataWarehouseSourcesLoading}
                 pagination={{ pageSize: 10 }}
+                scrollToTopOnPageChange={false}
                 columns={[
                     {
                         width: 0,

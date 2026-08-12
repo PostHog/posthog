@@ -1135,6 +1135,11 @@ class InsightSerializer(InsightBasicSerializer):
         if insight.alertable_query_kind is None:
             return []
 
+        # Alert configs carry their creator's and subscribers' names and emails, which anonymous
+        # viewers of a shared dashboard must never receive, so omit them when hiding authorship.
+        if self.context.get("hide_extra_details", False):
+            return []
+
         # Use prefetched alerts data
         alerts = getattr(insight, "_prefetched_alerts", [])
         from products.alerts.backend.api.alert import AlertSerializer
@@ -1644,7 +1649,7 @@ Background calculation can be tracked using the `query_status` response field.""
             ),
             OpenApiParameter(
                 name="insight",
-                enum=["TRENDS", "FUNNELS", "RETENTION", "PATHS", "STICKINESS", "LIFECYCLE", "JSON", "SQL"],
+                enum=["TRENDS", "FUNNELS", "RETENTION", "PATHS", "JOURNEYS", "STICKINESS", "LIFECYCLE", "JSON", "SQL"],
                 description="Restrict to a single insight type. `JSON` matches non-wrapper query insights; `SQL` matches HogQL queries.",
             ),
             OpenApiParameter(
@@ -2079,6 +2084,7 @@ class InsightViewSet(
                     "FUNNELS": schema.NodeKind.FUNNELS_QUERY,
                     "RETENTION": schema.NodeKind.RETENTION_QUERY,
                     "PATHS": schema.NodeKind.PATHS_QUERY,
+                    "JOURNEYS": schema.NodeKind.PATHS_V2_QUERY,
                     "STICKINESS": schema.NodeKind.STICKINESS_QUERY,
                     "LIFECYCLE": schema.NodeKind.LIFECYCLE_QUERY,
                 }

@@ -265,4 +265,54 @@ mod tests {
             );
         }
     }
+
+    /// Golden vectors pinning the release `hash_id` the CLI writes: `content_hash([name, version])`
+    /// with `version = pack_version(version, build)` (see `api::releases::create_release`). Cymbal
+    /// reconstructs the same hash from a mobile event's app metadata (`mobile_release_hash_id` in
+    /// `rust/cymbal/src/core/types/frames/releases.rs`), so these literals must stay identical on
+    /// both sides or mobile releases silently stop resolving. Keep in sync with the matching golden
+    /// test in cymbal.
+    #[test]
+    fn release_hash_id_golden_vectors() {
+        use crate::utils::files::content_hash;
+
+        // (name, version, build, expected hash_id)
+        let cases: [(&str, Option<&str>, Option<&str>, &str); 4] = [
+            (
+                "com.posthog.iosraw",
+                Some("1.0"),
+                Some("1"),
+                "75605cac5268ba4bdc57b4c8336f6686802e88236ae4026418a18cabcde854d1015f18734489b8ec4c71c68773a027e5b880f7278b8ba6864a5334d76ef9eba6",
+            ),
+            (
+                "com.example.app",
+                Some("1.0"),
+                Some("42"),
+                "5a7f7b504d81759fa4e15f8b3bbc77c694a9dc222cfcd06c801fae9619076e97909edf651087106af331aea76463449f015ccc41ccacbf19148329b1c2c35aa7",
+            ),
+            (
+                "com.example.app",
+                Some("2.3"),
+                None,
+                "09aeeb69b914985562d4aa39d13033abf0f90c753ef90b0148cb06b8aeadca7dd1dd853fa24c7cc51d18cf251bb7348eae58906347a217a98d74ba7ca5673b66",
+            ),
+            (
+                "com.example.app",
+                None,
+                Some("99"),
+                "5e925a3f2e9349f64ab88eede466b641a7332dc79d6f1901d931fb659704a0475fa77a3ca25c0a60b2919547de8d94117fbcc52448e83aa72787a3fe35f725ae",
+            ),
+        ];
+
+        for (name, version, build, expected) in cases {
+            let version = version.map(String::from);
+            let build = build.map(String::from);
+            let packed = pack_version(&version, &build).expect("these cases always pack a version");
+            let hash_id = content_hash([name.as_bytes(), packed.as_bytes()]);
+            assert_eq!(
+                hash_id, expected,
+                "release hash_id drift for {name} {version:?}+{build:?}"
+            );
+        }
+    }
 }

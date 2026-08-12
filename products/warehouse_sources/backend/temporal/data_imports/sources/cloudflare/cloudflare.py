@@ -286,7 +286,8 @@ def _fanout_resource(
 
     child_endpoint = _endpoint(config, params, should_use_incremental_field)
     child_endpoint["response_actions"] = [
-        {"status_code": status, "action": "ignore"} for status in FANOUT_SKIP_STATUS_CODES
+        {"status_code": status, "action": "ignore"}
+        for status in (*FANOUT_SKIP_STATUS_CODES, *config.extra_skip_status_codes)
     ]
 
     child = _resource(endpoint, child_endpoint)

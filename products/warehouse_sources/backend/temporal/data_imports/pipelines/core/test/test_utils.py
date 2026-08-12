@@ -3,7 +3,7 @@ import decimal
 import hashlib
 import datetime
 from ipaddress import IPv4Address, IPv6Address
-from typing import Any, cast
+from typing import Any, Literal, cast
 
 import pytest
 from unittest.mock import AsyncMock, MagicMock, patch
@@ -17,6 +17,7 @@ from structlog.types import FilteringBoundLogger
 
 from posthog.temporal.common.errors import NonReportableError
 
+from products.warehouse_sources.backend.temporal.data_imports.external_data_job import Any_Source_Errors
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.core.arrow_utils import (
     BillingLimitsWillBeReachedException,
     SchemaColumnTypeChangedException,
@@ -30,6 +31,7 @@ from products.warehouse_sources.backend.temporal.data_imports.pipelines.core.arr
     normalize_table_column_names,
     observe_and_project_table,
     observed_schema_metadata_columns,
+    raise_on_nullability_drift,
     source_uses_delta_write_column_selection,
     table_from_py_list,
 )
@@ -93,6 +95,9 @@ def test_table_from_py_list_numeric_column_with_non_numeric_value_raises_named_e
     assert "revenue" in message
     assert "N/A" in message
     assert "<blank>" in message
+    # The message must stay matched by an Any_Source_Errors entry so the schema is paused with
+    # guidance instead of retrying the same non-numeric cells forever, on every source.
+    assert [key for key in Any_Source_Errors if key in message]
 
 
 def test_table_from_py_list_numeric_column_coerces_numeric_string_values():
@@ -313,6 +318,25 @@ def test_table_from_py_list_with_null_filled_binary_column():
             ]
         )
     )
+
+
+@pytest.mark.parametrize(
+    "value, expected_type",
+    [
+        (datetime.datetime(2024, 1, 2, 3, 4, 5), pa.timestamp("us")),
+        (datetime.datetime(2024, 1, 2, 3, 4, 5, tzinfo=datetime.UTC), pa.timestamp("us", tz="UTC")),
+        (datetime.date(2024, 1, 2), pa.date32()),
+        (datetime.time(3, 4, 5), pa.time64("us")),
+    ],
+)
+def test_table_from_py_list_schema_missing_temporal_column(value, expected_type):
+    # A column present in the batch but absent from the provided schema has its Arrow field
+    # inferred by `_python_type_to_pyarrow_type`, which must handle temporal values.
+    schema = pa.schema(cast(Any, [pa.field("id", pa.int64())]))
+    table = table_from_py_list([{"id": 1, "ts": value}], schema)
+
+    assert table.schema.field("ts").type == expected_type
+    assert table.column("ts").to_pylist() == [value]
 
 
 @pytest.mark.parametrize(
@@ -849,6 +873,56 @@ def test_evolve_pyarrow_schema_time_columns_reconcile_to_stored_seconds(
     assert evolved_table.column("redeem_time").to_pylist() == expected_values
 
 
+def test_raise_on_nullability_drift_null_in_non_nullable_column_raises():
+    """A batch with a null in a column the table declares non-nullable raises the reset signal,
+    because neither deltalite nor delta-rs can relax an existing column to nullable in place."""
+    pa_table = pa.table(
+        {
+            "id": pa.array([1, 2], type=pa.int64()),
+            "name": pa.array(["a", None], type=pa.string()),
+        }
+    )
+    delta_fields: list[pa.Field] = [
+        pa.field("id", pa.int64(), nullable=False),
+        pa.field("name", pa.string(), nullable=False),
+    ]
+    delta_schema = deltalake.Schema.from_arrow(pa.schema(delta_fields))
+
+    with pytest.raises(SchemaColumnTypeChangedException, match="now contains nulls"):
+        raise_on_nullability_drift(pa_table, delta_schema)
+
+
+@pytest.mark.parametrize(
+    "delta_fields, batch_columns",
+    [
+        # Null lands in a column the table already marks nullable — the writer accepts it.
+        (
+            [pa.field("id", pa.int64(), nullable=False), pa.field("name", pa.string(), nullable=True)],
+            {"id": pa.array([1, 2], type=pa.int64()), "name": pa.array(["a", None], type=pa.string())},
+        ),
+        # No nulls arrive in the non-nullable column — nothing drifts.
+        (
+            [pa.field("id", pa.int64(), nullable=False), pa.field("name", pa.string(), nullable=False)],
+            {"id": pa.array([1, 2], type=pa.int64()), "name": pa.array(["a", "b"], type=pa.string())},
+        ),
+        # The non-nullable column is absent from the batch — no null to check.
+        (
+            [pa.field("id", pa.int64(), nullable=False), pa.field("name", pa.string(), nullable=False)],
+            {"id": pa.array([1, 2], type=pa.int64())},
+        ),
+    ],
+)
+def test_raise_on_nullability_drift_permits_valid_batches(
+    delta_fields: list[pa.Field], batch_columns: dict[str, pa.Array]
+):
+    """No drift is raised when the null lands in a nullable column, when the non-nullable column
+    carries no nulls, or when it is absent from the batch entirely."""
+    pa_table = pa.table(batch_columns)
+    delta_schema = deltalake.Schema.from_arrow(pa.schema(delta_fields))
+
+    raise_on_nullability_drift(pa_table, delta_schema)
+
+
 def test_evolve_pyarrow_schema_with_struct_containing_datetime_and_decimal():
     """Test that evolve_pyarrow_schema can handle struct columns with non-JSON-serializable types."""
     metadata_struct_type = pa.struct(
@@ -929,9 +1003,13 @@ class TestEvolveSchemaFirstPass:
         assert values[1] == 3661.0
         assert values[2] is None
 
-    def test_nanosecond_timestamp_normalized_to_microseconds(self):
-        ns_ts = pa.array([1_000_000_000, 2_000_000_000], type=pa.timestamp("ns"))
-        arrow_table = pa.table({"ts": ns_ts})
+    @pytest.mark.parametrize("unit", ["ns", "ms", "s"])
+    def test_non_microsecond_timestamp_normalized_to_microseconds(self, unit: Literal["ns", "ms", "s"]):
+        # Delta only accepts microsecond-precision timestamps. "s"/"ms" reach here e.g. when
+        # a Snowflake batch returns zero rows: the connector's empty-table path ignores
+        # `force_microsecond_precision` and falls back to a second-precision schema.
+        ts = pa.array([1_000_000_000, 2_000_000_000], type=pa.timestamp(unit))
+        arrow_table = pa.table({"ts": ts})
         result = evolve_pyarrow_schema(arrow_table, None)
         assert result.schema.field("ts").type == pa.timestamp("us")
 

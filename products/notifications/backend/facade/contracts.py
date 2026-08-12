@@ -33,3 +33,4 @@ class NotificationData:
     priority: Priority = Priority.NORMAL
     metadata: dict[str, Any] | None = None
     resolver: RecipientsResolver | None = field(default=None, compare=False)
+    idempotency_key: str | None = None

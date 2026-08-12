@@ -8,11 +8,14 @@ from __future__ import annotations
 import click
 
 from .generator import (
+    TRACKED_MPROCS_FILES,
     DevenvConfig,
     MprocsGenerator,
     build_docker_compose_command,
     get_generated_mprocs_path,
+    is_mprocs_shell_up_to_date,
     load_devenv_config,
+    regenerate_mprocs_shell,
 )
 from .registry import create_mprocs_registry
 from .resolver import IntentResolver, load_intent_map
@@ -300,6 +303,28 @@ def dev_setup(log_to_files: bool) -> None:
         raise SystemExit(1)
 
     run_setup_wizard(intent_map, log_to_files=log_to_files)
+
+
+@click.command(
+    name="dev:regenerate-mprocs",
+    help="Sync bin/mprocs.yaml and bin/mprocs-e2e.yaml's docker-compose shells with generator.py",
+)
+@click.option("--check", is_flag=True, help="Report staleness without rewriting the files; exit 1 if any are stale")
+def dev_regenerate_mprocs(check: bool) -> None:
+    """Write each TRACKED_MPROCS_FILES entry's built shell into its file."""
+    if check:
+        stale = [t for t in TRACKED_MPROCS_FILES if not is_mprocs_shell_up_to_date(t.path, t.build_shell())]
+        if not stale:
+            click.echo(f"{', '.join(t.name for t in TRACKED_MPROCS_FILES)} are up to date")
+            return
+        for target in stale:
+            click.echo(f"{target.path} is stale", err=True)
+        click.echo("run `hogli dev:regenerate-mprocs` to fix", err=True)
+        raise SystemExit(1)
+
+    for target in TRACKED_MPROCS_FILES:
+        rewrote = regenerate_mprocs_shell(target.path, target.build_shell())
+        click.echo(f"Regenerated {target.path}" if rewrote else f"{target.path} was already up to date")
 
 
 def _get_docker_profiles_from_config() -> list[str]:

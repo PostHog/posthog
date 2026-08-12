@@ -233,6 +233,41 @@ describe('query', () => {
         })
     })
 
+    describe('pollForResults and backgrounded tabs', () => {
+        const originalVisibilityState = document.visibilityState
+
+        afterEach(() => {
+            Object.defineProperty(document, 'visibilityState', { value: originalVisibilityState, configurable: true })
+            jest.restoreAllMocks()
+        })
+
+        it('does not count time spent hidden against the poll deadline', async () => {
+            Object.defineProperty(document, 'visibilityState', { value: 'visible', configurable: true })
+
+            let now = 0
+            jest.spyOn(performance, 'now').mockImplementation(() => now)
+
+            jest.spyOn(api.queryStatus, 'get')
+                .mockResolvedValueOnce({ query_status: { complete: false } } as any)
+                .mockResolvedValueOnce({ query_status: { complete: true, results: ['ok'] } } as any)
+
+            const promise = pollForResults('test-query-id', undefined, () => {
+                // Fires right after the first (incomplete) poll, before the loop rechecks its
+                // deadline for the next one. Simulate the tab backgrounding for longer than the
+                // whole poll deadline (10m6s) right here: a wall-clock deadline would time out on
+                // the very next check, even though no polling actually happened during that time.
+                Object.defineProperty(document, 'visibilityState', { value: 'hidden', configurable: true })
+                now += 11 * 60 * 1000
+                setTimeout(() => {
+                    Object.defineProperty(document, 'visibilityState', { value: 'visible', configurable: true })
+                    document.dispatchEvent(new Event('visibilitychange'))
+                }, 0)
+            })
+
+            await expect(promise).resolves.toMatchObject({ complete: true, results: ['ok'] })
+        })
+    })
+
     describe('pollForResults error message parsing', () => {
         it('prefers the structured error_code from the query status over one parsed from the message', async () => {
             jest.spyOn(api.queryStatus, 'get').mockRejectedValueOnce({

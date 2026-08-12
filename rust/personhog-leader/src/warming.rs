@@ -7,9 +7,10 @@ use common_kafka::config::KafkaConfig;
 use metrics::{counter, histogram};
 use prost::Message as ProtoMessage;
 use rdkafka::consumer::{Consumer, StreamConsumer};
+use rdkafka::error::KafkaError;
 use rdkafka::message::Message;
 use rdkafka::{ClientConfig, Offset, TopicPartitionList};
-use tokio::time::timeout;
+use tokio::time::{sleep, timeout};
 
 use personhog_coordination::error::{Error as CoordError, Result as CoordResult};
 use personhog_proto::personhog::types::v1::Person;
@@ -28,8 +29,10 @@ pub struct WarmingRetryPolicy {
 /// metadata calls that talk to Kafka brokers (fetch watermarks, committed
 /// offsets) so a single transient network blip doesn't cycle the pod.
 ///
-/// The consume loop itself is not retried — it holds partial progress and
-/// re-seeking is its own concern; leave to a follow-up if we see flakes.
+/// The consume loop is not retried and does not need to be: it rides
+/// out non-fatal consumer errors in place while librdkafka handles them,
+/// bounded by `recv_timeout`. A fatal client state — and a genuine
+/// stall — ends it.
 async fn with_warm_retry<T, F, Fut>(
     stage: &str,
     partition: u32,
@@ -124,7 +127,11 @@ pub(crate) fn make_consumer(
         .set("group.id", group_id)
         .set("enable.auto.commit", "false")
         .set("enable.auto.offset.store", "false")
-        .set("auto.offset.reset", "earliest");
+        .set("auto.offset.reset", "earliest")
+        // Only committed transactions: with fencing on, aborted windows
+        // and zombie leftovers must never reach the cache. Identical
+        // behavior on a topic without transactional records.
+        .set("isolation.level", "read_committed");
     if kafka.kafka_tls {
         cfg.set("security.protocol", "ssl")
             .set("enable.ssl.certificate.verification", "false");
@@ -137,11 +144,14 @@ pub(crate) fn make_consumer(
 
 /// A checkout stack of assign-only Kafka clients sharing one group id.
 /// Clients are checked out for the duration of one operation, returned on
-/// success, and dropped on error — a client that just failed is never
-/// reused, so error hygiene is structural. None of these clients ever
-/// joins the group protocol (no subscribe), so the group id is broker
-/// bookkeeping, not membership: pooling clients in the writer's group
-/// cannot affect the writer's rebalancing.
+/// success, and dropped when the operation fails — a client whose
+/// operation just failed is never reused, so error hygiene is structural.
+/// A non-fatal error the operation rode out does not count as failure:
+/// the client handled it and completed, and both the consume loop and
+/// the give-back verify the client-level fatal state. None of these
+/// clients ever joins the group protocol (no subscribe), so the group id
+/// is broker bookkeeping, not membership: pooling clients in the
+/// writer's group cannot affect the writer's rebalancing.
 ///
 /// The pool exists because client construction is the dominant cost of
 /// the operations it serves: a fresh consumer pays connection setup,
@@ -191,6 +201,21 @@ impl ConsumerPool {
     /// the failure logged so a systematic cleanup problem surfaces as a
     /// visible signal rather than silent churn.
     pub fn give_back(&self, consumer: StreamConsumer) {
+        // The unassign gate below cannot catch a fatal client —
+        // librdkafka treats ops on one as successful unassigns — so the
+        // contract that a dead client is never pooled is enforced here
+        // by construction rather than left to the accident that
+        // consumer fatals only arise from group paths these clients
+        // never join.
+        if let Some((code, reason)) = consumer.client().fatal_error() {
+            tracing::warn!(
+                pool = self.label,
+                code = format!("{code:?}"),
+                reason,
+                "client in a fatal state; dropping instead of pooling it"
+            );
+            return;
+        }
         if let Err(e) = consumer.unassign() {
             tracing::warn!(
                 pool = self.label,
@@ -214,28 +239,34 @@ impl ConsumerPool {
     /// only means the first operations pay the setup they would have
     /// paid anyway.
     pub async fn warm_up(&self, n: usize) {
-        // Hold every connected client outside the pool until the end:
-        // returning them as we go would make the next checkout pop the
-        // client we just returned, connecting one client n times and
-        // leaving the other n-1 slots to be built cold on the hot path.
-        let mut connected = Vec::with_capacity(n);
+        // Create every client before connecting any: returning them as we
+        // go would make the next checkout pop the client we just returned,
+        // connecting one client n times and leaving the other n-1 slots to
+        // be built cold on the hot path. The connects then run
+        // concurrently — a deploy burst needs the pool populated in one
+        // connect's time, not n of them in sequence.
+        let mut clients = Vec::with_capacity(n);
         for _ in 0..n {
             let Ok(consumer) = self.checkout() else {
                 break;
             };
-            let timeout = Duration::from_secs(5);
-            let outcome = tokio::task::spawn_blocking(move || {
-                let ok = consumer.fetch_metadata(None, timeout).is_ok();
-                (consumer, ok)
-            })
-            .await;
-            match outcome {
-                Ok((consumer, true)) => connected.push(consumer),
-                _ => break,
-            }
+            clients.push(consumer);
         }
-        for consumer in connected {
-            self.give_back(consumer);
+        let connects: Vec<_> = clients
+            .into_iter()
+            .map(|consumer| {
+                tokio::task::spawn_blocking(move || {
+                    let ok = consumer
+                        .fetch_metadata(None, Duration::from_secs(5))
+                        .is_ok();
+                    (consumer, ok)
+                })
+            })
+            .collect();
+        for connect in connects {
+            if let Ok((consumer, true)) = connect.await {
+                self.give_back(consumer);
+            }
         }
     }
 }
@@ -346,6 +377,14 @@ fn resolve_start_offset(committed: Option<i64>, earliest: i64, lookback: i64) ->
     }
 }
 
+/// One warm sub-span sample. The spans share the warm bucket ladder and
+/// sum to slightly less than `warm_duration_ms`, whose remainder is the
+/// dirty-index seeding and the cache install.
+fn record_warm_span(span: &'static str, start: Instant) {
+    histogram!("personhog_leader_warm_span_ms", "span" => span)
+        .record(start.elapsed().as_secs_f64() * 1000.0);
+}
+
 /// Populate the cache from Kafka for a single partition.
 ///
 /// Invariants at call time (enforced by the handoff protocol). The
@@ -375,10 +414,23 @@ pub async fn warm_from_kafka(
         CoordError::invalid_state(format!("partition {partition} exceeds i32::MAX"))
     })?;
 
-    // Query the writer's committed offset via a separate, short-lived client.
-    // This keeps our long-lived warming consumer isolated from the writer's
-    // consumer group.
-    let committed_offset = with_warm_retry("committed_offset", partition, cfg.retry, || async {
+    // Arc because the watermark retry closure needs its own handle for
+    // the blocking pool; sole ownership returns once the retries finish.
+    // The sub-spans below decompose the warm's wall clock so a slow one
+    // is attributable: client construction is lazy, so a cold client's
+    // connection cost lands in the metadata span, not the checkout.
+    let span_start = Instant::now();
+    let consumer = Arc::new(pools.warming.checkout()?);
+    record_warm_span("checkout", span_start);
+
+    // The two offset queries are independent — the writer's committed
+    // position comes from the offsets pool, the watermarks from this
+    // consumer — so they run concurrently; each keeps its own retry
+    // policy. The committed query uses a separate, short-lived client to
+    // keep the long-lived warming consumer isolated from the writer's
+    // consumer group. `fetch_watermarks` is synchronous in rdkafka and
+    // may block for the full timeout, so it runs on the blocking pool.
+    let committed_fut = with_warm_retry("committed_offset", partition, cfg.retry, || async {
         fetch_writer_committed_offset(
             &pools.offsets,
             &cfg.topic,
@@ -386,17 +438,8 @@ pub async fn warm_from_kafka(
             cfg.committed_offsets_timeout,
         )
         .await
-    })
-    .await?;
-
-    // Arc because the watermark retry closure needs its own handle for
-    // the blocking pool; sole ownership returns once the retries finish.
-    let consumer = Arc::new(pools.warming.checkout()?);
-
-    // `fetch_watermarks` is synchronous in rdkafka and may block for the
-    // full timeout. Run it on the blocking pool so retries don't park the
-    // runtime thread.
-    let (low, hwm) = with_warm_retry("fetch_watermarks", partition, cfg.retry, || {
+    });
+    let watermarks_fut = with_warm_retry("fetch_watermarks", partition, cfg.retry, || {
         let consumer = Arc::clone(&consumer);
         let topic = cfg.topic.clone();
         let timeout = cfg.fetch_watermarks_timeout;
@@ -409,8 +452,30 @@ pub async fn warm_from_kafka(
             .await
             .map_err(|e| CoordError::invalid_state(format!("fetch_watermarks join: {e}")))?
         }
-    })
-    .await?;
+    });
+    let span_start = Instant::now();
+    let (committed_res, watermarks_res) = tokio::join!(committed_fut, watermarks_fut);
+    record_warm_span("metadata", span_start);
+    let (low, hwm) = match watermarks_res {
+        Ok(marks) => marks,
+        // The watermark call failed on this consumer, so the pool's
+        // drop-doubtful-clients contract applies: fall through without
+        // giving it back.
+        Err(e) => return Err(e),
+    };
+    let committed_offset = match committed_res {
+        Ok(offset) => offset,
+        Err(e) => {
+            // The committed-offset query runs on the offsets pool's
+            // client; this consumer did nothing and is sound. Returning
+            // it keeps reconcile-driven warm retries from rebuilding a
+            // Kafka client per attempt.
+            if let Ok(consumer) = Arc::try_unwrap(consumer) {
+                pools.warming.give_back(consumer);
+            }
+            return Err(e);
+        }
+    };
 
     let start_offset = resolve_start_offset(committed_offset, low, cfg.lookback_offsets);
 
@@ -425,6 +490,21 @@ pub async fn warm_from_kafka(
         "computed warming range"
     );
 
+    if hwm <= start_offset {
+        // Empty range — install an empty partition cache. Use the
+        // atomic install path so this matches the populated path's
+        // publication semantics (the partition becomes observable in
+        // a single dashmap insert). The consumer never got assigned, so
+        // it goes straight back to the pool.
+        cache.install_warmed_partition(partition, std::iter::empty());
+        tracing::info!(partition, hwm, start_offset, "no messages to warm in range");
+        if let Ok(consumer) = Arc::try_unwrap(consumer) {
+            pools.warming.give_back(consumer);
+        }
+        return Ok(());
+    }
+
+    let span_start = Instant::now();
     let mut assign_tpl = TopicPartitionList::new();
     assign_tpl
         .add_partition_offset(&cfg.topic, partition_i32, Offset::Offset(start_offset))
@@ -433,16 +513,6 @@ pub async fn warm_from_kafka(
         .assign(&assign_tpl)
         .map_err(|e| CoordError::invalid_state(format!("consumer assign: {e}")))?;
 
-    if hwm <= start_offset {
-        // Empty range — install an empty partition cache. Use the
-        // atomic install path so this matches the populated path's
-        // publication semantics (the partition becomes observable in
-        // a single dashmap insert).
-        cache.install_warmed_partition(partition, std::iter::empty());
-        tracing::info!(partition, hwm, start_offset, "no messages to warm in range");
-        return Ok(());
-    }
-
     // Buffer records locally and only commit them to the cache after the
     // entire range warms successfully. Any decode/IO failure mid-range
     // aborts warming with no observable cache mutation, which keeps a
@@ -450,19 +520,96 @@ pub async fn warm_from_kafka(
     let mut buffered: Vec<(PersonCacheKey, CachedPerson, i64)> = Vec::new();
     let mut last_offset: i64 = -1;
 
+    // A transactionally-produced range can end in control records
+    // (commit/abort markers) that `recv` never delivers, so reaching the
+    // HWM is only observable through the fetch position advancing past
+    // them. Poll in short slices and consult the position when quiet;
+    // `cfg.recv_timeout` still bounds the total quiet time before the
+    // warm is declared stalled.
+    let poll_slice = Duration::from_millis(100).min(cfg.recv_timeout);
+    let mut quiet_since = Instant::now();
+
     loop {
-        let msg = match timeout(cfg.recv_timeout, consumer.recv()).await {
+        let msg = match timeout(poll_slice, consumer.recv()).await {
             Ok(Ok(m)) => m,
+            // A non-fatal consumer error means librdkafka is handling it:
+            // a connection blip resolves by reconnecting with the fetch
+            // position intact, and the stream never terminates, so the
+            // answer is to keep polling — as the fleet's streaming
+            // consumers do. The per-event fatal split is not the whole
+            // fatality story, so the client-level fatal state (an
+            // unrecoverable idempotence or authentication failure) is
+            // checked first: it survives even when the event that set it
+            // was consumed, and a dead client must not be re-polled while
+            // reporting progress.
+            //
+            // The accepted trade, stated for the record: librdkafka also
+            // reports record-skipping through this same non-fatal channel
+            // — an unreadable message set is discarded and the fetch
+            // position advances past it — and riding one out publishes a
+            // cache missing the skipped records. Today that requires
+            // broker-side corruption of bytes no consumer could read
+            // anyway, or a record format newer than this client, which
+            // does not exist. Stop-class errors (an ACL revocation, a
+            // deleted topic) also ride, costing the stall budget and a
+            // generic stall error instead of an immediate named one; the
+            // code survives in the counter label and the warn line.
+            Ok(Err(KafkaError::MessageConsumption(code))) => {
+                if let Some((fatal_code, reason)) = consumer.client().fatal_error() {
+                    return Err(CoordError::invalid_state(format!(
+                        "warm consumer entered a fatal state ({fatal_code:?}): {reason}"
+                    )));
+                }
+                // An error is not progress: the stall budget keeps
+                // running, so errors arriving faster than the quiet arm
+                // can observe still end the warm on time.
+                if quiet_since.elapsed() >= cfg.recv_timeout {
+                    return Err(CoordError::invalid_state(format!(
+                        "warm stalled on repeated consumer errors (last: {code:?}); \
+                         consumed {count} msgs, last_offset={last_offset}, hwm={hwm}",
+                        count = buffered.len()
+                    )));
+                }
+                counter!(
+                    // Debug renders the bare variant ("BrokerTransportFailure");
+                    // Display appends librdkafka's prose, which makes a
+                    // poor label value.
+                    "personhog_leader_warm_transient_errors_total",
+                    "code" => format!("{code:?}")
+                )
+                .increment(1);
+                tracing::warn!(
+                    partition,
+                    error = %code,
+                    "non-fatal consumer error during warm; riding it out"
+                );
+                // A fast-failing recv would otherwise spin this loop hot
+                // for the whole stall budget.
+                sleep(poll_slice).await;
+                continue;
+            }
             Ok(Err(e)) => {
                 return Err(CoordError::invalid_state(format!("warm recv: {e}")));
             }
             Err(_) => {
-                return Err(CoordError::invalid_state(format!(
-                    "warm timeout; consumed {count} msgs, last_offset={last_offset}, hwm={hwm}",
-                    count = buffered.len()
-                )));
+                let position_reached = consumer
+                    .position()
+                    .map_err(|e| CoordError::invalid_state(format!("warm position: {e}")))?
+                    .find_partition(&cfg.topic, partition_i32)
+                    .is_some_and(|elem| matches!(elem.offset(), Offset::Offset(p) if p >= hwm));
+                if position_reached {
+                    break;
+                }
+                if quiet_since.elapsed() >= cfg.recv_timeout {
+                    return Err(CoordError::invalid_state(format!(
+                        "warm timeout; consumed {count} msgs, last_offset={last_offset}, hwm={hwm}",
+                        count = buffered.len()
+                    )));
+                }
+                continue;
             }
         };
+        quiet_since = Instant::now();
 
         let offset = msg.offset();
         last_offset = offset;
@@ -501,6 +648,8 @@ pub async fn warm_from_kafka(
             break;
         }
     }
+
+    record_warm_span("consume", span_start);
 
     // Records at or above the writer's committed offset are not yet in PG:
     // seed the dirty index so that, if the cache later evicts them, a miss

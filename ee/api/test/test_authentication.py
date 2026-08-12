@@ -24,7 +24,7 @@ from posthog.models import OrganizationMembership, User
 from posthog.models.identity_provider_config import IdentityProviderConfig
 from posthog.models.organization_domain import OrganizationDomain
 
-from ee.api.authentication import CustomGoogleOAuth2
+from ee.api.authentication import CustomGoogleOAuth2, MultitenantSAMLAuth
 from ee.api.test.base import APILicensedTest
 from ee.models.license import License
 
@@ -67,7 +67,13 @@ class TestEELoginPrecheckAPI(APILicensedTest):
         self.assertEqual(response.status_code, status.HTTP_200_OK)
         self.assertEqual(
             response.json(),
-            {"sso_enforcement": "google-oauth2", "saml_available": False, "webauthn_credentials": []},
+            {
+                "sso_enforcement": "google-oauth2",
+                "saml_available": False,
+                "webauthn_credentials": [],
+                "password_login_available": True,
+                "social_providers": [],
+            },
         )
 
     def test_login_precheck_with_unverified_domain(self):
@@ -84,7 +90,14 @@ class TestEELoginPrecheckAPI(APILicensedTest):
             )  # Note we didn't create a user that matches, only domain is matched
         self.assertEqual(response.status_code, status.HTTP_200_OK)
         self.assertEqual(
-            response.json(), {"sso_enforcement": None, "saml_available": False, "webauthn_credentials": []}
+            response.json(),
+            {
+                "sso_enforcement": None,
+                "saml_available": False,
+                "webauthn_credentials": [],
+                "password_login_available": True,
+                "social_providers": [],
+            },
         )
 
     def test_login_precheck_with_inexistent_account(self):
@@ -100,7 +113,14 @@ class TestEELoginPrecheckAPI(APILicensedTest):
             response = self.client.post("/api/login/precheck", {"email": "i_do_not_exist@anotherdomain.com"})
         self.assertEqual(response.status_code, status.HTTP_200_OK)
         self.assertEqual(
-            response.json(), {"sso_enforcement": "github", "saml_available": False, "webauthn_credentials": []}
+            response.json(),
+            {
+                "sso_enforcement": "github",
+                "saml_available": False,
+                "webauthn_credentials": [],
+                "password_login_available": True,
+                "social_providers": [],
+            },
         )
 
     def test_login_precheck_with_enforced_sso_but_improperly_configured_sso(self):
@@ -117,7 +137,14 @@ class TestEELoginPrecheckAPI(APILicensedTest):
         )  # Note Google OAuth is not configured
         self.assertEqual(response.status_code, status.HTTP_200_OK)
         self.assertEqual(
-            response.json(), {"sso_enforcement": None, "saml_available": False, "webauthn_credentials": []}
+            response.json(),
+            {
+                "sso_enforcement": None,
+                "saml_available": False,
+                "webauthn_credentials": [],
+                "password_login_available": True,
+                "social_providers": [],
+            },
         )
 
 
@@ -389,9 +416,83 @@ class TestEESAMLAuthenticationAPI(APILicensedTest):
             "/api/login/precheck", {"email": "helloworld@posthog.com"}
         )  # Note Google OAuth is not configured
         self.assertEqual(response.status_code, status.HTTP_200_OK)
-        self.assertEqual(response.json(), {"sso_enforcement": None, "saml_available": True, "webauthn_credentials": []})
+        self.assertEqual(
+            response.json(),
+            {
+                "sso_enforcement": None,
+                "saml_available": True,
+                "webauthn_credentials": [],
+                "password_login_available": True,
+                "social_providers": [],
+            },
+        )
 
     # Initiate SAML flow
+
+    def _grant_saml(self) -> None:
+        if self.organization.is_feature_available(AvailableFeature.SAML):
+            return
+        self.organization.available_product_features = [
+            *(self.organization.available_product_features or []),
+            {"key": AvailableFeature.SAML, "name": AvailableFeature.SAML},
+        ]
+        self.organization.save()
+
+    def test_saml_config_can_back_multiple_verified_domains(self):
+        self._grant_saml()
+
+        config = self.organization_domain.identity_provider_config
+        assert config is not None
+        config.refresh_from_db()
+        OrganizationDomain.objects.create(
+            domain="posthog.co.uk",
+            verified_at=timezone.now(),
+            organization=self.organization,
+            identity_provider_config=config,
+        )
+
+        auth = object.__new__(MultitenantSAMLAuth)
+        idp = auth.get_idp(config.saml_relay_state)
+
+        self.assertEqual(idp.name, config.saml_relay_state)
+
+    def test_relay_state_minted_before_the_move_to_configs_still_resolves(self):
+        # A login redirected while SAML routed on domain ids comes back after the switch to config
+        # identifiers. The identifier in flight has to keep resolving or the user lands on an error.
+        self._grant_saml()
+        config = self.organization_domain.identity_provider_config
+        assert config is not None
+        config.refresh_from_db()
+
+        auth = object.__new__(MultitenantSAMLAuth)
+        idp = auth.get_idp(str(self.organization_domain.id))
+
+        self.assertEqual(idp.entity_id, config.saml_entity_id)
+
+    def test_saml_assertion_accepts_any_verified_domain_on_the_config(self):
+        # An assertion carries the config's identifier, not a domain, so it is valid for every domain
+        # the config backs. Checking the email against a single one of them locks out everyone on the
+        # others.
+        self._grant_saml()
+        config = self.organization_domain.identity_provider_config
+        assert config is not None
+        config.refresh_from_db()
+        OrganizationDomain.objects.create(
+            domain="posthog.co.uk",
+            verified_at=timezone.now(),
+            organization=self.organization,
+            identity_provider_config=config,
+        )
+
+        auth = object.__new__(MultitenantSAMLAuth)
+        details = auth.get_user_details(
+            {
+                "idp_name": config.saml_relay_state,
+                "attributes": {"email": ["engineering@posthog.co.uk"]},
+            }
+        )
+
+        self.assertEqual(details["email"], "engineering@posthog.co.uk")
 
     def test_can_initiate_saml_flow(self):
         response = self.client.get("/login/saml/?email=hellohello@posthog.com")
@@ -410,8 +511,13 @@ class TestEESAMLAuthenticationAPI(APILicensedTest):
         )
         self.assertEqual(response.status_code, status.HTTP_302_FOUND)
 
+        config = self.organization_domain.identity_provider_config
+        assert config is not None
+        config.refresh_from_db()
         relay_state = json.loads(parse_qs(urlparse(response.headers["Location"]).query)["RelayState"][0])
-        self.assertEqual(relay_state["idp"], str(self.organization_domain.id))
+        # The identifier comes off the IdP config. It currently equals the domain's id, so asserting
+        # against the domain would pass just as well if this regressed to reading the domain.
+        self.assertEqual(relay_state["idp"], config.saml_relay_state)
         self.assertEqual(relay_state["next"], "/settings/organization/authentication")
 
     def test_cannot_initiate_saml_flow_without_target_email_address(self):
@@ -859,7 +965,14 @@ YotAcSbU3p5bzd11wpyebYHB"""
         response = self.client.post("/api/login/precheck", {"email": "engineering@posthog.com"})
         self.assertEqual(response.status_code, status.HTTP_200_OK)
         self.assertEqual(
-            response.json(), {"sso_enforcement": "saml", "saml_available": True, "webauthn_credentials": []}
+            response.json(),
+            {
+                "sso_enforcement": "saml",
+                "saml_available": True,
+                "webauthn_credentials": [],
+                "password_login_available": True,
+                "social_providers": [],
+            },
         )
 
     def test_cannot_use_saml_without_enterprise_license(self):
@@ -874,7 +987,14 @@ YotAcSbU3p5bzd11wpyebYHB"""
         response = self.client.post("/api/login/precheck", {"email": self.CONFIG_EMAIL})
         self.assertEqual(response.status_code, status.HTTP_200_OK)
         self.assertEqual(
-            response.json(), {"sso_enforcement": None, "saml_available": False, "webauthn_credentials": []}
+            response.json(),
+            {
+                "sso_enforcement": None,
+                "saml_available": False,
+                "webauthn_credentials": [],
+                "password_login_available": True,
+                "social_providers": [],
+            },
         )
 
         # Cannot start SAML flow - sso_login catches AuthFailed and redirects

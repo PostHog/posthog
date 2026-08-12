@@ -17,6 +17,7 @@ from posthog.security.url_validation import is_url_allowed
 
 from .models import MCPServerInstallation, MCPServerInstallationTool
 from .oauth import TokenRefreshError, is_token_expiring, refresh_installation_token
+from .policy import SYNC_DEFAULT_APPROVAL_STATE
 from .proxy import build_upstream_auth_headers, validated_same_origin_redirect_url
 
 logger = structlog.get_logger(__name__)
@@ -25,6 +26,7 @@ logger = structlog.get_logger(__name__)
 # pick stable ones so response matching in _parse_jsonrpc_response is trivial.
 _INITIALIZE_ID = 1
 _TOOLS_LIST_ID = 2
+_TOOLS_CALL_ID = 3
 
 # MCP protocol version we claim to speak. Kept in sync with what the PostHog
 # MCP reference client sends; bump when the spec changes in a backwards-
@@ -37,9 +39,20 @@ _CLIENT_INFO: dict[str, Any] = {"name": "posthog-mcp-store", "version": "1.0"}
 # covers real tool execution) so a hung upstream can't pin a Django worker.
 HANDSHAKE_TIMEOUT = 10
 
+# A real tool call does actual work upstream, so it needs more room than the
+# discovery handshake. Still well under the proxy's 180s: this path serves an
+# interactive agent, and a worker blocked for minutes is worse than a retry.
+CALL_TIMEOUT = 60
+
 
 class ToolsFetchError(Exception):
     pass
+
+
+class ToolCallError(Exception):
+    """An upstream ``tools/call`` failed. Distinct from ToolsFetchError so
+    callers can tell "we couldn't discover tools" from "the call itself
+    failed" — they surface differently to an agent."""
 
 
 def _ensure_valid_token_for_fetch(installation: MCPServerInstallation) -> None:
@@ -97,6 +110,53 @@ def fetch_upstream_tools(installation: MCPServerInstallation) -> list[dict[str, 
         raise ToolsFetchError("Upstream MCP server unreachable") from exc
     except httpx.TimeoutException as exc:
         raise ToolsFetchError("Upstream MCP server timed out") from exc
+
+
+def call_upstream_tool(
+    installation: MCPServerInstallation,
+    tool_name: str,
+    arguments: dict[str, Any],
+) -> dict[str, Any]:
+    """Invoke one tool on the upstream MCP server and return its ``result`` object.
+
+    Same short-lived handshake as :func:`fetch_upstream_tools` — servers hand out a
+    session on ``initialize`` and most reject ``tools/call`` without it — so the two
+    paths share the SSRF guard, auth headers and redirect handling.
+
+    Approval and audit are *not* handled here: the caller runs the request through
+    the gateway's policy engine first (see ``enforce_tool_approval``), so this stays
+    a transport concern.
+    """
+    allowed, reason = is_url_allowed(installation.url)
+    if not allowed:
+        raise ToolCallError(f"URL not allowed: {reason}")
+
+    _ensure_valid_token_for_fetch(installation)
+
+    auth_headers = build_upstream_auth_headers(installation)
+    base_headers = {
+        "Content-Type": "application/json",
+        "Accept": "application/json, text/event-stream",
+        **auth_headers,
+    }
+
+    try:
+        with httpx.Client(timeout=CALL_TIMEOUT) as client:
+            session_id, upstream_url = _mcp_initialize(client, installation.url, base_headers)
+            session_headers = dict(base_headers)
+            if session_id:
+                session_headers["Mcp-Session-Id"] = session_id
+
+            _mcp_send_initialized(client, upstream_url, session_headers)
+            try:
+                return _mcp_call_tool(client, upstream_url, session_headers, tool_name, arguments)
+            finally:
+                if session_id:
+                    _mcp_terminate_session(client, upstream_url, session_headers)
+    except httpx.ConnectError as exc:
+        raise ToolCallError("Upstream MCP server unreachable") from exc
+    except httpx.TimeoutException as exc:
+        raise ToolCallError("Upstream MCP server timed out") from exc
 
 
 def _post_with_same_origin_redirect(
@@ -199,6 +259,53 @@ def _mcp_list_tools(client: httpx.Client, url: str, headers: dict[str, str]) -> 
     return [t for t in tools if isinstance(t, dict) and t.get("name")]
 
 
+def _mcp_call_tool(
+    client: httpx.Client,
+    url: str,
+    headers: dict[str, str],
+    tool_name: str,
+    arguments: dict[str, Any],
+) -> dict[str, Any]:
+    body = json.dumps(
+        {
+            "jsonrpc": "2.0",
+            "id": _TOOLS_CALL_ID,
+            "method": "tools/call",
+            "params": {"name": tool_name, "arguments": arguments},
+        }
+    ).encode()
+
+    response, upstream_url = _post_with_same_origin_redirect(client, url, content=body, headers=headers)
+    if response.status_code >= 400:
+        logger.warning(
+            "tools/call request returned error",
+            url=upstream_url,
+            tool_name=tool_name,
+            status_code=response.status_code,
+            body=response.text[:500],
+        )
+        raise ToolCallError(f"Upstream returned status {response.status_code}")
+
+    payload = _parse_jsonrpc_response(
+        response.text,
+        response.headers.get("content-type", ""),
+        _TOOLS_CALL_ID,
+        request_name="tools/call",
+        error_class=ToolCallError,
+    )
+    if isinstance(payload, dict) and payload.get("error"):
+        raise ToolCallError(f"Upstream tools/call returned error: {payload['error']}")
+
+    result = (payload or {}).get("result") if isinstance(payload, dict) else None
+    if not isinstance(result, dict):
+        raise ToolCallError("tools/call response missing 'result' object")
+
+    # A result with `isError` set is the tool telling the *model* it failed (bad
+    # arguments, not-found, ...), not a transport fault. Pass it through so the
+    # agent can correct itself instead of seeing an opaque gateway error.
+    return result
+
+
 def _mcp_terminate_session(client: httpx.Client, url: str, headers: dict[str, str]) -> None:
     try:
         client.delete(url, headers=headers)
@@ -206,7 +313,14 @@ def _mcp_terminate_session(client: httpx.Client, url: str, headers: dict[str, st
         logger.warning("session DELETE failed; ignoring", url=url, error=str(exc))
 
 
-def _parse_jsonrpc_response(body: str, content_type: str, expected_id: int, *, request_name: str) -> dict[str, Any]:
+def _parse_jsonrpc_response(
+    body: str,
+    content_type: str,
+    expected_id: int,
+    *,
+    request_name: str,
+    error_class: type[Exception] = ToolsFetchError,
+) -> dict[str, Any]:
     """Parse a JSON-RPC response body that may be plain JSON or SSE-wrapped.
 
     MCP streamable HTTP servers can reply either directly with JSON or over an
@@ -230,13 +344,13 @@ def _parse_jsonrpc_response(body: str, content_type: str, expected_id: int, *, r
                     continue
                 if isinstance(parsed, dict) and parsed.get("id") == expected_id:
                     return parsed
-        raise ToolsFetchError(
+        raise error_class(
             f"Upstream {request_name} SSE response did not contain a JSON-RPC message with id={expected_id}"
         )
     try:
         return json.loads(body)
     except ValueError as exc:
-        raise ToolsFetchError(
+        raise error_class(
             f"Upstream {request_name} response was not JSON "
             f"(content-type={content_type_lower!r}, body_preview={body[:200]!r})"
         ) from exc
@@ -246,7 +360,7 @@ def sync_installation_tools(installation: MCPServerInstallation) -> list[MCPServ
     """Upsert tool rows for an installation against the latest upstream ``tools/list``.
 
     - New tools are inserted with ``approval_state="needs_approval"`` (explicit opt-in).
-    - Existing tools keep their approval state; name/description/schema/last_seen_at are updated.
+    - Existing tools keep their approval state; name/description/schema/annotations/last_seen_at are updated.
     - Tools that disappear upstream get ``removed_at`` set (approval state preserved for later).
     - Tools that reappear get ``removed_at`` cleared.
     """
@@ -262,6 +376,7 @@ def sync_installation_tools(installation: MCPServerInstallation) -> list[MCPServ
         display_name = tool.get("title") or tool.get("displayName") or ""
         description = tool.get("description") or ""
         input_schema = tool.get("inputSchema") or {}
+        annotations = tool.get("annotations") or {}
 
         row = existing_by_name.get(tool_name)
         if row is None:
@@ -271,8 +386,11 @@ def sync_installation_tools(installation: MCPServerInstallation) -> list[MCPServ
                 display_name=display_name,
                 description=description,
                 input_schema=input_schema,
+                annotations=annotations,
                 # New tools default to needs_approval so adoption stays explicit.
-                approval_state="needs_approval",
+                # The policy engine keys off this exact value to tell a synced
+                # default apart from a member's real choice — keep them in step.
+                approval_state=SYNC_DEFAULT_APPROVAL_STATE,
                 last_seen_at=now,
                 removed_at=None,
             )
@@ -280,6 +398,7 @@ def sync_installation_tools(installation: MCPServerInstallation) -> list[MCPServ
             row.display_name = display_name
             row.description = description
             row.input_schema = input_schema
+            row.annotations = annotations
             row.last_seen_at = now
             # A previously-removed tool reappeared; preserve approval_state but clear the flag.
             row.removed_at = None
@@ -288,6 +407,7 @@ def sync_installation_tools(installation: MCPServerInstallation) -> list[MCPServ
                     "display_name",
                     "description",
                     "input_schema",
+                    "annotations",
                     "last_seen_at",
                     "removed_at",
                     "updated_at",

@@ -11,12 +11,16 @@ from datetime import UTC, datetime
 from typing import Any, cast
 
 from posthog.hogql import ast
-from posthog.hogql.parser import parse_select
+from posthog.hogql.parser import parse_expr, parse_select
 
 from posthog.hogql_queries.insights.paginators import HogQLHasMorePaginator
 from posthog.models import Team
 
 from products.surveys.backend.models import Survey
+
+# Stamped by the frontend editor into a translation's choices when a spot needs a human
+# translation. Must never be treated as real translated content.
+TRANSLATION_NEEDED_PLACEHOLDER = "[Translation needed]"
 
 
 @dataclass(frozen=True)
@@ -38,8 +42,59 @@ class SurveyResponseRow:
     extra: dict[str, Any] = field(default_factory=dict)
 
 
+def build_choice_translation_map(question: dict[str, Any]) -> dict[str, str]:
+    """Map each translated choice back to its base-language choice, matched by position.
+
+    Mirrors the frontend twin ``buildChoiceTranslationMap`` in
+    ``frontend/src/scenes/surveys/surveyTranslationUtils.ts``: base choices are seeded last so
+    they win on collision with a translation that reuses another base choice's string.
+    """
+    base_choices = question.get("choices")
+    if not isinstance(base_choices, list):
+        return {}
+    # An untranslated question still needs its base choices mapped, so a missing/malformed
+    # `translations` means "no translated entries", never an early return.
+    translations = question.get("translations")
+    if not isinstance(translations, dict):
+        translations = {}
+
+    mapping: dict[str, str] = {}
+    for translation in translations.values():
+        if not isinstance(translation, dict):
+            continue
+        translated_choices = translation.get("choices")
+        if not isinstance(translated_choices, list):
+            continue
+        # The length guard only catches out-of-band edits (API/Max tool) that change array
+        # length — the editor path preserves length and stamps the placeholder instead (see the
+        # placeholder skip below), which is why that skip is the real guard for that path.
+        if len(translated_choices) != len(base_choices):
+            continue
+        for index, choice in enumerate(translated_choices):
+            base_choice = base_choices[index]
+            # Skip untranslated placeholders and blanks — they carry no real mapping and would
+            # otherwise collapse onto whichever base choice the last language lands on.
+            if (
+                isinstance(choice, str)
+                and choice.strip()
+                and choice != TRANSLATION_NEEDED_PLACEHOLDER
+                and isinstance(base_choice, str)
+            ):
+                mapping[choice] = base_choice
+
+    # Seed base choices last so they take precedence: a translation that reuses another
+    # base-choice string must not remap that base choice to a different option. The tradeoff is
+    # lossy — a translated pick that collides with a different base choice is attributed to that
+    # base option — but it's the safe default (base-language data is never misattributed).
+    for choice in base_choices:
+        if isinstance(choice, str):
+            mapping[choice] = choice
+
+    return mapping
+
+
 def resolve_question_metadata(survey: Survey) -> list[dict[str, Any]]:
-    """Return survey questions with stable `(id, index, text, type, choices)` shape."""
+    """Return survey questions with stable `(id, index, text, type, choices, choice_map)` shape."""
     questions = survey.questions or []
     resolved: list[dict[str, Any]] = []
     for index, question in enumerate(questions):
@@ -52,9 +107,19 @@ def resolve_question_metadata(survey: Survey) -> list[dict[str, Any]]:
                 "text": question.get("question") or "",
                 "type": question.get("type") or "open",
                 "choices": question.get("choices"),
+                "choice_map": build_choice_translation_map(question),
             }
         )
     return resolved
+
+
+# HogQL expression that collapses a submission's events into one group. Events without a
+# `$survey_submission_id` are keyed by their own uuid, so each stays a distinct response
+# (the legacy single-event behavior). Shared with the summarization + per-question-stats
+# fetchers so the grouping stays identical across every response surface.
+SUBMISSION_GROUPING_KEY = (
+    "if(coalesce(properties.$survey_submission_id, '') = '', toString(uuid), properties.$survey_submission_id)"
+)
 
 
 # Metadata columns appended to every row — known $-prefixed event properties resolved via
@@ -105,74 +170,98 @@ def fetch_response_rows(
 
     placeholders: dict[str, ast.Expr] = {
         "survey_id": ast.Constant(value=survey_id),
-        # uniqueSurveySubmissionsFilter requires bounded dates — fall back to
-        # the survey lifetime when the caller didn't supply explicit bounds.
+        # The submission-merge query is bounded by date — fall back to the survey
+        # lifetime when the caller didn't supply explicit bounds.
         "start_date": ast.Constant(value=since or survey.start_date or survey.created_at),
         "end_date": ast.Constant(value=until or survey.end_date or datetime.now(UTC)),
     }
 
-    # Dynamically add one column per question using the HogQL getSurveyResponse helper —
-    # the same helper the summarization fetch uses, so the resolution semantics match.
-    answer_columns: list[str] = []
+    # Resolve one answer column per question with the HogQL getSurveyResponse helper (the
+    # same helper the summarization fetch uses, so resolution semantics match), then merge
+    # them across the submission: for each $survey_submission_id we keep the latest non-null
+    # answer to each question. This stops multi-event submissions — e.g. AI-feedback manual
+    # capture, where each answer can arrive on its own event — from dropping answers that
+    # only ever appeared on a non-final event.
+    inner_answer_columns: list[str] = []
+    outer_answer_columns: list[str] = []
     for q in questions_in_scope:
         idx_name = f"q_idx_{q['index']}"
         id_name = f"q_id_{q['index']}"
-        answer_columns.append(f"getSurveyResponse({{{idx_name}}}, {{{id_name}}}) AS answer_{q['index']}")
+        inner_answer_columns.append(f"getSurveyResponse({{{idx_name}}}, {{{id_name}}}) AS raw_answer_{q['index']}")
+        outer_answer_columns.append(
+            f"argMaxIf(raw_answer_{q['index']}, timestamp, isNotNull(raw_answer_{q['index']})) AS answer_{q['index']}"
+        )
         placeholders[idx_name] = ast.Constant(value=q["index"])
         placeholders[id_name] = ast.Constant(value=q["id"])
 
-    select_clause = ", ".join(
+    placeholders["grouping_key"] = parse_expr(SUBMISSION_GROUPING_KEY)
+
+    # Per-event projection (inner) → per-submission merge (outer). Column order in the outer
+    # SELECT must stay uuid, distinct_id, submitted_at, <metadata…>, <answers…> to match the
+    # positional parsing below.
+    inner_select = ", ".join(
         [
             "uuid",
             "distinct_id",
-            "timestamp AS submitted_at",
+            "timestamp",
             *(f"{expr} AS {alias}" for alias, expr in _METADATA_COLUMNS),
-            *answer_columns,
+            *inner_answer_columns,
+            "{grouping_key} AS submission_key",
+        ]
+    )
+    outer_select = ", ".join(
+        [
+            "argMax(uuid, timestamp) AS uuid",
+            "argMax(distinct_id, timestamp) AS distinct_id",
+            "max(timestamp) AS submitted_at",
+            *(f"argMax({alias}, timestamp) AS {alias}" for alias, _ in _METADATA_COLUMNS),
+            *outer_answer_columns,
         ]
     )
 
-    conditions = [
+    inner_conditions = [
         "event = 'survey sent'",
         "properties.`$survey_id` = {survey_id}",
-        "uniqueSurveySubmissionsFilter({survey_id}, {start_date}, {end_date})",
+        "timestamp >= {start_date}",
+        "timestamp <= {end_date}",
     ]
 
-    if since is not None:
-        conditions.append("timestamp >= {since}")
-        placeholders["since"] = ast.Constant(value=since)
-    if until is not None:
-        conditions.append("timestamp <= {until}")
-        placeholders["until"] = ast.Constant(value=until)
-
+    # Filters that depend on the merged answer run in HAVING, after the submission has been
+    # collapsed to a single row.
+    having_conditions: list[str] = []
     if question_id:
-        # Only return rows where this question has a non-empty answer.
+        # Only return submissions where this question has a non-empty answer.
         # coalesce-then-trim defends against NULL semantics in HogQL — without it the
         # equivalent `trim(...) != ''` predicate evaluates to NULL for nullified responses
         # and is silently ignored in some contexts.
         target_q = next(q for q in questions_in_scope if q["id"] == question_id)
-        conditions.append(
-            "length(trim(coalesce(getSurveyResponse({filter_q_idx}, {filter_q_id}), ''))) > 0",
-        )
-        placeholders["filter_q_idx"] = ast.Constant(value=target_q["index"])
-        placeholders["filter_q_id"] = ast.Constant(value=target_q["id"])
+        having_conditions.append(f"length(trim(coalesce(answer_{target_q['index']}, ''))) > 0")
 
         if score_lte is not None:
-            conditions.append("toFloat(getSurveyResponse({filter_q_idx}, {filter_q_id})) <= {score_lte}")
+            having_conditions.append(f"toFloat(answer_{target_q['index']}) <= {{score_lte}}")
             placeholders["score_lte"] = ast.Constant(value=score_lte)
         if score_gte is not None:
-            conditions.append("toFloat(getSurveyResponse({filter_q_idx}, {filter_q_id})) >= {score_gte}")
+            having_conditions.append(f"toFloat(answer_{target_q['index']}) >= {{score_gte}}")
             placeholders["score_gte"] = ast.Constant(value=score_gte)
 
     if exclude_uuids:
-        conditions.append("uuid NOT IN {exclude_uuids}")
+        # Archiving records the submission's representative (latest) uuid, which is exactly
+        # what argMax(uuid) surfaces here — so exclude by that.
+        having_conditions.append("uuid NOT IN {exclude_uuids}")
         placeholders["exclude_uuids"] = ast.Tuple(exprs=[ast.Constant(value=u) for u in exclude_uuids])
 
-    query_str = f"""
-        SELECT {select_clause}
-        FROM events
-        WHERE {" AND ".join(conditions)}
-        ORDER BY timestamp DESC
-    """
+    having_clause = ("HAVING " + " AND ".join(having_conditions)) if having_conditions else ""
+    query_str = (
+        "SELECT "
+        + outer_select
+        + " FROM ( SELECT "
+        + inner_select
+        + " FROM events WHERE "
+        + " AND ".join(inner_conditions)
+        + " ) GROUP BY submission_key "
+        + having_clause
+        + " ORDER BY submitted_at DESC"
+    )
 
     select_ast = cast(ast.SelectQuery, parse_select(query_str, placeholders))
     paginator.execute_hogql_query(

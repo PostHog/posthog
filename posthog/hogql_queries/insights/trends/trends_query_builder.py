@@ -1,4 +1,4 @@
-from typing import cast
+from typing import Any, cast
 
 from posthog.schema import (
     ActionsNode,
@@ -29,6 +29,9 @@ from posthog.models.team.team import Team
 from posthog.ph_client import feature_enabled_or_false
 
 from products.actions.backend.models.action import Action
+from products.web_analytics.backend.hogql_queries.first_pageview_attribution import (
+    first_pageview_aware_properties_to_expr,
+)
 
 
 class TrendsQueryBuilder(DataWarehouseInsightQueryMixin):
@@ -834,11 +837,11 @@ class TrendsQueryBuilder(DataWarehouseInsightQueryMixin):
 
         # Properties
         if self.query.properties is not None and self.query.properties != []:
-            filters.append(property_to_expr(self.query.properties, self.team))
+            filters.append(self._properties_to_expr(self.query.properties))
 
         # Series Filters
         if series.properties is not None and series.properties != []:
-            filters.append(property_to_expr(series.properties, self.team))
+            filters.append(self._properties_to_expr(series.properties))
 
         # Breakdown
         if not ignore_breakdowns and breakdown is not None:
@@ -861,6 +864,16 @@ class TrendsQueryBuilder(DataWarehouseInsightQueryMixin):
             return ast.Constant(value=True)
 
         return ast.And(exprs=filters)
+
+    def _properties_to_expr(self, properties: Any) -> ast.Expr:
+        # Web analytics passes its drill-down filter at both query and series level.
+        return first_pageview_aware_properties_to_expr(
+            properties,
+            team=self.team,
+            modifiers=self.modifiers,
+            date_range=self.query_date_range,
+            timings=self.timings,
+        )
 
     def _event_or_action_where_expr(self) -> ast.Expr | None:
         if isinstance(self.series, EventsNode):

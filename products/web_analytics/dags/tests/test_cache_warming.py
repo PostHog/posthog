@@ -1,5 +1,7 @@
 import gzip
 import json
+import threading
+from types import SimpleNamespace
 
 from posthog.test.base import BaseTest
 from unittest.mock import MagicMock, patch
@@ -10,13 +12,16 @@ import dagster
 from parameterized import parameterized
 
 from posthog.clickhouse.query_tagging import Feature, get_query_tags, reset_query_tags, tag_queries
+from posthog.exceptions import ClickHouseAtCapacity
 from posthog.hogql_queries.query_runner import ExecutionMode
 from posthog.models import Team
 
 from products.web_analytics.backend.hogql_queries.web_lazy_precompute_common import is_background_warming_request
+from products.web_analytics.dags import cache_warming
 from products.web_analytics.dags.cache_warming import (
     WarmQueriesConfig,
     build_replay_runner,
+    canonicalize_lazy_replay_json,
     deepen_to_widest_warmable_range,
     get_warmable_queries_op,
     maybe_expand_warming_date_range,
@@ -243,6 +248,35 @@ class TestBuildReplayRunner(BaseTest):
         self.assertFalse(lazy_eligible)
         self.assertEqual(used_json["dateRange"]["date_from"], "-7d")
 
+    @parameterized.expand(
+        [
+            # The shared gate rejects both shapes as submitted; canonicalizing
+            # before the check would erase the rejection (drop the modifier,
+            # step the over-cap lookback under MAX_PRECOMPUTE_DAYS) and build
+            # buckets the shape's real queries can never consume, held only to
+            # the lazy demand floor instead of the raw one.
+            ("uuid_join_mode", {"modifiers": {"sessionsV2JoinMode": "uuid"}}, ["-7d"], "-7d"),
+            ("only_over_cap_demand", {"dateRange": {"date_from": "-180d"}}, ["-180d"], "-180d"),
+        ]
+    )
+    def test_ineligible_shape_is_not_canonicalized_into_eligibility(
+        self, _name: str, extra: dict, observed: list[str], expected_from: str
+    ) -> None:
+        query = {
+            "kind": "WebOverviewQuery",
+            "properties": [],
+            "useWebAnalyticsPrecompute": True,
+            "dateRange": {"date_from": "-7d"},
+            **extra,
+        }
+
+        runner, used_json, lazy_eligible = build_replay_runner(self.team, query, observed)
+
+        self.assertIsNotNone(runner)
+        self.assertFalse(lazy_eligible)
+        self.assertEqual(used_json["dateRange"]["date_from"], expected_from)
+        self.assertEqual(used_json, query)
+
     def test_outside_warming_context_gate_fails_closed(self) -> None:
         reset_query_tags()
         query = {
@@ -257,6 +291,115 @@ class TestBuildReplayRunner(BaseTest):
         self.assertIsNotNone(runner)
         self.assertFalse(lazy_eligible)
         self.assertEqual(used_json["dateRange"]["date_from"], "-7d")
+
+    @parameterized.expand(
+        [
+            # A snapshot rotation that flips the representative to a sibling
+            # variant — compare toggled, a different sub-30d preset — must not
+            # rotate the staleness cache key; before canonicalization every such
+            # flip re-warmed the shape even though its buckets were fresh.
+            (
+                "overview_compare_and_preset_variant",
+                {"kind": "WebOverviewQuery", "properties": []},
+                {"dateRange": {"date_from": "wStart"}, "compareFilter": {"compare": True}},
+            ),
+            (
+                "stats_limit_variant",
+                {"kind": "WebStatsTableQuery", "properties": [], "breakdownBy": "Browser"},
+                {"dateRange": {"date_from": "dStart"}, "limit": 50},
+            ),
+        ]
+    )
+    def test_representative_variants_share_one_cache_key(self, _name: str, shape: dict, variant_extra: dict) -> None:
+        base = {**shape, "useWebAnalyticsPrecompute": True, "dateRange": {"date_from": "-7d"}}
+        variant = {**base, **variant_extra}
+
+        base_runner, _, base_eligible = build_replay_runner(self.team, base, ["-7d"])
+        variant_runner, _, variant_eligible = build_replay_runner(self.team, variant, ["-7d"])
+
+        assert base_runner is not None and variant_runner is not None
+        self.assertTrue(base_eligible)
+        self.assertTrue(variant_eligible)
+        self.assertEqual(base_runner.get_cache_key(), variant_runner.get_cache_key())
+
+
+class TestCanonicalizeLazyReplay(BaseTest):
+    @parameterized.expand(
+        [
+            ("steps_up_to_next_multiple", "-31d", "-45d"),
+            ("on_step_unchanged", "-45d", "-45d"),
+            ("weeks_convert_then_step", "-6w", "-45d"),
+            # 721h is just over 30 days; flooring to -30d would leave the
+            # oldest partial day of the real request's span cold.
+            ("hours_round_up", "-721h", "-45d"),
+            ("cap_holds", "-90d", "-90d"),
+        ]
+    )
+    def test_lookback_steps(self, _name: str, date_from: str, expected: str) -> None:
+        query = {
+            "kind": "WebOverviewQuery",
+            "useWebAnalyticsPrecompute": True,
+            "dateRange": {"date_from": date_from},
+        }
+
+        self.assertEqual(canonicalize_lazy_replay_json(query)["dateRange"]["date_from"], expected)
+
+    def test_variant_fields_dropped_shape_fields_kept(self) -> None:
+        query = {
+            "kind": "WebStatsTableQuery",
+            "useWebAnalyticsPrecompute": True,
+            "properties": [{"key": "$host", "value": "posthog.com", "type": "event"}],
+            "breakdownBy": "Browser",
+            "filterTestAccounts": True,
+            "dateRange": {"date_from": "-30d"},
+            "compareFilter": {"compare": True},
+            "limit": 50,
+            "modifiers": {"sessionTableVersion": "v2"},
+            "version": 2,
+        }
+
+        canonical = canonicalize_lazy_replay_json(query)
+
+        for dropped in ("compareFilter", "limit", "modifiers", "version"):
+            self.assertNotIn(dropped, canonical)
+        self.assertEqual(canonical["properties"], query["properties"])
+        self.assertEqual(canonical["breakdownBy"], "Browser")
+        self.assertIs(canonical["filterTestAccounts"], True)
+        self.assertIs(canonical["useWebAnalyticsPrecompute"], True)
+
+    @parameterized.expand(
+        [
+            (
+                "non_lazy_kind",
+                {"kind": "WebExternalClicksTableQuery", "useWebAnalyticsPrecompute": True, "compareFilter": {}},
+            ),
+            ("opted_out", {"kind": "WebOverviewQuery", "useWebAnalyticsPrecompute": False, "compareFilter": {}}),
+        ]
+    )
+    def test_off_lazy_path_is_untouched(self, _name: str, query: dict) -> None:
+        self.assertIs(canonicalize_lazy_replay_json(query), query)
+
+    @parameterized.expand(
+        [
+            # A bounded span keeps its faithful range for the same reason
+            # deepening skips it, and non-exact forms have no monotonic depth
+            # to step — both still shed the variant fields.
+            ("bounded_range", {"date_from": "-7d", "date_to": "-1d"}),
+            ("month_start", {"date_from": "mStart"}),
+        ]
+    )
+    def test_unsteppable_ranges_keep_span_but_shed_variant_fields(self, _name: str, date_range: dict) -> None:
+        query = {
+            "kind": "WebOverviewQuery",
+            "useWebAnalyticsPrecompute": True,
+            "dateRange": date_range,
+            "compareFilter": {"compare": True},
+        }
+
+        canonical = canonicalize_lazy_replay_json(query)
+
+        self.assertEqual(canonical["dateRange"], date_range)
+        self.assertNotIn("compareFilter", canonical)
 
 
 class TestSplitWarmableQueries(BaseTest):
@@ -469,6 +612,57 @@ class TestWarmQueriesOp(BaseTest):
 
     @parameterized.expand(
         [
+            # The dagster CH user's simultaneous-query cap is shared with other
+            # Dagster jobs, so co-tenant bursts hit the warmer as AtCapacity for
+            # a few seconds. A transient burst must be retried (deferring every
+            # affected shape a whole hour), while sustained
+            # saturation must still fail after the bounded retries — unbounded
+            # retrying would wedge every worker thread against a hard cap.
+            ("transient_202_recovers", [ClickHouseAtCapacity(), None], 2, False),
+            (
+                "persistent_202_fails",
+                [ClickHouseAtCapacity(), ClickHouseAtCapacity(), ClickHouseAtCapacity()],
+                3,
+                True,
+            ),
+        ]
+    )
+    def test_at_capacity_retries_bounded(
+        self, _name: str, run_side_effect: list, expected_runs: int, expect_failure: bool
+    ) -> None:
+        runner = MagicMock()
+        runner.get_cache_key.return_value = f"key-{_name}"
+        runner.run.side_effect = run_side_effect
+        with (
+            patch(
+                "products.web_analytics.dags.cache_warming.build_replay_runner",
+                return_value=(runner, {}, True),
+            ),
+            patch("products.web_analytics.dags.cache_warming.QueryCache") as mock_cm,
+            patch("products.web_analytics.dags.cache_warming.time.sleep") as mock_sleep,
+            patch("products.web_analytics.dags.cache_warming.capture_exception") as mock_capture,
+        ):
+            mock_cm.return_value.lookup.return_value.entry = None
+            warm_queries_op(
+                dagster.build_op_context(),
+                WarmQueriesConfig(),
+                [
+                    {
+                        "team_id": self.team.pk,
+                        "query_json": {"kind": "WebOverviewQuery", "properties": []},
+                        "query_count": 10,
+                        "representative_query_count": 10,
+                        "normalized_query_hash": "h",
+                    }
+                ],
+            )
+
+        self.assertEqual(runner.run.call_count, expected_runs)
+        self.assertEqual(mock_sleep.call_count, expected_runs - 1)
+        self.assertEqual(mock_capture.called, expect_failure)
+
+    @parameterized.expand(
+        [
             # A churned team surfaces as a DoesNotExist from get_cache_key (the
             # team-extension FK). That must be a quiet skip, not a logged failure
             # plus an error-tracking event per churned team — which spammed
@@ -555,6 +749,128 @@ class TestWarmQueriesOp(BaseTest):
 
         self.assertEqual(runner.run.call_count, expected_runs)
 
+    @parameterized.expand(
+        [
+            # A dead ClickHouse node can block every pool thread in a socket
+            # read forever: nothing completes, the run wedges, and mutual
+            # exclusion starves every later scheduled tick (observed in prod as
+            # a silent pod needing manual termination). With queued work beyond
+            # the in-flight set the pass must hard-exit so Dagster records a
+            # failure and the next tick recovers. A quiet tail with only the
+            # in-flight remainder pending is a legitimate slow straggler and
+            # must NOT exit.
+            # One silent window with queued work is definitive; a quiet tail
+            # gets WARMING_TAIL_STALL_WINDOWS before the same verdict — a
+            # single slow straggler survives, a fully wedged tail cannot spin
+            # forever (greptile P1: the old tail branch looped indefinitely).
+            ("stall_with_queued_work_exits", 10, 1, True),
+            ("slow_tail_one_window_keeps_waiting", 3, 1, False),
+            ("wedged_tail_exits_after_windows", 3, cache_warming.WARMING_TAIL_STALL_WINDOWS, True),
+        ]
+    )
+    def test_stalled_pass_fails_fast_instead_of_wedging(
+        self, _name: str, n_shapes: int, empty_windows: int, expect_exit: bool
+    ) -> None:
+        class _Exited(BaseException):
+            pass
+
+        runner = MagicMock()
+        runner.get_cache_key.side_effect = lambda: f"key-{runner.get_cache_key.call_count}"
+        real_wait = cache_warming.wait
+        calls = {"n": 0}
+
+        def fake_wait(
+            pending: set, timeout: float | None = None, return_when: str = "ALL_COMPLETED"
+        ) -> tuple[set, set]:
+            calls["n"] += 1
+            if calls["n"] <= empty_windows:
+                return set(), pending
+            return real_wait(pending, timeout=5, return_when=return_when)
+
+        with (
+            patch("products.web_analytics.dags.cache_warming.build_replay_runner", return_value=(runner, {}, True)),
+            patch("products.web_analytics.dags.cache_warming.QueryCache") as mock_cm,
+            patch("products.web_analytics.dags.cache_warming.wait", side_effect=fake_wait),
+            patch("products.web_analytics.dags.cache_warming.os._exit", side_effect=_Exited) as mock_exit,
+        ):
+            mock_cm.return_value.lookup.return_value.entry = None
+            shapes = [
+                {
+                    "team_id": self.team.pk,
+                    "query_json": {"kind": "WebOverviewQuery", "properties": [], "n": i},
+                    "query_count": 5,
+                    "representative_query_count": 5,
+                    "normalized_query_hash": f"h{i}",
+                }
+                for i in range(n_shapes)
+            ]
+            if expect_exit:
+                with self.assertRaises(_Exited):
+                    warm_queries_op(dagster.build_op_context(), WarmQueriesConfig(), shapes)
+            else:
+                warm_queries_op(dagster.build_op_context(), WarmQueriesConfig(), shapes)
+
+        self.assertEqual(mock_exit.called, expect_exit)
+        if not expect_exit:
+            self.assertEqual(runner.run.call_count, n_shapes)
+
+    def test_crawling_pass_fails_at_deadline(self) -> None:
+        # A pass that completes one shape per stall window never trips the
+        # no-progress guard, but crawling like that holds the job's single run
+        # slot indefinitely and blocks every scheduled tick. It must fail at
+        # the pass deadline via a clean dagster.Failure (in-flight shapes are
+        # healthy, so no hard exit).
+        class _Exited(BaseException):
+            pass
+
+        runner = MagicMock()
+        runner.get_cache_key.side_effect = lambda: f"key-{runner.get_cache_key.call_count}"
+        real_wait = cache_warming.wait
+        fake_time = SimpleNamespace(now=0.0)
+        fake_time.monotonic = lambda: fake_time.now
+        fake_time.sleep = lambda _s: None
+        wait_timeouts: list[float | None] = []
+
+        def fake_wait(
+            pending: set, timeout: float | None = None, return_when: str = "ALL_COMPLETED"
+        ) -> tuple[set, set]:
+            wait_timeouts.append(timeout)
+            fake_time.now += 10000.0
+            first = next(iter(pending))
+            real_wait({first}, timeout=5)
+            return {first}, pending - {first}
+
+        with (
+            patch("products.web_analytics.dags.cache_warming.build_replay_runner", return_value=(runner, {}, True)),
+            patch("products.web_analytics.dags.cache_warming.QueryCache") as mock_cm,
+            patch("products.web_analytics.dags.cache_warming.wait", side_effect=fake_wait),
+            patch("products.web_analytics.dags.cache_warming.time", new=fake_time),
+            patch("products.web_analytics.dags.cache_warming.os._exit", side_effect=_Exited) as mock_exit,
+        ):
+            mock_cm.return_value.lookup.return_value.entry = None
+            shapes = [
+                {
+                    "team_id": self.team.pk,
+                    "query_json": {"kind": "WebOverviewQuery", "properties": [], "n": i},
+                    "query_count": 5,
+                    "representative_query_count": 5,
+                    "normalized_query_hash": f"h{i}",
+                }
+                for i in range(3)
+            ]
+            with self.assertRaises(dagster.Failure) as raised:
+                warm_queries_op(dagster.build_op_context(), WarmQueriesConfig(), shapes)
+
+        self.assertFalse(mock_exit.called)
+        # Retrying would reset the deadline clock and hold the schedule slot
+        # for another full deadline per attempt.
+        self.assertIs(raised.exception.allow_retries, False)
+        # The wait is truncated to the remaining deadline (second window has
+        # only 800s left of the 10800s budget), so a quiet window cannot
+        # overshoot the deadline by a full stall timeout.
+        self.assertEqual(wait_timeouts[0], cache_warming.WARMING_STALL_TIMEOUT_SECONDS)
+        self.assertEqual(wait_timeouts[1], 800.0)
+
     def test_staleness_evaluated_on_jitter_aged_entry(self) -> None:
         # Shapes warmed together go stale together (fixed threshold), so a bulk
         # pass turns into a synchronized expiry storm hours later. The warmer
@@ -595,6 +911,59 @@ class TestWarmQueriesOp(BaseTest):
         # true last_refresh and would return the fresh cached response, turning
         # the early warm into a silent no-op.
         self.assertEqual(runner.run.call_args.kwargs.get("execution_mode"), ExecutionMode.CALCULATE_BLOCKING_ALWAYS)
+
+    def test_cancellation_drains_or_exits_within_grace(self) -> None:
+        # Cancellation mid-pass must not hand the executor a queue to drain nor
+        # hang joining a wedged thread (codex/greptile P1: the with-block exit
+        # called shutdown(wait=True) after cancel_futures). Healthy in-flight
+        # shapes finish within the grace and the interrupt propagates; wedged
+        # ones trigger the hard exit.
+        class _Exited(BaseException):
+            pass
+
+        release = threading.Event()
+        runner = MagicMock()
+        runner.get_cache_key.side_effect = lambda: f"key-{runner.get_cache_key.call_count}"
+        runner.run.side_effect = lambda **kwargs: release.wait(10)
+
+        real_wait = cache_warming.wait
+        calls = {"n": 0}
+
+        def interrupting_wait(pending: set, timeout: float | None = None, return_when: str = "") -> tuple[set, set]:
+            calls["n"] += 1
+            if calls["n"] == 1 and return_when:
+                raise KeyboardInterrupt()
+            # The grace-period wait (no return_when) runs for real, shortened.
+            return real_wait(pending, timeout=0.2)
+
+        try:
+            with (
+                patch(
+                    "products.web_analytics.dags.cache_warming.build_replay_runner",
+                    return_value=(runner, {}, True),
+                ),
+                patch("products.web_analytics.dags.cache_warming.QueryCache") as mock_cm,
+                patch("products.web_analytics.dags.cache_warming.wait", side_effect=interrupting_wait),
+                patch("products.web_analytics.dags.cache_warming.os._exit", side_effect=_Exited) as mock_exit,
+            ):
+                mock_cm.return_value.lookup.return_value.entry = None
+                with self.assertRaises(_Exited):
+                    warm_queries_op(
+                        dagster.build_op_context(),
+                        WarmQueriesConfig(),
+                        [
+                            {
+                                "team_id": self.team.pk,
+                                "query_json": {"kind": "WebOverviewQuery", "properties": []},
+                                "query_count": 5,
+                                "representative_query_count": 5,
+                                "normalized_query_hash": "h",
+                            }
+                        ],
+                    )
+                assert mock_exit.called
+        finally:
+            release.set()
 
     def test_team_ids_and_limit_scope_the_run(self) -> None:
         # A Launchpad run scoped to one team must not warm the fleet: launches
