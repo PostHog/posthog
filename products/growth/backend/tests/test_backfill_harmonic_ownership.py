@@ -166,6 +166,23 @@ class TestSelection(_BackfillTestCase):
         assert "ownership_status" not in personal.data
         assert work.data["ownership_status"] == "ACTIVE"
 
+    def test_orgs_flagged_work_email_false_are_excluded_even_with_a_fetch_row(self):
+        # Pins the work_email exclude as the deciding factor: this org HAS a fetch row, so
+        # only the exclude keeps it out. Deleting the exclude would pass every other test.
+        flagged = self._org(email="a@gmail.com", data={"work_email": False})
+        self._org(email="b@acme.com", data={})
+        provider_cls = _mock_provider([_lookup(ownership_status="ACTIVE")])
+
+        with (
+            patch(f"{_COMMAND_MODULE}.HarmonicEnrichmentProvider", provider_cls),
+            patch(f"{_COMMAND_MODULE}.get_client", return_value=MagicMock()),
+        ):
+            call_command("backfill_harmonic_ownership", sleep=0)
+
+        provider_cls.return_value.enrich_by_domain.assert_called_once_with("acme.com")
+        flagged.refresh_from_db()
+        assert "ownership_status" not in flagged.data
+
 
 class TestDryRun(_BackfillTestCase):
     def test_dry_run_writes_nothing_and_never_touches_the_network_client(self):
