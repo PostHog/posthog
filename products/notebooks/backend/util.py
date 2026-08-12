@@ -62,8 +62,13 @@ _SHARED_NOTEBOOK_MARKDOWN_COMPONENT_PROP_TYPES: dict[str, dict[str, type | tuple
     },
 }
 
+# The editor never emits a single component block anywhere near this large; the biggest real ones
+# hold a query JSON or a SQL cell's code. Over the cap a block parses to no props, so the sharing
+# filter emits a bare `<Tag />` instead of anything derived from the block's source.
+MAX_MARKDOWN_COMPONENT_BLOCK_CHARS = 1_000_000
+
 _MARKDOWN_COMPONENT_START_REGEX = re.compile(r"^<[A-Z][A-Za-z0-9]*(\s|>|/)")
-_MARKDOWN_COMPONENT_TAG_REGEX = re.compile(r"^<([A-Z][A-Za-z0-9]*)([\s\S]*?)(?:/>|>[\s\S]*</\1>)$")
+_MARKDOWN_COMPONENT_TAG_NAME_REGEX = re.compile(r"^<([A-Z][A-Za-z0-9]*)")
 _MARKDOWN_COMPONENT_PROP_NAME_REGEX = re.compile(r"^([A-Za-z_][A-Za-z0-9_-]*)")
 _MARKDOWN_COMPONENT_RAW_PROP_VALUE_REGEX = re.compile(r"^([^\s/>]+)")
 _MARKDOWN_COMPONENT_NUMBER_REGEX = re.compile(r"^-?\d+(\.\d+)?$")
@@ -371,18 +376,23 @@ def _read_markdown_component_block(lines: list[str], line_index: int) -> tuple[s
     if not _MARKDOWN_COMPONENT_START_REGEX.match(first_line):
         return None
 
-    tag_match = re.match(r"^<([A-Z][A-Za-z0-9]*)", first_line)
+    tag_match = _MARKDOWN_COMPONENT_TAG_NAME_REGEX.match(first_line)
     tag_name = tag_match.group(1) if tag_match else None
     if not tag_name:
         return None
 
+    closing_tag = f"</{tag_name}>"
     raw_lines: list[str] = []
     next_line_index = line_index
     found_terminator = False
     while next_line_index < len(lines) and (next_line_index == line_index or lines[next_line_index].strip()):
-        raw_lines.append(lines[next_line_index])
-        raw = "\n".join(raw_lines).strip()
-        if raw.endswith("/>") or f"</{tag_name}>" in raw:
+        line = lines[next_line_index]
+        raw_lines.append(line)
+        # The terminator is decidable from the line just added, so the block is scanned once
+        # rather than re-joined and re-searched per line. Every appended line is non-blank, so
+        # the joined block ends where this line ends; and a closing tag holds no whitespace or
+        # newline, so it cannot straddle a join or be created by stripping the block's edges.
+        if line.rstrip().endswith("/>") or closing_tag in line:
             found_terminator = True
             break
         next_line_index += 1
@@ -393,13 +403,41 @@ def _read_markdown_component_block(lines: list[str], line_index: int) -> tuple[s
     return tag_name, "\n".join(raw_lines).strip(), next_line_index + 1
 
 
+def _read_markdown_component_prop_source(raw: str) -> str | None:
+    """Return the source holding a component block's props, or None if `raw` is not one block.
+
+    The props run from the end of the tag name to the block's terminator. A block terminates
+    either by self-closing (`<Tag … />`) or by pairing (`<Tag …>…</Tag>`), and a tag name always
+    starts with a letter, so a block that ends in `</Tag>` can never also end in `/>`. That makes
+    the two shapes mutually exclusive and lets each be resolved with a single scan.
+    """
+    if len(raw) > MAX_MARKDOWN_COMPONENT_BLOCK_CHARS:
+        return None
+
+    tag_match = _MARKDOWN_COMPONENT_TAG_NAME_REGEX.match(raw)
+    if not tag_match:
+        return None
+    props_start = tag_match.end()
+
+    if raw.endswith("/>"):
+        return raw[props_start:-2] if props_start <= len(raw) - 2 else None
+
+    closing_tag = f"</{tag_match.group(1)}>"
+    if not raw.endswith(closing_tag):
+        return None
+
+    props_end = raw.find(">", props_start)
+    if props_end < 0 or props_end + 1 > len(raw) - len(closing_tag):
+        return None
+    return raw[props_start:props_end]
+
+
 def _parse_markdown_component_props(raw: str) -> dict[str, Any]:
-    match = _MARKDOWN_COMPONENT_TAG_REGEX.match(raw)
-    if not match:
+    source = _read_markdown_component_prop_source(raw)
+    if source is None:
         return {}
 
     props: dict[str, Any] = {}
-    source = match.group(2) or ""
     index = 0
     while index < len(source):
         while index < len(source) and source[index].isspace():

@@ -11,6 +11,7 @@ from posthog.models import SharingConfiguration
 
 from products.notebooks.backend.models import Notebook
 from products.notebooks.backend.util import (
+    MAX_MARKDOWN_COMPONENT_BLOCK_CHARS,
     extract_inline_query_nodes,
     extract_referenced_insight_short_ids,
     filter_notebook_content_for_sharing,
@@ -387,6 +388,47 @@ class TestFilterNotebookContentForSharing(TestCase):
         snapshot = {"type": "doc", "content": [{"type": "ph-python", "attrs": {"code": "SECRET"}}]}
         filter_notebook_content_for_sharing(original)
         self.assertEqual(original, snapshot)
+
+
+class TestMarkdownComponentBlockParsing(TestCase):
+    def _filtered_markdown(self, markdown: str) -> Any:
+        return filter_notebook_content_for_sharing(_markdown_doc(markdown))["content"][0]["attrs"]["markdown"]
+
+    @parameterized.expand(
+        [
+            ("paired_tag", '<Comment ref="r-1">hello there</Comment>', '<Comment ref="r-1" />'),
+            (
+                "angle_bracket_inside_quoted_prop",
+                '<Image alt="a > b" src="https://example.com/a.png" />',
+                '<Image alt="a > b" src="https://example.com/a.png" />',
+            ),
+            (
+                "self_close_inside_quoted_prop",
+                '<Image alt="a /> b" src="https://example.com/a.png" />',
+                '<Image alt="a /> b" src="https://example.com/a.png" />',
+            ),
+            ("angle_bracket_inside_paired_tag_prop", '<Comment ref="a>b">x</Comment>', "<Comment />"),
+            ("content_after_closing_tag", '<Comment ref="r-1">hi</Comment> trailing', "<Comment />"),
+            (
+                "multiline_self_closing",
+                '<Query title="t"\n  query={{"kind":"HogQLQuery","query":"select 1"}}\n/>',
+                '<Query query={{"kind":"HogQLQuery","query":"select 1"}} title="t" />',
+            ),
+            ("multiline_paired", '<Comment ref="r-2">\nline one\nline two\n</Comment>', '<Comment ref="r-2" />'),
+            ("multiline_open_tag", '<Comment ref="r-3"\n>\nbody\n</Comment>', '<Comment ref="r-3" />'),
+            ("unterminated_block", '<Image alt="a"\nstill going', '<Image alt="a"\nstill going'),
+        ]
+    )
+    def test_component_block_shapes(self, _name: str, markdown: str, expected: str) -> None:
+        self.assertEqual(self._filtered_markdown(markdown), expected)
+
+    def test_props_of_an_oversized_block_are_not_parsed(self) -> None:
+        alt = "a" * MAX_MARKDOWN_COMPONENT_BLOCK_CHARS
+        self.assertEqual(self._filtered_markdown(f'<Image alt="{alt}" src="https://example.com/a.png" />'), "<Image />")
+
+    def test_oversized_unsupported_block_is_still_redacted(self) -> None:
+        code = "SECRET" * MAX_MARKDOWN_COMPONENT_BLOCK_CHARS
+        self.assertEqual(self._filtered_markdown(f'<Python code="{code}" />'), "<Python />")
 
 
 class TestNotebookSharingConfiguration(APIBaseTest):
