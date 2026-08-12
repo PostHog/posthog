@@ -288,6 +288,34 @@ def _scalar(conn: psycopg.Connection, sql: str, params: dict | None = None) -> i
     return int(row[0]) if row else 0
 
 
+def _check_session_stability(conn: psycopg.Connection) -> None:
+    """Abort if the connection does not behave like one stable backend session.
+
+    The US census run proved this failure mode is real: queries were canceled at the
+    server's 30-minute statement_timeout even though the session had SET it to 0,
+    which is the signature of a pooler (pgbouncer transaction mode, proxy multiplexing)
+    routing consecutive statements to different backends. On such a connection this
+    command is unusable -- its temp tables and session settings silently vanish between
+    statements. Detect it up front instead of failing intermittently mid-run.
+    """
+    pids = set()
+    for _ in range(3):
+        pids.add(_scalar(conn, "SELECT pg_backend_pid()"))
+    with conn.cursor() as cur:
+        cur.execute("CREATE TEMP TABLE persons_dedup_canary (n int)")
+        cur.execute("INSERT INTO persons_dedup_canary VALUES (1)")
+    canary = _scalar(conn, "SELECT count(*) FROM persons_dedup_canary")
+    with conn.cursor() as cur:
+        cur.execute("DROP TABLE IF EXISTS persons_dedup_canary")
+    if len(pids) != 1 or canary != 1:
+        raise CommandError(
+            "connection is not session-stable (pooled/multiplexed): "
+            f"saw backend pids {sorted(pids)}, temp-table canary={canary}. "
+            "Temp tables and session settings will not survive between statements. "
+            "Use a direct writer endpoint, not a transaction-pooled one."
+        )
+
+
 class Command(BaseCommand):
     help = "Resolve duplicate (team_id, uuid) rows in posthog_person. Dry run unless --apply."
 
@@ -339,13 +367,22 @@ class Command(BaseCommand):
             if _scalar(conn, "SELECT CASE WHEN pg_is_in_recovery() THEN 1 ELSE 0 END"):
                 raise CommandError("connected to a replica; this mode needs the writer")
 
+            _check_session_stability(conn)
+
             stage_sql = STAGE_UNREFERENCED_SQL if mode == "plan" else STAGE_UNREACHABLE_SQL
             self._run(conn, team, stage_sql, options, apply_changes=apply_changes, mode=mode)
 
     def _classify(self, conn: psycopg.Connection, team: int) -> None:
+        # SET LOCAL is transaction-scoped, so this scan keeps its unlimited timeout even
+        # on a connection where the session-level SET was silently dropped by a pooler
+        # (observed on the US census: reader queries canceled at the server's 30-minute
+        # default despite SET statement_timeout = 0).
         with conn.cursor() as cur:
+            cur.execute("BEGIN")
+            cur.execute("SET LOCAL statement_timeout = 0")
             cur.execute(CLASSIFY_SQL, {"team": team})
             row = cur.fetchone()
+            cur.execute("COMMIT")
         assert row is not None
         groups, orphaned, one_ref, needs_merge, multi_did, dids, cohort, ff, recon = (int(v) for v in row)
         logger.info(
@@ -367,8 +404,16 @@ class Command(BaseCommand):
             logger.warning("persons_dedup.reconciliation_backup_references", team_id=team, recon=recon)
 
     def _verify(self, conn: psycopg.Connection, team: int) -> None:
-        dups = _scalar(conn, VERIFY_DUPS_SQL, {"team": team})
-        orphans = _scalar(conn, VERIFY_ORPHANS_SQL, {"team": team})
+        with conn.cursor() as cur:
+            cur.execute("BEGIN")
+            cur.execute("SET LOCAL statement_timeout = 0")
+            cur.execute(VERIFY_DUPS_SQL, {"team": team})
+            dups_row = cur.fetchone()
+            cur.execute(VERIFY_ORPHANS_SQL, {"team": team})
+            orphans_row = cur.fetchone()
+            cur.execute("COMMIT")
+        dups = int(dups_row[0]) if dups_row else 0
+        orphans = int(orphans_row[0]) if orphans_row else 0
         logger.info("persons_dedup.verify", team_id=team, duplicate_groups=dups, orphaned_distinct_ids=orphans)
         if dups or orphans:
             raise CommandError(f"team {team}: {dups} duplicate group(s), {orphans} orphaned distinct id(s)")
@@ -397,8 +442,14 @@ class Command(BaseCommand):
             )
             cur.execute(f"TRUNCATE {VICTIMS_TABLE}")
             cur.execute(f"TRUNCATE {VICTIMS_TABLE}_batch")
+            # The staging scan reads every duplicate group for the team and can run for
+            # minutes on the large ones; SET LOCAL keeps its timeout immunity
+            # transaction-scoped rather than trusting the session-level SET.
+            cur.execute("BEGIN")
+            cur.execute("SET LOCAL statement_timeout = 0")
             cur.execute(stage_sql, {"team": team})
             staged = cur.rowcount
+            cur.execute("COMMIT")
 
         logger.info("persons_dedup.staged", team_id=team, mode=mode, victims=staged)
         if staged == 0:
