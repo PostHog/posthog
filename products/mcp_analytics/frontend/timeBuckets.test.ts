@@ -1,6 +1,15 @@
 import { dayjs } from 'lib/dayjs'
 
-import { buildBucketKeys, formatBucketLabel, lastBucketIsInProgress, normalizeBucket } from './timeBuckets'
+import { IntervalType } from '~/types'
+
+import {
+    buildBucketKeys,
+    formatBucketLabel,
+    intervalOptionsForWindow,
+    lastBucketIsInProgress,
+    normalizeBucket,
+    resolveInterval,
+} from './timeBuckets'
 
 describe('timeBuckets', () => {
     describe('normalizeBucket', () => {
@@ -131,6 +140,38 @@ describe('timeBuckets', () => {
             const now = dayjs.tz('2026-06-29 23:15:00', tz)
             expect(lastBucketIsInProgress(keys, tz, 'day', now)).toBe(true)
             expect(lastBucketIsInProgress(keys, 'Europe/Athens', 'day', now)).toBe(false)
+        })
+    })
+
+    describe('resolveInterval', () => {
+        // A pin outlives the window it was set on, so it has to give way once the window outgrows it:
+        // charting a year hour by hour also runs past the query's row limit, which drops the newest
+        // buckets. A pin that still fits has to beat the auto-choice — that's the point of pinning.
+        it.each([
+            ['-14d', 'hour', 'hour'], // 337 hourly buckets: fits
+            ['-1y', 'hour', 'month'], // 8761 hourly buckets: back to the auto-choice
+            ['-7d', 'month', 'day'], // shorter than one month: back to the auto-choice
+            ['-1y', 'day', 'day'], // 367 daily buckets: fits, and beats the auto-choice
+            ['-1y', null, 'month'], // nothing pinned: the auto-choice
+        ])('groups a %s window pinned to %s by %s', (dateFrom, pinned, expected) => {
+            expect(resolveInterval(dateFrom, null, 'UTC', pinned as IntervalType | null)).toBe(expected)
+        })
+    })
+
+    describe('intervalOptionsForWindow', () => {
+        it('disables the intervals that would smear or collapse the window', () => {
+            expect(intervalOptionsForWindow('-1y', null, 'UTC')).toEqual([
+                { value: 'hour', label: 'Hour', disabledReason: 'Range too long' },
+                { value: 'day', label: 'Day', disabledReason: null },
+                { value: 'week', label: 'Week', disabledReason: null },
+                { value: 'month', label: 'Month', disabledReason: null },
+            ])
+            expect(intervalOptionsForWindow('-7d', null, 'UTC')).toEqual([
+                { value: 'hour', label: 'Hour', disabledReason: null },
+                { value: 'day', label: 'Day', disabledReason: null },
+                { value: 'week', label: 'Week', disabledReason: null },
+                { value: 'month', label: 'Month', disabledReason: 'Range too short' },
+            ])
         })
     })
 })
