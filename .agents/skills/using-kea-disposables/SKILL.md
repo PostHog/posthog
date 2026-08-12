@@ -74,7 +74,7 @@ Branch on `isDisposed` for that:
 ```ts
 // The stream teardown aborts this request, so the catch can resume after the unmount
 if (cache.disposables.isDisposed) {
-    return
+  return
 }
 actions.connectionErrored(reason)
 ```
