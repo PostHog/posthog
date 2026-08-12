@@ -16,7 +16,7 @@ from temporalio.workflow import ParentClosePolicy
 from posthog.temporal.common.base import PostHogWorkflow
 from posthog.temporal.oauth import PosthogMcpScopes
 
-from products.tasks.backend.constants import SNAPSHOT_KIND_FILESYSTEM
+from products.tasks.backend.constants import DEV_STACK_IMAGE_NAME, SNAPSHOT_KIND_FILESYSTEM
 from products.tasks.backend.error_telemetry import truncate_error_message
 from products.tasks.backend.logic.services.sandbox import is_public_sandbox_repo
 from products.tasks.backend.temporal.create_snapshot.workflow import CreateSnapshotForRepositoryInput
@@ -269,6 +269,10 @@ _PATCH_ID_EXCLUDE_WIZARD_FROM_BOOT_TOTAL = "tasks-exclude-wizard-from-boot-total
 # Multi-repo histories before this patch release the agent only after every clone completes.
 # Preserve that command order on replay while new runs can release it after the primary clone.
 _PATCH_ID_AGENT_READY_AFTER_PRIMARY_CLONE = "tasks-agent-ready-after-primary-clone"
+
+# Desktop preparation links a large workspace and writes compiled package outputs. Give
+# that non-idempotent work one attempt with a budget larger than its inner 10-minute cap.
+_DESKTOP_BOOTSTRAP_ACTIVITY_TIMEOUT = timedelta(minutes=20)
 
 # #60923 dropped the redundant slack post that ran immediately after sandbox
 # provisioning — between `_get_sandbox_for_repository` and the agent-start
@@ -1460,6 +1464,11 @@ class ProcessTaskWorkflow(PostHogWorkflow):
         will_clone = bool(repositories_to_clone)
         checkout_repository = self.context.repositories[0] if len(self.context.repositories) == 1 else None
         will_checkout = bool(checkout_repository and prepared.branch and has_clone_credentials)
+        prepares_desktop = self.context.custom_image_name == DEV_STACK_IMAGE_NAME and any(
+            repository.casefold() == "posthog/posthog" for repository in repositories_to_clone
+        )
+        repository_activity_timeout = _DESKTOP_BOOTSTRAP_ACTIVITY_TIMEOUT if prepares_desktop else timedelta(minutes=5)
+        repository_retry_policy = RetryPolicy(maximum_attempts=1 if prepares_desktop else 3)
 
         overlap = bool(self.context.overlap_clone_boot_enabled and will_clone)
         boot_path = "overlap" if overlap else "classic"
@@ -1493,8 +1502,8 @@ class ProcessTaskWorkflow(PostHogWorkflow):
                             github_token=prepared.github_token,
                             shallow_clone=prepared.shallow_clone,
                         ),
-                        start_to_close_timeout=timedelta(minutes=5),
-                        retry_policy=RetryPolicy(maximum_attempts=3),
+                        start_to_close_timeout=repository_activity_timeout,
+                        retry_policy=repository_retry_policy,
                     )
                 except Exception as error:
                     if _is_dead_sandbox_failure(error) or not continue_after_clone_failure:
@@ -1581,8 +1590,8 @@ class ProcessTaskWorkflow(PostHogWorkflow):
                     shallow_clone=prepared.shallow_clone,
                     used_snapshot=used_snapshot,
                 ),
-                start_to_close_timeout=timedelta(minutes=5),
-                retry_policy=RetryPolicy(maximum_attempts=3),
+                start_to_close_timeout=repository_activity_timeout,
+                retry_policy=repository_retry_policy,
             )
             # Pre-rollout histories (and mocked tests) recorded a null result here.
             checkout_ms = getattr(checkout_output, "checkout_ms", None)

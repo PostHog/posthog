@@ -161,7 +161,11 @@ def _prepare_posthog_desktop_cloud_task(ctx: TaskProcessingContext, sandbox: San
     not retain checkout-specific node_modules or dist directories. Prepare only the
     internal PostHog checkout that uses that image, after its final branch is in place.
     """
-    if ctx.custom_image_name != DEV_STACK_IMAGE_NAME or repository.casefold() != "posthog/posthog":
+    if (
+        ctx.custom_image_name != DEV_STACK_IMAGE_NAME
+        or repository.casefold() != "posthog/posthog"
+        or sandbox.config.image_fallback
+    ):
         return
 
     repo_path = f"{sandbox_repo_path(repository)}/products/desktop"

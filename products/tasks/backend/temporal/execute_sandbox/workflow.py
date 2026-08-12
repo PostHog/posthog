@@ -23,6 +23,7 @@ from temporalio.common import RetryPolicy
 from posthog.temporal.common.base import PostHogWorkflow
 from posthog.temporal.oauth import PosthogMcpScopes
 
+from products.tasks.backend.constants import DEV_STACK_IMAGE_NAME
 from products.tasks.backend.error_telemetry import truncate_error_message
 from products.tasks.backend.logic.services.sandbox import is_public_sandbox_repo
 from products.tasks.backend.temporal.constants import (
@@ -140,6 +141,8 @@ SHUTDOWN_REJECTION_DETAIL = "child_shutting_down"
 # to drive CI-vs-user-message metrics.
 FOLLOWUP_SOURCE_USER = "user"
 FOLLOWUP_SOURCE_CI = "ci"
+
+_DESKTOP_BOOTSTRAP_ACTIVITY_TIMEOUT = timedelta(minutes=20)
 
 
 @dataclass
@@ -1100,6 +1103,11 @@ class ExecuteSandboxWorkflow(PostHogWorkflow):
         will_clone = bool(repositories_to_clone)
         checkout_repository = self.context.repositories[0] if len(self.context.repositories) == 1 else None
         will_checkout = bool(checkout_repository and prepared.branch and has_clone_credentials)
+        prepares_desktop = self.context.custom_image_name == DEV_STACK_IMAGE_NAME and any(
+            repository.casefold() == "posthog/posthog" for repository in repositories_to_clone
+        )
+        repository_activity_timeout = _DESKTOP_BOOTSTRAP_ACTIVITY_TIMEOUT if prepares_desktop else timedelta(minutes=5)
+        repository_retry_policy = RetryPolicy(maximum_attempts=1 if prepares_desktop else 3)
 
         if will_clone:
             await self._emit_progress("clone", "in_progress", "Cloning repository", "setup")
@@ -1114,8 +1122,8 @@ class ExecuteSandboxWorkflow(PostHogWorkflow):
                             github_token=prepared.github_token,
                             shallow_clone=prepared.shallow_clone,
                         ),
-                        start_to_close_timeout=timedelta(minutes=5),
-                        retry_policy=RetryPolicy(maximum_attempts=3),
+                        start_to_close_timeout=repository_activity_timeout,
+                        retry_policy=repository_retry_policy,
                     )
                     for repository in repositories_to_clone
                 )
@@ -1142,8 +1150,8 @@ class ExecuteSandboxWorkflow(PostHogWorkflow):
                     shallow_clone=prepared.shallow_clone,
                     used_snapshot=used_snapshot,
                 ),
-                start_to_close_timeout=timedelta(minutes=5),
-                retry_policy=RetryPolicy(maximum_attempts=3),
+                start_to_close_timeout=repository_activity_timeout,
+                retry_policy=repository_retry_policy,
             )
             await self._emit_progress("checkout", "completed", branch_label_done, "setup")
 

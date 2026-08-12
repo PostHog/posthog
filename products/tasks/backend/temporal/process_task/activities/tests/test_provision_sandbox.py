@@ -42,6 +42,7 @@ def _context_for_desktop_bootstrap(*, image_name: str | None = "posthog-dev-stac
 
 def test_prepares_desktop_workspace_for_posthog_dev_stack_task(mocker):
     sandbox = mocker.Mock()
+    sandbox.config.image_fallback = None
     sandbox.execute.return_value = ExecutionResult(stdout="", stderr="", exit_code=0)
 
     _prepare_posthog_desktop_cloud_task(
@@ -57,11 +58,19 @@ def test_prepares_desktop_workspace_for_posthog_dev_stack_task(mocker):
 
 
 @pytest.mark.parametrize(
-    "image_name, repository",
-    [(None, "posthog/posthog"), ("team-image", "posthog/posthog"), ("posthog-dev-stack", "posthog/posthog-js")],
+    "image_name, repository, image_fallback",
+    [
+        (None, "posthog/posthog", None),
+        ("team-image", "posthog/posthog", None),
+        ("posthog-dev-stack", "posthog/posthog-js", None),
+        ("posthog-dev-stack", "posthog/posthog", "custom image -> base image"),
+    ],
 )
-def test_skips_desktop_workspace_preparation_for_other_images_and_repositories(mocker, image_name, repository):
+def test_skips_desktop_workspace_preparation_for_other_images_repositories_and_fallbacks(
+    mocker, image_name, repository, image_fallback
+):
     sandbox = mocker.Mock()
+    sandbox.config.image_fallback = image_fallback
 
     _prepare_posthog_desktop_cloud_task(
         _context_for_desktop_bootstrap(image_name=image_name),
@@ -76,6 +85,7 @@ def test_desktop_workspace_preparation_failure_is_non_retryable(mocker):
     from temporalio.exceptions import ApplicationError
 
     sandbox = mocker.Mock()
+    sandbox.config.image_fallback = None
     sandbox.execute.return_value = ExecutionResult(stdout="", stderr="build failed", exit_code=1)
 
     with pytest.raises(ApplicationError) as error:
