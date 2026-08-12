@@ -835,10 +835,12 @@ services:
         # integration test needs a real DynamoDB API to exercise its composite key and
         # conditional writes. -inMemory holds the tables in the JVM rather than in a file inside
         # the container, so a restart cannot resurrect a table from an interrupted run. -sharedDb
-        # puts every credential and region pair in one table namespace, so anything pointed at the
-        # port sees the same tables the test created.
+        # puts every credential and region pair in one table namespace; without it a client using
+        # different credentials than the one that created a table sees an empty table list, which
+        # -inMemory alone does not prevent. -disableTelemetry stops it reporting usage to AWS in
+        # the background, which it does by default.
         image: amazon/dynamodb-local:3.3.1
-        command: ['-jar', 'DynamoDBLocal.jar', '-inMemory', '-sharedDb']
+        command: ['-jar', 'DynamoDBLocal.jar', '-inMemory', '-sharedDb', '-disableTelemetry']
         healthcheck:
             # Opening the port from bash rather than curling it, because DynamoDB answers GET /
             # with a 400 and `curl -f` treats that as failure. Without a healthcheck,
