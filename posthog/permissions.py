@@ -509,17 +509,31 @@ class SharingTokenPermission(BasePermission):
 class TimeSensitiveActionPermission(BasePermission):
     """
     Validates that the authenticated session is not older than the allowed time for the action.
+
+    A view can relax that with `time_sensitive_exclude_actions`, `time_sensitive_allow_actions`, or
+    `time_sensitive_allow_if_only_fields` (a body whose keys are all low-risk profile fields). Every
+    relaxation is opt-in per view and applies to that view alone. A view that adds one for its plain
+    field updates should list its genuinely sensitive actions in `time_sensitive_always_require_actions`
+    so they stay gated whatever else the view later allows.
     """
 
     message = "This action requires you to be recently authenticated."
     code = "sensitive_action_required_reauth"
 
+    # Only these actions write the request body through the view's own serializer, so only these
+    # can be judged by which fields the body carries.
+    field_update_actions = ("update", "partial_update")
+
     def has_permission(self, request, view) -> bool:
         if not isinstance(request.successful_authenticator, SessionAuthentication):
             return True
 
-        exclude_actions = getattr(view, "time_sensitive_exclude_actions", [])
-        if getattr(view, "action", None) in exclude_actions:
+        action = getattr(view, "action", None)
+        # Actions a view opts into here can never be relaxed by any of the allow-lists below, so a
+        # new relaxation added for an unrelated action cannot reach them by accident.
+        never_relax = action in getattr(view, "time_sensitive_always_require_actions", [])
+
+        if not never_relax and action in getattr(view, "time_sensitive_exclude_actions", []):
             return True
 
         # Reads never require re-auth.
@@ -533,7 +547,12 @@ class TimeSensitiveActionPermission(BasePermission):
             return False
 
         allow_if_only_fields = getattr(view, "time_sensitive_allow_if_only_fields", None)
-        if allow_if_only_fields and request.method not in SAFE_METHODS:
+        if (
+            not never_relax
+            and allow_if_only_fields
+            and action in self.field_update_actions
+            and request.method not in SAFE_METHODS
+        ):
             data = getattr(request, "data", None)
             data_keys: set[str] = set()
             if data is not None and hasattr(data, "keys"):
@@ -543,7 +562,7 @@ class TimeSensitiveActionPermission(BasePermission):
                 return True
 
         allow_actions = getattr(view, "time_sensitive_allow_actions", None)
-        if allow_actions and view.action in allow_actions:
+        if not never_relax and allow_actions and action in allow_actions:
             return True
 
         reference = sensitive_action_reference(request.session)

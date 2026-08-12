@@ -1009,6 +1009,15 @@ class UserViewSet(
         "scene_personalisation",
     ]
     time_sensitive_allow_actions = ["hedgehog_config"]
+    # These take over an account or lock its owner out, so no allow-list on this view may relax them.
+    time_sensitive_always_require_actions = [
+        "two_factor_disable",
+        "two_factor_backup_codes",
+        "two_factor_validate",
+        "validate_2fa",
+        "revoke_login_session",
+        "revoke_other_login_sessions",
+    ]
     filter_backends = [DjangoFilterBackend]
     filterset_fields = ["is_staff", "email"]
     queryset = User.objects.filter(is_active=True)

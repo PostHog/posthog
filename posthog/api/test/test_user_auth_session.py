@@ -17,6 +17,8 @@ from django.test import (
 from django.urls import reverse
 from django.utils import timezone
 
+from parameterized import parameterized
+
 from posthog.api.authentication import password_reset_token_generator
 from posthog.api.email_verification import email_verification_token_generator
 from posthog.models import User
@@ -237,6 +239,23 @@ class TestUserAuthSessionAPI(APIBaseTest):
         response = self.client.patch("/api/users/@me/", {"theme_mode": "dark"})
 
         self.assertEqual(response.status_code, 200, response.content)
+
+    @parameterized.expand(
+        [
+            ("revoke_others", "/api/users/@me/login_sessions/revoke_others/"),
+            ("two_factor_disable", "/api/users/@me/two_factor_disable/"),
+        ]
+    )
+    @patch("posthog.api.user.send_two_factor_auth_disabled_email")
+    def test_allowlisted_field_in_body_does_not_unlock_custom_action(self, _name: str, url: str, _email_task):
+        # The low-risk field allow-list exists for plain profile updates. A custom action never reads
+        # the body, so an allow-listed key sent alongside it must not stand in for a fresh session.
+        self._make_session_stale()
+
+        response = self.client.post(url, {"theme_mode": "dark"})
+
+        self.assertEqual(response.status_code, 403, response.content)
+        self.assertEqual(response.json()["code"], "sensitive_action_required_reauth")
 
     def test_step_up_nulls_reported_sensitive_session_expiry(self):
         # The API-reported expiry must reflect that sensitive actions are blocked now, not advertise a
