@@ -399,7 +399,12 @@ class SignupEmailPrecheckViewset(generics.GenericAPIView):
         serializer = self.get_serializer(data=request.data)
         serializer.is_valid(raise_exception=True)
         email = serializer.validated_data["email"]
-        email_exists = False if settings.DEMO else EmailValidationHelper.user_exists(email)
+        email_exists = False
+        if not settings.DEMO:
+            # Mirror SignupSerializer.validate_email. Without this the form clears the email step,
+            # the user fills in the rest, and only then hits the rejection on submit.
+            reject_plus_addressed_email(email)
+            email_exists = EmailValidationHelper.user_exists_with_stripped_alias(email)
         if email_exists:
             return response.Response(
                 {
