@@ -371,6 +371,28 @@ describe('BI editor query generation', () => {
         expect(getBISortOptions({ ...sortableConfig, rows: [] })).toEqual([])
     })
 
+    it('keeps every aggregation of the same field sortable', () => {
+        const twoAggregationsConfig: BIConfig = {
+            ...sortableConfig,
+            values: [
+                { field: revenueField, aggregation: 'sum' },
+                { field: revenueField, aggregation: 'average' },
+            ],
+        }
+
+        expect(getBISortOptions(twoAggregationsConfig).map((option) => option.key)).toEqual([
+            `rows:${browserField.id}`,
+            `values:${revenueField.id}`,
+            `values:${revenueField.id}:2`,
+        ])
+        expect(
+            buildBIQuery({
+                ...twoAggregationsConfig,
+                sort: { key: `values:${revenueField.id}:2`, direction: 'asc' },
+            })?.query
+        ).toContain('ORDER BY\n    average_revenue_2 ASC')
+    })
+
     test.each([
         ['a state persisted before sort existed', {}, null],
         [

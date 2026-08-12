@@ -557,6 +557,9 @@ export function getBISortOptions(config: BIConfig): BISortOption[] {
         return []
     }
 
+    // The same field can back several value entries with different aggregations, so value keys
+    // carry an occurrence suffix; the first occurrence keeps the unsuffixed key persisted states use
+    const valueOccurrences = new Map<string, number>()
     const options: BISortOption[] = [
         ...rowDimensions.map(({ field }) => ({
             key: `rows:${field.id}`,
@@ -569,11 +572,15 @@ export function getBISortOptions(config: BIConfig): BISortOption[] {
             expression: fieldExpression(field),
         })),
         ...(configuredValues.length > 0
-            ? configuredValues.map(({ value }, index) => ({
-                  key: `values:${value.field.id}`,
-                  label: sortValueLabel(value),
-                  expression: escapePropertyAsHogQLIdentifier(aggregationAlias(value, index)),
-              }))
+            ? configuredValues.map(({ value }, index) => {
+                  const occurrence = valueOccurrences.get(value.field.id) ?? 0
+                  valueOccurrences.set(value.field.id, occurrence + 1)
+                  return {
+                      key: occurrence === 0 ? `values:${value.field.id}` : `values:${value.field.id}:${occurrence + 1}`,
+                      label: sortValueLabel(value),
+                      expression: escapePropertyAsHogQLIdentifier(aggregationAlias(value, index)),
+                  }
+              })
             : [{ key: 'values:count', label: 'Count', expression: 'count' }]),
     ]
 
