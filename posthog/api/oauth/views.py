@@ -1967,14 +1967,16 @@ class OAuthIntrospectTokenView(ClientProtectedScopedResourceView):
         return super().verify_request(request)
 
     def _client_credentials_client_id(self, request) -> str | None:
-        """The client_id that authenticated this request via client credentials, or None.
+        """The identity that authenticated this request via client credentials, or None.
 
         None means the request reached us through the bearer-token path instead (self-
         introspection or the `introspection` scope): ClientProtectedResourceMixin.dispatch
         only sets `resource_owner` on that path, since a successful `authenticate_client`
-        (the client-credentials path) skips it entirely. The client_id is read back rather
-        than re-verified, because dispatch already proved this request holds a valid secret
-        for it.
+        (the client-credentials path) skips it entirely. The identity is read back rather
+        than re-verified, because dispatch already proved this request holds a valid secret,
+        or a signature-verified `private_key_jwt` assertion, for it. A CIMD client identifies
+        itself through the assertion's `sub` rather than `client_id`, since it has no opaque
+        client_id to send.
         """
         if hasattr(request, "resource_owner"):
             return None
@@ -1982,6 +1984,15 @@ class OAuthIntrospectTokenView(ClientProtectedScopedResourceView):
         credentials = client_credentials_from_basic_auth(request)
         if credentials is not None:
             return credentials[0]
+
+        assertion = resolve_client_assertion(
+            request.POST.get("client_assertion") or "",
+            request.POST.get("client_assertion_type") or "",
+            request.POST.get("client_id") or "",
+        )
+        if assertion is not None:
+            return assertion[1]
+
         return request.POST.get("client_id") or None
 
     def get_token_response(self, request, token_value=None):
@@ -2001,6 +2012,14 @@ class OAuthIntrospectTokenView(ClientProtectedScopedResourceView):
 
         credential_client_id = self._client_credentials_client_id(request)
 
+        # The bearer path (self-introspection or the `introspection` scope) is governed by
+        # scope, not by client identity, and never reaches here. On the client-credentials
+        # path, treating an unidentifiable caller as exempt from the ownership check below
+        # would be indistinguishable from disclosing any token to anyone.
+        is_client_credentials = not hasattr(request, "resource_owner")
+        if is_client_credentials and credential_client_id is None:
+            return JsonResponse({"active": False}, status=200)
+
         # Try access token first (indexed lookup via token_checksum)
         token_checksum = hashlib.sha256(token_value.encode("utf-8")).hexdigest()
         try:
@@ -2011,8 +2030,13 @@ class OAuthIntrospectTokenView(ClientProtectedScopedResourceView):
         if access_token:
             # A client-credentials caller may only introspect its own tokens. Being
             # confidential is not a meaningful barrier on its own, since /oauth/register/
-            # issues a confidential client_id and secret to anyone who asks.
-            if credential_client_id and getattr(access_token.application, "client_id", None) != credential_client_id:
+            # issues a confidential client_id and secret to anyone who asks. Compared against
+            # effective_client_id, not client_id, since a CIMD client's wire identity is its
+            # metadata URL, never the opaque client_id column.
+            if (
+                credential_client_id
+                and getattr(access_token.application, "effective_client_id", None) != credential_client_id
+            ):
                 return JsonResponse({"active": False}, status=200)
             # RFC 7662 Section 2.2: expired tokens MUST return {"active": false}
             if not access_token.is_valid():
@@ -2038,7 +2062,10 @@ class OAuthIntrospectTokenView(ClientProtectedScopedResourceView):
             refresh_token = None
 
         if refresh_token:
-            if credential_client_id and getattr(refresh_token.application, "client_id", None) != credential_client_id:
+            if (
+                credential_client_id
+                and getattr(refresh_token.application, "effective_client_id", None) != credential_client_id
+            ):
                 return JsonResponse({"active": False}, status=200)
             # Refresh tokens lack scope and exp fields on AbstractRefreshToken,
             # so we only return the fields that are available
