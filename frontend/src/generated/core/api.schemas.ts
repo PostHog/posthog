@@ -1056,6 +1056,14 @@ export const CountPerActorMathTypeApi = {
     P99CountPerActor: 'p99_count_per_actor',
 } as const
 
+export type GroupMathTypeApi = (typeof GroupMathTypeApi)[keyof typeof GroupMathTypeApi]
+
+export const GroupMathTypeApi = {
+    UniqueGroup: 'unique_group',
+    FirstTimeForGroup: 'first_time_for_group',
+    FirstMatchingEventForGroup: 'first_matching_event_for_group',
+} as const
+
 export type ExperimentMetricMathTypeApi = (typeof ExperimentMetricMathTypeApi)[keyof typeof ExperimentMetricMathTypeApi]
 
 export const ExperimentMetricMathTypeApi = {
@@ -1375,9 +1383,9 @@ export interface MarketingAnalyticsEventConversionGoalApi {
         | FunnelMathTypeApi
         | PropertyMathTypeApi
         | CountPerActorMathTypeApi
+        | GroupMathTypeApi
         | ExperimentMetricMathTypeApi
         | CalendarHeatmapMathTypeApi
-        | 'unique_group'
         | 'hogql'
         | null
     math_group_type_index?: MathGroupTypeIndexApi | null
@@ -1428,9 +1436,9 @@ export interface MarketingAnalyticsActionConversionGoalApi {
         | FunnelMathTypeApi
         | PropertyMathTypeApi
         | CountPerActorMathTypeApi
+        | GroupMathTypeApi
         | ExperimentMetricMathTypeApi
         | CalendarHeatmapMathTypeApi
-        | 'unique_group'
         | 'hogql'
         | null
     math_group_type_index?: MathGroupTypeIndexApi | null
@@ -1482,9 +1490,9 @@ export interface MarketingAnalyticsWarehouseConversionGoalApi {
         | FunnelMathTypeApi
         | PropertyMathTypeApi
         | CountPerActorMathTypeApi
+        | GroupMathTypeApi
         | ExperimentMetricMathTypeApi
         | CalendarHeatmapMathTypeApi
-        | 'unique_group'
         | 'hogql'
         | null
     math_group_type_index?: MathGroupTypeIndexApi | null

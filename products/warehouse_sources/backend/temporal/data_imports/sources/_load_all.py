@@ -266,6 +266,7 @@ from .close.source import CloseSource
 from .cloudability.source import CloudabilitySource
 from .cloudbeds.source import CloudbedsSource
 from .cloudflare.source import CloudflareSource
+from .cloudinary.source import CloudinarySource
 from .cloudsmith.source import CloudsmithSource
 from .cloudzero.source import CloudzeroSource
 from .clover.source import CloverSource
@@ -760,6 +761,7 @@ from .moodle.source import MoodleSource
 from .motherduck.source import MotherduckSource
 from .motion.source import MotionSource
 from .moxie.source import MoxieSource
+from .msg91.source import MSG91Source
 from .mssql.source import MSSQLSource
 from .mux.source import MuxSource
 from .my_hours.source import MyHoursSource
@@ -1192,6 +1194,7 @@ from .umami.source import UmamiSource
 from .un_comtrade.source import UnComtradeSource
 from .unleash.source import UnleashSource
 from .unstructured.source import UnstructuredSource
+from .uploadcare.source import UploadcareSource
 from .uppromote.source import UpPromoteSource
 from .upstash.source import UpstashSource
 from .uptick.source import UptickSource
@@ -1230,6 +1233,7 @@ from .webflow.source import WebflowSource
 from .weights_and_biases.source import WeightsAndBiasesSource
 from .whatsapp_business_management.source import WhatsappBusinessManagementSource
 from .when_i_work.source import WhenIWorkSource
+from .whmcs.source import WHMCSSource
 from .who_gho.source import WhoGhoSource
 from .whop.source import WhopSource
 from .wikipedia_pageviews.source import WikipediaPageviewsSource
