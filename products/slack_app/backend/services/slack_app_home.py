@@ -269,13 +269,15 @@ class TaskItem:
     """One row on the Tasks card."""
 
     title: str
-    posthog_url: str
     status: str | None  # TaskRun.Status value or None when there's no run yet
     repository: str | None
     pr_url: str | None
     thread_url: str | None
     updated_at_label: str
-    desktop_url: str | None = None  # omitted for viewers without PostHog Code access
+    # Both task links are omitted for a viewer without PostHog Code access, matching the
+    # reply footer: a task page they can't open is as much a dead end as the desktop app.
+    posthog_url: str | None = None
+    desktop_url: str | None = None
     error_message: str | None = None  # surfaced on row 2 in place of the normal meta line
 
 
@@ -1916,9 +1918,10 @@ def _resolve_tasks_state(
     mapping_by_task = {str(m["task_id"]): m for m in mappings}
 
     site_url = (settings.SITE_URL or "").rstrip("/")
-    # The desktop link only resolves for someone who has the app, so it is offered
-    # alongside the web one rather than instead of it.
-    show_desktop = viewer_has_code_access(integration, slack_user_id)
+    # Both task links answer to the reader, the same check the reply footer's links use.
+    # The desktop one only resolves for someone who has the app, so it rides alongside
+    # the web one rather than instead of it.
+    can_open_code_links = viewer_has_code_access(integration, slack_user_id)
     now = django_timezone.now()
     all_items: list[TaskItem] = []
     repos_seen: list[str] = []
@@ -1932,14 +1935,14 @@ def _resolve_tasks_state(
         all_items.append(
             TaskItem(
                 title=t.title,
-                posthog_url=f"{site_url}/project/{t.team_id}/tasks/{t.id}",
+                posthog_url=f"{site_url}/project/{t.team_id}/tasks/{t.id}" if can_open_code_links else None,
                 status=run.status if run else None,
                 repository=t.repository,
                 pr_url=pr_urls_by_task.get(str(t.id)),
                 thread_url=_slack_thread_permalink(mapping.get("channel", ""), mapping.get("thread_ts", "")),
                 updated_at_label=_format_relative(mapping.get("updated_at"), now=now),
                 error_message=run.error_message if run else None,
-                desktop_url=f"{DESKTOP_URL_SCHEME}://task/{t.id}" if show_desktop else None,
+                desktop_url=f"{DESKTOP_URL_SCHEME}://task/{t.id}" if can_open_code_links else None,
             )
         )
         if t.repository and t.repository not in seen_repo_set:
