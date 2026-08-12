@@ -1,5 +1,7 @@
 import { useActions, useValues } from 'kea'
+import { ReactNode } from 'react'
 
+import { IconArrowLeft, IconBuilding, IconDocument, IconFolder, IconPeople } from '@posthog/icons'
 import {
     LemonBanner,
     LemonButton,
@@ -259,39 +261,94 @@ function ProductAreasModal(): JSX.Element {
     )
 }
 
+function FeatureRequestDetailSection({
+    icon,
+    title,
+    children,
+}: {
+    icon: ReactNode
+    title: string
+    children: ReactNode
+}): JSX.Element {
+    return (
+        <section className="flex flex-col gap-3">
+            <div className="flex items-center gap-3 min-w-0">
+                <div className="flex items-center gap-2 min-w-0">
+                    <span className="flex shrink-0 items-center text-secondary [&_svg]:size-[0.9375rem]">{icon}</span>
+                    <h2 className="m-0 truncate text-sm font-semibold tracking-tight">{title}</h2>
+                </div>
+                <div className="h-px min-w-4 flex-1 bg-border-light" />
+            </div>
+            <div>{children}</div>
+        </section>
+    )
+}
+
 function FeatureRequestDetail({ request }: { request: FeatureRequestApi }): JSX.Element {
     return (
-        <div className="flex flex-col gap-4 max-w-4xl">
-            <div>
-                <LemonButton type="tertiary" size="small" to={urls.customerAnalyticsFeatureRequests()}>
-                    Back to feature requests
+        <div className="@container w-full max-w-[calc(160ch+5rem)] mx-auto px-6 py-5 text-sm">
+            <header className="flex flex-col gap-3.5 mb-6 pb-5 border-b border-primary">
+                <LemonButton
+                    type="tertiary"
+                    size="small"
+                    icon={<IconArrowLeft />}
+                    to={urls.customerAnalyticsFeatureRequests()}
+                    className="-ml-2 w-fit"
+                >
+                    Feature requests
                 </LemonButton>
-            </div>
-            <div className="flex flex-col gap-2">
-                <div className="flex items-center gap-2 flex-wrap">
-                    <h2 className="m-0">{request.title}</h2>
-                    <LemonTag type="primary">Requested</LemonTag>
-                </div>
-                <span className="text-secondary">
-                    Last updated <TZLabel time={request.updated_at} />
-                </span>
-            </div>
-            <div className="border rounded p-4">
-                <LemonMarkdown>{request.description}</LemonMarkdown>
-            </div>
-            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                <div className="border rounded p-4 flex flex-col gap-1">
-                    <span className="font-semibold">Account</span>
-                    <Link to={urls.customerAnalyticsAccount(request.account.id)}>{request.account.name}</Link>
-                </div>
-                <div className="border rounded p-4 flex flex-col gap-2">
-                    <span className="font-semibold">Product areas</span>
-                    <div className="flex flex-wrap gap-1">
-                        {request.product_areas.map((area) => (
-                            <LemonTag key={area.id}>{area.name}</LemonTag>
-                        ))}
+                <div className="flex flex-col gap-2 min-w-0">
+                    <h1 className="m-0 break-words text-xl font-bold leading-tight tracking-tight">{request.title}</h1>
+                    <div className="flex items-center gap-2 flex-wrap text-xs text-tertiary">
+                        <LemonTag type="primary">Requested</LemonTag>
+                        <span className="flex items-center gap-2 flex-wrap">
+                            <span className="flex items-center gap-1">
+                                <span>Created</span>
+                                <TZLabel time={request.created_at} />
+                            </span>
+                            <span aria-hidden>·</span>
+                            <span className="flex items-center gap-1">
+                                <span>Last updated</span>
+                                <TZLabel time={request.updated_at} />
+                            </span>
+                        </span>
                     </div>
                 </div>
+            </header>
+
+            <div className="grid grid-cols-1 @5xl:grid-cols-[minmax(0,80ch)_minmax(22rem,1fr)] gap-5">
+                <div className="min-w-0">
+                    <FeatureRequestDetailSection icon={<IconDocument />} title="Description">
+                        <LemonMarkdown className="text-sm text-secondary leading-relaxed break-words [&>*+*]:mt-3">
+                            {request.description}
+                        </LemonMarkdown>
+                    </FeatureRequestDetailSection>
+                </div>
+
+                <aside className="flex flex-col min-w-0 gap-5">
+                    <FeatureRequestDetailSection icon={<IconPeople />} title="Requesters">
+                        <Link
+                            to={urls.customerAnalyticsAccount(request.account.id)}
+                            className="flex items-center gap-3 rounded border border-primary bg-surface-primary px-3 py-2.5 text-default hover:text-primary"
+                        >
+                            <span className="flex size-8 shrink-0 items-center justify-center rounded bg-fill-highlight-50 text-secondary">
+                                <IconBuilding className="size-4" />
+                            </span>
+                            <span className="flex flex-col min-w-0">
+                                <span className="truncate font-medium">{request.account.name}</span>
+                                <span className="text-xs text-tertiary">Account</span>
+                            </span>
+                        </Link>
+                    </FeatureRequestDetailSection>
+
+                    <FeatureRequestDetailSection icon={<IconFolder />} title="Product areas">
+                        <div className="flex flex-wrap gap-1.5">
+                            {request.product_areas.map((area) => (
+                                <LemonTag key={area.id}>{area.name}</LemonTag>
+                            ))}
+                        </div>
+                    </FeatureRequestDetailSection>
+                </aside>
             </div>
         </div>
     )
