@@ -65,8 +65,10 @@ python manage.py setup_local_api_key --add-scopes llm_gateway:read
 The gateway connects to the PostHog Postgres as a least-privilege role whose SELECT
 grants are a per-table allowlist maintained in posthog-cloud-infra. The tables the
 gateway reads are declared in `src/llm_gateway/db/required_tables.py`, and
-`tests/test_required_tables.py` binds that declaration to the SQL in the package. To
-add a table read, land the grant in every environment first, then declare the table.
+`tests/test_required_tables.py` binds that declaration to the SQL in the package.
+`/_readiness` verifies the connected role holds every declared grant on every probe,
+so a revoked grant unreadies serving pods as well as new rollouts. To add a table
+read, land the grant in every environment first, then declare the table.
 
 ## User attribution
 
