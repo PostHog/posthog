@@ -2,7 +2,16 @@ import { BindLogic, useActions, useValues } from 'kea'
 import { router } from 'kea-router'
 import { ReactNode, useState } from 'react'
 
-import { IconCheck, IconGraph, IconPencil, IconPlay, IconRefresh, IconServer, IconTrash } from '@posthog/icons'
+import {
+    IconCheck,
+    IconGraph,
+    IconPencil,
+    IconPlay,
+    IconRefresh,
+    IconServer,
+    IconSparkles,
+    IconTrash,
+} from '@posthog/icons'
 import { LemonBanner, LemonButton, LemonDialog, LemonDivider, LemonTag } from '@posthog/lemon-ui'
 
 import { CodeSnippet, Language } from 'lib/components/CodeSnippet/CodeSnippet'
@@ -17,9 +26,12 @@ import { LemonTable } from 'lib/lemon-ui/LemonTable'
 import { Spinner } from 'lib/lemon-ui/Spinner'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { ButtonPrimitive } from 'lib/ui/Button/ButtonPrimitives'
+import { maxGlobalLogic } from 'scenes/max/maxGlobalLogic'
+import { autoRunMaxPrompt } from 'scenes/max/maxPrompt'
 import { SceneExport } from 'scenes/sceneTypes'
 import { urls } from 'scenes/urls'
 
+import { sidePanelStateLogic } from '~/layout/navigation-3000/sidepanel/sidePanelStateLogic'
 import { SceneContent } from '~/layout/scenes/components/SceneContent'
 import {
     SceneMenuBar,
@@ -29,7 +41,7 @@ import {
 } from '~/layout/scenes/components/SceneMenuBar'
 import { SceneTitleSection } from '~/layout/scenes/components/SceneTitleSection'
 import { ScenePanel, ScenePanelActionsSection, ScenePanelInfoSection } from '~/layout/scenes/SceneLayout'
-import { InsightShortId } from '~/types'
+import { InsightShortId, SidePanelTab } from '~/types'
 
 import {
     humanizeDefinitionKind,
@@ -38,6 +50,7 @@ import {
     validateMetricName,
 } from './common'
 import { MetricMarkdownEditorField } from './components/MetricMarkdownEditorField'
+import { buildMetricRunPrompt, RunMetricWithAIButton } from './components/RunMetricWithAIButton'
 import {
     dataCatalogMetricSceneLogic,
     DataCatalogMetricSceneLogicProps,
@@ -79,6 +92,17 @@ export function DataCatalogMetricScene({ name }: DataCatalogMetricSceneLogicProp
     } = useActions(dataCatalogMetricSceneLogic)
     const { featureFlags } = useValues(featureFlagLogic)
     const sceneMenuBarEnabled = !!featureFlags[FEATURE_FLAGS.SCENE_MENU_BAR]
+    const { openSidePanel } = useActions(sidePanelStateLogic)
+    const { isMaxAvailable } = useValues(maxGlobalLogic)
+
+    const runMarkdownMetricWithAI = (): void => {
+        if (!metric) {
+            return
+        }
+        // Still record the run server-side so last run time and run analytics stay accurate.
+        loadRunResult()
+        openSidePanel(SidePanelTab.Max, autoRunMaxPrompt(buildMetricRunPrompt(metric.name)))
+    }
 
     if (metricLoading && !metric) {
         return <Spinner className="text-2xl" />
@@ -90,6 +114,7 @@ export function DataCatalogMetricScene({ name }: DataCatalogMetricSceneLogicProp
     const sourceShortId = metric.source_insight_short_id
     const definitionSql = definitionField(metric, 'query')
     const isApproved = metric.status === 'approved'
+    const isMarkdownMetric = metric.definition_kind === 'MarkdownDefinition'
 
     const confirmAndUpdate = (patch: Partial<DataCatalogMetricApi>): void => {
         if (!isApproved) {
@@ -172,13 +197,21 @@ export function DataCatalogMetricScene({ name }: DataCatalogMetricSceneLogicProp
                   },
               ]
             : []),
-        {
-            key: 'run',
-            label: 'Run metric',
-            icon: <IconPlay />,
-            onClick: loadRunResult,
-            disabledReason: metric.definition_kind ? undefined : 'This metric has no runnable definition yet',
-        },
+        isMarkdownMetric
+            ? {
+                  key: 'run',
+                  label: 'Run with AI',
+                  icon: <IconSparkles />,
+                  onClick: runMarkdownMetricWithAI,
+                  disabledReason: isMaxAvailable ? undefined : 'PostHog AI is not available on this instance',
+              }
+            : {
+                  key: 'run',
+                  label: 'Run metric',
+                  icon: <IconPlay />,
+                  onClick: loadRunResult,
+                  disabledReason: metric.definition_kind ? undefined : 'This metric has no runnable definition yet',
+              },
         {
             key: 'rename',
             label: 'Rename',
@@ -310,6 +343,10 @@ export function DataCatalogMetricScene({ name }: DataCatalogMetricSceneLogicProp
                         confirmAndUpdate({ definition: { kind: 'MarkdownDefinition', markdown } })
                     }
                     onRun={loadRunResult}
+                    onRunWithAI={runMarkdownMetricWithAI}
+                    runWithAIDisabledReason={
+                        isMaxAvailable ? undefined : 'PostHog AI is not available on this instance'
+                    }
                 />
             </SceneContent>
 
@@ -498,6 +535,8 @@ function MetricDefinition({
     onStartEditingMarkdown,
     onSaveMarkdown,
     onRun,
+    onRunWithAI,
+    runWithAIDisabledReason,
 }: {
     metric: DataCatalogMetricApi
     editingDefinition: boolean
@@ -510,6 +549,8 @@ function MetricDefinition({
     onStartEditingMarkdown: () => void
     onSaveMarkdown: (markdown: string) => void
     onRun: () => void
+    onRunWithAI: () => void
+    runWithAIDisabledReason?: string
 }): JSX.Element {
     const kind = metric.definition_kind
     const sql = definitionField(metric, 'query')
@@ -565,7 +606,7 @@ function MetricDefinition({
                             {definitionField(metric, 'markdown') || '_No instructions yet._'}
                         </LemonMarkdown>
                         <div className="flex gap-2">
-                            {runButton}
+                            <RunMetricWithAIButton onRun={onRunWithAI} disabledReason={runWithAIDisabledReason} />
                             <LemonButton
                                 type="secondary"
                                 size="small"
@@ -575,7 +616,8 @@ function MetricDefinition({
                                 Edit
                             </LemonButton>
                         </div>
-                        {results}
+                        {/* No run result here: the envelope only echoes the definition above, and the
+                            agent reports the number in the side panel. */}
                     </>
                 )}
             </Section>
