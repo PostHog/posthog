@@ -794,20 +794,10 @@ class TestTaskCreatorScoping(BaseTaskAPITest):
 
 
 @override_settings(CLOUD_DEPLOYMENT="US")
-class TestTaskVisibilityInternalDebugTeamBypass(BaseTaskAPITest):
-    """When the gate (`_is_internal_debug_team`) fires, PostHog employees can
-    read any teammate's task/run by ID — but the bypass is deliberately narrow:
-    only the `retrieve` action on TaskViewSet and read-only actions on
-    TaskRunViewSet. List views, write actions, and other teams remain
-    creator-scoped. The unaffected cases live in `TestTaskCreatorScoping`
-    above; the deployment-region requirement is covered by
-    `TestTaskVisibilityInternalDebugRegionGate`."""
-
+class TestTaskVisibilityProductionDebugGuard(BaseTaskAPITest):
     def setUp(self):
         super().setUp()
-        # Production checks `team_id == 2 AND CLOUD_DEPLOYMENT == "US"`; tests
-        # can't easily force the row id, so substitute the test team's id and
-        # keep the deployment-region clause intact so off-US tests still flip.
+        # Make the former production debug-team predicate pass. The local-only guard must still deny access.
         self._bypass_patch = patch(
             "products.tasks.backend.presentation.views.api._is_internal_debug_team",
             side_effect=lambda team_id: team_id == self.team.id and settings.CLOUD_DEPLOYMENT == "US",
@@ -818,17 +808,14 @@ class TestTaskVisibilityInternalDebugTeamBypass(BaseTaskAPITest):
         self._bypass_patch.stop()
         super().tearDown()
 
-    def test_retrieve_other_user_task_succeeds(self):
+    def test_retrieve_other_user_task_with_ph_debug_returns_404(self):
         other_user = self.create_organization_user("teammate")
         task = self.create_task(created_by=other_user)
 
         response = self.client.get(f"/api/projects/@current/tasks/{task.id}/?ph_debug=true")
-        self.assertEqual(response.status_code, status.HTTP_200_OK)
-        self.assertEqual(response.json()["id"], str(task.id))
+        self.assertEqual(response.status_code, status.HTTP_404_NOT_FOUND)
 
     def test_retrieve_other_user_task_without_ph_debug_still_404s(self):
-        # The whole point of the param-gated bypass — even on the internal team
-        # in US-prod, default behavior matches every other team.
         other_user = self.create_organization_user("teammate")
         task = self.create_task(created_by=other_user)
 
@@ -836,8 +823,6 @@ class TestTaskVisibilityInternalDebugTeamBypass(BaseTaskAPITest):
         self.assertEqual(response.status_code, status.HTTP_404_NOT_FOUND)
 
     def test_list_still_excludes_other_user_tasks(self):
-        # The bypass is scoped to `retrieve` — list still filters by creator even
-        # with `?ph_debug=true`.
         other_user = self.create_organization_user("teammate")
         mine = self.create_task("Mine", created_by=self.user)
         theirs = self.create_task("Theirs", created_by=other_user)
@@ -858,15 +843,13 @@ class TestTaskVisibilityInternalDebugTeamBypass(BaseTaskAPITest):
         self.assertEqual(response.status_code, status.HTTP_200_OK)
         self.assertEqual(response.json()["repositories"], [])
 
-    def test_list_runs_for_other_user_task_succeeds(self):
+    def test_list_runs_for_other_user_task_with_ph_debug_returns_404(self):
         other_user = self.create_organization_user("teammate")
         task = self.create_task(created_by=other_user)
-        run = TaskRun.objects.create(task=task, team=self.team, status=TaskRun.Status.IN_PROGRESS)
+        TaskRun.objects.create(task=task, team=self.team, status=TaskRun.Status.IN_PROGRESS)
 
         response = self.client.get(f"/api/projects/@current/tasks/{task.id}/runs/?ph_debug=true")
-        self.assertEqual(response.status_code, status.HTTP_200_OK)
-        ids = {item["id"] for item in response.json()["results"]}
-        self.assertEqual(ids, {str(run.id)})
+        self.assertEqual(response.status_code, status.HTTP_404_NOT_FOUND)
 
     def test_list_runs_for_other_user_task_without_ph_debug_still_404s(self):
         other_user = self.create_organization_user("teammate")
@@ -876,14 +859,13 @@ class TestTaskVisibilityInternalDebugTeamBypass(BaseTaskAPITest):
         response = self.client.get(f"/api/projects/@current/tasks/{task.id}/runs/")
         self.assertEqual(response.status_code, status.HTTP_404_NOT_FOUND)
 
-    def test_retrieve_other_user_run_succeeds(self):
+    def test_retrieve_other_user_run_with_ph_debug_returns_404(self):
         other_user = self.create_organization_user("teammate")
         task = self.create_task(created_by=other_user)
         run = TaskRun.objects.create(task=task, team=self.team, status=TaskRun.Status.IN_PROGRESS)
 
         response = self.client.get(f"/api/projects/@current/tasks/{task.id}/runs/{run.id}/?ph_debug=true")
-        self.assertEqual(response.status_code, status.HTTP_200_OK)
-        self.assertEqual(response.json()["id"], str(run.id))
+        self.assertEqual(response.status_code, status.HTTP_404_NOT_FOUND)
 
     def test_connection_token_on_other_user_run_still_404s_with_ph_debug(self):
         # connection_token is a GET but mints a write-capable sandbox JWT — the
@@ -921,31 +903,23 @@ class TestTaskVisibilityInternalDebugTeamBypass(BaseTaskAPITest):
         self.assertEqual(response.status_code, status.HTTP_404_NOT_FOUND)
 
 
-class TestTaskStaffVisibilityBypass(BaseTaskAPITest):
-    """Staff users can READ any task/run on the team, unconditionally — no ``?ph_debug=true`` opt-in
-    (unlike internal-debug teams), because the frontend can't reliably thread a query param through
-    every read (the SSE stream carries none). The ``all_team_tasks=true`` list filter stays opt-in so
-    the default list is unchanged. Non-staff users can't reach either, and writes stay creator-scoped.
-    The internal-debug-team ``?ph_debug=true`` path is covered by ``TestTaskVisibilityInternalDebugTeamBypass``."""
-
+class TestTaskStaffVisibilityGuard(BaseTaskAPITest):
     def setUp(self):
         super().setUp()
-        # self.user is the authenticated requester (it resolves `@current`); make it staff and
-        # attribute the tasks under test to a different member so they're "not mine".
+        # Make the authenticated requester staff while the task belongs to another project member.
         self.user.is_staff = True
         self.user.save(update_fields=["is_staff"])
         self.other_user = self.create_organization_user("teammate")
 
-    def test_staff_all_team_tasks_filter_includes_other_user_tasks(self):
+    def test_staff_all_team_tasks_filter_excludes_other_user_tasks(self):
         theirs = self.create_task("Theirs", created_by=self.other_user)
 
         response = self.client.get("/api/projects/@current/tasks/?all_team_tasks=true")
         self.assertEqual(response.status_code, status.HTTP_200_OK)
         ids = {item["id"] for item in response.json()["results"]}
-        assert str(theirs.id) in ids
+        assert str(theirs.id) not in ids
 
     def test_staff_list_without_filter_still_excludes_other_user_tasks(self):
-        # The filter is opt-in — the default list stays creator-scoped even for staff.
         theirs = self.create_task("Theirs", created_by=self.other_user)
 
         response = self.client.get("/api/projects/@current/tasks/")
@@ -963,13 +937,11 @@ class TestTaskStaffVisibilityBypass(BaseTaskAPITest):
         ids = {item["id"] for item in response.json()["results"]}
         assert str(theirs.id) not in ids
 
-    def test_staff_retrieve_other_user_task_needs_no_ph_debug(self):
-        # No opt-in param — a staff user opening a teammate's task by URL just works.
+    def test_staff_retrieve_other_user_task_returns_404(self):
         task = self.create_task(created_by=self.other_user)
 
         response = self.client.get(f"/api/projects/@current/tasks/{task.id}/")
-        self.assertEqual(response.status_code, status.HTTP_200_OK)
-        self.assertEqual(response.json()["id"], str(task.id))
+        self.assertEqual(response.status_code, status.HTTP_404_NOT_FOUND)
 
     def test_non_staff_retrieve_other_user_task_still_404s(self):
         self.user.is_staff = False
@@ -979,27 +951,22 @@ class TestTaskStaffVisibilityBypass(BaseTaskAPITest):
         response = self.client.get(f"/api/projects/@current/tasks/{task.id}/")
         self.assertEqual(response.status_code, status.HTTP_404_NOT_FOUND)
 
-    def test_staff_list_runs_for_other_user_task_needs_no_ph_debug(self):
+    def test_staff_list_runs_for_other_user_task_returns_404(self):
         task = self.create_task(created_by=self.other_user)
-        run = TaskRun.objects.create(task=task, team=self.team, status=TaskRun.Status.IN_PROGRESS)
+        TaskRun.objects.create(task=task, team=self.team, status=TaskRun.Status.IN_PROGRESS)
 
         response = self.client.get(f"/api/projects/@current/tasks/{task.id}/runs/")
-        self.assertEqual(response.status_code, status.HTTP_200_OK)
-        ids = {item["id"] for item in response.json()["results"]}
-        self.assertEqual(ids, {str(run.id)})
+        self.assertEqual(response.status_code, status.HTTP_404_NOT_FOUND)
 
-    def test_staff_list_living_artifacts_for_other_user_run(self):
-        # Living artifacts are a separate run-read viewset whose gate previously required an
-        # internal-debug team — staff must reach it on any team too.
+    def test_staff_cannot_list_other_user_living_artifacts(self):
         task = self.create_task(created_by=self.other_user)
         run = TaskRun.objects.create(task=task, team=self.team, status=TaskRun.Status.IN_PROGRESS)
 
         response = self.client.get(f"/api/projects/@current/tasks/{task.id}/runs/{run.id}/living_artifacts/")
-        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertEqual(response.status_code, status.HTTP_404_NOT_FOUND)
 
     @patch("products.tasks.backend.temporal.client.execute_task_processing_workflow")
     def test_staff_write_on_other_user_task_still_404s(self, _mock_workflow):
-        # Read-only bypass — staff still can't drive another member's task.
         task = self.create_task(created_by=self.other_user)
 
         response = self.client.post(f"/api/projects/@current/tasks/{task.id}/run/")
@@ -1007,16 +974,9 @@ class TestTaskStaffVisibilityBypass(BaseTaskAPITest):
 
 
 class TestTaskVisibilityInternalDebugRegionGate(BaseTaskAPITest):
-    """The internal-debug bypass keys on team-id 2 — but that's only meaningful in
-    the US-prod DB. On EU prod, self-hosted, and dev, team-id 2 belongs to some
-    unrelated organization. The gate must require `CLOUD_DEPLOYMENT == "US"` to
-    avoid silently granting cross-creator visibility there."""
-
     def setUp(self):
         super().setUp()
-        # Same shape as `TestTaskVisibilityInternalDebugTeamBypass.setUp` — the
-        # `team.id` match would pass on its own, leaving `CLOUD_DEPLOYMENT` as
-        # the only thing each test varies.
+        # Make the former debug-team predicate depend only on the deployment under test.
         self._bypass_patch = patch(
             "products.tasks.backend.presentation.views.api._is_internal_debug_team",
             side_effect=lambda team_id: team_id == self.team.id and settings.CLOUD_DEPLOYMENT == "US",
@@ -1433,6 +1393,25 @@ class TestTaskAPI(BaseTaskAPITest):
         data = response.json()
         self.assertIn("latest_run", data)
         self.assertIsNone(data["latest_run"])
+
+    def test_run_response_excludes_connection_credentials_from_state(self):
+        task = self.create_task("Safe state")
+        run = TaskRun.objects.create(
+            task=task,
+            team=self.team,
+            status=TaskRun.Status.IN_PROGRESS,
+            state={
+                "mode": "interactive",
+                "sandbox_connect_token": "secret-token",
+                "sandbox_url": "https://sandbox.example.com",
+                "pending_dispatch": {"user_id": self.user.id},
+            },
+        )
+
+        response = self.client.get(f"/api/projects/@current/tasks/{task.id}/runs/{run.id}/")
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertEqual(response.json()["state"], {"mode": "interactive"})
 
     def test_create_task(self):
         response = self.client.post(
@@ -4627,6 +4606,19 @@ class TestTaskAutomationAPI(BaseTaskAPITest):
         self.assertEqual(payload["results"][0]["id"], str(automation.id))
         self.assertEqual(payload["results"][0]["cron_expression"], "0 9 * * *")
 
+    def test_soft_deleted_task_hides_automation(self):
+        automation = self.create_automation()
+        automation.task.soft_delete()
+
+        response = self.client.get("/api/projects/@current/task_automations/")
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertEqual(response.json()["results"], [])
+        self.assertEqual(
+            self.client.get(f"/api/projects/@current/task_automations/{automation.id}/").status_code,
+            status.HTTP_404_NOT_FOUND,
+        )
+
     def test_create_automation_rejects_invalid_timezone(self):
         response = self.client.post(
             "/api/projects/@current/task_automations/",
@@ -4862,6 +4854,41 @@ class TestTaskRunAPI(BaseTaskAPITest):
     def test_list_runs_with_malformed_task_id_returns_404(self):
         # A non-UUID task id in the URL must 404, not 500 through the UUIDField filter.
         response = self.client.get("/api/projects/@current/tasks/not-a-uuid/runs/")
+        self.assertEqual(response.status_code, status.HTTP_404_NOT_FOUND)
+
+    @patch("products.tasks.backend.models.TaskRun.publish_stream_state_event")
+    def test_task_bound_sandbox_can_update_only_its_task(self, _mock_publish_stream_state_event: MagicMock):
+        owner = self.create_organization_user("sandbox-owner")
+        bound_task = self.create_task(created_by=owner)
+        bound_run = TaskRun.objects.create(task=bound_task, team=self.team, status=TaskRun.Status.IN_PROGRESS)
+        other_task = self.create_task(created_by=owner)
+        other_run = TaskRun.objects.create(task=other_task, team=self.team, status=TaskRun.Status.IN_PROGRESS)
+        client = self._sandbox_oauth_client(bound_task.id)
+
+        allowed = client.patch(
+            f"/api/projects/@current/tasks/{bound_task.id}/runs/{bound_run.id}/",
+            {"stage": "build"},
+            format="json",
+        )
+        denied = client.patch(
+            f"/api/projects/@current/tasks/{other_task.id}/runs/{other_run.id}/",
+            {"stage": "build"},
+            format="json",
+        )
+
+        self.assertEqual(allowed.status_code, status.HTTP_200_OK)
+        self.assertEqual(denied.status_code, status.HTTP_404_NOT_FOUND)
+        other_run.refresh_from_db()
+        self.assertIsNone(other_run.stage)
+
+    def test_unbound_sandbox_scope_does_not_bypass_task_visibility(self):
+        owner = self.create_organization_user("sandbox-owner")
+        task = self.create_task(created_by=owner)
+        run = TaskRun.objects.create(task=task, team=self.team, status=TaskRun.Status.IN_PROGRESS)
+        client = self._sandbox_oauth_client(task.id, bound=False, internal_scope=True)
+
+        response = client.get(f"/api/projects/@current/tasks/{task.id}/runs/{run.id}/")
+
         self.assertEqual(response.status_code, status.HTTP_404_NOT_FOUND)
 
     @parameterized.expand(
@@ -6769,7 +6796,7 @@ class TestTaskRunAPI(BaseTaskAPITest):
     @parameterized.expand(
         [
             ("bound_code_sandbox", ARRAY_APP_CLIENT_ID_DEV, True, False, "agent"),
-            ("legacy_code_sandbox", ARRAY_APP_CLIENT_ID_DEV, False, True, "agent"),
+            ("legacy_code_sandbox", ARRAY_APP_CLIENT_ID_DEV, False, True, "user"),
             ("posthog_ai_sandbox", POSTHOG_AI_APP_CLIENT_ID_DEV, True, False, "agent"),
             ("interactive_code_oauth", ARRAY_APP_CLIENT_ID_DEV, False, False, "user"),
             ("third_party_oauth", "artifact-client", False, False, "user"),
@@ -11781,14 +11808,7 @@ class TestSandboxCustomImageAPI(BaseTaskAPITest):
         mock_workflow.assert_called_once()
 
 
-class TestTaskRunSlackTaskTeamControl(BaseTaskAPITest):
-    """Slack-originated tasks are multiplayer: any same-team user may drive their runs.
-
-    Guards the incident where a non-creator's thread follow-up resumed a run whose sandbox
-    then 404'd on every callback (status PATCH, log append, Slack relay), so the workflow
-    starved of heartbeats and the thread died silently.
-    """
-
+class TestTaskRunSlackTaskApiAccess(BaseTaskAPITest):
     def _create_run(self, *, origin_product: Task.OriginProduct) -> tuple[Task, TaskRun]:
         creator = self.create_organization_user("thread-starter")
         task = Task.objects.create(
@@ -11808,8 +11828,8 @@ class TestTaskRunSlackTaskTeamControl(BaseTaskAPITest):
 
     @parameterized.expand(
         [
-            ("teammate_can_patch_slack_run", Task.OriginProduct.SLACK, "patch", status.HTTP_200_OK),
-            ("teammate_can_retrieve_slack_run", Task.OriginProduct.SLACK, "get", status.HTTP_200_OK),
+            ("teammate_cannot_patch_slack_run", Task.OriginProduct.SLACK, "patch", status.HTTP_404_NOT_FOUND),
+            ("teammate_cannot_retrieve_slack_run", Task.OriginProduct.SLACK, "get", status.HTTP_404_NOT_FOUND),
             (
                 "teammate_cannot_patch_user_created_run",
                 Task.OriginProduct.USER_CREATED,

@@ -42,6 +42,14 @@ class AccountsTableAccountField(StrEnum):
     ZENDESK_ID = "zendesk_id"
 
 
+class AccountsTableAggregation(StrEnum):
+    SUM = "sum"
+    AVG = "avg"
+    MIN = "min"
+    MAX = "max"
+    MEDIAN = "median"
+
+
 class WindowDays(float, Enum):
     NUMBER_7 = 7
     NUMBER_14 = 14
@@ -70,6 +78,15 @@ class AccountsTableCustomPropertyOperator(StrEnum):
 class AccountsTableSortDirection(StrEnum):
     ASC = "asc"
     DESC = "desc"
+
+
+class AccountsTableThresholdOperator(StrEnum):
+    GT = "gt"
+    GTE = "gte"
+    LT = "lt"
+    LTE = "lte"
+    EXACT = "exact"
+    IS_NOT = "is_not"
 
 
 class MathGroupTypeIndex(float, Enum):
@@ -586,14 +603,6 @@ class BingAdsDefaultSources(StrEnum):
     MICROSOFT = "microsoft"
     MSADS = "msads"
     BING_VIDEO = "bing_video"
-
-
-class BingAdsTableExclusions(StrEnum):
-    PERFORMANCE = "performance"
-
-
-class BingAdsTableKeywords(StrEnum):
-    CAMPAIGNS = "campaigns"
 
 
 class BreakdownAttributionType(StrEnum):
@@ -2711,14 +2720,6 @@ class GoogleAdsDefaultSources(StrEnum):
     WAZE = "waze"
 
 
-class GoogleAdsTableExclusions(StrEnum):
-    STATS = "stats"
-
-
-class GoogleAdsTableKeywords(StrEnum):
-    CAMPAIGN = "campaign"
-
-
 class GradientScaleMode(StrEnum):
     ABSOLUTE = "absolute"
     RELATIVE = "relative"
@@ -2968,14 +2969,6 @@ class LinkedinAdsDefaultSources(StrEnum):
     LI = "li"
 
 
-class LinkedinAdsTableExclusions(StrEnum):
-    STATS = "stats"
-
-
-class LinkedinAdsTableKeywords(StrEnum):
-    CAMPAIGN_GROUPS = "campaign_groups"
-
-
 class MatchedOn(StrEnum):
     KEY = "key"
     VALUE = "value"
@@ -3156,14 +3149,6 @@ class MetaAdsDefaultSources(StrEnum):
     AUDIENCE_NETWORK = "audience_network"
     FACEBOOK_MARKETPLACE = "facebook_marketplace"
     THREADS = "threads"
-
-
-class MetaAdsTableExclusions(StrEnum):
-    STATS = "stats"
-
-
-class MetaAdsTableKeywords(StrEnum):
-    CAMPAIGNS = "campaigns"
 
 
 class MetricsAggregation(StrEnum):
@@ -3385,14 +3370,6 @@ class ValueDisplay(StrEnum):
 
 class PinterestAdsDefaultSources(StrEnum):
     PINTEREST = "pinterest"
-
-
-class PinterestAdsTableExclusions(StrEnum):
-    ANALYTICS = "analytics"
-
-
-class PinterestAdsTableKeywords(StrEnum):
-    CAMPAIGNS = "campaigns"
 
 
 class PlanningStepStatus(StrEnum):
@@ -3722,14 +3699,6 @@ class RedditAdsDefaultSources(StrEnum):
     REDDIT = "reddit"
 
 
-class RedditAdsTableExclusions(StrEnum):
-    REPORT = "report"
-
-
-class RedditAdsTableKeywords(StrEnum):
-    CAMPAIGNS = "campaigns"
-
-
 class RefreshType(StrEnum):
     ASYNC_ = "async"
     ASYNC_EXCEPT_ON_CACHE_MISS = "async_except_on_cache_miss"
@@ -3844,14 +3813,6 @@ class SnapchatAdsConversionValueFields(StrEnum):
 
 class SnapchatAdsDefaultSources(StrEnum):
     SNAPCHAT = "snapchat"
-
-
-class SnapchatAdsTableExclusions(StrEnum):
-    STATS_DAILY = "stats_daily"
-
-
-class SnapchatAdsTableKeywords(StrEnum):
-    CAMPAIGNS = "campaigns"
 
 
 class ReleaseStatus(StrEnum):
@@ -4050,14 +4011,6 @@ class TaxonomicFilterGroupType(StrEnum):
 
 class TikTokAdsDefaultSources(StrEnum):
     TIKTOK = "tiktok"
-
-
-class TikTokAdsTableExclusions(StrEnum):
-    REPORT = "report"
-
-
-class TikTokAdsTableKeywords(StrEnum):
-    CAMPAIGNS = "campaigns"
 
 
 class TraceOrderColumn(StrEnum):

@@ -29,7 +29,7 @@ async def _run(enrich_side_effect) -> tuple[dict, MagicMock, AsyncMock, MagicMoc
     pha_client = MagicMock()
     enrich = AsyncMock(side_effect=enrich_side_effect)
     with (
-        patch(f"{_MODULE}.get_client", return_value=pha_client),
+        patch(f"{_MODULE}.get_regional_ph_client", return_value=pha_client),
         patch(f"{_MODULE}.enrich_organization", enrich),
         patch(f"{_MODULE}._deterministic_company_type", return_value=None),
         patch(f"{_MODULE}.capture_signup_enrichment_snapshot") as snapshot,
@@ -103,7 +103,7 @@ async def test_recheck_skips_deleted_organization():
     )
     with (
         patch(f"{_MODULE}.enrich_organization") as enrich_mock,
-        patch(f"{_MODULE}.get_client") as client_mock,
+        patch(f"{_MODULE}.get_regional_ph_client") as client_mock,
         patch("posthog.models.Organization.objects") as org_objects,
     ):
         org_objects.filter.return_value.exists.return_value = False

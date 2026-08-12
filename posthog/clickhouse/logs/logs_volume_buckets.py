@@ -11,7 +11,7 @@ from posthog.clickhouse.table_engines import Distributed, MergeTreeEngine, Repli
 # Buckets are fixed wall-clock windows on a 5-minute UTC grid, never sliding.
 # `generation` is the unix-millis start of one insert attempt, allocated and
 # committed in Postgres (LogsVolumeBucketCompletion); storage here is immutable
-# append-only and readers must filter to committed (bucket_start, generation)
+# append-only and readers must filter to committed (time_bucket, generation)
 # pairs — visibility is protocol-level, which is why this is a plain MergeTree
 # rather than a Replacing/Collapsing variant (those can't express keys that
 # vanish in a later generation, or double-count across generations).
@@ -35,7 +35,7 @@ def LOGS_VOLUME_BUCKETS_TABLE_SQL():
 CREATE TABLE IF NOT EXISTS {settings.CLICKHOUSE_LOGS_CLUSTER_DATABASE}.{TABLE_NAME}
 (
     `team_id` Int32,
-    `bucket_start` DateTime('UTC') CODEC(DoubleDelta, ZSTD(1)),
+    `time_bucket` DateTime('UTC') CODEC(DoubleDelta, ZSTD(1)),
     `generation` UInt64,
     `service_name` LowCardinality(String),
     `namespace` LowCardinality(String),
@@ -44,9 +44,9 @@ CREATE TABLE IF NOT EXISTS {settings.CLICKHOUSE_LOGS_CLUSTER_DATABASE}.{TABLE_NA
     `log_count` UInt64
 )
 ENGINE = {MergeTreeEngine(TABLE_NAME, replication_scheme=ReplicationScheme.REPLICATED)}
-PARTITION BY toDate(bucket_start)
-ORDER BY (team_id, bucket_start, generation, service_name, namespace, environment, severity_text)
-TTL bucket_start + INTERVAL 42 DAY
+PARTITION BY toDate(time_bucket)
+ORDER BY (team_id, time_bucket, generation, service_name, namespace, environment, severity_text)
+TTL time_bucket + INTERVAL 42 DAY
 SETTINGS index_granularity = 8192, ttl_only_drop_parts = 1
 """
 

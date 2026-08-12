@@ -23,6 +23,7 @@ use personhog_proto::personhog::lifecycle::v1::{
     DeletePersonOutcome, DeletePersonResult, DeletePersonsRequest, DeletePersonsResponse,
 };
 
+use crate::leader::LifecycleLeader;
 use crate::lifecycle::delete::{
     DeleteDriver, DeleteOutcome, OUTCOME_DELETED, OUTCOME_NOT_FOUND, OUTCOME_SKIPPED_CONFLICT,
 };
@@ -35,10 +36,14 @@ pub struct PersonHogLifecycleService {
 }
 
 impl PersonHogLifecycleService {
-    pub fn new(engine: Arc<Engine>) -> Self {
+    pub fn new(
+        engine: Arc<Engine>,
+        leader: Arc<dyn LifecycleLeader>,
+        tables: crate::config::IdentityTables,
+    ) -> Self {
         Self {
             engine,
-            delete_driver: DeleteDriver,
+            delete_driver: DeleteDriver::new(leader, tables),
         }
     }
 }
