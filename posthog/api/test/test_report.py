@@ -1,5 +1,6 @@
 import json
 
+from freezegun import freeze_time
 from posthog.test.base import BaseTest
 from unittest.mock import MagicMock, patch
 
@@ -29,6 +30,14 @@ SINGLE_VIOLATION_REPORT_TO = {
 NON_VIOLATION_REPORT = {
     "type": "deprecation",
     "body": {"id": "some-deprecated-api"},
+}
+
+CRASH_REPORT = {
+    "type": "crash",
+    "age": 42000,
+    "url": "https://app.example.com/dashboard/1",
+    "user_agent": "Mozilla/5.0 (Macintosh) Chrome/151.0",
+    "body": {"reason": "oom", "crashId": "abc123", "is_top_level": True, "visibility_state": "visible"},
 }
 
 
@@ -72,6 +81,13 @@ class TestCspReport(BaseTest):
                 "application/reports+json",
                 [SINGLE_VIOLATION_REPORT_TO] * 3,
                 {"CSP_REPORT_MAX_REPORTS": 2, "CSP_REPORT_BUFFERED_FORWARD": True},
+                "too_many_reports",
+            ),
+            (
+                "crash_reports_over_count_cap",
+                "application/reports+json",
+                [CRASH_REPORT] * 3,
+                {"CSP_REPORT_MAX_REPORTS": 2},
                 "too_many_reports",
             ),
         ]
@@ -121,6 +137,43 @@ class TestCspReport(BaseTest):
         assert response.status_code == status.HTTP_204_NO_CONTENT
         mock_batch_capture.assert_called_once()
         assert len(mock_batch_capture.call_args.kwargs["events"]) == 1
+
+    @patch("posthog.api.report.capture_batch_internal")
+    def test_crash_report_becomes_backdated_event(self, mock_batch_capture):
+        mock_batch_capture.return_value = MagicMock(raise_for_status=MagicMock())
+
+        with freeze_time("2026-08-12T10:00:00Z"):
+            response = self.client.post(
+                f"/report/?token={self.team.api_token}&distinct_id=user-distinct-id",
+                data=json.dumps([CRASH_REPORT]),
+                content_type="application/reports+json",
+            )
+
+        assert response.status_code == status.HTTP_204_NO_CONTENT
+        events = mock_batch_capture.call_args.kwargs["events"]
+        assert len(events) == 1
+        event = events[0]
+        assert event["event"] == "$browser_crash_report"
+        assert event["distinct_id"] == "user-distinct-id"
+        assert event["properties"]["$browser_crash_reason"] == "oom"
+        assert event["properties"]["$browser_crash_is_top_level"] is True
+        assert event["properties"]["$current_url"] == "https://app.example.com/dashboard/1"
+        # the report's `age` (42s here) recovers the crash time; delivery happens on a later visit
+        assert event["timestamp"] == "2026-08-12T09:59:18+00:00"
+
+    @patch("posthog.api.report.capture_batch_internal")
+    def test_crash_reports_bypass_csp_sampling(self, mock_batch_capture):
+        mock_batch_capture.return_value = MagicMock(raise_for_status=MagicMock())
+
+        response = self.client.post(
+            f"/report/?token={self.team.api_token}&sample_rate=0",
+            data=json.dumps([SINGLE_VIOLATION_REPORT_TO, CRASH_REPORT]),
+            content_type="application/reports+json",
+        )
+
+        assert response.status_code == status.HTTP_204_NO_CONTENT
+        events = mock_batch_capture.call_args.kwargs["events"]
+        assert [e["event"] for e in events] == ["$browser_crash_report"]
 
     def test_csp_report_never_logs_request_headers(self):
         with capture_logs() as logs, patch("posthog.api.report.capture_internal") as mock_capture:
