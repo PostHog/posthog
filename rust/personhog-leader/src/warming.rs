@@ -513,11 +513,20 @@ pub async fn warm_from_kafka(
         .assign(&assign_tpl)
         .map_err(|e| CoordError::invalid_state(format!("consumer assign: {e}")))?;
 
-    // Buffer records locally and only commit them to the cache after the
-    // entire range warms successfully. Any decode/IO failure mid-range
-    // aborts warming with no observable cache mutation, which keeps a
-    // partial cache from masking PG fallback reads.
-    let mut buffered: Vec<(PersonCacheKey, CachedPerson, i64)> = Vec::new();
+    // Stream records straight into an unpublished partition cache: the
+    // build evicts under the same per-partition byte budget as a serving
+    // cache, so the warm's peak memory is bounded no matter how large
+    // the range is. Each record writes its dirty mark BEFORE its insert,
+    // so at every instant an evicted unapplied person is already
+    // recoverable from the changelog — the same miss path a serving
+    // partition relies on. Nothing is observable until the publish at
+    // the end: a failure mid-range aborts the build and clears the
+    // marks, leaving no trace, which keeps a partial cache from masking
+    // PG fallback reads exactly as the old whole-range buffer did —
+    // without holding the whole range in memory to do it.
+    cache.begin_warm_partition(partition);
+    let mut consumed: u64 = 0;
+    let mut seeded = 0u64;
     let mut last_offset: i64 = -1;
 
     // A transactionally-produced range can end in control records
@@ -529,7 +538,11 @@ pub async fn warm_from_kafka(
     let poll_slice = Duration::from_millis(100).min(cfg.recv_timeout);
     let mut quiet_since = Instant::now();
 
-    loop {
+    // `return` inside this block exits the block, not the function:
+    // every failure funnels through the single cleanup below, which
+    // aborts the unpublished build and clears the marks it seeded.
+    let consume_result: CoordResult<()> = async {
+        loop {
         let msg = match timeout(poll_slice, consumer.recv()).await {
             Ok(Ok(m)) => m,
             // A non-fatal consumer error means librdkafka is handling it:
@@ -566,8 +579,7 @@ pub async fn warm_from_kafka(
                 if quiet_since.elapsed() >= cfg.recv_timeout {
                     return Err(CoordError::invalid_state(format!(
                         "warm stalled on repeated consumer errors (last: {code:?}); \
-                         consumed {count} msgs, last_offset={last_offset}, hwm={hwm}",
-                        count = buffered.len()
+                         consumed {consumed} msgs, last_offset={last_offset}, hwm={hwm}",
                     )));
                 }
                 counter!(
@@ -602,8 +614,7 @@ pub async fn warm_from_kafka(
                 }
                 if quiet_since.elapsed() >= cfg.recv_timeout {
                     return Err(CoordError::invalid_state(format!(
-                        "warm timeout; consumed {count} msgs, last_offset={last_offset}, hwm={hwm}",
-                        count = buffered.len()
+                        "warm timeout; consumed {consumed} msgs, last_offset={last_offset}, hwm={hwm}",
                     )));
                 }
                 continue;
@@ -627,7 +638,23 @@ pub async fn warm_from_kafka(
                 team_id: cached.team_id,
                 person_id: cached.id,
             };
-            buffered.push((key, cached, offset));
+            consumed += 1;
+            // Records at or past the writer's committed offset are not
+            // yet in PG: mark before insert, so if the build evicts this
+            // person a later miss recovers from the changelog instead of
+            // trusting a stale PG row.
+            if committed_offset.is_none_or(|committed| offset >= committed) {
+                dirty_index.mark(
+                    key.clone(),
+                    DirtyMark {
+                        version: cached.version,
+                        offset,
+                        partition,
+                    },
+                );
+                seeded += 1;
+            }
+            cache.warm_put(partition, key, cached);
         } else {
             // The writer never produces null-payload (tombstone) records
             // to `personhog_updates` today. If one ever appears it would
@@ -647,50 +674,35 @@ pub async fn warm_from_kafka(
         if offset + 1 >= hwm {
             break;
         }
+        }
+        Ok(())
+    }
+    .await;
+    if let Err(e) = consume_result {
+        cache.abort_warm_partition(partition);
+        dirty_index.clear_partition(partition);
+        return Err(e);
     }
 
     record_warm_span("consume", span_start);
 
-    // Records at or above the writer's committed offset are not yet in PG:
-    // seed the dirty index so that, if the cache later evicts them, a miss
-    // recovers from the changelog instead of trusting a stale PG row. With
-    // no committed offset the writer has applied nothing, so every record
-    // is marked. Seeding happens before the install publishes the
-    // partition, so no request can observe the cache without the marks.
-    let mut seeded = 0u64;
-    for (key, cached, offset) in &buffered {
-        if committed_offset.is_none_or(|committed| *offset >= committed) {
-            dirty_index.mark(
-                key.clone(),
-                DirtyMark {
-                    version: cached.version,
-                    offset: *offset,
-                    partition,
-                },
-            );
-            seeded += 1;
-        }
-    }
-
-    // Atomic install: the populated `PersonCache` is built first, then a
-    // single `DashMap::insert` publishes it. The previous pattern
+    // Atomic publish: one `DashMap` insert flips the fully-built cache
+    // from invisible to observable. The previous pattern
     // (`create_partition` + per-record `put` loop) created a window
     // where readers could observe `has_partition == true` while the
     // cache was still being populated, and then fall through to PG —
     // potentially returning stale values for records the writer hasn't
-    // yet persisted. Atomicity here removes the dependency on the
+    // yet persisted. Publishing at the end removes the dependency on the
     // protocol invariant ("no reads during Warming") for correctness.
-    let count = buffered.len() as u64;
-    cache.install_warmed_partition(
-        partition,
-        buffered.into_iter().map(|(key, cached, _)| (key, cached)),
-    );
+    let resident_bytes = cache.warm_usage_bytes(partition) as u64;
+    cache.publish_warmed_partition(partition);
 
     let elapsed = start.elapsed();
     tracing::info!(
         pod = cfg.pod_name,
         partition,
-        messages = count,
+        messages = consumed,
+        resident_bytes,
         dirty_seeded = seeded,
         hwm,
         start_offset,
@@ -698,7 +710,7 @@ pub async fn warm_from_kafka(
         "warmed partition from kafka"
     );
     histogram!("personhog_leader_warm_duration_ms").record(elapsed.as_secs_f64() * 1000.0);
-    counter!("personhog_leader_warmed_messages_total").increment(count);
+    counter!("personhog_leader_warmed_messages_total").increment(consumed);
 
     // Every error path above dropped the consumer instead of returning
     // it — a client that just failed is not pool material. Failing to
