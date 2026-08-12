@@ -29,25 +29,66 @@ class CloudflareAPIError(Exception):
         return any(err.get("code") == 10000 for err in self.errors) or "rate limit" in str(self).lower()
 
 
-class CustomHostnameSSLStatus(str, Enum):
-    """SSL certificate status for a Custom Hostname."""
+class CloudflareStatus(str, Enum):
+    """Base for Cloudflare status enums.
+
+    Cloudflare extends these sets without notice, and a status we do not model is still
+    worth reporting, so an unmodeled value becomes a member carrying the raw string
+    rather than raising and taking down the caller.
+    """
+
+    @classmethod
+    def _missing_(cls, value: object) -> t.Optional["CloudflareStatus"]:
+        if not isinstance(value, str):
+            return None
+        unmodeled = str.__new__(cls, value)
+        unmodeled._name_ = value.upper()
+        unmodeled._value_ = value
+        return unmodeled
+
+
+class CustomHostnameSSLStatus(CloudflareStatus):
+    """SSL certificate status for a Custom Hostname.
+
+    Names the states a proxy of ours reaches. Cloudflare's staging and backup certificate
+    states are absent on purpose, since our flow never asks for them, and the base class
+    keeps them parseable if one ever arrives.
+    """
 
     INITIALIZING = "initializing"
     PENDING_VALIDATION = "pending_validation"
+    DELETED = "deleted"
     PENDING_ISSUANCE = "pending_issuance"
     PENDING_DEPLOYMENT = "pending_deployment"
-    ACTIVE = "active"
     PENDING_DELETION = "pending_deletion"
-    DELETED = "deleted"
+    PENDING_EXPIRATION = "pending_expiration"
+    EXPIRED = "expired"
+    ACTIVE = "active"
+    INITIALIZING_TIMED_OUT = "initializing_timed_out"
+    VALIDATION_TIMED_OUT = "validation_timed_out"
+    ISSUANCE_TIMED_OUT = "issuance_timed_out"
+    DEPLOYMENT_TIMED_OUT = "deployment_timed_out"
+    DELETION_TIMED_OUT = "deletion_timed_out"
+    DEACTIVATING = "deactivating"
+    INACTIVE = "inactive"
 
 
-class CustomHostnameStatus(str, Enum):
-    """Status for a Custom Hostname."""
+class CustomHostnameStatus(CloudflareStatus):
+    """Status for a Custom Hostname.
+
+    Cloudflare's `test_*` states are absent on purpose, since we never create test hostnames.
+    """
 
     ACTIVE = "active"
     PENDING = "pending"
+    ACTIVE_REDEPLOYING = "active_redeploying"
     MOVED = "moved"
+    PENDING_DELETION = "pending_deletion"
     DELETED = "deleted"
+    PENDING_BLOCKED = "pending_blocked"
+    PENDING_MIGRATION = "pending_migration"
+    PENDING_PROVISIONED = "pending_provisioned"
+    PROVISIONED = "provisioned"
     BLOCKED = "blocked"
 
 
@@ -66,7 +107,7 @@ class CustomHostnameSSL:
 
 
 @dataclass
-class CustomHostnameInfo:
+class CustomHostname:
     """Information about a Custom Hostname."""
 
     id: str
@@ -85,10 +126,10 @@ def _get_headers() -> dict[str, str]:
     }
 
 
-def _parse_hostname(result: dict) -> "CustomHostnameInfo":
-    """Build a CustomHostnameInfo from a Cloudflare API custom_hostname result object."""
+def _parse_hostname(result: dict) -> "CustomHostname":
+    """Build a CustomHostname from a Cloudflare API custom_hostname result object."""
     ssl_payload = result.get("ssl", {})
-    return CustomHostnameInfo(
+    return CustomHostname(
         id=result["id"],
         hostname=result["hostname"],
         status=CustomHostnameStatus(result["status"]),
@@ -121,7 +162,7 @@ def _handle_response(response: requests.Response) -> dict:
     return data
 
 
-def create_custom_hostname(domain: str) -> CustomHostnameInfo:
+def create_custom_hostname(domain: str) -> CustomHostname:
     """
     Create a Custom Hostname in Cloudflare for SaaS.
 
@@ -134,7 +175,7 @@ def create_custom_hostname(domain: str) -> CustomHostnameInfo:
         domain: The customer's domain (e.g., "analytics.customer.com")
 
     Returns:
-        CustomHostnameInfo with the created hostname details
+        CustomHostname with the created hostname details
 
     Raises:
         CloudflareAPIError: If the API request fails
@@ -154,7 +195,7 @@ def create_custom_hostname(domain: str) -> CustomHostnameInfo:
     return _parse_hostname(data["result"])
 
 
-def get_custom_hostname(hostname_id: str) -> t.Optional[CustomHostnameInfo]:
+def get_custom_hostname(hostname_id: str) -> t.Optional[CustomHostname]:
     """
     Get details of a Custom Hostname by ID.
 
@@ -162,7 +203,7 @@ def get_custom_hostname(hostname_id: str) -> t.Optional[CustomHostnameInfo]:
         hostname_id: The Cloudflare Custom Hostname ID
 
     Returns:
-        CustomHostnameInfo or None if not found
+        CustomHostname or None if not found
 
     Raises:
         CloudflareAPIError: If the API request fails (except for 404)
@@ -178,7 +219,7 @@ def get_custom_hostname(hostname_id: str) -> t.Optional[CustomHostnameInfo]:
     return _parse_hostname(data["result"])
 
 
-def get_custom_hostname_by_domain(domain: str) -> t.Optional[CustomHostnameInfo]:
+def get_custom_hostname_by_domain(domain: str) -> t.Optional[CustomHostname]:
     """
     Find a Custom Hostname by domain name.
 
@@ -186,7 +227,7 @@ def get_custom_hostname_by_domain(domain: str) -> t.Optional[CustomHostnameInfo]
         domain: The customer's domain (e.g., "analytics.customer.com")
 
     Returns:
-        CustomHostnameInfo or None if not found
+        CustomHostname or None if not found
 
     Raises:
         CloudflareAPIError: If the API request fails

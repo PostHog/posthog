@@ -7,7 +7,7 @@ import { encodeParams } from 'kea-router'
 export type { EventSourceMessage } from '@microsoft/fetch-event-source'
 import posthog from 'posthog-js'
 
-import { ApiError } from 'lib/api-error'
+import { ApiError, NetworkError, type NetworkFailureReason } from 'lib/api-error'
 import { ActivityLogProps } from 'lib/components/ActivityLog/ActivityLog'
 import { ActivityLogItem } from 'lib/components/ActivityLog/humanizeActivity'
 import { apiStatusLogic } from 'lib/logic/apiStatusLogic'
@@ -18,18 +18,6 @@ import { toParams } from 'lib/utils/url'
 import { CohortCalculationHistoryResponse } from 'scenes/cohorts/cohortCalculationHistorySceneLogic'
 import { EventSchema } from 'scenes/data-management/events/eventDefinitionSchemaLogic'
 import { SchemaPropertyGroup } from 'scenes/data-management/schema/schemaManagementLogic'
-import {
-    SignalReport,
-    SignalReportArtefact,
-    SignalReportArtefactResponse,
-    SignalReportStateRequest,
-    SignalScoutEmission,
-    SignalScoutEmissionReportLink,
-    SignalScoutRunSummary,
-    SignalSourceConfig,
-    SignalTeamConfig,
-    SignalUserAutonomyConfig,
-} from 'scenes/inbox/types'
 import { MaxBillingContext } from 'scenes/max/maxBillingContextLogic'
 import { NotebookListItemType, NotebookNodeResource, NotebookType } from 'scenes/notebooks/types'
 import { RecordingComment } from 'scenes/session-recordings/player/inspector/playerInspectorLogic'
@@ -247,12 +235,23 @@ import type {
     SessionGroupSummaryType,
     SessionSummariesConfig,
 } from 'products/session_summaries/frontend/types'
+import {
+    SignalReport,
+    SignalReportArtefact,
+    SignalReportArtefactResponse,
+    SignalReportStateRequest,
+    SignalScoutEmission,
+    SignalScoutEmissionReportLink,
+    SignalScoutRunSummary,
+    SignalSourceConfig,
+    SignalTeamConfig,
+    SignalUserAutonomyConfig,
+} from 'products/signals/frontend/inbox/types'
 import type {
     TaskRunBootstrapCreateRequestInitialPermissionModeEnumApi,
     TaskRunCreateRequestSchemaApi,
 } from 'products/tasks/frontend/generated/api.schemas'
 import type { BlastRadiusApi } from 'products/workflows/frontend/generated/api.schemas'
-import type { OptOutEntry } from 'products/workflows/frontend/OptOuts/types'
 import type { MessageTemplate } from 'products/workflows/frontend/TemplateLibrary/types'
 import type { HogflowTestResult } from 'products/workflows/frontend/Workflows/hogflows/steps/types'
 import type {
@@ -321,7 +320,7 @@ export interface ApiMethodOptions {
     headers?: Record<string, any>
 }
 
-export { ApiError }
+export { ApiError, NetworkError }
 
 export class RateLimitError extends Error {
     constructor(public retryAfterSeconds: number) {
@@ -1991,14 +1990,6 @@ export class ApiRequest {
 
     public messagingPreferencesLink(): ApiRequest {
         return this.environments().current().addPathComponent('messaging_preferences').addPathComponent('generate_link')
-    }
-
-    public messagingPreferencesOptOuts(): ApiRequest {
-        return this.environments().current().addPathComponent('messaging_preferences').addPathComponent('opt_outs')
-    }
-
-    public messagingPreferencesAddOptOut(): ApiRequest {
-        return this.environments().current().addPathComponent('messaging_preferences').addPathComponent('add_opt_out')
     }
 
     public messagingPreferencesExportOptOutsCsv(): ApiRequest {
@@ -3803,13 +3794,13 @@ const api = {
         async list(params: GroupListParams): Promise<CountedPaginatedResponse<Group>> {
             return await new ApiRequest().groups().withQueryString(toParams(params, true)).get()
         },
-        async listClickhouse(params: GroupListParams): Promise<GroupsQueryResponse> {
+        async listClickhouse(params: GroupListParams, options?: ApiMethodOptions): Promise<GroupsQueryResponse> {
             const groupsQuery: GroupsQuery = {
                 kind: NodeKind.GroupsQuery,
                 ...params,
             }
 
-            return await new ApiRequest().query().create({ data: { query: groupsQuery } })
+            return await new ApiRequest().query().create({ ...options, data: { query: groupsQuery } })
         },
         async create(data: CreateGroupParams): Promise<Group> {
             return await new ApiRequest().groups().create({ data })
@@ -5188,7 +5179,9 @@ const api = {
         },
         async update(
             featureId: EarlyAccessFeatureType['id'],
-            data: Pick<EarlyAccessFeatureType, 'name' | 'description' | 'stage' | 'documentation_url'> & {
+            data: Partial<
+                Pick<EarlyAccessFeatureType, 'name' | 'description' | 'stage' | 'documentation_url' | 'assignee'>
+            > & {
                 rollout_to_all?: boolean
             }
         ): Promise<EarlyAccessFeatureType> {
@@ -6165,8 +6158,10 @@ const api = {
         },
     },
     fixHogQLErrors: {
-        async fix(query: string, error?: string): Promise<Record<string, any>> {
-            return await new ApiRequest().fixHogQLErrors().create({ data: { query, error } })
+        async fix(query: string, error?: string, connectionId?: string): Promise<Record<string, any>> {
+            return await new ApiRequest()
+                .fixHogQLErrors()
+                .create({ data: { query, error, connection_id: connectionId } })
         },
     },
 
@@ -6690,20 +6685,6 @@ const api = {
             })
             return response.preferences_url || null
         },
-        async getMessageOptOuts(categoryKey?: string, page?: number): Promise<CountedPaginatedResponse<OptOutEntry>> {
-            return await new ApiRequest()
-                .messagingPreferencesOptOuts()
-                .withQueryString({
-                    category_key: categoryKey,
-                    page: page || 1,
-                })
-                .get()
-        },
-        async addOptOut(identifier: string, categoryKey?: string): Promise<OptOutEntry> {
-            return await new ApiRequest().messagingPreferencesAddOptOut().create({
-                data: { identifier, category_key: categoryKey },
-            })
-        },
         async exportOptOutsCsv(categoryKey?: string): Promise<Blob> {
             const response = await new ApiRequest()
                 .messagingPreferencesExportOptOutsCsv()
@@ -7124,6 +7105,7 @@ const api = {
             data: Partial<{
                 status: string
                 escalation_reason: string
+                assignee: { type: 'user' | 'role'; id: string | number } | null
             }>
         ): Promise<any> {
             return await new ApiRequest().conversationsTicket(ticketId).update({ data })
@@ -7510,6 +7492,62 @@ const api = {
 
 const warnedSharedViewLeaks = new Set<string>()
 
+/**
+ * Tracks whether the document is on its way out. A browser cancels every in-flight `fetch` when it
+ * tears the document down, and the rejection it hands back is the same bare `TypeError` a real
+ * connectivity failure produces, so this flag is the only way `handleFetch` can tell the two apart.
+ * `pagehide` also fires when the page enters the back/forward cache, hence the reset on `pageshow`:
+ * a restored page is live again and its requests are expected to succeed.
+ */
+let documentUnloading = false
+if (typeof window !== 'undefined') {
+    window.addEventListener('pagehide', () => {
+        documentUnloading = true
+    })
+    window.addEventListener('pageshow', () => {
+        documentUnloading = false
+    })
+}
+
+/**
+ * A malformed URL is one of the things `fetch` rejects with a `TypeError` for, and `new URL` would
+ * throw on the same input. Without the fallback that throw escapes from inside the failure path and
+ * replaces the classified `NetworkError` with a bare crash, losing the request that caused it.
+ */
+function requestPathname(url: string): string {
+    try {
+        return new URL(url, location.origin).pathname
+    } catch {
+        return url
+    }
+}
+
+function classifyNetworkFailure(): NetworkFailureReason {
+    if (documentUnloading) {
+        return 'navigating'
+    }
+    if (typeof navigator !== 'undefined' && navigator.onLine === false) {
+        return 'offline'
+    }
+    return 'network'
+}
+
+function captureClientRequestFailure(properties: {
+    pathname: string
+    method: string
+    duration: number
+    /** 0 for a request that never reached the server, so network failures are separable from HTTP ones. */
+    status: number
+    is_shared_view: boolean
+    failure_reason?: NetworkFailureReason
+}): void {
+    // when used inside the posthog toolbar, `posthog.capture` isn't loaded
+    // check if the function is available before calling it.
+    if (posthog.capture) {
+        posthog.capture('client_request_failure', properties)
+    }
+}
+
 async function handleFetch(
     url: string,
     method: string,
@@ -7532,6 +7570,24 @@ async function handleFetch(
         if (error && (error as any).name === 'AbortError') {
             throw error
         }
+        // `fetch` rejects with a `TypeError` when the request never reached the server. Classifying it
+        // here is what makes the failure legible: the call site only knows "something threw", while
+        // this frame still knows which endpoint was in flight, how long it ran, and whether the client
+        // was offline or going away. Anything else thrown by the fetcher is a genuine fault in the
+        // request path, so it keeps surfacing as an unclassified `ApiError` rather than being
+        // relabelled as a connectivity problem and filtered out of error tracking.
+        if (error instanceof TypeError) {
+            const reason = classifyNetworkFailure()
+            captureClientRequestFailure({
+                pathname: requestPathname(url),
+                method,
+                duration: new Date().getTime() - startTime,
+                status: 0,
+                is_shared_view: isSharedView(),
+                failure_reason: reason,
+            })
+            throw new NetworkError(reason, error)
+        }
         throw new ApiError(error as any, response?.status)
     }
 
@@ -7548,17 +7604,13 @@ async function handleFetch(
         const duration = new Date().getTime() - startTime
         const pathname = new URL(url, location.origin).pathname
         const inSharedView = isSharedView()
-        // when used inside the posthog toolbar, `posthog.capture` isn't loaded
-        // check if the function is available before calling it.
-        if (posthog.capture) {
-            posthog.capture('client_request_failure', {
-                pathname,
-                method,
-                duration,
-                status: response.status,
-                is_shared_view: inSharedView,
-            })
-        }
+        captureClientRequestFailure({
+            pathname,
+            method,
+            duration,
+            status: response.status,
+            is_shared_view: inSharedView,
+        })
         if (inSharedView && (response.status === 401 || response.status === 403)) {
             const leakKey = `${method} ${pathname}`
             if (!warnedSharedViewLeaks.has(leakKey)) {

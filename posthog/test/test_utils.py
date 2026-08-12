@@ -112,6 +112,13 @@ class TestAbsoluteUrls(TestCase):
                 "https://app.posthog.com",
                 "https://app.posthog.com/an.external.domain.com/something-outside-posthog",
             ),
+            # A relative path has no authority to judge, so reserved characters encoded in
+            # its query are ordinary data. absolute_uri builds most of our emailed links.
+            (
+                "/signup?email=someone%40example.com",
+                "https://app.posthog.com",
+                "https://app.posthog.com/signup?email=someone%40example.com",
+            ),
             ("/api/path", "", "/api/path"),  # current behavior whether correct or not
             (
                 "/api/path",
@@ -149,9 +156,14 @@ class TestAbsoluteUrls(TestCase):
             # passes, but HTTP clients/browsers route to attacker.example.
             ("raw_backslash", "https://attacker.example\\@app.posthog.com/path"),
             ("percent_encoded_backslash", "https://attacker.example%5C@app.posthog.com/path"),
+            # urljoin hands an absolute URL straight back, so the authority the caller
+            # embeds in a link or a redirect is the one supplied here.
+            ("percent_encoded_slash", "https://attacker.example%2F@app.posthog.com/path"),
+            ("percent_encoded_question_mark", "https://attacker.example%3F@app.posthog.com/path"),
+            ("percent_encoded_hash", "https://attacker.example%23@app.posthog.com/path"),
         ]
     )
-    def test_absolute_uri_rejects_backslash_authority_bypass(self, _name: str, url: str) -> None:
+    def test_absolute_uri_rejects_ambiguous_authority(self, _name: str, url: str) -> None:
         with self.settings(SITE_URL="https://app.posthog.com"):
             with pytest.raises(PotentialSecurityProblemException):
                 absolute_uri(url)

@@ -89,7 +89,10 @@ from posthog.hogql.database.schema.groups import GroupsTable, RawGroupsTable
 from posthog.hogql.database.schema.groups_revenue_analytics import GroupsRevenueAnalyticsTable
 from posthog.hogql.database.schema.heatmaps import HeatmapsTable
 from posthog.hogql.database.schema.hog_invocation_results import HogInvocationResultsTable
-from posthog.hogql.database.schema.information_schema import disable_data_catalog
+from posthog.hogql.database.schema.information_schema import (
+    direct_connection_information_schema_node,
+    disable_data_catalog,
+)
 from posthog.hogql.database.schema.log_entries import (
     BatchExportLogEntriesTable,
     LogEntriesTable,
@@ -177,6 +180,7 @@ if TYPE_CHECKING:
     from posthog.shared_link_user import SharedLinkUser
 
     from products.data_modeling.backend.facade.models import DataWarehouseSavedQuery
+    from products.data_tools.backend.models.expression import DataWarehouseExpression
     from products.data_tools.backend.models.join import DataWarehouseJoin
     from products.revenue_analytics.backend.views import RevenueAnalyticsBaseView
     from products.warehouse_sources.backend.facade.models import (
@@ -226,6 +230,7 @@ class HogQLDatabaseSources:
     revenue_views: list[RevenueAnalyticsBaseView]
     warehouse_tables: list[DataWarehouseTable]  # filtered to what build needs, schemas preloaded
     data_warehouse_joins: list[DataWarehouseJoin]
+    data_warehouse_expressions: list[DataWarehouseExpression]
     # dataWarehouseEventsModifiers path: saved query per modifier table name (None if no matching row).
     event_modifier_saved_queries: dict[str, Optional[DataWarehouseSavedQuery]]
     # Dual-mode: a synced (warehouse) source queried live via connection_id. Its physical rows are
@@ -380,7 +385,16 @@ def _construct_database_root_node(*, include_posthog_tables: bool) -> TableNode:
         "generate_series": TableNode(name="generate_series", table=GenerateSeriesTable()),
     }
 
-    if include_posthog_tables:
+    if not include_posthog_tables:
+        # This is a direct-connection catalog: no PostHog tables, only the connection's own. It still
+        # needs to be discoverable — otherwise the only way to learn a connection's table names is to
+        # already know them. The rows are computed from this Database object, so they describe the
+        # connection, not the team's ClickHouse catalog. `_prepare_direct_query` explains why such a
+        # query still runs on ClickHouse rather than being sent to the remote engine.
+        children["system"] = TableNode(
+            name="system", children={"information_schema": direct_connection_information_schema_node()}
+        )
+    else:
         root_tables = clone_root_tables()
         children = {
             **root_tables,
@@ -797,7 +811,11 @@ class Database(BaseModel):
 
     def apply_schema_scope(self) -> None:
         if self._is_direct_query():
-            self.prune_to_table_names(set(self._warehouse_table_names))
+            # The connection's own information_schema survives the prune: it describes the connection
+            # rather than reading from it, and it is how a caller discovers these table names at all.
+            system_node = self.tables.children.get("system")
+            catalog_table_names = set(system_node.resolve_visible_table_names()) if system_node is not None else set()
+            self.prune_to_table_names(set(self._warehouse_table_names) | catalog_table_names)
             return
 
         allowed_table_names = set(self.tables.resolve_all_table_names())
@@ -869,6 +887,18 @@ class Database(BaseModel):
         # Add view names to denied tables so the query raises "You don't have access" instead of "Unknown table"
         self._denied_tables.add(saved_query.name)
         return True
+
+    def _is_warehouse_expression_denied(self, expression: Any) -> bool:
+        """
+        Expression counterpart of `_is_warehouse_view_denied`: a user denied access to a saved
+        expression doesn't get its virtual field injected, so their queries see "Field not found".
+        Userless context (no UserAccessControl) fails closed - every expression is denied.
+        """
+        uac = self.user_access_control
+        return not (
+            uac is not None
+            and (uac.is_organization_admin or uac.check_access_level_for_object(expression, required_level="viewer"))
+        )
 
     def serialize(
         self,
@@ -1249,6 +1279,7 @@ class Database(BaseModel):
         from posthog.shared_link_user import SharedLinkUser  # noqa: PLC0415
 
         from products.data_modeling.backend.facade.models import DataWarehouseSavedQuery  # noqa: PLC0415
+        from products.data_tools.backend.models.expression import DataWarehouseExpression  # noqa: PLC0415
         from products.data_tools.backend.models.join import DataWarehouseJoin  # noqa: PLC0415
         from products.warehouse_sources.backend.facade.models import (  # noqa: PLC0415
             DataWarehouseTable,
@@ -1483,6 +1514,20 @@ class Database(BaseModel):
         with timings.measure("data_warehouse_joins", emit_span=True):
             data_warehouse_joins = list(DataWarehouseJoin.objects.filter(team_id=team.pk).exclude(deleted=True))
 
+        with timings.measure("data_warehouse_expressions", emit_span=True):
+            # canonical=True with the already-loaded team: for_team's own resolution queries the
+            # default DB, which some callers (e.g. ClickHouse-backed tests) can't reach.
+            expressions_query = DataWarehouseExpression.objects.for_team(
+                team.parent_team_id or team.pk, canonical=True
+            ).exclude(deleted=True)
+            # An expression is scoped either to one connection's direct-query database or to the
+            # default warehouse database; never both.
+            if is_direct_query:
+                expressions_query = expressions_query.filter(connection_id=connection_id)
+            else:
+                expressions_query = expressions_query.filter(connection_id__isnull=True)
+            data_warehouse_expressions = list(expressions_query)
+
         with timings.measure("attach_credentials", emit_span=True):
             # Tables and view-backing tables share the credential pool; attach across all of them.
             credentialed_tables: list[DataWarehouseTable] = [*warehouse_tables]
@@ -1535,6 +1580,7 @@ class Database(BaseModel):
             revenue_views=revenue_views,
             warehouse_tables=warehouse_tables,
             data_warehouse_joins=data_warehouse_joins,
+            data_warehouse_expressions=data_warehouse_expressions,
             event_modifier_saved_queries=event_modifier_saved_queries,
             virtual_source=virtual_source,
             virtual_schemas=virtual_schemas,
@@ -1616,7 +1662,7 @@ class Database(BaseModel):
                         resolver=PERSONS,
                     )
 
-                _use_error_tracking_issue_id_from_error_tracking_issue_overrides(database)
+                _add_error_tracking_fields(database)
 
         with timings.measure("session_table", emit_span=True):
             if not database._is_direct_query() and (
@@ -2160,6 +2206,31 @@ class Database(BaseModel):
                 except Exception as e:
                     capture_exception(e)
 
+        # After joins, so a saved expression can never shadow a join field either.
+        with timings.measure("data_warehouse_expressions", emit_span=True):
+            for saved_expression in sources.data_warehouse_expressions:
+                if (
+                    sources.is_hogql_warehouse_access_control_enabled
+                    and not sources.bypass_warehouse_access_control
+                    and database._is_warehouse_expression_denied(saved_expression)
+                ):
+                    continue
+                if not database.has_table(saved_expression.table_name):
+                    continue
+                try:
+                    expression_table = database.get_table(saved_expression.table_name)
+                    # Expressions must never override existing fields; first-come-first-served on the
+                    # off chance duplicates exist.
+                    if saved_expression.field_name in expression_table.fields:
+                        continue
+                    expression_table.fields[saved_expression.field_name] = ExpressionField(
+                        name=saved_expression.field_name,
+                        expr=parse_expr(saved_expression.expression),
+                        isolate_scope=True,
+                    )
+                except Exception as e:
+                    capture_exception(e)
+
         database.apply_schema_scope()
 
         return database
@@ -2213,11 +2284,7 @@ def _error_tracking_event_exprs() -> dict[str, ast.Expr]:
     # the parser's min-cacheable length, so they would otherwise re-parse on every build.
     return {
         "event_issue_id": parse_expr("toUUID(properties.$exception_issue_id)"),
-        # NOTE: assumes `join_use_nulls = 0` (the default), as ``override.fingerprint`` is not Nullable
-        "issue_id": parse_expr(
-            "if(not(empty(exception_issue_override.issue_id)), exception_issue_override.issue_id, event_issue_id)",
-            start=None,
-        ),
+        "issue_id": parse_expr("fingerprint_issue_state.issue_id", start=None),
         "issue_id_v2": parse_expr("fingerprint_issue_state.issue_id", start=None),
         "issue_name": parse_expr("fingerprint_issue_state.issue_name", start=None),
         "issue_description": parse_expr("fingerprint_issue_state.issue_description", start=None),
@@ -2228,7 +2295,7 @@ def _error_tracking_event_exprs() -> dict[str, ast.Expr]:
     }
 
 
-def _use_error_tracking_issue_id_from_error_tracking_issue_overrides(database: Database) -> None:
+def _add_error_tracking_fields(database: Database) -> None:
     exprs = copy.deepcopy(_error_tracking_event_exprs())
     table = database.get_table("events")
     # convert event_issue_id to UUID to match type of `issue_id` on the overrides table
@@ -2757,11 +2824,16 @@ def serialize_fields(
                     )
                 )
             elif isinstance(field, ExpressionField):
-                field_expr = resolve_types_from_table(field.expr, table_chain, context, "hogql")
-                assert field_expr.type is not None
-                constant_type = field_expr.type.resolve_constant_type(context)
-
-                field_type = _constant_type_to_serialized_field_type(constant_type)
+                # A stale expression (e.g. a saved expression whose referenced column was since
+                # removed) must degrade to a generic "expression" field instead of failing the
+                # whole schema serialization.
+                try:
+                    field_expr = resolve_types_from_table(field.expr, table_chain, context, "hogql")
+                    assert field_expr.type is not None
+                    constant_type = field_expr.type.resolve_constant_type(context)
+                    field_type = _constant_type_to_serialized_field_type(constant_type)
+                except Exception:
+                    field_type = None
                 if field_type is None:
                     field_type = DatabaseSerializedFieldType.EXPRESSION
 

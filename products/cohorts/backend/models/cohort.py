@@ -507,8 +507,8 @@ class Cohort(FileSystemSyncMixin, RootTeamMixin, models.Model):
         - Cohorts with behavioral event filters require last_backfill_events_at
         - Cohorts with both require both timestamps
         - Cohorts with neither recognized filter type (empty filters, cohort-reference-only, etc.)
-          are not flag-compatible, even if stale timestamps are set, because HogQLRealtimeCohortQuery
-          cannot evaluate them.
+          are not flag-compatible, even if stale timestamps are set, because the realtime
+          evaluator has no leaf to key membership on.
         """
         if self.cohort_type != CohortType.REALTIME:
             return False

@@ -183,6 +183,37 @@ def test_build_dependent_resource_merges_fanout_child_params(mock_rest_api_resou
 
 
 @patch("products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.fanout.rest_api_resources")
+def test_build_dependent_resource_forwards_child_response_actions(mock_rest_api_resources) -> None:
+    mock_rest_api_resources.return_value = []
+    try:
+        build_dependent_resource(
+            endpoint_configs=_build_endpoint_configs(),
+            child_endpoint="children",
+            fanout=DependentEndpointConfig(
+                parent_name="parents",
+                resolve_param="parent_id",
+                resolve_field="id",
+                include_from_parent=["id"],
+                child_response_actions=[{"status_code": 404, "action": "ignore"}],
+            ),
+            client_config={"base_url": "https://example.com"},
+            path_format_values={},
+            team_id=1,
+            job_id="job-1",
+            db_incremental_field_last_value=None,
+        )
+    except StopIteration:
+        pass
+
+    config = mock_rest_api_resources.call_args.args[0]
+    parent_resource = config["resources"][0]
+    child_resource = config["resources"][1]
+    assert child_resource["endpoint"]["response_actions"] == [{"status_code": 404, "action": "ignore"}]
+    # The parent request has no such tolerance — a 404 there still means "org/list not found".
+    assert "response_actions" not in parent_resource["endpoint"]
+
+
+@patch("products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.fanout.rest_api_resources")
 def test_build_dependent_resource_rejects_child_params_clobbering_resolve(mock_rest_api_resources) -> None:
     mock_rest_api_resources.return_value = []
 

@@ -5,12 +5,16 @@ import {
   countActiveTaskCells,
   getCellCount,
   getCellSessionId,
+  getExpandedLayout,
+  getExpansionCellIndex,
   getGridDimensions,
+  getOptimalLayout,
   getTerminalCellCwd,
   getTerminalCellId,
   isBrainrotCell,
   isTerminalCell,
   makeTerminalCellValue,
+  reflowCells,
   resizeCells,
 } from "./grid";
 
@@ -30,6 +34,87 @@ describe("getGridDimensions / getCellCount", () => {
       expect(getCellCount(preset)).toBe(count);
     },
   );
+});
+
+describe("getExpansionCellIndex", () => {
+  // Widening 2x2 to 3x2 puts the new column at indices 2 and 5; growing it to
+  // 2x3 puts the new row at 4 and 5.
+  it.each([
+    { expanded: "3x2", direction: "horizontal", slot: 0, expected: 2 },
+    { expanded: "3x2", direction: "horizontal", slot: 1, expected: 5 },
+    { expanded: "2x3", direction: "vertical", slot: 0, expected: 4 },
+    { expanded: "2x3", direction: "vertical", slot: 1, expected: 5 },
+  ] as const)(
+    "$expanded $direction slot $slot -> $expected",
+    ({ expanded, direction, slot, expected }) => {
+      expect(getExpansionCellIndex(expanded, direction, slot)).toBe(expected);
+    },
+  );
+});
+
+describe("getOptimalLayout", () => {
+  it.each([
+    [0, "1x1"],
+    [1, "1x1"],
+    [2, "2x1"],
+    [3, "2x2"],
+    [4, "2x2"],
+    [5, "3x2"],
+    [6, "3x2"],
+    [7, "3x3"],
+    [9, "3x3"],
+    [12, "3x3"],
+  ] as const)("fits %i tiles in %s", (count, expected) => {
+    expect(getOptimalLayout(count)).toBe(expected);
+  });
+});
+
+describe("getExpandedLayout", () => {
+  it.each([
+    ["1x1", "horizontal", "2x1"],
+    ["1x1", "vertical", "1x2"],
+    ["2x2", "horizontal", "3x2"],
+    ["2x2", "vertical", "2x3"],
+    ["3x1", "horizontal", null],
+    ["1x3", "vertical", null],
+    ["3x3", "horizontal", null],
+    ["3x3", "vertical", null],
+  ] as const)("expands %s %s to %s", (layout, direction, expected) => {
+    expect(getExpandedLayout(layout, direction)).toBe(expected);
+  });
+});
+
+describe("reflowCells", () => {
+  // Row-major storage means a column change moves every row's start: 2x2
+  // [a,b / c,d] widening to 3x2 must keep c and d on row two.
+  it("keeps cells in the same row and column when a column is added", () => {
+    expect(reflowCells(["a", "b", "c", "d"], "2x2", "3x2")).toEqual([
+      "a",
+      "b",
+      null,
+      "c",
+      "d",
+      null,
+    ]);
+  });
+
+  it("appends empty cells when a row is added", () => {
+    expect(reflowCells(["a", "b"], "2x1", "2x2")).toEqual([
+      "a",
+      "b",
+      null,
+      null,
+    ]);
+  });
+
+  it("drops cells that fall outside a narrower grid", () => {
+    expect(reflowCells(["a", "b", "c", "d", "e", "f"], "3x2", "2x2")).toEqual([
+      "a",
+      "b",
+      "d",
+      "e",
+    ]);
+  });
 });
 
 describe("resizeCells", () => {

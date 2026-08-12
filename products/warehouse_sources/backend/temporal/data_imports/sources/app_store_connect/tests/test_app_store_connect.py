@@ -1,4 +1,5 @@
 import gzip
+import hashlib
 from datetime import date, timedelta
 from typing import Any
 
@@ -118,10 +119,16 @@ def _resource(resource_type: str, resource_id: str, **attributes: Any) -> dict[s
     }
 
 
-def _page(resources: list[dict[str, Any]], next_url: str | None = None) -> dict[str, Any]:
+def _page(
+    resources: list[dict[str, Any]],
+    next_url: str | None = None,
+    included: list[dict[str, Any]] | None = None,
+) -> dict[str, Any]:
     body: dict[str, Any] = {"data": resources, "meta": {"paging": {"total": len(resources)}}}
     if next_url:
         body["links"] = {"next": next_url}
+    if included is not None:
+        body["included"] = included
     return body
 
 
@@ -443,6 +450,415 @@ class TestAppFanoutEndpoints:
         rows = _collect("customer_reviews", self._api(), manager)
 
         assert [row["id"] for row in rows] == ["R1", "R2", "R3"]
+
+
+def _responded_review(review_id: str, response_id: str) -> dict[str, Any]:
+    review = _resource("customerReviews", review_id, rating=5)
+    review["relationships"]["response"] = {"data": {"type": "customerReviewResponses", "id": response_id}}
+    return review
+
+
+class TestReviewResponses:
+    def _api(self) -> _FakeApi:
+        reviews_url = f"{BASE_URL}/v1/apps/A1/customerReviews"
+        return _FakeApi(
+            {
+                f"{BASE_URL}/v1/apps": _page([_resource("apps", "A1")]),
+                reviews_url: _page(
+                    [_responded_review("R1", "RESP1"), _responded_review("R2", "RESP2")],
+                    included=[
+                        _resource("customerReviewResponses", "RESP1", responseBody="thanks!", state="PUBLISHED"),
+                        _resource("customerReviewResponses", "RESP2", responseBody="sorry!", state="PUBLISHED"),
+                        # An included resource of another type (e.g. a review territory)
+                        # must not leak into the responses table.
+                        _resource("territories", "USA", currency="USD"),
+                    ],
+                ),
+            }
+        )
+
+    def test_rows_come_from_included_responses_with_review_and_app_ids(self) -> None:
+        rows = _collect("review_responses", self._api(), _FakeManager())
+
+        assert [(row["app_id"], row["id"], row["review_id"], row["responseBody"]) for row in rows] == [
+            ("A1", "RESP1", "R1", "thanks!"),
+            ("A1", "RESP2", "R2", "sorry!"),
+        ]
+
+    def test_walk_requests_only_reviews_with_published_responses(self) -> None:
+        # Dropping the include param loses every row; dropping the exists filter pages
+        # through the full review history (mostly unresponded) on every sync.
+        api = self._api()
+        _collect("review_responses", api, _FakeManager())
+
+        reviews_params = next(params for url, params in api.calls if url.endswith("/v1/apps/A1/customerReviews"))
+        assert reviews_params["include"] == "response"
+        assert reviews_params["exists[publishedResponse]"] == "true"
+
+    def test_source_response_is_unpartitioned(self) -> None:
+        # The only timestamp on a response is lastModifiedDate, which changes on edit;
+        # partitioning on it would move rows between partitions.
+        response = app_store_connect_source(
+            issuer_id="issuer",
+            key_id="KEY123",
+            private_key=PRIVATE_KEY_PEM,
+            vendor_number=None,
+            endpoint="review_responses",
+            logger=MagicMock(),
+            resumable_source_manager=_FakeManager(),
+        )
+        assert response.primary_keys == ["app_id", "id"]
+        assert response.partition_mode is None
+        assert response.partition_keys is None
+
+
+APPS_URL = f"{BASE_URL}/v1/apps"
+REQUESTS_URL = f"{BASE_URL}/v1/apps/A1/analyticsReportRequests"
+CREATE_REQUEST_URL = f"{BASE_URL}/v1/analyticsReportRequests"
+REPORTS_URL = f"{BASE_URL}/v1/analyticsReportRequests/REQ1/reports"
+INSTANCES_URL = f"{BASE_URL}/v1/analyticsReports/REP1/instances"
+
+
+def _segments_url(instance_id: str) -> str:
+    return f"{BASE_URL}/v1/analyticsReportInstances/{instance_id}/segments"
+
+
+def _gzip_csv(text: str) -> bytes:
+    return gzip.compress(text.encode())
+
+
+def _segment_response(content: bytes) -> MagicMock:
+    response = MagicMock()
+    response.status_code = 200
+    response.ok = True
+    response.iter_content.side_effect = lambda chunk_size: iter([content])
+    return response
+
+
+def _instance(instance_id: str, processing_date: str) -> dict[str, Any]:
+    return _resource("analyticsReportInstances", instance_id, granularity="DAILY", processingDate=processing_date)
+
+
+def _segment(segment_id: str, url: str, payload: bytes) -> dict[str, Any]:
+    return _resource(
+        "analyticsReportSegments",
+        segment_id,
+        checksum=hashlib.md5(payload).hexdigest(),
+        sizeInBytes=len(payload),
+        url=url,
+    )
+
+
+class _FakeAnalyticsApi(_FakeApi):
+    """Extends _FakeApi with POST recording and presigned segment downloads served by URL."""
+
+    def __init__(
+        self,
+        bodies: dict[str, dict[str, Any]],
+        segment_payloads: dict[str, bytes] | None = None,
+    ) -> None:
+        super().__init__(bodies)
+        self.segment_payloads = segment_payloads or {}
+        self.posts: list[tuple[str, Any]] = []
+
+    def get(self, url: str, **kwargs: Any) -> MagicMock:
+        if url in self.segment_payloads:
+            self.calls.append((url, None))
+            return _segment_response(self.segment_payloads[url])
+        return super().get(url, **kwargs)
+
+    def post(self, url: str, **kwargs: Any) -> MagicMock:
+        self.posts.append((url, kwargs.get("json")))
+        body = {"data": {"type": "analyticsReportRequests", "id": "REQ-NEW", "attributes": {"accessType": "ONGOING"}}}
+        return _json_response(body, status_code=201)
+
+
+def _analytics_api(
+    *,
+    requests_page: list[dict[str, Any]] | None = None,
+    reports: list[dict[str, Any]] | None = None,
+    instances: list[dict[str, Any]] | None = None,
+    segments_by_instance: dict[str, list[dict[str, Any]]] | None = None,
+    segment_payloads: dict[str, bytes] | None = None,
+) -> _FakeAnalyticsApi:
+    bodies = {
+        APPS_URL: _page([_resource("apps", "A1")]),
+        REQUESTS_URL: _page(
+            requests_page
+            if requests_page is not None
+            else [_resource("analyticsReportRequests", "REQ1", accessType="ONGOING", stoppedDueToInactivity=False)]
+        ),
+        REPORTS_URL: _page(
+            reports
+            if reports is not None
+            else [_resource("analyticsReports", "REP1", name="App Sessions Standard", category="APP_USAGE")]
+        ),
+        INSTANCES_URL: _page(instances if instances is not None else []),
+    }
+    for instance_id, segment_resources in (segments_by_instance or {}).items():
+        bodies[_segments_url(instance_id)] = _page(segment_resources)
+    return _FakeAnalyticsApi(bodies, segment_payloads=segment_payloads)
+
+
+def _collect_analytics(api: _FakeAnalyticsApi, manager: _FakeManager, **kwargs: Any) -> list[dict[str, Any]]:
+    session = MagicMock()
+    session.get.side_effect = api.get
+    session.post.side_effect = api.post
+    rows: list[dict[str, Any]] = []
+    with (
+        patch(f"{MODULE}._make_session", return_value=session),
+        patch(f"{MODULE}._make_segment_download_session", return_value=session),
+    ):
+        for batch in get_rows(
+            issuer_id="issuer",
+            key_id="KEY123",
+            private_key=PRIVATE_KEY_PEM,
+            vendor_number=None,
+            endpoint="analytics_app_sessions",
+            logger=MagicMock(),
+            resumable_source_manager=manager,
+            **kwargs,
+        ):
+            rows.extend(batch)
+    return rows
+
+
+class TestAnalyticsReportStreams:
+    def test_full_chain_parses_daily_instances_into_keyed_rows(self) -> None:
+        segment_1 = _gzip_csv("Date,App Name,App Apple Identifier,Sessions\n2026-07-31,Example,123,5\n")
+        segment_2 = _gzip_csv("Date,App Name,App Apple Identifier,Sessions\n2026-08-01,Example,123,7\n")
+        segment_3 = _gzip_csv("Date,App Name,App Apple Identifier,Sessions\n2026-08-02,Example,123,2\n")
+        api = _analytics_api(
+            # Listed newest-first on purpose: the walk must process oldest-first anyway.
+            instances=[_instance("I2", "2026-08-02"), _instance("I1", "2026-08-01")],
+            segments_by_instance={
+                "I1": [
+                    _segment("S1a", "https://reports.example.s3.amazonaws.com/1a", segment_1),
+                    _segment("S1b", "https://reports.example.s3.amazonaws.com/1b", segment_2),
+                ],
+                "I2": [_segment("S2", "https://reports.example.s3.amazonaws.com/2", segment_3)],
+            },
+            segment_payloads={
+                "https://reports.example.s3.amazonaws.com/1a": segment_1,
+                "https://reports.example.s3.amazonaws.com/1b": segment_2,
+                "https://reports.example.s3.amazonaws.com/2": segment_3,
+            },
+        )
+        manager = _FakeManager()
+
+        rows = _collect_analytics(api, manager)
+
+        # _line continues across an instance's segments; a restart per segment would give two
+        # rows the same merge key and lose one of them.
+        assert [(row["app_id"], row["processing_date"], row["_line"], row["sessions"]) for row in rows] == [
+            ("A1", "2026-08-01", 1, "5"),
+            ("A1", "2026-08-01", 2, "7"),
+            ("A1", "2026-08-02", 1, "2"),
+        ]
+        assert rows[0]["app_apple_identifier"] == "123"
+        assert api.posts == []
+
+        params_by_url = dict(api.calls)
+        assert params_by_url[REQUESTS_URL]["filter[accessType]"] == "ONGOING"
+        assert params_by_url[REPORTS_URL]["filter[category]"] == "APP_USAGE"
+        assert params_by_url[INSTANCES_URL]["filter[granularity]"] == "DAILY"
+
+        assert [(state.app_id, state.processing_date) for state in manager.saved] == [
+            (None, "2026-08-02"),
+            (None, "2026-08-03"),
+        ]
+
+    def test_missing_request_is_created_once_and_the_app_skipped_this_run(self) -> None:
+        api = _analytics_api(requests_page=[])
+
+        rows = _collect_analytics(api, _FakeManager())
+
+        assert rows == []
+        assert [url for url, _ in api.posts] == [CREATE_REQUEST_URL]
+        _, payload = api.posts[0]
+        assert payload["data"]["attributes"]["accessType"] == "ONGOING"
+        assert payload["data"]["relationships"]["app"]["data"] == {"type": "apps", "id": "A1"}
+        # First reports generate in 1-2 days, so nothing further is polled for this app.
+        assert REPORTS_URL not in [url for url, _ in api.calls]
+
+    def test_request_stopped_due_to_inactivity_does_not_count_as_active(self) -> None:
+        api = _analytics_api(
+            requests_page=[
+                _resource("analyticsReportRequests", "REQ1", accessType="ONGOING", stoppedDueToInactivity=True)
+            ]
+        )
+
+        _collect_analytics(api, _FakeManager())
+
+        assert [url for url, _ in api.posts] == [CREATE_REQUEST_URL]
+
+    def test_incremental_walk_reads_from_the_watermark_day_inclusive(self) -> None:
+        payload = _gzip_csv("Date,Sessions\n2026-08-02,5\n")
+        api = _analytics_api(
+            instances=[_instance("I1", "2026-08-01"), _instance("I2", "2026-08-02")],
+            segments_by_instance={"I2": [_segment("S2", "https://r.s3.amazonaws.com/2", payload)]},
+            segment_payloads={"https://r.s3.amazonaws.com/2": payload},
+        )
+
+        rows = _collect_analytics(
+            api,
+            _FakeManager(),
+            should_use_incremental_field=True,
+            db_incremental_field_last_value=date(2026, 8, 2),
+        )
+
+        assert [row["processing_date"] for row in rows] == ["2026-08-02"]
+        assert _segments_url("I1") not in [url for url, _ in api.calls]
+
+    def test_resume_bookmark_floors_the_walk(self) -> None:
+        payload = _gzip_csv("Date,Sessions\n2026-08-02,5\n")
+        api = _analytics_api(
+            instances=[_instance("I1", "2026-08-01"), _instance("I2", "2026-08-02")],
+            segments_by_instance={"I2": [_segment("S2", "https://r.s3.amazonaws.com/2", payload)]},
+            segment_payloads={"https://r.s3.amazonaws.com/2": payload},
+        )
+        manager = _FakeManager(AppStoreConnectResumeConfig(processing_date="2026-08-02"))
+
+        rows = _collect_analytics(api, manager)
+
+        assert [row["processing_date"] for row in rows] == ["2026-08-02"]
+        assert _segments_url("I1") not in [url for url, _ in api.calls]
+
+    def test_unavailable_report_degrades_the_table_without_failing(self) -> None:
+        api = _analytics_api(
+            reports=[_resource("analyticsReports", "REPX", name="Some Other Report", category="APP_USAGE")]
+        )
+
+        assert _collect_analytics(api, _FakeManager()) == []
+
+    def test_instance_without_segments_stops_the_walk_at_that_date(self) -> None:
+        # Emitting a later date past a not-ready gap would let the table watermark advance
+        # beyond data that never landed.
+        payload = _gzip_csv("Date,Sessions\n2026-08-02,5\n")
+        api = _analytics_api(
+            instances=[_instance("I1", "2026-08-01"), _instance("I2", "2026-08-02")],
+            segments_by_instance={"I1": [], "I2": [_segment("S2", "https://r.s3.amazonaws.com/2", payload)]},
+            segment_payloads={"https://r.s3.amazonaws.com/2": payload},
+        )
+        manager = _FakeManager()
+
+        rows = _collect_analytics(api, manager)
+
+        assert rows == []
+        assert _segments_url("I2") not in [url for url, _ in api.calls]
+        assert manager.saved[-1].processing_date == "2026-08-01"
+
+    def test_checksum_mismatch_is_not_fatal(self) -> None:
+        # The checksum algorithm is undocumented; a wrong guess must degrade to a warning,
+        # not brick the table on every segment forever.
+        payload = _gzip_csv("Date,Sessions\n2026-08-01,5\n")
+        segment = _resource(
+            "analyticsReportSegments",
+            "S1",
+            checksum="0000",
+            sizeInBytes=len(payload),
+            url="https://r.s3.amazonaws.com/1",
+        )
+        api = _analytics_api(
+            instances=[_instance("I1", "2026-08-01")],
+            segments_by_instance={"I1": [segment]},
+            segment_payloads={"https://r.s3.amazonaws.com/1": payload},
+        )
+
+        assert len(_collect_analytics(api, _FakeManager())) == 1
+
+    def test_off_host_segment_url_is_refused(self) -> None:
+        payload = _gzip_csv("Date,Sessions\n2026-08-01,5\n")
+        segment = _segment("S1", "https://attacker.example/steal", payload)
+        api = _analytics_api(
+            instances=[_instance("I1", "2026-08-01")],
+            segments_by_instance={"I1": [segment]},
+            segment_payloads={"https://attacker.example/steal": payload},
+        )
+
+        with pytest.raises(AppStoreConnectUrlError):
+            _collect_analytics(api, _FakeManager())
+
+    def test_tab_delimited_segments_parse_too(self) -> None:
+        # Apple names the objects .csv.gz but its docs never state the delimiter, so both
+        # must parse.
+        payload = _gzip_csv("Date\tSessions\n2026-08-01\t5\n")
+        api = _analytics_api(
+            instances=[_instance("I1", "2026-08-01")],
+            segments_by_instance={"I1": [_segment("S1", "https://r.s3.amazonaws.com/1", payload)]},
+            segment_payloads={"https://r.s3.amazonaws.com/1": payload},
+        )
+
+        rows = _collect_analytics(api, _FakeManager())
+
+        assert [(row["date"], row["sessions"]) for row in rows] == [("2026-08-01", "5")]
+
+    def test_per_run_instance_cap_saves_a_resumable_bookmark(self) -> None:
+        payload = _gzip_csv("Date,Sessions\n2026-08-01,5\n")
+        api = _analytics_api(
+            instances=[_instance("I1", "2026-08-01"), _instance("I2", "2026-08-02")],
+            segments_by_instance={"I1": [_segment("S1", "https://r.s3.amazonaws.com/1", payload)]},
+            segment_payloads={"https://r.s3.amazonaws.com/1": payload},
+        )
+        manager = _FakeManager()
+
+        with patch(f"{MODULE}.ANALYTICS_MAX_INSTANCES_PER_RUN", 1):
+            rows = _collect_analytics(api, manager)
+
+        assert [row["processing_date"] for row in rows] == ["2026-08-01"]
+        assert manager.saved[-1].processing_date == "2026-08-02"
+
+    def test_dates_walk_in_order_across_apps(self) -> None:
+        # App-major order would yield app A1's newest dates before app A2's older ones, and
+        # the per-batch ascending watermark checkpoint would then skip A2's backlog after a
+        # crash. Date-major order is what makes the checkpoint safe.
+        seg_1 = _gzip_csv("Date,Sessions\n2026-08-01,1\n")
+        seg_2 = _gzip_csv("Date,Sessions\n2026-08-02,2\n")
+        seg_3 = _gzip_csv("Date,Sessions\n2026-08-03,3\n")
+        api = _analytics_api(
+            instances=[_instance("I1", "2026-08-01"), _instance("I3", "2026-08-03")],
+            segments_by_instance={
+                "I1": [_segment("S1", "https://r.s3.amazonaws.com/1", seg_1)],
+                "I2": [_segment("S2", "https://r.s3.amazonaws.com/2", seg_2)],
+                "I3": [_segment("S3", "https://r.s3.amazonaws.com/3", seg_3)],
+            },
+            segment_payloads={
+                "https://r.s3.amazonaws.com/1": seg_1,
+                "https://r.s3.amazonaws.com/2": seg_2,
+                "https://r.s3.amazonaws.com/3": seg_3,
+            },
+        )
+        api.bodies[APPS_URL] = _page([_resource("apps", "A1"), _resource("apps", "A2")])
+        api.bodies[f"{BASE_URL}/v1/apps/A2/analyticsReportRequests"] = _page(
+            [_resource("analyticsReportRequests", "REQ2", accessType="ONGOING", stoppedDueToInactivity=False)]
+        )
+        api.bodies[f"{BASE_URL}/v1/analyticsReportRequests/REQ2/reports"] = _page(
+            [_resource("analyticsReports", "REP2", name="App Sessions Standard", category="APP_USAGE")]
+        )
+        api.bodies[f"{BASE_URL}/v1/analyticsReports/REP2/instances"] = _page([_instance("I2", "2026-08-02")])
+
+        rows = _collect_analytics(api, _FakeManager())
+
+        assert [(row["app_id"], row["processing_date"]) for row in rows] == [
+            ("A1", "2026-08-01"),
+            ("A2", "2026-08-02"),
+            ("A1", "2026-08-03"),
+        ]
+
+    def test_analytics_source_response_checkpoints_ascending(self) -> None:
+        response = app_store_connect_source(
+            issuer_id="issuer",
+            key_id="KEY123",
+            private_key=PRIVATE_KEY_PEM,
+            vendor_number=None,
+            endpoint="analytics_app_sessions",
+            logger=MagicMock(),
+            resumable_source_manager=_FakeManager(),
+        )
+        assert response.primary_keys == ["app_id", "processing_date", "_line"]
+        assert response.partition_keys == ["processing_date"]
+        # The walk is date-major across apps, so ascending per-batch checkpoints are safe.
+        assert response.sort_mode == "asc"
 
 
 class TestReportColumnNames:

@@ -222,6 +222,24 @@ pub struct GateArgs {
     #[arg(long, default_value = "8s", value_parser = humantime::parse_duration)]
     pub zombie_duration: Duration,
 
+    /// Fence the first --fence-count seeded persons (delete-op lifecycle
+    /// fence via the router) this long into the traffic phase. While
+    /// fenced, any write acked above the sealed version is a violation —
+    /// this is what catches a fence failing open across a leader crash or
+    /// handoff (compose with --restart-after / --kill-after between fence
+    /// and release). Requires --fence-release-after.
+    #[arg(long, value_parser = humantime::parse_duration)]
+    pub fence_after: Option<Duration>,
+
+    /// Release the fences (aborted outcome — the persons resume life) this
+    /// long into the traffic phase. Must be after --fence-after.
+    #[arg(long, value_parser = humantime::parse_duration)]
+    pub fence_release_after: Option<Duration>,
+
+    /// How many seeded persons the fence window covers.
+    #[arg(long, default_value_t = 5)]
+    pub fence_count: usize,
+
     /// Crash-restart the writer this long into the traffic phase
     /// (validates at-least-once redelivery under the version guard).
     #[arg(long, value_parser = humantime::parse_duration)]
@@ -316,6 +334,12 @@ pub struct TrafficArgs {
     /// Router serving the personhog stack under continuous test.
     #[arg(long, env = "TRAFFIC_ROUTER_URL")]
     pub router_url: String,
+
+    /// Identity service under test: the epoch pool is created through
+    /// get-or-create and rotated through the lifecycle delete saga, both
+    /// served on this address.
+    #[arg(long, env = "TRAFFIC_IDENTITY_URL")]
+    pub identity_url: String,
 
     /// Master toggle. When false the process starts fully (guard, metrics,
     /// liveness) but idles instead of driving traffic — so a deployed-but-

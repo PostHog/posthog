@@ -89,6 +89,7 @@ const READ_ONLY_ALLOWED_PATTERNS: ReadonlyArray<AllowedPattern> = [
     /\/insights\/viewed(?:\/|$|\?)/, // /api/environments/:team_id/insights/viewed — passive "recently viewed" telemetry
     /\/insights\/timing(?:\/|$|\?)/, // /api/projects/:team_id/insights/timing — time-to-see-data telemetry fired after every dashboard/insight load
     /\/metalytics(?:\/|$|\?)/, // /api/projects/:team_id/metalytics — side-panel scene view tracking (only accepts metric_name=viewed)
+    /\/signals\/reports\/[^/]+\/viewed(?:\/|$|\?)/, // POST /api/projects/:team_id/signals/reports/:id/viewed — inbox report-open tracking; the consumption evidence keeping read scouts from auto-pausing
     /\/conversations(?!\/(?:views|tickets))(?:\/|$|\?)/, // /api/.../conversations[/:id[/queue|/append_message|/cancel|...]] — PostHog AI (Max), excluding /conversations/views and /conversations/tickets
     /\/exports\/?(?:\?|$)/, // /api/.../exports[/] — create export jobs only; detail paths like /exports/:id/ stay blocked
     { pattern: /\/session_recordings\/[^/]+(?:\/|$|\?)/, methods: ['PATCH'] }, // PATCH /api/.../session_recordings/:id — markViewed view-tracking ({viewed: true, ...} then {analyzed: true, ...}). DELETE on the same path stays blocked.

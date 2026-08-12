@@ -763,8 +763,9 @@ class TestDatabase(BaseTest, QueryMatchingTest):
             )
 
         # initialization team query doesn't run; the extra query is the single bulk credential fetch
-        # (credentials are decrypted once each here instead of re-decrypted per table/view row)
-        with self.assertNumQueries(6):
+        # (credentials are decrypted once each here instead of re-decrypted per table/view row),
+        # plus the saved-expressions fetch
+        with self.assertNumQueries(7):
             modifiers = create_default_modifiers_for_team(
                 self.team, modifiers=HogQLQueryModifiers(useMaterializedViews=True)
             )

@@ -258,7 +258,7 @@ export const UnsubscribeSurveyModal = ({
                                     target="_blank"
                                     onClick={() => {
                                         reportSurveyDismissed(surveyID)
-                                        openSupportForm({ target_area: 'billing', isEmailFormOpen: true })
+                                        openSupportForm({ billing_issue: true, isEmailFormOpen: true })
                                     }}
                                 >
                                     chat with support

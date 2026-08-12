@@ -43,7 +43,8 @@ export function Message({
     onEdit,
     onDelete,
 }: MessageProps): JSX.Element {
-    const profileType = message.authorType === 'AI' ? 'bot' : 'person'
+    const isAgent = message.authorType === 'AI'
+    const profileType = isAgent ? 'bot' : 'person'
     const isPrivate = message.isPrivate
     const [feedbackText, setFeedbackText] = useState('')
     const [feedbackTextSubmitted, setFeedbackTextSubmitted] = useState(false)
@@ -74,16 +75,25 @@ export function Message({
         <div className={`flex ${isCustomer ? 'mr-10' : 'flex-row-reverse ml-10'} mb-4`}>
             <div className="flex gap-2 min-w-0">
                 <div className="flex flex-col min-w-0 items-start">
-                    <div className="flex items-center justify-between w-full gap-2 mb-1">
+                    {/* The agent's byline takes the AI colour too, so the name, the badge and the
+                        bubble all say the same thing. `ProfilePicture` puts `className` on the avatar,
+                        where the robot glyph picks the colour up, and renders the name as a sibling —
+                        so the name is coloured from this row rather than through the component. */}
+                    <div
+                        className={`flex items-center justify-between w-full gap-2 mb-1 ${
+                            isAgent ? '[&_.profile-name]:text-ai' : ''
+                        }`}
+                    >
                         <ProfilePicture
                             size="sm"
                             user={message.createdBy}
                             name={message.authorName}
                             type={profileType}
                             showName={true}
+                            className={isAgent ? 'text-ai' : undefined}
                         />
                         <div className="flex items-center gap-1.5">
-                            {isPrivate && <TeamOnlyBadge label="Private note" />}
+                            {isPrivate && <TeamOnlyBadge label="Private note" tone={isAgent ? 'agent' : 'teammate'} />}
                             <span className="text-xs text-muted-alt">
                                 <TZLabel time={message.createdAt} />
                                 {(message.version ?? 0) > 0 ? ' (edited)' : null}
@@ -91,10 +101,23 @@ export function Message({
                         </div>
                     </div>
                     <div className="max-w-full min-w-80">
+                        {/* A note the customer can't see is set apart by hue, and which hue says who
+                            wrote it: the assistant's notes take the AI colour the rest of the app
+                            uses for our own agents, a teammate's keep the warning amber. Scanning a
+                            long thread, "a colleague left me this" and "software left me this" are
+                            different enough to be worth telling apart before either is read. The
+                            byline and the lock badge above follow the same colour, so one note is
+                            one signal rather than three competing ones. */}
                         <div
                             className={`border py-2 px-3 rounded-lg ${
                                 isPrivate
-                                    ? 'bg-warning-highlight border-warning'
+                                    ? isAgent
+                                        ? // The fills are the app's existing AI pair; the border is
+                                          // held back to 60% because `border-ai` at full strength
+                                          // outshouts the amber it sits next to, and the assistant
+                                          // leaves one of these on nearly every ticket.
+                                          'bg-ai/08 dark:bg-ai/20 border-ai/60'
+                                        : 'bg-warning-highlight border-warning'
                                     : isCustomer
                                       ? 'bg-surface-secondary'
                                       : 'bg-surface-primary'
