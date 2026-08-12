@@ -18,15 +18,7 @@ import { useUpdateSupportTicket } from "@posthog/ui/features/support/hooks/useUp
 import { useCreateTask } from "@posthog/ui/features/tasks/useTaskCrudMutations";
 import { useCallback, useState } from "react";
 
-/**
- * The agent thread attached to a ticket.
- *
- * A thread is an ordinary Desktop task created through the same service as any
- * other, so it inherits model and effort selection, run streaming, presence and
- * the pull-request machinery without this surface reimplementing any of it. The
- * ticket points at it with a tag, and the tag is written only after the task
- * exists, so a failed creation cannot leave a ticket pointing at nothing.
- */
+// An ordinary Desktop task, linked to the ticket only once it exists.
 export function useTicketAgentThread(ticket: SupportTicket | undefined) {
   const taskService = useService<TaskService>(TASK_SERVICE);
   const { invalidateTasks } = useCreateTask();
@@ -57,7 +49,7 @@ export function useTicketAgentThread(ticket: SupportTicket | undefined) {
         }
 
         updateTicket.mutate({
-          idOrNumber: ticket.id,
+          ticketId: ticket.id,
           updates: { tags: withTicketTaskId(ticket.tags, result.data.task.id) },
         });
       } catch (error) {

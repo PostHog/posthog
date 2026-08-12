@@ -14,5 +14,5 @@ function TicketDetailRoute() {
   const { ticketId } = Route.useParams();
   const cachedTicket = Route.useLoaderData();
 
-  return <TicketDetailView idOrNumber={ticketId} cachedTicket={cachedTicket} />;
+  return <TicketDetailView ticketId={ticketId} cachedTicket={cachedTicket} />;
 }

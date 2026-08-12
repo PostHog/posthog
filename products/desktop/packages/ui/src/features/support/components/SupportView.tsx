@@ -12,13 +12,6 @@ import { Outlet } from "@tanstack/react-router";
 
 const TICKET_LIST_WIDTH_CLASS = "w-[280px]";
 
-/**
- * The Support surface: the queue beside the open ticket.
- *
- * The list lives in the layout route so it stays mounted while tickets change
- * under it — moving between tickets keeps the queue's scroll position and its
- * place in the person's train of thought.
- */
 export function SupportView() {
   const view = useAppView();
   const activeTicketId = view.type === "support" ? view.ticketId : undefined;

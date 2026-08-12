@@ -33,10 +33,10 @@ import { useQuery } from "@tanstack/react-query";
 const TICKET_SIDEBAR_WIDTH_CLASS = "w-[340px]";
 
 export function TicketDetailView({
-  idOrNumber,
+  ticketId,
   cachedTicket,
 }: {
-  idOrNumber: string;
+  ticketId: string;
   cachedTicket: SupportTicket | null;
 }) {
   const {
@@ -44,11 +44,11 @@ export function TicketDetailView({
     isPending,
     error,
   } = useQuery({
-    ...supportTicketQuery(idOrNumber),
+    ...supportTicketQuery(ticketId),
     initialData: cachedTicket ?? undefined,
   });
 
-  const { data: thread } = useSupportTicketMessages(ticket?.id);
+  const { data: thread } = useSupportTicketMessages(ticketId);
   const messages = thread?.results ?? [];
 
   if (isPending && !ticket) {

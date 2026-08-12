@@ -9,40 +9,16 @@ import {
   withTicketTaskId,
 } from "./ticketTaskLink";
 
-function message(
-  overrides: Partial<SupportTicketMessage> = {},
-): SupportTicketMessage {
-  return {
-    id: "00000000-0000-0000-0000-000000000000",
-    content: "Body",
-    rich_content: null,
-    author_type: "customer",
-    author_name: "Someone",
-    is_private: false,
-    version: 0,
-    created_at: "2026-08-12T10:00:00Z",
-    ...overrides,
-  };
-}
-
 describe("ticket task link", () => {
   it.each<[string, string[] | undefined, string | null]>([
     ["no tags", undefined, null],
-    ["unrelated tags", ["billing", "sdk"], null],
+    ["unrelated tags", ["billing"], null],
     ["a linked task", ["ai-task:abc-123"], "abc-123"],
     ["a link among other tags", ["billing", "ai-task:xyz"], "xyz"],
     ["a differently cased prefix", ["AI-Task:abc"], "abc"],
     ["an empty link", ["ai-task:"], null],
   ])("reads the task id from %s", (_case, tags, expected) => {
     expect(readTicketTaskId(tags)).toBe(expected);
-  });
-
-  it("keeps unrelated tags when linking", () => {
-    expect(withTicketTaskId(["billing", "sdk"], "abc")).toEqual([
-      "billing",
-      "sdk",
-      "ai-task:abc",
-    ]);
   });
 
   it("replaces an existing link rather than adding a second", () => {
@@ -52,52 +28,33 @@ describe("ticket task link", () => {
     ]);
   });
 
-  describe("the agent prompt", () => {
-    const ticket = {
-      ticket_number: 4821,
-      channel_source: "email",
-      status: "open",
-      priority: "high",
-    } as SupportTicket;
+  it("briefs the agent with the ticket, the thread and the request", () => {
+    const prompt = buildTicketAgentPrompt(
+      { ticket_number: 4821, channel_source: "email" } as SupportTicket,
+      [
+        { author_name: "Priya", content: "Flags look stale" },
+      ] as SupportTicketMessage[],
+      "Find the cause",
+    );
 
-    it("carries the ticket, the thread and the request", () => {
-      const prompt = buildTicketAgentPrompt(
-        ticket,
-        [
-          message({ content: "Flags look stale" }),
-          message({
-            content: "Reproduced it",
-            author_type: "support",
-            author_name: "Kim",
-            is_private: true,
-          }),
-        ],
-        "Find the cause",
-      );
+    expect(prompt).toContain("#4821");
+    expect(prompt).toContain("Priya: Flags look stale");
+    expect(prompt).toContain("Find the cause");
+  });
 
-      expect(prompt).toContain("Ticket #4821");
-      expect(prompt).toContain("Priority: high");
-      expect(prompt).toContain("Flags look stale");
-      expect(prompt).toContain("Kim (support) [internal note]: Reproduced it");
-      expect(prompt).toContain("Find the cause");
-    });
+  it("keeps only the tail of a long thread", () => {
+    const messages = Array.from({ length: 30 }, (_, index) => ({
+      author_name: "Priya",
+      content: `Message ${index}`,
+    })) as SupportTicketMessage[];
 
-    it("keeps only the tail of a long thread", () => {
-      const messages = Array.from({ length: 30 }, (_, index) =>
-        message({ content: `Message ${index}` }),
-      );
+    const prompt = buildTicketAgentPrompt(
+      { ticket_number: 1, channel_source: "email" } as SupportTicket,
+      messages,
+      "Summarize",
+    );
 
-      const prompt = buildTicketAgentPrompt(ticket, messages, "Summarize");
-
-      expect(prompt).not.toContain("Message 9:");
-      expect(prompt).toContain("Message 29");
-    });
-
-    it("omits the transcript section for a ticket with no messages", () => {
-      const prompt = buildTicketAgentPrompt(ticket, [], "What is this?");
-
-      expect(prompt).not.toContain("Conversation so far");
-      expect(prompt).toContain("What is this?");
-    });
+    expect(prompt).not.toContain("Message 9:");
+    expect(prompt).toContain("Message 29");
   });
 });

@@ -1,12 +1,11 @@
 import { CaretDownIcon } from "@phosphor-icons/react";
 import type { Schemas } from "@posthog/api-client";
 import type { SupportTicket } from "@posthog/api-client/posthog-client";
-import {
-  resolveTicketPrUrls,
-  ticketPrUrlFromTag,
-} from "@posthog/core/support/ticketPrLinks";
 import { isTicketSnoozed } from "@posthog/core/support/ticketState";
-import { readTicketTaskId } from "@posthog/core/support/ticketTaskLink";
+import {
+  isTicketTaskTag,
+  readTicketTaskId,
+} from "@posthog/core/support/ticketTaskLink";
 import {
   Badge,
   Button,
@@ -18,7 +17,8 @@ import {
   Text,
 } from "@posthog/quill";
 import { readPrUrls } from "@posthog/shared";
-import { TicketPullRequests } from "@posthog/ui/features/support/components/TicketPullRequests";
+import { PRBadgeLink } from "@posthog/ui/features/git-interaction/components/PRBadgeLink";
+import { useTaskPrStatus } from "@posthog/ui/features/sidebar/useTaskPrStatus";
 import { useUpdateSupportTicket } from "@posthog/ui/features/support/hooks/useUpdateSupportTicket";
 import {
   TICKET_PRIORITY_LABELS,
@@ -44,102 +44,61 @@ const PRIORITY_OPTIONS = Object.keys(
 export function TicketInfoPanel({ ticket }: { ticket: SupportTicket }) {
   const updateTicket = useUpdateSupportTicket();
   const snoozed = isTicketSnoozed(ticket, Date.now());
-
-  // The thread's task, for the pull requests it opened and their state. The
-  // query is shared with the agent panel, so this costs no extra request.
-  const taskId = readTicketTaskId(ticket.tags);
-  const { data: task } = useQuery({
-    ...taskDetailQuery(taskId ?? ""),
-    enabled: !!taskId,
-  });
-  const prUrls = resolveTicketPrUrls(
-    ticket.tags,
-    readPrUrls(task?.latest_run?.output),
-  );
-  // The link tags render as their own rows above, so showing them again here
-  // would present plumbing as something someone chose to label the ticket with.
-  const labelTags = (ticket.tags ?? []).filter(
-    (tag) =>
-      !ticketPrUrlFromTag(tag) && !tag.toLowerCase().startsWith("ai-task:"),
-  );
+  const labelTags = (ticket.tags ?? []).filter((tag) => !isTicketTaskTag(tag));
 
   const write = (
     updates: Parameters<typeof updateTicket.mutate>[0]["updates"],
-  ) => updateTicket.mutate({ idOrNumber: ticket.id, updates });
+  ) => updateTicket.mutate({ ticketId: ticket.id, updates });
 
   return (
     <div className="flex flex-col gap-4 p-3">
       <Section title="Ticket">
         <Row label="Status">
-          <DropdownMenu>
-            <DropdownMenuTrigger
-              render={
-                <Button variant="default" size="sm">
-                  <Badge
-                    variant={TICKET_STATUS_VARIANTS[ticket.status ?? "new"]}
-                  >
-                    {ticketStatusLabel(ticket.status)}
-                  </Badge>
-                  <CaretDownIcon size={10} weight="bold" />
-                </Button>
-              }
-            />
-            <DropdownMenuContent align="end">
-              <DropdownMenuRadioGroup
-                value={ticket.status ?? "new"}
-                onValueChange={(value) =>
-                  write({ status: value as Schemas.TicketStatusEnum })
-                }
-              >
-                {STATUS_OPTIONS.map((status) => (
-                  <DropdownMenuRadioItem key={status} value={status}>
-                    {TICKET_STATUS_LABELS[status]}
-                  </DropdownMenuRadioItem>
-                ))}
-              </DropdownMenuRadioGroup>
-            </DropdownMenuContent>
-          </DropdownMenu>
+          <PickerMenu
+            trigger={
+              <Badge variant={TICKET_STATUS_VARIANTS[ticket.status ?? "new"]}>
+                {ticketStatusLabel(ticket.status)}
+              </Badge>
+            }
+            value={ticket.status ?? "new"}
+            options={STATUS_OPTIONS.map((status) => ({
+              value: status,
+              label: TICKET_STATUS_LABELS[status],
+            }))}
+            onSelect={(value) =>
+              write({ status: value as Schemas.TicketStatusEnum })
+            }
+          />
         </Row>
 
         <Row label="Priority">
-          <DropdownMenu>
-            <DropdownMenuTrigger
-              render={
-                <Button variant="default" size="sm">
-                  {ticket.priority ? (
-                    <Badge variant={TICKET_PRIORITY_VARIANTS[ticket.priority]}>
-                      {ticketPriorityLabel(ticket.priority)}
-                    </Badge>
-                  ) : (
-                    <Text className="text-[12px] text-muted-foreground">
-                      No priority
-                    </Text>
-                  )}
-                  <CaretDownIcon size={10} weight="bold" />
-                </Button>
-              }
-            />
-            <DropdownMenuContent align="end">
-              <DropdownMenuRadioGroup
-                value={ticket.priority ?? "none"}
-                onValueChange={(value) =>
-                  write({
-                    priority:
-                      value === "none" ? null : (value as Schemas.PriorityEnum),
-                  })
-                }
-              >
-                <DropdownMenuRadioItem value="none">
+          <PickerMenu
+            trigger={
+              ticket.priority ? (
+                <Badge variant={TICKET_PRIORITY_VARIANTS[ticket.priority]}>
+                  {ticketPriorityLabel(ticket.priority)}
+                </Badge>
+              ) : (
+                <Text className="text-[12px] text-muted-foreground">
                   No priority
-                </DropdownMenuRadioItem>
-                {PRIORITY_OPTIONS.map((priority) => (
-                  <DropdownMenuRadioItem key={priority} value={priority}>
-                    {TICKET_PRIORITY_LABELS[priority]}
-                  </DropdownMenuRadioItem>
-                ))}
-              </DropdownMenuRadioGroup>
-            </DropdownMenuContent>
-          </DropdownMenu>
+                </Text>
+              )
+            }
+            value={ticket.priority ?? "none"}
+            options={[
+              { value: "none", label: "No priority" },
+              ...PRIORITY_OPTIONS.map((priority) => ({
+                value: priority,
+                label: TICKET_PRIORITY_LABELS[priority],
+              })),
+            ]}
+            onSelect={(value) =>
+              write({
+                priority:
+                  value === "none" ? null : (value as Schemas.PriorityEnum),
+              })
+            }
+          />
         </Row>
 
         <Row label="Assignee">
@@ -164,9 +123,7 @@ export function TicketInfoPanel({ ticket }: { ticket: SupportTicket }) {
           )}
         </Row>
 
-        <Row label={prUrls.length > 1 ? "Pull requests" : "Pull request"}>
-          <TicketPullRequests prUrls={prUrls} task={task} />
-        </Row>
+        <TicketPullRequestRow taskId={readTicketTaskId(ticket.tags)} />
 
         {labelTags.length > 0 && (
           <Row label="Tags">
@@ -192,13 +149,6 @@ export function TicketInfoPanel({ ticket }: { ticket: SupportTicket }) {
             {ticket.channel_source}
           </Text>
         </Row>
-        {ticket.email_from && (
-          <Row label="Email">
-            <Text className="truncate font-medium text-[12px]">
-              {ticket.email_from}
-            </Text>
-          </Row>
-        )}
         <Row label="Messages">
           <Text className="font-medium text-[12px] tabular-nums">
             {ticket.message_count}
@@ -206,6 +156,71 @@ export function TicketInfoPanel({ ticket }: { ticket: SupportTicket }) {
         </Row>
       </Section>
     </div>
+  );
+}
+
+// The pull request the ticket's agent thread opened, read from its task and its
+// state from the same source task rows use elsewhere.
+function TicketPullRequestRow({ taskId }: { taskId: string | null }) {
+  const { data: task } = useQuery({
+    ...taskDetailQuery(taskId ?? ""),
+    enabled: !!taskId,
+  });
+  const prUrl = readPrUrls(task?.latest_run?.output)[0];
+  const { prState } = useTaskPrStatus({
+    id: task?.id ?? "",
+    cloudPrUrl: prUrl ?? null,
+    taskRunEnvironment: task?.latest_run?.environment ?? null,
+  });
+
+  if (!prUrl) {
+    return null;
+  }
+
+  return (
+    <Row label="Pull request">
+      <PRBadgeLink
+        prUrl={prUrl}
+        prState={prState === "closed" ? "closed" : "open"}
+        merged={prState === "merged"}
+        draft={prState === "draft"}
+        compact
+      />
+    </Row>
+  );
+}
+
+function PickerMenu({
+  trigger,
+  value,
+  options,
+  onSelect,
+}: {
+  trigger: ReactNode;
+  value: string;
+  options: Array<{ value: string; label: string }>;
+  onSelect: (value: string) => void;
+}) {
+  return (
+    <DropdownMenu>
+      <DropdownMenuTrigger
+        render={
+          <Button variant="default" size="sm">
+            {trigger}
+            <CaretDownIcon size={10} weight="bold" />
+          </Button>
+        }
+      />
+      <DropdownMenuContent align="end">
+        <DropdownMenuRadioGroup value={value} onValueChange={onSelect}>
+          {options.map((option) => (
+            <DropdownMenuRadioItem key={option.value} value={option.value}>
+              {option.label}
+            </DropdownMenuRadioItem>
+          ))}
+        </DropdownMenuRadioGroup>
+      </DropdownMenuContent>
+    </DropdownMenu>
   );
 }
 

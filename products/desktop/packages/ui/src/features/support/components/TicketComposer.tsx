@@ -22,7 +22,6 @@ import {
 import { ticketStatusLabel } from "@posthog/ui/features/support/ticketPresentation";
 import { useState } from "react";
 
-/** Statuses worth setting straight off the back of a reply. */
 const STATUSES_ON_SEND: Schemas.TicketStatusEnum[] = [
   "pending",
   "on_hold",
@@ -61,7 +60,7 @@ export function TicketComposer({ ticket }: { ticket: SupportTicket }) {
 
     if (statusAfterSend) {
       updateTicket.mutate({
-        idOrNumber: ticket.id,
+        ticketId: ticket.id,
         updates: { status: statusAfterSend },
       });
     }

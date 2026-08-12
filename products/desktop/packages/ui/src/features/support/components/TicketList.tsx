@@ -216,7 +216,6 @@ function TicketRows({
   tickets: SupportTicket[];
   activeTicketId?: string;
 }) {
-  // One timestamp for the whole render so every row's age and SLA agree.
   const now = Date.now();
 
   return (
@@ -226,11 +225,8 @@ function TicketRows({
           key={ticket.id}
           ticket={ticket}
           now={now}
-          isActive={
-            ticket.id === activeTicketId ||
-            String(ticket.ticket_number) === activeTicketId
-          }
-          onSelect={() => navigateToSupportTicket(String(ticket.ticket_number))}
+          isActive={ticket.id === activeTicketId}
+          onSelect={() => navigateToSupportTicket(ticket.id)}
         />
       ))}
     </div>

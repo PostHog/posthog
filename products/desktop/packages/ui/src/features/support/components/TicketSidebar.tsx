@@ -12,14 +12,6 @@ import {
 } from "@posthog/ui/features/support/supportQueueStore";
 import { useEffect } from "react";
 
-/**
- * The right rail: ticket context, or the agent thread.
- *
- * Both panels stay mounted so switching tabs never tears down a live agent
- * session. The agent tab takes the front when a ticket already has a thread,
- * because the reason to come back to such a ticket is usually what the agent
- * did while you were elsewhere.
- */
 export function TicketSidebar({
   ticket,
   messages,

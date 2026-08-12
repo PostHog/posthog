@@ -6,11 +6,7 @@ import { supportKeys } from "@posthog/ui/features/support/supportKeys";
 import { useAuthenticatedQuery } from "@posthog/ui/hooks/useAuthenticatedQuery";
 import { keepPreviousData } from "@tanstack/react-query";
 
-/**
- * The queue is the surface's ambient poll. It reports `unread_team_count`
- * without clearing it, which the ticket endpoint does not, so freshness comes
- * from here rather than from reading each ticket.
- */
+// The ambient poll: reports unread without clearing it.
 const TICKET_LIST_POLL_INTERVAL_MS = 30_000;
 
 export function useSupportTickets(

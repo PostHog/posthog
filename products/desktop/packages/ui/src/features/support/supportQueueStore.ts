@@ -30,7 +30,6 @@ interface SupportQueueActions {
 
 type SupportQueueStore = SupportQueueState & SupportQueueActions;
 
-/** Open work, newest first: what a support engineer wants on opening the app. */
 const DEFAULT_STATUSES: Schemas.TicketStatusEnum[] = [
   "new",
   "open",
@@ -69,11 +68,7 @@ export const useSupportQueueStore = create<SupportQueueStore>()(
     }),
     {
       name: "support-queue-storage",
-      /**
-       * Only what the queue looks like survives a relaunch. Scope is left out
-       * deliberately: a saved view or a search that silently narrows tomorrow's
-       * queue, with the reason off screen, hides work rather than organising it.
-       */
+      // Display only: a persisted scope would silently narrow tomorrow's queue.
       partialize: (state) => ({
         orderBy: state.orderBy,
         sidebarTab: state.sidebarTab,

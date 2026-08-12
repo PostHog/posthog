@@ -20,7 +20,6 @@ import { taskDetailQuery } from "@posthog/ui/features/tasks/queries";
 import { useQuery } from "@tanstack/react-query";
 import { useState } from "react";
 
-/** Openers that cover most of what an engineer asks first on a ticket. */
 const SUGGESTIONS = [
   "Summarize this ticket",
   "Is this possible in the product today?",
@@ -48,11 +47,6 @@ export function TicketAgentPanel({
   );
 }
 
-/**
- * Resolves the linked task from the shared cache and hands it to Desktop's own
- * session view, so a ticket's thread is the same chat as anywhere else in the
- * app rather than a copy of it.
- */
 function TicketAgentSession({ taskId }: { taskId: string }) {
   const { data: task, isError } = useQuery(taskDetailQuery(taskId));
 

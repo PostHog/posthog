@@ -24,7 +24,6 @@ interface SupportCommand {
   onRun: () => void;
 }
 
-/** A day's worth, so a snoozed ticket comes back on the next shift. */
 const SNOOZE_MS = 24 * 60 * 60 * 1000;
 
 const STATUS_COMMANDS: Array<{
@@ -36,13 +35,7 @@ const STATUS_COMMANDS: Array<{
   { status: "resolved", label: "Resolve ticket" },
 ];
 
-/**
- * Ticket actions for the app's command menu.
- *
- * The navigation command is always available behind the flag; the ticket
- * actions appear only while a ticket is open, so the menu never lists a command
- * that would act on nothing.
- */
+// Ticket actions appear only while a ticket is open.
 export function useSupportCommands(closeSettingsDialog: () => void) {
   const supportEnabled = useSupportFlag();
   const view = useAppView();
@@ -75,7 +68,7 @@ export function useSupportCommands(closeSettingsDialog: () => void) {
 
     const write = (
       updates: Parameters<typeof updateTicket.mutate>[0]["updates"],
-    ) => updateTicket.mutate({ idOrNumber: ticketId, updates });
+    ) => updateTicket.mutate({ ticketId, updates });
 
     for (const { status, label } of STATUS_COMMANDS) {
       commands.push({

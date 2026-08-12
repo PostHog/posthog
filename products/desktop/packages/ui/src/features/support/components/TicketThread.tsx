@@ -16,11 +16,8 @@ import {
   ThreadItemGroup,
   ThreadItemHeader,
 } from "@posthog/quill";
-import {
-  formatTicketAge,
-  isTeamAuthoredMessage,
-  messageAuthorLabel,
-} from "@posthog/ui/features/support/ticketPresentation";
+import { formatRelativeTimeShort } from "@posthog/shared";
+import { messageAuthorLabel } from "@posthog/ui/features/support/ticketPresentation";
 import { useEffect, useRef } from "react";
 
 export function TicketThread({
@@ -54,13 +51,11 @@ export function TicketThread({
     );
   }
 
-  const now = Date.now();
-
   return (
     <div className="min-h-0 flex-1 overflow-y-auto px-4 py-3">
       <ThreadItemGroup>
         {messages.map((message) => (
-          <TicketMessageRow key={message.id} message={message} now={now} />
+          <TicketMessageRow key={message.id} message={message} />
         ))}
       </ThreadItemGroup>
       <div ref={bottomRef} />
@@ -68,14 +63,8 @@ export function TicketThread({
   );
 }
 
-function TicketMessageRow({
-  message,
-  now,
-}: {
-  message: SupportTicketMessage;
-  now: number;
-}) {
-  const fromTeam = isTeamAuthoredMessage(message);
+function TicketMessageRow({ message }: { message: SupportTicketMessage }) {
+  const fromCustomer = message.author_type !== "support";
 
   return (
     <ThreadItem>
@@ -91,11 +80,11 @@ function TicketMessageRow({
             </Badge>
           )}
           {message.is_private && <Badge variant="warning">Internal note</Badge>}
-          {!fromTeam && !message.is_private && (
+          {fromCustomer && !message.is_private && (
             <Badge variant="info">Customer</Badge>
           )}
           <Text className="ml-auto shrink-0 text-[11px] text-gray-11 tabular-nums">
-            {formatTicketAge(message.created_at, now)}
+            {formatRelativeTimeShort(message.created_at)}
           </Text>
         </ThreadItemHeader>
         <ThreadItemBody

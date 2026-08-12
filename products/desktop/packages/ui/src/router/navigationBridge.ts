@@ -200,7 +200,6 @@ export function navigateToSupport(): void {
   void getRouterOrNull()?.navigate({ to: "/support" });
 }
 
-/** `ticketId` may be a ticket number or a UUID; both resolve server-side. */
 export function navigateToSupportTicket(ticketId: string): void {
   void getRouterOrNull()?.navigate({
     to: "/support/$ticketId",
