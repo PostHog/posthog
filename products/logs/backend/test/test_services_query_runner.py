@@ -5,12 +5,14 @@ from typing import Any
 import pytest
 from freezegun import freeze_time
 from posthog.test.base import APIBaseTest, ClickhouseTestMixin
+from unittest.mock import patch
 
 from parameterized import parameterized
 from rest_framework import status
 
 from posthog.clickhouse.client import sync_execute
 
+from products.logs.backend import services_query_runner
 from products.logs.backend.services_query_runner import rule_could_apply_to_service
 
 
@@ -178,17 +180,18 @@ class TestServicesQueryDateRange(ClickhouseTestMixin, APIBaseTest):
                 {sql}
             """)
 
-    def _services(self, date_from: str, date_to: str) -> dict:
+    def _services(self, date_from: str, date_to: str, service_name_search: str | None = None) -> dict:
+        query: dict[str, Any] = {
+            "dateRange": {"date_from": date_from, "date_to": date_to},
+            "severityLevels": [],
+            "filterGroup": {"type": "AND", "values": [{"type": "AND", "values": []}]},
+            "serviceNames": [],
+        }
+        if service_name_search is not None:
+            query["serviceNameSearch"] = service_name_search
         response = self.client.post(
             f"/api/projects/{self.team.id}/logs/services",
-            data={
-                "query": {
-                    "dateRange": {"date_from": date_from, "date_to": date_to},
-                    "severityLevels": [],
-                    "filterGroup": {"type": "AND", "values": [{"type": "AND", "values": []}]},
-                    "serviceNames": [],
-                }
-            },
+            data={"query": query},
         )
         self.assertEqual(response.status_code, status.HTTP_200_OK)
         return response.json()
@@ -237,13 +240,65 @@ class TestServicesQueryDateRange(ClickhouseTestMixin, APIBaseTest):
     def test_sparkline_covers_exactly_the_returned_services(self):
         # The sparkline must line up exactly with the aggregates result: never a
         # service the table won't render (extra), and never a displayed service
-        # missing its trend (the row-cap truncation the scoping fix removes).
+        # missing its trend. Exact equality holds because the fixture's 12
+        # services fit within SPARKLINE_SERVICES_LIMIT; beyond it the sparkline
+        # covers only the top services (see the scoping test below).
         result = self._services("2025-12-16T00:00:00Z", "2025-12-16T23:59:59Z")
         service_names = {s["service_name"] for s in result["services"]}
         sparkline_services = {row["service_name"] for row in result["sparkline"]}
 
         self.assertTrue(service_names)
         self.assertEqual(sparkline_services, service_names)
+
+    # The new tests below pass absolute date ranges, so they skip freeze_time:
+    # the first request of a test process imports the URLconf, and transitively
+    # pydantic.v1, whose date subclasses cannot be built while freezegun has
+    # datetime.date patched.
+    def test_cap_limits_services_but_not_total_count(self):
+        # If the row cap stops being applied the response grows unbounded with
+        # service-name cardinality; if total_services gets computed from the
+        # capped rows instead of a separate uncapped count, the UI's truncation
+        # banner can never show. The fixture has 12 services.
+        with patch.object(services_query_runner, "SERVICES_LIMIT", 5):
+            result = self._services("2025-12-16T00:00:00Z", "2025-12-16T23:59:59Z")
+
+        self.assertEqual(len(result["services"]), 5)
+        self.assertEqual(result["total_services"], 12)
+        # The cap keeps the highest-volume services: every fixture service kept
+        # has 97+ rows, the smallest ones (11 and 3 rows) must be the ones cut.
+        self.assertTrue(all(s["log_count"] >= 97 for s in result["services"]))
+
+    def test_sparkline_scoped_to_top_services_when_over_limit(self):
+        # Scoping the sparkline query to every returned service would put
+        # services × buckets rows behind a single row LIMIT that silently drops
+        # the most recent buckets first; the scan must stay bounded to the top
+        # services of this response instead.
+        with patch.object(services_query_runner, "SPARKLINE_SERVICES_LIMIT", 3):
+            result = self._services("2025-12-16T00:00:00Z", "2025-12-16T23:59:59Z")
+
+        top_names = {s["service_name"] for s in result["services"][:3]}
+        sparkline_services = {row["service_name"] for row in result["sparkline"]}
+        self.assertEqual(sparkline_services, top_names)
+
+    @parameterized.expand(
+        [
+            (
+                "case_insensitive_substring",
+                "CDP",
+                {"cdp-legacy-events-consumer", "cdp-api", "cdp-api-webhooks", "cdp-behavioural-events-consumer"},
+            ),
+            # % and _ are LIKE wildcards and \ is the LIKE escape character;
+            # unescaped, "%_" matches every service name. No fixture service
+            # contains any of them literally.
+            ("wildcards_matched_literally", "%_", set()),
+            ("backslash_matched_literally", "\\", set()),
+        ]
+    )
+    def test_service_name_search(self, _name: str, search: str, expected_names: set[str]):
+        result = self._services("2025-12-16T00:00:00Z", "2025-12-16T23:59:59Z", service_name_search=search)
+
+        self.assertEqual({s["service_name"] for s in result["services"]}, expected_names)
+        self.assertEqual(result["total_services"], len(expected_names))
 
 
 if __name__ == "__main__":
