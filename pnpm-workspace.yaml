@@ -20,6 +20,7 @@ packages:
     - '!products/desktop'
     - docs/onboarding
     - services/agent-proxy
+    - services/integration-service
     - services/oauth-proxy
     - services/mcp
     - services/stripe-app
