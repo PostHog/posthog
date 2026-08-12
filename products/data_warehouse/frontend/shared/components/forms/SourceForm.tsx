@@ -171,7 +171,7 @@ export const sourceFieldToElement = (
                             data-attr={field.name}
                             placeholder={isUpdateMode ? undefined : field.placeholder}
                             type={isUpdateMode ? 'password' : 'text'}
-                            onChange={(updatedConnectionString) => {
+                            onChange={(updatedConnectionString: string) => {
                                 onChange(updatedConnectionString)
                                 const { isValid, fields } = parseConnectionStringForSource(
                                     sourceConfig.name,
