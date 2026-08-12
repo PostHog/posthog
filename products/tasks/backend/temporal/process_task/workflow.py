@@ -116,6 +116,7 @@ from .slack_agent_design_relay import SlackAgentDesignRelayInput, SlackAgentDesi
 DEAD_SANDBOX_ERROR_TYPES = ("SandboxNotRunningError", "SandboxNotFoundError")
 MAX_ACCEPTED_MESSAGE_IDS = 500
 _PATCH_ID_CANCEL_SANDBOX_CREATION_ON_COMPLETION = "tasks-cancel-sandbox-creation-on-completion"
+_PATCH_ID_CONTINUE_AFTER_REPOSITORY_CLONE_FAILURE = "tasks-continue-after-repository-clone-failure"
 
 
 class _TaskCompletedDuringSandboxCreation(Exception):
@@ -1468,44 +1469,101 @@ class ProcessTaskWorkflow(PostHogWorkflow):
             launch_ms = launch_output.launch_ms if launch_output else None
 
         clone_ms: int | None = None
+        failed_repositories: set[str] = set()
+        materialized_failed_repositories: set[str] = set()
+        repo_ready_released = False
         release_after_primary_clone = bool(
             overlap and len(repositories_to_clone) > 1 and workflow.patched(_PATCH_ID_AGENT_READY_AFTER_PRIMARY_CLONE)
         )
         if will_clone:
             await self._emit_progress("clone", "in_progress", "Cloning repository", "setup")
+            continue_after_clone_failure = workflow.patched(_PATCH_ID_CONTINUE_AFTER_REPOSITORY_CLONE_FAILURE)
 
-            async def clone_repository(repository: str) -> CloneRepositoryInSandboxOutput:
-                clone_output = await workflow.execute_activity(
-                    clone_repository_in_sandbox,
-                    CloneRepositoryInSandboxInput(
-                        context=self.context,
-                        sandbox_id=created.sandbox_id,
-                        repository=repository,
-                        github_token=prepared.github_token,
-                        shallow_clone=prepared.shallow_clone,
-                    ),
-                    start_to_close_timeout=timedelta(minutes=5),
-                    retry_policy=RetryPolicy(maximum_attempts=3),
-                )
-                if release_after_primary_clone and repository == repositories_to_clone[0]:
-                    await self._mark_repo_ready(created.sandbox_id)
-                return clone_output
+            async def clone_repository(
+                repository: str,
+            ) -> tuple[CloneRepositoryInSandboxOutput | None, bool, bool]:
+                try:
+                    clone_output = await workflow.execute_activity(
+                        clone_repository_in_sandbox,
+                        CloneRepositoryInSandboxInput(
+                            context=self.context,
+                            sandbox_id=created.sandbox_id,
+                            repository=repository,
+                            github_token=prepared.github_token,
+                            shallow_clone=prepared.shallow_clone,
+                        ),
+                        start_to_close_timeout=timedelta(minutes=5),
+                        retry_policy=RetryPolicy(maximum_attempts=3),
+                    )
+                except Exception as error:
+                    if _is_dead_sandbox_failure(error) or not continue_after_clone_failure:
+                        raise
+                    workflow.logger.warning(
+                        "repository_clone_failed_continuing_without_repository",
+                        extra={
+                            "run_id": self.context.run_id,
+                            "sandbox_id": created.sandbox_id,
+                            "repository": repository,
+                            "error": str(error),
+                        },
+                    )
+                    clone_output = None
+                    clone_failed = True
+                else:
+                    clone_failed = False
+
+                is_primary_repository = repository == repositories_to_clone[0]
+                should_release_after_clone = release_after_primary_clone and is_primary_repository
+                should_materialize_failure = release_after_primary_clone and clone_failed
+                if should_release_after_clone or should_materialize_failure:
+                    await self._mark_repo_ready(
+                        created.sandbox_id,
+                        failed_repositories=[repository] if clone_failed else None,
+                        release_barrier=should_release_after_clone,
+                    )
+                return clone_output, clone_failed, should_release_after_clone
 
             clone_outputs = await asyncio.gather(
                 *(clone_repository(repository) for repository in repositories_to_clone)
             )
             clone_durations: list[int] = []
-            for clone_output in clone_outputs:
+            for repository, (clone_output, clone_failed, released_after_clone) in zip(
+                repositories_to_clone, clone_outputs
+            ):
+                if clone_failed:
+                    failed_repositories.add(repository)
+                    if release_after_primary_clone:
+                        materialized_failed_repositories.add(repository)
+                repo_ready_released = repo_ready_released or released_after_clone
                 if (duration := getattr(clone_output, "clone_ms", None)) is not None:
                     clone_durations.append(duration)
             clone_ms = sum(clone_durations) if clone_durations else None
-            clone_label = "Cloned repository" if len(repositories_to_clone) == 1 else "Cloned repositories"
-            await self._emit_progress("clone", "completed", clone_label, "setup")
+            if failed_repositories:
+                failed_list = ", ".join(sorted(failed_repositories))
+                remaining_failed_repositories = sorted(failed_repositories - materialized_failed_repositories)
+                should_release_barrier = overlap and not repo_ready_released
+                if remaining_failed_repositories or should_release_barrier:
+                    await self._mark_repo_ready(
+                        created.sandbox_id,
+                        failed_repositories=remaining_failed_repositories or None,
+                        release_barrier=should_release_barrier,
+                    )
+                    repo_ready_released = repo_ready_released or should_release_barrier
+                await self._emit_progress(
+                    "clone",
+                    "completed",
+                    "Repository clone failed; continuing without it",
+                    "setup",
+                    detail=f"Could not clone: {failed_list}",
+                )
+            else:
+                clone_label = "Cloned repository" if len(repositories_to_clone) == 1 else "Cloned repositories"
+                await self._emit_progress("clone", "completed", clone_label, "setup")
 
         state = self.context.state or {}
         is_resume = bool(state.get("resume_from_run_id") or state.get("handoff_resumed"))
         checkout_ms: int | None = None
-        if will_checkout and not is_resume:
+        if will_checkout and checkout_repository not in failed_repositories and not is_resume:
             assert checkout_repository is not None
             assert prepared.branch is not None
             branch_label_active = f"Checking out branch {prepared.branch}"
@@ -1529,7 +1587,7 @@ class ProcessTaskWorkflow(PostHogWorkflow):
             checkout_ms = getattr(checkout_output, "checkout_ms", None)
             await self._emit_progress("checkout", "completed", branch_label_done, "setup")
 
-        if overlap and not release_after_primary_clone:
+        if overlap and not repo_ready_released:
             await self._mark_repo_ready(created.sandbox_id)
 
         return GetSandboxForRepositoryOutput(
@@ -1705,10 +1763,21 @@ class ProcessTaskWorkflow(PostHogWorkflow):
             retry_policy=RetryPolicy(maximum_attempts=3),
         )
 
-    async def _mark_repo_ready(self, sandbox_id: str) -> None:
+    async def _mark_repo_ready(
+        self,
+        sandbox_id: str,
+        failed_repositories: list[str] | None = None,
+        *,
+        release_barrier: bool = True,
+    ) -> None:
         await workflow.execute_activity(
             mark_repo_ready,
-            MarkRepoReadyInput(sandbox_id=sandbox_id, run_id=self.context.run_id),
+            MarkRepoReadyInput(
+                sandbox_id=sandbox_id,
+                run_id=self.context.run_id,
+                failed_repositories=failed_repositories,
+                release_barrier=release_barrier,
+            ),
             start_to_close_timeout=timedelta(seconds=30),
             retry_policy=RetryPolicy(maximum_attempts=3),
         )
