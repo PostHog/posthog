@@ -384,6 +384,8 @@ _TASK_RUN_PUBLIC_STATE_KEYS = frozenset(
         "initial_permission_mode",
         "mode",
         "model",
+        "pending_user_artifact_ids",
+        "pending_user_message",
         "pr_authorship_mode",
         "pr_base_branch",
         "provider",
