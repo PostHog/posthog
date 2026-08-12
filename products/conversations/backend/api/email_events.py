@@ -467,19 +467,22 @@ def email_inbound_handler(request: HttpRequest) -> HttpResponse:
                 # be folded into cc_participants or replies would deliver to them twice.
                 ticket_from = (ticket.email_from or "").lower()
                 cc_list = [addr for addr in cc_list if addr != ticket_from]
-                update_fields: dict[str, Any] = {}
+                fields_to_update: list[str] = []
                 if not is_team_member:
-                    update_fields["unread_team_count"] = F("unread_team_count") + 1
+                    ticket.unread_team_count = F("unread_team_count") + 1
+                    fields_to_update.append("unread_team_count")
                     # A customer reply reactivates the thread. A resolved, pending, or on-hold
                     # ticket that keeps its status drops out of the default inbox list, so the
                     # team never sees the reply and the customer waits unanswered.
                     if ticket.status not in (Status.OPEN, Status.NEW):
                         reopened_from_status = ticket.status
-                        update_fields["status"] = Status.OPEN
+                        ticket.status = Status.OPEN
+                        fields_to_update.append("status")
                 if cc_list:
-                    update_fields["cc_participants"] = list(dict.fromkeys(ticket.cc_participants + cc_list))
-                if update_fields:
-                    Ticket.objects.filter(id=ticket.id, team=team).update(**update_fields)
+                    ticket.cc_participants = list(dict.fromkeys(ticket.cc_participants + cc_list))
+                    fields_to_update.append("cc_participants")
+                if fields_to_update:
+                    ticket.save(update_fields=[*fields_to_update, "updated_at"])
 
             EmailMessageMapping.objects.create(
                 message_id=email_message_id,
