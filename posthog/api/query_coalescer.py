@@ -23,6 +23,9 @@ from posthog import (
 
 logger = structlog.get_logger(__name__)
 
+COALESCED_RESPONSE_META_KEY = "_coalesced_response"
+DISQUALIFIED_META_KEY = "_coalescing_disqualified"
+
 LOCK_KEY_PREFIX = "http_qc"
 DONE_KEY_PREFIX = "http_qc_done"
 ERROR_KEY_PREFIX = "http_qc_err"
@@ -265,11 +268,13 @@ class QueryCoalescer:
 
 _TEAM_ID_RE = re.compile(r"^/api/(?:environments|projects)/(\d+)/")
 
+# Detail routes are deliberately absent: a replayed response never reaches the view handler, so
+# `get_object()` and the object-level permission checks hanging off it never run for the follower.
+# `QueryCoalescingMixin` enforces the same rule per action.
 _COALESCE_PATH_PATTERNS = [
     re.compile(r"^/api/(?:environments|projects)/\d+/query/$"),
     re.compile(r"^/api/(?:environments|projects)/\d+/insights/trend/$"),  # legacy endpoint
     re.compile(r"^/api/(?:environments|projects)/\d+/insights/funnel/$"),  # legacy endpoint
-    re.compile(r"^/api/(?:environments|projects)/\d+/insights/\d+/$"),
 ]
 
 
@@ -320,6 +325,11 @@ class QueryCoalescingMiddleware:
             # Force render DRF responses so we can capture the body
             if hasattr(response, "render") and callable(response.render):
                 response.render()
+            if request.META.get(DISQUALIFIED_META_KEY):
+                # The view has an object-level permission surface, so its body is not replayable.
+                # Signal rather than stay silent, so followers fall through now instead of waiting.
+                coalescer.signal_error()
+                return response
             content_type = response.get("Content-Type", "application/json")
             if response.status_code < 400 or response.status_code >= 500:
                 # Coalesce successes (2xx) and server errors (5xx).
@@ -351,7 +361,7 @@ class QueryCoalescingMiddleware:
             if data:
                 log.info("query_coalescing_middleware_follower_done")
                 # Attach cached response for the view mixin to gate behind permissions
-                request.META["_coalesced_response"] = data
+                request.META[COALESCED_RESPONSE_META_KEY] = data
                 return self.get_response(request)
             log.warning("query_coalescing_middleware_follower_done_read_failed")
 
@@ -376,6 +386,27 @@ class QueryCoalescingMiddleware:
     # Fields that are unique per request and should not affect coalescing
     _IGNORED_KEY_FIELDS = {"client_query_id", "session_id"}
 
+    # Credential material that tells one principal from another. A GET query string and a POST body
+    # are already hashed into the key, so these only add the axes the key would otherwise miss: the
+    # Authorization header, the sharing cookie, and query-string credentials on a POST, where the
+    # query string is not part of the key.
+    #
+    # Coalesced responses are principal-specific, because /query/ results are filtered by
+    # UserAccessControl and warehouse tables resolve per user. So an authenticator whose credential
+    # reaches none of these would let two principals share one rendered result. Keep in sync with
+    # the authenticators in TeamAndOrgViewSetMixin.get_authenticators.
+    _CREDENTIAL_QUERY_PARAMS = ("personal_api_key", "sharing_access_token")
+    _CREDENTIAL_COOKIES = ("posthog_sharing_token",)
+
+    @staticmethod
+    def _principal_fingerprint(request: HttpRequest) -> str:
+        user = getattr(request, "user", None)
+        user_id = user.pk if user is not None and user.is_authenticated else ""
+        parts = [str(user_id), request.META.get("HTTP_AUTHORIZATION", "")]
+        parts.extend(request.GET.get(param, "") for param in QueryCoalescingMiddleware._CREDENTIAL_QUERY_PARAMS)
+        parts.extend(request.COOKIES.get(cookie, "") for cookie in QueryCoalescingMiddleware._CREDENTIAL_COOKIES)
+        return "|".join(parts)
+
     @staticmethod
     def _compute_key(team_id: int, request: HttpRequest) -> str:
         if request.method == "GET":
@@ -393,7 +424,8 @@ class QueryCoalescingMiddleware:
             except ValueError:
                 normalized = request.body
 
-        raw = f"{team_id}:{request.method}:{request.path}:{normalized.decode()}"
+        principal = QueryCoalescingMiddleware._principal_fingerprint(request)
+        raw = f"{team_id}:{request.method}:{request.path}:{principal}:{normalized.decode()}"
         return hashlib.sha256(raw.encode()).hexdigest()
 
 
@@ -415,7 +447,12 @@ class QueryCoalescingMixin(_MixinBase):
     """
 
     def dispatch(self, request, *args, **kwargs):
-        coalesced = request.META.get("_coalesced_response")
+        if self._has_object_permission_surface(request):
+            request.META[DISQUALIFIED_META_KEY] = True
+            request.META.pop(COALESCED_RESPONSE_META_KEY, None)
+            return super().dispatch(request, *args, **kwargs)
+
+        coalesced = request.META.get(COALESCED_RESPONSE_META_KEY)
         if coalesced is None:
             return super().dispatch(request, *args, **kwargs)
 
@@ -438,3 +475,19 @@ class QueryCoalescingMixin(_MixinBase):
             status=coalesced["status"],
             content_type=coalesced.get("content_type", "application/json"),
         )
+
+    def _has_object_permission_surface(self, request) -> bool:
+        """Whether this action can reach `get_object()`, and with it `check_object_permissions`.
+
+        Neither runs for a replayed response, which would skip every object-level check PostHog
+        performs after `initial()`: `AccessControlPermission.has_object_permission` and the
+        sharing-token object check. Such an action has to execute for real.
+
+        Read per action rather than per view, because `QueryViewSet` declares
+        `sharing_enabled_actions` for `retrieve` while the coalesced action is `create`, which
+        reaches no object.
+        """
+        if getattr(self, "detail", False):
+            return True
+        action = (getattr(self, "action_map", None) or {}).get((request.method or "").lower(), "")
+        return action in getattr(self, "sharing_enabled_actions", [])

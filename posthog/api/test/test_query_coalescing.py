@@ -1,3 +1,4 @@
+import re
 import time
 import threading
 from typing import Any
@@ -20,6 +21,12 @@ from posthog.api.query_coalescer import (
     QueryCoalescer,
     query_coalesce_counter,
 )
+from posthog.constants import AvailableFeature
+from posthog.models.organization import OrganizationMembership
+
+from products.product_analytics.backend.models.insight import Insight
+
+from ee.models.rbac.access_control import AccessControl
 
 
 class TestQueryCoalescer(TestCase):
@@ -480,7 +487,6 @@ class TestQueryCoalescingMiddleware(ClickhouseTestMixin, APIBaseTest):
             ("query", "/api/environments/{team_id}/query/"),
             ("insights_trend", "/api/environments/{team_id}/insights/trend/"),
             ("insights_funnel", "/api/environments/{team_id}/insights/funnel/"),
-            ("insights_pk", "/api/environments/{team_id}/insights/123/"),
         ]
     )
     def test_matching_paths_trigger_coalescing(self, _name, path_template):
@@ -494,3 +500,98 @@ class TestQueryCoalescingMiddleware(ClickhouseTestMixin, APIBaseTest):
         ):
             self.client.post(path, {"query": {"kind": "EventsQuery", "select": ["event"]}})
             mock_cls.assert_called_once()
+
+
+class TestQueryCoalescingObjectPermissions(APIBaseTest):
+    def setUp(self):
+        super().setUp()
+        self.organization.available_product_features = [
+            {"key": AvailableFeature.ACCESS_CONTROL, "name": AvailableFeature.ACCESS_CONTROL},
+        ]
+        self.organization.save()
+
+        self.insight = Insight.objects.create(team=self.team, name="Restricted insight", created_by=self.user)
+        AccessControl.objects.create(
+            resource="insight", resource_id=self.insight.id, team=self.team, access_level="none"
+        )
+
+        self.denied_user = self._create_user("denied@posthog.com", level=OrganizationMembership.Level.MEMBER)
+        self.client.force_login(self.denied_user)
+        self.path = f"/api/projects/{self.team.pk}/insights/{self.insight.id}/"
+
+    def test_follower_cannot_replay_an_insight_it_has_no_object_access_to(self):
+        # Control: the object-level denial has to be real, otherwise the replay assertion is vacuous
+        self.assertEqual(self.client.get(self.path).status_code, 403)
+
+        leaked_body = '{"id": 1, "name": "Restricted insight", "result": [["leaked"]]}'
+        mock_coalescer = mock.MagicMock()
+        mock_coalescer.try_acquire.return_value = False
+        mock_coalescer._dry_run = False
+        mock_coalescer.wait_for_signal.return_value = CoalesceSignal.DONE
+        mock_coalescer.get_success_response.return_value = {
+            "status": 200,
+            "body": leaked_body,
+            "content_type": "application/json",
+        }
+
+        with (
+            mock.patch("posthog.api.query_coalescer.posthoganalytics.feature_enabled", return_value=True),
+            mock.patch("posthog.api.query_coalescer.QueryCoalescer", return_value=mock_coalescer),
+            mock.patch(
+                "posthog.api.query_coalescer._COALESCE_PATH_PATTERNS",
+                [re.compile(r"^/api/(?:environments|projects)/\d+/insights/\d+/$")],
+            ),
+        ):
+            response = self.client.get(self.path)
+
+        self.assertEqual(response.status_code, 403)
+        self.assertNotIn("leaked", response.content.decode())
+
+    def test_insight_detail_path_is_not_coalesced(self):
+        with mock.patch("posthog.api.query_coalescer.QueryCoalescer") as mock_cls:
+            self.client.get(self.path)
+            mock_cls.assert_not_called()
+
+
+class TestQueryCoalescingKey(APIBaseTest):
+    def setUp(self):
+        super().setUp()
+        self.other_user = self._create_user("other@posthog.com", level=OrganizationMembership.Level.MEMBER)
+
+    def _key_for(self, *, query_string: str = "", cookies: dict[str, str] | None = None, **extra) -> str:
+        path = f"/api/environments/{self.team.id}/query/"
+        if query_string:
+            path = f"{path}?{query_string}"
+        for name, value in (cookies or {}).items():
+            self.client.cookies[name] = value
+
+        mock_coalescer = mock.MagicMock()
+        mock_coalescer.try_acquire.return_value = True
+        try:
+            with (
+                mock.patch("posthog.api.query_coalescer.posthoganalytics.feature_enabled", return_value=True),
+                mock.patch("posthog.api.query_coalescer.QueryCoalescer", return_value=mock_coalescer) as mock_cls,
+            ):
+                self.client.post(path, {"query": {"kind": "EventsQuery", "select": ["event"]}}, **extra)
+            return mock_cls.call_args.args[0]
+        finally:
+            for name in cookies or {}:
+                del self.client.cookies[name]
+
+    def test_key_is_stable_for_the_same_principal(self):
+        self.assertEqual(self._key_for(), self._key_for())
+
+    @parameterized.expand(
+        [
+            ("session_user", True, {}),
+            ("authorization_header", False, {"HTTP_AUTHORIZATION": "Bearer phx_coalescing_test_key"}),
+            ("personal_api_key_query_param", False, {"query_string": "personal_api_key=phx_coalescing_test_key"}),
+            ("sharing_access_token_query_param", False, {"query_string": "sharing_access_token=share_test_token"}),
+            ("sharing_password_cookie", False, {"cookies": {"posthog_sharing_token": "sharing_test_jwt"}}),
+        ]
+    )
+    def test_key_differs_when_the_principal_differs(self, _name, switch_user, variant):
+        baseline = self._key_for()
+        if switch_user:
+            self.client.force_login(self.other_user)
+        self.assertNotEqual(baseline, self._key_for(**variant))
