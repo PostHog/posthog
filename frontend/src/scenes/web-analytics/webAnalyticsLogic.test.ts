@@ -10,7 +10,7 @@ import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { userLogic } from 'scenes/userLogic'
 
 import { initKeaTests } from '~/test/init'
-import { UserType } from '~/types'
+import { PropertyFilterType, PropertyOperator, UserType } from '~/types'
 
 import { GraphsTab, ProductTab, TileId } from './common'
 import { FOCUS_MODE_TILE_IDS } from './focus-mode/focusModeMapping'
@@ -440,5 +440,81 @@ describe('webAnalyticsLogic URL restoration', () => {
         await expectLogic(logic).toFinishAllListeners()
 
         expect(router.values.searchParams[key]).toBe(expected)
+    })
+
+    const enableBackNavReset = (): void => {
+        featureFlagLogic.actions.setFeatureFlags([FEATURE_FLAGS.WEB_ANALYTICS_BACK_NAVIGATION_RESET], {
+            [FEATURE_FLAGS.WEB_ANALYTICS_BACK_NAVIGATION_RESET]: true,
+        })
+    }
+
+    const FILTER_A = {
+        type: PropertyFilterType.Session as const,
+        key: '$entry_utm_source',
+        operator: PropertyOperator.Exact,
+        value: ['google'],
+    }
+    const FILTER_B = {
+        type: PropertyFilterType.Session as const,
+        key: '$entry_utm_medium',
+        operator: PropertyOperator.Exact,
+        value: ['cpc'],
+    }
+
+    it('clears a drilled-in filter when navigating back to a URL without filters (flag on)', async () => {
+        enableBackNavReset()
+
+        router.actions.push('/web', { filters: [FILTER_A] })
+        await expectLogic(logic).toFinishAllListeners()
+        expect(logic.values.rawWebAnalyticsFilters).toEqual([FILTER_A])
+
+        router.actions.push('/web')
+        await expectLogic(logic).toFinishAllListeners()
+        expect(logic.values.rawWebAnalyticsFilters).toEqual([])
+    })
+
+    it('keeps the outer filter when stepping back between two drill levels (flag on)', async () => {
+        enableBackNavReset()
+
+        router.actions.push('/web', { filters: [FILTER_A, FILTER_B] })
+        await expectLogic(logic).toFinishAllListeners()
+        expect(logic.values.rawWebAnalyticsFilters).toEqual([FILTER_A, FILTER_B])
+
+        router.actions.push('/web', { filters: [FILTER_A] })
+        await expectLogic(logic).toFinishAllListeners()
+        expect(logic.values.rawWebAnalyticsFilters).toEqual([FILTER_A])
+    })
+
+    it('leaves a drilled-in filter in place on back-navigation when the flag is off', async () => {
+        router.actions.push('/web', { filters: [FILTER_A] })
+        await expectLogic(logic).toFinishAllListeners()
+        expect(logic.values.rawWebAnalyticsFilters).toEqual([FILTER_A])
+
+        router.actions.push('/web')
+        await expectLogic(logic).toFinishAllListeners()
+        expect(logic.values.rawWebAnalyticsFilters).toEqual([FILTER_A])
+    })
+
+    it('keeps filters when moving to the Live tab, which never serializes them (flag on)', async () => {
+        enableBackNavReset()
+
+        router.actions.push('/web', { filters: [FILTER_A] })
+        await expectLogic(logic).toFinishAllListeners()
+        expect(logic.values.rawWebAnalyticsFilters).toEqual([FILTER_A])
+
+        router.actions.push('/web/live')
+        await expectLogic(logic).toFinishAllListeners()
+        expect(logic.values.rawWebAnalyticsFilters).toEqual([FILTER_A])
+    })
+
+    it('keeps filters when a cold /web/bots load redirects to /web with the bots flag off (reset flag on)', async () => {
+        enableBackNavReset()
+        logic.actions.setWebAnalyticsFilters([FILTER_A])
+        await expectLogic(logic).toFinishAllListeners()
+        logic.cache.hasRestoredWebUrl = false
+
+        router.actions.push('/web/bots')
+        await expectLogic(logic).toFinishAllListeners()
+        expect(logic.values.rawWebAnalyticsFilters).toEqual([FILTER_A])
     })
 })

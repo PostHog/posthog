@@ -6,7 +6,6 @@ import posthog from 'posthog-js'
 import { lemonToast } from 'lib/lemon-ui/LemonToast'
 import { userLogic } from 'scenes/userLogic'
 
-import { useMocks } from '~/mocks/jest'
 import { initKeaTests } from '~/test/init'
 
 import { featurePreviewsLogic } from './featurePreviewsLogic'
@@ -26,11 +25,10 @@ describe('featurePreviewsLogic - submitEarlyAccessFeatureFeedback', () => {
     beforeEach(() => {
         jest.clearAllMocks()
 
-        useMocks({
-            post: {
-                'https://posthoghelp.zendesk.com/api/v2/requests.json': [200, { request: { id: 123 } }],
-            },
-        })
+        ;(posthog as any).conversations = {
+            isAvailable: () => true,
+            sendMessage: jest.fn().mockResolvedValue({ ticket_id: '123', ticket_status: 'open', created_at: '' }),
+        }
         initKeaTests()
         logic = featurePreviewsLogic()
         logic.mount()
@@ -56,13 +54,10 @@ describe('featurePreviewsLogic - submitEarlyAccessFeatureFeedback failure', () =
 
     beforeEach(() => {
         jest.clearAllMocks()
-        useMocks({
-            post: {
-                // Zendesk rejects the ticket; with no beacon fallback the support submit reports failure
-                'https://posthoghelp.zendesk.com/api/v2/requests.json': [500, {}],
-            },
-        })
-        ;(navigator as any).sendBeacon = jest.fn(() => false)
+        ;(posthog as any).conversations = {
+            isAvailable: () => true,
+            sendMessage: jest.fn().mockRejectedValue(new Error('network down')),
+        }
         initKeaTests()
         logic = featurePreviewsLogic()
         logic.mount()
@@ -89,11 +84,6 @@ describe('featurePreviewsLogic - updateEarlyAccessFeatureEnrollment', () => {
         // Set up the mock implementation for posthog
         ;(posthog as any).updateEarlyAccessFeatureEnrollment = mockUpdateEnrollment
 
-        useMocks({
-            post: {
-                'https://posthoghelp.zendesk.com/api/v2/requests.json': [200, {}],
-            },
-        })
         initKeaTests()
         logic = featurePreviewsLogic()
         logic.mount()
@@ -130,11 +120,6 @@ describe('featurePreviewsLogic - conceptEnrollments reducer', () => {
         jest.clearAllMocks()
         ;(posthog as any).updateEarlyAccessFeatureEnrollment = jest.fn()
 
-        useMocks({
-            post: {
-                'https://posthoghelp.zendesk.com/api/v2/requests.json': [200, {}],
-            },
-        })
         initKeaTests()
         logic = featurePreviewsLogic()
         logic.mount()
@@ -176,11 +161,6 @@ describe('featurePreviewsLogic - submitConceptSurvey', () => {
         ;(posthog as any).capture = mockCapture
         ;(posthog as any).updateEarlyAccessFeatureEnrollment = mockUpdateEnrollment
 
-        useMocks({
-            post: {
-                'https://posthoghelp.zendesk.com/api/v2/requests.json': [200, {}],
-            },
-        })
         initKeaTests()
         logic = featurePreviewsLogic()
         logic.mount()
@@ -271,11 +251,6 @@ describe('featurePreviewsLogic - updateEarlyAccessFeatureEnrollment (impersonate
         // Set up the mock implementation for posthog
         ;(posthog as any).updateEarlyAccessFeatureEnrollment = mockUpdateEnrollment
 
-        useMocks({
-            post: {
-                'https://posthoghelp.zendesk.com/api/v2/requests.json': [200, {}],
-            },
-        })
         initKeaTests()
         logic = featurePreviewsLogic()
         logic.mount()

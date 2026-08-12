@@ -198,7 +198,7 @@ class TestPostgresTable(BaseTest):
         )
         self.assertEqual(
             self._select("SELECT * FROM postgres_table LIMIT 10"),
-            f"SELECT postgres_table.id AS id, postgres_table.team_id AS team_id, postgres_table.name AS name FROM postgresql(%(hogql_val_1_sensitive)s, %(hogql_val_2_sensitive)s, %(hogql_val_0_sensitive)s, %(hogql_val_3_sensitive)s, %(hogql_val_4_sensitive)s) AS postgres_table WHERE equals(postgres_table.team_id, {self.team.pk}) LIMIT 10",
+            f"SELECT postgres_table.id AS id, postgres_table.team_id AS team_id, postgres_table.name AS name FROM (SELECT * FROM postgresql(%(hogql_val_1_sensitive)s, %(hogql_val_2_sensitive)s, %(hogql_val_0_sensitive)s, %(hogql_val_3_sensitive)s, %(hogql_val_4_sensitive)s) WHERE team_id = {self.team.pk}) AS postgres_table WHERE equals(postgres_table.team_id, {self.team.pk}) LIMIT 10",
         )
 
     def test_single_predicate(self):
@@ -271,7 +271,7 @@ class TestPostgresTable(BaseTest):
                 "LEFT JOIN postgres_table ON other_table.ref_id = postgres_table.id "
                 "LIMIT 10",
             ),
-            f"SELECT other_table.id AS id, postgres_table.name AS name FROM postgresql(%(hogql_val_1_sensitive)s, %(hogql_val_2_sensitive)s, %(hogql_val_0_sensitive)s, %(hogql_val_3_sensitive)s, %(hogql_val_4_sensitive)s) AS other_table LEFT JOIN postgresql(%(hogql_val_6_sensitive)s, %(hogql_val_7_sensitive)s, %(hogql_val_5_sensitive)s, %(hogql_val_8_sensitive)s, %(hogql_val_9_sensitive)s) AS postgres_table ON and(and(equals(postgres_table.team_id, {self.team.pk}), greaterOrEquals(postgres_table.created_at, minus(today(), toIntervalDay(30)))), equals(other_table.ref_id, postgres_table.id)) WHERE equals(other_table.team_id, {self.team.pk}) LIMIT 10",
+            f"SELECT other_table.id AS id, postgres_table.name AS name FROM (SELECT * FROM postgresql(%(hogql_val_1_sensitive)s, %(hogql_val_2_sensitive)s, %(hogql_val_0_sensitive)s, %(hogql_val_3_sensitive)s, %(hogql_val_4_sensitive)s) WHERE team_id = {self.team.pk}) AS other_table LEFT JOIN postgresql(%(hogql_val_6_sensitive)s, %(hogql_val_7_sensitive)s, %(hogql_val_5_sensitive)s, %(hogql_val_8_sensitive)s, %(hogql_val_9_sensitive)s) AS postgres_table ON and(and(equals(postgres_table.team_id, {self.team.pk}), greaterOrEquals(postgres_table.created_at, minus(today(), toIntervalDay(30)))), equals(other_table.ref_id, postgres_table.id)) WHERE equals(other_table.team_id, {self.team.pk}) LIMIT 10",
         )
 
     def test_left_join_multiple_predicates(self):
@@ -302,7 +302,7 @@ class TestPostgresTable(BaseTest):
                 "LEFT JOIN postgres_table ON other_table.ref_id = postgres_table.id "
                 "LIMIT 10",
             ),
-            f"SELECT other_table.id AS id FROM postgresql(%(hogql_val_1_sensitive)s, %(hogql_val_2_sensitive)s, %(hogql_val_0_sensitive)s, %(hogql_val_3_sensitive)s, %(hogql_val_4_sensitive)s) AS other_table LEFT JOIN postgresql(%(hogql_val_6_sensitive)s, %(hogql_val_7_sensitive)s, %(hogql_val_5_sensitive)s, %(hogql_val_8_sensitive)s, %(hogql_val_9_sensitive)s) AS postgres_table ON and(and(and(equals(postgres_table.team_id, {self.team.pk}), greaterOrEquals(postgres_table.created_at, minus(today(), toIntervalDay(30)))), notEquals(postgres_table.status, %(hogql_val_10)s)), equals(other_table.ref_id, postgres_table.id)) WHERE equals(other_table.team_id, {self.team.pk}) LIMIT 10",
+            f"SELECT other_table.id AS id FROM (SELECT * FROM postgresql(%(hogql_val_1_sensitive)s, %(hogql_val_2_sensitive)s, %(hogql_val_0_sensitive)s, %(hogql_val_3_sensitive)s, %(hogql_val_4_sensitive)s) WHERE team_id = {self.team.pk}) AS other_table LEFT JOIN postgresql(%(hogql_val_6_sensitive)s, %(hogql_val_7_sensitive)s, %(hogql_val_5_sensitive)s, %(hogql_val_8_sensitive)s, %(hogql_val_9_sensitive)s) AS postgres_table ON and(and(and(equals(postgres_table.team_id, {self.team.pk}), greaterOrEquals(postgres_table.created_at, minus(today(), toIntervalDay(30)))), notEquals(postgres_table.status, %(hogql_val_10)s)), equals(other_table.ref_id, postgres_table.id)) WHERE equals(other_table.team_id, {self.team.pk}) LIMIT 10",
         )
 
     def test_inner_join_predicate(self):
@@ -327,7 +327,7 @@ class TestPostgresTable(BaseTest):
                 "INNER JOIN postgres_table ON other_table.ref_id = postgres_table.id "
                 "LIMIT 10",
             ),
-            f"SELECT other_table.id AS id, postgres_table.name AS name FROM postgresql(%(hogql_val_1_sensitive)s, %(hogql_val_2_sensitive)s, %(hogql_val_0_sensitive)s, %(hogql_val_3_sensitive)s, %(hogql_val_4_sensitive)s) AS other_table INNER JOIN postgresql(%(hogql_val_6_sensitive)s, %(hogql_val_7_sensitive)s, %(hogql_val_5_sensitive)s, %(hogql_val_8_sensitive)s, %(hogql_val_9_sensitive)s) AS postgres_table ON equals(other_table.ref_id, postgres_table.id) WHERE and(and(equals(postgres_table.team_id, {self.team.pk}), greaterOrEquals(postgres_table.created_at, minus(today(), toIntervalDay(30)))), equals(other_table.team_id, {self.team.pk})) LIMIT 10",
+            f"SELECT other_table.id AS id, postgres_table.name AS name FROM (SELECT * FROM postgresql(%(hogql_val_1_sensitive)s, %(hogql_val_2_sensitive)s, %(hogql_val_0_sensitive)s, %(hogql_val_3_sensitive)s, %(hogql_val_4_sensitive)s) WHERE team_id = {self.team.pk}) AS other_table INNER JOIN postgresql(%(hogql_val_6_sensitive)s, %(hogql_val_7_sensitive)s, %(hogql_val_5_sensitive)s, %(hogql_val_8_sensitive)s, %(hogql_val_9_sensitive)s) AS postgres_table ON equals(other_table.ref_id, postgres_table.id) WHERE and(and(equals(postgres_table.team_id, {self.team.pk}), greaterOrEquals(postgres_table.created_at, minus(today(), toIntervalDay(30)))), equals(other_table.team_id, {self.team.pk})) LIMIT 10",
         )
 
     def test_left_join_predicate_with_user_where(self):
@@ -354,7 +354,7 @@ class TestPostgresTable(BaseTest):
                 "WHERE other_table.ref_id > 100 "
                 "LIMIT 10",
             ),
-            f"SELECT other_table.id AS id, postgres_table.name AS name FROM postgresql(%(hogql_val_1_sensitive)s, %(hogql_val_2_sensitive)s, %(hogql_val_0_sensitive)s, %(hogql_val_3_sensitive)s, %(hogql_val_4_sensitive)s) AS other_table LEFT JOIN postgresql(%(hogql_val_6_sensitive)s, %(hogql_val_7_sensitive)s, %(hogql_val_5_sensitive)s, %(hogql_val_8_sensitive)s, %(hogql_val_9_sensitive)s) AS postgres_table ON and(and(equals(postgres_table.team_id, {self.team.pk}), greaterOrEquals(postgres_table.created_at, minus(today(), toIntervalDay(30)))), equals(other_table.ref_id, postgres_table.id)) WHERE and(equals(other_table.team_id, {self.team.pk}), greater(other_table.ref_id, 100)) LIMIT 10",
+            f"SELECT other_table.id AS id, postgres_table.name AS name FROM (SELECT * FROM postgresql(%(hogql_val_1_sensitive)s, %(hogql_val_2_sensitive)s, %(hogql_val_0_sensitive)s, %(hogql_val_3_sensitive)s, %(hogql_val_4_sensitive)s) WHERE team_id = {self.team.pk}) AS other_table LEFT JOIN postgresql(%(hogql_val_6_sensitive)s, %(hogql_val_7_sensitive)s, %(hogql_val_5_sensitive)s, %(hogql_val_8_sensitive)s, %(hogql_val_9_sensitive)s) AS postgres_table ON and(and(equals(postgres_table.team_id, {self.team.pk}), greaterOrEquals(postgres_table.created_at, minus(today(), toIntervalDay(30)))), equals(other_table.ref_id, postgres_table.id)) WHERE and(equals(other_table.team_id, {self.team.pk}), greater(other_table.ref_id, 100)) LIMIT 10",
         )
 
     def test_lazy_join_with_predicate(self):
@@ -407,7 +407,7 @@ class TestPostgresTable(BaseTest):
         )
         self.assertEqual(
             self._select("SELECT details.name FROM other_table LIMIT 10"),
-            f"SELECT other_table__details.name AS name FROM postgresql(%(hogql_val_1_sensitive)s, %(hogql_val_2_sensitive)s, %(hogql_val_0_sensitive)s, %(hogql_val_3_sensitive)s, %(hogql_val_4_sensitive)s) AS other_table LEFT JOIN (SELECT postgres_table.name AS name, postgres_table.id AS other_table__details___id FROM postgresql(%(hogql_val_6_sensitive)s, %(hogql_val_7_sensitive)s, %(hogql_val_5_sensitive)s, %(hogql_val_8_sensitive)s, %(hogql_val_9_sensitive)s) AS postgres_table WHERE and(equals(postgres_table.team_id, {self.team.pk}), greaterOrEquals(postgres_table.created_at, minus(today(), toIntervalDay(30))))) AS other_table__details ON equals(other_table.ref_id, other_table__details.other_table__details___id) WHERE equals(other_table.team_id, {self.team.pk}) LIMIT 10",
+            f"SELECT other_table__details.name AS name FROM (SELECT * FROM postgresql(%(hogql_val_1_sensitive)s, %(hogql_val_2_sensitive)s, %(hogql_val_0_sensitive)s, %(hogql_val_3_sensitive)s, %(hogql_val_4_sensitive)s) WHERE team_id = {self.team.pk}) AS other_table LEFT JOIN (SELECT postgres_table.name AS name, postgres_table.id AS other_table__details___id FROM postgresql(%(hogql_val_6_sensitive)s, %(hogql_val_7_sensitive)s, %(hogql_val_5_sensitive)s, %(hogql_val_8_sensitive)s, %(hogql_val_9_sensitive)s) AS postgres_table WHERE and(equals(postgres_table.team_id, {self.team.pk}), greaterOrEquals(postgres_table.created_at, minus(today(), toIntervalDay(30))))) AS other_table__details ON equals(other_table.ref_id, other_table__details.other_table__details___id) WHERE equals(other_table.team_id, {self.team.pk}) LIMIT 10",
         )
 
     def test_predicate_with_nested_property_access(self):

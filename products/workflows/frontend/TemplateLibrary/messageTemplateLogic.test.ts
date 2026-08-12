@@ -96,6 +96,49 @@ describe('messageTemplateLogic', () => {
         })
     })
 
+    describe('save failure feedback', () => {
+        beforeEach(() => {
+            jest.clearAllMocks()
+        })
+
+        it.each([
+            {
+                description: '404 tells the user the template is gone from this environment',
+                status: 404,
+                toast: 'This template no longer exists in this environment. It may have been deleted.',
+                withButton: true,
+            },
+            {
+                description: 'other failures fall back to a generic retry message',
+                status: 500,
+                toast: 'Failed to save template. Please try again.',
+                withButton: false,
+            },
+        ])('$description', async ({ status, toast, withButton }) => {
+            useMocks({
+                patch: {
+                    '/api/environments/:team_id/messaging_templates/:id/': () => [status, { detail: 'nope' }],
+                },
+            })
+
+            logic = messageTemplateLogic({ id: 'existing-id' })
+            logic.mount()
+
+            await expectLogic(logic, () => {
+                logic.actions.saveTemplate({ id: 'existing-id', name: 'Existing' })
+            }).toDispatchActions(['saveTemplateFailure'])
+
+            if (withButton) {
+                expect(mockToast.error).toHaveBeenCalledWith(
+                    toast,
+                    expect.objectContaining({ button: expect.anything() })
+                )
+            } else {
+                expect(mockToast.error).toHaveBeenCalledWith(toast)
+            }
+        })
+    })
+
     describe('starting-point picker', () => {
         it.each([
             {

@@ -21,7 +21,7 @@ class ClerkEndpointConfig:
     name: str
     path: str
     # `None` for endpoints whose objects carry no creation timestamp, so there is nothing stable
-    # to partition on (Clerk's `/domains` and `/commerce/plans`).
+    # to partition on (Clerk's `/domains` and `/billing/plans`).
     partition_key: Optional[str] = "created_at"
     page_size: int = 100  # Clerk default, max is 500
     # Some Clerk endpoints return {data: [...], total_count: ...}, others return direct arrays
@@ -101,14 +101,15 @@ CLERK_ENDPOINTS: dict[str, ClerkEndpointConfig] = {
     "sms_templates": ClerkEndpointConfig(name="sms_templates", path="/templates/sms"),
     "commerce_plans": ClerkEndpointConfig(
         name="commerce_plans",
-        path="/commerce/plans",
+        # Clerk renamed this from /commerce/plans to /billing/plans; the old path now answers 400.
+        path="/billing/plans",
         partition_key=None,
         is_wrapped_response=True,
         gated_feature="Billing",
     ),
     "commerce_subscription_items": ClerkEndpointConfig(
         name="commerce_subscription_items",
-        path="/commerce/subscription_items",
+        path="/billing/subscription_items",
         is_wrapped_response=True,
         gated_feature="Billing",
     ),

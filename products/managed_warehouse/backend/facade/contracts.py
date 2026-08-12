@@ -12,7 +12,7 @@ behavior change, not a contract improvement.
 
 from __future__ import annotations
 
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from datetime import date, datetime
 from enum import StrEnum
 from typing import Any
@@ -21,12 +21,6 @@ from uuid import UUID
 __all__ = [
     "CPUnavailableError",
     "DuckgresQueryServerConfig",
-    "DuckgresSinkBackfillPlanInput",
-    "DuckgresSinkBackfillRunReference",
-    "DuckgresSinkState",
-    "DuckgresSinkStateCreateInput",
-    "DuckgresSinkStateGaugeStats",
-    "DuckgresSinkStateRecord",
     "DuckgresStoredBucketConfig",
     "DuckgresStoredServerConfig",
     "DuckLakeCatalogConnectionConfig",
@@ -40,11 +34,38 @@ __all__ = [
     "ManagedWarehouseSourceJobWorkflow",
     "ManagedWarehouseTableNames",
     "ManagedWarehouseTeamMembership",
+    "ServiceCredential",
+    "ServiceCredentialUnavailable",
 ]
 
 
 class CPUnavailableError(RuntimeError):
     pass
+
+
+@dataclass(frozen=True)
+class ServiceCredential:
+    """A team-scoped credential minted by the duckgres control plane, for one
+    run's new duckgres connections (RDS-IAM pattern: short-lived, scoped,
+    disposable — see duckgres/CLAUDE.md "Service Credentials").
+
+    ``password`` is empty when the CP REUSED a still-valid grant (`rotated`
+    is False): callers that already hold the credential keep using it;
+    callers that don't must re-mint with ``force_rotate=True``.
+    """
+
+    username: str
+    # repr=False: a dataclass repr lands credentials into any traceback,
+    # pytest assertion diff, or log line that stringifies the object.
+    password: str = field(repr=False)
+    expires_at: datetime
+    rotated: bool
+
+
+class ServiceCredentialUnavailable(RuntimeError):
+    """The control plane couldn't issue a service credential (unreachable,
+    org/team not provisioned, or a 5xx). Callers decide whether to fall back
+    to stored org-root credentials (transitional) or fail the run."""
 
 
 @dataclass(frozen=True, kw_only=True)
@@ -93,7 +114,6 @@ class DuckgresStoredServerConfig:
     query_server: DuckgresQueryServerConfig
     catalog: DuckLakeCatalogConnectionConfig | None
     bucket: DuckgresStoredBucketConfig | None
-    sink_max_concurrency: int
 
 
 @dataclass(frozen=True, kw_only=True)
@@ -191,65 +211,3 @@ class DuckLakeTableResult:
     row_count: int
     file_size_bytes: int = 0
     file_size_delta_bytes: int = 0
-
-
-class DuckgresSinkState(StrEnum):
-    PENDING_BACKFILL = "pending_backfill"
-    BACKFILLING = "backfilling"
-    PRIMED = "primed"
-    NEEDS_RESYNC = "needs_resync"
-
-
-@dataclass(frozen=True, kw_only=True)
-class DuckgresSinkStateCreateInput:
-    team_id: int
-    schema_id: UUID
-    state: DuckgresSinkState = DuckgresSinkState.PENDING_BACKFILL
-    snapshot_version: int | None = None
-    plan_cutoff: datetime | None = None
-    backfill_run_uuid: str | None = None
-    chunk_count: int | None = None
-    chunks_applied: int = 0
-    last_error: str | None = None
-    consecutive_failures: int = 0
-    first_failed_at: datetime | None = None
-    queue_last_applied_at: datetime | None = None
-
-
-@dataclass(frozen=True, kw_only=True)
-class DuckgresSinkBackfillPlanInput:
-    snapshot_version: int
-    backfill_run_uuid: str
-    chunk_count: int
-
-
-@dataclass(frozen=True, kw_only=True)
-class DuckgresSinkBackfillRunReference:
-    schema_id: UUID
-    backfill_run_uuid: str | None
-
-
-@dataclass(frozen=True, kw_only=True)
-class DuckgresSinkStateRecord:
-    id: UUID
-    team_id: int
-    schema_id: UUID
-    state: DuckgresSinkState
-    snapshot_version: int | None = None
-    plan_cutoff: datetime | None = None
-    backfill_run_uuid: str | None = None
-    chunk_count: int | None = None
-    chunks_applied: int = 0
-    last_error: str | None = None
-    consecutive_failures: int = 0
-    first_failed_at: datetime | None = None
-    queue_last_applied_at: datetime | None = None
-    updated_at: datetime | None = None
-    organization_id: UUID | None = None
-
-
-@dataclass(frozen=True, kw_only=True)
-class DuckgresSinkStateGaugeStats:
-    counts: dict[DuckgresSinkState, int]
-    failing_count: int
-    oldest_failure_at: datetime | None

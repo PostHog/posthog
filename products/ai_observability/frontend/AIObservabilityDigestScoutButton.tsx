@@ -1,9 +1,4 @@
-import { useValues } from 'kea'
-
-import { FEATURE_FLAGS } from 'lib/constants'
-import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
-import { ScoutCreateButton } from 'scenes/inbox/components/config/scouts/ScoutCreateButton'
-import type { ScoutCreateInitialValues } from 'scenes/inbox/logics/scoutCreateModalLogic'
+import type { ScoutCreateInitialValues } from 'products/signals/frontend/inbox/logics/scoutCreateModalLogic'
 
 const AI_OBSERVABILITY_DIGEST_SCOUT_NAME = 'signals-scout-ai-observability-daily-digest'
 
@@ -68,24 +63,7 @@ Update the scratchpad with useful baselines, noise, and dedupe decisions so tomo
             emit: true,
             run_interval_minutes: 1440,
             run_cron_schedule: '0 9 * * *',
+            tags: ['ai-observability'],
         },
     }
-}
-
-export function AIObservabilityDigestScoutButton(): JSX.Element | null {
-    const { featureFlags } = useValues(featureFlagLogic)
-
-    if (!featureFlags[FEATURE_FLAGS.AI_OBSERVABILITY_DAILY_DIGEST_SCOUT]) {
-        return null
-    }
-
-    return (
-        <ScoutCreateButton
-            initialValues={getAIObservabilityDigestScoutInitialValues()}
-            type="secondary"
-            data-attr="create-ai-observability-digest-scout"
-        >
-            Create daily digest
-        </ScoutCreateButton>
-    )
 }

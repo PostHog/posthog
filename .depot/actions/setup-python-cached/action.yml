@@ -1,0 +1,65 @@
+# Depot mirror of .github/actions/setup-python-cached (same pattern as .depot/actions/pnpm-install).
+# Kept byte-for-byte equivalent to canonical. actions/cache routes to Depot Cache, so the shared
+# keys do not collide.
+name: Set up Python
+description: |
+    Wraps actions/setup-python with a pre-seeded tool cache
+    (`python-toolcache-<os>-<arch>-<version>`, master-gated save) so a hit turns
+    setup-python into a filesystem lookup: no GitHub API calls, no download.
+    Same pattern as the Node tool cache in pnpm-install.
+
+inputs:
+    python-version:
+        description: 'Python version to install. Only exact x.y.z pins engage the tool cache.'
+        required: true
+    token:
+        description: |
+            GitHub token for setup-python's version-manifest lookup and download on
+            a cache miss. Pass an app token at high-fanout call sites to keep those
+            API calls off the shared per-repo GITHUB_TOKEN core bucket.
+        required: false
+        default: ${{ github.token }}
+
+runs:
+    using: composite
+    steps:
+        - name: Resolve Python version
+          id: python-version
+          shell: bash
+          # An empty version (non-exact pin) skips the tool cache steps, so
+          # setup-python falls back to resolving the version itself. Only exact
+          # x.y.z pins are cacheable: the tool-cache directory is named after
+          # the resolved version, so a range spec would never match it.
+          env:
+              PYTHON_VERSION: ${{ inputs.python-version }}
+          run: |
+              version=$(tr -d 'v[:space:]' <<< "$PYTHON_VERSION")
+              [[ "$version" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]] || version=""
+              echo "version=$version" >> "$GITHUB_OUTPUT"
+
+        # A tool-cache hit turns setup-python into a filesystem lookup. On a miss
+        # it fetches the version manifest from api.github.com (two rate-limited
+        # API calls per job) and downloads the tarball, on every Python job,
+        # because runner images don't ship the pinned version.
+        - name: Restore Python tool cache
+          id: python-toolcache
+          if: steps.python-version.outputs.version != ''
+          uses: actions/cache/restore@cdf6c1fa76f9f475f3d7449005a359c84ca0f306 # v5.0.3
+          with:
+              path: ${{ runner.tool_cache }}/Python/${{ steps.python-version.outputs.version }}
+              key: python-toolcache-${{ runner.os }}-${{ runner.arch }}-${{ steps.python-version.outputs.version }}
+
+        - name: Set up Python
+          uses: actions/setup-python@a309ff8b426b58ec0e2a45f0f869d46889d02405 # v6.2.0
+          with:
+              python-version: ${{ inputs.python-version }}
+              token: ${{ inputs.token }}
+
+        # Save only on the default branch, for the same reasons as the pnpm
+        # store save in pnpm-install.
+        - name: Save Python tool cache
+          if: github.ref == 'refs/heads/master' && steps.python-version.outputs.version != '' && steps.python-toolcache.outputs.cache-hit != 'true'
+          uses: actions/cache/save@cdf6c1fa76f9f475f3d7449005a359c84ca0f306 # v5.0.3
+          with:
+              path: ${{ runner.tool_cache }}/Python/${{ steps.python-version.outputs.version }}
+              key: python-toolcache-${{ runner.os }}-${{ runner.arch }}-${{ steps.python-version.outputs.version }}

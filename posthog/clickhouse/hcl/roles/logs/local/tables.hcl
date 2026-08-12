@@ -402,162 +402,7 @@ SQL
       replica_name = "{replica}-{shard}"
     }
   }
-  table "logs34" {
-    override = true
-    order_by     = ["team_id", "time_bucket", "service_name", "resource_fingerprint", "severity_text", "timestamp"]
-    partition_by = "toDate(original_expiry_timestamp)"
-    ttl          = "original_expiry_timestamp"
-    settings = {
-      add_minmax_index_for_numeric_columns = "1"
-      allow_experimental_reverse_key       = "1"
-      index_granularity                    = "8192"
-      index_granularity_bytes              = "104857600"
-      map_serialization_version            = "with_buckets"
-      ttl_only_drop_parts                  = "1"
-    }
-    column "time_bucket" {
-      type         = "DateTime"
-      materialized = "toStartOfDay(timestamp)"
-    }
-    column "original_expiry_timestamp" {
-      type = "DateTime64(6)"
-    }
-    column "uuid" {
-      type = "String"
-    }
-    column "team_id" {
-      type = "Int32"
-    }
-    column "trace_id" {
-      type = "String"
-    }
-    column "span_id" {
-      type = "String"
-    }
-    column "trace_flags" {
-      type = "Int32"
-    }
-    column "timestamp" {
-      type  = "DateTime64(6)"
-      codec = "DoubleDelta"
-    }
-    column "observed_timestamp" {
-      type = "DateTime64(6)"
-    }
-    column "created_at" {
-      type         = "DateTime64(6)"
-      materialized = "now()"
-    }
-    column "body" {
-      type = "String"
-    }
-    column "severity_text" {
-      type = "LowCardinality(String)"
-    }
-    column "severity_number" {
-      type = "Int32"
-    }
-    column "service_name" {
-      type = "LowCardinality(String)"
-    }
-    column "resource_attributes" {
-      type = "Map(LowCardinality(String), String)"
-    }
-    column "resource_fingerprint" {
-      type         = "UInt64"
-      materialized = "cityHash64(resource_attributes)"
-    }
-    column "instrumentation_scope" {
-      type = "String"
-    }
-    column "event_name" {
-      type = "String"
-    }
-    column "attributes_map_str" {
-      type = "Map(LowCardinality(String), String)"
-    }
-    column "level" {
-      type  = "String"
-      alias = "severity_text"
-    }
-    column "mat_body_ipv4_matches" {
-      type  = "Array(String)"
-      alias = "extractAll(body, '(\\\\d\\\\.((25[0-5]|(2[0-4]|1(0, 1)[0-9])(0, 1)[0-9])\\\\.)(2, 2)([0-9]))')"
-    }
-    column "time_minute" {
-      type  = "DateTime"
-      alias = "toStartOfMinute(timestamp)"
-    }
-    column "attributes" {
-      type  = "Map(LowCardinality(String), String)"
-      alias = "mapApply((k, v) -> (left(k, -5), v), attributes_map_str)"
-    }
-    column "attributes_map_float" {
-      type         = "Map(LowCardinality(String), Float64)"
-      materialized = "mapFilter((k, v) -> (v IS NOT NULL), mapApply((k, v) -> (concat(left(k, -5), '__float'), toFloat64OrNull(v)), attributes_map_str))"
-    }
-    column "attributes_map_datetime" {
-      type         = "Map(LowCardinality(String), DateTime64(6))"
-      materialized = "mapFilter((k, v) -> (v IS NOT NULL), mapApply((k, v) -> (concat(left(k, -5), '__datetime'), parseDateTimeBestEffortOrNull(v, 6)), attributes_map_str))"
-    }
-    column "_partition" {
-      type = "UInt32"
-    }
-    column "_topic" {
-      type = "String"
-    }
-    column "_offset" {
-      type = "UInt64"
-    }
-    column "_bytes_uncompressed" {
-      type = "UInt64"
-    }
-    column "_bytes_compressed" {
-      type = "UInt64"
-    }
-    column "_record_count" {
-      type = "UInt64"
-    }
-    index "idx_severity_text_set" {
-      expr        = "severity_text"
-      type        = "set(10)"
-      granularity = 1
-    }
-    index "idx_attributes_str_keys" {
-      expr        = "mapKeys(attributes_map_str)"
-      type        = "bloom_filter(0.01)"
-      granularity = 1
-    }
-    index "idx_attributes_str_values" {
-      expr        = "mapValues(attributes_map_str)"
-      type        = "bloom_filter(0.001)"
-      granularity = 1
-    }
-    index "idx_mat_body_ipv4_matches" {
-      expr        = "mat_body_ipv4_matches"
-      type        = "bloom_filter(0.01)"
-      granularity = 1
-    }
-    index "idx_body_ngram3" {
-      expr        = "lower(body)"
-      type        = "ngrambf_v1(3, 25000, 2, 0)"
-      granularity = 1
-    }
-    index "idx_uuid_bloom" {
-      expr        = "uuid"
-      type        = "bloom_filter(0.01)"
-      granularity = 1
-    }
-    index "idx_observed_minmax" {
-      expr        = "observed_timestamp"
-      type        = "minmax"
-      granularity = 1
-    }
-    index "idx_timestamp_minmax" {
-      expr        = "timestamp"
-      type        = "minmax"
-      granularity = 1
-    }
+  patch_table "logs34" {
     projection "projection_aggregate_counts" {
       query = <<SQL
 SELECT
@@ -578,9 +423,8 @@ SQL
       replica_name = "{replica}-{shard}"
     }
   }
-  materialized_view "kafka_logs34_avro_mv" {
-    to_table = "posthog.logs34"
-    query    = <<SQL
+  patch_materialized_view "kafka_logs34_avro_mv" {
+    query = <<SQL
 SELECT
   kafka_logs_avro.* EXCEPT(created_at, attribute_values, attribute_keys, attributes, attributes_map_str, attributes_map_float, attributes_map_datetime, resource_attributes, bytes_uncompressed),
   mapSort(mapApply((k, v) -> (concat(k, '__str'), JSONExtractString(v)), attributes)) AS attributes_map_str,
@@ -599,76 +443,9 @@ SELECT
 FROM posthog.kafka_logs_avro
 SQL
 
-    column "uuid" {
-      type = "String"
-    }
-    column "trace_id" {
-      type = "String"
-    }
-    column "span_id" {
-      type = "String"
-    }
-    column "trace_flags" {
-      type = "Int32"
-    }
-    column "timestamp" {
-      type = "DateTime64(6)"
-    }
-    column "observed_timestamp" {
-      type = "DateTime64(6)"
-    }
-    column "body" {
-      type = "String"
-    }
-    column "severity_text" {
-      type = "String"
-    }
-    column "severity_number" {
-      type = "Int32"
-    }
-    column "service_name" {
-      type = "String"
-    }
-    column "instrumentation_scope" {
-      type = "String"
-    }
-    column "event_name" {
-      type = "String"
-    }
-    column "attributes_map_str" {
-      type = "Map(String, String)"
-    }
-    column "resource_attributes" {
-      type = "Map(String, String)"
-    }
-    column "team_id" {
-      type = "Int32"
-    }
-    column "original_expiry_timestamp" {
-      type = "DateTime64(6)"
-    }
-    column "_partition" {
-      type = "UInt64"
-    }
-    column "_topic" {
-      type = "LowCardinality(String)"
-    }
-    column "_offset" {
-      type = "UInt64"
-    }
-    column "_record_count" {
-      type = "Int64"
-    }
-    column "_bytes_uncompressed" {
-      type = "Nullable(Int64)"
-    }
-    column "_bytes_compressed" {
-      type = "Nullable(Int64)"
-    }
   }
-  materialized_view "kafka_logs_avro_billing_metrics_mv" {
-    to_table = "posthog.logs_billing_metrics"
-    query    = <<SQL
+  patch_materialized_view "kafka_logs_avro_billing_metrics_mv" {
+    query = <<SQL
 SELECT
   team_id,
   time_bucket,
@@ -690,24 +467,6 @@ GROUP BY
   team_id, time_bucket, service_name
 SQL
 
-    column "team_id" {
-      type = "Int32"
-    }
-    column "time_bucket" {
-      type = "DateTime"
-    }
-    column "service_name" {
-      type = "LowCardinality(String)"
-    }
-    column "bytes_uncompressed" {
-      type = "SimpleAggregateFunction(sum, Float64)"
-    }
-    column "bytes_compressed" {
-      type = "SimpleAggregateFunction(sum, Float64)"
-    }
-    column "record_count" {
-      type = "SimpleAggregateFunction(sum, UInt64)"
-    }
   }
   materialized_view "logs32_to_log_attributes" {
     to_table = "posthog.log_attributes"
@@ -831,187 +590,7 @@ SQL
     }
   }
 
-  table "trace_spans" {
-    override = true
-    order_by     = ["team_id", "time_bucket", "service_name", "resource_fingerprint", "status_code", "name", "timestamp"]
-    partition_by = "toDate(original_expiry_timestamp)"
-    ttl          = "original_expiry_timestamp"
-    settings = {
-      allow_part_offset_column_in_projections = "1"
-      index_granularity                       = "8192"
-      index_granularity_bytes                 = "104857600"
-      map_serialization_version               = "with_buckets"
-      ttl_only_drop_parts                     = "1"
-    }
-    column "time_bucket" {
-      type         = "DateTime"
-      materialized = "toStartOfInterval(timestamp, toIntervalHour(4))"
-    }
-    column "original_expiry_timestamp" {
-      type = "DateTime64(6)"
-    }
-    column "uuid" {
-      type = "String"
-    }
-    column "team_id" {
-      type = "Int32"
-    }
-    column "trace_id" {
-      type = "String"
-    }
-    column "span_id" {
-      type = "String"
-    }
-    column "parent_span_id" {
-      type = "String"
-    }
-    column "is_root_span" {
-      type         = "Bool"
-      materialized = "replaceAll(trimRight(parent_span_id, '='), 'A', '') = ''"
-    }
-    column "trace_state" {
-      type = "String"
-    }
-    column "name" {
-      type = "LowCardinality(String)"
-    }
-    column "kind" {
-      type = "Int8"
-    }
-    column "flags" {
-      type = "UInt32"
-    }
-    column "timestamp" {
-      type = "DateTime64(6)"
-    }
-    column "end_time" {
-      type = "DateTime64(6)"
-    }
-    column "observed_timestamp" {
-      type = "DateTime64(6)"
-    }
-    column "created_at" {
-      type         = "DateTime64(6)"
-      materialized = "now()"
-    }
-    column "duration_nano" {
-      type         = "UInt64"
-      materialized = "toUInt64(dateDiff('microsecond', timestamp, end_time)) * 1000"
-    }
-    column "status_code" {
-      type = "Int16"
-    }
-    column "service_name" {
-      type = "LowCardinality(String)"
-    }
-    column "resource_attributes" {
-      type = "Map(LowCardinality(String), String)"
-    }
-    column "resource_fingerprint" {
-      type         = "UInt64"
-      materialized = "cityHash64(resource_attributes)"
-    }
-    column "instrumentation_scope" {
-      type = "String"
-    }
-    column "attributes_map_str" {
-      type = "Map(LowCardinality(String), String)"
-    }
-    column "attributes" {
-      type  = "Map(LowCardinality(String), String)"
-      alias = "mapApply((k, v) -> (left(k, -5), v), attributes_map_str)"
-    }
-    column "attributes_map_float" {
-      type         = "Map(LowCardinality(String), Float64)"
-      materialized = "mapFilter((k, v) -> (v IS NOT NULL), mapApply((k, v) -> (concat(left(k, -5), '__float'), toFloat64OrNull(v)), attributes_map_str))"
-    }
-    column "attributes_map_datetime" {
-      type         = "Map(LowCardinality(String), DateTime64(6))"
-      materialized = "mapFilter((k, v) -> (v IS NOT NULL), mapApply((k, v) -> (concat(left(k, -5), '__datetime'), parseDateTimeBestEffortOrNull(v, 6)), attributes_map_str))"
-    }
-    column "dropped_attributes_count" {
-      type = "UInt32"
-    }
-    column "dropped_events_count" {
-      type = "UInt32"
-    }
-    column "dropped_links_count" {
-      type = "UInt32"
-    }
-    column "events" {
-      type = "Array(String)"
-    }
-    column "links" {
-      type = "Array(String)"
-    }
-    column "_partition" {
-      type = "UInt32"
-    }
-    column "_topic" {
-      type = "String"
-    }
-    column "_offset" {
-      type = "UInt64"
-    }
-    column "_bytes_uncompressed" {
-      type = "UInt64"
-    }
-    column "_bytes_compressed" {
-      type = "UInt64"
-    }
-    column "_record_count" {
-      type = "UInt64"
-    }
-    index "idx_name" {
-      expr        = "name"
-      type        = "ngrambf_v1(4, 5000, 2, 0)"
-      granularity = 16
-    }
-    index "idx_kind" {
-      expr        = "kind"
-      type        = "minmax"
-      granularity = 4
-    }
-    index "idx_duration" {
-      expr        = "duration_nano"
-      type        = "minmax"
-      granularity = 1
-    }
-    index "idx_status_code" {
-      expr        = "status_code"
-      type        = "minmax"
-      granularity = 1
-    }
-    index "idx_timestamp_minmax" {
-      expr        = "timestamp"
-      type        = "minmax"
-      granularity = 1
-    }
-    index "idx_observed_minmax" {
-      expr        = "observed_timestamp"
-      type        = "minmax"
-      granularity = 1
-    }
-    index "idx_attributes_str_keys" {
-      expr        = "mapKeys(attributes_map_str)"
-      type        = "bloom_filter(0.01)"
-      granularity = 16
-    }
-    index "idx_attributes_str_values" {
-      expr        = "mapValues(attributes_map_str)"
-      type        = "bloom_filter(0.001)"
-      granularity = 16
-    }
-    index "idx_trace_bloom_part" {
-      expr        = "trace_id"
-      type        = "bloom_filter(0.00001)"
-      granularity = 99999
-    }
-    index "idx_span_id_bloom_part" {
-      expr        = "span_id"
-      type        = "bloom_filter(0.00001)"
-      granularity = 99999
-    }
+  patch_table "trace_spans" {
     projection "projection_aggregate_counts" {
       query = <<SQL
 SELECT
@@ -1282,9 +861,8 @@ SQL
       type = "SimpleAggregateFunction(sum, UInt64)"
     }
   }
-  materialized_view "kafka_trace_spans_avro_mv" {
-    to_table = "posthog.trace_spans"
-    query    = <<SQL
+  patch_materialized_view "kafka_trace_spans_avro_mv" {
+    query = <<SQL
 SELECT
   * EXCEPT(attributes, resource_attributes, kind, flags, dropped_attributes_count, dropped_events_count, dropped_links_count, status_code),
   toInt8(kind) AS kind,
@@ -1309,74 +887,9 @@ SELECT
 FROM posthog.kafka_trace_spans_avro
 SQL
 
-    column "uuid" {
-      type = "String"
-    }
-    column "trace_id" {
-      type = "String"
-    }
-    column "span_id" {
-      type = "String"
-    }
-    column "parent_span_id" {
-      type = "String"
-    }
-    column "trace_state" {
-      type = "String"
-    }
-    column "name" {
-      type = "String"
-    }
-    column "kind" {
-      type = "Int8"
-    }
-    column "flags" {
-      type = "UInt32"
-    }
-    column "timestamp" {
-      type = "DateTime64(6)"
-    }
-    column "end_time" {
-      type = "DateTime64(6)"
-    }
-    column "observed_timestamp" {
-      type = "DateTime64(6)"
-    }
-    column "service_name" {
-      type = "String"
-    }
-    column "resource_attributes" {
-      type = "Map(LowCardinality(String), String)"
-    }
-    column "instrumentation_scope" {
-      type = "String"
-    }
-    column "attributes_map_str" {
-      type = "Map(LowCardinality(String), String)"
-    }
-    column "dropped_attributes_count" {
-      type = "UInt32"
-    }
-    column "events" {
-      type = "Array(String)"
-    }
-    column "dropped_events_count" {
-      type = "UInt32"
-    }
-    column "links" {
-      type = "Array(String)"
-    }
-    column "dropped_links_count" {
-      type = "UInt32"
-    }
-    column "status_code" {
-      type = "Int16"
-    }
-    column "team_id" {
-      type = "Int32"
-    }
     column "original_expiry_timestamp" {
-      type = "DateTime64(6)"
+      type  = "DateTime64(6)"
+      after = "team_id"
     }
   }
 }

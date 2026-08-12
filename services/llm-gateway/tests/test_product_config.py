@@ -6,6 +6,7 @@ from fastapi import HTTPException
 from llm_gateway.products.config import (
     ALLOWED_PRODUCTS,
     BEDROCK_MODELS,
+    MODEL_ACCESS_FLAGS,
     POSTHOG_AI_DEV_APP_ID,
     POSTHOG_AI_EU_APP_ID,
     POSTHOG_AI_US_APP_ID,
@@ -22,6 +23,7 @@ from llm_gateway.products.config import (
     check_free_tier_model_access,
     check_product_access,
     get_product_config,
+    get_required_model_flag,
     resolve_product_alias,
     validate_product,
 )
@@ -544,6 +546,8 @@ class TestCheckFreeTierModelAccess:
             # Unbilled org on the Code surface: premium blocked, open model allowed
             ("posthog_code", "claude-fable-5", False, False, False),
             ("posthog_code", "@cf/zai-org/glm-5.2", False, False, True),
+            ("posthog_code", "deepseek-ai/deepseek-v4-flash-0731", False, False, True),
+            ("posthog_code", "moonshotai/kimi-k3", False, False, True),
             # The alias routes are the same surface - a URL spelling must not bypass
             ("array", "claude-fable-5", False, False, False),
             ("twig", "gpt-5.5", False, False, False),
@@ -726,3 +730,26 @@ class TestServerCredentialConfigInvariant:
         # broken _CODE_APP_PRODUCTS derivation can't quietly hollow out this class.
         assert "posthog_code" in _CODE_APP_PRODUCTS
         assert PRODUCTS["posthog_code"].requires_server_credential is False
+
+
+class TestModelAccessFlag:
+    @pytest.mark.parametrize(
+        "model,gated",
+        [
+            ("moonshotai/kimi-k3", "moonshotai/kimi-k3"),
+            ("MoonshotAI/Kimi-K3", "moonshotai/kimi-k3"),
+            ("  moonshotai/kimi-k3  ", "moonshotai/kimi-k3"),
+            ("deepseek-ai/deepseek-v4-flash-0731", "deepseek-ai/deepseek-v4-flash-0731"),
+            ("DeepSeek-AI/DeepSeek-V4-Flash-0731", "deepseek-ai/deepseek-v4-flash-0731"),
+        ],
+    )
+    def test_gated_model_requires_its_own_flag(self, model: str, gated: str):
+        # each model resolves to its own dedicated access flag, not a shared one
+        assert get_required_model_flag(model) == MODEL_ACCESS_FLAGS[gated]
+
+    def test_kimi_and_deepseek_use_distinct_flags(self):
+        assert MODEL_ACCESS_FLAGS["moonshotai/kimi-k3"] != MODEL_ACCESS_FLAGS["deepseek-ai/deepseek-v4-flash-0731"]
+
+    @pytest.mark.parametrize("model", [None, "", "gpt-5.2", "claude-opus-5", "@cf/zai-org/glm-5.2"])
+    def test_ungated_models_need_no_flag(self, model: str | None):
+        assert get_required_model_flag(model) is None
