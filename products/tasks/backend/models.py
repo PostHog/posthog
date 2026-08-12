@@ -1970,6 +1970,7 @@ class TaskRun(models.Model):
         state["handoff_resumed"] = True
         state["mode"] = "interactive"
         state.pop("pending_user_message", None)
+        state.pop("pending_user_artifact_ids", None)
         state.pop("pending_user_message_id", None)
         state.pop("pending_user_message_ts", None)
         state.pop("sandbox_id", None)
