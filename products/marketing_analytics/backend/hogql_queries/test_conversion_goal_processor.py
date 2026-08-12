@@ -26,10 +26,10 @@ from posthog.hogql.test.utils import pretty_print_in_tests
 from posthog.models.event.util import bulk_create_events
 
 from products.actions.backend.models.action import Action
-from products.marketing_analytics.backend.hogql_queries.conversion_goal_processor import (
-    ConversionGoalProcessor,
+from products.marketing_analytics.backend.hogql_queries.conversion_goal_conditions import (
     add_conversion_goal_property_filters,
 )
+from products.marketing_analytics.backend.hogql_queries.conversion_goal_processor import ConversionGoalProcessor
 from products.marketing_analytics.backend.hogql_queries.marketing_analytics_config import MarketingAnalyticsConfig
 from products.warehouse_sources.backend.facade.testing import create_data_warehouse_table_from_csv
 
@@ -1287,7 +1287,8 @@ class TestConversionGoalProcessor(ClickhouseTestMixin, BaseTest):
     # ================================================================
 
     def test_error_missing_action(self):
-        """Test error handling when Action doesn't exist"""
+        # A goal whose action was deleted matches nothing, rather than raising and taking every other
+        # goal on the dashboard down with it. The conversion-array branch already behaved this way.
         goal = ConversionGoalFilter2(
             kind="ActionsNode",
             id=999999,
@@ -1299,8 +1300,7 @@ class TestConversionGoalProcessor(ClickhouseTestMixin, BaseTest):
 
         processor = ConversionGoalProcessor(goal=goal, index=0, team=self.team, config=self.config)
 
-        with pytest.raises(Action.DoesNotExist):
-            processor.get_base_where_conditions()
+        assert processor.get_base_where_conditions() == [ast.Constant(value=False)]
 
     def test_error_invalid_math_property_combination(self):
         """Test graceful handling of invalid math+property combinations"""

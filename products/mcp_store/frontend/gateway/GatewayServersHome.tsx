@@ -1,8 +1,9 @@
 import { useActions, useValues } from 'kea'
 import { router } from 'kea-router'
 
-import { IconGear } from '@posthog/icons'
+import { IconGear, IconPlus } from '@posthog/icons'
 import {
+    LemonBanner,
     LemonButton,
     LemonCollapse,
     LemonInput,
@@ -20,48 +21,128 @@ import { urls } from 'scenes/urls'
 
 import { InstallCustomAuthTypeEnumApi } from '../generated/api.schemas'
 import { ServerIcon } from '../scene/icons'
+import { GatewayAddServerModal } from './GatewayAddServerModal'
 import { toProfileUser } from './gatewayUtils'
-import { GATEWAY_CATEGORY_LABELS, GatewayServerEntry, isTemplateOnlyServer, mcpGatewayLogic } from './mcpGatewayLogic'
+import {
+    CONNECTED_SERVERS_FILTER,
+    GATEWAY_CATEGORY_LABELS,
+    GatewayServerEntry,
+    isTemplateOnlyServer,
+    mcpGatewayLogic,
+} from './mcpGatewayLogic'
 
 const AUTH_TYPE_OPTIONS = [
     { value: 'oauth' as const, label: 'OAuth' },
     { value: 'api_key' as const, label: 'API key' },
 ]
 
-export function GatewayServersHome(): JSX.Element {
-    const { filteredServers, serversLoading, searchQuery, categoryFilter, categoryCounts, isAdmin, mergedServers } =
-        useValues(mcpGatewayLogic)
-    const { setSearchQuery, setCategoryFilter } = useActions(mcpGatewayLogic)
+export function GatewayServersLoadError({
+    onRetry,
+    serverDetail = false,
+}: {
+    onRetry: () => void
+    serverDetail?: boolean
+}): JSX.Element {
+    return (
+        <LemonBanner type="error" action={{ children: 'Try again', onClick: onRetry }}>
+            {serverDetail ? "Couldn't load this MCP server. Try again." : "Couldn't load MCP servers. Try again."}
+        </LemonBanner>
+    )
+}
+
+export function GatewayServersHome({ onOpenServer }: { onOpenServer?: (serverId: string) => void } = {}): JSX.Element {
+    const {
+        canAddServers,
+        filteredServers,
+        servers,
+        serversLoadFailed,
+        serversLoading,
+        templatesLoading,
+        searchQuery,
+        categoryFilter,
+        categoryCounts,
+        connectedServerCount,
+        isAdmin,
+        mergedServers,
+    } = useValues(mcpGatewayLogic)
+    const { loadServers, openAddServerModal, setSearchQuery, setCategoryFilter } = useActions(mcpGatewayLogic)
 
     const categories = Object.keys(GATEWAY_CATEGORY_LABELS).filter((category) => categoryCounts[category])
 
     return (
         <div className="flex flex-col gap-4">
+            <GatewayAddServerModal />
             <GatewayConnectionModal />
+
+            <div className="flex items-start justify-between gap-4 flex-wrap">
+                <div>
+                    <h2 className="mb-1">MCP servers</h2>
+                    <p className="mb-0 text-secondary">
+                        Connect tools for yourself, your teammates, and PostHog agents.
+                    </p>
+                </div>
+                <LemonButton
+                    type="primary"
+                    icon={<IconPlus />}
+                    onClick={openAddServerModal}
+                    disabledReason={canAddServers ? undefined : 'Only project admins can add MCP servers.'}
+                >
+                    Add server
+                </LemonButton>
+            </div>
 
             <div className="flex items-center gap-2 flex-wrap">
                 <LemonInput
                     type="search"
-                    placeholder="Search team servers…"
+                    placeholder="Search MCP servers…"
                     value={searchQuery}
                     onChange={setSearchQuery}
-                    className="max-w-md"
+                    className="w-full"
+                    aria-label="Search MCP servers"
                 />
+            </div>
+
+            <div className="flex items-center justify-between gap-2 text-sm text-secondary">
+                <span>
+                    {filteredServers.length} {filteredServers.length === 1 ? 'server' : 'servers'}
+                </span>
+                {(searchQuery || categoryFilter) && (
+                    <LemonButton
+                        size="xsmall"
+                        type="tertiary"
+                        onClick={() => {
+                            setSearchQuery('')
+                            setCategoryFilter(null)
+                        }}
+                    >
+                        Clear filters
+                    </LemonButton>
+                )}
             </div>
 
             <div className="flex items-center gap-2 flex-wrap">
                 <LemonButton
                     size="small"
                     type={categoryFilter === null ? 'primary' : 'tertiary'}
+                    aria-pressed={categoryFilter === null}
                     onClick={() => setCategoryFilter(null)}
                 >
                     All <LemonSnack className="ml-1">{mergedServers.length}</LemonSnack>
+                </LemonButton>
+                <LemonButton
+                    size="small"
+                    type={categoryFilter === CONNECTED_SERVERS_FILTER ? 'primary' : 'tertiary'}
+                    aria-pressed={categoryFilter === CONNECTED_SERVERS_FILTER}
+                    onClick={() => setCategoryFilter(CONNECTED_SERVERS_FILTER)}
+                >
+                    Connected <LemonSnack className="ml-1">{connectedServerCount}</LemonSnack>
                 </LemonButton>
                 {categories.map((category) => (
                     <LemonButton
                         key={category}
                         size="small"
                         type={categoryFilter === category ? 'primary' : 'tertiary'}
+                        aria-pressed={categoryFilter === category}
                         onClick={() => setCategoryFilter(category)}
                     >
                         {GATEWAY_CATEGORY_LABELS[category]}{' '}
@@ -70,7 +151,15 @@ export function GatewayServersHome(): JSX.Element {
                 ))}
             </div>
 
-            {filteredServers.length === 0 && !serversLoading ? (
+            {serversLoadFailed && servers.length > 0 && <GatewayServersLoadError onRetry={loadServers} />}
+
+            {serversLoadFailed && servers.length === 0 ? (
+                <GatewayServersLoadError onRetry={loadServers} />
+            ) : (serversLoading || templatesLoading) && filteredServers.length === 0 ? (
+                <div className="flex items-center justify-center gap-2 p-8 text-secondary">
+                    <Spinner /> Loading MCP servers
+                </div>
+            ) : filteredServers.length === 0 ? (
                 <div className="border border-dashed rounded p-8 text-center text-secondary">
                     <p className="font-semibold mb-1">No servers match.</p>
                     <p className="text-sm">
@@ -82,7 +171,7 @@ export function GatewayServersHome(): JSX.Element {
             ) : (
                 <div className="flex flex-col gap-2">
                     {filteredServers.map((server) => (
-                        <GatewayServerCard key={server.id} server={server} />
+                        <GatewayServerCard key={server.id} server={server} onOpenServer={onOpenServer} />
                     ))}
                 </div>
             )}
@@ -90,46 +179,70 @@ export function GatewayServersHome(): JSX.Element {
     )
 }
 
-function GatewayServerCard({ server }: { server: GatewayServerEntry }): JSX.Element {
-    const { isAdmin, connectingServerId, canAddServers } = useValues(mcpGatewayLogic)
-    const { connectServer } = useActions(mcpGatewayLogic)
+export function GatewayServerCard({
+    server,
+    onOpenServer,
+}: {
+    server: GatewayServerEntry
+    onOpenServer?: (serverId: string) => void
+}): JSX.Element {
+    const { isAdmin, connectingServerId } = useValues(mcpGatewayLogic)
+    const { connectServer, reconnectServer } = useActions(mcpGatewayLogic)
 
     // Catalog templates without a registry row: connect-only, no detail scene.
     const recommended = isTemplateOnlyServer(server)
-    const connected = Boolean(server.your_connection)
+    const connection = server.your_connection
+    const connected = Boolean(connection?.is_enabled && !connection.pending_oauth && !connection.needs_reauth)
+    const needsReconnect = Boolean(connection?.pending_oauth || connection?.needs_reauth)
     const connecting = connectingServerId === server.id
     const disabled = !server.is_team_enabled
-    const canConnectIndividual = !connected
-    const connectionDisabledReason =
-        recommended && disabled
-            ? 'Catalog servers are turned off for this team. An admin can enable them in Team settings.'
-            : !recommended && !server.template_id && !canAddServers
-              ? 'Only project admins can connect custom servers for this team.'
-              : undefined
+    const canConnectIndividual = !connection
+    const connectionDisabledReason = server.is_revoked_for_you
+        ? 'Ask an admin to restore your access to this server.'
+        : recommended && disabled
+          ? 'Catalog servers are turned off for this team. An admin can enable them in Team settings.'
+          : disabled
+            ? 'This server is turned off for the team.'
+            : undefined
+    const openServer = (): void => {
+        if (onOpenServer) {
+            onOpenServer(server.id)
+        } else {
+            router.actions.push(urls.mcpGatewayServer(server.id))
+        }
+    }
 
     return (
         <div
-            className="border rounded p-3 flex items-center gap-3 hover:border-accent transition-colors"
-            // Admins see disabled servers dimmed with an "Off" pill.
-            style={disabled ? { opacity: 0.6 } : undefined}
+            className={`border rounded p-3 flex items-center gap-3 hover:border-accent transition-colors ${
+                disabled ? 'opacity-60' : ''
+            } ${recommended ? '' : 'cursor-pointer'}`}
+            role={recommended ? undefined : 'button'}
+            tabIndex={recommended ? undefined : 0}
+            onClick={recommended ? undefined : openServer}
+            onKeyDown={(event) => {
+                if (
+                    !recommended &&
+                    event.target === event.currentTarget &&
+                    (event.key === 'Enter' || event.key === ' ')
+                ) {
+                    event.preventDefault()
+                    openServer()
+                }
+            }}
         >
             <div className="shrink-0">
                 <ServerIcon iconDomain={server.icon_domain} serverUrl={server.url} size={42} />
             </div>
             <div className="flex-1 min-w-0">
                 <div className="flex items-center gap-2">
-                    {recommended ? (
-                        <span className="font-semibold">{server.name}</span>
-                    ) : (
-                        <button
-                            className="font-semibold text-left hover:text-accent"
-                            onClick={() => router.actions.push(urls.mcpGatewayServer(server.id))}
-                        >
-                            {server.name}
-                        </button>
-                    )}
+                    <span className="font-semibold">{server.name}</span>
                     {recommended && <LemonTag type="highlight">Recommended</LemonTag>}
                     {connected && <LemonTag type="success">Connected</LemonTag>}
+                    {connection?.pending_oauth && <LemonTag type="warning">Finishing setup</LemonTag>}
+                    {connection?.needs_reauth && <LemonTag type="danger">Needs reauth</LemonTag>}
+                    {connection && !connection.is_enabled && <LemonTag type="muted">Off for you</LemonTag>}
+                    {server.is_revoked_for_you && <LemonTag type="danger">Access revoked</LemonTag>}
                     {disabled && (
                         <Tooltip
                             title={
@@ -146,9 +259,19 @@ function GatewayServerCard({ server }: { server: GatewayServerEntry }): JSX.Elem
                 {isAdmin && !recommended && <PeopleRow server={server} />}
             </div>
             <div className="shrink-0">
-                {canConnectIndividual ? (
+                {needsReconnect && connection ? (
+                    <LemonButton
+                        size="small"
+                        type="primary"
+                        disabledReason={connectionDisabledReason}
+                        onClick={() => reconnectServer(connection.installation_id)}
+                        stopPropagation
+                    >
+                        Reconnect
+                    </LemonButton>
+                ) : canConnectIndividual ? (
                     connecting ? (
-                        <LemonButton size="small" disabledReason="Authorizing…" icon={<Spinner />}>
+                        <LemonButton size="small" disabledReason="Authorizing…" icon={<Spinner />} stopPropagation>
                             Authorizing…
                         </LemonButton>
                     ) : (
@@ -157,6 +280,7 @@ function GatewayServerCard({ server }: { server: GatewayServerEntry }): JSX.Elem
                             type="secondary"
                             onClick={() => connectServer(server.id)}
                             disabledReason={connectionDisabledReason}
+                            stopPropagation
                         >
                             Connect
                         </LemonButton>
@@ -164,9 +288,14 @@ function GatewayServerCard({ server }: { server: GatewayServerEntry }): JSX.Elem
                 ) : (
                     <LemonButton
                         size="small"
+                        type="secondary"
                         icon={<IconGear />}
-                        onClick={() => router.actions.push(urls.mcpGatewayServer(server.id))}
-                    />
+                        onClick={openServer}
+                        aria-label={`Configure ${server.name}`}
+                        stopPropagation
+                    >
+                        Configure
+                    </LemonButton>
                 )}
             </div>
         </div>
@@ -247,8 +376,9 @@ function GatewayConnectionModal(): JSX.Element | null {
                 }}
             >
                 {isCustomServer && (
-                    <LemonField.Pure label="Authentication">
+                    <LemonField.Pure label="Authentication" htmlFor="mcp-gateway-connection-authentication">
                         <LemonSelect<InstallCustomAuthTypeEnumApi>
+                            id="mcp-gateway-connection-authentication"
                             value={connectionAuthType}
                             onChange={setConnectionAuthType}
                             options={AUTH_TYPE_OPTIONS}
@@ -258,8 +388,17 @@ function GatewayConnectionModal(): JSX.Element | null {
                 )}
 
                 {connectionAuthType === 'api_key' ? (
-                    <LemonField.Pure label="API key">
+                    <LemonField.Pure
+                        label={isCustomServer ? 'API key (optional)' : 'API key'}
+                        help={
+                            isCustomServer
+                                ? 'Leave this blank if the server does not require authentication.'
+                                : undefined
+                        }
+                        htmlFor="mcp-gateway-connection-api-key"
+                    >
                         <LemonInput
+                            id="mcp-gateway-connection-api-key"
                             type="password"
                             value={connectionApiKey}
                             onChange={setConnectionApiKey}
@@ -280,8 +419,10 @@ function GatewayConnectionModal(): JSX.Element | null {
                                             <LemonField.Pure
                                                 label="OAuth client ID"
                                                 help="Leave blank to let PostHog register a client for you."
+                                                htmlFor="mcp-gateway-connection-client-id"
                                             >
                                                 <LemonInput
+                                                    id="mcp-gateway-connection-client-id"
                                                     value={connectionClientId}
                                                     onChange={setConnectionClientId}
                                                     placeholder="Optional"
@@ -291,8 +432,10 @@ function GatewayConnectionModal(): JSX.Element | null {
                                             <LemonField.Pure
                                                 label="OAuth client secret"
                                                 help="Only needed for confidential clients."
+                                                htmlFor="mcp-gateway-connection-client-secret"
                                             >
                                                 <LemonInput
+                                                    id="mcp-gateway-connection-client-secret"
                                                     type="password"
                                                     value={connectionClientSecret}
                                                     onChange={setConnectionClientSecret}
@@ -314,7 +457,7 @@ function GatewayConnectionModal(): JSX.Element | null {
 
 function PeopleRow({ server }: { server: GatewayServerEntry }): JSX.Element {
     if (!server.is_team_enabled) {
-        return <div className="text-xs text-secondary mt-1">Disabled — enable it in Team settings</div>
+        return <div className="text-xs text-secondary mt-1">Disabled. Enable it in Team settings.</div>
     }
     const connections = server.connections ?? []
     const agentCount = (server.agents ?? []).length

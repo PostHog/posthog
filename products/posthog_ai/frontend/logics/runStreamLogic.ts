@@ -72,27 +72,38 @@ import { extractContextBlockLines } from '../utils/posthogContextBlock'
 import { getClaudeCodeMeta, resolveToolCall } from '../utils/toolResolver'
 import { attachedContextLogic } from './attachedContextLogic'
 import { debugLogsLogic } from './debugLogsLogic'
+import { registerHmrStreamAbort } from './devHmrStreamAbort'
 import { foregroundStreamLogic } from './foregroundStreamLogic'
 import { hasReplayListener, toolStreamEventsLogic } from './toolStreamEventsLogic'
 import type { ToolStreamSubscription } from './toolStreamEventsLogic'
 
+export interface LiveStreamEntry {
+    controller: AbortController
+    /** Reopens this stream after an HMR swap its logic survived. See `devHmrStreamAbort`. */
+    reopen: () => void
+}
+
 interface LiveStreamRegistryHost {
-    __posthogAiLiveStreamControllers?: Set<AbortController>
+    __posthogAiLiveStreamControllers?: Set<LiveStreamEntry>
 }
 
 // Dev-only guard against orphaned SSE readers: an HMR swap re-evaluates this module in the same page,
-// and the old build's logic gets discarded with a fresh kea `cache` — its 'event-source' disposable
-// never runs teardown, so its reader keeps the connection open (pinning a granian dev worker) until
-// the tab closes. A fresh evaluation finding controllers in the page-global registry therefore means
-// an HMR swap just replaced their build — abort them (an aborted signal is the silent teardown path,
-// so the old logic won't schedule a reconnect). On first load the registry is empty, and a full page
-// load needs none of this: the browser aborts in-flight fetches itself. `import.meta.hot.dispose`
-// would be the idiomatic hook, but `import.meta` is a parse error in Jest's CJS transform.
-const liveStreamControllers = new Set<AbortController>()
+// and the old build's logic gets discarded with a fresh kea `cache`, so its 'event-source' disposable
+// never runs teardown and its reader keeps the connection open (pinning a granian dev worker) until
+// the tab closes. A fresh evaluation finding entries in the page-global registry therefore means
+// an HMR swap just replaced their build, so abort them (an aborted signal is the silent teardown path,
+// which is why the old logic won't schedule a reconnect). On first load the registry is empty, and a
+// full page load needs none of this because the browser aborts in-flight fetches itself.
+//
+// This only covers swaps that re-evaluate this module. `devHmrStreamAbort` covers the rest, where the
+// logic survives and its stream has to be reopened rather than left closed.
+const liveStreamControllers = new Set<LiveStreamEntry>()
 if (process.env.NODE_ENV === 'development') {
     const registryHost = globalThis as LiveStreamRegistryHost
-    registryHost.__posthogAiLiveStreamControllers?.forEach((controller) => controller.abort())
+    registryHost.__posthogAiLiveStreamControllers?.forEach((entry) => entry.controller.abort())
     registryHost.__posthogAiLiveStreamControllers = liveStreamControllers
+    // Jest maps this module to an empty stub, so the call has to stay inside this check.
+    registerHmrStreamAbort()
 }
 
 export type RunSseStatus = 'idle' | 'connecting' | 'open' | 'reconnecting' | 'closed' | 'error'
@@ -2626,10 +2637,17 @@ export const runStreamLogic = kea<runStreamLogicType>([
             cache.disposables.add(
                 (): (() => void) => {
                     const controller = new AbortController()
-                    liveStreamControllers.add(controller)
+                    // `startLatest: true` mirrors the reconnect path below: the resume actually happens
+                    // off `cache.lastEventId` via Last-Event-ID, so this only matters if no frame has
+                    // arrived yet.
+                    const entry: LiveStreamEntry = {
+                        controller,
+                        reopen: () => actions.openSseForRun({ taskId, runId, startLatest: true }),
+                    }
+                    liveStreamControllers.add(entry)
                     void streamRun(controller.signal)
                     return () => {
-                        liveStreamControllers.delete(controller)
+                        liveStreamControllers.delete(entry)
                         controller.abort()
                     }
                 },

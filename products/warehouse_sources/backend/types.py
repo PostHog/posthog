@@ -235,7 +235,8 @@ class ExternalDataSourceType(models.TextChoices):
     PINGDOM = "Pingdom", "Pingdom"
     CLOUDFLARE = "Cloudflare", "Cloudflare"
     COSMOSDB = "CosmosDB", "CosmosDB"
-    PLANETSCALE = "PlanetScale", "PlanetScale"
+    PLANETSCALEMYSQL = "PlanetScaleMySQL", "PlanetScaleMySQL"
+    PLANETSCALEPOSTGRES = "PlanetScalePostgres", "PlanetScalePostgres"
     SAPHANA = "SapHana", "SapHana"
     RIPPLING = "Rippling", "Rippling"
     HIBOB = "HiBob", "HiBob"
@@ -363,6 +364,7 @@ class ExternalDataSourceType(models.TextChoices):
     FLOATAPP = "FloatApp", "FloatApp"
     FLOWLU = "Flowlu", "Flowlu"
     FORMBRICKS = "Formbricks", "Formbricks"
+    FRAMER = "Framer", "Framer"
     FREEAGENT = "FreeAgent", "FreeAgent"
     FREIGHTVIEW = "Freightview", "Freightview"
     FRESHCALLER = "Freshcaller", "Freshcaller"
@@ -1318,6 +1320,15 @@ class ExternalDataSourceType(models.TextChoices):
     ODOO = "Odoo", "Odoo"
     AIRBRIDGE = "Airbridge", "Airbridge"
     SNOVIO = "Snovio", "Snovio"
+    GOOGLEMERCHANTCENTER = "GoogleMerchantCenter", "GoogleMerchantCenter"
+    RAISELY = "Raisely", "Raisely"
+    WINDSORAI = "WindsorAi", "WindsorAi"
+    WIX = "Wix", "Wix"
+    SEVALLA = "Sevalla", "Sevalla"
+    MOTION = "Motion", "Motion"
+    IMPACTPARTNER = "ImpactPartner", "ImpactPartner"
+    CLOUDINARY = "Cloudinary", "Cloudinary"
+    UPLOADCARE = "Uploadcare", "Uploadcare"
 
 
 # Maps a source type to the direct-SQL engine that can query it live. A source type is only

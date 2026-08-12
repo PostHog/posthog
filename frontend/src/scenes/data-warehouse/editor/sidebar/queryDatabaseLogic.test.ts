@@ -1,3 +1,4 @@
+import { newInternalTab } from 'lib/utils/newInternalTab'
 import { databaseTableListLogic } from 'scenes/data-management/database/databaseTableListLogic'
 
 import { initKeaTests } from '~/test/init'
@@ -9,6 +10,8 @@ import {
     queryDatabaseLogic,
     shouldInitializeDirectConnectionExpandedFolders,
 } from './queryDatabaseLogic'
+
+jest.mock('lib/utils/newInternalTab')
 
 describe('queryDatabaseLogic', () => {
     it('groups direct connection tables into schema folders', () => {
@@ -205,6 +208,46 @@ describe('queryDatabaseLogic', () => {
         ).toEqual(false)
     })
 
+    it('opens and focuses a located table after the collapsed tree remounts', () => {
+        initKeaTests()
+        const logic = queryDatabaseLogic()
+        logic.mount()
+        databaseTableListLogic.findMounted()?.actions.loadDatabaseSuccess({
+            tables: {
+                events: {
+                    id: 'events',
+                    name: 'events',
+                    type: 'posthog',
+                    fields: {},
+                },
+            },
+            joins: [],
+        })
+        const focusItem = jest.fn()
+
+        logic.actions.locateTable('events')
+
+        expect(logic.values.expandedFolders).toEqual(
+            expect.arrayContaining(['sources', 'source-posthog', 'table-events'])
+        )
+        expect(logic.values.tableToLocate).toEqual('events')
+
+        logic.actions.setTreeRef({
+            current: {
+                focusItem,
+                getVisibleItems: () => [],
+            },
+        })
+
+        expect(focusItem).toHaveBeenCalledWith('table-events', {
+            scrollPosition: 'top-third',
+            behavior: 'smooth',
+        })
+        expect(logic.values.tableToLocate).toBeNull()
+
+        logic.unmount()
+    })
+
     describe('failed schema load', () => {
         let logic: ReturnType<typeof queryDatabaseLogic.build>
 
@@ -241,6 +284,48 @@ describe('queryDatabaseLogic', () => {
 
             expect(logic.values.databaseLoadError).toEqual(null)
             expect(childNames('sources')).not.toContain("Couldn't load your schema")
+        })
+    })
+
+    describe('direct connection state', () => {
+        let logic: ReturnType<typeof queryDatabaseLogic.build>
+
+        beforeEach(() => {
+            initKeaTests()
+            logic = queryDatabaseLogic()
+            logic.mount()
+            databaseTableListLogic.findMounted()?.actions.setConnection('source-id')
+        })
+
+        afterEach(() => {
+            logic.unmount()
+            jest.clearAllMocks()
+        })
+
+        it('shows a direct schema failure and retry at the root of the sidebar', () => {
+            databaseTableListLogic.findMounted()?.actions.loadDatabaseFailure('Connection failed.')
+
+            expect(logic.values.displayedTreeData.map((item) => item.name)).toEqual([
+                "Couldn't load your schema",
+                'Try again',
+            ])
+        })
+
+        it('links an empty direct schema to table configuration', () => {
+            databaseTableListLogic.findMounted()?.actions.loadDatabaseSuccess({ tables: {}, joins: [] })
+
+            expect(logic.values.displayedTreeData.map((item) => item.name)).toEqual([
+                'No queryable tables',
+                'Configure tables',
+            ])
+
+            logic.values.displayedTreeData
+                .find((item) => item.record?.type === 'direct-connection-configure')
+                ?.onClick?.()
+
+            expect(newInternalTab).toHaveBeenCalledWith(
+                expect.stringContaining('/data-management/sources/managed-source-id/schemas')
+            )
         })
     })
 })

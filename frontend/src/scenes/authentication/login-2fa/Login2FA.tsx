@@ -36,7 +36,6 @@ export function Login2FA(): JSX.Element {
                                     e.preventDefault()
                                     openSupportForm({
                                         kind: 'support',
-                                        target_area: 'login',
                                     })
                                 }}
                             >

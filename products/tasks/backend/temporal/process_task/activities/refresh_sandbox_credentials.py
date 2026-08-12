@@ -1,3 +1,4 @@
+import dataclasses
 from dataclasses import dataclass, field
 
 from temporalio import activity
@@ -5,12 +6,7 @@ from temporalio import activity
 from posthog.temporal.common.logger import get_logger
 from posthog.temporal.common.utils import asyncify, retry_on_db_connection_drop
 
-from products.tasks.backend.exceptions import (
-    CredentialUnavailableError,
-    SandboxNotFoundError,
-    SandboxNotRunningError,
-    TaskNotFoundError,
-)
+from products.tasks.backend.exceptions import CredentialUnavailableError, SandboxNotFoundError, SandboxNotRunningError
 from products.tasks.backend.logic.services.agent_command import send_refresh_session
 from products.tasks.backend.logic.services.connection_token import create_sandbox_connection_token
 from products.tasks.backend.logic.services.sandbox import Sandbox
@@ -30,6 +26,22 @@ from products.tasks.backend.temporal.process_task.utils import (
 from .get_task_processing_context import TaskProcessingContext
 
 logger = get_logger(__name__)
+
+
+def _with_current_authorship(ctx: TaskProcessingContext) -> TaskProcessingContext:
+    """Re-read the run's PR authorship, which `ctx.state` can no longer be trusted for.
+
+    The context is captured once at workflow start, but a run is promoted from bot to user
+    authorship mid-run when its creator connects GitHub. Reading the stale value here resolves
+    the run as bot-authored and re-applies the team installation token over the personal one —
+    handing the creator every repo that installation covers. Only this key is overlaid: the rest
+    of the snapshot (sandbox id, actor) is what the sandbox being refreshed was built against.
+    """
+    persisted = TaskRun.objects.filter(id=ctx.run_id).values_list("state", flat=True).first()
+    mode = (persisted or {}).get("pr_authorship_mode")
+    if not mode or mode == (ctx.state or {}).get("pr_authorship_mode"):
+        return ctx
+    return dataclasses.replace(ctx, state={**(ctx.state or {}), "pr_authorship_mode": mode})
 
 
 def _notify_agent_server_of_refresh(ctx: TaskProcessingContext, task: Task, refreshed_kinds: list[str]) -> None:
@@ -72,6 +84,10 @@ class RefreshSandboxCredentialsOutput:
     sandbox_gone: bool = False
     orphaned_kinds: list[str] = field(default_factory=list)
     no_credentials_left: bool = False
+    # Task rows were hard-deleted mid-run (team deletion cascade); the loop should stop.
+    # A flag rather than an error so old histories (which decode the missing field as
+    # False) replay unchanged, per the workflow-versioning rules.
+    task_gone: bool = False
 
 
 @activity.defn
@@ -103,8 +119,17 @@ def refresh_sandbox_credentials(input: RefreshSandboxCredentialsInput) -> Refres
                     id=ctx.task_id
                 )
             )
-        except Task.DoesNotExist as e:
-            raise TaskNotFoundError(f"Task {ctx.task_id} not found", {"task_id": ctx.task_id}, cause=e)
+            ctx = _with_current_authorship(ctx)
+        except Task.DoesNotExist:
+            logger.info(
+                "sandbox_credentials_refresh_stopped_task_gone",
+                sandbox_id=input.sandbox_id,
+                run_id=ctx.run_id,
+                task_id=ctx.task_id,
+            )
+            return RefreshSandboxCredentialsOutput(
+                next_refresh_seconds=DEFAULT_REFRESH_INTERVAL_SECONDS, refreshed_kinds=[], task_gone=True
+            )
 
         refreshed_kinds: list[str] = []
         orphaned_kinds: list[str] = []

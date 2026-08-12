@@ -88,6 +88,7 @@ def _pr_list_item() -> contracts.PullRequestListItem:
         created_at=datetime(2026, 1, 10, tzinfo=UTC),
         merged_at=None,
         open_to_merge_seconds=None,
+        ready_to_merge_seconds=None,
         labels=["bug"],
         ci=contracts.CIStatusRollup(runs=3, passing=2, failing=1, pending=0),
         pushes=4,
@@ -136,6 +137,8 @@ def _repo_overview() -> contracts.RepoOverview:
         billable_minutes_prev=90.0,
         estimated_cost_usd=12.5,
         estimated_cost_usd_prev=11.0,
+        merge_queue_billable_minutes=30.0,
+        merge_queue_billable_minutes_prev=0.0,
         jobs_available=True,
         default_branch="master",
         cost_series=[],
@@ -322,6 +325,7 @@ class TestEngineeringAnalyticsAPI(APIBaseTest):
         data = response.json()
         assert data["merged_pr_count"] == 42
         assert data["merged_pr_count_prev"] == 40
+        assert data["merge_queue_billable_minutes"] == 30.0  # the digest's queue row reads this key
         assert data["cost_series"] == []
 
     def test_repo_overview_400_on_bad_include_series(self) -> None:

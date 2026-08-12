@@ -1,3 +1,4 @@
+import pytest
 from unittest.mock import patch
 
 from products.tasks.backend.logic.services.custom_prompt_internals import _check_logs, _stream_new_lines
@@ -5,6 +6,7 @@ from products.tasks.backend.tests.agent_log_fixtures import (
     FakeTaskRun,
     _agent_message_line,
     _end_turn_line,
+    _refusal_line,
     _usage_update_line,
     _user_message_line,
 )
@@ -14,7 +16,7 @@ class TestCheckLogs:
     def test_returns_agent_message_when_both_present(self):
         log = "\n".join([_agent_message_line("hello"), _end_turn_line()])
         with patch("posthog.storage.object_storage.read", return_value=log):
-            finished, text, _, _, empty_end_turn = _check_logs(FakeTaskRun())
+            finished, text, _, _, empty_end_turn, _ = _check_logs(FakeTaskRun())
         assert finished is True
         assert text == "hello"
         assert empty_end_turn is False
@@ -33,7 +35,7 @@ class TestCheckLogs:
         skip = len(turn_1) + len(turn_2_prompt)
 
         with patch("posthog.storage.object_storage.read", return_value=log):
-            finished, text, _, total, empty_end_turn = _check_logs(FakeTaskRun(), skip_lines=skip)
+            finished, text, _, total, empty_end_turn, _ = _check_logs(FakeTaskRun(), skip_lines=skip)
 
         assert finished is False
         assert text is None
@@ -48,7 +50,7 @@ class TestCheckLogs:
         skip = len(turn_1)
 
         with patch("posthog.storage.object_storage.read", return_value=log):
-            finished, text, _, _, empty_end_turn = _check_logs(FakeTaskRun(), skip_lines=skip)
+            finished, text, _, _, empty_end_turn, _ = _check_logs(FakeTaskRun(), skip_lines=skip)
 
         assert finished is True
         assert text == "new"
@@ -56,15 +58,15 @@ class TestCheckLogs:
 
     def test_empty_log_returns_all_defaults(self):
         with patch("posthog.storage.object_storage.read", return_value=""):
-            finished, text, full_log, total, empty_end_turn = _check_logs(FakeTaskRun())
-        assert (finished, text, full_log, total, empty_end_turn) == (False, None, None, 0, False)
+            finished, text, full_log, total, empty_end_turn, refused = _check_logs(FakeTaskRun())
+        assert (finished, text, full_log, total, empty_end_turn, refused) == (False, None, None, 0, False, False)
 
     def test_no_new_lines_since_skip_does_not_flag_empty(self):
         """Eventual-consistency case: S3 hasn't caught up yet, no new data to parse."""
         turn_1 = [_agent_message_line("x"), _end_turn_line()]
         log = "\n".join(turn_1)
         with patch("posthog.storage.object_storage.read", return_value=log):
-            finished, text, _, total, empty_end_turn = _check_logs(FakeTaskRun(), skip_lines=len(turn_1))
+            finished, text, _, total, empty_end_turn, _ = _check_logs(FakeTaskRun(), skip_lines=len(turn_1))
         assert finished is False
         assert text is None
         assert empty_end_turn is False
@@ -75,7 +77,7 @@ class TestCheckLogs:
         Otherwise MultiTurnSession.start silently polls until timeout."""
         log = "\n".join([_end_turn_line()])
         with patch("posthog.storage.object_storage.read", return_value=log):
-            finished, text, _, _, empty_end_turn = _check_logs(FakeTaskRun(), skip_lines=0)
+            finished, text, _, _, empty_end_turn, _ = _check_logs(FakeTaskRun(), skip_lines=0)
         assert finished is False
         assert text is None
         assert empty_end_turn is True
@@ -93,11 +95,49 @@ class TestCheckLogs:
 
         log = "\n".join(turn_1 + turn_2_empty)
         with patch("posthog.storage.object_storage.read", return_value=log):
-            finished, text, _, _, empty_end_turn = _check_logs(FakeTaskRun(), skip_lines=len(turn_1))
+            finished, text, _, _, empty_end_turn, _ = _check_logs(FakeTaskRun(), skip_lines=len(turn_1))
 
         assert finished is False
         assert text is None
         assert empty_end_turn is True
+
+    def test_refusal_flags_refused_and_suppresses_partial_text(self):
+        """Regression: a provider refusal used to look like a still-running turn, so every
+        refusing unit polled out the full budget (30 min). It must surface as refused, and any
+        pre-refusal partial text must not be mistaken for the turn's response."""
+        log = "\n".join([_agent_message_line("partial reasoning"), _refusal_line()])
+        with patch("posthog.storage.object_storage.read", return_value=log):
+            finished, text, _, _, empty_end_turn, refused = _check_logs(FakeTaskRun())
+        assert refused is True
+        assert finished is False
+        assert text is None
+        assert empty_end_turn is False
+
+    @pytest.mark.parametrize(
+        "lines,expected_text",
+        [
+            pytest.param(
+                [_refusal_line(), _agent_message_line("recovered"), _end_turn_line()],
+                "recovered",
+                id="refusal-then-end-turn",
+            ),
+            pytest.param(
+                [_agent_message_line("done"), _end_turn_line(), _refusal_line()],
+                "done",
+                id="end-turn-then-refusal",
+            ),
+        ],
+    )
+    def test_end_turn_outranks_refusal_in_either_order(self, lines: list[str], expected_text: str):
+        """A successful end_turn outranks a refusal in the same slice regardless of order —
+        failing a finished turn as refused would discard a good response."""
+        log = "\n".join(lines)
+        with patch("posthog.storage.object_storage.read", return_value=log):
+            finished, text, _, _, empty_end_turn, refused = _check_logs(FakeTaskRun())
+        assert refused is False
+        assert finished is True
+        assert text == expected_text
+        assert empty_end_turn is False
 
 
 class TestStreamNewLinesMonotonic:
