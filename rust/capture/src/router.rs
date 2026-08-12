@@ -83,9 +83,8 @@ pub struct State {
     /// `OVERFLOW_ENABLED` and the AI overflow valve are set; `None` leaves
     /// the AI lane subject to restriction-driven `force_overflow` only.
     pub ai_events_overflow_limiter: Option<Arc<OverflowLimiter>>,
-    /// Per-team byte-rate limiter for the AI lane. `None` when
-    /// `ai_byte_limit_per_second` is 0. Independent of the overflow limiter:
-    /// its decision drives a DROP, not a reroute.
+    /// AI-lane byte-rate limiter; `None` when disabled. Drops over-budget
+    /// events, unlike the overflow limiter's reroute.
     pub ai_byte_rate_limiter: Option<Arc<ByteRateLimiter>>,
     /// Redis-backed replay overflow limiter for session recording sessions.
     /// When present, the recordings pipeline calls `is_limited(session_id)`

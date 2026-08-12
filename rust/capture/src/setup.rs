@@ -372,19 +372,29 @@ pub async fn build_components(
             None
         };
 
-    // Only built when an operator opts in with a nonzero per-second budget;
-    // `0` (the default) leaves the AI lane byte-unbounded, matching the
-    // pre-limiter behavior.
+    let ai_byte_limit_per_second = if config.ai_byte_limit_per_second > 1_000_000_000 {
+        warn!(
+            ai_byte_limit_per_second = config.ai_byte_limit_per_second,
+            "AI_BYTE_LIMIT_PER_SECOND exceeds 1e9; governor truncates its replenish interval to \
+             zero above that, which disables rate limiting entirely -- clamping to 1e9"
+        );
+        1_000_000_000
+    } else {
+        config.ai_byte_limit_per_second
+    };
     let ai_byte_rate_limiter: Option<Arc<ByteRateLimiter>> =
-        std::num::NonZeroU32::new(config.ai_byte_limit_per_second).map(|per_second| {
-            if config.ai_byte_limit_burst < 8_388_608 {
+        std::num::NonZeroU32::new(ai_byte_limit_per_second).map(|per_second| {
+            let burst = if config.ai_byte_limit_burst < 8_388_608 {
                 warn!(
                     ai_byte_limit_burst = config.ai_byte_limit_burst,
                     "AI_BYTE_LIMIT_BURST is below the 8 MiB max AI event size; \
-                     large AI events will always be dropped by the byte-rate limiter"
+                     clamping up to 8 MiB so legitimate large AI events aren't always dropped"
                 );
-            }
-            let burst = std::num::NonZeroU32::new(config.ai_byte_limit_burst).unwrap_or(per_second);
+                8_388_608
+            } else {
+                config.ai_byte_limit_burst
+            };
+            let burst = std::num::NonZeroU32::new(burst).unwrap_or(per_second);
             let limiter =
                 ByteRateLimiter::new(per_second, burst, config.ai_byte_limit_overrides.clone());
 
@@ -396,7 +406,6 @@ pub async fn build_components(
             }
 
             {
-                // Keep the governor's per-key state (default + overrides) from growing unbounded.
                 let limiter = limiter.clone();
                 tokio::spawn(async move {
                     limiter.clean_state().await;

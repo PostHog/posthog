@@ -1,12 +1,10 @@
-//! Per-(token:distinct_id) BYTE-rate limiter for the AI capture lane.
+//! Byte-rate limiter for the AI capture lane: charges each event's serialized
+//! size against the token's budget and DROPS over-budget events (unlike
+//! `OverflowLimiter`, which reroutes — a byte flood has to actually shed).
 //!
-//! Unlike `OverflowLimiter` (which reroutes over-budget events to an overflow
-//! topic), this limiter's decision drives a hard DROP upstream: the AI lane's
-//! 8 MiB events make byte throughput, not event count, the resource to bound.
-//! It wraps the same `governor` keyed rate limiter but charges the event's
-//! serialized byte size via the weighted `check_key_n`, and supports a
-//! per-token override map so a heavy multimodal customer's ceiling can be
-//! raised without loosening the global default.
+//! Keyed on token alone, not `token:distinct_id`: `distinct_id` is
+//! client-controlled, so per-user keying would just be a way to rotate around
+//! the cap.
 use std::collections::HashMap;
 use std::num::NonZeroU32;
 use std::sync::Arc;
@@ -16,6 +14,7 @@ use governor::{
 };
 use metrics::gauge;
 use rand::Rng;
+use tracing::warn;
 
 type KeyedLimiter = RateLimiter<String, DefaultKeyedStateStore<String>, clock::DefaultClock>;
 
@@ -48,17 +47,35 @@ fn parse_overrides(raw: Option<String>) -> HashMap<String, Arc<KeyedLimiter>> {
             continue;
         }
         let Some((token, spec)) = entry.split_once('=') else {
+            warn!(entry, "AI byte limit override missing '=': skipping");
             continue;
         };
         let Some((ps, burst)) = spec.split_once(':') else {
+            warn!(entry, "AI byte limit override missing ':': skipping");
             continue;
         };
         let (Ok(ps), Ok(burst)) = (ps.trim().parse::<u32>(), burst.trim().parse::<u32>()) else {
+            warn!(
+                entry,
+                "AI byte limit override has a non-numeric per_second or burst: skipping"
+            );
             continue;
         };
         let (Some(ps), Some(burst)) = (NonZeroU32::new(ps), NonZeroU32::new(burst)) else {
+            warn!(
+                entry,
+                "AI byte limit override has a zero per_second or burst: skipping"
+            );
             continue;
         };
+        if burst.get() < 8_388_608 {
+            warn!(
+                entry,
+                burst = burst.get(),
+                "AI byte limit override burst is below the 8 MiB max AI event size; \
+                 large AI events for this token will always be dropped"
+            );
+        }
         map.insert(token.trim().to_string(), build(ps, burst));
     }
     map
@@ -72,18 +89,17 @@ impl ByteRateLimiter {
         }
     }
 
-    /// Charge `weight_bytes` against the key's budget. An empty key or zero
-    /// weight is always `Within` (nothing to charge). A weight larger than the
-    /// burst capacity can never fit (`InsufficientCapacity`) and is `Exceeded`.
-    pub fn check(&self, event_key: &str, token: &str, weight_bytes: u32) -> ByteLimitDecision {
-        if event_key.is_empty() {
+    /// A weight above the burst capacity can never fit (`InsufficientCapacity`)
+    /// and is `Exceeded`.
+    pub fn check(&self, token: &str, weight_bytes: u32) -> ByteLimitDecision {
+        if token.is_empty() {
             return ByteLimitDecision::Within;
         }
         let Some(weight) = NonZeroU32::new(weight_bytes) else {
             return ByteLimitDecision::Within;
         };
         let limiter = self.overrides.get(token).unwrap_or(&self.default);
-        match limiter.check_key_n(&event_key.to_string(), weight) {
+        match limiter.check_key_n(&token.to_string(), weight) {
             Ok(()) => ByteLimitDecision::Within,
             Err(NegativeMultiDecision::BatchNonConforming(_, _)) => ByteLimitDecision::Exceeded, // over rate/burst right now
             Err(NegativeMultiDecision::InsufficientCapacity(_)) => ByteLimitDecision::Exceeded, // weight > burst: never fits
@@ -94,10 +110,8 @@ impl ByteRateLimiter {
         std::iter::once(&self.default).chain(self.overrides.values())
     }
 
-    /// Reports the total number of tracked keys (default + every override
-    /// limiter) to prometheus every 10 seconds, needs to be spawned in a
-    /// separate task. `lane` labels the series so deployments running several
-    /// limiter instances don't overwrite each other's gauge.
+    /// Gauges tracked key count (default + overrides); spawn as a task. `lane`
+    /// keeps concurrent limiter instances from overwriting each other's series.
     pub async fn report_metrics(&self, lane: &'static str) {
         let mut interval = tokio::time::interval(tokio::time::Duration::from_secs(10));
         loop {
@@ -107,12 +121,9 @@ impl ByteRateLimiter {
         }
     }
 
-    /// Clean up the rate limiter state (default + every override limiter),
-    /// once per minute. Ensure we don't use more memory than necessary.
+    /// Evicts stale per-key state (default + overrides) so memory stays bounded; spawn as a task.
     pub async fn clean_state(&self) {
-        // Give a small amount of randomness to the interval to ensure we don't have all replicas
-        // locking at the same time. The lock isn't going to be held for long, but this will reduce
-        // impact regardless.
+        // Jitter the interval so replicas don't all lock at once.
         let interval_secs = rand::thread_rng().gen_range(60..70);
 
         let mut interval = tokio::time::interval(tokio::time::Duration::from_secs(interval_secs));
@@ -146,7 +157,7 @@ mod tests {
     #[test]
     fn within_budget_is_allowed() {
         let l = limiter(1_000, 10_000, None);
-        assert_eq!(l.check("tok:user", "tok", 500), ByteLimitDecision::Within);
+        assert_eq!(l.check("tok", 500), ByteLimitDecision::Within);
     }
 
     #[test]
@@ -154,10 +165,7 @@ mod tests {
         // A single event heavier than the whole burst can never fit:
         // governor returns InsufficientCapacity, which we map to Exceeded.
         let l = limiter(1_000, 10_000, None);
-        assert_eq!(
-            l.check("tok:user", "tok", 20_000),
-            ByteLimitDecision::Exceeded
-        );
+        assert_eq!(l.check("tok", 20_000), ByteLimitDecision::Exceeded);
     }
 
     #[test]
@@ -165,31 +173,37 @@ mod tests {
         // burst=10_000 bytes; two 6_000-byte events in the same instant:
         // the first fits, the second exceeds the remaining budget.
         let l = limiter(1_000, 10_000, None);
-        assert_eq!(l.check("tok:user", "tok", 6_000), ByteLimitDecision::Within);
-        assert_eq!(
-            l.check("tok:user", "tok", 6_000),
-            ByteLimitDecision::Exceeded
-        );
+        assert_eq!(l.check("tok", 6_000), ByteLimitDecision::Within);
+        assert_eq!(l.check("tok", 6_000), ByteLimitDecision::Exceeded);
     }
 
     #[test]
-    fn budget_is_per_key_not_global() {
+    fn different_tokens_get_independent_budgets() {
         let l = limiter(1_000, 10_000, None);
-        assert_eq!(l.check("tok:a", "tok", 9_000), ByteLimitDecision::Within);
-        // Different distinct_id => different key => own budget.
-        assert_eq!(l.check("tok:b", "tok", 9_000), ByteLimitDecision::Within);
+        assert_eq!(l.check("tok_a", 9_000), ByteLimitDecision::Within);
+        // A different token is a different project, with its own budget.
+        assert_eq!(l.check("tok_b", 9_000), ByteLimitDecision::Within);
     }
 
     #[test]
-    fn empty_key_is_allowed() {
+    fn same_token_shares_one_budget_across_distinct_ids() {
+        // The budget is per-token: two events under the same token exhaust
+        // one shared budget regardless of which distinct_id produced them.
         let l = limiter(1_000, 10_000, None);
-        assert_eq!(l.check("", "", 5_000), ByteLimitDecision::Within);
+        assert_eq!(l.check("tok", 6_000), ByteLimitDecision::Within);
+        assert_eq!(l.check("tok", 6_000), ByteLimitDecision::Exceeded);
+    }
+
+    #[test]
+    fn empty_token_is_allowed() {
+        let l = limiter(1_000, 10_000, None);
+        assert_eq!(l.check("", 5_000), ByteLimitDecision::Within);
     }
 
     #[test]
     fn zero_weight_is_allowed() {
         let l = limiter(1_000, 10_000, None);
-        assert_eq!(l.check("tok:user", "tok", 0), ByteLimitDecision::Within);
+        assert_eq!(l.check("tok", 0), ByteLimitDecision::Within);
     }
 
     #[test]
@@ -197,15 +211,9 @@ mod tests {
         // Default burst 10_000; override "big" to burst 1_000_000.
         let l = limiter(1_000, 10_000, Some("big=1000000:1000000"));
         // Default token limited by the small burst.
-        assert_eq!(
-            l.check("tok:user", "tok", 20_000),
-            ByteLimitDecision::Exceeded
-        );
+        assert_eq!(l.check("tok", 20_000), ByteLimitDecision::Exceeded);
         // Overridden token admits the same weight.
-        assert_eq!(
-            l.check("big:user", "big", 20_000),
-            ByteLimitDecision::Within
-        );
+        assert_eq!(l.check("big", 20_000), ByteLimitDecision::Within);
     }
 
     #[test]
@@ -213,8 +221,18 @@ mod tests {
         // "bad" has no '='; "x=notnum" has a non-numeric spec; both ignored,
         // "ok=15:15" parsed. No panic.
         let l = limiter(1_000, 10_000, Some("bad,x=notnum,ok=15:15, "));
-        assert_eq!(l.check("ok:user", "ok", 10), ByteLimitDecision::Within);
-        assert_eq!(l.check("ok:user", "ok", 10), ByteLimitDecision::Exceeded);
+        assert_eq!(l.check("ok", 10), ByteLimitDecision::Within);
+        assert_eq!(l.check("ok", 10), ByteLimitDecision::Exceeded);
+    }
+
+    #[test]
+    fn override_burst_below_the_8mib_floor_still_parses() {
+        // Below the floor is a footgun (large AI events for this token will
+        // always be dropped) but not a parse error: the override still
+        // builds, it just warns.
+        let l = limiter(1_000, 10_000, Some("small=1000:100"));
+        assert_eq!(l.check("small", 50), ByteLimitDecision::Within);
+        assert_eq!(l.check("small", 100), ByteLimitDecision::Exceeded);
     }
 
     #[test]
@@ -225,32 +243,23 @@ mod tests {
         // scheduling jitter in this test.
         let l = limiter(1, 10_000, Some("big=1:1000000"));
         // Populate both the default limiter and the override limiter's dashmap.
-        assert_eq!(l.check("tok:user", "tok", 9_000), ByteLimitDecision::Within);
-        assert_eq!(
-            l.check("big:user", "big", 900_000),
-            ByteLimitDecision::Within
-        );
+        assert_eq!(l.check("tok", 9_000), ByteLimitDecision::Within);
+        assert_eq!(l.check("big", 900_000), ByteLimitDecision::Within);
 
         l.clean_state_once();
 
         // Still-recent entries must survive retain_recent: the budget already
         // spent should still be reflected, on both the default and override
         // limiter.
-        assert_eq!(
-            l.check("tok:user", "tok", 9_000),
-            ByteLimitDecision::Exceeded
-        );
-        assert_eq!(
-            l.check("big:user", "big", 900_000),
-            ByteLimitDecision::Exceeded
-        );
+        assert_eq!(l.check("tok", 9_000), ByteLimitDecision::Exceeded);
+        assert_eq!(l.check("big", 900_000), ByteLimitDecision::Exceeded);
     }
 
     #[tokio::test]
     async fn report_metrics_and_clean_state_do_not_panic_when_polled_once() {
         let l = limiter(1_000, 10_000, Some("big=1000000:1000000"));
-        assert_eq!(l.check("tok:user", "tok", 500), ByteLimitDecision::Within);
-        assert_eq!(l.check("big:user", "big", 500), ByteLimitDecision::Within);
+        assert_eq!(l.check("tok", 500), ByteLimitDecision::Within);
+        assert_eq!(l.check("big", 500), ByteLimitDecision::Within);
 
         let key_count: f64 = l.all_limiters().map(|lim| lim.len() as f64).sum();
         assert_eq!(key_count, 2.0);

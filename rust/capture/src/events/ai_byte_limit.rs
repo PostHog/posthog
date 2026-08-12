@@ -1,31 +1,45 @@
-//! Per-team byte-rate drop for the AI lane.
-//!
-//! Mirrors the `token_dropper` retain in `events::analytics::process_events`
-//! but governs bytes on the AI lane: an over-budget `DataType::AiEvents` event
-//! is dropped (not rerouted — the overflow governor's reroute is the wrong
-//! action, and the AI overflow valve is unset in prod). Only the AI lane is
-//! affected; analytics events pass through untouched.
+//! Drops over-budget events on whichever `DataType` carries `$ai_*` traffic to
+//! the AI Kafka topic for this deployment's `CaptureMode`. Under `Ai` the main
+//! topic *is* the AI topic, so `$ai_*` isn't diverted and rides `AnalyticsMain`
+//! — that's the lane to limit there; under `Events` it's the diverted
+//! `AiEvents` (leaving `AnalyticsMain` as untouched analytics). `Import` and
+//! the rest are exempt: backfills are never throttled, matching the other
+//! limiters.
 use std::sync::Arc;
 
 use limiters::byte_rate::{ByteLimitDecision, ByteRateLimiter};
 
+use crate::config::CaptureMode;
 use crate::prometheus::report_dropped_events;
 use crate::v0_request::{DataType, ProcessedEvent};
+
+/// The `DataType` this helper should charge bytes against for `mode`, or
+/// `None` if `mode` should never be byte-limited (see module doc).
+fn ai_lane_target(mode: CaptureMode) -> Option<DataType> {
+    match mode {
+        CaptureMode::Ai => Some(DataType::AnalyticsMain),
+        CaptureMode::Events => Some(DataType::AiEvents),
+        CaptureMode::Recordings | CaptureMode::Import => None,
+    }
+}
 
 pub fn drop_ai_byte_limited(
     events: &mut Vec<ProcessedEvent>,
     limiter: Option<&Arc<ByteRateLimiter>>,
+    capture_mode: CaptureMode,
 ) {
     let Some(limiter) = limiter else {
         return;
     };
+    let Some(target) = ai_lane_target(capture_mode) else {
+        return;
+    };
     events.retain(|e| {
-        if e.metadata.data_type != DataType::AiEvents {
+        if e.metadata.data_type != target {
             return true;
         }
-        let key = e.event.key();
         let weight = e.event.data.len().min(u32::MAX as usize) as u32;
-        match limiter.check(&key, &e.event.token, weight) {
+        match limiter.check(&e.event.token, weight) {
             ByteLimitDecision::Within => true,
             ByteLimitDecision::Exceeded => {
                 report_dropped_events("ai_byte_rate_limited", 1);
@@ -87,7 +101,7 @@ mod tests {
     #[test]
     fn none_limiter_is_a_no_op() {
         let mut events = vec![event_of(DataType::AiEvents, "t", "u", "xxxxxxxxxx")];
-        drop_ai_byte_limited(&mut events, None);
+        drop_ai_byte_limited(&mut events, None, CaptureMode::Events);
         assert_eq!(events.len(), 1);
     }
 
@@ -95,41 +109,78 @@ mod tests {
     fn under_budget_ai_events_are_kept() {
         let l = limiter(1_000, 1_000_000);
         let mut events = vec![event_of(DataType::AiEvents, "t", "u", "small")];
-        drop_ai_byte_limited(&mut events, Some(&l));
+        drop_ai_byte_limited(&mut events, Some(&l), CaptureMode::Events);
         assert_eq!(events.len(), 1);
     }
 
     #[test]
     fn over_budget_ai_events_are_dropped() {
-        // burst 10 bytes; a 40-byte data string exceeds it outright.
         let l = limiter(10, 10);
         let mut events = vec![event_of(DataType::AiEvents, "t", "u", &"x".repeat(40))];
-        drop_ai_byte_limited(&mut events, Some(&l));
+        drop_ai_byte_limited(&mut events, Some(&l), CaptureMode::Events);
         assert!(events.is_empty(), "over-budget AI event must be dropped");
     }
 
     #[test]
-    fn non_ai_events_are_never_dropped_by_this_helper() {
-        // Even with a tiny burst, AnalyticsMain passes through untouched:
-        // this helper only governs the AI lane.
+    fn non_ai_events_are_never_dropped_by_this_helper_under_events_mode() {
         let l = limiter(10, 10);
         let mut events = vec![event_of(DataType::AnalyticsMain, "t", "u", &"x".repeat(40))];
-        drop_ai_byte_limited(&mut events, Some(&l));
+        drop_ai_byte_limited(&mut events, Some(&l), CaptureMode::Events);
         assert_eq!(events.len(), 1, "AnalyticsMain must not be touched");
     }
 
     #[test]
-    fn mixed_batch_drops_only_over_budget_ai_events() {
+    fn mixed_batch_drops_only_over_budget_ai_events_under_events_mode() {
         let l = limiter(10, 20);
         let mut events = vec![
             event_of(DataType::AiEvents, "t", "u", &"x".repeat(5)), // fits
             event_of(DataType::AnalyticsMain, "t", "u", &"x".repeat(99)), // untouched
             event_of(DataType::AiEvents, "t", "u", &"x".repeat(50)), // exceeds remaining
         ];
-        drop_ai_byte_limited(&mut events, Some(&l));
+        drop_ai_byte_limited(&mut events, Some(&l), CaptureMode::Events);
         assert_eq!(events.len(), 2);
         assert!(events
             .iter()
             .any(|e| e.metadata.data_type == DataType::AnalyticsMain));
+    }
+
+    #[test]
+    fn ai_mode_limits_analytics_main_not_ai_events() {
+        // The gate is keyed on CaptureMode, so AiEvents (which can't occur here) stays untouched.
+        let l = limiter(10, 10);
+        let mut events = vec![
+            event_of(DataType::AnalyticsMain, "t", "u", &"x".repeat(40)), // over budget
+            event_of(DataType::AiEvents, "t", "u", &"x".repeat(40)),      // untouched
+        ];
+        drop_ai_byte_limited(&mut events, Some(&l), CaptureMode::Ai);
+        assert_eq!(events.len(), 1);
+        assert_eq!(events[0].metadata.data_type, DataType::AiEvents);
+    }
+
+    #[test]
+    fn ai_mode_keeps_small_analytics_main_events() {
+        let l = limiter(1_000, 1_000_000);
+        let mut events = vec![event_of(DataType::AnalyticsMain, "t", "u", "small")];
+        drop_ai_byte_limited(&mut events, Some(&l), CaptureMode::Ai);
+        assert_eq!(events.len(), 1);
+    }
+
+    #[test]
+    fn import_mode_never_throttles() {
+        let l = limiter(10, 10);
+        let mut events = vec![
+            event_of(DataType::AiEvents, "t", "u", &"x".repeat(40)),
+            event_of(DataType::AnalyticsMain, "t", "u", &"x".repeat(40)),
+        ];
+        drop_ai_byte_limited(&mut events, Some(&l), CaptureMode::Import);
+        assert_eq!(events.len(), 2, "import mode must never drop events");
+    }
+
+    #[test]
+    fn recordings_mode_never_throttles() {
+        let l = limiter(10, 10);
+        let mut events = vec![event_of(DataType::AnalyticsMain, "t", "u", &"x".repeat(40))];
+        drop_ai_byte_limited(&mut events, Some(&l), CaptureMode::Recordings);
+        assert_eq!(events.len(), 1);
     }
 }

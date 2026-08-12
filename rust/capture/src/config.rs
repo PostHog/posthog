@@ -371,17 +371,16 @@ pub struct Config {
     #[envconfig(default = "false")]
     pub capture_ingestion_warnings_kafka_tls: bool,
 
-    /// Per-(token:distinct_id) byte/second budget for the AI lane. `0` disables
-    /// the limiter entirely (the limiter is only built when this is > 0).
+    /// Per-token byte/second budget for the AI lane. `0` disables the limiter.
     #[envconfig(default = "0")]
     pub ai_byte_limit_per_second: u32,
 
-    /// Burst budget in bytes for the AI lane. MUST be >= the max AI event size
-    /// (8 MiB) or single large events can never fit and are always dropped.
+    /// Burst budget in bytes. Values below the 8 MiB max event size are clamped
+    /// up (a smaller burst would perma-drop legitimate large events).
     #[envconfig(default = "16777216")]
     pub ai_byte_limit_burst: u32,
 
-    /// Optional per-token ceiling overrides: "tokenA=perSecond:burst,tokenB=...".
+    /// Per-token ceiling overrides: "token=perSecond:burst,...".
     pub ai_byte_limit_overrides: Option<String>,
 }
 
