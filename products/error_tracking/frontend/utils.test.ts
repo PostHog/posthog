@@ -1,8 +1,15 @@
 import { Dayjs, dayjs } from 'lib/dayjs'
 
 import { ErrorTrackingIssue, ErrorTrackingIssueAggregations } from '~/queries/schema/schema-general'
+import { FilterLogicalOperator, PropertyFilterType } from '~/types'
 
-import { generateDateRangeLabel, getIssueReplayDateRange, mergeIssues, sourceDisplay } from './utils'
+import {
+    generateDateRangeLabel,
+    getIssueReplayDateRange,
+    getIssueReplayFilterGroup,
+    mergeIssues,
+    sourceDisplay,
+} from './utils'
 
 function wrapVolumeBuckets(
     initialDate: Dayjs,
@@ -198,6 +205,32 @@ describe('getIssueReplayDateRange', () => {
         expect(getIssueReplayDateRange(firstSeen, dayjs('2023-12-31T00:00:00.000Z')).date_to).toEqual(
             '2024-01-01T13:00:00.000Z'
         )
+    })
+})
+
+describe('getIssueReplayFilterGroup', () => {
+    it('scopes the merge-aware issue field to exception events', () => {
+        expect(getIssueReplayFilterGroup("issue-'quoted'")).toEqual({
+            type: FilterLogicalOperator.And,
+            values: [
+                {
+                    type: FilterLogicalOperator.And,
+                    values: [
+                        {
+                            id: '$exception',
+                            name: '$exception',
+                            type: 'events',
+                            properties: [
+                                {
+                                    key: "issue_id = 'issue-\\'quoted\\''",
+                                    type: PropertyFilterType.HogQL,
+                                },
+                            ],
+                        },
+                    ],
+                },
+            ],
+        })
     })
 })
 
