@@ -152,7 +152,6 @@ describe('accountsTableQuery', () => {
             queryInput({
                 tileFilter: {
                     tileId: 'tile',
-                    expression: `toFloatOrNull(accounts.custom_properties.values.\`${CUSTOM_PROPERTY_ID}\`) > 1`,
                     filter: {
                         kind: 'custom_property',
                         definitionId: CUSTOM_PROPERTY_ID,
@@ -178,7 +177,6 @@ describe('accountsTableQuery', () => {
             queryInput({
                 tileFilter: {
                     tileId: 'tile',
-                    expression: `toFloatOrNull(accounts.custom_properties.values.\`${CUSTOM_PROPERTY_ID}\`) != 1`,
                     filter: {
                         kind: 'custom_property',
                         definitionId: CUSTOM_PROPERTY_ID,
