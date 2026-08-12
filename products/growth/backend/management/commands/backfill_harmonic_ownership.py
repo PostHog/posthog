@@ -5,7 +5,9 @@ Targets OrganizationEnrichment rows with no "ownership_status" key in `data`, re
 orgs the live pipeline actually fetched from a provider (an OrganizationEnrichmentFetch row
 exists) and not explicitly flagged personal-domain (data__work_email is not False) — this
 excludes personal-domain signups, which never got a provider lookup and would otherwise have
-a vendor's own ownership data written onto them. The missing "ownership_status" key is
+a vendor's own ownership data written onto them. Known gap, accepted: archive_provider_fetch
+never raises, so an org whose fetch succeeded but whose archive write failed silently has no
+fetch row and is skipped here — rare, and skipping is the safe direction for this command. The missing "ownership_status" key is
 otherwise absent both for pre-feature orgs and for orgs where Harmonic has no ownership
 opinion, so a re-run is a no-op for the latter rather than a retry; see the write skip below.
 Re-fetches each org fresh from Harmonic (paced by --sleep) rather than replaying the archived
