@@ -1465,6 +1465,7 @@ export enum SessionRecordingSidebarTab {
     NETWORK_WATERFALL = 'network-waterfall',
     LINKED_ISSUES = 'linked-issues',
     SESSIONS = 'sessions',
+    OBSERVATIONS = 'observations',
 }
 
 export enum SessionRecordingSidebarStacking {
@@ -5320,6 +5321,8 @@ export enum HogQLMathType {
 }
 export enum GroupMathType {
     UniqueGroup = 'unique_group',
+    FirstTimeForGroup = 'first_time_for_group',
+    FirstMatchingEventForGroup = 'first_matching_event_for_group',
 }
 
 export enum ExperimentMetricMathType {
