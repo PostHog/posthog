@@ -314,7 +314,6 @@ container
         dockBounceNotifications: s.dockBounceNotifications,
         completionSound: s.completionSound,
         completionVolume: s.completionVolume,
-        scaleSoundWithTaskLength: s.scaleSoundWithTaskLength,
         customSounds: s.customSounds,
       };
     },

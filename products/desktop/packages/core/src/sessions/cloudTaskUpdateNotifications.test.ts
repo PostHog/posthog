@@ -337,7 +337,7 @@ describe("cloud task update notifications", () => {
     },
   );
 
-  it("notifies with the task title, stop reason and turn duration, and marks activity", () => {
+  it("notifies with the task title and stop reason, and marks activity", () => {
     const harness = createHarness();
     harness.sendUpdate(
       logsUpdate(
@@ -353,7 +353,6 @@ describe("cloud task update notifications", () => {
       "Cloud Task",
       "end_turn",
       TASK_ID,
-      45_000,
     );
     expect(harness.enqueueSpeech).toHaveBeenCalledWith(
       expect.objectContaining({ kind: "done", source: "backstop" }),
@@ -361,7 +360,7 @@ describe("cloud task update notifications", () => {
     expect(harness.markActivity).toHaveBeenCalledTimes(1);
   });
 
-  it("keeps the turn duration when the response precedes turn_complete", () => {
+  it("notifies when the response precedes turn_complete", () => {
     const harness = createHarness();
     harness.sendUpdate(
       logsUpdate(
@@ -378,7 +377,6 @@ describe("cloud task update notifications", () => {
       "Cloud Task",
       "end_turn",
       TASK_ID,
-      45_000,
     );
   });
 

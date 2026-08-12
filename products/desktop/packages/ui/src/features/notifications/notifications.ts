@@ -7,11 +7,7 @@ import type { TaskActivityKind } from "@posthog/shared/domain-types";
 import { toast } from "@posthog/ui/primitives/toast";
 import { openNotificationTarget } from "@posthog/ui/router/navigationBridge";
 import { logger } from "@posthog/ui/shell/logger";
-import {
-  playbackRateForTaskDuration,
-  playCompletionSound,
-  resolveSoundUrl,
-} from "@posthog/ui/utils/sounds";
+import { playCompletionSound, resolveSoundUrl } from "@posthog/ui/utils/sounds";
 import { inject, injectable } from "inversify";
 import { showErrorDetails, summarizeError } from "./errorDetails";
 import {
@@ -42,9 +38,6 @@ export interface NotificationDescriptor {
     duration?: number;
   };
   silent?: boolean;
-  // How long the task took, in ms. When the user enables sound scaling, this
-  // drives the completion sound's playback rate (fast task -> faster/higher).
-  soundDurationMs?: number;
   // Raw error payload behind an error-level notification. Never rendered into
   // the toast itself (it doesn't fit); the toast instead gets a "Details"
   // action that opens the error details dialog — pretty-printed payload,
@@ -88,18 +81,12 @@ export class NotificationBus {
     if (channel === "suppress") return;
 
     const settings = this.settings.get();
-    const playbackRate =
-      settings.scaleSoundWithTaskLength &&
-      descriptor.soundDurationMs !== undefined
-        ? playbackRateForTaskDuration(descriptor.soundDurationMs)
-        : 1;
     // Sound fires on both delivered tiers (toast + native), not on suppress —
     // matching the pre-bus behavior where any non-suppressed notification rang.
     playCompletionSound(
       settings.completionSound,
       settings.completionVolume,
       settings.customSounds,
-      playbackRate,
     );
 
     if (channel === "toast") {
@@ -133,14 +120,12 @@ export class NotificationBus {
     taskTitle: string,
     stopReason: string,
     taskId?: string,
-    durationMs?: number,
   ): void {
     if (stopReason !== "end_turn") return;
     this.notify({
       body: `"${this.truncateTitle(taskTitle)}" finished`,
       target: taskId ? { kind: "task", taskId } : undefined,
       toast: { level: "success" },
-      soundDurationMs: durationMs,
     });
     this.emitTaskActivity(taskId, taskTitle, "completed");
   }

@@ -101,12 +101,11 @@ function buildSessionServiceDeps(): SessionServiceDeps {
         taskTitle,
         taskId,
       ),
-    notifyPromptComplete: (taskTitle, stopReason, taskId, durationMs) =>
+    notifyPromptComplete: (taskTitle, stopReason, taskId) =>
       resolveService(NotificationBus).notifyPromptComplete(
         taskTitle,
         stopReason,
         taskId,
-        durationMs,
       ),
     enqueueSpeech: (request) => resolveService(SpeechNotifier).speak(request),
     getIsOnline,

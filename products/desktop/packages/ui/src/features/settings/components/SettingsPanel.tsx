@@ -11,6 +11,7 @@ import {
   GithubLogo,
   Keyboard,
   Lightbulb,
+  MagnifyingGlass,
   Palette,
   Plugs,
   Robot,
@@ -22,7 +23,7 @@ import {
   TreeStructure,
   Wrench,
 } from "@phosphor-icons/react";
-import { Avatar, AvatarFallback, MenuLabel } from "@posthog/quill";
+import { Avatar, AvatarFallback, Input, MenuLabel } from "@posthog/quill";
 import { BILLING_FLAG } from "@posthog/shared";
 import { useOptionalAuthenticatedClient } from "@posthog/ui/features/auth/authClient";
 import { useAuthStateValue } from "@posthog/ui/features/auth/store";
@@ -33,13 +34,17 @@ import { useChannelsLayout } from "@posthog/ui/features/canvas/hooks/useChannels
 import { useFeatureFlag } from "@posthog/ui/features/feature-flags/useFeatureFlag";
 import { SettingsPageContent } from "@posthog/ui/features/settings/components/SettingsPageContent";
 import { closeSettings } from "@posthog/ui/features/settings/hooks/useOpenSettings";
+import {
+  type SettingsSearchEntry,
+  searchSettings,
+} from "@posthog/ui/features/settings/settingsSearch";
 import { getHiddenSettingsCategories } from "@posthog/ui/features/settings/settingsVisibility";
 import { useSettingsPageStore } from "@posthog/ui/features/settings/stores/settingsPageStore";
 import type { SettingsCategory } from "@posthog/ui/features/settings/types";
 import { useSpendAnalysisEnabled } from "@posthog/ui/features/usage/useSpendAnalysisEnabled";
 import * as nav from "@posthog/ui/router/navigationBridge";
 import { useHostCapabilities } from "@posthog/ui/shell/useHostCapabilities";
-import type { ReactNode } from "react";
+import { type ReactNode, useState } from "react";
 import { useHotkeys } from "react-hotkeys-hook";
 
 interface SidebarItem {
@@ -144,6 +149,7 @@ export function SettingsPanel({
 }: SettingsPanelProps = {}) {
   const formMode = useSettingsPageStore((s) => s.formMode);
   const activeCategory = activeCategoryProp ?? "general";
+  const [searchQuery, setSearchQuery] = useState("");
   const close = onClose ?? closeSettings;
   const setCategory =
     onCategoryChange ??
@@ -170,6 +176,7 @@ export function SettingsPanel({
     ...group,
     items: group.items.filter((item) => !hiddenCategories.has(item.id)),
   })).filter((group) => group.items.length > 0);
+  const searchResults = searchSettings(searchQuery, hiddenCategories);
 
   // Guard direct navigation (URL, deep link, programmatic openSettings) to a
   // category hidden on this host. Fall back to General so a hidden section is
@@ -225,27 +232,49 @@ export function SettingsPanel({
           <span>Back to app</span>
         </button>
 
+        <SettingsSearchInput
+          query={searchQuery}
+          onQueryChange={setSearchQuery}
+          onSubmit={() => {
+            const first = searchResults[0];
+            if (first) {
+              setCategory(first.category);
+              setSearchQuery("");
+            }
+          }}
+        />
+
         <div className="flex-1 overflow-y-auto">
-          <div className="flex flex-col gap-3 py-2">
-            {sidebarGroups.map((group) => (
-              <div key={group.label}>
-                <MenuLabel className="px-3 pb-1 text-gray-9">
-                  {group.label}
-                </MenuLabel>
-                {group.items.map((item) => {
-                  const isActive = activeSidebarCategory === item.id;
-                  return (
-                    <SidebarNavItem
-                      key={item.id}
-                      item={item}
-                      isActive={isActive}
-                      onClick={() => setCategory(item.id)}
-                    />
-                  );
-                })}
-              </div>
-            ))}
-          </div>
+          {searchQuery.trim() ? (
+            <SettingsSearchResults
+              results={searchResults}
+              onSelect={(category) => {
+                setCategory(category);
+                setSearchQuery("");
+              }}
+            />
+          ) : (
+            <div className="flex flex-col gap-3 py-2">
+              {sidebarGroups.map((group) => (
+                <div key={group.label}>
+                  <MenuLabel className="px-3 pb-1 text-gray-9">
+                    {group.label}
+                  </MenuLabel>
+                  {group.items.map((item) => {
+                    const isActive = activeSidebarCategory === item.id;
+                    return (
+                      <SidebarNavItem
+                        key={item.id}
+                        item={item}
+                        isActive={isActive}
+                        onClick={() => setCategory(item.id)}
+                      />
+                    );
+                  })}
+                </div>
+              ))}
+            </div>
+          )}
         </div>
 
         {isAuthenticated && (
@@ -303,6 +332,81 @@ export function SettingsPanel({
           />
         </div>
       </div>
+    </div>
+  );
+}
+
+function SettingsSearchInput({
+  query,
+  onQueryChange,
+  onSubmit,
+}: {
+  query: string;
+  onQueryChange: (query: string) => void;
+  onSubmit: () => void;
+}) {
+  return (
+    <div className="relative px-3 pt-1 pb-2">
+      <MagnifyingGlass
+        size={13}
+        className="pointer-events-none absolute top-2.5 left-5 text-gray-9"
+      />
+      <Input
+        value={query}
+        onChange={(e) => onQueryChange(e.currentTarget.value)}
+        onKeyDown={(e) => {
+          // Escape clears the query before the panel-level hotkey can close
+          // settings; a second Escape (empty query) closes as usual.
+          if (e.key === "Escape" && query) {
+            e.preventDefault();
+            e.stopPropagation();
+            onQueryChange("");
+          }
+          if (e.key === "Enter") {
+            e.preventDefault();
+            onSubmit();
+          }
+        }}
+        placeholder="Search settings"
+        aria-label="Search settings"
+        className="h-7 pl-7 text-[13px]"
+      />
+    </div>
+  );
+}
+
+function SettingsSearchResults({
+  results,
+  onSelect,
+}: {
+  results: SettingsSearchEntry[];
+  onSelect: (category: SettingsCategory) => void;
+}) {
+  if (results.length === 0) {
+    return (
+      <p className="m-0 px-3 py-2 text-[12.5px] text-gray-10">
+        No settings match. Try another word, like "sound" or "theme".
+      </p>
+    );
+  }
+
+  return (
+    <div className="flex flex-col py-1">
+      {results.map((result) => (
+        <button
+          key={`${result.category}:${result.label}`}
+          type="button"
+          className="flex w-full cursor-pointer items-center justify-between gap-2 border-0 bg-transparent px-3 py-1.5 text-left transition-colors hover:bg-gray-3"
+          onClick={() => onSelect(result.category)}
+        >
+          <span className="min-w-0 truncate text-[13px] text-gray-12">
+            {result.label}
+          </span>
+          <span className="shrink-0 text-[11px] text-gray-9">
+            {result.page}
+          </span>
+        </button>
+      ))}
     </div>
   );
 }

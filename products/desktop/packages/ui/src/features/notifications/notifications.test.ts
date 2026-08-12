@@ -52,7 +52,6 @@ function makeBus(overrides?: {
     dockBounceNotifications: true,
     completionSound: "meep",
     completionVolume: 80,
-    scaleSoundWithTaskLength: false,
     customSounds: [],
     ...overrides?.settings,
   };
@@ -279,23 +278,5 @@ describe("sound", () => {
     });
     bus.notifyPromptComplete("My task", "end_turn", TASK_ID);
     expect(play).toHaveBeenCalledTimes(1);
-  });
-
-  it.each([
-    [
-      "scaling off, with duration",
-      false,
-      (10 * 60 * 1000) as number | undefined,
-      1,
-    ],
-    ["scaling on, quick task (<30s) → 3×", true, 10 * 1000, 3],
-    ["scaling on, no duration → 1×", true, undefined, 1],
-  ])("%s", (_label, scaleSoundWithTaskLength, durationMs, expectedRate) => {
-    const { bus, play } = makeBus({
-      hasFocus: false,
-      settings: { scaleSoundWithTaskLength },
-    });
-    bus.notifyPromptComplete("My task", "end_turn", TASK_ID, durationMs);
-    expect(play).toHaveBeenCalledWith("meep", 80, [], expectedRate);
   });
 });

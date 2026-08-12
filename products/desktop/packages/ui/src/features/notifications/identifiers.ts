@@ -10,7 +10,6 @@ export interface NotificationSettings {
   dockBounceNotifications: boolean;
   completionSound: CompletionSound;
   completionVolume: number;
-  scaleSoundWithTaskLength: boolean;
   customSounds: CustomSound[];
 }
 
