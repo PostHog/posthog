@@ -87,6 +87,7 @@ import { TEMPLATE_NAMES } from 'products/feature_flags/frontend/featureFlagTempl
 import {
     featureFlagsCopyFlagsCreate,
     featureFlagsCopyFlagsDependencyRequirementsCreate,
+    featureFlagsList,
 } from 'products/feature_flags/frontend/generated/api'
 import type { CopyFlagsDependencyRequirementsResponseApi } from 'products/feature_flags/frontend/generated/api.schemas'
 
@@ -2885,30 +2886,9 @@ export const featureFlagLogic = kea<featureFlagLogicType>([
                             error.detail ||
                                 "You don't have permission to edit this feature flag. Contact your administrator to request editing rights."
                         )
-                    } else if (error.code === 'unique' && error.attr === 'key') {
-                        const message = `Save feature flag failed: ${
-                            error.detail ?? 'There is already a feature flag with this key.'
-                        }`
-                        const key = preparedFlag.key ?? updatedFlag.key ?? ''
-                        const existing = await api
-                            .get(
-                                `api/projects/${values.currentProjectId}/feature_flags/?key=${encodeURIComponent(key)}`
-                            )
-                            .catch(() => null)
-                        const existingFlagId: number | null = existing?.results?.[0]?.id ?? null
-                        if (existingFlagId) {
-                            lemonToast.error(message, {
-                                button: {
-                                    label: 'View existing flag',
-                                    action: () => {
-                                        window.open(urls.featureFlag(existingFlagId), '_blank')
-                                    },
-                                },
-                            })
-                        } else {
-                            lemonToast.error(message)
-                        }
                     }
+                    // Duplicate-key (`unique`/`key`) is toasted in the saveFeatureFlagFailure listener so
+                    // the throw runs immediately and the form doesn't stay skeletoned during the lookup.
                     throw error
                 }
             },
@@ -3527,12 +3507,38 @@ export const featureFlagLogic = kea<featureFlagLogicType>([
             // Set all completed tasks at once to avoid conflicts
             globalSetupLogic.findMounted()?.actions.markTaskAsCompleted(completedTasks)
         },
-        saveFeatureFlagFailure: ({ errorObject }) => {
+        saveFeatureFlagFailure: async ({ errorObject }) => {
             if (values.featureFlag.id && handleApprovalRequired(errorObject, 'feature_flag', values.featureFlag.id)) {
                 // Redirect to detail page so user can see the CR banner
                 router.actions.replace(urls.featureFlag(values.featureFlag.id))
                 actions.editFeatureFlag(false)
                 return
+            }
+
+            if (errorObject?.code !== 'unique' || errorObject?.attr !== 'key') {
+                return
+            }
+            const message = `Save feature flag failed: ${errorObject.detail}`
+            const key = values.featureFlag.key
+            if (!key) {
+                lemonToast.error(message)
+                return
+            }
+            // The backend rejects on an exact key match, so pick the exact match out of the
+            // case-insensitive list rather than trusting its newest-first ordering.
+            const existing = await featureFlagsList(String(values.currentProjectId), { key }).catch(() => null)
+            const existingFlagId = existing?.results?.find((flag) => flag.key === key)?.id ?? null
+            if (existingFlagId) {
+                lemonToast.error(message, {
+                    button: {
+                        label: 'View existing flag',
+                        action: () => {
+                            window.open(urls.featureFlag(existingFlagId), '_blank')
+                        },
+                    },
+                })
+            } else {
+                lemonToast.error(message)
             }
         },
         updateFeatureFlagActiveSuccess: ({ featureFlagActiveUpdate }) => {
