@@ -138,6 +138,7 @@ rules:
                               |EarlyAccessFeature
                               |EmailMessageMapping
                               |EmailThread
+                              |EmailThreadAccess
                               |EmailThreadMessage
                               |EmailThreadParticipant
                               |EmailReputationSnapshot
@@ -499,6 +500,7 @@ rules:
                         |EarlyAccessFeature
                         |EmailMessageMapping
                         |EmailThread
+                        |EmailThreadAccess
                         |EmailThreadMessage
                         |EmailThreadParticipant
                         |EmailReputationSnapshot
