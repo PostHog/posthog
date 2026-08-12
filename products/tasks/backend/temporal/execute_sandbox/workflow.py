@@ -1103,11 +1103,9 @@ class ExecuteSandboxWorkflow(PostHogWorkflow):
         will_clone = bool(repositories_to_clone)
         checkout_repository = self.context.repositories[0] if len(self.context.repositories) == 1 else None
         will_checkout = bool(checkout_repository and prepared.branch and has_clone_credentials)
-        prepares_desktop = self.context.custom_image_name == DEV_STACK_IMAGE_NAME and any(
-            repository.casefold() == "posthog/posthog" for repository in repositories_to_clone
-        )
-        repository_activity_timeout = _DESKTOP_BOOTSTRAP_ACTIVITY_TIMEOUT if prepares_desktop else timedelta(minutes=5)
-        repository_retry_policy = RetryPolicy(maximum_attempts=1 if prepares_desktop else 3)
+
+        def prepares_desktop(repository: str) -> bool:
+            return self.context.custom_image_name == DEV_STACK_IMAGE_NAME and repository.casefold() == "posthog/posthog"
 
         if will_clone:
             await self._emit_progress("clone", "in_progress", "Cloning repository", "setup")
@@ -1122,8 +1120,12 @@ class ExecuteSandboxWorkflow(PostHogWorkflow):
                             github_token=prepared.github_token,
                             shallow_clone=prepared.shallow_clone,
                         ),
-                        start_to_close_timeout=repository_activity_timeout,
-                        retry_policy=repository_retry_policy,
+                        start_to_close_timeout=(
+                            _DESKTOP_BOOTSTRAP_ACTIVITY_TIMEOUT
+                            if prepares_desktop(repository)
+                            else timedelta(minutes=5)
+                        ),
+                        retry_policy=RetryPolicy(maximum_attempts=1 if prepares_desktop(repository) else 3),
                     )
                     for repository in repositories_to_clone
                 )
@@ -1136,6 +1138,7 @@ class ExecuteSandboxWorkflow(PostHogWorkflow):
         if will_checkout and not is_resume:
             assert checkout_repository is not None
             assert prepared.branch is not None
+            prepares_repository_desktop = prepares_desktop(checkout_repository)
             branch_label_active = f"Checking out branch {prepared.branch}"
             branch_label_done = f"Checked out branch {prepared.branch}"
             await self._emit_progress("checkout", "in_progress", branch_label_active, "setup")
@@ -1150,8 +1153,10 @@ class ExecuteSandboxWorkflow(PostHogWorkflow):
                     shallow_clone=prepared.shallow_clone,
                     used_snapshot=used_snapshot,
                 ),
-                start_to_close_timeout=repository_activity_timeout,
-                retry_policy=repository_retry_policy,
+                start_to_close_timeout=(
+                    _DESKTOP_BOOTSTRAP_ACTIVITY_TIMEOUT if prepares_repository_desktop else timedelta(minutes=5)
+                ),
+                retry_policy=RetryPolicy(maximum_attempts=1 if prepares_repository_desktop else 3),
             )
             await self._emit_progress("checkout", "completed", branch_label_done, "setup")
 
