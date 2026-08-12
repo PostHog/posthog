@@ -276,8 +276,6 @@ UNIQUE_USERS = "dau"
 UNIQUE_GROUPS = "unique_group"
 WEEKLY_ACTIVE = "weekly_active"
 MONTHLY_ACTIVE = "monthly_active"
-FIRST_TIME_FOR_GROUP = "first_time_for_group"
-FIRST_MATCHING_EVENT_FOR_GROUP = "first_matching_event_for_group"
 
 
 class ExperimentNoResultsErrorKeys(StrEnum):

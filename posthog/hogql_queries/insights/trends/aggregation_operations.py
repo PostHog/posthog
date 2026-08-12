@@ -6,6 +6,7 @@ from posthog.schema import (
     ChartDisplayType,
     DataWarehouseNode,
     EventsNode,
+    GroupMathType,
     GroupNode,
     PropertyMathType,
 )
@@ -29,11 +30,15 @@ DEFAULT_REVENUE_PROPERTY = "$revenue"
 
 # First-occurrence math, scoped to a person or a group. The `_for_group` variants group by `$group_N`
 # instead of `person_id`; see FirstTimeForUserEventsQueryAlternator.
-FIRST_TIME_FOR_GROUP_MATH_TYPES = frozenset({"first_time_for_group", "first_matching_event_for_group"})
-FIRST_TIME_EVER_MATH_TYPES = frozenset(
-    {"first_time_for_user", "first_matching_event_for_user"} | FIRST_TIME_FOR_GROUP_MATH_TYPES
+FIRST_TIME_FOR_GROUP_MATH_TYPES = frozenset(
+    {GroupMathType.FIRST_TIME_FOR_GROUP, GroupMathType.FIRST_MATCHING_EVENT_FOR_GROUP}
 )
-FIRST_MATCHING_EVENT_MATH_TYPES = frozenset({"first_matching_event_for_user", "first_matching_event_for_group"})
+FIRST_TIME_EVER_MATH_TYPES = frozenset(
+    {BaseMathType.FIRST_TIME_FOR_USER, BaseMathType.FIRST_MATCHING_EVENT_FOR_USER} | FIRST_TIME_FOR_GROUP_MATH_TYPES
+)
+FIRST_MATCHING_EVENT_MATH_TYPES = frozenset(
+    {BaseMathType.FIRST_MATCHING_EVENT_FOR_USER, GroupMathType.FIRST_MATCHING_EVENT_FOR_GROUP}
+)
 
 ALLOWED_SESSION_MATH_PROPERTIES = frozenset(
     [
@@ -100,7 +105,7 @@ class AggregationOperations(DataWarehouseInsightQueryMixin):
                     ast.Constant(value=0),
                 ],
             )
-        elif self.series.math in ("total", "first_time_for_user", "first_time_for_group"):
+        elif self.series.math in ("total", BaseMathType.FIRST_TIME_FOR_USER, GroupMathType.FIRST_TIME_FOR_GROUP):
             return parse_expr("count()")
         elif self.series.math == "dau":
             # `weekly_active` and `monthly_active` turn into `dau` for intervals longer than their period, hence the

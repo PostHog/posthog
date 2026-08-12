@@ -11,14 +11,13 @@ from posthog.schema import (
     DataWarehouseNode,
     EventsNode,
     FilterLogicalOperator,
+    GroupMathType,
     GroupNode,
     MultipleBreakdownType,
 )
 
 from posthog.hogql import ast
 from posthog.hogql.property import action_to_expr, property_to_expr
-
-from posthog.constants import FIRST_MATCHING_EVENT_FOR_GROUP, FIRST_TIME_FOR_GROUP, UNIQUE_GROUPS
 
 if TYPE_CHECKING:
     from posthog.models import Team
@@ -63,11 +62,9 @@ def is_groups_math(series: Union[EventsNode, ActionsNode, DataWarehouseNode | Gr
         series.math
         in {
             BaseMathType.DAU,
-            UNIQUE_GROUPS,
             BaseMathType.WEEKLY_ACTIVE,
             BaseMathType.MONTHLY_ACTIVE,
-            FIRST_TIME_FOR_GROUP,
-            FIRST_MATCHING_EVENT_FOR_GROUP,
+            *GroupMathType,
         }
         and series.math_group_type_index is not None
     )

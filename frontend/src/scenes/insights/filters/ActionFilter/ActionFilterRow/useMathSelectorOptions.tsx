@@ -452,9 +452,11 @@ export function useMathSelectorOptions({
                 },
                 ...Object.entries(groupDefinitions)
                     .filter((entry): entry is [string, MathDefinition] => !!entry[1])
-                    .map(([key, definition]) => ({
+                    .map(([key]) => ({
                         value: key,
-                        label: definition.shortName,
+                        // these definitions' shortName carries the math ("first time for organizations") so
+                        // insight summaries stay unambiguous, so derive the bare noun the picker needs
+                        label: aggregationLabel(mathTypeToApiValues(key).math_group_type_index).plural,
                         'data-attr': `math-${key}-${index}`,
                     })),
             ]

@@ -593,8 +593,8 @@ export const mathsLogic = kea<mathsLogicType>([
                 aggregationLabel: (groupTypeIndex: number | null | undefined, deferToUserWording?: boolean) => Noun
             ): Partial<Record<string, MathDefinition>> =>
                 groupMathDefinitionsByType(GroupMathType.FirstTimeForGroup, groupTypes, aggregationLabel, (label) => ({
-                    name: label.plural,
-                    shortName: label.plural,
+                    name: `First-ever occurrence for ${label.plural}`,
+                    shortName: `first time for ${label.plural}`,
                     description: (
                         <>
                             Finds the {label.singular}'s very first occurrence of this event type, then checks if it
@@ -615,8 +615,8 @@ export const mathsLogic = kea<mathsLogicType>([
                     groupTypes,
                     aggregationLabel,
                     (label) => ({
-                        name: label.plural,
-                        shortName: label.plural,
+                        name: `First occurrence matching filters for ${label.plural}`,
+                        shortName: `first matching event for ${label.plural}`,
                         description: (
                             <>
                                 Finds the first time the {label.singular} performed this event type that also matches
