@@ -10,11 +10,7 @@ import { Typewriter } from './Typewriter'
 
 export function AuthScene({ notes, children }: { notes: string[]; children: ReactNode }): JSX.Element {
     return (
-        <div
-            className={cn(
-                'AuthScene AuthScene--garden relative h-screen overflow-x-hidden overflow-y-auto font-sans text-primary'
-            )}
-        >
+        <div className={cn('AuthScene relative h-screen overflow-x-hidden overflow-y-auto font-sans text-primary')}>
             <div className="hidden sm:block">
                 <Typewriter lines={notes} />
             </div>
