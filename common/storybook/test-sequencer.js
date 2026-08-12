@@ -100,6 +100,7 @@ function binPackShard(tests, shardCount, shardIndex, timings, browser) {
 }
 
 class BalancedSequencer extends Sequencer {
+    /** @returns {import('@jest/test-result').Test[]} */
     shard(tests, options) {
         const timings = loadTimings()
         if (!timings) {

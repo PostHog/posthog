@@ -9,18 +9,20 @@ from posthog.schema import (
     SourceFieldInputConfigType,
 )
 
-from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline.typings import (
-    SourceInputs,
-    SourceResponse,
-)
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.base import FieldType, ResumableSource
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.canonical_descriptions import (
     CanonicalDescriptions,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.registry import SourceRegistry
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.schema import SourceSchema
-from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs import RipplingSourceConfig
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.schema import (
+    SourceSchema,
+    build_endpoint_schemas,
+)
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.typings import SourceInputs, SourceResponse
+from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.rippling import (
+    RipplingSourceConfig,
+)
 from products.warehouse_sources.backend.temporal.data_imports.sources.rippling.rippling import (
     RipplingResumeConfig,
     rippling_source,
@@ -35,7 +37,17 @@ from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 @SourceRegistry.register
 class RipplingSource(ResumableSource[RipplingSourceConfig, RipplingResumeConfig]):
+    # Rippling versions its REST API through a dated `Rippling-Api-Version` header and, when no
+    # header is sent, serves the version bound to the API token account-side (chosen when the
+    # customer mints the token) — never a moving "latest". We send the token as-is with no version
+    # header, so every pin issues byte-for-byte identical requests; the pin only records which tier
+    # a source targets, and adding a header would override the customer's token version — the silent
+    # move this framework prevents. New sources default to v2, Rippling's current REST API tier.
+    supported_versions = ("v1", "v2")
+    default_version = "v2"
+
     lists_tables_without_credentials = True  # static endpoint catalog — safe for public docs
+    api_docs_url = "https://developer.rippling.com/documentation/rest-api/guides/versioning"
 
     @property
     def source_type(self) -> ExternalDataSourceType:
@@ -88,25 +100,16 @@ A Rippling admin can create a scoped API token under Settings > Company Settings
         with_counts: bool = False,
         names: list[str] | None = None,
         force_refresh: bool = False,
+        api_version: str | None = None,
     ) -> list[SourceSchema]:
-        schemas = [
-            SourceSchema(
-                name=endpoint,
-                supports_incremental=INCREMENTAL_FIELDS.get(endpoint) is not None,
-                supports_append=INCREMENTAL_FIELDS.get(endpoint) is not None,
-                incremental_fields=INCREMENTAL_FIELDS.get(endpoint, []),
-            )
-            for endpoint in ENDPOINTS
-        ]
-
-        if names is not None:
-            names_set = set(names)
-            schemas = [s for s in schemas if s.name in names_set]
-
-        return schemas
+        return build_endpoint_schemas(ENDPOINTS, INCREMENTAL_FIELDS, names)
 
     def validate_credentials(
-        self, config: RipplingSourceConfig, team_id: int, schema_name: Optional[str] = None
+        self,
+        config: RipplingSourceConfig,
+        team_id: int,
+        schema_name: Optional[str] = None,
+        api_version: str | None = None,
     ) -> tuple[bool, str | None]:
         if validate_rippling_credentials(config.api_token):
             return True, None
@@ -125,7 +128,8 @@ A Rippling admin can create a scoped API token under Settings > Company Settings
         return rippling_source(
             api_token=config.api_token,
             endpoint=inputs.schema_name,
-            logger=inputs.logger,
+            team_id=inputs.team_id,
+            job_id=inputs.job_id,
             resumable_source_manager=resumable_source_manager,
             should_use_incremental_field=inputs.should_use_incremental_field,
             db_incremental_field_last_value=inputs.db_incremental_field_last_value

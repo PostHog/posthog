@@ -26,6 +26,14 @@ class Session(AbstractBaseSession):
     short_user_agent = models.CharField(max_length=255, null=True)
     location = models.CharField(max_length=255, null=True)
     login_method = models.CharField(max_length=64, null=True)
+    latitude = models.FloatField(null=True)
+    longitude = models.FloatField(null=True)
+    country_code = models.CharField(max_length=2, null=True)
+    ua_signature = models.CharField(max_length=255, null=True)
+    # When the known-good risk baseline (latitude/longitude/country_code/ua_signature) was recorded.
+    # Distinct from last_activity (display "last seen", rolls every request): the baseline advances
+    # only on low-risk requests, so the geo and its timestamp stay a matched pair for velocity scoring.
+    baseline_at = models.DateTimeField(null=True)
 
     class Meta:
         db_table = "django_session"

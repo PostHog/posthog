@@ -1,0 +1,223 @@
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.canonical_descriptions import (
+    CanonicalDescriptions,
+)
+
+# Descriptions sourced from the official Hetzner Cloud API reference (https://docs.hetzner.cloud/).
+# Partial coverage is fine — any table, column, or endpoint not listed here falls back to LLM enrichment.
+_API_DOCS = "https://docs.hetzner.cloud/"
+
+CANONICAL_DESCRIPTIONS: CanonicalDescriptions = {
+    "servers": {
+        "description": "Cloud servers (virtual machines) in the project.",
+        "docs_url": _API_DOCS,
+        "columns": {
+            "id": "Unique identifier of the server.",
+            "name": "Name of the server (unique per project, must be a valid hostname).",
+            "status": "Current lifecycle status (e.g. running, initializing, off).",
+            "created": "Point in time when the server was created (ISO 8601).",
+            "server_type": "The server type (cores, memory, disk, and pricing) the server runs on.",
+            "datacenter": "Datacenter the server is located in.",
+            "image": "Image the server was created from.",
+            "public_net": "Public network configuration (IPv4, IPv6, and attached floating IPs).",
+            "private_net": "Private networks the server is attached to.",
+            "labels": "User-defined key/value labels attached to the server.",
+        },
+    },
+    "volumes": {
+        "description": "Block storage volumes that can be attached to servers.",
+        "docs_url": _API_DOCS,
+        "columns": {
+            "id": "Unique identifier of the volume.",
+            "name": "Name of the volume.",
+            "size": "Size of the volume in GB.",
+            "server": "ID of the server the volume is attached to, if any.",
+            "location": "Location the volume was created in.",
+            "created": "Point in time when the volume was created (ISO 8601).",
+            "format": "Filesystem the volume was formatted with, if any.",
+        },
+    },
+    "load_balancers": {
+        "description": "Load balancers distributing traffic across targets.",
+        "docs_url": _API_DOCS,
+        "columns": {
+            "id": "Unique identifier of the load balancer.",
+            "name": "Name of the load balancer.",
+            "load_balancer_type": "The load balancer type (connection limits and pricing).",
+            "location": "Location of the load balancer.",
+            "services": "Configured services (listen/destination ports and health checks).",
+            "targets": "Targets the load balancer forwards traffic to.",
+            "created": "Point in time when the load balancer was created (ISO 8601).",
+        },
+    },
+    "networks": {
+        "description": "Private networks connecting servers within the project.",
+        "docs_url": _API_DOCS,
+        "columns": {
+            "id": "Unique identifier of the network.",
+            "name": "Name of the network.",
+            "ip_range": "IP range of the whole network in CIDR notation.",
+            "subnets": "Subnets allocated inside the network.",
+            "routes": "Custom routes configured on the network.",
+            "servers": "IDs of servers attached to the network.",
+            "created": "Point in time when the network was created (ISO 8601).",
+        },
+    },
+    "firewalls": {
+        "description": "Firewalls with inbound/outbound rules applied to resources.",
+        "docs_url": _API_DOCS,
+        "columns": {
+            "id": "Unique identifier of the firewall.",
+            "name": "Name of the firewall.",
+            "rules": "Inbound and outbound rules that make up the firewall.",
+            "applied_to": "Resources the firewall is applied to.",
+            "created": "Point in time when the firewall was created (ISO 8601).",
+        },
+    },
+    "images": {
+        "description": "Images (system, snapshot, backup, or app) available to create servers from.",
+        "docs_url": _API_DOCS,
+        "columns": {
+            "id": "Unique identifier of the image.",
+            "type": "Type of the image (system, snapshot, backup, or app).",
+            "name": "Unique identifier of a system image (null for snapshots/backups).",
+            "description": "Human-readable description of the image.",
+            "status": "Whether the image is available or still being created.",
+            "created": "Point in time when the image was created (ISO 8601).",
+            "created_from": "The server the image was created from, if any.",
+        },
+    },
+    "floating_ips": {
+        "description": "Floating IPs that can be assigned between servers.",
+        "docs_url": _API_DOCS,
+        "columns": {
+            "id": "Unique identifier of the floating IP.",
+            "type": "IP protocol version (ipv4 or ipv6).",
+            "ip": "The floating IP address.",
+            "server": "ID of the server the floating IP is assigned to, if any.",
+            "home_location": "Location where the floating IP was created and is routed.",
+            "created": "Point in time when the floating IP was created (ISO 8601).",
+        },
+    },
+    "primary_ips": {
+        "description": "Primary IPs bound to servers.",
+        "docs_url": _API_DOCS,
+        "columns": {
+            "id": "Unique identifier of the primary IP.",
+            "type": "IP protocol version (ipv4 or ipv6).",
+            "ip": "The primary IP address.",
+            "assignee_id": "ID of the resource the primary IP is assigned to.",
+            "datacenter": "Datacenter the primary IP is located in.",
+            "created": "Point in time when the primary IP was created (ISO 8601).",
+        },
+    },
+    "certificates": {
+        "description": "TLS certificates (managed or uploaded) for use with load balancers.",
+        "docs_url": _API_DOCS,
+        "columns": {
+            "id": "Unique identifier of the certificate.",
+            "name": "Name of the certificate.",
+            "type": "Whether the certificate is uploaded or managed by Hetzner.",
+            "domain_names": "Domains and subdomains the certificate is valid for.",
+            "not_valid_before": "Start of the certificate validity period.",
+            "not_valid_after": "End of the certificate validity period.",
+            "created": "Point in time when the certificate was created (ISO 8601).",
+        },
+    },
+    "ssh_keys": {
+        "description": "SSH public keys that can be injected into new servers.",
+        "docs_url": _API_DOCS,
+        "columns": {
+            "id": "Unique identifier of the SSH key.",
+            "name": "Name of the SSH key.",
+            "fingerprint": "Fingerprint of the public key.",
+            "public_key": "The public key in OpenSSH format.",
+            "created": "Point in time when the SSH key was created (ISO 8601).",
+        },
+    },
+    "placement_groups": {
+        "description": "Placement groups controlling how servers are spread across physical hosts.",
+        "docs_url": _API_DOCS,
+        "columns": {
+            "id": "Unique identifier of the placement group.",
+            "name": "Name of the placement group.",
+            "type": "Placement strategy (e.g. spread).",
+            "servers": "IDs of servers in the placement group.",
+            "created": "Point in time when the placement group was created (ISO 8601).",
+        },
+    },
+    "actions": {
+        "description": "Append-only history of every operation performed in the project (create, delete, attach, etc.).",
+        "docs_url": _API_DOCS,
+        "columns": {
+            "id": "Unique identifier of the action.",
+            "command": "Command the action ran (e.g. create_server, attach_volume).",
+            "status": "Status of the action (running, success, or error).",
+            "progress": "Progress of the action in percent.",
+            "started": "Point in time when the action started (ISO 8601).",
+            "finished": "Point in time when the action finished, or null if still running.",
+            "resources": "Resources the action operated on.",
+            "error": "Error details when the action failed.",
+        },
+    },
+    "server_types": {
+        "description": "Catalog of available server types with their resources and pricing.",
+        "docs_url": _API_DOCS,
+        "columns": {
+            "id": "Unique identifier of the server type.",
+            "name": "Unique machine-readable name of the server type (e.g. cx22).",
+            "description": "Human-readable description of the server type.",
+            "cores": "Number of vCPU cores.",
+            "memory": "Memory in GB.",
+            "disk": "Local disk size in GB.",
+            "cpu_type": "Whether the CPU is shared or dedicated.",
+            "architecture": "CPU architecture (x86 or arm).",
+            "prices": "Per-location pricing for the server type.",
+        },
+    },
+    "load_balancer_types": {
+        "description": "Catalog of available load balancer types with limits and pricing.",
+        "docs_url": _API_DOCS,
+        "columns": {
+            "id": "Unique identifier of the load balancer type.",
+            "name": "Unique machine-readable name of the load balancer type.",
+            "max_connections": "Maximum number of simultaneous open connections.",
+            "max_services": "Maximum number of services.",
+            "max_targets": "Maximum number of targets.",
+            "prices": "Per-location pricing for the load balancer type.",
+        },
+    },
+    "datacenters": {
+        "description": "Catalog of datacenters and the server types available in each.",
+        "docs_url": _API_DOCS,
+        "columns": {
+            "id": "Unique identifier of the datacenter.",
+            "name": "Unique machine-readable name of the datacenter (e.g. fsn1-dc14).",
+            "description": "Human-readable description of the datacenter.",
+            "location": "Location the datacenter belongs to.",
+            "server_types": "Server types supported and available in the datacenter.",
+        },
+    },
+    "locations": {
+        "description": "Catalog of locations (cities/regions) where resources can be created.",
+        "docs_url": _API_DOCS,
+        "columns": {
+            "id": "Unique identifier of the location.",
+            "name": "Unique machine-readable name of the location (e.g. fsn1).",
+            "description": "Human-readable description of the location.",
+            "country": "ISO 3166-1 country code of the location.",
+            "city": "City the location is in.",
+            "network_zone": "Network zone the location belongs to.",
+        },
+    },
+    "isos": {
+        "description": "Catalog of ISO images that can be mounted to servers.",
+        "docs_url": _API_DOCS,
+        "columns": {
+            "id": "Unique identifier of the ISO.",
+            "name": "Unique machine-readable name of the ISO, if any.",
+            "description": "Human-readable description of the ISO.",
+            "type": "Whether the ISO is public or private.",
+            "architecture": "CPU architecture the ISO is compatible with.",
+        },
+    },
+}

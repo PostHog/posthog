@@ -50,6 +50,7 @@ from posthog.kafka_client.topics import KAFKA_FLAGS_CACHE_INVALIDATION
 from posthog.metrics import TOMBSTONE_COUNTER
 from posthog.models.team import Team
 from posthog.storage.cache_expiry_manager import (
+    CacheRefreshCounts,
     cleanup_stale_expiry_tracking as cleanup_generic,
     get_teams_with_expiring_caches,
     refresh_expiring_caches,
@@ -73,6 +74,23 @@ logger = structlog.get_logger(__name__)
 FLAGS_CACHE_EXPIRY_SORTED_SET = "flags_cache_expiry"
 
 
+def _is_unevaluable(flag_data: dict[str, Any]) -> bool:
+    """Whether ``active``/``deleted`` make the matcher skip this serialized flag before
+    it reads the filters.
+
+    The matcher filters out more flags per request (survey, evaluation runtime,
+    evaluation contexts), but those are request-scoped and must not gate what gets
+    written to a cache shared by every request.
+
+    Inverse of ``is_evaluable`` in rust/feature-flags/src/flags/cache_builder.rs. A
+    flag missing ``active`` counts as evaluable so a serializer regression leaves the
+    targeting in the payload instead of overwriting it. That protects the bytes only:
+    Rust's ``FeatureFlag.active`` is ``#[serde(default)]``, so a payload without the
+    field reads as inactive there and is filtered out regardless.
+    """
+    return not flag_data.get("active", True) or flag_data.get("deleted", False)
+
+
 def _extract_direct_dependency_ids(flag_data: dict[str, Any]) -> set[int]:
     """
     Extract direct flag dependency IDs from a serialized flag's filters.
@@ -81,7 +99,7 @@ def _extract_direct_dependency_ids(flag_data: dict[str, Any]) -> set[int]:
     their key as an integer flag ID. Inactive/deleted flags return empty deps
     to match Rust's extract_dependencies behavior.
     """
-    if not flag_data.get("active", True) or flag_data.get("deleted", False):
+    if _is_unevaluable(flag_data):
         return set()
 
     dep_ids: set[int] = set()
@@ -134,7 +152,7 @@ def _extract_cohort_ids_from_flag_filters(flags_data: list[dict[str, Any]]) -> s
     """
     cohort_ids: set[int] = set()
     for flag in flags_data:
-        if not flag.get("active", True) or flag.get("deleted", False):
+        if _is_unevaluable(flag):
             continue
         for group in flag.get("filters", {}).get("groups") or []:
             for prop in group.get("properties") or []:
@@ -207,7 +225,7 @@ def _serialize_cohort(cohort: Cohort) -> dict[str, Any]:
     HYPERCACHE CONTRACT: These field names must match the Rust Cohort struct in
     rust/feature-flags/src/cohorts/cohort_models.rs. Field changes must follow
     the expand-and-contract pattern. The contract test will catch mismatches:
-      pytest posthog/models/feature_flag/test/test_flags_cache.py -k "test_serializer_output_matches_fixture_schema"
+      pytest products/feature_flags/backend/test/test_flags_cache.py -k "test_serializer_output_matches_fixture_schema"
 
     Note: deleted, is_calculating, is_static, errors_calculating, and groups
     are required by the Rust struct (no #[serde(default)]), so omitting them
@@ -230,8 +248,17 @@ def _serialize_cohort(cohort: Cohort) -> dict[str, Any]:
         "groups": cohort.groups,
         "created_by_id": cohort.created_by_id,
         "cohort_type": cohort.cohort_type,
+        "condition_type": cohort.condition_type,
         "last_backfill_person_properties_at": (
             cohort.last_backfill_person_properties_at.isoformat() if cohort.last_backfill_person_properties_at else None
+        ),
+        "last_backfill_events_at": (
+            cohort.last_backfill_events_at.isoformat() if cohort.last_backfill_events_at else None
+        ),
+        "last_realtime_cohort_calculation_at": (
+            cohort.last_realtime_cohort_calculation_at.isoformat()
+            if cohort.last_realtime_cohort_calculation_at
+            else None
         ),
     }
 
@@ -316,6 +343,43 @@ def _compute_flag_dependencies(flags_data: list[dict[str, Any]]) -> dict[str, An
     }
 
 
+def _blank_inactive_filters(flags_data: list[dict[str, Any]]) -> None:
+    """Empty the ``filters`` of flags that can never be evaluated, in place.
+
+    The matcher skips these flags before it reads filters, so the blob is
+    unreachable weight in Redis, in S3, and in the service's in-memory cache. The
+    flag entry itself stays, so a dependency condition on it still resolves to
+    false rather than raising DependencyNotFound.
+
+    Order-independent: dependency and cohort extraction guard on ``_is_unevaluable``
+    themselves.
+
+    Not folded into ``serialize_feature_flags``, which
+    ``set_feature_flags_for_team_in_cache`` also uses to populate the separate
+    legacy ``team_feature_flags_{project_id}`` cache.
+    """
+    for flag in flags_data:
+        if _is_unevaluable(flag):
+            # Matches an empty Rust ``FlagFilters``, whose ``groups`` has no
+            # ``skip_serializing_if`` and so serializes as a key rather than ``{}``.
+            # Both writers of this entry must emit the same bytes to share one etag.
+            flag["filters"] = {"groups": []}
+
+
+def _build_flags_payload(
+    flags_data: list[dict[str, Any]],
+    evaluation_metadata: dict[str, Any],
+    cohorts: list[dict[str, Any]],
+) -> dict[str, Any]:
+    """Assemble the ``flags.json`` wrapper, blanking unevaluable flags' filters.
+
+    Blanking lives here so no writer can assemble a payload without it. The Rust side
+    reaches the same point through a single ``build_flags_cache``.
+    """
+    _blank_inactive_filters(flags_data)
+    return {"flags": flags_data, "evaluation_metadata": evaluation_metadata, "cohorts": cohorts}
+
+
 def _get_feature_flags_for_service(team: Team) -> dict[str, Any]:
     """
     Get feature flags for the feature-flags service.
@@ -352,8 +416,7 @@ def _get_feature_flags_for_service(team: Team) -> dict[str, Any]:
         cohort_count=len(cohorts),
     )
 
-    # Wrap in dict for HyperCache compatibility
-    return {"flags": flags_data, "evaluation_metadata": evaluation_metadata, "cohorts": cohorts}
+    return _build_flags_payload(flags_data, evaluation_metadata, cohorts)
 
 
 def _get_feature_flags_for_teams_batch(teams: list[Team]) -> dict[int, dict[str, Any]]:
@@ -440,11 +503,7 @@ def _get_feature_flags_for_teams_batch(teams: list[Team]) -> dict[int, dict[str,
             cohort_count=len(team_cohorts),
         )
 
-        result[team.id] = {
-            "flags": flags_data,
-            "evaluation_metadata": evaluation_metadata,
-            "cohorts": team_cohorts,
-        }
+        result[team.id] = _build_flags_payload(flags_data, evaluation_metadata, team_cohorts)
 
     return result
 
@@ -627,7 +686,7 @@ def verify_team_flags(
         if flag_id in cached_flags_by_id:
             db_flag = db_flags_by_id[flag_id]
             cached_flag = cached_flags_by_id[flag_id]
-            field_diffs = _compare_flag_fields(db_flag, cached_flag)
+            field_diffs = _compare_flag_fields(db_flag, cached_flag, tolerate_blanked_filters=True)
             if field_diffs:
                 diff = {
                     "type": "FIELD_MISMATCH",
@@ -733,7 +792,7 @@ def _strip_null_values(value: Any, in_group_level_list: bool = False) -> Any:
     return value
 
 
-def _compare_flag_fields(db_flag: dict, cached_flag: dict) -> list[dict]:
+def _compare_flag_fields(db_flag: dict, cached_flag: dict, *, tolerate_blanked_filters: bool = False) -> list[dict]:
     """Compare field values between DB and cached versions of a flag.
 
     The DB serialization is treated as the source of truth: only keys present in
@@ -749,10 +808,26 @@ def _compare_flag_fields(db_flag: dict, cached_flag: dict) -> list[dict]:
     are compared directly; ``MinimalFeatureFlagSerializer`` emits all top-level
     keys explicitly today, so there is no top-level absent/null divergence to
     tolerate. See plans/verify-flags-cache-loose-comparison.md.
+
+    ``tolerate_blanked_filters`` exempts ``filters`` when both sides agree the flag
+    is unevaluable. Only the ``flags.json`` writers blank those filters, and entries
+    predating that still hold the full blob while the two writers deploy
+    independently, so the blob and ``{"groups": []}`` both occur and the matcher
+    ignores either one. It is opt-in because ``local_evaluation`` shares this
+    function for ``flags_with_cohorts.json``, which has a single writer and no
+    blanking: there any ``filters`` difference is real drift worth repairing. A
+    disagreement about ``active`` itself is reported in both modes.
     """
     field_diffs = []
 
+    # Mirrors the writers' own predicate so a flag they blank is never reported as
+    # unfixable drift.
+    both_unevaluable = tolerate_blanked_filters and _is_unevaluable(db_flag) and _is_unevaluable(cached_flag)
+
     for key in db_flag.keys():
+        if key == "filters" and both_unevaluable:
+            continue
+
         db_val = db_flag[key]
         cached_val = cached_flag.get(key)
 
@@ -821,6 +896,10 @@ FLAGS_HYPERCACHE_MANAGEMENT_CONFIG = HyperCacheManagementConfig(
     cache_name="flags",
     get_teams_queryset_fn=get_teams_with_flags_queryset,
     get_team_ids_to_skip_fix_fn=get_team_ids_with_recently_updated_flags,
+    # The refresh loads flags by team id/project_id; it reads no other Team columns.
+    # Narrowing the SELECT keeps it resilient to newly added Team columns the read
+    # replica may not have applied yet (organization_id keeps the select_related valid).
+    refresh_only_fields=["id", "project_id", "organization_id"],
 )
 
 
@@ -857,7 +936,7 @@ def get_teams_with_expiring_flags_caches(ttl_threshold_hours: int = 24, limit: i
     return get_teams_with_expiring_caches(FLAGS_HYPERCACHE_MANAGEMENT_CONFIG, ttl_threshold_hours, limit)
 
 
-def refresh_expiring_flags_caches(ttl_threshold_hours: int = 24, limit: int = 5000) -> tuple[int, int]:
+def refresh_expiring_flags_caches(ttl_threshold_hours: int = 24, limit: int = 5000) -> CacheRefreshCounts:
     """
     Refresh flags caches that are expiring soon to prevent cache misses.
 
@@ -879,7 +958,7 @@ def refresh_expiring_flags_caches(ttl_threshold_hours: int = 24, limit: int = 50
                - Responsiveness: Completes quickly enough to not block other operations
 
     Returns:
-        Tuple of (successful_refreshes, failed_refreshes)
+        CacheRefreshCounts with successful and failed refresh counts
     """
     return refresh_expiring_caches(FLAGS_HYPERCACHE_MANAGEMENT_CONFIG, ttl_threshold_hours, limit)
 
@@ -919,24 +998,26 @@ def get_cache_stats() -> dict[str, Any]:
 # Signal handlers for automatic cache invalidation
 
 
-# DUAL-WRITE TRANSITIONAL CODE — remove at cutover.
+# KAFKA-CUTOVER TRANSITIONAL CODE — remove at cutover.
 # Stages: producer (this block) at 0% → Rust consumer ships → ramp gate to 100%
 # → Kafka becomes primary, this block is deleted and the signal handlers call
 # the Kafka path directly. The Celery task `update_team_service_flags_cache`
 # outlives cutover — `cohort_changed_flags_cache` still calls it directly until
 # cohort invalidation gets its own topic. Throwaway code by design; don't polish.
 #
-# Transitional surface: DUAL_WRITE_FLAG, _kafka_dual_write_enabled,
+# Transitional surface: KAFKA_ROUTING_FLAG, _route_to_kafka,
 # _produce_invalidation, _enqueue_invalidation, and the Kafka branch inside it.
 # The signal handlers themselves stay; their tails simplify at cutover.
 
-# Per-team gate for the Kafka producer side of dual-write. Celery remains the
-# authoritative path until cutover; the Kafka produce is fire-and-forget.
-DUAL_WRITE_FLAG = "flags-cache-kafka-dual-write"
+# Per-team gate that routes invalidation to Kafka instead of Celery — see
+# _enqueue_invalidation for why the two paths are mutually exclusive. The key
+# string is kept as "dual-write" (not renamed to match KAFKA_ROUTING_FLAG) since
+# it's the live PostHog flag key — renaming it would repoint the rollout.
+KAFKA_ROUTING_FLAG = "flags-cache-kafka-dual-write"
 
 
-def _kafka_dual_write_enabled(team_id: int) -> bool:
-    """Return True if this team should also produce a Kafka invalidation message.
+def _route_to_kafka(team_id: int) -> bool:
+    """Return True if this team's invalidation should route to Kafka instead of Celery.
 
     A `None` return from `feature_enabled` means the local-eval cache hasn't
     loaded the flag definition yet. Treated as disabled, but ticks
@@ -949,7 +1030,7 @@ def _kafka_dual_write_enabled(team_id: int) -> bool:
         # None when local evaluation can't resolve the flag. Widen the type so
         # the None branch below survives type checking.
         result: bool | None = posthoganalytics.feature_enabled(
-            DUAL_WRITE_FLAG,
+            KAFKA_ROUTING_FLAG,
             f"team-{team_id}",
             groups={"project": str(team_id)},
             group_properties={"project": {"id": str(team_id)}},
@@ -960,9 +1041,11 @@ def _kafka_dual_write_enabled(team_id: int) -> bool:
         # If the flag client misbehaves, default to Celery-only — never block the signal handler.
         # Log so a silent disable across the fleet during rollout is visible in Sentry.
         logger.warning(
+            # Event name kept as "dual_write" (not renamed to match KAFKA_ROUTING_FLAG) so it
+            # keeps matching existing Sentry searches set up during the dual-write phase.
             "flags_cache_kafka_dual_write_flag_evaluation_failed",
             team_id=team_id,
-            flag=DUAL_WRITE_FLAG,
+            flag=KAFKA_ROUTING_FLAG,
             exc_info=True,
         )
         return False
@@ -970,6 +1053,8 @@ def _kafka_dual_write_enabled(team_id: int) -> bool:
     if result is None:
         TOMBSTONE_COUNTER.labels(
             namespace="flags",
+            # Label kept as "dual_write" for continuity with the existing Grafana dashboards
+            # referenced above.
             operation="dual_write_gate_cache_cold",
             component="flags_cache",
         ).inc()
@@ -981,19 +1066,17 @@ def _kafka_dual_write_enabled(team_id: int) -> bool:
 def _produce_invalidation(team_id: int) -> None:
     """Produce a single invalidation message; swallow Kafka errors.
 
-    Celery is the source of truth during dual-write — a Kafka produce failure
-    here must not break flag editing. Per-message delivery success/failure is
-    also counted in KAFKA_PRODUCER_MESSAGES_COUNTER (wired in `_KafkaProducer.produce`).
+    A produce failure must not raise out of a signal handler and is deliberately
+    not retried via Celery (see `_enqueue_invalidation`). The `except` below only
+    sees synchronous errors (`BufferError` queue-full, serialization/config).
+    `flush_timeout=0` returns without waiting for acks rather than stalling
+    every flag-edit on-commit hook on an unhealthy cluster, so broker-side
+    failures surface later in `_KafkaProducer._on_delivery` as a counter tick
+    plus a throttled `kafka_producer_delivery_failed` warning keyed by team id.
 
-    `data` must be a dict (not pre-encoded bytes): `_KafkaProducer.produce`
-    runs it through `json_serializer` (`json.dumps` + utf-8 encode). Passing
-    bytes would `TypeError` inside `json.dumps` and silently fail the swallow
-    path. `mode="json"` converts `datetime` to ISO string.
-
-    `flush_timeout=0` keeps this off the request hot path — librdkafka's
-    background thread drains the singleton's queue, and the next call flushes
-    again. A blocking flush would stall every flag-edit on-commit hook on an
-    unhealthy cluster.
+    `data` must be a dict, not pre-encoded bytes: `produce` runs it through
+    `json.dumps`, so bytes would `TypeError` and silently fail the swallow path.
+    `mode="json"` converts `datetime` to ISO string.
     """
     try:
         msg = FlagsCacheInvalidation(team_id=team_id, emitted_at=datetime.now(UTC))
@@ -1002,30 +1085,53 @@ def _produce_invalidation(team_id: int) -> None:
                 topic=KAFKA_FLAGS_CACHE_INVALIDATION,
                 data=msg.model_dump(mode="json"),
                 key=str(team_id),
+                # The key is only ever a team id, so it is safe to log.
+                log_key_on_delivery_failure=True,
             )
     except Exception as e:
         logger.warning("flags_cache_invalidation_produce_failed", team_id=team_id, error=str(e), exc_info=True)
 
 
 def _enqueue_invalidation(team_id: int) -> None:
-    """Run from `transaction.on_commit`: dual-write to Kafka if enabled, then fire Celery.
+    """Run from `transaction.on_commit`: route to Kafka if enabled, otherwise Celery.
 
-    Deferring until commit avoids race conditions where the Celery worker reads
-    pre-commit state. Shared by all three signal handlers wired to the
-    flag-invalidation topic. Cohort invalidation is intentionally not routed
-    here — cohort changes flow through their own topic.
+    Signal handlers defer this until commit so the Celery worker can't read
+    pre-commit state; callers with no open transaction (staff tooling, via
+    `enqueue_evaluation_cache_invalidation`) call it directly. Cohort
+    invalidation stays on its own topic.
 
-    Kafka runs first so a Celery-broker outage (Redis down) does not suppress
-    the rollout-observability signal we're trying to gather. The Kafka path
-    swallows its own errors, so it cannot block Celery. Celery's `.delay()`
-    is allowed to raise — it's the authoritative path during dual-write and
-    operators want broker failures loud.
+    The two paths are mutually exclusive so the rollout proves the Kafka path
+    end to end: a broken Kafka path shows up as a stale cache instead of being
+    masked by Celery quietly picking up the slack. Do not add a Celery fallback
+    on produce failure. It would hide that signal, and it would miss the
+    realistic failure mode anyway, because broker-side delivery failures are
+    reported only after `_produce_invalidation` has returned (see its
+    docstring). A dropped invalidation is repaired by the
+    `verify_and_fix_flags_cache_task` sweep (which includes teams whose flags
+    are all soft-deleted), so worst-case staleness is one sweep interval plus
+    the verification grace period, well under an hour rather than the cache
+    TTL. Celery's `.delay()` may raise when the flag is off, since it is the
+    sole path then and operators want broker failures loud.
+
+    Guarded on FLAGS_REDIS_URL here rather than at each call site so every
+    caller gets the same no-op-when-unconfigured behavior.
     """
+    if not settings.FLAGS_REDIS_URL:
+        return
+
     from products.feature_flags.backend.tasks import update_team_service_flags_cache
 
-    if _kafka_dual_write_enabled(team_id):
+    if _route_to_kafka(team_id):
         _produce_invalidation(team_id)
-    update_team_service_flags_cache.delay(team_id)
+    else:
+        update_team_service_flags_cache.delay(team_id)
+
+
+def enqueue_evaluation_cache_invalidation(team_id: int) -> None:
+    """Public entry point for `_enqueue_invalidation`, for callers outside a model signal handler
+    (e.g. staff tooling) that want a rebuild to raise the exact same invalidation signal (Kafka
+    or Celery routing) that an organic flag create/update/delete raises."""
+    _enqueue_invalidation(team_id)
 
 
 @receiver(post_save, sender=FeatureFlag)

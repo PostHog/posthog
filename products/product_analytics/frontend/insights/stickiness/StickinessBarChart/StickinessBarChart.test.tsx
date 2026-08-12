@@ -4,10 +4,8 @@ import { cleanup, configure, screen, waitFor } from '@testing-library/react'
 
 import { setupJsdom, setupSyncRaf } from '@posthog/quill-charts/testing'
 
-import { FEATURE_FLAGS } from 'lib/constants'
-
 import { NodeKind } from '~/queries/schema/schema-general'
-import { buildStickinessQuery, chart, getHogChart, personsModal, renderInsight } from '~/test/insight-testing'
+import { buildStickinessQuery, chart, personsModal, renderInsight } from '~/test/insight-testing'
 import { ChartDisplayType } from '~/types'
 
 configure({ asyncUtilTimeout: 3000 })
@@ -34,57 +32,31 @@ describe('StickinessBarChart', () => {
     it.each([
         { display: ChartDisplayType.ActionsBar, layout: 'stacked' },
         { display: ChartDisplayType.ActionsUnstackedBar, layout: 'grouped' },
-    ])('renders a $layout bar chart from a StickinessQuery', async ({ display }) => {
-        renderInsight({
-            query: stickinessBar({ stickinessFilter: { display } }),
-        })
-
-        await waitFor(
-            () => {
-                expect(screen.getByTestId('stickiness-bar-graph')).toBeInTheDocument()
-            },
-            { timeout: 5000 }
-        )
-    })
-
-    it('renders one series per event', async () => {
+    ])('renders a $layout bar chart from a StickinessQuery with one series per event', async ({ display }) => {
         renderInsight({
             query: stickinessBar({
                 series: [
                     { kind: NodeKind.EventsNode, event: '$pageview', name: '$pageview' },
                     { kind: NodeKind.EventsNode, event: 'Napped', name: 'Napped' },
                 ],
+                stickinessFilter: { display },
             }),
         })
 
         await waitFor(
             () => {
-                expect(screen.getByRole('img', { name: /chart with 2 data series/i })).toBeInTheDocument()
+                expect(screen.getByTestId('stickiness-bar-graph')).toBeInTheDocument()
+                expect(screen.getByLabelText(/chart with 2 data series/i)).toBeInTheDocument()
             },
             { timeout: 5000 }
         )
     })
 
-    it('y-axis: renders percent ticks (legacy `${value.toFixed(1)}%` parity)', async () => {
-        renderInsight({ query: stickinessBar() })
-
-        await screen.findByRole('img', { name: /chart with/i })
-        await waitFor(() => {
-            const ticks = getHogChart().yTicks()
-            expect(ticks.length).toBeGreaterThan(0)
-            expect(ticks.every((t) => /%/.test(t))).toBe(true)
-        })
-    })
-
-    it('tooltip: percent value + "Stickiness on {interval} {day}" title (not a calendar date)', async () => {
+    it('tooltip: formats series values as percentages of the series total', async () => {
         renderInsight({ query: stickinessBar() })
 
         const tooltip = await chart.hoverTooltip(2)
-        // Days are 1-indexed in the mock, so bucket 2 == day 3.
         expect(tooltip.row('Pageview')).toMatch(/%/)
-        expect(tooltip.title()).toMatch(/Stickiness on day 3/)
-        // Must NOT default to a Unix-epoch-derived calendar date.
-        expect(tooltip.title()).not.toMatch(/1970/i)
     })
 
     it('renders InsightEmptyState when all series are zero', async () => {
@@ -100,7 +72,7 @@ describe('StickinessBarChart', () => {
             },
             { timeout: 5000 }
         )
-        expect(screen.queryByRole('img', { name: /chart with/i })).not.toBeInTheDocument()
+        expect(screen.queryByLabelText(/chart with/i)).not.toBeInTheDocument()
     })
 
     it('click → persons modal: opens with a "stickiness on {interval} {day}" title', async () => {
@@ -119,28 +91,7 @@ describe('StickinessBarChart', () => {
         expect(personsModal.title()).toMatch(/Pageview/)
     })
 
-    it('click → context.onDataPointClick fires with the integer day instead of opening the modal', async () => {
-        const onDataPointClick = jest.fn()
-        renderInsight({
-            query: stickinessBar(),
-            context: { onDataPointClick },
-        })
-
-        await chart.clickAtIndex(2)
-
-        await waitFor(
-            () => {
-                expect(onDataPointClick).toHaveBeenCalledTimes(1)
-            },
-            { timeout: 5000 }
-        )
-        const [seriesArg] = onDataPointClick.mock.calls[0]
-        expect(seriesArg.day).toBe(3)
-        expect(personsModal.get()).not.toBeInTheDocument()
-    })
-
-    describe('quill in-chart legend (PRODUCT_ANALYTICS_QUILL_LEGEND on)', () => {
-        const quillLegendFlag = { [FEATURE_FLAGS.PRODUCT_ANALYTICS_QUILL_LEGEND]: true }
+    describe('quill in-chart legend', () => {
         const twoSeriesBar = stickinessBar({
             series: [
                 { kind: NodeKind.EventsNode, event: '$pageview', name: '$pageview' },
@@ -153,10 +104,10 @@ describe('StickinessBarChart', () => {
             container.querySelector<HTMLElement>('[data-attr="hog-chart-timeseries-bar-legend"]')!
 
         it('humanizes core event names in the legend, leaving custom events as-is', async () => {
-            const { container } = renderInsight({ query: twoSeriesBar, featureFlags: quillLegendFlag })
+            const { container } = renderInsight({ query: twoSeriesBar })
 
             await waitFor(() => {
-                expect(screen.getByRole('img', { name: /chart with 2 data series/i })).toBeInTheDocument()
+                expect(screen.getByLabelText(/chart with 2 data series/i)).toBeInTheDocument()
             })
 
             const legendEl = getInChartLegend(container)

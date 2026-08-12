@@ -84,6 +84,33 @@ def test_load_cookies_filters_to_required_names(monkeypatch: pytest.MonkeyPatch)
     }
 
 
+def test_load_cookies_dia_uses_chromium_based_with_dia_keychain(monkeypatch: pytest.MonkeyPatch) -> None:
+    seen_kwargs: dict = {}
+
+    class FakeChromiumBased:
+        def __init__(self, **kwargs: object) -> None:
+            seen_kwargs.update(kwargs)
+
+        def load(self) -> list[_FakeCookie]:
+            return [_FakeCookie("metabase.SESSION", "s")]
+
+    class FakeBC3:
+        ChromiumBased = FakeChromiumBased
+
+    import sys
+
+    monkeypatch.setitem(sys.modules, "browser_cookie3", FakeBC3)
+    monkeypatch.setattr(
+        metabase,
+        "_enumerate_cookie_files",
+        lambda browser: [("dia", Path("/fake/dia/Default/Cookies"))],
+    )
+    cookies = metabase._load_cookies_from_browser("metabase.prod-us.posthog.dev", "dia")
+    assert cookies == {"metabase.SESSION": "s"}
+    assert seen_kwargs["osx_key_service"] == "Dia Safe Storage"
+    assert seen_kwargs["cookie_file"] == "/fake/dia/Default/Cookies"
+
+
 def test_enumerate_cookie_files_globs_chromium_profiles(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
     chrome_root = tmp_path / "Chrome"
     (chrome_root / "Default").mkdir(parents=True)

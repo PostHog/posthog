@@ -84,6 +84,19 @@ class TestTypeformTransport:
         assert "since" not in request.params
         assert "until" not in request.params
 
+    def test_responses_paginator_update_request_preserves_response_type(self) -> None:
+        paginator = TypeformResponsesPaginator()
+        response = Mock()
+        paginator.update_state(response, data=[{"token": "tok_1"}])
+
+        request = Mock()
+        request.params = {"page_size": 1000, "response_type": "completed,partial,started", "since": "2026-03-01"}
+        paginator.update_request(request)
+
+        # response_type must stay on every page, even once we switch to the before cursor
+        assert request.params["response_type"] == "completed,partial,started"
+        assert request.params["before"] == "tok_1"
+
     def test_responses_paginator_init_request_resets_state_between_forms(self) -> None:
         paginator = TypeformResponsesPaginator()
         response = Mock()
@@ -300,7 +313,8 @@ class TestTypeformTransport:
             job_id="job-1",
         )
         rows = list(cast(Any, response.items()))
-        assert rows == [{"response_id": "resp_1", "form_id": "form_1"}]
+        # Parent field is renamed (_forms_id -> form_id) and both timestamp columns are guaranteed.
+        assert rows == [{"response_id": "resp_1", "form_id": "form_1", "submitted_at": None, "landed_at": None}]
         assert response.partition_mode == "datetime"
         # Tokens are only unique within a form, and the API returns responses newest-first.
         assert response.primary_keys == ["form_id", "token"]
@@ -312,7 +326,7 @@ class TestTypeformTransport:
     def test_typeform_source_responses_passes_items_data_selector_to_fanout(
         self, mock_build_dependent_resource
     ) -> None:
-        mock_build_dependent_resource.return_value = iter([])
+        mock_build_dependent_resource.return_value.add_map.return_value = iter([])
 
         typeform_source(
             auth_token="token",
@@ -345,7 +359,7 @@ class TestTypeformTransport:
     def test_typeform_source_responses_watermark_wiring(
         self, _name, should_use_incremental_field, last_value, expected_floor, mock_build_dependent_resource
     ) -> None:
-        mock_build_dependent_resource.return_value = iter([])
+        mock_build_dependent_resource.return_value.add_map.return_value = iter([])
 
         typeform_source(
             auth_token="token",
@@ -359,6 +373,129 @@ class TestTypeformTransport:
 
         paginator = mock_build_dependent_resource.call_args.kwargs["child_endpoint_extra"]["paginator"]
         assert paginator._stop_when_older_than == expected_floor
+
+    @patch(
+        "products.warehouse_sources.backend.temporal.data_imports.sources.typeform.typeform.build_dependent_resource"
+    )
+    def test_typeform_source_responses_no_watermark_floor_when_partials_included(
+        self, mock_build_dependent_resource
+    ) -> None:
+        mock_build_dependent_resource.return_value.add_map.return_value = iter([])
+
+        # Drift case: partials enabled but the schema still advertises submitted_at as the cursor.
+        # The submitted_at-based early stop must NOT engage — partials have no submitted_at, so a
+        # whole-partial page would otherwise compare "" < watermark and halt pagination early.
+        typeform_source(
+            auth_token="token",
+            api_base_url="https://api.typeform.com",
+            endpoint="responses",
+            team_id=1,
+            job_id="job-1",
+            should_use_incremental_field=True,
+            db_incremental_field_last_value=datetime(2026, 3, 1, tzinfo=UTC),
+            incremental_field="submitted_at",
+            response_types="completed,partial,started",
+        )
+
+        paginator = mock_build_dependent_resource.call_args.kwargs["child_endpoint_extra"]["paginator"]
+        assert paginator._stop_when_older_than is None
+
+    @parameterized.expand(
+        [
+            # Completed-only: no response_type query param.
+            ("completed_only", {}, None),
+            # Partials: the response_type param is sent so Typeform returns partial/started responses.
+            (
+                "with_partials",
+                {"response_types": "completed,partial,started"},
+                {"response_type": "completed,partial,started"},
+            ),
+        ]
+    )
+    @patch(
+        "products.warehouse_sources.backend.temporal.data_imports.sources.typeform.typeform.build_dependent_resource"
+    )
+    def test_typeform_source_responses_response_type_wiring(
+        self,
+        _name,
+        extra_kwargs,
+        expected_child_params_extra,
+        mock_build_dependent_resource,
+    ) -> None:
+        mock_build_dependent_resource.return_value.add_map.return_value = iter([])
+
+        typeform_source(
+            auth_token="token",
+            api_base_url="https://api.typeform.com",
+            endpoint="responses",
+            team_id=1,
+            job_id="job-1",
+            incremental_field="submitted_at",
+            **extra_kwargs,
+        )
+
+        kwargs = mock_build_dependent_resource.call_args.kwargs
+        assert kwargs["child_params_extra"] == expected_child_params_extra
+
+    @parameterized.expand(
+        [
+            ("completed_only", "completed", "submitted_at"),
+            ("with_partials", "completed,partial,started", "landed_at"),
+        ]
+    )
+    @patch(
+        "products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.fanout.rest_api_resources"
+    )
+    def test_typeform_source_responses_partition_key(
+        self, _name, response_types, expected_partition_key, mock_rest_api_resources
+    ) -> None:
+        mock_rest_api_resources.return_value = [
+            _FakeDltResource("forms", [{"id": "form_1"}]),
+            _FakeDltResource("responses", [{"token": "resp_1", "_forms_id": "form_1"}]),
+        ]
+
+        response = typeform_source(
+            auth_token="token",
+            api_base_url="https://api.typeform.com",
+            endpoint="responses",
+            team_id=1,
+            job_id="job-1",
+            response_types=response_types,
+        )
+
+        assert response.partition_keys == [expected_partition_key]
+
+    @patch(
+        "products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.fanout.rest_api_resources"
+    )
+    def test_typeform_source_responses_normalizes_missing_timestamps(self, mock_rest_api_resources) -> None:
+        # A partial response (no submitted_at) alongside a completed one (no landed_at).
+        mock_rest_api_resources.return_value = [
+            _FakeDltResource("forms", [{"id": "form_1"}]),
+            _FakeDltResource(
+                "responses",
+                [
+                    {"token": "partial_1", "landed_at": "2026-03-01T00:00:00Z", "_forms_id": "form_1"},
+                    {"token": "completed_1", "submitted_at": "2026-03-02T00:00:00Z", "_forms_id": "form_1"},
+                ],
+            ),
+        ]
+
+        response = typeform_source(
+            auth_token="token",
+            api_base_url="https://api.typeform.com",
+            endpoint="responses",
+            team_id=1,
+            job_id="job-1",
+            response_types="completed,partial,started",
+        )
+        rows = list(cast(Any, response.items()))
+
+        # Both timestamp columns must always be present so the pipeline never KeyErrors on a batch
+        # whose rows all lack the configured cursor/partition field.
+        assert all("submitted_at" in row and "landed_at" in row for row in rows)
+        assert next(r for r in rows if r["token"] == "partial_1")["submitted_at"] is None
+        assert next(r for r in rows if r["token"] == "completed_1")["landed_at"] is None
 
     def test_typeform_source_rejects_unknown_api_base_url(self) -> None:
         with pytest.raises(

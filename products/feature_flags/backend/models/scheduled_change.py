@@ -52,6 +52,17 @@ class ScheduledChange(RootTeamMixin, models.Model):
     timezone = models.CharField(max_length=240, null=True, blank=True)
 
     team = models.ForeignKey("posthog.Team", on_delete=models.CASCADE)
+    # When a scheduled change would flip a policy-gated field (e.g. enabling a flag), a pending
+    # ChangeRequest is created at scheduling time and bound here. The Celery applier only applies
+    # the change once that CR is approved; if the fire window passes while still pending, the CR
+    # is expired and the change is skipped. NULL for ungated schedules (no policy applies).
+    change_request = models.ForeignKey(
+        "approvals.ChangeRequest",
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name="scheduled_changes",
+    )
     created_at = models.DateTimeField(auto_now_add=True)
     created_by = models.ForeignKey("posthog.User", on_delete=models.SET_NULL, null=True)
     updated_at = models.DateTimeField(auto_now=True)

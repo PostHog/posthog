@@ -1,23 +1,10 @@
-import { useValues } from 'kea'
-
 import { LemonDivider } from '@posthog/lemon-ui'
 
 import { Language } from 'lib/components/CodeSnippet'
 import { CodeSnippet } from 'lib/components/CodeSnippet'
 import { LemonBanner } from 'lib/lemon-ui/LemonBanner'
-import { preflightLogic } from 'scenes/PreflightCheck/preflightLogic'
 
-import { Region } from '~/types'
-
-export function useWizardCommand(subcommand?: string): { wizardCommand: string; isCloudOrDev: boolean } {
-    const { preflight, isCloudOrDev } = useValues(preflightLogic)
-    const region = preflight?.region || Region.US
-    const subcommandPart = subcommand ? ` ${subcommand}` : ''
-    return {
-        wizardCommand: `npx -y @posthog/wizard@latest${subcommandPart}${region === Region.EU ? ' --region eu' : ''}`,
-        isCloudOrDev: isCloudOrDev ?? false,
-    }
-}
+import { useWizardCommand } from './useWizardCommand'
 
 const SetupWizardBanner = ({
     integrationName,

@@ -14,8 +14,6 @@ type NotebookNodeEmbedAttributes = {
     height?: string | number
 }
 
-const IFRAME_MATCHER = /(?:<iframe[^>]*)(?:(?:\/>)|(?:>.*?<\/iframe>))/gi
-
 const parseIframeString = (input: string): NotebookNodeEmbedAttributes | null => {
     const parser = new DOMParser()
     const doc = parser.parseFromString(input, 'text/html')
@@ -140,11 +138,5 @@ export const NotebookNodeEmbed = createPostHogWidgetNode<NotebookNodeEmbedAttrib
         src: {},
         width: {},
         height: {},
-    },
-    pasteOptions: {
-        find: IFRAME_MATCHER,
-        getAttributes: async (match) => {
-            return parseIframeString(match[0]) ?? {}
-        },
     },
 })

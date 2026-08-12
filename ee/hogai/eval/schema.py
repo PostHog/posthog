@@ -12,7 +12,7 @@ from posthog.schema import ActorsPropertyTaxonomyResponse, EventTaxonomyItem, Te
 
 from posthog.models import GroupTypeMapping, PropertyDefinition, Team
 
-from products.warehouse_sources.backend.models import DataWarehouseTable
+from products.warehouse_sources.backend.facade.models import DataWarehouseTable
 
 T = TypeVar("T", bound=Model)
 
@@ -216,6 +216,10 @@ class EvalsDockerImageConfig(BaseModel):
     dataset_id: str
     """
     ID of the dataset.
+    """
+    dataset_revision: int | None = None
+    """
+    Dataset revision used to prepare this evaluation.
     """
     dataset_name: str
     """

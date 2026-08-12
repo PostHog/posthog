@@ -8,6 +8,7 @@ import {
     IconLeave,
     IconList,
     IconLogomark,
+    IconPerson,
     IconPlay,
     IconServer,
 } from '@posthog/icons'
@@ -67,6 +68,44 @@ export function getPropertyDefinitionIcon(definition: PropertyDefinition): JSX.E
         <IconWithBadge
             icon={<IconList />}
             tooltipTitle="Event property"
+            className="taxonomy-icon taxonomy-icon-muted"
+            verified={definition.verified}
+            hidden={definition.hidden}
+        />
+    )
+}
+
+export function getAccountCustomPropertyDefinitionIcon(
+    definition: PropertyDefinition & { is_canonical?: boolean }
+): JSX.Element {
+    if (definition.is_canonical) {
+        return (
+            <IconWithBadge
+                icon={<IconLogomark />}
+                tooltipTitle="PostHog sets this property automatically"
+                className="taxonomy-icon taxonomy-icon-muted"
+            />
+        )
+    }
+    return getPropertyDefinitionIcon(definition)
+}
+
+export function getPersonPropertyDefinitionIcon(definition: PropertyDefinition): JSX.Element {
+    if (CORE_FILTER_DEFINITIONS_BY_GROUP.person_properties[definition.name]) {
+        return (
+            <IconWithBadge
+                icon={<IconLogomark />}
+                tooltipTitle="PostHog person property"
+                className="taxonomy-icon taxonomy-icon-muted"
+                verified={definition.verified}
+                hidden={definition.hidden}
+            />
+        )
+    }
+    return (
+        <IconWithBadge
+            icon={<IconPerson />}
+            tooltipTitle="Person property"
             className="taxonomy-icon taxonomy-icon-muted"
             verified={definition.verified}
             hidden={definition.hidden}

@@ -1,10 +1,8 @@
 import { formatCost, formatMinutes } from './runTables'
 
 /**
- * Unified inline "billable minutes · est. cost" — the single cost representation across every table and
- * tile (PR list, workflow table, author page, per-runner breakdown). Muted "—" when there's no figure
- * (jobs source unsynced, or nothing billable). GitHub-hosted/free runners carry no billable cost, so
- * the caller simply passes nulls for those.
+ * Inline "billable minutes · est. cost", the single cost representation across every table and tile.
+ * Muted "—" when there's no figure (jobs unsynced, free runner, or nothing billable).
  */
 export function BillableBadge({
     minutes,

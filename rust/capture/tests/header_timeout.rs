@@ -35,7 +35,7 @@ async fn start_server_with_header_timeout(
     tokio::spawn(async move { serve(listener, components).await });
 
     // Give server time to start
-    tokio::time::sleep(Duration::from_millis(50)).await;
+    tokio::time::sleep(Duration::from_millis(20)).await;
 
     (addr, shutdown_token)
 }
@@ -44,8 +44,8 @@ async fn start_server_with_header_timeout(
 async fn test_header_read_timeout_closes_connection() {
     setup_tracing();
 
-    // Start server with 500ms header read timeout
-    let (addr, _shutdown) = start_server_with_header_timeout(Some(500)).await;
+    // Start server with a 70ms header read timeout
+    let (addr, _shutdown) = start_server_with_header_timeout(Some(70)).await;
 
     // Connect and send partial headers (slow loris style)
     let mut stream = TcpStream::connect(addr).await.unwrap();
@@ -55,7 +55,7 @@ async fn test_header_read_timeout_closes_connection() {
     // Don't send the final \r\n to complete headers - this simulates slow loris
 
     // Wait for longer than the timeout
-    tokio::time::sleep(Duration::from_millis(700)).await;
+    tokio::time::sleep(Duration::from_millis(150)).await;
 
     // Try to read - connection should be closed by server due to timeout
     let mut buf = [0u8; 1024];
@@ -84,8 +84,8 @@ async fn test_header_read_timeout_closes_connection() {
 async fn test_complete_headers_within_timeout_succeeds() {
     setup_tracing();
 
-    // Start server with 2 second header read timeout
-    let (addr, _shutdown) = start_server_with_header_timeout(Some(2000)).await;
+    // Start server with a generous header read timeout
+    let (addr, _shutdown) = start_server_with_header_timeout(Some(300)).await;
 
     // Connect and send complete headers quickly
     let mut stream = TcpStream::connect(addr).await.unwrap();
@@ -132,8 +132,8 @@ async fn test_disabled_header_timeout_allows_slow_headers() {
     // Send partial headers
     stream.write_all(b"GET / HTTP/1.1\r\n").await.unwrap();
 
-    // Wait 500ms (would have timed out if enabled with 500ms timeout)
-    tokio::time::sleep(Duration::from_millis(500)).await;
+    // Wait well past what a 70ms timeout would allow (it is disabled here)
+    tokio::time::sleep(Duration::from_millis(150)).await;
 
     // Now complete the headers
     stream.write_all(b"Host: localhost\r\n\r\n").await.unwrap();

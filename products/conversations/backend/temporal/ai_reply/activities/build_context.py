@@ -11,7 +11,10 @@ from posthog.temporal.common.utils import close_db_connections
 from products.business_knowledge.backend.logic import get_always_on_context
 from products.conversations.backend.ai.suggest import _build_ticket_context
 from products.conversations.backend.models import Ticket
-from products.conversations.backend.temporal.ai_reply.constants import MAX_TICKET_CONTEXT_CHARS
+from products.conversations.backend.temporal.ai_reply.constants import (
+    MAX_TICKET_CONTEXT_CHARS,
+    PUBLISHABLE_TICKET_TYPES,
+)
 from products.conversations.backend.temporal.ai_reply.schemas import BuildContextOutput, SupportReplyInput
 
 
@@ -41,11 +44,21 @@ def _build_context_sync(team_id: int, ticket_id: str) -> BuildContextOutput:
     always_on_chunks = get_always_on_context(team_id)
     always_on_text = "\n\n".join(c.content for c in always_on_chunks) if always_on_chunks else ""
 
-    diagnostics_allowed = bool((team.conversations_settings or {}).get("ai_diagnostics_enabled", False))
+    settings_dict = team.conversations_settings or {}
+    diagnostics_allowed = bool(settings_dict.get("ai_diagnostics_enabled", False))
+
+    # Which publishable types would auto-send on this ticket's channel (mirrors persist_reply's
+    # publish gate: publishable type + channel mode == "bot_reply"). Used to keep data-read
+    # scopes off any draft whose reply could reach the untrusted author unreviewed.
+    channel_modes = (settings_dict.get("ai_reply_modes") or {}).get(ticket.channel_source) or {}
+    auto_publish_ticket_types = [
+        tt for tt in PUBLISHABLE_TICKET_TYPES if channel_modes.get(tt, "private_note") == "bot_reply"
+    ]
 
     return BuildContextOutput(
         ticket_context=context,
         ticket_title=title,
         always_on_context=always_on_text,
         diagnostics_allowed=diagnostics_allowed,
+        auto_publish_ticket_types=auto_publish_ticket_types,
     )

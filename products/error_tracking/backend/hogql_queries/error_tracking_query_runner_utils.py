@@ -142,7 +142,10 @@ def volume_buckets(
 
 
 def extract_aggregations(row: dict, date_from: datetime.datetime, date_to: datetime.datetime, resolution: int) -> dict:
-    aggregations = {f: row[f] for f in ("occurrences", "sessions", "users", "volumeRange")}
+    aggregations = {f: row[f] for f in ("occurrences", "sessions", "users")}
+    # volumeRange is only selected when a volume resolution was requested
+    # (resolution=0 means counts only).
+    aggregations["volumeRange"] = row["volumeRange"] if resolution > 0 else None
     bins = volume_buckets(date_from, date_to, resolution)
     aggregations["volume_buckets"] = [
         {"label": b.isoformat(), "value": aggregations["volumeRange"][i] if aggregations["volumeRange"] else None}

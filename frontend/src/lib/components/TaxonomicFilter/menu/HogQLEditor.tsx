@@ -10,18 +10,19 @@
  * registry — Esc only fires `onBack` when no suggestion / find
  * widget is open so it still closes those first like users expect.
  */
-import { lazy, Suspense, useEffect, useRef, useState } from 'react'
+import { Suspense, useEffect, useRef, useState } from 'react'
 
 import { Button, DialogFooter, Field, FieldContent, FieldDescription, FieldLabel, Skeleton } from '@posthog/quill'
 
 import { Link } from 'lib/lemon-ui/Link'
+import { lazyWithRetry } from 'lib/utils/retryImport'
 
 import { useTaxonomicFilterContext } from '../headless/context'
 import { TaxonomicFilterGroupType } from '../types'
 import { MenuFilterHeader } from './Header'
 import { CommitFn, MenuFilterEntry } from './types'
 
-const CodeEditorInline = lazy(() =>
+const CodeEditorInline = lazyWithRetry(() =>
     import('lib/monaco/CodeEditorInline').then((m) => ({ default: m.CodeEditorInline }))
 )
 

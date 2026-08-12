@@ -32,6 +32,7 @@ import { ItemTimeDisplay } from '../../../components/ItemTimeDisplay'
 import { sessionRecordingPlayerLogic } from '../../sessionRecordingPlayerLogic'
 import { InspectorListItemEvent } from '../playerInspectorLogic'
 import { AIEventExpanded, AIEventSummary } from './AIEventItems'
+import { EventFlagsTab } from './EventFlagsTab'
 import { PinPrimaryPropertyButton } from './PinPrimaryPropertyButton'
 
 export interface ItemEventProps {
@@ -187,10 +188,10 @@ export function ItemEventMenu({ item }: ItemEventProps): JSX.Element {
                     ? {
                           label: 'View issue in Error Tracking',
                           icon: <IconOpenInNew />,
-                          to: urls.errorTrackingIssue(
-                              item.data.properties.$exception_issue_id,
-                              item.data.properties.$exception_fingerprint
-                          ),
+                          to: urls.errorTrackingIssue(item.data.properties.$exception_issue_id, {
+                              fingerprint: item.data.properties.$exception_fingerprint,
+                              timestamp: item.data.timestamp,
+                          }),
                           targetBlank: true,
                       }
                     : null,
@@ -280,7 +281,13 @@ function SingleEventDetail({ item }: ItemEventProps): JSX.Element {
                             </>
                         )
                     case 'error_display':
-                        return <ErrorDisplay eventProperties={properties} eventId={idFrom(event as ErrorEventType)} />
+                        return (
+                            <ErrorDisplay
+                                eventProperties={properties}
+                                eventId={idFrom(event as ErrorEventType)}
+                                eventTimestamp={event.timestamp}
+                            />
+                        )
                     case 'properties':
                         return (
                             <SimpleKeyValueList
@@ -289,6 +296,8 @@ function SingleEventDetail({ item }: ItemEventProps): JSX.Element {
                                 rowActions={primaryPropertyActions}
                             />
                         )
+                    case 'flags':
+                        return <EventFlagsTab properties={properties} promotedKeys={promotedKeys} />
                     default:
                         return <SimpleKeyValueList item={properties} promotedKeys={promotedKeys} />
                 }

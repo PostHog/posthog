@@ -15,6 +15,7 @@ with temporalio.workflow.unsafe.imports_passed_through():
         get_experiment_saved_metrics_for_hour,
     )
     from posthog.temporal.experiments.models import (
+        TIMESERIES_METRIC_MAX_ATTEMPTS,
         ExperimentRegularMetricsWorkflowInputs,
         ExperimentSavedMetricsWorkflowInputs,
         ExperimentTimeseriesRecalculationWorkflowInputs,
@@ -66,7 +67,7 @@ class ExperimentRegularMetricsWorkflow(PostHogWorkflow):
                     args=[em.experiment_id, em.metric_uuid, em.fingerprint],
                     start_to_close_timeout=timedelta(minutes=15),
                     retry_policy=RetryPolicy(
-                        maximum_attempts=3,
+                        maximum_attempts=TIMESERIES_METRIC_MAX_ATTEMPTS,
                         initial_interval=timedelta(seconds=10),
                         maximum_interval=timedelta(seconds=60),
                     ),
@@ -138,7 +139,7 @@ class ExperimentSavedMetricsWorkflow(PostHogWorkflow):
                     args=[em.experiment_id, em.metric_uuid, em.fingerprint],
                     start_to_close_timeout=timedelta(minutes=15),
                     retry_policy=RetryPolicy(
-                        maximum_attempts=3,
+                        maximum_attempts=TIMESERIES_METRIC_MAX_ATTEMPTS,
                         initial_interval=timedelta(seconds=10),
                         maximum_interval=timedelta(seconds=60),
                     ),

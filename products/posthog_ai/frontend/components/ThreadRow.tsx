@@ -7,16 +7,16 @@ import { TaskExecutionStatus as ExecutionStatus } from '~/queries/schema/schema-
 import type { ToolCallMessage } from 'products/posthog_ai/frontend/types/toolTypes'
 
 import { runStreamLogic } from '../logics/runStreamLogic'
-import { AssistantFailureMessage } from '../messages/AssistantFailureMessage'
 import { DebugMessage } from '../messages/DebugMessage'
 import { MarkdownMessage } from '../messages/MarkdownMessage'
 import { MessageTemplate } from '../messages/MessageTemplate'
 import { ReasoningAnswer } from '../messages/ReasoningAnswer'
 import type { ProgressStep, ThreadItem } from '../types/streamTypes'
+import { resolveToolCall } from '../utils/toolResolver'
 import { RunActivity } from './RunActivity'
+import { RunAlertActivity } from './RunAlertActivity'
 import { CompactBoundaryItem, StatusItem, TaskNotificationItem } from './ThreadItems'
 import { ToolCallCard } from './tool/ToolCallCard'
-import { resolveToolCall } from './tool/toolResolver'
 
 type ToolInvocations = typeof runStreamLogic.values.toolInvocations
 
@@ -147,7 +147,13 @@ export const ThreadRow = memo(function ThreadRow({
         return <ToolCallCard message={message} turnComplete={turnComplete} turnCancelled={turnCancelled} />
     }
     if (item.type === 'error') {
-        return <AssistantFailureMessage id={item.id} content={item.errorMessage} />
+        return (
+            <RunAlertActivity
+                id={item.id}
+                kind={item.variant === 'crash' ? 'agent_crash' : 'agent_error'}
+                message={item.errorMessage}
+            />
+        )
     }
     if (item.type === 'status') {
         return <StatusItem item={item} />
@@ -162,7 +168,13 @@ export const ThreadRow = memo(function ThreadRow({
         return <ProgressItem item={item} />
     }
     if (item.type === 'debug') {
-        return <DebugMessage text={item.text ?? ''} level={item.debugLevel ?? 'info'} />
+        return (
+            <DebugMessage
+                text={item.text ?? ''}
+                level={item.debugLevel ?? 'info'}
+                copyable={item.debugLevel === 'context'}
+            />
+        )
     }
     return null
 })

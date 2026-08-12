@@ -1,3 +1,4 @@
+import clsx from 'clsx'
 import { capitalizeFirstLetter } from 'kea-forms'
 
 import { IconPencil } from '@posthog/icons'
@@ -8,7 +9,7 @@ import { fullName } from 'lib/utils/strings'
 
 import { APIScopeObject } from '~/types'
 
-import { getEntryId, isMemberEntry, isRoleEntry } from './helpers'
+import { getAccessSummaryTags, getEntryId, isMemberEntry, isRoleEntry } from './helpers'
 import { AccessControlSettingsEntry, AccessControlsTab } from './types'
 
 const MAX_VISIBLE_RESOURCE_TAGS = 3
@@ -64,11 +65,14 @@ export interface AccessControlTableProps {
     entries: AccessControlSettingsEntry[]
     loading: boolean
     canEditAny: boolean
+    visibleResources: Set<APIScopeObject>
     onEdit: (entry: AccessControlSettingsEntry) => void
+    /** Entry whose detail is currently open, highlighted in the list */
+    selectedEntryId?: string | null
 }
 
 export function AccessControlTable(props: AccessControlTableProps): JSX.Element {
-    const columns = getColumns(props.activeTab, props.canEditAny, props.onEdit)
+    const columns = getColumns(props.activeTab, props.canEditAny, props.visibleResources, props.onEdit)
 
     return (
         <LemonTable
@@ -79,7 +83,10 @@ export function AccessControlTable(props: AccessControlTableProps): JSX.Element 
             emptyState="No access control rules match these filters"
             pagination={{ pageSize: 50, hideOnSinglePage: true }}
             onRow={(entry) => ({
-                className: props.canEditAny ? 'cursor-pointer hover:bg-surface-secondary' : undefined,
+                className: clsx(
+                    props.canEditAny && 'cursor-pointer hover:bg-surface-secondary',
+                    getEntryId(entry) === props.selectedEntryId && 'bg-primary-highlight'
+                ),
                 onClick: (event) => {
                     if (!props.canEditAny) {
                         return
@@ -94,18 +101,14 @@ export function AccessControlTable(props: AccessControlTableProps): JSX.Element 
     )
 }
 
-function AccessSummary({ entry }: { entry: AccessControlSettingsEntry }): JSX.Element {
-    const tags: { resource: string; level: string }[] = []
-
-    if (entry.project.effective_access_level !== null) {
-        tags.push({ resource: 'project', level: entry.project.effective_access_level })
-    }
-
-    for (const [resource, resourceEntry] of Object.entries(entry.resources)) {
-        if (resourceEntry.effective_access_level !== null) {
-            tags.push({ resource, level: resourceEntry.effective_access_level })
-        }
-    }
+function AccessSummary({
+    entry,
+    visibleResources,
+}: {
+    entry: AccessControlSettingsEntry
+    visibleResources: Set<APIScopeObject>
+}): JSX.Element {
+    const tags = getAccessSummaryTags(entry, visibleResources)
 
     if (tags.length === 0) {
         return <span className="text-muted">No access configured</span>
@@ -137,6 +140,7 @@ function AccessSummary({ entry }: { entry: AccessControlSettingsEntry }): JSX.El
 function getColumns(
     activeTab: AccessControlsTab,
     canEditAny: boolean,
+    visibleResources: Set<APIScopeObject>,
     onEdit: (entry: AccessControlSettingsEntry) => void
 ): LemonTableColumns<AccessControlSettingsEntry> {
     const scopeColumns = getScopeColumnsForTab(activeTab)
@@ -147,7 +151,7 @@ function getColumns(
             title: 'Access',
             key: 'resource',
             render: function RenderResource(_: any, entry: AccessControlSettingsEntry) {
-                return <AccessSummary entry={entry} />
+                return <AccessSummary entry={entry} visibleResources={visibleResources} />
             },
         },
         {

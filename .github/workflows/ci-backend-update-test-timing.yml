@@ -14,8 +14,8 @@ on:
     schedule:
         # Every 6 hours: merge the latest CI timing artifacts and refresh the Actions cache
         # that ci-backend / ci-dagster restore for sharding. Frequent refresh keeps splits
-        # balanced even after large batches of new tests land mid-day. Cheap (~90s on
-        # depot-ubuntu-latest, no test execution).
+        # balanced even after large batches of new tests land mid-day. Cheap: it merges
+        # artifacts without executing any tests.
         - cron: '0 3,9,15,21 * * *'
         # Monthly (1st): same merge, but this run also commits the .test_durations fallback
         # via PR. The committed file is only the cold-start / cache-miss floor, so it doesn't
@@ -31,7 +31,7 @@ permissions:
 jobs:
     collect-and-merge:
         name: Collect timing data from CI artifacts
-        runs-on: depot-ubuntu-latest
+        runs-on: depot-ubuntu-24.04
         timeout-minutes: 10
         steps:
             - name: Get app token
@@ -51,7 +51,7 @@ jobs:
             - name: Install uv
               uses: astral-sh/setup-uv@37802adc94f370d6bfd71619e3f0bf239e1f3b78 # v7.6.0
               with:
-                  version: '0.11.14' # pinned: unpinned setup-uv calls GH API on every job, exhausts rate limit
+                  version: '0.11.28' # pinned: unpinned setup-uv calls GH API on every job, exhausts rate limit
 
             - name: Find Backend CI run to use
               id: find-backend-run
@@ -70,7 +70,7 @@ jobs:
                   fi
 
                   # Find recent successful ci-backend.yml runs with timing artifacts.
-                  # Most runs skip tests due to path filtering (~20 sec), so filter by duration first
+                  # Most runs skip tests due to path filtering and finish in seconds, so filter by duration first
                   # Runs that actually execute tests take 15+ minutes
                   # Only consider runs from the past 14 days to ensure artifacts haven't expired
                   echo "Searching for Backend CI runs with timing artifacts..."

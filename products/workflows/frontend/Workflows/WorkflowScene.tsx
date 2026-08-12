@@ -1,6 +1,7 @@
 import clsx from 'clsx'
 import { BindLogic, useActions, useValues } from 'kea'
 import { router } from 'kea-router'
+import { useMemo } from 'react'
 
 import { IconInfo } from '@posthog/icons'
 import { LemonSwitch, Spinner, SpinnerOverlay } from '@posthog/lemon-ui'
@@ -9,11 +10,11 @@ import { ActivityLog } from 'lib/components/ActivityLog/ActivityLog'
 import { LastSavedIndicator } from 'lib/components/LastSavedIndicator'
 import { NotFound } from 'lib/components/NotFound'
 import { useDebouncedValue } from 'lib/hooks/useDebouncedValue'
-import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
 import { LemonTab, LemonTabs } from 'lib/lemon-ui/LemonTabs'
-import { LemonTag } from 'lib/lemon-ui/LemonTag/LemonTag'
 import { Tooltip } from 'lib/lemon-ui/Tooltip'
 import { useAttachedLogic } from 'lib/logic/scenes/useAttachedLogic'
+import { sceneAgentPanelLogic } from 'scenes/max/sceneAgentPanelLogic'
+import { useSceneAgentPanel } from 'scenes/max/useSceneAgentPanel'
 import { SceneExport } from 'scenes/sceneTypes'
 import { urls } from 'scenes/urls'
 
@@ -23,9 +24,10 @@ import { ActivityScope } from '~/types'
 
 import { batchWorkflowJobsLogic } from './batchWorkflowJobsLogic'
 import { Workflow } from './Workflow'
+import { WORKFLOW_AGENT_HEADLINES, buildWorkflowAgentContext } from './workflowAgentContext'
+import { WorkflowAssets } from './WorkflowAssets'
 import { WorkflowInvocations } from './WorkflowInvocations'
 import { workflowLogic } from './workflowLogic'
-import { WorkflowLogs } from './WorkflowLogs'
 import { WorkflowMetrics } from './WorkflowMetrics'
 import { WorkflowSceneHeader } from './WorkflowSceneHeader'
 import { WorkflowSceneLogicProps, WorkflowTab, workflowSceneLogic } from './workflowSceneLogic'
@@ -54,16 +56,50 @@ export function WorkflowScene(props: WorkflowSceneLogicProps): JSX.Element {
     const batchJobsLogic = batchWorkflowJobsLogic({ id: workflowSceneProps.id })
 
     const logic = workflowLogic({ id: props.id, templateId, editTemplateId })
-    const { workflowLoading, originalWorkflow, lastSavedAt, isAutoSavePending, autoSaveEnabled } = useValues(logic)
+    const {
+        workflow,
+        workflowLoading,
+        originalWorkflow,
+        lastSavedAt,
+        isAutoSavePending,
+        autoSaveEnabled,
+        hogFunctionTemplatesById,
+    } = useValues(logic)
     const { setAutoSaveEnabled } = useActions(logic)
     const showSaving = useDebouncedValue(isAutoSavePending || workflowLoading, 1000)
     const isDraft = originalWorkflow?.status === 'draft'
 
-    const runsV2Enabled = useFeatureFlag('HOG_INVOCATION_RESULTS_RUNS_TAB')
-
     // Attach child logics to the scene logic so they persist across tab switches
     useAttachedLogic(batchJobsLogic, sceneLogic)
     useAttachedLogic(logic, sceneLogic)
+
+    // Debounced so per-keystroke edits don't re-serialize the whole graph into the agent context.
+    // The id is debounced with the workflow as one value so a navigation between workflows can never
+    // pair one workflow's ref with the other's editor state during the debounce window.
+    const debouncedAgentSource = useDebouncedValue(
+        useMemo(() => ({ workflow, id: workflowSceneProps.id ?? 'new' }), [workflow, workflowSceneProps.id]),
+        500
+    )
+    const { sceneIntegrationEnabled } = useValues(sceneAgentPanelLogic)
+    // Serializing the whole graph is real work on large workflows, so skip building the context
+    // entirely for users the integration flag hasn't reached.
+    const agentContextItems = useMemo(
+        () =>
+            sceneIntegrationEnabled
+                ? buildWorkflowAgentContext(
+                      debouncedAgentSource.workflow,
+                      debouncedAgentSource.id,
+                      hogFunctionTemplatesById
+                  )
+                : null,
+        [sceneIntegrationEnabled, debouncedAgentSource, hogFunctionTemplatesById]
+    )
+    useSceneAgentPanel({
+        sceneKey: 'workflow',
+        contextItems: agentContextItems,
+        headlines: WORKFLOW_AGENT_HEADLINES,
+        active: !!originalWorkflow || workflowSceneProps.id === 'new',
+    })
 
     if (!originalWorkflow && workflowLoading) {
         return <SpinnerOverlay sceneLevel />
@@ -81,26 +117,12 @@ export function WorkflowScene(props: WorkflowSceneLogicProps): JSX.Element {
         },
 
         {
-            // Once the new Invocations (beta) tab is on, the old log viewer becomes "Logs"
-            // to match the hog function scene and avoid two "Invocations" tabs.
-            label: runsV2Enabled ? 'Logs' : 'Invocations',
-            key: 'logs',
-            content: <WorkflowLogs id={workflowSceneProps.id!} />,
+            // Runtime view backed by hog_invocation_results, matching the hog function scene.
+            // Old /logs deep links (and batchWorkflowJobsLogic) redirect here via workflowSceneLogic.
+            label: 'Invocations',
+            key: 'invocations',
+            content: <WorkflowInvocations id={workflowSceneProps.id!} />,
         },
-        runsV2Enabled
-            ? {
-                  label: (
-                      <div className="flex flex-row">
-                          <div>Invocations</div>
-                          <LemonTag className="ml-2 uppercase" type="warning">
-                              Beta
-                          </LemonTag>
-                      </div>
-                  ),
-                  key: 'invocations',
-                  content: <WorkflowInvocations id={workflowSceneProps.id!} />,
-              }
-            : null,
         {
             label: 'Metrics',
             key: 'metrics',
@@ -109,6 +131,15 @@ export function WorkflowScene(props: WorkflowSceneLogicProps): JSX.Element {
              * defined and not "new" (see return statement below)
              */
             content: <WorkflowMetrics id={workflowSceneProps.id!} />,
+        },
+        {
+            label: 'Assets',
+            key: 'assets',
+            /**
+             * If we're rendering tabs, props.id is guaranteed to be
+             * defined and not "new" (see return statement below)
+             */
+            content: <WorkflowAssets id={workflowSceneProps.id!} />,
         },
         {
             label: 'History',

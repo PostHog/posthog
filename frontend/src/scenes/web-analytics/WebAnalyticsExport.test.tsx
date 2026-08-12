@@ -13,11 +13,39 @@ import {
     TrendsAdapter,
     WebAnalyticsTableAdapter,
     WorldMapAdapter,
+    buildCsvFilenames,
+    csvFromTableData,
 } from './webAnalyticsExportUtils'
 
 describe('WebAnalyticsExport adapters', () => {
     beforeEach(() => {
         jest.clearAllMocks()
+    })
+
+    describe('csvFromTableData', () => {
+        it.each(['=', '+', '-', '@'])(
+            'neutralizes a leading "%s" so spreadsheets do not evaluate the cell as a formula',
+            (prefix) => {
+                const csv = csvFromTableData([['header'], [`${prefix}cmd(1)`]])
+                expect(csv).toContain(`'${prefix}cmd(1)`)
+                expect(csv).not.toContain(`\n${prefix}cmd(1)`)
+            }
+        )
+    })
+
+    describe('buildCsvFilenames', () => {
+        it('slugifies titles and de-duplicates colliding stems so no zip entry is overwritten', () => {
+            expect(buildCsvFilenames(['Top paths', 'Sources', 'Sources', 'Referring domains: Sources'])).toEqual([
+                'top-paths.csv',
+                'sources.csv',
+                'sources-2.csv',
+                'referring-domains-sources.csv',
+            ])
+        })
+
+        it('falls back to a usable stem when a title has no alphanumerics', () => {
+            expect(buildCsvFilenames(['—', '///'])).toEqual(['tile.csv', 'tile-2.csv'])
+        })
     })
 
     describe('CalendarHeatmapAdapter', () => {

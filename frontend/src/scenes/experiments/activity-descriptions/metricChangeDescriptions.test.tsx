@@ -182,6 +182,18 @@ describe('metric-change-descriptions', () => {
                     after: { conversion_window: 14, conversion_window_unit: FunnelConversionWindowTimeUnit.Day },
                     expectedText: 'set the conversion window to 14 day',
                 },
+                {
+                    name: 'detects conversion window value change',
+                    before: { conversion_window: 7, conversion_window_unit: FunnelConversionWindowTimeUnit.Day },
+                    after: { conversion_window: 14, conversion_window_unit: FunnelConversionWindowTimeUnit.Day },
+                    expectedText: 'set the conversion window to 14 day',
+                },
+                {
+                    name: 'detects conversion window unit change',
+                    before: { conversion_window: 7, conversion_window_unit: FunnelConversionWindowTimeUnit.Day },
+                    after: { conversion_window: 7, conversion_window_unit: FunnelConversionWindowTimeUnit.Hour },
+                    expectedText: 'set the conversion window to 7 hour',
+                },
             ])('$name', (testCase) => {
                 const before: ExperimentMetric[] = [createBaseMeanMetric({ fingerprint: 'old', ...testCase.before })]
                 const after: ExperimentMetric[] = [createBaseMeanMetric({ fingerprint: 'new', ...testCase.after })]
@@ -194,6 +206,30 @@ describe('metric-change-descriptions', () => {
                     )
                     expect(text.some((t) => t?.includes(testCase.expectedText))).toBe(true)
                 }
+            })
+        })
+
+        describe('unrecognized changes fallback', () => {
+            it('renders a generic sentence when the fingerprint changed but no branch matched', () => {
+                const before: ExperimentMetric[] = [
+                    createBaseMeanMetric({
+                        fingerprint: 'old',
+                        lower_bound_percentile: 0.01,
+                        upper_bound_percentile: 0.99,
+                    }),
+                ]
+                const after: ExperimentMetric[] = [
+                    createBaseMeanMetric({
+                        fingerprint: 'new',
+                        lower_bound_percentile: 0.05,
+                        upper_bound_percentile: 0.95,
+                    }),
+                ]
+
+                const result = getMetricChanges(before, after)
+                const { container } = render(<>{result}</>)
+                expect(container.textContent).toContain('changed the metric')
+                expect(container.textContent).toContain('Test Metric')
             })
         })
 

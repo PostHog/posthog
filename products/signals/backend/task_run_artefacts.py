@@ -13,13 +13,20 @@ purpose is *derived* — there is no relationship label on the task↔report ass
 
 from __future__ import annotations
 
+import json
+
+from django.db import transaction
+
 from products.signals.backend.artefact_schemas import (
     SIGNALS_PRODUCT,
+    TASK_RUN_TYPE_DISCUSSION,
     TASK_RUN_TYPE_IMPLEMENTATION,
     TASK_RUN_TYPE_REPO_SELECTION,
     TASK_RUN_TYPE_RESEARCH,
+    NoteArtefact,
     TaskRunArtefact,
 )
+from products.signals.backend.billing import first_billable_pr_run_at, mark_report_billing_exempt
 from products.signals.backend.models import ArtefactAttribution, SignalReport, SignalReportArtefact, SignalReportTask
 
 # The task-run vocabulary lives in `artefact_schemas` (a leaf module the model layer can import
@@ -27,12 +34,15 @@ from products.signals.backend.models import ArtefactAttribution, SignalReport, S
 # working.
 __all__ = [
     "SIGNALS_PRODUCT",
+    "TASK_RUN_TYPE_DISCUSSION",
     "TASK_RUN_TYPE_IMPLEMENTATION",
     "TASK_RUN_TYPE_REPO_SELECTION",
     "TASK_RUN_TYPE_RESEARCH",
     "aappend_task_run_artefact",
     "append_task_run_artefact",
     "record_implementation_task",
+    "record_report_task",
+    "release_quota_cancelled_implementation",
     "signals_task_ids",
 ]
 
@@ -94,7 +104,7 @@ def signals_task_ids(*, report_id: str, type: str) -> list[str]:
 
 
 def record_implementation_task(
-    *, team_id: int, report_id: str, task_id: str, run_id: str | None = None
+    *, team_id: int, report_id: str, task_id: str, run_id: str | None = None, billing_exempt_reason: str | None = None
 ) -> SignalReportArtefact:
     """Record a started implementation task as BOTH the legacy `SignalReportTask` gate row and the
     `task_run` work-log artefact.
@@ -105,7 +115,16 @@ def record_implementation_task(
     `backfill_task_run_artefacts` has converted every legacy row, the gate can switch to the
     artefact log and `SignalReportTask` can be dropped. Call inside the transaction that created
     the task. Shared by auto-start and the manual start-task API.
+
+    `billing_exempt_reason` lets a caller that knows its origin is PostHog-system declare the
+    report never-billable in the same transaction that records the task — before the run can ship
+    a billable PR. Enforced by the prospective-only freeze rule (`billing.mark_report_billing_exempt`
+    raises once a billable PR run exists). Auto-start stamps its exemption itself under its row
+    lock and does not pass this.
     """
+    if billing_exempt_reason:
+        report = SignalReport.objects.select_for_update().get(id=report_id, team_id=team_id)
+        mark_report_billing_exempt(report, billing_exempt_reason)
     SignalReportTask.objects.get_or_create(
         team_id=team_id,
         report_id=report_id,
@@ -120,3 +139,92 @@ def record_implementation_task(
         task_id=task_id,
         run_id=run_id,
     )
+
+
+def record_report_task(
+    *, team_id: int, report_id: str, task_id: str, relationship: str | None = None, run_id: str | None = None
+) -> SignalReportArtefact:
+    """Record a task↔report association a client asserted when creating a task from the report.
+
+    `implementation` (also the default when no relationship is given) additionally writes the legacy
+    `SignalReportTask` gate row that guards auto-start spend, via `record_implementation_task`. Every
+    other relationship records only the `task_run` work-log artefact under `product="signals"`
+    (`research` never reaches here — it is created solely by the server-side research pipeline).
+    """
+    if relationship is None or relationship == TASK_RUN_TYPE_IMPLEMENTATION:
+        return record_implementation_task(team_id=team_id, report_id=report_id, task_id=task_id, run_id=run_id)
+    return append_task_run_artefact(
+        team_id=team_id,
+        report_id=report_id,
+        product=SIGNALS_PRODUCT,
+        type=relationship,
+        task_id=task_id,
+        run_id=run_id,
+    )
+
+
+def release_quota_cancelled_implementation(*, team_id: int, task_id: str) -> list[str]:
+    """Remove a quota-cancelled implementation's auto-start records so its report can be
+    implemented again by a later cycle.
+
+    A run the quota gate cancels mid-flight never shipped its PR, but its `SignalReportTask` gate
+    row and implementation `task_run` artefact would keep `associated_task_runs` reporting a
+    started implementation and permanently block re-implementation. Deleting both restores the
+    report to "never implemented"; a system `note` artefact records for the report timeline why
+    the run stopped. Locks each report row (the same lock auto-start creation takes) so the
+    removal serializes with a concurrent auto-start evaluation. Returns the affected report ids
+    (empty when the task has no implementation link).
+
+    Reports that already shipped a billable PR are skipped entirely: the cancel decision is
+    run-scoped but this delete is task-scoped, and a sibling run of the same task may have
+    shipped the PR that billed the report. Its `SignalReportTask` row is billing's evidence —
+    the `billed_earlier` dedup and refund eligibility both resolve through it — so deleting it
+    would re-bill the report on its next implementation and strand the paid charge unrefundable.
+    """
+    report_ids = list(
+        SignalReportTask.objects.filter(
+            team_id=team_id, task_id=task_id, relationship=TASK_RUN_TYPE_IMPLEMENTATION
+        ).values_list("report_id", flat=True)
+    )
+    released: list[str] = []
+    for report_id in report_ids:
+        with transaction.atomic():
+            report = SignalReport.objects.select_for_update().filter(id=report_id, team_id=team_id).first()
+            if report is None:
+                continue
+            if first_billable_pr_run_at(report_id) is not None:
+                # A sibling run already shipped this report's billable PR. These records are
+                # billing's evidence for that charge — deleting them would double-bill the next
+                # implementation — and the report needs no release: it *is* implemented.
+                continue
+            SignalReportTask.objects.filter(
+                team_id=team_id,
+                report_id=report_id,
+                task_id=task_id,
+                relationship=TASK_RUN_TYPE_IMPLEMENTATION,
+            ).delete()
+            for artefact in SignalReportArtefact.objects.filter(
+                team_id=team_id,
+                report_id=report_id,
+                task_id=task_id,
+                type=SignalReportArtefact.ArtefactType.TASK_RUN,
+            ):
+                try:
+                    content = json.loads(artefact.content)
+                except (TypeError, ValueError):
+                    continue
+                if content.get("product") == SIGNALS_PRODUCT and content.get("type") == TASK_RUN_TYPE_IMPLEMENTATION:
+                    artefact.delete()
+            SignalReportArtefact.add_log(
+                team_id=team_id,
+                report_id=str(report_id),
+                content=NoteArtefact(
+                    note=(
+                        "Implementation run stopped: the organization reached its self-driving pull request "
+                        "limit. A new run can start after the limit is raised or the billing period resets."
+                    )
+                ),
+                attribution=ArtefactAttribution.system(),
+            )
+            released.append(str(report_id))
+    return released

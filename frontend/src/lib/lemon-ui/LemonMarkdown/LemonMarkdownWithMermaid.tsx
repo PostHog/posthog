@@ -1,10 +1,11 @@
-import { Suspense, lazy } from 'react'
+import { Suspense } from 'react'
 
 import { Spinner } from 'lib/lemon-ui/Spinner'
+import { lazyWithRetry } from 'lib/utils/retryImport'
 
 import { LemonMarkdown, LemonMarkdownProps } from './LemonMarkdown'
 
-const LazyMermaidDiagram = lazy(() => import('./MermaidDiagram'))
+const LazyMermaidDiagram = lazyWithRetry(() => import('./MermaidDiagram'))
 
 function renderMermaid(code: string): JSX.Element {
     return (

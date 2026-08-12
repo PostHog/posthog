@@ -11,6 +11,7 @@ from posthog.models.person.util import (
     _fetch_persons_by_uuids_via_personhog,
     _validate_uuids_via_personhog,
     get_person_by_pk_or_uuid,
+    get_person_ids_and_uuids_by_uuids,
     get_person_uuids_by_distinct_ids,
     get_persons_mapped_by_distinct_id,
 )
@@ -334,6 +335,51 @@ class TestValidateUuidsViaPersonhog(SimpleTestCase):
 
             assert result == []
             fake.assert_called("get_persons_by_uuids")
+
+    def test_sends_uuid_only_field_mask(self):
+        # Existence checks must never pull full person rows — the mask keeps (potentially
+        # huge) person properties out of the RPC payloads.
+        with fake_personhog_client() as fake:
+            fake.add_person(team_id=1, person_id=1, uuid="uuid-1", distinct_ids=["d1"])
+
+            _validate_uuids_via_personhog(team_id=1, uuids=["uuid-1"])
+
+            calls = fake.assert_called("get_persons_by_uuids", times=1)
+            mask = list(calls[0].request.read_options.field_mask)
+            assert "uuid" in mask
+            assert "id" in mask
+            assert "team_id" in mask
+            assert "properties" not in mask
+
+
+class TestGetPersonIdsAndUuidsByUuids(SimpleTestCase):
+    def test_returns_pairs_for_matching_uuids_and_skips_missing(self):
+        with fake_personhog_client() as fake:
+            fake.add_person(team_id=1, person_id=1, uuid="uuid-1", distinct_ids=["d1"])
+            fake.add_person(team_id=1, person_id=2, uuid="uuid-2", distinct_ids=["d2"])
+
+            result = get_person_ids_and_uuids_by_uuids(1, ["uuid-1", "uuid-2", "uuid-missing"])
+
+            assert result == [(1, "uuid-1"), (2, "uuid-2")]
+            fake.assert_not_called("get_distinct_ids_for_persons")
+
+    def test_returns_empty_list_for_empty_input(self):
+        with fake_personhog_client() as fake:
+            assert get_person_ids_and_uuids_by_uuids(1, []) == []
+            fake.assert_not_called("get_persons_by_uuids")
+
+    def test_sends_uuid_only_field_mask(self):
+        with fake_personhog_client() as fake:
+            fake.add_person(team_id=1, person_id=1, uuid="uuid-1", distinct_ids=["d1"])
+
+            get_person_ids_and_uuids_by_uuids(1, ["uuid-1"])
+
+            calls = fake.assert_called("get_persons_by_uuids", times=1)
+            mask = list(calls[0].request.read_options.field_mask)
+            assert "uuid" in mask
+            assert "id" in mask
+            assert "team_id" in mask
+            assert "properties" not in mask
 
 
 # ── Delegation tests ────────────────────────────────────────────────

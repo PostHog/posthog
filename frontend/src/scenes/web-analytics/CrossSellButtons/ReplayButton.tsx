@@ -2,7 +2,7 @@ import posthog from 'posthog-js'
 
 import ViewRecordingsPlaylistButton from 'lib/components/ViewRecordingButton/ViewRecordingsPlaylistButton'
 import { addProductIntentForCrossSell } from 'lib/utils/product-intents'
-import { recordWebAnalyticsInteraction } from 'scenes/web-analytics/achievements/recordInteraction'
+import { webAnalyticsAchievementsLogic } from 'scenes/web-analytics/achievements/webAnalyticsAchievementsLogic'
 import { BREAKDOWN_NULL_DISPLAY } from 'scenes/web-analytics/common'
 
 import {
@@ -139,14 +139,19 @@ export const ReplayButton = ({
 
     const renderButton = (filters: Partial<RecordingUniversalFilters>): JSX.Element => (
         <div onClick={handleClick}>
-            <ViewRecordingsPlaylistButton filters={filters} type="tertiary" size="xsmall" />
+            <ViewRecordingsPlaylistButton
+                filters={filters}
+                type="tertiary"
+                size="xsmall"
+                tooltip="View session recordings for this segment"
+            />
         </div>
     )
 
     const handleClick = (e: React.MouseEvent): void => {
         e.stopPropagation()
         posthog.capture('web_analytics_recording_opened', { breakdown_by: breakdownBy })
-        recordWebAnalyticsInteraction(InteractionKindEnumApi.Recording)
+        webAnalyticsAchievementsLogic.findMounted()?.actions.recordInteraction(InteractionKindEnumApi.Recording)
         void addProductIntentForCrossSell({
             from: ProductKey.WEB_ANALYTICS,
             to: ProductKey.SESSION_REPLAY,

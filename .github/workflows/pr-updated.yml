@@ -1,11 +1,9 @@
 name: Updated PR
 
+# Reusable workflow, called by pr-housekeeping.yml on PR open/edit/push.
+
 on:
-    pull_request:
-        types:
-            - opened
-            - edited
-            - synchronize
+    workflow_call:
 
 jobs:
     lint-pr:

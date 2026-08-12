@@ -2,7 +2,7 @@ import { DateTime } from 'luxon'
 
 import { PersonPropertiesSizeViolationError } from '~/common/persons/repositories/person-repository'
 import { emitIngestionWarning } from '~/ingestion/common/ingestion-warnings'
-import { uuidFromDistinctId } from '~/ingestion/common/person-uuid'
+import { uuidFromDistinctId } from '~/ingestion/common/persons/person-uuid'
 import { Properties } from '~/plugin-scaffold'
 import { InternalPerson, PropertyUpdateOperation } from '~/types'
 
@@ -86,12 +86,17 @@ export class PersonCreateService {
             throw new Error('Unexpected CreatePersonResult state')
         } catch (error) {
             if (error instanceof PersonPropertiesSizeViolationError) {
-                await emitIngestionWarning(this.context.outputs, teamId, 'person_properties_size_violation', {
-                    personId: error.personId,
-                    distinctId: primaryDistinctId.distinctId,
-                    teamId: teamId,
-                    eventUuid: creatorEventUuid,
-                    message: 'Person properties exceeds size limit and was rejected',
+                await emitIngestionWarning(this.context.outputs, teamId, {
+                    type: 'person_properties_size_violation',
+                    details: {
+                        // uuid of the person we tried to create; error.personId is a DB row id
+                        personId: uuid,
+                        distinctId: primaryDistinctId.distinctId,
+                        teamId: teamId,
+                        eventUuid: creatorEventUuid,
+                        message: 'Person properties exceeds size limit and was rejected',
+                    },
+                    pipelineStep: 'person-store',
                 })
                 throw error
             }

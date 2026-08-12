@@ -1,9 +1,10 @@
 import { useActions, useValues } from 'kea'
 
-import { HedgehogReadingIsMagic } from '@posthog/brand/hoggies'
+import * as readingIsMagicPng from '@posthog/brand/hoggies/png/reading-is-magic'
 import { IconOpenSidebar } from '@posthog/icons'
 import { LemonButton, LemonInput } from '@posthog/lemon-ui'
 
+import { pngHoggie } from 'lib/brand/hoggies'
 import { ProductIntroduction } from 'lib/components/ProductIntroduction/ProductIntroduction'
 import { Sparkline } from 'lib/components/Sparkline'
 import { TZLabel } from 'lib/components/TZLabel'
@@ -21,6 +22,8 @@ import { ProductKey } from '~/queries/schema/schema-general'
 
 import { IngestionWarning, IngestionWarningSummary, ingestionWarningsLogic } from './ingestionWarningsLogic'
 
+const HedgehogReadingIsMagic = pngHoggie(readingIsMagicPng)
+
 export const WARNING_TYPE_TO_DESCRIPTION: Record<string, string> = {
     cannot_merge_already_identified: 'Refused to merge an already identified user',
     cannot_merge_with_illegal_distinct_id: 'Refused to merge with an illegal distinct id',
@@ -29,12 +32,37 @@ export const WARNING_TYPE_TO_DESCRIPTION: Record<string, string> = {
     event_timestamp_in_future: 'An event was sent more than 23 hours in the future',
     ingestion_capacity_overflow: 'Event ingestion has overflowed capacity',
     message_size_too_large: 'Discarded event exceeding 1MB limit',
+    person_properties_size_violation: 'Person properties exceeded the size limit and were trimmed or rejected',
     replay_timestamp_invalid: 'Replay event timestamp is invalid',
     replay_timestamp_too_far: 'Replay event timestamp was too far in the future',
     replay_message_too_large: 'Replay data was dropped because it was too large to ingest',
     set_on_exception: '$set or $set_once is ignored on exception events and should not be sent',
     schema_validation_failed: 'Event rejected due to schema validation failure',
     invalid_heatmap_data: 'Invalid heatmap data',
+    invalid_group_set: 'Discarded a $groupidentify event whose $group_set is not an object',
+    // Emitted by the capture service when it drops events at validation time
+    missing_event_name: 'Discarded event with no event name',
+    event_name_too_long: 'Discarded event whose name exceeds the length limit',
+    missing_distinct_id: 'Discarded event with no distinct ID',
+    distinct_id_too_large: 'Discarded event whose distinct ID exceeds the size limit',
+    distinct_id_truncated: 'Ingested event after shortening its distinct ID to the 200 character limit',
+    invalid_event_timestamp: 'Discarded event with an invalid timestamp',
+    malformed_event_properties: 'Discarded event with malformed properties',
+    invalid_options: 'Discarded event with invalid capture options',
+    empty_batch: 'Rejected a request containing no events',
+    invalid_batch: 'Rejected a batch with invalid metadata',
+    missing_event_uuid: 'Rejected a batch containing an event with no UUID',
+    invalid_event_uuid: 'Rejected a batch containing an event with an invalid UUID',
+    duplicate_event_uuid: 'Rejected a batch containing duplicate event UUIDs',
+    high_volume_distinct_id: 'Skipped person profile processing for a high-volume distinct ID',
+    // Emitted by the capture service for its AI endpoints
+    invalid_ai_event: 'Discarded an AI event with an unsupported event name or no $ai_model',
+    invalid_ai_payload: 'Rejected a malformed AI or OpenTelemetry request',
+    no_ai_spans_ingested: 'Accepted an OpenTelemetry export with no AI spans, so nothing was ingested',
+    // Emitted by the capture service for its session replay endpoint
+    missing_session_id: 'Discarded a session replay batch with no $session_id',
+    invalid_session_id: 'Discarded a session replay batch with an invalid $session_id',
+    missing_snapshot_data: 'Discarded a session replay batch with no $snapshot_data',
 }
 
 // Explicit anchor on https://posthog.com/docs/data/ingestion-warnings for each warning type.
@@ -54,9 +82,10 @@ export const WARNING_TYPE_TO_DOCS_ANCHOR: Record<string, string> = {
     replay_timestamp_too_far: 'replay-event-timestamp-was-too-far-in-the-future',
     set_on_exception: 'invalid-set-operations-on-exception-events',
     invalid_heatmap_data: 'invalid-heatmap-data',
+    high_volume_distinct_id: 'skipped-person-profile-processing-for-a-high-volume-distinct-id',
 }
 
-const WARNING_TYPE_RENDERER = {
+export const WARNING_TYPE_RENDERER = {
     cannot_merge_already_identified: function Render(warning: IngestionWarning): JSX.Element {
         const details = warning.details as {
             sourcePersonDistinctId: string
@@ -286,7 +315,7 @@ const WARNING_TYPE_RENDERER = {
                 distinct_id <Link to={urls.personByDistinctId(details.distinctId)}>{details.distinctId}</Link> (event
                 uuid: <code>{details.eventUuid}</code>):
                 <ul>
-                    {details.errors.map((error, index) => (
+                    {(details.errors ?? []).map((error, index) => (
                         <li key={index}>
                             {error.reason === 'missing_required' ? (
                                 <>

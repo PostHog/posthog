@@ -1,0 +1,366 @@
+from unittest.mock import MagicMock, patch
+
+from django.core.cache import cache
+
+import requests
+from parameterized import parameterized
+
+from posthog.models.integration import GitHubUserAuthorization
+from posthog.models.oauth import OAuthApplication
+
+from ee.api.agentic_provisioning import github_grants
+from ee.api.agentic_provisioning.constants import GITHUB_GRANT_CACHE_PREFIX
+from ee.api.agentic_provisioning.test.base import TEST_PARTNER_CLIENT_SECRET, ProvisioningTestBase, provisioning_config
+
+ACCESS_TOKEN = "gho_secret_user_token"
+
+AUTHORIZATION = GitHubUserAuthorization(
+    gh_id=12345,
+    gh_login="octocat",
+    access_token=ACCESS_TOKEN,
+    refresh_token="ghr_refresh_token",
+    access_token_expires_in=28800,
+    refresh_token_expires_in=15897600,
+)
+
+
+def _github_response(status_code: int, payload: object) -> MagicMock:
+    response = MagicMock()
+    response.status_code = status_code
+    response.json.return_value = payload
+    return response
+
+
+EMAILS_RESPONSE = _github_response(
+    200,
+    [
+        {"email": "secondary@example.com", "primary": False, "verified": True},
+        {"email": "octocat@example.com", "primary": True, "verified": True},
+        {"email": "unverified@example.com", "primary": False, "verified": False},
+    ],
+)
+
+INSTALLATIONS_RESPONSE = _github_response(
+    200,
+    {
+        "installations": [
+            {"id": 777, "account": {"login": "octocat"}, "repository_selection": "selected"},
+        ]
+    },
+)
+
+REPOSITORIES_RESPONSE = _github_response(
+    200,
+    {
+        "repositories": [
+            {"full_name": "octocat/hello-world", "default_branch": "main", "private": False},
+        ]
+    },
+)
+
+
+class TestGitHubGrants(ProvisioningTestBase):
+    def _post_grants(self, body: dict):
+        return self._post_with_client_secret("/api/agentic/provisioning/github/grants", body)
+
+    def _get_grants(self, url: str):
+        # A GET has no body to carry the credentials, so these endpoints need Basic auth.
+        return self._get_api(url, HTTP_AUTHORIZATION=self._basic_auth_header())
+
+    def _create_grant_via_api(self):
+        with (
+            patch(
+                "ee.api.agentic_provisioning.views.github_grants.GitHubIntegration.github_user_from_code",
+                return_value=AUTHORIZATION,
+            ),
+            patch("ee.api.agentic_provisioning.github_grants.github_request", return_value=EMAILS_RESPONSE),
+        ):
+            return self._post_grants(
+                {"code": "gh_code", "redirect_uri": "https://posthog.com/api/wizard/github/callback"},
+            )
+
+    def test_create_grant_happy_path(self):
+        with (
+            patch(
+                "ee.api.agentic_provisioning.views.github_grants.GitHubIntegration.github_user_from_code",
+                return_value=AUTHORIZATION,
+            ) as mock_exchange,
+            patch("ee.api.agentic_provisioning.github_grants.github_request", return_value=EMAILS_RESPONSE),
+        ):
+            response = self._post_grants(
+                {"code": "gh_code", "redirect_uri": "https://posthog.com/api/wizard/github/callback"},
+            )
+
+        assert response.status_code == 200, response.json()
+        body = response.json()
+        assert body["gh_login"] == "octocat"
+        assert body["email"] == "octocat@example.com"
+        assert body["grant_id"]
+        # The redirect_uri must flow into the exchange — GitHub rejects mismatches.
+        mock_exchange.assert_called_once_with("gh_code", redirect_uri="https://posthog.com/api/wizard/github/callback")
+
+        # Tokens are encrypted at rest in the cache; the loaded grant round-trips them.
+        raw = cache.get(f"{GITHUB_GRANT_CACHE_PREFIX}{body['grant_id']}")
+        assert isinstance(raw, str)
+        assert ACCESS_TOKEN not in raw
+        grant = github_grants.load_grant(body["grant_id"], self.partner)
+        assert grant is not None
+        assert grant.access_token == ACCESS_TOKEN
+        assert grant.email == "octocat@example.com"
+
+    @parameterized.expand(
+        [
+            ("missing_code", {}, 400, "invalid_request"),
+            ("blank_code", {"code": ""}, 400, "invalid_request"),
+        ]
+    )
+    def test_create_grant_requires_code(self, _name, body, expected_status, expected_code):
+        response = self._post_grants(body)
+        assert response.status_code == expected_status
+        assert response.json()["error"]["code"] == expected_code
+
+    def test_create_grant_exchange_failure_returns_502(self):
+        with patch(
+            "ee.api.agentic_provisioning.views.github_grants.GitHubIntegration.github_user_from_code",
+            return_value=None,
+        ):
+            response = self._post_grants({"code": "bad_code"})
+        assert response.status_code == 502
+        assert response.json()["error"]["code"] == "github_exchange_failed"
+
+    def test_create_grant_github_request_failure_returns_502(self):
+        with patch(
+            "ee.api.agentic_provisioning.views.github_grants.GitHubIntegration.github_user_from_code",
+            side_effect=requests.RequestException("boom"),
+        ):
+            response = self._post_grants({"code": "gh_code"})
+        assert response.status_code == 502
+        assert response.json()["error"]["code"] == "github_unavailable"
+
+    def test_create_grant_rejects_pkce_partner(self):
+        # PKCE partners are identified only by a public client_id, so they carry no proof
+        # of controlling the partner and must not reach the GitHub code exchange.
+        pkce_partner = OAuthApplication.objects.create(
+            name="PKCE Partner",
+            client_id="pkce_partner_client_id",
+            client_secret="",
+            client_type=OAuthApplication.CLIENT_PUBLIC,
+            authorization_grant_type=OAuthApplication.GRANT_AUTHORIZATION_CODE,
+            redirect_uris="https://pkce.example.com",
+            algorithm="RS256",
+            is_provisioning_partner=True,
+            _provisioning_config=provisioning_config(active=True, can_create_accounts=True),
+        )
+        response = self.client.post(
+            "/api/agentic/provisioning/github/grants",
+            data={"client_id": pkce_partner.client_id, "code": "gh_code"},
+            format="json",
+        )
+        assert response.status_code == 403
+        assert response.json()["error"]["code"] == "forbidden"
+
+    def test_create_grant_without_verified_email_returns_null_email(self):
+        no_verified = _github_response(200, [{"email": "a@example.com", "primary": True, "verified": False}])
+        with (
+            patch(
+                "ee.api.agentic_provisioning.views.github_grants.GitHubIntegration.github_user_from_code",
+                return_value=AUTHORIZATION,
+            ),
+            patch("ee.api.agentic_provisioning.github_grants.github_request", return_value=no_verified),
+        ):
+            response = self._post_grants({"code": "gh_code"})
+        assert response.status_code == 200, response.json()
+        body = response.json()
+        assert body["email"] is None
+        grant = github_grants.load_grant(body["grant_id"], self.partner)
+        assert grant is not None
+        assert grant.email is None
+
+    def test_create_grant_email_access_denied_returns_502(self):
+        denied = _github_response(404, {"message": "Not Found"})
+        with (
+            patch(
+                "ee.api.agentic_provisioning.views.github_grants.GitHubIntegration.github_user_from_code",
+                return_value=AUTHORIZATION,
+            ),
+            patch("ee.api.agentic_provisioning.github_grants.github_request", return_value=denied),
+        ):
+            response = self._post_grants({"code": "gh_code"})
+        assert response.status_code == 502
+        assert response.json()["error"]["code"] == "email_unavailable"
+
+    def test_create_grant_requires_partner_auth(self):
+        response = self.client.post(
+            "/api/agentic/provisioning/github/grants",
+            data={"code": "gh_code"},
+            format="json",
+        )
+        assert response.status_code == 401
+
+    def test_create_grant_requires_account_creation_permission(self):
+        self.partner.update_provisioning(can_create_accounts=False)
+        self.partner.save()
+        response = self._post_grants({"code": "gh_code"})
+        assert response.status_code == 403
+        assert response.json()["error"]["code"] == "forbidden"
+
+    def test_create_grant_partner_rate_limited(self):
+        self.partner.update_provisioning_rate_limits(github_grants=1)
+        self.partner.save()
+        first = self._create_grant_via_api()
+        assert first.status_code == 200
+        second = self._create_grant_via_api()
+        assert second.status_code == 429
+        assert second["Retry-After"]
+
+    def test_capability_refusal_does_not_spend_grant_budget(self):
+        self.partner.update_provisioning(can_create_accounts=False)
+        self.partner.update_provisioning_rate_limits(github_grants=1)
+        self.partner.save()
+
+        for _ in range(3):
+            refused = self._post_grants({"code": "gh_code"})
+            assert refused.status_code == 403
+            assert refused.json()["error"]["code"] == "forbidden"
+
+        self.partner.update_provisioning(can_create_accounts=True)
+        self.partner.save()
+        assert self._create_grant_via_api().status_code == 200
+
+    def test_repositories_happy_path(self):
+        base_url = "/api/agentic/provisioning/github/grants"
+        grant = github_grants.create_grant(self.partner, AUTHORIZATION, "octocat@example.com")
+
+        def fake_github_request(method, url, **kwargs):
+            if url.endswith("/user/installations"):
+                return INSTALLATIONS_RESPONSE
+            return REPOSITORIES_RESPONSE
+
+        with patch("ee.api.agentic_provisioning.github_grants.github_request", side_effect=fake_github_request):
+            response = self._get_grants(f"{base_url}/{grant.grant_id}/repositories")
+
+        assert response.status_code == 200, response.json()
+        body = response.json()
+        assert body["gh_login"] == "octocat"
+        assert body["installations"] == [{"id": "777", "account_login": "octocat", "repository_selection": "selected"}]
+        assert body["repositories"] == [
+            {
+                "installation_id": "777",
+                "full_name": "octocat/hello-world",
+                "default_branch": "main",
+                "private": False,
+            }
+        ]
+
+    def test_repositories_unknown_grant_returns_404(self):
+        response = self._get_grants("/api/agentic/provisioning/github/grants/nonexistent/repositories")
+        assert response.status_code == 404
+        assert response.json()["error"]["code"] == "grant_not_found"
+
+    def _create_other_partner(
+        self, *, can_use_github_grants: bool = True, is_cimd_client: bool = False
+    ) -> OAuthApplication:
+        return OAuthApplication.objects.create(
+            name="Other Partner",
+            is_cimd_client=is_cimd_client,
+            client_id="other_partner_client_id",
+            client_secret=TEST_PARTNER_CLIENT_SECRET,
+            client_type=OAuthApplication.CLIENT_CONFIDENTIAL,
+            authorization_grant_type=OAuthApplication.GRANT_AUTHORIZATION_CODE,
+            redirect_uris="https://other.example.com",
+            algorithm="RS256",
+            is_provisioning_partner=True,
+            _provisioning_config=provisioning_config(
+                active=True, can_create_accounts=True, can_use_github_grants=can_use_github_grants
+            ),
+        )
+
+    def test_repositories_grant_of_other_partner_returns_404(self):
+        other_partner = self._create_other_partner()
+        grant = github_grants.create_grant(other_partner, AUTHORIZATION, "octocat@example.com")
+        response = self._get_grants(f"/api/agentic/provisioning/github/grants/{grant.grant_id}/repositories")
+        assert response.status_code == 404
+        assert response.json()["error"]["code"] == "grant_not_found"
+
+    def test_repositories_poll_rate_limited(self):
+        grant = github_grants.create_grant(self.partner, AUTHORIZATION, "octocat@example.com")
+        url = f"/api/agentic/provisioning/github/grants/{grant.grant_id}/repositories"
+
+        def fake_github_request(method, request_url, **kwargs):
+            if request_url.endswith("/user/installations"):
+                return INSTALLATIONS_RESPONSE
+            return REPOSITORIES_RESPONSE
+
+        with (
+            patch("ee.api.agentic_provisioning.throttling.GITHUB_GRANT_POLL_RATE_LIMIT_MAX", 1),
+            patch("ee.api.agentic_provisioning.github_grants.github_request", side_effect=fake_github_request),
+        ):
+            first = self._get_grants(url)
+            second = self._get_grants(url)
+        assert first.status_code == 200
+        assert second.status_code == 429
+        assert second["Retry-After"]
+
+    def test_repositories_poll_budget_is_not_shared_across_partners(self):
+        grant = github_grants.create_grant(self.partner, AUTHORIZATION, "octocat@example.com")
+        url = f"/api/agentic/provisioning/github/grants/{grant.grant_id}/repositories"
+        other_partner = self._create_other_partner()
+
+        def fake_github_request(method, request_url, **kwargs):
+            if request_url.endswith("/user/installations"):
+                return INSTALLATIONS_RESPONSE
+            return REPOSITORIES_RESPONSE
+
+        with (
+            patch("ee.api.agentic_provisioning.throttling.GITHUB_GRANT_POLL_RATE_LIMIT_MAX", 1),
+            patch("ee.api.agentic_provisioning.github_grants.github_request", side_effect=fake_github_request),
+        ):
+            foreign = self._get_api(url, HTTP_AUTHORIZATION=self._basic_auth_header(other_partner))
+            owner = self._get_grants(url)
+
+        assert foreign.status_code == 404
+        assert owner.status_code == 200
+
+    def test_repositories_rejects_a_partner_without_the_capability(self):
+        # A CIMD client self-registers by publishing a metadata document and becomes confidential
+        # by declaring private_key_jwt, so authenticating cannot be the only gate here. The
+        # capability is granted by an admin, and self-registration never grants it.
+        grant = github_grants.create_grant(self.partner, AUTHORIZATION, "octocat@example.com")
+        unvouched = self._create_other_partner(can_use_github_grants=False, is_cimd_client=True)
+        response = self._get_api(
+            f"/api/agentic/provisioning/github/grants/{grant.grant_id}/repositories",
+            HTTP_AUTHORIZATION=self._basic_auth_header(unvouched),
+        )
+        assert response.status_code == 403
+        assert response.json()["error"]["code"] == "forbidden"
+
+    def test_repositories_allows_a_partner_granted_the_capability(self):
+        # The other half of the gate: the capability is what admits a partner, whether or not it
+        # is a CIMD client.
+        grant = github_grants.create_grant(self.partner, AUTHORIZATION, "octocat@example.com")
+        admin_registered = self._create_other_partner(can_use_github_grants=True)
+
+        def fake_github_request(method, request_url, **kwargs):
+            if request_url.endswith("/user/installations"):
+                return INSTALLATIONS_RESPONSE
+            return REPOSITORIES_RESPONSE
+
+        with patch("ee.api.agentic_provisioning.github_grants.github_request", side_effect=fake_github_request):
+            response = self._get_api(
+                f"/api/agentic/provisioning/github/grants/{grant.grant_id}/repositories",
+                HTTP_AUTHORIZATION=self._basic_auth_header(admin_registered),
+            )
+        # 404 rather than 200: it authenticated and passed the gate, then failed ownership on a
+        # grant belonging to another partner, which is the next check and the correct one.
+        assert response.status_code == 404
+        assert response.json()["error"]["code"] == "grant_not_found"
+
+    def test_repositories_github_failure_returns_502(self):
+        grant = github_grants.create_grant(self.partner, AUTHORIZATION, "octocat@example.com")
+        with patch(
+            "ee.api.agentic_provisioning.github_grants.github_request",
+            return_value=_github_response(500, {}),
+        ):
+            response = self._get_grants(f"/api/agentic/provisioning/github/grants/{grant.grant_id}/repositories")
+        assert response.status_code == 502
+        assert response.json()["error"]["code"] == "github_unavailable"

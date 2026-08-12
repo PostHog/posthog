@@ -4,6 +4,7 @@ from typing import Any
 from django import forms
 from django.contrib import admin, messages
 from django.http import HttpRequest
+from django.utils.html import format_html
 
 from products.mcp_store.backend.models import MCPServerTemplate
 from products.mcp_store.backend.oauth import discover_oauth_metadata
@@ -28,6 +29,7 @@ class MCPServerTemplateAdminForm(forms.ModelForm):
             "description",
             "auth_type",
             "icon_key",
+            "icon_domain",
             "category",
             "oauth_issuer_url",
             "oauth_metadata",
@@ -55,6 +57,18 @@ class MCPServerTemplateAdminForm(forms.ModelForm):
             self.fields["client_secret"].help_text = "(stored — leave blank to keep, or type a new value to replace)"
         else:
             self.fields["client_secret"].help_text = "(not set — fine if the provider uses PKCE-only)"
+
+        # The token endpoint comes from the server's own (unauthenticated) metadata
+        # discovery, so show the operator exactly where a pasted secret will be sent
+        # before they commit it — a lying server shouldn't get a secret quietly.
+        token_endpoint = (instance.oauth_metadata or {}).get("token_endpoint", "") if instance else ""
+        if token_endpoint:
+            self.fields["client_secret"].help_text = format_html(
+                "{} Token exchange sends this secret to <code>{}</code> (from discovered metadata) — "
+                "confirm that endpoint belongs to the vendor before saving.",
+                self.fields["client_secret"].help_text,
+                token_endpoint,
+            )
 
     def save(self, commit: bool = True) -> MCPServerTemplate:
         instance: MCPServerTemplate = super().save(commit=False)

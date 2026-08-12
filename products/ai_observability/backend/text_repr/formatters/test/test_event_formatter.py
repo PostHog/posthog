@@ -8,10 +8,14 @@ dicts, nested structures, and plain text.
 import json
 from datetime import datetime
 
+from parameterized import parameterized
+
+from ..constants import MISSING_TOOL_OUTPUT_NOTE
 from ..event_formatter import (
     _dict_to_yaml_lines,
     format_embedding_text_repr,
     format_evaluation_text_repr,
+    format_event_text_repr,
     format_event_text_repr_from_ai_events_row,
     format_generation_text_repr,
 )
@@ -407,3 +411,39 @@ class TestFormatEventTextReprFromAiEventsRow:
         )
         assert "Embedding vector generated" in result
         assert "text to embed" in result
+
+
+class TestSpanToolResultFormatting:
+    @staticmethod
+    def _span(output_state):
+        return {"event": "$ai_span", "properties": {"$ai_span_name": "search", "$ai_output_state": output_state}}
+
+    @parameterized.expand(
+        [
+            ("empty_string", ""),
+            ("none", None),
+            ("empty_list", []),
+        ]
+    )
+    def test_tool_result_without_content_says_so(self, _name, content):
+        state = {"type": "tool", "name": "search", "status": "success", "content": content}
+        result = format_event_text_repr(self._span(state))
+        assert "[TOOL RESULT] search (success)" in result
+        assert MISSING_TOOL_OUTPUT_NOTE in result
+
+    def test_tool_result_with_a_falsey_payload_is_kept(self):
+        state = {"type": "tool", "name": "count", "status": "success", "content": 0}
+        result = format_event_text_repr(self._span(state))
+        assert "0" in result
+        assert MISSING_TOOL_OUTPUT_NOTE not in result
+
+    def test_tool_result_content_blocks_render_as_text(self):
+        state = {
+            "type": "tool",
+            "name": "search",
+            "status": "success",
+            "content": [{"type": "text", "text": "3 issues found"}],
+        }
+        result = format_event_text_repr(self._span(state))
+        assert "3 issues found" in result
+        assert "'type': 'text'" not in result

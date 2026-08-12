@@ -1,5 +1,5 @@
-import { ExceptionAttributes } from './types'
-import { getExceptionAttributes, getExceptionList } from './utils'
+import { ErrorEventProperties, ExceptionAttributes } from './types'
+import { getExceptionAttributes, getExceptionList, getSessionId } from './utils'
 
 describe('Error Display', () => {
     it('can read sentry stack trace when $exception_list is not present', () => {
@@ -109,7 +109,7 @@ describe('Error Display', () => {
             runtime: 'web',
             lib: 'posthog-js',
             libVersion: '1.0.0',
-            level: 'info',
+            level: undefined,
             os: 'Windows',
             osVersion: '10',
             sentryUrl:
@@ -169,5 +169,24 @@ describe('Error Display', () => {
             ingestionErrors: undefined,
             handled: true,
         })
+    })
+
+    // The tests above already cover a lone $level and no level key at all, which both resolve to
+    // undefined. This only pins that $exception_level is the key we read.
+    it('reads level from $exception_level', () => {
+        const result = getExceptionAttributes({ $exception_level: 'fatal', $level: 'info' })
+        expect(result.level).toEqual('fatal')
+    })
+
+    // A non-string $session_id (e.g. a numeric timestamp from a misbehaving SDK) must not leak
+    // through as a number — it used to crash the issue scene via a ts-pattern exhaustive match.
+    it.each([
+        ['valid string session id', { $session_id: 'the-session-id' }, 'the-session-id'],
+        ['numeric session id', { $session_id: 1783346787081 }, undefined],
+        ['empty string session id', { $session_id: '' }, undefined],
+        ['missing session id', {}, undefined],
+        ['null session id', { $session_id: null }, undefined],
+    ])('getSessionId normalizes %s', (_name, properties, expected) => {
+        expect(getSessionId(properties as ErrorEventProperties)).toEqual(expected)
     })
 })

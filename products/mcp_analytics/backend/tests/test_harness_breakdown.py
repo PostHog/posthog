@@ -15,6 +15,8 @@ from posthog.schema import (
     PropertyOperator,
 )
 
+from posthog.hogql.parser import parse_expr
+
 from posthog.rbac.user_access_control import UserAccessControlError
 
 from products.mcp_analytics.backend import mcp_harness
@@ -28,6 +30,31 @@ def test_harness_labels_tuple_matches_multiif_branches() -> None:
     sql = mcp_harness.harness_label_sql("h")
     emitted = set(re.findall(r"'([^']+)',\s*$", sql, re.MULTILINE)) | {"Other"}
     assert emitted == set(mcp_harness.HARNESS_LABELS)
+
+
+@parameterized.expand(
+    [
+        ("token", mcp_harness.HARNESS_TOKEN_SQL),
+        ("display_name", mcp_harness.HARNESS_DISPLAY_NAME_SQL),
+        ("label", mcp_harness.harness_label_sql("h")),
+        ("label_or_token", mcp_harness.harness_label_or_token_sql("h")),
+    ]
+)
+def test_harness_expressions_are_parseable_hogql(_name: str, sql: str) -> None:
+    # These are assembled as f-strings and only ever reach the parser inside a query
+    # runner, so a syntax slip (an inline comment the grammar rejects, an unbalanced
+    # paren) would otherwise surface as a broken dashboard rather than a failing test.
+    parse_expr(sql)
+
+
+def test_label_or_token_keeps_the_bounded_label_set_reachable() -> None:
+    # The verbatim fallback must only replace the "Other" arm — if it shadowed a real
+    # branch, recognized clients would start rendering as raw tokens.
+    bounded = mcp_harness.harness_label_sql("h")
+    verbatim = mcp_harness.harness_label_or_token_sql("h")
+    assert verbatim.count("'Claude Code',") == bounded.count("'Claude Code',")
+    assert "'Other'" not in verbatim
+    assert mcp_harness.UNIDENTIFIED_HARNESS_LABEL in verbatim
 
 
 class TestMCPHarnessBreakdownQueryRunner(_MCPAnalyticsTeamScopedTestMixin, ClickhouseTestMixin, APIBaseTest):
@@ -121,6 +148,18 @@ class TestMCPHarnessBreakdownQueryRunner(_MCPAnalyticsTeamScopedTestMixin, Click
                 "Claude Desktop",
             ),
             ("ua_openai", {"$mcp_client_user_agent": "openai-mcp/1.0.0"}, "OpenAI"),
+            # grok.com Connectors: the grok- UA must beat the generic "connectors-manager"
+            # clientInfo.name it also reports, or the vendor is lost to 'Other'.
+            (
+                "grok_connectors_ua_beats_generic_name",
+                {
+                    "$mcp_client_user_agent": "grok-connectors-manager/0.1.0",
+                    "$mcp_client_name": "connectors-manager",
+                },
+                "Grok",
+            ),
+            # xAI API surface: no grok UA, buckets via its grok- clientInfo.name.
+            ("grok_shell_client_name", {"$mcp_client_name": "grok-shell-posthog"}, "Grok"),
             ("session_librechat", {"mcp_session_client_name": "@librechat/api-client"}, "LibreChat"),
             (
                 "mcp_remote_suffix_stripped",

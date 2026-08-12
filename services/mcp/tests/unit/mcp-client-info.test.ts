@@ -51,6 +51,47 @@ describe('extractClientInfoFromBody', () => {
         expect(info).toEqual({})
     })
 
+    // 2026-07-28 stateless clients never send `initialize` — identity rides in
+    // each request's `_meta`. Without the fallback, all stateless traffic loses
+    // client attribution in analytics and wide logs.
+    it('extracts clientInfo from per-request _meta on a stateless request', async () => {
+        const info = await extractClientInfoFromBody(
+            postRequest({
+                jsonrpc: '2.0',
+                id: 3,
+                method: 'tools/call',
+                params: {
+                    name: 'organization-get',
+                    arguments: {},
+                    _meta: {
+                        'io.modelcontextprotocol/protocolVersion': '2026-07-28',
+                        'io.modelcontextprotocol/clientInfo': { name: 'stateless-client', version: '2.0.0' },
+                    },
+                },
+            })
+        )
+        expect(info).toEqual({
+            clientName: 'stateless-client',
+            clientVersion: '2.0.0',
+            protocolVersion: '2026-07-28',
+        })
+    })
+
+    it('prefers initialize clientInfo over per-request _meta in a mixed batch', async () => {
+        const batch = [
+            {
+                jsonrpc: '2.0',
+                id: 1,
+                method: 'tools/list',
+                params: { _meta: { 'io.modelcontextprotocol/protocolVersion': '2026-07-28' } },
+            },
+            initializeMessage({ name: 'legacy-client', version: '1.2.3' }, '2025-03-26'),
+        ]
+        const info = await extractClientInfoFromBody(postRequest(batch))
+        expect(info.clientName).toBe('legacy-client')
+        expect(info.protocolVersion).toBe('2025-03-26')
+    })
+
     it('returns empty object for GET requests (SSE endpoint)', async () => {
         const req = new Request('https://mcp.example.com/sse', { method: 'GET' })
         const info = await extractClientInfoFromBody(req)

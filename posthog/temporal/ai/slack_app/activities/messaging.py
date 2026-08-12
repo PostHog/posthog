@@ -3,7 +3,15 @@ from typing import Any
 import structlog
 from temporalio import activity
 
-from posthog.temporal.ai.slack_app.types import PostHogCodeSlackMentionWorkflowInputs
+from posthog.models.integration import Integration, SlackIntegration
+from posthog.temporal.ai.slack_app.helpers import safe_react, swap_reaction
+from posthog.temporal.ai.slack_app.types import (
+    SLACK_APP_PROCESSING_REACTION,
+    SLACK_APP_QUEUED_REACTION,
+    PostHogCodeSlackMentionWorkflowInputs,
+    SlackAppMessageReactionInput,
+    coerce_mention_workflow_inputs,
+)
 from posthog.temporal.common.utils import close_db_connections
 
 logger = structlog.get_logger(__name__)
@@ -22,8 +30,7 @@ POSTHOG_CODE_SLACK_RULES_ADD_PICKER_GUIDANCE = "Select the repository for this r
 def post_posthog_code_no_repos_activity(
     inputs: PostHogCodeSlackMentionWorkflowInputs, channel: str, thread_ts: str
 ) -> None:
-    from posthog.models.integration import Integration, SlackIntegration
-
+    inputs = coerce_mention_workflow_inputs(inputs)
     integration = Integration.objects.select_related("team", "team__organization").get(
         id=inputs.integration_id,
         kind="slack",
@@ -63,8 +70,7 @@ def post_posthog_code_repo_picker_activity(
     downstream external-select handler. New workflows go through the patched call
     site at the workflow body and pass ``user_id`` as the final positional arg.
     """
-    from posthog.models.integration import Integration, SlackIntegration
-
+    inputs = coerce_mention_workflow_inputs(inputs)
     if user_id is None:
         logger.warning(
             "posthog_code_picker_legacy_call_skipped",
@@ -98,48 +104,34 @@ def post_posthog_code_repo_picker_activity(
     )
 
 
-@activity.defn
-@close_db_connections
-def block_posthog_code_task_if_no_personal_github_activity(
-    inputs: PostHogCodeSlackMentionWorkflowInputs,
+def _post_connect_personal_github_prompt(
+    slack: "SlackIntegration",
+    *,
     channel: str,
     thread_ts: str,
+    settings_url: str,
     user_id: int,
-) -> bool:
-    """Gate a repo-bound coding-agent task on the mentioner having a personal GitHub.
+    team_id: int,
+    reconnect: bool = False,
+) -> None:
+    """Post the single-button prompt for a task held on an unusable personal GitHub install.
 
-    Returns True (and posts an in-thread Slack block with a "Connect GitHub" button)
-    when the user has no `UserIntegration` of kind=github; the caller must then skip
-    `create_posthog_code_task_for_repo_activity`. Returns False to let the task proceed.
-
-    The team-level GitHub App can still author commits, but PRs would land under the
-    PostHog app identity instead of the user's. Rather than degrading silently, hold
-    the task and surface the one-click path to the personal integration setup.
+    ``reconnect`` picks the wording: a stale install (expired credentials) gets reconnect
+    copy, a missing one gets first-time-setup copy. Both send the user to the same settings
+    page, so the reconnect copy still reads correctly if the stale row was already discarded.
     """
-    from django.conf import settings
-
-    from posthog.models.integration import Integration, SlackIntegration
-    from posthog.models.user_integration import UserIntegration
-
-    has_personal_github = UserIntegration.objects.filter(
-        user_id=user_id,
-        kind=UserIntegration.IntegrationKind.GITHUB,
-    ).exists()
-    if has_personal_github:
-        return False
-
-    integration = Integration.objects.select_related("team", "team__organization").get(
-        id=inputs.integration_id,
-        kind="slack",
-        integration_id=inputs.slack_team_id,
-    )
-    slack = SlackIntegration(integration)
-
-    settings_url = f"{settings.SITE_URL}/project/{integration.team_id}/settings/user-personal-integrations"
-    text = (
-        "I can't start this task yet — you haven't connected your personal GitHub. "
-        "Connect it so I can open the pull request as you, then mention me again."
-    )
+    if reconnect:
+        text = (
+            "I can't start this task. Your personal GitHub connection has expired, so I can't open "
+            "the pull request as you. Reconnect it, then mention me again."
+        )
+        button_text = "Reconnect GitHub"
+    else:
+        text = (
+            "I can't start this task yet. You haven't connected your personal GitHub, so I can't open "
+            "the pull request as you. Connect it, then mention me again."
+        )
+        button_text = "Connect GitHub"
     slack.client.chat_postMessage(
         channel=channel,
         thread_ts=thread_ts,
@@ -151,7 +143,7 @@ def block_posthog_code_task_if_no_personal_github_activity(
                 "elements": [
                     {
                         "type": "button",
-                        "text": {"type": "plain_text", "text": "Connect GitHub", "emoji": True},
+                        "text": {"type": "plain_text", "text": button_text, "emoji": True},
                         "url": settings_url,
                         "style": "primary",
                     }
@@ -160,11 +152,70 @@ def block_posthog_code_task_if_no_personal_github_activity(
         ],
     )
     logger.info(
-        "posthog_code_task_blocked_no_personal_github",
+        "slack_app_task_blocked_no_personal_github",
         user_id=user_id,
-        team_id=integration.team_id,
+        team_id=team_id,
         channel=channel,
         thread_ts=thread_ts,
+        reconnect=reconnect,
+    )
+
+
+@activity.defn
+@close_db_connections
+def block_posthog_code_task_if_no_personal_github_activity(
+    inputs: PostHogCodeSlackMentionWorkflowInputs,
+    channel: str,
+    thread_ts: str,
+    user_id: int,
+) -> bool:
+    """Gate a repo-bound coding-agent task on the mentioner having a usable personal GitHub.
+
+    Returns True (and posts an in-thread Slack block with a Connect/Reconnect GitHub button)
+    when the user has no `UserIntegration` of kind=github or has one whose credentials can't
+    mint a token; the caller must then skip `create_posthog_code_task_for_repo_activity`.
+    Returns False to let the task proceed.
+
+    Checking usability rather than mere existence keeps a task with an expired install from
+    clearing this gate and then failing mid-run at the credential path. A stale install gets
+    reconnect wording; a missing one gets first-time-setup wording.
+
+    The team-level GitHub App can still author commits, but PRs would land under the
+    PostHog app identity instead of the user's. Rather than degrading silently, hold
+    the task and surface the one-click path to the personal integration setup.
+    """
+    from django.conf import settings
+
+    from posthog.models.user_integration import UserIntegration
+
+    from products.tasks.backend.facade import api as tasks_facade
+
+    inputs = coerce_mention_workflow_inputs(inputs)
+    # Usability, not existence: a row with expired credentials would clear an existence
+    # check here and then fail mid-run when the credential path can't mint a token.
+    if tasks_facade.user_has_usable_personal_github(user_id):
+        return False
+
+    integration = Integration.objects.select_related("team", "team__organization").get(
+        id=inputs.integration_id,
+        kind="slack",
+        integration_id=inputs.slack_team_id,
+    )
+    # A stale row (present but unusable) gets reconnect wording; a missing one gets setup wording.
+    has_stale_github = UserIntegration.objects.filter(
+        user_id=user_id,
+        kind=UserIntegration.IntegrationKind.GITHUB,
+    ).exists()
+    slack = SlackIntegration(integration)
+    settings_url = f"{settings.SITE_URL}/project/{integration.team_id}/settings/user-personal-integrations"
+    _post_connect_personal_github_prompt(
+        slack,
+        channel=channel,
+        thread_ts=thread_ts,
+        settings_url=settings_url,
+        user_id=user_id,
+        team_id=integration.team_id,
+        reconnect=has_stale_github,
     )
     return True
 
@@ -174,11 +225,10 @@ def block_posthog_code_task_if_no_personal_github_activity(
 def post_posthog_code_picker_timeout_activity(
     inputs: PostHogCodeSlackMentionWorkflowInputs, channel: str, thread_ts: str
 ) -> None:
-    from posthog.models.integration import Integration, SlackIntegration
-
     from products.slack_app.backend.api import _clear_pending_repo_picker
     from products.slack_app.backend.models import SlackThreadTaskMapping
 
+    inputs = coerce_mention_workflow_inputs(inputs)
     slack_user_id = inputs.event.get("user")
     if isinstance(slack_user_id, str) and slack_user_id:
         _clear_pending_repo_picker(
@@ -216,10 +266,9 @@ def post_posthog_code_picker_timeout_activity(
 def post_posthog_code_internal_error_activity(
     inputs: PostHogCodeSlackMentionWorkflowInputs, channel: str, thread_ts: str
 ) -> None:
-    from posthog.models.integration import Integration, SlackIntegration
-
     from products.slack_app.backend.api import _clear_pending_repo_picker
 
+    inputs = coerce_mention_workflow_inputs(inputs)
     slack_user_id = inputs.event.get("user")
     if isinstance(slack_user_id, str) and slack_user_id:
         _clear_pending_repo_picker(
@@ -240,3 +289,56 @@ def post_posthog_code_internal_error_activity(
         thread_ts=thread_ts,
         text="Sorry, I hit an internal error while processing that request. Please try again.",
     )
+
+
+@activity.defn
+@close_db_connections
+def mark_slack_app_message_processing_activity(input: SlackAppMessageReactionInput) -> None:
+    """Swap the queued :hourglass: reaction for :eyes: when the conversation
+    queue starts processing a message.
+
+    Purely cosmetic UX feedback: never raises, so a Slack hiccup can't stall
+    the conversation queue behind retries of a reaction.
+    """
+    try:
+        integration = Integration.objects.get(
+            id=input.integration_id,
+            kind="slack",
+            integration_id=input.slack_team_id,
+        )
+        slack = SlackIntegration(integration)
+        swap_reaction(
+            slack.client, input.channel, input.message_ts, SLACK_APP_QUEUED_REACTION, SLACK_APP_PROCESSING_REACTION
+        )
+    except Exception as e:
+        logger.warning(
+            "slack_app_processing_reaction_failed",
+            channel=input.channel,
+            message_ts=input.message_ts,
+            error=str(e),
+        )
+
+
+@activity.defn
+@close_db_connections
+def mark_slack_app_message_queued_activity(input: SlackAppMessageReactionInput) -> None:
+    """React :hourglass: on a message that entered the conversation queue
+    behind another message. Messages processed immediately never get it.
+
+    Best-effort like the processing swap above: never raises.
+    """
+    try:
+        integration = Integration.objects.get(
+            id=input.integration_id,
+            kind="slack",
+            integration_id=input.slack_team_id,
+        )
+        slack = SlackIntegration(integration)
+        safe_react(slack.client, input.channel, input.message_ts, SLACK_APP_QUEUED_REACTION)
+    except Exception as e:
+        logger.warning(
+            "slack_app_queued_reaction_failed",
+            channel=input.channel,
+            message_ts=input.message_ts,
+            error=str(e),
+        )

@@ -334,7 +334,10 @@ export function ActionEdit({ action: loadedAction, id, actionLoading, attachTo }
                                     {({ value: stepsValue, onChange }) => (
                                         <div className="@container grid @4xl:grid-cols-2 gap-3">
                                             {stepsValue.map((step: ActionStepType, index: number) => {
-                                                const identifier = String(JSON.stringify(step))
+                                                // stable per-position key: deriving it from the step's content would
+                                                // remount the PropertyFilters subtree (and its kea logics) on every
+                                                // keystroke; propertyFilterLogic syncs content changes via propsChanged
+                                                const identifier = `action-${action.id || 'new'}-step-${index}`
                                                 return (
                                                     <ActionStep
                                                         key={index}

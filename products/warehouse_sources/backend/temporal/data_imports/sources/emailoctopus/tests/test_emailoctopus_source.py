@@ -11,8 +11,8 @@ from posthog.schema import (
     SourceFieldInputConfigType,
 )
 
-from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline.typings import SourceInputs
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.typings import SourceInputs
 from products.warehouse_sources.backend.temporal.data_imports.sources.emailoctopus import source as source_module
 from products.warehouse_sources.backend.temporal.data_imports.sources.emailoctopus.emailoctopus import (
     EmailOctopusResumeConfig,
@@ -141,3 +141,28 @@ class TestEmailOctopusCanonicalDescriptions:
         descriptions = EmailOctopusSource().get_canonical_descriptions()
         assert set(descriptions.keys()) == {"lists", "campaigns", "contacts"}
         assert "list_id" in descriptions["contacts"]["columns"]
+
+
+class TestEmailOctopusSourceVersions:
+    def test_new_sources_default_to_v2(self) -> None:
+        # New sources (no pin) must be created on the current API version.
+        source = EmailOctopusSource()
+        assert source.default_version == "v2"
+        assert source.resolve_api_version(None) == "v2"
+
+    @parameterized.expand([("v1",), ("v2",)])
+    def test_existing_pin_is_honored(self, version: str) -> None:
+        # Pinned rows — including the legacy "v1" default existing sources carry — keep their
+        # version after the default bump, so their syncs are unaffected.
+        source = EmailOctopusSource()
+        assert version in source.supported_versions
+        assert source.resolve_api_version(version) == version
+
+    def test_v1_is_deprecated_without_sunset(self) -> None:
+        # Guards the in-product deprecation banner: v1 must stay flagged (no announced sunset)
+        # and the current default must not be, or the warning silently stops firing.
+        source = EmailOctopusSource()
+        deprecation = source.get_version_deprecation("v1")
+        assert deprecation is not None
+        assert deprecation.sunset_at is None
+        assert source.get_version_deprecation("v2") is None

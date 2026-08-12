@@ -317,6 +317,10 @@ class TestPerson(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
         self.assertEqual(response.status_code, status.HTTP_200_OK)
         self.assertEqual(len(response.json()["results"]), 0)
 
+        response = self.client.get("/api/person/?distinct_id=inexistent&include_total")
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertEqual(response.json(), {"results": [], "next": None, "previous": None, "count": 0})
+
     def test_cant_see_another_organization_pii_with_filters(self):
         # Completely different organization
         another_org: Organization = Organization.objects.create()
@@ -1073,16 +1077,22 @@ class TestPerson(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
             process_person_profile=True,
         )
 
+    @parameterized.expand(
+        [
+            ("single_key", "foo", ["foo"]),
+            ("list_of_keys", ["foo", "bar"], ["foo", "bar"]),
+        ]
+    )
     @mock.patch("posthog.api.person.capture_internal")
-    def test_new_delete_person_properties(self, mock_capture) -> None:
+    def test_new_delete_person_properties(self, _name, unset, expected, mock_capture) -> None:
         person = _create_person(
             team=self.team,
             distinct_ids=["some_distinct_id"],
-            properties={"$browser": "whatever", "$os": "Mac OS X"},
+            properties={"foo": "a", "bar": "b"},
             immediate=True,
         )
 
-        self.client.post(f"/api/person/{person.uuid}/delete_property", {"$unset": "foo"})
+        self.client.post(f"/api/person/{person.uuid}/delete_property", {"$unset": unset}, format="json")
 
         mock_capture.assert_called_once_with(
             token=self.team.api_token,
@@ -1091,10 +1101,81 @@ class TestPerson(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
             distinct_id="some_distinct_id",
             timestamp=mock.ANY,
             properties={
-                "$unset": ["foo"],
+                "$unset": expected,
             },
             process_person_profile=True,
         )
+
+    @parameterized.expand(
+        [
+            ("empty_list", {"$unset": []}, set()),
+            ("blank_key_in_list", {"$unset": ["foo", ""]}, set()),
+            ("non_string_key", {"$unset": ["foo", 123]}, set()),
+            ("missing_unset", {}, set()),
+            ("non_dict_body", ["foo"], set()),
+            ("oversized_list", {"$unset": ["k"] * 1001}, set()),
+            ("forbidden_key_in_list", {"$unset": ["foo", "secret"]}, {"secret"}),
+        ]
+    )
+    @mock.patch("posthog.api.person.capture_internal")
+    def test_delete_property_rejects_invalid_or_forbidden_unset(self, _name, body, non_writable, mock_capture) -> None:
+        person = _create_person(
+            team=self.team,
+            distinct_ids=["some_distinct_id"],
+            properties={"foo": "a", "secret": "b"},
+            immediate=True,
+        )
+
+        with mock.patch(
+            "posthog.api.person.PersonViewSet._get_non_writable_person_properties",
+            return_value=non_writable,
+        ):
+            response = self.client.post(
+                f"/api/person/{person.uuid}/delete_property",
+                body,
+                format="json",
+            )
+
+        self.assertEqual(response.status_code, 400)
+        mock_capture.assert_not_called()
+
+    @mock.patch("posthog.api.person.capture_internal")
+    def test_delete_property_names_every_forbidden_key(self, mock_capture) -> None:
+        person = _create_person(
+            team=self.team,
+            distinct_ids=["some_distinct_id"],
+            properties={"foo": "a", "secret": "b", "hidden": "c"},
+            immediate=True,
+        )
+
+        with mock.patch(
+            "posthog.api.person.PersonViewSet._get_non_writable_person_properties",
+            return_value={"secret", "hidden"},
+        ):
+            response = self.client.post(
+                f"/api/person/{person.uuid}/delete_property",
+                {"$unset": ["foo", "secret", "hidden"]},
+                format="json",
+            )
+
+        self.assertEqual(response.status_code, 400)
+        self.assertIn("hidden, secret", response.json()["detail"])
+        mock_capture.assert_not_called()
+
+    @mock.patch("posthog.api.person.capture_internal")
+    @mock.patch("posthog.api.person.get_person_by_pk_or_uuid")
+    def test_delete_property_rejects_person_without_distinct_ids(self, mock_get_person, mock_capture) -> None:
+        mock_get_person.return_value = mock.Mock(distinct_ids=[])
+
+        response = self.client.post(
+            f"/api/person/{uuid4()}/delete_property",
+            {"$unset": "foo"},
+            format="json",
+        )
+
+        self.assertEqual(response.status_code, 400)
+        self.assertIn("no distinct IDs", response.json()["detail"])
+        mock_capture.assert_not_called()
 
     @mock.patch("posthog.api.person.capture_internal")
     def test_update_person_property_by_numeric_id(self, mock_capture) -> None:
@@ -1659,6 +1740,9 @@ class TestPerson(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
         create_person_in_ch(team_id=self.team.pk, version=0)
 
         returned_ids = []
+        # The property-access-control feature check reuses the request's already-loaded team,
+        # so listing persons no longer pays a per-request Team lookup (was 16). +1 for the
+        # saved-expressions fetch in the HogQL database build.
         with self.assertNumQueries(16):
             response = self.client.get("/api/person/?limit=10").json()
         self.assertEqual(len(response["results"]), 9)
@@ -1670,7 +1754,9 @@ class TestPerson(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
         created_ids.reverse()  # ids are returned in desc order
         self.assertEqual(returned_ids, created_ids, returned_ids)
 
-        with self.assertNumQueries(20):
+        # 16 as above, plus the include_total counting queries (was 20); the count runs a second
+        # HogQL database build, which pays the saved-expressions fetch again.
+        with self.assertNumQueries(21):
             response_include_total = self.client.get("/api/person/?limit=10&include_total").json()
         self.assertEqual(response_include_total["count"], 20)  #  With `include_total`, the total count is returned too
 
@@ -1750,6 +1836,8 @@ class TestPerson(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
         activity: list[dict] = activity_response["results"]
         for item in activity:
             item.pop("id", None)
+            for envelope_key in ("is_system", "was_impersonated", "client"):
+                item.pop(envelope_key, None)
         self.maxDiff = None
         self.assertCountEqual(activity, expected)
 

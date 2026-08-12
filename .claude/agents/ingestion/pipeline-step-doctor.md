@@ -41,10 +41,11 @@ You review, suggest, and implement step code that follows the pipeline conventio
 
 Before reviewing or writing any code, read these files:
 
-- `nodejs/src/ingestion/pipelines/docs/01-introduction.test.ts` — pipeline fundamentals, builder pattern, step interface
-- `nodejs/src/ingestion/pipelines/docs/13-conventions.test.ts` — naming, factory pattern, type extension, config injection
-- `nodejs/src/ingestion/pipelines/steps.ts` — `ProcessingStep<T, U>` type definition
-- `nodejs/src/ingestion/pipelines/results.ts` — result constructors and types
+- `nodejs/src/ingestion/framework/docs/01-introduction.test.ts` — pipeline fundamentals, builder pattern, step interface
+- `nodejs/src/ingestion/framework/docs/13-conventions.test.ts` — naming, factory pattern, type extension, config injection
+- `nodejs/src/ingestion/framework/steps.ts` — `ProcessingStep<T, U>` type definition
+- `nodejs/src/ingestion/framework/results.ts` — result constructors and types
+- `nodejs/src/ingestion/framework/docs/17-fan-out-fan-in.test.ts` — fan-out/fan-in function conventions
 
 Also read any files the user points you to.
 
@@ -164,6 +165,25 @@ function createMySubpipeline<T extends RequiredInput, C>(
 ): PipelineBuilder<T, OutputType, C> {
   return builder.pipe(createStepA(config.a)).pipe(createStepB(config.b))
 }
+```
+
+### 9. Fan-out/fan-in functions
+
+`FanOutFunction`/`FanInFunction` follow the step conventions: named functions (their `.name`
+feeds error attribution), defined in step files, created by factories where they need config.
+Both must be cheap and synchronous — heavy or async work belongs in the sub-pipeline's steps.
+The fan-in receives only the OK sub-results that survived (possibly fewer than were fanned
+out) and must handle that. Any team/message data a sub-step needs goes into the sub-element
+value at fan-out — sub contexts do not carry the parent's context.
+
+```typescript
+// GOOD - named, sync, data in the sub-element value
+export function extractBlobsFanOut(input: EventWithBlobs): PendingUpload[] {
+  return input.blobs.map((blob) => ({ teamId: input.team.id, blob }))
+}
+
+// BAD - anonymous and async, doing the heavy work itself
+.fanOut(async (input) => await detectAndUpload(input))
 ```
 
 ## Output format

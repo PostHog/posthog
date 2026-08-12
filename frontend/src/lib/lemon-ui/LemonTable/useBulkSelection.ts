@@ -38,6 +38,10 @@ export interface BulkSelectionConfig<T extends Record<string, any>, K extends Bu
     initialSelectedKeys?: ReadonlyArray<K>
     /** Extra classes for the bulk-action bar wrapper (e.g. spacing). Opt-in so other tables are unaffected. */
     barClassName?: string
+    /** Render the bar into this element (via portal) instead of above the table — lets callers place
+     *  it inline with an existing toolbar row. While the element is null (not mounted yet), the bar
+     *  falls back to its default position above the table. */
+    barPortalTarget?: HTMLElement | null
 }
 
 export interface UseBulkSelectionResult<T, K extends BulkSelectionKey = BulkSelectionKey> {

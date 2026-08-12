@@ -3,7 +3,7 @@ import { expectLogic } from 'kea-test-utils'
 import { initKeaTests } from '~/test/init'
 import { FilterLogicalOperator } from '~/types'
 
-import { logsViewerConfigLogic } from './logsViewerConfigLogic'
+import { LogsViewerGroupBy, logsViewerConfigLogic } from './logsViewerConfigLogic'
 import { LogsViewerFilters } from './types'
 
 describe('logsViewerConfigLogic', () => {
@@ -64,6 +64,44 @@ describe('logsViewerConfigLogic', () => {
         })
     })
 
+    describe('groupBys', () => {
+        // The reducer, not the picker UI, is what guarantees the group-by API never sees a
+        // combination it rejects (cap of 4, no duplicate dimensions).
+        const dim = (key: string, source: LogsViewerGroupBy['source'] = 'log'): LogsViewerGroupBy => ({
+            key,
+            source,
+        })
+
+        it('appends in order and ignores additions past the cap', () => {
+            for (const key of ['a', 'b', 'c', 'd', 'e']) {
+                logic.actions.addGroupBy(dim(key))
+            }
+            expect(logic.values.groupBys.map((d) => d.key)).toEqual(['a', 'b', 'c', 'd'])
+        })
+
+        it('ignores a duplicate dimension but allows the same key from another source', () => {
+            logic.actions.addGroupBy(dim('env', 'resource'))
+            logic.actions.addGroupBy(dim('env', 'resource'))
+            logic.actions.addGroupBy(dim('env', 'log'))
+            expect(logic.values.groupBys).toEqual([dim('env', 'resource'), dim('env', 'log')])
+        })
+
+        it('removes by index preserving order of the rest', () => {
+            logic.actions.setGroupBys([dim('a'), dim('b'), dim('c')])
+            logic.actions.removeGroupByAt(1)
+            expect(logic.values.groupBys.map((d) => d.key)).toEqual(['a', 'c'])
+        })
+
+        it('replaces in place and ignores a replacement that duplicates another dimension', () => {
+            logic.actions.setGroupBys([dim('a'), dim('b')])
+            logic.actions.replaceGroupByAt(0, dim('c'))
+            expect(logic.values.groupBys.map((d) => d.key)).toEqual(['c', 'b'])
+
+            logic.actions.replaceGroupByAt(0, dim('b'))
+            expect(logic.values.groupBys.map((d) => d.key)).toEqual(['c', 'b'])
+        })
+    })
+
     describe('sparklineCollapsed', () => {
         it('defaults to false', () => {
             expect(logic.values.sparklineCollapsed).toBe(false)
@@ -97,6 +135,44 @@ describe('logsViewerConfigLogic', () => {
 
             logic1.unmount()
             logic2.unmount()
+        })
+    })
+
+    describe('legacy attribute-column migration', () => {
+        const legacyKey = (id: string): string =>
+            `products.logs.frontend.components.LogsViewer.logsViewerLogic.${id}.attributeColumnsConfig`
+
+        afterEach(() => {
+            localStorage.clear()
+        })
+
+        it('migrates persisted legacy config into typed columns on mount and removes the key', () => {
+            localStorage.setItem(
+                legacyKey('migrate-tab'),
+                JSON.stringify({ 'k8s.pod': { order: 1, width: 200 }, 'http.status': { order: 0 } })
+            )
+            const migrateLogic = logsViewerConfigLogic({ id: 'migrate-tab' })
+            migrateLogic.mount()
+
+            expect(migrateLogic.values.columns.map((c) => c.type)).toEqual(['timestamp', 'custom', 'custom', 'message'])
+            expect(migrateLogic.values.columns[1].name).toBe('http.status')
+            expect(migrateLogic.values.columns[2].name).toBe('k8s.pod')
+            expect(migrateLogic.values.columns[2].width).toBe(200)
+            expect(localStorage.getItem(legacyKey('migrate-tab'))).toBeNull()
+            migrateLogic.unmount()
+        })
+
+        it('does not overwrite an already-customized column set', () => {
+            const customizedLogic = logsViewerConfigLogic({ id: 'customized-tab' })
+            customizedLogic.mount()
+            customizedLogic.actions.setColumns([{ id: 'message', type: 'message' }])
+            customizedLogic.unmount()
+
+            localStorage.setItem(legacyKey('customized-tab'), JSON.stringify({ 'k8s.pod': { order: 0 } }))
+            const remounted = logsViewerConfigLogic({ id: 'customized-tab' })
+            remounted.mount()
+            expect(remounted.values.columns.map((c) => c.id)).toEqual(['message'])
+            remounted.unmount()
         })
     })
 })

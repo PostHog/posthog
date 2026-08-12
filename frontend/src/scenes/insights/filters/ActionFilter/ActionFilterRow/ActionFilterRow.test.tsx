@@ -7,6 +7,7 @@ import userEvent from '@testing-library/user-event'
 import { Provider } from 'kea'
 
 import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
+import { databaseTableListLogic } from 'scenes/data-management/database/databaseTableListLogic'
 import { entityFilterLogic } from 'scenes/insights/filters/ActionFilter/entityFilterLogic'
 
 import { useAvailableFeatures } from '~/mocks/features'
@@ -114,6 +115,14 @@ describe('ActionFilterRow', () => {
         // Supplement with endpoints specific to ActionFilterRow
         useMocks({
             get: {
+                // insightLogic mounts alongside and fetches its insight by short_id; without
+                // a match it errors with "Insight ... not found"
+                '/api/environments/:team_id/insights/': ({ request }: { request: Request }) => [
+                    200,
+                    {
+                        results: [{ id: 1, short_id: new URL(request.url).searchParams.get('short_id'), query: null }],
+                    },
+                ],
                 '/api/projects/:team/actions/': { results: filtersJson.actions },
                 '/api/environments/:team/groups_types/': MOCK_GROUP_TYPES,
                 '/api/projects/:team/warehouse_tables/': { results: [] },
@@ -153,6 +162,37 @@ describe('ActionFilterRow', () => {
             expect(document.querySelector('.ActionFilterRow')).toBeInTheDocument()
             // EntityFilterInfo renders $pageview as "Pageview" display name
             expect(document.querySelector('.ActionFilterRow')!.textContent).toContain('Pageview')
+        })
+
+        it('shows the underlying event alongside a renamed series', () => {
+            const { logic } = setup()
+            renderRow(logic, {
+                filter: { ...DEFAULT_FILTER, id: 'user signed up', name: 'Signed up', custom_name: 'Signed up' },
+            })
+            const row = document.querySelector('.ActionFilterRow')!
+            expect(row.textContent).toContain('Signed up')
+            expect(row.textContent).toContain('user signed up')
+        })
+
+        it('opens the picker with the renamed selection first, labelled by the series name', async () => {
+            const { logic } = setup()
+            renderRow(logic, {
+                ...INLINE_CONTEXT,
+                filter: { ...DEFAULT_FILTER, id: 'user signed up', name: 'Signed up', custom_name: 'Signed up' },
+            })
+
+            await userEvent.click(screen.getByTestId('trend-element-subject-0'))
+
+            // The committed selection leads the list, labelled with the series' rename
+            // and revealing the event it actually queries.
+            await waitFor(() => {
+                const rows = Array.from(document.querySelectorAll('.taxonomic-list-row'))
+                const selectedRow = rows.find(
+                    (row) => row.textContent?.includes('Signed up') && row.textContent?.includes('user signed up')
+                )
+                expect(selectedRow).toBeTruthy()
+                expect(selectedRow!.getAttribute('data-attr')).toMatch(/-0$/)
+            })
         })
 
         describe('series indicators', () => {
@@ -252,6 +292,71 @@ describe('ActionFilterRow', () => {
                 renderRow(logic, { mathAvailability: MathAvailability.BoxPlotOnly })
                 expect(screen.queryByTestId('math-selector-0')).not.toBeInTheDocument()
                 expect(screen.getByTestId('box-plot-property-select')).toBeInTheDocument()
+            })
+
+            it('offers only numeric warehouse columns in the box plot property selector for data warehouse series', async () => {
+                databaseTableListLogic.mount()
+                databaseTableListLogic.actions.loadDatabaseSuccess({
+                    tables: {
+                        events_table: {
+                            type: 'data_warehouse',
+                            id: 'wh-table-1',
+                            name: 'events_table',
+                            fields: {
+                                duration: {
+                                    name: 'duration',
+                                    hogql_value: 'duration',
+                                    type: 'float',
+                                    schema_valid: true,
+                                },
+                                customer_name: {
+                                    name: 'customer_name',
+                                    hogql_value: 'customer_name',
+                                    type: 'string',
+                                    schema_valid: true,
+                                },
+                            },
+                        },
+                    },
+                    joins: [],
+                } as any)
+
+                const dataWarehouseFilter = {
+                    id: 'events_table',
+                    name: 'events_table',
+                    type: EntityTypes.DATA_WAREHOUSE,
+                    table_name: 'events_table',
+                    order: 0,
+                }
+                const { logic, setFilters } = setup({
+                    events: [],
+                    actions: [],
+                    data_warehouse: [dataWarehouseFilter],
+                } as Partial<FilterType>)
+                renderRow(logic, {
+                    mathAvailability: MathAvailability.BoxPlotOnly,
+                    filter: { ...DEFAULT_FILTER, ...dataWarehouseFilter },
+                })
+
+                await userEvent.click(screen.getByTestId('box-plot-property-select'))
+                await screen.findByText('duration')
+                // The box plot runner applies toFloat() to the selected column, so non-numeric
+                // columns must not be offered
+                expect(screen.queryByText('customer_name')).not.toBeInTheDocument()
+                await userEvent.click(screen.getByText('duration'))
+
+                await waitFor(() => {
+                    expect(setFilters).toHaveBeenCalledWith(
+                        expect.objectContaining({
+                            data_warehouse: [
+                                expect.objectContaining({
+                                    math_property: 'duration',
+                                    math_property_type: TaxonomicFilterGroupType.DataWarehouseProperties,
+                                }),
+                            ],
+                        })
+                    )
+                })
             })
         })
 

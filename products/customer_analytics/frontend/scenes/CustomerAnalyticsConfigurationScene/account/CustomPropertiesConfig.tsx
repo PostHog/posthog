@@ -1,13 +1,21 @@
 import { useActions, useValues } from 'kea'
 import { useState } from 'react'
 
-import { IconInfo, IconPencil, IconTrash } from '@posthog/icons'
-import { LemonButton, LemonTable, LemonTableColumns, Tooltip } from '@posthog/lemon-ui'
+import { IconInfo, IconLogomark, IconPencil, IconTrash } from '@posthog/icons'
+import {
+    LemonButton,
+    LemonInput,
+    LemonSegmentedButton,
+    LemonTable,
+    LemonTableColumns,
+    Tooltip,
+} from '@posthog/lemon-ui'
 
 import { RestrictionScope, useRestrictedArea } from 'lib/components/RestrictedArea'
 import { TZLabel } from 'lib/components/TZLabel'
 import { TeamMembershipLevel } from 'lib/constants'
 import { LemonDialog } from 'lib/lemon-ui/LemonDialog'
+import { LemonTag, LemonTagType } from 'lib/lemon-ui/LemonTag'
 import { Link } from 'lib/lemon-ui/Link'
 import { Popover } from 'lib/lemon-ui/Popover'
 import { urls } from 'scenes/urls'
@@ -19,11 +27,20 @@ import type {
 
 import { customPropertyDefinitionsLogic } from './customPropertyDefinitionsLogic'
 import { CustomPropertyModal } from './CustomPropertyModal'
-import { labelForDisplayType } from './customPropertyTypes'
+import { labelForDisplayType, type SourceSyncStatusLevel, sourceSyncStatus } from './customPropertyTypes'
+
+const TAG_TYPE_BY_SYNC_LEVEL: Record<SourceSyncStatusLevel, LemonTagType> = {
+    synced: 'success',
+    error: 'danger',
+    disabled: 'muted',
+    pending: 'default',
+}
 
 export function CustomPropertiesConfig(): JSX.Element {
-    const { definitions, definitionsLoading } = useValues(customPropertyDefinitionsLogic)
-    const { openCreateModal, openEditModal, deleteDefinition } = useActions(customPropertyDefinitionsLogic)
+    const { filteredDefinitions, definitionsLoading, searchTerm, targetTypeFilter } =
+        useValues(customPropertyDefinitionsLogic)
+    const { openCreateModal, openEditModal, deleteDefinition, setSearchTerm, setTargetTypeFilter } =
+        useActions(customPropertyDefinitionsLogic)
     const restrictionReason = useRestrictedArea({
         scope: RestrictionScope.Project,
         minimumAccessLevel: TeamMembershipLevel.Admin,
@@ -46,11 +63,38 @@ export function CustomPropertiesConfig(): JSX.Element {
         {
             title: 'Name',
             dataIndex: 'name',
-            render: (_, definition) => <span className="font-semibold">{definition.name}</span>,
+            render: (_, definition) => (
+                <span className="flex items-center gap-1 font-semibold">
+                    {definition.is_canonical && (
+                        <Tooltip title="PostHog sets this property automatically">
+                            <IconLogomark className="text-lg shrink-0" />
+                        </Tooltip>
+                    )}
+                    {definition.name}
+                </span>
+            ),
+        },
+        {
+            title: 'Attach to',
+            render: (_, definition) =>
+                definition.target_type === 'person' ? (
+                    <LemonTag type="completion">Person</LemonTag>
+                ) : definition.target_type === 'group' ? (
+                    <LemonTag type="caution">Group</LemonTag>
+                ) : (
+                    <LemonTag type="default">Account</LemonTag>
+                ),
         },
         {
             title: 'Type',
-            render: (_, definition) => labelForDisplayType(definition.display_type),
+            // display_type only shapes how an account property renders; a person property is a raw
+            // $set value, so there's nothing meaningful to show for it.
+            render: (_, definition) =>
+                definition.target_type === 'person' ? (
+                    <span className="text-secondary">—</span>
+                ) : (
+                    labelForDisplayType(definition.display_type)
+                ),
         },
         {
             title: 'Description',
@@ -79,27 +123,54 @@ export function CustomPropertiesConfig(): JSX.Element {
                 ),
         },
         {
+            title: 'Sync',
+            render: (_, definition) => {
+                if (definition.is_canonical) {
+                    return <span className="text-secondary">Auto</span>
+                }
+                if (!definition.source) {
+                    return <span className="text-secondary">Manual</span>
+                }
+                const status = sourceSyncStatus(definition.source)
+                return (
+                    <Tooltip title={status.tooltip}>
+                        <span className="flex items-center gap-2">
+                            <LemonTag type={TAG_TYPE_BY_SYNC_LEVEL[status.level]}>{status.label}</LemonTag>
+                            {status.level === 'synced' && definition.source.last_synced_at && (
+                                <TZLabel time={definition.source.last_synced_at} className="text-secondary" />
+                            )}
+                        </span>
+                    </Tooltip>
+                )
+            },
+        },
+        {
             title: '',
             width: 0,
-            render: (_, definition) => (
-                <div className="flex gap-1 justify-end">
-                    <LemonButton
-                        size="small"
-                        icon={<IconPencil />}
-                        tooltip="Edit"
-                        onClick={() => openEditModal(definition)}
-                        disabledReason={restrictionReason}
-                    />
-                    <LemonButton
-                        size="small"
-                        status="danger"
-                        icon={<IconTrash />}
-                        tooltip="Delete"
-                        onClick={() => confirmDelete(definition)}
-                        disabledReason={restrictionReason}
-                    />
-                </div>
-            ),
+            render: (_, definition) => {
+                const canonicalReason = definition.is_canonical
+                    ? "PostHog sets this property automatically, so it can't be edited or deleted."
+                    : undefined
+                return (
+                    <div className="flex gap-1 justify-end">
+                        <LemonButton
+                            size="small"
+                            icon={<IconPencil />}
+                            tooltip="Edit"
+                            onClick={() => openEditModal(definition)}
+                            disabledReason={canonicalReason ?? restrictionReason}
+                        />
+                        <LemonButton
+                            size="small"
+                            status="danger"
+                            icon={<IconTrash />}
+                            tooltip="Delete"
+                            onClick={() => confirmDelete(definition)}
+                            disabledReason={canonicalReason ?? restrictionReason}
+                        />
+                    </div>
+                )
+            },
         },
     ]
 
@@ -110,16 +181,42 @@ export function CustomPropertiesConfig(): JSX.Element {
                     <h3 className="mb-0">Custom properties</h3>
                     <p className="text-secondary mb-0">Define typed properties to store on your accounts.</p>
                 </div>
-                <LemonButton type="primary" onClick={openCreateModal} disabledReason={restrictionReason}>
+                <LemonButton type="primary" onClick={() => openCreateModal()} disabledReason={restrictionReason}>
                     New custom property
                 </LemonButton>
             </div>
+            <div className="flex items-center gap-2">
+                <LemonInput
+                    type="search"
+                    size="small"
+                    placeholder="Search custom properties"
+                    value={searchTerm}
+                    onChange={setSearchTerm}
+                    className="max-w-80"
+                />
+                <LemonSegmentedButton
+                    size="small"
+                    value={targetTypeFilter}
+                    onChange={setTargetTypeFilter}
+                    options={[
+                        { value: 'all', label: 'All' },
+                        { value: 'account', label: 'Accounts' },
+                        { value: 'person', label: 'Persons' },
+                        { value: 'group', label: 'Groups' },
+                    ]}
+                />
+            </div>
             <LemonTable
                 columns={columns}
-                dataSource={definitions}
+                dataSource={filteredDefinitions}
                 loading={definitionsLoading}
                 rowKey="id"
-                emptyState="No custom properties yet. Create one to get started."
+                pagination={{ pageSize: 20, hideOnSinglePage: true }}
+                emptyState={
+                    searchTerm || targetTypeFilter !== 'all'
+                        ? 'No custom properties match your filters.'
+                        : 'No custom properties yet. Create one to get started.'
+                }
             />
             <CustomPropertyModal />
         </div>

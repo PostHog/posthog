@@ -1,6 +1,6 @@
 import { Node } from '@xyflow/react'
 import { useActions, useValues } from 'kea'
-import { useMemo } from 'react'
+import { useMemo, useState } from 'react'
 
 import { IconBalance, IconPlus, IconX } from '@posthog/icons'
 
@@ -11,7 +11,17 @@ import { LemonLabel } from 'lib/lemon-ui/LemonLabel'
 import { hogFlowEditorLogic } from '../hogFlowEditorLogic'
 import { HogFlow, HogFlowAction } from '../types'
 import { StepSchemaErrors } from './components/StepSchemaErrors'
-import { useDebouncedNameInputs } from './utils'
+import {
+    cohortPercentagesAddUp,
+    normalizeCohortPercentages,
+    parseCohortPercentage,
+    useDebouncedNameInputs,
+} from './utils'
+
+// Print enough precision that the two figures in the imbalance warning cannot contradict each other:
+// rounding a 99.996% total to hundredths would claim it adds up to 100% with 0% left over. Number()
+// then drops the zeros toFixed pads with, and clears float noise like 0.0040000000000048.
+const formatPercentage = (value: number): string => Number(value.toFixed(10)).toString()
 
 export function StepRandomCohortBranchConfiguration({
     node,
@@ -19,7 +29,7 @@ export function StepRandomCohortBranchConfiguration({
     node: Node<Extract<HogFlowAction, { type: 'random_cohort_branch' }>>
 }): JSX.Element {
     const action = node.data
-    const { cohorts } = action.config
+    const cohorts = action.config.cohorts ?? []
 
     const { edgesByActionId } = useValues(hogFlowEditorLogic)
     const { setWorkflowAction, setWorkflowActionEdges } = useActions(hogFlowEditorLogic)
@@ -77,25 +87,41 @@ export function StepRandomCohortBranchConfiguration({
         setWorkflowActionEdges(action.id, [...newBranchEdges, ...nonBranchEdges])
     }
 
-    const updateCohortPercentage = (index: number, percentage: number): void => {
+    // While a percentage field is focused it displays the raw text being typed, keyed by cohort index.
+    // Feeding the parsed number straight back as the input's value would drop a trailing decimal
+    // point, so a fractional share could never be typed: "3." parses to 3 and the field re-renders
+    // without the dot, leaving "3.3" unreachable.
+    const [percentageDrafts, setPercentageDrafts] = useState<Record<number, string>>({})
+
+    const updateCohortPercentage = (index: number, value: string): void => {
+        setPercentageDrafts((drafts) => ({ ...drafts, [index]: value }))
+        const percentage = parseCohortPercentage(value)
         setCohorts(cohorts.map((cohort, i) => (i === index ? { ...cohort, percentage } : cohort)))
     }
 
-    const normalizePercentages = (): void => {
-        const count = cohorts.length
-        if (count === 0) {
-            return
-        }
-        const base = Math.floor(100 / count)
-        const remainder = 100 - base * count
-        const normalized = cohorts.map((cohort, i) => {
-            // Distribute remainder to the first cohorts
-            return { ...cohort, percentage: base + (i < remainder ? 1 : 0) }
+    const clearPercentageDraft = (index: number): void => {
+        setPercentageDrafts((drafts) => {
+            const remaining = { ...drafts }
+            delete remaining[index]
+            return remaining
         })
-        setCohorts(normalized)
     }
 
-    const totalPercentage = cohorts.reduce((sum, cohort) => sum + cohort.percentage, 0)
+    const normalizePercentages = (): void => {
+        if (cohorts.length === 0) {
+            return
+        }
+        const normalized = normalizeCohortPercentages(cohorts.length)
+        setCohorts(cohorts.map((cohort, i) => ({ ...cohort, percentage: normalized[i] })))
+        // Every share is replaced, so any draft still open is stale text sitting over a new value. The
+        // button cannot be relied on to blur the field first: Safari leaves focus where it was.
+        setPercentageDrafts({})
+    }
+
+    const percentages = cohorts.map((cohort) => cohort.percentage)
+    const totalPercentage = percentages.reduce((sum, percentage) => sum + percentage, 0)
+    const isBalanced = cohortPercentagesAddUp(percentages)
+    const shortfall = 100 - totalPercentage
 
     return (
         <>
@@ -120,8 +146,10 @@ export function StepRandomCohortBranchConfiguration({
                             type="number"
                             min="0"
                             max="100"
-                            value={cohort.percentage}
-                            onChange={(e) => updateCohortPercentage(index, parseInt(e.target.value) || 0)}
+                            step="any"
+                            value={percentageDrafts[index] ?? String(cohort.percentage)}
+                            onChange={(e) => updateCohortPercentage(index, e.target.value)}
+                            onBlur={() => clearPercentageDraft(index)}
                             className="w-20 px-2 py-1 border rounded"
                         />
                         <span>%</span>
@@ -129,15 +157,19 @@ export function StepRandomCohortBranchConfiguration({
                 </div>
             ))}
 
-            {totalPercentage !== 100 && (
-                <div className="text-sm text-orange-600">Total percentage: {totalPercentage}% (should equal 100%)</div>
+            {cohorts.length > 0 && !isBalanced && (
+                <div className="text-sm text-orange-600">
+                    {shortfall > 0
+                        ? `These add up to ${formatPercentage(totalPercentage)}%. The remaining ${formatPercentage(shortfall)}% will go to the last cohort.`
+                        : `These add up to ${formatPercentage(totalPercentage)}%. Later cohorts will get less than their share, and some may never be used.`}
+                </div>
             )}
 
             <div className="flex gap-2">
                 <LemonButton type="secondary" icon={<IconPlus />} onClick={() => addCohort()} className="flex-1">
                     Add cohort
                 </LemonButton>
-                <LemonButton type="secondary" onClick={normalizePercentages} tooltip="Normalize cohort percentages">
+                <LemonButton type="secondary" onClick={normalizePercentages} tooltip="Split evenly across all cohorts">
                     <IconBalance />
                 </LemonButton>
             </div>

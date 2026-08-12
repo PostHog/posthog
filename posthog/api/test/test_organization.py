@@ -16,6 +16,7 @@ from posthog.api.organization import OrganizationSerializer, _fetch_member_count
 from posthog.constants import AvailableFeature
 from posthog.models import Organization, OrganizationMembership, Team
 from posthog.models.oauth import OAuthAccessToken, OAuthApplication
+from posthog.models.organization_domain import OrganizationDomain
 from posthog.models.personal_api_key import PersonalAPIKey
 from posthog.models.uploaded_media import UploadedMedia
 from posthog.models.utils import generate_random_token_personal, hash_key_value
@@ -291,6 +292,71 @@ class TestOrganizationAPI(APIBaseTest):
         self.organization.refresh_from_db()
         self.assertNotEqual(self.organization.enforce_2fa, True)
 
+    def test_cannot_enable_enforce_verified_domains_when_it_would_block_the_admin(self):
+        # The setting denies access rather than prompting for setup, so an admin outside the verified
+        # domains enabling it would be locked out with no self-service recovery.
+        self.organization_membership.level = OrganizationMembership.Level.ADMIN
+        self.organization_membership.save()
+        self.organization.available_product_features = [{"key": AvailableFeature.AUTOMATIC_PROVISIONING}]
+        self.organization.save()
+        OrganizationDomain.objects.create(
+            domain="hogflix.com", organization=self.organization, verified_at=timezone.now()
+        )
+
+        response = self.client.patch(f"/api/organizations/{self.organization.id}/", {"enforce_verified_domains": True})
+
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+        self.assertEqual(response.json()["code"], "would_block_self")
+        self.organization.refresh_from_db()
+        self.assertNotEqual(self.organization.enforce_verified_domains, True)
+
+        # Verifying the admin's own domain unblocks it, which also covers the empty allow-list case.
+        OrganizationDomain.objects.create(
+            domain=self.user.email.split("@")[1], organization=self.organization, verified_at=timezone.now()
+        )
+        response = self.client.patch(f"/api/organizations/{self.organization.id}/", {"enforce_verified_domains": True})
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.organization.refresh_from_db()
+        self.assertTrue(self.organization.enforce_verified_domains)
+
+    def test_blocked_admin_can_disable_enforcement_but_change_nothing_else(self):
+        # The escape hatch: an admin who became blocked (email changed, domain deleted) must still be
+        # able to turn the setting off — and only that — or the organization is wedged permanently.
+        self.organization_membership.level = OrganizationMembership.Level.ADMIN
+        self.organization_membership.save()
+        self.organization.enforce_verified_domains = True
+        self.organization.save()
+        OrganizationDomain.objects.create(
+            domain="hogflix.com", organization=self.organization, verified_at=timezone.now()
+        )
+
+        # Any other change through the hatch is rejected, alone or alongside the disable.
+        for payload in [{"name": "New name"}, {"enforce_verified_domains": False, "name": "New name"}]:
+            response = self.client.patch(f"/api/organizations/{self.organization.id}/", payload)
+            self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN, payload)
+            self.assertEqual(response.json()["code"], "verified_domain_required")
+
+        response = self.client.patch(f"/api/organizations/{self.organization.id}/", {"enforce_verified_domains": False})
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.organization.refresh_from_db()
+        self.assertFalse(self.organization.enforce_verified_domains)
+
+    def test_blocked_member_cannot_use_the_enforcement_escape_hatch(self):
+        # The hatch only bypasses the domain gates; the admin-write requirement on the organization
+        # endpoint still applies to members.
+        self.organization_membership.level = OrganizationMembership.Level.MEMBER
+        self.organization_membership.save()
+        self.organization.enforce_verified_domains = True
+        self.organization.save()
+        OrganizationDomain.objects.create(
+            domain="hogflix.com", organization=self.organization, verified_at=timezone.now()
+        )
+
+        response = self.client.patch(f"/api/organizations/{self.organization.id}/", {"enforce_verified_domains": False})
+        self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN)
+        self.organization.refresh_from_db()
+        self.assertTrue(self.organization.enforce_verified_domains)
+
     def test_cannot_update_allow_publicly_shared_resources_without_feature(self):
         """Test that allow_publicly_shared_resources cannot be updated without ORGANIZATION_SECURITY_SETTINGS feature."""
         self.organization_membership.level = OrganizationMembership.Level.ADMIN
@@ -430,7 +496,7 @@ class TestOrganizationAPI(APIBaseTest):
         self.organization.refresh_from_db()
         self.assertTrue(getattr(self.organization, field))
 
-    @patch("posthog.api.organization.delete_organization_data_and_notify_task")
+    @patch("posthog.temporal.delete_teams.dispatch.start_delete_organization_workflow")
     def test_delete_organizations_and_verify_list(self, mock_delete_task):
         self.organization_membership.level = OrganizationMembership.Level.OWNER
         self.organization_membership.save()
@@ -486,9 +552,12 @@ class TestOrganizationAPI(APIBaseTest):
         self.assertIn("active subscription", response.json()["detail"])
         self.assertTrue(Organization.objects.filter(id=self.organization.id).exists())
 
+    @patch("posthog.temporal.delete_teams.dispatch.start_delete_organization_workflow")
     @patch("ee.billing.billing_manager.BillingManager.get_billing")
     @patch("posthog.api.organization.get_cached_instance_license")
-    def test_can_delete_organization_without_active_subscription(self, mock_get_license, mock_get_billing):
+    def test_can_delete_organization_without_active_subscription(
+        self, mock_get_license, mock_get_billing, mock_start_deletion
+    ):
         mock_get_license.return_value = True
         mock_get_billing.return_value = {"has_active_subscription": False}
 
@@ -500,9 +569,11 @@ class TestOrganizationAPI(APIBaseTest):
             response = self.client.delete(f"/api/organizations/{org_id}")
 
         self.assertEqual(response.status_code, status.HTTP_204_NO_CONTENT)
-        self.assertFalse(Organization.objects.filter(id=org_id).exists())
+        # Deletion runs asynchronously on Temporal, so the org is marked pending, not removed synchronously
+        self.assertTrue(Organization.objects.get(id=org_id).is_pending_deletion)
+        mock_start_deletion.assert_called_once()
 
-    @patch("posthog.api.organization.delete_organization_data_and_notify_task")
+    @patch("posthog.temporal.delete_teams.dispatch.start_delete_organization_workflow")
     def test_delete_organization_sets_pending_deletion_flag(self, mock_delete_task):
         self.organization_membership.level = OrganizationMembership.Level.OWNER
         self.organization_membership.save()
@@ -512,9 +583,9 @@ class TestOrganizationAPI(APIBaseTest):
 
         self.organization.refresh_from_db()
         self.assertTrue(self.organization.is_pending_deletion)
-        mock_delete_task.delay.assert_called_once()
+        mock_delete_task.assert_called_once()
 
-    @patch("posthog.api.organization.delete_organization_data_and_notify_task")
+    @patch("posthog.temporal.delete_teams.dispatch.start_delete_organization_workflow")
     def test_delete_organization_preserves_memberships(self, mock_delete_task):
         self.organization_membership.level = OrganizationMembership.Level.OWNER
         self.organization_membership.save()
@@ -524,7 +595,7 @@ class TestOrganizationAPI(APIBaseTest):
 
         self.assertTrue(OrganizationMembership.objects.filter(organization=self.organization, user=self.user).exists())
 
-    @patch("posthog.api.organization.delete_organization_data_and_notify_task")
+    @patch("posthog.temporal.delete_teams.dispatch.start_delete_organization_workflow")
     def test_delete_organization_returns_pending_deletion_in_api(self, mock_delete_task):
         self.organization_membership.level = OrganizationMembership.Level.OWNER
         self.organization_membership.save()
@@ -535,7 +606,7 @@ class TestOrganizationAPI(APIBaseTest):
         self.assertEqual(response.status_code, status.HTTP_200_OK)
         self.assertTrue(response.json()["is_pending_deletion"])
 
-    @patch("posthog.api.organization.delete_organization_data_and_notify_task")
+    @patch("posthog.temporal.delete_teams.dispatch.start_delete_organization_workflow")
     def test_delete_organization_already_pending_deletion_returns_400(self, mock_delete_task):
         self.organization_membership.level = OrganizationMembership.Level.OWNER
         self.organization_membership.save()
@@ -546,9 +617,9 @@ class TestOrganizationAPI(APIBaseTest):
         response = self.client.delete(f"/api/organizations/{self.organization.id}")
         self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
         self.assertIn("already being deleted", response.json()["detail"])
-        mock_delete_task.delay.assert_not_called()
+        mock_delete_task.assert_not_called()
 
-    @patch("posthog.api.organization.delete_organization_data_and_notify_task")
+    @patch("posthog.temporal.delete_teams.dispatch.start_delete_organization_workflow")
     @patch("posthog.event_usage.posthoganalytics.capture")
     def test_delete_organization_fires_initiated_event(self, mock_capture, mock_delete_task):
         self.organization_membership.level = OrganizationMembership.Level.OWNER
@@ -1293,3 +1364,33 @@ class TestOrganizationRequestAIAccessAPI(APIBaseTest):
         assert second.status_code == status.HTTP_429_TOO_MANY_REQUESTS, second.content
         # Only the first request reached the task.
         mock_task.delay.assert_called_once()
+
+
+class TestOrganizationDataFreshnessAPI(APIBaseTest):
+    def setUp(self):
+        super().setUp()
+        cache.clear()
+        self.other_organization = Organization.objects.create(name="Other org")
+        self.other_team = Team.objects.create(organization=self.other_organization, name="Other team")
+        self.user.join(organization=self.other_organization, level=OrganizationMembership.Level.MEMBER)
+        # Joining recomputes available features, so grant access control only once the user is in
+        self.other_organization.available_product_features = [
+            {"key": AvailableFeature.ACCESS_CONTROL, "name": AvailableFeature.ACCESS_CONTROL}
+        ]
+        self.other_organization.save()
+
+    @patch("posthog.api.organization.get_organization_data_freshness")
+    def test_access_control_applies_to_the_requested_organization_not_the_current_one(self, mock_freshness):
+        mock_freshness.return_value = []
+        # Admin here, plain member in the organization actually being requested
+        self.organization_membership.level = OrganizationMembership.Level.ADMIN
+        self.organization_membership.save()
+        AccessControl.objects.create(
+            team=self.other_team, resource="project", resource_id=str(self.other_team.id), access_level="none"
+        )
+
+        response = self.client.get(f"/api/organizations/{self.other_organization.id}/teams/data_freshness")
+
+        assert response.status_code == status.HTTP_200_OK, response.content
+        mock_freshness.assert_called_once()
+        assert [team.id for team in mock_freshness.call_args.args[1]] == []

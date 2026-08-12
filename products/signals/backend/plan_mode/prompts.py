@@ -133,7 +133,7 @@ artefact-log detail.
 2. **Progress implementation.** Derive implementation state from the `task_run` and `commit` \
 artefacts and the associated branch/PR. If the last set of changes has merged and outstanding work \
 remains in the plan: first append a `note` describing exactly the next work item, then call \
-`signals-scout-start-implementation` with report id `{report_id}` — it deterministically starts one \
+`scout-start-implementation` with report id `{report_id}` — it deterministically starts one \
 implementation pass (a cloud agent that reads the plan and builds that work item). It fails safely \
 if a pass is already in flight, so call it without fear of stacking work. Update \
 `suggested_reviewers` first if ownership changed.

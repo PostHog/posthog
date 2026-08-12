@@ -1,8 +1,9 @@
 import { BuiltLogic, LogicWrapper } from 'kea'
-import { Suspense, lazy, useEffect, useState } from 'react'
+import { Suspense, useEffect, useState } from 'react'
 
 import { LemonDivider } from 'lib/lemon-ui/LemonDivider'
 import { Spinner } from 'lib/lemon-ui/Spinner'
+import { lazyWithRetry } from 'lib/utils/retryImport'
 import { HogDebug } from 'scenes/debug/HogDebug'
 import { MarketingAnalyticsOverview } from 'scenes/web-analytics/tabs/marketing-analytics/frontend/components/MarketingAnalyticsOverview/MarketingAnalyticsOverview'
 
@@ -24,13 +25,7 @@ import {
 import { QueryContext } from '~/queries/types'
 
 import { EndpointsUsageOverviewNode, EndpointsUsageTrendsNode } from 'products/endpoints/frontend/nodes'
-import {
-    RevenueAnalyticsGrossRevenueNode,
-    RevenueAnalyticsMRRNode,
-    RevenueAnalyticsMetricsNode,
-    RevenueAnalyticsOverviewNode,
-    RevenueAnalyticsTopCustomersNode,
-} from 'products/revenue_analytics/frontend/nodes'
+import { MetricsQueryNode } from 'products/metrics/frontend/nodes'
 
 import { DataTableVisualization } from '../nodes/DataVisualization/DataVisualization'
 import { SavedInsight } from '../nodes/SavedInsight/SavedInsight'
@@ -42,19 +37,17 @@ import {
     isHogQuery,
     isInsightVizNode,
     isMarketingAnalyticsAggregatedQuery,
-    isRevenueAnalyticsGrossRevenueQuery,
-    isRevenueAnalyticsMRRQuery,
-    isRevenueAnalyticsMetricsQuery,
-    isRevenueAnalyticsOverviewQuery,
-    isRevenueAnalyticsTopCustomersQuery,
+    isMetricsQuery,
     isSavedInsightNode,
     isWebOverviewQuery,
     isWebVitalsPathBreakdownQuery,
     isWebVitalsQuery,
 } from '../utils'
 
-const WebVitals = lazy(() => import('~/queries/nodes/WebVitals/WebVitals').then((m) => ({ default: m.WebVitals })))
-const WebVitalsPathBreakdown = lazy(() =>
+const WebVitals = lazyWithRetry(() =>
+    import('~/queries/nodes/WebVitals/WebVitals').then((m) => ({ default: m.WebVitals }))
+)
+const WebVitalsPathBreakdown = lazyWithRetry(() =>
     import('../nodes/WebVitals/WebVitalsPathBreakdown').then((m) => ({ default: m.WebVitalsPathBreakdown }))
 )
 
@@ -187,45 +180,9 @@ export function Query<Q extends Node>(props: QueryProps<Q>): JSX.Element | null 
                 variablesOverride={variablesOverride}
             />
         )
-    } else if (isRevenueAnalyticsGrossRevenueQuery(query)) {
+    } else if (isMetricsQuery(query)) {
         component = (
-            <RevenueAnalyticsGrossRevenueNode
-                attachTo={props.attachTo}
-                query={query}
-                cachedResults={props.cachedResults}
-                context={queryContext}
-            />
-        )
-    } else if (isRevenueAnalyticsMetricsQuery(query)) {
-        component = (
-            <RevenueAnalyticsMetricsNode
-                attachTo={props.attachTo}
-                query={query}
-                cachedResults={props.cachedResults}
-                context={queryContext}
-            />
-        )
-    } else if (isRevenueAnalyticsMRRQuery(query)) {
-        component = (
-            <RevenueAnalyticsMRRNode
-                attachTo={props.attachTo}
-                query={query}
-                cachedResults={props.cachedResults}
-                context={queryContext}
-            />
-        )
-    } else if (isRevenueAnalyticsOverviewQuery(query)) {
-        component = (
-            <RevenueAnalyticsOverviewNode
-                attachTo={props.attachTo}
-                query={query}
-                cachedResults={props.cachedResults}
-                context={queryContext}
-            />
-        )
-    } else if (isRevenueAnalyticsTopCustomersQuery(query)) {
-        component = (
-            <RevenueAnalyticsTopCustomersNode
+            <MetricsQueryNode
                 attachTo={props.attachTo}
                 query={query}
                 cachedResults={props.cachedResults}

@@ -3,7 +3,12 @@ import { FEATURE_FLAGS } from 'lib/constants'
 import { GroupType, GroupTypeIndex } from '~/types'
 
 import { getRegisteredActionNodeCategories } from './actionNodeRegistry'
-import { buildAccountExternalIdInputs } from './customer_analytics'
+import {
+    buildAccountExternalIdInputs,
+    buildAccountOutputSuggestions,
+    customPropertyResultPath,
+    slugifyName,
+} from './customer_analytics'
 
 const groupTypesMap = (...entries: [GroupTypeIndex, string][]): Map<GroupTypeIndex, GroupType> =>
     new Map(entries.map(([index, groupType]) => [index, { group_type: groupType, group_type_index: index }]))
@@ -38,14 +43,9 @@ describe('customer analytics action registry', () => {
 
         expect(outputVars).toContainEqual({ key: 'account', result_path: null, label: 'Account' })
         expect(outputVars).toContainEqual({
-            key: 'account_csm_email',
-            result_path: 'properties.csm.email',
-            label: 'CSM email',
-        })
-        expect(outputVars).toContainEqual({
-            key: 'account_executive_id',
-            result_path: 'properties.account_executive.id',
-            label: 'Account executive ID',
+            key: 'account_relationships',
+            result_path: 'relationships',
+            label: 'Relationships',
         })
         expect(outputVars).toContainEqual({
             key: 'account_slack_channel_id',
@@ -55,12 +55,7 @@ describe('customer analytics action registry', () => {
 
         expect(outputVars.map((v) => v.key)).toEqual([
             'account',
-            'account_csm_email',
-            'account_csm_id',
-            'account_executive_email',
-            'account_executive_id',
-            'account_owner_email',
-            'account_owner_id',
+            'account_relationships',
             'account_stripe_customer_id',
             'account_hubspot_deal_id',
             'account_billing_id',
@@ -70,17 +65,74 @@ describe('customer analytics action registry', () => {
         ])
     })
 
-    it('wires the Update account node to its hog function template', () => {
+    it('does not include the old Update account node in the picker', () => {
         const node = getCategory().nodes.find((n) => n.name === 'Update account')
+        expect(node).toBeUndefined()
+    })
+
+    it('wires the Tag account node to its hog function template', () => {
+        const node = getCategory().nodes.find((n) => n.name === 'Tag account')
         expect(node).toMatchObject({
             type: 'function',
-            config: { template_id: 'template-posthog-update-account' },
+            config: { template_id: 'template-posthog-tag-account' },
         })
     })
 
-    it.each(['Get account', 'Update account'])('gives %s a dynamic external_id default resolver', (name) => {
-        const node = getCategory().nodes.find((n) => n.name === name)
-        expect(typeof node?.getDefaultInputs).toBe('function')
+    it('wires the Update account relationships node to its hog function template', () => {
+        const node = getCategory().nodes.find((n) => n.name === 'Update account relationships')
+        expect(node).toMatchObject({
+            type: 'function',
+            config: { template_id: 'template-posthog-update-account-relationships' },
+        })
+    })
+
+    it.each(['Get account', 'Tag account', 'Update account relationships'])(
+        'gives %s a dynamic external_id default resolver',
+        (name) => {
+            const node = getCategory().nodes.find((n) => n.name === name)
+            expect(typeof node?.getDefaultInputs).toBe('function')
+        }
+    )
+
+    describe('slugifyName', () => {
+        it.each([
+            ['Plan', 'plan'],
+            ['MRR (net)', 'mrr_net'],
+            ['ARR (net)', 'arr_net'],
+            ['my_property', 'my_property'],
+            ['  spaces  ', 'spaces'],
+            ['a--b', 'a_b'],
+        ])('slugifies %s → %s', (input, expected) => {
+            expect(slugifyName(input)).toBe(expected)
+        })
+    })
+
+    describe('customPropertyResultPath', () => {
+        it.each([
+            ['Plan', 'custom_properties.Plan'],
+            ['my_prop', 'custom_properties.my_prop'],
+            ['ARR123', 'custom_properties.ARR123'],
+            ['MRR (net)', 'custom_properties["MRR (net)"]'],
+            ['has space', 'custom_properties["has space"]'],
+            ['with"quote', 'custom_properties["with\\"quote"]'],
+        ])('builds result path for %s → %s', (name, expected) => {
+            expect(customPropertyResultPath(name)).toBe(expected)
+        })
+    })
+
+    describe('buildAccountOutputSuggestions', () => {
+        it('namespaces relationships and dedupes colliding keys', () => {
+            const suggestions = buildAccountOutputSuggestions(['Plan', 'MRR (net)', 'MRR net'], ['Plan', 'CSM'])
+            expect(suggestions.map((s) => s.key)).toEqual([
+                'account_plan',
+                'account_mrr_net',
+                'account_relationship_plan',
+                'account_relationship_csm',
+            ])
+            expect(suggestions.find((s) => s.key === 'account_relationship_csm')?.result_path).toBe(
+                'relationships["CSM"]'
+            )
+        })
     })
 
     describe('buildAccountExternalIdInputs', () => {

@@ -4,9 +4,11 @@ import { DlqOutput, IngestionWarningsOutput } from '~/common/outputs'
 import { parseJSON } from '~/common/utils/json-parse'
 import { PromiseScheduler } from '~/common/utils/promise-scheduler'
 import { BatchWritingGroupStore } from '~/ingestion/common/groups/batch-writing-group-store'
-import { PersonOutputs } from '~/ingestion/common/persons/person-context'
 import { FlushResult, PersonsStore } from '~/ingestion/common/persons/persons-store'
-import { createFlushBatchStoresStep } from '~/ingestion/common/steps/event-processing/flush-batch-stores-step'
+import {
+    FlushBatchStoresOutputs,
+    createFlushBatchStoresStep,
+} from '~/ingestion/common/steps/event-processing/flush-batch-stores-step'
 import { BatchWritingStore, BatchWritingStoreFlushStats } from '~/ingestion/common/stores/batch-writing-store'
 import { BatchingPipeline, BeforeBatchInput, FeedResult } from '~/ingestion/framework/batching-pipeline'
 import { newBatchingPipeline } from '~/ingestion/framework/builders'
@@ -23,8 +25,8 @@ import { createMockIngestionOutputs } from '~/tests/helpers/mock-ingestion-outpu
  * ## Principle
  *
  * Every piece of orchestration machinery under test is REAL production code:
- * BatchingPipeline, BufferingBatchPipeline, SequentialBatchPipeline,
- * ConcurrentlyGroupingBatchPipeline, ResultHandlingPipeline,
+ * BatchingPipeline, BufferingChunkPipeline, SequentialChunkPipeline,
+ * ConcurrentlyGroupingChunkPipeline, ResultHandlingPipeline,
  * SideEffectHandlingPipeline, the builder chain, PromiseScheduler, and the
  * production createFlushBatchStoresStep. Only the leaves are fakes: the
  * per-event step, the storage backend, and the Kafka outputs. A bug found
@@ -356,11 +358,10 @@ class Harness {
                             .filterMap(addTeamToContext, (fb) =>
                                 fb
                                     .teamAware((tb) =>
-                                        tb
-                                            .groupBy((event) => event.key)
-                                            .concurrently((group) =>
-                                                group.sequentially((s) => s.pipe(processEventStep))
-                                            )
+                                        tb.concurrentlyPerGroup(
+                                            (event) => event.key,
+                                            (group) => group.sequentially((s) => s.pipe(processEventStep))
+                                        )
                                     )
                                     .handleIngestionWarnings(this.outputs)
                             )
@@ -373,7 +374,7 @@ class Harness {
                         createFlushBatchStoresStep({
                             personsStore: this.personsStore as unknown as PersonsStore,
                             groupStore: this.groupStore as unknown as BatchWritingGroupStore,
-                            outputs: this.outputs as unknown as PersonOutputs,
+                            outputs: this.outputs as unknown as FlushBatchStoresOutputs,
                         })
                     )
                     .pipe(recordAfterBatchStep),

@@ -202,7 +202,6 @@ WHERE {periods_expression}
         except NoActionsError:
             return WebGoalsQueryResponse(
                 results=[],
-                samplingRate=self._sample_rate,
                 modifiers=self.modifiers,
                 preComputeStrategy=WebAnalyticsPreComputeStrategy.LIVE,
             )
@@ -267,7 +266,6 @@ WHERE {periods_expression}
                 "context.columns.conversion_rate",
             ],
             results=results,
-            samplingRate=self._sample_rate,
             modifiers=self.modifiers,
             preComputeStrategy=WebAnalyticsPreComputeStrategy.LIVE,
         )
@@ -344,19 +342,15 @@ WHERE {periods_expression}
                 "context.columns.conversion_rate",
             ],
             results=results,
-            samplingRate=self._sample_rate,
             modifiers=self.modifiers,
             preComputeStrategy=WebAnalyticsPreComputeStrategy.LAZY_PRECOMPUTE,
         )
 
     def event_properties(self) -> ast.Expr:
-        properties = [
-            p for p in self.query.properties + self._test_account_filters if get_property_type(p) in ["event", "person"]
+        properties: list = [
+            p
+            for p in self.effective_query_properties + self._test_account_filters
+            if get_property_type(p) in ["event", "person"]
         ]
-        return property_to_expr(properties, team=self.team, scope="event")
-
-    def session_properties(self) -> ast.Expr:
-        properties = [
-            p for p in self.query.properties + self._test_account_filters if get_property_type(p) == "session"
-        ]
+        properties.extend(self.first_pageview_filter_exprs)
         return property_to_expr(properties, team=self.team, scope="event")

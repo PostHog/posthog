@@ -269,6 +269,38 @@ describe('BarChart', () => {
             expect(tipLow.seriesData.map((s) => s.series.key)).toEqual(['a', 'b'])
         })
 
+        // Mirrors the horizontal funnel bar: breakdown segments plus a tooltip-hidden filler
+        // padding the stack to 100. seriesData keeps declaration order, so consumers need
+        // hoveredSeriesKey to know which segment the cursor is in — including the filler,
+        // which has no seriesData row of its own.
+        it.each<[string, number, string]>([
+            ['first segment', 20, 'a'],
+            ['middle segment', 55, 'b'],
+            ['tooltip-hidden filler segment', 85, 'filler'],
+        ])('stacked exposes hoveredSeriesKey for cursor in the %s', async (_name, valueAtCursor, expectedKey) => {
+            const series: Series[] = [
+                { key: 'a', label: 'A', data: [40] },
+                { key: 'b', label: 'B', data: [30] },
+                { key: 'filler', label: 'Filler', data: [30], visibility: { tooltip: false } },
+            ]
+            const { chart } = renderHogChart(
+                <BarChart
+                    series={series}
+                    labels={['step']}
+                    theme={THEME}
+                    config={{ barLayout: 'stacked', axisOrientation: 'horizontal' }}
+                />
+            )
+            // Stack totals 100, so the nice value scale spans [0, 100] across the plot width.
+            fireEvent.mouseMove(chart.element, {
+                clientX: dimensions.plotLeft + (valueAtCursor / 100) * dimensions.plotWidth,
+                clientY: dimensions.plotTop + dimensions.plotHeight / 2,
+            })
+            const tooltip = await chart.waitForTooltip()
+            expect(tooltip.hoveredSeriesKey).toBe(expectedKey)
+            expect(tooltip.seriesData.map((s) => s.series.key)).toEqual(['a', 'b'])
+        })
+
         it('stacked onPointClick routes to the segment whose rect contains the cursor', async () => {
             const onPointClick = jest.fn()
             const { chart } = renderHogChart(
@@ -480,6 +512,7 @@ describe('BarChart', () => {
             })
             const tooltip = await chart.waitForTooltip()
             expect(tooltip.seriesData.map((s) => s.series.key)).toEqual(['b'])
+            expect(tooltip.hoveredSeriesKey).toBe('b')
         })
 
         // Regression: grouped clicks always resolved to the first series, so a breakdown
@@ -638,6 +671,40 @@ describe('BarChart', () => {
 
             fireEvent.click(buttons()[1])
             expect(getHogChart(container).seriesCount).toBe(2)
+        })
+    })
+
+    describe('drag-to-zoom', () => {
+        const FIVE_LABELS = ['Mon', 'Tue', 'Wed', 'Thu', 'Fri']
+        const FIVE_SERIES: Series[] = [{ key: 'a', label: 'A', data: [10, 20, 30, 40, 50] }]
+
+        it('fires onDateRangeZoom with the dragged label range on vertical bars', () => {
+            const onDateRangeZoom = jest.fn()
+            const { chart } = renderHogChart(
+                <BarChart series={FIVE_SERIES} labels={FIVE_LABELS} theme={THEME} onDateRangeZoom={onDateRangeZoom} />
+            )
+            chart.dragSelection(1, 3)
+            expect(onDateRangeZoom).toHaveBeenCalledWith({
+                startLabel: 'Tue',
+                endLabel: 'Thu',
+                startIndex: 1,
+                endIndex: 3,
+            })
+        })
+
+        it('does not fire on horizontal bars, whose interaction axis is vertical', () => {
+            const onDateRangeZoom = jest.fn()
+            const { chart } = renderHogChart(
+                <BarChart
+                    series={FIVE_SERIES}
+                    labels={FIVE_LABELS}
+                    theme={THEME}
+                    config={{ axisOrientation: 'horizontal' }}
+                    onDateRangeZoom={onDateRangeZoom}
+                />
+            )
+            chart.dragSelection(1, 3)
+            expect(onDateRangeZoom).not.toHaveBeenCalled()
         })
     })
 })

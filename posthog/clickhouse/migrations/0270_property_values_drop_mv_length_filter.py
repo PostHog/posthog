@@ -12,7 +12,11 @@ if settings.CLOUD_DEPLOYMENT == "DEV":
 else:
     _ROLES = [NodeRole.AUX]
 
-operations = [
-    run_sql_with_exceptions(DROP_PROPERTY_VALUES_MV_SQL(), node_roles=_ROLES),
-    run_sql_with_exceptions(PROPERTY_VALUES_MV_SQL(), node_roles=_ROLES),
-]
+operations = (
+    [
+        run_sql_with_exceptions(DROP_PROPERTY_VALUES_MV_SQL(), node_roles=_ROLES),
+        run_sql_with_exceptions(PROPERTY_VALUES_MV_SQL(), node_roles=_ROLES),
+    ]
+    if settings.CLOUD_DEPLOYMENT in ("US", "EU", "DEV")
+    else []
+)

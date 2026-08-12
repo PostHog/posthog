@@ -197,7 +197,7 @@ class FilterSessionRecordingsTool(MaxTool):
             org_id=self._team.organization_id,
         ):
             query_runner = SessionRecordingListFromQuery(
-                team=self._team, query=recordings_query, hogql_query_modifiers=None
+                team=self._team, query=recordings_query, hogql_query_modifiers=None, user=self._user
             )
             return query_runner.run()
 

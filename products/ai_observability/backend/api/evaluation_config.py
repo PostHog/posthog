@@ -20,10 +20,6 @@ from .provider_keys import LLMProviderKeySerializer
 
 @extend_schema_serializer(many=False)
 class EvaluationConfigSerializer(serializers.ModelSerializer):
-    trial_evals_remaining = serializers.IntegerField(
-        read_only=True,
-        help_text="Trial runs remaining — a getting-started affordance only; evals should use the team's own provider key.",
-    )
     active_provider_key = LLMProviderKeySerializer(
         read_only=True,
         allow_null=True,
@@ -33,28 +29,16 @@ class EvaluationConfigSerializer(serializers.ModelSerializer):
     class Meta:
         model = EvaluationConfig
         fields = [
-            "trial_eval_limit",
-            "trial_evals_used",
-            "trial_evals_remaining",
             "active_provider_key",
             "created_at",
             "updated_at",
         ]
         read_only_fields = [
-            "trial_eval_limit",
-            "trial_evals_used",
-            "trial_evals_remaining",
             "active_provider_key",
             "created_at",
             "updated_at",
         ]
         extra_kwargs = {
-            "trial_eval_limit": {
-                "help_text": "Cap on trial runs — a getting-started affordance only, not for ongoing evals (use the team's own key).",
-            },
-            "trial_evals_used": {
-                "help_text": "Trial runs consumed (getting-started affordance only).",
-            },
             "created_at": {"help_text": "Timestamp when the evaluation config row was created."},
             "updated_at": {"help_text": "Timestamp when the evaluation config row was last modified."},
         }

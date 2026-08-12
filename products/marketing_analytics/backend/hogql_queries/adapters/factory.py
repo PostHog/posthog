@@ -1,5 +1,6 @@
 # Marketing Source Adapter Factory
 
+from collections import defaultdict
 from typing import TYPE_CHECKING, Optional
 
 import structlog
@@ -56,10 +57,14 @@ def _extract_schema_name(table_suffix: str, source_type: str) -> str:
     Table names follow the format: {user_prefix}{source_type}_{schema_name}
     Exclusions should only match against the schema part, not user prefixes.
     For example: 'analytics_pinterestads_campaigns' -> 'campaigns'
+
+    The user prefix is free text, so it can contain the marker itself
+    ('googleads_googleads_campaign'). Take the last occurrence: no schema name
+    contains the marker, so the last one is always the real boundary.
     """
     source_type_lower = source_type.lower()
     marker = f"{source_type_lower}_"
-    idx = table_suffix.find(marker)
+    idx = table_suffix.rfind(marker)
     if idx != -1:
         return table_suffix[idx + len(marker) :]
     return table_suffix
@@ -155,9 +160,22 @@ class MarketingSourceFactory:
         database = self.context.database or Database.create_for(
             team=self.context.team, bypass_warehouse_access_control=True
         )
-        self._warehouse_tables = DataWarehouseTable.objects.filter(
-            team_id=self.context.team.pk, deleted=False, name__in=database.get_warehouse_table_names()
-        ).prefetch_related("externaldataschema_set")
+        # Evaluate the warehouse tables once, pulling the owning source (select_related) and schema set
+        # (prefetch_related) in the same round-trip. The per-source adapter loops below then read from
+        # memory: previously each `._warehouse_tables.filter(external_data_source=source)` re-ran the
+        # `name__in=<all table names>` query once per source, which dominated adapter construction.
+        self._warehouse_tables = list(
+            DataWarehouseTable.objects.filter(
+                team_id=self.context.team.pk, deleted=False, name__in=database.get_warehouse_table_names()
+            )
+            .select_related("external_data_source")
+            .prefetch_related("externaldataschema_set")
+        )
+        self._tables_by_source_id: dict[str, list[DataWarehouseTable]] = defaultdict(list)
+        for table in self._warehouse_tables:
+            if table.external_data_source_id is not None:
+                self._tables_by_source_id[str(table.external_data_source_id)].append(table)
+        self._external_sources = list(ExternalDataSource.objects.filter(team_id=self.context.team.pk))
         self._sources_map = self.context.team.marketing_analytics_config.sources_map_typed
 
     @classmethod
@@ -183,13 +201,12 @@ class MarketingSourceFactory:
         """Create adapters for native marketing sources"""
 
         adapters = []
-        external_sources = ExternalDataSource.objects.filter(team_id=self.context.team.pk)
 
-        for source in external_sources:
+        for source in self._external_sources:
             if source.source_type not in VALID_NATIVE_MARKETING_SOURCES:
                 continue
 
-            tables = list(self._warehouse_tables.filter(external_data_source=source))
+            tables = self._tables_by_source_id.get(str(source.id), [])
             if not tables:
                 continue
 
@@ -242,14 +259,13 @@ class MarketingSourceFactory:
             table_suffix = table.name.split(".")[-1].lower()
             schema_name = _extract_schema_name(table_suffix, source.source_type)
 
-            if any(kw in table_suffix for kw in patterns["campaign_table_keywords"]) and not any(
-                ex in schema_name for ex in patterns["campaign_table_exclusions"]
-            ):
+            # Exact schema-name match: a keyword match also claims unrelated schemas that
+            # merely contain it, such as Google Ads `campaign_budget`, which has none of
+            # the campaign columns the adapter goes on to reference.
+            if schema_name == patterns["campaign_table_name"]:
                 campaign_table = table
             elif any(kw in table_suffix for kw in patterns["stats_table_keywords"]):
                 campaign_stats_table = table
-            # Exact schema-name match (not keyword) so ad-group / ad tables don't
-            # collide with the campaign keyword.
             elif schema_name == hierarchy_names.get("adset_table"):
                 adset_table = table
                 if adset_unified:
@@ -288,16 +304,15 @@ class MarketingSourceFactory:
     def _create_external_adapters(self) -> list[MarketingSourceAdapter]:
         """Create adapters for non-native marketing sources"""
         adapters = []
-        external_sources = ExternalDataSource.objects.filter(team_id=self.context.team.pk)
 
-        for source in external_sources:
+        for source in self._external_sources:
             if source.source_type not in VALID_NON_NATIVE_MARKETING_SOURCES:
                 continue
             adapter_class = self._adapter_registry.get(source.source_type)
             if not adapter_class:
                 continue
 
-            tables = list(self._warehouse_tables.filter(external_data_source=source))
+            tables = self._tables_by_source_id.get(str(source.id), [])
             if not tables:
                 continue
 
@@ -306,8 +321,9 @@ class MarketingSourceFactory:
                 if not source_map:
                     continue
 
-                # For non-native: use schema ID to match frontend (table.schema?.id || table.source?.id || table.id)
-                schema = table.externaldataschema_set.first()
+                # For non-native: use schema ID to match frontend (table.schema?.id || table.source?.id || table.id).
+                # Iterate the prefetched set — `.first()` issues a fresh query and bypasses the prefetch cache.
+                schema = next(iter(table.externaldataschema_set.all()), None)
                 source_id = str(schema.id) if schema else str(table.id)
 
                 config = ExternalConfig(

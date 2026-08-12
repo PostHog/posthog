@@ -4,6 +4,17 @@ Schema for `content.email.design` — the Unlayer design document that is the so
 
 Adapted from [unlayer/unlayer-skills](https://github.com/unlayer/unlayer-skills) (`unlayer-export/references/design-json.md`), MIT License, Copyright (c) Unlayer.
 
+## Contents
+
+- Top-level structure
+- Body values
+- Row structure
+- Column structure
+- Content item structure
+- Content types
+- Validation constants
+- Minimal working example
+
 ## Top-level structure
 
 ```typescript

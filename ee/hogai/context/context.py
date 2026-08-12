@@ -59,7 +59,7 @@ from .prompts import (
 NOTEBOOK_MARKDOWN_MAX_LENGTH = 100_000
 
 # A dashboard's executed-results context is bounded so it can't overflow the conversation window
-# (compaction_manager.CONVERSATION_WINDOW_SIZE = 100k). If it overflows, the whole conversation —
+# (compaction_manager.CONVERSATION_WINDOW_SIZE). If it overflows, the whole conversation —
 # including this dashboard — gets summarized down to a few thousand tokens, so Max loses the
 # dashboard it was just asked about. Over budget, we fall back to schema-only (insight names +
 # queries, no result tables), which still lets Max identify and describe the dashboard and fetch
@@ -261,6 +261,7 @@ class AssistantContextManager(AssistantContextMixin):
                 dashboard_ctx = DashboardContext(
                     team=self._team,
                     insights_data=insights_data,
+                    user=self._user,
                     name=dashboard.name or f"Dashboard {dashboard.id}",
                     description=dashboard.description,
                     dashboard_id=str(dashboard.id) if dashboard.id else None,
@@ -455,6 +456,11 @@ class AssistantContextManager(AssistantContextMixin):
                     "Preserve unrelated content only when the request's scope is local."
                 ),
                 (
+                    "- Component tags such as `<Query … />`, `<SQLV2 … />`, and `<PythonV2 … />` render a `title` "
+                    "prop in their block header. Keep the titles already there, and give any tag you add a short "
+                    "one saying what it shows, so a reader can skim the notebook without opening each block."
+                ),
+                (
                     "When the current user asks you to change broad notebook content, use notebook tools against "
                     "the current notebook instead of explaining how the user could do it. "
                     "For Markdown notebook v2, preserve the single ph-markdown-notebook node and update "
@@ -495,6 +501,7 @@ class AssistantContextManager(AssistantContextMixin):
 
         return InsightContext(
             team=self._team,
+            user=self._user,
             query=insight.query,
             name=insight.name,
             description=insight.description,

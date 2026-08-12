@@ -2,10 +2,14 @@ import { samplePersonProperties, sampleRetentionPeopleResponse } from 'scenes/in
 
 import { Meta, StoryObj } from '@storybook/react'
 
-import { FEATURE_FLAGS } from 'lib/constants'
 import { createInsightStory } from 'scenes/insights/__mocks__/createInsightScene'
 
 import { mswDecorator } from '~/mocks/browser'
+
+import __sqlBarChartValueLabels from '../../../mocks/fixtures/api/projects/team_id/insights/sqlBarChartValueLabels.json'
+import __sqlLineChart from '../../../mocks/fixtures/api/projects/team_id/insights/sqlLineChart.json'
+import __sqlLineChartBreakdown from '../../../mocks/fixtures/api/projects/team_id/insights/sqlLineChartBreakdown.json'
+import __sqlLineChartTrendLine from '../../../mocks/fixtures/api/projects/team_id/insights/sqlLineChartTrendLine.json'
 
 type Story = StoryObj<{}>
 const meta: Meta = {
@@ -40,9 +44,7 @@ const meta: Meta = {
 export default meta
 
 /* eslint-disable @typescript-eslint/no-var-requires */
-export const SQLLineChart: Story = createInsightStory(
-    require('../../../mocks/fixtures/api/projects/team_id/insights/sqlLineChart.json')
-)
+export const SQLLineChart: Story = createInsightStory(__sqlLineChart as any)
 SQLLineChart.parameters = {
     ...meta.parameters,
     testOptions: {
@@ -51,9 +53,7 @@ SQLLineChart.parameters = {
     },
 }
 
-export const SQLLineChartBreakdown: Story = createInsightStory(
-    require('../../../mocks/fixtures/api/projects/team_id/insights/sqlLineChartBreakdown.json')
-)
+export const SQLLineChartBreakdown: Story = createInsightStory(__sqlLineChartBreakdown as any)
 SQLLineChartBreakdown.parameters = {
     ...meta.parameters,
     testOptions: {
@@ -62,12 +62,18 @@ SQLLineChartBreakdown.parameters = {
     },
 }
 
-export const SQLLineChartTrendLineQuill: Story = createInsightStory(
-    require('../../../mocks/fixtures/api/projects/team_id/insights/sqlLineChartTrendLine.json')
-)
+export const SQLLineChartTrendLineQuill: Story = createInsightStory(__sqlLineChartTrendLine as any)
 SQLLineChartTrendLineQuill.parameters = {
     ...meta.parameters,
-    featureFlags: [FEATURE_FLAGS.PRODUCT_ANALYTICS_QUILL_SQL_CHARTS],
+    testOptions: {
+        ...meta.parameters?.testOptions,
+        waitForSelector: '.DataVisualization canvas',
+    },
+}
+
+export const SQLBarChartValueLabelsQuill: Story = createInsightStory(__sqlBarChartValueLabels as any)
+SQLBarChartValueLabelsQuill.parameters = {
+    ...meta.parameters,
     testOptions: {
         ...meta.parameters?.testOptions,
         waitForSelector: '.DataVisualization canvas',

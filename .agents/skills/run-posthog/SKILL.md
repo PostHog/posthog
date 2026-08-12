@@ -7,7 +7,7 @@ PostHog is Django + Vite + Celery + plugin-server, backed by Postgres, ClickHous
 
 **For `/run`**: get the app reachable so the user can drive it. Success = `http://localhost:8010` serves and the core units are `ready`. Do not chase crashed migration units, do not seed data unless asked.
 
-**For `/verify`**: build (Vite HMR handles this automatically for frontend; backend changes need no build), run the same launch as `/run`, then drive the live app via a browser MCP to observe the change. The observation is the verification — tests and type checks don't substitute.
+**For `/verify`**: build (Vite HMR handles this automatically for frontend; backend changes need no build), run the same launch as `/run`, then drive the live app via a browser MCP to observe the change. The observation is the verification — tests and type checks don't substitute. For frontend/UI changes, the deep version of this workflow is the repo-local `qa-frontend` skill in local mode: scenario design from the diff, reproducibility retries, and annotated evidence.
 
 All paths below are relative to the repo root.
 

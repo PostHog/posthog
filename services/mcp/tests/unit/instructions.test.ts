@@ -60,15 +60,15 @@ describe('buildToolDomainsBlock', () => {
     it('keeps a singleton tool whole but collapses siblings to a shared root', () => {
         const tools = [
             { name: 'execute-sql', category: 'SQL' },
-            { name: 'read-data-schema', category: 'Data schema' },
-            { name: 'read-data-warehouse-schema', category: 'Data schema' },
+            { name: 'external-data-schemas-list', category: 'Data warehouse' },
+            { name: 'external-data-sources-list', category: 'Data warehouse' },
         ]
         const result = buildToolDomainsBlock(tools)
         expect(result).toContain('- execute-sql')
-        // read-data-* siblings collapse to their shared prefix, not listed verbatim
-        expect(result).toContain('- read-data')
-        expect(result).not.toContain('- read-data-schema')
-        expect(result).not.toContain('- read-data-warehouse-schema')
+        // external-data-* siblings collapse to their shared prefix, not listed verbatim
+        expect(result).toContain('- external-data')
+        expect(result).not.toContain('- external-data-schemas-list')
+        expect(result).not.toContain('- external-data-sources-list')
     })
 
     it('splits an oversized family into sub-family roots, one level deep', () => {
@@ -170,6 +170,36 @@ describe('buildToolDomainsCompact', () => {
 
     it('returns an empty string for an empty array', () => {
         expect(buildToolDomainsCompact([])).toBe('')
+    })
+
+    // A tight budget must cost sub-family precision, never whole families: the caller
+    // renders this into a payload a client will hard-truncate, and a family that isn't
+    // named at all is a product the agent believes has no tools.
+    it('collapses sub-families to fit a character budget instead of dropping domains', () => {
+        // 30 scout-* tools across 3 sub-families exceeds MAX_FAMILY_SIZE (25), so the
+        // unbudgeted render splits them; `survey` is the family that a truncation would
+        // take off the end.
+        const tools = [
+            ...Array.from({ length: 10 }, (_, i) => ({ name: `scout-config-${i}`, category: 'Signals' })),
+            ...Array.from({ length: 10 }, (_, i) => ({ name: `scout-notes-${i}`, category: 'Signals' })),
+            ...Array.from({ length: 10 }, (_, i) => ({ name: `scout-record-${i}`, category: 'Signals' })),
+            { name: 'survey-create', category: 'Surveys' },
+        ]
+        expect(buildToolDomainsCompact(tools)).toBe('scout-config|scout-notes|scout-record|survey')
+
+        const budgeted = buildToolDomainsCompact(tools, 20)
+        expect(budgeted).toBe('scout|survey')
+        expect(budgeted.length).toBeLessThanOrEqual(20)
+    })
+
+    // The floor is one domain per root. Returning an over-budget string is deliberate:
+    // the budget test that calls this must fail loudly rather than see a silent trim.
+    it('returns the fully collapsed index when even that exceeds the budget', () => {
+        const tools = [
+            { name: 'experiment-create', category: 'Experiments' },
+            { name: 'survey-create', category: 'Surveys' },
+        ]
+        expect(buildToolDomainsCompact(tools, 5)).toBe('experiment|survey')
     })
 })
 
@@ -294,6 +324,18 @@ describe('buildActiveEnvironmentContextPrompt', () => {
 
     it('returns undefined when no context is available at all', () => {
         expect(buildActiveEnvironmentContextPrompt(undefined, undefined, undefined)).toBeUndefined()
+    })
+
+    it.each([
+        ['checked', true, true],
+        ['unchecked', false, false],
+        ['unset', undefined, false],
+    ])('surfaces the test account filter default only when %s', (_name, testAccountFiltersDefaultChecked, expected) => {
+        const result = buildActiveEnvironmentContextPrompt(user, org, {
+            ...project,
+            test_account_filters_default_checked: testAccountFiltersDefaultChecked,
+        } as CachedProject)
+        expect((result ?? '').includes('filters out internal and test users by default')).toBe(expected)
     })
 
     it('still renders an "Unknown" project when org is present but project is missing', () => {

@@ -4,7 +4,7 @@ from unittest import mock
 from posthog.schema import ReleaseStatus, SourceFieldInputConfig, SourceFieldInputConfigType
 
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
-from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs import MollieSourceConfig
+from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.mollie import MollieSourceConfig
 from products.warehouse_sources.backend.temporal.data_imports.sources.mollie.mollie import MollieResumeConfig
 from products.warehouse_sources.backend.temporal.data_imports.sources.mollie.settings import ENDPOINTS
 from products.warehouse_sources.backend.temporal.data_imports.sources.mollie.source import MollieSource
@@ -44,9 +44,11 @@ class TestMollieSource:
         [
             "401 Client Error: Unauthorized for url: https://api.mollie.com/v2/payments?limit=250",
             "403 Client Error: Forbidden for url: https://api.mollie.com/v2/settlements",
+            "400 Client Error: Bad Request for url: https://api.mollie.com/v2/subscriptions?limit=250",
+            "400 Client Error: Bad Request for url: https://api.mollie.com/v2/chargebacks?limit=250",
         ],
     )
-    def test_non_retryable_errors_match_auth_failures(self, observed_error):
+    def test_non_retryable_errors_match_client_errors(self, observed_error):
         non_retryable_errors = self.source.get_non_retryable_errors()
         assert any(key in observed_error for key in non_retryable_errors)
 

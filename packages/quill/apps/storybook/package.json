@@ -24,19 +24,19 @@
     "devDependencies": {
         "@storybook/addon-docs": "^10.4.3",
         "@storybook/react": "catalog:",
-        "@storybook/react-vite": "^10.4.3",
+        "@storybook/react-vite": "catalog:",
         "@storybook/test-runner": "^0.24.4",
         "@tailwindcss/vite": "^4.1.17",
         "@types/jest-image-snapshot": "^6.4.0",
         "@types/react": "^19.2.14",
         "@types/react-dom": "^19.2.3",
-        "@vitejs/plugin-react": "^4.7.0",
+        "@vitejs/plugin-react": "catalog:",
         "chokidar": "^3.6.0",
         "jest-image-snapshot": "^6.4.0",
         "storybook": "catalog:",
         "storybook-addon-pseudo-states": "^10.4.3",
         "storybook-dark-mode": "^5.0.0",
         "typescript": "catalog:",
-        "vite": "^5.4.21"
+        "vite": "catalog:"
     }
 }

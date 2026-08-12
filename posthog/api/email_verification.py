@@ -38,8 +38,16 @@ class EmailVerifier:
     @staticmethod
     def create_token_and_send_email_verification(user: User, next_url: str | None = None) -> None:
         token = email_verification_token_generator.make_token(user)
+        EmailVerifier.send_verification_email(user, token, next_url=next_url)
+
+    @staticmethod
+    def send_verification_email(
+        user: User, token: str, next_url: str | None = None, target_email: str | None = None
+    ) -> None:
+        # `target_email` pins the recipient to the address the token authorizes; callers with a
+        # stable email leave it None and the recipient falls back to the user's pending_email.
         try:
-            send_email_verification(user.pk, token, next_url)
+            send_email_verification(user.pk, token, next_url, target_email)
         except Exception as e:
             capture_exception(Exception(f"Verification email failed: {e}"))
             raise exceptions.APIException(

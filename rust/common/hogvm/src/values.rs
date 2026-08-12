@@ -8,6 +8,7 @@ use crate::{
     context::Symbol,
     error::VmError,
     memory::{HeapReference, VmHeap},
+    stl::parse_datetime_to_seconds,
     vm::MAX_JSON_SERDE_DEPTH,
 };
 
@@ -130,8 +131,18 @@ impl HogValue {
 
         match lit {
             HogLiteral::Object(map) => {
-                let key: &str = chain[0].deref(heap)?.try_as()?;
-                let Some(found) = map.get(key) else {
+                // The reference VM keys objects with whatever scalar the program used (a JS Map),
+                // and integer keys are common (`{96: 'x'}`). We store string keys, so coerce
+                // numbers to their string form for lookup, matching the construction-time coercion.
+                // Any other key type (null included — `props[inputs.x]` with an unset input) is a
+                // plain miss for the reference (Map.get), never an error.
+                let key_lit = chain[0].deref(heap)?;
+                let found = match key_lit {
+                    HogLiteral::String(key) => map.get(key),
+                    HogLiteral::Number(n) => map.get(&num_key_string(n)),
+                    _ => None,
+                };
+                let Some(found) = found else {
                     return Ok(None);
                 };
                 found.get_nested(&chain[1..], heap)
@@ -391,7 +402,7 @@ impl HogLiteral {
     }
 }
 
-/// Ordering comparison (`Gt`/`Lt`/`GtEq`/`LtEq`) for two literals, two concerns in order:
+/// Ordering comparison (`Gt`/`Lt`/`GtEq`/`LtEq`) for two literals, three concerns in order:
 ///
 /// OPT-IN ONLY: this is reached exclusively from the coercing `compare_op` path, which the VM takes
 /// only when the context sets [`ExecutionContext::with_coercing_comparisons`](crate::ExecutionContext::with_coercing_comparisons)
@@ -400,9 +411,14 @@ impl HogLiteral {
 /// behavior. The semantics here match the Python/TS reference VMs (and ClickHouse for temporals).
 ///
 /// 1. If *both* operands are temporal ([`HogLiteral::as_temporal_seconds`]) they are ordered by
-///    epoch seconds to match ClickHouse — the reference Python/TS HogVMs can't and so always return
-///    `false`; see the [`crate::stl`] module note.
-/// 2. Otherwise coerce like Python `unify_comparison_types` / TS `unifyComparisonTypes`: a String
+///    epoch seconds to match ClickHouse and the Python/TS reference VMs; see the [`crate::stl`]
+///    module note.
+/// 2. If exactly one operand is temporal and the other is a String, the String is parsed the same
+///    way `toDateTime` would ([`crate::stl::parse_datetime_to_seconds`]) and compared as epoch
+///    seconds — this covers a bare-field SQL comparison like `timestamp > toDateTime(...)`, where the
+///    left side never went through `toDateTime` itself. An unparseable string falls through to the
+///    generic branches below.
+/// 3. Otherwise coerce like Python `unify_comparison_types` / TS `unifyComparisonTypes`: a String
 ///    coerces to a Number only when the *other* operand is a Number, Bool↔Number maps to `1`/`0`,
 ///    and both-strings compare lexicographically. This is deliberately *not* routed through
 ///    [`HogLiteral::coerce_types`] (the `Eq` contract, which remaps both-strings and must stay put).
@@ -412,14 +428,38 @@ pub fn compare_values(
     b: &HogLiteral,
     heap: &VmHeap,
 ) -> Result<HogLiteral, VmError> {
-    if let (Some(a_secs), Some(b_secs)) = (a.as_temporal_seconds(heap), b.as_temporal_seconds(heap))
-    {
+    let a_secs = a.as_temporal_seconds(heap);
+    let b_secs = b.as_temporal_seconds(heap);
+    if let (Some(a_secs), Some(b_secs)) = (a_secs, b_secs) {
         return Num::binary_op(op, &Num::Float(a_secs), &Num::Float(b_secs));
     }
+    // A bare-field SQL comparison like `timestamp > toDateTime(...)` puts a plain date-like string
+    // against a HogDateTime/HogDate object. Parse the string the same way `toDateTime` would rather
+    // than falling through to the generic branches below, where it would be `CannotCoerce`d.
+    if let Some(a_secs) = a_secs {
+        if let HogLiteral::String(s) = b {
+            if let Ok(b_secs) = parse_datetime_to_seconds(s, None) {
+                return Num::binary_op(op, &Num::Float(a_secs), &Num::Float(b_secs));
+            }
+        }
+    }
+    if let Some(b_secs) = b_secs {
+        if let HogLiteral::String(s) = a {
+            if let Ok(a_secs) = parse_datetime_to_seconds(s, None) {
+                return Num::binary_op(op, &Num::Float(a_secs), &Num::Float(b_secs));
+            }
+        }
+    }
 
-    use HogLiteral::{Boolean, Number, String as HString};
+    use HogLiteral::{Boolean, Null, Number, String as HString};
     match (a, b) {
         (Number(x), Number(y)) => Num::binary_op(op, x, y),
+        // JS relational coercion: null behaves as 0 against numbers and booleans.
+        (Null, Number(y)) => Num::binary_op(op, &Num::Integer(0), y),
+        (Number(x), Null) => Num::binary_op(op, x, &Num::Integer(0)),
+        (Null, Null) => Num::binary_op(op, &Num::Integer(0), &Num::Integer(0)),
+        (Null, Boolean(y)) => Num::binary_op(op, &Num::Integer(0), &bool_to_num(*y)),
+        (Boolean(x), Null) => Num::binary_op(op, &bool_to_num(*x), &Num::Integer(0)),
         (Number(x), HString(s)) => Num::binary_op(op, x, &Num::from_str(s)?),
         (HString(s), Number(y)) => Num::binary_op(op, &Num::from_str(s)?, y),
         (Boolean(x), Number(y)) => Num::binary_op(op, &bool_to_num(*x), y),
@@ -817,6 +857,14 @@ impl Display for Closure {
 /// `ExecutionContext::execute_native_function_call` correctly maps the return
 /// value of the native function call to the VM's memory space, making values
 /// constructed with this method safe to return from native extensions.
+// The string form a numeric object key coerces to, shared by dict construction and lookup.
+pub(crate) fn num_key_string(n: &Num) -> String {
+    match n {
+        Num::Integer(i) => i.to_string(),
+        Num::Float(f) => format!("{f}"),
+    }
+}
+
 pub fn construct_free_standing(current: JsonValue, depth: usize) -> Result<HogValue, VmError> {
     if depth > MAX_JSON_SERDE_DEPTH {
         return Err(VmError::OutOfResource(

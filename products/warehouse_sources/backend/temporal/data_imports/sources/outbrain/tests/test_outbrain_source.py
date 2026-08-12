@@ -4,7 +4,9 @@ from unittest import mock
 from posthog.schema import ReleaseStatus, SourceFieldInputConfig, SourceFieldInputConfigType
 
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
-from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs import OutbrainSourceConfig
+from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.outbrain import (
+    OutbrainSourceConfig,
+)
 from products.warehouse_sources.backend.temporal.data_imports.sources.outbrain.outbrain import OutbrainResumeConfig
 from products.warehouse_sources.backend.temporal.data_imports.sources.outbrain.settings import (
     ENDPOINTS,
@@ -49,6 +51,7 @@ class TestOutbrainSource:
         [
             "401 Client Error: Unauthorized for url: https://api.outbrain.com/amplify/v0.1/login",
             "403 Client Error: Forbidden for url: https://api.outbrain.com/amplify/v0.1/marketers",
+            "400 Client Error: Bad Request for url: https://api.outbrain.com/amplify/v0.1/marketers/marketer/campaigns?limit=100&offset=0",
         ],
     )
     def test_non_retryable_errors_match_auth_failures(self, observed_error):

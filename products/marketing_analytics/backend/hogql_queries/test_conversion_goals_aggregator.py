@@ -1,11 +1,13 @@
 import re
 import uuid
 import itertools
-from datetime import datetime
+from datetime import UTC, datetime, timedelta
 
 import pytest
 from posthog.test.base import BaseTest, ClickhouseTestMixin
 from unittest.mock import patch
+
+from django.test import SimpleTestCase
 
 from posthog.schema import (
     BaseMathType,
@@ -20,16 +22,19 @@ from posthog.hogql.query import execute_hogql_query
 from posthog.hogql.test.utils import pretty_print_in_tests
 
 from posthog.clickhouse.client.execute import sync_execute
-from posthog.clickhouse.preaggregation.conversion_goal_attributed_sql import (
-    TRUNCATE_CONVERSION_GOAL_ATTRIBUTED_TABLE_SQL,
-)
+from posthog.clickhouse.preaggregation.marketing_touchpoints_sql import TRUNCATE_MARKETING_TOUCHPOINTS_TABLE_SQL
+from posthog.clickhouse.query_tagging import Feature, get_query_tag_value, reset_query_tags, tag_queries
 from posthog.hogql_queries.utils.query_date_range import QueryDateRange
 
 from products.actions.backend.models.action import Action
+from products.analytics_platform.backend.lazy_computation.lazy_computation_executor import (
+    LazyComputationResult,
+    LazyComputationTable,
+)
 from products.analytics_platform.backend.models.preaggregation_job import PreaggregationJob
 
-from .conversion_goal_processor import ConversionGoalProcessor
-from .conversion_goals_aggregator import ConversionGoalsAggregator
+from .conversion_goal_processor import ConversionGoalProcessor, SharedTouchpointsPrecompute
+from .conversion_goals_aggregator import ConversionGoalsAggregator, _map_in_caller_context
 from .marketing_analytics_config import MarketingAnalyticsConfig
 
 
@@ -67,7 +72,7 @@ def _normalize_job_uuids(hogql: str) -> str:
 class TestConversionGoalsAggregator(ClickhouseTestMixin, BaseTest):
     def setUp(self):
         super().setUp()
-        sync_execute(TRUNCATE_CONVERSION_GOAL_ATTRIBUTED_TABLE_SQL())
+        sync_execute(TRUNCATE_MARKETING_TOUCHPOINTS_TABLE_SQL())
         PreaggregationJob.objects.all().delete()
         # Force deterministic job_ids so the precompute snapshots are stable in CI.
         self._job_uuid_patcher = patch.object(
@@ -626,3 +631,67 @@ class TestConversionGoalsAggregator(ClickhouseTestMixin, BaseTest):
         assert "Holiday Promo" in sql_string, "SQL should contain mapped campaign name"
         assert "spring_sale_2024" in sql_string, "SQL should contain original campaign name in mapping"
         assert "holiday_campaign" in sql_string, "SQL should contain original campaign name in mapping"
+
+    def test_touchpoints_precompute_materialized_once_across_goals(self):
+        processors = [
+            self._create_test_processor(self._create_test_conversion_goal("goal1", "Sign Ups"), 0),
+            self._create_test_processor(self._create_test_conversion_goal("goal2", "Purchases"), 1),
+        ]
+        aggregator = ConversionGoalsAggregator(processors, self.config)
+
+        with patch(
+            "products.marketing_analytics.backend.hogql_queries.conversion_goal_processor.marketing_ensure_precomputed",
+            side_effect=lambda **kwargs: LazyComputationResult(ready=True, job_ids=[uuid.uuid4()]),
+        ) as ensure:
+            aggregator.generate_unified_cte(self.date_range, self._create_mock_additional_conditions_getter())
+
+        tables = [call.kwargs["table"] for call in ensure.call_args_list]
+        # Touchpoints are config-agnostic, so both goals share one materialization. Conversions embed the
+        # goal, so each keeps its own — sharing those would serve one goal's conversions for the other.
+        assert tables.count(LazyComputationTable.MARKETING_TOUCHPOINTS_PREAGGREGATED) == 1
+        assert tables.count(LazyComputationTable.MARKETING_CONVERSIONS_PREAGGREGATED) == len(processors)
+
+    def test_shared_touchpoints_rejects_a_second_date_range(self):
+        # The handle caches the first materialization, so reusing it for another range would attribute
+        # one window's touchpoints to another. Silently, if it just returned the cached result.
+        shared = SharedTouchpointsPrecompute(self.team, self.config)
+        date_from = datetime(2024, 1, 1, tzinfo=UTC)
+        date_to = datetime(2024, 1, 31, tzinfo=UTC)
+
+        with patch(
+            "products.marketing_analytics.backend.hogql_queries.conversion_goal_processor.marketing_ensure_precomputed",
+            side_effect=lambda **kwargs: LazyComputationResult(ready=True, job_ids=[uuid.uuid4()]),
+        ) as ensure:
+            first = shared.get(date_from, date_to)
+            assert shared.get(date_from, date_to) is first
+
+            with pytest.raises(ValueError, match="one date range per read"):
+                shared.get(date_from, date_to + timedelta(days=1))
+
+        assert ensure.call_count == 1
+
+
+class TestGoalParallelismContextPropagation(SimpleTestCase):
+    def tearDown(self):
+        reset_query_tags()
+        super().tearDown()
+
+    def test_query_tags_survive_into_the_goal_worker_threads(self):
+        # Multi-goal reads build each goal's precompute in a thread pool. ThreadPoolExecutor workers do
+        # not inherit the caller's contextvars, so a bare pool.map drops the query tags — and with them
+        # the CACHE_WARMUP tag a background revalidation sets on itself, which is the only thing stopping
+        # that revalidation from serving itself stale and never refreshing. Guards that regression.
+        tag_queries(feature=Feature.CACHE_WARMUP, trigger="marketingAnalyticsStaleRevalidation")
+        seen: dict[int, tuple] = {}
+
+        def build(item: int) -> int:
+            seen[item] = (get_query_tag_value("feature"), get_query_tag_value("trigger"))
+            return item * 10
+
+        # 3 items > 1 forces the real pool rather than the serial path.
+        result = _map_in_caller_context(build, [1, 2, 3])
+
+        assert result == [10, 20, 30]
+        assert all(tags == (Feature.CACHE_WARMUP, "marketingAnalyticsStaleRevalidation") for tags in seen.values()), (
+            seen
+        )

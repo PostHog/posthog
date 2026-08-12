@@ -4,6 +4,9 @@ import pytest
 from unittest.mock import AsyncMock, MagicMock, patch
 
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline_v3.pipeline import PipelineV3
+from products.warehouse_sources.backend.temporal.data_imports.workflow_activities.import_data_sync import (
+    ImportJobModels,
+)
 
 
 def _make_logger() -> MagicMock:
@@ -37,10 +40,14 @@ def _make_pipeline() -> PipelineV3:
     pipeline._logger = _make_logger()
     pipeline._is_incremental = False
     pipeline._reset_pipeline = False
-    pipeline._delta_table_helper = MagicMock(is_first_sync=True)
+    pipeline._delta_table_ref = MagicMock(is_first_sync=True)
     pipeline._resumable_source_manager = None
     pipeline._internal_schema = MagicMock()
-    pipeline._cdp_producer = MagicMock()
+    pipeline._sinks = MagicMock(
+        clear=AsyncMock(),
+        stage_chunk=AsyncMock(),
+        cdp_producer=MagicMock(should_run=AsyncMock(return_value=False)),
+    )
     pipeline._batcher = MagicMock()
     pipeline._load_id = 1
     pipeline._s3_batch_writer = MagicMock()
@@ -49,6 +56,8 @@ def _make_pipeline() -> PipelineV3:
     pipeline._batch_results = []
     pipeline._shutdown_monitor = MagicMock()
     pipeline._attempt = 1
+    pipeline._uses_delta_write_column_selection = False
+    pipeline._observed_columns = {}
 
     return pipeline
 
@@ -109,7 +118,7 @@ class TestAttemptScopedRunUuid:
                 "products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline_v3.pipeline.PostgresProducer",
             ),
             patch(
-                "products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline_v3.pipeline.DeltaTableHelper"
+                "products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline_v3.pipeline.DeltaTableRef"
             ),
         ):
             mock_s3_writer_cls.return_value = MagicMock(get_run_uuid=MagicMock(return_value="wfrun-abc-a3"))
@@ -119,11 +128,8 @@ class TestAttemptScopedRunUuid:
                 job_id="job-1",
                 reset_pipeline=False,
                 shutdown_monitor=MagicMock(),
-                job=mock_job,
-                schema=mock_schema,
-                source=mock_source,
-                table=None,
                 resumable_source_manager=None,
+                models=ImportJobModels(job=mock_job, schema=mock_schema, source=mock_source, table=None),
             )
 
         assert pipeline._attempt == 3
@@ -135,13 +141,8 @@ class TestAttemptScopedRunUuid:
         pipeline = _make_pipeline()
         pipeline._attempt = 2
         pipeline._reset_pipeline = True
-        pipeline._cdp_producer = MagicMock(should_produce_table=AsyncMock(return_value=False))
 
         with (
-            patch(
-                "products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline_v3.pipeline.cdp_producer_clear_chunks",
-                new_callable=AsyncMock,
-            ),
             patch(
                 "products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline_v3.pipeline.reset_rows_synced_if_needed",
                 new_callable=AsyncMock,
@@ -175,12 +176,9 @@ class TestExtractionFailureDoesNotCleanupS3:
     async def test_s3_files_preserved_when_extraction_fails(self) -> None:
         pipeline = _make_pipeline()
         s3_writer = cast(MagicMock, pipeline._s3_batch_writer)
+        pipeline._sinks = MagicMock(clear=AsyncMock(side_effect=RuntimeError("simulated extraction failure")))
 
         with (
-            patch(
-                "products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline_v3.pipeline.cdp_producer_clear_chunks",
-                side_effect=RuntimeError("simulated extraction failure"),
-            ),
             patch(
                 "products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline_v3.pipeline.activity"
             ) as mock_activity,

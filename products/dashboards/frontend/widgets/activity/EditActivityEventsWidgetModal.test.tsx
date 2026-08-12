@@ -49,7 +49,7 @@ describe('EditActivityEventsWidgetModal', () => {
         )
 
         const dialog = screen.getByRole('dialog')
-        await userEvent.click(within(dialog).getByRole('button', { name: 'Save' }))
+        await userEvent.click(within(dialog).getByText('Save'))
 
         expect(onSave).toHaveBeenCalledWith(
             expect.objectContaining({
@@ -78,7 +78,7 @@ describe('EditActivityEventsWidgetModal', () => {
         await userEvent.type(limitInput, '60')
 
         expect(screen.getByText('Too big: expected number to be <=50')).toBeInTheDocument()
-        expect(screen.getByRole('button', { name: 'Save' })).toHaveAttribute('aria-disabled', 'true')
+        expect(screen.getByText('Save').closest('button')).toHaveAttribute('aria-disabled', 'true')
         expect(onSave).not.toHaveBeenCalled()
     })
 })

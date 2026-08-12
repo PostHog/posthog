@@ -112,8 +112,8 @@ def filter_flags_by_active_param(queryset: QuerySet, value: str | bool) -> Query
         )
         return queryset.filter(usage_based_stale) | config_based_queryset
 
-    # Handle both string "true"/"false" and boolean True/False
-    is_active = value == "true" or value is True
+    # Handle both string "true"/"false" (any casing) and boolean True/False
+    is_active = str(value).lower() == "true"
     return queryset.filter(active=is_active)
 
 

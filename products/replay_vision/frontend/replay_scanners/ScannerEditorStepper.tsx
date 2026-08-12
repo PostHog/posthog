@@ -1,13 +1,15 @@
 import { IconCheckCircle, IconWarning } from '@posthog/icons'
 
+import { Tooltip } from 'lib/lemon-ui/Tooltip'
 import { cn } from 'lib/utils/css-classes'
 
 import { SCANNER_EDITOR_STEP_ORDER, ScannerEditorStep } from './scannerEditorSceneLogic'
 
-const STEP_LABELS: Record<ScannerEditorStep, string> = {
+export const STEP_LABELS: Record<ScannerEditorStep, string> = {
     template: 'Template',
     configure: 'Configure',
-    triggers: 'Triggers',
+    triggers: 'Scan conditions',
+    self_driving: 'Self-driving',
 }
 
 interface ScannerEditorStepperProps {
@@ -26,7 +28,7 @@ export function ScannerEditorStepper({
     const currentOrder = SCANNER_EDITOR_STEP_ORDER[currentStep]
 
     return (
-        <nav className="flex items-center justify-center" aria-label="Scanner editor progress">
+        <nav className="flex flex-wrap items-center justify-center gap-y-1" aria-label="Scanner editor progress">
             {steps.map((stepKey, index) => {
                 const step = { key: stepKey, label: STEP_LABELS[stepKey] }
                 const stepOrder = SCANNER_EDITOR_STEP_ORDER[step.key]
@@ -40,7 +42,7 @@ export function ScannerEditorStepper({
                             <div
                                 className={cn(
                                     'w-6 h-px transition-colors duration-150',
-                                    hasErrors && isCurrent
+                                    hasErrors
                                         ? 'bg-warning'
                                         : isCompleted || isCurrent
                                           ? 'bg-success'
@@ -59,8 +61,11 @@ export function ScannerEditorStepper({
                             )}
                             aria-current={isCurrent ? 'step' : undefined}
                         >
-                            {hasErrors && isCurrent ? (
-                                <IconWarning className="size-5 text-warning" />
+                            {/* Errors outrank the completed checkmark. */}
+                            {hasErrors ? (
+                                <Tooltip title="This step has errors to fix">
+                                    <IconWarning className="size-5 text-warning" />
+                                </Tooltip>
                             ) : isCompleted ? (
                                 <IconCheckCircle className="size-5 text-success" />
                             ) : (

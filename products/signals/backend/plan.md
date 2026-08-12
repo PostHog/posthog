@@ -236,7 +236,7 @@ Built so far (see `products/signals/backend/plan_mode/`):
 - **Finish** — `finish` endpoint (idempotent): safety+actionability defaults written deterministically, **owner scout created/converged deterministically** (`signals-scout-plan-<id>` LLMSkill + `SignalScoutConfig`; plan-specific steering lives in the plan's "Owner scout playbook" note), first implementation pass auto-started. **No backing signal is emitted** — the `inbox`/`plan` signal was removed: Plan tab membership is the Postgres planning marker alone, and relatedness to other reports is the owner scout's sweep (`associated_report` artefacts), keeping plans entirely outside the grouping pipeline.
 - Draft-ness is derived: a plan is a draft until its `safety_judgment` artefact exists (only `finish` writes one).
 
-Implementation kickoff: the owner scout drives increments via the sandbox-only `signals-scout-start-implementation` tool (`signal_scout_report:write`, internal scope — never on the customer MCP surface): deterministic, one pass at a time (in-flight guard), repo/owner from the report's artefacts. Autostart was rejected for this (once-per-report gate + autonomy thresholds).
+Implementation kickoff: the owner scout drives increments via the sandbox-only `scout-start-implementation` tool (`signal_scout_report:write`, internal scope — never on the customer MCP surface): deterministic, one pass at a time (in-flight guard), repo/owner from the report's artefacts. Autostart was rejected for this (once-per-report gate + autonomy thresholds).
 
 Finish plan also auto-starts the FIRST implementation pass (best-effort, same in-flight-guarded path as the scout tool; the owner scout drives subsequent increments).
 

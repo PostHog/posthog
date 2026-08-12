@@ -10,6 +10,13 @@
 import * as zod from 'zod'
 
 /**
+ * Enable or disable all CI signal detectors in one transaction.
+ */
+export const EngineeringAnalyticsCiSignalsConfigUpdateBody = /* @__PURE__ */ zod.object({
+    enabled: zod.boolean().describe('Enable or disable every CI signal detector atomically.'),
+})
+
+/**
  * Opens a pull request that edits the repository's checked-in .test_quarantine.json — and, for a new quarantine, a tracking issue the PR links but does not close. The file stays the source of truth that CI enforces; this never bypasses it. A quarantine only affects CI runs that start after the PR merges.
  * @summary Quarantine, extend, or unquarantine a flaky test
  */
@@ -24,6 +31,17 @@ export const EngineeringAnalyticsQuarantineRequestBody = /* @__PURE__ */ zod.obj
         .string()
         .describe(
             "Test selector to act on: an exact test id, a file, a directory, a class prefix, or 'product:<dashed-name>'."
+        ),
+    runner: zod
+        .union([
+            zod
+                .enum(['pytest', 'jest', 'playwright'])
+                .describe('\* `pytest` - PYTEST\n\* `jest` - JEST\n\* `playwright` - PLAYWRIGHT'),
+            zod.null(),
+        ])
+        .optional()
+        .describe(
+            "Test runner the selector targets: 'pytest', 'jest', or 'playwright'. Existing entries and Jest file extensions are inferred for older clients that omit it; other selectors default to 'pytest'.\n\n\* `pytest` - PYTEST\n\* `jest` - JEST\n\* `playwright` - PLAYWRIGHT"
         ),
     repo: zod
         .string()

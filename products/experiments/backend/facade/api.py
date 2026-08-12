@@ -58,6 +58,7 @@ def create_experiment(*, team: Team, user: User, input_dto: CreateExperimentInpu
         description=input_dto.description,
         type=input_dto.type,
         parameters=input_dto.parameters,
+        feature_flag_config=input_dto.feature_flag_config,
         running_time_calculation=input_dto.running_time_calculation,
         excluded_variants=input_dto.excluded_variants,
         metrics=input_dto.metrics,
@@ -79,6 +80,7 @@ def create_experiment(*, team: Team, user: User, input_dto: CreateExperimentInpu
         deleted=input_dto.deleted,
         conclusion=input_dto.conclusion,
         conclusion_comment=input_dto.conclusion_comment,
+        repository=input_dto.repository,
         serializer_context=input_dto.serializer_context,
         allow_unknown_events=input_dto.allow_unknown_events,
     )

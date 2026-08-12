@@ -9,10 +9,13 @@ Called by the Celery task; all business logic lives here.
 
 from uuid import UUID
 
+from django.db.models import Q
+
 import structlog
 from blake3 import blake3
 from pixelhog import thumbnail as pixelhog_thumbnail
 
+from .db import WRITER_DB
 from .diff import THUMB_HEIGHT, THUMB_WIDTH, CompareResult, compare_images
 from .diff_metadata import DiffMetadata
 from .facade.enums import ChangeKind, ClassificationReason, SnapshotResult, ToleratedReason
@@ -124,7 +127,7 @@ def _store_diff(
     )
 
 
-def _diff_snapshot(snapshot: RunSnapshot) -> None:
+def _diff_snapshot(snapshot: RunSnapshot) -> bool:
     """Compare snapshot against baseline; classify and store diff metrics.
 
     Classification (in priority order):
@@ -157,7 +160,7 @@ def _diff_snapshot(snapshot: RunSnapshot) -> None:
             has_baseline=baseline_bytes is not None,
             has_current=current_bytes is not None,
         )
-        return
+        return False
 
     result = compare_images(baseline_bytes, current_bytes)
 
@@ -166,7 +169,7 @@ def _diff_snapshot(snapshot: RunSnapshot) -> None:
     kind = classify_compare_result(result)
     if kind is not None:
         _store_diff(snapshot, result, kind)
-        return
+        return True
 
     # Both tiers below threshold — genuine noise, reclassify and cache for future runs
     snapshot.result = SnapshotResult.UNCHANGED
@@ -201,6 +204,7 @@ def _diff_snapshot(snapshot: RunSnapshot) -> None:
             "diff_percentage": result.diff_percentage,
         },
     )
+    return True
 
 
 def _generate_thumbnail_for_new(snapshot: RunSnapshot) -> None:
@@ -239,16 +243,43 @@ def _generate_thumbnail_for_new(snapshot: RunSnapshot) -> None:
     artifact.save(update_fields=["thumbnail"])
 
 
-def process_diffs(run_id: UUID) -> None:
+def count_processed_diffs(run_id: UUID) -> int:
+    return (
+        RunSnapshot.objects.using(WRITER_DB)
+        .filter(run_id=run_id)
+        .filter(
+            ~Q(change_kind="")
+            | Q(
+                result=SnapshotResult.UNCHANGED,
+                classification_reason=ClassificationReason.BELOW_THRESHOLD,
+            )
+        )
+        .count()
+    )
+
+
+def process_diffs(run_id: UUID) -> int:
     """
     Process diffs for all changed snapshots in a run.
 
     Uses single-pass comparison (pixelmatch + SSIM + thumbnail) to classify
     each snapshot and generate thumbnails for the grid view.
     """
-    from . import logic
-
-    snapshots = logic.get_run_snapshots(run_id)
+    snapshots = (
+        RunSnapshot.objects.using(WRITER_DB)
+        .filter(run_id=run_id)
+        .filter(
+            Q(
+                result=SnapshotResult.NEW,
+                current_artifact__isnull=False,
+                current_artifact__thumbnail__isnull=True,
+            )
+            | Q(result=SnapshotResult.CHANGED, change_kind="", diff_artifact__isnull=True)
+        )
+        .select_related("run", "current_artifact", "baseline_artifact")
+        .iterator(chunk_size=100)
+    )
+    diffed_count = 0
 
     for snapshot in snapshots:
         if snapshot.result == SnapshotResult.NEW and snapshot.current_artifact:
@@ -261,7 +292,8 @@ def process_diffs(run_id: UUID) -> None:
             continue
 
         try:
-            _diff_snapshot(snapshot)
+            if _diff_snapshot(snapshot):
+                diffed_count += 1
         except Exception as e:
             logger.warning(
                 "visual_review.snapshot_diff_failed",
@@ -269,3 +301,5 @@ def process_diffs(run_id: UUID) -> None:
                 identifier=snapshot.identifier,
                 error=str(e),
             )
+
+    return diffed_count

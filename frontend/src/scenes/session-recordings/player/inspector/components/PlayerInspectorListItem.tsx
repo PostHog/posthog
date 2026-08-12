@@ -14,10 +14,12 @@ import {
     IconDashboard,
     IconExpand,
     IconEye,
+    IconFlask,
     IconLeave,
     IconLive,
     IconLogomark,
     IconRedux,
+    IconTarget,
     IconTerminal,
 } from '@posthog/icons'
 import { LemonButton, LemonDivider } from '@posthog/lemon-ui'
@@ -32,7 +34,15 @@ import {
     ItemAnyComment,
     ItemAnyCommentDetail,
 } from 'scenes/session-recordings/player/inspector/components/ItemAnyComment'
+import {
+    ItemExperimentVariant,
+    ItemExperimentVariantDetail,
+} from 'scenes/session-recordings/player/inspector/components/ItemExperimentVariant'
 import { ItemInactivity } from 'scenes/session-recordings/player/inspector/components/ItemInactivity'
+import {
+    ItemMetricEvent,
+    ItemMetricEventDetail,
+} from 'scenes/session-recordings/player/inspector/components/ItemMetricEvent'
 import { ItemSessionChange } from 'scenes/session-recordings/player/inspector/components/ItemSessionChange'
 import { ItemSummary } from 'scenes/session-recordings/player/inspector/components/ItemSummary'
 
@@ -106,6 +116,14 @@ const typeToIconAndDescription: Record<InspectorListItem['type'], IconAndDescrip
     logs: {
         Icon: IconLive,
         tooltip: 'Log entry',
+    },
+    'experiment-variant': {
+        Icon: IconFlask,
+        tooltip: 'The moment the feature flag behind an experiment was evaluated for this session',
+    },
+    'metric-event': {
+        Icon: IconTarget,
+        tooltip: "The first time this session fired one of an experiment metric's events",
     },
 }
 
@@ -205,6 +223,10 @@ function RowItemTitle({
                 <ItemInactivity item={item} />
             ) : item.type === 'session-change' ? (
                 <ItemSessionChange item={item} />
+            ) : item.type === 'experiment-variant' ? (
+                <ItemExperimentVariant item={item} />
+            ) : item.type === 'metric-event' ? (
+                <ItemMetricEvent item={item} />
             ) : null}
         </div>
     )
@@ -245,6 +267,10 @@ function RowItemDetail({
                 <ItemDoctorDetail item={item} />
             ) : item.type === 'comment' ? (
                 <ItemAnyCommentDetail item={item} />
+            ) : item.type === 'experiment-variant' ? (
+                <ItemExperimentVariantDetail item={item} />
+            ) : item.type === 'metric-event' ? (
+                <ItemMetricEventDetail item={item} />
             ) : null}
         </div>
     )

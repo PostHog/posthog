@@ -1,8 +1,12 @@
 import { DateTime } from 'luxon'
 
 import { CyclotronInvocationQueueParametersFetchSchema } from '~/cdp/schema/cyclotron'
+import { HogFlow } from '~/cdp/schema/hogflow'
 
 import { registerAsyncFunction } from '../async-function-registry'
+import { getTeamWithSecretToken } from './secret-api-token'
+
+const TICKET_ACTIONS = 'ticket workflow actions'
 
 registerAsyncFunction('postHogGetTicket', {
     execute: async (args, context, result) => {
@@ -13,13 +17,7 @@ registerAsyncFunction('postHogGetTicket', {
             throw new Error("[HogFunction] - postHogGetTicket call missing 'ticket_id' property")
         }
 
-        const team = await context.teamManager.getTeam(context.invocation.teamId)
-        if (!team) {
-            throw new Error(`Team ${context.invocation.teamId} not found`)
-        }
-        if (!team.secret_api_token) {
-            throw new Error(`Team ${context.invocation.teamId} has no secret API token configured`)
-        }
+        const team = await getTeamWithSecretToken(context, 'postHogGetTicket', TICKET_ACTIONS)
 
         result.invocation.queueParameters = CyclotronInvocationQueueParametersFetchSchema.parse({
             type: 'fetch',
@@ -83,12 +81,21 @@ registerAsyncFunction('postHogUpdateTicket', {
             throw new Error("[HogFunction] - postHogUpdateTicket call missing 'ticket_id' property")
         }
 
-        const updateTeam = await context.teamManager.getTeam(context.invocation.teamId)
-        if (!updateTeam) {
-            throw new Error(`Team ${context.invocation.teamId} not found`)
+        const updateTeam = await getTeamWithSecretToken(context, 'postHogUpdateTicket', TICKET_ACTIONS)
+
+        const headers: Record<string, string> = {
+            'Content-Type': 'application/json',
+            Authorization: `Bearer ${updateTeam.secret_api_token}`,
         }
-        if (!updateTeam.secret_api_token) {
-            throw new Error(`Team ${context.invocation.teamId} has no secret API token configured`)
+
+        // Present only when running inside a HogFlow (spread onto the synthesized invocation);
+        // forward the workflow id so the ticket activity log can attribute and link to it. Only
+        // the id is sent — the display name is resolved from the workflow on the frontend so it
+        // can't be spoofed through this header. Typed as an optional HogFlow so a rename of its
+        // id shape breaks compilation here.
+        const hogFlow = (context.invocation as { hogFlow?: HogFlow }).hogFlow
+        if (hogFlow?.id) {
+            headers['X-PostHog-Hog-Flow-Id'] = hogFlow.id
         }
 
         result.invocation.queueParameters = CyclotronInvocationQueueParametersFetchSchema.parse({
@@ -96,10 +103,7 @@ registerAsyncFunction('postHogUpdateTicket', {
             url: `${context.siteUrl}/api/conversations/external/ticket/${ticketId}`,
             method: 'PATCH',
             body: JSON.stringify(updates),
-            headers: {
-                'Content-Type': 'application/json',
-                Authorization: `Bearer ${updateTeam.secret_api_token}`,
-            },
+            headers,
         })
     },
 

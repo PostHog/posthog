@@ -30,6 +30,6 @@ describe('sandbox git artifacts', () => {
         render(<PullRequestCard prUrl={PR_URL} branch="feat/x" />)
         expect(screen.getByText('Pull request opened')).toBeInTheDocument()
         expect(screen.getByText('feat/x')).toBeInTheDocument()
-        expect(screen.getByRole('link', { name: /Open on GitHub/ })).toHaveAttribute('href', PR_URL)
+        expect(screen.getByText(/Open on GitHub/).closest('a')).toHaveAttribute('href', PR_URL)
     })
 })

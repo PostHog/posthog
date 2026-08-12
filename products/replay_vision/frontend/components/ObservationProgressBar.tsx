@@ -1,9 +1,10 @@
-import { useValues } from 'kea'
+import { useActions, useValues } from 'kea'
 import { useRef } from 'react'
 
-import { IconCheckCircle, IconCircleDashed } from '@posthog/icons'
+import { IconCheckCircle, IconCircleDashed, IconWarning } from '@posthog/icons'
 import { Spinner } from '@posthog/lemon-ui'
 
+import { useOnMountEffect } from 'lib/hooks/useOnMountEffect'
 import { usePeriodicRerender } from 'lib/hooks/usePeriodicRerender'
 import { LemonProgress } from 'lib/lemon-ui/LemonProgress'
 
@@ -22,8 +23,7 @@ const PHASE_LABELS: Record<Phase, string> = {
     finalizing: 'Finalizing',
 }
 
-// Rough per-phase time constants (seconds) driving an asymptotic fill for phases without real sub-progress, so the
-// bar keeps moving. At elapsed = tau the fill is ~63%; at 2*tau ~86%; never reaches 100% until the phase advances.
+// Per-phase time constants (seconds) for an asymptotic fill (~63% at tau, ~86% at 2*tau) so the bar keeps moving.
 const PHASE_TAU_S: Record<Phase, number> = {
     queued: 4,
     fetching: 4,
@@ -70,8 +70,12 @@ export function ObservationProgressBar({
     sessionId: string
     compact?: boolean
 }): JSX.Element {
-    const { progress } = useValues(observationProgressLogic({ observationId, sessionId }))
+    const { progress, streamError } = useValues(observationProgressLogic({ observationId, sessionId }))
+    const { startStream } = useActions(observationProgressLogic({ observationId, sessionId }))
     usePeriodicRerender(1000)
+
+    // The bar only renders for in-flight observations, so its mount is the signal to open the stream.
+    useOnMountEffect(() => startStream())
 
     const currentStep = Math.min(progress?.step ?? 0, PHASE_ORDER.length - 1)
     const activePhase = PHASE_ORDER[currentStep]
@@ -89,6 +93,16 @@ export function ObservationProgressBar({
         frame && frame.estimatedTotalFrames > 0
             ? Math.min((frame.frame / frame.estimatedTotalFrames) * 100, 100)
             : asymptoticFillPercent(activeElapsed, PHASE_TAU_S[activePhase])
+
+    if (streamError) {
+        // The stream died but the observation may still be running — status polling keeps the page truthful.
+        return (
+            <div className="flex items-center gap-2 text-muted text-sm">
+                <IconWarning className="text-warning text-base shrink-0" />
+                <span>Live progress unavailable: {streamError}</span>
+            </div>
+        )
+    }
 
     if (compact) {
         const detail =

@@ -1,6 +1,6 @@
 import type { ComponentType } from 'react'
 
-import { IconFlask, IconList, IconLive, IconRewindPlay, IconWarning } from '@posthog/icons'
+import { IconFlask, IconList, IconLive, IconMessage, IconRewindPlay, IconWarning } from '@posthog/icons'
 
 import { urls } from 'scenes/urls'
 
@@ -9,14 +9,18 @@ import { ActivityTab } from '~/types'
 
 import {
     activityEventsWidgetConfigSchema,
+    conversationsRecentTicketsWidgetConfigSchema,
     errorTrackingWidgetConfigSchema,
     experimentResultsWidgetConfigSchema,
     experimentsWidgetConfigSchema,
     logsWidgetConfigSchema,
     sessionReplayWidgetConfigSchema,
+    surveyResultsWidgetConfigSchema,
 } from '../generated/widget-configs.zod'
 import type { DashboardWidgetProductAccess } from '../types'
+import { isLiveDashboardWidgetType } from '../widgets/live/liveWidgetTypes'
 import { ActivityEventsWidgetPreview } from '../widgets/previews/ActivityEventsWidgetPreview'
+import { ConversationsWidgetPreview } from '../widgets/previews/ConversationsWidgetPreview'
 import { ErrorTrackingWidgetPreview } from '../widgets/previews/ErrorTrackingWidgetPreview'
 import {
     ExperimentResultsWidgetPreview,
@@ -24,6 +28,7 @@ import {
 } from '../widgets/previews/ExperimentsWidgetPreviews'
 import { LogsWidgetPreview } from '../widgets/previews/LogsWidgetPreview'
 import { SessionReplayWidgetPreview } from '../widgets/previews/SessionReplayWidgetPreview'
+import { SurveyResultsWidgetPreview } from '../widgets/previews/SurveysWidgetPreviews'
 import type { WidgetAvailabilityConfig, WidgetAvailabilityRequirementId } from './widgetAvailability'
 
 export const DASHBOARD_WIDGET_HEADER_LAYOUTS = ['simple', 'dashboard_tile'] as const
@@ -81,7 +86,9 @@ export const DASHBOARD_WIDGET_GROUP_LABELS = {
     error_tracking: 'Error tracking',
     session_replay: 'Session replay',
     experiments: 'Experiments',
+    surveys: 'Surveys',
     logs: 'Logs',
+    conversations: 'Support',
 } as const satisfies Record<string, string>
 
 export function getDashboardWidgetGroupLabel(groupId: string): string {
@@ -94,7 +101,9 @@ export const DASHBOARD_WIDGET_GROUP_ICONS = {
     error_tracking: IconWarning,
     session_replay: IconRewindPlay,
     experiments: IconFlask,
+    surveys: IconMessage,
     logs: IconList,
+    conversations: IconMessage,
 } as const satisfies Record<keyof typeof DASHBOARD_WIDGET_GROUP_LABELS, ComponentType<{ className?: string }>>
 
 export function getDashboardWidgetGroupIcon(groupId: string): ComponentType<{ className?: string }> | undefined {
@@ -171,6 +180,29 @@ export type DashboardWidgetCatalogEntry = {
 
 /** New widget types: add here. See products/dashboards/CONTRIBUTING.md. */
 export const DASHBOARD_WIDGET_CATALOG = {
+    conversations_recent_tickets: {
+        groupId: 'conversations',
+        label: 'Recent tickets',
+        description: 'Most recently updated support tickets.',
+        headerTitle: 'Recent tickets',
+        headerMeta: { showDateRange: false },
+        defaultConfig: conversationsRecentTicketsWidgetConfigSchema.parse({}),
+        defaultLayout: { w: 6, h: 6, minW: 3, minH: 4 },
+        productAccess: 'ticket',
+        titleHref: urls.supportTickets(),
+        sharedPlaceholder: {
+            title: 'Recent tickets',
+            message: 'Log in to PostHog to see recent support tickets from this dashboard.',
+        },
+        availability: {
+            requirement: 'conversations_enabled',
+            unavailableTitle: 'Keep customer conversations close to your product data',
+            unavailableReason: 'Triage and respond to customer questions with the context you need to solve them.',
+            setupActionLabel: 'Enable',
+            docsHref: 'https://posthog.com/docs/support',
+            compactSetupPrompt: true,
+        },
+    },
     error_tracking_list: {
         groupId: 'error_tracking',
         label: 'Top issues',
@@ -190,13 +222,6 @@ export const DASHBOARD_WIDGET_CATALOG = {
         tileFilters: {
             quickFilterContext: QuickFilterContext.ErrorTrackingIssueFilters,
             allowedPropertyNames: ERROR_TRACKING_LIST_TILE_FILTER_PROPERTIES,
-        },
-        availability: {
-            requirement: 'exception_autocapture',
-            unavailableTitle: "You haven't captured any exceptions",
-            unavailableReason: 'Enable exception autocapture to get started.',
-            setupActionLabel: 'Enable exception autocapture',
-            docsHref: 'https://posthog.com/docs/error-tracking',
         },
     },
     session_replay_list: {
@@ -259,6 +284,20 @@ export const DASHBOARD_WIDGET_CATALOG = {
             message: 'Log in to PostHog to see experiment results from this dashboard.',
         },
     },
+    survey_results: {
+        groupId: 'surveys',
+        label: 'Survey results',
+        description: 'Performance stats and recent responses for a selected survey.',
+        headerTitle: 'Survey results',
+        defaultConfig: surveyResultsWidgetConfigSchema.parse({}),
+        defaultLayout: { w: 6, h: 5, minW: 3, minH: 3 },
+        productAccess: 'survey',
+        titleHref: urls.surveys(),
+        sharedPlaceholder: {
+            title: 'Survey results',
+            message: 'Log in to PostHog to see survey results from this dashboard.',
+        },
+    },
     activity_events_list: {
         groupId: 'activity',
         label: 'Recent events',
@@ -296,24 +335,38 @@ export type DashboardWidgetCatalogKey = keyof typeof DASHBOARD_WIDGET_CATALOG
 
 /** New widget types: add preview components here. See products/dashboards/CONTRIBUTING.md. */
 export const DASHBOARD_WIDGET_PREVIEWS: Record<DashboardWidgetCatalogKey, () => JSX.Element> = {
+    conversations_recent_tickets: ConversationsWidgetPreview,
     activity_events_list: ActivityEventsWidgetPreview,
     error_tracking_list: ErrorTrackingWidgetPreview,
     session_replay_list: SessionReplayWidgetPreview,
     experiments_list: ExperimentsListWidgetPreview,
     experiment_results: ExperimentResultsWidgetPreview,
+    survey_results: SurveyResultsWidgetPreview,
     logs_list: LogsWidgetPreview,
 }
 
 export type ResolvedDashboardWidgetCatalogEntry = DashboardWidgetCatalogEntry & {
     headerLayout: DashboardWidgetHeaderLayout
     headerMeta: Required<DashboardWidgetHeaderMeta>
+    /** `WidgetSpec.is_live` from the generated manifest — the tile self-updates in real time after load. */
+    live: boolean
 }
 
-function resolveDashboardWidgetCatalogEntry(entry: DashboardWidgetCatalogEntry): ResolvedDashboardWidgetCatalogEntry {
+function resolveDashboardWidgetCatalogEntry(
+    widgetType: string,
+    entry: DashboardWidgetCatalogEntry
+): ResolvedDashboardWidgetCatalogEntry {
+    const live = isLiveDashboardWidgetType(widgetType)
     return {
         ...entry,
+        live,
         headerLayout: entry.headerLayout ?? DEFAULT_DASHBOARD_WIDGET_HEADER_LAYOUT,
-        headerMeta: { ...DEFAULT_DASHBOARD_WIDGET_HEADER_META, ...entry.headerMeta },
+        headerMeta: {
+            ...DEFAULT_DASHBOARD_WIDGET_HEADER_META,
+            // Live tiles show a fixed real-time window; there is no configured date range to display.
+            ...(live ? { showDateRange: false } : null),
+            ...entry.headerMeta,
+        },
     }
 }
 
@@ -322,7 +375,10 @@ export function getDashboardWidgetCatalogEntry(widgetType: string): ResolvedDash
         throw new Error(`Unknown dashboard widget type: ${widgetType}`)
     }
 
-    return resolveDashboardWidgetCatalogEntry(DASHBOARD_WIDGET_CATALOG[widgetType as DashboardWidgetCatalogKey])
+    return resolveDashboardWidgetCatalogEntry(
+        widgetType,
+        DASHBOARD_WIDGET_CATALOG[widgetType as DashboardWidgetCatalogKey]
+    )
 }
 
 export function tryGetDashboardWidgetCatalogEntry(widgetType: string): ResolvedDashboardWidgetCatalogEntry | undefined {
@@ -330,7 +386,10 @@ export function tryGetDashboardWidgetCatalogEntry(widgetType: string): ResolvedD
         return undefined
     }
 
-    return resolveDashboardWidgetCatalogEntry(DASHBOARD_WIDGET_CATALOG[widgetType as DashboardWidgetCatalogKey])
+    return resolveDashboardWidgetCatalogEntry(
+        widgetType,
+        DASHBOARD_WIDGET_CATALOG[widgetType as DashboardWidgetCatalogKey]
+    )
 }
 
 export const DEFAULT_SHARED_DASHBOARD_WIDGET_PLACEHOLDER = {
@@ -339,17 +398,15 @@ export const DEFAULT_SHARED_DASHBOARD_WIDGET_PLACEHOLDER = {
 } as const
 
 export function getUnknownDashboardWidgetCatalogFallback(widgetType: string): ResolvedDashboardWidgetCatalogEntry {
-    return {
+    return resolveDashboardWidgetCatalogEntry(widgetType, {
         groupId: widgetType,
         label: widgetType,
         description: '',
         defaultConfig: {},
         defaultLayout: { w: 6, h: 5, minW: 3 },
         headerTitle: widgetType,
-        headerLayout: DEFAULT_DASHBOARD_WIDGET_HEADER_LAYOUT,
-        headerMeta: DEFAULT_DASHBOARD_WIDGET_HEADER_META,
         sharedPlaceholder: DEFAULT_SHARED_DASHBOARD_WIDGET_PLACEHOLDER,
-    }
+    })
 }
 
 export type DashboardWidgetCatalogGroup = {
@@ -357,7 +414,7 @@ export type DashboardWidgetCatalogGroup = {
     groupLabel: string
     widgets: Array<{
         widgetType: DashboardWidgetCatalogKey
-        entry: DashboardWidgetCatalogEntry
+        entry: ResolvedDashboardWidgetCatalogEntry
     }>
 }
 
@@ -376,10 +433,13 @@ function getDashboardWidgetCatalogGroups(): DashboardWidgetCatalogGroup[] {
             groupsById.set(entry.groupId, group)
         }
 
-        group.widgets.push({ widgetType: widgetType as DashboardWidgetCatalogKey, entry })
+        group.widgets.push({
+            widgetType: widgetType as DashboardWidgetCatalogKey,
+            entry: resolveDashboardWidgetCatalogEntry(widgetType, entry),
+        })
     }
 
-    const groupDisplayOrder = ['session_replay', 'error_tracking', 'activity', 'logs', 'experiments']
+    const groupDisplayOrder = ['session_replay', 'error_tracking', 'activity', 'logs', 'experiments', 'surveys']
 
     return [...groupsById.values()].sort((a, b) => {
         const aIndex = groupDisplayOrder.indexOf(a.groupId)

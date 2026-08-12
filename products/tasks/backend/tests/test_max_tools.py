@@ -17,7 +17,7 @@ from products.tasks.backend.max_tools import (
     ListTasksTool,
     RunTaskTool,
 )
-from products.tasks.backend.models import Task, TaskRun
+from products.tasks.backend.models import Channel, Task, TaskRun
 
 
 class BaseTaskToolTest(BaseTest):
@@ -40,6 +40,7 @@ class BaseTaskToolTest(BaseTest):
         repository=None,
         origin_product=None,
         deleted=False,
+        runtime=Task.Runtime.ACP,
     ):
         task = Task.objects.create(
             team=self.team,
@@ -48,6 +49,7 @@ class BaseTaskToolTest(BaseTest):
             origin_product=origin_product or Task.OriginProduct.USER_CREATED,
             repository=repository,
             created_by=self.user,
+            runtime=runtime,
         )
         if deleted:
             task.deleted = True
@@ -61,8 +63,11 @@ class BaseTaskToolTest(BaseTest):
         repository=None,
         origin_product=None,
         deleted=False,
+        runtime=Task.Runtime.ACP,
     ):
-        return await sync_to_async(self._create_task_sync)(title, description, repository, origin_product, deleted)
+        return await sync_to_async(self._create_task_sync)(
+            title, description, repository, origin_product, deleted, runtime
+        )
 
     def _create_task_run_sync(
         self,
@@ -94,6 +99,28 @@ class BaseTaskToolTest(BaseTest):
     ):
         return await sync_to_async(self._create_task_run_sync)(task, status, stage, branch, error_message, output)
 
+    def _create_other_users_private_task_sync(self) -> tuple[Task, TaskRun]:
+        other_user = self._create_user("private-owner@example.com")
+        channel = Channel.objects.unscoped().create(
+            team=self.team,
+            name=Channel.PERSONAL_CHANNEL_NAME,
+            channel_type=Channel.ChannelType.PERSONAL,
+            created_by=other_user,
+        )
+        task = Task.objects.create(
+            team=self.team,
+            channel=channel,
+            title="Private task",
+            description="Private description",
+            origin_product=Task.OriginProduct.SIGNAL_REPORT,
+            created_by=other_user,
+        )
+        run = TaskRun.objects.create(task=task, team=self.team, status=TaskRun.Status.IN_PROGRESS)
+        return task, run
+
+    async def _create_other_users_private_task(self) -> tuple[Task, TaskRun]:
+        return await sync_to_async(self._create_other_users_private_task_sync)()
+
 
 class TestCreateTaskTool(BaseTaskToolTest):
     @patch("products.tasks.backend.max_tools.execute_task_processing_workflow_async")
@@ -113,10 +140,13 @@ class TestCreateTaskTool(BaseTaskToolTest):
         assert "url" in artifact
         assert artifact["title"] == "New Task"
 
-        task = await sync_to_async(Task.objects.get)(id=artifact["task_id"])
+        task = await sync_to_async(Task.objects.select_related("channel").get)(id=artifact["task_id"])
         assert task.title == "New Task"
         assert task.description == "Task description"
         assert task.repository == "posthog/posthog-js"
+        assert task.channel is not None
+        assert task.channel.channel_type == Channel.ChannelType.PERSONAL
+        assert task.channel.created_by_id == self.user.id
         mock_execute_workflow.assert_called_once()
 
     @pytest.mark.django_db
@@ -178,6 +208,20 @@ class TestRunTaskTool(BaseTaskToolTest):
 
         mock_execute_workflow.assert_called_once()
 
+    @patch("products.tasks.backend.max_tools.execute_task_processing_workflow_async")
+    @pytest.mark.django_db
+    @pytest.mark.asyncio
+    async def test_run_task_rejects_pi_task(self, mock_execute_workflow):
+        task = await self._create_task(runtime=Task.Runtime.PI)
+        tool = self._create_tool(RunTaskTool)
+
+        content, artifact = await tool._arun_impl(task_id=str(task.id))
+
+        assert content == "Pi tasks cannot be run through the ACP task workflow."
+        assert artifact["error"] == "unsupported_runtime"
+        assert not await sync_to_async(task.runs.exists)()
+        mock_execute_workflow.assert_not_called()
+
     @pytest.mark.django_db
     @pytest.mark.asyncio
     async def test_run_task_not_found(self):
@@ -228,6 +272,19 @@ class TestRunTaskTool(BaseTaskToolTest):
         assert call_kwargs["team_id"] == task.team.id
         assert call_kwargs["user_id"] == self.user.id
         assert "run_id" in call_kwargs
+
+    @patch("products.tasks.backend.max_tools.execute_task_processing_workflow_async")
+    @pytest.mark.django_db
+    @pytest.mark.asyncio
+    async def test_run_task_in_other_users_private_space(self, mock_execute_workflow):
+        task, _run = await self._create_other_users_private_task()
+        tool = self._create_tool(RunTaskTool)
+
+        content, artifact = await tool._arun_impl(task_id=str(task.id))
+
+        assert "not found" in content
+        assert artifact["error"] == "not_found"
+        mock_execute_workflow.assert_not_called()
 
     @patch("products.tasks.backend.max_tools.execute_task_processing_workflow_async")
     @pytest.mark.django_db
@@ -328,6 +385,17 @@ class TestGetTaskRunTool(BaseTaskToolTest):
     @pytest.mark.asyncio
     async def test_get_task_run_deleted_task(self):
         task = await self._create_task(deleted=True)
+        tool = self._create_tool(GetTaskRunTool)
+
+        content, artifact = await tool._arun_impl(task_id=str(task.id))
+
+        assert "not found" in content
+        assert artifact["error"] == "not_found"
+
+    @pytest.mark.django_db
+    @pytest.mark.asyncio
+    async def test_get_task_run_in_other_users_private_space(self):
+        task, _run = await self._create_other_users_private_task()
         tool = self._create_tool(GetTaskRunTool)
 
         content, artifact = await tool._arun_impl(task_id=str(task.id))
@@ -479,6 +547,17 @@ class TestGetTaskRunLogsTool(BaseTaskToolTest):
     @pytest.mark.asyncio
     async def test_get_logs_deleted_task(self):
         task = await self._create_task(deleted=True)
+        tool = self._create_tool(GetTaskRunLogsTool)
+
+        content, artifact = await tool._arun_impl(task_id=str(task.id))
+
+        assert "not found" in content
+        assert artifact["error"] == "not_found"
+
+    @pytest.mark.django_db
+    @pytest.mark.asyncio
+    async def test_get_logs_in_other_users_private_space(self):
+        task, _run = await self._create_other_users_private_task()
         tool = self._create_tool(GetTaskRunLogsTool)
 
         content, artifact = await tool._arun_impl(task_id=str(task.id))
@@ -651,6 +730,17 @@ class TestListTasksTool(BaseTaskToolTest):
 
         assert f"ID: {task.id}" in content
 
+    @pytest.mark.django_db
+    @pytest.mark.asyncio
+    async def test_list_tasks_excludes_other_users_private_space(self):
+        await self._create_other_users_private_task()
+        visible = await self._create_task("Visible")
+        tool = self._create_tool(ListTasksTool)
+
+        _content, artifact = await tool._arun_impl()
+
+        assert [task["id"] for task in artifact["tasks"]] == [str(visible.id)]
+
 
 @parameterized_class(
     ("filter_value", "should_match"),
@@ -767,6 +857,17 @@ class TestListTaskRunsTool(BaseTaskToolTest):
         content, artifact = await tool._arun_impl(task_id=str(task.id))
 
         assert f"Run ID: {run.id}" in content
+
+    @pytest.mark.django_db
+    @pytest.mark.asyncio
+    async def test_list_runs_in_other_users_private_space(self):
+        task, _run = await self._create_other_users_private_task()
+        tool = self._create_tool(ListTaskRunsTool)
+
+        content, artifact = await tool._arun_impl(task_id=str(task.id))
+
+        assert "not found" in content
+        assert artifact["error"] == "not_found"
 
     @pytest.mark.django_db
     @pytest.mark.asyncio

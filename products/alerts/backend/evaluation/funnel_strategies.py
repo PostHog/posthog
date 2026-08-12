@@ -29,8 +29,11 @@ class FunnelVizStrategy:
         Default: nothing to reject — only the steps funnel has a per-step config to range-check."""
         return None
 
-    def to_series(self, result: Any, config: FunnelsAlertConfig) -> list[ComparableSeries]:
-        """Normalize the funnel query result into one ``ComparableSeries`` per breakdown value."""
+    def to_series(self, result: Any, config: FunnelsAlertConfig, *, already_complete: bool) -> list[ComparableSeries]:
+        """Normalize the funnel query result into one ``ComparableSeries`` per breakdown value.
+
+        ``already_complete`` is true when the query clips the ongoing interval
+        (DateRange.excludeIncompletePeriods), so the trailing point is a complete period."""
         raise NotImplementedError
 
 
@@ -54,17 +57,19 @@ class StepsFunnelStrategy(FunnelVizStrategy):
                 "conversion_from_previous is undefined at the first step; use conversion_from_start instead"
             )
 
-    def to_series(self, result: Any, config: FunnelsAlertConfig) -> list[ComparableSeries]:
+    def to_series(self, result: Any, config: FunnelsAlertConfig, *, already_complete: bool) -> list[ComparableSeries]:
         # A steps funnel is a single snapshot: the condition is always absolute (enforced upstream) and
-        # check_ongoing_interval has no meaning (there are no periods), so neither is read here.
-        breakdowns = _steps_per_breakdown(_current_period_only(result))
+        # check_ongoing_interval/already_complete have no meaning (there are no periods).
+        rows = _require_list(_current_period_only(result), "steps")
+        if not rows:
+            return _no_data_series()
         return [
             ComparableSeries(
                 label=_label_for_breakdown(steps[0].get("breakdown_value") if steps else None),
                 points=[SeriesPoint(date=None, value=_conversion_rate(steps, config))],
                 current_index=0,
             )
-            for steps in breakdowns
+            for steps in _steps_per_breakdown(rows)
         ]
 
 
@@ -77,13 +82,25 @@ class HistoricalTrendsFunnelStrategy(FunnelVizStrategy):
     unit = _CONVERSION_RATE_UNIT
     supports_relative_conditions = True
 
-    def to_series(self, result: Any, config: FunnelsAlertConfig) -> list[ComparableSeries]:
-        series_dicts = _require_series_list(_current_period_only(result), "trends")
+    def to_series(self, result: Any, config: FunnelsAlertConfig, *, already_complete: bool) -> list[ComparableSeries]:
+        # The clip removes the ongoing interval from the results, so an alert asking to check it can
+        # never do what it says: reject the conflicting configuration instead of silently degrading.
+        if config.check_ongoing_interval and already_complete:
+            raise AlertExtractionError(
+                "check_ongoing_interval is not supported when the insight excludes incomplete periods "
+                "(DateRange.excludeIncompletePeriods): the ongoing interval is clipped from the query results."
+            )
+        series_dicts = _require_list(_current_period_only(result), "trends")
+        # Empty = no one entered the funnel: benign, not a misconfig.
+        if not series_dicts:
+            return _no_data_series()
         # By default evaluate the last *complete* period — the latest one is still in progress, so
         # anchoring there would read a partial rate (and, for relative, diff a partial against a complete
-        # one). check_ongoing_interval opts into that in-progress period. The anchor is the same for
-        # absolute and relative conditions; relative then diffs it against the period before it.
-        anchor_current = bool(config.check_ongoing_interval)
+        # one). check_ongoing_interval opts into that in-progress period; on a clipped query
+        # (already_complete) the last period is complete, so it is the one to evaluate. The anchor is
+        # the same for absolute and relative conditions; relative then diffs it against the period
+        # before it.
+        anchor_last = bool(config.check_ongoing_interval) or already_complete
         series: list[ComparableSeries] = []
         for entry in series_dicts:
             if not isinstance(entry, dict):
@@ -96,7 +113,7 @@ class HistoricalTrendsFunnelStrategy(FunnelVizStrategy):
             if not points:
                 # No periods in range — represent as a single missing point so the comparator skips it.
                 points = [SeriesPoint(date=None, value=None)]
-            current_index = max(len(points) - 1 if anchor_current else len(points) - 2, 0)
+            current_index = max(len(points) - 1 if anchor_last else len(points) - 2, 0)
             label = _label_for_breakdown(entry.get("breakdown_value"))
             series.append(ComparableSeries(label=label, points=points, current_index=current_index))
         return series
@@ -140,21 +157,27 @@ def _current_period_only(result: Any) -> Any:
     return [row for row in result if _is_current_period_row(row)]
 
 
-def _require_series_list(result: Any, viz_label: str) -> list[Any]:
-    if not result or not isinstance(result, list):
-        raise AlertExtractionError(f"Funnel {viz_label} alert query returned no data.")
+def _no_data_series() -> list[ComparableSeries]:
+    # A missing anchor value the comparator skips (NOT_FIRING, no error), so a benign empty funnel
+    # isn't reported to error tracking as a crash.
+    return [ComparableSeries(label="conversion", points=[SeriesPoint(date=None, value=None)], current_index=0)]
+
+
+def _require_list(result: Any, viz_label: str) -> list[Any]:
+    # A non-list (e.g. None from a swallowed query error) is a real failure, not "no data" — raise so
+    # the alert auto-disables. An empty list is left for the caller to treat as benign no-data.
+    if not isinstance(result, list):
+        raise AlertExtractionError(
+            f"Funnel {viz_label} alert query returned an unexpected result shape ({type(result).__name__})."
+        )
     return result
 
 
-def _steps_per_breakdown(result: Any) -> list[list[dict[str, Any]]]:
-    """Normalize a steps funnel result into a list of step-lists (one per breakdown value).
-
-    A non-breakdown funnel returns ``list[step]``; a breakdown funnel returns ``list[list[step]]``.
-    """
-    series = _require_series_list(result, "steps")
-    if isinstance(series[0], list):
-        return cast(list[list[dict[str, Any]]], series)
-    return [cast(list[dict[str, Any]], series)]
+def _steps_per_breakdown(result: list[Any]) -> list[list[dict[str, Any]]]:
+    # The runner returns ``list[step]`` without a breakdown and ``list[list[step]]`` with one; unify.
+    if isinstance(result[0], list):
+        return cast(list[list[dict[str, Any]]], result)
+    return [cast(list[dict[str, Any]], result)]
 
 
 def _label_for_breakdown(breakdown: Any) -> str:

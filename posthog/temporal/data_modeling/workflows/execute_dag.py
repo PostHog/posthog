@@ -12,10 +12,14 @@ from temporalio.workflow import ParentClosePolicy
 from posthog.exceptions_capture import capture_exception
 from posthog.temporal.common.base import PostHogWorkflow
 from posthog.temporal.data_modeling.activities import (
+    UPSTREAM_NAMES_IN_SKIP_REASON,
     GetDAGStructureInputs,
     PreemptDAGRunInputs,
+    RecordSkippedDataModelingJobsInputs,
+    SkippedDataModelingNode,
     get_dag_structure_activity,
     preempt_dag_run_activity,
+    record_skipped_data_modeling_jobs_activity,
 )
 from posthog.temporal.data_modeling.activities.utils import strip_hostname_from_error
 from posthog.temporal.data_modeling.metrics import (
@@ -28,6 +32,8 @@ from posthog.temporal.data_modeling.workflows.materialize_view import (
     MaterializeViewWorkflowInputs,
     MaterializeViewWorkflowResult,
 )
+
+from products.data_modeling.backend.facade.models import DataModelingJobEngine
 
 MAX_CONCURRENT_CHILDREN = 10
 
@@ -201,6 +207,7 @@ class ExecuteDAGWorkflow(PostHogWorkflow):
             PreemptDAGRunInputs(
                 team_id=inputs.team_id,
                 dag_id=inputs.dag_id,
+                node_ids=inputs.node_ids,
             ),
             start_to_close_timeout=dt.timedelta(minutes=5),
             retry_policy=temporalio.common.RetryPolicy(
@@ -265,7 +272,12 @@ class ExecuteDAGWorkflow(PostHogWorkflow):
         node_results: list[NodeResult] = []
         ephemeral_node_set = set(dag_structure.ephemeral_nodes)
         failed_node_set: set[str] = set()
+        serving_engine = (
+            DataModelingJobEngine.DUCKGRES if inputs.duckgres_only else DataModelingJobEngine.CLICKHOUSE
+        ).value
+        suspended_node_set: set[str] = set(dag_structure.suspended_nodes.get(serving_engine, []))
         downstreams = _get_downstream_lookup(edge_lookup)
+        skipped_jobs: list[SkippedDataModelingNode] = []
         # execute child workflows with bounded concurrency using a sliding window;
         # the semaphore limits how many child workflows run simultaneously across
         # all levels to be a friendlier neighbor to duckgres and clickhouse infrastructure
@@ -281,13 +293,36 @@ class ExecuteDAGWorkflow(PostHogWorkflow):
             for node_id in level:
                 should_skip = False
                 skip_reason = None
-                for failed_id in failed_node_set:
-                    if node_id in downstreams[failed_id]:
-                        should_skip = True
-                        skip_reason = f"Upstream node {failed_id} failed"
-                        break
+                failed_upstream: list[str] = []
+                suspended_upstream: list[str] = []
+                if node_id in suspended_node_set:
+                    # a node paused for its own failures keeps its Failed job as the latest one, which
+                    # is what the resume banner and the failure digest both read
+                    should_skip = True
+                    skip_reason = "Node suspended after repeated materialization failures"
+                else:
+                    for blocked_id in sorted(failed_node_set) + sorted(suspended_node_set):
+                        if node_id not in downstreams[blocked_id]:
+                            continue
+                        suspended = blocked_id in suspended_node_set
+                        if blocked_id in (suspended_upstream if suspended else failed_upstream):
+                            continue
+                        (suspended_upstream if suspended else failed_upstream).append(blocked_id)
+                        if not should_skip:
+                            should_skip = True
+                            skip_reason = f"Upstream node {blocked_id} {'suspended' if suspended else 'failed'}"
                 if should_skip:
                     skip_nodes.append((node_id, skip_reason))
+                    if node_id not in ephemeral_node_set and (failed_upstream or suspended_upstream):
+                        skipped_jobs.append(
+                            SkippedDataModelingNode(
+                                node_id=node_id,
+                                failed_upstream_node_ids=failed_upstream[:UPSTREAM_NAMES_IN_SKIP_REASON],
+                                failed_upstream_total=len(failed_upstream),
+                                suspended_upstream_node_ids=suspended_upstream[:UPSTREAM_NAMES_IN_SKIP_REASON],
+                                suspended_upstream_total=len(suspended_upstream),
+                            )
+                        )
                 elif node_id in ephemeral_node_set:
                     ephemeral_nodes.append(node_id)
                 else:
@@ -375,6 +410,21 @@ class ExecuteDAGWorkflow(PostHogWorkflow):
                 node_results.append(nr)
                 if not nr.success:
                     failed_node_set.add(nr.node_id)
+
+        # Safe to add without a workflow patch: this is the last command before the workflow
+        # returns, so a replayed history either stops short of it or has already completed.
+        if skipped_jobs:
+            await temporalio.workflow.execute_activity(
+                record_skipped_data_modeling_jobs_activity,
+                RecordSkippedDataModelingJobsInputs(
+                    team_id=inputs.team_id,
+                    dag_id=inputs.dag_id,
+                    engine=serving_engine,
+                    skipped_nodes=skipped_jobs,
+                ),
+                start_to_close_timeout=dt.timedelta(minutes=5),
+                retry_policy=temporalio.common.RetryPolicy(maximum_attempts=3),
+            )
 
         # compute summary
         end_time = temporalio.workflow.now()

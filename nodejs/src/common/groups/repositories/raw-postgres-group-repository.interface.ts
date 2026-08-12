@@ -4,6 +4,8 @@ import { TransactionClient } from '~/common/utils/db/postgres'
 import { Properties } from '~/plugin-scaffold'
 import { Group, GroupTypeIndex, ProjectId, PropertiesLastOperation, PropertiesLastUpdatedAt, TeamId } from '~/types'
 
+import { GroupKey } from './group-repository.interface'
+
 export interface RawPostgresGroupRepository {
     fetchGroup(
         teamId: TeamId,
@@ -14,9 +16,7 @@ export interface RawPostgresGroupRepository {
     ): Promise<Group | undefined>
 
     fetchGroupsByKeys(
-        teamIds: TeamId[],
-        groupTypeIndexes: GroupTypeIndex[],
-        groupKeys: string[],
+        keys: GroupKey[],
         callerTag?: string,
         tx?: TransactionClient
     ): Promise<

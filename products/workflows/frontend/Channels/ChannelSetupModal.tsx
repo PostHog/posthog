@@ -1,6 +1,8 @@
 import { IntegrationType } from '~/types'
 
+import { APNSSetupModal } from './APNSSetup/APNSSetupModal'
 import { EmailSetupModal } from './EmailSetup/EmailSetupModal'
+import { FCMSetupModal } from './FCMSetup/FCMSetupModal'
 import { ChannelType } from './MessageChannels'
 import { SlackSetupModal } from './SlackSetup/SlackSetupModal'
 import { TwilioSetupModal } from './TwilioSetup/TwilioSetupModal'
@@ -37,6 +39,10 @@ export function ChannelSetupModal({
             return <SlackSetupModal {...modalProps} />
         case 'twilio':
             return <TwilioSetupModal {...modalProps} />
+        case 'firebase':
+            return <FCMSetupModal {...modalProps} />
+        case 'apns':
+            return <APNSSetupModal {...modalProps} />
 
         default:
             return null

@@ -125,7 +125,7 @@ describe('TaxonomicFilter pinning', () => {
         await userEvent.hover(screen.getByTestId('prop-filter-event_properties-0'))
 
         await waitFor(() => {
-            const pinButtons = screen.queryAllByRole('button', { name: /pin/i })
+            const pinButtons = screen.queryAllByTestId('definition-popover-pin')
             expect(pinButtons.length).toBeGreaterThan(0)
         })
     })

@@ -46,7 +46,7 @@ class TestQueryAiEvents:
         )
 
     def _make_result(self, results):
-        return Mock(results=results)
+        return Mock(results=results, columns=[])
 
     @patch("posthog.hogql_queries.ai.ai_table_resolver.execute_hogql_query")
     def test_returns_ai_events_result_when_data_found(self, mock_execute):
@@ -64,8 +64,9 @@ class TestQueryAiEvents:
         assert result is ai_result
         assert mock_execute.call_count == 1
 
+    @patch("posthog.hogql_queries.ai.ai_table_resolver.use_new_events_schema", return_value=True)
     @patch("posthog.hogql_queries.ai.ai_table_resolver.execute_hogql_query")
-    def test_falls_back_to_events_when_ai_events_empty(self, mock_execute):
+    def test_falls_back_to_events_with_pinned_schema(self, mock_execute, _mock_use_new_events_schema):
         ai_result = self._make_result([])
         events_result = self._make_result([["trace-1"]])
         mock_execute.side_effect = [ai_result, events_result]
@@ -81,6 +82,7 @@ class TestQueryAiEvents:
 
         assert result is events_result
         assert mock_execute.call_count == 2
+        assert mock_execute.call_args.kwargs["context"].use_new_events_schema is True
 
     @patch("posthog.hogql_queries.ai.ai_table_resolver.execute_hogql_query")
     def test_raises_expired_when_ai_events_empty_but_events_has_rows(self, mock_execute):

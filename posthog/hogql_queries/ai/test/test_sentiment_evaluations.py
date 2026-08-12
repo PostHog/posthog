@@ -106,6 +106,27 @@ def test_load_trace_sentiment_evaluations_aggregates_generation_tuples() -> None
             "neutral",
             0.0,
         ),
+        (
+            "low_confidence_polar_aggregate_resolves_to_neutral",
+            [
+                (
+                    "generation-1",
+                    "negative",
+                    0.504,
+                    {"positive": 0.028, "neutral": 0.468, "negative": 0.504},
+                    {
+                        "0": {
+                            "label": "negative",
+                            "score": 0.504,
+                            "scores": {"positive": 0.028, "neutral": 0.468, "negative": 0.504},
+                        }
+                    },
+                    1,
+                )
+            ],
+            "neutral",
+            0.468,
+        ),
     ]
 )
 def test_load_trace_sentiment_evaluations_handles_sparse_scores(

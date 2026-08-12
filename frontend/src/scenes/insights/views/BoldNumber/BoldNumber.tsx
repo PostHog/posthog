@@ -177,7 +177,7 @@ export function BoldNumber({ showPersonsModal = true, context }: ChartParams): J
             {showComparison && <BoldNumberComparison showPersonsModal={showPersonsModal} context={context} />}
         </div>
     ) : (
-        <InsightEmptyState />
+        <InsightEmptyState sampleDataVariant="number" />
     )
 }
 
@@ -295,7 +295,7 @@ export function HogQLBoldNumber(): JSX.Element {
     if (formattedValue === null || directValue === null || resultsValue === null || resultValue === null) {
         return (
             <div className="LemonTable HogQL">
-                <InsightEmptyState />
+                <InsightEmptyState sampleDataVariant="number" />
             </div>
         )
     }

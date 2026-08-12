@@ -1,10 +1,17 @@
+import re
 import datetime as dt
 
 from unittest import TestCase
 
 from parameterized import parameterized
 
-from products.logs.backend.log_patterns import LogSample, mine_patterns
+from products.logs.backend.log_patterns import (
+    LogSample,
+    compile_match_regex,
+    extract_match_literal,
+    mine_patterns,
+    pattern_fingerprint,
+)
 
 
 def _sample(
@@ -51,6 +58,33 @@ class TestMinePatterns(TestCase):
                 ],
                 "<uuid>",
                 "446655440000",
+            ),
+            (
+                "timestamp_iso_t",
+                [
+                    "job 2026-08-12T08:10:43.397557Z retried",
+                    "job 2026-08-13T09:11:44.123456Z retried",
+                ],
+                "<timestamp>",
+                "397557Z",
+            ),
+            (
+                "timestamp_space_separated",
+                [
+                    "job 2026-08-12 08:10:43.397557 retried",
+                    "job 2026-08-13 09:11:44.123456 retried",
+                ],
+                "<timestamp>",
+                "397557",
+            ),
+            (
+                "timestamp_utc_offset",
+                [
+                    "job 2026-08-12T08:10:43+00:00 retried",
+                    "job 2026-08-13T09:11:44+02:00 retried",
+                ],
+                "<timestamp>",
+                "12T08",
             ),
         ]
     )
@@ -102,12 +136,15 @@ class TestMinePatterns(TestCase):
 
         # all five cluster together (the number is masked), but only two examples are kept
         assert patterns[0].count == 5
-        assert patterns[0].examples == ["error code 0", "error code 1"]
+        assert [e.body for e in patterns[0].examples] == ["error code 0", "error code 1"]
+        # examples carry the sampled row's metadata for display, not just the body
+        assert patterns[0].examples[0].service_name == "api"
+        assert patterns[0].examples[0].severity_text == "info"
 
     def test_long_bodies_are_truncated_before_mining(self) -> None:
         patterns = mine_patterns([_sample("x" * 1000)])
 
-        assert len(patterns[0].examples[0]) == 512
+        assert len(patterns[0].examples[0].body) == 512
 
     def test_first_and_last_seen_span_the_cluster(self) -> None:
         earliest = dt.datetime(2026, 6, 23, 12, 0, 0, tzinfo=dt.UTC)
@@ -134,3 +171,106 @@ class TestMinePatterns(TestCase):
 
     def test_empty_input_returns_empty(self) -> None:
         assert mine_patterns([]) == []
+
+    def test_mined_patterns_carry_a_regex_that_matches_their_own_examples(self) -> None:
+        # End-to-end self-consistency: whatever mining produced, the compiled predicate must
+        # match the rows it came from — the invariant the whole "view matching logs" flow
+        # rests on.
+        samples = [_sample(f"User {name} not found in {i} ms") for i, name in enumerate(("alice", "bob", "carol"))]
+
+        patterns = mine_patterns(samples)
+
+        assert patterns[0].match_regex is not None
+        compiled = re.compile(patterns[0].match_regex)
+        for example in patterns[0].examples:
+            assert compiled.search(example.body)
+
+    def test_same_statement_on_different_dates_shares_fingerprint(self) -> None:
+        # The patterns diff compares fingerprints across two windows (default: one week
+        # apart). A timestamp fragment surviving masking becomes a literal run, so the
+        # same log statement would fingerprint differently and show up as a false
+        # new/gone pair.
+        monday = mine_patterns([_sample("2026-08-12T08:10:43.397557Z task_retrying attempt=3")])
+        week_later = mine_patterns([_sample("2026-08-19T09:04:17.112233Z task_retrying attempt=7")])
+
+        assert pattern_fingerprint(monday[0].pattern) == pattern_fingerprint(week_later[0].pattern)
+
+    def test_match_regex_matches_siblings_with_different_timestamps(self) -> None:
+        # An unmasked timestamp baked into match_regex narrows the "view matching logs"
+        # pivot to the single line the pattern was mined from.
+        patterns = mine_patterns([_sample("task_retrying at 2026-08-12T08:10:43.397557Z scheduled")])
+
+        assert patterns[0].match_regex is not None
+        assert re.search(patterns[0].match_regex, "task_retrying at 2026-08-19T14:02:11.000001Z scheduled")
+
+
+class TestCompileMatchRegex(TestCase):
+    @parameterized.expand(
+        [
+            # template, raw body that must match (arbitrary whitespace runs, live values)
+            ("User <*> not found", "User dave not found"),
+            ("User <*> not found", "  User   dave\tnot   found  "),
+            ("took <num> ms", "took 12345 ms"),
+            ("request <uuid> failed", "request 93fce79d-6926-4b08-8fa5-00ffd8e65f4e failed"),
+            ("peer <ip> disconnected", "peer 10.32.243.94 disconnected"),
+            ("token <hex> rejected", "token 0xdeadbeef rejected"),
+            ("path /api/v1/users?id=<num> hit", "path /api/v1/users?id=42 hit"),
+            ("job <timestamp> finished", "job 2026-08-12T08:10:43.397557Z finished"),
+        ]
+    )
+    def test_compiled_regex_matches_raw_bodies(self, template: str, raw_body: str) -> None:
+        regex = compile_match_regex(template, [_sample(raw_body.strip())], truncate=512)
+
+        assert regex is not None
+        assert re.search(regex, raw_body)
+
+    @parameterized.expand(
+        [
+            # anchoring: a filter that matches unrelated lines is the failure mode this guards
+            ("User <*> not found", "prefix junk User dave not found"),
+            ("User <*> not found", "User dave not found trailing junk"),
+        ]
+    )
+    def test_compiled_regex_is_anchored(self, template: str, non_matching_body: str) -> None:
+        regex = compile_match_regex(template, [_sample("User dave not found")], truncate=512)
+
+        assert regex is not None
+        assert not re.search(regex, non_matching_body)
+
+    def test_truncated_examples_drop_the_end_anchor(self) -> None:
+        # A body that hit the mining truncation cap means the template only covers a prefix
+        # of the raw line — the predicate must still match the full-length original.
+        truncated_body = "prefix " + "x" * 505
+        regex = compile_match_regex("prefix <*>", [_sample(truncated_body)], truncate=512)
+
+        assert regex is not None
+        assert re.search(regex, truncated_body + " continues beyond the cap")
+
+    @parameterized.expand(
+        [
+            ("all_wildcards", "<*> <*> <*>"),
+            ("literals_too_thin", "a <num> b"),
+        ]
+    )
+    def test_templates_without_literal_content_get_no_regex(self, _name: str, template: str) -> None:
+        assert compile_match_regex(template, [_sample("anything at all")], truncate=512) is None
+
+    def test_diverged_example_fails_validation(self) -> None:
+        # Drain refines templates as rows merge, so a stored example can stop matching the
+        # final template. Shipping that regex would filter to the wrong logs — it must be
+        # withheld instead.
+        examples = [_sample("User dave not found"), _sample("something entirely different")]
+
+        assert compile_match_regex("User <*> not found", examples, truncate=512) is None
+
+    def test_no_examples_means_no_regex(self) -> None:
+        assert compile_match_regex("User <*> not found", [], truncate=512) is None
+
+    @parameterized.expand(
+        [
+            ("longest_run_wins", "at <uuid> failed to charge card for team <num>", "failed to charge card for team"),
+            ("too_thin", "<*> ab <num>", None),
+        ]
+    )
+    def test_extract_match_literal(self, _name: str, template: str, expected: str | None) -> None:
+        assert extract_match_literal(template) == expected

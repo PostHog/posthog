@@ -32,10 +32,6 @@ The main cluster is:
 
 Additionally, on k8s we have stateless nodes:
 
-## ShuffleHog nodes
-
-It shuffles data between Kafka partitions.
-
 ## Ingestion nodes
 
 It ingests data from Kafka to a proper ClickHouse shard.
@@ -165,13 +161,37 @@ engine=Distributed(
 > Do not initiate step 2 without confirmation that step 1 has been completed.
 
 > [!INFO]
-> Always use `IF EXISTS` or `IF NOT EXISTS` clauses:
+> Always use `IF EXISTS` / `IF NOT EXISTS` guards. For `ALTER TABLE` the guard goes on the
+> operation, **not** on the table — `ALTER TABLE IF EXISTS ...` is a ClickHouse syntax error.
 >
-> `CREATE TABLE IF NOT EXISTS`
+> `CREATE TABLE IF NOT EXISTS my_table ...`
 >
-> `ALTER TABLE IF EXISTS`
+> `ALTER TABLE my_table ADD COLUMN IF NOT EXISTS my_col ...`
 >
-> `ALTER TABLE IF EXISTS ADD COLUMN`
+> `ALTER TABLE my_table MODIFY COLUMN IF EXISTS my_col ...`
+>
+> `ALTER TABLE my_table DROP COLUMN IF EXISTS my_col`
+
+> [!INFO]
+> Do not write `CODEC(ZSTD(1))` on a column. The server config already compresses every
+> column with ZSTD, so a per-column ZSTD codec buys nothing and just makes the column list
+> longer.
+>
+> Declare a CODEC only where it beats that default, and check the `ORDER BY` before you do.
+> The delta family (`Delta`, `DoubleDelta`) pays off on a column that is near-sorted **in
+> storage order**, so it wants a leading `ORDER BY` prefix. A timestamp that the sort key
+> only buckets (`toDate(timestamp)`), or that is absent from the key entirely, lands on disk
+> in effectively random order — `DoubleDelta` then widens its encoding to fit the largest
+> jump and strips structure ZSTD would have used, so it loses on both counts. `T64` and
+> `Gorilla` do not care about ordering and are the better reach when the sort key is against
+> you. Pair whatever you pick with ZSTD as the second stage, `CODEC(DoubleDelta, ZSTD(1))`,
+> since the specialization replaces the default compression rather than layering on top of it.
+>
+> A CODEC belongs on the storage table only. Distributed and Kafka engine tables store
+> nothing, but ClickHouse still keeps a declared CODEC in `SHOW CREATE TABLE`, so one there
+> is inert metadata that drifts from the sharded table it fronts. In the declarative HCL
+> schema this means a CODEC-free `abstract` column list, with the codecs added back on the
+> sharded instance via `patch_column` — see `posthog/clickhouse/hcl/README.md`.
 
 > [!CAUTION]
 > Never drop or recreate `kafka_events_json_ws` or `events_json_ws_mv`. These tables are a
@@ -337,7 +357,7 @@ SYNC is not necessary for non-replicated objects: Kafka table engine, Distribute
 
 ```python
 run_sql_with_exceptions(
-    "ALTER TABLE IF EXISTS my_table ADD COLUMN ...",
+    "ALTER TABLE my_table ADD COLUMN IF NOT EXISTS ...",
     node_roles=[NodeRole.DATA],
     is_alter_on_replicated_table=True
 )
@@ -349,7 +369,7 @@ The `is_alter_on_replicated_table=True` flag ensures the ALTER runs on one host 
 
 ```python
 run_sql_with_exceptions(
-    "ALTER TABLE IF EXISTS sharded_my_table ADD COLUMN ...",
+    "ALTER TABLE sharded_my_table ADD COLUMN IF NOT EXISTS ...",
     node_roles=[NodeRole.DATA],
     sharded=True
 )
@@ -361,7 +381,7 @@ The `sharded=True` flag ensures the ALTER runs once per shard.
 
 ```python
 run_sql_with_exceptions(
-    "ALTER TABLE IF EXISTS distributed_my_table ADD COLUMN ...",
+    "ALTER TABLE distributed_my_table ADD COLUMN IF NOT EXISTS ...",
     node_roles=[NodeRole.DATA]
 )
 ```

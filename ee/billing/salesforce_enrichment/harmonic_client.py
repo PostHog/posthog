@@ -100,6 +100,73 @@ class AsyncHarmonicClient:
 
         return None
 
+    async def enrich_company_by_domain_strict(self, domain: str) -> Optional[dict[str, Any]]:
+        """Like enrich_company_by_domain, but distinguishes not-found from operational failure.
+
+        Returns None only for a genuine not-found (every domain variation returned a clean
+        GraphQL response with companyFound false). Operational failures (network errors, non-2xx
+        status, JSON decode, GraphQL errors) are re-raised so callers can retry and alert instead
+        of mistaking an outage for a missing company. Does not capture_exception — the caller owns
+        error handling.
+        """
+        await asyncio.sleep(0.2)
+        domain = self._clean_domain(domain)
+        domain_variations = [f"{prefix}{domain}" if prefix else domain for prefix in HARMONIC_DOMAIN_VARIATIONS]
+
+        last_error: Optional[Exception] = None
+        for domain_variation in domain_variations:
+            try:
+                variables = {"identifiers": {"websiteUrl": f"https://{domain_variation}"}}
+
+                if self.session is None:
+                    raise RuntimeError("HTTP session not initialized. Use async context manager.")
+                async with self.session.post(
+                    f"{HARMONIC_BASE_URL}/graphql",
+                    params={"apikey": self.api_key},
+                    json={"query": HARMONIC_COMPANY_ENRICHMENT_QUERY, "variables": variables},
+                    headers={"Content-Type": "application/json"},
+                ) as response:
+                    response.raise_for_status()
+                    data = await response.json()
+
+                    if "errors" in data:
+                        raise RuntimeError(f"Harmonic GraphQL errors for {domain_variation}: {data['errors']}")
+
+                    result = data.get("data", {}).get("enrichCompanyByIdentifiers", {})
+                    if result.get("companyFound"):
+                        return result.get("company")
+            except Exception as e:
+                last_error = e
+                continue
+
+        if last_error is not None:
+            raise last_error
+        return None
+
+    async def get_company_by_urn(self, urn: str) -> Optional[dict[str, Any]]:
+        """Resolve a Harmonic company URN (e.g. from relatedCompanies) via the REST profile endpoint.
+
+        Returns None only for a genuine not-found (404). Other failures propagate — like
+        enrich_company_by_domain_strict, this does not capture_exception; parent-company
+        resolution is optional, so the caller decides whether to swallow the error.
+        """
+        company_id = urn.rsplit(":", 1)[-1]
+
+        if self.session is None:
+            raise RuntimeError("HTTP session not initialized. Use async context manager.")
+        await asyncio.sleep(0.2)
+        # Short cap: a single profile fetch, and it shares the signup activity's 90s budget with
+        # the up-to-60s domain lookup — inheriting the session's 30s total would eat all headroom.
+        async with self.session.get(
+            f"{HARMONIC_BASE_URL}/companies/{company_id}",
+            headers={"apikey": self.api_key},
+            timeout=aiohttp.ClientTimeout(total=10),
+        ) as response:
+            if response.status == 404:
+                return None
+            response.raise_for_status()
+            return await response.json()
+
     async def enrich_companies_batch(self, domains: list[str]) -> list[dict[str, Any] | None]:
         """Enrich multiple domains concurrently.
 

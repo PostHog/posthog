@@ -31,7 +31,7 @@ from products.warehouse_sources.backend.facade.models import (
     DataWarehouseTable,
     ExternalDataSource,
 )
-from products.warehouse_sources.backend.test.utils import create_data_warehouse_table_from_csv
+from products.warehouse_sources.backend.facade.testing import create_data_warehouse_table_from_csv
 
 TEST_DATE_FROM = "2024-11-01"
 TEST_DATE_TO = "2024-12-31"
@@ -84,7 +84,7 @@ def get_default_query_runner(query: MarketingAnalyticsTableQuery, team: Team) ->
 
 
 @dataclass
-class TableInfo:
+class WarehouseTableFixture:
     table: DataWarehouseTable
     source: ExternalDataSource
     credential: DataWarehouseCredential
@@ -170,7 +170,7 @@ class TestMarketingAnalyticsTableQueryRunnerCompare(ClickhouseTestMixin, BaseTes
 
     def setUp(self):
         super().setUp()
-        self.test_tables: dict[str, TableInfo] = {}
+        self.test_tables: dict[str, WarehouseTableFixture] = {}
         self._cleanup_functions: list[Callable[[], None]] = []
 
         config = self.team.marketing_analytics_config
@@ -185,7 +185,7 @@ class TestMarketingAnalyticsTableQueryRunnerCompare(ClickhouseTestMixin, BaseTes
         self.test_tables.clear()
         super().tearDown()
 
-    def _setup_csv_table(self, table_key: str) -> TableInfo:
+    def _setup_csv_table(self, table_key: str) -> WarehouseTableFixture:
         """Set up a single CSV-backed table for testing."""
         if table_key not in self.test_data_configs:
             raise ValueError(f"Invalid table key: {table_key}")
@@ -209,7 +209,7 @@ class TestMarketingAnalyticsTableQueryRunnerCompare(ClickhouseTestMixin, BaseTes
             self.team,
         )
 
-        table_info = TableInfo(
+        table_info = WarehouseTableFixture(
             table=table,
             source=source,
             credential=credential,

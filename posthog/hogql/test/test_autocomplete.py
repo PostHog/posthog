@@ -2,6 +2,8 @@ from typing import Optional
 
 from posthog.test.base import APIBaseTest, ClickhouseTestMixin
 
+from parameterized import parameterized
+
 from posthog.schema import (
     AutocompleteCompletionItemKind,
     HogLanguage,
@@ -572,12 +574,19 @@ class TestAutocomplete(ClickhouseTestMixin, APIBaseTest):
         assert "some_view" not in [x.label for x in results.suggestions]
         assert "DELETED" not in [x.label for x in results.suggestions]
 
-    def test_autocomplete_empty_source_query(self):
+    @parameterized.expand(
+        [
+            ("empty", ""),
+            # An unquoted reserved keyword used as an alias makes the source query unparseable.
+            ("reserved_keyword_alias", "select 1 as team_id"),
+        ]
+    )
+    def test_autocomplete_degrades_gracefully_for_bad_source_query(self, _name: str, source_query: str):
         autocomplete = HogQLAutocomplete(
             kind="HogQLAutocomplete",
             query="SELECT * FROM e",
             language=HogLanguage.HOG_QL,
-            sourceQuery=HogQLQuery(query=""),  # Empty source query
+            sourceQuery=HogQLQuery(query=source_query),
             startPosition=15,
             endPosition=15,
         )

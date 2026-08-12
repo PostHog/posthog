@@ -68,6 +68,10 @@ Standard REST on `/api/projects/{id}/feature_flags/`. Hard `DELETE` is blocked â
 | `GET`  | `/api/organizations/{id}/feature_flags/{key}/`      | Get a flag by key across all accessible teams   |
 | `POST` | `/api/organizations/{id}/feature_flags/copy_flags/` | Copy a flag from one project to target projects |
 
+`copy_flags` requires editor access to `feature_flag` in each target project, not just visibility.
+A caller who can see a project but can't edit flags there gets a `failed` entry for that target instead of a copy.
+`target_project_ids` is capped at `MAX_COPY_FLAGS_TARGET_PROJECTS` (50) per call, and the endpoint has its own burst/sustained throttles since each target project can create cohorts and a flag.
+
 ## Key actions in detail
 
 ### `my_flags` and `evaluation_reasons`

@@ -1,8 +1,17 @@
 import { mockProducer, mockProducerObserver } from '~/tests/helpers/mocks/producer.mock'
 
+import { metrics as metricsApi } from '@opentelemetry/api'
+import {
+    type DataPoint,
+    InMemoryMetricExporter,
+    MeterProvider,
+    PeriodicExportingMetricReader,
+} from '@opentelemetry/sdk-metrics'
 import { DateTime } from 'luxon'
 import { Message } from 'node-rdkafka'
 
+import { compileHog } from '~/cdp/templates/compiler'
+import { HogFunctionType } from '~/cdp/types'
 import { KAFKA_APP_METRICS_2, KAFKA_LOGS_CLICKHOUSE, KAFKA_LOGS_INGESTION_DLQ } from '~/common/config/kafka-topics'
 import { APP_METRICS_OUTPUT, AppMetricsOutput } from '~/common/outputs'
 import { IngestionOutputs } from '~/common/outputs/ingestion-outputs'
@@ -16,7 +25,9 @@ import { createTeam, getFirstTeam, getTeam, resetTestDatabase } from '~/tests/he
 import { Hub, Team } from '~/types'
 
 import { getDefaultTracesIngestionConsumerConfig } from './config'
-import { LogRecord, encodeLogRecords } from './log-record-avro'
+import * as otelMetrics from './ingestion-otel-metrics'
+import { resetLogsIngestionInstrumentsForTests } from './ingestion-otel-metrics'
+import { LogRecord, decodeLogRecords, encodeLogRecords } from './log-record-avro'
 import {
     DEFAULT_LOGS_RETENTION_DAYS,
     LogsIngestionConsumer,
@@ -32,11 +43,15 @@ import {
     logsRecordsDroppedCounter,
     logsRecordsReceivedCounter,
 } from './logs-ingestion-consumer'
+import { compileMetricRules } from './metrics-rules/compile-metric-rules'
+import type { MetricRulesCache } from './metrics-rules/metric-rules-cache'
+import type { LogsMetricsEmitter } from './metrics-rules/metrics-emitter'
 import { LOGS_DLQ_OUTPUT, LOGS_OUTPUT, LogsDlqOutput, LogsOutput } from './outputs/outputs'
 import { compileRuleSet } from './sampling/compile-rules'
 import type { SamplingRulesCache } from './sampling/sampling-rules-cache'
 import { BASE_REDIS_KEY } from './services/logs-rate-limiter.service'
 import { TracesIngestionConsumer } from './traces-ingestion-consumer'
+import { LogsTransformerService } from './transformations/logs-transformer.service'
 
 const DEFAULT_TEST_TIMEOUT = 5000
 jest.setTimeout(DEFAULT_TEST_TIMEOUT)
@@ -181,11 +196,17 @@ describe('LogsIngestionConsumer', () => {
     let team2: Team
     let fixedTime: DateTime
     let logMessageDroppedCounterSpy: jest.SpyInstance
+    let recordLogMessageDroppedSpy: jest.SpyInstance
 
     const createLogsIngestionConsumer = async (
         hub: Hub,
         overrides: any = {},
-        depsPartial: Partial<Pick<LogsIngestionConsumerDeps, 'samplingRulesCache'>> = {}
+        depsPartial: Partial<
+            Pick<
+                LogsIngestionConsumerDeps,
+                'samplingRulesCache' | 'metricRulesCache' | 'metricsEmitter' | 'logsTransformer'
+            >
+        > = {}
     ) => {
         const consumer = new LogsIngestionConsumer(
             hub,
@@ -245,6 +266,7 @@ describe('LogsIngestionConsumer', () => {
 
         await deleteKeysWithPrefix(consumer['redis'], BASE_REDIS_KEY)
         logMessageDroppedCounterSpy = jest.spyOn(logMessageDroppedCounter, 'inc')
+        recordLogMessageDroppedSpy = jest.spyOn(otelMetrics, 'recordLogMessageDropped')
 
         // Default to not quota limited - tests can override this
         jest.spyOn(hub.quotaLimiting, 'isTeamTokenQuotaLimited').mockResolvedValue(false)
@@ -741,6 +763,68 @@ describe('LogsIngestionConsumer', () => {
                 { reason: 'rate_limited', team_id: team.id.toString() },
                 1
             )
+        })
+
+        it('dual-emits usage counters into the OTel metrics push', async () => {
+            // Wiring guard: the unit tests on ingestion-otel-metrics prove the record
+            // functions work; this proves the consumer actually calls them.
+            const otelExporter = new InMemoryMetricExporter(0)
+            const otelReader = new PeriodicExportingMetricReader({
+                exporter: otelExporter,
+                exportIntervalMillis: 60_000,
+            })
+            const otelProvider = new MeterProvider({ readers: [otelReader] })
+            metricsApi.setGlobalMeterProvider(otelProvider)
+            resetLogsIngestionInstrumentsForTests()
+
+            try {
+                hub.LOGS_LIMITER_BUCKET_SIZE_KB = 2
+                hub.LOGS_LIMITER_REFILL_RATE_KB_PER_SECOND = 1
+                hub.LOGS_LIMITER_TTL_SECONDS = 3600
+
+                await consumer.stop()
+                consumer = await createLogsIngestionConsumer(hub)
+
+                const messages = [
+                    ...(await createKafkaMessages([createLogMessage({ message: 'First' })], {
+                        token: team.api_token,
+                        bytes_uncompressed: '1024',
+                        bytes_compressed: '512',
+                        record_count: '5',
+                    })),
+                    ...(await createKafkaMessages([createLogMessage({ message: 'Second' })], {
+                        token: team.api_token,
+                        bytes_uncompressed: '2048',
+                        bytes_compressed: '1024',
+                        record_count: '10',
+                    })),
+                ]
+
+                await waitForBackgroundTasks(consumer.processKafkaBatch(messages))
+                await otelReader.forceFlush()
+
+                const pointsByMetric = new Map(
+                    otelExporter
+                        .getMetrics()
+                        .flatMap((rm) => rm.scopeMetrics)
+                        .flatMap((sm) => sm.metrics)
+                        .map((m) => [m.descriptor.name, m.dataPoints as readonly DataPoint<number>[]])
+                )
+                expect(pointsByMetric.get('logs_ingestion_bytes_received_total')?.[0]?.value).toEqual(3072)
+                expect(pointsByMetric.get('logs_ingestion_bytes_allowed_total')?.[0]?.value).toEqual(1024)
+                expect(pointsByMetric.get('logs_ingestion_bytes_dropped_total')?.[0]).toMatchObject({
+                    attributes: { team_id: team.id.toString() },
+                    value: 2048,
+                })
+                expect(pointsByMetric.get('logs_ingestion_message_dropped_count')?.[0]).toMatchObject({
+                    attributes: { reason: 'rate_limited', team_id: team.id.toString() },
+                    value: 1,
+                })
+            } finally {
+                await otelProvider.shutdown()
+                metricsApi.disable()
+                resetLogsIngestionInstrumentsForTests()
+            }
         })
 
         it('should handle missing header values with defaults', async () => {
@@ -1793,6 +1877,150 @@ describe('LogsIngestionConsumer', () => {
         })
     })
 
+    describe('metric rules (generate metrics from logs)', () => {
+        let mockEmitter: { emit: jest.Mock }
+        let mockMetricRulesCache: Pick<MetricRulesCache, 'getCompiledRules'>
+
+        const countBySeverityRules = compileMetricRules([
+            {
+                id: '00000000-0000-0000-0000-0000000000bb',
+                metric_name: 'log.records',
+                filter_group: null,
+                value_attribute: null,
+                group_by: ['severity_text'],
+            },
+        ])
+
+        const createConsumerWithMetricRules = async (overrides: any = {}, depsPartial: any = {}) => {
+            await consumer.stop()
+            consumer = await createLogsIngestionConsumer(hub, overrides, {
+                metricRulesCache: mockMetricRulesCache as MetricRulesCache,
+                metricsEmitter: mockEmitter as unknown as LogsMetricsEmitter,
+                ...depsPartial,
+            })
+            await deleteKeysWithPrefix(consumer['redis'], BASE_REDIS_KEY)
+        }
+
+        beforeEach(async () => {
+            mockEmitter = { emit: jest.fn().mockResolvedValue(true) }
+            mockMetricRulesCache = {
+                getCompiledRules: (teamId: number) => Promise.resolve(teamId === team.id ? countBySeverityRules : []),
+            }
+            await createConsumerWithMetricRules()
+        })
+
+        const emittedDataPoints = (): any[] => {
+            const payload = mockEmitter.emit.mock.calls[0][2]
+            return payload.resourceMetrics[0].scopeMetrics[0].metrics[0].sum.dataPoints
+        }
+
+        it('emits one OTLP payload per team with counts grouped by the rule dimensions', async () => {
+            const messages = await createKafkaMessages(
+                [
+                    createLogMessage({ level: 'info' }),
+                    createLogMessage({ level: 'info' }),
+                    createLogMessage({ level: 'error' }),
+                ],
+                { token: team.api_token, bytes_uncompressed: '400', record_count: '1' }
+            )
+            await waitForBackgroundTasks(consumer.processKafkaBatch(messages))
+
+            expect(mockEmitter.emit).toHaveBeenCalledTimes(1)
+            const [token, teamId] = mockEmitter.emit.mock.calls[0]
+            expect(token).toBe(team.api_token)
+            expect(teamId).toBe(team.id)
+
+            const bySeverity = Object.fromEntries(
+                emittedDataPoints().map((dp: any) => [dp.attributes[0].value.stringValue, dp.asDouble])
+            )
+            expect(bySeverity).toEqual({ info: 2, error: 1 })
+        })
+
+        it('produces logs normally when the rules cache fetch throws (fail-open)', async () => {
+            // Metric rules are a purely additive side feature: a Postgres blip on the
+            // rules fetch must not DLQ or block the log records themselves.
+            await createConsumerWithMetricRules(
+                {},
+                {
+                    metricRulesCache: {
+                        getCompiledRules: () => Promise.reject(new Error('pg down')),
+                    } as unknown as MetricRulesCache,
+                }
+            )
+
+            const messages = await createKafkaMessages([createLogMessage({ level: 'info' })], {
+                token: team.api_token,
+                bytes_uncompressed: '400',
+                record_count: '1',
+            })
+            await waitForBackgroundTasks(consumer.processKafkaBatch(messages))
+
+            const logsOutput = getProducedKafkaMessages().filter((m) => m.topic === KAFKA_LOGS_CLICKHOUSE)
+            expect(logsOutput).toHaveLength(1)
+            const dlqOutput = getProducedKafkaMessages().filter((m) => m.topic === KAFKA_LOGS_INGESTION_DLQ)
+            expect(dlqOutput).toHaveLength(0)
+            expect(mockEmitter.emit).not.toHaveBeenCalled()
+        })
+
+        it('still counts records that a drop rule removes (pre-drop semantics)', async () => {
+            const droppingSamplingCache: Pick<SamplingRulesCache, 'getCompiledRuleSet'> = {
+                getCompiledRuleSet: () =>
+                    Promise.resolve(
+                        compileRuleSet([
+                            {
+                                id: '00000000-0000-0000-0000-0000000000aa',
+                                rule_type: 'severity_sampling',
+                                scope_service: 'test-service',
+                                scope_path_pattern: null,
+                                scope_attribute_filters: [],
+                                config: { actions: { INFO: { type: 'drop' } } },
+                            },
+                        ])
+                    ),
+            }
+            await createConsumerWithMetricRules({}, { samplingRulesCache: droppingSamplingCache })
+
+            const message = await createMultiRecordKafkaMessage(
+                [createLogMessage({ level: 'info' }), createLogMessage({ level: 'error' })],
+                { token: team.api_token, bytes_uncompressed: '800', record_count: '2' }
+            )
+            await waitForBackgroundTasks(consumer.processKafkaBatch([message]))
+
+            // The info row is gone from the ClickHouse-bound output...
+            const logsOutput = getProducedKafkaMessages().filter((m) => m.topic === KAFKA_LOGS_CLICKHOUSE)
+            expect(logsOutput).toHaveLength(1)
+            // ...but both rows fed the generated metric.
+            const bySeverity = Object.fromEntries(
+                emittedDataPoints().map((dp: any) => [dp.attributes[0].value.stringValue, dp.asDouble])
+            )
+            expect(bySeverity).toEqual({ info: 1, error: 1 })
+        })
+
+        it('does not emit for a team without metric rules', async () => {
+            const messages = await createKafkaMessages([createLogMessage()], {
+                token: team2.api_token,
+                bytes_uncompressed: '400',
+                record_count: '1',
+            })
+            await waitForBackgroundTasks(consumer.processKafkaBatch(messages))
+            expect(mockEmitter.emit).not.toHaveBeenCalled()
+        })
+
+        it.each([
+            ['killswitch', { LOGS_METRICS_RULES_KILLSWITCH: true }],
+            ['team gating', { LOGS_METRICS_RULES_ENABLED_TEAMS: '' }],
+        ])('does not evaluate rules when disabled via %s', async (_label, overrides) => {
+            await createConsumerWithMetricRules(overrides)
+            const messages = await createKafkaMessages([createLogMessage()], {
+                token: team.api_token,
+                bytes_uncompressed: '400',
+                record_count: '1',
+            })
+            await waitForBackgroundTasks(consumer.processKafkaBatch(messages))
+            expect(mockEmitter.emit).not.toHaveBeenCalled()
+        })
+    })
+
     describe('thread relief', () => {
         jest.setTimeout(30000)
 
@@ -1932,6 +2160,156 @@ describe('LogsIngestionConsumer', () => {
 
             expect(limiterConfig.LOGS_LIMITER_BUCKET_SIZE_KB).toBe(42)
             expect(limiterConfig.LOGS_LIMITER_REFILL_RATE_KB_PER_SECOND).toBe(7)
+        })
+    })
+
+    describe('hog log transformations', () => {
+        let transformerConsumer: LogsIngestionConsumer
+
+        const buildTransformer = async (hog: string): Promise<LogsTransformerService> => {
+            const fn = {
+                id: '00000000-0000-0000-0000-000000000001',
+                team_id: team.id,
+                name: 'Test log transformation',
+                type: 'transformation_log',
+                enabled: true,
+                bytecode: await compileHog(hog),
+                inputs: {},
+                encrypted_inputs: null,
+                execution_order: 1,
+                created_at: new Date().toISOString(),
+            } as unknown as HogFunctionType
+            const manager = {
+                getHogFunctionsForTeams: jest.fn().mockResolvedValue({ [team.id]: [fn] }),
+                getHogFunctionIdsForTeams: jest.fn().mockResolvedValue({ [team.id]: [fn.id] }),
+            }
+            const monitoring = { queueAppMetric: jest.fn(), queueLogs: jest.fn(), flush: jest.fn() }
+            return new LogsTransformerService(manager as any, monitoring as any, {
+                siteUrl: 'http://localhost:8010',
+                hogTimeoutMs: 10,
+                messageBudgetMs: 100,
+                batchBudgetMs: 2000,
+                maxErrorLogsPerFunctionPerMessage: 3,
+            })
+        }
+
+        afterEach(async () => {
+            await transformerConsumer?.stop()
+        })
+
+        it('applies an enabled transformation to produced records', async () => {
+            const logsTransformer = await buildTransformer(`
+                let rec := record
+                rec.body := replaceAll(rec.body, 'sensitive', '[REDACTED]')
+                return rec
+            `)
+            transformerConsumer = await createLogsIngestionConsumer(
+                hub,
+                { LOGS_TRANSFORMATIONS_ENABLED_TEAMS: '*' },
+                { logsTransformer }
+            )
+
+            const messages = await createKafkaMessages([createLogMessage({ message: 'something sensitive here' })], {
+                token: team.api_token,
+            })
+            await waitForBackgroundTasks(transformerConsumer.processKafkaBatch(messages))
+
+            const logsMessages = getProducedKafkaMessages().filter((m) => m.topic === 'clickhouse_logs_test')
+            expect(logsMessages).toHaveLength(1)
+            const [, , records] = await decodeLogRecords(logsMessages[0].value as Buffer)
+            expect(records).toHaveLength(1)
+            expect(records[0].body).toContain('[REDACTED]')
+            expect(records[0].body).not.toContain('sensitive')
+        })
+
+        it('does not produce a message when transformations drop every record', async () => {
+            const logsTransformer = await buildTransformer(`return null`)
+            transformerConsumer = await createLogsIngestionConsumer(
+                hub,
+                { LOGS_TRANSFORMATIONS_ENABLED_TEAMS: '*' },
+                { logsTransformer }
+            )
+
+            const messages = await createKafkaMessages([createLogMessage()], { token: team.api_token })
+            await waitForBackgroundTasks(transformerConsumer.processKafkaBatch(messages))
+
+            const logsMessages = getProducedKafkaMessages().filter((m) => m.topic === 'clickhouse_logs_test')
+            expect(logsMessages).toHaveLength(0)
+            expect(logMessageDroppedCounterSpy).toHaveBeenCalledWith(
+                { reason: 'transformations_all_dropped', team_id: team.id.toString() },
+                1
+            )
+            // The OTel counter has to carry the same reason as the Prometheus one above —
+            // they were allowed to disagree, so a transformations drop read as sampling.
+            expect(recordLogMessageDroppedSpy).toHaveBeenCalledWith('transformations_all_dropped', team.id.toString())
+        })
+
+        it('attributes the full-message drop to transformations when sampling kept survivors', async () => {
+            const logsTransformer = await buildTransformer(`return null`)
+            // Drop rule that does not match the record, so sampling keeps it and the
+            // transformation is what removes the last survivor.
+            const mockSamplingCache: Pick<SamplingRulesCache, 'getCompiledRuleSet'> = {
+                getCompiledRuleSet: () =>
+                    Promise.resolve(
+                        compileRuleSet([
+                            {
+                                id: '00000000-0000-0000-0000-0000000000ab',
+                                rule_type: 'severity_sampling',
+                                scope_service: 'test-service',
+                                scope_path_pattern: null,
+                                scope_attribute_filters: [],
+                                config: { actions: { INFO: { type: 'drop' } } },
+                            },
+                        ])
+                    ),
+            }
+            transformerConsumer = await createLogsIngestionConsumer(
+                hub,
+                { LOGS_TRANSFORMATIONS_ENABLED_TEAMS: '*' },
+                { logsTransformer, samplingRulesCache: mockSamplingCache as SamplingRulesCache }
+            )
+
+            const messages = await createKafkaMessages([createLogMessage({ level: 'error' })], {
+                token: team.api_token,
+            })
+            await waitForBackgroundTasks(transformerConsumer.processKafkaBatch(messages))
+
+            const logsMessages = getProducedKafkaMessages().filter((m) => m.topic === 'clickhouse_logs_test')
+            expect(logsMessages).toHaveLength(0)
+            expect(logMessageDroppedCounterSpy).toHaveBeenCalledWith(
+                { reason: 'transformations_all_dropped', team_id: team.id.toString() },
+                1
+            )
+        })
+
+        it('does not run transformations when the team is not in the allowlist', async () => {
+            const logsTransformer = await buildTransformer(`return null`)
+            transformerConsumer = await createLogsIngestionConsumer(
+                hub,
+                { LOGS_TRANSFORMATIONS_ENABLED_TEAMS: '' },
+                { logsTransformer }
+            )
+
+            const messages = await createKafkaMessages([createLogMessage()], { token: team.api_token })
+            await waitForBackgroundTasks(transformerConsumer.processKafkaBatch(messages))
+
+            const logsMessages = getProducedKafkaMessages().filter((m) => m.topic === 'clickhouse_logs_test')
+            expect(logsMessages).toHaveLength(1)
+        })
+
+        it('does not run transformations when the killswitch is on', async () => {
+            const logsTransformer = await buildTransformer(`return null`)
+            transformerConsumer = await createLogsIngestionConsumer(
+                hub,
+                { LOGS_TRANSFORMATIONS_ENABLED_TEAMS: '*', LOGS_TRANSFORMATIONS_KILLSWITCH: true },
+                { logsTransformer }
+            )
+
+            const messages = await createKafkaMessages([createLogMessage()], { token: team.api_token })
+            await waitForBackgroundTasks(transformerConsumer.processKafkaBatch(messages))
+
+            const logsMessages = getProducedKafkaMessages().filter((m) => m.topic === 'clickhouse_logs_test')
+            expect(logsMessages).toHaveLength(1)
         })
     })
 })

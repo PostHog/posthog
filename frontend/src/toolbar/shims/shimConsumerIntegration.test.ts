@@ -108,6 +108,7 @@ describe('shim consumer integration', () => {
 
     describe('themeLogic with shims', () => {
         it('mounts without error and provides isDarkModeOn', async () => {
+            // eslint-disable-next-line no-restricted-imports -- testing shim layer requires real import
             const { themeLogic } = await import('~/layout/navigation-3000/themeLogic')
             const logic = themeLogic.build()
             logic.mount()
@@ -116,6 +117,7 @@ describe('shim consumer integration', () => {
         })
 
         it('isDarkModeOn falls through to system preference when sceneConfig is null', async () => {
+            // eslint-disable-next-line no-restricted-imports -- testing shim layer requires real import
             const { themeLogic } = await import('~/layout/navigation-3000/themeLogic')
             const logic = themeLogic.build()
             logic.mount()

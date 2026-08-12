@@ -1,9 +1,10 @@
 from typing import Any
 
+from django.conf import settings
+
 from rest_framework.request import Request
 
 from posthog.models.identity_provider_config import IdentityProviderConfig
-from posthog.models.organization_domain import OrganizationDomain
 
 from ee.models.scim_provisioned_user import SCIMProvisionedUser
 
@@ -88,54 +89,18 @@ def mask_headers(headers: dict[str, str]) -> dict[str, str]:
     return result
 
 
-def enable_scim_for_domain(domain: OrganizationDomain) -> str:
-    """
-    Enable SCIM for an OrganizationDomain and generate a new bearer token.
-    Returns the plain text token (only shown once).
-    """
-    plain_token, hashed_token = generate_scim_token()
-
-    domain._scim_enabled = True
-    domain._scim_bearer_token = hashed_token
-    domain.save()
-
-    return plain_token
-
-
-def disable_scim_for_domain(domain: OrganizationDomain) -> None:
-    """
-    Disable SCIM for an OrganizationDomain.
-    """
-    domain._scim_enabled = False
-    domain._scim_bearer_token = None
-    domain.save()
-
-
-def regenerate_scim_token(domain: OrganizationDomain) -> str:
-    """
-    Regenerate SCIM bearer token for a domain.
-    Returns the new plain text token (only shown once).
-    """
-    plain_token, hashed_token = generate_scim_token()
-
-    domain._scim_bearer_token = hashed_token
-    domain.save()
-
-    return plain_token
-
-
 def enable_scim_for_config(config: IdentityProviderConfig) -> str:
     """
     Enable SCIM for an IdentityProviderConfig and generate a new bearer token.
     Returns the plain text token (only shown once).
     """
-    plain_token, hashed_token = generate_scim_token()
+    token = generate_scim_token()
 
     config.scim_enabled = True
-    config.scim_bearer_token = hashed_token
+    config.scim_bearer_token = token.hashed
     config.save()
 
-    return plain_token
+    return token.plain
 
 
 def disable_scim_for_config(config: IdentityProviderConfig) -> None:
@@ -152,22 +117,19 @@ def regenerate_scim_token_for_config(config: IdentityProviderConfig) -> str:
     Regenerate SCIM bearer token for an IdentityProviderConfig.
     Returns the new plain text token (only shown once).
     """
-    plain_token, hashed_token = generate_scim_token()
+    token = generate_scim_token()
 
-    config.scim_bearer_token = hashed_token
+    config.scim_bearer_token = token.hashed
     config.save()
 
-    return plain_token
+    return token.plain
 
 
-def get_scim_base_url(domain: OrganizationDomain, request=None) -> str:
+def get_scim_base_url(config: IdentityProviderConfig) -> str:
     """
-    Get the SCIM base URL for a domain.
+    Get the SCIM base URL for an IdentityProviderConfig.
     """
-    from django.conf import settings
-
-    base_url = settings.SITE_URL
-    return f"{base_url}/scim/v2/{domain.id}"
+    return f"{settings.SITE_URL}/scim/v2/{config.scim_slug}"
 
 
 def detect_identity_provider(request: Request) -> SCIMProvisionedUser.IdentityProvider:

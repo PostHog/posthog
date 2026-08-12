@@ -124,8 +124,43 @@ const smallCurrentSvg = `
 </svg>
 `
 
+// Same width as the baseline (1400) but taller (1120 vs 860) — exercises the
+// shared-canvas split/blend path where the canvas grows downward and the
+// shorter baseline keeps its top-left origin.
+const tallerCurrentSvg = `
+<svg xmlns="http://www.w3.org/2000/svg" width="1400" height="1120" viewBox="0 0 1400 1120">
+  <defs>
+    <linearGradient id="bgD" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0" stop-color="#f2f9f8"/>
+      <stop offset="1" stop-color="#e5f2f1"/>
+    </linearGradient>
+  </defs>
+  <rect width="1400" height="1120" fill="url(#bgD)"/>
+  <rect x="70" y="80" width="1260" height="960" rx="18" fill="#ffffff" stroke="#cfe2de"/>
+  <rect x="70" y="80" width="1260" height="70" rx="18" fill="#edf7f4"/>
+  <rect x="100" y="106" width="180" height="20" rx="10" fill="#c9ebe3"/>
+  <rect x="110" y="190" width="1180" height="560" rx="12" fill="#f6fbfa" stroke="#d5ebe6"/>
+  <rect x="140" y="220" width="520" height="180" rx="8" fill="#e7f4f1"/>
+  <rect x="700" y="220" width="560" height="500" rx="8" fill="#e6f4f1"/>
+  <rect x="110" y="780" width="1180" height="230" rx="12" fill="#dff1ec" stroke="#b7ded3"/>
+  <text x="140" y="910" fill="#5f8f85" font-size="30" font-family="Arial">New section added below the fold</text>
+</svg>
+`
+
+// Diff image sized to the shared canvas (1400×1120), so the diff overlay
+// exercises the full-canvas (`h-full`) path — the added bottom section is the
+// primary change region.
+const tallerDiffSvg = `
+<svg xmlns="http://www.w3.org/2000/svg" width="1400" height="1120" viewBox="0 0 1400 1120">
+  <rect width="1400" height="1120" fill="transparent"/>
+  <rect x="110" y="780" width="1180" height="230" rx="12" fill="#ff4d9a" fill-opacity="0.5"/>
+</svg>
+`
+
 const baselineImage = toSvgDataUri(baselineSvg)
 const currentImage = toSvgDataUri(currentSvg)
+const tallerCurrentImage = toSvgDataUri(tallerCurrentSvg)
+const tallerDiffImage = toSvgDataUri(tallerDiffSvg)
 const diffImage = toSvgDataUri(diffSvg)
 const newSnapshotImage = toSvgDataUri(newSnapshotSvg)
 const smallBaselineImage = toSvgDataUri(smallBaselineSvg)
@@ -155,6 +190,32 @@ export const NewSnapshot: Story = {
         diffUrl: null,
         diffPercentage: null,
         result: 'new',
+    },
+    render: (args) => (
+        <div className="p-6 bg-bg-light min-h-screen">
+            <div className="mx-auto max-w-[1240px]">
+                <VisualImageDiffViewer {...args} />
+            </div>
+        </div>
+    ),
+}
+
+// Baseline and current share a width but differ in height. In split mode the
+// two are composited on a shared canvas at one scale, top-left anchored, so
+// the added section reads as the page growing taller rather than both sides
+// being squashed to the smaller image's size.
+export const SizeMismatch: Story = {
+    args: {
+        baselineUrl: baselineImage,
+        currentUrl: tallerCurrentImage,
+        diffUrl: tallerDiffImage,
+        diffPercentage: 18.2,
+        result: 'changed',
+        baselineWidth: 1400,
+        baselineHeight: 860,
+        currentWidth: 1400,
+        currentHeight: 1120,
+        mode: 'split',
     },
     render: (args) => (
         <div className="p-6 bg-bg-light min-h-screen">

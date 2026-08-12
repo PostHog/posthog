@@ -1,0 +1,55 @@
+/*
+ * Cross-cutting utilities — classes that aren't a component's, and that any text in a quill app can
+ * reach for. Loaded from `index.ts`, so they're there whenever the package is.
+ */
+
+/*
+ * Live text: a highlight sweeping through a line to say work is still in flight.
+ *
+ * The gradient is clipped to the glyphs, so the text itself must be transparent for the sweep to
+ * show at all — meaning this rule owns `color`, and anything that sets `color` after it wins and
+ * silently paints over the animation. That's why it's unlayered (see layers.css: unlayered beats
+ * every layer): inside `@layer components` it lost to any `text-*` utility, and inside
+ * `@layer utilities` it would come down to import order against Tailwind's own.
+ *
+ * Text only — `background-clip: text` can't reach an SVG stroke, so an icon needs its own treatment.
+ *
+ * Retune per surface with `--quill-shimmer-base` / `--quill-shimmer-highlight`; the defaults read as
+ * muted text brightening to full.
+ */
+.quill-shimmer {
+    color: transparent;
+    background-image: linear-gradient(
+        90deg,
+        var(--quill-shimmer-base, var(--muted-foreground)) 0%,
+        var(--quill-shimmer-base, var(--muted-foreground)) 30%,
+        var(--quill-shimmer-highlight, var(--foreground)) 50%,
+        var(--quill-shimmer-base, var(--muted-foreground)) 70%,
+        var(--quill-shimmer-base, var(--muted-foreground)) 100%
+    );
+    background-clip: text;
+    background-size: 200% 100%;
+    animation: quill-shimmer__sweep 2s linear infinite;
+}
+
+@keyframes quill-shimmer__sweep {
+    from {
+        background-position: 100% 0;
+    }
+
+    to {
+        background-position: -100% 0;
+    }
+}
+
+@media (prefers-reduced-motion: reduce) {
+    /*
+     * The gradient is the text's only colour, so stopping the animation isn't enough — the colour has
+     * to be handed back, or the text stays invisible.
+     */
+    .quill-shimmer {
+        color: var(--quill-shimmer-highlight, var(--foreground));
+        background-image: none;
+        animation: none;
+    }
+}

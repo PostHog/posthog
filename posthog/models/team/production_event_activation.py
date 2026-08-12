@@ -71,6 +71,7 @@ from posthog.clickhouse.query_tagging import Feature, Product, tags_context
 from posthog.cloud_utils import is_cloud
 from posthog.event_usage import groups
 from posthog.exceptions_capture import capture_exception
+from posthog.models.event.new_events_schema import events_read_table, use_new_events_schema
 from posthog.models.property.util import get_property_string_expr
 from posthog.models.team.team import Team
 from posthog.ph_client import ph_scoped_capture
@@ -291,11 +292,18 @@ def _teams_meeting_criterion(team_ids: Iterable[int]) -> dict[int, ProductionTra
     if not team_id_list:
         return {}
 
+    # Resolved once and threaded through all three evidence queries, so the property fragments
+    # below never run against the other schema's table.
+    use_new = use_new_events_schema(None)
+    events_table = events_read_table(use_new)
+
     # Use materialized property columns where the deployment has them; the
     # fallback is the JSONExtractString these expressions would otherwise be.
-    host_expr, _ = get_property_string_expr("events", "$host", "'$host'", "properties")
-    current_url_expr, _ = get_property_string_expr("events", "$current_url", "'$current_url'", "properties")
-    lib_expr, _ = get_property_string_expr("events", "$lib", "'$lib'", "properties")
+    host_expr, _ = get_property_string_expr("events", "$host", "'$host'", "properties", use_new_events_schema=use_new)
+    current_url_expr, _ = get_property_string_expr(
+        "events", "$current_url", "'$current_url'", "properties", use_new_events_schema=use_new
+    )
+    lib_expr, _ = get_property_string_expr("events", "$lib", "'$lib'", "properties", use_new_events_schema=use_new)
 
     # Internal background job, not a customer-facing query — tag it so it's
     # attributed to growth in ClickHouse query analytics (and so it doesn't trip
@@ -333,7 +341,7 @@ def _teams_meeting_criterion(team_ids: Iterable[int]) -> dict[int, ProductionTra
                     %(host_length_cap)s
                 ) AS host,
                 {lib_expr} AS lib
-            FROM events
+            FROM {events_table}
             WHERE team_id IN %(team_ids)s
               AND timestamp >= now() - toIntervalDay(%(window_days)s)
         )
@@ -382,7 +390,7 @@ def _teams_meeting_criterion(team_ids: Iterable[int]) -> dict[int, ProductionTra
         for team_id, (_server_lib_users, mobile_candidate_users) in pending.items()
         if mobile_candidate_users >= MOBILE_LIB_USERS_THRESHOLD
     ]
-    mobile_users_by_team = _teams_with_mobile_users(mobile_candidates, lib_expr, workload)
+    mobile_users_by_team = _teams_with_mobile_users(mobile_candidates, lib_expr, workload, use_new)
 
     # Resolve the mobile/server legs for the pending teams, mobile first to keep
     # the documented web > mobile > server precedence.
@@ -404,7 +412,7 @@ def _teams_meeting_criterion(team_ids: Iterable[int]) -> dict[int, ProductionTra
             web_team_hosts[team_id] = signal.production_host
     if web_team_hosts:
         for team_id, converted_at in _earliest_production_host_timestamps(
-            web_team_hosts, host_expr, current_url_expr, workload
+            web_team_hosts, host_expr, current_url_expr, workload, use_new
         ).items():
             qualifying[team_id] = replace(qualifying[team_id], converted_at=converted_at)
 
@@ -415,6 +423,7 @@ def _teams_with_mobile_users(
     team_ids: list[int],
     lib_expr: str,
     workload: Workload,
+    use_new_events_schema: bool,
 ) -> dict[int, int]:
     """Distinct mobile-SDK users per team (excluding emulator-flagged events),
     for the teams that cross the mobile threshold.
@@ -430,6 +439,9 @@ def _teams_with_mobile_users(
     """
     if not team_ids:
         return {}
+
+    # events_json stores properties as native JSON; serialize back to a String document for JSONExtractRaw.
+    properties_doc = "toJSONString(properties)" if use_new_events_schema else "properties"
 
     # As in `_teams_meeting_criterion`: the interpolated fragment is a
     # server-side SQL expression from get_property_string_expr, never user
@@ -447,8 +459,8 @@ def _teams_with_mobile_users(
                 team_id,
                 distinct_id,
                 {lib_expr} AS lib,
-                JSONExtractRaw(properties, '$is_emulator') AS is_emulator_raw
-            FROM events
+                JSONExtractRaw({properties_doc}, '$is_emulator') AS is_emulator_raw
+            FROM {events_read_table(use_new_events_schema)}
             WHERE team_id IN %(team_ids)s
               AND timestamp >= now() - toIntervalDay(%(window_days)s)
         )
@@ -475,6 +487,7 @@ def _earliest_production_host_timestamps(
     host_expr: str,
     current_url_expr: str,
     workload: Workload,
+    use_new_events_schema: bool,
 ) -> dict[int, datetime]:
     """Earliest in-window event timestamp per (team, qualifying production host).
 
@@ -511,7 +524,7 @@ def _earliest_production_host_timestamps(
                     %(host_length_cap)s
                 ) AS host,
                 timestamp
-            FROM events
+            FROM {events_read_table(use_new_events_schema)}
             WHERE team_id IN %(team_ids)s
               AND timestamp >= now() - toIntervalDay(%(window_days)s)
         )

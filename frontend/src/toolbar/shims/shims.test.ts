@@ -5,6 +5,7 @@ import { initKeaTests } from '~/test/init'
 import { featureFlagLogic, getFeatureFlagPayload } from './featureFlagLogic'
 import { membersLogic } from './membersLogic'
 import { sceneLogic } from './sceneLogic'
+import { surveyQuestionLabelsLogic } from './surveyQuestionLabelsLogic'
 import { isAuthenticatedTeam, teamLogic } from './teamLogic'
 import { userLogic } from './userLogic'
 
@@ -20,6 +21,7 @@ describe('toolbar shims', () => {
             ['sceneLogic', sceneLogic, { sceneConfig: null }],
             ['teamLogic', teamLogic, { currentTeam: null, timezone: 'UTC', weekStartDay: 0 }],
             ['featureFlagLogic', featureFlagLogic, { featureFlags: {} }],
+            ['surveyQuestionLabelsLogic', surveyQuestionLabelsLogic, { surveyQuestionLabels: {} }],
         ])('%s provides expected defaults', (_name, logic, expected) => {
             logic.mount()
             expectLogic(logic).toMatchValues(expected)
@@ -53,6 +55,7 @@ describe('toolbar shims', () => {
         sceneLogic.mount()
         teamLogic.mount()
         featureFlagLogic.mount()
+        surveyQuestionLabelsLogic.mount()
 
         expect(fetchSpy).not.toHaveBeenCalled()
     })

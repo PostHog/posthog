@@ -215,7 +215,10 @@ class TestSyncPersonsToClickHouse(NonAtomicBaseTest, ClickhouseTestMixin):
                 created_at=ts,
                 version=0,
             )
-        raw_create_group_ch(self.team.pk, 2, "group-key", {"a": 5}, ts)
+        # Seed with _timestamp=ts so the sync's re-insert is strictly newer: groups is
+        # ReplacingMergeTree(ver=_timestamp) with second resolution, and a same-second tie
+        # makes ORDER BY _timestamp DESC pick between the two rows arbitrarily
+        raw_create_group_ch(self.team.pk, 2, "group-key", {"a": 5}, ts, timestamp=ts)
         with persons_db_connection(writer=True, autocommit=True) as conn, conn.cursor() as cursor:
             cursor.execute(
                 "UPDATE posthog_group SET group_properties = %s WHERE id = %s",

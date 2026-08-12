@@ -28,6 +28,8 @@ import {
 } from 'lib/ui/TabsPrimitive/TabsPrimitive'
 import { cn } from 'lib/utils/css-classes'
 
+import { ViewLogsButton } from 'products/logs/frontend/components/ViewLogsButton'
+
 import { exceptionCardLogic } from '../../exceptionCardLogic'
 import { SubHeader } from '../SubHeader'
 import { SessionRecordingTab } from './SessionRecordingTab'
@@ -43,7 +45,7 @@ export function SessionTab({ timestamp, className, ...props }: SessionTabProps):
     const { setCurrentSessionTab } = useActions(exceptionCardLogic)
 
     return (
-        <TabsPrimitiveContent {...props} className={cn('flex flex-col', className)}>
+        <TabsPrimitiveContent {...props} className={cn('flex min-w-0 flex-col overflow-hidden', className)}>
             {match([loading, sessionId])
                 .with([true, P.any], () => (
                     <div className="flex justify-center items-center h-[300px]">
@@ -56,7 +58,7 @@ export function SessionTab({ timestamp, className, ...props }: SessionTabProps):
                         <TabsPrimitive
                             value={currentSessionTab}
                             onValueChange={setCurrentSessionTab}
-                            className="flex flex-col flex-1 min-h-0"
+                            className="flex min-h-0 min-w-0 flex-1 flex-col"
                         >
                             <SubHeader className="p-0 shrink-0">
                                 <TabsPrimitiveList className="flex justify-start gap-2 w-full h-full items-center">
@@ -66,6 +68,14 @@ export function SessionTab({ timestamp, className, ...props }: SessionTabProps):
                                     <TabsPrimitiveTrigger className="px-2 h-full" value="recording">
                                         Recording
                                     </TabsPrimitiveTrigger>
+                                    <div className="ml-auto pr-1">
+                                        <ViewLogsButton
+                                            sessionId={sessionId}
+                                            timestamp={timestamp}
+                                            size="xsmall"
+                                            data-attr="error-tracking-session-view-logs"
+                                        />
+                                    </div>
                                 </TabsPrimitiveList>
                             </SubHeader>
                             <SessionTimelineTab />
@@ -108,7 +118,7 @@ export function SessionTimelineTab(): JSX.Element {
     }, [properties, sessionId, timestamp, uuid])
 
     return (
-        <TabsPrimitiveContent value="timeline" className="flex-1 min-h-0 overflow-y-auto">
+        <TabsPrimitiveContent value="timeline" className="min-h-0 min-w-0 flex-1 overflow-y-auto">
             {collector && (
                 <SessionTimeline
                     ref={sessionTimelineRef}

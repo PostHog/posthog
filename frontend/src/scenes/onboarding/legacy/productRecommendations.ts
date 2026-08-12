@@ -48,15 +48,20 @@ export const USE_CASE_OPTIONS: ReadonlyArray<UseCaseDefinition> = [
     {
         key: 'collect_feedback',
         title: 'Collect user feedback',
-        description: 'Collect feedback with in-app surveys and watch session recordings',
+        description: 'Collect feedback with surveys and Support tickets, and watch session recordings',
         iconKey: 'IconMessage',
         iconColor: 'rgb(243 84 84)',
-        products: [ProductKey.SURVEYS, ProductKey.PRODUCT_ANALYTICS, ProductKey.SESSION_REPLAY],
+        products: [
+            ProductKey.SURVEYS,
+            ProductKey.CONVERSATIONS,
+            ProductKey.PRODUCT_ANALYTICS,
+            ProductKey.SESSION_REPLAY,
+        ],
     },
     {
         key: 'monitor_ai',
         title: 'Monitor AI applications',
-        description: 'Track and analyze AI usage, costs, and performance for AI applications',
+        description: 'Track and analyze AI usage, costs, and performance',
         iconKey: 'IconLlmAnalytics',
         iconColor: 'rgb(182 42 217)',
         products: [ProductKey.AI_OBSERVABILITY, ProductKey.PRODUCT_ANALYTICS],

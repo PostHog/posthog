@@ -51,6 +51,17 @@ class ActivityLogSerializer(serializers.Serializer):
     item_id = serializers.CharField(read_only=True)
     detail = DetailSerializer(required=False)
     created_at = serializers.DateTimeField(read_only=True)
+    is_system = serializers.BooleanField(
+        read_only=True, help_text="Whether the activity was performed by the system rather than a user."
+    )
+    was_impersonated = serializers.BooleanField(
+        read_only=True, help_text="Whether the acting user was being impersonated by PostHog staff."
+    )
+    client = serializers.CharField(
+        read_only=True,
+        allow_null=True,
+        help_text="API client that triggered the activity, from the x-posthog-client request header (e.g. 'mcp'). Null for requests that did not send the header.",
+    )
 
     @extend_schema_field({"type": "object", "nullable": True})
     def get_user(self, activity_log: ActivityLog):

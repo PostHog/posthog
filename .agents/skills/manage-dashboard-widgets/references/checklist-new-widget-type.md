@@ -15,6 +15,7 @@ Files: `products/dashboards/backend/widget_specs/` + `widgets/<widget_type>.py`
 - [ ] **`widget_specs/configs.py`** — new `*WidgetConfig` Pydantic model + `*_WIDGET_TYPE` constant; extend shared fields via `common.py` when appropriate
 - [ ] **`widgets/<widget_type>.py`** — `run_<type>_widget` calling `validate_widget_config(TYPE, config)` then the **same** product query runner (no parallel query path); pass `resolve_filter_test_accounts(config, team)` when supported
 - [ ] **`widget_specs/registry.py`** — add one `WidgetSpec` to `_load_widget_specs()` (lazy-import `run_*`): `config_model`, scopes, `group_id`/`group_label`/`label`/`description`, `required_product_access`, `product_access_denied_message`, `availability_requirements`
+- [ ] **Live / self-updating tile?** Set `is_live=True` (+ usually `creation_flag`), return `generatedAt` from the seed query, and keep `dateRange`/`filterTestAccounts` off the config model — full contract in [live-widgets.md](live-widgets.md)
 - [ ] `EXPECTED_WIDGET_TYPES`, OpenAPI polymorphic serializers, and Zod codegen inputs update automatically from `WIDGET_SPECS` + `configs.py` — enforced in `test_run_widgets.py`
 - [ ] Use `DEFAULT_WIDGET_LIST_LIMIT` from `backend/constants.py` unless this type needs a different default
 - [ ] List widgets with `orderDirection`: use `WidgetOrderDirection` literal in Pydantic (`ASC` / `DESC`)
@@ -110,7 +111,9 @@ Directory: `products/dashboards/frontend/widgets/<product>/` (snake_case product
 - [ ] Setup gating: catalog `availability` for simple team-flag checks, or private setup gate inside the widget `Component` for richer rules — do not modify product `SetupPrompt`
 - [ ] **Own loading UI** — early-return with `WidgetLoadingState` (typed skeleton as `children` when helpful)
 - [ ] Use `WidgetCardContent` for scrollable lists/tables; `WidgetCardBodyMessage` for empty states
+- [ ] **Adoption CTA on the "no entities yet" empty state** — when the product has nothing to show yet (no surveys, no experiments), render a primary `LemonButton` (`targetBlank`) to the product's create flow and fire `posthog.capture('dashboard widget create <product> clicked', { widget_type, tile_id })` on click. Measures adoption driven _from_ the widget, distinct from the platform `dashboard widget added` event. See [§ Product-adoption tracking](#product-adoption-tracking).
 - [ ] **List widgets:** follow [list-widget-patterns.md](list-widget-patterns.md) — `hasMore`, footer, tile filter bar, `titleHref`
+- [ ] **Live widgets:** compose the `widgets/live/` toolkit (`liveWidgetStream`, `LiveWidgetSlidingWindow`, `useLiveWidgetSeed`, `LiveWidgetEmptyState`) — recipe in [live-widgets.md](live-widgets.md)
 - [ ] Do **not** render card chrome — `DashboardWidgetItem` + catalog handle headers/menus
 
 Minimal skeleton:
@@ -196,4 +199,56 @@ Run [SKILL.md §6 Verify](../SKILL.md#6-verify). Minimum for a new type:
 - [ ] Test create/update config validation, activity logging, permission denial in `run_widgets`
 - [ ] MCP: `services/mcp/tests/tools/dashboards.integration.test.ts` when catalog/OpenAPI surfaces change
 - [ ] Analytics: first insert fires `dashboard tile added` and `dashboard widget added` with `widget_type` on PATCH and POST add paths (`test_dashboard_widgets.py`)
+- [ ] Adoption CTA (if the widget has a "no entities yet" empty state) fires `dashboard widget create <product> clicked` with `widget_type` + `tile_id` — see [§ Product-adoption tracking](#product-adoption-tracking)
 - [ ] No empty test scaffolds — every `.test.tsx` must assert real behavior
+
+## Product-adoption tracking
+
+Platform analytics (`dashboard widget added`, `dashboard tile added`) measure widget _placement_. To measure adoption driven _from_ a widget — a user landing on an empty widget and going on to create their first entity — fire a product-scoped capture on the empty-state CTA.
+
+**Convention:** when the widget renders a "no entities yet" empty state (no surveys, no experiments in the project), give the create CTA an `onClick` that captures:
+
+```tsx
+<LemonButton
+  type="primary"
+  size="small"
+  to={urls.surveys()} // product's create / list flow
+  targetBlank
+  onClick={() =>
+    posthog.capture('dashboard widget create survey clicked', {
+      widget_type: 'survey_results',
+      tile_id: tileId,
+    })
+  }
+>
+  New survey
+</LemonButton>
+```
+
+- Event name: `dashboard widget create <product> clicked` (e.g. `... create experiment clicked`, `... create survey clicked`).
+- Always include `widget_type` and `tile_id` so funnels can attribute by both the widget variant and the specific tile.
+- Only the "product is empty" branch needs it — not the "no entity selected for this tile" picker state.
+
+Shipped examples: `widgets/experiments/ExperimentResultsWidget.tsx` + `ExperimentsListWidget.tsx` (`dashboard widget create experiment clicked`), `widgets/surveys/SurveyResultsWidget.tsx` (`dashboard widget create survey clicked`). Related cross-product nudges: `WidgetAvailabilitySetupPrompt.tsx` fires `dashboard widget cross product activated` when a setup gate is satisfied.
+
+### Click-through (open the entity)
+
+Capture when a user follows a widget link _into_ the product — the other half of the funnel after placement. Detail (results) widgets fire `dashboard widget open <product> clicked` on the body's "See more" link, with `widget_type`, `tile_id`, and the entity id:
+
+```tsx
+<Link
+  to={urls.survey(survey.id)}
+  target="_blank"
+  onClick={() =>
+    posthog.capture('dashboard widget open survey clicked', {
+      widget_type: 'survey_results',
+      tile_id: tileId,
+      survey_id: survey.id,
+    })
+  }
+>
+  See more
+</Link>
+```
+
+Shipped examples: `SurveyResultsWidget.tsx` (`dashboard widget open survey clicked`), `ExperimentResultsWidget.tsx` (`dashboard widget open experiment clicked`), and `ConversationsWidget.tsx` (`dashboard widget open support ticket clicked`).

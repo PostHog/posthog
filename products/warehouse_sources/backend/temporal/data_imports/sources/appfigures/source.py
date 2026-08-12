@@ -9,10 +9,6 @@ from posthog.schema import (
     SourceFieldInputConfigType,
 )
 
-from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline.typings import (
-    SourceInputs,
-    SourceResponse,
-)
 from products.warehouse_sources.backend.temporal.data_imports.sources.appfigures.appfigures import (
     AppfiguresResumeConfig,
     appfigures_source,
@@ -30,12 +26,19 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common.can
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.registry import SourceRegistry
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.schema import SourceSchema
-from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs import AppfiguresSourceConfig
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.typings import SourceInputs, SourceResponse
+from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.appfigures import (
+    AppfiguresSourceConfig,
+)
 from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 
 @SourceRegistry.register
 class AppfiguresSource(ResumableSource[AppfiguresSourceConfig, AppfiguresResumeConfig]):
+    supported_versions = ("v2",)
+    default_version = "v2"
+    api_docs_url = "https://docs.appfigures.com/api/reference/v2"
+
     lists_tables_without_credentials = True  # static endpoint catalog — safe for public docs
 
     @property
@@ -49,7 +52,6 @@ class AppfiguresSource(ResumableSource[AppfiguresSourceConfig, AppfiguresResumeC
             category=DataWarehouseSourceCategory.ANALYTICS,
             label="Appfigures",
             releaseStatus=ReleaseStatus.ALPHA,
-            unreleasedSource=True,
             caption="""Enter an Appfigures Personal Access Token to pull your app-store analytics into the PostHog Data warehouse.
 
 Create an API client and Personal Access Token at [appfigures.com/developers/keys](https://appfigures.com/developers/keys). When creating the client, grant the data sets you want to sync:
@@ -87,6 +89,9 @@ Create an API client and Personal Access Token at [appfigures.com/developers/key
         return {
             "401 Client Error: Unauthorized for url: https://api.appfigures.com": "Your Appfigures personal access token is invalid or expired. Create a new token in your Appfigures developer settings, then reconnect.",
             "403 Client Error: Forbidden for url: https://api.appfigures.com": "Your Appfigures personal access token is missing the scope needed to sync this data. Grant the required data sets to your API client, then reconnect.",
+            # Appfigures returns this 403 (with a custom reason phrase, not "Forbidden") when the
+            # account no longer owns one or more products the request covers — no retry fixes that.
+            "Some given products are not owned by your account": "Your Appfigures account doesn't own one or more products this sync needs credits for. Check product ownership and available credits in Appfigures, then reconnect.",
         }
 
     def get_schemas(
@@ -96,6 +101,7 @@ Create an API client and Personal Access Token at [appfigures.com/developers/key
         with_counts: bool = False,
         names: list[str] | None = None,
         force_refresh: bool = False,
+        api_version: str | None = None,
     ) -> list[SourceSchema]:
         def _build_schema(endpoint: str) -> SourceSchema:
             endpoint_config = APPFIGURES_ENDPOINTS[endpoint]
@@ -116,7 +122,11 @@ Create an API client and Personal Access Token at [appfigures.com/developers/key
         return schemas
 
     def validate_credentials(
-        self, config: AppfiguresSourceConfig, team_id: int, schema_name: Optional[str] = None
+        self,
+        config: AppfiguresSourceConfig,
+        team_id: int,
+        schema_name: Optional[str] = None,
+        api_version: str | None = None,
     ) -> tuple[bool, str | None]:
         # Probe the endpoint the requested schema actually hits (so per-table scope checks are
         # accurate), or the cheap products catalog at source-create.

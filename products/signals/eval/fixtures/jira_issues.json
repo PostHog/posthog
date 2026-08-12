@@ -1,0 +1,41 @@
+[
+  {
+    "id": "10042",
+    "key": "ENG-42",
+    "self_url": "https://acme.atlassian.net/rest/api/3/issue/10042",
+    "created": "2025-06-10T14:30:00.000+0000",
+    "updated": "2025-06-11T09:15:00.000+0000",
+    "summary": "Dashboard widgets fail to load when timezone is set to UTC+13",
+    "status": "In Progress",
+    "priority": "High",
+    "assignee": "Jane Doe",
+    "labels": "[\"bug\", \"frontend\"]",
+    "description": "{\"type\":\"doc\",\"version\":1,\"content\":[{\"type\":\"paragraph\",\"content\":[{\"type\":\"text\",\"text\":\"When the user's timezone is set to UTC+13, dashboard widgets throw a parsing error and display 'Failed to load data'.\"}]}]}"
+  },
+  {
+    "id": "10043",
+    "key": "ENG-43",
+    "self_url": "https://acme.atlassian.net/rest/api/3/issue/10043",
+    "created": "2025-06-12T09:00:00.000+0000",
+    "updated": "2025-06-12T09:00:00.000+0000",
+    "summary": "Add CSV export button to the insights table",
+    "status": "To Do",
+    "priority": "",
+    "assignee": "",
+    "labels": "[]",
+    "description": ""
+  },
+  {
+    "id": "10044",
+    "key": "SUP-17",
+    "self_url": "https://acme.atlassian.net/rest/api/3/issue/10044",
+    "created": "2025-06-13T16:20:00.000+0000",
+    "updated": "2025-06-14T11:05:00.000+0000",
+    "summary": "API returns 500 when filtering by a deleted cohort",
+    "status": "In Progress",
+    "priority": "Highest",
+    "assignee": "Sam Rivera",
+    "labels": "[\"bug\", \"api\", \"regression\"]",
+    "description": "{\"type\":\"doc\",\"version\":1,\"content\":[{\"type\":\"paragraph\",\"content\":[{\"type\":\"text\",\"text\":\"Requests to /api/insights with a deleted cohort id return a 500 instead of a 400.\"}]},{\"type\":\"paragraph\",\"content\":[{\"type\":\"text\",\"text\":\"Started after the cohort soft-delete change shipped last week.\"}]}]}"
+  }
+]

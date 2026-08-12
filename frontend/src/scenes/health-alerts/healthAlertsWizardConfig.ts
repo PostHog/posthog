@@ -1,4 +1,4 @@
-import { WizardDestination, WizardTrigger } from 'scenes/hog-functions/AlertWizard/alertWizardLogic'
+import { WizardDestination, WizardTrigger } from 'lib/components/Alerting/AlertWizard/alertWizardLogic'
 
 import { HogFunctionSubTemplateIdType } from '~/types'
 

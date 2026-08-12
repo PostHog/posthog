@@ -28,6 +28,7 @@ from django.utils import timezone
 import structlog
 
 from posthog import redis as posthog_redis
+from posthog.egress.github.transport import GitHubRateLimitError
 from posthog.helpers.async_concurrency import run_parallel_with_backoff
 from posthog.models.github_integration_base import GitHubIntegrationBase
 from posthog.models.integration import GitHubIntegration, GitHubIntegrationError, Integration
@@ -218,7 +219,8 @@ class GitHubRepositoryFullCache:
                 readme_text = base64.b64decode(encoded).decode("utf-8", errors="replace")
         except GitHubIntegrationError as exc:
             if getattr(exc, "status_code", None) != 404:
-                # Rate-limit and other retryable errors propagate so run_parallel_with_backoff can retry.
+                # Non-404 failures propagate; rate limits bypass this catch entirely (they raise
+                # GitHubRateLimitError) so run_parallel_with_backoff can retry them.
                 raise
         # Recursive file tree → newline-separated blob paths for ARRAY JOIN grep.
         tree_data = self.github._gh_api_get(
@@ -380,8 +382,8 @@ class GitHubRepositoryFullCache:
         results = await run_parallel_with_backoff(
             [make_fn(name) for name in valid_full_names],
             concurrency=concurrency,
-            is_retryable=lambda exc: isinstance(exc, GitHubIntegrationError) and exc.is_rate_limit,
-            get_retry_delay=lambda exc: getattr(exc, "retry_after_seconds", None),
+            is_retryable=lambda exc: isinstance(exc, GitHubRateLimitError),
+            get_retry_delay=lambda exc: getattr(exc, "retry_after", None),
         )
         # 4. Single summary line — distinguishes "warm cache, all hits" from "did real work".
         errors = sum(1 for r in results if isinstance(r, BaseException))

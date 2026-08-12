@@ -12,9 +12,9 @@ from posthog.plugins.plugin_server_api import get_hog_function_templates
 
 from products.cdp.backend.models.hog_function_template import HogFunctionTemplate
 from products.cdp.backend.models.hog_functions.hog_function import HogFunctionType
-from products.warehouse_sources.backend.temporal.data_imports.sources import SourceRegistry
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.base import WebhookSource
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.default_webhook_template import (
+from products.warehouse_sources.backend.facade.source_management import (
+    SourceRegistry,
+    WebhookSource,
     template as default_webhook_template,
 )
 

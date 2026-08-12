@@ -1,0 +1,454 @@
+import json
+
+from posthog.test.base import BaseTest
+from unittest.mock import patch
+
+from parameterized import parameterized
+from social_django.models import UserSocialAuth
+
+from posthog.models.organization import OrganizationMembership
+from posthog.models.user import User
+
+# Imported at module scope so the heavy temporal package loads at collection time (like every other
+# temporal test module); letting patch() import it mid-test would run the tasks sandbox-class
+# resolution under test settings, where a local SANDBOX_PROVIDER env rejects DEBUG=False.
+import products.review_hog.backend.temporal.client  # noqa: F401
+from products.review_hog.backend.models import ReviewUserSettings
+from products.review_hog.backend.receivers import resolve_stamphog_acting_reviewer
+from products.signals.backend.models import SignalReport, SignalReportArtefact
+from products.tasks.backend.models import Task, TaskRun
+
+# receivers.py imports both at call time (startup-import-budget), so the defining modules are the
+# patch targets.
+_START = "products.review_hog.backend.temporal.client.start_review_pr_workflow"
+_STAMPHOG_QUEUE = "products.stamphog.backend.facade.tasks.queue_inbox_pr_review"
+# GitHub's own casing, as a real `output.pr_url` carries it. The task row lowercases its slug, so
+# this is what lets an assertion tell the task's repository apart from the PR URL's own claim.
+_PR_URL = "https://github.com/PostHog/posthog/pull/9"
+_HEAD_BRANCH = "posthog-code/fix-the-thing"
+
+
+class TestInboxTrigger(BaseTest):
+    def setUp(self) -> None:
+        super().setUp()
+        self.signal_report = SignalReport.objects.create(
+            team=self.team, status=SignalReport.Status.IN_PROGRESS, signal_count=1, total_weight=1.0
+        )
+        # The report's assigned reviewer: an org member whose GitHub login the "For you"
+        # resolution maps back to them.
+        self.alice = self._org_member("alice@posthog.com", github_login="alice")
+
+    def _org_member(self, email: str, *, github_login: str) -> User:
+        user = User.objects.create(email=email)
+        OrganizationMembership.objects.create(user=user, organization=self.organization)
+        UserSocialAuth.objects.create(
+            user=user, provider="github", uid=f"gh-{github_login}", extra_data={"login": github_login}
+        )
+        return user
+
+    def _suggest_reviewers(self, logins: list[str]) -> None:
+        SignalReportArtefact.objects.create(
+            team=self.team,
+            report=self.signal_report,
+            type=SignalReportArtefact.ArtefactType.SUGGESTED_REVIEWERS,
+            content=json.dumps([{"github_login": login} for login in logins]),
+        )
+
+    def _opt_in(self, user: User, **flags: bool) -> None:
+        # No explicit flags means the classic ReviewHog inbox opt-in.
+        ReviewUserSettings.objects.for_team(self.team.id).create(
+            team=self.team, user=user, **(flags or {"review_inbox_prs": True})
+        )
+
+    def _task(
+        self,
+        *,
+        with_signal_report: bool = True,
+        repository: str | None = "PostHog/posthog",
+        internal: bool = True,
+        created_by: User | None = None,
+    ) -> Task:
+        # created_by defaults to None: a background-created task must resolve its acting reviewer
+        # from the report's assignment alone, never require a creator.
+        return Task.objects.create(
+            team=self.team,
+            title="Implement the fix",
+            description="from a signal report",
+            origin_product=Task.OriginProduct.SIGNAL_REPORT,
+            created_by=created_by,
+            repository=repository,
+            signal_report=self.signal_report if with_signal_report else None,
+            internal=internal,
+        )
+
+    def _run(
+        self,
+        task: Task,
+        *,
+        status: str = TaskRun.Status.IN_PROGRESS,
+        output: dict | None = None,
+        branch: str | None = None,
+        ai_stage: str | None = "implementation",
+    ) -> TaskRun:
+        # Production stamps the PR-opening run ai_stage="implementation" (auto_start); the trigger
+        # keys on it, so the fixture carries it by default and overrides it to model other stages.
+        return TaskRun.objects.create(
+            task=task,
+            team=self.team,
+            status=status,
+            branch=branch,
+            output=output,
+            state={"ai_stage": ai_stage} if ai_stage else {},
+        )
+
+    def _record_output(
+        self,
+        run: TaskRun,
+        output: dict | None,
+        *,
+        update_fields: tuple[str, ...] | None = ("output", "updated_at"),
+    ) -> None:
+        # Simulates the two real writers: the agent server's PATCH (a full save, update_fields=None)
+        # and the GitHub-webhook backstop (update_fields=["output", "updated_at"]) — inside a
+        # commit-capture block because the workflow start must be deferred to commit (a
+        # mid-transaction start could review work the transaction then rolls back).
+        run.output = output
+        with self.captureOnCommitCallbacks(execute=True):
+            run.save(update_fields=list(update_fields) if update_fields is not None else None)
+            self._mock_start.assert_not_called()
+
+    @parameterized.expand(
+        [
+            # (name, run_status, update_fields) — the trigger must fire for live AND completed runs,
+            # and for both real save shapes (webhook declares fields, the agent-server PATCH doesn't).
+            ("webhook_shape_on_a_live_run", TaskRun.Status.IN_PROGRESS, ("output", "updated_at")),
+            ("full_save_on_a_live_run", TaskRun.Status.IN_PROGRESS, None),
+            ("completed_run", TaskRun.Status.COMPLETED, ("output", "updated_at")),
+        ]
+    )
+    @patch(_START, return_value="wf-1")
+    def test_recorded_pr_starts_a_review_as_the_assigned_reviewer(
+        self, _name, status, update_fields, mock_start
+    ) -> None:
+        # The feature's spine: the run records its PR → the report's assigned reviewer (Inbox
+        # "For you" semantics — the latest suggested_reviewers artefact, NOT Task.created_by,
+        # which is None here) opted in → the review starts as that reviewer, publish on,
+        # provenance attached. Run COMPLETION is never the trigger: on the tasks architecture a
+        # successful run stays in_progress forever (the PR loop keeps it followable).
+        self._mock_start = mock_start
+        self._suggest_reviewers(["alice"])
+        self._opt_in(self.alice)
+        task = self._task()
+        run = self._run(task)
+        self._record_output(run, {"pr_url": _PR_URL, "head_branch": _HEAD_BRANCH}, update_fields=update_fields)
+
+        # The PR leg wins over the branch leg when both targets are present.
+        mock_start.assert_called_once_with(
+            team_id=self.team.id,
+            user_id=self.alice.id,
+            publish=True,
+            acting_user_id=self.alice.id,
+            trigger_source="inbox",
+            signal_report_id=str(task.signal_report_id),
+            pr_url=_PR_URL,
+        )
+
+    @patch(_START, return_value="wf-1")
+    def test_branch_only_output_starts_a_branch_review(self, mock_start) -> None:
+        # `output.head_branch` is synced by the agent server as soon as the work branch exists —
+        # before (or without) a PR. The branch leg reviews and stores; publish needs the PR leg.
+        self._mock_start = mock_start
+        self._suggest_reviewers(["alice"])
+        self._opt_in(self.alice)
+        task = self._task()
+        self._record_output(self._run(task), {"head_branch": _HEAD_BRANCH})
+
+        mock_start.assert_called_once_with(
+            team_id=self.team.id,
+            user_id=self.alice.id,
+            publish=True,
+            acting_user_id=self.alice.id,
+            trigger_source="inbox",
+            signal_report_id=str(task.signal_report_id),
+            # Task.save lowercases the repository slug — the receiver forwards it as stored.
+            repository="posthog/posthog",
+            head_branch=_HEAD_BRANCH,
+        )
+
+    @patch(_START, return_value="wf-1")
+    def test_run_creation_with_a_target_does_not_trigger(self, mock_start) -> None:
+        # Creation saves are ignored: runs exist before the agent does anything, and a target on a
+        # brand-new row (a retry seeded from a prior run) re-fires on its first real output save.
+        self._mock_start = mock_start
+        self._suggest_reviewers(["alice"])
+        self._opt_in(self.alice)
+        with self.captureOnCommitCallbacks(execute=True):
+            self._run(self._task(), output={"pr_url": _PR_URL})
+
+        mock_start.assert_not_called()
+
+    @patch(_START, return_value="wf-1")
+    def test_saves_that_do_not_touch_output_are_ignored(self, mock_start) -> None:
+        # The run already carries a PR target, but a declared-fields save that doesn't touch
+        # `output` (status flips, follow-up state persistence) must not re-fire a review — this is
+        # also what retires the old completion trigger: a status-only flip alone starts nothing.
+        self._mock_start = mock_start
+        self._suggest_reviewers(["alice"])
+        self._opt_in(self.alice)
+        run = self._run(self._task(), output={"pr_url": _PR_URL})
+        run.status = TaskRun.Status.COMPLETED
+        with self.captureOnCommitCallbacks(execute=True):
+            run.save(update_fields=["status"])
+
+        mock_start.assert_not_called()
+
+    @parameterized.expand([(TaskRun.Status.FAILED,), (TaskRun.Status.CANCELLED,)])
+    @patch(_START, return_value="wf-1")
+    def test_terminal_failure_states_do_not_trigger(self, status, mock_start) -> None:
+        # A failed/cancelled run's PR is abandoned work — reviewing it wastes a sandbox run.
+        self._mock_start = mock_start
+        self._suggest_reviewers(["alice"])
+        self._opt_in(self.alice)
+        run = self._run(self._task(), status=status)
+        self._record_output(run, {"pr_url": _PR_URL})
+
+        mock_start.assert_not_called()
+
+    @patch(_STAMPHOG_QUEUE)
+    @patch(_START, return_value="wf-1")
+    def test_soft_deleted_task_does_not_trigger(self, mock_start, mock_queue) -> None:
+        # A soft-deleted task's run can still save output and re-fire the receiver; its PR is
+        # disowned work, and the webhook leg already excludes deleted tasks, so the first review
+        # (the one that mints the approval) must not fire either.
+        self._mock_start = mock_start
+        self._suggest_reviewers(["alice"])
+        self._opt_in(self.alice, review_inbox_prs=True, stamphog_review_inbox_prs=True)
+        task = self._task()
+        task.deleted = True
+        task.save(update_fields=["deleted"])
+        self._record_output(self._run(task), {"pr_url": _PR_URL})
+
+        mock_start.assert_not_called()
+        mock_queue.assert_not_called()
+
+    @parameterized.expand(
+        [
+            # (name, reviewer_logins, expected_login) — both members opted in; the first login that
+            # resolves to an org member is the canonical assignee whose options apply.
+            ("first_resolved_reviewer_is_canonical", ["bob", "alice"], "bob"),
+            ("unresolved_login_is_not_canonical", ["stranger", "alice"], "alice"),
+        ]
+    )
+    @patch(_START, return_value="wf-1")
+    def test_the_first_resolved_reviewer_is_canonical(self, _name, reviewer_logins, expected, mock_start) -> None:
+        # With multiple assigned reviewers, the first one resolving to an org member is canonical
+        # for which ReviewHog options apply (maintainer decision) — the review runs as them.
+        self._mock_start = mock_start
+        bob = self._org_member("bob@posthog.com", github_login="bob")
+        users = {"alice": self.alice, "bob": bob}
+        self._suggest_reviewers(reviewer_logins)
+        for user in users.values():
+            self._opt_in(user)
+        self._record_output(self._run(self._task()), {"pr_url": _PR_URL})
+
+        assert mock_start.call_args.kwargs["acting_user_id"] == users[expected].id
+        assert mock_start.call_args.kwargs["user_id"] == users[expected].id
+
+    @patch(_START, return_value="wf-1")
+    def test_opted_out_canonical_reviewer_blocks_the_review(self, mock_start) -> None:
+        # The canonical assignee's toggle is THE gate for background-created runs: if they kept the
+        # default off, a later reviewer's opt-in must not hijack whose options the review runs with.
+        self._mock_start = mock_start
+        self._org_member("bob@posthog.com", github_login="bob")  # canonical, not opted in
+        self._suggest_reviewers(["bob", "alice"])
+        self._opt_in(self.alice)
+        self._record_output(self._run(self._task()), {"pr_url": _PR_URL})
+
+        mock_start.assert_not_called()
+
+    @patch(_START, return_value="wf-1")
+    def test_assigned_requester_gets_their_own_rules(self, mock_start) -> None:
+        # A reviewer who personally asked for the implementation ("Create PR" — task.created_by)
+        # gets THEIR ReviewHog rules applied to its review, even when they are not the report's
+        # first reviewer and the first reviewer never opted in.
+        self._mock_start = mock_start
+        self._org_member("bob@posthog.com", github_login="bob")  # first reviewer, not opted in
+        self._suggest_reviewers(["bob", "alice"])
+        self._opt_in(self.alice)
+        self._record_output(self._run(self._task(created_by=self.alice)), {"pr_url": _PR_URL})
+
+        assert mock_start.call_args.kwargs["acting_user_id"] == self.alice.id
+        assert mock_start.call_args.kwargs["user_id"] == self.alice.id
+
+    @patch(_START, return_value="wf-1")
+    def test_non_assigned_requester_follows_the_canonical_reviewer(self, mock_start) -> None:
+        # A creator who is NOT among the assigned reviewers (a non-assigned teammate clicking
+        # "Create PR", or a background system creator) carries no assignment meaning: the primary
+        # assignee's rules govern — here they never opted in, so no review runs even though the
+        # creator did.
+        self._mock_start = mock_start
+        self._org_member("bob@posthog.com", github_login="bob")  # canonical, not opted in
+        charlie = self._org_member("charlie@posthog.com", github_login="charlie")  # not assigned
+        self._suggest_reviewers(["bob"])
+        self._opt_in(charlie)
+        self._record_output(self._run(self._task(created_by=charlie)), {"pr_url": _PR_URL})
+
+        mock_start.assert_not_called()
+
+    @parameterized.expand(
+        [
+            # (name, with_signal_report, internal, reviewers, opt_in, output, repository)
+            ("not_a_signals_task", False, False, ["alice"], True, {"pr_url": _PR_URL}, "o/r"),
+            ("no_reviewers_artefact", True, False, None, True, {"pr_url": _PR_URL}, "o/r"),
+            ("reviewer_not_an_org_member", True, False, ["stranger"], True, {"pr_url": _PR_URL}, "o/r"),
+            ("nobody_opted_in", True, False, ["alice"], False, {"pr_url": _PR_URL}, "o/r"),
+            ("empty_output", True, False, ["alice"], True, {}, "o/r"),
+            ("output_without_a_target", True, False, ["alice"], True, {"other": "x"}, "o/r"),
+            ("branch_target_without_a_repository", True, False, ["alice"], True, {"head_branch": "b"}, None),
+        ]
+    )
+    @patch(_START, return_value="wf-1")
+    def test_gates_skip_without_starting_a_review(
+        self, _name, with_signal_report, internal, reviewers, opt_in, output, repository, mock_start
+    ) -> None:
+        # Each gate protects real money (a sandbox review per trigger) or correctness: a review must
+        # only run for a signals implementation run whose report is assigned to someone who opted in.
+        # (The non-implementation-stage skip has its own test — the gate keys on the run's ai_stage.)
+        self._mock_start = mock_start
+        if reviewers is not None:
+            self._suggest_reviewers(reviewers)
+        if opt_in:
+            self._opt_in(self.alice)
+        task = self._task(with_signal_report=with_signal_report, repository=repository, internal=internal)
+        # branch="master" on the row: the TaskRun.branch FIELD must never be treated as a target
+        # (auto-start seeds it with the BASE branch; only output.head_branch is the pushed head).
+        run = self._run(task, branch="master")
+        self._record_output(run, output)
+
+        mock_start.assert_not_called()
+
+    @patch(_STAMPHOG_QUEUE)
+    @patch(_START, return_value="wf-1")
+    def test_non_implementation_stage_run_does_not_trigger(self, mock_start, mock_queue) -> None:
+        # The pipeline's other signal runs (research, repo_selection) share signal_report_id AND
+        # internal=True with the implementation run — only the run's ai_stage separates them. A
+        # non-implementation run that happens to carry a PR target must trigger neither review; the
+        # old internal-flag gate couldn't tell them apart and disabled the real implementation run too.
+        self._mock_start = mock_start
+        self._suggest_reviewers(["alice"])
+        self._opt_in(self.alice, review_inbox_prs=True, stamphog_review_inbox_prs=True)
+        self._record_output(self._run(self._task(), ai_stage="research"), {"pr_url": _PR_URL})
+
+        mock_start.assert_not_called()
+        mock_queue.assert_not_called()
+
+    @patch(_START, side_effect=RuntimeError("temporal down"))
+    def test_workflow_start_failure_never_raises_into_the_save_path(self, mock_start) -> None:
+        # The receiver runs inside tasks' save path: Temporal being down must cost a log line, not
+        # break the run's output save.
+        self._mock_start = mock_start
+        self._suggest_reviewers(["alice"])
+        self._opt_in(self.alice)
+        self._record_output(self._run(self._task()), {"pr_url": _PR_URL})  # must not raise
+
+        mock_start.assert_called_once()
+
+    @parameterized.expand(
+        [
+            # (name, flags, expect_review_hog, expect_stamphog) — the two toggles on the one acting
+            # reviewer gate their reviews independently: neither may imply, block, or replace the other.
+            ("stamphog_only", {"stamphog_review_inbox_prs": True}, False, True),
+            ("both_toggles", {"review_inbox_prs": True, "stamphog_review_inbox_prs": True}, True, True),
+            ("review_hog_only", {"review_inbox_prs": True}, True, False),
+        ]
+    )
+    @patch(_STAMPHOG_QUEUE)
+    @patch(_START, return_value="wf-1")
+    def test_the_two_toggles_gate_their_reviews_independently(
+        self, _name, flags, expect_review_hog, expect_stamphog, mock_start, mock_queue
+    ) -> None:
+        self._mock_start = mock_start
+        self._suggest_reviewers(["alice"])
+        self._opt_in(self.alice, **flags)
+        run = self._run(self._task())
+        self._record_output(run, {"pr_url": _PR_URL})
+
+        assert mock_start.called is expect_review_hog
+        if expect_stamphog:
+            mock_queue.assert_called_once_with(
+                team_id=self.team.id,
+                pr_url=_PR_URL,
+                # The TASK's repository (lowercased on save), never the PR URL's own, because
+                # `output.pr_url` is caller-writable and the review pins to where the task runs.
+                repository="posthog/posthog",
+                acting_user_id=self.alice.id,
+                signal_report_id=str(self.signal_report.id),
+                task_run_id=str(run.id),
+            )
+        else:
+            mock_queue.assert_not_called()
+
+    @patch(_STAMPHOG_QUEUE)
+    @patch(_START, return_value="wf-1")
+    def test_stamphog_fires_on_any_assigned_reviewer_opting_in(self, mock_start, mock_queue) -> None:
+        # Stamphog reads no per-user options, so its gate is ANY assigned reviewer's opt-in;
+        # narrowing it to the canonical reviewer (which the ReviewHog leg does need, for that
+        # user's perspectives and threshold) would silently drop every review the other assignees
+        # asked for. ReviewHog's leg must not widen with it — here its canonical reviewer opted
+        # into neither, so only stamphog runs.
+        self._mock_start = mock_start
+        bob = self._org_member("bob@posthog.com", github_login="bob")
+        self._suggest_reviewers(["alice", "bob"])
+        self._opt_in(bob, review_inbox_prs=True, stamphog_review_inbox_prs=True)
+        self._record_output(self._run(self._task()), {"pr_url": _PR_URL})
+
+        mock_start.assert_not_called()
+        assert mock_queue.call_args.kwargs["acting_user_id"] == bob.id
+        # Both legs must resolve the same reviewer: a trigger leg firing on bob's opt-in while the
+        # webhook resolver only ever considered alice would retract the approval as opted-out on
+        # the next push, with bob still opted in.
+        assert resolve_stamphog_acting_reviewer(self.team.id, str(self.signal_report.id), None) == bob.id
+
+    @patch(_STAMPHOG_QUEUE)
+    @patch(_START, return_value="wf-1")
+    def test_stamphog_leg_needs_a_pr_target(self, mock_start, mock_queue) -> None:
+        # A bare pushed branch reviews on the ReviewHog side (stored), but stamphog's verdict is a
+        # GitHub review — with no PR to post to, queueing a stamphog run would only burn a sandbox.
+        self._mock_start = mock_start
+        self._suggest_reviewers(["alice"])
+        self._opt_in(self.alice, review_inbox_prs=True, stamphog_review_inbox_prs=True)
+        self._record_output(self._run(self._task()), {"head_branch": _HEAD_BRANCH})
+
+        mock_start.assert_called_once()
+        mock_queue.assert_not_called()
+
+    @patch(_STAMPHOG_QUEUE, side_effect=RuntimeError("broker down"))
+    @patch(_START, return_value="wf-1")
+    def test_stamphog_queue_failure_never_raises_into_the_save_path(self, mock_start, mock_queue) -> None:
+        # Same contract as the ReviewHog leg: the Celery broker being down must cost a log line,
+        # not break the run's output save (and not take the ReviewHog review down with it).
+        self._mock_start = mock_start
+        self._suggest_reviewers(["alice"])
+        self._opt_in(self.alice, review_inbox_prs=True, stamphog_review_inbox_prs=True)
+        self._record_output(self._run(self._task()), {"pr_url": _PR_URL})  # must not raise
+
+        mock_queue.assert_called_once()
+        mock_start.assert_called_once()
+
+    @parameterized.expand(
+        [
+            # (name, flags, expected) — the webhook-leg resolver must key on the STAMPHOG toggle:
+            # keying on review_inbox_prs would re-review for users who never opted into stamphog.
+            ("stamphog_toggle_on", {"stamphog_review_inbox_prs": True}, True),
+            ("only_review_hog_toggle_on", {"review_inbox_prs": True}, False),
+        ]
+    )
+    def test_resolve_stamphog_acting_reviewer_keys_on_the_stamphog_toggle(self, _name, flags, expected) -> None:
+        # The hook stamphog's webhook path calls before re-reviewing a self-driving PR on a later
+        # push — switching the toggle off mid-PR must stop new runs.
+        self._suggest_reviewers(["alice"])
+        self._opt_in(self.alice, **flags)
+
+        resolved = resolve_stamphog_acting_reviewer(self.team.id, str(self.signal_report.id), None)
+
+        assert resolved == (self.alice.id if expected else None)

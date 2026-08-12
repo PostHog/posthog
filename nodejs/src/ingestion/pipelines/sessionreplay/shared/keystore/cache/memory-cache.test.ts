@@ -42,9 +42,9 @@ describe('MemoryCachedKeyStore', () => {
 
     describe('generateKey', () => {
         it('should call delegate and cache the result', async () => {
-            const result = await cachedKeyStore.generateKey('session-123', 1)
+            const result = await cachedKeyStore.generateKey('session-123', 1, 30)
 
-            expect(mockDelegate.generateKey).toHaveBeenCalledWith('session-123', 1)
+            expect(mockDelegate.generateKey).toHaveBeenCalledWith('session-123', 1, 30)
             expect(result).toEqual(mockSessionKey)
 
             // Second call should use cache
@@ -55,10 +55,22 @@ describe('MemoryCachedKeyStore', () => {
             expect(cachedResult).toEqual(mockSessionKey)
         })
 
+        it('should serve a cached key on a repeat generateKey without hitting the delegate', async () => {
+            // A session grouped per batch can call generateKey once per message; only the first should
+            // reach the delegate (KMS/DynamoDB), the rest come from cache.
+            await cachedKeyStore.generateKey('session-123', 1, 30)
+            mockDelegate.generateKey.mockClear()
+
+            const result = await cachedKeyStore.generateKey('session-123', 1, 30)
+
+            expect(mockDelegate.generateKey).not.toHaveBeenCalled()
+            expect(result).toEqual(mockSessionKey)
+        })
+
         it('should propagate delegate generateKey error', async () => {
             mockDelegate.generateKey.mockRejectedValue(new Error('Generate failed'))
 
-            await expect(cachedKeyStore.generateKey('session-123', 1)).rejects.toThrow('Generate failed')
+            await expect(cachedKeyStore.generateKey('session-123', 1, 30)).rejects.toThrow('Generate failed')
         })
     })
 

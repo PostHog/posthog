@@ -9,7 +9,8 @@ use crate::{
     metric_consts::JAVA_EXCEPTION_REMAP_FAILED,
     symbolication::symbol_store::{chunk_id::OrChunkId, proguard::ProguardRef},
 };
-use tracing::warn;
+use tracing::debug;
+use uuid::Uuid;
 pub mod local;
 pub mod records;
 
@@ -36,6 +37,17 @@ pub trait SymbolResolver: Send + Sync + 'static {
         minified_name: &str,
     ) -> Result<String, ResolveError>;
 
+    /// The newest release bound to any of `symbol_set_refs`. Lives here because only a resolver
+    /// backed by the symbol-set store can answer it; resolvers without one (test fakes) inherit
+    /// the "no release" default.
+    async fn latest_release_id(
+        &self,
+        _team_id: TeamId,
+        _symbol_set_refs: &[String],
+    ) -> Result<Option<Uuid>, UnhandledError> {
+        Ok(None)
+    }
+
     async fn resolve_java_exception(
         &self,
         team_id: TeamId,
@@ -43,32 +55,37 @@ pub trait SymbolResolver: Send + Sync + 'static {
     ) -> Result<Exception, UnhandledError> {
         let resolve_java_module_and_type =
             async |exception: &Exception| -> Result<(String, String), ResolveError> {
-                if let RawFrame::Java(java_frame) = exception
+                // Pick the first Java frame that carries a ProGuard mapping ref,
+                // not just the first frame. Wire-order normalization can move a
+                // ref-less framework frame to the front, so anchoring on the
+                // frame that actually has a `map_id` keeps class remapping
+                // order-independent.
+                let symbolset_ref = exception
                     .get_raw_frame()
-                    .first()
+                    .iter()
+                    .find_map(|frame| match frame {
+                        RawFrame::Java(java_frame) => java_frame.get_ref().ok(),
+                        _ => None,
+                    })
                     .ok_or(ProguardError::NoOriginalFrames)
-                    .map_err(ResolveError::from)?
-                {
-                    let module = exception
-                        .module
-                        .clone()
-                        .ok_or(ProguardError::NoModuleProvided)
-                        .map_err(ResolveError::from)?;
+                    .map_err(ResolveError::from)?;
 
-                    let exc_type = exception.exception_type.clone();
+                let module = exception
+                    .module
+                    .clone()
+                    .ok_or(ProguardError::NoModuleProvided)
+                    .map_err(ResolveError::from)?;
 
-                    let class = format!("{}.{}", module, exc_type);
-                    let symbolset_ref = java_frame.get_ref()?;
+                let exc_type = exception.exception_type.clone();
 
-                    let new_class = self
-                        .resolve_java_class(team_id, symbolset_ref, class)
-                        .await?;
+                let class = format!("{}.{}", module, exc_type);
 
-                    let (new_module, new_type) = split_last_dot(new_class.as_str())?;
-                    Ok((new_module, new_type))
-                } else {
-                    Err(ProguardError::NoOriginalFrames.into())
-                }
+                let new_class = self
+                    .resolve_java_class(team_id, symbolset_ref, class)
+                    .await?;
+
+                let (new_module, new_type) = split_last_dot(new_class.as_str())?;
+                Ok((new_module, new_type))
             };
 
         match resolve_java_module_and_type(&exception).await {
@@ -77,12 +94,13 @@ pub trait SymbolResolver: Send + Sync + 'static {
                 exception.exception_type = new_type
             }
             Err(ResolveError::ResolutionError(frame_error)) => {
-                warn!(
-                    "Failed to resolve Java exception module and type: {}",
-                    frame_error
+                debug!(
+                    team_id,
+                    reason = frame_error.metric_reason(),
+                    error = %frame_error,
+                    "failed to resolve Java exception module and type"
                 );
-                // Handle resolution error
-                metrics::counter!(JAVA_EXCEPTION_REMAP_FAILED, "reason" => frame_error.to_string())
+                metrics::counter!(JAVA_EXCEPTION_REMAP_FAILED, "reason" => frame_error.metric_reason())
                     .increment(1)
             }
             Err(ResolveError::UnhandledError(err)) => {

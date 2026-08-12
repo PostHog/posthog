@@ -1,0 +1,13 @@
+<div style="margin: 10px 0;">
+    {% if is_suspended %}
+    <button type="submit" name="_unsuspend_email_sending" class="button"
+        formmethod="post" formaction="{{ unsuspend_url }}" formnovalidate
+        onclick="return confirm('Re-enable workflow email sending for {{ team_name_escaped }}? The team will be notified.');">
+        Re-enable email sending</button>
+    {% else %}
+    <a class="button" href="{{ suspend_url }}">Suspend email sending…</a>
+    {% endif %}
+    <p style="margin-top: 8px; color: #666; font-size: 12px;">
+        Sets <code>email_sending_suspended_at</code> on the team's workflows config. Suspending asks for a reason and notifies the team.
+    </p>
+</div>

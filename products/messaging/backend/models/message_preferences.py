@@ -6,6 +6,11 @@ from posthog.models.utils import UUIDTModel
 
 ALL_MESSAGE_PREFERENCE_CATEGORY_ID = "$all"
 
+# Reserved preference key for open/click tracking consent (CNIL/ePrivacy). Distinct from the
+# '$all' unsubscribe: a recipient can keep receiving emails while refusing open/click tracking.
+# Mirrored in nodejs/src/cdp/services/managers/recipients-manager.service.ts.
+EMAIL_TRACKING_PREFERENCE_ID = "$email_tracking"
+
 
 class PreferenceStatus(models.TextChoices):
     OPTED_IN = "OPTED_IN"

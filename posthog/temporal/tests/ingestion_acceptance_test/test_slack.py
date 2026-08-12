@@ -3,7 +3,7 @@ from unittest.mock import MagicMock, patch
 
 from posthog.temporal.ingestion_acceptance_test.config import Config
 from posthog.temporal.ingestion_acceptance_test.results import TestResult, TestSuiteResult
-from posthog.temporal.ingestion_acceptance_test.runner import RunningTestInfo
+from posthog.temporal.ingestion_acceptance_test.runner import RunningTestSnapshot
 from posthog.temporal.ingestion_acceptance_test.slack import send_slack_notification, send_slack_timeout_notification
 
 
@@ -115,6 +115,7 @@ class TestSendSlackNotification:
         assert header_block["type"] == "section"
         header_text = header_block["text"]["text"]
         assert "Unsuccessful" in header_text
+        assert "main lane" in header_text
 
     @patch("posthog.temporal.ingestion_acceptance_test.slack.requests.post")
     def test_payload_contains_summary_with_counts(
@@ -204,6 +205,7 @@ class TestSendSlackTimeoutNotification:
         payload = mock_post.call_args[1]["json"]
         header_text = payload["blocks"][0]["text"]["text"]
         assert "Timed Out" in header_text
+        assert "main lane" in header_text
 
     @patch("posthog.temporal.ingestion_acceptance_test.slack.requests.post")
     def test_payload_contains_environment_timeout_and_token_info(self, mock_post: MagicMock, config: Config) -> None:
@@ -237,8 +239,8 @@ class TestSendSlackTimeoutNotification:
         [
             (
                 [
-                    RunningTestInfo(name="TestAlias::test_alias", pending_poll="person with distinct_id 'abc-123'"),
-                    RunningTestInfo(name="TestMerge::test_merge", pending_poll="events for person 'person-789'"),
+                    RunningTestSnapshot(name="TestAlias::test_alias", pending_poll="person with distinct_id 'abc-123'"),
+                    RunningTestSnapshot(name="TestMerge::test_merge", pending_poll="events for person 'person-789'"),
                 ],
                 [
                     "TestAlias::test_alias",
@@ -249,7 +251,7 @@ class TestSendSlackTimeoutNotification:
                 [],
             ),
             (
-                [RunningTestInfo(name="TestBasic::test_capture", pending_poll=None)],
+                [RunningTestSnapshot(name="TestBasic::test_capture", pending_poll=None)],
                 ["TestBasic::test_capture"],
                 ["waiting for"],
             ),
@@ -261,7 +263,7 @@ class TestSendSlackTimeoutNotification:
         self,
         mock_post: MagicMock,
         config: Config,
-        running_tests: list[RunningTestInfo],
+        running_tests: list[RunningTestSnapshot],
         expected_in_text: list[str],
         not_expected_in_text: list[str],
     ) -> None:

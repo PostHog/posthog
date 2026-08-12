@@ -12,7 +12,9 @@ from django.core.cache import cache
 
 from posthog.schema import RecordingOrder, RecordingsQuery
 
-from posthog.clickhouse.client import sync_execute
+from posthog.hogql import ast
+from posthog.hogql.query import execute_hogql_query
+
 from posthog.clickhouse.query_tagging import Feature, Product, tag_queries
 from posthog.models import Comment, Team, User
 from posthog.models.sharing_configuration import SharingConfiguration
@@ -257,12 +259,14 @@ class ExpiringPlaylistSource(SyntheticPlaylistSource):
             return cached_data
 
         query = RecordingsQuery(limit=ExpiringPlaylistSource.SCAN_LIMIT, order=RecordingOrder.RECORDING_TTL)
-        recordings, _, _, _ = list_recordings_from_query(query, user, team)
+        listing_result = list_recordings_from_query(query, user, team)
 
         now = datetime.now(UTC)
         window_end = now + timedelta(days=ExpiringPlaylistSource.EXPIRY_WINDOW_DAYS)
 
-        session_ids = [r.session_id for r in recordings if r.expiry_time and now <= r.expiry_time <= window_end]
+        session_ids = [
+            r.session_id for r in listing_result.recordings if r.expiry_time and now <= r.expiry_time <= window_end
+        ]
         cache.set(cache_key, session_ids, ExpiringPlaylistSource.CACHE_TTL)
         return session_ids
 
@@ -319,35 +323,35 @@ class FrustrationSignalsPlaylistSource(SyntheticPlaylistSource):
 
         query = """
             SELECT
-                `$session_id` AS session_id,
+                properties.$session_id AS session_id,
                 countIf(event = '$rageclick') * 3
                     + countIf(event = '$exception') * 2
                     AS frustration_score
             FROM events
             WHERE
-                team_id = %(team_id)s
-                AND event IN ('$rageclick', '$exception')
-                AND timestamp >= %(date_from)s
-                AND timestamp <= %(date_to)s
-                AND notEmpty(`$session_id`)
-            GROUP BY `$session_id`
-            HAVING frustration_score > %(min_frustration_score)s
+                event IN ('$rageclick', '$exception')
+                AND timestamp >= {date_from}
+                AND timestamp <= {date_to}
+                AND notEmpty(properties.$session_id)
+            GROUP BY properties.$session_id
+            HAVING frustration_score > {min_frustration_score}
             ORDER BY frustration_score DESC
             LIMIT 1000
         """
 
         tag_queries(product=Product.REPLAY, feature=Feature.QUERY, team_id=team.pk)
-        result = sync_execute(
-            query,
-            {
-                "team_id": team.pk,
-                "date_from": date_from,
-                "date_to": now_ts,
-                "min_frustration_score": FrustrationSignalsPlaylistSource.MIN_FRUSTRATION_SCORE,
+        response = execute_hogql_query(
+            query=query,
+            team=team,
+            query_type="SessionRecordingFrustrationSignalsQuery",
+            placeholders={
+                "date_from": ast.Constant(value=date_from),
+                "date_to": ast.Constant(value=now_ts),
+                "min_frustration_score": ast.Constant(value=FrustrationSignalsPlaylistSource.MIN_FRUSTRATION_SCORE),
             },
         )
 
-        session_ids = [row[0] for row in result]
+        session_ids = [row[0] for row in response.results or []]
         cache.set(cache_key, session_ids, FrustrationSignalsPlaylistSource.CACHE_TTL)
         return session_ids
 

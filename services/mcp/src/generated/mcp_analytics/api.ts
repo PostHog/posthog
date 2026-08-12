@@ -3,7 +3,7 @@
  * MCP service uses these Zod schemas for generated tool handlers.
  * To regenerate: hogli build:openapi
  *
- * PostHog API - MCP 6 enabled ops
+ * PostHog API - MCP 7 enabled ops
  * OpenAPI spec version: 1.0.0
  */
 import * as zod from 'zod'
@@ -15,7 +15,7 @@ export const McpAnalyticsFeedbackCreateParams = /* @__PURE__ */ zod.object({
     project_id: zod
         .string()
         .describe(
-            "Project ID of the project you're trying to access. To find the ID of the project, make a call to /api/projects/."
+            "Project ID of the project you're trying to access. To find the ID of the project, make a call to \/api\/projects\/."
         ),
 })
 
@@ -92,10 +92,12 @@ export const McpAnalyticsFeedbackCreateBody = /* @__PURE__ */ zod.object({
         .describe('Concrete feedback about the MCP experience, tool result, or workflow friction.'),
     category: zod
         .enum(['results', 'usability', 'bug', 'docs', 'other'])
-        .describe('* `results` - Results\n* `usability` - Usability\n* `bug` - Bug\n* `docs` - Docs\n* `other` - Other')
+        .describe(
+            '\* `results` - Results\n\* `usability` - Usability\n\* `bug` - Bug\n\* `docs` - Docs\n\* `other` - Other'
+        )
         .default(mcpAnalyticsFeedbackCreateBodyCategoryDefault)
         .describe(
-            'High-level category for the feedback.\n\n* `results` - Results\n* `usability` - Usability\n* `bug` - Bug\n* `docs` - Docs\n* `other` - Other'
+            'High-level category for the feedback.\n\n\* `results` - Results\n\* `usability` - Usability\n\* `bug` - Bug\n\* `docs` - Docs\n\* `other` - Other'
         ),
 })
 
@@ -106,7 +108,16 @@ export const McpAnalyticsIntentClustersRetrieveParams = /* @__PURE__ */ zod.obje
     project_id: zod
         .string()
         .describe(
-            "Project ID of the project you're trying to access. To find the ID of the project, make a call to /api/projects/."
+            "Project ID of the project you're trying to access. To find the ID of the project, make a call to \/api\/projects\/."
+        ),
+})
+
+export const McpAnalyticsIntentClustersRetrieveQueryParams = /* @__PURE__ */ zod.object({
+    tool: zod
+        .string()
+        .optional()
+        .describe(
+            "Narrow the response to one tool: its pivot entry, the clusters it serves or switches with, and the overlap pairs it belongs to. Coverage meta stays whole-snapshot. Use this for single-tool views so they don't download every cluster and pivot to render one row. An unknown tool returns empty sections, not a 404."
         ),
 })
 
@@ -117,7 +128,7 @@ export const McpAnalyticsIntentClustersRecomputeParams = /* @__PURE__ */ zod.obj
     project_id: zod
         .string()
         .describe(
-            "Project ID of the project you're trying to access. To find the ID of the project, make a call to /api/projects/."
+            "Project ID of the project you're trying to access. To find the ID of the project, make a call to \/api\/projects\/."
         ),
 })
 
@@ -128,7 +139,7 @@ export const McpAnalyticsMissingCapabilitiesCreateParams = /* @__PURE__ */ zod.o
     project_id: zod
         .string()
         .describe(
-            "Project ID of the project you're trying to access. To find the ID of the project, make a call to /api/projects/."
+            "Project ID of the project you're trying to access. To find the ID of the project, make a call to \/api\/projects\/."
         ),
 })
 
@@ -216,7 +227,7 @@ export const McpAnalyticsSessionsListParams = /* @__PURE__ */ zod.object({
     project_id: zod
         .string()
         .describe(
-            "Project ID of the project you're trying to access. To find the ID of the project, make a call to /api/projects/."
+            "Project ID of the project you're trying to access. To find the ID of the project, make a call to \/api\/projects\/."
         ),
 })
 
@@ -275,7 +286,7 @@ export const McpAnalyticsSessionsGenerateIntentParams = /* @__PURE__ */ zod.obje
     project_id: zod
         .string()
         .describe(
-            "Project ID of the project you're trying to access. To find the ID of the project, make a call to /api/projects/."
+            "Project ID of the project you're trying to access. To find the ID of the project, make a call to \/api\/projects\/."
         ),
 })
 
@@ -285,5 +296,47 @@ export const McpAnalyticsSessionsGenerateIntentQueryParams = /* @__PURE__ */ zod
         .optional()
         .describe(
             "Absolute ISO timestamp lower bound for the intent scan — pass the session's start so older sessions resolve. Defaults to a 7-day lookback when omitted."
+        ),
+})
+
+/**
+ * List a page of the $mcp_tool_call events that belong to a given $session_id, in chronological order.
+ */
+export const McpAnalyticsSessionsToolCallsParams = /* @__PURE__ */ zod.object({
+    id: zod.string().describe('A UUID string identifying this mcp analytics submission.'),
+    project_id: zod
+        .string()
+        .describe(
+            "Project ID of the project you're trying to access. To find the ID of the project, make a call to \/api\/projects\/."
+        ),
+})
+
+export const mcpAnalyticsSessionsToolCallsQueryLimitDefault = 500
+export const mcpAnalyticsSessionsToolCallsQueryLimitMax = 500
+
+export const mcpAnalyticsSessionsToolCallsQueryOffsetDefault = 0
+export const mcpAnalyticsSessionsToolCallsQueryOffsetMin = 0
+
+export const McpAnalyticsSessionsToolCallsQueryParams = /* @__PURE__ */ zod.object({
+    date_from: zod.iso
+        .datetime({ offset: true })
+        .optional()
+        .describe(
+            "Absolute ISO timestamp lower bound for the event scan — pass the session's start so older sessions resolve. Defaults to a 7-day lookback when omitted or unparseable."
+        ),
+    limit: zod
+        .number()
+        .min(1)
+        .max(mcpAnalyticsSessionsToolCallsQueryLimitMax)
+        .default(mcpAnalyticsSessionsToolCallsQueryLimitDefault)
+        .describe(
+            "Maximum tool calls to return per page (1–500). Defaults to 500 — the whole page — so a session's calls come back in one request; pass a smaller value for a lighter response. Values above the cap are rejected."
+        ),
+    offset: zod
+        .number()
+        .min(mcpAnalyticsSessionsToolCallsQueryOffsetMin)
+        .default(mcpAnalyticsSessionsToolCallsQueryOffsetDefault)
+        .describe(
+            "Number of tool calls to skip before returning results. Combine with limit to page through a session's calls; the response's has_next flag indicates whether more remain."
         ),
 })

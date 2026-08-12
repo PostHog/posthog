@@ -3,6 +3,7 @@ from rest_framework import status
 
 from posthog.constants import AvailableFeature
 from posthog.models import Organization, OrganizationMembership, User
+from posthog.models.identity_provider_config import IdentityProviderConfig
 from posthog.models.organization_domain import OrganizationDomain
 
 from ee.api.scim.auth import generate_scim_token
@@ -24,7 +25,8 @@ class TestSCIMUsersAPI(APILicensedTest):
             self.organization.available_product_features = features
             self.organization.save()
 
-        # Create organization domain with SCIM enabled
+        # Create organization domain with a linked, SCIM-enabled IdP config (SCIM auth resolves
+        # through the linked config, not the domain's own legacy columns).
         self.domain = OrganizationDomain.objects.create(
             organization=self.organization,
             domain="example.com",
@@ -32,10 +34,14 @@ class TestSCIMUsersAPI(APILicensedTest):
         )
 
         # Generate SCIM token
-        self.plain_token, hashed_token = generate_scim_token()
-        self.domain._scim_enabled = True
-        self.domain._scim_bearer_token = hashed_token
+        token = generate_scim_token()
+        self.plain_token = token.plain
+        self.config = IdentityProviderConfig.objects.create(
+            organization=self.organization, scim_enabled=True, scim_bearer_token=token.hashed
+        )
+        self.domain.identity_provider_config = self.config
         self.domain.save()
+        self.config.refresh_from_db()
 
         self.scim_headers = {"HTTP_AUTHORIZATION": f"Bearer {self.plain_token}"}
         self.client.credentials(**self.scim_headers)
@@ -61,7 +67,7 @@ class TestSCIMUsersAPI(APILicensedTest):
         )
         SCIMProvisionedUser.objects.create(
             user=user_a,
-            organization_domain=self.domain,
+            identity_provider_config=self.config,
             username="engineering@example.com",
             identity_provider=SCIMProvisionedUser.IdentityProvider.OTHER,
             active=True,
@@ -75,7 +81,7 @@ class TestSCIMUsersAPI(APILicensedTest):
         )
         SCIMProvisionedUser.objects.create(
             user=user_b,
-            organization_domain=self.domain,
+            identity_provider_config=self.config,
             username="alex@example.com",
             identity_provider=SCIMProvisionedUser.IdentityProvider.OTHER,
             active=True,
@@ -173,7 +179,7 @@ class TestSCIMUsersAPI(APILicensedTest):
         assert membership.level == OrganizationMembership.Level.MEMBER
 
         # Verify SCIM provisioned user record was created
-        scim_user = SCIMProvisionedUser.objects.get(user=user, organization_domain=self.domain)
+        scim_user = SCIMProvisionedUser.objects.get(user=user, identity_provider_config=self.config)
         assert scim_user.username == "Newuser@example.com"
         assert scim_user.active is True
         assert scim_user.identity_provider == SCIMProvisionedUser.IdentityProvider.OTHER
@@ -208,7 +214,7 @@ class TestSCIMUsersAPI(APILicensedTest):
         assert OrganizationMembership.objects.filter(user=existing_user, organization=other_org).exists()
 
         # Verify SCIM provisioned user record was created for this domain
-        scim_user = SCIMProvisionedUser.objects.get(user=existing_user, organization_domain=self.domain)
+        scim_user = SCIMProvisionedUser.objects.get(user=existing_user, identity_provider_config=self.config)
         assert scim_user.active is True
 
     def test_repeated_post_returns_409_for_already_provisioned_user(self):
@@ -253,6 +259,39 @@ class TestSCIMUsersAPI(APILicensedTest):
         # User should have only one membership
         assert OrganizationMembership.objects.filter(user=first_user, organization=self.organization).count() == 1
 
+    def test_linking_another_verified_domain_does_not_reprovision_users(self):
+        # Provisioning records key on the config, so a config that starts backing a second verified
+        # domain still recognizes the users it has already provisioned. Keying them on one of the
+        # config's domains instead would let the pick move and provision everyone a second time.
+        user_data = {
+            "schemas": ["urn:ietf:params:scim:schemas:core:2.0:User"],
+            "userName": "multidomain@example.com",
+            "name": {"givenName": "Multi", "familyName": "Domain"},
+            "emails": [{"value": "multidomain@example.com", "primary": True}],
+            "active": True,
+        }
+        assert (
+            self.client.post(
+                f"/scim/v2/{self.domain.id}/Users", data=user_data, content_type="application/scim+json"
+            ).status_code
+            == status.HTTP_201_CREATED
+        )
+
+        OrganizationDomain.objects.create(
+            organization=self.organization,
+            domain="partner.example.com",
+            verified_at="2024-01-01T00:00:00Z",
+            identity_provider_config=self.config,
+        )
+
+        response = self.client.post(
+            f"/scim/v2/{self.domain.id}/Users", data=user_data, content_type="application/scim+json"
+        )
+
+        assert response.status_code == status.HTTP_409_CONFLICT
+        user = User.objects.get(email="multidomain@example.com")
+        assert SCIMProvisionedUser.objects.filter(user=user, identity_provider_config=self.config).count() == 1
+
     def test_get_user(self):
         user = User.objects.create_user(
             email="test@example.com", password=None, first_name="Test", last_name="User", is_email_verified=True
@@ -289,7 +328,7 @@ class TestSCIMUsersAPI(APILicensedTest):
         # Create SCIM provisioned user record
         SCIMProvisionedUser.objects.create(
             user=user,
-            organization_domain=self.domain,
+            identity_provider_config=self.config,
             username="deactivate@example.com",
             identity_provider=SCIMProvisionedUser.IdentityProvider.OTHER,
             active=True,
@@ -314,7 +353,7 @@ class TestSCIMUsersAPI(APILicensedTest):
         assert user.is_active is True  # User is still active globally
 
         # Verify SCIM provisioned user record still exists but is marked inactive
-        scim_user = SCIMProvisionedUser.objects.get(user=user, organization_domain=self.domain)
+        scim_user = SCIMProvisionedUser.objects.get(user=user, identity_provider_config=self.config)
         assert scim_user.active is False
 
     def test_delete_user(self):
@@ -327,7 +366,7 @@ class TestSCIMUsersAPI(APILicensedTest):
         # Create SCIM provisioned user record
         SCIMProvisionedUser.objects.create(
             user=user,
-            organization_domain=self.domain,
+            identity_provider_config=self.config,
             username="delete@example.com",
             identity_provider=SCIMProvisionedUser.IdentityProvider.OTHER,
             active=True,
@@ -341,7 +380,7 @@ class TestSCIMUsersAPI(APILicensedTest):
         assert not OrganizationMembership.objects.filter(user=user, organization=self.organization).exists()
 
         # Verify SCIM provisioned user record was deleted
-        assert not SCIMProvisionedUser.objects.filter(user=user, organization_domain=self.domain).exists()
+        assert not SCIMProvisionedUser.objects.filter(user=user, identity_provider_config=self.config).exists()
 
     def test_put_user(self):
         user = User.objects.create_user(
@@ -353,7 +392,7 @@ class TestSCIMUsersAPI(APILicensedTest):
         # Create SCIM provisioned user record
         SCIMProvisionedUser.objects.create(
             user=user,
-            organization_domain=self.domain,
+            identity_provider_config=self.config,
             username="old@example.com",
             identity_provider=SCIMProvisionedUser.IdentityProvider.OTHER,
             active=True,
@@ -378,7 +417,7 @@ class TestSCIMUsersAPI(APILicensedTest):
         assert user.email == "put@example.com"
 
         # Verify SCIM provisioned user was updated
-        scim_user = SCIMProvisionedUser.objects.get(user=user, organization_domain=self.domain)
+        scim_user = SCIMProvisionedUser.objects.get(user=user, identity_provider_config=self.config)
         assert scim_user.username == "put@example.com"
         assert scim_user.active is True
 
@@ -396,14 +435,14 @@ class TestSCIMUsersAPI(APILicensedTest):
         )
         SCIMProvisionedUser.objects.create(
             user=user,
-            organization_domain=self.domain,
+            identity_provider_config=self.config,
             username="put_reactivate@example.com",
             identity_provider=SCIMProvisionedUser.IdentityProvider.OTHER,
             active=True,
         )
         # Deactivate
         OrganizationMembership.objects.filter(user=user, organization=self.organization).delete()
-        SCIMProvisionedUser.objects.filter(user=user, organization_domain=self.domain).update(active=False)
+        SCIMProvisionedUser.objects.filter(user=user, identity_provider_config=self.config).update(active=False)
         assert not OrganizationMembership.objects.filter(user=user, organization=self.organization).exists()
 
         put_data = {
@@ -421,7 +460,7 @@ class TestSCIMUsersAPI(APILicensedTest):
         assert response.status_code == status.HTTP_200_OK
         assert response.json()["active"] is True
         assert OrganizationMembership.objects.filter(user=user, organization=self.organization).exists()
-        scim_user = SCIMProvisionedUser.objects.get(user=user, organization_domain=self.domain)
+        scim_user = SCIMProvisionedUser.objects.get(user=user, identity_provider_config=self.config)
         assert scim_user.active is True
 
     def test_put_user_not_found(self):
@@ -624,7 +663,7 @@ class TestSCIMUsersAPI(APILicensedTest):
         )
         SCIMProvisionedUser.objects.create(
             user=user,
-            organization_domain=self.domain,
+            identity_provider_config=self.config,
             username="testuser@example.com",
             identity_provider=SCIMProvisionedUser.IdentityProvider.OTHER,
             active=False,
@@ -683,7 +722,7 @@ class TestSCIMUsersAPI(APILicensedTest):
         )
         SCIMProvisionedUser.objects.create(
             user=user,
-            organization_domain=self.domain,
+            identity_provider_config=self.config,
             username="reactivate@example.com",
             identity_provider=SCIMProvisionedUser.IdentityProvider.OTHER,
             active=False,
@@ -712,14 +751,14 @@ class TestSCIMUsersAPI(APILicensedTest):
         )
         SCIMProvisionedUser.objects.create(
             user=user,
-            organization_domain=self.domain,
+            identity_provider_config=self.config,
             username="reactivate_replace@example.com",
             identity_provider=SCIMProvisionedUser.IdentityProvider.OTHER,
             active=True,
         )
         # Deactivate
         OrganizationMembership.objects.filter(user=user, organization=self.organization).delete()
-        SCIMProvisionedUser.objects.filter(user=user, organization_domain=self.domain).update(active=False)
+        SCIMProvisionedUser.objects.filter(user=user, identity_provider_config=self.config).update(active=False)
         assert not OrganizationMembership.objects.filter(user=user, organization=self.organization).exists()
 
         patch_data = {
@@ -734,7 +773,7 @@ class TestSCIMUsersAPI(APILicensedTest):
         assert response.status_code == status.HTTP_200_OK
         assert response.json()["active"] is True
         assert OrganizationMembership.objects.filter(user=user, organization=self.organization).exists()
-        scim_user = SCIMProvisionedUser.objects.get(user=user, organization_domain=self.domain)
+        scim_user = SCIMProvisionedUser.objects.get(user=user, identity_provider_config=self.config)
         assert scim_user.active is True
 
     def test_patch_add_user_given_name_with_dotted_path(self):
@@ -957,7 +996,7 @@ class TestSCIMUsersAPI(APILicensedTest):
         for i in range(3):
             SCIMProvisionedUser.objects.create(
                 user=User.objects.get(email=f"paguser{i}@example.com"),
-                organization_domain=self.domain,
+                identity_provider_config=self.config,
                 username=f"paguser{i}@example.com",
                 identity_provider=SCIMProvisionedUser.IdentityProvider.OTHER,
                 active=True,
@@ -1008,7 +1047,7 @@ class TestSCIMUsersAPI(APILicensedTest):
         )
         SCIMProvisionedUser.objects.create(
             user=user,
-            organization_domain=self.domain,
+            identity_provider_config=self.config,
             username="multiat@example.com",
             identity_provider=SCIMProvisionedUser.IdentityProvider.OTHER,
             active=True,
@@ -1050,7 +1089,7 @@ class TestSCIMUsersAPI(APILicensedTest):
         )
         SCIMProvisionedUser.objects.create(
             user=user_b,
-            organization_domain=self.domain,
+            identity_provider_config=self.config,
             username="userb@example.com",
             identity_provider=SCIMProvisionedUser.IdentityProvider.OTHER,
             active=True,
@@ -1086,7 +1125,7 @@ class TestSCIMUsersAPI(APILicensedTest):
         )
         SCIMProvisionedUser.objects.create(
             user=owner,
-            organization_domain=self.domain,
+            identity_provider_config=self.config,
             username="owner2@example.com",
             identity_provider=SCIMProvisionedUser.IdentityProvider.OTHER,
             active=True,

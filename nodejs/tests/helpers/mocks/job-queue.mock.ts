@@ -11,5 +11,6 @@ export function createMockJobQueue(): jest.Mocked<JobQueue> {
         isHealthy: jest.fn(),
         dequeueInvocations: jest.fn().mockResolvedValue(undefined),
         cancelInvocations: jest.fn().mockResolvedValue(undefined),
+        heartbeatInvocations: jest.fn().mockResolvedValue(undefined),
     } as jest.Mocked<JobQueue>
 }

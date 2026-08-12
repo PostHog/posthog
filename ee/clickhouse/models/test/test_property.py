@@ -1,5 +1,5 @@
 from datetime import datetime
-from typing import Any, Literal, Union, cast
+from typing import Any, cast
 from uuid import UUID
 
 import pytest
@@ -18,14 +18,14 @@ from rest_framework.exceptions import ValidationError
 from posthog.clickhouse.client import sync_execute
 from posthog.constants import PropertyOperatorType
 from posthog.models.element import Element
+from posthog.models.event.new_events_schema import events_read_table, use_new_events_schema
 from posthog.models.filters import Filter
 from posthog.models.instance_setting import get_instance_setting
 from posthog.models.organization import Organization
-from posthog.models.property import Property, TableWithProperties
+from posthog.models.property import Property
 from posthog.models.property.util import (
     PropertyGroup,
     get_property_string_expr,
-    get_single_or_multi_property_string_expr,
     parse_prop_grouped_clauses,
     prop_filter_json_extract,
 )
@@ -51,7 +51,8 @@ class TestPropFormat(ClickhouseTestMixin, BaseTest):
             hogql_context=filter.hogql_context,
             **kwargs,
         )
-        final_query = "SELECT uuid FROM events WHERE team_id = %(team_id)s {}".format(query)
+        events_table = events_read_table(filter.hogql_context.uses_new_events_schema())
+        final_query = f"SELECT uuid FROM {events_table} WHERE team_id = %(team_id)s {query}"
         return sync_execute(
             final_query,
             {**params, **filter.hogql_context.values, "team_id": self.team.pk},
@@ -777,6 +778,7 @@ class TestPropDenormalized(ClickhouseTestMixin, BaseTest):
     CLASS_DATA_LEVEL_SETUP = False
 
     def _run_query(self, filter: Filter, join_person_tables=False) -> list:
+        filter.hogql_context.use_new_events_schema = False
         outer_properties = PropertyOptimizer().parse_property_groups(filter.property_groups).outer
         query, params = parse_prop_grouped_clauses(
             team_id=self.team.pk,
@@ -1184,112 +1186,6 @@ def test_parse_groups_persons_edge_case_with_single_filter(snapshot):
         )
         == snapshot
     )
-
-
-TEST_BREAKDOWN_PROCESSING = [
-    (
-        "$browser",
-        "events",
-        "prop",
-        "properties",
-        (
-            "replaceRegexpAll(JSONExtractRaw(properties, %(breakdown_param_1)s), '^\"|\"$', '') AS prop",
-            {"breakdown_param_1": "$browser"},
-        ),
-    ),
-    (
-        ["$browser"],
-        "events",
-        "value",
-        "properties",
-        (
-            "array(replaceRegexpAll(JSONExtractRaw(properties, %(breakdown_param_1)s), '^\"|\"$', '')) AS value",
-            {"breakdown_param_1": "$browser"},
-        ),
-    ),
-    (
-        ["$browser", "$browser_version"],
-        "events",
-        "prop",
-        "properties",
-        (
-            "array(replaceRegexpAll(JSONExtractRaw(properties, %(breakdown_param_1)s), '^\"|\"$', ''),replaceRegexpAll(JSONExtractRaw(properties, %(breakdown_param_2)s), '^\"|\"$', '')) AS prop",
-            {"breakdown_param_1": "$browser", "breakdown_param_2": "$browser_version"},
-        ),
-    ),
-]
-
-
-@pytest.mark.django_db
-@pytest.mark.parametrize("breakdown, table, query_alias, column, expected", TEST_BREAKDOWN_PROCESSING)
-def test_breakdown_query_expression(
-    clean_up_materialised_columns,
-    breakdown: Union[str, list[str]],
-    table: TableWithProperties,
-    query_alias: Literal["prop", "value"],
-    column: str,
-    expected: tuple[str, dict[str, Any]],
-):
-    actual = get_single_or_multi_property_string_expr(breakdown, table, query_alias, column)
-
-    assert actual == expected
-
-
-TEST_BREAKDOWN_PROCESSING_MATERIALIZED = [
-    (
-        ["$browser"],
-        "events",
-        "value",
-        "properties",
-        "person_properties",
-        (
-            "array(replaceRegexpAll(JSONExtractRaw(properties, %(breakdown_param_1)s), '^\"|\"$', '')) AS value",
-            {"breakdown_param_1": "$browser"},
-        ),
-        ('array("mat_pp_$browser") AS value', {"breakdown_param_1": "$browser"}),
-    )
-]
-
-
-@pytest.mark.django_db
-@pytest.mark.parametrize(
-    "breakdown, table, query_alias, column, materialise_column, expected_with, expected_without",
-    TEST_BREAKDOWN_PROCESSING_MATERIALIZED,
-)
-def test_breakdown_query_expression_materialised(
-    clean_up_materialised_columns,
-    breakdown: Union[str, list[str]],
-    table: TableWithProperties,
-    query_alias: Literal["prop", "value"],
-    column: str,
-    materialise_column: str,
-    expected_with: tuple[str, dict[str, Any]],
-    expected_without: tuple[str, dict[str, Any]],
-):
-    from posthog.models.team import util
-
-    util.can_enable_actor_on_events = True  # ty: ignore[invalid-assignment]
-
-    materialize(table, breakdown[0], table_column="properties")
-    actual = get_single_or_multi_property_string_expr(
-        breakdown,
-        table,
-        query_alias,
-        column,
-        materialised_table_column=materialise_column,
-    )
-    assert actual == expected_with
-
-    materialize(table, breakdown[0], table_column=cast(Any, materialise_column))
-    actual = get_single_or_multi_property_string_expr(
-        breakdown,
-        table,
-        query_alias,
-        column,
-        materialised_table_column=materialise_column,
-    )
-
-    assert actual == expected_without
 
 
 @pytest.fixture
@@ -1750,12 +1646,14 @@ TEST_PROPERTIES = [
 @pytest.mark.parametrize("property,expected_event_indexes", TEST_PROPERTIES)
 @freeze_time("2021-04-01T01:00:00.000Z")
 def test_prop_filter_json_extract(test_events, clean_up_materialised_columns, property, expected_event_indexes, team):
-    query, params = prop_filter_json_extract(property, 0, allow_denormalized_props=False)
+    use_new = use_new_events_schema(team.pk)
+    query, params = prop_filter_json_extract(property, 0, allow_denormalized_props=False, use_new_events_schema=use_new)
+    events_table = events_read_table(use_new)
     uuids = sorted(
         [
             str(uuid)
             for (uuid,) in sync_execute(
-                f"SELECT uuid FROM events WHERE team_id = %(team_id)s {query}",
+                f"SELECT uuid FROM {events_table} WHERE team_id = %(team_id)s {query}",
                 {"team_id": team.pk, **params},
             )
         ]
@@ -1766,6 +1664,35 @@ def test_prop_filter_json_extract(test_events, clean_up_materialised_columns, pr
     assert uuids == expected
 
 
+@pytest.mark.parametrize(
+    "property_filter,expected_fragment",
+    [
+        (
+            Property(key="dynamic_empty", operator="is_set", value="is_set"),
+            "isNotNull(properties.dynamic_empty)",
+        ),
+        (
+            Property(key="dynamic_datetime", operator="exact", value="2024-01-02T03:04:05"),
+            "replaceOne(toString(properties.dynamic_datetime), ' ', 'T')",
+        ),
+        (
+            Property(key="a%.b", operator="exact", value="value"),
+            "getSubcolumn(properties, %(k_0)s)",
+        ),
+    ],
+)
+def test_prop_filter_json_extract_native_json_dynamic_values(property_filter: Property, expected_fragment: str) -> None:
+    query, _ = prop_filter_json_extract(
+        property_filter,
+        0,
+        allow_denormalized_props=False,
+        use_new_events_schema=True,
+    )
+
+    assert expected_fragment in query
+    assert "JSONExtractRaw(toJSONString(properties)" not in query
+
+
 @pytest.mark.parametrize("property,expected_event_indexes", TEST_PROPERTIES)
 @freeze_time("2021-04-01T01:00:00.000Z")
 def test_prop_filter_json_extract_materialized(
@@ -1773,15 +1700,16 @@ def test_prop_filter_json_extract_materialized(
 ):
     materialize("events", property.key)
 
-    query, params = prop_filter_json_extract(property, 0, allow_denormalized_props=True)
+    query, params = prop_filter_json_extract(property, 0, allow_denormalized_props=True, use_new_events_schema=False)
 
     assert "JSONExtract" not in query
+    events_table = events_read_table(False)
 
     uuids = sorted(
         [
             str(uuid)
             for (uuid,) in sync_execute(
-                f"SELECT uuid FROM events WHERE team_id = %(team_id)s {query}",
+                f"SELECT uuid FROM {events_table} WHERE team_id = %(team_id)s {query}",
                 {"team_id": team.pk, **params},
             )
         ]
@@ -1802,16 +1730,19 @@ def test_prop_filter_json_extract_nullable_materialized_is_set_uses_json(
     ]
 
     for property, expected_event_indexes in cases:
-        query, params = prop_filter_json_extract(property, 0, allow_denormalized_props=True)
+        query, params = prop_filter_json_extract(
+            property, 0, allow_denormalized_props=True, use_new_events_schema=False
+        )
 
         assert column.name not in query
         assert "JSONHas" in query
+        events_table = events_read_table(False)
 
         uuids = sorted(
             [
                 str(uuid)
                 for (uuid,) in sync_execute(
-                    f"SELECT uuid FROM events WHERE team_id = %(team_id)s {query}",
+                    f"SELECT uuid FROM {events_table} WHERE team_id = %(team_id)s {query}",
                     {"team_id": team.pk, **params},
                 )
             ]
@@ -1832,20 +1763,25 @@ def test_prop_filter_json_extract_person_on_events_materialized(
     # simulates a group property being materialised
     materialize("events", property.key, table_column=cast(Any, "group2_properties"))
 
-    query, params = prop_filter_json_extract(property, 0, allow_denormalized_props=True)
+    query, params = prop_filter_json_extract(property, 0, allow_denormalized_props=True, use_new_events_schema=False)
     # this query uses the `properties` column, thus the materialized column is different.
     assert ("JSON" in query) or ("AND 1 = 2" == query)
 
     query, params = prop_filter_json_extract(
-        property, 0, allow_denormalized_props=True, use_event_column="group2_properties"
+        property,
+        0,
+        allow_denormalized_props=True,
+        use_event_column="group2_properties",
+        use_new_events_schema=False,
     )
     assert "JSON" not in query
+    events_table = events_read_table(False)
 
     uuids = sorted(
         [
             str(uuid)
             for (uuid,) in sync_execute(
-                f"SELECT uuid FROM events WHERE team_id = %(team_id)s {query}",
+                f"SELECT uuid FROM {events_table} WHERE team_id = %(team_id)s {query}",
                 {"team_id": team.pk, **params},
             )
         ]

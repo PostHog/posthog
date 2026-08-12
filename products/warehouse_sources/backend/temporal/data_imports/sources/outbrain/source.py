@@ -9,18 +9,20 @@ from posthog.schema import (
     SourceFieldInputConfigType,
 )
 
-from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline.typings import (
-    SourceInputs,
-    SourceResponse,
-)
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.base import FieldType, ResumableSource
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.canonical_descriptions import (
     CanonicalDescriptions,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.registry import SourceRegistry
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.schema import SourceSchema
-from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs import OutbrainSourceConfig
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.schema import (
+    SourceSchema,
+    build_endpoint_schemas,
+)
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.typings import SourceInputs, SourceResponse
+from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.outbrain import (
+    OutbrainSourceConfig,
+)
 from products.warehouse_sources.backend.temporal.data_imports.sources.outbrain.outbrain import (
     OutbrainResumeConfig,
     outbrain_source,
@@ -35,6 +37,10 @@ from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 @SourceRegistry.register
 class OutbrainSource(ResumableSource[OutbrainSourceConfig, OutbrainResumeConfig]):
+    supported_versions = ("v0.1",)
+    default_version = "v0.1"
+    api_docs_url = "https://developers.outbrain.com"
+
     lists_tables_without_credentials = True  # static endpoint catalog — safe for public docs
 
     @property
@@ -52,6 +58,10 @@ class OutbrainSource(ResumableSource[OutbrainSourceConfig, OutbrainResumeConfig]
         return {
             "401 Client Error: Unauthorized for url: https://api.outbrain.com/amplify/v0.1/login": "Outbrain authentication failed. Please check your username and password.",
             "403 Client Error: Forbidden for url: https://api.outbrain.com": "Outbrain denied access. Please check that your account has Amplify API access (requested via your account manager).",
+            # A 400 on a well-formed, static request is deterministic, so retrying can never succeed.
+            # It surfaces when one of the marketers returned by /marketers can't be queried through
+            # the Amplify API, so match the stable prefix, not the volatile marketer id and query.
+            "400 Client Error: Bad Request for url: https://api.outbrain.com": "Outbrain rejected the request (400 Bad Request). One of the marketers on your account may not be accessible via the Amplify API. Please confirm your account's Amplify API access with your Outbrain account manager.",
         }
 
     @property
@@ -96,25 +106,16 @@ Uses your Outbrain login credentials. Amplify API access must be enabled for you
         with_counts: bool = False,
         names: list[str] | None = None,
         force_refresh: bool = False,
+        api_version: str | None = None,
     ) -> list[SourceSchema]:
-        schemas = [
-            SourceSchema(
-                name=endpoint,
-                supports_incremental=INCREMENTAL_FIELDS.get(endpoint) is not None,
-                supports_append=INCREMENTAL_FIELDS.get(endpoint) is not None,
-                incremental_fields=INCREMENTAL_FIELDS.get(endpoint, []),
-            )
-            for endpoint in ENDPOINTS
-        ]
-
-        if names is not None:
-            names_set = set(names)
-            schemas = [s for s in schemas if s.name in names_set]
-
-        return schemas
+        return build_endpoint_schemas(ENDPOINTS, INCREMENTAL_FIELDS, names)
 
     def validate_credentials(
-        self, config: OutbrainSourceConfig, team_id: int, schema_name: Optional[str] = None
+        self,
+        config: OutbrainSourceConfig,
+        team_id: int,
+        schema_name: Optional[str] = None,
+        api_version: str | None = None,
     ) -> tuple[bool, str | None]:
         if validate_outbrain_credentials(config.username, config.password):
             return True, None

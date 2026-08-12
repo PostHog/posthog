@@ -11,6 +11,10 @@ import type { AccountApi } from 'products/customer_analytics/frontend/generated/
 import { accountLinksLogic } from './accountLinksLogic'
 
 jest.mock('products/customer_analytics/frontend/generated/api', () => ({
+    // Keep the real module for everything else — connected logics (e.g. column config's
+    // customPropertyDefinitionsList) call other generated functions on mount, and an
+    // absent export makes their loaders throw on every test.
+    ...jest.requireActual('products/customer_analytics/frontend/generated/api'),
     accountsRetrieve: jest.fn(),
     accountsPartialUpdate: jest.fn(),
 }))
@@ -25,7 +29,7 @@ const buildAccount = (overrides: Partial<AccountApi> = {}): AccountApi => ({
     name: 'Acme',
     external_id: 'ext-1',
     properties: {
-        csm: { id: 1, email: 'csm@example.com' },
+        hubspot_deal_id: 'deal-1',
         billing_id: 'cus_123',
     },
     tags: [],
@@ -68,6 +72,7 @@ describe('accountLinksLogic', () => {
             billing_id: 'cus_1',
             slack_channel_id: 'C1',
             usage_dashboard_link: '',
+            metabase_link: '',
             sfdc_id: '',
         })
     })
@@ -76,7 +81,7 @@ describe('accountLinksLogic', () => {
         await mountWith(
             buildAccount({
                 external_id: 'ext-1',
-                properties: { csm: { id: 1, email: 'csm@example.com' }, billing_id: 'old' },
+                properties: { hubspot_deal_id: 'deal-1', billing_id: 'old' },
             })
         )
         const updated = buildAccount({ external_id: 'ext-2' })
@@ -88,6 +93,7 @@ describe('accountLinksLogic', () => {
             billing_id: 'new',
             slack_channel_id: 'C9',
             usage_dashboard_link: '',
+            metabase_link: '',
             sfdc_id: '001abc',
         })
         logic.actions.saveLinks()
@@ -96,10 +102,11 @@ describe('accountLinksLogic', () => {
         expect(mockAccountsPartialUpdate).toHaveBeenCalledWith(TEAM, 'acc-1', {
             external_id: 'ext-2',
             properties: {
-                csm: { id: 1, email: 'csm@example.com' },
+                hubspot_deal_id: 'deal-1',
                 billing_id: 'new',
                 slack_channel_id: 'C9',
                 usage_dashboard_link: null,
+                metabase_link: null,
                 sfdc_id: '001abc',
             },
         })
@@ -116,6 +123,7 @@ describe('accountLinksLogic', () => {
             billing_id: '',
             slack_channel_id: '   ',
             usage_dashboard_link: '',
+            metabase_link: '',
             sfdc_id: '',
         })
         logic.actions.saveLinks()
@@ -123,7 +131,13 @@ describe('accountLinksLogic', () => {
 
         expect(mockAccountsPartialUpdate).toHaveBeenCalledWith(TEAM, 'acc-1', {
             external_id: null,
-            properties: { billing_id: null, slack_channel_id: null, usage_dashboard_link: null, sfdc_id: null },
+            properties: {
+                billing_id: null,
+                slack_channel_id: null,
+                usage_dashboard_link: null,
+                metabase_link: null,
+                sfdc_id: null,
+            },
         })
     })
 

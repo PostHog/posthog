@@ -3,9 +3,10 @@ import './Cohorts.scss'
 import { useActions, useValues } from 'kea'
 import { combineUrl, router } from 'kea-router'
 
-import { HedgehogGreek } from '@posthog/brand/hoggies'
+import * as greekPng from '@posthog/brand/hoggies/png/greek'
 import { LemonBanner, LemonDialog, LemonInput, LemonSelect } from '@posthog/lemon-ui'
 
+import { pngHoggie } from 'lib/brand/hoggies'
 import { MemberSelect } from 'lib/components/MemberSelect'
 import { ProductIntroduction } from 'lib/components/ProductIntroduction/ProductIntroduction'
 import { Shortcut } from 'lib/components/Shortcuts/Shortcut'
@@ -37,6 +38,8 @@ import {
     PropertyFilterType,
     PropertyOperator,
 } from '~/types'
+
+const HedgehogGreek = pngHoggie(greekPng)
 
 export const scene: SceneExport = {
     component: Cohorts,

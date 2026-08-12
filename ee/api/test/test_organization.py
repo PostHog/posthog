@@ -60,7 +60,7 @@ class TestOrganizationEnterpriseAPI(APILicensedTest):
             response.json().items(),
         )
 
-    @patch("posthog.api.organization.delete_organization_data_and_notify_task")
+    @patch("posthog.temporal.delete_teams.dispatch.start_delete_organization_workflow")
     @patch("posthoganalytics.capture")
     def test_delete_second_managed_organization(self, mock_capture, mock_delete_task):
         organization, _, team = Organization.objects.bootstrap(self.user, name="X")
@@ -84,7 +84,7 @@ class TestOrganizationEnterpriseAPI(APILicensedTest):
             properties=organization_props,
             groups={"instance": ANY, "organization": str(organization.id)},
         )
-        mock_delete_task.delay.assert_called_once_with(
+        mock_delete_task.assert_called_once_with(
             team_ids=[team.id],
             organization_id=str(organization.id),
             user_id=self.user.id,
@@ -92,7 +92,7 @@ class TestOrganizationEnterpriseAPI(APILicensedTest):
             project_names=[team.name],
         )
 
-    @patch("posthog.api.organization.delete_organization_data_and_notify_task")
+    @patch("posthog.temporal.delete_teams.dispatch.start_delete_organization_workflow")
     @patch("posthoganalytics.capture")
     def test_delete_last_organization(self, mock_capture, mock_delete_task):
         org_id = self.organization.id
@@ -159,7 +159,7 @@ class TestOrganizationEnterpriseAPI(APILicensedTest):
             self.assertEqual(response.status_code, 403, potential_err_message)
             self.assertTrue(self.organization.name, self.CONFIG_ORGANIZATION_NAME)
 
-    @patch("posthog.api.organization.delete_organization_data_and_notify_task")
+    @patch("posthog.temporal.delete_teams.dispatch.start_delete_organization_workflow")
     def test_delete_organization_owning(self, mock_delete_task):
         self.organization_membership.level = OrganizationMembership.Level.OWNER
         self.organization_membership.save()

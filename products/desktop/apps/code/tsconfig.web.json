@@ -1,0 +1,13 @@
+{
+  "$schema": "https://json.schemastore.org/tsconfig",
+  "compilerOptions": {
+    "jsx": "react-jsx",
+    "lib": ["ESNext", "DOM", "DOM.Iterable"],
+    "outDir": "./dist/renderer",
+    "target": "ESNext",
+    "types": ["vite/client", "vitest/globals", "@testing-library/jest-dom"]
+  },
+  "exclude": ["src/main/**/*"],
+  "extends": "./tsconfig.json",
+  "include": ["src/renderer/**/*", "src/shared/**/*", "src/vite-env.d.ts"]
+}

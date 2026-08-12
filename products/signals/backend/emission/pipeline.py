@@ -12,22 +12,29 @@ from temporalio import activity
 from temporalio.exceptions import ApplicationError
 
 from posthog.event_usage import groups
-from posthog.llm.gateway_client import get_async_anthropic_gateway_client
+from posthog.llm.gateway_client import build_async_anthropic_client, resolve_ai_gateway_config
 from posthog.models import Organization, Team
 from posthog.sync import database_sync_to_async
 
 from products.signals.backend.emission.registry import SignalEmitter, SignalEmitterOutput, SignalSourceTableConfig
 from products.signals.backend.facade.api import emit_signal
+from products.signals.backend.temporal import metrics
+from products.signals.backend.temporal.drop_telemetry import summarize_drop_error
 
 logger = structlog.get_logger(__name__)
 
 LLM_MODEL = "claude-sonnet-4-5"
+# ai_product label for the emission-stage generations (summarization, actionability).
+EMISSION_AI_PRODUCT = "signals_emission"
 # Concurrent LLM calls limit for actionability/summarization checks
 LLM_CONCURRENCY_LIMIT = 20
 # Concurrent workflow spawns for signal emission
 EMIT_CONCURRENCY_LIMIT = 50
 # Temporal gRPC payload size limit (2 MB)
 TEMPORAL_PAYLOAD_MAX_BYTES = 2 * 1024 * 1024
+# Shares the drop-stage namespace with drop_telemetry's grouping_* stages, so the
+# signals_dropped_total counter can be summed across the whole pipeline.
+EMIT_DROP_STAGE = "emission"
 # Maximum number of attempts for LLM calls (summarization & actionability)
 LLM_MAX_ATTEMPTS = 3
 # Per-call timeout for LLM requests (seconds)
@@ -41,22 +48,35 @@ LLM_RETRY_BACKOFF_COEFFICIENT = 2.0
 LLM_MAX_OUTPUT_TOKENS = 8192
 
 
-def _signals_extra_headers(output: SignalEmitterOutput, stage: str) -> dict[str, str]:
-    """Per-call event properties that ride along to the gateway as headers.
+def _signals_extra_headers(
+    output: SignalEmitterOutput, stage: str, gateway_mode: bool | None = None, team_id: int | None = None
+) -> dict[str, str]:
+    """Per-call event properties for the emission-stage generation.
 
-    The `team_id` header is set as a default on the client at construction time,
-    so it doesn't need to be repeated here. See posthog/llm/gateway_client.py.
+    In Go-gateway mode the labels ride on the `X-PostHog-Properties` JSON blob and the caller owns
+    `ai_product` (the slugless gateway has no product route) and `team_id` (the customer team the
+    usage report attributes spend to). Because this per-call blob replaces any client default, it
+    carries `team_id` itself rather than relying on the client's default header. The Go gateway
+    drops the `x-posthog-property-<key>` per-header form, so that shape is only used on the
+    Python-gateway fallback, where the route derives `ai_product`/`$ai_billable` and the client's
+    default header carries `team_id`.
 
-    `ai_product` and `$ai_billable` are intentionally NOT set here: the gateway
-    derives both from the `signals` product config (the route path sets
-    `ai_product=signals` and `billable=True`). Passing them as headers would let a
-    typo silently misattribute or mis-bill the generation, so we let the gateway own them.
+    `gateway_mode` is resolved once per batch by the caller and threaded in; left None it
+    self-resolves, which the direct-call tests rely on.
     """
-    return {
-        "x-posthog-property-ai_stage": stage,
-        "x-posthog-property-source_product": output.source_product,
-        "x-posthog-property-source_type": output.source_type,
+    if gateway_mode is None:
+        gateway_mode = resolve_ai_gateway_config() is not None
+    labels = {
+        "ai_stage": stage,
+        "source_product": output.source_product,
+        "source_type": output.source_type,
     }
+    if gateway_mode:
+        blob = {"ai_product": EMISSION_AI_PRODUCT, **labels}
+        if team_id is not None:
+            blob["team_id"] = str(team_id)
+        return {"X-PostHog-Properties": json.dumps(blob)}
+    return {f"x-posthog-property-{key}": value for key, value in labels.items()}
 
 
 def _extract_text(response: Any) -> str:
@@ -69,6 +89,7 @@ def _capture_pipeline_stage(
     team: Team,
     organization: Organization,
     output: SignalEmitterOutput,
+    properties: dict[str, Any] | None = None,
 ) -> None:
     try:
         posthoganalytics.capture(
@@ -78,6 +99,7 @@ def _capture_pipeline_stage(
                 "source_product": output.source_product,
                 "source_type": output.source_type,
                 "source_id": output.source_id,
+                **(properties or {}),
             },
             groups=groups(organization, team),
         )
@@ -136,11 +158,12 @@ async def _summarize_description(
     output: SignalEmitterOutput,
     summarization_prompt: str,
     threshold: int,
+    gateway_mode: bool | None = None,
 ) -> SignalEmitterOutput:
     messages: list[MessageParam] = [
         {"role": "user", "content": summarization_prompt.format(description=output.description, max_length=threshold)}
     ]
-    extra_headers = _signals_extra_headers(output, stage="summarization")
+    extra_headers = _signals_extra_headers(output, stage="summarization", gateway_mode=gateway_mode, team_id=team_id)
     for attempt in range(LLM_MAX_ATTEMPTS):
         if attempt > 0:
             await asyncio.sleep(LLM_RETRY_INITIAL_DELAY_SECONDS * (LLM_RETRY_BACKOFF_COEFFICIENT ** (attempt - 1)))
@@ -201,7 +224,8 @@ async def summarize_long_descriptions(
     needs_summary = [i for i, output in enumerate(outputs) if len(output.description) > threshold]
     if not needs_summary:
         return outputs
-    client = get_async_anthropic_gateway_client(product="signals", team_id=team.id)
+    client = build_async_anthropic_client(product="signals", ai_product=EMISSION_AI_PRODUCT, team_id=team.id)
+    gateway_mode = resolve_ai_gateway_config() is not None
     semaphore = asyncio.Semaphore(LLM_CONCURRENCY_LIMIT)
     _safe_heartbeat()
     completed_count = 0
@@ -210,7 +234,9 @@ async def summarize_long_descriptions(
         nonlocal completed_count
         async with semaphore:
             try:
-                result = await _summarize_description(client, team.id, output, summarization_prompt, threshold)
+                result = await _summarize_description(
+                    client, team.id, output, summarization_prompt, threshold, gateway_mode=gateway_mode
+                )
             except Exception:
                 logger.exception(
                     "Summarization failed, skipping signal",
@@ -250,9 +276,10 @@ async def _check_actionability(
     team_id: int,
     output: SignalEmitterOutput,
     actionability_prompt: str,
+    gateway_mode: bool | None = None,
 ) -> bool:
     prompt = actionability_prompt.format(description=output.description)
-    extra_headers = _signals_extra_headers(output, stage="actionability")
+    extra_headers = _signals_extra_headers(output, stage="actionability", gateway_mode=gateway_mode, team_id=team_id)
     for attempt in range(LLM_MAX_ATTEMPTS):
         if attempt > 0:
             await asyncio.sleep(LLM_RETRY_INITIAL_DELAY_SECONDS * (LLM_RETRY_BACKOFF_COEFFICIENT ** (attempt - 1)))
@@ -291,7 +318,8 @@ async def filter_actionable(
     actionability_prompt: str,
     extra: dict[str, Any],
 ) -> list[SignalEmitterOutput]:
-    client = get_async_anthropic_gateway_client(product="signals", team_id=team.id)
+    client = build_async_anthropic_client(product="signals", ai_product=EMISSION_AI_PRODUCT, team_id=team.id)
+    gateway_mode = resolve_ai_gateway_config() is not None
     semaphore = asyncio.Semaphore(LLM_CONCURRENCY_LIMIT)
     _safe_heartbeat()
     checked_count = 0
@@ -300,7 +328,9 @@ async def filter_actionable(
         nonlocal checked_count
         async with semaphore:
             try:
-                result = await _check_actionability(client, team.id, output, actionability_prompt)
+                result = await _check_actionability(
+                    client, team.id, output, actionability_prompt, gateway_mode=gateway_mode
+                )
             except Exception:
                 logger.exception(
                     "Actionability check failed, assuming actionable",
@@ -356,6 +386,7 @@ def _estimate_output_payload_bytes(output: SignalEmitterOutput) -> int:
 
 async def _emit_signals(
     team: Team,
+    organization: Organization,
     outputs: list[SignalEmitterOutput],
     extra: dict[str, Any],
 ) -> int:
@@ -397,7 +428,20 @@ async def _emit_signals(
                 )
                 return True
             except Exception as e:
-                logger.exception(f"Error emitting signal for record: {e}", **extra)
+                # Fetchers record emission optimistically, so a record lost here is lost for good.
+                # Close the funnel (entered - summarized - filtered - emit_failed = emitted) and
+                # count the drop, or the loss is invisible outside logs.
+                error_type, _ = summarize_drop_error(e)
+                logger.exception(
+                    f"Error emitting signal for record: {e}",
+                    signal_source_type=output.source_type,
+                    signal_source_id=output.source_id,
+                    **extra,
+                )
+                _capture_pipeline_stage(
+                    "signal_data_source_emit_failed", team, organization, output, {"error_type": error_type}
+                )
+                metrics.increment_dropped(stage=EMIT_DROP_STAGE, reason=error_type)
                 return False
             finally:
                 completed_count += 1
@@ -478,6 +522,7 @@ async def run_signal_pipeline(
 
     signals_emitted = await _emit_signals(
         team=team,
+        organization=organization,
         outputs=outputs,
         extra=extra,
     )

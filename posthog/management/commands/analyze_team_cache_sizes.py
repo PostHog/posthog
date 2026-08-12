@@ -45,7 +45,7 @@ class Command(BaseHyperCacheCommand):
             return
 
         # Random sample of teams for unbiased statistics
-        teams = list(Team.objects.order_by("?")[:sample_size])
+        teams = list(self.narrow_team_queryset(Team.objects.all()).order_by("?")[:sample_size])
 
         self.stdout.write(f"\nAnalyzing {len(teams)} teams (out of {total_teams} total)...")
 

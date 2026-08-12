@@ -1,23 +1,21 @@
 import { useActions, useValues } from 'kea'
 
-import { IconSparkles } from '@posthog/icons'
-import { LemonTabs } from '@posthog/lemon-ui'
+import { LemonTab, LemonTabs } from '@posthog/lemon-ui'
 
 import { ActivityLog } from 'lib/components/ActivityLog/ActivityLog'
+import { FEATURE_FLAGS } from 'lib/constants'
+import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { PendingChangeRequestBanner } from 'scenes/approvals/PendingChangeRequestBanner'
-import { EXPERIMENT_MIN_EXPOSURES_FOR_RESULTS } from 'scenes/experiments/constants'
 import { WebExperimentImplementationDetails } from 'scenes/experiments/WebExperimentImplementationDetails'
 
 import { SceneContent } from '~/layout/scenes/components/SceneContent'
 import { LegacyExperimentView } from '~/scenes/experiments/legacy'
 import { ActivityScope } from '~/types'
 
-import { SummarizeExperimentButton } from '../components/SummarizeExperimentButton'
-import { SummarizeSessionReplaysButton } from '../components/SummarizeSessionReplaysButton'
 import { EmptyMetricsPanel } from '../ExperimentForm/MetricsPanel/EmptyMetricsPanel'
 import { ExperimentImplementationDetails } from '../ExperimentImplementationDetails'
 import { experimentLogic } from '../experimentLogic'
-import { experimentSceneLogic } from '../experimentSceneLogic'
+import { DEFAULT_EXPERIMENT_TAB, type ExperimentTab, experimentSceneLogic } from '../experimentSceneLogic'
 import { ExperimentMetricModal } from '../Metrics/ExperimentMetricModal'
 import { experimentMetricModalLogic } from '../Metrics/experimentMetricModalLogic'
 import { MetricSourceModal } from '../Metrics/MetricSourceModal'
@@ -25,15 +23,18 @@ import { SharedMetricDetailsModal } from '../Metrics/SharedMetricDetailsModal'
 import { SharedMetricModal } from '../Metrics/SharedMetricModal'
 import { sharedMetricModalLogic } from '../Metrics/sharedMetricModalLogic'
 import { Metrics } from '../MetricsView/new/Metrics'
+import { RecalculationStatus } from '../MetricsView/shared/RecalculationStatus'
 import { isLegacyExperiment } from '../utils'
 import { DistributionModal, DistributionTable } from './DistributionTable'
 import { ExperimentDebugPanel } from './ExperimentExecutionPathComparison'
 import { ExperimentFeedbackTab } from './ExperimentFeedbackTab'
 import { ExperimentHeader } from './ExperimentHeader'
 import { EditConclusionModal } from './ExperimentModals'
+import { ExperimentReplayTab } from './ExperimentReplayTab'
 import { ExperimentWarningBanner } from './ExperimentWarningBanners'
 import { ExposureCriteriaModal } from './ExposureCriteria'
 import { Exposures } from './Exposures'
+import { Hypothesis } from './Hypothesis'
 import { Info } from './Info'
 import { LoadingState } from './LoadingState'
 import { MultiVariantBiasWarning } from './MultiVariantBiasWarning'
@@ -42,49 +43,30 @@ import { ReleaseConditionsModal, ReleaseConditionsTable } from './ReleaseConditi
 import { ResultsNotificationBanner } from './ResultsNotificationBanner'
 import { SettingsTab } from './SettingsTab'
 
-const AiAnalysisTab = (): JSX.Element => {
-    const { experiment, hasMinimumExposureForResults } = useValues(experimentLogic)
-
-    return (
-        <div className="flex flex-col gap-4 items-start">
-            <div className="flex flex-col gap-1 items-start">
-                <SummarizeExperimentButton
-                    disabledReason={
-                        !hasMinimumExposureForResults
-                            ? `Experiment needs at least ${EXPERIMENT_MIN_EXPOSURES_FOR_RESULTS} exposures to summarize results.`
-                            : undefined
-                    }
-                />
-                <p className="text-muted text-xs m-0">
-                    Analyze your experiment's metric results, statistical significance, and variant performance using
-                    AI.
-                </p>
-            </div>
-            <div className="flex flex-col gap-1 items-start">
-                <SummarizeSessionReplaysButton experiment={experiment} />
-                <p className="text-muted text-xs m-0">
-                    Compare session recordings across variants to identify differences in user behavior.
-                </p>
-            </div>
-        </div>
-    )
-}
-
 const MetricsTab = (): JSX.Element => {
-    const { orderedPrimaryMetricsWithResults, orderedSecondaryMetricsWithResults, isExperimentLaunched } =
+    const { experiment, orderedPrimaryMetricsWithResults, orderedSecondaryMetricsWithResults, isExperimentLaunched } =
         useValues(experimentLogic)
+    const { featureFlags } = useValues(featureFlagLogic)
+
+    const hasMetrics = orderedPrimaryMetricsWithResults.length > 0 || orderedSecondaryMetricsWithResults.length > 0
+    const showRecalculationStatus = !!featureFlags[FEATURE_FLAGS.EXPERIMENTS_METRICS_RECALCULATION] && hasMetrics
 
     return (
         <>
             <ResultsNotificationBanner />
 
-            <div className="w-full mb-4">
-                <Exposures />
-                <MultiVariantBiasWarning />
+            <div className="w-full mb-4 flex flex-col gap-4">
+                <Hypothesis />
+                <div>
+                    <Exposures />
+                    <MultiVariantBiasWarning />
+                </div>
             </div>
 
+            {showRecalculationStatus && <RecalculationStatus experiment={experiment} />}
+
             {/* Modern metrics view */}
-            {orderedPrimaryMetricsWithResults.length === 0 && orderedSecondaryMetricsWithResults.length === 0 ? (
+            {!hasMetrics ? (
                 <EmptyMetricsPanel isLaunched={isExperimentLaunched} />
             ) : (
                 <>
@@ -120,8 +102,7 @@ const VariantsTab = (): JSX.Element => {
 }
 
 export function ExperimentView(): JSX.Element {
-    const { experimentLoading, experimentId, experiment, isExperimentDraft, exposureCriteria, showDebugPanel } =
-        useValues(experimentLogic)
+    const { experimentLoading, experimentId, experiment, exposureCriteria, showDebugPanel } = useValues(experimentLogic)
     const {
         setExperiment,
         setExposureCriteria,
@@ -132,7 +113,7 @@ export function ExperimentView(): JSX.Element {
         removeMetric,
     } = useActions(experimentLogic)
 
-    const { activeTabKey } = useValues(experimentSceneLogic)
+    const { activeTabKey, availableTabs } = useValues(experimentSceneLogic)
     const { setActiveTabKey } = useActions(experimentSceneLogic)
 
     const { closeExperimentMetricModal } = useActions(experimentMetricModalLogic)
@@ -142,6 +123,26 @@ export function ExperimentView(): JSX.Element {
     if (!experimentLoading && isLegacyExperiment(experiment)) {
         return <LegacyExperimentView />
     }
+
+    // Ordered as: results (Metrics), configuration (Settings, Code, Variants),
+    // feature tabs (Recordings, User feedback), audit trail (History). Which of these actually
+    // render is resolved by experimentSceneLogic's availableTabs, so the tab set, the URL, and the
+    // tracked tab stay in agreement.
+    const tabs: LemonTab<ExperimentTab>[] = (
+        [
+            { key: 'metrics', label: 'Metrics', content: <MetricsTab /> },
+            { key: 'settings', label: 'Settings', content: <SettingsTab /> },
+            { key: 'code', label: 'Code', content: <CodeTab /> },
+            { key: 'variants', label: 'Variants', content: <VariantsTab /> },
+            { key: 'recordings', label: 'Recordings', content: <ExperimentReplayTab experiment={experiment} /> },
+            { key: 'feedback', label: 'User feedback', content: <ExperimentFeedbackTab experiment={experiment} /> },
+            {
+                key: 'history',
+                label: 'History',
+                content: <ActivityLog scope={ActivityScope.EXPERIMENT} id={experimentId} />,
+            },
+        ] satisfies LemonTab<ExperimentTab>[]
+    ).filter((tab) => availableTabs.includes(tab.key))
 
     return (
         <SceneContent>
@@ -168,59 +169,19 @@ export function ExperimentView(): JSX.Element {
                     <Info />
                     <ExperimentHeader />
                     <LemonTabs
-                        activeKey={activeTabKey}
+                        // Fall back to the default tab if the active one is conditionally hidden
+                        activeKey={tabs.some((tab) => tab.key === activeTabKey) ? activeTabKey : DEFAULT_EXPERIMENT_TAB}
                         onChange={(key) => setActiveTabKey(key)}
                         sceneInset
-                        tabs={[
-                            {
-                                key: 'settings',
-                                label: 'Settings',
-                                content: <SettingsTab />,
-                            },
-                            {
-                                key: 'metrics',
-                                label: 'Metrics',
-                                content: <MetricsTab />,
-                            },
-                            {
-                                key: 'ai_analysis',
-                                label: (
-                                    <div className="flex items-center gap-1">
-                                        <IconSparkles />
-                                        <span>AI analysis</span>
-                                    </div>
-                                ),
-                                content: <AiAnalysisTab />,
-                            },
-                            ...(!isExperimentDraft
-                                ? [
-                                      {
-                                          key: 'code',
-                                          label: 'Code',
-                                          content: <CodeTab />,
-                                      },
-                                  ]
-                                : []),
-                            {
-                                key: 'variants',
-                                label: 'Variants',
-                                content: <VariantsTab />,
-                            },
-                            {
-                                key: 'history',
-                                label: 'History',
-                                content: <ActivityLog scope={ActivityScope.EXPERIMENT} id={experimentId} />,
-                            },
-                            ...(experiment.feature_flag
-                                ? [
-                                      {
-                                          key: 'feedback',
-                                          label: 'User feedback',
-                                          content: <ExperimentFeedbackTab experiment={experiment} />,
-                                      },
-                                  ]
-                                : []),
-                        ]}
+                        // Keep the tab bar full-width, but cap the content under each tab for readability
+                        tabs={tabs.map((tab) =>
+                            'content' in tab
+                                ? {
+                                      ...tab,
+                                      content: <div className="w-full max-w-[1400px] mx-auto">{tab.content}</div>,
+                                  }
+                                : tab
+                        )}
                     />
 
                     {/* Modern experiment modals */}

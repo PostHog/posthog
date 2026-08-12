@@ -35,20 +35,6 @@ export function PathsAdvanced({ insightProps, ...rest }: EditorFilterProps): JSX
 
     return (
         <div className="flex flex-col gap-4">
-            {/* Show full URLs toggle - outside paywall */}
-            <div>
-                <LemonSwitch
-                    checked={!!showFullUrls}
-                    onChange={(checked) => updateInsightFilter({ showFullUrls: checked })}
-                    label="Show full URLs"
-                    bordered
-                    fullWidth
-                />
-                <div className="text-muted text-xs mt-1">
-                    Display complete URLs instead of truncated versions. Useful for comparing paths side-by-side.
-                </div>
-            </div>
-
             <PayGateMini feature={AvailableFeature.PATHS_ADVANCED}>
                 <div className="flex flex-col gap-2">
                     <LemonLabel info="Determines the maximum number of path nodes that can be generated. If necessary certain items will be grouped.">
@@ -112,19 +98,6 @@ export function PathsAdvanced({ insightProps, ...rest }: EditorFilterProps): JSX
                     <span className="ml-2">persons.</span>
                 </div>
 
-                <div className="mt-2">
-                    <LemonSwitch
-                        checked={!!showFullUrls}
-                        onChange={(checked) => updateInsightFilter({ showFullUrls: checked })}
-                        label="Show full URLs"
-                        bordered
-                        fullWidth
-                    />
-                    <div className="text-muted text-xs mt-1">
-                        Display complete URLs instead of truncated versions. Useful for comparing paths side-by-side.
-                    </div>
-                </div>
-
                 <div>
                     <div className="flex items-center my-2">
                         <LemonLabel
@@ -142,6 +115,20 @@ export function PathsAdvanced({ insightProps, ...rest }: EditorFilterProps): JSX
                     <PathCleaningFilter insightProps={insightProps} {...rest} />
                 </div>
             </PayGateMini>
+
+            {/* Show full URLs toggle - outside paywall */}
+            <div>
+                <LemonSwitch
+                    checked={!!showFullUrls}
+                    onChange={(checked) => updateInsightFilter({ showFullUrls: checked })}
+                    label="Show full URLs"
+                    bordered
+                    fullWidth
+                />
+                <div className="text-muted text-xs mt-1">
+                    Display complete URLs instead of truncated versions. Useful for comparing paths side-by-side.
+                </div>
+            </div>
         </div>
     )
 }

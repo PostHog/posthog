@@ -6,13 +6,12 @@ from django.utils import timezone
 
 from asgiref.sync import sync_to_async
 from langchain_core.messages import (
-    AIMessage,
     HumanMessage as LangchainHumanMessage,
     SystemMessage,
 )
 from langchain_core.runnables import RunnableConfig
 
-from posthog.schema import AssistantMessage, HumanMessage, MaxBillingContext, MaxBillingContextSubscriptionLevel
+from posthog.schema import AssistantMessage, HumanMessage
 
 from ee.hogai.chat_agent.slash_commands.commands import SlashCommand
 from ee.hogai.core.agent_modes.compaction_manager import AnthropicConversationCompactionManager
@@ -20,6 +19,7 @@ from ee.hogai.llm import MaxChatAnthropic
 from ee.hogai.utils.types import AssistantMessageUnion, AssistantState, PartialAssistantState
 
 from .prompts import SUPPORT_SUMMARIZER_SYSTEM_PROMPT, SUPPORT_SUMMARIZER_USER_PROMPT
+from .transcript import customer_turns, render_transcript, strip_unverifiable_quotes
 
 
 class TicketCommand(SlashCommand):
@@ -40,8 +40,8 @@ class TicketCommand(SlashCommand):
         months_since_creation = (timezone.now() - org_created_at).days / 30
         return months_since_creation < 3
 
-    async def _can_create_ticket(self, config: RunnableConfig) -> bool:
-        """Check if user's subscription allows ticket creation."""
+    async def _can_create_ticket(self) -> bool:
+        """Check if the organization's subscription allows ticket creation."""
         # Enable ticket creation in local dev
         if settings.DEBUG:
             return True
@@ -49,26 +49,28 @@ class TicketCommand(SlashCommand):
         if await self._is_organization_new():
             return True
 
-        billing_context_data = config.get("configurable", {}).get("billing_context")
-        if not billing_context_data:
-            return False
+        return await self._has_paid_plan_or_active_trial()
 
-        billing_context = MaxBillingContext.model_validate(billing_context_data)
+    async def _has_paid_plan_or_active_trial(self) -> bool:
+        """
+        Check the plan tier derived from the organization's synced billing entitlements.
 
-        has_paid_subscription = billing_context.subscription_level in (
-            MaxBillingContextSubscriptionLevel.PAID,
-            MaxBillingContextSubscriptionLevel.CUSTOM,
-        )
-        has_active_trial = billing_context.trial is not None and billing_context.trial.is_active
-
-        return has_paid_subscription or has_active_trial
+        `available_product_features` is kept up to date by every billing load, and active
+        trials grant the trial plan's features, so a non-free tier means a paid or custom
+        subscription or an active trial. Reading it locally keeps the slow billing service
+        API out of the conversation turn. Organizations with no synced entitlements are
+        denied, so missing data fails closed.
+        """
+        # `self._team.organization` is a FK access that hits the DB when not prefetched,
+        # so it must be wrapped to be safe inside this async context.
+        return await sync_to_async(lambda: self._team.organization.get_plan_tier() != "free")()
 
     async def execute(self, config: RunnableConfig, state: AssistantState) -> PartialAssistantState:
-        if not await self._can_create_ticket(config):
+        if not await self._can_create_ticket():
             return PartialAssistantState(
                 messages=[
                     AssistantMessage(
-                        content="The `/ticket` command is available for customers on paid plans or active trials. You can upgrade your plan in the billing settings, or ask the community at https://posthog.com/questions for help.",
+                        content="The `/ticket` command is available for customers on paid plans or active trials. You can upgrade your plan in the billing settings, or ask the community at https://posthog.com/questions for help. If your issue is about billing, you can always contact our support team through the in-app help panel.",
                         id=str(uuid4()),
                     )
                 ]
@@ -105,33 +107,38 @@ class TicketCommand(SlashCommand):
 
     def _get_model(self) -> MaxChatAnthropic:
         # We are not billing for conversation summary since we would be billing per-ticket creation.
+        # Needs a 1M-context model because this summarizes the whole conversation window, which can
+        # hold up to CONVERSATION_WINDOW_SIZE tokens.
         return MaxChatAnthropic(
-            model="claude-haiku-4-5",
+            model="claude-sonnet-5",
             streaming=True,
             stream_usage=True,
             user=self._user,
             team=self._team,
             max_tokens=2048,
+            # Sonnet 5 thinks by default and `max_tokens` covers thinking plus response together,
+            # so leaving it on would let thinking eat the summary's budget.
+            thinking={"type": "disabled"},
             billable=False,
+            # The project/org/user context is about answering questions in-app, down to URL
+            # formatting, none of which applies to writing a ticket description.
+            inject_context=False,
         )
 
     async def _summarize_conversation(self, messages: Sequence[AssistantMessageUnion]) -> str:
         """Summarize the conversation for the support ticket."""
         summarization_header = "PostHog AI Support Ticket Summary"
-        messages_list: list[SystemMessage | LangchainHumanMessage | AIMessage] = [
-            SystemMessage(content=SUPPORT_SUMMARIZER_SYSTEM_PROMPT)
+        transcript = render_transcript(messages)
+        messages_list: list[SystemMessage | LangchainHumanMessage] = [
+            SystemMessage(content=SUPPORT_SUMMARIZER_SYSTEM_PROMPT),
+            LangchainHumanMessage(
+                content=f"<transcript>\n{transcript}\n</transcript>\n\n{SUPPORT_SUMMARIZER_USER_PROMPT}"
+            ),
         ]
-
-        for msg in messages:
-            if isinstance(msg, HumanMessage):
-                messages_list.append(LangchainHumanMessage(content=msg.content))
-            elif isinstance(msg, AssistantMessage) and msg.content:
-                messages_list.append(AIMessage(content=msg.content))
-
-        messages_list.append(LangchainHumanMessage(content=SUPPORT_SUMMARIZER_USER_PROMPT))
 
         response = await self._get_model().ainvoke(messages_list)
         content = response.content
         if isinstance(content, list):
             content = "".join(str(item) for item in content)
-        return f"{summarization_header}:\n\n{content}"
+        verified = strip_unverifiable_quotes(content, customer_turns(messages))
+        return f"{summarization_header}:\n\n{verified}"

@@ -185,7 +185,7 @@ function ActionsComponent(_: any, member: OrganizationMemberType): JSX.Element |
 }
 
 export function Members(): JSX.Element | null {
-    const { filteredMembers, membersLoading, search } = useValues(membersLogic)
+    const { filteredMembers, members, membersLoading, search } = useValues(membersLogic)
     const { downloadMembersListDisabledReason } = useValues(membersExportLogic)
     const { currentOrganization } = useValues(organizationLogic)
     const { preflight } = useValues(preflightLogic)
@@ -196,6 +196,8 @@ export function Members(): JSX.Element | null {
     const { openTwoFactorSetupModal } = useActions(twoFactorLogic)
 
     const adminRestrictionReason = useRestrictedArea({ minimumAccessLevel: OrganizationMembershipLevel.Admin })
+    const hasHiddenMembers =
+        (members?.length ?? 0) > 0 && (members?.length ?? 0) < (currentOrganization?.member_count ?? 0)
 
     useOnMountEffect(ensureAllMembersLoaded)
 
@@ -351,6 +353,29 @@ export function Members(): JSX.Element | null {
                 data-attr="org-members-table"
                 defaultSorting={{ columnKey: 'level', order: -1 }}
                 pagination={{ pageSize: 50 }}
+                footer={
+                    hasHiddenMembers && (
+                        <div className="flex items-center gap-2 px-3 py-2">
+                            <div className="flex">
+                                {[0, 1, 2].map((index) => (
+                                    <ProfilePicture
+                                        key={index}
+                                        name="?"
+                                        index={index}
+                                        size="md"
+                                        className={index > 0 ? '-ml-1.5' : ''}
+                                    />
+                                ))}
+                            </div>
+                            <span className="text-secondary">
+                                Other organization members{' '}
+                                <Tooltip title="Your organization only shows the full member list to admins.">
+                                    <IconInfo className="text-base align-middle" />
+                                </Tooltip>
+                            </span>
+                        </div>
+                    )
+                }
             />
             <h3 className="mt-4">Two-factor authentication</h3>
             <PayGateMini feature={AvailableFeature.TWOFA_ENFORCEMENT}>

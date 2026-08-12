@@ -85,7 +85,7 @@ describe('SelectExistingFeatureFlagModal', () => {
     beforeEach(async () => {
         useMocks({
             get: {
-                [`/api/projects/${MOCK_TEAM_ID}/experiments/eligible_feature_flags/`]: () => [
+                [`/api/projects/${MOCK_TEAM_ID}/feature_flags/`]: () => [
                     200,
                     {
                         results: mockFeatureFlags,
@@ -149,7 +149,7 @@ describe('SelectExistingFeatureFlagModal', () => {
 
             render(<SelectExistingFeatureFlagModal onClose={mockOnClose} onSelect={mockOnSelect} />)
 
-            const selectButtons = await screen.findAllByRole('button', { name: 'Select' })
+            const selectButtons = await screen.findAllByText('Select')
             await userEvent.click(selectButtons[0])
 
             expect(mockOnSelect).toHaveBeenCalledWith(mockFeatureFlags[0])
@@ -164,7 +164,7 @@ describe('SelectExistingFeatureFlagModal', () => {
 
             render(<SelectExistingFeatureFlagModal onClose={mockOnClose} onSelect={mockOnSelect} />)
 
-            const closeButton = screen.getByRole('button', { name: /close/i })
+            const closeButton = screen.getByLabelText(/close/i)
             await userEvent.click(closeButton)
 
             expect(resetFiltersSpy).toHaveBeenCalled()

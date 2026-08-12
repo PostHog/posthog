@@ -13,11 +13,11 @@ from posthog.schema import (
     SourceFieldInputConfigType,
 )
 
-from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline.typings import SourceInputs
 from products.warehouse_sources.backend.temporal.data_imports.sources.blogger import source as source_module
 from products.warehouse_sources.backend.temporal.data_imports.sources.blogger.blogger import BloggerResumeConfig
 from products.warehouse_sources.backend.temporal.data_imports.sources.blogger.source import BloggerSource
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.typings import SourceInputs
 from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 
@@ -172,9 +172,10 @@ class TestBloggerPipelinePlumbing:
         assert captured["api_key"] == "K"
         assert captured["blog_id"] == "BID"
         assert captured["endpoint"] == "comments"
+        assert captured["team_id"] == 1
+        assert captured["job_id"] == "job-id"
         assert captured["should_use_incremental_field"] is True
         assert captured["db_incremental_field_last_value"] == "2026-01-01T00:00:00Z"
-        assert captured["incremental_field"] == "published"
 
     def test_source_for_pipeline_clears_last_value_when_not_incremental(self) -> None:
         captured: dict[str, Any] = {}

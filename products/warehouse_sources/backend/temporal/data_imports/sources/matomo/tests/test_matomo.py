@@ -283,3 +283,23 @@ class TestMatomoSourceResponse:
         assert response.name == endpoint
         assert response.primary_keys == config.primary_keys
         assert response.sort_mode == "asc"
+
+    @pytest.mark.parametrize(
+        "endpoint,expected_mode,expected_keys,expected_format",
+        [
+            # visits' primary key idVisit is an incrementing int, so it must ship an explicit
+            # datetime scheme — otherwise the pipeline buckets one Delta partition per visit.
+            ("visits", "datetime", ["serverTimestamp"], "month"),
+            ("visits_summary", None, None, None),
+            ("referrers", None, None, None),
+        ],
+    )
+    def test_partition_scheme_per_endpoint(self, endpoint, expected_mode, expected_keys, expected_format):
+        response = matomo_source("https://m.example.com", "1", "token", endpoint, mock.MagicMock(), _make_manager())
+
+        assert response.partition_mode == expected_mode
+        assert response.partition_keys == expected_keys
+        assert response.partition_format == expected_format
+        # partition_size=1 is what caused the per-row explosion; it must never come back.
+        assert response.partition_size is None
+        assert response.partition_count is None

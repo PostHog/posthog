@@ -348,6 +348,8 @@ setup_worktree_environment() {
     echo "To start working:"
     print_color blue "  cd ${worktree_path}"
     print_color blue "  bin/start"
+    echo ""
+    print_color yellow "Tip: only running the app needs this full setup — for edit+commit work, plain 'git worktree add' is enough (hooks borrow the main clone's toolchain)."
 }
 
 # Function to list all worktrees
@@ -397,6 +399,12 @@ case "$COMMAND" in
         ;;
     help|*)
         echo "PostHog Worktree Manager"
+        echo ""
+        echo "Sets up a full (\"heavy\") worktree with its own flox env and deps for"
+        echo "running the app (bin/start). For quick edits and commits you don't need"
+        echo "this: a plain 'git worktree add <path> <branch>' gives a light worktree"
+        echo "where pre-commit hooks work automatically (the toolchain is borrowed"
+        echo "from the main clone while lockfiles match)."
         echo ""
         echo "Usage: $0 <command> [arguments]"
         echo ""

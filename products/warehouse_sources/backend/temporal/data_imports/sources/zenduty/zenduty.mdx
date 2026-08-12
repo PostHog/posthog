@@ -1,0 +1,53 @@
+---
+title: Linking Zenduty as a source
+sidebar: Docs
+showTitle: true
+availability: { free: full, selfServe: full, enterprise: full }
+sourceId: Zenduty
+beta: true
+---
+
+import SourceSetupIntro from '../_snippets/source-setup-intro.mdx'
+import SyncModes from '../_snippets/sync-modes.mdx'
+import TroubleshootingLink from '../_snippets/dw-troubleshooting-link.mdx'
+import AlphaRelease from '../_snippets/alpha-release.mdx'
+
+<AlphaRelease />
+
+Sync your Zenduty incident-management and on-call data into PostHog to analyze incident volume, response times (MTTA/MTTR), and on-call load across your teams alongside the rest of your product data.
+
+## Prerequisites
+
+You need a Zenduty account and an account-scoped API key. API keys can only be created by account owners and admins.
+
+## Adding a data source
+
+<SourceSetupIntro />
+
+You need an **API key**:
+
+1. In Zenduty, go to **Account Settings → Access → API Keys**.
+2. Create a new key (or copy an existing one). The key is account-scoped, and read access is enough for syncing.
+3. Paste it into the **API key** field when connecting the source in PostHog.
+
+## Sync modes
+
+<SyncModes />
+
+Zenduty tables sync with full refresh. Zenduty's API does not expose a reliable universal "updated since" filter, so each sync re-reads the current state — which keeps mutable fields (like incident status) up to date.
+
+## Configuration
+
+<SourceParameters />
+
+## Supported tables
+
+Zenduty organizes most resources under a team, so the team-scoped tables below (services, escalation policies, schedules, and so on) carry a `_zenduty_team_id` column identifying the parent team.
+
+<SourceTables />
+
+## Troubleshooting
+
+**"Your Zenduty API key is invalid or inactive."** — the key was mistyped, revoked, or belongs to a deactivated account. Generate a fresh key in **Account Settings → Access → API Keys** and reconnect.
+
+<TroubleshootingLink />

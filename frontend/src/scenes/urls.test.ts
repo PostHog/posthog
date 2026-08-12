@@ -5,6 +5,16 @@ describe('urls', () => {
         expect(urls.webAnalyticsRecap()).toEqual('/web/recap')
     })
 
+    it('percent-encodes property definition ids so virtual ($builtin_*) ids survive route matching', () => {
+        expect(urls.propertyDefinition('$builtin_$virt_bot_name')).toEqual(
+            '/data-management/properties/%24builtin_%24virt_bot_name'
+        )
+        expect(urls.propertyDefinitionEdit('$builtin_$virt_bot_name')).toEqual(
+            '/data-management/properties/%24builtin_%24virt_bot_name/edit'
+        )
+        expect(urls.propertyDefinition(':id')).toEqual('/data-management/properties/:id')
+    })
+
     it.each(['Postgres', 'MySQL', 'Snowflake'] as const)(
         'includes direct access method when opening the new %s source wizard in direct mode',
         (sourceType) => {

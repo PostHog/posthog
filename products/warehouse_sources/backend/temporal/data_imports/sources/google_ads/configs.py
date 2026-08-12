@@ -12,7 +12,9 @@ import re
 import dataclasses
 
 from products.warehouse_sources.backend.temporal.data_imports.sources.common import config
-from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs import GoogleAdsSourceConfig
+from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.googleads import (
+    GoogleAdsSourceConfig,
+)
 
 
 @dataclasses.dataclass
@@ -38,6 +40,14 @@ def clean_customer_id(s: str | None) -> str | None:
         return s
 
     return re.sub(r"\D", "", s)
+
+
+def format_customer_id(s: str) -> str:
+    """Render a bare 10-digit customer ID the way the Google Ads UI shows it (``123-456-7890``); anything else is returned untouched."""
+    digits = re.sub(r"\D", "", s)
+    if len(digits) != 10:
+        return s
+    return f"{digits[:3]}-{digits[3:6]}-{digits[6:]}"
 
 
 @config.config

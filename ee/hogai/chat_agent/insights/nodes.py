@@ -564,7 +564,9 @@ class InsightSearchNode(AssistantNode):
     ) -> str:
         """Execute query and format results with timing instrumentation."""
         try:
-            query_executor = AssistantQueryExecutor(team=self._team, utc_now_datetime=self._utc_now_datetime)
+            query_executor = AssistantQueryExecutor(
+                team=self._team, user=self._user, utc_now_datetime=self._utc_now_datetime
+            )
             results, _ = await query_executor.arun_and_format_query(query_obj, debug_timing=True)
             return results
         except Exception as e:

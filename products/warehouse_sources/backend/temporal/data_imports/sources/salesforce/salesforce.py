@@ -25,7 +25,8 @@ class SalesforceResumeConfig:
 
 
 # Note: When pulling all fields, salesforce requires a 200 limit. We circumvent the pagination by using Id ordering.
-def get_resource(name: str, should_use_incremental_field: bool) -> EndpointResource:
+def get_resource(name: str, should_use_incremental_field: bool, api_version: str) -> EndpointResource:
+    query_path = f"/services/data/{api_version}/query"
     resources: dict[str, EndpointResource] = {
         "User": {
             "name": "User",
@@ -38,7 +39,7 @@ def get_resource(name: str, should_use_incremental_field: bool) -> EndpointResou
             else "replace",
             "endpoint": {
                 "data_selector": "records",
-                "path": "/services/data/v61.0/query",
+                "path": query_path,
                 "params": {
                     "q": {
                         "type": "incremental",
@@ -65,7 +66,7 @@ def get_resource(name: str, should_use_incremental_field: bool) -> EndpointResou
             else "replace",
             "endpoint": {
                 "data_selector": "records",
-                "path": "/services/data/v61.0/query",
+                "path": query_path,
                 "params": {
                     "q": {
                         "type": "incremental",
@@ -92,7 +93,7 @@ def get_resource(name: str, should_use_incremental_field: bool) -> EndpointResou
             else "replace",
             "endpoint": {
                 "data_selector": "records",
-                "path": "/services/data/v61.0/query",
+                "path": query_path,
                 "params": {
                     "q": {
                         "type": "incremental",
@@ -119,7 +120,7 @@ def get_resource(name: str, should_use_incremental_field: bool) -> EndpointResou
             else "replace",
             "endpoint": {
                 "data_selector": "records",
-                "path": "/services/data/v61.0/query",
+                "path": query_path,
                 "params": {
                     "q": {
                         "type": "incremental",
@@ -146,7 +147,7 @@ def get_resource(name: str, should_use_incremental_field: bool) -> EndpointResou
             else "replace",
             "endpoint": {
                 "data_selector": "records",
-                "path": "/services/data/v61.0/query",
+                "path": query_path,
                 "params": {
                     "q": {
                         "type": "incremental",
@@ -173,7 +174,7 @@ def get_resource(name: str, should_use_incremental_field: bool) -> EndpointResou
             else "replace",
             "endpoint": {
                 "data_selector": "records",
-                "path": "/services/data/v61.0/query",
+                "path": query_path,
                 "params": {
                     "q": {
                         "type": "incremental",
@@ -200,7 +201,7 @@ def get_resource(name: str, should_use_incremental_field: bool) -> EndpointResou
             else "replace",
             "endpoint": {
                 "data_selector": "records",
-                "path": "/services/data/v61.0/query",
+                "path": query_path,
                 "params": {
                     "q": {
                         "type": "incremental",
@@ -227,7 +228,7 @@ def get_resource(name: str, should_use_incremental_field: bool) -> EndpointResou
             else "replace",
             "endpoint": {
                 "data_selector": "records",
-                "path": "/services/data/v61.0/query",
+                "path": query_path,
                 "params": {
                     "q": {
                         "type": "incremental",
@@ -254,7 +255,7 @@ def get_resource(name: str, should_use_incremental_field: bool) -> EndpointResou
             else "replace",
             "endpoint": {
                 "data_selector": "records",
-                "path": "/services/data/v61.0/query",
+                "path": query_path,
                 "params": {
                     "q": {
                         "type": "incremental",
@@ -281,7 +282,7 @@ def get_resource(name: str, should_use_incremental_field: bool) -> EndpointResou
             else "replace",
             "endpoint": {
                 "data_selector": "records",
-                "path": "/services/data/v61.0/query",
+                "path": query_path,
                 "params": {
                     "q": {
                         "type": "incremental",
@@ -308,7 +309,7 @@ def get_resource(name: str, should_use_incremental_field: bool) -> EndpointResou
             else "replace",
             "endpoint": {
                 "data_selector": "records",
-                "path": "/services/data/v61.0/query",
+                "path": query_path,
                 "params": {
                     "q": {
                         "type": "incremental",
@@ -335,7 +336,7 @@ def get_resource(name: str, should_use_incremental_field: bool) -> EndpointResou
             else "replace",
             "endpoint": {
                 "data_selector": "records",
-                "path": "/services/data/v61.0/query",
+                "path": query_path,
                 "params": {
                     "q": {
                         "type": "incremental",
@@ -363,7 +364,7 @@ def get_resource(name: str, should_use_incremental_field: bool) -> EndpointResou
             else "replace",
             "endpoint": {
                 "data_selector": "records",
-                "path": "/services/data/v61.0/query",
+                "path": query_path,
                 "params": {
                     "q": {
                         "type": "incremental",
@@ -391,7 +392,7 @@ def get_resource(name: str, should_use_incremental_field: bool) -> EndpointResou
             else "replace",
             "endpoint": {
                 "data_selector": "records",
-                "path": "/services/data/v61.0/query",
+                "path": query_path,
                 "params": {
                     "q": {
                         "type": "incremental",
@@ -530,6 +531,7 @@ def salesforce_source(
     job_id: str,
     db_incremental_field_last_value: Optional[Any],
     resumable_source_manager: ResumableSourceManager[SalesforceResumeConfig],
+    api_version: str,
     should_use_incremental_field: bool = False,
 ):
     config: RESTAPIConfig = {
@@ -539,7 +541,7 @@ def salesforce_source(
             "paginator": SalesforceEndpointPaginator(should_use_incremental_field=should_use_incremental_field),
         },
         "resource_defaults": {},
-        "resources": [get_resource(endpoint, should_use_incremental_field)],
+        "resources": [get_resource(endpoint, should_use_incremental_field, api_version)],
     }
 
     initial_paginator_state: Optional[dict[str, Any]] = None

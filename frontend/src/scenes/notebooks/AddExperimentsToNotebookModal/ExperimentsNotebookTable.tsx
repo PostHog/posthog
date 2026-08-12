@@ -1,6 +1,6 @@
 import { useActions, useValues } from 'kea'
 
-import { IconCheck, IconFlask, IconPlus, IconX } from '@posthog/icons'
+import { IconFlask, IconPlus } from '@posthog/icons'
 import { LemonInput, LemonTag, Tooltip } from '@posthog/lemon-ui'
 
 import { TZLabel } from 'lib/components/TZLabel'
@@ -9,50 +9,19 @@ import { createdByColumn } from 'lib/lemon-ui/LemonTable/columnUtils'
 
 import { getExperimentStatus } from '~/scenes/experiments/experimentsLogic'
 import { StatusTag } from '~/scenes/experiments/ExperimentView/StatusTag'
-import { notebookLogic } from '~/scenes/notebooks/Notebook/notebookLogic'
-import { NotebookNodeType } from '~/scenes/notebooks/types'
 import { Experiment } from '~/types'
 
 import { addExperimentsToNotebookModalLogic } from './addExperimentsToNotebookModalLogic'
 
 type ExperimentsNotebookTableProps = {
-    insertionPosition?: number | null
-    onSelect?: (experimentId: number) => void
+    onSelect: (experimentId: number) => void
 }
 
-export function ExperimentsNotebookTable({ insertionPosition, onSelect }: ExperimentsNotebookTableProps): JSX.Element {
+export function ExperimentsNotebookTable({ onSelect }: ExperimentsNotebookTableProps): JSX.Element {
     const { experiments, experimentsLoading, filters, sorting, experimentsPerPage, count, modalPage } = useValues(
         addExperimentsToNotebookModalLogic
     )
-    const { setModalPage, setModalFilters, closeModal } = useActions(addExperimentsToNotebookModalLogic)
-
-    const { experimentIdsInNotebook, findNodeLogic } = useValues(notebookLogic)
-    const { addExperimentToNotebook } = useActions(notebookLogic)
-
-    const isSelected = (experiment: Experiment): boolean => {
-        if (onSelect) {
-            return false
-        }
-        return experimentIdsInNotebook?.includes(experiment.id as number) ?? false
-    }
-
-    const onToggle = (experiment: Experiment): void => {
-        if (onSelect) {
-            onSelect(experiment.id as number)
-            return
-        }
-        // If already in notebook, remove it
-        if (isSelected(experiment)) {
-            const nodeLogic = findNodeLogic(NotebookNodeType.Experiment, { id: experiment.id })
-            if (nodeLogic) {
-                nodeLogic.actions.deleteNode()
-            }
-            return
-        }
-
-        addExperimentToNotebook(experiment.id as number, insertionPosition)
-        closeModal()
-    }
+    const { setModalPage, setModalFilters } = useActions(addExperimentsToNotebookModalLogic)
 
     const columns: LemonTableColumns<Experiment> = [
         {
@@ -114,13 +83,8 @@ export function ExperimentsNotebookTable({ insertionPosition, onSelect }: Experi
         {
             key: 'action',
             width: 32,
-            render: function renderAction(_: unknown, experiment: Experiment) {
-                return isSelected(experiment) ? (
-                    <div className="group/status relative flex items-center justify-center">
-                        <IconCheck className="text-success text-xl transition-opacity duration-150 group-hover/status:opacity-0" />
-                        <IconX className="text-danger text-xl absolute inset-0 opacity-0 transition-opacity duration-150 group-hover/status:opacity-100" />
-                    </div>
-                ) : (
+            render: function renderAction() {
+                return (
                     <IconPlus className="text-muted text-xl opacity-40 group-hover:opacity-100 group-hover:text-success transition-all" />
                 )
             },
@@ -161,14 +125,12 @@ export function ExperimentsNotebookTable({ insertionPosition, onSelect }: Experi
                     rowKey="id"
                     loadingSkeletonRows={experimentsPerPage}
                     nouns={['experiment', 'experiments']}
-                    rowClassName={(experiment) =>
-                        isSelected(experiment)
-                            ? 'group bg-success-highlight border-l-2 border-l-success cursor-pointer hover:bg-success-highlight/70'
-                            : 'group cursor-pointer hover:bg-success-highlight/30 border-l-2 border-l-transparent hover:border-l-success/50'
+                    rowClassName={() =>
+                        'group cursor-pointer hover:bg-success-highlight/30 border-l-2 border-l-transparent hover:border-l-success/50'
                     }
                     onRow={(experiment) => ({
-                        onClick: () => onToggle(experiment),
-                        title: isSelected(experiment) ? 'Click to deselect' : 'Click to select',
+                        onClick: () => onSelect(experiment.id as number),
+                        title: 'Click to select',
                     })}
                     emptyState="No experiments found"
                 />

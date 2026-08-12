@@ -1,10 +1,17 @@
+from typing import get_args
+
 from posthog.test.base import APIBaseTest, ClickhouseTestMixin, QueryMatchingTest
 
 from parameterized import parameterized
 from rest_framework import status
 
+from posthog import schema
 from posthog.api.test.dashboards import DashboardAPI
 
+from products.product_analytics.backend.api.insight import (
+    AUTO_WRAPPED_INSIGHT_QUERY_KINDS,
+    BARE_RENDERED_INSIGHT_VIZ_SOURCE_KINDS,
+)
 from products.product_analytics.backend.models.insight import Insight
 
 from ee.api.test.base import LicensedTestMixin
@@ -200,6 +207,129 @@ class TestInsight(ClickhouseTestMixin, LicensedTestMixin, APIBaseTest, QueryMatc
 
         listed_insights = self.dashboard_api.list_insights()
         assert listed_insights["count"] == 2
+
+    @parameterized.expand(
+        [
+            (
+                "bare_trends_query",
+                {
+                    "kind": "TrendsQuery",
+                    "series": [{"kind": "EventsNode", "event": "$pageview", "name": "$pageview"}],
+                    "dateRange": {"date_from": "-7d"},
+                    "interval": "day",
+                },
+                "InsightVizNode",
+                "TrendsQuery",
+            ),
+            (
+                "bare_hogql_query",
+                {"kind": "HogQLQuery", "query": "select event from events limit 1"},
+                "DataVisualizationNode",
+                "HogQLQuery",
+            ),
+            (
+                "bare_paths_v2_query",
+                {"kind": "PathsV2Query", "dateRange": {"date_from": "-7d"}},
+                "InsightVizNode",
+                "PathsV2Query",
+            ),
+            (
+                "bare_web_stats_table_query",
+                {
+                    "kind": "WebStatsTableQuery",
+                    "breakdownBy": "Page",
+                    "properties": [],
+                    "dateRange": {"date_from": "-7d"},
+                },
+                "InsightVizNode",
+                "WebStatsTableQuery",
+            ),
+        ]
+    )
+    def test_create_wraps_bare_query_sources(self, _name, query, expected_kind, expected_source_kind) -> None:
+        insight_id, insight_json = self.dashboard_api.create_insight({"name": "Bare query insight", "query": query})
+
+        assert insight_json["query"]["kind"] == expected_kind
+        stored_query = Insight.objects.get(pk=insight_id).query
+        assert stored_query is not None
+        assert stored_query["kind"] == expected_kind
+        assert stored_query["source"]["kind"] == expected_source_kind
+
+    @parameterized.expand(
+        [
+            (
+                "already_wrapped_insight_viz_node",
+                {
+                    "kind": "InsightVizNode",
+                    "source": {
+                        "kind": "TrendsQuery",
+                        "series": [{"kind": "EventsNode", "event": "$pageview", "name": "$pageview"}],
+                        "dateRange": {"date_from": "-7d"},
+                        "interval": "day",
+                    },
+                    "showTable": True,
+                },
+            ),
+            (
+                "bare_web_overview_query_rendered_unwrapped_by_the_ui",
+                {"kind": "WebOverviewQuery", "properties": [], "dateRange": {"date_from": "-7d"}},
+            ),
+            (
+                "query_kind_without_an_insight_renderer",
+                {
+                    "kind": "ErrorTrackingQuery",
+                    "dateRange": {"date_from": "-7d"},
+                    "orderBy": "last_seen",
+                    "volumeResolution": 60,
+                },
+            ),
+        ]
+    )
+    def test_create_stores_non_bare_queries_verbatim(self, _name, query) -> None:
+        insight_id, _ = self.dashboard_api.create_insight({"name": "Verbatim query insight", "query": query})
+
+        assert Insight.objects.get(pk=insight_id).query == query
+
+    def test_every_insight_viz_source_kind_is_either_auto_wrapped_or_bare_rendered(self) -> None:
+        source_annotation = schema.InsightVizNode.model_fields["source"].annotation
+        schema_kinds = {get_args(member.model_fields["kind"].annotation)[0] for member in get_args(source_annotation)}
+
+        assert AUTO_WRAPPED_INSIGHT_QUERY_KINDS.isdisjoint(BARE_RENDERED_INSIGHT_VIZ_SOURCE_KINDS)
+        # A kind added to the union but to neither set would save bare and render as a blank tile.
+        assert AUTO_WRAPPED_INSIGHT_QUERY_KINDS | BARE_RENDERED_INSIGHT_VIZ_SOURCE_KINDS == schema_kinds
+
+    def test_update_wraps_bare_query_sources(self) -> None:
+        insight_id, _ = self.dashboard_api.create_insight(
+            {
+                "name": "Insight to update",
+                "query": {
+                    "kind": "InsightVizNode",
+                    "source": {
+                        "kind": "TrendsQuery",
+                        "series": [{"kind": "EventsNode", "event": "$pageview", "name": "$pageview"}],
+                    },
+                },
+            }
+        )
+
+        response = self.client.patch(
+            f"/api/projects/{self.team.id}/insights/{insight_id}",
+            {
+                "query": {
+                    "kind": "FunnelsQuery",
+                    "series": [
+                        {"kind": "EventsNode", "event": "$pageview", "name": "$pageview"},
+                        {"kind": "EventsNode", "event": "$pageleave", "name": "$pageleave"},
+                    ],
+                }
+            },
+        )
+
+        assert response.status_code == status.HTTP_200_OK
+        stored_query = Insight.objects.get(pk=insight_id).query
+        assert stored_query is not None
+        assert stored_query["kind"] == "InsightVizNode"
+        assert stored_query["source"]["kind"] == "FunnelsQuery"
 
     @parameterized.expand(
         [

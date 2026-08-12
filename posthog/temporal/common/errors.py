@@ -2,6 +2,15 @@ import traceback
 
 from temporalio.exceptions import ApplicationError, FailureError
 
+
+class NonReportableError(Exception):
+    """Marker for an expected, handled condition that must still fail the activity but should not
+    be reported to error tracking. The activity interceptor re-raises these without capturing them,
+    the same way it skips cancellations and egress backpressure. Subclass it for a failure that is
+    always caused by the customer's config or the upstream API (never a PostHog defect) and that
+    retrying can't resolve, so a tracked exception would only be noise."""
+
+
 # Bound error strings so a multi-MB str(e) (ClickHouse 5xx body, Playwright HTML dump)
 # can't blow out Temporal's 2 MiB payload limit.
 MAX_ERROR_MESSAGE_CHARS = 8_000

@@ -3,7 +3,7 @@ from collections.abc import Sequence
 from concurrent.futures import ThreadPoolExecutor
 from contextlib import AbstractContextManager
 from datetime import date, datetime, timedelta, tzinfo
-from typing import Any, Union
+from typing import Any, Optional, Union
 
 from django.conf import settings
 from django.core.cache import cache
@@ -28,7 +28,7 @@ from posthog.hogql.query import execute_hogql_query
 
 from posthog.clickhouse.query_tagging import Feature, Product, get_query_tags, tags_context
 from posthog.hogql_queries.utils.query_date_range import QueryDateRange
-from posthog.models import Team
+from posthog.models import Team, User
 from posthog.models.event import DEFAULT_EARLIEST_TIME_DELTA
 from posthog.models.team import WeekStartDay
 from posthog.utils import get_safe_cache
@@ -182,14 +182,18 @@ def _earliest_timestamp_query_tags() -> AbstractContextManager[None]:
 def _get_earliest_timestamp_from_node(
     team: Team,
     node: Union[EventsNode, ActionsNode, DataWarehouseNode, FunnelsDataWarehouseNode, LifecycleDataWarehouseNode],
+    user: Optional[User] = None,
 ) -> datetime:
     """
     Get the earliest timestamp from a single series node
 
     :param team: The team
     :param node: The series node
+    :param user: The user the query runs as, for warehouse table access control
     :return: The earliest timestamp as a datetime object.
     """
+    # The cache is team-wide (keyed by team + node, not user): the value is table metadata, and row
+    # access is still enforced on the insight's main query, so per-user entries aren't worth the misses.
     cache_key = _get_earliest_timestamp_cache_key(team, node)
     cached_result = get_safe_cache(cache_key)
     if cached_result is not None:
@@ -209,7 +213,7 @@ def _get_earliest_timestamp_from_node(
 
     earliest_timestamp = EARLIEST_EVENT_TIMESTAMP
     with _earliest_timestamp_query_tags():
-        result = execute_hogql_query(query=query, team=team)
+        result = execute_hogql_query(query=query, team=team, user=user)
     if result and len(result.results) > 0 and len(result.results[0]) > 0 and result.results[0][0] is not None:
         earliest_timestamp = _coerce_to_datetime(result.results[0][0], team.timezone_info)
 
@@ -224,6 +228,7 @@ def get_earliest_timestamp_from_series(
             EventsNode, ActionsNode, DataWarehouseNode, FunnelsDataWarehouseNode, LifecycleDataWarehouseNode, GroupNode
         ]
     ],
+    user: Optional[User] = None,
 ) -> datetime:
     """
     Get the earliest timestamp for specific events/actions in a series.
@@ -232,6 +237,7 @@ def get_earliest_timestamp_from_series(
 
     :param team: The team
     :param series: A list of series nodes (EventsNode, ActionsNode, DataWarehouseNode, or GroupNode)
+    :param user: The user the queries run as, for warehouse table access control
     :return: The earliest timestamp across all series
     """
     # Expand GroupNode nodes into individual nodes
@@ -246,14 +252,14 @@ def get_earliest_timestamp_from_series(
 
     timestamps = []
     if len(nodes) == 1 or settings.IN_UNIT_TESTING:
-        timestamps = [_get_earliest_timestamp_from_node(team, node) for node in nodes]
+        timestamps = [_get_earliest_timestamp_from_node(team, node, user) for node in nodes]
 
     else:
         with ThreadPoolExecutor(max_workers=min(len(nodes), 4)) as executor:
             # ThreadPoolExecutor does not inherit contextvars (query tags) by default; copy the
             # current context into each worker so tagged sync_execute calls don't fail untagged.
             futures = [
-                executor.submit(contextvars.copy_context().run, _get_earliest_timestamp_from_node, team, node)
+                executor.submit(contextvars.copy_context().run, _get_earliest_timestamp_from_node, team, node, user)
                 for node in nodes
             ]
             timestamps = [future.result() for future in futures]

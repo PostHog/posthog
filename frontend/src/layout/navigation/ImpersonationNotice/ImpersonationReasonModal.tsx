@@ -1,4 +1,4 @@
-import { ReactNode, useId, useState } from 'react'
+import { ReactNode, useEffect, useId, useState } from 'react'
 
 import { LemonButton, LemonInput, LemonModal, SideAction } from '@posthog/lemon-ui'
 
@@ -24,6 +24,9 @@ export interface ImpersonationReasonModalProps {
     closable?: boolean
     // Renders inline rather than in a portal — used by Storybook to capture snapshots.
     inline?: boolean
+    // Pre-fills the reason field each time the modal opens (e.g. the upgrade flow reuses
+    // the original impersonation reason).
+    initialReason?: string
 }
 
 export function ImpersonationReasonModal({
@@ -38,16 +41,25 @@ export function ImpersonationReasonModal({
     cancelButton,
     closable = true,
     inline = false,
+    initialReason = '',
 }: ImpersonationReasonModalProps): JSX.Element {
-    const [reason, setReason] = useState('')
+    const [reason, setReason] = useState(initialReason)
     const reasonInputId = useId()
+
+    // Reset to the initial reason whenever the modal opens so each open starts from a
+    // clean, auto-filled state without clobbering edits while it's open.
+    useEffect(() => {
+        if (isOpen) {
+            setReason(initialReason)
+        }
+    }, [isOpen, initialReason])
 
     const handleConfirm = (): void => {
         onConfirm(reason)
     }
 
     const handleClose = (): void => {
-        setReason('')
+        setReason(initialReason)
         onClose?.()
     }
 

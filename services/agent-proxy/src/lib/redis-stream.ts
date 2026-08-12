@@ -364,6 +364,11 @@ export class TaskRunRedisStream {
         return raw === '1'
     }
 
+    // EXISTS completed-key -> bool
+    async isComplete(): Promise<boolean> {
+        return (await this.redis.exists(getCompletedKey(this.streamKey))) > 0
+    }
+
     // SET heartbeat-key '1' EX throttleSeconds NX. True if claimed.
     async claimAgentActiveHeartbeat(throttleSeconds: number): Promise<boolean> {
         const result = await this.redis.set(getHeartbeatKey(this.streamKey), '1', 'EX', throttleSeconds, 'NX')

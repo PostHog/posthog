@@ -25,8 +25,9 @@ MODULE_PATH = "products.signals.backend.temporal.safety_filter"
 async def test_safety_filter_selects_prompt_by_source(source_product, expected_prompt):
     captured: dict[str, str] = {}
 
-    async def fake_call_llm(*, team_id, system_prompt, user_prompt, validate, stage):
+    async def fake_call_llm(*, team_id, system_prompt, user_prompt, validate, stage, ai_product, **_kwargs):
         captured["system_prompt"] = system_prompt
+        captured["ai_product"] = ai_product
         return SafetyFilterJudgeResponse(safe=True)
 
     with patch(f"{MODULE_PATH}.call_llm", new=fake_call_llm):
@@ -34,6 +35,7 @@ async def test_safety_filter_selects_prompt_by_source(source_product, expected_p
 
     assert result.safe is True
     assert captured["system_prompt"] == expected_prompt
+    assert captured["ai_product"] == "signals_safety"
 
 
 @pytest.mark.asyncio

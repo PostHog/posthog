@@ -56,6 +56,24 @@ describe('featureFlagConditionWarningLogic', () => {
             })
         })
 
+        it('mounts without throwing for a bigint property value', () => {
+            const properties: AnyPropertyFilter[] = [
+                {
+                    key: 'id',
+                    type: PropertyFilterType.Person,
+                    operator: PropertyOperator.Exact,
+                    value: BigInt('9007199254740993'),
+                },
+            ]
+
+            const logic = featureFlagConditionWarningLogic({
+                properties,
+                evaluationRuntime: FeatureFlagEvaluationRuntime.SERVER,
+            })
+
+            expect(() => logic.mount()).not.toThrow()
+        })
+
         it('returns no warning for regex without unsupported features', () => {
             const properties: AnyPropertyFilter[] = [
                 {
@@ -421,6 +439,7 @@ describe('featureFlagConditionWarningLogic', () => {
             logic.mount()
 
             expect(logic.values.warning).toBe('static cohorts')
+            expect(logic.values.hasStaticCohort).toBe(true)
         })
 
         it('does not warn when cohort is not loaded yet', () => {
@@ -441,6 +460,7 @@ describe('featureFlagConditionWarningLogic', () => {
 
             expectLogic(logic).toMatchValues({
                 warning: undefined,
+                hasStaticCohort: false,
             })
         })
 
@@ -470,6 +490,7 @@ describe('featureFlagConditionWarningLogic', () => {
             logic.mount()
 
             expect(logic.values.warning).toBeUndefined()
+            expect(logic.values.hasStaticCohort).toBe(false)
         })
     })
 

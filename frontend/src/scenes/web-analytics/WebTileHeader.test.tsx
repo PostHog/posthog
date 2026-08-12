@@ -3,6 +3,7 @@ import { cleanup, fireEvent, render, within } from '@testing-library/react'
 import { LemonMenuItem } from '@posthog/lemon-ui'
 
 import { queryByDataAttr } from '~/test/byDataAttr'
+import { initKeaTests } from '~/test/init'
 
 import { TileId } from './common'
 import { WebTileHeader } from './WebTileHeader'
@@ -13,6 +14,11 @@ const noopMenuItems: LemonMenuItem[] = [
 ]
 
 describe('WebTileHeader', () => {
+    beforeEach(() => {
+        // Clicking a Link pushes to the kea router, so the router logic must be live
+        initKeaTests()
+    })
+
     afterEach(() => {
         cleanup()
     })
@@ -98,7 +104,8 @@ describe('WebTileHeader', () => {
         )
         const button = queryByDataAttr(container, 'web-analytics-open-insight-SOURCES')
         expect(button).toBeTruthy()
-        expect(button?.getAttribute('href')).toBe('/insights/new?web-source')
+        // Link prefixes internal hrefs with the current project id from the app context
+        expect(button?.getAttribute('href')).toBe('/project/997/insights/new?web-source')
         fireEvent.click(button!)
         expect(onClick).toHaveBeenCalledTimes(1)
     })

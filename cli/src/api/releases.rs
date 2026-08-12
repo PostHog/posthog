@@ -12,6 +12,8 @@ use crate::{
     utils::{files::content_hash, git::GitInfo},
 };
 
+const RELEASE_HASH_IN_USE_ERROR_CODE: &str = "release_hash_in_use";
+
 #[derive(Debug, Clone, Deserialize)]
 pub struct Release {
     pub id: Uuid,
@@ -172,11 +174,19 @@ impl ReleaseBuilder {
 
         let client = &context().client;
 
-        let response = client
+        let response = match client
             .send_post(client.project_url("error_tracking/releases")?, |req| {
                 req.json(&request)
-            })
-            .context("Failed to create release")?;
+            }) {
+            Ok(response) => response,
+            Err(e) if e.has_structured_api_error_code(RELEASE_HASH_IN_USE_ERROR_CODE) => {
+                if let Ok(Some(release)) = Release::lookup(&request.project, &request.version) {
+                    return Ok(release);
+                }
+                return Err(e).context("Failed to create release");
+            }
+            Err(e) => return Err(e).context("Failed to create release"),
+        };
 
         let response = response.json::<Release>()?;
         info!(

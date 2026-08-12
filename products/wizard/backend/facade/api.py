@@ -12,6 +12,7 @@ from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager
 from typing import Any
 
+from products.wizard.backend import metrics
 from products.wizard.backend.facade.contracts import UpsertWizardSessionInput, WizardSessionDTO
 from products.wizard.backend.logic import pubsub, sessions
 
@@ -58,3 +59,9 @@ async def subscribe_to_updates(
 
 def serialize_dto(dto: WizardSessionDTO) -> bytes:
     return pubsub.serialize_dto(dto)
+
+
+def record_latest_session_poll(raw_source: str | None, result: str) -> None:
+    metrics.WIZARD_LATEST_SESSION_REQUESTS_TOTAL.labels(
+        source=metrics.poll_source_label(raw_source), result=result
+    ).inc()

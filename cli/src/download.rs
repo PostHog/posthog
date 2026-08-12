@@ -16,9 +16,10 @@ use crate::{api::symbol_sets, invocation_context::context};
 
 #[derive(Subcommand)]
 pub enum SymbolSetsSubcommand {
-    /// Upload native (ELF) debug symbols from a directory. ELF executables,
-    /// shared libraries, and `objcopy --only-keep-debug` companions with debug
-    /// info are uploaded; other files (dSYM bundles, etc.) are reported and skipped.
+    /// Upload native debug symbols from a directory. ELF executables, shared
+    /// libraries, and `objcopy --only-keep-debug` companions with debug info are
+    /// uploaded, as are Apple `.dSYM` bundles (macOS only — needs `dwarfdump`
+    /// from Xcode); other files are reported and skipped.
     Upload(crate::debug_symbols::upload::Args),
     /// Download and extract a symbol set (sourcemap, hermes, proguard, or dSYM)
     Download(DownloadArgs),

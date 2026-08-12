@@ -1,4 +1,5 @@
 import pytest
+from unittest.mock import Mock, patch
 
 from parameterized import parameterized
 from rest_framework import status
@@ -6,8 +7,9 @@ from rest_framework import status
 from posthog.models.organization import OrganizationMembership
 from posthog.models.user import User
 
-from products.data_modeling.backend.facade.models import DataWarehouseSavedQuery
+from products.data_modeling.backend.facade.models import DAG, DataWarehouseSavedQuery, Node, NodeType
 from products.data_tools.backend.models.datawarehouse_saved_query_folder import DataWarehouseSavedQueryFolder
+from products.warehouse_sources.backend.facade.models import DataWarehouseCredential, DataWarehouseTable
 from products.warehouse_sources.backend.tests.api._access_control_base import WarehouseAccessControlTestMixin
 
 try:
@@ -284,3 +286,91 @@ class TestDataWarehouseSavedQueryFolderAccessControl(WarehouseAccessControlTestM
         ids = [f["id"] for f in response.json()]
         self.assertIn(str(self.folder.id), ids)
         self.assertNotIn(str(other_folder.id), ids)
+
+
+@pytest.mark.ee
+@patch("posthoganalytics.feature_enabled", new=Mock(return_value=True))
+class TestMaterializationRequiresUnderlyingAccess(WarehouseAccessControlTestMixin):
+    """Enabling materialization publishes a view's rows under the view's own access rules, so it has
+    to be gated on the requester's access to what the query reads - not just on the view."""
+
+    resource = "warehouse_objects"
+
+    def setUp(self):
+        super().setUp()
+        self.credential = DataWarehouseCredential.objects.create(
+            access_key="key", access_secret="secret", team=self.team
+        )
+        self.table = DataWarehouseTable.objects.create(
+            name="restricted_table",
+            format=DataWarehouseTable.TableFormat.Parquet,
+            team=self.team,
+            credential=self.credential,
+            url_pattern="s3://bucket/restricted/*",
+            columns={"id": "String"},
+        )
+        # Authored by someone who could read the table; the restricted user only materializes it.
+        self.view = DataWarehouseSavedQuery.objects.create(
+            team=self.team,
+            name="view_over_restricted",
+            query={"kind": "HogQLQuery", "query": "select id from restricted_table"},
+            created_by=self.user,
+        )
+        self._create_access_control(self.editor_user, access_level="editor")
+        self._create_access_control(
+            self.editor_user, resource="warehouse_table", resource_id=str(self.table.id), access_level="none"
+        )
+        self.client.force_login(self.editor_user)
+
+    def _base(self) -> str:
+        return f"/api/environments/{self.team.pk}/warehouse_saved_queries/{self.view.id}"
+
+    def test_materialize_denied_when_the_query_reads_a_denied_table(self):
+        response = self.client.post(f"{self._base()}/materialize/")
+
+        self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN)
+        self.view.refresh_from_db()
+        self.assertFalse(self.view.is_materialized)
+
+    def test_scheduling_denied_when_the_query_reads_a_denied_table(self):
+        # Same grant by another name: a sync frequency is what actually schedules the runs.
+        response = self.client.patch(f"{self._base()}/", {"sync_frequency": "24hour"}, format="json")
+
+        self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN)
+        self.view.refresh_from_db()
+        self.assertIsNone(self.view.sync_frequency_interval)
+
+    def test_running_the_dag_node_is_denied_when_the_query_reads_a_denied_table(self):
+        # The run workflow sets is_materialized itself, so running a node publishes the same rows
+        # that `materialize` would - a separate door onto the same declassification.
+        dag = DAG.objects.create(team=self.team, name="dag")
+        node = Node.objects.create(
+            team=self.team, dag=dag, name=self.view.name, saved_query=self.view, type=NodeType.VIEW
+        )
+
+        response = self.client.post(
+            f"/api/environments/{self.team.pk}/data_modeling_nodes/{node.id}/run/",
+            {"direction": "downstream"},
+            format="json",
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN)
+
+    def test_materializing_the_node_is_denied_when_the_query_reads_a_denied_table(self):
+        # The single-node endpoint dispatches the same materialization workflow as `run`, so it is
+        # yet another door onto the same declassification.
+        dag = DAG.objects.create(team=self.team, name="dag")
+        node = Node.objects.create(
+            team=self.team, dag=dag, name=self.view.name, saved_query=self.view, type=NodeType.VIEW
+        )
+
+        response = self.client.post(f"/api/environments/{self.team.pk}/data_modeling_nodes/{node.id}/materialize/")
+
+        self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN)
+
+    def test_materialize_allowed_without_a_table_denial(self):
+        AccessControl.objects.filter(resource="warehouse_table", resource_id=str(self.table.id)).delete()
+
+        response = self.client.post(f"{self._base()}/materialize/")
+
+        self.assertNotEqual(response.status_code, status.HTTP_403_FORBIDDEN)

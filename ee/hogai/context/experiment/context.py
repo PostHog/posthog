@@ -97,16 +97,14 @@ class ExperimentContext:
             variants_section = EXPERIMENT_VARIANTS_TEMPLATE.format(variants_list=variants_list)
 
         feature_flag_variants_section = ""
-        if experiment.parameters:
-            params = experiment.parameters
-            if params.get("feature_flag_variants"):
-                variants_list = "\n".join(
-                    f"- {v.get('key', 'unknown')}: {v.get('rollout_percentage', 0)}%"
-                    for v in params["feature_flag_variants"]
-                )
-                feature_flag_variants_section = EXPERIMENT_FEATURE_FLAG_VARIANTS_TEMPLATE.format(
-                    variants_list=variants_list
-                )
+        flag_variants = experiment.feature_flag.variants if experiment.feature_flag else []
+        if flag_variants:
+            variants_list = "\n".join(
+                f"- {v.get('key', 'unknown')}: {v.get('rollout_percentage', 0)}%" for v in flag_variants
+            )
+            feature_flag_variants_section = EXPERIMENT_FEATURE_FLAG_VARIANTS_TEMPLATE.format(
+                variants_list=variants_list
+            )
 
         return EXPERIMENT_CONTEXT_TEMPLATE.format(
             experiment_name=experiment.name,
@@ -135,8 +133,7 @@ class ExperimentContext:
 
         stats_method = get_experiment_stats_method(experiment)
 
-        multivariate = experiment.feature_flag.filters.get("multivariate", {})
-        variants = [v.get("key") for v in multivariate.get("variants", []) if v.get("key")]
+        variants = [v.get("key") for v in experiment.feature_flag.variants if v.get("key")]
 
         lines.append(f"## Experiment: {experiment.name}")
         lines.append(f"**ID:** {experiment.id}")

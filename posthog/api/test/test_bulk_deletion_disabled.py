@@ -27,17 +27,17 @@ class TestBulkDeletionDisabled(APIBaseTest):
 
         self.assertTrue(Team.objects.filter(id=self.additional_team.id).exists())
 
+    @patch("posthog.temporal.delete_teams.dispatch.start_delete_project_data_workflow")
     @patch("posthog.api.team.settings.DISABLE_BULK_DELETES", False)
-    def test_team_deletion_enabled(self):
-        """Test that team deletion works when DISABLE_BULK_DELETES is False."""
+    def test_team_deletion_enabled(self, mock_start_deletion):
+        """Test that team deletion is allowed (hands off to Temporal) when DISABLE_BULK_DELETES is False."""
         self.organization_membership.level = OrganizationMembership.Level.ADMIN
         self.organization_membership.save()
 
         response = self.client.delete(f"/api/environments/{self.additional_team.id}/")
 
         self.assertEqual(response.status_code, status.HTTP_204_NO_CONTENT)
-
-        self.assertFalse(Team.objects.filter(id=self.additional_team.id).exists())
+        mock_start_deletion.assert_called_once()
 
     @patch("posthog.api.project.settings.DISABLE_BULK_DELETES", True)
     def test_project_deletion_disabled(self):

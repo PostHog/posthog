@@ -20,7 +20,11 @@ import {
 
 import { EarlyExitIndicator } from './EarlyExitIndicator'
 import { FeatureFlagConditionWarning } from './FeatureFlagConditionWarning'
-import { featureFlagReleaseConditionsLogic, isDistinctIdFilter } from './featureFlagReleaseConditionsLogic'
+import {
+    featureFlagReleaseConditionsLogic,
+    isDistinctIdFilter,
+    withResolvedFlagLabels,
+} from './featureFlagReleaseConditionsLogic'
 
 interface FeatureFlagReleaseConditionsReadonlyProps {
     id: string
@@ -124,7 +128,8 @@ export function FeatureFlagReleaseConditionsReadonly({
         filters,
     })
 
-    const { filterGroups, aggregationTargetName, properties, getDistinctIdName } = useValues(releaseConditionsLogic)
+    const { filterGroups, aggregationTargetName, properties, getDistinctIdName, getFlagKey } =
+        useValues(releaseConditionsLogic)
 
     return (
         <div className="flex flex-col gap-2">
@@ -158,6 +163,7 @@ export function FeatureFlagReleaseConditionsReadonly({
                             index={index}
                             aggregationTargetName={aggregationTargetName(group.aggregation_group_type_index)}
                             getDistinctIdName={getDistinctIdName}
+                            getFlagKey={getFlagKey}
                         />
                     </div>
                 ))}
@@ -175,6 +181,7 @@ interface ConditionSetCardProps {
     index: number
     aggregationTargetName: string
     getDistinctIdName: (distinctId: string) => string
+    getFlagKey: (flagId: string) => string
 }
 
 function ConditionSetCard({
@@ -182,8 +189,9 @@ function ConditionSetCard({
     index,
     aggregationTargetName,
     getDistinctIdName,
+    getFlagKey,
 }: ConditionSetCardProps): JSX.Element {
-    const properties = group.properties || []
+    const properties = withResolvedFlagLabels(group.properties, getFlagKey)
     const rollout = group.rollout_percentage ?? 100
 
     const getSummary = (): JSX.Element => {

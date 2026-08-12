@@ -57,10 +57,8 @@ import traceback
 import subprocess
 from pathlib import Path
 
-import django
-
+# Skip django.setup(): parser core only reads settings.TEST, so settings alone avoids ready()-hook DB/redis init.
 os.environ.setdefault("DJANGO_SETTINGS_MODULE", "posthog.settings")
-django.setup()
 
 from posthog.hogql.scripts._diagnostic_common import (
     _probe_backend,

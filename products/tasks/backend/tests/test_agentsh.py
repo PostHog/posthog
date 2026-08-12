@@ -1,9 +1,14 @@
+import os
 import shlex
+import logging
+import tempfile
+import subprocess
+from pathlib import Path
 from typing import Any
 
 from unittest.mock import Mock
 
-from django.test import TestCase, override_settings
+from django.test import SimpleTestCase, TestCase, override_settings
 
 import yaml
 from parameterized import parameterized
@@ -14,6 +19,7 @@ from products.tasks.backend.logic.services.agentsh import (
     INFRASTRUCTURE_DOMAINS,
     build_audit_query_command,
     build_exec_prefix,
+    generate_bash_env_script,
     generate_config_yaml,
     generate_env_wrapper,
     generate_policy_yaml,
@@ -54,6 +60,13 @@ class TestGenerateConfigYaml(TestCase):
 
 
 class TestGeneratePolicyYaml(TestCase):
+    def setUp(self):
+        super().setUp()
+        # LOGGING uses disable_existing_loggers, so any test that re-applies
+        # logging config disables this module's import-time logger and the
+        # assertLogs below see nothing; re-enable it.
+        logging.getLogger("products.tasks.backend.logic.services.agentsh").disabled = False
+
     def test_allows_commands(self):
         policy = yaml.safe_load(generate_policy_yaml(["example.com"]))
         allow_rule = next(rule for rule in policy["command_rules"] if rule["name"] == "allow-all-commands")
@@ -127,6 +140,22 @@ class TestGeneratePolicyYaml(TestCase):
         policy = yaml.safe_load(generate_policy_yaml([]))
         self.assertIn("POSTHOG_*", policy["env_policy"]["allow"])
 
+    def test_env_policy_allows_gateway_selection_vars(self):
+        # AI_GATEWAY_URL picks the Go gateway and AI_GATEWAY_PRODUCTS scopes it. If
+        # the firewall strips either, the sandbox silently stays on the Python
+        # gateway, so a migrated product keeps billing under its old tag.
+        policy = yaml.safe_load(generate_policy_yaml([]))
+        for key in ("LLM_GATEWAY_URL", "AI_GATEWAY_URL", "AI_GATEWAY_PRODUCTS"):
+            self.assertIn(key, policy["env_policy"]["allow"])
+
+    def test_go_gateway_hosts_reachable(self):
+        # The Go gateway is a different hostname from the Python one; without an
+        # allow-domains entry every sandbox model call is denied at the syscall layer.
+        policy = yaml.safe_load(generate_policy_yaml([]))
+        allow_rule = next(rule for rule in policy["network_rules"] if rule["name"] == "allow-domains")
+        self.assertIn("ai-gateway.us.posthog.com", allow_rule["domains"])
+        self.assertIn("ai-gateway.eu.posthog.com", allow_rule["domains"])
+
     @override_settings(DEBUG=True)
     def test_debug_mode_adds_dev_ports(self):
         policy = yaml.safe_load(generate_policy_yaml([]))
@@ -171,14 +200,103 @@ class TestGeneratePolicyYaml(TestCase):
 
     @override_settings(DEBUG=False, SANDBOX_LLM_GATEWAY_URL="http://example.local:3308")
     def test_non_debug_mode_omits_debug_rule_entirely(self):
-        # Outside DEBUG the debug rule should not exist, and the prod rule
-        # must not absorb any sandbox URL hostnames or non-cloud ports.
+        # Outside DEBUG the debug rule should not exist and the prod rule keeps
+        # cloud-routing ports only. The hostname itself still joins the prod
+        # rule: the sandbox is configured to call it.
         policy = yaml.safe_load(generate_policy_yaml([]))
         rule_names = [rule["name"] for rule in policy["network_rules"]]
         self.assertNotIn("allow-debug-domains", rule_names)
         allow_rule = next(rule for rule in policy["network_rules"] if rule["name"] == "allow-domains")
         self.assertEqual(sorted(allow_rule["ports"]), [22, 80, 443])
-        self.assertNotIn("example.local", allow_rule["domains"])
+        self.assertIn("example.local", allow_rule["domains"])
+
+    @override_settings(DEBUG=False, SANDBOX_AI_GATEWAY_URL="https://ai-gateway.dev.posthog.dev")
+    def test_configured_gateway_host_reachable_outside_debug(self):
+        # Dev's gateway host is outside *.posthog.com, so only the
+        # settings-derived entry admits it; without one, every routed model
+        # call in a restricted dev sandbox is denied at the syscall layer.
+        policy = yaml.safe_load(generate_policy_yaml([]))
+        allow_rule = next(rule for rule in policy["network_rules"] if rule["name"] == "allow-domains")
+        self.assertIn("ai-gateway.dev.posthog.dev", allow_rule["domains"])
+
+    # One case per member of _SANDBOX_URL_SETTINGS: the enforced-rule path is
+    # shared, so each entry needs its own tripping input or its deletion
+    # merges green.
+    @parameterized.expand(
+        [
+            ("SANDBOX_API_URL", "api.sandbox.example.dev"),
+            ("SANDBOX_LLM_GATEWAY_URL", "llm-gw.sandbox.example.dev"),
+            ("SANDBOX_AI_GATEWAY_URL", "ai-gw.sandbox.example.dev"),
+            ("SANDBOX_MCP_URL", "mcp.sandbox.example.dev"),
+        ]
+    )
+    def test_each_sandbox_url_setting_reaches_enforced_rule(self, setting_name, host):
+        with override_settings(DEBUG=False, **{setting_name: f"https://{host}"}):
+            policy = yaml.safe_load(generate_policy_yaml([]))
+        allow_rule = next(rule for rule in policy["network_rules"] if rule["name"] == "allow-domains")
+        self.assertIn(host, allow_rule["domains"])
+
+    @override_settings(DEBUG=False, SANDBOX_LLM_GATEWAY_URL="http://localhost:3308")
+    def test_loopback_sandbox_hosts_stay_off_prod_rule(self):
+        # Loopback is already allowed by CIDR; the alias would be noise in the
+        # enforced domain rule.
+        policy = yaml.safe_load(generate_policy_yaml([]))
+        allow_rule = next(rule for rule in policy["network_rules"] if rule["name"] == "allow-domains")
+        self.assertNotIn("localhost", allow_rule["domains"])
+
+    @parameterized.expand(
+        [
+            ("bare_wildcard", "https://*", "*"),
+            ("wildcard_subdomain", "https://*.evil.example", "*.evil.example"),
+        ]
+    )
+    def test_wildcard_settings_hosts_rejected_from_enforced_rule(self, _name, url, parsed_host):
+        # `*` is match-everything syntax at both enforcement layers, so a
+        # malformed setting value must narrow the policy, never widen it.
+        with override_settings(DEBUG=False, SANDBOX_AI_GATEWAY_URL=url):
+            with self.assertLogs("products.tasks.backend.logic.services.agentsh", level="WARNING"):
+                policy = yaml.safe_load(generate_policy_yaml([]))
+        allow_rule = next(rule for rule in policy["network_rules"] if rule["name"] == "allow-domains")
+        self.assertNotIn(parsed_host, allow_rule["domains"])
+
+    @override_settings(DEBUG=False, SANDBOX_LLM_GATEWAY_URL="http://10.0.5.3:3308")
+    def test_ip_literal_settings_hosts_rejected_from_enforced_rule(self):
+        # Both layers match DNS names; an IP literal would be inert on the
+        # agentsh rule and rejected by Modal, so it is excluded with a warning.
+        with self.assertLogs("products.tasks.backend.logic.services.agentsh", level="WARNING"):
+            policy = yaml.safe_load(generate_policy_yaml([]))
+        allow_rule = next(rule for rule in policy["network_rules"] if rule["name"] == "allow-domains")
+        self.assertNotIn("10.0.5.3", allow_rule["domains"])
+
+    @override_settings(DEBUG=False, SANDBOX_AI_GATEWAY_URL="ai-gateway.dev.posthog.dev")
+    def test_schemeless_setting_warns_and_admits_nothing(self):
+        # A scheme-less value passes the injection sites' truthiness gate but
+        # parses to no hostname, so the URL reaches the sandbox while its host
+        # is never admitted; the warning is the only backend-side signal.
+        with self.assertLogs("products.tasks.backend.logic.services.agentsh", level="WARNING") as logs:
+            policy = yaml.safe_load(generate_policy_yaml([]))
+        self.assertTrue(any("SANDBOX_AI_GATEWAY_URL" in line for line in logs.output))
+        allow_rule = next(rule for rule in policy["network_rules"] if rule["name"] == "allow-domains")
+        self.assertNotIn("ai-gateway.dev.posthog.dev", allow_rule["domains"])
+
+    @override_settings(DEBUG=False, SANDBOX_AI_GATEWAY_URL="https://ai-gw.example.dev:8443")
+    def test_non_cloud_port_outside_debug_warns_but_keeps_host(self):
+        # The enforced rule stays on cloud ports, so a hosted URL on another
+        # port is admitted by hostname yet denied on connect; the warning keeps
+        # that from surfacing only as opaque denied connections in the sandbox.
+        with self.assertLogs("products.tasks.backend.logic.services.agentsh", level="WARNING") as logs:
+            policy = yaml.safe_load(generate_policy_yaml([]))
+        self.assertTrue(any("port 8443" in line for line in logs.output))
+        allow_rule = next(rule for rule in policy["network_rules"] if rule["name"] == "allow-domains")
+        self.assertIn("ai-gw.example.dev", allow_rule["domains"])
+
+    @override_settings(DEBUG=False, SANDBOX_LLM_GATEWAY_URL="http://degraded-host.example:abc")
+    def test_malformed_port_outside_debug_keeps_hostname_on_enforced_rule(self):
+        # Documented degrade contract: hostname kept, port dropped. The host
+        # still reaches the enforced rule so the sandbox can connect on 443/80.
+        policy = yaml.safe_load(generate_policy_yaml([]))
+        allow_rule = next(rule for rule in policy["network_rules"] if rule["name"] == "allow-domains")
+        self.assertIn("degraded-host.example", allow_rule["domains"])
 
     @override_settings(
         DEBUG=True,
@@ -227,20 +345,136 @@ class TestGeneratePolicyYaml(TestCase):
         self.assertNotIn("deny-cloud-metadata", rule_names)
 
 
-class TestEnvWrapper(TestCase):
-    def test_wrapper_restores_environment_dump(self):
-        wrapper = generate_env_wrapper()
-        self.assertIn("done < /tmp/agent-env", wrapper)
+class TestEnvWrapper(SimpleTestCase):
+    def test_restores_safe_environment_and_only_managed_credentials(self):
+        with tempfile.TemporaryDirectory() as temp_dir:
+            env_file = Path(temp_dir) / "agent env"
+            github_env_file = Path(temp_dir) / "github env"
+            oauth_env_file = Path(temp_dir) / "oauth env"
+            wrapper_file = Path(temp_dir) / "wrapper.sh"
+            env_file.write_bytes(
+                b"SAFE_BASE=kept\x00NODE_OPTIONS=--require=/tmp/payload.js\x00GITHUB_TOKEN=ghs_snapshot\x00"
+            )
+            github_env_file.write_bytes(b"GITHUB_TOKEN=ghs_fresh\x00GH_TOKEN=ghs_fresh\x00IGNORED=unsafe\x00")
+            oauth_env_file.write_bytes(b"POSTHOG_PERSONAL_API_KEY=oauth_fresh\x00IGNORED=unsafe\x00")
+            wrapper_file.write_text(generate_env_wrapper(str(env_file), str(github_env_file), str(oauth_env_file)))
 
-    def test_wrapper_execs_command(self):
-        wrapper = generate_env_wrapper()
-        self.assertIn('exec "$@"', wrapper)
+            result = subprocess.run(
+                [
+                    "bash",
+                    str(wrapper_file),
+                    "bash",
+                    "-c",
+                    'printf "%s|%s|%s|%s|%s" "$SAFE_BASE" "$GH_TOKEN" "$GITHUB_TOKEN" '
+                    '"$POSTHOG_PERSONAL_API_KEY" "${NODE_OPTIONS:-}"',
+                ],
+                check=True,
+                capture_output=True,
+                text=True,
+                env={"PATH": os.environ["PATH"], "NODE_OPTIONS": "--require=/tmp/inherited.js"},
+            )
+
+            self.assertEqual(result.stdout, "kept|ghs_fresh|ghs_fresh|oauth_fresh|")
 
     def test_wrapper_does_not_set_proxy_vars(self):
         wrapper = generate_env_wrapper()
         self.assertNotIn("HTTPS_PROXY", wrapper)
         self.assertNotIn("NO_PROXY", wrapper)
         self.assertNotIn("--use-env-proxy", wrapper)
+
+
+class TestBashEnvScript(SimpleTestCase):
+    def test_initialization_replaces_snapshot_env_and_preserves_refreshed_credentials(self):
+        with tempfile.TemporaryDirectory() as temp_dir:
+            env_file = Path(temp_dir) / "agent env"
+            github_env_file = Path(temp_dir) / "github env"
+            oauth_env_file = Path(temp_dir) / "oauth env"
+            script_file = Path(temp_dir) / "bash env.sh"
+            env_file.write_bytes(
+                b"PATH=/snapshot\x00NODE_OPTIONS=--require=/tmp/payload.js\x00GITHUB_TOKEN=ghu_snapshot\x00"
+            )
+            github_env_file.write_bytes(b"GH_TOKEN=ghu_fresh\x00GITHUB_TOKEN=ghu_fresh\x00")
+            oauth_env_file.write_bytes(b"POSTHOG_PERSONAL_API_KEY=oauth_fresh\x00")
+            script_file.write_text(generate_bash_env_script(str(env_file), str(github_env_file), str(oauth_env_file)))
+
+            subprocess.run(
+                ["bash", str(script_file)],
+                check=True,
+                env={
+                    "PATH": os.environ["PATH"],
+                    "SAFE_BASE": "kept",
+                    "GH_TOKEN": "ghu_process",
+                    "POSTHOG_PERSONAL_API_KEY": "oauth_process",
+                    "NODE_OPTIONS": "--require=/tmp/current.js",
+                },
+            )
+
+            entries = {
+                entry.split(b"=", 1)[0]: entry.split(b"=", 1)[1]
+                for entry in env_file.read_bytes().split(b"\x00")
+                if entry
+            }
+            self.assertEqual(entries[b"SAFE_BASE"], b"kept")
+            self.assertNotIn(b"NODE_OPTIONS", entries)
+            self.assertNotIn(b"GITHUB_TOKEN", entries)
+            self.assertNotIn(b"POSTHOG_PERSONAL_API_KEY", entries)
+            self.assertEqual(github_env_file.read_bytes(), b"GH_TOKEN=ghu_fresh\x00GITHUB_TOKEN=ghu_fresh\x00")
+            self.assertEqual(oauth_env_file.read_bytes(), b"POSTHOG_PERSONAL_API_KEY=oauth_fresh\x00")
+            for path in (env_file, github_env_file, oauth_env_file):
+                self.assertEqual(path.stat().st_mode & 0o777, 0o600)
+
+            sourced = subprocess.run(
+                ["bash", "-c", 'printf "%s|%s" "$GH_TOKEN" "$GITHUB_TOKEN"'],
+                check=True,
+                capture_output=True,
+                text=True,
+                env={"PATH": os.environ["PATH"], "BASH_ENV": str(script_file)},
+            )
+            self.assertEqual(sourced.stdout, "ghu_fresh|ghu_fresh")
+
+    def test_initialization_creates_restrictive_credential_files_when_missing(self):
+        with tempfile.TemporaryDirectory() as temp_dir:
+            env_file = Path(temp_dir) / "agent env"
+            github_env_file = Path(temp_dir) / "github env"
+            oauth_env_file = Path(temp_dir) / "oauth env"
+            script_file = Path(temp_dir) / "bash env.sh"
+            script_file.write_text(generate_bash_env_script(str(env_file), str(github_env_file), str(oauth_env_file)))
+
+            subprocess.run(
+                ["bash", str(script_file)],
+                check=True,
+                env={
+                    "PATH": os.environ["PATH"],
+                    "SAFE_BASE": "kept",
+                    "GITHUB_TOKEN": "ghs_current",
+                    "POSTHOG_PERSONAL_API_KEY": "oauth_current",
+                },
+            )
+
+            self.assertEqual(
+                github_env_file.read_bytes(),
+                b"GITHUB_TOKEN=ghs_current\x00GH_TOKEN=ghs_current\x00",
+            )
+            self.assertEqual(oauth_env_file.read_bytes(), b"POSTHOG_PERSONAL_API_KEY=oauth_current\x00")
+            for path in (env_file, github_env_file, oauth_env_file):
+                self.assertEqual(path.stat().st_mode & 0o777, 0o600)
+
+    def test_initialization_fails_for_untrusted_credential_file_type(self):
+        with tempfile.TemporaryDirectory() as temp_dir:
+            env_file = Path(temp_dir) / "agent env"
+            github_env_file = Path(temp_dir) / "github env"
+            oauth_env_file = Path(temp_dir) / "oauth env"
+            script_file = Path(temp_dir) / "bash env.sh"
+            github_env_file.mkdir()
+            script_file.write_text(generate_bash_env_script(str(env_file), str(github_env_file), str(oauth_env_file)))
+
+            result = subprocess.run(
+                ["bash", str(script_file)],
+                check=False,
+                env={"PATH": os.environ["PATH"]},
+            )
+
+            self.assertNotEqual(result.returncode, 0)
 
 
 class TestBuildAuditQueryCommand(TestCase):
@@ -277,6 +511,7 @@ class TestModalSandboxAgentShWrapping(TestCase):
         from products.tasks.backend.logic.services.modal_sandbox import ModalSandbox
 
         sandbox = ModalSandbox.__new__(ModalSandbox)
+        sandbox.id = "sb-test"
         cmd = sandbox._build_agent_server_command(
             repo_path="/tmp/workspace/repos/org/repo",
             task_id="test-task",
@@ -285,16 +520,102 @@ class TestModalSandboxAgentShWrapping(TestCase):
             create_pr=True,
         )
         self.assertNotIn("agentsh exec --client-timeout 2h --timeout 2h", cmd)
-        # The env file is written at launch regardless of agentsh so the
-        # mid-session credential refresh can re-source the token per command.
-        self.assertIn("env -0 > /tmp/agent-env", cmd)
+        self.assertIn("bash /tmp/agentsh-bash-env.sh", cmd)
         self.assertNotIn(ENV_WRAPPER_SCRIPT, cmd)
         self.assertIn("nohup", cmd)
+
+    @parameterized.expand(
+        [
+            ("modal", True),
+            ("modal", False),
+            ("docker", True),
+            ("docker", False),
+        ]
+    )
+    def test_command_includes_auto_publish_flag_only_when_opted_in(self, provider, auto_publish):
+        from products.tasks.backend.logic.services.docker_sandbox import DockerSandbox
+        from products.tasks.backend.logic.services.modal_sandbox import ModalSandbox
+
+        sandbox: ModalSandbox | DockerSandbox
+        if provider == "modal":
+            sandbox = ModalSandbox.__new__(ModalSandbox)
+        else:
+            sandbox = DockerSandbox.__new__(DockerSandbox)
+        sandbox.id = "sb-test"
+        cmd = sandbox._build_agent_server_command(
+            repo_path="/tmp/workspace/repos/org/repo",
+            task_id="test-task",
+            run_id="test-run",
+            mode="background",
+            create_pr=True,
+            auto_publish=auto_publish,
+        )
+        # Opt-out runs must not see the flag at all: agent-server builds without
+        # the option reject unknown flags, so appending it would break every run.
+        if auto_publish:
+            self.assertIn("--autoPublish true", cmd)
+        else:
+            self.assertNotIn("--autoPublish", cmd)
+
+    @parameterized.expand(
+        [
+            ("modal", True),
+            ("modal", False),
+            ("docker", True),
+            ("docker", False),
+        ]
+    )
+    def test_start_agent_server_drops_auto_publish_when_binary_lacks_support(self, provider, supported):
+        from products.tasks.backend.logic.services.docker_sandbox import DockerSandbox
+        from products.tasks.backend.logic.services.modal_sandbox import ModalSandbox
+        from products.tasks.backend.logic.services.sandbox import ExecutionResult
+
+        # Snapshots restored from old images carry an agent-server that rejects unknown
+        # options; the launch probe must drop --autoPublish instead of crashing the run.
+        launched: list[str] = []
+
+        def execute(command: str, timeout_seconds: int | None = None) -> ExecutionResult:
+            if "--taskId" in command:
+                launched.append(command)
+                return ExecutionResult(stdout="", stderr="", exit_code=0)
+            if "chmod" in command:  # gh shim install
+                return ExecutionResult(stdout="", stderr="", exit_code=0)
+            self.assertIn("grep", command)
+            return ExecutionResult(stdout="", stderr="", exit_code=0 if supported else 1)
+
+        sandbox: ModalSandbox | DockerSandbox
+        if provider == "modal":
+            sandbox = ModalSandbox.__new__(ModalSandbox)
+        else:
+            sandbox = DockerSandbox.__new__(DockerSandbox)
+            sandbox._host_port = 8080
+        sandbox.id = "sb-test"
+        cast_sandbox: Any = sandbox
+        cast_sandbox.is_running = Mock(return_value=True)
+        cast_sandbox._agent_server_is_healthy = Mock(return_value=False)
+        cast_sandbox._free_agent_server_port = Mock()
+        cast_sandbox.write_file = Mock()
+        cast_sandbox.execute = execute
+
+        sandbox.start_agent_server(
+            repository="org/repo",
+            task_id="test-task",
+            run_id="test-run",
+            auto_publish=True,
+            wait_for_health=False,
+        )
+
+        self.assertEqual(len(launched), 1)
+        if supported:
+            self.assertIn("--autoPublish true", launched[0])
+        else:
+            self.assertNotIn("--autoPublish", launched[0])
 
     def test_command_includes_allowed_domains(self):
         from products.tasks.backend.logic.services.modal_sandbox import ModalSandbox
 
         sandbox = ModalSandbox.__new__(ModalSandbox)
+        sandbox.id = "sb-test"
         cmd = sandbox._build_agent_server_command(
             repo_path="/tmp/workspace/repos/org/repo",
             task_id="test-task",
@@ -304,7 +625,7 @@ class TestModalSandboxAgentShWrapping(TestCase):
             allowed_domains=["example.com", "api.example.com"],
         )
         self.assertIn("agentsh exec --client-timeout 2h --timeout 2h", cmd)
-        self.assertIn("env -0 > /tmp/agent-env", cmd)
+        self.assertIn("bash /tmp/agentsh-bash-env.sh", cmd)
         self.assertIn(ENV_WRAPPER_SCRIPT, cmd)
         self.assertIn("--allowedDomains", cmd)
         self.assertIn("example.com,api.example.com", cmd)
@@ -313,6 +634,7 @@ class TestModalSandboxAgentShWrapping(TestCase):
         from products.tasks.backend.logic.services.modal_sandbox import ModalSandbox
 
         sandbox = ModalSandbox.__new__(ModalSandbox)
+        sandbox.id = "sb-test"
         cmd = sandbox._build_agent_server_command(
             repo_path="/tmp/workspace/repos/org/repo",
             task_id="test-task",

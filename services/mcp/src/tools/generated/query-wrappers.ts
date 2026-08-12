@@ -79,7 +79,7 @@ const AssistantDurationRange = z.object({
 
 const AssistantDateRangeFilter = z.union([AssistantDateRange, AssistantDurationRange])
 
-const IntervalType = z.enum(['second', 'minute', 'hour', 'day', 'week', 'month'])
+const IntervalType = z.enum(['second', 'minute', 'hour', 'day', 'week', 'month', 'quarter', 'year'])
 
 const AssistantStringOrBooleanValuePropertyFilterOperator = z.enum([
     'exact',
@@ -324,7 +324,7 @@ const AssistantFlagPropertyFilter = z.object({
         )
         .default('flag'),
     value: z
-        .union([z.coerce.boolean(), z.string()])
+        .union([z.boolean(), z.string()])
         .describe('`true`/`false` for boolean flags, or a variant name string for multivariate flags.'),
 })
 
@@ -458,6 +458,7 @@ const AggregationAxisFormat = z.enum([
     'numeric',
     'duration',
     'duration_ms',
+    'duration_ns',
     'percentage',
     'percentage_scaled',
     'currency',
@@ -471,7 +472,7 @@ const TrendsFormulaNode = z.object({
 
 const AssistantTrendsFilter = z.object({
     aggregationAxisFormat: AggregationAxisFormat.describe(
-        'Formats the trends value axis. Do not use the formatting unless you are absolutely sure that formatting will match the data. `numeric` - no formatting. Prefer this option by default. `duration` - formats the value in seconds to a human-readable duration, e.g., `132` becomes `2 minutes 12 seconds`. Use this option only if you are sure that the values are in seconds. `duration_ms` - formats the value in miliseconds to a human-readable duration, e.g., `1050` becomes `1 second 50 milliseconds`. Use this option only if you are sure that the values are in miliseconds. `percentage` - adds a percentage sign to the value, e.g., `50` becomes `50%`. `percentage_scaled` - formats the value as a percentage scaled to 0-100, e.g., `0.5` becomes `50%`. `currency` - formats the value as a currency, e.g., `1000` becomes `$1,000`.'
+        'Formats the trends value axis. Do not use the formatting unless you are absolutely sure that formatting will match the data. `numeric` - no formatting. Prefer this option by default. `duration` - formats the value in seconds to a human-readable duration, e.g., `132` becomes `2 minutes 12 seconds`. Use this option only if you are sure that the values are in seconds. `duration_ms` - formats the value in miliseconds to a human-readable duration, e.g., `1050` becomes `1 second 50 milliseconds`. Use this option only if you are sure that the values are in miliseconds. `percentage` - appends a percentage sign to a value that is ALREADY on the 0-100 scale, e.g., `50` becomes `50%`. Only use this when the underlying value is already a percentage. `percentage_scaled` - multiplies a 0-1 value by 100 and appends a percentage sign, e.g., `0.5` becomes `50%`. Use this for ratios in the 0-1 range, such as a bounce rate (`avg($is_bounce)`) or a formula like `A/B`. Because this format already multiplies by 100, do NOT also multiply by 100 in the formula (e.g. `A/B*100`), as that would double-scale the value and render, say, `0.5` as `5000%`. `currency` - formats the value as a currency, e.g., `1000` becomes `$1,000`.'
     )
         .default('numeric')
         .optional(),
@@ -520,7 +521,7 @@ const AssistantTrendsFilter = z.object({
     formulaNodes: z
         .array(TrendsFormulaNode)
         .describe(
-            'Use custom formulas to perform mathematical operations like calculating percentages or metrics. Use the following syntax: `A/B`, where `A` and `B` are the names of the series. You can combine math aggregations and formulas. When using a formula, you must:\n- Identify and specify **all** events and actions needed to solve the formula.\n- Carefully review the list of available events and actions to find appropriate entities for each part of the formula.\n- Ensure that you find events and actions corresponding to both the numerator and denominator in ratio calculations. Examples of using math formulas:\n- If you want to calculate the percentage of users who have completed onboarding, you need to find and use events or actions similar to `$identify` and `onboarding complete`, so the formula will be `A / B`, where `A` is `onboarding complete` (unique users) and `B` is `$identify` (unique users).'
+            'Use custom formulas to perform mathematical operations like calculating percentages or metrics. Use the following syntax: `A/B`, where `A` and `B` are the names of the series. You can combine math aggregations and formulas. When using a formula, you must:\n- Identify and specify **all** events and actions needed to solve the formula.\n- Carefully review the list of available events and actions to find appropriate entities for each part of the formula.\n- Ensure that you find events and actions corresponding to both the numerator and denominator in ratio calculations. Examples of using math formulas:\n- If you want to calculate the percentage of users who have completed onboarding, you need to find and use events or actions similar to `$identify` and `onboarding complete`, so the formula will be `A / B`, where `A` is `onboarding complete` (unique users) and `B` is `$identify` (unique users). For a ratio or percentage, keep the formula as the raw ratio (e.g. `A/B`, which is in the 0-1 range) and set `aggregationAxisFormat` to `percentage_scaled` so it renders as a percentage. Do NOT multiply the formula by 100 (e.g. `A/B*100`) when using `percentage_scaled`, or the value will be scaled twice.'
         )
         .optional(),
     metricChangeDecreaseColor: z
@@ -963,7 +964,7 @@ const AssistantStickinessDisplayType = z.enum(['ActionsLineGraph', 'ActionsBar',
 
 const StickinessOperator = z.enum(['gte', 'lte', 'exact'])
 
-const positive_integer = z.coerce.number().int()
+const positive_integer = z.coerce.number().int().min(1)
 
 const StickinessCriteria = z.object({
     operator: StickinessOperator,
@@ -1201,49 +1202,6 @@ const AssistantLifecycleQuery = z.object({
         .array(AssistantLifecycleSeriesNode)
         .max(1)
         .describe('Event or action to analyze. Lifecycle insights only support a single series.'),
-})
-
-const AssistantTracesQuery = z.object({
-    dateRange: AssistantDateRangeFilter.describe('Date range for the query.').optional(),
-    filterSupportTraces: z.coerce.boolean().describe('Exclude support impersonation traces.').default(false).optional(),
-    filterTestAccounts: z.coerce
-        .boolean()
-        .describe('Exclude internal and test users by applying the respective filters.')
-        .default(true)
-        .optional(),
-    groupKey: z.string().describe('Filter traces by group key. Requires `groupTypeIndex` to be set.').optional(),
-    groupTypeIndex: integer.describe('Group type index when filtering by group.').optional(),
-    kind: z.literal('TracesQuery').default('TracesQuery'),
-    limit: integer.describe('Maximum number of traces to return.').default(100).optional(),
-    offset: integer.describe('Number of traces to skip for pagination.').default(0).optional(),
-    personId: z.string().describe('Filter traces by a specific person UUID.').optional(),
-    properties: z
-        .array(AssistantPropertyFilter)
-        .describe(
-            'Property filters to narrow results. Use event properties like `$ai_model`, `$ai_provider`, `$ai_trace_id`, etc. to filter traces.'
-        )
-        .default([])
-        .optional(),
-    randomOrder: z.coerce
-        .boolean()
-        .describe(
-            'Use random ordering instead of timestamp DESC. Useful for representative sampling to avoid recency bias.'
-        )
-        .default(false)
-        .optional(),
-})
-
-const AssistantTraceQuery = z.object({
-    dateRange: AssistantDateRangeFilter.describe('Date range for the query.').optional(),
-    kind: z.literal('TraceQuery').default('TraceQuery'),
-    properties: z
-        .array(AssistantPropertyFilter)
-        .describe('Property filters to narrow events within the trace.')
-        .default([])
-        .optional(),
-    traceId: z
-        .string()
-        .describe('The trace ID to fetch (the `id` field from a trace in `query-llm-traces-list` results).'),
 })
 
 const AssistantTrendsActorsQuery = z.object({
@@ -1517,18 +1475,6 @@ export const GENERATED_TOOLS: Record<string, ReturnType<typeof createQueryWrappe
         kind: 'LifecycleQuery',
         uiResourceUri: 'ui://posthog/query-results.html',
         outputFormat: 'optimized',
-    }),
-    'query-llm-traces-list': createQueryWrapper({
-        name: 'query-llm-traces-list',
-        schema: AssistantTracesQuery,
-        kind: 'TracesQuery',
-        outputFormat: 'json',
-    }),
-    'query-llm-trace': createQueryWrapper({
-        name: 'query-llm-trace',
-        schema: AssistantTraceQuery,
-        kind: 'TraceQuery',
-        outputFormat: 'json',
     }),
     'query-trends-actors': createQueryWrapper({
         name: 'query-trends-actors',

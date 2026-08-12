@@ -32,12 +32,27 @@ from posthog.schema import (
     PropertyOperator,
 )
 
-from posthog.clickhouse.client import sync_execute
-from posthog.models.utils import uuid7
+from posthog.hogql import ast
+from posthog.hogql.query import execute_hogql_query
 
+from posthog.clickhouse.client import sync_execute
+from posthog.constants import AvailableFeature
+from posthog.models.utils import uuid7
+from posthog.rbac.user_access_control import UserAccessControlError
+
+from products.error_tracking.backend.hogql_queries.access import ErrorTrackingQueryRunnerAccessMixin
+from products.error_tracking.backend.hogql_queries.error_tracking_breakdowns_query_runner import (
+    ErrorTrackingBreakdownsQueryRunner,
+)
+from products.error_tracking.backend.hogql_queries.error_tracking_issue_correlation_query_runner import (
+    ErrorTrackingIssueCorrelationQueryRunner,
+)
 from products.error_tracking.backend.hogql_queries.error_tracking_query_builder import ErrorTrackingQueryBuilder
 from products.error_tracking.backend.hogql_queries.error_tracking_query_runner import ErrorTrackingQueryRunner
 from products.error_tracking.backend.hogql_queries.error_tracking_query_runner_utils import search_tokenizer
+from products.error_tracking.backend.hogql_queries.error_tracking_similar_issues_query_runner import (
+    ErrorTrackingSimilarIssuesQueryRunner,
+)
 from products.error_tracking.backend.models import (
     ErrorTrackingIssue,
     ErrorTrackingIssueAssignment,
@@ -47,6 +62,7 @@ from products.error_tracking.backend.models import (
     update_error_tracking_issue_fingerprints,
 )
 
+from ee.models.rbac.access_control import AccessControl
 from ee.models.rbac.role import Role
 
 
@@ -123,6 +139,12 @@ class TestErrorTrackingQueryRunner(ClickhouseTestMixin, NonAtomicBaseTestKeepIde
                 materialize("events", property_name, is_nullable=property_name == "$exception_issue_id")
         super().setUpClass()
 
+    def test_fingerprint_grouping_key_uses_stable_json_expression(self):
+        response = self._calculate()
+
+        self.assertIn("JSONExtractString(e.properties, '$exception_fingerprint')", response["hogql"])
+        self.assertNotIn("mat_$exception_fingerprint", response["hogql"])
+
     def setUp(self):
         super().setUp()
 
@@ -190,7 +212,10 @@ class TestErrorTrackingQueryRunner(ClickhouseTestMixin, NonAtomicBaseTestKeepIde
                 team=self.team,
                 query=ErrorTrackingQuery(
                     kind="ErrorTrackingQuery",
-                    dateRange=DateRange() if dateRange is None else dateRange,
+                    # Fixtures span back to 2020; request all-time so these correctness tests
+                    # see them regardless of the production default window (covered by the
+                    # parse_relative_date_from unit tests below).
+                    dateRange=DateRange(date_from="all") if dateRange is None else dateRange,
                     assignee=assignee,
                     issueId=issueId,
                     filterTestAccounts=filterTestAccounts,
@@ -317,6 +342,26 @@ class TestErrorTrackingQueryRunner(ClickhouseTestMixin, NonAtomicBaseTestKeepIde
         self.assertFalse(runner.query.withFirstEvent)
         self.assertFalse(runner.query.withLastEvent)
         self.assertTrue(runner.query.withAggregations)
+
+    @freeze_time("2022-01-10T12:11:00")
+    def test_missing_date_from_defaults_to_seven_days(self):
+        # A missing date_from must default to a bounded 7-day window, not all-time.
+        date_from = ErrorTrackingQueryRunner.parse_relative_date_from(None)
+        self.assertEqual(date_from, datetime(2022, 1, 3, 12, 11, 0, tzinfo=ZoneInfo(key="UTC")))
+
+    @freeze_time("2022-01-10T12:11:00")
+    def test_date_to_only_window_ends_at_date_to(self):
+        # date_to-only queries must anchor the default window to date_to, not to now.
+        runner = ErrorTrackingQueryRunner(
+            team=self.team,
+            query=ErrorTrackingQuery(
+                kind="ErrorTrackingQuery",
+                dateRange=DateRange(date_to="2021-06-01"),
+                orderBy="last_seen",  # pyright: ignore[reportArgumentType]
+                volumeResolution=1,
+            ),
+        )
+        self.assertEqual(runner.date_from, runner.date_to - timedelta(days=7))
 
     @freeze_time("2022-01-10T12:11:00")
     @snapshot_clickhouse_queries
@@ -556,6 +601,27 @@ class TestErrorTrackingQueryRunner(ClickhouseTestMixin, NonAtomicBaseTestKeepIde
 
         self.assertEqual(results[1]["id"], self.issue_id_two)
         self.assertEqual(results[1]["aggregations"]["occurrences"], 1)
+
+    def test_issue_id_uses_current_fingerprint_state(self):
+        issue_id = "01936e80-f594-7a2e-8545-7bcb491aa61f"
+        fingerprint = "event_without_issue_id"
+        distinct_id = "event_without_issue_id_user"
+        self.create_issue(issue_id, fingerprint)
+        _create_event(
+            distinct_id=distinct_id,
+            event="$exception",
+            team=self.team,
+            properties={"$exception_fingerprint": fingerprint},
+        )
+        flush_persons_and_events()
+
+        response = execute_hogql_query(
+            "SELECT toString(issue_id), toString(issue_id_v2) FROM events WHERE distinct_id = {distinct_id}",
+            team=self.team,
+            placeholders={"distinct_id": ast.Constant(value=distinct_id)},
+        )
+
+        self.assertEqual(response.results, [(issue_id, issue_id)])
 
     @freeze_time("2022-01-10T12:11:00")
     def test_user_assignee(self):
@@ -906,6 +972,21 @@ class TestErrorTrackingQueryRunner(ClickhouseTestMixin, NonAtomicBaseTestKeepIde
         first_aggregations = results[0]["aggregations"]
         self.assertEqual(first_aggregations["volumeRange"], [0, 1, 0])
 
+    @freeze_time("2020-01-12")
+    def test_volume_aggregation_counts_only(self):
+        # Regression test: volumeResolution=0 (counts only) used to build
+        # intDiv(..., 0) bin expressions and fail with an illegal division.
+        results = self._calculate(
+            volumeResolution=0, dateRange=DateRange(date_from="2020-01-10", date_to="2020-01-11"), withAggregations=True
+        )["results"]
+        self.assertEqual(len(results), 3)
+
+        for result in results:
+            aggregations = result["aggregations"]
+            self.assertIsNone(aggregations["volumeRange"])
+            self.assertEqual(aggregations["volume_buckets"], [])
+            self.assertGreaterEqual(aggregations["occurrences"], 1)
+
     @freeze_time("2025-05-05")
     @snapshot_clickhouse_queries
     def test_volume_aggregation_advanced(self):
@@ -965,6 +1046,33 @@ class TestErrorTrackingQueryRunner(ClickhouseTestMixin, NonAtomicBaseTestKeepIde
             ),
         )
         self.assertEqual(runner.query.issueId, "01936e7f-d7ff-7314-b2d4-7627981e34f0")
+
+    def test_requires_error_tracking_viewer_access(self):
+        for runner_class in (
+            ErrorTrackingQueryRunner,
+            ErrorTrackingBreakdownsQueryRunner,
+            ErrorTrackingIssueCorrelationQueryRunner,
+            ErrorTrackingSimilarIssuesQueryRunner,
+        ):
+            self.assertTrue(issubclass(runner_class, ErrorTrackingQueryRunnerAccessMixin))
+
+        AccessControl.objects.create(team=self.team, resource="error_tracking", access_level="none")
+        self.organization.available_product_features = [
+            {"key": AvailableFeature.ACCESS_CONTROL, "name": AvailableFeature.ACCESS_CONTROL}
+        ]
+        self.organization.save()
+        runner = ErrorTrackingQueryRunner(
+            team=self.team,
+            query=ErrorTrackingQuery(
+                kind="ErrorTrackingQuery",
+                dateRange=DateRange(),
+                orderBy="last_seen",
+                volumeResolution=1,
+            ),
+        )
+
+        with self.assertRaises(UserAccessControlError):
+            runner.validate_query_runner_access(self.user)
 
 
 class TestSearchTokenizer(TestCase):

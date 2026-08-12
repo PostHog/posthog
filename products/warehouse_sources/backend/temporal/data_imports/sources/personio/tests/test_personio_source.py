@@ -3,8 +3,13 @@ from unittest import mock
 
 from posthog.schema import ReleaseStatus, SourceFieldInputConfig, SourceFieldInputConfigType
 
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.auth import (
+    OAUTH2_PERMANENT_ERROR_MARKER,
+)
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
-from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs import PersonioSourceConfig
+from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.personio import (
+    PersonioSourceConfig,
+)
 from products.warehouse_sources.backend.temporal.data_imports.sources.personio.personio import PersonioResumeConfig
 from products.warehouse_sources.backend.temporal.data_imports.sources.personio.settings import (
     ENDPOINTS,
@@ -47,10 +52,10 @@ class TestPersonioSource:
     @pytest.mark.parametrize(
         "observed_error",
         [
-            "401 Client Error: Unauthorized for url: https://api.personio.de/v2/auth/token",
-            "400 Client Error: Bad Request for url: https://api.personio.de/v2/auth/token",
+            # Permanent OAuth2 token-exchange failures carry the framework's stable marker.
+            f"HTTP 401 from the OAuth2 token endpoint: invalid_client {OAUTH2_PERMANENT_ERROR_MARKER}",
+            f"HTTP 400 from the OAuth2 token endpoint {OAUTH2_PERMANENT_ERROR_MARKER}",
             "403 Client Error: Forbidden for url: https://api.personio.de/v2/persons?limit=50",
-            "Personio rejected a freshly minted access token (401). The API credential may have been revoked or had its scope removed.",
         ],
     )
     def test_non_retryable_errors_match_auth_failures(self, observed_error):
@@ -62,7 +67,9 @@ class TestPersonioSource:
         [
             "401 Client Error: Unauthorized for url: https://api.stripe.com/v1/customers",
             "500 Server Error for url: https://api.personio.de/v2/persons",
-            # A mid-sync 401 on a data endpoint is handled by token re-mint, not disable.
+            # A transient 429/5xx token error shares the endpoint phrasing but lacks the marker.
+            "HTTP 503 from the OAuth2 token endpoint",
+            # A mid-sync 401 on a data endpoint isn't a disable condition — the token is re-minted.
             "401 Client Error: Unauthorized for url: https://api.personio.de/v2/persons",
         ],
     )

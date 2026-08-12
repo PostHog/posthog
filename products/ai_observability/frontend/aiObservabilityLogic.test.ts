@@ -4,10 +4,15 @@ import { router } from 'kea-router'
 import { expectLogic } from 'kea-test-utils'
 
 import api from 'lib/api'
+import { FEATURE_FLAGS } from 'lib/constants'
+import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
+import { projectLogic } from 'scenes/projectLogic'
 import { emptySceneParams } from 'scenes/scenes'
+import { Scene } from 'scenes/sceneTypes'
 import { urls } from 'scenes/urls'
 
 import { productRedirects } from '~/products'
+import { isTracesQuery } from '~/queries/utils'
 import { initKeaTests } from '~/test/init'
 import { PropertyFilterType, PropertyOperator } from '~/types'
 
@@ -35,6 +40,7 @@ const redirectUrl = (
 describe('LLM analytics URL split', () => {
     it('uses the new canonical product URLs', () => {
         expect(urls.aiObservabilityDashboard()).toBe('/ai-observability/dashboard')
+        expect(urls.aiObservabilitySelfDriving()).toBe('/ai-observability/self-driving')
         expect(urls.aiObservabilityReviews()).toBe('/ai-observability/reviews')
         expect(urls.aiObservabilityTrace('trace-1')).toBe('/ai-observability/traces/trace-1')
         expect(urls.aiObservabilityDatasets()).toBe('/ai-evals/datasets')
@@ -118,6 +124,12 @@ describe('aiObservabilitySharedLogic', () => {
         })
     })
 
+    it('selects the Self-driving tab for its scene key', () => {
+        sceneLogic.actions.setScene(Scene.AIObservability, 'aiObservabilitySelfDriving', emptySceneParams, false)
+
+        expectLogic(logic).toMatchValues({ activeTab: 'self-driving' })
+    })
+
     it('preserves params owned by other logics when rewriting the URL', () => {
         // review_* / human_reviews_tab ride along on tab links — applying shared
         // state must not strip them
@@ -158,6 +170,7 @@ describe('aiObservabilitySharedLogic', () => {
         ])
         logic.actions.setDates('-30d', '-1d')
         logic.actions.setShouldFilterTestAccounts(true)
+        logic.actions.setSearchQuery('walrus')
 
         // Navigate to another tab without params
         router.actions.push(urls.aiObservabilityGenerations())
@@ -170,7 +183,89 @@ describe('aiObservabilitySharedLogic', () => {
                 dateTo: null,
             },
             shouldFilterTestAccounts: false,
+            searchQuery: '',
         })
+    })
+
+    it('syncs the trace content search between the URL, state, and traces query', () => {
+        featureFlagLogic.mount()
+        featureFlagLogic.actions.setFeatureFlags([FEATURE_FLAGS.LLM_OBSERVABILITY_TRACE_SEARCH], {
+            [FEATURE_FLAGS.LLM_OBSERVABILITY_TRACE_SEARCH]: true,
+        })
+
+        router.actions.push(urls.aiObservabilityTraces(), { trace_search: 'walrus' })
+        expectLogic(logic).toMatchValues({ searchQuery: 'walrus' })
+
+        const tabLogic = aiObservabilityTracesTabLogic()
+        tabLogic.mount()
+        const source = tabLogic.values.tracesQuery.source
+        expect(isTracesQuery(source) && source.searchTerm).toBe('walrus')
+        tabLogic.unmount()
+
+        logic.actions.setSearchQuery('penguin')
+        expect(router.values.searchParams).toMatchObject({ trace_search: 'penguin' })
+
+        logic.actions.setSearchQuery('')
+        expect(router.values.searchParams).not.toHaveProperty('trace_search')
+    })
+
+    it('does not apply the search to the traces query when the flag is off', () => {
+        // A shared URL must not invisibly filter a list with no visible search box.
+        featureFlagLogic.mount()
+        featureFlagLogic.actions.setFeatureFlags([], {})
+
+        router.actions.push(urls.aiObservabilityTraces(), { trace_search: 'walrus' })
+        expectLogic(logic).toMatchValues({ searchQuery: 'walrus' })
+
+        const tabLogic = aiObservabilityTracesTabLogic()
+        tabLogic.mount()
+        const source = tabLogic.values.tracesQuery.source
+        expect(isTracesQuery(source) && source.searchTerm).toBeUndefined()
+        tabLogic.unmount()
+    })
+
+    it('keeps the search when URL state applies without a searchQuery', () => {
+        // Payloads built by other tabs omit searchQuery — they must not clear it.
+        logic.actions.setSearchQuery('walrus')
+        logic.actions.applyUrlState({
+            propertyFilters: [],
+            dateFrom: '-14d',
+            dateTo: null,
+            shouldFilterTestAccounts: false,
+            datesChanged: true,
+        })
+
+        expectLogic(logic).toMatchValues({ searchQuery: 'walrus' })
+        expect(router.values.searchParams).toMatchObject({ trace_search: 'walrus' })
+    })
+})
+
+describe('aiObservabilitySharedLogic AI event detection', () => {
+    let logic: ReturnType<typeof aiObservabilitySharedLogic.build>
+
+    beforeEach(() => {
+        initKeaTests()
+        sceneLogic.mount()
+        router.actions.push(urls.aiObservabilityTraces())
+        logic = aiObservabilitySharedLogic({})
+    })
+
+    afterEach(() => {
+        logic.unmount()
+    })
+
+    it('waits for the project before probing for AI events', async () => {
+        // Probing without a project id throws, and the setup poll would repeat that every 20s.
+        projectLogic.actions.loadCurrentProjectSuccess(null)
+        logic.mount()
+
+        await expectLogic(logic).toNotHaveDispatchedActions(['loadAIEventDefinition'])
+    })
+
+    it('probes for AI events once the project is known', async () => {
+        logic.mount()
+
+        await expectLogic(logic).toDispatchActions(['loadAIEventDefinition'])
     })
 })
 

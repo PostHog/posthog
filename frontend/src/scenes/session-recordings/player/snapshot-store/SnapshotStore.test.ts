@@ -4,6 +4,8 @@ import { SnapshotStore } from '@posthog/replay-shared'
 
 import { RecordingSnapshot, SessionRecordingSnapshotSource } from '~/types'
 
+import { markLoaded } from './test-utils'
+
 function makeSource(
     index: number,
     startMin: number = index,
@@ -76,8 +78,8 @@ describe('SnapshotStore', () => {
         it('preserves loaded entries when sources grow', () => {
             const store = new SnapshotStore()
             store.setSources(makeSources(3))
-            store.markLoaded(0, [makeFullSnapshot(1000)])
-            store.markLoaded(1, [makeSnapshot(2000)])
+            markLoaded(store, 0, [makeFullSnapshot(1000)])
+            markLoaded(store, 1, [makeSnapshot(2000)])
 
             // Live recording adds 2 new sources
             store.setSources(makeSources(5))
@@ -94,96 +96,62 @@ describe('SnapshotStore', () => {
         it('preserves loaded snapshots through source growth', () => {
             const store = new SnapshotStore()
             store.setSources(makeSources(2))
-            store.markLoaded(0, [makeFullSnapshot(1000)])
+            markLoaded(store, 0, [makeFullSnapshot(1000)])
 
             store.setSources(makeSources(3))
 
-            expect(store.getAllLoadedSnapshots()).toHaveLength(1)
-            expect(store.getAllLoadedSnapshots()[0].timestamp).toBe(1000)
+            expect(store.getEntry(0)?.processedSnapshots).toHaveLength(1)
+            expect(store.getEntry(0)?.processedSnapshots?.[0].timestamp).toBe(1000)
+        })
+
+        it('refreshes metadata when a preserved blob_key extends its end_timestamp', () => {
+            // An ongoing recording's tail blob grows under a stable blob_key — a stale endMs would
+            // render already-loaded data as "not buffered yet"
+            const store = new SnapshotStore()
+            store.setSources([makeSource(0, 0, 5)])
+            markLoaded(store, 0, [makeFullSnapshot(1000)])
+
+            store.setSources([makeSource(0, 0, 9)])
+
+            expect(store.getSourceStates()[0].endMs).toBe(Date.UTC(2023, 7, 11, 12, 9, 0))
+            expect(store.getSourceStates()[0].state).toBe('loaded')
         })
     })
 
-    describe('markLoaded', () => {
+    describe('clearSnapshotData', () => {
+        it('keeps raw snapshots only for excluded indexes', () => {
+            const store = new SnapshotStore()
+            store.setSources(makeSources(2))
+            markLoaded(store, 0, [makeFullSnapshot(1000)])
+            markLoaded(store, 1, [makeSnapshot(2000)])
+
+            store.clearSnapshotData(new Set([0]))
+
+            expect(store.getEntry(0)?.processedSnapshots).toHaveLength(1)
+            expect(store.getEntry(1)?.processedSnapshots).toBeNull()
+        })
+    })
+
+    describe('markFetched + markProcessed seeding', () => {
         it('marks source as loaded and extracts FullSnapshot timestamps', () => {
             const store = new SnapshotStore()
             store.setSources(makeSources(3))
 
             const ts = new Date(Date.UTC(2023, 7, 11, 12, 1, 30)).getTime()
             const snaps = [makeFullSnapshot(ts), makeSnapshot(ts + 100)]
-            store.markLoaded(1, snaps)
+            markLoaded(store, 1, snaps)
 
             expect(store.getEntry(1)?.state).toBe('loaded')
             expect(store.getEntry(0)?.state).toBe('unloaded')
             expect(store.getEntry(1)?.fullSnapshots).toEqual([{ timestamp: ts, windowId: 1 }])
         })
 
-        it('extracts Meta timestamps', () => {
-            const store = new SnapshotStore()
-            store.setSources(makeSources(1))
-
-            const ts = 1000
-            const metaSnap = {
-                timestamp: ts,
-                windowId: 1,
-                type: EventType.Meta,
-                data: {},
-            } as unknown as RecordingSnapshot
-            store.markLoaded(0, [metaSnap])
-
-            expect(store.getEntry(0)?.metaTimestamps).toEqual([ts])
-        })
-
         it('bumps version', () => {
             const store = new SnapshotStore()
             store.setSources(makeSources(1))
             const v0 = store.version
-            store.markLoaded(0, [makeSnapshot(1000)])
+            markLoaded(store, 0, [makeSnapshot(1000)])
             expect(store.version).toBeGreaterThan(v0)
-        })
-    })
-
-    describe('getAllLoadedSnapshots', () => {
-        it('returns empty array when nothing loaded', () => {
-            const store = new SnapshotStore()
-            store.setSources(makeSources(3))
-            expect(store.getAllLoadedSnapshots()).toEqual([])
-        })
-
-        it('merges snapshots from multiple sources in source order', () => {
-            const store = new SnapshotStore()
-            store.setSources(makeSources(3))
-
-            const ts0a = new Date(Date.UTC(2023, 7, 11, 12, 0, 10)).getTime()
-            const ts0b = new Date(Date.UTC(2023, 7, 11, 12, 0, 50)).getTime()
-            const ts2 = new Date(Date.UTC(2023, 7, 11, 12, 2, 30)).getTime()
-
-            store.markLoaded(0, [makeSnapshot(ts0b), makeSnapshot(ts0a)])
-            store.markLoaded(2, [makeSnapshot(ts2)])
-
-            const all = store.getAllLoadedSnapshots()
-            expect(all.map((s) => s.timestamp)).toEqual([ts0a, ts0b, ts2])
-        })
-
-        it('caches result until version changes', () => {
-            const store = new SnapshotStore()
-            store.setSources(makeSources(1))
-            store.markLoaded(0, [makeSnapshot(100)])
-
-            const first = store.getAllLoadedSnapshots()
-            const second = store.getAllLoadedSnapshots()
-            expect(first).toBe(second) // same reference
-        })
-    })
-
-    describe('getSnapshotsByWindowId', () => {
-        it('groups snapshots by windowId', () => {
-            const store = new SnapshotStore()
-            store.setSources(makeSources(1))
-            store.markLoaded(0, [makeSnapshot(100, 1), makeSnapshot(200, 2), makeSnapshot(300, 1)])
-
-            const byWindow = store.getSnapshotsByWindowId()
-            expect(byWindow[1]?.length).toBe(2)
-            expect(byWindow[2]?.length).toBe(1)
         })
     })
 
@@ -231,8 +199,8 @@ describe('SnapshotStore', () => {
         it('returns false when no FullSnapshot exists', () => {
             const store = new SnapshotStore()
             store.setSources(makeSources(3))
-            store.markLoaded(0, [makeSnapshot(1000)])
-            store.markLoaded(1, [makeSnapshot(2000)])
+            markLoaded(store, 0, [makeSnapshot(1000)])
+            markLoaded(store, 1, [makeSnapshot(2000)])
 
             const ts = new Date(Date.UTC(2023, 7, 11, 12, 1, 30)).getTime()
             expect(store.canPlayAt(ts)).toBe(false)
@@ -243,9 +211,9 @@ describe('SnapshotStore', () => {
             store.setSources(makeSources(5))
 
             const fsTs = new Date(Date.UTC(2023, 7, 11, 12, 0, 30)).getTime()
-            store.markLoaded(0, [makeFullSnapshot(fsTs)])
-            store.markLoaded(1, [makeSnapshot(fsTs + 60000)])
-            store.markLoaded(2, [makeSnapshot(fsTs + 120000)])
+            markLoaded(store, 0, [makeFullSnapshot(fsTs)])
+            markLoaded(store, 1, [makeSnapshot(fsTs + 60000)])
+            markLoaded(store, 2, [makeSnapshot(fsTs + 120000)])
 
             const targetTs = new Date(Date.UTC(2023, 7, 11, 12, 2, 30)).getTime()
             expect(store.canPlayAt(targetTs)).toBe(true)
@@ -256,9 +224,9 @@ describe('SnapshotStore', () => {
             store.setSources(makeSources(10))
 
             const fsTs = new Date(Date.UTC(2023, 7, 11, 12, 0, 30)).getTime()
-            store.markLoaded(0, [makeFullSnapshot(fsTs)])
+            markLoaded(store, 0, [makeFullSnapshot(fsTs)])
             // Source 1-4 NOT loaded (gap)
-            store.markLoaded(5, [makeSnapshot(fsTs + 300000)])
+            markLoaded(store, 5, [makeSnapshot(fsTs + 300000)])
 
             const targetTs = new Date(Date.UTC(2023, 7, 11, 12, 5, 30)).getTime()
             expect(store.canPlayAt(targetTs)).toBe(false)
@@ -270,24 +238,28 @@ describe('SnapshotStore', () => {
 
             const fsTs = new Date(Date.UTC(2023, 7, 11, 12, 1, 10)).getTime()
             const targetTs = new Date(Date.UTC(2023, 7, 11, 12, 1, 50)).getTime()
-            store.markLoaded(0, [makeSnapshot(1000)])
-            store.markLoaded(1, [makeFullSnapshot(fsTs), makeSnapshot(targetTs)])
+            markLoaded(store, 0, [makeSnapshot(1000)])
+            markLoaded(store, 1, [makeFullSnapshot(fsTs), makeSnapshot(targetTs)])
 
             expect(store.canPlayAt(targetTs)).toBe(true)
         })
 
-        it('returns false when timestamp is beyond all source data', () => {
+        it('resolves timestamps beyond all source data to the loaded tail', () => {
             const store = new SnapshotStore()
             store.setSources(makeSources(5))
 
             const fsTs = new Date(Date.UTC(2023, 7, 11, 12, 0, 30)).getTime()
-            for (let i = 0; i < 5; i++) {
-                store.markLoaded(i, i === 0 ? [makeFullSnapshot(fsTs)] : [makeSnapshot(fsTs + i * 60000)])
-            }
-
-            // All sources loaded, but timestamp is beyond the last source's endMs
             const beyondTs = new Date(Date.UTC(2023, 7, 11, 13, 0, 0)).getTime()
+
+            // Tail not loaded yet: a beyond-end position cannot render
+            markLoaded(store, 0, [makeFullSnapshot(fsTs)])
             expect(store.canPlayAt(beyondTs)).toBe(false)
+
+            // Fully loaded: a beyond-end position renders the last frame without loading anything else
+            for (let i = 1; i < 5; i++) {
+                markLoaded(store, i, [makeSnapshot(fsTs + i * 60000)])
+            }
+            expect(store.canPlayAt(beyondTs)).toBe(true)
         })
     })
 
@@ -295,7 +267,7 @@ describe('SnapshotStore', () => {
         it('returns null when no FullSnapshots exist', () => {
             const store = new SnapshotStore()
             store.setSources(makeSources(3))
-            store.markLoaded(0, [makeSnapshot(1000)])
+            markLoaded(store, 0, [makeSnapshot(1000)])
 
             expect(store.findNearestFullSnapshot(2000)).toBeNull()
         })
@@ -307,8 +279,8 @@ describe('SnapshotStore', () => {
             const fs1 = new Date(Date.UTC(2023, 7, 11, 12, 1, 30)).getTime()
             const fs3 = new Date(Date.UTC(2023, 7, 11, 12, 3, 30)).getTime()
 
-            store.markLoaded(1, [makeFullSnapshot(fs1)])
-            store.markLoaded(3, [makeFullSnapshot(fs3)])
+            markLoaded(store, 1, [makeFullSnapshot(fs1)])
+            markLoaded(store, 3, [makeFullSnapshot(fs3)])
 
             const target = new Date(Date.UTC(2023, 7, 11, 12, 4, 0)).getTime()
             const result = store.findNearestFullSnapshot(target)
@@ -322,7 +294,7 @@ describe('SnapshotStore', () => {
             const fs1 = new Date(Date.UTC(2023, 7, 11, 12, 1, 10)).getTime()
             const fs2 = new Date(Date.UTC(2023, 7, 11, 12, 1, 40)).getTime()
 
-            store.markLoaded(1, [makeFullSnapshot(fs1), makeFullSnapshot(fs2)])
+            markLoaded(store, 1, [makeFullSnapshot(fs1), makeFullSnapshot(fs2)])
 
             const target = new Date(Date.UTC(2023, 7, 11, 12, 2, 0)).getTime()
             const result = store.findNearestFullSnapshot(target)
@@ -336,7 +308,7 @@ describe('SnapshotStore', () => {
             const fs1 = new Date(Date.UTC(2023, 7, 11, 12, 1, 10)).getTime()
             const fs2 = new Date(Date.UTC(2023, 7, 11, 12, 1, 40)).getTime()
 
-            store.markLoaded(1, [makeFullSnapshot(fs1, 1), makeFullSnapshot(fs2, 2)])
+            markLoaded(store, 1, [makeFullSnapshot(fs1, 1), makeFullSnapshot(fs2, 2)])
 
             const target = new Date(Date.UTC(2023, 7, 11, 12, 2, 0)).getTime()
             expect(store.findNearestFullSnapshot(target, 1)).toEqual({ sourceIndex: 1, timestamp: fs1 })
@@ -349,7 +321,7 @@ describe('SnapshotStore', () => {
         it('returns empty array when no FullSnapshots exist', () => {
             const store = new SnapshotStore()
             store.setSources(makeSources(3))
-            store.markLoaded(0, [makeSnapshot(1000)])
+            markLoaded(store, 0, [makeSnapshot(1000)])
 
             expect(store.fullSnapshotsAfter(0)).toEqual([])
         })
@@ -361,8 +333,8 @@ describe('SnapshotStore', () => {
             const fs1 = new Date(Date.UTC(2023, 7, 11, 12, 1, 30)).getTime()
             const fs3 = new Date(Date.UTC(2023, 7, 11, 12, 3, 30)).getTime()
 
-            store.markLoaded(3, [makeFullSnapshot(fs3, 2)])
-            store.markLoaded(1, [makeFullSnapshot(fs1, 1)])
+            markLoaded(store, 3, [makeFullSnapshot(fs3, 2)])
+            markLoaded(store, 1, [makeFullSnapshot(fs1, 1)])
 
             expect(store.fullSnapshotsAfter(fs1)).toEqual([
                 { timestamp: fs1, windowId: 1, sourceIndex: 1 },
@@ -377,10 +349,33 @@ describe('SnapshotStore', () => {
             const fs1 = new Date(Date.UTC(2023, 7, 11, 12, 1, 30)).getTime()
             const fs3 = new Date(Date.UTC(2023, 7, 11, 12, 3, 30)).getTime()
 
-            store.markLoaded(1, [makeFullSnapshot(fs1)])
-            store.markLoaded(3, [makeFullSnapshot(fs3)])
+            markLoaded(store, 1, [makeFullSnapshot(fs1)])
+            markLoaded(store, 3, [makeFullSnapshot(fs3)])
 
             expect(store.fullSnapshotsAfter(fs1 + 1)).toEqual([{ timestamp: fs3, windowId: 1, sourceIndex: 3 }])
+        })
+    })
+
+    describe('fetched lifecycle', () => {
+        it('fetched sources are not playable until a processing pass promotes them', () => {
+            const store = new SnapshotStore()
+            store.setSources(makeSources(2))
+            const fsTs = new Date(Date.UTC(2023, 7, 11, 12, 0, 30)).getTime()
+
+            store.markFetched(0, [makeFullSnapshot(fsTs), makeSnapshot(fsTs + 100)])
+            store.markFetched(1, [makeSnapshot(fsTs + 60000)])
+
+            // fetched data is indexed but not renderable, and not refetchable either
+            expect(store.canPlayAt(fsTs + 100)).toBe(false)
+            expect(store.allLoaded).toBe(false)
+            expect(store.getUnloadedIndicesInRange(0, 1)).toEqual([0, 1])
+            expect(store.getUnfetchedIndicesInRange(0, 1)).toEqual([])
+
+            expect(store.markProcessed([0, 1])).toBe(true)
+
+            expect(store.canPlayAt(fsTs + 100)).toBe(true)
+            expect(store.allLoaded).toBe(true)
+            expect(store.getUnloadedIndicesInRange(0, 1)).toEqual([])
         })
     })
 
@@ -390,7 +385,7 @@ describe('SnapshotStore', () => {
             store.setSources(makeSources(3))
 
             const snapTs = new Date(Date.UTC(2023, 7, 11, 12, 0, 30)).getTime()
-            store.markLoaded(0, [makeSnapshot(snapTs)])
+            markLoaded(store, 0, [makeSnapshot(snapTs)])
 
             expect(store.findNearestFullSnapshot(snapTs)).toBeNull()
 
@@ -406,13 +401,31 @@ describe('SnapshotStore', () => {
             store.setSources(makeSources(3))
 
             const snapTs = new Date(Date.UTC(2023, 7, 11, 12, 0, 30)).getTime()
-            store.markLoaded(0, [makeSnapshot(snapTs)])
+            markLoaded(store, 0, [makeSnapshot(snapTs)])
 
             expect(store.canPlayAt(snapTs)).toBe(false)
 
             store.syncFullSnapshotTimestamps([makeFullSnapshot(snapTs - 1)])
 
             expect(store.canPlayAt(snapTs)).toBe(true)
+        })
+
+        it('indexes synthesized full snapshots that fall between source metadata ranges', () => {
+            const store = new SnapshotStore()
+            const iso = (second: number): string => new Date(Date.UTC(2023, 7, 11, 12, 0, second)).toISOString()
+            const at = (second: number): number => new Date(Date.UTC(2023, 7, 11, 12, 0, second)).getTime()
+            store.setSources([
+                { source: 'blob_v2', blob_key: 'a', start_timestamp: iso(0), end_timestamp: iso(50) },
+                { source: 'blob_v2', blob_key: 'b', start_timestamp: iso(56), end_timestamp: iso(110) },
+            ] as any)
+            markLoaded(store, 0, [makeSnapshot(at(10))])
+            markLoaded(store, 1, [makeSnapshot(at(70))])
+
+            // mobile processing synthesizes a FullSnapshot at screenshot.timestamp - 1, which can land between blob ranges
+            const changed = store.syncFullSnapshotTimestamps([makeFullSnapshot(at(55))])
+
+            expect(changed).toBe(true)
+            expect(store.findNearestFullSnapshot(at(70))).toMatchObject({ timestamp: at(55) })
         })
 
         it.each([
@@ -430,7 +443,7 @@ describe('SnapshotStore', () => {
 
             const fsTs = new Date(Date.UTC(2023, 7, 11, 12, 0, 30)).getTime()
             if (loadSource) {
-                store.markLoaded(0, [makeFullSnapshot(fsTs)])
+                markLoaded(store, 0, [makeFullSnapshot(fsTs)])
             }
 
             const versionBefore = store.version
@@ -475,7 +488,7 @@ describe('SnapshotStore', () => {
             const store = new SnapshotStore()
             store.setSources(makeSources(5))
             for (const i of loadedIndices) {
-                store.markLoaded(i, [makeSnapshot(1000 + i)])
+                markLoaded(store, i, [makeSnapshot(1000 + i)])
             }
             expect(store.getUnloadedIndicesInRange(start, end)).toEqual(expected)
         })
@@ -485,7 +498,7 @@ describe('SnapshotStore', () => {
         it('returns state for each source', () => {
             const store = new SnapshotStore()
             store.setSources(makeSources(3))
-            store.markLoaded(1, [makeSnapshot(2000)])
+            markLoaded(store, 1, [makeSnapshot(2000)])
 
             const states = store.getSourceStates()
             expect(states).toHaveLength(3)
@@ -499,15 +512,15 @@ describe('SnapshotStore', () => {
         it('is false when not all sources are loaded', () => {
             const store = new SnapshotStore()
             store.setSources(makeSources(3))
-            store.markLoaded(0, [makeSnapshot(1000)])
+            markLoaded(store, 0, [makeSnapshot(1000)])
             expect(store.allLoaded).toBe(false)
         })
 
         it('is true when all sources are loaded', () => {
             const store = new SnapshotStore()
             store.setSources(makeSources(2))
-            store.markLoaded(0, [makeSnapshot(1000)])
-            store.markLoaded(1, [makeSnapshot(2000)])
+            markLoaded(store, 0, [makeSnapshot(1000)])
+            markLoaded(store, 1, [makeSnapshot(2000)])
             expect(store.allLoaded).toBe(true)
         })
 
@@ -525,10 +538,10 @@ describe('SnapshotStore', () => {
             store.setSources(makeSources(3))
             versions.push(store.version)
 
-            store.markLoaded(0, [makeSnapshot(1000)])
+            markLoaded(store, 0, [makeSnapshot(1000)])
             versions.push(store.version)
 
-            store.markLoaded(1, [makeSnapshot(2000)])
+            markLoaded(store, 1, [makeSnapshot(2000)])
             versions.push(store.version)
 
             // Each version should be strictly increasing

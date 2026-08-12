@@ -1,8 +1,9 @@
 import json
 import uuid
 import builtins
-from datetime import UTC, datetime, timedelta
-from typing import Any, List, Optional, TypeVar, Union, cast  # noqa: UP035
+import dataclasses
+from datetime import UTC, datetime
+from typing import Any, Optional, Union, cast  # noqa: UP035
 
 import structlog
 from drf_spectacular.types import OpenApiTypes
@@ -31,13 +32,14 @@ from posthog.hogql.constants import CSV_EXPORT_LIMIT
 
 from posthog.api.capture import CaptureInternalError, capture_internal
 from posthog.api.documentation import PersonPropertiesSerializer
+from posthog.api.fields import CoercedStringListField
+from posthog.api.mixins import ValidatedRequest, validated_request
 from posthog.api.property_value_metrics import PROPERTY_VALUES_DURATION
 from posthog.api.routing import TeamAndOrgViewSetMixin
-from posthog.api.utils import action, format_paginated_url, get_target_entity
+from posthog.api.utils import action
 from posthog.auth import PersonalAPIKeyAuthentication
 from posthog.clickhouse.query_tagging import Feature, tag_queries
-from posthog.constants import INSIGHT_FUNNELS, LIMIT, OFFSET, FunnelVizType
-from posthog.decorators import cached_by_filters
+from posthog.constants import LIMIT, OFFSET
 from posthog.event_usage import get_request_analytics_properties
 from posthog.helpers.impersonation import is_impersonated
 from posthog.metrics import LABEL_TEAM_ID
@@ -45,10 +47,7 @@ from posthog.models import Filter, Person, Team, User
 from posthog.models.activity_logging.activity_log import Change, Detail, load_activity, log_activity
 from posthog.models.activity_logging.activity_page import activity_page_response
 from posthog.models.async_deletion import AsyncDeletion, DeletionType
-from posthog.models.filters.lifecycle_filter import LifecycleFilter
-from posthog.models.filters.path_filter import PathFilter
 from posthog.models.filters.properties_timeline_filter import PropertiesTimelineFilter
-from posthog.models.filters.retention_filter import RetentionFilter
 from posthog.models.person.bulk_delete import (
     delete_persons_profile,
     queue_person_event_deletion,
@@ -69,11 +68,21 @@ from posthog.queries.properties_timeline import PropertiesTimeline
 from posthog.rate_limit import ClickHouseBurstRateThrottle, PersonalApiKeyRateThrottle, UserOrEmailRateThrottle
 from posthog.renderers import SafeJSONRenderer
 from posthog.tasks.split_person import split_person
-from posthog.utils import format_query_params_absolute_url, is_anonymous_id, refresh_requested_by_client
+from posthog.utils import (
+    format_query_params_absolute_url,
+    is_anonymous_id,
+    refresh_requested_by_client,
+    relative_date_parse_with_delta_mapping,
+)
 
 from products.cohorts.backend.models.cohort import Cohort
 from products.cohorts.backend.models.util import get_all_cohort_ids_by_person_uuid
-from products.product_analytics.backend.api.insight import capture_legacy_api_call
+from products.workflows.backend.api.message_assets import (
+    MessageAssetSerializer,
+    PersonMessageAssetsRequestSerializer,
+    fetch_message_assets_for_person,
+)
+from products.workflows.backend.models.hog_flow.hog_flow import HogFlow
 
 logger = structlog.get_logger(__name__)
 tracer = trace.get_tracer(__name__)
@@ -170,11 +179,38 @@ class PersonUpdatePropertyRequestSerializer(serializers.Serializer):
     value = serializers.JSONField(help_text="The property value. Can be a string, number, boolean, or object.")
 
 
+# Matches the cap on the persons bulk-delete endpoint; also keeps the resulting
+# capture event safely under the ~1 MB Kafka message limit.
+MAX_UNSET_KEYS_PER_REQUEST = 1000
+
+
+@extend_schema_field(
+    {
+        "oneOf": [
+            {"type": "string", "minLength": 1},
+            {
+                "type": "array",
+                "items": {"type": "string", "minLength": 1},
+                "minItems": 1,
+                "maxItems": MAX_UNSET_KEYS_PER_REQUEST,
+            },
+        ]
+    }
+)
+class UnsetPropertyKeysField(CoercedStringListField):
+    default_error_messages = {
+        "invalid": "Provide '$unset' as a property key or a non-empty list of property keys.",
+    }
+
+
 class PersonDeletePropertyRequestSerializer(serializers.Serializer):
     def get_fields(self):
         fields = super().get_fields()
-        # The endpoint reads request.data["$unset"], so the field name must include the $ prefix.
-        fields["$unset"] = serializers.CharField(help_text="The property key to remove from this person.")
+        # The handler reads validated_data["$unset"], so the field name must include the $ prefix.
+        fields["$unset"] = UnsetPropertyKeysField(
+            max_items=MAX_UNSET_KEYS_PER_REQUEST,
+            help_text="A property key, or a list of property keys, to remove from this person.",
+        )
         return fields
 
 
@@ -538,7 +574,19 @@ class PersonViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
         if filter.distinct_id:
             # Exact match on any of the person's distinct IDs; no matching person => no results.
             matched = get_person_by_distinct_id(team.pk, filter.distinct_id)
-            person_properties.append({"type": "hogql", "key": f"id = toUUID('{matched.uuid}')" if matched else "1 = 2"})
+            if matched is None:
+                # Return early: a constant-false predicate can't be pushed into the persons
+                # lazy table, so ClickHouse would still aggregate every person row for the
+                # team before filtering everything out.
+                return Response(
+                    {
+                        "results": [],
+                        "next": None,
+                        "previous": None,
+                        **({"count": 0} if "include_total" in request.GET else {}),
+                    }
+                )
+            person_properties.append({"type": "hogql", "key": f"id = toUUID('{matched.uuid}')"})
         actors_query = ActorsQuery(
             select=["id"],
             properties=person_properties,
@@ -944,26 +992,32 @@ class PersonViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
         self._set_properties({key: request.data["value"]}, request.user)
         return Response(status=202)
 
-    @extend_schema(request=PersonDeletePropertyRequestSerializer, parameters=[_PERSON_ID_PARAMETER])
+    @validated_request(PersonDeletePropertyRequestSerializer, parameters=[_PERSON_ID_PARAMETER])
     @action(methods=["POST"], detail=True, required_scopes=["person:write"])
-    def delete_property(self, request: request.Request, pk=None, **kwargs) -> response.Response:
+    def delete_property(self, request: ValidatedRequest, pk=None, **kwargs) -> response.Response:
         # Only distinct_ids[0] is used (to attribute the property-update event), so bound the fetch to one.
         with personhog_caller_tag("persons/delete-property"):
             person = get_person_by_pk_or_uuid(self.team_id, pk, distinct_id_limit=1)
         if person is None:
             raise Person.DoesNotExist
 
-        key = request.data.get("$unset")
-        if key:
-            non_writable = self._get_non_writable_person_properties(request)
-            if key in non_writable:
-                raise ValidationError(f'You do not have write access to the property "{key}".')
+        keys = request.validated_data["$unset"]
+
+        non_writable = self._get_non_writable_person_properties(request)
+        forbidden = sorted(set(keys) & non_writable)
+        if forbidden:
+            raise ValidationError(f"You do not have write access to the following properties: {', '.join(forbidden)}.")
+
+        # distinct_ids can be empty for a person orphaned by a merge, or when a concurrent
+        # merge lands between the person fetch and the distinct-id fetch (two separate RPCs).
+        if not person.distinct_ids:
+            raise ValidationError("This person has no distinct IDs, so its properties can't be removed.")
 
         event_name = "$delete_person_property"
         distinct_id = person.distinct_ids[0]
         timestamp = datetime.now(UTC)
         properties = {
-            "$unset": [request.data["$unset"]],
+            "$unset": keys,
         }
 
         try:
@@ -1168,274 +1222,6 @@ class PersonViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
             )
 
     # PRAGMA: Methods for getting Persons via clickhouse queries
-    def _respond_with_cached_results(
-        self, results_package: dict[str, tuple[builtins.list, Optional[str], Optional[str], int]]
-    ):  # noqa: UP006
-        if not results_package:
-            return response.Response(data=[])
-
-        actors, next_url, initial_url, missing_persons = results_package["result"]
-
-        return response.Response(
-            data={
-                "results": [{"people": actors, "count": len(actors)}],
-                "next": next_url,
-                "initial": initial_url,
-                "missing_persons": missing_persons,
-                "is_cached": results_package.get("is_cached"),
-                "last_refresh": results_package.get("last_refresh"),
-            }
-        )
-
-    def _legacy_session_ids_with_recordings(self, session_ids: set[str], filter: Filter) -> set[str]:
-        """Filter session ids to those with a (non-deleted) recording, mirroring the legacy actor endpoint.
-        Unlike the modern RecordingsHelper this does not apply a retention/expiry window, preserving the
-        long-standing response shape of these public endpoints.
-        """
-        if not session_ids:
-            return set()
-
-        from posthog.clickhouse.client import sync_execute  # noqa: PLC0415
-
-        query = """
-            SELECT session_id
-            FROM session_replay_events
-            WHERE team_id = %(team_id)s AND session_id IN %(session_ids)s
-        """
-        params: dict[str, Any] = {"team_id": self.team.pk, "session_ids": sorted(session_ids)}
-        if filter.date_from:
-            query += " AND min_first_timestamp >= %(date_from)s"
-            params["date_from"] = filter.date_from - timedelta(days=1)
-        if filter.date_to:
-            query += " AND max_last_timestamp <= %(date_to)s"
-            params["date_to"] = filter.date_to + timedelta(days=1)
-        query += " GROUP BY session_id HAVING max(is_deleted) = 0"
-
-        return {row[0] for row in sync_execute(query, params)}
-
-    @staticmethod
-    def _legacy_breakdown_value(filter: Filter) -> Optional[Union[str, int]]:
-        """Translate the legacy `breakdown_value` request param into the value the HogQL trends actors path
-        expects: an empty string means the null/none bucket, a cohort breakdown value is an int cohort id.
-        """
-        from posthog.hogql_queries.insights.utils.breakdowns import BREAKDOWN_NULL_STRING_LABEL  # noqa: PLC0415
-
-        value = filter.breakdown_value
-        if value is None:
-            return None
-        if filter.breakdown_type == "cohort":
-            return value if value == "all" else int(value)
-        if value == "":
-            return BREAKDOWN_NULL_STRING_LABEL
-        return value
-
-    def _run_legacy_actors_query(
-        self,
-        source: Any,
-        filter: Filter,
-        *,
-        aggregation_group_type_index: Optional[int],
-        include_value: bool,
-        include_recordings: bool,
-    ) -> tuple[builtins.list, int]:
-        """Run an ActorsQuery (the HogQL actor path used by the modern /query route) and reshape the
-        results into the legacy SerializedPerson/SerializedGroup envelope these endpoints have always
-        returned. `source` is an InsightActorsQuery or FunnelsActorsQuery.
-        """
-        from posthog.schema import HogQLQueryModifiers, InlineCohortCalculation  # noqa: PLC0415
-
-        from posthog.hogql_queries.actors_query_runner import ActorsQueryRunner  # noqa: PLC0415
-        from posthog.queries.actor_base_query import get_groups  # noqa: PLC0415
-
-        # Raw id-only select (plus value/recordings columns) — we hydrate actors ourselves below, matching
-        # the legacy SerializedPerson shape rather than the ActorsQuery strategy dict.
-        select: list[str] = ["actor_id"]
-        if include_value:
-            select.append("event_count")
-        if include_recordings:
-            select.append("matched_recordings")
-
-        actors_query = ActorsQuery(
-            source=source,
-            select=select,
-            limit=filter.limit,
-            offset=filter.offset,
-        )
-        # Inline cohort definitions instead of reading precomputed membership — the legacy actor queries
-        # expanded cohorts inline, so a cohort breakdown/filter works without a prior cohort calculation.
-        # The modifiers must live on the inner insight query: ActorsQueryRunner inherits its modifiers from
-        # the source query runner, which derives them from `source.source.modifiers`.
-        source.source.modifiers = (source.source.modifiers or HogQLQueryModifiers()).model_copy(
-            update={"inlineCohortCalculation": InlineCohortCalculation.ALWAYS}
-        )
-        runner = ActorsQueryRunner(team=self.team, query=actors_query)
-        results = list(runner.calculate().results)
-        raw_count = len(results)
-
-        actor_ids = [str(row[0]) for row in results]
-        value_per_actor_id: Optional[dict[str, float]] = (
-            {str(row[0]): row[1] for row in results} if include_value else None
-        )
-
-        serialized_actors: list[Any]
-        if aggregation_group_type_index is not None:
-            _, serialized_actors = get_groups(self.team.pk, aggregation_group_type_index, actor_ids, value_per_actor_id)
-        else:
-            serialized_actors = get_serialized_people(self.team, actor_ids, value_per_actor_id)
-
-        if include_recordings:
-            recordings_column_index = select.index("matched_recordings")
-            all_session_ids = {event[2] for row in results for event in row[recordings_column_index] if event[2]}
-            valid_session_ids = self._legacy_session_ids_with_recordings(all_session_ids, filter)
-            recordings_by_actor_id: dict[str, builtins.list] = {}
-            for row in results:
-                events_by_session: dict[str, builtins.list] = {}
-                for event in row[recordings_column_index]:
-                    session_id = event[2]
-                    if session_id and session_id in valid_session_ids:
-                        events_by_session.setdefault(session_id, []).append(
-                            {"timestamp": event[0], "uuid": event[1], "window_id": event[3]}
-                        )
-                recordings_by_actor_id[str(row[0])] = [
-                    {"session_id": session_id, "events": events} for session_id, events in events_by_session.items()
-                ]
-            for actor in serialized_actors:
-                actor["matched_recordings"] = recordings_by_actor_id.get(str(actor["id"]), [])
-
-        if include_value:
-            # get_serialized_people / get_groups fetch actors out of order, so restore the
-            # descending-by-value ordering the legacy endpoint guaranteed.
-            serialized_actors.sort(key=lambda actor: cast(float, actor["value_at_data_point"]), reverse=True)
-
-        return serialized_actors, raw_count
-
-    @action(methods=["GET", "POST"], detail=False)
-    def funnel(self, request: request.Request, **kwargs) -> response.Response:
-        capture_legacy_api_call(request, self.team)
-
-        if request.user.is_anonymous or not self.team:
-            return response.Response(data=[])
-
-        return self._respond_with_cached_results(self.calculate_funnel_persons(request))
-
-    @cached_by_filters
-    def calculate_funnel_persons(
-        self, request: request.Request
-    ) -> dict[str, tuple[List, Optional[str], Optional[str], int]]:  # noqa: UP006
-        from posthog.schema import FunnelsActorsQuery, FunnelsQuery  # noqa: PLC0415
-
-        from posthog.hogql_queries.legacy_compatibility.filter_to_query import filter_to_query  # noqa: PLC0415
-
-        filter = Filter(request=request, data={"insight": INSIGHT_FUNNELS}, team=self.team)
-        filter = prepare_actor_query_filter(filter)
-
-        funnels_query = cast(FunnelsQuery, filter_to_query(filter.to_dict()))
-        if filter.funnel_viz_type == FunnelVizType.TRENDS:
-            # Funnel-trends actors are addressed by an entrance period + converted/dropped-off flag,
-            # not by a step index.
-            source = FunnelsActorsQuery(
-                source=funnels_query,
-                funnelTrendsDropOff=bool(filter.drop_off),
-                funnelTrendsEntrancePeriodStart=request.GET.get("entrance_period_start"),
-                funnelStepBreakdown=filter.funnel_step_breakdown,
-                includeRecordings=filter.include_recordings,
-            )
-        else:
-            funnel_step = filter.funnel_step
-            if funnel_step is None and filter.funnel_custom_steps:
-                funnel_step = filter.funnel_custom_steps[0]
-            source = FunnelsActorsQuery(
-                source=funnels_query,
-                funnelStep=funnel_step,
-                funnelStepBreakdown=filter.funnel_step_breakdown,
-                includeRecordings=filter.include_recordings,
-            )
-
-        serialized_actors, raw_count = self._run_legacy_actors_query(
-            source,
-            filter,
-            aggregation_group_type_index=funnels_query.aggregation_group_type_index,
-            include_value=False,
-            include_recordings=bool(filter.include_recordings),
-        )
-        initial_url = format_query_params_absolute_url(request, 0)
-        next_url = paginated_result(request, raw_count, filter.offset, filter.limit)
-
-        # cached_function expects a dict with the key result
-        return {
-            "result": (
-                serialized_actors,
-                next_url,
-                initial_url,
-                raw_count - len(serialized_actors),
-            )
-        }
-
-    @action(methods=["GET"], detail=False)
-    def trends(self, request: request.Request, *args: Any, **kwargs: Any) -> Response:
-        capture_legacy_api_call(request, self.team)
-
-        if request.user.is_anonymous or not self.team:
-            return response.Response(data=[])
-
-        return self._respond_with_cached_results(self.calculate_trends_persons(request))
-
-    @cached_by_filters
-    def calculate_trends_persons(
-        self, request: request.Request
-    ) -> dict[str, tuple[List, Optional[str], Optional[str], int]]:  # noqa: UP006
-        from posthog.schema import ChartDisplayType, InsightActorsQuery, TrendsFilter, TrendsQuery  # noqa: PLC0415
-
-        from posthog.hogql_queries.legacy_compatibility.filter_to_query import filter_to_query  # noqa: PLC0415
-
-        filter = Filter(request=request, team=self.team)
-        filter = prepare_actor_query_filter(filter)
-        entity = get_target_entity(filter)
-
-        # The trends person endpoint identifies its target series via the entity params (entity_id/type),
-        # not an events/actions list, so inject the resolved entity as the single series before converting.
-        filter_dict = {**filter.to_dict(), "insight": "TRENDS"}
-        entity_dict = {**entity.to_dict(), "order": 0}
-        if entity.type == "actions":
-            filter_dict["actions"] = [entity_dict]
-            filter_dict["events"] = []
-        else:
-            filter_dict["events"] = [entity_dict]
-            filter_dict["actions"] = []
-
-        trends_query = cast(TrendsQuery, filter_to_query(filter_dict))
-        # The legacy endpoint returns every actor that performed the series anywhere in the filter's date
-        # range (no per-interval `day`). A total-value display gives exactly that aggregation, so the actors
-        # builder doesn't require a `day`.
-        trends_query.trendsFilter = trends_query.trendsFilter or TrendsFilter()
-        trends_query.trendsFilter.display = ChartDisplayType.ACTIONS_BAR_VALUE
-        source = InsightActorsQuery(
-            source=trends_query,
-            series=0,
-            breakdown=self._legacy_breakdown_value(filter),
-            includeRecordings=filter.include_recordings,
-        )
-
-        serialized_actors, raw_count = self._run_legacy_actors_query(
-            source,
-            filter,
-            aggregation_group_type_index=entity.math_group_type_index,
-            include_value=True,
-            include_recordings=bool(filter.include_recordings),
-        )
-        next_url = paginated_result(request, raw_count, filter.offset, filter.limit)
-        initial_url = format_query_params_absolute_url(request, 0)
-
-        # cached_function expects a dict with the key result
-        return {
-            "result": (
-                serialized_actors,
-                next_url,
-                initial_url,
-                raw_count - len(serialized_actors),
-            )
-        }
-
     @action(methods=["GET"], detail=True)
     def properties_timeline(self, request: request.Request, *args: Any, **kwargs: Any) -> Response:
         if request.user.is_anonymous or not self.team:
@@ -1448,57 +1234,56 @@ class PersonViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
 
         return response.Response(data=properties_timeline)
 
-    @action(methods=["GET"], detail=False)
-    def lifecycle(self, request: request.Request) -> response.Response:
-        team = cast(User, request.user).team
-        if not team:
-            return response.Response(
-                {
-                    "message": "Could not retrieve team",
-                    "detail": "Could not validate team associated with user",
-                },
-                status=400,
-            )
+    @extend_schema(
+        parameters=[PersonMessageAssetsRequestSerializer],
+        responses=MessageAssetSerializer(many=True),
+    )
+    @action(methods=["GET"], detail=True, required_scopes=["person:read"], pagination_class=None, filter_backends=[])
+    def emails(self, request: request.Request, *args: Any, **kwargs: Any) -> response.Response:
+        return self._message_assets_response(request, kind="email")
 
-        target_date = request.GET.get("target_date", None)
-        if target_date is None:
-            return response.Response(
-                {
-                    "message": "Missing parameter",
-                    "detail": "Must include specified date",
-                },
-                status=400,
-            )
-        lifecycle_type = request.GET.get("lifecycle_type", None)
-        if lifecycle_type is None:
-            return response.Response(
-                {
-                    "message": "Missing parameter",
-                    "detail": "Must include lifecycle type",
-                },
-                status=400,
-            )
+    @extend_schema(
+        parameters=[PersonMessageAssetsRequestSerializer],
+        responses=MessageAssetSerializer(many=True),
+    )
+    @action(methods=["GET"], detail=True, required_scopes=["person:read"], pagination_class=None, filter_backends=[])
+    def push_notifications(self, request: request.Request, *args: Any, **kwargs: Any) -> response.Response:
+        return self._message_assets_response(request, kind="push")
 
-        from posthog.schema import InsightActorsQuery, LifecycleQuery  # noqa: PLC0415
+    def _message_assets_response(self, request: request.Request, kind: str) -> response.Response:
+        person = self.get_object()
+        param_serializer = PersonMessageAssetsRequestSerializer(data=request.query_params)
+        param_serializer.is_valid(raise_exception=True)
+        params = param_serializer.validated_data
 
-        from posthog.hogql_queries.legacy_compatibility.filter_to_query import filter_to_query  # noqa: PLC0415
+        tag_queries(product=ProductKey.PERSONS, feature=Feature.QUERY)
 
-        filter = LifecycleFilter(request=request, data=request.GET.dict(), team=self.team)
-        filter = prepare_actor_query_filter(filter)
+        after_date, _, _ = relative_date_parse_with_delta_mapping(params["after"], self.team.timezone_info)
+        before_date = None
+        if params.get("before"):
+            before_date, _, _ = relative_date_parse_with_delta_mapping(params["before"], self.team.timezone_info)
 
-        lifecycle_query = cast(LifecycleQuery, filter_to_query({**filter.to_dict(), "insight": "LIFECYCLE"}))
-        source = InsightActorsQuery(source=lifecycle_query, day=target_date, status=lifecycle_type)
-
-        with personhog_caller_tag("persons/lifecycle"):
-            people, raw_count = self._run_legacy_actors_query(
-                source,
-                filter,
-                aggregation_group_type_index=lifecycle_query.aggregation_group_type_index,
-                include_value=False,
-                include_recordings=False,
-            )
-        next_url = paginated_result(request, raw_count, filter.offset, filter.limit)
-        return response.Response({"results": [{"people": people, "count": len(people)}], "next": next_url})
+        data = fetch_message_assets_for_person(
+            team_id=self.team_id,
+            person_id=str(person.uuid),
+            limit=params["limit"],
+            offset=params["offset"],
+            after=after_date,
+            before=before_date,
+            kind=kind,
+        )
+        # Single lookup for every workflow referenced by this page of rows so the tab shows
+        # human-readable names instead of raw UUIDs. Deleted workflows drop out of the map
+        # and the row's `function_name` stays empty — the frontend falls back to `function_id`.
+        # HogFlow.id is a UUID column; ClickHouse function_id is a plain string, so coerce
+        # both sides to string when building the lookup dict.
+        function_ids = {row.function_id for row in data}
+        name_by_id = {
+            str(pk): (name or "")
+            for pk, name in HogFlow.objects.filter(team_id=self.team_id, id__in=function_ids).values_list("id", "name")
+        }
+        enriched = [dataclasses.replace(row, function_name=name_by_id.get(row.function_id, "")) for row in data]
+        return response.Response(MessageAssetSerializer(enriched, many=True).data)
 
     @extend_schema(
         exclude=True,  # NOTE: We exclude as we want to push people to use the more powerful bulk_delete endpoint
@@ -1768,63 +1553,6 @@ class PersonViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
                 {"error": f"Failed to retrieve person properties for {identifier_type} '{identifier}'"},
                 status=500,
             )
-
-
-def paginated_result(
-    request: request.Request,
-    count: int,
-    offset: int = 0,
-    limit: int = DEFAULT_PAGE_LIMIT,
-) -> Optional[str]:
-    return format_paginated_url(request, offset, limit) if count >= limit else None
-
-
-T = TypeVar("T", Filter, PathFilter, RetentionFilter, LifecycleFilter)
-
-
-def prepare_actor_query_filter(filter: T) -> T:
-    if not filter.limit:
-        filter = filter.shallow_clone({LIMIT: DEFAULT_PAGE_LIMIT})
-
-    search = getattr(filter, "search", None)
-    if not search:
-        return filter
-
-    group_properties_filter_group: list[dict[str, object]] = []
-    if hasattr(filter, "aggregation_group_type_index"):
-        group_properties_filter_group += [
-            {
-                "key": "name",
-                "value": search,
-                "type": "group",
-                "group_type_index": filter.aggregation_group_type_index,
-                "operator": "icontains",
-            },
-            {
-                "key": "slug",
-                "value": search,
-                "type": "group",
-                "group_type_index": filter.aggregation_group_type_index,
-                "operator": "icontains",
-            },
-        ]
-
-    new_group = {
-        "type": "OR",
-        "values": [
-            {"key": "email", "type": "person", "value": search, "operator": "icontains"},
-            {"key": "name", "type": "person", "value": search, "operator": "icontains"},
-            {"key": "distinct_id", "type": "event", "value": search, "operator": "icontains"},
-            *group_properties_filter_group,
-        ],
-    }
-    prop_group = (
-        {"type": "AND", "values": [new_group, filter.property_groups.to_dict()]}
-        if filter.property_groups.to_dict()
-        else new_group
-    )
-
-    return filter.shallow_clone({"properties": prop_group, "search": None})
 
 
 class LegacyPersonViewSet(PersonViewSet):

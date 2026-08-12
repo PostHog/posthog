@@ -21,19 +21,21 @@
 }
 
 .PropertyKeyInfo__logo {
-    display: inline-block;
     flex-shrink: 0;
-    width: 1rem;
-    height: 1rem;
-    background-size: cover;
 }
 
+// Width-driven so the landscape logomark occupies the same 1rem slot as other source logos
 .PropertyKeyInfo__logo--posthog {
-    background-image: url('../../../public/posthog-icon.svg');
+    width: 1rem;
+    height: auto;
 }
 
 .PropertyKeyInfo__logo--langfuse {
+    display: inline-block;
+    width: 1rem;
+    height: 1rem;
     background-image: url('../../../public/langfuse-icon.svg');
+    background-size: cover;
 }
 
 .PropertyKeyInfo__overlay {

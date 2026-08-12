@@ -5,10 +5,10 @@ import logging
 from collections.abc import Callable, Iterable
 from typing import TYPE_CHECKING
 
-from django.db.models import Case, IntegerField, Value, When
+from django.db.models import Case, IntegerField, Q, Value, When
 
-from posthog.models.github_integration_base import GitHubIntegrationBase
-from posthog.models.integration import GitHubIntegration, Integration
+from posthog.models.github_integration_base import INSTALLATION_UNAVAILABLE_SINCE_CONFIG_KEY, GitHubIntegrationBase
+from posthog.models.integration import ERROR_TOKEN_REFRESH_FAILED, GitHubIntegration, Integration
 from posthog.models.integration_repository_cache import GitHubRepositoryFullCache
 from posthog.models.organization import OrganizationMembership
 from posthog.models.team.team import Team
@@ -77,6 +77,7 @@ def _first_user_github_integration(user_ids: Iterable[int]) -> UserIntegration |
             user_id__in=user_ids,
         )
         .exclude(repository_cache=[], repository_cache_updated_at__isnull=False)
+        .exclude(config__has_key=INSTALLATION_UNAVAILABLE_SINCE_CONFIG_KEY)
         .annotate(
             _is_org_account=Case(
                 When(config__account__type="User", then=Value(0)),
@@ -90,7 +91,7 @@ def _first_user_github_integration(user_ids: Iterable[int]) -> UserIntegration |
 
 
 def resolve_team_github_integration(
-    team_id: int, team: Team | None = None, requester_user_id: int | None = None
+    team_id: int, team: Team | None = None, requester_user_id: int | None = None, team_only: bool = False
 ) -> GitHubIntegrationBase | None:
     """Resolve the GitHub source the agent should use for this team.
 
@@ -107,11 +108,19 @@ def resolve_team_github_integration(
 
     The owner fallback still applies after the requester check, so an owner-connected source backs
     a requester who has none of their own.
+
+    ``team_only=True`` disables both personal-connection fallbacks. Use it when the resolved
+    source's repository names are shown to other team members, or when the work runs under the
+    team installation's bot identity — a personal connection is a cross-account leak there.
     """
     integration = (
         Integration.objects.filter(team_id=team_id, kind="github")
         # Skip integrations whose installation has been synced and confirmed empty (0 repos)
         .exclude(repository_cache=[], repository_cache_updated_at__isnull=False)
+        # Skip installs whose token refresh is permanently failing (uninstalled/suspended on
+        # GitHub's side): re-selecting one makes repo discovery storm GitHub with doomed refreshes.
+        .exclude(errors=ERROR_TOKEN_REFRESH_FAILED)
+        .exclude(config__has_key=INSTALLATION_UNAVAILABLE_SINCE_CONFIG_KEY)
         # Prioritize orgs vs users (alphabetically), then oldest first
         .order_by("config__account__type", "created_at", "id")
         .first()
@@ -119,6 +128,9 @@ def resolve_team_github_integration(
     # Prefer the first GitHub integration from the team
     if integration is not None:
         return GitHubIntegration(integration)
+
+    if team_only:
+        return None
 
     # User-initiated path: the requester's own connected GitHub (their own credentials, not a leak)
     # takes precedence over the owner fallback so they can reference repos only they have connected.
@@ -140,10 +152,33 @@ def resolve_team_github_integration(
     return None
 
 
-def _list_candidate_repos(github: GitHubIntegrationBase, team_id: int) -> list[str]:
+async def _github_reconnect_required(team_id: int) -> bool:
+    if (
+        await Integration.objects.filter(team_id=team_id, kind="github")
+        .filter(Q(errors=ERROR_TOKEN_REFRESH_FAILED) | Q(config__has_key=INSTALLATION_UNAVAILABLE_SINCE_CONFIG_KEY))
+        .aexists()
+    ):
+        return True
+
+    organization_id = await Team.objects.filter(id=team_id).values_list("organization_id", flat=True).afirst()
+    if organization_id is None:
+        return False
+    owner_user_ids = OrganizationMembership.objects.filter(
+        organization_id=organization_id,
+        level=OrganizationMembership.Level.OWNER,
+        user__is_active=True,
+    ).values_list("user_id", flat=True)
+    return await UserIntegration.objects.filter(
+        kind=UserIntegration.IntegrationKind.GITHUB,
+        user_id__in=owner_user_ids,
+        config__has_key=INSTALLATION_UNAVAILABLE_SINCE_CONFIG_KEY,
+    ).aexists()
+
+
+def _list_candidate_repos(github: GitHubIntegrationBase, team_id: int, *, allow_refresh: bool = True) -> list[str]:
     """Fetch all repositories accessible via the resolved GitHub source."""
     repos: set[str] = set()
-    for repo in github.list_all_cached_repositories(max_repos=_MAX_GITHUB_REPOS):
+    for repo in github.list_all_cached_repositories(max_repos=_MAX_GITHUB_REPOS, allow_refresh=allow_refresh):
         full_name = repo.get("full_name")
         if not full_name:
             continue
@@ -349,6 +384,9 @@ async def select_repository(
     verbose: bool = False,
     output_fn: OutputFn = None,
     on_research_session: Callable[[str, str], None] | None = None,
+    model: str | None = None,
+    runtime_adapter: str | None = None,
+    reasoning_effort: str | None = None,
 ) -> RepoSelectionResult:
     """Select the most relevant repository for a free-form request context.
 
@@ -367,9 +405,14 @@ async def select_repository(
     if github is None:
         github = await database_sync_to_async(resolve_team_github_integration, thread_sensitive=False)(team_id)
     if github is None:
+        reconnect_required = await _github_reconnect_required(team_id)
         return RepoSelectionResult(
             repository=None,
-            reason="No GitHub repositories connected to this team.",
+            reason=(
+                "The connected GitHub App is unavailable. Reconnect GitHub to continue."
+                if reconnect_required
+                else "No GitHub repositories connected to this team."
+            ),
         )
     if candidate_repos is None:
         candidate_repos = await database_sync_to_async(_list_candidate_repos, thread_sensitive=False)(github, team_id)
@@ -413,6 +456,11 @@ async def select_repository(
         # Read-only PostHog scopes so the agent can call `execute-sql` against `system.integration_repository_cache`.
         posthog_mcp_scopes="read_only",
         sandbox_resources=SandboxResources(cpu_cores=2, memory_gb=8),
+        # Optional agent runtime/model override (e.g. the Codex runtime + gpt-5.5). All-None keeps
+        # the agent-server default; threaded through from the caller's per-step resolution.
+        model=model,
+        runtime_adapter=runtime_adapter,
+        reasoning_effort=reasoning_effort,
     )
 
     session, result = await MultiTurnSession.start(

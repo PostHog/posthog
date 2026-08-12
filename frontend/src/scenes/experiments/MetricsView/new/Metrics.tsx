@@ -1,20 +1,19 @@
-import { useActions, useValues } from 'kea'
+import { useValues } from 'kea'
 
-import { IconInfo, IconList } from '@posthog/icons'
-import { LemonButton, Tooltip } from '@posthog/lemon-ui'
+import { IconInfo } from '@posthog/icons'
+import { Tooltip } from '@posthog/lemon-ui'
 
 import { FEATURE_FLAGS } from 'lib/constants'
 import { IconAreaChart } from 'lib/lemon-ui/icons'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 
 import type { ExperimentMetric } from '~/queries/schema/schema-general'
+import { SummarizeExperimentButton } from '~/scenes/experiments/components/SummarizeExperimentButton'
 import { experimentLogic } from '~/scenes/experiments/experimentLogic'
 import { experimentMetricsLogic } from '~/scenes/experiments/experimentMetricsLogic'
 import { AddMetricButton } from '~/scenes/experiments/Metrics/AddMetricButton'
 import { METRIC_CONTEXTS } from '~/scenes/experiments/Metrics/experimentMetricModalLogic'
-import { MetricsReorderModal } from '~/scenes/experiments/MetricsView/MetricsReorderModal'
-import { modalsLogic } from '~/scenes/experiments/modalsLogic'
-import { isSavedExperiment, metricResults } from '~/scenes/experiments/utils'
+import { getExperimentVariants, isSavedExperiment, metricResults } from '~/scenes/experiments/utils'
 import { Experiment } from '~/types'
 
 import { HowToReadTooltip } from './HowToReadTooltip'
@@ -24,9 +23,9 @@ import { ResultDetails } from './ResultDetails'
 export function Metrics({ isSecondary }: { isSecondary?: boolean }): JSX.Element | null {
     const { experiment } = useValues(experimentLogic)
 
-    const variants = experiment?.feature_flag?.filters?.multivariate?.variants
+    const variants = getExperimentVariants(experiment)
     // Guard here so the child can take a non-null, real experiment and mount keyed child logics safely.
-    if (!variants || !isSavedExperiment(experiment)) {
+    if (!variants.length || !isSavedExperiment(experiment)) {
         return null
     }
 
@@ -48,8 +47,6 @@ function MetricsContent({ experiment, isSecondary }: { experiment: Experiment; i
     } = useValues(experimentMetricsLogic({ experiment }))
     const { featureFlags } = useValues(featureFlagLogic)
     const recalculationFlow = !!featureFlags[FEATURE_FLAGS.EXPERIMENTS_METRICS_RECALCULATION]
-
-    const { openPrimaryMetricsReorderModal, openSecondaryMetricsReorderModal } = useActions(modalsLogic)
 
     const type = isSecondary ? 'secondary' : 'primary'
 
@@ -75,29 +72,18 @@ function MetricsContent({ experiment, isSecondary }: { experiment: Experiment; i
 
     return (
         <div className="mb-4 -mt-2" data-attr="experiment-creation-goal-metric">
-            {experiment?.id && (
-                <>
-                    <MetricsReorderModal isSecondary={false} />
-                    <MetricsReorderModal isSecondary={true} />
-                </>
-            )}
             <div className="flex">
                 <div className="w-1/2 pt-5">
                     <div className="inline-flex items-center deprecated-space-x-2 mb-0">
                         <h2 className="mb-0 font-semibold text-lg leading-6">
                             {isSecondary ? 'Secondary metrics' : 'Primary metrics'}
                         </h2>
-                        {metrics.length > 0 && (
-                            <Tooltip
-                                title={
-                                    isSecondary
-                                        ? 'Secondary metrics capture additional outcomes or behaviors affected by your experiment. They help you understand broader impacts and potential side effects beyond the primary goal.'
-                                        : 'Primary metrics represent the main goal of your experiment. They directly measure whether your hypothesis was successful and are the key factor in deciding if the test achieved its primary objective.'
-                                }
-                            >
+                        {isSecondary && metrics.length > 0 && (
+                            <Tooltip title="Secondary metrics capture additional outcomes or behaviors affected by your experiment. They help you understand broader impacts and potential side effects beyond the primary goal.">
                                 <IconInfo className="text-secondary text-lg" />
                             </Tooltip>
                         )}
+                        {!isSecondary && hasMinimumExposureForResults && <SummarizeExperimentButton />}
                         {hasSomeResults && !isSecondary && <HowToReadTooltip />}
                     </div>
                 </div>
@@ -108,17 +94,6 @@ function MetricsContent({ experiment, isSecondary }: { experiment: Experiment; i
                             <div className="mb-2 mt-4 justify-end flex items-center gap-2">
                                 <AddMetricButton
                                     metricContext={isSecondary ? METRIC_CONTEXTS.secondary : METRIC_CONTEXTS.primary}
-                                />
-                                <LemonButton
-                                    type="secondary"
-                                    size="xsmall"
-                                    onClick={() =>
-                                        isSecondary
-                                            ? openSecondaryMetricsReorderModal()
-                                            : openPrimaryMetricsReorderModal()
-                                    }
-                                    icon={<IconList />}
-                                    tooltip="Reorder, move or remove metrics"
                                 />
                             </div>
                         )}

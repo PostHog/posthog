@@ -55,7 +55,7 @@ export function ReadFileContent({ text, path }: { text: string; path?: string })
         const container = containerRef.current
         let disposed = false
 
-        // eslint-disable-next-line @typescript-eslint/no-floating-promises
+        // eslint-disable-next-line @typescript-eslint/no-floating-promises, no-restricted-imports -- read-only viewer, no lazy facade needed
         import('monaco-editor').then((monaco) => {
             if (disposed || !container) {
                 return

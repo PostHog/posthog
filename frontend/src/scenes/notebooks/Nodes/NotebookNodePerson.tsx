@@ -25,7 +25,6 @@ import { PersonType } from '~/types'
 import { NotebookNodeProps, NotebookNodeType } from '../types'
 import { DataSourceIcon } from './components/DataSourceIcon'
 import { notebookNodeLogic } from './notebookNodeLogic'
-import { OPTIONAL_PROJECT_NON_CAPTURE_GROUP } from './utils'
 
 const Component = ({ attributes }: NotebookNodeProps<NotebookNodePersonAttributes>): JSX.Element => {
     const { id, distinctId } = attributes
@@ -38,7 +37,7 @@ const Component = ({ attributes }: NotebookNodeProps<NotebookNodePersonAttribute
     useAttachedLogic(mountedPersonLogic, notebookLogic)
 
     useEffect(() => {
-        const title = person ? `Person: ${asDisplay(person)}` : 'Person'
+        const title = person ? asDisplay(person) : 'Person'
         setTitlePlaceholder(title)
         setActions([
             {
@@ -228,12 +227,8 @@ function EventCount(): JSX.Element {
 }
 
 function MRR(): JSX.Element | null {
-    const { revenueData, revenueDataLoading, isRevenueAnalyticsEnabled } = useValues(personLogic)
+    const { revenueData, revenueDataLoading } = useValues(personLogic)
     const { baseCurrency } = useValues(teamLogic)
-
-    if (!isRevenueAnalyticsEnabled) {
-        return null
-    }
 
     return (
         <div className="flex items-center gap-1">
@@ -253,12 +248,8 @@ function MRR(): JSX.Element | null {
 }
 
 function LifetimeValue(): JSX.Element | null {
-    const { revenueData, revenueDataLoading, isRevenueAnalyticsEnabled } = useValues(personLogic)
+    const { revenueData, revenueDataLoading } = useValues(personLogic)
     const { baseCurrency } = useValues(teamLogic)
-
-    if (!isRevenueAnalyticsEnabled) {
-        return null
-    }
 
     return (
         <div className="flex items-center gap-1">
@@ -285,6 +276,7 @@ type NotebookNodePersonAttributes = {
 export const NotebookNodePerson = createPostHogWidgetNode<NotebookNodePersonAttributes>({
     nodeType: NotebookNodeType.Person,
     titlePlaceholder: 'Person',
+    editableTitle: false,
     Component,
     expandable: false,
     href: (attrs) => {
@@ -299,12 +291,6 @@ export const NotebookNodePerson = createPostHogWidgetNode<NotebookNodePersonAttr
     attributes: {
         id: {},
         distinctId: {},
-    },
-    pasteOptions: {
-        find: OPTIONAL_PROJECT_NON_CAPTURE_GROUP + urls.personByUUID('(.+)', false),
-        getAttributes: async (match) => {
-            return { distinctId: undefined, id: match[1] }
-        },
     },
     serializedText: (attrs) => {
         const personTitle = attrs?.title || ''

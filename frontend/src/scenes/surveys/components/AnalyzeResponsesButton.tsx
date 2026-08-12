@@ -12,6 +12,8 @@ import { surveyLogic } from 'scenes/surveys/surveyLogic'
 import { iconForType } from '~/layout/panel-layout/ProjectTree/defaultTree'
 import { ProductIntentContext, ProductKey } from '~/queries/schema/schema-general'
 
+import { useAttachedContext } from 'products/posthog_ai/frontend/api/logics'
+
 const NUM_OF_RESPONSES_FOR_MAX_ANALYSIS_TOOL = 5
 
 function useSurveyAnalysisMaxTool(): ReturnType<typeof useMaxTool> {
@@ -30,6 +32,19 @@ function useSurveyAnalysisMaxTool(): ReturnType<typeof useMaxTool> {
         const totalResponses = formattedOpenEndedResponses.reduce((acc, curr) => acc + curr.responses.length, 0)
         return totalResponses >= NUM_OF_RESPONSES_FOR_MAX_ANALYSIS_TOOL
     }, [formattedOpenEndedResponses])
+
+    useAttachedContext(
+        shouldShowMaxAnalysisTool
+            ? [
+                  { type: 'survey', key: survey.id, label: survey.name },
+                  {
+                      type: 'survey_open_ended_responses',
+                      value: JSON.stringify(formattedOpenEndedResponses),
+                      label: 'Open-ended responses',
+                  },
+              ]
+            : null
+    )
 
     return useMaxTool({
         identifier: 'analyze_survey_responses',

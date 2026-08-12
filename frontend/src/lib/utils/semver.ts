@@ -27,6 +27,30 @@ export function parseVersion(version: string): SemanticVersion {
     return { major: majorInt, minor: minorInt, patch: patchInt, extra }
 }
 
+// Validates a version string against the same shape the backend's `parse_semver` enforces
+// (feature flag `validate_filters`), so a non-semver value (an email, a hex string) is caught
+// inline before a save 400s. Intentionally stricter than the backend on component format: the
+// backend coerces each component with Python's `int()`, which tolerates things like a leading
+// `+` or `_` digit separators, while this only accepts plain digits. Kept separate from
+// `parseVersion` because that one accepts a leading `v`, which the backend's `int()` rejects.
+// `allowWildcard` handles patterns like `1.2.*` by dropping the trailing `.`/`*`, matching the
+// backend's `rstrip('.*')` for the wildcard operator.
+export function isValidSemverValue(value: string, options?: { allowWildcard?: boolean }): boolean {
+    let candidate = value.trim()
+    if (options?.allowWildcard) {
+        candidate = candidate.replace(/[.*]+$/, '')
+    }
+    // Strip any pre-release / build suffix (everything after the first hyphen), matching the backend.
+    const base = candidate.split('-')[0]
+    const parts = base.split('.')
+    if (parts[0] === '') {
+        return false
+    }
+    // Missing minor/patch default to "0" (e.g. "1" -> 1.0.0); extra parts are ignored, as on the backend.
+    const [major, minor = '0', patch = '0'] = parts
+    return [major, minor, patch].every((part) => /^\d+$/.test(part))
+}
+
 export interface SemanticVersionDiff {
     kind: 'major' | 'minor' | 'patch' | 'extra'
     diff: number

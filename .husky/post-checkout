@@ -7,21 +7,27 @@
 # Detect worktree: .git is a file (not a directory) pointing to the main repo
 [ -f .git ] || exit 0
 
-# Bootstrap husky + lint-staged so pre-commit hooks work in worktrees
-# pnpm may come from flox, corepack, brew, etc. — add flox bin to PATH if available
-MAIN_REPO="$(cd "$(dirname "$0")/.." && pwd)"
-if [ -d "$MAIN_REPO/.flox/run" ]; then
-    for p in "$MAIN_REPO/.flox/run"/*/bin; do
-        [ -d "$p" ] && export PATH="$p:$PATH"
-    done
+# Borrow node_modules from the main clone when lockfiles match, so a freshly
+# created worktree doesn't need its own pnpm install at all. Resolve the
+# helper relative to this hook file, not cwd: core.hooksPath may be absolute
+# (hook file lives in the main clone) or relative (worktree's own checkout),
+# and cwd is always the active worktree, which may not contain the helper.
+HOOK_DIR="$(cd "$(dirname "$0")" && pwd)"
+if [ -f "$HOOK_DIR/../bin/helpers/worktree-borrow.sh" ]; then
+    . "$HOOK_DIR/../bin/helpers/worktree-borrow.sh"
+    posthog_worktree_borrow node
 fi
 
-if ! command -v pnpm > /dev/null 2>&1; then
-    echo "husky: pnpm not found, skipping worktree bootstrap"
-    exit 0
-fi
+if [ "$POSTHOG_BORROW_NODE" = "1" ]; then
+    echo "husky: worktree detected, borrowing node_modules from main clone"
+else
+    if ! command -v pnpm > /dev/null 2>&1; then
+        echo "husky: pnpm not found, skipping worktree bootstrap"
+        exit 0
+    fi
 
-if [ ! -d node_modules/.pnpm ]; then
-    echo "husky: worktree detected, bootstrapping with pnpm install ..."
-    pnpm install --frozen-lockfile --filter=.
+    if [ ! -d node_modules/.pnpm ]; then
+        echo "husky: worktree detected, bootstrapping with pnpm install ..."
+        pnpm install --frozen-lockfile --filter=.
+    fi
 fi

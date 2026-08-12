@@ -9,16 +9,13 @@ from posthog.schema import (
     SourceFieldInputConfigType,
 )
 
-from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline.typings import (
-    SourceInputs,
-    SourceResponse,
-)
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.base import FieldType, SimpleSource
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.canonical_descriptions import (
     CanonicalDescriptions,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.registry import SourceRegistry
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.schema import SourceSchema
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.typings import SourceInputs, SourceResponse
 from products.warehouse_sources.backend.temporal.data_imports.sources.finnworlds.finnworlds import (
     finnworlds_source,
     parse_tickers,
@@ -28,13 +25,16 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.finnworlds
     ENDPOINTS,
     FINNWORLDS_ENDPOINTS,
 )
-from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs import FinnworldsSourceConfig
+from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.finnworlds import (
+    FinnworldsSourceConfig,
+)
 from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 
 @SourceRegistry.register
 class FinnworldsSource(SimpleSource[FinnworldsSourceConfig]):
     lists_tables_without_credentials = True  # static endpoint catalog — safe for public docs
+    api_docs_url = "https://finnworlds.com/documentation/"
 
     @property
     def source_type(self) -> ExternalDataSourceType:
@@ -62,6 +62,7 @@ class FinnworldsSource(SimpleSource[FinnworldsSourceConfig]):
         with_counts: bool = False,
         names: list[str] | None = None,
         force_refresh: bool = False,
+        api_version: str | None = None,
     ) -> list[SourceSchema]:
         # Finnworlds exposes no server-side update cursor, so every endpoint is full refresh only.
         schemas = [
@@ -82,7 +83,11 @@ class FinnworldsSource(SimpleSource[FinnworldsSourceConfig]):
         return schemas
 
     def validate_credentials(
-        self, config: FinnworldsSourceConfig, team_id: int, schema_name: Optional[str] = None
+        self,
+        config: FinnworldsSourceConfig,
+        team_id: int,
+        schema_name: Optional[str] = None,
+        api_version: str | None = None,
     ) -> tuple[bool, str | None]:
         try:
             parse_tickers(config.tickers)
@@ -106,7 +111,6 @@ class FinnworldsSource(SimpleSource[FinnworldsSourceConfig]):
             category=DataWarehouseSourceCategory.FINANCE___ACCOUNTING,
             label="Finnworlds",
             releaseStatus=ReleaseStatus.ALPHA,
-            unreleasedSource=True,
             caption="""Enter your Finnworlds API key to pull financial market data into the PostHog Data warehouse.
 
 You can find your API key in your [Finnworlds dashboard](https://finnworlds.com/dashboard/).

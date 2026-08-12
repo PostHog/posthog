@@ -1,53 +1,69 @@
+import json
 from typing import Any
 
 import pytest
-from unittest.mock import MagicMock
+from unittest import mock
 
 from parameterized import parameterized
+from requests import Response
 
-from products.warehouse_sources.backend.temporal.data_imports.sources.ding_connect import ding_connect
 from products.warehouse_sources.backend.temporal.data_imports.sources.ding_connect.ding_connect import (
     DingConnectResumeConfig,
     _flatten_transfer_record,
     _row_from_single_object,
     ding_connect_source,
-    get_rows,
     validate_credentials,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.ding_connect.settings import (
     DING_CONNECT_ENDPOINTS,
 )
 
-
-class _FakeResumableManager:
-    def __init__(self, state: DingConnectResumeConfig | None = None) -> None:
-        self._state = state
-        self.saved: list[DingConnectResumeConfig] = []
-
-    def can_resume(self) -> bool:
-        return self._state is not None
-
-    def load_state(self) -> DingConnectResumeConfig | None:
-        return self._state
-
-    def save_state(self, data: DingConnectResumeConfig) -> None:
-        self.saved.append(data)
+# RESTClient builds its session via make_tracked_session in the rest_client module.
+CLIENT_SESSION_PATCH = "products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.rest_client.make_tracked_session"
+# validate_credentials builds its own tracked session in the ding_connect module.
+DING_SESSION_PATCH = (
+    "products.warehouse_sources.backend.temporal.data_imports.sources.ding_connect.ding_connect.make_tracked_session"
+)
 
 
-def _collect(endpoint: str, responses: list[dict[str, Any]], manager: _FakeResumableManager, monkeypatch: Any) -> list:
-    """Run get_rows against a queue of canned envelope responses, flattening yielded pages to rows."""
-    queue = list(responses)
+def _response(body: dict[str, Any]) -> Response:
+    resp = Response()
+    resp.status_code = 200
+    resp._content = json.dumps(body).encode()
+    return resp
 
-    def fake_request(session: Any, method: str, url: str, headers: dict, logger: Any, json_body: Any = None) -> dict:
-        return queue.pop(0)
 
-    monkeypatch.setattr(ding_connect, "_request", fake_request)
-    monkeypatch.setattr(ding_connect, "make_tracked_session", lambda **kwargs: MagicMock())
+def _make_manager(resume_state: DingConnectResumeConfig | None = None) -> mock.MagicMock:
+    manager = mock.MagicMock()
+    manager.can_resume.return_value = resume_state is not None
+    manager.load_state.return_value = resume_state
+    return manager
 
-    rows: list = []
-    for page in get_rows("key", endpoint, MagicMock(), manager):  # type: ignore[arg-type]
-        rows.extend(page)
-    return rows
+
+def _wire(session: mock.MagicMock, responses: list[Response]) -> list[dict[str, Any]]:
+    """Wire a mock session and return a list capturing each request's JSON body AT SEND TIME.
+
+    ``request.json`` is a single dict the paginator mutates in place across pages, so inspecting it
+    after the run shows only the final state — snapshot a copy when each request is prepared instead.
+    """
+    session.headers = {}
+    json_snapshots: list[dict[str, Any]] = []
+
+    def _prepare(request: Any) -> mock.MagicMock:
+        json_snapshots.append(dict(request.json or {}))
+        return mock.MagicMock()
+
+    session.prepare_request.side_effect = _prepare
+    session.send.side_effect = responses
+    return json_snapshots
+
+
+def _rows(source_response) -> list[dict[str, Any]]:
+    return [row for page in source_response.items() for row in page]
+
+
+def _source(endpoint: str, manager: mock.MagicMock, api_key: str = "key"):
+    return ding_connect_source(api_key, endpoint, team_id=1, job_id="j", resumable_source_manager=manager)
 
 
 class TestFlattenTransferRecord:
@@ -76,132 +92,139 @@ class TestRowFromSingleObject:
 
 
 class TestReferenceEndpoints:
-    def test_list_endpoint_yields_items(self, monkeypatch: Any) -> None:
-        responses = [{"Items": [{"CountryIso": "GB"}, {"CountryIso": "US"}], "ResultCode": 1, "ErrorCodes": []}]
-        rows = _collect("Countries", responses, _FakeResumableManager(), monkeypatch)
+    @mock.patch(CLIENT_SESSION_PATCH)
+    def test_list_endpoint_yields_items(self, MockSession) -> None:
+        session = MockSession.return_value
+        _wire(session, [_response({"Items": [{"CountryIso": "GB"}, {"CountryIso": "US"}], "ResultCode": 1})])
+
+        rows = _rows(_source("Countries", _make_manager()))
         assert rows == [{"CountryIso": "GB"}, {"CountryIso": "US"}]
+        # A bounded catalog list comes back in exactly one request.
+        assert session.send.call_count == 1
 
-    def test_empty_list_yields_nothing(self, monkeypatch: Any) -> None:
-        responses = [{"Items": [], "ResultCode": 1, "ErrorCodes": []}]
-        rows = _collect("Currencies", responses, _FakeResumableManager(), monkeypatch)
-        assert rows == []
+    @mock.patch(CLIENT_SESSION_PATCH)
+    def test_empty_list_yields_nothing(self, MockSession) -> None:
+        session = MockSession.return_value
+        _wire(session, [_response({"Items": [], "ResultCode": 1})])
 
-    def test_single_object_endpoint_wraps_one_row(self, monkeypatch: Any) -> None:
-        responses = [{"Balance": 42.0, "CurrencyIso": "EUR", "ResultCode": 1, "ErrorCodes": []}]
-        rows = _collect("Balance", responses, _FakeResumableManager(), monkeypatch)
-        assert rows == [{"Balance": 42.0, "CurrencyIso": "EUR"}]
+        assert _rows(_source("Currencies", _make_manager())) == []
 
-    def test_reference_endpoint_does_not_save_resume_state(self, monkeypatch: Any) -> None:
-        manager = _FakeResumableManager()
-        responses = [{"Items": [{"ProviderCode": "P1"}], "ResultCode": 1, "ErrorCodes": []}]
-        _collect("Providers", responses, manager, monkeypatch)
-        assert manager.saved == []
+    @mock.patch(CLIENT_SESSION_PATCH)
+    def test_single_object_endpoint_wraps_one_row(self, MockSession) -> None:
+        session = MockSession.return_value
+        _wire(session, [_response({"Balance": 42.0, "CurrencyIso": "EUR", "ResultCode": 1, "ErrorCodes": []})])
+
+        # GetBalance carries its payload at the top level; it becomes one row with envelope keys stripped.
+        assert _rows(_source("Balance", _make_manager())) == [{"Balance": 42.0, "CurrencyIso": "EUR"}]
+
+    @mock.patch(CLIENT_SESSION_PATCH)
+    def test_reference_endpoint_does_not_save_resume_state(self, MockSession) -> None:
+        session = MockSession.return_value
+        _wire(session, [_response({"Items": [{"ProviderCode": "P1"}], "ResultCode": 1})])
+
+        manager = _make_manager()
+        _rows(_source("Providers", manager))
+        manager.save_state.assert_not_called()
 
 
 class TestTransferRecordsPagination:
-    def _page(self, refs: list[str], there_are_more: bool) -> dict[str, Any]:
-        return {
-            "Items": [{"TransferId": {"TransferRef": r, "DistributorRef": f"d-{r}"}} for r in refs],
-            "ThereAreMoreItems": there_are_more,
-            "ResultCode": 1,
-            "ErrorCodes": [],
-        }
+    def _page(self, refs: list[str], there_are_more: bool) -> Response:
+        return _response(
+            {
+                "Items": [{"TransferId": {"TransferRef": r, "DistributorRef": f"d-{r}"}} for r in refs],
+                "ThereAreMoreItems": there_are_more,
+                "ResultCode": 1,
+                "ErrorCodes": [],
+            }
+        )
 
-    def test_single_page_flattens_and_stops(self, monkeypatch: Any) -> None:
-        manager = _FakeResumableManager()
-        rows = _collect("TransferRecords", [self._page(["TR1", "TR2"], there_are_more=False)], manager, monkeypatch)
+    @mock.patch(CLIENT_SESSION_PATCH)
+    def test_single_page_flattens_and_stops(self, MockSession) -> None:
+        session = MockSession.return_value
+        bodies = _wire(session, [self._page(["TR1", "TR2"], there_are_more=False)])
+
+        manager = _make_manager()
+        rows = _rows(_source("TransferRecords", manager))
         assert [r["TransferRef"] for r in rows] == ["TR1", "TR2"]
+        # The flatten lifts DistributorRef alongside TransferRef.
+        assert rows[0]["DistributorRef"] == "d-TR1"
+        # First page requests Skip=0 with the fixed page size in the POST body.
+        assert bodies[0] == {"Skip": 0, "Take": 100}
+        assert session.send.call_count == 1
         # Only one page, so there's nothing further to resume to.
-        assert manager.saved == []
+        manager.save_state.assert_not_called()
 
-    def test_follows_pagination_until_there_are_no_more_items(self, monkeypatch: Any) -> None:
-        manager = _FakeResumableManager()
-        responses = [
-            self._page(["TR1"], there_are_more=True),
-            self._page(["TR2"], there_are_more=True),
-            self._page(["TR3"], there_are_more=False),
-        ]
-        rows = _collect("TransferRecords", responses, manager, monkeypatch)
+    @mock.patch(CLIENT_SESSION_PATCH)
+    def test_follows_pagination_until_there_are_no_more_items(self, MockSession) -> None:
+        session = MockSession.return_value
+        # Single-item pages (shorter than the page size) keep paging purely on the ThereAreMoreItems
+        # flag — proving termination follows the body flag, not page length.
+        bodies = _wire(
+            session,
+            [
+                self._page(["TR1"], there_are_more=True),
+                self._page(["TR2"], there_are_more=True),
+                self._page(["TR3"], there_are_more=False),
+            ],
+        )
+
+        rows = _rows(_source("TransferRecords", _make_manager()))
         assert [r["TransferRef"] for r in rows] == ["TR1", "TR2", "TR3"]
+        assert [b["Skip"] for b in bodies] == [0, 100, 200]
 
-    def test_saves_advancing_skip_after_each_non_final_page(self, monkeypatch: Any) -> None:
-        manager = _FakeResumableManager()
-        responses = [
-            self._page(["TR1"], there_are_more=True),
-            self._page(["TR2"], there_are_more=False),
-        ]
-        _collect("TransferRecords", responses, manager, monkeypatch)
+    @mock.patch(CLIENT_SESSION_PATCH)
+    def test_saves_advancing_skip_after_each_non_final_page(self, MockSession) -> None:
+        session = MockSession.return_value
+        _wire(session, [self._page(["TR1"], there_are_more=True), self._page(["TR2"], there_are_more=False)])
+
+        manager = _make_manager()
+        _rows(_source("TransferRecords", manager))
         # State saved once (after the first page), advancing skip by the page size; the final page
         # saves nothing so a completed sync leaves no stale resume cursor.
-        assert [c.skip for c in manager.saved] == [ding_connect.TRANSFER_RECORDS_PAGE_SIZE]
+        saved = [c.args[0] for c in manager.save_state.call_args_list]
+        assert saved == [DingConnectResumeConfig(skip=100)]
 
-    def test_resumes_from_saved_skip(self, monkeypatch: Any) -> None:
-        seen_skips: list[int] = []
+    @mock.patch(CLIENT_SESSION_PATCH)
+    def test_resumes_from_saved_skip(self, MockSession) -> None:
+        session = MockSession.return_value
+        bodies = _wire(session, [self._page(["TR9"], there_are_more=False)])
 
-        def fake_request(
-            session: Any, method: str, url: str, headers: dict, logger: Any, json_body: Any = None
-        ) -> dict:
-            seen_skips.append(json_body["Skip"])
-            return self._page(["TR9"], there_are_more=False)
-
-        monkeypatch.setattr(ding_connect, "_request", fake_request)
-        monkeypatch.setattr(ding_connect, "make_tracked_session", lambda **kwargs: MagicMock())
-
-        manager = _FakeResumableManager(DingConnectResumeConfig(skip=200))
-        list(get_rows("key", "TransferRecords", MagicMock(), manager))  # type: ignore[arg-type]
-        assert seen_skips == [200]
-
-
-class TestValidateCredentials:
-    def test_status_maps_to_validity(self, monkeypatch: Any) -> None:
-        # 200 means the api_key was accepted; any other status (401 bad key, 500 transient) is treated
-        # as not-yet-valid at source-create.
-        for status_code, expected in [(200, True), (401, False), (500, False)]:
-            session = MagicMock()
-            session.get.return_value = MagicMock(status_code=status_code)
-            monkeypatch.setattr(ding_connect, "make_tracked_session", lambda *args, session=session, **kwargs: session)
-            assert validate_credentials("key") is expected
-
-    def test_network_error_is_invalid(self, monkeypatch: Any) -> None:
-        session = MagicMock()
-        session.get.side_effect = Exception("boom")
-        monkeypatch.setattr(ding_connect, "make_tracked_session", lambda **kwargs: session)
-        assert validate_credentials("key") is False
+        manager = _make_manager(DingConnectResumeConfig(skip=200))
+        _rows(_source("TransferRecords", manager))
+        assert bodies[0]["Skip"] == 200
 
 
 class TestApiKeyRedaction:
     # The api_key travels in a request header, so every tracked session that carries it must
-    # redact it from HTTP observer logs and captures.
-    def test_get_rows_redacts_api_key(self, monkeypatch: Any) -> None:
-        captured: dict[str, Any] = {}
+    # redact its value from HTTP observer logs, captures, and raised error messages.
+    @mock.patch(CLIENT_SESSION_PATCH)
+    def test_client_session_redacts_api_key(self, MockSession) -> None:
+        session = MockSession.return_value
+        _wire(session, [_response({"Items": [], "ResultCode": 1})])
 
-        def fake_make_tracked_session(**kwargs: Any) -> Any:
-            captured.update(kwargs)
-            return MagicMock()
+        _rows(_source("Countries", _make_manager(), api_key="secret-key"))
+        assert MockSession.call_args.kwargs["redact_values"] == ("secret-key",)
 
-        monkeypatch.setattr(ding_connect, "make_tracked_session", fake_make_tracked_session)
-        monkeypatch.setattr(
-            ding_connect,
-            "_request",
-            lambda *args, **kwargs: {"Items": [], "ResultCode": 1, "ErrorCodes": []},
-        )
-
-        list(get_rows("secret-key", "Countries", MagicMock(), _FakeResumableManager()))  # type: ignore[arg-type]
-        assert captured["redact_values"] == ("secret-key",)
-
-    def test_validate_credentials_redacts_api_key(self, monkeypatch: Any) -> None:
-        captured: dict[str, Any] = {}
-
-        def fake_make_tracked_session(**kwargs: Any) -> Any:
-            captured.update(kwargs)
-            session = MagicMock()
-            session.get.return_value = MagicMock(status_code=200)
-            return session
-
-        monkeypatch.setattr(ding_connect, "make_tracked_session", fake_make_tracked_session)
-
+    @mock.patch(DING_SESSION_PATCH)
+    def test_validate_credentials_redacts_api_key(self, mock_session) -> None:
+        mock_session.return_value.get.return_value = mock.MagicMock(status_code=200)
         validate_credentials("secret-key")
-        assert captured["redact_values"] == ("secret-key",)
+        assert mock_session.call_args.kwargs["redact_values"] == ("secret-key",)
+
+
+class TestValidateCredentials:
+    @parameterized.expand([(200, True), (401, False), (500, False)])
+    @mock.patch(DING_SESSION_PATCH)
+    def test_status_maps_to_validity(self, status_code: int, expected: bool, mock_session) -> None:
+        # 200 means the api_key was accepted; any other status (401 bad key, 500 transient) is treated
+        # as not-yet-valid at source-create.
+        mock_session.return_value.get.return_value = mock.MagicMock(status_code=status_code)
+        assert validate_credentials("key") is expected
+
+    @mock.patch(DING_SESSION_PATCH)
+    def test_network_error_is_invalid(self, mock_session) -> None:
+        mock_session.return_value.get.side_effect = Exception("boom")
+        assert validate_credentials("key") is False
 
 
 class TestSourceResponse:
@@ -219,7 +242,7 @@ class TestSourceResponse:
     def test_primary_keys_and_partitioning(
         self, endpoint: str, primary_keys: list[str], partition_key: str | None
     ) -> None:
-        response = ding_connect_source("key", endpoint, MagicMock(), MagicMock())
+        response = _source(endpoint, _make_manager())
         assert response.name == endpoint
         assert response.primary_keys == primary_keys
         assert response.partition_keys == ([partition_key] if partition_key else None)

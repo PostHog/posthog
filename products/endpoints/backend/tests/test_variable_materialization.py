@@ -209,6 +209,26 @@ class TestVariableAnalysis(APIBaseTest):
         assert can_materialize is True
         assert len(var_infos) == 1, f"Expected 1 variable, got {len(var_infos)} (duplicates not deduplicated)"
 
+    def test_variable_compared_against_expression_holding_another_variable(self):
+        query = {
+            "kind": "HogQLQuery",
+            "query": (
+                "SELECT count() FROM events "
+                "WHERE toDate(toTimeZone(timestamp, {variables.timezone})) >= toDate({variables.date_from})"
+            ),
+            "variables": {
+                "var-1": {"code_name": "timezone", "value": "America/New_York"},
+                "var-2": {"code_name": "date_from", "value": "2026-01-01"},
+            },
+        }
+
+        can_materialize, reason, _ = analyze_variables_for_materialization(query)
+
+        assert can_materialize is False
+        assert reason == (
+            "Variable compared against an expression containing another variable is not supported for materialization"
+        )
+
     def test_multiple_variables_rejects_unsupported_operator(self):
         query = {
             "kind": "HogQLQuery",
@@ -1891,7 +1911,7 @@ class TestMaterializedReadPath(APIBaseTest):
 
     def _build_read_query(self, query_str: str, variables_meta: dict, variable_values: dict) -> str:
         """Simulate the materialized read path: analyze variables, then build a SELECT with filters."""
-        from products.endpoints.backend.services.strategies import apply_where_filter
+        from products.endpoints.backend.logic.strategies import apply_where_filter
 
         hogql_query = {"kind": "HogQLQuery", "query": query_str, "variables": variables_meta}
         _, _, var_infos = analyze_variables_for_materialization(hogql_query)

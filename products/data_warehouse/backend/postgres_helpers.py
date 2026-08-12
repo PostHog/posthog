@@ -27,16 +27,14 @@ from products.warehouse_sources.backend.facade.models import (
     postgres_column_to_dwh_column,
     postgres_columns_to_dwh_columns,
 )
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.schema import SourceSchema
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.sql.location import normalize_namespace
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.sql.metadata import (
+from products.warehouse_sources.backend.facade.source_management import (
+    SourceSchema,
     extract_available_column_names,
-    sql_schema_metadata as _sql_schema_metadata,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.sql.projection import (
     filter_columns_by_enabled_columns as _filter_columns_by_enabled_columns,
     filter_dwh_columns_by_enabled_columns as _filter_dwh_columns_by_enabled_columns,
+    normalize_namespace,
     prune_enabled_columns,
+    sql_schema_metadata as _sql_schema_metadata,
 )
 
 if TYPE_CHECKING:

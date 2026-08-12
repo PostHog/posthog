@@ -1,15 +1,19 @@
 import annotationPlugin from 'chartjs-plugin-annotation'
 import clsx from 'clsx'
-import { useMemo, useRef, useState } from 'react'
+import { useCallback, useMemo, useRef, useState } from 'react'
 
 import { IconWarning } from '@posthog/icons'
 import { Popover } from '@posthog/lemon-ui'
+import { DefaultTooltip, Sparkline as QuillSparklineChart, useChartTheme } from '@posthog/quill-charts'
+import type { Series, TooltipContext } from '@posthog/quill-charts'
 
 import { Chart, ScaleOptions, TooltipModel } from 'lib/Chart'
 import { getColorVar } from 'lib/colors'
 import { useChart } from 'lib/hooks/useChart'
 import { useEventListener } from 'lib/hooks/useEventListener'
+import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
 import { useKeyboardHotkeys } from 'lib/hooks/useKeyboardHotkeys'
+import { useLingeringTooltip } from 'lib/hooks/useLingeringTooltip'
 import { hexToRGBA } from 'lib/utils/colors'
 import { humanFriendlyNumber } from 'lib/utils/numbers'
 import { InsightTooltip } from 'scenes/insights/InsightTooltip/InsightTooltip'
@@ -19,6 +23,8 @@ import { LemonSkeleton } from '../lemon-ui/LemonSkeleton'
 // Register once at module load. Chart.register is idempotent so re-registers (eg. by
 // AlertHistoryChart, which also uses the annotation plugin) are safe.
 Chart.register(annotationPlugin)
+
+const HIGHLIGHT_COLOR = '#8f8f8f'
 
 export interface SparklineReferenceLine {
     /** Y-axis value the dashed line is drawn at, in the same units as the series data. */
@@ -37,6 +43,20 @@ export interface SparklineTimeSeries {
     /** Check vars.scss for available colors. @default 'muted' */
     color?: string
     hoverColor?: string
+}
+
+export interface SparklineMarker {
+    /**
+     * X position in the x-axis's own units: epoch ms (or a parseable date string) for a
+     * time scale, a label for a category scale.
+     */
+    xValue: number | string
+    /** Y position in data units. Omit to pin the marker to the bottom of the chart. */
+    yValue?: number
+    /** Color name from `vars.scss`. @default 'primary' */
+    color?: string
+    /** Makes the marker clickable (e.g. to open the trace behind an exemplar). */
+    onClick?: () => void
 }
 
 export type AnyScaleOptions = ScaleOptions<'linear' | 'logarithmic' | 'time' | 'timeseries' | 'category'>
@@ -74,15 +94,21 @@ export interface SparklineProps {
     sortTooltipByCount?: boolean
     /** Optional horizontal dashed reference lines (thresholds, goals, limits). */
     referenceLines?: SparklineReferenceLine[]
+    /**
+     * Point markers drawn over the chart (e.g. trace exemplars). Hover shows the marker's
+     * label; a marker with `onClick` is clickable.
+     */
+    markers?: SparklineMarker[]
     /** Format the per-series tooltip value. Defaults to `humanFriendlyNumber`. */
     renderTooltipValue?: (value: number) => string
     /**
-     * Inclusive label-index range to highlight as a translucent box behind the bars.
-     * Used to mirror an external selection (e.g. the rows currently visible in a
-     * paired virtualized list) onto the chart. Out-of-range or inverted ranges are
-     * clamped; pass `null`/`undefined` to clear.
+     * X-axis value range to highlight as a translucent box behind the bars. Values are
+     * in the x-axis's own units: epoch ms for a time scale (positioned with sub-bar
+     * precision), or a label for a category scale. Used to mirror an external selection
+     * (e.g. the rows currently visible in a paired virtualized list) onto the chart.
+     * Callers pass an already-ordered `xMin <= xMax`; pass `null`/`undefined` to clear.
      */
-    highlightedRange?: { startIndex: number; endIndex: number } | null
+    highlightedRange?: { xMin: number | string; xMax: number | string } | null
     /**
      * Bar indices that are still being ingested (incomplete). Those bars render with a faded
      * diagonal-hatch fill, and hovering one adds `tooltip` to the hover tooltip. Used to flag the
@@ -90,6 +116,153 @@ export interface SparklineProps {
      * `indices` array to clear.
      */
     incompleteBars?: { indices: number[]; tooltip?: string } | null
+    /**
+     * Let the pointer move onto the tooltip without dismissing it, so a tooltip taller than its
+     * max height can be scrolled. Off by default: an interactive tooltip sits over the canvas and
+     * would swallow clicks meant for the chart (e.g. clickable markers or drag-to-select).
+     */
+    interactiveTooltip?: boolean
+}
+
+/** Normalize the permissive `data` prop into one `SparklineTimeSeries` per series. */
+function normalizeSparklineData(
+    data: SparklineProps['data'],
+    name?: string,
+    names?: string[],
+    color?: string,
+    colors?: string[]
+): SparklineTimeSeries[] {
+    const arrayData = Array.isArray(data)
+        ? data.length > 0 && typeof data[0] === 'object'
+            ? data // array of objects, one per series
+            : [data] // array of numbers, turn it into the first series
+        : typeof data === 'object'
+          ? [data] // first series as an object
+          : [[data]] // just a random number... huh
+    return arrayData.map((timeseries, index): SparklineTimeSeries => {
+        const defaultName =
+            names?.[index] || (arrayData.length === 1 ? name || 'Count' : `${name || 'Series'} ${index + 1}`)
+        const defaultColor = colors?.[index] || color || 'muted'
+        if (typeof timeseries === 'object') {
+            if (!Array.isArray(timeseries)) {
+                return {
+                    name: timeseries.name || defaultName,
+                    color: timeseries.color || defaultColor,
+                    values: timeseries.values || [],
+                }
+            }
+            return {
+                name: defaultName,
+                color: defaultColor,
+                values: timeseries as number[],
+            }
+        }
+        return {
+            name: defaultName,
+            color: defaultColor,
+            values: timeseries ? [timeseries] : [],
+        }
+    })
+}
+
+/** Width scales with the number of buckets so short sparklines don't stretch their bars. */
+function sparklineClassName(dataPointCount: number, className?: string): string {
+    return clsx(
+        'relative',
+        dataPointCount > 16 ? 'w-64' : dataPointCount > 8 ? 'w-48' : dataPointCount > 4 ? 'w-32' : 'w-24',
+        className
+    )
+}
+
+export function Sparkline(props: SparklineProps): JSX.Element {
+    const quillEnabled = useFeatureFlag('QUILL_SPARKLINE')
+    // Features the quill path doesn't cover yet. Consumers passing them stay on Chart.js until
+    // their migration wave lands — see docs/internal/quill-migration-sparkline.md.
+    const needsLegacyFeatures = !!(
+        props.onSelectionChange ||
+        props.highlightedRange ||
+        props.incompleteBars?.indices?.length ||
+        props.referenceLines?.length ||
+        props.markers?.length ||
+        props.withXScale ||
+        props.withYScale
+    )
+    return quillEnabled && !needsLegacyFeatures ? <QuillSparkline {...props} /> : <LegacySparkline {...props} />
+}
+
+/** Legacy consumers pass vars.scss color names ('success', 'danger', 'muted'); quill takes CSS colors. */
+function resolveSparklineColor(color: string | undefined): string {
+    const value = color || 'muted'
+    return /^(#|rgb|hsl|var\()/.test(value) ? value : getColorVar(value)
+}
+
+/** The quill rendering path. Exported for Storybook only — the flag dispatch in `Sparkline` is
+ *  unusable there (Storybook's implicit-action args inject an `onSelectionChange` spy, which the
+ *  dispatch reads as a legacy-only feature). Consumers always use `Sparkline`. */
+export function QuillSparkline({
+    data,
+    color,
+    colors,
+    name,
+    names,
+    labels,
+    type = 'bar',
+    loading = false,
+    renderLabel,
+    className,
+    hideZerosInTooltip = false,
+    sortTooltipByCount = false,
+    renderTooltipValue,
+}: SparklineProps): JSX.Element {
+    const theme = useChartTheme()
+
+    const series: Series[] = useMemo(
+        () =>
+            normalizeSparklineData(data, name, names, color, colors).map((timeseries, index) => ({
+                key: `${index}`,
+                label: timeseries.name,
+                data: timeseries.values,
+                color: resolveSparklineColor(timeseries.color),
+            })),
+        [data, name, names, color, colors]
+    )
+    const chartLabels = useMemo(() => labels ?? (series[0]?.data ?? []).map((_, i) => `Entry ${i}`), [labels, series])
+
+    const renderTooltip = useCallback(
+        (ctx: TooltipContext): JSX.Element => (
+            <DefaultTooltip
+                {...ctx}
+                showHeader={!!labels}
+                hideZeroRows={hideZerosInTooltip}
+                sortedByValue={sortTooltipByCount}
+                valueFormatter={(value) => (renderTooltipValue ?? humanFriendlyNumber)(value)}
+                labelFormatter={renderLabel}
+            />
+        ),
+        [labels, hideZerosInTooltip, sortTooltipByCount, renderTooltipValue, renderLabel]
+    )
+
+    const finalClassName = sparklineClassName(series[0]?.data.length || 0, className)
+
+    if (loading) {
+        return <LemonSkeleton className={finalClassName} />
+    }
+    if (data === undefined || data.length === 0) {
+        return <div className={finalClassName} />
+    }
+    return (
+        <div className={finalClassName}>
+            <QuillSparklineChart
+                series={series}
+                labels={chartLabels}
+                theme={theme}
+                type={type}
+                fill
+                className="h-full"
+                tooltip={renderTooltip}
+            />
+        </div>
+    )
 }
 
 /**
@@ -121,7 +294,7 @@ function createHashedPattern(color: string): CanvasPattern | string {
     return ctx.createPattern(canvas, 'repeat') ?? color
 }
 
-export function Sparkline({
+function LegacySparkline({
     data,
     color,
     colors,
@@ -143,6 +316,8 @@ export function Sparkline({
     renderTooltipValue,
     highlightedRange,
     incompleteBars,
+    markers,
+    interactiveTooltip = false,
 }: SparklineProps): JSX.Element {
     const tooltipRef = useRef<HTMLDivElement | null>(null)
 
@@ -152,39 +327,10 @@ export function Sparkline({
 
     const incompleteBarSet = useMemo(() => new Set(incompleteBars?.indices ?? []), [incompleteBars])
 
-    const adjustedData: SparklineTimeSeries[] = useMemo(() => {
-        const arrayData = Array.isArray(data)
-            ? data.length > 0 && typeof data[0] === 'object'
-                ? data // array of objects, one per series
-                : [data] // array of numbers, turn it into the first series
-            : typeof data === 'object'
-              ? [data] // first series as an object
-              : [[data]] // just a random number... huh
-        return arrayData.map((timeseries, index): SparklineTimeSeries => {
-            const defaultName =
-                names?.[index] || (arrayData.length === 1 ? name || 'Count' : `${name || 'Series'} ${index + 1}`)
-            const defaultColor = colors?.[index] || color || 'muted'
-            if (typeof timeseries === 'object') {
-                if (!Array.isArray(timeseries)) {
-                    return {
-                        name: timeseries.name || defaultName,
-                        color: timeseries.color || defaultColor,
-                        values: timeseries.values || [],
-                    }
-                }
-                return {
-                    name: defaultName,
-                    color: defaultColor,
-                    values: timeseries as number[],
-                }
-            }
-            return {
-                name: defaultName,
-                color: defaultColor,
-                values: timeseries ? [timeseries] : [],
-            }
-        })
-    }, [data]) // oxlint-disable-line react-hooks/exhaustive-deps
+    const adjustedData: SparklineTimeSeries[] = useMemo(
+        () => normalizeSparklineData(data, name, names, color, colors),
+        [data] // oxlint-disable-line react-hooks/exhaustive-deps
+    )
 
     const { canvasRef } = useChart({
         getConfig: () => {
@@ -333,32 +479,50 @@ export function Sparkline({
                             }
 
                             if (highlightedRange && labels && labels.length > 0) {
-                                const lastIdx = labels.length - 1
-                                const lo = Math.max(0, Math.min(highlightedRange.startIndex, highlightedRange.endIndex))
-                                const hi = Math.min(
-                                    lastIdx,
-                                    Math.max(highlightedRange.startIndex, highlightedRange.endIndex)
-                                )
-                                if (lo <= hi) {
-                                    // Match the cursor-row highlight hue (`--primary-highlight`):
-                                    // orange in light mode, amber in dark. Read the concrete
-                                    // per-theme token since the semantic var is a nested `var()`
-                                    // that doesn't resolve off-DOM (e.g. on the chart canvas).
-                                    const isDark = document.body.getAttribute('theme') === 'dark'
-                                    const primary = getColorVar(isDark ? 'primary-3000-dark' : 'primary-3000-light')
-                                    annotations.highlightedRange = {
-                                        type: 'box',
-                                        xMin: labels[lo],
-                                        // Extend to the next bucket's start so the last bar is fully enclosed.
-                                        xMax: labels[hi + 1] ?? labels[hi],
-                                        // Drawn under the bars so the data stays legible.
-                                        drawTime: 'beforeDatasetsDraw',
-                                        // 10% fill mirrors the cursor row; a stronger border marks the window edges.
-                                        backgroundColor: hexToRGBA(primary, 0.1),
-                                        borderColor: hexToRGBA(primary, 0.8),
-                                        borderWidth: 1,
-                                    }
+                                annotations.highlightedRange = {
+                                    type: 'box',
+                                    xMin: highlightedRange.xMin,
+                                    xMax: highlightedRange.xMax,
+                                    // Drawn under the bars so the data stays legible.
+                                    drawTime: 'beforeDatasetsDraw',
+                                    // Faint fill with a stronger border to mark the window edges.
+                                    backgroundColor: hexToRGBA(HIGHLIGHT_COLOR, 0.1),
+                                    borderColor: hexToRGBA(HIGHLIGHT_COLOR, 0.8),
+                                    borderWidth: 1,
                                 }
+                            }
+
+                            if (markers && markers.length > 0) {
+                                markers.forEach((marker, i) => {
+                                    const markerColor = getColorVar(marker.color || 'primary')
+                                    annotations[`marker${i}`] = {
+                                        type: 'point',
+                                        xValue: marker.xValue,
+                                        // Markers don't participate in autoscaling, so an absent
+                                        // yValue pins to the bottom of whatever range the data set —
+                                        // exemplar-tick style, immune to out-of-range raw values.
+                                        yValue:
+                                            marker.yValue ?? ((ctx: { chart: Chart }) => ctx.chart.scales.y?.min ?? 0),
+                                        radius: 4,
+                                        backgroundColor: hexToRGBA(markerColor, 0.85),
+                                        borderColor: markerColor,
+                                        borderWidth: 1,
+                                        // enter/leave double as hover affordance for clickable markers.
+                                        enter: (ctx: { chart: Chart; element: { options: { radius: number } } }) => {
+                                            ctx.element.options.radius = 6
+                                            if (marker.onClick) {
+                                                ctx.chart.canvas.style.cursor = 'pointer'
+                                            }
+                                            return true
+                                        },
+                                        leave: (ctx: { chart: Chart; element: { options: { radius: number } } }) => {
+                                            ctx.element.options.radius = 4
+                                            ctx.chart.canvas.style.cursor = ''
+                                            return true
+                                        },
+                                        ...(marker.onClick ? { click: () => marker.onClick?.() } : {}),
+                                    }
+                                })
                             }
 
                             return Object.keys(annotations).length > 0 ? { annotation: { annotations } } : {}
@@ -385,17 +549,19 @@ export function Sparkline({
             referenceLines,
             highlightedRange,
             incompleteBars,
+            markers,
         ],
     })
 
-    const dataPointCount = adjustedData[0]?.values?.length || 0
-    const finalClassName = clsx(
-        'relative',
-        dataPointCount > 16 ? 'w-64' : dataPointCount > 8 ? 'w-48' : dataPointCount > 4 ? 'w-32' : 'w-24',
-        className
-    )
+    const finalClassName = sparklineClassName(adjustedData[0]?.values?.length || 0, className)
 
-    const tooltipVisible = !!(tooltip && tooltip.opacity > 0)
+    // Chart.js keeps `dataPoints` populated after it zeroes `opacity`, so the content survives the
+    // linger — only visibility needs holding open.
+    const {
+        visible: tooltipVisible,
+        onMouseEnter: onTooltipMouseEnter,
+        onMouseLeave: onTooltipMouseLeave,
+    } = useLingeringTooltip(!!(tooltip && tooltip.opacity > 0), interactiveTooltip)
     const toolTipDataPoints = tooltip && tooltip.dataPoints ? tooltip.dataPoints : []
 
     const hoveredElementX = toolTipDataPoints[0]?.element?.x ?? 0
@@ -524,6 +690,8 @@ export function Sparkline({
                     }
                     placement="bottom-start"
                     padded={false}
+                    onMouseEnterInside={interactiveTooltip ? onTooltipMouseEnter : undefined}
+                    onMouseLeaveInside={interactiveTooltip ? onTooltipMouseLeave : undefined}
                 >
                     <div ref={tooltipRef} />
                 </Popover>

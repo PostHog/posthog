@@ -28,7 +28,9 @@ jest.mock('./traceReviewsApi', () => ({
     },
 }))
 jest.mock('../generated/api', () => ({
-    aiObservabilityScoreDefinitionsList: jest
+    ...jest.requireActual('../generated/api'),
+    // The logic imports this under the alias aiObservabilityScoreDefinitionsList.
+    llmAnalyticsScoreDefinitionsList: jest
         .fn()
         .mockResolvedValue({ results: [], count: 0, next: null, previous: null }),
 }))

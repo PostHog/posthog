@@ -18,7 +18,7 @@ from products.error_tracking.backend.temporal.symbol_set_cleanup.types import Sy
 from products.error_tracking.backend.temporal.symbol_set_cleanup.workflow import WORKFLOW_NAME
 
 SCHEDULE_ID = "error-tracking-symbol-set-cleanup-schedule"
-SCHEDULE_INTERVAL = timedelta(hours=1)
+SCHEDULE_INTERVAL = timedelta(minutes=30)
 
 
 async def create_error_tracking_symbol_set_cleanup_schedule(client: Client) -> None:

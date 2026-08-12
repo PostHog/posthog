@@ -6,6 +6,8 @@ import { BridgePage } from 'lib/components/BridgePage/BridgePage'
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { SceneExport } from 'scenes/sceneTypes'
 
+import { DESKTOP_SCHEME } from './desktopScheme'
+
 export interface CodeCanvasLinkProps {
     channelId: string
     dashboardId: string
@@ -18,13 +20,6 @@ export const scene: SceneExport<CodeCanvasLinkProps> = {
         dashboardId: dashboardId ?? '',
     }),
 }
-
-// The desktop app registers a different custom scheme per build: production
-// installs use `posthog-code://`, local dev builds use `posthog-code-dev://`.
-// A dev frontend (./bin/start) is exactly when you're testing against a dev
-// desktop build, so target that scheme there. Build-time constant, so it never
-// flips after mount and double-fires.
-const DESKTOP_SCHEME = process.env.NODE_ENV === 'development' ? 'posthog-code-dev' : 'posthog-code'
 
 function canvasDeepLink(channelId: string, dashboardId: string): string {
     return `${DESKTOP_SCHEME}://canvas/${encodeURIComponent(channelId)}/${encodeURIComponent(dashboardId)}`
@@ -53,10 +48,10 @@ export function CodeCanvasLink({ channelId, dashboardId }: CodeCanvasLinkProps):
         <BridgePage view="code-canvas-link">
             <div className="flex flex-col items-center gap-4 text-center max-w-lg mx-auto">
                 <IconLaptop className="text-5xl shrink-0" />
-                <h2 className="text-xl font-semibold m-0">Opening in PostHog Code…</h2>
+                <h2 className="text-xl font-semibold m-0">Opening in PostHog Desktop…</h2>
                 <p className="text-muted mb-0">
-                    Canvases live in the PostHog Code desktop app. If it's installed, it should open automatically. If
-                    it didn't, use the button below — or download the app.
+                    Canvases live in the PostHog Desktop app. If it's installed, it should open automatically. If it
+                    didn't, use the button below — or download the app.
                 </p>
                 <div className="flex flex-col items-center gap-2">
                     {deepLink && (
@@ -66,11 +61,11 @@ export function CodeCanvasLink({ channelId, dashboardId }: CodeCanvasLinkProps):
                                 window.location.href = deepLink
                             }}
                         >
-                            Open in PostHog Code
+                            Open in PostHog Desktop
                         </LemonButton>
                     )}
-                    <LemonButton type="secondary" to="https://posthog.com/code" targetBlank>
-                        Download PostHog Code
+                    <LemonButton type="secondary" to="https://posthog.com/desktop" targetBlank>
+                        Download PostHog Desktop
                     </LemonButton>
                 </div>
             </div>

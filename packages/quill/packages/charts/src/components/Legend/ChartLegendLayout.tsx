@@ -29,10 +29,11 @@ export function ChartLegendLayout({
     const isRow = position === 'left' || position === 'right'
     const legendFirst = position === 'top' || position === 'left'
     // Side legends stretch to the chart height — a % max-height no-ops without an explicit ancestor height,
-    // which top/bottom's max-h-[40%] still needs. `justify-center-safe` keeps short side legends centered
-    // yet scrollable (plain center would push the top rows past the scroll origin).
+    // which top/bottom's max-h-[40%] still needs. Their width caps at 45% of the chart but never more than
+    // 240px, so one long label can't squeeze the plot on a wide chart. `justify-center-safe` keeps short
+    // side legends centered yet scrollable (plain center would push the top rows past the scroll origin).
     const legendClass = isRow
-        ? 'flex flex-col self-stretch max-w-[45%] overflow-y-auto justify-center-safe'
+        ? 'flex flex-col self-stretch max-w-[min(45%,240px)] overflow-y-auto justify-center-safe'
         : 'self-stretch max-h-[40%] overflow-y-auto'
 
     const legendSlot = legend ? (

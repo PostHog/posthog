@@ -5,6 +5,8 @@ import type { Context, ToolBase } from '@/tools/types'
 
 import { invokeMcpTool } from './invokeTool'
 
+export const EXECUTE_SQL_TOOL_NAME = 'execute-sql'
+
 const schema = ExecuteSQLSchema
 
 type Params = z.infer<typeof schema>
@@ -17,6 +19,7 @@ export const executeSqlHandler: ToolBase<typeof schema, string>['handler'] = asy
         query: params.query,
         truncate: params.truncate ?? true,
         ...(params.connectionId !== undefined && { connectionId: params.connectionId }),
+        ...(params.sendRawQuery !== undefined && { sendRawQuery: params.sendRawQuery }),
     })
 
     if (!result.success) {
@@ -27,7 +30,7 @@ export const executeSqlHandler: ToolBase<typeof schema, string>['handler'] = asy
 }
 
 const tool = (): ToolBase<typeof schema, string> => ({
-    name: 'execute-sql',
+    name: EXECUTE_SQL_TOOL_NAME,
     schema,
     handler: executeSqlHandler,
 })

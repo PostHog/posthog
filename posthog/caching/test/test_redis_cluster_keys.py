@@ -4,7 +4,7 @@ from unittest.mock import MagicMock
 from parameterized import parameterized
 from redis.crc import key_slot
 
-from posthog.caching.cache_size_tracker import TeamCacheSizeTracker
+from posthog.query_cache.size_tracker import TeamCacheSizeTracker
 
 
 class TestRedisClusterKeySlots(BaseTest):
@@ -20,7 +20,7 @@ class TestRedisClusterKeySlots(BaseTest):
         mock_redis = MagicMock()
         mock_redis.register_script = MagicMock(return_value=MagicMock())
 
-        tracker = TeamCacheSizeTracker(team_id, cache_backend=mock_cache, redis_client=mock_redis, is_cluster=True)
+        tracker = TeamCacheSizeTracker(team_id, cache_backend=mock_cache, redis_client=mock_redis)
 
         slots = {
             key_slot(tracker.entries_key.encode()),

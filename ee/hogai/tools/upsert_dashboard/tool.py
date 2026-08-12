@@ -567,6 +567,7 @@ class UpsertDashboardTool(MaxTool):
         context = DashboardContext(
             team=self._team,
             insights_data=insights_data,
+            user=self._user,
             name=dashboard.name,
             description=dashboard.description,
             dashboard_id=str(dashboard.id),

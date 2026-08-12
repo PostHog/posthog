@@ -9,10 +9,6 @@ from posthog.schema import (
     SourceFieldInputConfigType,
 )
 
-from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline.typings import (
-    SourceInputs,
-    SourceResponse,
-)
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.base import FieldType, ResumableSource
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.canonical_descriptions import (
     CanonicalDescriptions,
@@ -20,17 +16,19 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common.can
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.registry import SourceRegistry
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.schema import SourceSchema
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.typings import SourceInputs, SourceResponse
 from products.warehouse_sources.backend.temporal.data_imports.sources.ezofficeinventory.ezofficeinventory import (
     EZOfficeInventoryResumeConfig,
     ezofficeinventory_source,
     validate_credentials as validate_ezofficeinventory_credentials,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.ezofficeinventory.settings import (
-    ENDPOINTS,
-    EZOFFICEINVENTORY_ENDPOINTS,
+    EZOFFICEINVENTORY_API_VERSION_V1,
+    EZOFFICEINVENTORY_API_VERSION_V2,
     INCREMENTAL_FIELDS,
+    endpoints_for_version,
 )
-from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs import (
+from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.ezofficeinventory import (
     EZOfficeInventorySourceConfig,
 )
 from products.warehouse_sources.backend.types import ExternalDataSourceType
@@ -41,6 +39,12 @@ class EZOfficeInventorySource(ResumableSource[EZOfficeInventorySourceConfig, EZO
     # `get_schemas` iterates a static endpoint catalog with no I/O, so the table list is safe to
     # render in public docs without credentials.
     lists_tables_without_credentials = True
+    api_docs_url = "https://ezo.io/ezofficeinventory/developers/"
+
+    # Declare oldest→newest; the default is always the last entry. New sources start on v2 (the
+    # GA `/api/v2/` REST API); existing v1 pins keep serving the legacy `*.api` interface.
+    supported_versions = (EZOFFICEINVENTORY_API_VERSION_V1, EZOFFICEINVENTORY_API_VERSION_V2)
+    default_version = EZOFFICEINVENTORY_API_VERSION_V2
 
     @property
     def source_type(self) -> ExternalDataSourceType:
@@ -73,17 +77,19 @@ class EZOfficeInventorySource(ResumableSource[EZOfficeInventorySourceConfig, EZO
         with_counts: bool = False,
         names: list[str] | None = None,
         force_refresh: bool = False,
+        api_version: str | None = None,
     ) -> list[SourceSchema]:
+        endpoints = endpoints_for_version(self.resolve_api_version(api_version))
         schemas = [
             SourceSchema(
                 name=endpoint,
                 supports_incremental=INCREMENTAL_FIELDS.get(endpoint) is not None,
                 supports_append=INCREMENTAL_FIELDS.get(endpoint) is not None,
                 incremental_fields=INCREMENTAL_FIELDS.get(endpoint, []),
-                detected_primary_keys=EZOFFICEINVENTORY_ENDPOINTS[endpoint].primary_keys,
-                should_sync_default=EZOFFICEINVENTORY_ENDPOINTS[endpoint].should_sync_default,
+                detected_primary_keys=config.primary_keys,
+                should_sync_default=config.should_sync_default,
             )
-            for endpoint in list(ENDPOINTS)
+            for endpoint, config in endpoints.items()
         ]
 
         if names is not None:
@@ -93,9 +99,15 @@ class EZOfficeInventorySource(ResumableSource[EZOfficeInventorySourceConfig, EZO
         return schemas
 
     def validate_credentials(
-        self, config: EZOfficeInventorySourceConfig, team_id: int, schema_name: Optional[str] = None
+        self,
+        config: EZOfficeInventorySourceConfig,
+        team_id: int,
+        schema_name: Optional[str] = None,
+        api_version: str | None = None,
     ) -> tuple[bool, str | None]:
-        is_valid, error_message = validate_ezofficeinventory_credentials(config.api_key, config.subdomain)
+        is_valid, error_message = validate_ezofficeinventory_credentials(
+            config.api_key, config.subdomain, self.resolve_api_version(api_version)
+        )
         if is_valid:
             return True, None
 
@@ -120,8 +132,11 @@ class EZOfficeInventorySource(ResumableSource[EZOfficeInventorySourceConfig, EZO
             api_key=config.api_key,
             subdomain=config.subdomain,
             endpoint=inputs.schema_name,
-            logger=inputs.logger,
+            team_id=inputs.team_id,
+            job_id=inputs.job_id,
             resumable_source_manager=resumable_source_manager,
+            api_version=self.resolve_api_version(inputs.api_version),
+            db_incremental_field_last_value=None,  # every EZOfficeInventory endpoint is full refresh
         )
 
     @property
@@ -138,7 +153,6 @@ class EZOfficeInventorySource(ResumableSource[EZOfficeInventorySourceConfig, EZO
             docsUrl="https://posthog.com/docs/cdp/sources/ezofficeinventory",
             iconPath="/static/services/ezofficeinventory.svg",
             releaseStatus=ReleaseStatus.ALPHA,
-            unreleasedSource=True,
             fields=cast(
                 list[FieldType],
                 [

@@ -2,8 +2,11 @@ import { useActions, useValues } from 'kea'
 
 import { LemonButton, LemonInput, LemonModal, LemonSegmentedButton, LemonSelect } from '@posthog/lemon-ui'
 
+import { AccessControlAction } from 'lib/components/AccessControlAction'
 import { PropertyFilters } from 'lib/components/PropertyFilters/PropertyFilters'
 import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
+
+import { AccessControlLevel, AccessControlResourceType } from '~/types'
 
 import { DEFAULT_CLUSTERING_PARAMS, clustersAdminLogic } from './clustersAdminLogic'
 
@@ -36,14 +39,19 @@ export function ClusteringAdminModal(): JSX.Element {
                     >
                         Cancel
                     </LemonButton>
-                    <LemonButton
-                        type="primary"
-                        onClick={triggerClusteringRun}
-                        loading={isRunning}
-                        data-attr="clusters-admin-run"
+                    <AccessControlAction
+                        resourceType={AccessControlResourceType.AiObservabilityClusters}
+                        minAccessLevel={AccessControlLevel.Editor}
                     >
-                        Run clustering
-                    </LemonButton>
+                        <LemonButton
+                            type="primary"
+                            onClick={triggerClusteringRun}
+                            loading={isRunning}
+                            data-attr="clusters-admin-run"
+                        >
+                            Run clustering
+                        </LemonButton>
+                    </AccessControlAction>
                 </>
             }
         >

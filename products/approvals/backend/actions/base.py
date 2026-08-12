@@ -1,6 +1,8 @@
 from abc import ABC, abstractmethod
 from typing import Any, Optional
 
+from posthog.models import Team
+
 
 class BaseAction(ABC):
     """
@@ -34,14 +36,27 @@ class BaseAction(ABC):
     @classmethod
     def _get_team(cls, view):
         if hasattr(view, "context"):
-            return view.context.get("get_team", lambda: None)()
+            team = view.context.get("get_team", lambda: None)()
+            if team is not None:
+                return team
+            # Internal callers omit get_team; derive from the instance/team_id so
+            # detection stays fail-closed instead of silently skipping the gate.
+            instance = getattr(view, "instance", None)
+            team = getattr(instance, "team", None)
+            if team is None and view.context.get("team_id"):
+                team = Team.objects.filter(id=view.context["team_id"]).first()
+            return team
         else:
             return getattr(view, "team", None)
 
     @classmethod
     def _get_organization(cls, view):
         if hasattr(view, "context"):
-            return view.context.get("get_organization", lambda: None)()
+            org = view.context.get("get_organization", lambda: None)()
+            if org is not None:
+                return org
+            team = cls._get_team(view)
+            return team.organization if team is not None else None
         else:
             return getattr(view, "organization", None)
 

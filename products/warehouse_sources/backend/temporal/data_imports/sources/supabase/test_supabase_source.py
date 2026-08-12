@@ -3,7 +3,10 @@ from unittest import mock
 
 from posthog.schema import ReleaseStatus, SourceFieldInputConfig
 
-from products.warehouse_sources.backend.temporal.data_imports.sources.postgres.source import PostgresSource
+from products.warehouse_sources.backend.temporal.data_imports.sources.postgres.source import (
+    _HOST_UNREACHABLE_ERROR,
+    PostgresSource,
+)
 from products.warehouse_sources.backend.temporal.data_imports.sources.supabase.source import SupabaseSource
 
 
@@ -47,17 +50,64 @@ def test_supabase_host_field_points_at_the_pooler():
         "  db.abcdefgh.supabase.co  ",
     ],
 )
-def test_direct_host_failure_surfaces_ipv4_addon_hint(host):
+def test_direct_host_unreachable_surfaces_ipv4_addon_hint(host):
     # The direct host is the only one that supports logical replication (CDC), so we let the
-    # connection attempt run; on failure we explain the IPv4 add-on requirement.
+    # connection attempt run; an unreachable host is the IPv6 case, so explain the IPv4 add-on.
     config = mock.MagicMock(host=host)
 
-    with mock.patch.object(PostgresSource, "validate_credentials", return_value=(False, "could not connect")):
+    with mock.patch.object(PostgresSource, "validate_credentials", return_value=(False, _HOST_UNREACHABLE_ERROR)):
         success, error = SupabaseSource().validate_credentials(config, team_id=1)
 
     assert success is False
     assert error is not None
     assert "ipv4 add-on" in error.lower()
+
+
+@pytest.mark.parametrize(
+    "postgres_error",
+    [
+        "Invalid user or password",
+        "Database does not exist",
+    ],
+)
+def test_direct_host_non_reachability_error_is_not_masked(postgres_error):
+    # A clear failure like a bad password must reach the user unchanged — overwriting it with the
+    # IPv4 hint would tell someone whose add-on is already enabled to fix a non-existent problem.
+    config = mock.MagicMock(host="db.abcdefghijklmnop.supabase.co")
+
+    with mock.patch.object(PostgresSource, "validate_credentials", return_value=(False, postgres_error)):
+        success, error = SupabaseSource().validate_credentials(config, team_id=1)
+
+    assert success is False
+    assert error == postgres_error
+
+
+@pytest.mark.parametrize(
+    "host",
+    [
+        "abcdefgh.supabase.co",
+        "https://abcdefgh.supabase.co",
+        "https://abcdefgh.supabase.co/",
+        "  HTTPS://ABCDEFGH.SUPABASE.CO  ",
+    ],
+)
+def test_project_url_host_is_rejected_before_connecting(host):
+    # The dashboard's "Project URL" (`<ref>.supabase.co`) is the REST endpoint, not a database
+    # host. Pasting it (often with the scheme) must short-circuit to actionable guidance instead
+    # of attempting a doomed connection that yields an opaque DNS error.
+    config = mock.MagicMock(host=host)
+
+    with mock.patch.object(PostgresSource, "validate_credentials") as super_validate:
+        success, error = SupabaseSource().validate_credentials(config, team_id=1)
+
+    super_validate.assert_not_called()
+    assert success is False
+    assert error is not None
+    assert "project url" in error.lower()
+    assert "pooler.supabase.com" in error
+    # The suggested pooler username is case-sensitive, so the ref must be lowercased even when
+    # the user typed the host in caps (see the uppercase parametrized case).
+    assert "postgres.abcdefgh" in error
 
 
 @pytest.mark.parametrize(

@@ -13,6 +13,9 @@ describe('normalizeLLMProvider', () => {
         ['mini max', 'minimax'],
         ['mini-max', 'minimax'],
         ['minimax', 'minimax'],
+        ['zeabur ai hub', 'zeabur'],
+        ['zeabur-ai-hub', 'zeabur'],
+        ['zeabur', 'zeabur'],
         ['openai', 'openai'],
     ])('maps %s to %s', (input, expected) => {
         expect(normalizeLLMProvider(input)).toBe(expected)

@@ -1,0 +1,482 @@
+import { Message } from 'node-rdkafka'
+
+import { IngestionWarningsOutput } from '~/common/outputs'
+import { IngestionOutputs } from '~/common/outputs/ingestion-outputs'
+import { PromiseScheduler } from '~/common/utils/promise-scheduler'
+import {
+    BaseChunkPipeline,
+    ChunkProcessingStep,
+    applyChunkStepToResults,
+} from '~/ingestion/framework/base-chunk-pipeline'
+import { BufferingChunkPipeline } from '~/ingestion/framework/buffering-chunk-pipeline'
+import { ChunkPipeline } from '~/ingestion/framework/chunk-pipeline.interface'
+import { ConcurrentChunkProcessingPipeline } from '~/ingestion/framework/concurrent-chunk-pipeline'
+import {
+    ConcurrentlyGroupingChunkPipeline,
+    GroupChunkProcessor,
+    GroupingFunction,
+    processGroupChunkSequentially,
+} from '~/ingestion/framework/concurrently-grouping-chunk-pipeline'
+import {
+    FanInFunction,
+    FanOutFanInChunkPipeline,
+    FanOutFunction,
+    FanOutSubContext,
+} from '~/ingestion/framework/fan-out-fan-in-chunk-pipeline'
+import { FilterMapChunkPipeline, FilterMapMappingFunction } from '~/ingestion/framework/filter-map-chunk-pipeline'
+import { GatheringChunkPipeline } from '~/ingestion/framework/gathering-chunk-pipeline'
+import { IngestionWarningHandlingChunkPipeline } from '~/ingestion/framework/ingestion-warning-handling-chunk-pipeline'
+import { PipelineBuilderContext } from '~/ingestion/framework/pipeline.interface'
+import { PipelineConfig, ResultHandlingPipeline } from '~/ingestion/framework/result-handling-pipeline'
+import { RetryOptions, withChunkRetry } from '~/ingestion/framework/retry'
+import { SequentialChunkPipeline } from '~/ingestion/framework/sequential-chunk-pipeline'
+import { SideEffectHandlingPipeline } from '~/ingestion/framework/side-effect-handling-pipeline'
+
+import { PipelineBuilder, StartPipelineBuilder } from './pipeline-builders'
+
+/**
+ * Minimal team context required for team-aware pipeline operations.
+ * Only the team ID is needed to route warnings to the correct team.
+ */
+export interface TeamIdContext {
+    team: { id: number }
+}
+
+/**
+ * Composes how a group's queued chunk is processed, as a chain of group chunk
+ * stages: `pipeChunk` applies a chunk step to the whole chunk, `sequentially`
+ * runs each item through a per-item pipeline one at a time. Stages run in
+ * declaration order; `concurrentlyPerGroup` finalizes the chain into the
+ * single {@link GroupChunkProcessor} the grouping pipeline executes per chunk.
+ */
+export class GroupProcessingBuilder<
+    TInput,
+    TOutput,
+    CInput = Record<string, never>,
+    COutput = CInput,
+    R extends string = never,
+    D = unknown,
+> {
+    // Holds a completion function instead of the grouping function and previous
+    // pipeline directly: a groupingFn field would be contravariant in TOutput,
+    // making ChunkPipelineBuilder invariant in TOutput and breaking covariant
+    // subpipeline callbacks (e.g. in newBatchingPipeline). In this closure's
+    // signature TOutput only appears in variance-neutral positions.
+    constructor(
+        /** @internal Completes the group definition; called by concurrentlyPerGroup with the terminal stage. */
+        readonly buildGroupedPipeline: <U, R2 extends string>(
+            downstream: GroupChunkProcessor<TOutput, U, COutput, R2>
+        ) => ChunkPipeline<TInput, U, CInput, COutput, R | R2>,
+        private builderContext?: PipelineBuilderContext<D>
+    ) {}
+
+    private stage<U, R2 extends string>(
+        stageProcessor: GroupChunkProcessor<TOutput, U, COutput, R2>
+    ): GroupProcessingBuilder<TInput, U, CInput, COutput, R | R2, D> {
+        const buildWithEarlierStages = this.buildGroupedPipeline
+        return new GroupProcessingBuilder<TInput, U, CInput, COutput, R | R2, D>(
+            <V, R3 extends string>(downstream: GroupChunkProcessor<U, V, COutput, R3>) =>
+                buildWithEarlierStages<V, R2 | R3>(async (items) => await downstream(await stageProcessor(items))),
+            this.builderContext
+        )
+    }
+
+    /**
+     * Apply a chunk step to each group's queued chunk. Same contract as the
+     * outer `pipeChunk`: the step sees the chunk's OK values in processing
+     * order and returns one result per value; non-OK results pass through.
+     * Runs once per started group chunk.
+     */
+    pipeChunk<U, R2 extends string = never>(
+        step: ChunkProcessingStep<TOutput, U, R2>
+    ): GroupProcessingBuilder<TInput, U, CInput, COutput, R | R2, D> {
+        const stepName = step.name || 'anonymousChunkStep'
+        return this.stage((items) => applyChunkStepToResults(step, stepName, items, this.builderContext))
+    }
+
+    /**
+     * Process the items within each group sequentially through the provided
+     * pipeline: one item at a time, in input order. Groups still run
+     * concurrently with respect to each other.
+     */
+    sequentially<U, R2 extends string = never>(
+        callback: (builder: StartPipelineBuilder<TOutput, COutput>) => PipelineBuilder<TOutput, U, COutput, R2>
+    ): GroupProcessingBuilder<TInput, U, CInput, COutput, R | R2, D> {
+        const processor = callback(new StartPipelineBuilder<TOutput, COutput>()).build()
+        return this.stage(processGroupChunkSequentially(processor))
+    }
+}
+
+/**
+ * Middle stage of `.fanOut(fn).via(cb).fanIn(fn)`. Its only method is `via`,
+ * so a fan-out stage cannot be built (or have results handled) until it is
+ * closed with a subpipeline and a fan-in function.
+ */
+export class FanOutBuilder<
+    TInput,
+    TOutput,
+    TSub,
+    CInput = Record<string, never>,
+    COutput = CInput,
+    R extends string = never,
+    D = unknown,
+> {
+    // Holds a completion function instead of the fan-out function and previous
+    // pipeline directly, for the same variance reason as GroupProcessingBuilder:
+    // in this closure's signature TOutput only appears in variance-neutral
+    // positions, keeping ChunkPipelineBuilder covariant in TOutput.
+    constructor(
+        private readonly buildFannedOutPipeline: <TSubOut, U, RSub extends string>(
+            subPipeline: ChunkPipeline<TSub, TSubOut, FanOutSubContext, FanOutSubContext, RSub>,
+            fanInFn: FanInFunction<TOutput, TSubOut, U>
+        ) => ChunkPipeline<TInput, U, CInput, COutput, R>,
+        private readonly builderContext?: PipelineBuilderContext<D>
+    ) {}
+
+    /**
+     * Route the sub-elements through a subpipeline built on the full chunk
+     * builder surface (`concurrently` with `maxConcurrency`, per-step `retry`,
+     * `concurrentlyPerGroup`, …). Sub-elements from all parents share the
+     * subpipeline, so one concurrency cap governs the whole stage.
+     *
+     * Redirect sub-results never escape the stage, so the subpipeline's
+     * redirect names (`RSub`) do not propagate to the stage's result type —
+     * downstream `handleResults` won't demand outputs for redirects that
+     * cannot happen. (A DLQ sub-result does surface, as the parent's
+     * aggregated DLQ, which carries no redirect names.)
+     */
+    via<TSubOut, RSub extends string = never>(
+        subpipelineCallback: (
+            builder: ChunkPipelineBuilder<TSub, TSub, FanOutSubContext, FanOutSubContext, never, D>
+        ) => ChunkPipelineBuilder<TSub, TSubOut, FanOutSubContext, FanOutSubContext, RSub, D>
+    ): FanInBuilder<TInput, TOutput, TSubOut, CInput, COutput, R, D> {
+        // Sub-contexts carry a copy of their parent's debugContext, so the
+        // builder context (and its aggregator) applies inside the subpipeline
+        // as-is.
+        const startBuilder = new ChunkPipelineBuilder<TSub, TSub, FanOutSubContext, FanOutSubContext, never, D>(
+            new BufferingChunkPipeline<TSub, FanOutSubContext>(),
+            this.builderContext
+        )
+        const subPipeline = subpipelineCallback(startBuilder).build()
+        return new FanInBuilder(
+            <U>(fanInFn: FanInFunction<TOutput, TSubOut, U>) => this.buildFannedOutPipeline(subPipeline, fanInFn),
+            this.builderContext
+        )
+    }
+}
+
+/**
+ * Final stage of `.fanOut(fn).via(cb).fanIn(fn)`. Its only method is `fanIn`,
+ * which folds the sub-results back into the parent and returns a regular
+ * {@link ChunkPipelineBuilder}.
+ */
+export class FanInBuilder<
+    TInput,
+    TOutput,
+    TSubOut,
+    CInput = Record<string, never>,
+    COutput = CInput,
+    R extends string = never,
+    D = unknown,
+> {
+    // Completion-closure shape for the same variance reason as FanOutBuilder.
+    constructor(
+        private readonly buildFannedInPipeline: <U>(
+            fanInFn: FanInFunction<TOutput, TSubOut, U>
+        ) => ChunkPipeline<TInput, U, CInput, COutput, R>,
+        private readonly builderContext?: PipelineBuilderContext<D>
+    ) {}
+
+    /**
+     * Close the stage: fold each parent's collected sub-results back into the
+     * original element (synchronous, cheap).
+     */
+    fanIn<U>(fanInFn: FanInFunction<TOutput, TSubOut, U>): ChunkPipelineBuilder<TInput, U, CInput, COutput, R, D> {
+        return new ChunkPipelineBuilder(this.buildFannedInPipeline(fanInFn), this.builderContext)
+    }
+}
+
+export class ChunkPipelineBuilder<TInput, TOutput, CInput, COutput = CInput, R extends string = never, D = unknown> {
+    constructor(
+        protected pipeline: ChunkPipeline<TInput, TOutput, CInput, COutput, R>,
+        protected builderContext?: PipelineBuilderContext<D>
+    ) {}
+
+    pipeChunk<U, R2 extends string = never>(
+        step: ChunkProcessingStep<TOutput, U, R2>,
+        options?: { retry?: RetryOptions }
+    ): ChunkPipelineBuilder<TInput, U, CInput, COutput, R | R2, D> {
+        const wrappedStep = options?.retry ? withChunkRetry(step, options.retry) : step
+        return new ChunkPipelineBuilder(
+            new BaseChunkPipeline(wrappedStep, this.pipeline, this.builderContext),
+            this.builderContext
+        )
+    }
+
+    /**
+     * Process each item of the chunk concurrently, emitting results in input (FIFO) order.
+     *
+     * @param options.maxConcurrency - Cap on how many items process at once. Omitted means unbounded.
+     */
+    concurrently<U, R2 extends string = never>(
+        callback: (builder: StartPipelineBuilder<TOutput, COutput>) => PipelineBuilder<TOutput, U, COutput, R2>,
+        options?: { maxConcurrency?: number }
+    ): ChunkPipelineBuilder<TInput, U, CInput, COutput, R | R2, D> {
+        const processor = callback(new StartPipelineBuilder<TOutput, COutput>()).build()
+        return new ChunkPipelineBuilder(
+            new ConcurrentChunkProcessingPipeline(processor, this.pipeline, options?.maxConcurrency),
+            this.builderContext
+        )
+    }
+
+    sequentially<U, R2 extends string = never>(
+        callback: (builder: StartPipelineBuilder<TOutput, COutput>) => PipelineBuilder<TOutput, U, COutput, R2>
+    ): ChunkPipelineBuilder<TInput, U, CInput, COutput, R | R2, D> {
+        const processor = callback(new StartPipelineBuilder<TOutput, COutput>()).build()
+        return new ChunkPipelineBuilder(new SequentialChunkPipeline(processor, this.pipeline), this.builderContext)
+    }
+
+    gather(): ChunkPipelineBuilder<TInput, TOutput, CInput, COutput, R, D> {
+        return new ChunkPipelineBuilder(new GatheringChunkPipeline(this.pipeline), this.builderContext)
+    }
+
+    /**
+     * Filters OK results, applies a mapping function, and processes through a subpipeline.
+     * Non-OK results are passed through unchanged.
+     *
+     * @param mappingFn - Function to map OK results (transforms both value and context)
+     * @param subpipelineCallback - Callback that receives a builder and returns the subpipeline
+     */
+    filterMap<TMapped, TSubOutput, CMapped = COutput, CSubOutput = CMapped, ROut extends string = never>(
+        mappingFn: FilterMapMappingFunction<TOutput, TMapped, COutput, CMapped>,
+        subpipelineCallback: (
+            builder: ChunkPipelineBuilder<TMapped, TMapped, CMapped, CMapped, never, D>
+        ) => ChunkPipelineBuilder<TMapped, TSubOutput, CMapped, CSubOutput, ROut, D>
+    ): ChunkPipelineBuilder<TInput, TSubOutput, CInput, CSubOutput | COutput, R | ROut, D> {
+        const startBuilder = new ChunkPipelineBuilder<TMapped, TMapped, CMapped, CMapped, never, D>(
+            new BufferingChunkPipeline<TMapped, CMapped>(),
+            this.builderContext
+        )
+        const subpipelineBuilder = subpipelineCallback(startBuilder)
+        const subPipeline = subpipelineBuilder.build()
+
+        return new ChunkPipelineBuilder(
+            new FilterMapChunkPipeline<
+                TInput,
+                TOutput,
+                TMapped,
+                TSubOutput,
+                CInput,
+                COutput,
+                CMapped,
+                CSubOutput,
+                R,
+                ROut
+            >(this.pipeline, mappingFn, subPipeline),
+            this.builderContext
+        )
+    }
+
+    /**
+     * Open a fan-out/fan-in stage: fan each OK element out into sub-elements,
+     * process them through a subpipeline, and fan the results back into the
+     * original element. The stage is staged so each part reads at the call
+     * site — `.fanOut(fn).via((sub) => …).fanIn(fn)` — and only `.fanIn()`
+     * closes it into a buildable pipeline.
+     *
+     * Cardinality is preserved at the parent level (N in, N out); parents emit
+     * as they complete (unordered). Non-OK elements pass through unchanged.
+     * OK sub-results are collected for the fan-in; dropped sub-elements are
+     * silently excluded (DROP is the sanctioned way for a sub-step to discard
+     * its sub-element); a DLQ sub-result fails the whole parent, which emits a
+     * DLQ aggregating its sub DLQs instead of fanning in; REDIRECT sub-results
+     * are excluded with a warning log — sub-elements are not Kafka messages.
+     *
+     * Like processing steps, the fan-out and fan-in functions are named
+     * functions (defined in step files, created by factories where they need
+     * config) — their `.name` is used for error attribution.
+     *
+     * @param fanOutFn - Splits an element into sub-elements (synchronous, cheap)
+     */
+    fanOut<TSub>(fanOutFn: FanOutFunction<TOutput, TSub>): FanOutBuilder<TInput, TOutput, TSub, CInput, COutput, R, D> {
+        return new FanOutBuilder(
+            <TSubOut, U, RSub extends string>(
+                subPipeline: ChunkPipeline<TSub, TSubOut, FanOutSubContext, FanOutSubContext, RSub>,
+                fanInFn: FanInFunction<TOutput, TSubOut, U>
+            ) =>
+                new FanOutFanInChunkPipeline<TInput, TOutput, TSub, TSubOut, U, CInput, COutput, R, RSub>(
+                    this.pipeline,
+                    fanOutFn,
+                    subPipeline,
+                    fanInFn
+                ),
+            this.builderContext
+        )
+    }
+
+    /**
+     * Group items by key and process the groups concurrently, optionally capped
+     * by `maxConcurrency`. Results are returned unordered as each group completes.
+     *
+     * The callback composes how a group's queued chunk is processed from group
+     * chunk stages (`pipeChunk`, `sequentially`), keeping within-group ordering
+     * visible at the call site.
+     *
+     * @param options.maxConcurrency - Cap on how many groups process at once. Omitted means unbounded.
+     */
+    concurrentlyPerGroup<TKey, U, ROut extends string = never>(
+        groupingFn: GroupingFunction<TOutput, TKey>,
+        callback: (
+            group: GroupProcessingBuilder<TInput, TOutput, CInput, COutput, R, D>
+        ) => GroupProcessingBuilder<TInput, U, CInput, COutput, ROut, D>,
+        options?: { maxConcurrency?: number }
+    ): ChunkPipelineBuilder<TInput, U, CInput, COutput, R | ROut, D> {
+        const group = callback(
+            new GroupProcessingBuilder(
+                <U2, R2 extends string>(processGroupChunk: GroupChunkProcessor<TOutput, U2, COutput, R2>) =>
+                    new ConcurrentlyGroupingChunkPipeline(
+                        groupingFn,
+                        processGroupChunk,
+                        this.pipeline,
+                        options?.maxConcurrency
+                    ),
+                this.builderContext
+            )
+        )
+        return new ChunkPipelineBuilder(
+            group.buildGroupedPipeline((items) => Promise.resolve(items)),
+            this.builderContext
+        )
+    }
+
+    handleSideEffects(
+        promiseScheduler: PromiseScheduler,
+        options: { await: boolean }
+    ): ChunkPipelineBuilder<TInput, TOutput, CInput, COutput, R, D> {
+        return new ChunkPipelineBuilder(
+            new SideEffectHandlingPipeline(this.pipeline, promiseScheduler, options),
+            this.builderContext
+        )
+    }
+
+    messageAware<TOut, COut = COutput, ROut extends string = never>(
+        this: ChunkPipelineBuilder<
+            TInput,
+            TOutput,
+            CInput & { message: Message },
+            COutput & { message: Message },
+            R,
+            D
+        >,
+        callback: (
+            builder: ChunkPipelineBuilder<
+                TInput,
+                TOutput,
+                CInput & { message: Message },
+                COutput & { message: Message },
+                R,
+                D
+            >
+        ) => ChunkPipelineBuilder<TInput, TOut, CInput & { message: Message }, COut & { message: Message }, ROut, D>
+    ): MessageAwareChunkPipelineBuilder<
+        TInput,
+        TOut,
+        CInput & { message: Message },
+        COut & { message: Message },
+        ROut,
+        D
+    > {
+        const builtPipeline = callback(this)
+        return new MessageAwareChunkPipelineBuilder(builtPipeline.build(), builtPipeline.builderContext)
+    }
+
+    teamAware<TOut, COut = COutput, ROut extends string = never>(
+        this: ChunkPipelineBuilder<TInput, TOutput, CInput & TeamIdContext, COutput & TeamIdContext, R, D>,
+        callback: (
+            builder: ChunkPipelineBuilder<TInput, TOutput, CInput & TeamIdContext, COutput & TeamIdContext, R, D>
+        ) => ChunkPipelineBuilder<TInput, TOut, CInput & TeamIdContext, COut & TeamIdContext, ROut, D>
+    ): TeamAwareChunkPipelineBuilder<TInput, TOut, CInput & TeamIdContext, COut & TeamIdContext, ROut, D> {
+        const builtPipeline = callback(this)
+        return new TeamAwareChunkPipelineBuilder(builtPipeline.build(), builtPipeline.builderContext)
+    }
+
+    build(): ChunkPipeline<TInput, TOutput, CInput, COutput, R> {
+        return this.pipeline
+    }
+}
+
+export class MessageAwareChunkPipelineBuilder<
+    TInput,
+    TOutput,
+    CInput extends { message: Message },
+    COutput extends { message: Message } = CInput,
+    R extends string = never,
+    D = unknown,
+> {
+    constructor(
+        protected pipeline: ChunkPipeline<TInput, TOutput, CInput, COutput, R>,
+        protected builderContext?: PipelineBuilderContext<D>
+    ) {}
+
+    handleResults<RConfig extends string = never>(
+        config: PipelineConfig<R | RConfig>
+    ): ResultHandledChunkPipelineBuilder<TInput, TOutput, CInput, COutput, R, D> {
+        return new ResultHandledChunkPipelineBuilder(
+            new ResultHandlingPipeline(this.pipeline, config),
+            this.builderContext
+        )
+    }
+}
+
+/**
+ * Builder returned after handleResults(). Only allows handleSideEffects() to be called,
+ * enforcing that side effects must be handled before building.
+ */
+export class ResultHandledChunkPipelineBuilder<
+    TInput,
+    TOutput,
+    CInput extends { message: Message },
+    COutput extends { message: Message } = CInput,
+    R extends string = never,
+    D = unknown,
+> {
+    constructor(
+        protected pipeline: ChunkPipeline<TInput, TOutput, CInput, COutput, R>,
+        protected builderContext?: PipelineBuilderContext<D>
+    ) {}
+
+    handleSideEffects(
+        promiseScheduler: PromiseScheduler,
+        options: { await: boolean }
+    ): ChunkPipelineBuilder<TInput, TOutput, CInput, COutput, R, D> {
+        return new ChunkPipelineBuilder(
+            new SideEffectHandlingPipeline(this.pipeline, promiseScheduler, options),
+            this.builderContext
+        )
+    }
+}
+
+export class TeamAwareChunkPipelineBuilder<
+    TInput,
+    TOutput,
+    CInput extends TeamIdContext,
+    COutput extends TeamIdContext,
+    R extends string = never,
+    D = unknown,
+> extends ChunkPipelineBuilder<TInput, TOutput, CInput, COutput, R, D> {
+    constructor(
+        pipeline: ChunkPipeline<TInput, TOutput, CInput, COutput, R>,
+        builderContext?: PipelineBuilderContext<D>
+    ) {
+        super(pipeline, builderContext)
+    }
+
+    handleIngestionWarnings(
+        outputs: IngestionOutputs<IngestionWarningsOutput>
+    ): ChunkPipelineBuilder<TInput, TOutput, CInput, COutput, R, D> {
+        return new ChunkPipelineBuilder(
+            new IngestionWarningHandlingChunkPipeline(outputs, this.pipeline),
+            this.builderContext
+        )
+    }
+}

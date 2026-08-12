@@ -5,7 +5,7 @@ import random
 import urllib
 import builtins
 import dataclasses
-from datetime import datetime
+from datetime import UTC, datetime
 from typing import Any, Iterator, List, Optional, Union, cast  # noqa: UP035
 
 from django.conf import settings
@@ -181,7 +181,7 @@ class EventViewSet(
     ) -> str:
         params = request.GET.dict()
         reverse = "-timestamp" in order_by
-        timestamp = last_event_timestamp.astimezone().isoformat()
+        timestamp = last_event_timestamp.replace(tzinfo=UTC).isoformat()
         if reverse:
             params["before"] = timestamp
         else:
@@ -653,7 +653,7 @@ class EventViewSet(
 
         user = request.user if request.user.is_authenticated else None
 
-        restricted = get_restricted_properties_for_team(team_id=team.pk, user=cast(User | None, user))
+        restricted = get_restricted_properties_for_team(user=cast(User | None, user), team=team)
         restricted_event_properties = {name for name, ptype in restricted if ptype == PropertyDefinition.Type.EVENT}
         restricted_person_properties = {name for name, ptype in restricted if ptype == PropertyDefinition.Type.PERSON}
 

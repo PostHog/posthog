@@ -12,9 +12,12 @@ import { NotebookNodeType } from '../types'
 import {
     appendMarkdownNotebookBlock,
     buildMarkdownNotebookContent,
+    convertDroppedPostHogUrlToMarkdownNode,
+    convertDroppedRichContentNodeToMarkdownNode,
     convertNotebookContentToMarkdown,
     getMarkdownNotebookMarkdown,
     getMarkdownNotebookTitle,
+    insertMarkdownNotebookBlockAfterNode,
     isMarkdownNotebookContent,
     notebookArtifactContentToMarkdown,
     notebookContentHasCommentMarks,
@@ -55,9 +58,43 @@ describe('markdownNotebookV2', () => {
             '<Query query={{"kind":"SavedInsightNode","shortId":"abc123"}} />'
         )
 
-        expect(getMarkdownNotebookMarkdown(nextContent)).toEqual(`# Activation
+        // Two blank lines: an appended block is a node of its own, not a continuation of the
+        // card the notebook currently ends with.
+        expect(getMarkdownNotebookMarkdown(nextContent)).toEqual(
+            '# Activation\n\n\n<Query query={{"kind":"SavedInsightNode","shortId":"abc123"}} />'
+        )
+    })
 
-<Query query={{"kind":"SavedInsightNode","shortId":"abc123"}} />`)
+    it('inserts markdown blocks after the block with a matching nodeId prop', () => {
+        const content = buildMarkdownNotebookContent(
+            '# Activation\n\n<UsageMetrics nodeId="target-node" />\n\nClosing paragraph'
+        )
+        const nextContent = insertMarkdownNotebookBlockAfterNode(content, 'target-node', '<Survey id="s1" />')
+
+        expect(getMarkdownNotebookMarkdown(nextContent)).toEqual(
+            '# Activation\n\n<UsageMetrics nodeId="target-node" />\n\n<Survey id="s1" />\n\nClosing paragraph'
+        )
+    })
+
+    it('inserts markdown blocks after the block with a matching parsed block id', () => {
+        const markdown = '# Activation\n\nMiddle paragraph\n\nClosing paragraph'
+        const middleBlockId = parseMarkdownNotebook(markdown).nodes[1].id
+        const nextContent = insertMarkdownNotebookBlockAfterNode(
+            buildMarkdownNotebookContent(markdown),
+            middleBlockId,
+            'Inserted paragraph'
+        )
+
+        expect(getMarkdownNotebookMarkdown(nextContent)).toEqual(
+            '# Activation\n\nMiddle paragraph\n\nInserted paragraph\n\nClosing paragraph'
+        )
+    })
+
+    it('appends at the end when no block matches the target node id', () => {
+        const content = buildMarkdownNotebookContent('# Activation')
+        const nextContent = insertMarkdownNotebookBlockAfterNode(content, 'missing-node', '<Survey id="s1" />')
+
+        expect(getMarkdownNotebookMarkdown(nextContent)).toEqual('# Activation\n\n\n<Survey id="s1" />')
     })
 
     it('converts common legacy notebook nodes to markdown', () => {
@@ -107,14 +144,14 @@ describe('markdownNotebookV2', () => {
 
 A **bold** paragraph.
 
-<Query hideFilters query={{"kind":"InsightVizNode","source":{"kind":"FunnelsQuery","series":[]}}} />
+<Query query={{"kind":"InsightVizNode","source":{"kind":"FunnelsQuery","series":[]}}} />
 
-<Recording hideFilters id="018b4205-f670-7fa8-928a-040abaaf596d" title="Session replay" />
+<Recording id="018b4205-f670-7fa8-928a-040abaaf596d" title="Session replay" />
 
 ![PostHog engineering](https://res.cloudinary.com/demo/image/upload/posthog.png)`)
     })
 
-    it('preserves explicitly open legacy widget filters', () => {
+    it('removes legacy panel props that match the new defaults', () => {
         const content: JSONContent = {
             type: 'doc',
             content: [
@@ -183,9 +220,9 @@ Wrapped paragraph`)
         }
 
         expect(convertNotebookContentToMarkdown(content))
-            .toEqual(`<Query hideFilters query={{"kind":"SavedInsightNode","shortId":"abc123"}} />
+            .toEqual(`<Query query={{"kind":"SavedInsightNode","shortId":"abc123"}} />
 
-<Query hideFilters query={{"kind":"SavedInsightNode","shortId":"def456"}} />`)
+<Query query={{"kind":"SavedInsightNode","shortId":"def456"}} />`)
     })
 
     it('converts remaining legacy production node shapes without unknown nodes', () => {
@@ -210,7 +247,7 @@ Wrapped paragraph`)
 
 Dashboard 123
 
-<Query hideFilters query={{"kind":"DataVisualizationNode","source":{"kind":"HogQLQuery","query":"select event from events limit 1"}}} />`)
+<Query query={{"kind":"DataVisualizationNode","source":{"kind":"HogQLQuery","query":"select event from events limit 1"}}} />`)
     })
 
     it('keeps the stable id vector for markdown query blocks without nodeId props', () => {
@@ -244,7 +281,7 @@ Dashboard 123
 
         // Nested undefined must be stripped, not cause the whole query prop to be dropped.
         expect(convertNotebookContentToMarkdown(content)).toEqual(
-            '<Query hideFilters query={{"kind":"InsightVizNode","source":{"kind":"TrendsQuery","series":[{"kind":"EventsNode","event":"$pageview"}]}}} isDefaultFilterApplied={false} />'
+            '<Query query={{"kind":"InsightVizNode","source":{"kind":"TrendsQuery","series":[{"kind":"EventsNode","event":"$pageview"}]}}} isDefaultFilterApplied={false} />'
         )
     })
 
@@ -527,6 +564,84 @@ after`)
         expect(parsed.nodes.map((node) => node.type)).toEqual(['heading', 'list', 'component', 'blockquote'])
     })
 
+    it('splits embedded cards out of blockquotes while keeping headings quoted', () => {
+        const content: JSONContent = {
+            type: 'doc',
+            content: [
+                {
+                    type: 'blockquote',
+                    content: [
+                        { type: 'paragraph', content: [{ type: 'text', text: 'Quoted context' }] },
+                        {
+                            type: NotebookNodeType.Query,
+                            attrs: {
+                                query: { kind: NodeKind.SavedInsightNode, shortId: 'abc123' },
+                                hideFilters: true,
+                            },
+                        },
+                        {
+                            type: 'blockquote',
+                            content: [
+                                {
+                                    type: 'heading',
+                                    attrs: { level: 2 },
+                                    content: [{ type: 'text', text: 'Where to improve' }],
+                                },
+                                { type: NotebookNodeType.Python, attrs: { code: 'print(1)', hideFilters: true } },
+                            ],
+                        },
+                    ],
+                },
+            ],
+        }
+
+        const markdown = convertNotebookContentToMarkdown(content)
+
+        expect(markdown).toContain('> Quoted context')
+        expect(markdown).toContain('\n\n<Query ')
+        expect(markdown).toContain('> ## Where to improve')
+        expect(markdown).toContain('\n\n<Python ')
+        expect(markdown).not.toContain('> <')
+
+        const parsed = parseMarkdownNotebook(markdown)
+        expect(parsed.errors).toEqual([])
+        expect(parsed.nodes.flatMap((node) => (node.type === 'component' ? [node.tagName] : []))).toEqual([
+            'Query',
+            'Python',
+        ])
+        const quotedHeading = parsed.nodes.find((node) => node.type === 'heading')
+        expect(quotedHeading?.type === 'heading' && quotedHeading.blockquote).toBe(true)
+    })
+
+    it('splits embedded cards out of callouts while keeping the emoji and text quoted', () => {
+        const content: JSONContent = {
+            type: 'doc',
+            content: [
+                {
+                    type: 'callout',
+                    attrs: { emoji: '!' },
+                    content: [
+                        { type: 'paragraph', content: [{ type: 'text', text: 'Watch this' }] },
+                        {
+                            type: NotebookNodeType.Query,
+                            attrs: {
+                                query: { kind: NodeKind.SavedInsightNode, shortId: 'abc123' },
+                                hideFilters: true,
+                            },
+                        },
+                    ],
+                },
+            ],
+        }
+
+        const markdown = convertNotebookContentToMarkdown(content)
+
+        expect(markdown).toContain('> ! Watch this')
+        expect(markdown).toContain('\n\n<Query ')
+        expect(markdown).not.toContain('> <')
+        expect(parseMarkdownNotebook(markdown).errors).toEqual([])
+    })
+
     it('converts notebook artifacts to markdown notebook content', () => {
         const content: NotebookArtifactContent = {
             content_type: ArtifactContentType.Notebook,
@@ -554,7 +669,7 @@ after`)
 
 Users activated faster.
 
-<Query hideFilters query={{"kind":"InsightVizNode","source":{"kind":"TrendsQuery","series":[]},"showHeader":true}} title="Activation trend" />
+<Query query={{"kind":"InsightVizNode","source":{"kind":"TrendsQuery","series":[]},"showHeader":true}} title="Activation trend" />
 
 <Recording id="018a8a51-a39d-7b18-897f-94054eec5f61" timestampMs={12000} title="Activation replay" />`)
     })
@@ -575,7 +690,7 @@ Users activated faster.
         }
 
         expect(notebookArtifactContentToMarkdown(content)).toEqual(
-            '<Query hideFilters query={{"kind":"DataVisualizationNode","source":{"kind":"HogQLQuery","query":"select event, count() from events group by event"},"display":"ActionsPie"}} title="Events pie chart" />'
+            '<Query query={{"kind":"DataVisualizationNode","source":{"kind":"HogQLQuery","query":"select event, count() from events group by event"},"display":"ActionsPie"}} title="Events pie chart" />'
         )
     })
 
@@ -602,7 +717,7 @@ Users activated faster.
             ],
         })
         expect(notebookArtifactContentToMarkdown(notebookContent)).toEqual(
-            '<Query hideFilters query={{"kind":"DataVisualizationNode","source":{"kind":"HogQLQuery","query":"select event, count() from events group by event"},"display":"ActionsPie"}} title="Create a pie chart" />'
+            '<Query query={{"kind":"DataVisualizationNode","source":{"kind":"HogQLQuery","query":"select event, count() from events group by event"},"display":"ActionsPie"}} title="Create a pie chart" />'
         )
     })
 
@@ -727,5 +842,93 @@ Users activated faster.
         expect(notebookArtifactContentToMarkdown(content)).toEqual(`# Existing title
 
 Body`)
+    })
+
+    describe('convertDroppedPostHogUrlToMarkdownNode', () => {
+        // Entity links drag with only their href; this mapping is what turns a dropped link
+        // into the resource's component node instead of a plain link.
+        it.each<[string, string, { tagName: string; props: Record<string, unknown> } | null]>([
+            ['feature flag', '/feature_flags/123', { tagName: 'FeatureFlag', props: { id: 123 } }],
+            [
+                'feature flag with project prefix',
+                '/project/1/feature_flags/123',
+                { tagName: 'FeatureFlag', props: { id: 123 } },
+            ],
+            ['experiment', '/experiments/42', { tagName: 'Experiment', props: { id: 42 } }],
+            ['cohort', '/cohorts/7', { tagName: 'Cohort', props: { id: 7 } }],
+            [
+                'saved insight',
+                '/insights/AbC123',
+                {
+                    tagName: 'Query',
+                    props: { query: { kind: 'SavedInsightNode', shortId: 'AbC123' } },
+                },
+            ],
+            [
+                'survey',
+                '/surveys/018f6a2b-0000-0000-0000-000000000000',
+                { tagName: 'Survey', props: { id: '018f6a2b-0000-0000-0000-000000000000' } },
+            ],
+            [
+                'recording',
+                '/replay/018f6a2b-1111-2222-3333-444444444444',
+                { tagName: 'Recording', props: { id: '018f6a2b-1111-2222-3333-444444444444' } },
+            ],
+            [
+                'person by uuid',
+                '/persons/018f6a2b-1111-2222-3333-444444444444',
+                { tagName: 'Person', props: { id: '018f6a2b-1111-2222-3333-444444444444' } },
+            ],
+            [
+                'person by distinct id',
+                '/person/user%40example.com',
+                { tagName: 'Person', props: { distinctId: 'user@example.com' } },
+            ],
+            ['new flag form (no entity yet)', '/feature_flags/new', null],
+            ['new insight form (no entity yet)', '/insights/new', null],
+            ['unrecognized path', '/settings/project', null],
+        ])('%s', (_name, path, expected) => {
+            const node = convertDroppedPostHogUrlToMarkdownNode(`${window.location.origin}${path}`)
+
+            if (expected === null) {
+                expect(node).toBeNull()
+            } else {
+                expect(node).toMatchObject({ type: 'component', ...expected })
+            }
+        })
+
+        it('ignores URLs from other origins', () => {
+            expect(convertDroppedPostHogUrlToMarkdownNode('https://example.com/feature_flags/123')).toBeNull()
+        })
+    })
+
+    describe('convertDroppedRichContentNodeToMarkdownNode', () => {
+        it('maps a dragged recording payload to its markdown component', () => {
+            const node = convertDroppedRichContentNodeToMarkdownNode(NotebookNodeType.Recording, {
+                id: 'session-1',
+                noInspector: false,
+            })
+
+            expect(node).toMatchObject({
+                type: 'component',
+                tagName: 'Recording',
+                props: { id: 'session-1', noInspector: false },
+            })
+        })
+
+        it('uses the default panel visibility for dropped queries', () => {
+            const node = convertDroppedRichContentNodeToMarkdownNode(NotebookNodeType.Query, {
+                query: { kind: NodeKind.EventsQuery, select: ['event'] },
+            })
+
+            expect(node).toMatchObject({
+                tagName: 'Query',
+                props: { query: { kind: NodeKind.EventsQuery, select: ['event'] } },
+            })
+        })
+
+        it('returns null for node types without a markdown counterpart', () => {
+            expect(convertDroppedRichContentNodeToMarkdownNode('ph-not-a-real-node', { id: 1 })).toBeNull()
+        })
     })
 })

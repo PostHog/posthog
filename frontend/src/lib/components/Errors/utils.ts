@@ -76,7 +76,7 @@ export function getExceptionAttributes(properties: Record<string, any>): Excepti
         $os: os,
         $os_version: osVersion,
         $sentry_url: sentryUrl,
-        $level: level,
+        $exception_level: level,
         $cymbal_errors: ingestionErrors,
     } = properties
 
@@ -184,7 +184,10 @@ export function getAdditionalProperties(
 }
 
 export function getSessionId(properties: ErrorEventProperties): string | undefined {
-    return properties['$session_id'] as string | undefined
+    const sessionId = properties['$session_id']
+    // $session_id can arrive malformed (e.g. a numeric timestamp) from misbehaving SDKs.
+    // Only a non-empty string is a usable session id; anything else means "no session".
+    return typeof sessionId === 'string' && sessionId.length > 0 ? sessionId : undefined
 }
 
 export function getRecordingStatus(properties: ErrorEventProperties): string | undefined {

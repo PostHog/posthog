@@ -1,5 +1,4 @@
-import { renderHook, type RenderHookResult } from '@testing-library/react'
-import { act } from 'react'
+import { act, renderHook, type RenderHookResult } from '@testing-library/react'
 
 import { dimensions } from '../../testing'
 import type { ChartScales } from '../types'
@@ -43,18 +42,7 @@ function makeRefs(): { canvasRef: React.RefObject<HTMLCanvasElement>; wrapperRef
     }
 }
 
-function simulateMouseMove(
-    handlers: { onMouseMove: (e: React.MouseEvent<HTMLDivElement>) => void },
-    refs: ReturnType<typeof makeRefs>,
-    clientX: number,
-    clientY: number
-): void {
-    const mockEvent = {
-        clientX,
-        clientY,
-        currentTarget: refs.wrapperRef.current!,
-    } as unknown as React.MouseEvent<HTMLDivElement>
-    // Mock getBoundingClientRect on wrapper for the mouse move calculation
+function mockWrapperRect(refs: ReturnType<typeof makeRefs>): void {
     refs.wrapperRef.current!.getBoundingClientRect = () =>
         ({
             x: 0,
@@ -67,7 +55,60 @@ function simulateMouseMove(
             left: 0,
             toJSON: () => ({}),
         }) as DOMRect
+}
+
+function simulateMouseMove(
+    handlers: { onMouseMove: (e: React.MouseEvent<HTMLDivElement>) => void },
+    refs: ReturnType<typeof makeRefs>,
+    clientX: number,
+    clientY: number
+): void {
+    const mockEvent = {
+        clientX,
+        clientY,
+        currentTarget: refs.wrapperRef.current!,
+    } as unknown as React.MouseEvent<HTMLDivElement>
+    // Mock getBoundingClientRect on wrapper for the mouse move calculation
+    mockWrapperRect(refs)
     handlers.onMouseMove(mockEvent)
+}
+
+/** A tap on a touch device: pointerdown (pointerType 'touch'), then a click with tap
+ *  coordinates but no preceding mousemove, matching the browser's compatibility-event order. */
+function simulateTap(
+    result: { current: ReturnType<typeof useChartInteraction> },
+    refs: ReturnType<typeof makeRefs>,
+    clientX: number,
+    clientY: number
+): void {
+    mockWrapperRect(refs)
+    act(() => {
+        result.current.handlers.onPointerDown({
+            pointerType: 'touch',
+        } as unknown as React.PointerEvent<HTMLDivElement>)
+    })
+    act(() => {
+        result.current.handlers.onClick({
+            target: refs.wrapperRef.current!,
+            currentTarget: refs.wrapperRef.current!,
+            clientX,
+            clientY,
+        } as unknown as React.MouseEvent<HTMLDivElement>)
+    })
+}
+
+function simulateClick(handlers: { onClick: (e: React.MouseEvent<HTMLDivElement>) => void }, target: Element): void {
+    handlers.onClick({ target } as unknown as React.MouseEvent<HTMLDivElement>)
+}
+
+/** An element inside a (simulated) portaled tooltip — carries the marker the guards check. */
+function makeTooltipChild(): { child: Element; cleanup: () => void } {
+    const tooltipEl = document.createElement('div')
+    tooltipEl.setAttribute('data-hog-charts-tooltip', '')
+    const child = document.createElement('span')
+    tooltipEl.appendChild(child)
+    document.body.appendChild(tooltipEl)
+    return { child, cleanup: () => document.body.removeChild(tooltipEl) }
 }
 
 describe('useChartInteraction — tooltip pinning', () => {
@@ -87,7 +128,8 @@ describe('useChartInteraction — tooltip pinning', () => {
 
     function renderInteraction(
         pinnable = true,
-        onPointClick?: (data: unknown) => void
+        onPointClick?: (data: unknown) => void,
+        resolveClickToNearestSeries = false
     ): RenderHookResult<ReturnType<typeof useChartInteraction>, unknown> {
         return renderHook(() =>
             useChartInteraction({
@@ -99,6 +141,7 @@ describe('useChartInteraction — tooltip pinning', () => {
                 wrapperRef: refs.wrapperRef,
                 showTooltip: true,
                 pinnable,
+                resolveClickToNearestSeries,
                 onPointClick: onPointClick as never,
                 resolveValue: (s, i) => s.data[i],
             })
@@ -114,7 +157,7 @@ describe('useChartInteraction — tooltip pinning', () => {
 
         // Click to pin
         act(() => {
-            result.current.handlers.onClick()
+            simulateClick(result.current.handlers, refs.wrapperRef.current!)
         })
         expect(result.current.tooltipCtx?.isPinned).toBe(true)
     }
@@ -136,6 +179,31 @@ describe('useChartInteraction — tooltip pinning', () => {
         expect(result.current.hoverIndex).toBeGreaterThanOrEqual(0)
     })
 
+    it('treats a resolveHoverIndex veto (-1) as a dead zone — no hover index, no tooltip', () => {
+        const { result } = renderHook(() =>
+            useChartInteraction({
+                scales,
+                dimensions,
+                labels,
+                series,
+                canvasRef: refs.canvasRef,
+                wrapperRef: refs.wrapperRef,
+                showTooltip: true,
+                pinnable: false,
+                resolveValue: (s, i) => s.data[i],
+                // Chart-type seam vetoes every position (e.g. a funnel compare bar's blank volume gap).
+                resolveHoverIndex: () => -1,
+            })
+        )
+
+        act(() => {
+            simulateMouseMove(result.current.handlers, refs, 200, 100)
+        })
+
+        expect(result.current.hoverIndex).toBe(-1)
+        expect(result.current.tooltipCtx).toBeNull()
+    })
+
     it('pins tooltip on click when pinnable and multiple series', () => {
         const { result } = renderInteraction()
         hoverAndPin(result)
@@ -153,10 +221,10 @@ describe('useChartInteraction — tooltip pinning', () => {
             },
         ],
         [
-            'click outside',
+            'pointer-down outside',
             () => {
                 jest.runAllTimers()
-                document.body.dispatchEvent(new MouseEvent('click', { bubbles: true }))
+                document.body.dispatchEvent(new MouseEvent('pointerdown', { bubbles: true }))
             },
         ],
     ])('clears pinned tooltip on %s', (_name, trigger) => {
@@ -236,10 +304,69 @@ describe('useChartInteraction — tooltip pinning', () => {
         hoverAndPin(result)
 
         act(() => {
-            result.current.handlers.onClick()
+            simulateClick(result.current.handlers, refs.wrapperRef.current!)
         })
 
         expect(result.current.tooltipCtx).toBeNull()
+    })
+
+    it('keeps pinned tooltip when a click originates inside the portaled tooltip', () => {
+        // React portals bubble synthetic events through the React tree, so a click inside
+        // the tooltip reaches the wrapper's onClick — it must not unpin.
+        const { result } = renderInteraction()
+        hoverAndPin(result)
+
+        const { child, cleanup } = makeTooltipChild()
+        act(() => {
+            simulateClick(result.current.handlers, child)
+        })
+
+        expect(result.current.tooltipCtx?.isPinned).toBe(true)
+        cleanup()
+    })
+
+    it('does not start a zoom drag from a press inside the portaled tooltip', () => {
+        const onDateRangeZoom = jest.fn()
+        const { result } = renderHook(() =>
+            useChartInteraction({
+                scales,
+                dimensions,
+                labels,
+                series,
+                canvasRef: refs.canvasRef,
+                wrapperRef: refs.wrapperRef,
+                showTooltip: true,
+                pinnable: true,
+                resolveValue: (s, i) => s.data[i],
+                onDateRangeZoom,
+            })
+        )
+        act(() => {
+            simulateMouseMove(result.current.handlers, refs, 200, 100)
+        })
+        act(() => {
+            simulateClick(result.current.handlers, refs.wrapperRef.current!)
+        })
+        expect(result.current.tooltipCtx?.isPinned).toBe(true)
+
+        // A text-selection drag starting inside the tooltip bubbles mousedown + mousemove to
+        // the wrapper; without the guard the drag activates and clears the pin mid-copy.
+        const { child, cleanup } = makeTooltipChild()
+        act(() => {
+            result.current.handlers.onMouseDown!({
+                target: child,
+                currentTarget: refs.wrapperRef.current!,
+                clientX: 200,
+                clientY: 100,
+                button: 0,
+            } as unknown as React.MouseEvent<HTMLDivElement>)
+        })
+        act(() => {
+            simulateMouseMove(result.current.handlers, refs, 320, 100)
+        })
+
+        expect(result.current.tooltipCtx?.isPinned).toBe(true)
+        cleanup()
     })
 
     it('hover context does not have onUnpin', () => {
@@ -272,12 +399,35 @@ describe('useChartInteraction — tooltip pinning', () => {
             simulateMouseMove(result.current.handlers, refs, 200, 100)
         })
         act(() => {
-            result.current.handlers.onClick()
+            simulateClick(result.current.handlers, refs.wrapperRef.current!)
         })
 
         expect(onPointClick).not.toHaveBeenCalled()
         expect(result.current.tooltipCtx?.isPinned).toBe(true)
     })
+
+    // Series values at Tue (x=200): a=20 -> yPixel 180, b=15 -> yPixel 185.
+    it.each<[number, string]>([
+        [180, 'a'],
+        [185, 'b'],
+    ])(
+        'resolveClickToNearestSeries fires onPointClick for the series nearest cursorY=%i (%s) instead of pinning',
+        (cursorY, expectedKey) => {
+            const onPointClick = jest.fn()
+            const { result } = renderInteraction(true, onPointClick, true)
+
+            act(() => {
+                simulateMouseMove(result.current.handlers, refs, 200, cursorY)
+            })
+            act(() => {
+                simulateClick(result.current.handlers, refs.wrapperRef.current!)
+            })
+
+            expect(onPointClick).toHaveBeenCalledTimes(1)
+            expect(onPointClick.mock.calls[0][0].series.key).toBe(expectedKey)
+            expect(result.current.tooltipCtx?.isPinned).toBe(false)
+        }
+    )
 
     it('rebuilds the pinned tooltip when series data changes underneath the pin', () => {
         const { rerender, result } = renderHook(
@@ -300,7 +450,7 @@ describe('useChartInteraction — tooltip pinning', () => {
             simulateMouseMove(result.current.handlers, refs, 200, 100)
         })
         act(() => {
-            result.current.handlers.onClick()
+            simulateClick(result.current.handlers, refs.wrapperRef.current!)
         })
         expect(result.current.tooltipCtx?.isPinned).toBe(true)
         const initialIndex = result.current.tooltipCtx!.dataIndex
@@ -340,7 +490,7 @@ describe('useChartInteraction — tooltip pinning', () => {
             simulateMouseMove(result.current.handlers, refs, 200, 100)
         })
         act(() => {
-            result.current.handlers.onClick()
+            simulateClick(result.current.handlers, refs.wrapperRef.current!)
         })
         expect(result.current.tooltipCtx?.isPinned).toBe(true)
         const initialCtx = result.current.tooltipCtx
@@ -351,6 +501,66 @@ describe('useChartInteraction — tooltip pinning', () => {
         rerender({ s: sameValuesNewIdentity })
 
         expect(result.current.tooltipCtx).toBe(initialCtx)
+    })
+
+    // Touch devices fire no mousemove before a tap, so these go through the click handler's
+    // touch path (index resolved from the click coordinates) rather than hover state.
+    it('touch tap with no prior hover shows a pinned tooltip at the tapped index', () => {
+        const { result } = renderInteraction()
+
+        simulateTap(result, refs, 200, 100)
+
+        expect(result.current.tooltipCtx?.dataIndex).toBe(1)
+        expect(result.current.tooltipCtx?.isPinned).toBe(true)
+        expect(result.current.hoverIndex).toBe(1)
+    })
+
+    it('second touch tap on the same point dismisses the pinned tooltip', () => {
+        const { result } = renderInteraction()
+
+        simulateTap(result, refs, 200, 100)
+        simulateTap(result, refs, 200, 100)
+
+        expect(result.current.tooltipCtx).toBeNull()
+    })
+
+    it('touch tap on another point moves the pinned tooltip there instead of dismissing', () => {
+        const { result } = renderInteraction()
+
+        simulateTap(result, refs, 200, 100)
+        simulateTap(result, refs, 300, 100)
+
+        expect(result.current.tooltipCtx?.dataIndex).toBe(2)
+        expect(result.current.tooltipCtx?.isPinned).toBe(true)
+    })
+
+    it('touch tap on a non-pinnable chart shows an unpinned tooltip, and a second tap fires onPointClick', () => {
+        const onPointClick = jest.fn()
+        const { result } = renderInteraction(false, onPointClick)
+
+        simulateTap(result, refs, 200, 100)
+        expect(result.current.tooltipCtx?.dataIndex).toBe(1)
+        expect(result.current.tooltipCtx?.isPinned).toBe(false)
+        expect(onPointClick).not.toHaveBeenCalled()
+
+        simulateTap(result, refs, 200, 100)
+        expect(onPointClick).toHaveBeenCalledTimes(1)
+        expect(onPointClick.mock.calls[0][0].dataIndex).toBe(1)
+    })
+
+    // Mirrors the mouse-click resolveClickToNearestSeries test above: a single tap on a
+    // pinnable, multi-series chart must resolve directly to the nearest series instead of
+    // pinning first, so touch users get the same one-tap drill-in mouse users get on a click.
+    it('a single touch tap fires onPointClick for the nearest series when resolveClickToNearestSeries is set', () => {
+        const onPointClick = jest.fn()
+        const { result } = renderInteraction(true, onPointClick, true)
+
+        // Tap at (200, 100) -> Tue column, closer to series 'a' (yPixel 180) than 'b' (yPixel 185).
+        simulateTap(result, refs, 200, 100)
+
+        expect(onPointClick).toHaveBeenCalledTimes(1)
+        expect(onPointClick.mock.calls[0][0].series.key).toBe('a')
+        expect(result.current.tooltipCtx?.isPinned).not.toBe(true)
     })
 
     it('clears the pinned tooltip when labels shrink so the pinned dataIndex no longer exists', () => {
@@ -375,7 +585,7 @@ describe('useChartInteraction — tooltip pinning', () => {
             simulateMouseMove(result.current.handlers, refs, 300, 100)
         })
         act(() => {
-            result.current.handlers.onClick()
+            simulateClick(result.current.handlers, refs.wrapperRef.current!)
         })
         expect(result.current.tooltipCtx?.isPinned).toBe(true)
 
