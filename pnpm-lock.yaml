@@ -2850,6 +2850,12 @@ importers:
       '@storybook/react':
         specifier: 'catalog:'
         version: 10.4.6(@types/react-dom@18.3.7(@types/react@18.3.27))(@types/react@18.3.27)(react-dom@18.3.1(react@18.3.1))(react@18.3.1)(storybook@10.4.6(@testing-library/dom@10.4.0)(@types/react@18.3.27)(prettier@3.8.2)(react-dom@18.3.1(react@18.3.1))(react@18.3.1))(typescript@6.0.3)
+      '@testing-library/jest-dom':
+        specifier: ^5.17.0
+        version: 5.17.0
+      '@testing-library/react':
+        specifier: ^14.3.1
+        version: 14.3.1(@types/react@18.3.27)(react-dom@18.3.1(react@18.3.1))(react@18.3.1)
 
   products/data_modeling:
     dependencies:
@@ -3847,6 +3853,9 @@ importers:
       '@testing-library/react':
         specifier: '*'
         version: 14.3.1(@types/react@18.3.27)(react-dom@18.3.1(react@18.3.1))(react@18.3.1)
+      kea-test-utils:
+        specifier: 'catalog:'
+        version: 0.2.4(kea@4.0.0-pre.6(patch_hash=139b8d1f1304f9d9da452a9a1244c94ea679dbcb85687d8999563146879fb6f5)(react@18.3.1))
 
   products/product_tours: {}
 
@@ -22192,8 +22201,8 @@ packages:
     resolution: {integrity: sha512-gptHNQghINnc/vTGIk0SOFGFNXw7JVrlRUtConJRlvaw6DuX0wO5Jeko9sWrMBhh+PsYAZ7oXAiOnf/UKogyiw==}
     engines: {node: '>= 10.0.0'}
 
-  unlayer-types@1.462.0:
-    resolution: {integrity: sha512-4evP8KinGyhYVSV9NLb2eBHUv8Th1kP1skT3B3Xwv9sbMCUXfedOYpDsC0yr78HvFj/t7fd2KyVnn5RhlnUXRA==}
+  unlayer-types@1.464.0:
+    resolution: {integrity: sha512-z4Bi5gkA1BOpl0YLpbJZwVI1L3vj4I5T71cbeYVdC3qHeoeMHqiM8g4j5tmJNoRczAMYdrjBQRDA1DeDzg4XWg==}
 
   unpipe@1.0.0:
     resolution: {integrity: sha512-pjy2bYhSsufwWlKwPc+l3cN7+wuJlK6uz0YdJEOlQDbl6jo/YlPi4mb8agUkVC8BF7V8NuzeyPNqRksA3hztKQ==}
@@ -42618,7 +42627,7 @@ snapshots:
   react-email-editor@1.7.11(react@18.3.1):
     dependencies:
       react: 18.3.1
-      unlayer-types: 1.462.0
+      unlayer-types: 1.464.0
 
   react-grid-layout@2.2.4(react-dom@18.3.1(react@18.3.1))(react@18.3.1):
     dependencies:
@@ -44938,7 +44947,7 @@ snapshots:
 
   universalify@2.0.1: {}
 
-  unlayer-types@1.462.0: {}
+  unlayer-types@1.464.0: {}
 
   unpipe@1.0.0: {}
 

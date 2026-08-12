@@ -1756,7 +1756,7 @@ export class AgentServer {
     const runState = preTaskRun?.state as Record<string, unknown> | undefined;
     // Preserve native Codex modes for cloud runs so they behave the same as
     // local sessions. Claude keeps the historical auto-approved default when
-    // PostHog Code has not explicitly selected a mode.
+    // PostHog Desktop has not explicitly selected a mode.
     const initialPermissionMode: PermissionMode =
       typeof runState?.initial_permission_mode === "string"
         ? (runState.initial_permission_mode as PermissionMode)
@@ -3430,7 +3430,7 @@ export class AgentServer {
   /**
    * Automated, PostHog-branded origins: the Slack app and the Self-driving
    * inbox. These both auto-publish by default and attribute their PRs to
-   * "PostHog" rather than the PostHog Code desktop app.
+   * "PostHog" rather than the PostHog Desktop app.
    */
   private isAutomatedOrigin(): boolean {
     const origin = this.getCloudInteractionOrigin();
@@ -3613,6 +3613,32 @@ export class AgentServer {
 - If you created a local file but no upload or delivery tool is available, say that plainly and summarize the result in Slack instead.`;
   }
 
+  /**
+   * What to do when a cloud run has no way to reach the user's code.
+   *
+   * Repository access on a cloud run comes from the user's own GitHub connection in
+   * PostHog, so a run can legitimately start without one — nothing is checked out and
+   * there are no credentials to push with. The Slack mention path used to refuse those
+   * mentions outright, which walled off every question that only looked like it needed
+   * code; it now starts the run and leaves the judgement here, where the request itself
+   * is visible. The settings link is built from this run's own host and project so it
+   * lands the user in the right region rather than a hardcoded one.
+   *
+   * Appended to every cloud branch on purpose: a checkout is not proof of access. A
+   * public repository clones with no token at all, so a run can hold the code and still
+   * have no way to push it.
+   */
+  private buildSourceControlAccessInstructions(): string {
+    const settingsUrl = `${this.config.apiUrl.replace(/\/$/, "")}/project/${this.config.projectId}/settings/user-personal-integrations`;
+    return `
+## When you cannot reach the code
+You may have no repository checked out, or no credentials to push and open a pull request with.
+- Answer the part of the request that does not need the code first — questions about PostHog, their data, or their configuration are all still answerable.
+- If the request turns out not to need a code change at all, just answer it and say nothing about GitHub.
+- Only if it genuinely needs a code change, say so plainly and link them to ${settingsUrl} to connect GitHub, then ask them to come back to you.
+- Do not work around it: no guessing at file contents you cannot read, and no starting a change you have no way to deliver.`;
+  }
+
   private buildCloudSystemPrompt(
     prUrl?: string | null,
     slackThreadUrl?: string | null,
@@ -3692,7 +3718,7 @@ hard reset is the safe one here — your work is held in the stash.
 Do NOT add "Co-Authored-By" trailers or "Generated with [Claude Code]" lines to your
 commit messages. The \`git_signed_commit\` tool automatically appends the only trailers
 we want:
-  Generated-By: PostHog Code
+  Generated-By: PostHog Desktop
   Task-Id: ${taskId}`;
 
     const prLinkInstructions = `
@@ -3714,17 +3740,17 @@ Optimize for the fewest shell round trips.
 When you create a non-code file the user should be able to download (such as a report, chart, image, archive, or data file), call the \`upload_artifact\` tool with its path before your final reply. In your final reply, link to the download URL returned by the tool—never link to the file's local workspace path. Files left in the workspace don't reach the user. Don't upload source code or repository changes—those belong in a commit or PR.`;
 
     // Closes out every branch below, so a new section is added once rather than five times.
-    const commonInstructions = `${signedCommitInstructions}${prLinkInstructions}${shellEfficiencyInstructions}${artifactInstructions}${this.buildSlackDeliveryInstructions()}`;
+    const commonInstructions = `${signedCommitInstructions}${prLinkInstructions}${shellEfficiencyInstructions}${artifactInstructions}${this.buildSlackDeliveryInstructions()}${this.buildSourceControlAccessInstructions()}`;
 
     const whyContextInstruction = `   - Add a brief **Why** to the body — one or two sentences capturing the reason the user asked for this change (the motivation, not a restatement of the diff). Keep it short.`;
     const publicRepoSafetyInstruction = `   - **Public-repo safety.** Treat the target repository as public-readable unless you have verified otherwise. The PR title, description, and commit messages must not contain private operational scale (exact event counts, internal row volumes, customer-usage percentages), customer names / emails / companies, references to internal tickets or incidents, the contents of Slack threads (do not quote or paraphrase what was said), or unreleased roadmap details. Linking to the originating Slack thread is fine and encouraged — Slack links are auth-gated and useful as context — as are channel references like "raised in #team-foo". Describe findings qualitatively ("present on nearly all X events, absent from Y") rather than with quantitative figures pulled from analytics queries — the reasoning that uses those numbers can stay in the thread; the PR copy cannot.`;
     const prMentionSafetyInstruction = `   - **Never guess a GitHub identity.** Do NOT \`@\`-mention, tag, assign, request review from, or attribute the PR to a person (in the title, description, commit message, or reviewers) using a name or handle taken from Slack or this thread. A Slack display name or handle is NOT a GitHub username. Finding a similar-looking handle in the repo's git history, CODEOWNERS, or existing PRs/issues does NOT confirm it belongs to this person: repository presence proves the handle exists, not that it is the person you mean, so treating it as a match still \`@\`-tags an unrelated account (e.g. Slack "Ross" is not necessarily GitHub \`@ross\`, even if some \`@ross\` has committed to the repo). Only \`@\`-mention a GitHub \`@handle\` the user gave you explicitly in this thread. Otherwise refer to people by plain-text name, or omit the mention entirely.`;
     // Slack- and inbox-originated PRs are attributed to PostHog, not the
-    // PostHog Code desktop app — they come from the Slack app / Self-driving
+    // PostHog Desktop app — they come from the Slack app / Self-driving
     // inbox, which users know as "PostHog".
     const createdWith = this.isAutomatedOrigin()
       ? "Created with [PostHog](https://posthog.com?ref=pr)"
-      : "Created with [PostHog Code](https://posthog.com/code?ref=pr)";
+      : "Created with [PostHog Desktop](https://posthog.com/desktop?ref=pr)";
     const prFooter = slackThreadUrl
       ? `*${createdWith} from a [Slack thread](${slackThreadUrl})*`
       : inboxReportUrl

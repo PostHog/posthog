@@ -498,7 +498,11 @@ export interface FeatureFlagApi {
     readonly can_edit: boolean
     tags?: unknown[]
     evaluation_contexts?: unknown[]
-    readonly usage_dashboard: number
+    /**
+     * Dashboard of saved usage insights for this flag, or null if it has none. Flags do not get one on creation; create it with POST /api/projects/{project_id}/feature_flags/{id}/dashboard/.
+     * @nullable
+     */
+    readonly usage_dashboard: number | null
     analytics_dashboards?: number[]
     /** @nullable */
     has_enriched_analytics?: boolean | null
@@ -538,7 +542,6 @@ export interface FeatureFlagApi {
      */
     last_called_at?: string | null
     _create_in_folder?: string
-    _should_create_usage_dashboard?: boolean
     /** Check if this feature flag is used in any team's session recording linked flag setting. */
     readonly is_used_in_replay_settings: boolean
     /** Whether this flag can back an experiment: multivariate with 2 to 20 variants. */

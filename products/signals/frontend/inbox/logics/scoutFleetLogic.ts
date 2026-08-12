@@ -18,6 +18,7 @@ import {
     signalsScoutMetadataGet,
     signalsScoutRunsFindingsSummary,
     signalsScoutRunsList,
+    signalsScoutRunsRecentPerScout,
 } from 'products/signals/frontend/generated/api'
 import type {
     FleetFindingsSummaryApi,
@@ -46,6 +47,7 @@ import {
     SCOUT_AUTHOR_PROMPT,
     SCOUT_FLEET_OVERVIEW_PROMPT,
     SCOUT_RECENT_SIGNALS_PROMPT,
+    SCOUT_RUNS_PER_SCOUT,
     SCOUT_RUNS_WINDOW_HOURS,
     ScoutRollup,
     sortConfigsForDisplay,
@@ -88,10 +90,11 @@ function captureScoutConfigUpdates(
 // Fleet runs are refetched on a slow cadence so "running now" / recent emissions
 // stay live without hammering the capped runs endpoint (desktop: 60s).
 const RUNS_REFETCH_INTERVAL_MS = 60_000
-// The runs endpoint caps each page at 100 rows newest-first. To cover the whole
-// window we walk back page-by-page via a `date_to` cursor (the oldest run's
-// `started_at`, as the backend documents). MAX_RUNS_PAGES bounds the walk so a
-// pathologically busy fleet can't spin forever — hitting it flags the window truncated.
+// The findings feed's fixed lookback: the runs endpoint caps each page at 100 rows newest-first, so
+// covering the whole window means walking back page-by-page via a `date_to` cursor (the oldest run's
+// `started_at`, as the backend documents). MAX_RUNS_PAGES bounds the walk so a pathologically busy
+// fleet can't spin forever — hitting it flags the window truncated. Per-scout stats don't pay this:
+// `loadScoutRuns` gets each scout's last N runs from one ranked query.
 const RUNS_PAGE_LIMIT = 100
 const MAX_RUNS_PAGES = 15
 
@@ -124,7 +127,6 @@ export interface scoutFleetLogicValues {
         complete: boolean
         runs: SignalScoutRunSummary[]
     }
-    runsWindowComplete: boolean
     runsWindowLoadedOnce: boolean
     runsWindowLoading: boolean
     scoutBannerMessage: string | null
@@ -132,6 +134,9 @@ export interface scoutFleetLogicValues {
     scoutConfigsLoading: boolean
     scoutMetadata: ScoutMetadataApi | null
     scoutMetadataLoading: boolean
+    scoutRuns: SignalScoutRunSummary[]
+    scoutRunsLoadedOnce: boolean
+    scoutRunsLoading: boolean
     scoutTagOptions: ScoutTagOption[]
     selectedScoutTags: string[]
     updatingScoutIds: string[]
@@ -212,6 +217,21 @@ export interface scoutFleetLogicActions {
         scoutMetadata: ScoutMetadataApi | null
         payload?: any
     }
+    loadScoutRuns: () => any
+    loadScoutRunsFailure: (
+        error: string,
+        errorObject?: any
+    ) => {
+        error: string
+        errorObject?: any
+    }
+    loadScoutRunsSuccess: (
+        scoutRuns: SignalScoutRunSummary[],
+        payload?: any
+    ) => {
+        scoutRuns: SignalScoutRunSummary[]
+        payload?: any
+    }
     patchScoutConfigLocally: (
         configId: string,
         updates: SignalScoutConfigUpdate
@@ -272,7 +292,7 @@ export interface scoutFleetLogicMeta {
             dataProcessingApprovalDisabledReason: string | null
         ) => string | null
         scoutBannerMessage: (scoutMetadata: ScoutMetadataApi | null) => string | null
-        rollups: (runsWindow: { complete: boolean; runs: SignalScoutRunSummary[] }) => Map<string, ScoutRollup>
+        rollups: (scoutRuns: SignalScoutRunSummary[]) => Map<string, ScoutRollup>
         fleetSummary: (
             scoutConfigs: SignalScoutConfigApi[] | null,
             rollups: Map<string, ScoutRollup>
@@ -286,7 +306,6 @@ export interface scoutFleetLogicMeta {
             hideDisabled: boolean,
             activeScoutTags: string[]
         ) => SignalScoutConfig[]
-        runsWindowComplete: (runsWindow: { complete: boolean; runs: SignalScoutRunSummary[] }) => boolean
         emittedFindingsSummary: (fleetFindingsSummary: FleetFindingsSummaryApi | null) => {
             authoredReportCount: number
             count: number
@@ -384,6 +403,28 @@ export const scoutFleetLogic = kea<scoutFleetLogicType>([
                         return null
                     }
                     return await signalsScoutRunsFindingsSummary(String(teamId))
+                },
+            },
+        ],
+        // Each scout's most recent runs — what every per-scout stat (rollups, run history, fleet
+        // success/emit rate) is computed over. One ranked query, so no page walk and no truncation:
+        // the response is bounded by the fleet size, not by how often the fleet runs.
+        scoutRuns: [
+            [] as SignalScoutRunSummary[],
+            {
+                loadScoutRuns: async () => {
+                    const teamId = teamLogic.values.currentTeamId
+                    if (!teamId) {
+                        return values.scoutRuns
+                    }
+                    const runs = await signalsScoutRunsRecentPerScout(String(teamId), {
+                        per_scout_limit: SCOUT_RUNS_PER_SCOUT,
+                    })
+                    // Reuse prior references for unchanged runs so the 60s poll doesn't churn every
+                    // run's identity and needlessly re-render the memoized run/emission rows. Live
+                    // (running/queued) runs are never reused: their rows show a wall-clock duration
+                    // that must keep advancing with each poll.
+                    return reconcileById(values.scoutRuns, runs, (run) => run.run_id, isSettledRun)
                 },
             },
         ],
@@ -518,6 +559,15 @@ export const scoutFleetLogic = kea<scoutFleetLogicType>([
                 loadRunsWindowSuccess: () => true,
             },
         ],
+        // Same "loaded once, never on failure" contract as `runsWindowLoadedOnce`, for the per-scout
+        // surfaces: it's what lets the scout detail sections tell "not loaded yet" from "loaded,
+        // genuinely empty" without flashing a skeleton on every poll.
+        scoutRunsLoadedOnce: [
+            false,
+            {
+                loadScoutRunsSuccess: () => true,
+            },
+        ],
         // Flips true once the cheap findings summary lands, so the callout can tell "not loaded yet"
         // from "loaded, genuinely zero" without the full runs window. Like `runsWindowLoadedOnce`,
         // deliberately NOT set on failure: a failed load keeps the callout hidden, not falsely empty.
@@ -541,9 +591,8 @@ export const scoutFleetLogic = kea<scoutFleetLogicType>([
             (scoutMetadata: ScoutMetadataApi | null): string | null => scoutMetadata?.banner_message ?? null,
         ],
         rollups: [
-            (s) => [s.runsWindow],
-            (runsWindow: { complete: boolean; runs: SignalScoutRunSummary[] }): Map<string, ScoutRollup> =>
-                computeScoutRollups(runsWindow.runs),
+            (s) => [s.scoutRuns],
+            (scoutRuns: SignalScoutRunSummary[]): Map<string, ScoutRollup> => computeScoutRollups(scoutRuns),
         ],
         fleetSummary: [
             (s) => [s.scoutConfigs, s.rollups],
@@ -589,10 +638,6 @@ export const scoutFleetLogic = kea<scoutFleetLogicType>([
                 }
                 return sorted.filter((config) => configMatchesScoutTags(config, activeScoutTags))
             },
-        ],
-        runsWindowComplete: [
-            (s) => [s.runsWindow],
-            (runsWindow: { complete: boolean; runs: SignalScoutRunSummary[] }): boolean => runsWindow.complete,
         ],
         // Fleet-wide output tally for the "Scout findings" callout, read from the cheap backend
         // summary rather than the paginated runs window. Covers both emit channels — legacy findings
@@ -830,13 +875,14 @@ export const scoutFleetLogic = kea<scoutFleetLogicType>([
             // Fetch once immediately, then a slow poll keeps "running now" + recent emissions
             // fresh. The keyed disposable replaces any prior poll and is torn down on
             // stopRunsPolling / unmount / tab hide. The cheap findings summary rides the same
-            // cadence so the "Scout findings" callout fills in on its own fast query rather than
-            // waiting on the paginated runs-window walk.
-            actions.loadRunsWindow()
+            // cadence so the "Scout findings" callout fills in on its own fast query. The fleet
+            // list needs only the per-scout runs; the paginated window is the findings page's own
+            // source and is polled there.
+            actions.loadScoutRuns()
             actions.loadFleetFindingsSummary()
             cache.disposables.add(() => {
                 const interval = setInterval(() => {
-                    actions.loadRunsWindow()
+                    actions.loadScoutRuns()
                     actions.loadFleetFindingsSummary()
                 }, RUNS_REFETCH_INTERVAL_MS)
                 return () => clearInterval(interval)

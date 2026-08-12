@@ -1042,7 +1042,8 @@ export const productUrls = {
     supportTickets: (): string => '/support/tickets',
     supportTicketDetail: (ticketId: string | number): string => `/support/tickets/${ticketId}`,
     supportSettings: (): string => '/support/settings',
-    myTickets: (): string => '/my-tickets',
+    myTickets: (ticketId?: string): string =>
+        ticketId ? `/my-tickets?ticket=${encodeURIComponent(ticketId)}` : '/my-tickets',
     customerAnalytics: (): string => '/customer_analytics',
     customerAnalyticsDashboard: (): string => '/customer_analytics/dashboard',
     customerAnalyticsAccounts: (): string => '/customer_analytics/accounts',
@@ -1213,10 +1214,12 @@ export const productUrls = {
         options?: {
             metric?: ExperimentMetric
             name?: string
+            tab?: string
         }
     ): string => {
         const baseUrl = formMode ? `/experiments/${id}/${formMode}` : `/experiments/${id}`
-        return `${baseUrl}${options ? `?${toParams(options)}` : ''}`
+        const params = options ? toParams(options) : ''
+        return params ? `${baseUrl}?${params}` : baseUrl
     },
     experiments: (): string => '/experiments',
     experimentsSharedMetrics: (): string => '/experiments/shared-metrics',
@@ -2100,6 +2103,16 @@ export const getTreeItemsProducts = (): FileSystemImport[] => [
         sceneKeys: ['IdentityMatching', 'AIEnrichment'],
     },
     {
+        path: 'Inbox',
+        intents: [],
+        category: ProductItemCategory.TOOLS,
+        iconType: 'inbox' as FileSystemIconType,
+        href: urls.inbox(),
+        flag: FEATURE_FLAGS.PRODUCT_AUTONOMY,
+        sceneKey: 'Inbox',
+        sceneKeys: ['Inbox'],
+    },
+    {
         path: 'LLM analytics',
         displayLabel: 'AI observability',
         intents: [
@@ -2340,7 +2353,6 @@ export const getTreeItemsProducts = (): FileSystemImport[] => [
             'var(--color-product-session-replay-dark)',
         ] as FileSystemIconColor,
         href: urls.replayVision(),
-        flag: FEATURE_FLAGS.REPLAY_VISION,
         sceneKey: 'ReplayVision',
         sceneKeys: ['ReplayVision', 'ReplayVisionScanner'],
     },

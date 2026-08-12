@@ -417,7 +417,9 @@ class GoogleAdsSource(
             if "CUSTOMER_NOT_FOUND" in error_message or "USER_PERMISSION_DENIED" in error_message:
                 return (
                     False,
-                    f"Customer ID {config.customer_id} is not accessible. Please verify your customer ID and manager account settings.",
+                    f"Customer ID {config.customer_id} isn't accessible through the connected manager "
+                    "(MCC) account. Check that the customer ID is correct, that the manager customer ID "
+                    "you entered is right, and that this account is linked under that manager, then try again.",
                 )
             raise
 

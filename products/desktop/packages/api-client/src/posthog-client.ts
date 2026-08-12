@@ -208,6 +208,17 @@ export interface TaskListOptions {
   limit?: number;
 }
 
+export interface TaskSearchResult {
+  id: string;
+  kind: "task" | "pull_request" | "artifact" | "channel";
+  title: string;
+  subtitle: string;
+  task_id: string | null;
+  task_run_id: string | null;
+  channel_id: string | null;
+  metadata: Record<string, unknown>;
+}
+
 export interface TaskSessionStorageAccess {
   id: string;
   download_url: string | null;
@@ -2184,6 +2195,19 @@ export class PostHogAPIClient {
 
   async getTasks(options?: TaskListOptions): Promise<Task[]> {
     return (await this.getTasksPage(options)).tasks;
+  }
+
+  async searchTasks(query: string, limit = 20): Promise<TaskSearchResult[]> {
+    const teamId = await this.getTeamId();
+    const path = `/api/projects/${teamId}/tasks/search/`;
+    const url = new URL(`${this.api.baseUrl}${path}`);
+    url.searchParams.set("q", query);
+    url.searchParams.set("limit", String(limit));
+    const response = await this.api.fetcher.fetch({ method: "get", url, path });
+    if (!response.ok) {
+      throw new Error(`Failed to search tasks: ${response.statusText}`);
+    }
+    return (await response.json()) as TaskSearchResult[];
   }
 
   /**

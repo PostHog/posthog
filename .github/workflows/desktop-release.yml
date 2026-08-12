@@ -820,3 +820,28 @@ jobs:
                       echo "| \`$f\` | $BASE/$f |"
                     done
                   } >> "$GITHUB_STEP_SUMMARY"
+
+            # Notify only after the S3 channel files have been published. Those files,
+            # rather than the GitHub release event, are the desktop release boundary.
+            - name: Publish release notes to Discord
+              env:
+                  APP_VERSION: ${{ steps.version.outputs.version }}
+                  DISCORD_WEBHOOK_URL: ${{ secrets.DISCORD_DESKTOP_RELEASES_WEBHOOK_URL }}
+              run: |
+                  if [[ -z "$DISCORD_WEBHOOK_URL" ]]; then
+                    echo "::error::DISCORD_DESKTOP_RELEASES_WEBHOOK_URL is not configured"
+                    exit 1
+                  fi
+
+                  DESCRIPTION=$(python3 -c "content = open('/tmp/release-notes.md', encoding='utf-8').read(); print(content[:4000], end='')")
+                  jq -n \
+                    --arg title "PostHog Code v$APP_VERSION" \
+                    --arg url "https://github.com/$GITHUB_REPOSITORY/releases/tag/desktop-v$APP_VERSION" \
+                    --arg description "$DESCRIPTION" \
+                    '{embeds: [{title: $title, url: $url, description: $description, color: 2105893}]}' \
+                    > /tmp/discord-release.json
+
+                  curl --fail-with-body \
+                    -H "Content-Type: application/json" \
+                    --data-binary @/tmp/discord-release.json \
+                    "$DISCORD_WEBHOOK_URL"

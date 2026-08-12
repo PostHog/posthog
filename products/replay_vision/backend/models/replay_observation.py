@@ -107,7 +107,7 @@ class ReplayObservation(UUIDModel):
 
     class Meta:
         constraints = [
-            # Failed/succeeded rows are sticky; admin deletes to re-trigger.
+            # Succeeded rows are sticky; admin deletes to re-trigger. A backfill may retake a failed row.
             models.UniqueConstraint(fields=["scanner", "session_id"], name="replay_observation_unique_scanner_session"),
             models.CheckConstraint(
                 condition=(
