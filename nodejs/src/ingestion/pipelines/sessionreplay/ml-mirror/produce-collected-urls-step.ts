@@ -17,25 +17,21 @@ import { RefDedupCache } from '~/ingestion/pipelines/sessionreplay/shared/ref-de
 const PRODUCED_REF_CACHE_MAX = 500_000
 
 /**
- * Bytes of URL payload one record may carry, against the 1,000,000 byte default for
- * `message.max.bytes`, which this producer does not override. The rest absorbs the envelope and
- * the JSON punctuation.
+ * Bytes of URL payload one record may carry, against the 1,000,000 byte `message.max.bytes` default
+ * that this producer does not override. The rest absorbs the envelope.
  *
- * A record is packed to this size rather than to a fixed number of URLs. A URL may be anything up
- * to `MAX_URL_LEN`, so a count that is safe for the longest URLs wastes most of a record on the
- * ordinary ones, and a count sized for ordinary ones is unsafe.
+ * A URL may be anything up to `MAX_URL_LEN`, so a fixed count is either unsafe for the longest URLs
+ * or wasteful for ordinary ones.
  */
 const MAX_RECORD_URL_BYTES = 512 * 1024
 
 /**
- * URLs one record may carry, whatever their size. The byte budget alone would let the collector's
- * per-message cap decide this, and that cap lives in another crate, so raising it there would start
- * producing records the fetcher refuses whole as `oversized_record` with nothing on this side to
- * show it. This must stay below MAX_URLS_PER_RECORD in `ml-mirror-image-fetch/collected-urls-record.ts`.
+ * URLs one record may carry, whatever their size. Without this the collector's cap, which lives in
+ * another crate, would decide it, and raising it there would produce records the fetcher refuses
+ * whole. Must stay below MAX_URLS_PER_RECORD in `ml-mirror-image-fetch/collected-urls-record.ts`.
  */
 const MAX_RECORD_URLS = 512
 
-/** One URL as it rides on the fetch topic. */
 export interface RecordUrl {
     ref: string
     url: string
@@ -201,11 +197,9 @@ export function createProduceCollectedUrlsStep<
 }
 
 /**
- * Greedy packing: fill a record until the next entry would cross the budget, then start another.
- *
- * An entry always goes somewhere, even alone in an oversized record, because dropping it here would
- * lose an image that every earlier check accepted. `MAX_URL_LEN` bounds that case well under the
- * broker limit.
+ * An entry always goes somewhere, even alone in a record over the budget, because dropping it here
+ * would lose an image every earlier check accepted. `MAX_URL_LEN` bounds that case under the broker
+ * limit.
  */
 function packByBytes(entries: RecordUrl[], maxBytes: number): RecordUrl[][] {
     const out: RecordUrl[][] = []
@@ -230,9 +224,9 @@ function packByBytes(entries: RecordUrl[], maxBytes: number): RecordUrl[][] {
 /**
  * The JSON punctuation around the three fields, so packing measures what the record will hold.
  *
- * This counts raw bytes, and `JSON.stringify` widens a quote or a backslash, so the estimate is a
- * lower bound. Canonicalization percent-encodes those upstream, and the budget sits at about half
- * the broker limit, so the gap has room. `ml_url_record_bytes` is what would show it closing.
+ * `JSON.stringify` widens a quote or a backslash, so this is a lower bound. Canonicalization
+ * percent-encodes those upstream and the budget is half the broker limit, so the gap has room.
+ * `ml_url_record_bytes` is what would show it closing.
  */
 const ENTRY_OVERHEAD_BYTES = '{"ref":"","url":"","host":""},'.length
 

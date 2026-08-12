@@ -16,7 +16,6 @@ export type MlImageLaneStage = 'collected' | 'deduped' | 'queued' | 'produced' |
  *  ships. */
 export type MlUrlLaneStage = 'collected' | 'deduped' | 'queued' | 'produced' | 'produce_failed' | 'ref_unusable'
 
-/** Matches the ghost-probe rate in `RefDedupCache`, for the same reason. */
 const URL_BYTES_SAMPLE_RATE = 16
 
 export class SessionRecordingIngesterMetrics {
@@ -174,22 +173,14 @@ export class SessionRecordingIngesterMetrics {
         this.mlImagesCollected.labels(outcome).inc(count)
     }
 
-    /**
-     * Bytes in one collected URL, and what one produced record ends up carrying.
-     *
-     * The record is packed to a byte budget rather than to a count, so these two size that budget.
-     * A URL distribution with a long tail near the 2048-byte cap packs far fewer entries per record
-     * than a typical one, and nothing else reports which of those we have.
-     */
     private static readonly mlUrlBytes = new Histogram({
         name: 'recording_blob_ingestion_v2_ml_url_bytes',
         help: 'Bytes in one collected remote image URL, sampled. The tail sizes the per-record packing budget, because a record is filled by bytes rather than by a fixed number of URLs. Read the shape, not the count: one URL in URL_BYTES_SAMPLE_RATE is observed',
         buckets: [64, 128, 256, 512, 1024, 2048],
     })
     /**
-     * One message can carry hundreds of URLs, and a histogram observation costs several short-lived
-     * allocations, so observing every one puts the payload's own size on the mirror's hot path. The
-     * distribution is what this metric is for, and sampling preserves it at these volumes.
+     * A message can carry hundreds of URLs, and an observation costs several allocations, so
+     * observing each one puts the size of the payload on the mirror's hot path.
      */
     private static urlBytesSeen = 0
     private static readonly mlUrlsPerRecord = new Histogram({
