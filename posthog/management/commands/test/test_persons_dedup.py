@@ -265,6 +265,20 @@ class TestPersonsDedupDeleteOnly:
         persons = [json.loads(line) for line in lines]
         assert any(p["_kind"] == "person" and p["properties"] == {"email": "gone"} for p in persons)
 
+    def test_backup_file_is_owner_only(self, persons_conn, tmp_path):
+        # The backup holds person properties; on a shared pod filesystem a default-umask
+        # 0644 file would expose them to any local account.
+        uuid = _uuid(15)
+        _add_person(persons_conn, uuid)
+        live = _add_person(persons_conn, uuid)
+        _add_distinct_id(persons_conn, live, "did-15")
+
+        _run("plan", tmp_path, apply=True)
+
+        files = list(tmp_path.glob("*.jsonl"))
+        assert files, "apply must write a backup file"
+        assert (files[0].stat().st_mode & 0o777) == 0o600
+
     def test_is_idempotent(self, persons_conn, tmp_path):
         uuid = _uuid(14)
         _add_person(persons_conn, uuid)

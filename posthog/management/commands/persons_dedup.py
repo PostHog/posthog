@@ -234,6 +234,17 @@ SELECT count(*) FROM posthog_cohortpeople cp
 JOIN {VICTIMS_TABLE}_batch b ON cp.person_id = b.id
 """
 
+# Post-commit sweep. posthog_cohortpeople has no FK, so a cohort insert takes no lock
+# on the person row and can commit between the in-transaction check's snapshot and our
+# commit. This runs after commit with a fresh snapshot, so it sees any row that raced
+# us; scoped to the batch's victims, whose persons are now provably gone.
+SWEEP_COHORT_ORPHANS_SQL = f"""
+DELETE FROM posthog_cohortpeople cp
+USING {VICTIMS_TABLE}_batch b
+WHERE cp.person_id = b.id
+RETURNING cp.id, cp.cohort_id, cp.person_id
+"""
+
 DELETE_PERSONS_SQL = f"""
 DELETE FROM posthog_person p
 USING {VICTIMS_TABLE}_batch b
@@ -536,6 +547,17 @@ class Command(BaseCommand):
                 cur.execute("COMMIT")
 
             with conn.cursor() as cur:
+                cur.execute(SWEEP_COHORT_ORPHANS_SQL)
+                raced = cur.fetchall()
+            if raced:
+                # These rows were inserted after the backup was written, so record them
+                # in the log; they reference persons that no longer exist either way.
+                logger.warning(
+                    "persons_dedup.cohort_rows_raced_the_delete",
+                    team_id=team,
+                    rows=[{"id": r[0], "cohort_id": r[1], "person_id": r[2]} for r in raced],
+                )
+            with conn.cursor() as cur:
                 cur.execute(RETIRE_BATCH_SQL)
             deleted += removed
             if options["sleep_ms"] > 0:
@@ -558,7 +580,10 @@ class Command(BaseCommand):
             cur.execute(FETCH_DEPENDENTS_SQL)
             dependents = cur.fetchall()
 
-        with path.open("a", encoding="utf-8") as fh:
+        # The backup holds person properties. Create owner-only and refuse symlinks, so
+        # a shared pod filesystem or a swapped path cannot expose or redirect it.
+        fd = os.open(str(path), os.O_CREAT | os.O_WRONLY | os.O_APPEND | os.O_NOFOLLOW, 0o600)
+        with os.fdopen(fd, "a", encoding="utf-8") as fh:
             for row in persons:
                 fh.write(json.dumps({"_kind": "person", **dict(zip(PERSON_COLUMNS, row))}, default=str) + "\n")
             for tbl, row_id, person_id, k, v in dependents:
