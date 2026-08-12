@@ -462,9 +462,10 @@ floor and blind-spots/validator are **exactly-one-active with deactivation block
   `InboxTabKey` after `'archived'` (staff-gated via `INBOX_STAFF_ONLY_TAB_KEYS`, "Alpha" tag from
   `INBOX_TAB_TAG`). Moved out of the Inbox to its own `CodeReview` scene at `/code_review`, registered
   by `products/review_hog/manifest.tsx` with an "Unreleased" nav entry (`ProductItemCategory.UNRELEASED`,
-  `tags: ['alpha']`). Gating is two-layer by design: `FEATURE_FLAGS.REVIEW_HOG` (`review-hog`) controls
+  `tags: ['alpha']`). Gating was two-layer by design: `FEATURE_FLAGS.REVIEW_HOG` (`review-hog`) controls
   **only the menu entry's visibility** (who discovers it); the scene itself stays **staff-only**
-  (non-staff get `NotFound`) regardless of the flag. The old inbox tab and `/inbox/code-review` URL are
+  (non-staff get `NotFound`) regardless of the flag. (Superseded 2026-08-12 — the scene now honors the
+  flag too; see the follow-up below.) The old inbox tab and `/inbox/code-review` URL are
   gone with no redirect. Body unchanged: hero → pipeline diagram → trigger toggles → urgency slider →
   perspectives → blind-spot check → validation criteria → read-only skill drawer; it no longer sits
   behind the Inbox onboarding takeover.
@@ -508,8 +509,23 @@ floor and blind-spots/validator are **exactly-one-active with deactivation block
   drawer shows the canonical SKILL.md body, threshold click PATCHes and persists (`must_fix` verified in
   DB, then reset), blind-spot deactivation blocked with the toast. New workflow tests cover the opt-out
   skip, the CLI-override bypass, and threshold threading into body+publish.
-- **Still deferred:** reset-to-canonical (needs the force-re-pull helper in `lazy_seed`); non-staff
-  rollout. (The "Review all your Inbox PRs" behavior is **BUILT** — see Stage 6.)
+- **Still deferred:** reset-to-canonical (needs the force-re-pull helper in `lazy_seed`). Non-staff
+  rollout is **BUILT** — see the 2026-08-12 follow-up below. (The "Review all your Inbox PRs" behavior
+  is **BUILT** — see Stage 6.)
+
+#### ✅ BUILT 2026-08-12 — scene access follows the menu flag (staff-only gate relaxed)
+
+The two-layer gating above carried an unstated invariant: the `review-hog` flag's audience had to stay
+within Django-staff users, or people would discover a menu entry they couldn't open. The invariant is
+also unenforceable — `is_staff` is a Django DB column, not a person/group property a flag can target —
+and the flag's real rollout (org-wide internally) broke it: non-staff colleagues saw "Code review"
+under Unreleased and got `NotFound` on click. `CodeReviewScene` now allows
+`FEATURE_FLAGS.REVIEW_HOG` **or** `is_staff`, so the menu entry and the page can no longer disagree,
+and staff keep direct-URL access where the flag is off. Rollout control is now entirely the flag's.
+Nothing changed on the backend: the endpoints were already deliberately self-/team-scoped rather than
+staff-gated, and the UI trigger stays behind the `REVIEWHOG_TEAM_ID` dogfood gate. Before widening the
+flag beyond the internal org, close the QAREPORT note about config endpoints returning skill bodies
+without the `llm_analytics` resource check.
 
 #### ✅ BUILT 2026-07-16 — default urgency threshold flipped to "All issues" (`consider`)
 
