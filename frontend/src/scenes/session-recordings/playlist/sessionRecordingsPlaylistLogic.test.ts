@@ -1247,7 +1247,7 @@ describe('sessionRecordingsPlaylistLogic', () => {
         })
     })
 
-    describe('unmounting during an in-flight load', () => {
+    describe('superseding or unmounting an in-flight load', () => {
         afterEach(() => {
             jest.restoreAllMocks()
         })
@@ -1275,6 +1275,44 @@ describe('sessionRecordingsPlaylistLogic', () => {
             await expectLogic(embeddedLogic)
                 .toFinishAllListeners()
                 .toNotHaveDispatchedActions(['loadSessionRecordingsFailure'])
+        })
+
+        it('still reports a superseded fetch, with the filters the request was built from', async () => {
+            let resolveList: (value: unknown) => void = () => {}
+            const pendingList = new Promise((resolve) => {
+                resolveList = resolve
+            })
+            const listSpy = jest
+                .spyOn(api.recordings, 'list')
+                .mockImplementationOnce(() => pendingList as ReturnType<typeof api.recordings.list>)
+                .mockImplementation(
+                    () =>
+                        Promise.resolve({ results: [], has_next: false } as unknown) as ReturnType<
+                            typeof api.recordings.list
+                        >
+                )
+
+            const supersededLogic = sessionRecordingsPlaylistLogic({ logicKey: 'superseded-mid-load' })
+            supersededLogic.mount()
+
+            // afterMount kicks off a load; wait for it to get past the debounce and issue the request
+            while (listSpy.mock.calls.length === 0) {
+                await new Promise((resolve) => setTimeout(resolve, 25))
+            }
+
+            // supersede the in-flight load, then let its stale response land
+            supersededLogic.actions.setFilters({ filter_test_accounts: true })
+            resolveList({ results: [], has_next: false })
+
+            await expectLogic(supersededLogic)
+                .toDispatchActions([
+                    (action) =>
+                        action.type === supersededLogic.actionTypes.reportRecordingsListFetched &&
+                        action.payload.filters.filter_test_accounts !== true,
+                ])
+                .toFinishAllListeners()
+
+            supersededLogic.unmount()
         })
     })
 
