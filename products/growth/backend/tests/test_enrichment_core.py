@@ -88,11 +88,11 @@ class TestEnrichmentCore(BaseTest):
         # First attempt: Clay's bridge columns are already present, so they feed the score too —
         # but the person mirror is recheck-only, so `set` stays unused.
         pha_client = MagicMock()
-        fields = EnrichmentFields(headcount=750, country="US", founded_year=2021)
+        fields = EnrichmentFields(headcount=750, country="US", founded_year=2021, ownership_status="PRIVATE")
         self._enrich(
             ProviderLookup(fields=fields, raw_payload={"n": 1}),
             role_at_organization="Founder",
-            clay=ClayBridgeInputs(est_revenue=25_000_000, company_type="private", clay_processed=True),
+            clay=ClayBridgeInputs(est_revenue=25_000_000, clay_processed=True),
             pha_client=pha_client,
             distinct_id="signer-distinct-id",
         )
@@ -259,23 +259,23 @@ class TestEnrichmentCore(BaseTest):
         [
             (
                 "clay_wins_when_both_present",
-                ClayBridgeInputs(est_revenue=5_000_000, company_type="private"),
-                {"clearbit": {"company": {"metrics": {"estimatedAnnualRevenue": "$100M-$250M"}, "type": "public"}}},
-                9,
+                ClayBridgeInputs(est_revenue=5_000_000),
+                {"clearbit": {"company": {"metrics": {"estimatedAnnualRevenue": "$100M-$250M"}}}},
+                6,
             ),
             (
                 "clearbit_fills_in_when_clay_is_absent",
                 ClayBridgeInputs(),
-                {"clearbit": {"company": {"metrics": {"estimatedAnnualRevenue": "$1M-$10M"}, "type": "private"}}},
-                9,
+                {"clearbit": {"company": {"metrics": {"estimatedAnnualRevenue": "$1M-$10M"}}}},
+                6,
             ),
             (
                 "clay_zero_revenue_falls_back_to_clearbit",
                 # Clay's own _numeric coerces a written 0 (or "0") into 0.0, which the formula's
                 # strict bands treat exactly like a missing value — it must not shadow Clearbit's.
                 ClayBridgeInputs(est_revenue=0.0),
-                {"clearbit": {"company": {"metrics": {"estimatedAnnualRevenue": "$1M-$10M"}, "type": "private"}}},
-                9,
+                {"clearbit": {"company": {"metrics": {"estimatedAnnualRevenue": "$1M-$10M"}}}},
+                6,
             ),
             ("both_absent_scores_neither_branch", ClayBridgeInputs(), {}, 0),
         ]
@@ -293,6 +293,23 @@ class TestEnrichmentCore(BaseTest):
         record = OrganizationEnrichment.objects.get(organization=self.organization)
         assert record.data["icp_score"] == expected_score
 
+    @parameterized.expand(
+        [
+            ("private", "PRIVATE", 3),
+            ("public", "PUBLIC", 0),
+            ("acquired_or_merged", "ACQUIRED_OR_MERGED", 0),
+            ("active", "ACTIVE", 0),
+            ("out_of_business", "OUT_OF_BUSINESS", 0),
+            ("absent", None, 0),
+        ]
+    )
+    def test_only_private_ownership_status_scores_the_company_type_term(self, _name, ownership_status, expected_score):
+        fields = EnrichmentFields(country="US", ownership_status=ownership_status)
+        self._enrich(ProviderLookup(fields=fields, raw_payload={"n": 1}))
+
+        record = OrganizationEnrichment.objects.get(organization=self.organization)
+        assert record.data["icp_score"] == expected_score
+
     def test_clearbit_fallback_does_not_block_the_mirror(self):
         pha_client = MagicMock()
         fields = EnrichmentFields(country="US")
@@ -301,16 +318,12 @@ class TestEnrichmentCore(BaseTest):
             is_recheck=True,
             clay=ClayBridgeInputs(),
             distinct_id="signer-distinct-id",
-            person=MagicMock(
-                properties={
-                    "clearbit": {"company": {"metrics": {"estimatedAnnualRevenue": "$1M-$10M"}, "type": "private"}}
-                }
-            ),
+            person=MagicMock(properties={"clearbit": {"company": {"metrics": {"estimatedAnnualRevenue": "$1M-$10M"}}}}),
             pha_client=pha_client,
         )
 
         pha_client.set.assert_called_once()
-        assert pha_client.set.call_args.kwargs["properties"]["icp_score"] == 9
+        assert pha_client.set.call_args.kwargs["properties"]["icp_score"] == 6
 
     def test_recheck_miss_reconstructs_fields_from_the_prior_record_and_scores(self):
         OrganizationEnrichment.objects.create(

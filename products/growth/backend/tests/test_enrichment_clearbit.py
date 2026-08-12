@@ -38,21 +38,16 @@ def test_revenue_band_midpoint_scores_the_formula_band_it_belongs_to(_name, band
         ("clearbit_not_a_dict", {"clearbit": "unexpected"}, ClearbitInputs()),
         ("company_missing", {"clearbit": {}}, ClearbitInputs()),
         ("company_is_none", {"clearbit": {"company": None}}, ClearbitInputs()),
-        (
-            "metrics_not_a_dict",
-            {"clearbit": {"company": {"metrics": "unexpected", "type": "private"}}},
-            ClearbitInputs(company_type="private"),
-        ),
+        ("metrics_not_a_dict", {"clearbit": {"company": {"metrics": "unexpected"}}}, ClearbitInputs()),
         (
             "band_not_a_string",
             {"clearbit": {"company": {"metrics": {"estimatedAnnualRevenue": 5_000_000}}}},
             ClearbitInputs(),
         ),
-        ("company_type_not_a_string", {"clearbit": {"company": {"type": 12}}}, ClearbitInputs()),
         (
-            "both_fields_present",
-            {"clearbit": {"company": {"metrics": {"estimatedAnnualRevenue": "$1M-$10M"}, "type": "private"}}},
-            ClearbitInputs(est_revenue=5_500_000.0, company_type="private"),
+            "band_present",
+            {"clearbit": {"company": {"metrics": {"estimatedAnnualRevenue": "$1M-$10M"}}}},
+            ClearbitInputs(est_revenue=5_500_000.0),
         ),
     ]
 )

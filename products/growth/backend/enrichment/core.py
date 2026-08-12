@@ -75,6 +75,16 @@ def _fetch_recheck_person_inputs(distinct_id: str) -> tuple[bool, ClearbitInputs
     return not clay_owned, clearbit_inputs_from_person_properties(properties)
 
 
+def _company_type_from_ownership(ownership_status: Optional[str]) -> Optional[str]:
+    """Map Harmonic's ownershipStatus onto the private/public vocabulary the formula matches on.
+
+    Only PRIVATE carries ownership information the formula can score. ACQUIRED_OR_MERGED,
+    ACTIVE and OUT_OF_BUSINESS describe a company's state rather than who owns it, so they
+    score nothing instead of being folded into either side.
+    """
+    return "private" if ownership_status == "PRIVATE" else None
+
+
 def _score_and_mirror(
     *,
     organization_id: str,
@@ -89,8 +99,9 @@ def _score_and_mirror(
     never waited for. Clay's own write lands after ours far more often than not, so most orgs
     score on our fields alone at signup; the +4h recheck re-reads the bridge and can upgrade the
     score if Clay's columns landed since. The recheck adds one person lookup that serves two
-    things: the mirror-ownership check and the Clearbit fallback for est_revenue and company_type
-    (Clay wins when both exist).
+    things: the mirror-ownership check and the Clearbit fallback for est_revenue (Clay wins when
+    both exist). company_type comes from Harmonic's own ownershipStatus, fetched server-side in
+    the same lookup as the other firmographics.
 
     Wrapped so a bridge-read or score failure degrades to no score rather than taking down the
     firmographic write below — see enrich_organization's docstring.
@@ -124,10 +135,7 @@ def _score_and_mirror(
             # absent here — product-role orgs score 3, not 6, until v-next substitutes the
             # signup's own GitHub auth. Kept on IcpScoreInputs for formula fidelity.
             github_profile_url=None,
-            # Clearbit's company.type uses the same private/public vocabulary the formula
-            # matches on, unlike our Harmonic `company_type` (raw enum, e.g. "STARTUP") —
-            # safe to fall back to directly, same as Clay's own bridge-read value.
-            company_type=clay.company_type or clearbit.company_type,
+            company_type=_company_type_from_ownership(fields.ownership_status),
             founded_year=fields.founded_year,
             country=fields.country,
         )
