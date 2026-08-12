@@ -38,9 +38,6 @@ from .skill_services import LLMSkillDuplicateNameConflictError, LLMSkillFileLimi
 logger = structlog.get_logger(__name__)
 
 COMMUNITY_SKILL_FEATURE_FLAG = "llm-analytics-community-skills"
-# Installing copies into a regular LLMSkill, whose UI and APIs are gated by this base flag — so the
-# marketplace also requires it, otherwise installed skills would be unreachable.
-BASE_SKILL_FEATURE_FLAG = "llm-analytics-skills"
 
 
 class CommunitySkillBurstThrottle(PersonalApiKeyOrUserRateThrottle):
@@ -77,19 +74,18 @@ class CommunitySkillFeatureFlagPermission(BasePermission):
 
         # Honor POSTHOG_FEATURE_FLAGS_FORCE_ENABLED so self-hosted deployments can enable the
         # marketplace without a round-trip to PostHog Cloud, matching the canonical permission.
-        return all(
-            flag in _FORCE_ENABLED_FLAGS
-            or bool(
-                posthoganalytics.feature_enabled(
-                    flag,
-                    distinct_id,
-                    groups=groups,
-                    group_properties=group_properties,
-                    only_evaluate_locally=False,
-                    send_feature_flag_events=False,
-                )
+        if COMMUNITY_SKILL_FEATURE_FLAG in _FORCE_ENABLED_FLAGS:
+            return True
+
+        return bool(
+            posthoganalytics.feature_enabled(
+                COMMUNITY_SKILL_FEATURE_FLAG,
+                distinct_id,
+                groups=groups,
+                group_properties=group_properties,
+                only_evaluate_locally=False,
+                send_feature_flag_events=False,
             )
-            for flag in (COMMUNITY_SKILL_FEATURE_FLAG, BASE_SKILL_FEATURE_FLAG)
         )
 
 

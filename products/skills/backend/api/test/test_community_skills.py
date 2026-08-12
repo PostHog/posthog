@@ -223,3 +223,24 @@ class TestCommunitySkillWriteAccess(APIBaseTest):
         self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN, response.content)
         self.assertFalse(LLMSkill.objects.filter(team=self.team).exists())
         self.assertFalse(CommunitySkillVote.objects.exists())
+
+
+class TestCommunitySkillFeatureFlagGate(APIBaseTest):
+    @parameterized.expand(
+        [
+            ("only_community_flag_enabled", {"llm-analytics-community-skills"}, status.HTTP_200_OK),
+            ("no_flags_enabled", set(), status.HTTP_403_FORBIDDEN),
+        ]
+    )
+    def test_gate_depends_only_on_the_community_flag(
+        self, _name: str, enabled_flags: set[str], expected_status: int
+    ) -> None:
+        _create_community_skill(slug="web-analytics-triage")
+
+        with patch(
+            "products.skills.backend.api.community_skills.posthoganalytics.feature_enabled",
+            side_effect=lambda flag, *args, **kwargs: flag in enabled_flags,
+        ):
+            response = self.client.get(f"/api/projects/{self.team.id}/community_skills/")
+
+        self.assertEqual(response.status_code, expected_status, response.content)
