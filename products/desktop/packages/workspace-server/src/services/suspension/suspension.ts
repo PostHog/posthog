@@ -317,7 +317,15 @@ export class SuspensionService extends TypedEventEmitter<SuspensionServiceEvents
   ): Promise<void> {
     const manager = this.createWorktreeManager(folderPath);
     await manager.deleteWorktree(worktreePath);
-    await forceRemove(path.dirname(worktreePath));
+    const worktreeBasePath = this.workspaceSettings.getWorktreeLocation();
+    const parentDir = path.dirname(worktreePath);
+    // Only remove the parent directory for app-managed worktrees (those inside
+    // the worktree base path). Adopted external worktrees have their parent
+    // outside the managed base, and removing it would recursively delete the
+    // parent directory containing the main repo and sibling worktrees (#81530).
+    if (worktreePath.startsWith(worktreeBasePath)) {
+      await forceRemove(parentDir);
+    }
   }
 
   private async killTaskProcesses(
