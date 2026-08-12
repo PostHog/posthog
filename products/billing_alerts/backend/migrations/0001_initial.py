@@ -78,7 +78,11 @@ class Migration(migrations.Migration):
                 ("enabled", models.BooleanField(default=True)),
                 (
                     "metric",
-                    models.CharField(choices=[("spend", "Spend")], default="spend", max_length=20),
+                    models.CharField(
+                        choices=[("spend", "Spend"), ("projected_spend", "Projected spend")],
+                        default="spend",
+                        max_length=20,
+                    ),
                 ),
                 ("currency", models.CharField(choices=[("USD", "USD")], default="USD", max_length=3)),
                 ("configuration_revision", models.PositiveIntegerField(default=1)),
@@ -90,7 +94,7 @@ class Migration(migrations.Migration):
                             ("absolute_value", "Absolute value"),
                             ("absolute_increase", "Absolute increase"),
                         ],
-                        default="relative_increase",
+                        default="absolute_value",
                         max_length=32,
                     ),
                 ),
@@ -248,7 +252,10 @@ class Migration(migrations.Migration):
                 ("period_end", models.DateTimeField(blank=True, null=True)),
                 (
                     "metric",
-                    models.CharField(choices=[("spend", "Spend")], max_length=20),
+                    models.CharField(
+                        choices=[("spend", "Spend"), ("projected_spend", "Projected spend")],
+                        max_length=20,
+                    ),
                 ),
                 ("current_value", models.DecimalField(blank=True, decimal_places=6, max_digits=20, null=True)),
                 ("baseline_value", models.DecimalField(blank=True, decimal_places=6, max_digits=20, null=True)),

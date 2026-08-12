@@ -18,6 +18,7 @@ DAILY_CHECK_INTERVAL_HOURS = 24
 class BillingAlertConfiguration(UUIDModel):
     class Metric(models.TextChoices):
         SPEND = "spend", "Spend"
+        PROJECTED_SPEND = "projected_spend", "Projected spend"
 
     class ThresholdType(models.TextChoices):
         RELATIVE_INCREASE = "relative_increase", "Relative increase"
@@ -76,7 +77,7 @@ class BillingAlertConfiguration(UUIDModel):
     threshold_type = models.CharField(
         max_length=32,
         choices=ThresholdType.choices,
-        default=ThresholdType.RELATIVE_INCREASE,
+        default=ThresholdType.ABSOLUTE_VALUE,
     )
     threshold_percentage = models.DecimalField(max_digits=8, decimal_places=2, null=True, blank=True)
     threshold_value = models.DecimalField(max_digits=20, decimal_places=6, null=True, blank=True)
