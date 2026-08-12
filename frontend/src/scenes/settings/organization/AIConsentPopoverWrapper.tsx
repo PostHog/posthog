@@ -103,8 +103,8 @@ export function AIConsentPopoverWrapper({
     hideTrainingDisclaimer?: boolean
     /**
      * URL to continue to once consent is approved. Approving can trigger a full-page SSO
-     * reauthentication redirect that tears down `onApprove`'s closure before it runs, so this is
-     * persisted and replayed by `aiConsentLogic` once the user lands back with consent granted.
+     * reauthentication redirect that unloads the page before the approval request is sent, so the
+     * intent is persisted and `aiConsentLogic` finishes the approval and navigation on return.
      */
     pendingRedirectUrl?: string
 }): JSX.Element {
@@ -112,7 +112,7 @@ export function AIConsentPopoverWrapper({
     const { dataProcessingApprovalDisabledReason, dataProcessingAccepted, dataProcessingDismissed } =
         useValues(aiConsentLogic)
     const { dismissDataProcessing, setPendingApprovalRedirect } = useActions(aiConsentLogic)
-    const { isAdminOrOwner } = useValues(organizationLogic)
+    const { isAdminOrOwner, currentOrganization } = useValues(organizationLogic)
 
     const handleDismiss = (): void => {
         if (!ignoreDismissal) {
@@ -129,18 +129,17 @@ export function AIConsentPopoverWrapper({
                         approvalDisabledReason={dataProcessingApprovalDisabledReason}
                         hideTrainingDisclaimer={hideTrainingDisclaimer}
                         onApprove={() => {
-                            if (pendingRedirectUrl) {
-                                setPendingApprovalRedirect(pendingRedirectUrl)
+                            if (pendingRedirectUrl && currentOrganization) {
+                                // Cleared by the acceptDataProcessing listener on success or failure.
+                                setPendingApprovalRedirect({
+                                    url: pendingRedirectUrl,
+                                    organizationId: currentOrganization.id,
+                                    setAt: Date.now(),
+                                })
                             }
                             void acceptDataProcessing()
-                                .then(() => {
-                                    setPendingApprovalRedirect(null)
-                                    onApprove?.()
-                                })
-                                .catch((error) => {
-                                    setPendingApprovalRedirect(null)
-                                    console.error(error)
-                                })
+                                .then(() => onApprove?.())
+                                .catch(console.error)
                         }}
                         onDismiss={handleDismiss}
                     />

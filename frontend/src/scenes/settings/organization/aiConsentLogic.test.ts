@@ -1,17 +1,19 @@
-import { MOCK_DEFAULT_ORGANIZATION } from 'lib/api.mock'
+import { MOCK_DEFAULT_ORGANIZATION, MOCK_DEFAULT_USER } from 'lib/api.mock'
 
 import { router } from 'kea-router'
 import { expectLogic } from 'kea-test-utils'
 
 import { OrganizationMembershipLevel } from 'lib/constants'
+import { dayjs } from 'lib/dayjs'
 import { lemonToast } from 'lib/lemon-ui/LemonToast'
 
 import { useMocks } from '~/mocks/jest'
 import { initKeaTests } from '~/test/init'
+import { AppContext } from '~/types'
 
 import { requestAiAccessCreate } from 'products/platform_features/frontend/generated/api'
 
-import { aiConsentLogic } from './aiConsentLogic'
+import { PendingApprovalRedirect, aiConsentLogic } from './aiConsentLogic'
 
 jest.mock('products/platform_features/frontend/generated/api', () => ({
     requestAiAccessCreate: jest.fn(),
@@ -111,34 +113,48 @@ describe('aiConsentLogic', () => {
         expect(lemonToast.success).toHaveBeenCalledWith('AI data processing approved')
     })
 
-    // Regression guard: approving consent can trigger a full-page SSO reauthentication redirect,
-    // which discards any in-memory "resume this action" closure (see AIConsentPopoverWrapper). The
-    // pending destination must survive that round trip via localStorage and resume once consent is
-    // already granted on the next mount, rather than leaving the user on a blank landing state.
+    // Regression guards for the SSO reauthentication redirect: it unloads the page before the
+    // approval request is sent, so the confirmed intent is persisted and replayed on return.
     describe('pendingApprovalRedirect', () => {
-        it('persists across a logic remount under the expected storage key', () => {
-            initKeaTests()
+        const pendingRedirect = (overrides: Partial<PendingApprovalRedirect> = {}): PendingApprovalRedirect => ({
+            url: '/replay-vision/new/template',
+            organizationId: MOCK_DEFAULT_ORGANIZATION.id,
+            setAt: Date.now(),
+            ...overrides,
+        })
+
+        const remountWithPending = (redirect: PendingApprovalRedirect): void => {
             logic = aiConsentLogic()
             logic.mount()
-
-            logic.actions.setPendingApprovalRedirect('/replay-vision/new/template')
-            expect(logic.values.pendingApprovalRedirect).toBe('/replay-vision/new/template')
-
+            logic.actions.setPendingApprovalRedirect(redirect)
             logic.unmount()
             logic = aiConsentLogic()
             logic.mount()
+        }
 
-            expect(logic.values.pendingApprovalRedirect).toBe('/replay-vision/new/template')
+        it('replays the lost approval and resumes navigation on remount', async () => {
+            initKeaTests(true, undefined, undefined, {
+                ...MOCK_DEFAULT_ORGANIZATION,
+                is_ai_data_processing_approved: false,
+            })
+            remountWithPending(pendingRedirect())
+
+            await expectLogic(logic).toFinishAllListeners()
+
+            expect(logic.values.dataProcessingAccepted).toBe(true)
+            expect(logic.values.pendingApprovalRedirect).toBe(null)
+            expect(router.values.location.pathname).toContain('/replay-vision/new/template')
+            expect(lemonToast.success).toHaveBeenCalledWith('AI data processing approved')
         })
 
-        it('redirects and clears the pending value once mounted with consent already accepted', () => {
+        it('only redirects when consent was already granted before the round trip', () => {
             initKeaTests(true, undefined, undefined, {
                 ...MOCK_DEFAULT_ORGANIZATION,
                 is_ai_data_processing_approved: false,
             })
             logic = aiConsentLogic()
             logic.mount()
-            logic.actions.setPendingApprovalRedirect('/replay-vision/new/template')
+            logic.actions.setPendingApprovalRedirect(pendingRedirect())
             logic.unmount()
 
             initKeaTests(true, undefined, undefined, {
@@ -150,6 +166,41 @@ describe('aiConsentLogic', () => {
 
             expect(logic.values.pendingApprovalRedirect).toBe(null)
             expect(router.values.location.pathname).toContain('/replay-vision/new/template')
+        })
+
+        it.each([
+            { name: 'the intent is older than the TTL', overrides: { setAt: Date.now() - 16 * 60 * 1000 } },
+            { name: 'the intent belongs to another organization', overrides: { organizationId: 'some-other-org' } },
+        ])('drops the intent without approving when $name', async ({ overrides }) => {
+            initKeaTests(true, undefined, undefined, {
+                ...MOCK_DEFAULT_ORGANIZATION,
+                is_ai_data_processing_approved: false,
+            })
+            remountWithPending(pendingRedirect(overrides))
+
+            await expectLogic(logic).toFinishAllListeners()
+
+            expect(logic.values.dataProcessingAccepted).toBe(false)
+            expect(logic.values.pendingApprovalRedirect).toBe(null)
+            expect(lemonToast.success).not.toHaveBeenCalled()
+        })
+
+        it('drops the intent when the sensitive session is still stale, instead of reopening the reauth modal', async () => {
+            window.POSTHOG_APP_CONTEXT = {
+                current_user: {
+                    ...MOCK_DEFAULT_USER,
+                    sensitive_session_expires_at: dayjs().subtract(1, 'minute').toISOString(),
+                    organization: { ...MOCK_DEFAULT_ORGANIZATION, is_ai_data_processing_approved: false },
+                },
+            } as unknown as AppContext
+            initKeaTests(true)
+            remountWithPending(pendingRedirect())
+
+            await expectLogic(logic).toFinishAllListeners()
+
+            expect(logic.values.dataProcessingAccepted).toBe(false)
+            expect(logic.values.pendingApprovalRedirect).toBe(null)
+            expect(lemonToast.success).not.toHaveBeenCalled()
         })
 
         it('leaves navigation alone when there is nothing pending', () => {
