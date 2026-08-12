@@ -130,8 +130,8 @@ export function buildApplyDiff(op: ApplyOp, config: MarketingAnalyticsConfig | n
                     setting: SETTING_LABELS.campaignFieldPreferences,
                     subject: integrationLabel(op.integration),
                     change: 'update',
-                    before: String(before).replace('_', ' '),
-                    after: String(op.match_field).replace('_', ' '),
+                    before: String(before).replace(/_/g, ' '),
+                    after: String(op.match_field).replace(/_/g, ' '),
                 })
             }
             break

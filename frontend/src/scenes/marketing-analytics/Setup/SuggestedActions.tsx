@@ -8,11 +8,21 @@ import { setupPlanLogic } from 'scenes/web-analytics/tabs/marketing-analytics/fr
 import { CAPABILITY_COPY, ReadinessHeader } from './ReadinessHeader'
 import { SuggestionRow } from './SuggestionRow'
 
-function EmptyState({ scanned }: { scanned: boolean }): JSX.Element {
+function EmptyState({ scanned, degraded }: { scanned: boolean; degraded: string[] }): JSX.Element {
     if (!scanned) {
         return (
             <div className="text-center py-8 text-secondary">
                 <p>Scan your project to see what's worth fixing.</p>
+            </div>
+        )
+    }
+    // A degraded plan is missing whole checks, so "every check passed" would be a
+    // clean bill of health we can't give. The readiness header carries the same caveat;
+    // this is the one place a user could read silence as an all-clear.
+    if (degraded.length) {
+        return (
+            <div className="flex items-center justify-center gap-2 py-8 text-secondary">
+                <span>Nothing to fix in the checks that ran — {degraded.length} couldn't be completed.</span>
             </div>
         )
     }
@@ -35,6 +45,7 @@ export function SuggestedActions(): JSX.Element {
         applyingIds,
         dismissedSuggestions,
         showDismissed,
+        degraded,
     } = useValues(setupPlanLogic)
     const {
         loadSetupPlan,
@@ -74,6 +85,9 @@ export function SuggestedActions(): JSX.Element {
                         size="small"
                         icon={<IconRefresh />}
                         loading={setupPlanLoading}
+                        // A rescan while an apply is in flight lands a plan built before
+                        // that change, and the row it fixed comes back.
+                        disabledReason={applyingIds.length ? 'Waiting for the current change to finish' : undefined}
                         onClick={() => loadSetupPlan({ refresh: true })}
                     >
                         {setupPlan ? 'Rescan' : 'Scan'}
@@ -117,7 +131,7 @@ export function SuggestedActions(): JSX.Element {
                     </LemonButton>
                 </div>
             ) : (
-                <EmptyState scanned={!!setupPlan} />
+                <EmptyState scanned={!!setupPlan} degraded={degraded} />
             )}
 
             {/* Dismissing used to be a one-way door: a count, and no way to see or undo

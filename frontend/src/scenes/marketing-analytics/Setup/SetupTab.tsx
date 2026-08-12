@@ -122,7 +122,9 @@ export function SetupTab(): JSX.Element {
                 }}
                 onConfirmBatch={confirmReviewedBatch}
             />
-            {integrationSettingsModal.integration && (
+            {/* UtmAuditTab renders this same modal off the same shared state, so the
+                Integration health section would mount two copies of it. */}
+            {integrationSettingsModal.integration && active.key !== SetupSection.INTEGRATION_HEALTH && (
                 <IntegrationSettingsModal
                     integrationName={integrationSettingsModal.integration}
                     isOpen={integrationSettingsModal.isOpen}

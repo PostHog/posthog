@@ -18,6 +18,12 @@ export type SuggestionSeverity = 'error' | 'warning' | 'info'
 export type SuggestionSource = 'deterministic' | 'ai'
 export type ReadinessStatus = 'unlocked' | 'partial' | 'blocked'
 
+const teamId = window.POSTHOG_APP_CONTEXT?.current_team?.id
+/** Suggestion ids are semantic and project-independent — `connect_source:google_ads`
+ * is the same string in every project — so an unprefixed bucket would hide a finding
+ * in one project because it was dismissed in another. Matches marketingAnalyticsLogic. */
+const persistConfig = { persist: true, prefix: `${teamId}__` }
+
 export type Capability = 'cost' | 'attribution' | 'roas' | 'cac'
 
 /** Recorded server-side against the change, so it must describe the real origin. */
@@ -311,7 +317,7 @@ export const setupPlanLogic = kea<setupPlanLogicType>([
         ],
         dismissedIds: [
             [] as string[],
-            { persist: true },
+            persistConfig,
             {
                 dismissSuggestion: (state, { id }) => [...new Set([...state, id])],
                 restoreSuggestion: (state, { id }) => state.filter((dismissed: string) => dismissed !== id),
