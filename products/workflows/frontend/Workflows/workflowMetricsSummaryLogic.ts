@@ -23,7 +23,7 @@ import type { Dayjs } from '../../../../frontend/src/lib/dayjs'
 import type { TeamPublicType, TeamType } from '../../../../frontend/src/types'
 import { isEmailAction, isPushAction } from './hogflows/steps/types'
 import type { HogFlow } from './hogflows/types'
-import { loadWorkflowConversionSeries } from './workflowConversionQuery'
+import { buildConversionGoalStep, loadWorkflowConversionSeries } from './workflowConversionQuery'
 import { workflowLogic } from './workflowLogic'
 
 // Each conversion is emitted as a `$workflows_conversion` PostHog event carrying `$workflow_id`, so
@@ -228,7 +228,7 @@ export const WORKFLOW_SUMMARY_METRICS: Record<
     converted: {
         name: 'Workflows converted',
         description:
-            'Workflow runs started in this date range that went on to meet the conversion goal, counted once per run and shown against the day the run started. A run counts whenever it converts, including after it has finished, so recent days can still go up.',
+            'People who entered this workflow in the selected date range and went on to meet the conversion goal. Each person is counted once, on the day they entered. Someone counts whenever they convert, including after their run has finished, so recent days can still go up.',
         color: METRIC_COLORS['Workflows converted'],
         metricNames: ['conversion'],
     },
@@ -406,8 +406,9 @@ export interface WorkflowMetricsSummaryLogicProps {
 
 export type WorkflowConversionStats = {
     conversions: number
-    // Runs that started inside the selected range, from `$workflows_enrolled`. This is the rate's
-    // denominator rather than `triggered`, so numerator and denominator describe the same runs.
+    // People who entered the workflow inside the selected range, from `$workflows_enrolled`. This is
+    // the rate's denominator rather than `triggered`, so numerator and denominator describe the same
+    // people.
     enrolled: number
     // Runs started in the range according to app metrics. Only used to tell an empty result apart
     // from one where runs exist but predate enrollment events.
@@ -1010,11 +1011,10 @@ export const workflowMetricsSummaryLogic = kea<workflowMetricsSummaryLogicType>(
                 },
             },
         ],
-        // Conversions are computed by pairing each run's `$workflows_enrolled` event with its
-        // `$workflows_conversion` event, rather than read off the streaming `conversion` app metric.
-        // The streaming metric can only observe a conversion while the run is parked in cyclotron, so
-        // it misses everything that converts after a run finishes — which for a workflow with no delay
-        // step is every conversion there is.
+        // Conversions come from a funnel over the goal's own definition, rather than the streaming
+        // `conversion` app metric. That metric can only observe a conversion while the run is parked
+        // in cyclotron, so it misses everything that converts after a run finishes — which for a
+        // workflow with no delay step is every conversion there is.
         conversionStats: [
             { conversions: 0, enrolled: 0, triggered: 0, labels: [], convertedValues: [] } as WorkflowConversionStats,
             {
@@ -1042,6 +1042,7 @@ export const workflowMetricsSummaryLogic = kea<workflowMetricsSummaryLogicType>(
                                 dateTo: dateRange.dateTo.toISOString(),
                                 interval: values.params.interval ?? 'day',
                                 windowMinutes: values.workflow.conversion?.window_minutes ?? null,
+                                conversion: values.workflow.conversion,
                             },
                             timezone
                         ),
@@ -1188,34 +1189,43 @@ export const workflowMetricsSummaryLogic = kea<workflowMetricsSummaryLogicType>(
         ],
 
         convertedUsersUrl: [
-            (s) => [s.getDateRangeAbsolute, (_, p: WorkflowMetricsSummaryLogicProps) => p.id],
+            (s) => [s.getDateRangeAbsolute, s.workflow, (_, p: WorkflowMetricsSummaryLogicProps) => p.id],
             (
                 getDateRangeAbsolute: () => {
                     dateFrom: import('lib/dayjs').Dayjs
                     dateTo: import('lib/dayjs').Dayjs
                     diffMs: number
                 },
+                workflow: import('./hogflows/types').HogFlow,
                 id: string
             ): string => {
                 const { dateFrom } = getDateRangeAbsolute()
+                // Same goal definition the tile counts from, so the two can't disagree about what a
+                // conversion is. Falls back to the conversion event for a workflow whose goal no
+                // longer resolves, which is all there is left to show.
+                const goalStep = buildConversionGoalStep(workflow.conversion, id)
                 const source: EventsQuery = {
                     kind: NodeKind.EventsQuery,
                     select: defaultDataTableColumns(NodeKind.EventsQuery),
                     orderBy: ['timestamp DESC'],
-                    event: CONVERSION_EVENT,
                     after: dateFrom.toISOString(),
-                    // Deliberately open-ended: a run started inside the range can convert after it,
-                    // and those are exactly the conversions the tile counts. This can't align exactly
-                    // with the tile — that needs the run-id set, which an event filter can't express —
-                    // so it errs toward showing the late conversions rather than hiding them.
-                    properties: [
-                        {
-                            type: PropertyFilterType.Event,
-                            key: '$workflow_id',
-                            operator: PropertyOperator.Exact,
-                            value: id,
-                        },
-                    ],
+                    // Deliberately open-ended: someone who entered inside the range can convert after
+                    // it, and those are exactly the conversions the tile counts. It still can't align
+                    // exactly with the tile, which only counts a conversion for someone who entered
+                    // first, so it errs toward showing more rather than hiding late conversions.
+                    ...(goalStep
+                        ? { event: goalStep.event, fixedProperties: goalStep.properties }
+                        : {
+                              event: CONVERSION_EVENT,
+                              properties: [
+                                  {
+                                      type: PropertyFilterType.Event,
+                                      key: '$workflow_id',
+                                      operator: PropertyOperator.Exact,
+                                      value: id,
+                                  },
+                              ],
+                          }),
                 }
                 const query: DataTableNode = {
                     kind: NodeKind.DataTableNode,

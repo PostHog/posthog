@@ -1,12 +1,27 @@
 import api from 'lib/api'
 import { dayjs } from 'lib/dayjs'
 
-import { HogQLQueryString, hogql } from '~/queries/utils'
+import { EventsNode, FunnelsQuery, NodeKind, TrendsQuery } from '~/queries/schema/schema-general'
+import { hogql } from '~/queries/utils'
+import {
+    AnyPropertyFilter,
+    BaseMathType,
+    FunnelConversionWindowTimeUnit,
+    FunnelVizType,
+    PropertyFilterType,
+    PropertyOperator,
+} from '~/types'
+
+import type { HogFlow } from './hogflows/types'
 
 // Emitted once per run when the run starts, but only for workflows with a conversion goal — so the
 // absence of these events means "no goal configured", not "nobody enrolled".
 const ENROLLED_EVENT = '$workflows_enrolled'
 const CONVERSION_EVENT = '$workflows_conversion'
+
+// A conversion goal with no window means "however long after"; a funnel always needs a finite one, so
+// this stands in for unbounded. Long enough that no real goal reaches it, short enough to stay cheap.
+const UNBOUNDED_WINDOW_DAYS = 365
 
 export type WorkflowConversionRequest = {
     workflowId: string
@@ -15,131 +30,192 @@ export type WorkflowConversionRequest = {
     interval: 'day' | 'hour' | 'minute'
     // null means no window: a run counts as converted whenever the conversion lands, however long after.
     windowMinutes: number | null
+    conversion: HogFlow['conversion']
 }
 
 export type WorkflowConversionSeries = {
     labels: string[]
-    // Runs that started in each bucket, and how many of those went on to convert. Both are keyed on
-    // the bucket the run STARTED in, not the bucket it converted in — that's what makes a bucket's
-    // rate answerable ("of the runs started that day, how many converted?").
+    // People who entered the workflow in each bucket, and how many of those went on to convert. Both
+    // are keyed on the bucket the person ENTERED in, not the one they converted in — that's what makes
+    // a bucket's rate answerable ("of the people who entered that day, how many converted?").
     enrolled: number[]
     converted: number[]
 }
 
-// Conversions are counted by pairing each run's enrollment with its conversion on `$workflow_run_id`,
-// rather than by counting conversion events as they stream in. That's what lets a conversion count
-// after the run has already finished: by then the run's cyclotron job is gone, so the live pipeline
-// has nothing left to match against, but the events are still in ClickHouse.
-//
-// Bucketing mirrors `loadAppMetricsTimeSeries` (calendar padding, DST-safe stepping) so these series
-// line up with the app-metric series they sit next to in the summary chart.
+/**
+ * The goal as a funnel step: the events that mean the person converted.
+ *
+ * Event- and action-based goals are matched against the raw event stream, so they are counted from
+ * what the person actually did rather than from a `$workflows_conversion` event. That event is only
+ * emitted while a run is parked in cyclotron, so a workflow with no delay step never emits one and
+ * reads as 0% conversion however many people converted.
+ *
+ * Property-based goals have no such stream to match: they are evaluated against person properties as
+ * the run executes, and `$workflows_conversion` is the only record that it happened. Those stay
+ * matched on the event, which is reliable for them because the executor emits it inline.
+ *
+ * A funnel step takes a flat, AND-ed property list — there is no per-step OR group in the schema — so
+ * a goal naming several events is expressed as one unnamed step whose event identity is an OR'd HogQL
+ * condition. Filters attached to an individual event can then only be AND-ed across the whole step,
+ * which is stricter than the goal; a goal that names a single event (the shape the editor produces by
+ * default) keeps exact fidelity because there is nothing to combine it with.
+ */
+export function buildConversionGoalStep(conversion: HogFlow['conversion'], workflowId: string): EventsNode | null {
+    const goalEvents: any[] = conversion?.events?.[0]?.filters?.events ?? []
+    const goalActions: any[] = conversion?.events?.[0]?.filters?.actions ?? []
+    const goalProperties: AnyPropertyFilter[] = conversion?.events?.[0]?.filters?.properties ?? []
+    const hasPropertyGoal = Array.isArray(conversion?.filters) && conversion.filters.length > 0
+
+    // Each entry is one way to meet the goal, so their event identities are OR'd.
+    const identities: string[] = []
+    const properties: AnyPropertyFilter[] = [...goalProperties]
+
+    for (const event of goalEvents) {
+        if (!event.id) {
+            continue
+        }
+        identities.push(hogql`event = ${event.id}`)
+        properties.push(...((event.properties ?? []) as AnyPropertyFilter[]))
+    }
+
+    for (const action of goalActions) {
+        if (!action.id) {
+            continue
+        }
+        identities.push(hogql`matchesAction(${parseInt(action.id)})`)
+        properties.push(...((action.properties ?? []) as AnyPropertyFilter[]))
+    }
+
+    if (hasPropertyGoal) {
+        identities.push(
+            hogql`(event = ${CONVERSION_EVENT} AND properties.$workflow_id = ${workflowId} AND properties.$workflow_conversion_type = 'property')`
+        )
+    }
+
+    if (identities.length === 0) {
+        return null
+    }
+
+    return {
+        kind: NodeKind.EventsNode,
+        // Named only when the goal is a single event, so the step reads as that event everywhere the
+        // query is inspected; an OR needs the unnamed form with the identity as a condition.
+        event: goalEvents.length === 1 && !goalActions.length && !hasPropertyGoal ? goalEvents[0].id : null,
+        properties:
+            identities.length === 1 && goalEvents.length === 1 && !goalActions.length && !hasPropertyGoal
+                ? properties
+                : [...properties, { type: PropertyFilterType.HogQL, key: identities.join(' OR ') }],
+    }
+}
+
+/**
+ * Conversion rate as a two-step funnel: entering the workflow, then meeting the goal.
+ *
+ * The funnel counts people, not runs — a person enrolled twice in a bucket is one entrant. That is
+ * what makes a goal measurable at all here: the goal event carries no run id, so there is nothing to
+ * pair it to a specific run with, and the person is the only join key both sides share.
+ *
+ * Buckets are keyed on the entrance period, so a bucket answers "of the people who entered then, how
+ * many converted?" — which is what the tile above the chart claims.
+ */
 export async function loadWorkflowConversionSeries(
     request: WorkflowConversionRequest,
     timezone: string
 ): Promise<WorkflowConversionSeries> {
-    const { interval } = request
-
-    // The conversion side is deliberately not bounded above: a run that started at the very end of
-    // the range may convert after it, and that conversion belongs to the run's starting bucket.
-    // Runs are deduped by `$workflow_run_id` first, so a retry that re-emits an enrollment event
-    // (possible if a run errors before its state persists) still counts as one run.
-    // Interpolated raw because the `hogql` tag would otherwise quote the fragment as a string
-    // literal. Safe: the only interpolated value is coerced to an integer here.
-    const windowMinutes = Number.isFinite(request.windowMinutes) ? Math.floor(request.windowMinutes as number) : null
-    const windowClause = hogql.raw(
-        windowMinutes && windowMinutes > 0 ? `AND converted_at <= enrolled_at + toIntervalMinute(${windowMinutes})` : ''
-    )
-
-    const query = hogql`
-        WITH
-            ${timezone} AS tz,
-            ${interval} AS g,
-
-            toDateTime(${request.dateFrom}, tz) AS from_local,
-            toDateTime(${request.dateTo},   tz) AS to_local,
-
-            dateTrunc(g, from_local, tz) AS start_bucket,
-            dateTrunc(g, to_local,   tz) AS end_bucket,
-
-            multiIf(
-                g = 'minute', dateDiff('minute', start_bucket, end_bucket) + 1,
-                g = 'hour',   dateDiff('hour',   start_bucket, end_bucket) + 1,
-                g = 'day',    dateDiff('day',    start_bucket, end_bucket) + 1,
-                0
-            ) AS steps,
-
-            arrayMap(n ->
-                multiIf(
-                    g = 'minute', addMinutes(start_bucket, n),
-                    g = 'hour',   addHours(start_bucket, n),
-                    g = 'day',    addDays(start_bucket, n),
-                    start_bucket
-                ),
-                range(0, steps)
-            ) AS calendar,
-
-            multiIf(
-                g = 'minute', addMinutes(end_bucket, 1),
-                g = 'hour',   addHours(end_bucket,   1),
-                g = 'day',    addDays(end_bucket,    1),
-                end_bucket
-            ) AS end_exclusive
-
-        SELECT
-            calendar AS date,
-            arrayMap(d -> if(indexOf(buckets, d) = 0, 0, enrolled_counts[indexOf(buckets, d)]), calendar) AS enrolled,
-            arrayMap(d -> if(indexOf(buckets, d) = 0, 0, converted_counts[indexOf(buckets, d)]), calendar) AS converted
-        FROM
-        (
-            SELECT
-                groupArray(bucket)        AS buckets,
-                groupArray(enrolled_cnt)  AS enrolled_counts,
-                groupArray(converted_cnt) AS converted_counts
-            FROM
-            (
-                SELECT
-                    dateTrunc(g, toTimeZone(enrolled_at, tz), tz) AS bucket,
-                    count() AS enrolled_cnt,
-                    countIf(converted_at >= enrolled_at ${windowClause}) AS converted_cnt
-                FROM
-                (
-                    SELECT
-                        properties.$workflow_run_id AS run_id,
-                        minIf(timestamp, event = ${ENROLLED_EVENT}) AS enrolled_at,
-                        minIf(timestamp, event = ${CONVERSION_EVENT}) AS converted_at
-                    FROM events
-                    WHERE event IN (${ENROLLED_EVENT}, ${CONVERSION_EVENT})
-                        AND properties.$workflow_id = ${request.workflowId}
-                        AND properties.$workflow_run_id != ''
-                        AND toTimeZone(timestamp, tz) >= start_bucket
-                    GROUP BY run_id
-                    -- Drop runs whose enrollment falls outside the range: a conversion alone (from a
-                    -- run that started earlier) must not invent a denominator row it has no start for.
-                    HAVING enrolled_at > toDateTime(0)
-                        AND toTimeZone(enrolled_at, tz) < end_exclusive
-                )
-                GROUP BY bucket
-                ORDER BY bucket
-            )
-        )
-    ` as HogQLQueryString
-
-    const response = await api.queryHogQL(
-        query,
-        { scene: 'Workflow', productKey: 'messaging' },
-        { refresh: 'force_blocking' }
-    )
-
-    const row = response.results?.[0]
-    if (!row) {
+    const goalStep = buildConversionGoalStep(request.conversion, request.workflowId)
+    if (!goalStep) {
         return { labels: [], enrolled: [], converted: [] }
     }
 
-    const labels = (row[0] as string[]).map((label) =>
-        dayjs(label)
-            .tz(timezone)
-            .format(interval === 'day' ? 'YYYY-MM-DD' : 'YYYY-MM-DD HH:mm')
+    const windowMinutes =
+        request.windowMinutes && request.windowMinutes > 0
+            ? Math.floor(request.windowMinutes)
+            : UNBOUNDED_WINDOW_DAYS * 24 * 60
+
+    // Someone entering at the end of the range still has the whole window to convert, and that
+    // conversion belongs to their entrance bucket. Asking for the window past `dateTo` lets the funnel
+    // see it; the trailing buckets it also generates are dropped below.
+    const dateToWithWindow = dayjs(request.dateTo).add(windowMinutes, 'minute')
+
+    const query: FunnelsQuery = {
+        kind: NodeKind.FunnelsQuery,
+        tags: { scene: 'Workflow', productKey: 'messaging' },
+        interval: request.interval,
+        dateRange: { date_from: request.dateFrom, date_to: dateToWithWindow.toISOString() },
+        series: [
+            {
+                kind: NodeKind.EventsNode,
+                event: ENROLLED_EVENT,
+                properties: [
+                    {
+                        type: PropertyFilterType.Event,
+                        key: '$workflow_id',
+                        operator: PropertyOperator.Exact,
+                        value: request.workflowId,
+                    },
+                ],
+            },
+            goalStep,
+        ],
+        funnelsFilter: {
+            funnelVizType: FunnelVizType.Trends,
+            funnelWindowInterval: windowMinutes,
+            funnelWindowIntervalUnit: FunnelConversionWindowTimeUnit.Minute,
+        },
+    }
+
+    // The funnel reports each bucket's conversion rate but not the two counts behind it, so the
+    // entrants are counted alongside it and the conversions are read back off the rate. Both sides
+    // count unique people over the same buckets, so they describe the same set.
+    const entrantsQuery: TrendsQuery = {
+        kind: NodeKind.TrendsQuery,
+        tags: { scene: 'Workflow', productKey: 'messaging' },
+        interval: request.interval,
+        dateRange: { date_from: request.dateFrom, date_to: request.dateTo },
+        series: [
+            {
+                kind: NodeKind.EventsNode,
+                event: ENROLLED_EVENT,
+                math: BaseMathType.UniqueUsers,
+                properties: [
+                    {
+                        type: PropertyFilterType.Event,
+                        key: '$workflow_id',
+                        operator: PropertyOperator.Exact,
+                        value: request.workflowId,
+                    },
+                ],
+            },
+        ],
+    }
+
+    const [funnelResponse, entrantsResponse] = await Promise.all([
+        api.query(query, { refresh: 'force_blocking' }),
+        api.query(entrantsQuery, { refresh: 'force_blocking' }),
+    ])
+
+    // `days` are the bucket keys the funnel cut, `data` the rate in each. Both come back on the
+    // widened range, so the buckets past the request are dropped against the entrant series.
+    const funnelSeries = funnelResponse.results?.[0] ?? { days: [], data: [] }
+    const rateByDay = new Map<string, number>(
+        (funnelSeries.days ?? []).map((day: string, index: number) => [day, funnelSeries.data?.[index] ?? 0])
     )
 
-    return { labels, enrolled: row[1] ?? [], converted: row[2] ?? [] }
+    const entrantSeries = entrantsResponse.results?.[0] ?? { days: [], data: [] }
+    const labels: string[] = []
+    const enrolled: number[] = []
+    const converted: number[] = []
+
+    ;(entrantSeries.days ?? []).forEach((day: string, index: number) => {
+        const entrants = entrantSeries.data?.[index] ?? 0
+        labels.push(
+            dayjs(day)
+                .tz(timezone)
+                .format(request.interval === 'day' ? 'YYYY-MM-DD' : 'YYYY-MM-DD HH:mm')
+        )
+        enrolled.push(entrants)
+        converted.push(Math.round(((rateByDay.get(day) ?? 0) / 100) * entrants))
+    })
+
+    return { labels, enrolled, converted }
 }

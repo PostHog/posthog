@@ -319,8 +319,8 @@ export function WorkflowMetricsSummary({
                             ? convertedTrends
                             : withDisplayName(getSingleTrendSeries(metricName), name)
 
-                    // Converted has no previous-period comparison: the enrollment/conversion pairing
-                    // is a separate query, and running a second one per tile isn't worth a delta.
+                    // Converted has no previous-period comparison: the conversion funnel is a separate
+                    // query, and running a second one per tile isn't worth a delta.
                     const previousPeriodTimeSeries = isSent
                         ? sentSeries(true)
                         : summaryMetric === 'completed'
@@ -353,7 +353,7 @@ export function WorkflowMetricsSummary({
                 {hasConversionGoal && (
                     <div className="flex flex-1 flex-col relative border rounded p-3 bg-surface-primary min-w-[16rem]">
                         <div className="flex flex-col h-full">
-                            <LemonLabel info="Share of the workflow runs started in this date range that went on to convert. A run counts as converted whenever it meets the goal, including after the run has finished.">
+                            <LemonLabel info="Share of the people who entered this workflow in the selected date range and went on to convert. Someone counts as converted whenever they meet the goal, including after their run has finished.">
                                 Conversion rate
                             </LemonLabel>
                             <div className="flex flex-1 items-center justify-center">
