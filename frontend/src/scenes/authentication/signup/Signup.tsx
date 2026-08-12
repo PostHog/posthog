@@ -92,6 +92,7 @@ function SignupEmailPanel(): JSX.Element {
                 </LemonField>
                 {accountExists && (
                     <p className="text-xs text-danger -mt-2">
+                        <span>{signupPanelEmailManualErrors.email}</span>{' '}
                         <Link
                             to={loginUrl}
                             className="font-semibold no-underline cursor-pointer hover:underline hover:underline-offset-2 text-warning"
