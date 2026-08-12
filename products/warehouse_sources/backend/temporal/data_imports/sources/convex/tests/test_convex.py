@@ -548,7 +548,7 @@ class TestConvexNonRetryableErrors:
         # to the normal raise_for_status() error instead of raising an unhandled ValueError.
         response = _make_response({}, status_code=400)
         response.json.side_effect = ValueError("not JSON")
-        response.raise_for_status.side_effect = HTTPError("400 Client Error: Bad Request for url: ...")
+        response.raise_for_status.side_effect = HTTPError(response=response)
         mock_get.return_value.get.return_value = response
 
         with pytest.raises(HTTPError):
