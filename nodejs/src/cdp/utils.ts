@@ -294,6 +294,12 @@ export function filterExists<T>(value: T): value is NonNullable<T> {
     return Boolean(value)
 }
 
+// Header names that carry a credential. Matched against the keys of a dictionary input, so a
+// free-form headers map still gets its credential masked without the whole map being treated as
+// secret (which would hide ordinary headers like Content-Type from the person configuring it).
+const CREDENTIAL_HEADER_NAMES =
+    /^(authorization|proxy-authorization|cookie|x-api-key|api-?key|x-auth-token|auth-?token|access-?token|x-auth|token|secret|x-secret)$/i
+
 /**
  * Every configured secret for a hog function, so callers can mask them out of anything they surface.
  *
@@ -316,7 +322,30 @@ export const getSensitiveValues = (hogFunction: HogFunctionType, inputs: Record<
         }
     }
 
+    // A webhook's `headers` is free-form, so it is not marked secret, but it is where a credential
+    // most often sits — and a webhook whose credential is rejected is exactly the case that gets it
+    // quoted back. Mask values under header names that carry one, whatever the secret flag says.
+    const collectCredentialHeaders = (obj: any): void => {
+        if (!obj || typeof obj !== 'object') {
+            return
+        }
+        Object.entries(obj).forEach(([key, val]) => {
+            if (typeof val !== 'string' || !CREDENTIAL_HEADER_NAMES.test(key.trim())) {
+                return
+            }
+            values.push(val)
+            // Sent as "Bearer abc" but usually quoted back as bare "abc", so mask both forms.
+            const withoutScheme = val.replace(/^(bearer|basic|token)\s+/i, '')
+            if (withoutScheme !== val) {
+                values.push(withoutScheme)
+            }
+        })
+    }
+
     hogFunction.inputs_schema?.forEach((schema) => {
+        if (schema.type === 'dictionary' && !schema.secret) {
+            collectCredentialHeaders(inputs[schema.key])
+        }
         if (
             schema.secret ||
             schema.type === 'integration' ||
