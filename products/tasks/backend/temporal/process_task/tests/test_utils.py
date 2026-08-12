@@ -30,6 +30,7 @@ from products.tasks.backend.temporal.process_task.utils import (
     get_user_mcp_server_configs,
     is_caller_token_run,
     loop_mcp_installation_allowlist,
+    upgrade_run_to_user_authorship,
 )
 
 
@@ -1225,3 +1226,114 @@ class TestBuildSandboxEnvironmentVariables(SimpleTestCase):
             env = build_sandbox_environment_variables(None, "access-token", 1)
 
         assert not any(key.startswith("POSTHOG_AGENT_OTEL_") for key in env)
+
+
+class _AuthorshipFixture(TestCase):
+    def setUp(self) -> None:
+        from posthog.models import Organization, Team
+        from posthog.models.user import User
+
+        from products.tasks.backend.models import TaskRun
+
+        self.organization = Organization.objects.create(name="authorship-org")
+        self.team = Team.objects.create(organization=self.organization, name="authorship-team")
+        self.user = User.objects.create(email="authorship@test.com")
+        self.task = Task.objects.create(
+            team=self.team,
+            title="t",
+            description="d",
+            origin_product=Task.OriginProduct.SLACK,
+            created_by=self.user,
+            repository="posthog/posthog",
+        )
+        self.task_run = TaskRun.objects.create(task=self.task, team=self.team, state={"pr_authorship_mode": "bot"})
+
+    def connect_personal_github(self, *, usable: bool = True) -> None:
+        from posthog.models.user_integration import UserIntegration
+
+        UserIntegration.objects.create(
+            user=self.user,
+            kind=UserIntegration.IntegrationKind.GITHUB,
+            integration_id="gh-1",
+            config={} if usable else {"user_refresh_token_expires_at": 1},
+            sensitive_config={"user_access_token": "at", "user_refresh_token": "rt"},
+        )
+
+
+class TestUpgradeRunToUserAuthorship(_AuthorshipFixture):
+    def test_a_connection_made_mid_run_promotes_the_run(self) -> None:
+        self.connect_personal_github()
+
+        promoted = upgrade_run_to_user_authorship(self.task_run, self.user, self.task_run.state)
+
+        assert promoted is not None
+        assert promoted["pr_authorship_mode"] == "user"
+        self.task_run.refresh_from_db()
+        self.task.refresh_from_db()
+        assert self.task_run.state["pr_authorship_mode"] == "user"
+        # Per-actor credential state stays off the shared task row.
+        assert self.task.github_user_integration_id is None
+
+    def test_the_state_passed_in_is_left_untouched(self) -> None:
+        self.connect_personal_github()
+        state = {"pr_authorship_mode": "bot"}
+
+        upgrade_run_to_user_authorship(self.task_run, self.user, state)
+
+        assert state == {"pr_authorship_mode": "bot"}
+
+    def _no_actor(self) -> None:
+        self.connect_personal_github()
+        self.actor = None
+
+    def _no_personal_install(self) -> None:
+        pass
+
+    def _stale_personal_install(self) -> None:
+        self.connect_personal_github(usable=False)
+
+    def _already_user_authored(self) -> None:
+        self.connect_personal_github()
+        self._set_state({"pr_authorship_mode": "user"})
+
+    def _caller_token_run(self) -> None:
+        self.connect_personal_github()
+        self._set_state({"pr_authorship_mode": "bot", "github_credential_source": "caller_token"})
+
+    def _a_different_actor_than_the_creator(self) -> None:
+        from posthog.models.user import User
+
+        self.connect_personal_github()
+        participant = User.objects.create(email="participant@test.com")
+        participant.join(organization=self.organization)
+        self.actor = participant
+
+    def _signal_report_origin(self) -> None:
+        self.connect_personal_github()
+        self.task.origin_product = Task.OriginProduct.SIGNAL_REPORT
+        self.task.save(update_fields=["origin_product"])
+
+    def _set_state(self, state: dict) -> None:
+        self.task_run.state = state
+        self.task_run.save(update_fields=["state"])
+
+    @parameterized.expand(
+        [
+            ("no_actor",),
+            ("no_personal_install",),
+            ("stale_personal_install",),
+            ("already_user_authored",),
+            ("caller_token_run",),
+            ("signal_report_origin",),
+            ("a_different_actor_than_the_creator",),
+        ]
+    )
+    def test_nothing_is_promoted(self, case: str) -> None:
+        self.actor = self.user
+        getattr(self, f"_{case}")()
+        state_before = dict(self.task_run.state)
+
+        assert upgrade_run_to_user_authorship(self.task_run, self.actor, self.task_run.state) is None
+
+        self.task_run.refresh_from_db()
+        assert self.task_run.state == state_before
