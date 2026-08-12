@@ -1,5 +1,6 @@
 import { useActions, useValues } from 'kea'
 import { combineUrl, router } from 'kea-router'
+import posthog, { DisplaySurveyType } from 'posthog-js'
 import { useEffect, useRef, useState } from 'react'
 
 import { IconArchive, IconLock, IconPlusSmall, IconTrash } from '@posthog/icons'
@@ -67,6 +68,10 @@ import { FLAGS_PER_PAGE, FeatureFlagsTab, featureFlagsLogic, flagMatchesType } f
 import { BULK_ARCHIVE_MAX_FLAGS, flagSelectionLogic } from './flagSelectionLogic'
 import { OverlayForNewFeatureFlagMenu } from './NewFeatureFlagMenu'
 import ProjectsGrid from './projects-grid/ProjectsGrid'
+
+// "NPS - Feature Flags" in project 2: https://us.posthog.com/project/2/surveys/018bcec8-6cf5-0000-c724-a51a86a4e8b1
+// The survey also self-triggers as a popover on feature flag URLs; this is the on-demand path.
+const FEATURE_FLAGS_NPS_SURVEY_ID = '018bcec8-6cf5-0000-c724-a51a86a4e8b1'
 
 function FlagDescription({ name }: { name: string }): JSX.Element {
     const ref = useRef<HTMLDivElement | null>(null)
@@ -779,39 +784,57 @@ export function FeatureFlags(): JSX.Element {
                     type: 'feature_flag',
                 }}
                 actions={
-                    <AccessControlAction
-                        resourceType={AccessControlResourceType.FeatureFlag}
-                        minAccessLevel={AccessControlLevel.Editor}
-                    >
-                        <Shortcut
-                            name="NewFeatureFlag"
-                            keybind={[keyBinds.new]}
-                            intent="New feature flag"
-                            interaction="click"
-                            scope={Scene.FeatureFlags}
+                    <>
+                        <LemonButton
+                            size="small"
+                            data-attr="feature-flags-feedback-button"
+                            tooltip="Have any questions or feedback?"
+                            onClick={() =>
+                                // A deliberate click should always bring up the survey — bypass the
+                                // popover's URL/cohort/already-dismissed targeting.
+                                posthog.displaySurvey(FEATURE_FLAGS_NPS_SURVEY_ID, {
+                                    displayType: DisplaySurveyType.Popover,
+                                    ignoreConditions: true,
+                                    ignoreDelay: true,
+                                })
+                            }
                         >
-                            <LemonButton
-                                type="primary"
-                                to={newFeatureFlagUrl}
-                                data-attr="new-feature-flag"
-                                size="small"
-                                icon={<IconPlusSmall />}
-                                sideAction={{
-                                    dropdown: {
-                                        placement: 'bottom-end',
-                                        className: 'new-feature-flag-overlay',
-                                        actionable: true,
-                                        closeOnClickInside: false,
-                                        overlay: <OverlayForNewFeatureFlagMenu />,
-                                    },
-                                    'data-attr': 'new-feature-flag-dropdown',
-                                }}
-                                tooltip="New feature flag"
+                            Feedback
+                        </LemonButton>
+                        <AccessControlAction
+                            resourceType={AccessControlResourceType.FeatureFlag}
+                            minAccessLevel={AccessControlLevel.Editor}
+                        >
+                            <Shortcut
+                                name="NewFeatureFlag"
+                                keybind={[keyBinds.new]}
+                                intent="New feature flag"
+                                interaction="click"
+                                scope={Scene.FeatureFlags}
                             >
-                                New
-                            </LemonButton>
-                        </Shortcut>
-                    </AccessControlAction>
+                                <LemonButton
+                                    type="primary"
+                                    to={newFeatureFlagUrl}
+                                    data-attr="new-feature-flag"
+                                    size="small"
+                                    icon={<IconPlusSmall />}
+                                    sideAction={{
+                                        dropdown: {
+                                            placement: 'bottom-end',
+                                            className: 'new-feature-flag-overlay',
+                                            actionable: true,
+                                            closeOnClickInside: false,
+                                            overlay: <OverlayForNewFeatureFlagMenu />,
+                                        },
+                                        'data-attr': 'new-feature-flag-dropdown',
+                                    }}
+                                    tooltip="New feature flag"
+                                >
+                                    New
+                                </LemonButton>
+                            </Shortcut>
+                        </AccessControlAction>
+                    </>
                 }
             />
             <LemonTabs
