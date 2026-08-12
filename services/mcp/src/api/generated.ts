@@ -9473,6 +9473,8 @@ export namespace Schemas {
        * * `14` - 14 days
        * * `30` - 30 days */
       window_days?: WindowDaysEnum;
+      /** When true, each example line in the alert message includes the scanner's full reasoning for that observation, not just its verdict/score/tags. Useful when piping the message somewhere else to read or act on. Defaults to false. */
+      include_reasoning?: boolean;
     }
 
     export interface AlertSimulate {
@@ -37523,6 +37525,11 @@ export namespace Schemas {
     export interface HogFlowRevisionRestoreRequest {
       /** Replace the open staged draft with this revision's content. Without it, restoring while a draft is open returns 409. */
       overwrite?: boolean;
+      /**
+         * The draft_updated_at of the staged draft this overwrite was confirmed against. If a draft exists with a different stamp (it was staged or edited since the confirmation was shown), the restore returns 409 instead of overwriting it. Omit to overwrite unconditionally.
+         * @nullable
+         */
+      expected_draft_updated_at?: string | null;
     }
 
     /**
