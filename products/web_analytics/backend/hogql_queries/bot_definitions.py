@@ -692,7 +692,9 @@ BOT_DEFINITIONS: dict[str, BotDefinition] = {
     "Discordbot": BotDefinition(
         "Discord", "social_crawler", "Bot", "Discord", documentation_url="https://discord.com/"
     ),
-    # Self-declared crawlers observed in production `$http_log` traffic
+    # Self-declared crawlers observed in production `$http_log` traffic. These patterns avoid
+    # regex escapes so the substring matchers that consume this list (the Go livestream
+    # classifier, the client-side detector) match the same user agents ClickHouse does.
     # AI crawlers
     "VioscaleAIBot": BotDefinition(
         "Vioscale AI", "ai_crawler", "AI Agent", "Vioscale", documentation_url="https://www.vioscale.ai/method"
@@ -807,7 +809,7 @@ BOT_DEFINITIONS: dict[str, BotDefinition] = {
     "Sokjan Crawler": BotDefinition("Sokjan Crawler", "search_crawler", "Bot", "Sokjan"),
     "ScryBot": BotDefinition("ScryBot", "search_crawler", "Bot", "ScryBot"),
     "Heexybot": BotDefinition("Heexybot", "search_crawler", "Bot", "Heexy", documentation_url="https://heexy.org/bot"),
-    "bne\\.es_bot": BotDefinition(
+    "bne.es_bot": BotDefinition(
         "Biblioteca Nacional de España",
         "search_crawler",
         "Bot",
@@ -930,14 +932,14 @@ BOT_DEFINITIONS: dict[str, BotDefinition] = {
     "PagePeeker": BotDefinition(
         "PagePeeker", "social_crawler", "Bot", "PagePeeker", documentation_url="https://pagepeeker.com/robots/"
     ),
-    "Synapse \\(bot": BotDefinition(
+    "matrix-org/synapse": BotDefinition(
         "Synapse", "social_crawler", "Bot", "Matrix.org", documentation_url="https://github.com/matrix-org/synapse"
     ),
     "Unfurlist": BotDefinition(
         "Unfurlist", "social_crawler", "Bot", "Doist", documentation_url="https://github.com/Doist/unfurlist"
     ),
     # Uptime / monitors / probes
-    "heap\\.page source monitor": BotDefinition(
+    "heap.page source monitor": BotDefinition(
         "heap.page", "monitoring", "Bot", "heap.page", documentation_url="https://heap.page/methodology"
     ),
     "PulseWatch-Prober": BotDefinition("PulseWatch", "monitoring", "Bot", "PulseWatch"),
