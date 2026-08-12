@@ -127,6 +127,8 @@ settings:
     bot_events:
       - app_mention
       - app_home_opened
+      - message.channels
+      - message.groups
   interactivity:
     is_enabled: true
     request_url: https://<you>-posthog.ngrok.dev/slack/interactivity-callback
@@ -197,6 +199,10 @@ If you already sync flags the usual way locally, it's likely on already — noth
 (`setup_background_agents` also turns on `tasks` as part of the sandbox setup.) The
 Slack mention webhook itself is not flag-gated — once the `slack` integration is
 connected, `@PostHog` events reach the agent unconditionally.
+
+Slack message triggers have an additional `slack-app-loop-triggers` flag. In the local PostHog UI,
+enable it for the local organization before testing a loop. With the flag off, Slack events are accepted
+but no loop fires.
 
 ## Step 5 — connect the integrations
 
