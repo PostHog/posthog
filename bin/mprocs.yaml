@@ -74,7 +74,7 @@ procs:
             tech: Node
         # Node.js capabilities are controlled via NODEJS_CAPABILITY_GROUPS env var
         # Set by hogli dev:generate based on selected nodejs_* capabilities
-        # Valid groups: cdp_workflows, realtime_cohorts, session_replay, logs, traces, metrics, feature_flags
+        # Valid groups: cdp_workflows, session_replay, logs, traces, metrics, feature_flags
         # Example: NODEJS_CAPABILITY_GROUPS=cdp_workflows,session_replay
 
     ingestion-errortracking:

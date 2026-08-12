@@ -139,11 +139,6 @@ export async function resetTestDatabase(): Promise<void> {
 
 // Helper function to determine which database a table belongs to
 function getPostgresUseForTable(table: string): PostgresUse {
-    // Behavioral cohorts tables
-    if (table === 'cohort_membership') {
-        return PostgresUse.BEHAVIORAL_COHORTS_RW
-    }
-
     // Persons-related tables
     const personsTablesRegex =
         /^posthog_(person|persondistinctid|personlessdistinctid|personoverridemapping|personoverride|pendingpersonoverride|flatpersonoverride|featureflaghashkeyoverride|cohortpeople|group|grouptypemapping)$/
@@ -497,16 +492,6 @@ export async function fetchPostgresDistinctIdsForPerson(postgres: PostgresRouter
     const query = `SELECT distinct_id FROM posthog_persondistinctid WHERE person_id = ${personId} ORDER BY id`
     return (await postgres.query(PostgresUse.PERSONS_READ, query, undefined, 'distinctIds')).rows.map(
         (row: { distinct_id: string }) => row.distinct_id
-    )
-}
-
-export async function resetBehavioralCohortsDatabase(postgres: PostgresRouter): Promise<void> {
-    await assertRouterTargetsTestDatabase(postgres, PostgresUse.BEHAVIORAL_COHORTS_RW)
-    await postgres.query(
-        PostgresUse.BEHAVIORAL_COHORTS_RW,
-        'TRUNCATE TABLE cohort_membership',
-        undefined,
-        'reset-behavioral-cohorts-db'
     )
 }
 
