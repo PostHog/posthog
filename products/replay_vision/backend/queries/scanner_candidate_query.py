@@ -105,13 +105,13 @@ def eligibility_predicates() -> list[ast.Expr]:
 
 
 def _execute_candidate_query(
-    query: ast.SelectQuery, *, team: Team, query_type: str, max_execution_time_seconds: int
+    query: ast.SelectQuery, *, team: Team, query_type: str, max_execution_time_seconds: int, scanner_id: str | None
 ) -> list[list]:
     """One home for the candidate queries' ClickHouse execution policy.
 
     The dedicated user keeps sweep and backfill admission out of the contended shared `default` pool.
     """
-    with tags_context(product=Product.REPLAY_VISION, feature=Feature.ENRICHMENT):
+    with tags_context(product=Product.REPLAY_VISION, feature=Feature.ENRICHMENT, scanner_id=scanner_id):
         response = execute_hogql_query(
             query=query,
             team=team,
@@ -143,6 +143,8 @@ class ScannerCandidateQuery:
         candidate_limit: int = DEFAULT_CANDIDATE_LIMIT,
         max_execution_time_seconds: int = DEFAULT_MAX_EXECUTION_SECONDS,
         events_lookback: dt.timedelta | None = None,
+        # Tags the ClickHouse query for per-scanner read metering; sweep callers should always pass it.
+        scanner_id: str | None = None,
     ) -> None:
         if not isinstance(last_swept_at, dt.datetime):
             raise TypeError(f"last_swept_at must be a datetime, got {type(last_swept_at).__name__}")
@@ -160,6 +162,7 @@ class ScannerCandidateQuery:
         self._sampling_salt = sampling_salt
         self._candidate_limit = candidate_limit
         self._max_execution_time_seconds = max_execution_time_seconds
+        self._scanner_id = scanner_id
         # Fixed at construction and exposed so callers can persist exactly the horizon the query filtered on.
         self.settle_cutoff = dt.datetime.now(dt.UTC) - SETTLE_INTERVAL
 
@@ -199,6 +202,7 @@ class ScannerCandidateQuery:
             team=self._team,
             query_type="ReplayVisionScannerCandidateQuery",
             max_execution_time_seconds=self._max_execution_time_seconds,
+            scanner_id=self._scanner_id,
         )
         return [CandidateSession(session_id=row[0], session_end=row[1]) for row in rows]
 
@@ -312,6 +316,8 @@ class BackfillCandidateQuery:
         exclude_session_ids: list[str] | None = None,
         candidate_limit: int = DEFAULT_CANDIDATE_LIMIT,
         max_execution_time_seconds: int = DEFAULT_MAX_EXECUTION_SECONDS,
+        # Tags the ClickHouse query for per-scanner read metering; sweep callers should always pass it.
+        scanner_id: str | None = None,
     ) -> None:
         for name, value in (("window_start", window_start), ("window_end", window_end)):
             if not isinstance(value, dt.datetime):
@@ -332,6 +338,7 @@ class BackfillCandidateQuery:
         self._exclude_session_ids = exclude_session_ids
         self._candidate_limit = candidate_limit
         self._max_execution_time_seconds = max_execution_time_seconds
+        self._scanner_id = scanner_id
 
         # The backfill owns the time window; the frozen scanner query only contributes filters.
         inner_query = query.model_copy(deep=True)
@@ -362,6 +369,7 @@ class BackfillCandidateQuery:
             team=self._team,
             query_type="ReplayVisionBackfillCandidateQuery",
             max_execution_time_seconds=self._max_execution_time_seconds,
+            scanner_id=self._scanner_id,
         )
         return [CandidateSession(session_id=row[0], session_end=row[1]) for row in rows]
 
@@ -376,6 +384,7 @@ class BackfillCandidateQuery:
             team=self._team,
             query_type="ReplayVisionBackfillCountQuery",
             max_execution_time_seconds=self._max_execution_time_seconds,
+            scanner_id=self._scanner_id,
         )
         return int(rows[0][0]) if rows else 0
 
