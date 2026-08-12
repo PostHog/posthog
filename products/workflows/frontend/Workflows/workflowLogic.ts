@@ -2908,10 +2908,18 @@ export const workflowLogic = kea<workflowLogicType>([
                         })
                     } catch (error) {
                         if (error instanceof ApiError && error.status === 409) {
-                            // A newer version exists (SSE event likely missed) — surface the reconcile banner,
-                            // which carries the actionable Reload / Keep mine choice. No toast: it would just
-                            // duplicate the banner (the global kea handler already skips 409).
-                            actions.setExternallyEdited(true)
+                            if (values.isAutoSave) {
+                                // An auto-save losing the race is not a decision point: the user never
+                                // asked to overwrite anything, so reconcile to the newer copy silently.
+                                actions.setSyncingExternalEdit(true)
+                                actions.loadWorkflow()
+                            } else {
+                                // A newer version exists (SSE event likely missed): surface the reconcile
+                                // banner, which carries the actionable Reload / Keep mine choice. No toast,
+                                // as it would just duplicate the banner (the global kea handler already
+                                // skips 409).
+                                actions.setExternallyEdited(true)
+                            }
                         }
                         throw error
                     }
@@ -3067,7 +3075,8 @@ export const workflowLogic = kea<workflowLogicType>([
             },
         ],
         // Set when another channel (another UI tab, MCP, or the API) saved this workflow while we had
-        // unsaved local edits. Surfaces a non-destructive "reload / keep mine" banner. Cleared whenever
+        // unsaved local edits that auto-save can't flush (toggled off, validation errors, or a pending
+        // schedule change). Surfaces a non-destructive "reload / keep mine" banner. Cleared whenever
         // we reload or save, since both reconcile us with the server copy.
         externallyEdited: [
             false as boolean,
@@ -3479,12 +3488,18 @@ export const workflowLogic = kea<workflowLogicType>([
             if (!loadedUpdatedAt || !dayjs(event.updated_at).isAfter(dayjs(loadedUpdatedAt))) {
                 return
             }
-            if (values.hasUnsavedChanges) {
-                // Don't clobber the user's in-progress edits — let them choose (banner).
+            // Server wins while auto-save can flush the local buffer: unsaved edits are then at most
+            // a few seconds old, so reconcile silently instead of interrupting with a conflict
+            // banner. When auto-save can't flush (toggled off, validation errors block it, or a
+            // pending schedule change, which only a manual save persists), the buffer can hold real
+            // work, so the banner lets the user choose.
+            const autoSaveCanFlush =
+                values.autoSaveEnabled && !values.workflowHasErrors && values.pendingSchedule === false
+            if (values.hasUnsavedChanges && !autoSaveCanFlush) {
                 actions.setExternallyEdited(true)
             } else {
-                // Clean slate: catch up to the external edit. Flag the sync first so the editor shows a
-                // brief working/disabled overlay and re-enables once the fresh copy loads (like auto-save).
+                // Flag the sync first so the editor shows a brief working/disabled overlay and
+                // re-enables once the fresh copy loads (like auto-save).
                 actions.setSyncingExternalEdit(true)
                 actions.loadWorkflow()
             }
