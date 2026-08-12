@@ -40,6 +40,15 @@
             "severityLevels",
             "timezone",
             "wrapLines"
+        ],
+        "conversations_recent_tickets": [
+            "assignees",
+            "channel",
+            "limit",
+            "priorities",
+            "savedViewId",
+            "search",
+            "status"
         ]
     },
     "configPropertyTrees": {
@@ -66,6 +75,7 @@
                     "operator": {
                         "$enum": [
                             "between",
+                            "ends_with",
                             "exact",
                             "flag_evaluates_to",
                             "gt",
@@ -85,10 +95,12 @@
                             "max",
                             "min",
                             "not_between",
+                            "not_ends_with",
                             "not_icontains",
                             "not_icontains_multi",
                             "not_in",
                             "not_regex",
+                            "not_starts_with",
                             "regex",
                             "semver_caret",
                             "semver_eq",
@@ -98,7 +110,8 @@
                             "semver_lte",
                             "semver_neq",
                             "semver_tilde",
-                            "semver_wildcard"
+                            "semver_wildcard",
+                            "starts_with"
                         ]
                     },
                     "value": {
@@ -123,6 +136,7 @@
                     "operator": {
                         "$enum": [
                             "between",
+                            "ends_with",
                             "exact",
                             "flag_evaluates_to",
                             "gt",
@@ -142,10 +156,12 @@
                             "max",
                             "min",
                             "not_between",
+                            "not_ends_with",
                             "not_icontains",
                             "not_icontains_multi",
                             "not_in",
                             "not_regex",
+                            "not_starts_with",
                             "regex",
                             "semver_caret",
                             "semver_eq",
@@ -155,7 +171,8 @@
                             "semver_lte",
                             "semver_neq",
                             "semver_tilde",
-                            "semver_wildcard"
+                            "semver_wildcard",
+                            "starts_with"
                         ]
                     },
                     "type": {
@@ -190,6 +207,7 @@
                     "operator": {
                         "$enum": [
                             "between",
+                            "ends_with",
                             "exact",
                             "flag_evaluates_to",
                             "gt",
@@ -209,10 +227,12 @@
                             "max",
                             "min",
                             "not_between",
+                            "not_ends_with",
                             "not_icontains",
                             "not_icontains_multi",
                             "not_in",
                             "not_regex",
+                            "not_starts_with",
                             "regex",
                             "semver_caret",
                             "semver_eq",
@@ -222,7 +242,8 @@
                             "semver_lte",
                             "semver_neq",
                             "semver_tilde",
-                            "semver_wildcard"
+                            "semver_wildcard",
+                            "starts_with"
                         ]
                     },
                     "value": {
@@ -274,6 +295,7 @@
                     "operator": {
                         "$enum": [
                             "between",
+                            "ends_with",
                             "exact",
                             "flag_evaluates_to",
                             "gt",
@@ -293,10 +315,12 @@
                             "max",
                             "min",
                             "not_between",
+                            "not_ends_with",
                             "not_icontains",
                             "not_icontains_multi",
                             "not_in",
                             "not_regex",
+                            "not_starts_with",
                             "regex",
                             "semver_caret",
                             "semver_eq",
@@ -306,7 +330,8 @@
                             "semver_lte",
                             "semver_neq",
                             "semver_tilde",
-                            "semver_wildcard"
+                            "semver_wildcard",
+                            "starts_with"
                         ]
                     },
                     "value": {
@@ -399,6 +424,38 @@
             },
             "timezone": {
                 "$enum": ["UTC", "local"]
+            },
+            "savedViewId": {
+                "$type": "string"
+            }
+        },
+        "conversations_recent_tickets": {
+            "limit": {
+                "$type": "integer"
+            },
+            "status": {
+                "$enum": ["all", "new", "on_hold", "open", "pending", "resolved"]
+            },
+            "priorities": {
+                "$array": {
+                    "$enum": ["critical", "high", "low", "medium"]
+                }
+            },
+            "channel": {
+                "$enum": ["all", "email", "github", "slack", "teams", "widget"]
+            },
+            "assignees": {
+                "$array": {
+                    "id": {
+                        "$types": ["integer", "string"]
+                    },
+                    "type": {
+                        "$enum": ["role", "user"]
+                    }
+                }
+            },
+            "search": {
+                "$type": "string"
             },
             "savedViewId": {
                 "$type": "string"

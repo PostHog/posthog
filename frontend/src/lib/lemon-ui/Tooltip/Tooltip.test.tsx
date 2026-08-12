@@ -80,4 +80,44 @@ describe('Tooltip', () => {
 
         await waitFor(() => expect(screen.queryByText(TITLE)).toBeNull())
     })
+
+    it('dismisses on scroll outside the tooltip', async () => {
+        renderTooltip()
+
+        fireEvent.pointerEnter(screen.getByText('Outdated'), { pointerType: 'mouse' })
+        fireEvent.mouseEnter(screen.getByText('Outdated'))
+        expect(await screen.findByText(TITLE)).toBeTruthy()
+
+        fireEvent.scroll(window)
+
+        await waitFor(() => expect(screen.queryByText(TITLE)).toBeNull())
+    })
+
+    it('does not dismiss on scroll inside the tooltip', async () => {
+        renderTooltip()
+
+        fireEvent.pointerEnter(screen.getByText('Outdated'), { pointerType: 'mouse' })
+        fireEvent.mouseEnter(screen.getByText('Outdated'))
+        const title = await screen.findByText(TITLE)
+
+        fireEvent.scroll(title)
+
+        expect(screen.getByText(TITLE)).toBeTruthy()
+    })
+
+    it('does not dismiss a controlled tooltip on scroll', async () => {
+        render(
+            <div>
+                <Tooltip title={TITLE} visible>
+                    <span>Outdated</span>
+                </Tooltip>
+            </div>
+        )
+
+        expect(await screen.findByText(TITLE)).toBeTruthy()
+
+        fireEvent.scroll(window)
+
+        expect(screen.getByText(TITLE)).toBeTruthy()
+    })
 })

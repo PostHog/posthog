@@ -51,12 +51,32 @@ export function sanitizeHeaderValue(value?: string): string | undefined {
     if (!value) {
         return undefined
     }
-    // Strip control characters, then trim and truncate
+    // Strip control characters and any codepoint outside the Latin-1 range
+    // (0x00–0xFF), then trim and truncate. HTTP header values are ByteStrings,
+    // so a character > 0xFF — e.g. an emoji or non-Latin script in a
+    // client-supplied name or user-agent — makes the outbound `fetch` throw
+    // `TypeError: Cannot convert argument to a ByteString ...`. Left unstripped
+    // that surfaces during init as `Failed to get user: ...` and is counted as
+    // a server-side `mcp_init_total{status="error"}`, spuriously tripping the
+    // MCPServerHighInitErrorRate alert on what is really bad client input.
     const sanitised = value
-        .replace(/[\x00-\x1f\x7f]/g, '')
+        .replace(/[\x00-\x1f\x7f]|[^\x00-\xff]/g, '')
         .trim()
         .slice(0, MAX_HEADER_VALUE_LENGTH)
     return sanitised || undefined
+}
+
+// Sanitize a batch of optional header values, dropping the ones that are absent or that
+// sanitize away to nothing, so the result can be spread straight into a headers object.
+export function sanitizeHeaders(headers: Record<string, string | undefined>): Record<string, string> {
+    const sanitised: Record<string, string> = {}
+    for (const [name, value] of Object.entries(headers)) {
+        const safeValue = sanitizeHeaderValue(value)
+        if (safeValue) {
+            sanitised[name] = safeValue
+        }
+    }
+    return sanitised
 }
 
 export type McpMode = 'tools' | 'cli'

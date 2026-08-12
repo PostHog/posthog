@@ -148,10 +148,7 @@ export const HogFunctionsCreateBody = /* @__PURE__ */ zod.object({
             events: zod.array(zod.record(zod.string(), zod.unknown())).optional(),
             data_warehouse: zod.array(zod.record(zod.string(), zod.unknown())).optional(),
             properties: zod.array(zod.record(zod.string(), zod.unknown())).optional(),
-            bytecode: zod.unknown().optional(),
-            transpiled: zod.unknown().optional(),
             filter_test_accounts: zod.boolean().optional(),
-            bytecode_error: zod.string().optional(),
         })
         .optional()
         .describe('Event filters that control which events trigger this function.'),
@@ -165,10 +162,6 @@ export const HogFunctionsCreateBody = /* @__PURE__ */ zod.object({
                     .describe('Time-to-live in seconds for the masking cache (60–86400).'),
                 threshold: zod.number().nullish().describe('Optional threshold count before masking applies.'),
                 hash: zod.string().describe('Hog expression used to compute the masking hash.'),
-                bytecode: zod
-                    .unknown()
-                    .optional()
-                    .describe('Compiled bytecode for the hash expression. Auto-generated.'),
             }),
             zod.null(),
         ])
@@ -393,10 +386,7 @@ export const HogFunctionsPartialUpdateBody = /* @__PURE__ */ zod.object({
             events: zod.array(zod.record(zod.string(), zod.unknown())).optional(),
             data_warehouse: zod.array(zod.record(zod.string(), zod.unknown())).optional(),
             properties: zod.array(zod.record(zod.string(), zod.unknown())).optional(),
-            bytecode: zod.unknown().optional(),
-            transpiled: zod.unknown().optional(),
             filter_test_accounts: zod.boolean().optional(),
-            bytecode_error: zod.string().optional(),
         })
         .optional()
         .describe('Event filters that control which events trigger this function.'),
@@ -410,10 +400,6 @@ export const HogFunctionsPartialUpdateBody = /* @__PURE__ */ zod.object({
                     .describe('Time-to-live in seconds for the masking cache (60–86400).'),
                 threshold: zod.number().nullish().describe('Optional threshold count before masking applies.'),
                 hash: zod.string().describe('Hog expression used to compute the masking hash.'),
-                bytecode: zod
-                    .unknown()
-                    .optional()
-                    .describe('Compiled bytecode for the hash expression. Auto-generated.'),
             }),
             zod.null(),
         ])
@@ -514,6 +500,12 @@ export const HogFunctionsPartialUpdateBody = /* @__PURE__ */ zod.object({
         .max(hogFunctionsPartialUpdateBodyExecutionOrderMax)
         .nullish()
         .describe('Execution priority for transformations. Lower values run first.'),
+    base_updated_at: zod.iso
+        .datetime({ offset: true })
+        .optional()
+        .describe(
+            'Optimistic concurrency: the updated_at (or draft_updated_at when editing a staged draft) you last read. If the stored side is newer, the write fails with 409 instead of overwriting the concurrent edit. Omit to overwrite unconditionally.'
+        ),
 })
 
 /**

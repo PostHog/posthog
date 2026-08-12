@@ -133,6 +133,33 @@ A good test should:
 - They give greater confidence (because you avoid the mistake of just testing a mock) but they're slower
 - They are generally less brittle in response to changes because they test at a higher level than developer tests (e.g. they test a Django API not a class used inside it)
 
+### Dataclasses
+
+Prefer a small dataclass over a tuple when returning or passing multiple values: always when two or more elements share a type (callers can silently swap them, e.g. `(start, end)` timestamps or `(username, password)` credentials), and when there are roughly 3+ elements, where positional access hurts readability.
+
+Use the house-default decorator:
+
+```python
+from posthog.dataclasses import frozen
+
+
+@frozen
+class BillingPeriod:
+    start: datetime
+    end: datetime
+```
+
+`@frozen` applies `frozen=True` (immutable, hashable), `kw_only=True` (keyword-only construction, so same-typed fields can't be transposed), and `slots=True` (less memory, typo-safe attribute access).
+Every flag is overridable per class: `@frozen(slots=False)` when a class needs `functools.cached_property`, or an explicit `@dataclass(frozen=False, ...)` for a deliberately mutable builder.
+
+Consume results with dot notation (`result.field`).
+Don't unpack them back into positional locals (`a, b = result.a, result.b`), which recreates the swap hazard the dataclass exists to prevent.
+
+Name dataclasses after the domain concept (`ClickHouseCredentials`, `BillingPeriod`), never `*Info`/`*Data`/`*Tuple`; use a `*Result` suffix only when the function's outcome genuinely is the concept.
+Mark secret fields with `field(repr=False)` so they stay out of logs and tracebacks.
+
+Enforcement: a new bare `@dataclass` without an explicit `frozen=` choice fails the ratchet in `posthog/test/test_dataclass_defaults.py` (existing uses are grandfathered in its baseline) and is flagged inline by the `prefer-frozen-dataclasses` semgrep rule.
+
 ### Querying ClickHouse
 
 **Always use HogQL instead of raw ClickHouse queries in product code.**

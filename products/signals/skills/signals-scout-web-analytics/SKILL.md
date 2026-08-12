@@ -90,7 +90,10 @@ SELECT $channel_type AS channel,
                       AND $start_timestamp <  now() - INTERVAL 14 DAY) AS aligned_2w_ago,
        round(avgIf($is_bounce, $start_timestamp >= now() - INTERVAL 1 DAY), 3) AS bounce_24h
 FROM sessions
-WHERE $start_timestamp >= now() - INTERVAL 15 DAY
+WHERE ($start_timestamp >= now() - INTERVAL 1 DAY
+    OR ($start_timestamp >= now() - INTERVAL 8 DAY  AND $start_timestamp <  now() - INTERVAL 7 DAY)
+    OR ($start_timestamp >= now() - INTERVAL 15 DAY AND $start_timestamp <  now() - INTERVAL 14 DAY))
+  AND $start_timestamp >= now() - INTERVAL 15 DAY
   AND $start_timestamp <= now() + INTERVAL 1 DAY
 GROUP BY channel ORDER BY sessions_24h DESC
 LIMIT 25
@@ -132,13 +135,22 @@ SELECT $channel_type AS channel,
        (deviations[2] + deviations[3]) / 2 AS mad,
        round((sessions_24h - baseline) / greatest(1.4826 * mad, sqrt(baseline)), 1) AS z
 FROM sessions
-WHERE $start_timestamp >= now() - INTERVAL 29 DAY
+WHERE ($start_timestamp >= now() - INTERVAL 1 DAY
+    OR ($start_timestamp >= now() - INTERVAL 8 DAY  AND $start_timestamp <  now() - INTERVAL 7 DAY)
+    OR ($start_timestamp >= now() - INTERVAL 15 DAY AND $start_timestamp <  now() - INTERVAL 14 DAY)
+    OR ($start_timestamp >= now() - INTERVAL 22 DAY AND $start_timestamp <  now() - INTERVAL 21 DAY)
+    OR ($start_timestamp >= now() - INTERVAL 29 DAY AND $start_timestamp <  now() - INTERVAL 28 DAY))
+  AND $start_timestamp >= now() - INTERVAL 29 DAY
   AND $start_timestamp <= now() + INTERVAL 1 DAY
 GROUP BY channel
 HAVING baseline >= 10
 ORDER BY abs(z) DESC
 LIMIT 25
 ```
+
+**Filter to the windows you score, not to their span.** Five aligned 24h windows is all these aggregates ever read, so the `WHERE` enumerates those five days and keeps the outer 29-day bounds only for partition pruning and the future-clock guard. A plain contiguous `>= now() - INTERVAL 29 DAY` range costs the same bytes off disk but pushes roughly six times the rows through the session-level aggregation — on a high-traffic project that is the difference between a query that returns in a couple of seconds and one that dies on the memory limit. Apply the same shape to any query here whose aggregates only read specific windows; the entry-path query below is the exception, because its `bounce_prior` genuinely reads the whole range.
+
+If the scored query still exceeds memory on a very high-volume project, narrow in this order and record which step you took in the close-out: first scope to the site's own hosts (`$entry_hostname IN (...)`, minus whatever is already in `noise:`), then fall back to three windows (7/14/21 days back), where the median is `aligned[2]` and the MAD is `deviations[2]`. Three windows still scores, but the baseline is thinner — treat a borderline `|z|` as a `remember`, not a report.
 
 Same-weekday alignment absorbs weekly rhythm for free (a Tuesday send-day spike is scored against four prior Tuesdays), and a channel that spikes _every_ week carries that spike in its MAD — so recurring campaign cadence self-suppresses. For each candidate, find the moving part _inside_ the channel:
 

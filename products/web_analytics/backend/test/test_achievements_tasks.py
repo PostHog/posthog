@@ -93,6 +93,11 @@ class TestRecomputeTask(BaseTest):
                 with self.captureOnCommitCallbacks(execute=True):
                     self._run_user(make_evaluators(loyal_days=lambda ctx: 5))
         self.assertEqual(mock_notify.call_count, 1)
+        data = mock_notify.call_args[0][0]
+        # (resource_type, resource_id) is the client's grouping key — without it every achievement
+        # unlocked on the same day collapses into one inbox group regardless of track
+        self.assertEqual(data.resource_type, "web_analytics")
+        self.assertEqual(data.resource_id, "loyalty")
 
     def test_unlock_notification_skipped_when_achievements_flag_disabled(self) -> None:
         with patch("posthoganalytics.feature_enabled", return_value=False):

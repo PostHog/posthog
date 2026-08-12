@@ -33,11 +33,15 @@ from products.signals.backend.artefact_attribution import ArtefactAttribution
 from products.signals.backend.artefact_schemas import RelatedTo
 from products.signals.backend.billing import BILLING_EXEMPT_SOURCE_PRODUCTS
 from products.signals.backend.models import SignalReport, SignalReportArtefact
+from products.signals.backend.quota import capture_signal_report_quota_paused, self_driving_quota_gate
 from products.signals.backend.signal_metadata import EMBEDDING_MODEL
 from products.signals.backend.temporal import metrics
 from products.signals.backend.temporal.drop_telemetry import capture_signal_dropped
 from products.signals.backend.temporal.llm import MAX_QUERY_TOKENS, call_llm, truncate_query_to_token_limit
 from products.signals.backend.temporal.signal_queries import (
+    SIGNAL_DOCUMENT_PRODUCT,
+    SIGNAL_DOCUMENT_RENDERING,
+    SIGNAL_DOCUMENT_TYPE,
     FetchSignalsForReportInput,
     FetchSignalsForReportOutput,
     FetchSignalTypeExamplesInput,
@@ -45,6 +49,7 @@ from products.signals.backend.temporal.signal_queries import (
     RunSignalSemanticSearchInput,
     RunSignalSemanticSearchOutput,
     WaitForClickHouseInput,
+    WaitForClickHouseMode,
     WaitForClickHouseSignal,
     fetch_signal_type_examples_activity,
     fetch_signals_for_report_activity,
@@ -55,6 +60,7 @@ from products.signals.backend.temporal.signal_queries import (
 from products.signals.backend.temporal.summary import SignalReportSummaryWorkflow
 from products.signals.backend.temporal.types import (
     RERESEARCH_MAX_SIGNALS,
+    RESEARCH_DEBOUNCE_SECONDS,
     EmitSignalInputs,
     ExistingReportMatch,
     MatchedMetadata,
@@ -269,6 +275,7 @@ IMPORTANT: Signals should be grouped if they are meaningfully related, not just 
 - A session behaviour anomaly AND an insight alert about the same user flow SHOULD match (related by user journey)
 - Two "experiment reached significance" signals from DIFFERENT, unrelated experiments should NOT match
 - Two signals about the SAME experiment (e.g., significance + follow-up analysis) SHOULD match
+- Two error-tracking signals from the SAME underlying defect or resolved by the same fix applied at different call sites SHOULD match, even if they surface in different files, components, or pages (they resolve to one fix)
 
 You will receive:
 1. A new signal with its description and source information
@@ -310,25 +317,24 @@ You will receive:
 
 Your job:
 1. Write a single PR title (max 70 chars) that covers ALL signals in the group INCLUDING the new one.
-2. Judge: is this PR title specific enough that one engineer could ship it in a single pull request?
+2. Judge: would ONE focused change resolve every signal in the group? If a single fix — even one applied at several call sites — addresses them all, they belong in one PR.
 
-A SPECIFIC PR title targets one feature, one bug, one component, or one tightly-scoped change:
-- "Fix date picker timezone handling in insights" — SPECIFIC (one component, one bug type)
-- "Add K8s liveness probe and fix feature flag caching" — SPECIFIC (one infra concern, tightly related)
-- "Fix funnel conversion calculation for time-based bins" — SPECIFIC (one feature, one issue)
+Judge by the FIX, not by where the symptom appears. Signals that share a single root cause, or that one shared change would resolve, belong in ONE PR even when the error surfaces in different files, components, or pages. The same guard, the same null-check, the same handler fix applied across many call sites is still one pull request.
 
-A VAGUE PR title is a catch-all that no single engineer would take on:
-- "Fix various PostHog AI issues" — VAGUE (multiple unrelated areas)
-- "Multiple workflow and integration improvements" — VAGUE (different systems)
-- "Address feature flag and authentication concerns" — VAGUE (unrelated domains)
+SPECIFIC — one root cause or one shared fix, so one engineer ships it in a single PR:
+- "Fix date picker timezone handling in insights" — one component, one bug
+- "Guard empty i18n translation keys in the missing-key handler" — one shared guard silences the empty-key errors surfacing across the calendar, settings, and event views
+- "Treat handled 404s as null instead of reporting them" — one interceptor-level fix stops the 404 noise from several endpoints
+- "Fix funnel conversion calculation for time-based bins" — one feature, one issue
 
-IMPORTANT: Err on the side of REJECTING. A good PR addresses ONE concern, even if that concern has multiple symptoms.
+Reject the group only when the signals need SEPARATE, unrelated fixes that no single engineer would take on together, such as "Fix various PostHog AI issues" or "Address feature flag and authentication concerns".
 
-Red flags that the group is too broad:
-- You need words like "various", "multiple", "and" (connecting unrelated things), or "improvements"
-- The signals share a keyword (e.g. "workflows", "flags", "Next.js") but address different problems
-- You'd assign the signals to different engineers based on expertise
-- The PR touches multiple unrelated systems or components
+None of these are reasons to split:
+- The same fix touches several files, call sites, or components
+- The signals surface in different pages, views, or systems but share one root cause or one remedy
+- The signals describe different symptoms of the same underlying behaviour
+
+When you are unsure, name the single change that would resolve every signal in the group. If you can name it, they belong in one PR. If you cannot, they belong apart.
 
 Respond with valid JSON only:
 {"pr_title": "...", "specific_enough": true/false, "reason": "..."}"""
@@ -678,6 +684,20 @@ class AssignAndEmitSignalOutput:
     promoted: bool
     timestamp: datetime
     run_count: int
+    research_debounce_seconds: int = 0
+
+
+@dataclass(frozen=True, kw_only=True, slots=True)
+class AssignAndEmitDbResult:
+    report_id: str
+    promoted: bool
+    timestamp: datetime
+    matched_deleted_report: bool
+    run_count: int
+    reresearch_capped: bool
+    report_status: str
+    report_signal_count: int
+    promotion_suppressed: bool
 
 
 @temporalio.activity.defn
@@ -686,11 +706,10 @@ class AssignAndEmitSignalOutput:
 async def assign_and_emit_signal_activity(input: AssignAndEmitSignalInput) -> AssignAndEmitSignalOutput:
     match_result = input.match_result
 
-    def do_assign_and_emit() -> tuple[str, bool, datetime, bool, int, bool, str, int]:
-        """Returns (report_id, promoted, timestamp, matched_deleted_report, run_count,
-        reresearch_capped, report_status, report_signal_count)."""
+    def do_assign_and_emit(suppress_promotion: bool) -> AssignAndEmitDbResult:
         with transaction.atomic():
             promoted = False
+            promotion_suppressed = False
 
             if isinstance(match_result, ExistingReportMatch):
                 report = SignalReport.objects.select_for_update().get(id=match_result.report_id, team_id=input.team_id)
@@ -721,15 +740,25 @@ async def assign_and_emit_signal_activity(input: AssignAndEmitSignalInput) -> As
                     emit_embedding_request(
                         content=input.description,
                         team_id=input.team_id,
-                        product="signals",
-                        document_type="signal",
-                        rendering="plain",
+                        product=SIGNAL_DOCUMENT_PRODUCT,
+                        document_type=SIGNAL_DOCUMENT_TYPE,
+                        rendering=SIGNAL_DOCUMENT_RENDERING,
                         document_id=input.signal_id,
                         models=[m.value for m in EmbeddingModelName],
                         timestamp=ts,
                         metadata=metadata,
                     )
-                    return report_id, False, ts, True, report.run_count, False, report.status, report.signal_count
+                    return AssignAndEmitDbResult(
+                        report_id=report_id,
+                        promoted=False,
+                        timestamp=ts,
+                        matched_deleted_report=True,
+                        run_count=report.run_count,
+                        reresearch_capped=False,
+                        report_status=report.status,
+                        report_signal_count=report.signal_count,
+                        promotion_suppressed=False,
+                    )
                 # Resolved reports are terminal — never reopen them. When a signal would have grouped
                 # into an already-resolved report, the issue it fixed has recurred (or a related one
                 # has), so we start a fresh report and link it to the resolved report via a
@@ -794,12 +823,20 @@ async def assign_and_emit_signal_activity(input: AssignAndEmitSignalInput) -> As
                     and report.signal_count >= report.signals_at_run
                 )
             ):
+                if suppress_promotion:
+                    # The team's org is over its self-driving credits quota with enforcement on: the signal is still
+                    # assigned, weighted, and emitted, but no summary run spawns. The status is left
+                    # untouched, so the first matching signal after the quota lifts re-evaluates
+                    # promotion under the same rules.
+                    promotion_suppressed = True
                 # If candidate got here - it usually means CH issue down the way
                 # (e.g. CH wait raised before start_child_workflow)
-                if report.status != SignalReport.Status.CANDIDATE:
+                elif report.status != SignalReport.Status.CANDIDATE:
                     updated_fields = report.transition_to(SignalReport.Status.CANDIDATE)
                     report.save(update_fields=updated_fields)
-                promoted = True
+                    promoted = True
+                else:
+                    promoted = True
 
             report_id = str(report.id)
 
@@ -820,51 +857,46 @@ async def assign_and_emit_signal_activity(input: AssignAndEmitSignalInput) -> As
             emit_embedding_request(
                 content=input.description,
                 team_id=input.team_id,
-                product="signals",
-                document_type="signal",
-                rendering="plain",
+                product=SIGNAL_DOCUMENT_PRODUCT,
+                document_type=SIGNAL_DOCUMENT_TYPE,
+                rendering=SIGNAL_DOCUMENT_RENDERING,
                 document_id=input.signal_id,
                 models=[m.value for m in EmbeddingModelName],
                 timestamp=ts,
                 metadata=metadata,
             )
-            return (
-                report_id,
-                promoted,
-                ts,
-                False,
-                report.run_count,
-                reresearch_capped,
-                report.status,
-                report.signal_count,
+            return AssignAndEmitDbResult(
+                report_id=report_id,
+                promoted=promoted,
+                timestamp=ts,
+                matched_deleted_report=False,
+                run_count=report.run_count,
+                reresearch_capped=reresearch_capped,
+                report_status=report.status,
+                report_signal_count=report.signal_count,
+                promotion_suppressed=promotion_suppressed,
             )
 
     try:
-        (
-            report_id,
-            promoted,
-            ts,
-            matched_deleted,
-            run_count,
-            reresearch_capped,
-            report_status,
-            report_signal_count,
-        ) = await database_sync_to_async(do_assign_and_emit, thread_sensitive=False)()
-
         team = await Team.objects.select_related("organization").aget(pk=input.team_id)
+        # Resolved before the assign transaction: the quota gate is Redis + flag network I/O that
+        # must not run while holding the report row lock.
+        quota_gate = await database_sync_to_async(self_driving_quota_gate, thread_sensitive=False)(team)
+
+        db_result = await database_sync_to_async(do_assign_and_emit, thread_sensitive=False)(quota_gate.enforced)
 
         # If we matched a deleted report, soft-delete all its stale signals in ClickHouse.
         # This prevents data corruption where non-deleted signals for a deleted report
         # keep attracting new signals into the dead group.
-        if matched_deleted:
+        if db_result.matched_deleted_report:
             await database_sync_to_async(soft_delete_report_signals, thread_sensitive=False)(
-                report_id=report_id,
+                report_id=db_result.report_id,
                 team_id=input.team_id,
                 team=team,
             )
             logger.info(
                 "Soft-deleted stale signals for deleted report encountered during grouping",
-                report_id=report_id,
+                report_id=db_result.report_id,
                 team_id=input.team_id,
                 signal_id=input.signal_id,
             )
@@ -877,7 +909,7 @@ async def assign_and_emit_signal_activity(input: AssignAndEmitSignalInput) -> As
                         "source_product": input.source_product,
                         "source_type": input.source_type,
                         "source_id": input.source_id,
-                        "report_id": report_id,
+                        "report_id": db_result.report_id,
                     },
                     groups=groups(team.organization, team),
                 )
@@ -885,7 +917,7 @@ async def assign_and_emit_signal_activity(input: AssignAndEmitSignalInput) -> As
                 posthoganalytics.capture_exception(e)
                 logger.exception(
                     "Failed to capture signal_matched_deleted_report event",
-                    report_id=report_id,
+                    report_id=db_result.report_id,
                     team_id=input.team_id,
                     source_id=input.source_id,
                 )
@@ -898,9 +930,9 @@ async def assign_and_emit_signal_activity(input: AssignAndEmitSignalInput) -> As
                         "source_product": input.source_product,
                         "source_type": input.source_type,
                         "source_id": input.source_id,
-                        "report_id": report_id,
+                        "report_id": db_result.report_id,
                         "is_new_report": isinstance(match_result, NewReportMatch),
-                        "promoted": promoted,
+                        "promoted": db_result.promoted,
                     },
                     groups=groups(team.organization, team),
                 )
@@ -909,21 +941,21 @@ async def assign_and_emit_signal_activity(input: AssignAndEmitSignalInput) -> As
                 # Swallow the exception, to avoid breaking the flow over failed analytics event
                 logger.exception(
                     "Failed to capture signal_assigned_to_report event",
-                    report_id=report_id,
+                    report_id=db_result.report_id,
                     team_id=input.team_id,
                     source_id=input.source_id,
                 )
             # Over-cap signal on an already-researched report: assigned/emitted but no re-research
             # spawned. Emitted so the saved re-research volume is trackable.
-            if reresearch_capped:
+            if db_result.reresearch_capped:
                 try:
                     posthoganalytics.capture(
                         event="signal_report_reresearch_skipped",
                         distinct_id=str(team.uuid),
                         properties={
-                            "report_id": report_id,
-                            "signal_count": report_signal_count,
-                            "status": report_status,
+                            "report_id": db_result.report_id,
+                            "signal_count": db_result.report_signal_count,
+                            "status": db_result.report_status,
                             "source_product": input.source_product,
                             "source_type": input.source_type,
                             "source_id": input.source_id,
@@ -935,25 +967,37 @@ async def assign_and_emit_signal_activity(input: AssignAndEmitSignalInput) -> As
                     posthoganalytics.capture_exception(e)
                     logger.exception(
                         "Failed to capture signal_report_reresearch_skipped event",
-                        report_id=report_id,
+                        report_id=db_result.report_id,
                         team_id=input.team_id,
                         source_id=input.source_id,
                     )
+            # Emitted only when the signal would have promoted the report, so the event volume
+            # measures withheld summary runs rather than every assignment on a limited team.
+            if quota_gate.limited and (db_result.promoted or db_result.promotion_suppressed):
+                capture_signal_report_quota_paused(
+                    team, report_id=db_result.report_id, stage="promotion", enforced=quota_gate.enforced
+                )
 
-        if not matched_deleted:
+        if not db_result.matched_deleted_report:
             metrics.increment_funnel(metrics.FUNNEL_STAGE_GROUPED, input.source_product)
-            if promoted:
+            if db_result.promoted:
                 metrics.increment_funnel(metrics.FUNNEL_STAGE_PROMOTED, input.source_product)
 
         logger.debug(
-            f"Assigned and emitted signal to report {report_id}",
-            report_id=report_id,
+            f"Assigned and emitted signal to report {db_result.report_id}",
+            report_id=db_result.report_id,
             team_id=input.team_id,
             signal_id=input.signal_id,
-            promoted=promoted,
+            promoted=db_result.promoted,
             is_new_report=isinstance(match_result, NewReportMatch),
         )
-        return AssignAndEmitSignalOutput(report_id=report_id, promoted=promoted, timestamp=ts, run_count=run_count)
+        return AssignAndEmitSignalOutput(
+            report_id=db_result.report_id,
+            promoted=db_result.promoted,
+            timestamp=db_result.timestamp,
+            run_count=db_result.run_count,
+            research_debounce_seconds=RESEARCH_DEBOUNCE_SECONDS,
+        )
     except Exception as e:
         logger.exception(
             f"Failed to assign/emit signal: {e}",
@@ -1315,7 +1359,11 @@ async def _process_signal_batch(
 
             if assign_result.promoted:
                 promoted_reports[assign_result.report_id] = (
-                    SignalReportSummaryWorkflowInputs(team_id=signal.team_id, report_id=assign_result.report_id),
+                    SignalReportSummaryWorkflowInputs(
+                        team_id=signal.team_id,
+                        report_id=assign_result.report_id,
+                        debounce_seconds=assign_result.research_debounce_seconds,
+                    ),
                     assign_result.run_count,
                 )
 
@@ -1341,6 +1389,9 @@ async def _process_signal_batch(
                     for sid, result in emitted_signals
                 ],
                 max_wait_time_seconds=3600,
+                # Fresh emissions: the store's confirmation is enough for the next batch's
+                # semantic search — don't spend ClickHouse queries on the happy path.
+                mode=WaitForClickHouseMode.OPTIMISTIC,
             ),
             start_to_close_timeout=timedelta(hours=1, minutes=5),
             heartbeat_timeout=timedelta(minutes=2),
@@ -1359,11 +1410,10 @@ async def _process_signal_batch(
                 task_queue=settings.VIDEO_EXPORT_TASK_QUEUE,
                 parent_close_policy=ParentClosePolicy.ABANDON,
                 id_reuse_policy=WorkflowIDReusePolicy.ALLOW_DUPLICATE,
-                execution_timeout=timedelta(hours=1),
+                execution_timeout=timedelta(hours=1, seconds=report_input.debounce_seconds),
             )
         except temporalio.exceptions.WorkflowAlreadyStartedError:
-            # Expected when CANDIDATE re-promotion fires against an in-flight workflow; no-op.
-            pass
+            metrics.increment_research_run_collapsed()
         except Exception:
             # Log and continue: raising here would reprocess the whole batch and double-count
             # signals. The report stays CANDIDATE and re-promotes on the next matching signal.

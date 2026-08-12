@@ -46,6 +46,13 @@ NUMERIC_DISPLAY_TYPES = [
 ]
 
 
+CANONICAL_LAST_SLACK_MESSAGE_AT = "Last Slack message at"
+
+CANONICAL_DISPLAY_TYPE_BY_NAME: dict[str, DisplayType] = {
+    CANONICAL_LAST_SLACK_MESSAGE_AT: DisplayType.DATETIME,
+}
+
+
 class CustomPropertyDefinition(TeamScopedRootMixin, UUIDModel, CreatedMetaFields, UpdatedMetaFields):
     team = models.ForeignKey("posthog.Team", on_delete=models.CASCADE)
 

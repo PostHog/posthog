@@ -3,20 +3,29 @@ from collections.abc import Iterable
 from typing import Any, cast
 
 import pytest
-from unittest.mock import MagicMock, patch
+from unittest.mock import AsyncMock, MagicMock, patch
 
 import requests
 from parameterized import parameterized
 from requests import Response
 
+from products.warehouse_sources.backend.temporal.data_imports.pipelines.core.arrow_utils import table_from_py_list
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
-from products.warehouse_sources.backend.temporal.data_imports.sources.webflow.settings import WEBFLOW_ENDPOINTS
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.webhook_s3 import WebhookSourceManager
+from products.warehouse_sources.backend.temporal.data_imports.sources.webflow.settings import (
+    ALL_WEBHOOK_EVENTS,
+    WEBFLOW_ENDPOINTS,
+)
 from products.warehouse_sources.backend.temporal.data_imports.sources.webflow.webflow import (
     WebflowResumeConfig,
     _extract_items,
     _resolve_collection_id,
+    create_webhook,
+    delete_webhook,
+    get_external_webhook_info,
     validate_credentials,
     webflow_source,
+    webhook_table_transformer,
 )
 
 # The sync transport builds its session via make_tracked_session inside the shared rest_client.
@@ -317,3 +326,313 @@ class TestWebflowSource:
             )
             assert callable(response.items)
             assert isinstance(response.items(), Iterable)
+
+
+def _webhook_list_response(webhooks: list[dict[str, Any]]) -> Response:
+    return _make_response({"webhooks": webhooks, "pagination": {"limit": 100, "offset": 0, "total": len(webhooks)}})
+
+
+class TestCreateWebhook:
+    def test_registers_one_webhook_per_trigger_and_keeps_every_secret(self) -> None:
+        # Webflow's create endpoint takes a single triggerType and issues a separate secret per
+        # registration, so losing any of them leaves that trigger's deliveries unverifiable.
+        with patch(WEBFLOW_SESSION_PATCH) as MockSession:
+            session = MockSession.return_value
+            session.get.return_value = _webhook_list_response([])
+            session.post.side_effect = [
+                _make_response({"id": "w1", "triggerType": "ecomm_new_order", "secretKey": "s1"}, 201),
+                _make_response({"id": "w2", "triggerType": "ecomm_order_changed", "secretKey": "s2"}, 201),
+            ]
+
+            result = create_webhook("token", "site-1", "https://webhooks.example/dwh/1")
+
+        assert result.success is True
+        assert result.extra_inputs == {"signing_secrets": ["s1", "s2"]}
+        assert result.pending_inputs == []
+        assert [call.kwargs["json"]["triggerType"] for call in session.post.call_args_list] == list(ALL_WEBHOOK_EVENTS)
+        assert {call.kwargs["json"]["url"] for call in session.post.call_args_list} == {
+            "https://webhooks.example/dwh/1"
+        }
+
+    def test_skips_triggers_already_registered_for_our_url(self) -> None:
+        # Webflow caps registrations per trigger type per site, and a duplicate would keep
+        # delivering after we delete "the" webhook.
+        with patch(WEBFLOW_SESSION_PATCH) as MockSession:
+            session = MockSession.return_value
+            session.get.return_value = _webhook_list_response(
+                [{"id": "w1", "triggerType": "ecomm_new_order", "url": "https://webhooks.example/dwh/1"}]
+            )
+            session.post.return_value = _make_response(
+                {"id": "w2", "triggerType": "ecomm_order_changed", "secretKey": "s2"}, 201
+            )
+
+            result = create_webhook("token", "site-1", "https://webhooks.example/dwh/1")
+
+        assert [call.kwargs["json"]["triggerType"] for call in session.post.call_args_list] == ["ecomm_order_changed"]
+        assert result.success is True
+        # One trigger's secret was issued before we asked, so it can't be recovered.
+        assert result.pending_inputs == ["signing_secret"]
+
+    def test_registration_without_a_secret_asks_the_user_for_one(self) -> None:
+        # Site tokens predating Webflow's per-webhook secrets return no secretKey; silently
+        # succeeding would leave every delivery failing the signature check.
+        with patch(WEBFLOW_SESSION_PATCH) as MockSession:
+            session = MockSession.return_value
+            session.get.return_value = _webhook_list_response([])
+            session.post.return_value = _make_response({"id": "w1"}, 201)
+
+            result = create_webhook("token", "site-1", "https://webhooks.example/dwh/1")
+
+        assert result.success is True
+        assert result.extra_inputs == {}
+        assert result.pending_inputs == ["signing_secret"]
+
+    @parameterized.expand([("forbidden", 403), ("bad_request", 400)])
+    def test_reports_failure_when_no_registration_was_created(self, _name: str, status_code: int) -> None:
+        with patch(WEBFLOW_SESSION_PATCH) as MockSession:
+            session = MockSession.return_value
+            session.get.return_value = _webhook_list_response([])
+            session.post.return_value = _make_response({"message": "nope"}, status_code)
+
+            result = create_webhook("token", "site-1", "https://webhooks.example/dwh/1")
+
+        assert result.success is False
+        assert result.error is not None
+        assert "sites:write" in result.error
+
+    def test_network_failure_is_reported_not_raised(self) -> None:
+        with patch(WEBFLOW_SESSION_PATCH) as MockSession:
+            MockSession.return_value.get.side_effect = requests.exceptions.ConnectTimeout("boom")
+
+            result = create_webhook("token", "site-1", "https://webhooks.example/dwh/1")
+
+        assert result.success is False
+        assert result.error is not None and "boom" in result.error
+
+
+class TestDeleteWebhook:
+    def test_deletes_every_registration_pointing_at_our_url_and_leaves_others(self) -> None:
+        with patch(WEBFLOW_SESSION_PATCH) as MockSession:
+            session = MockSession.return_value
+            session.get.return_value = _webhook_list_response(
+                [
+                    {"id": "w1", "triggerType": "ecomm_new_order", "url": "https://webhooks.example/dwh/1"},
+                    {"id": "w2", "triggerType": "ecomm_order_changed", "url": "https://webhooks.example/dwh/1"},
+                    {"id": "other", "triggerType": "form_submission", "url": "https://someone-else.example"},
+                ]
+            )
+            # A registration removed in Webflow between listing and deleting is already the
+            # outcome we wanted, so a 404 must not fail the teardown.
+            session.delete.side_effect = [_make_response({}, 204), _make_response({}, 404)]
+
+            result = delete_webhook("token", "site-1", "https://webhooks.example/dwh/1")
+
+        assert result.success is True
+        deleted_ids = [call.args[0].rsplit("/", 1)[-1] for call in session.delete.call_args_list]
+        assert deleted_ids == ["w1", "w2"]
+
+    def test_reports_a_registration_webflow_refused_to_delete(self) -> None:
+        with patch(WEBFLOW_SESSION_PATCH) as MockSession:
+            session = MockSession.return_value
+            session.get.return_value = _webhook_list_response(
+                [{"id": "w1", "triggerType": "ecomm_new_order", "url": "https://webhooks.example/dwh/1"}]
+            )
+            session.delete.return_value = _make_response({}, 403)
+
+            result = delete_webhook("token", "site-1", "https://webhooks.example/dwh/1")
+
+        assert result.success is False
+        assert result.error is not None and "w1" in result.error
+
+
+class TestGetExternalWebhookInfo:
+    def test_reports_the_triggers_currently_registered(self) -> None:
+        with patch(WEBFLOW_SESSION_PATCH) as MockSession:
+            MockSession.return_value.get.return_value = _webhook_list_response(
+                [
+                    {
+                        "id": "w1",
+                        "triggerType": "ecomm_new_order",
+                        "url": "https://webhooks.example/dwh/1",
+                        "createdOn": "2026-01-02T00:00:00Z",
+                    },
+                    {
+                        "id": "w2",
+                        "triggerType": "ecomm_order_changed",
+                        "url": "https://webhooks.example/dwh/1",
+                        "createdOn": "2026-01-01T00:00:00Z",
+                    },
+                ]
+            )
+
+            info = get_external_webhook_info("token", "site-1", "https://webhooks.example/dwh/1")
+
+        assert info.exists is True
+        # The set drives the "missing events" hint in the UI, so a partial registration has to
+        # report only what is really there.
+        assert info.enabled_events == ["ecomm_new_order", "ecomm_order_changed"]
+        assert info.created_at == "2026-01-01T00:00:00Z"
+
+    def test_reports_absence_when_only_other_webhooks_exist(self) -> None:
+        with patch(WEBFLOW_SESSION_PATCH) as MockSession:
+            MockSession.return_value.get.return_value = _webhook_list_response(
+                [{"id": "w1", "triggerType": "form_submission", "url": "https://someone-else.example"}]
+            )
+
+            info = get_external_webhook_info("token", "site-1", "https://webhooks.example/dwh/1")
+
+        assert info.exists is False
+
+    def test_lookup_failure_is_reported_not_raised(self) -> None:
+        with patch(WEBFLOW_SESSION_PATCH) as MockSession:
+            MockSession.return_value.get.return_value = _make_response({"message": "nope"}, 401)
+
+            info = get_external_webhook_info("token", "site-1", "https://webhooks.example/dwh/1")
+
+        assert info.exists is False
+        assert info.error is not None
+
+
+class TestWebhookTableTransformer:
+    def _table(self, rows: list[dict[str, Any]]) -> Any:
+        return table_from_py_list(rows)
+
+    def test_keeps_only_the_latest_delivery_per_order(self) -> None:
+        # Delta merge dedupes across syncs but not within a batch, so a created-then-changed
+        # pair for one order would otherwise land as two rows racing on the same primary key.
+        table = self._table(
+            [
+                {
+                    "triggerType": "ecomm_new_order",
+                    "webflowTimestamp": "1700000000000",
+                    "payload": {"orderId": "abc123", "status": "unfulfilled"},
+                },
+                {
+                    "triggerType": "ecomm_order_changed",
+                    "webflowTimestamp": "1700000060000",
+                    "payload": {"orderId": "abc123", "status": "fulfilled"},
+                },
+                {
+                    "triggerType": "ecomm_new_order",
+                    "webflowTimestamp": "1700000030000",
+                    "payload": {"orderId": "def456", "status": "unfulfilled"},
+                },
+            ]
+        )
+
+        rows = webhook_table_transformer(table).to_pylist()
+
+        assert sorted(rows, key=lambda r: r["orderId"]) == [
+            {"orderId": "abc123", "status": "fulfilled"},
+            {"orderId": "def456", "status": "unfulfilled"},
+        ]
+
+    def test_out_of_order_delivery_does_not_resurrect_the_older_row(self) -> None:
+        # Webflow retries failed deliveries, so a stale event can arrive after a newer one.
+        table = self._table(
+            [
+                {
+                    "triggerType": "ecomm_order_changed",
+                    "webflowTimestamp": "1700000060000",
+                    "payload": {"orderId": "abc123", "status": "fulfilled"},
+                },
+                {
+                    "triggerType": "ecomm_new_order",
+                    "webflowTimestamp": "1700000000000",
+                    "payload": {"orderId": "abc123", "status": "unfulfilled"},
+                },
+            ]
+        )
+
+        assert webhook_table_transformer(table).to_pylist() == [{"orderId": "abc123", "status": "fulfilled"}]
+
+    def test_equal_timestamps_fall_back_to_arrival_order(self) -> None:
+        table = self._table(
+            [
+                {
+                    "triggerType": "ecomm_new_order",
+                    "webflowTimestamp": "1700000000000",
+                    "payload": {"orderId": "abc123", "status": "unfulfilled"},
+                },
+                {
+                    "triggerType": "ecomm_order_changed",
+                    "webflowTimestamp": "1700000000000",
+                    "payload": {"orderId": "abc123", "status": "fulfilled"},
+                },
+            ]
+        )
+
+        assert webhook_table_transformer(table).to_pylist() == [{"orderId": "abc123", "status": "fulfilled"}]
+
+    def test_rows_without_an_order_id_are_dropped(self) -> None:
+        # A row with no primary key can't be merged; keeping it would fail the whole batch.
+        table = self._table(
+            [
+                {"triggerType": "ecomm_new_order", "webflowTimestamp": "1700000000000", "payload": {"status": "x"}},
+                {
+                    "triggerType": "ecomm_new_order",
+                    "webflowTimestamp": "1700000000000",
+                    "payload": {"orderId": "abc123", "status": "unfulfilled"},
+                },
+            ]
+        )
+
+        assert webhook_table_transformer(table).to_pylist() == [{"orderId": "abc123", "status": "unfulfilled"}]
+
+    def test_table_without_a_payload_column_yields_no_rows(self) -> None:
+        assert webhook_table_transformer(self._table([{"triggerType": "site_publish"}])).num_rows == 0
+
+
+class TestWebhookBackedSource:
+    def test_orders_reads_from_the_webhook_manager_once_webhooks_are_live(self) -> None:
+        manager = _make_manager()
+        webhook_manager = MagicMock(spec=WebhookSourceManager)
+        webhook_manager.webhook_enabled = AsyncMock(return_value=True)
+        webhook_manager.get_items.return_value = "webhook-items"
+
+        with patch(CLIENT_SESSION_PATCH) as MockSession:
+            MockSession.return_value.send.side_effect = AssertionError("the pull API must not be hit")
+            response = webflow_source(
+                "token",
+                "site-1",
+                "orders",
+                team_id=1,
+                job_id="j",
+                resumable_source_manager=manager,
+                webhook_source_manager=webhook_manager,
+            )
+            assert response.items() == "webhook-items"
+
+        webhook_manager.get_items.assert_called_once_with(table_transformer=webhook_table_transformer)
+        # The polled table's identity must not change when rows arrive by webhook, or pushed
+        # rows land in a different Delta table than the backfill.
+        assert response.primary_keys == ["orderId"]
+        assert response.partition_keys == ["acceptedOn"]
+
+    @parameterized.expand([("pages",), ("collection_blog",)])
+    def test_schema_without_webhook_support_never_consults_the_webhook_manager(self, schema_name: str) -> None:
+        # Only `orders` has a Webflow trigger whose payload matches the polled table, so any
+        # other schema must keep polling even when a webhook is registered on the source.
+        manager = _make_manager()
+        webhook_manager = MagicMock(spec=WebhookSourceManager)
+        webhook_manager.webhook_enabled = AsyncMock(return_value=True)
+
+        with (
+            patch(CLIENT_SESSION_PATCH),
+            patch(
+                "products.warehouse_sources.backend.temporal.data_imports.sources.webflow.webflow._resolve_collection_id",
+                return_value="c1",
+            ),
+        ):
+            webflow_source(
+                "token",
+                "site-1",
+                schema_name,
+                team_id=1,
+                job_id="j",
+                resumable_source_manager=manager,
+                webhook_source_manager=webhook_manager,
+            )
+
+        webhook_manager.webhook_enabled.assert_not_called()
+        webhook_manager.get_items.assert_not_called()

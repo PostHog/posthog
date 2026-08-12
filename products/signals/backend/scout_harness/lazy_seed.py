@@ -54,7 +54,7 @@ _ALLOWED_BUNDLE_SUBDIRS = ("references", "scripts")
 # from this module's call sites. Keep the values in sync with skill_services.py.
 _MAX_SKILL_BODY_BYTES = 1_000_000
 _MAX_SKILL_FILE_BYTES = 1_000_000
-_MAX_SKILL_FILE_COUNT = 50
+_MAX_SKILL_FILE_COUNT = 200
 # Matches `LLMSkillFile.path` model `max_length` — checked at parse time so an oversized
 # canonical path fails with a clear error instead of a Postgres `value too long` DataError.
 _MAX_SKILL_FILE_PATH_LENGTH = 500

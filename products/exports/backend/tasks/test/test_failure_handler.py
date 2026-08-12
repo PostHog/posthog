@@ -71,6 +71,8 @@ class TestClassifyFailureType(TestCase):
             ("OperationalError", FAILURE_TYPE_SYSTEM),
             ("ClickHouseAtCapacity", FAILURE_TYPE_SYSTEM),
             ("ReadTimeoutError", FAILURE_TYPE_SYSTEM),
+            ("ObjectStorageError", FAILURE_TYPE_SYSTEM),
+            ("RetryableExportError", FAILURE_TYPE_SYSTEM),
             # Unknown errors
             ("ValueError", FAILURE_TYPE_UNKNOWN),
             ("RuntimeError", FAILURE_TYPE_UNKNOWN),

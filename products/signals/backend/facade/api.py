@@ -1,5 +1,7 @@
 import dataclasses
+from collections.abc import Callable, Sequence
 from datetime import timedelta
+from typing import TYPE_CHECKING
 
 from django.conf import settings
 from django.db import transaction
@@ -18,6 +20,9 @@ from posthog.temporal.common.client import async_connect
 
 from products.signals.backend.contracts import SIGNAL_VARIANT_LOOKUP, SignalRemediation
 from products.signals.backend.models import SignalSourceConfig
+
+if TYPE_CHECKING:
+    from products.tasks.backend.facade.repo_selection import RepoSelectionResult
 
 logger = structlog.get_logger(__name__)
 
@@ -138,6 +143,28 @@ def dismiss_report_from_slack(
     return suppress_report_from_slack(team_id, report_id, slack_user_id=slack_user_id, user_id=user_id)
 
 
+def persisted_repo_selection(report_id: str) -> "RepoSelectionResult | None":
+    """Facade entrypoint for a report's latest repo selection. See select_repo.persisted_repo_selection."""
+    from products.signals.backend.report_generation.select_repo import (
+        persisted_repo_selection as persisted_repo_selection_impl,  # noqa: PLC0415 — avoids importing model layer at facade import time
+    )
+
+    return persisted_repo_selection_impl(report_id)
+
+
+def autostart_base_branch_for_repository(team_id: int, repository: str | None) -> str | None:
+    """Team's configured base branch for ``repository``, for callers outside the signals product."""
+    if not repository:
+        return None
+
+    from products.signals.backend.models import (
+        SignalTeamConfig,  # noqa: PLC0415 — avoids importing model layer at facade import time
+    )
+
+    config = SignalTeamConfig.objects.filter(team_id=team_id).only("autostart_base_branches").first()
+    return config.base_branch_for(repository) if config is not None else None
+
+
 def get_default_slack_notification_channel(team_id: int) -> str | None:
     """Team-default Slack channel for signal notifications, stored as "<channel_id>|#name"."""
     from products.signals.backend.models import (
@@ -173,12 +200,23 @@ _DEFAULT_SESSION_ANALYSIS_SAMPLE_RATE = 0.1
 
 @dataclasses.dataclass(frozen=True)
 class OnboardingSource:
-    """A signal source offered as a checkbox in the Slack onboarding flow, with current state."""
+    """A signal source shown in the Slack onboarding flow, with current state."""
 
     key: str
     label: str
     description: str
     enabled: bool
+    # False for a source that authorizes itself elsewhere: onboarding reports it instead of
+    # offering a checkbox that would have nothing to write.
+    togglable: bool = True
+
+
+def _has_emitting_replay_scanner(team_id: int) -> bool:
+    from products.replay_vision.backend.facade.api import (
+        has_signal_emitting_scanner,  # noqa: PLC0415 — keeps the Replay Vision stack off this import path
+    )
+
+    return has_signal_emitting_scanner(team_id)
 
 
 @dataclasses.dataclass(frozen=True)
@@ -187,8 +225,11 @@ class _SourceSpec:
     label: str
     description: str
     # The SignalSourceConfig (source_product, source_type) rows ticking this source enables.
-    pairs: tuple[tuple[str, str], ...]
+    # Empty when the source authorizes itself elsewhere, which is also what makes it untickable.
+    pairs: tuple[tuple[str, str], ...] = ()
     needs_ai_approval: bool = False
+    # Reads the on/off state of a source that has no config row to read it from.
+    enabled_check: Callable[[int], bool] | None = None
 
 
 _SOURCE_CATALOG: tuple[_SourceSpec, ...] = (
@@ -203,9 +244,15 @@ _SOURCE_CATALOG: tuple[_SourceSpec, ...] = (
         ),
     ),
     _SourceSpec(
+        "replay_vision",
+        "Replay vision",
+        "bugs and UX problems scanners find in recordings",
+        enabled_check=_has_emitting_replay_scanner,
+    ),
+    _SourceSpec(
         "session_replay",
-        "Session replay analysis",
-        "problems real users hit",
+        "Session replay analysis (legacy)",
+        "problems real users hit. Replay vision covers this now",
         (("session_replay", "session_analysis_cluster"),),
         needs_ai_approval=True,
     ),
@@ -220,8 +267,13 @@ def _ai_data_processing_approved(team_id: int) -> bool:
 
 
 def has_enabled_source(team_id: int) -> bool:
-    """True once the team has at least one enabled signal source — i.e. there's something to respond to."""
-    return SignalSourceConfig.objects.filter(team_id=team_id, enabled=True).exists()
+    """True once the team has at least one enabled signal source — i.e. there's something to respond to.
+
+    Replay Vision is checked separately because it has no config row to find: each scanner's own
+    `emits_signals` flag authorizes it (see `SignalSourceConfig.is_source_enabled`)."""
+    if SignalSourceConfig.objects.filter(team_id=team_id, enabled=True).exists():
+        return True
+    return _has_emitting_replay_scanner(team_id)
 
 
 def team_ids_with_source_product_enabled(source_product: str) -> list[int]:
@@ -254,7 +306,10 @@ def onboarding_sources(team_id: int) -> list[OnboardingSource]:
             key=spec.key,
             label=spec.label,
             description=spec.description,
-            enabled=any(pair in enabled_pairs for pair in spec.pairs),
+            enabled=(
+                spec.enabled_check(team_id) if spec.enabled_check else any(pair in enabled_pairs for pair in spec.pairs)
+            ),
+            togglable=bool(spec.pairs),
         )
         for spec in _SOURCE_CATALOG
     ]
@@ -268,6 +323,10 @@ def set_sources(team_id: int, user_id: int | None, selected_keys: list[str]) -> 
     ai_approved = _ai_data_processing_approved(team_id)
     blocked: list[str] = []
     for spec in _SOURCE_CATALOG:
+        if not spec.pairs:
+            # Authorized elsewhere (Replay Vision, per scanner), so onboarding never offered it as a
+            # checkbox and has nothing to write here.
+            continue
         want_on = spec.key in selected
         if want_on and spec.needs_ai_approval and not ai_approved:
             # Wanted but AI-gated: leave the source as-is. Disabling here would silently turn off a
@@ -505,3 +564,39 @@ async def emit_signal(
             source_type=source_type,
             source_id=source_id,
         )
+
+
+def forward_report_discussion_note(
+    *,
+    team: Team,
+    report_id: str | None,
+    relationship: str | None,
+    text: str,
+    user_id: int | None,
+    scoped_team_ids: Sequence[int] | None,
+    api_scopes: Sequence[str] | None,
+) -> str | None:
+    """Forward an inbox "Discuss" question to the report's scout as a steering note.
+
+    Called by the tasks presentation layer once a discussion task exists, with the calling
+    credential's reach (`scoped_team_ids`, `api_scopes`) read off the request there — the note write
+    is gated on authorization the task creation itself doesn't require. Only a `discussion`
+    relationship forwards, so an implementation or research kickoff never leaves a note. Best-effort:
+    returns the note id, or None when nothing was forwarded.
+    """
+    from products.signals.backend.artefact_schemas import (  # noqa: PLC0415 — keeps the notes stack off this module's import path
+        TASK_RUN_TYPE_DISCUSSION,
+    )
+    from products.signals.backend.discussion_notes import forward_discussion_note  # noqa: PLC0415 — same
+
+    if relationship != TASK_RUN_TYPE_DISCUSSION or not report_id:
+        return None
+
+    return forward_discussion_note(
+        team=team,
+        report_id=report_id,
+        text=text,
+        user_id=user_id,
+        scoped_team_ids=scoped_team_ids,
+        api_scopes=api_scopes,
+    )

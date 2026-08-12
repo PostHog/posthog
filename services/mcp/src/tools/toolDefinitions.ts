@@ -4,6 +4,7 @@ import { hasScope, hasScopes } from '@/lib/api'
 import { OAUTH_SCOPES_SUPPORTED } from '@/lib/oauth-scopes.generated'
 import type { EvaluatedFlags } from '@/lib/posthog/flags'
 import { isStaffOnlyTool } from '@/lib/staff-only-tools'
+import { formatNotebookWidgetCatalogForAgents } from '@/tools/notebooks/widgetCatalog'
 
 import generatedToolDefinitionsJson from '../../schema/generated-tool-definitions.json'
 import toolDefinitionsJson from '../../schema/tool-definitions.json'
@@ -66,6 +67,26 @@ const toolDefinitionsSchema = z.record(z.string(), ToolDefinitionSchema)
 
 let _toolDefinitions: ToolDefinitions | undefined = undefined
 let _generatedToolDefinitions: ToolDefinitions | undefined = undefined
+let _mergedToolDefinitions: ToolDefinitions | undefined = undefined
+
+const NOTEBOOK_BUILDER_TOOL_NAMES = ['notebooks-create', 'notebooks-create-markdown', 'notebooks-add-cell'] as const
+
+function addNotebookWidgetCatalog(definitions: ToolDefinitions): ToolDefinitions {
+    const widgetCatalog = formatNotebookWidgetCatalogForAgents()
+    const enrichedDefinitions = { ...definitions }
+
+    for (const toolName of NOTEBOOK_BUILDER_TOOL_NAMES) {
+        const definition = enrichedDefinitions[toolName]
+        if (definition) {
+            enrichedDefinitions[toolName] = {
+                ...definition,
+                description: `${definition.description}\n\n${widgetCatalog}`,
+            }
+        }
+    }
+
+    return enrichedDefinitions
+}
 
 function getGeneratedToolDefinitions(): ToolDefinitions {
     if (!_generatedToolDefinitions) {
@@ -74,12 +95,17 @@ function getGeneratedToolDefinitions(): ToolDefinitions {
     return _generatedToolDefinitions
 }
 
+// Both sources are immutable module JSON, so the merge is memoised alongside them:
+// the analytics hot path calls this twice per tool call (category + description),
+// and rebuilding the whole record each time is pure waste.
 export function getToolDefinitions(): ToolDefinitions {
-    const generated = getGeneratedToolDefinitions()
-    if (!_toolDefinitions) {
-        _toolDefinitions = toolDefinitionsSchema.parse(toolDefinitionsJson)
+    if (!_mergedToolDefinitions) {
+        if (!_toolDefinitions) {
+            _toolDefinitions = toolDefinitionsSchema.parse(toolDefinitionsJson)
+        }
+        _mergedToolDefinitions = addNotebookWidgetCatalog({ ..._toolDefinitions, ...getGeneratedToolDefinitions() })
     }
-    return { ..._toolDefinitions, ...generated }
+    return _mergedToolDefinitions
 }
 
 let _advertisedOAuthScopes: readonly string[] | undefined = undefined
@@ -126,6 +152,23 @@ export function getToolDefinition(toolName: string): ToolDefinition {
  */
 export function getToolCategory(toolName: string): string | undefined {
     return getToolDefinitions()[toolName]?.category
+}
+
+/**
+ * Catalogued descriptions run to ~13 KB (the query tools embed full usage guides), which
+ * is too heavy to stamp on every analytics event. The first 512 characters carry the
+ * lead paragraph, which is the part that describes what the tool is for.
+ */
+export const MAX_CAPTURED_DESCRIPTION_LENGTH = 512
+
+/**
+ * The description a tool advertises to agents, clipped for analytics capture, or
+ * undefined for tools without a catalogued definition (e.g. the `exec` wrapper).
+ * Like {@link getToolCategory} this never throws, so it is safe to call from the
+ * analytics hot path where a missing definition must not break the request.
+ */
+export function getToolDescription(toolName: string): string | undefined {
+    return getToolDefinitions()[toolName]?.description?.slice(0, MAX_CAPTURED_DESCRIPTION_LENGTH)
 }
 
 export interface ToolFilterOptions {

@@ -339,7 +339,7 @@ const iconTypes: Record<FileSystemIconType, { icon: JSX.Element; iconColor?: Fil
     },
     llm_prompts: {
         icon: <IconLlmPromptManagement />,
-        iconColor: ['var(--color-product-llm-prompts-light)'],
+        iconColor: ['var(--color-product-llm-analytics-light)'],
     },
     llm_clusters: {
         icon: <IconScatter />,

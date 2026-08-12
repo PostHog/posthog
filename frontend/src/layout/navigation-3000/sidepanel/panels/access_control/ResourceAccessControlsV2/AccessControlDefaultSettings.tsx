@@ -10,11 +10,13 @@ import { AccessControlLevel, AvailableFeature } from '~/types'
 
 import { accessControlsLogic } from './accessControlsLogic'
 import { getLevelOptionsForResource } from './helpers'
+import { ObjectAccessRules } from './ObjectAccessRules'
+import { PropertyAccessRules } from './PropertyAccessRules'
 import { ScopeIcon } from './ScopeIcon'
 
 export function AccessControlDefaultSettings({ projectId }: { projectId: string }): JSX.Element {
     const logic = accessControlsLogic({ projectId })
-    const { defaults, resourceKeys, loading } = useValues(logic)
+    const { defaults, resourceKeys, loading, accessDetailPanelEnabled } = useValues(logic)
     const { updateAccessControlDefault, updateResourceAccessControls } = useActions(logic)
 
     const {
@@ -58,9 +60,9 @@ export function AccessControlDefaultSettings({ projectId }: { projectId: string 
                     loading={loading}
                     columns={[
                         {
-                            title: 'Feature',
+                            title: 'Tool',
                             key: 'label',
-                            render: function RenderFeature(_, resource) {
+                            render: function RenderTool(_, resource) {
                                 const tooltipText = getAccessControlTooltip(resource.key)
                                 return (
                                     <div className="font-medium flex items-center gap-2">
@@ -170,6 +172,26 @@ export function AccessControlDefaultSettings({ projectId }: { projectId: string 
                         },
                     ]}
                 />
+
+                {accessDetailPanelEnabled && (
+                    <>
+                        <ObjectAccessRules
+                            projectId={projectId}
+                            scopeType="default"
+                            subjectId="default"
+                            subjectNoun="project"
+                            canEdit={canEdit}
+                        />
+
+                        <PropertyAccessRules
+                            projectId={projectId}
+                            scopeType="default"
+                            subjectId="default"
+                            subjectNoun="project"
+                            canEdit={canEdit}
+                        />
+                    </>
+                )}
             </div>
         </PayGateMini>
     )

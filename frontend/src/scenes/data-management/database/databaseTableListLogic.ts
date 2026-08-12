@@ -55,6 +55,7 @@ export interface databaseTableListLogicValues {
     dataWarehouseTablesMap: Record<string, DatabaseSchemaDataWarehouseTable | DatabaseSchemaViewTable>
     dataWarehouseTablesMapById: Record<string, DatabaseSchemaDataWarehouseTable | DatabaseSchemaViewTable>
     database: Required<DatabaseSchemaQueryResponse> | null
+    databaseLoadError: string | null
     databaseLoading: boolean
     endpointTables: DatabaseSchemaEndpointTable[]
     externalDataSourceTables: DatabaseSchemaDataWarehouseTable[]
@@ -243,6 +244,16 @@ export const databaseTableListLogic = kea<databaseTableListLogicType>([
     })),
     reducers({
         searchTerm: ['', { setSearchTerm: (_, { searchTerm }) => searchTerm }],
+        // Without this the logic settles on `database: null, databaseLoading: false` after a failed
+        // load, which every consumer reads as "loaded, and the project has no tables".
+        databaseLoadError: [
+            null as string | null,
+            {
+                loadDatabase: () => null,
+                loadDatabaseSuccess: () => null,
+                loadDatabaseFailure: (_, { error }) => error || 'Unknown error',
+            },
+        ],
         connectionId: [
             null as string | null,
             { setConnection: (_, { connectionId }) => connectionId, resetConnectionScope: () => null },

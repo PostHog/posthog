@@ -59,6 +59,7 @@ function progress(overrides: Partial<InstallationProgress>): InstallationProgres
         isCurrent: true,
         pendingInput: null,
         startedBy: null,
+        handoffText: null,
         ...overrides,
     }
 }
@@ -182,7 +183,7 @@ export const Completed: Story = {
     },
 }
 
-// A finished local run: no PR to review, so the dashboard the wizard built is the footer payoff,
+// A finished local run: no PR to review, so the setup report the agent wrote is the footer payoff,
 // and the X reads as a real dismissal.
 export const CompletedLocal: Story = {
     args: {
@@ -195,10 +196,11 @@ export const CompletedLocal: Story = {
                 { id: 'b', label: 'Installed the PostHog SDK', status: 'completed', detail: null },
                 { id: 'c', label: 'Wired up event capture', status: 'completed', detail: null },
             ],
+            handoffText: '# PostHog setup report\n\nInstalled `posthog-js` and wired up event capture.',
         }),
-        dashboard: { id: 1, name: 'My app analytics' },
         dismissTooltip: 'Dismiss',
     },
+    argTypes: { onViewReport: { action: 'view-report' } },
 }
 
 // A run still nominally in flight that has gone quiet: the clock is replaced by the reason it stopped
@@ -239,7 +241,7 @@ export const AllStates: Story = {
             { label: 'Local, running', args: LocalRunning.args },
             { label: 'Local, started by a teammate', args: LocalRunningStartedByTeammate.args },
             { label: 'Completed', args: Completed.args },
-            { label: 'Completed, local (dashboard payoff)', args: CompletedLocal.args },
+            { label: 'Completed, local (report payoff)', args: CompletedLocal.args },
             { label: 'Stalled', args: Stalled.args },
             { label: 'Failed', args: Failed.args },
         ]
@@ -254,7 +256,7 @@ export const AllStates: Story = {
                             mode={args!.mode!}
                             stale={args!.stale}
                             startedByLabel={args!.startedByLabel}
-                            dashboard={args!.dashboard}
+                            onViewReport={() => {}}
                             onExpand={() => {}}
                             onDismiss={() => {}}
                         />

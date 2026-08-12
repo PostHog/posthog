@@ -321,6 +321,46 @@ class TestAccessControlGuard(BaseTest):
         assert f"notIn(toString(system__dashboard_tiles.dashboard_id), %({deny_key})s)" in sql
         assert "notIn(toString(system__dashboard_tiles.id)" not in sql
 
+    def test_account_custom_property_values_guard_filters_account_fk(self):
+        # The hidden EAV tables scope by a direct team guard, so the per-account deny set
+        # must be declared on the table itself (account_id FK) - without it a member denied
+        # an account could read its property values by selecting the hidden table directly.
+        from posthog.hogql.parser import parse_select
+
+        from posthog.constants import AvailableFeature
+
+        from ee.models import AccessControl
+
+        self.organization.available_product_features = [
+            {"key": AvailableFeature.ACCESS_CONTROL, "name": AvailableFeature.ACCESS_CONTROL},
+        ]
+        self.organization.save()
+
+        membership = OrganizationMembership.objects.get(user=self.user, organization=self.organization)
+        membership.level = OrganizationMembership.Level.MEMBER
+        membership.save()
+
+        AccessControl.objects.create(team=self.team, resource="account", resource_id="acct-42", access_level="none")
+
+        for table in ("_account_custom_property_values", "_account_custom_property_values_history"):
+            context = HogQLContext(
+                team_id=self.team.pk,
+                team=self.team,
+                user=self.user,
+                enable_select_queries=True,
+            )
+            prepared = prepare_ast_for_printing(
+                parse_select(f"SELECT id FROM system.{table}"),
+                context=context,
+                dialect="clickhouse",
+            )
+            assert prepared is not None
+            sql = print_prepared_ast(prepared, context=context, dialect="clickhouse")
+            deny_keys = [k for k in context.values if k.endswith("_sensitive") and isinstance(context.values[k], list)]
+            assert len(deny_keys) == 1, table
+            assert context.values[deny_keys[0]] == ["acct-42"], table
+            assert f"notIn(toString(system__{table}.account_id), %({deny_keys[0]})s)" in sql, table
+
 
 class TestDeniedTableError(BaseTest):
     """Test that denied tables show a helpful error message."""
@@ -508,6 +548,43 @@ class TestWarehouseTableAccessControl(BaseTest):
         assert str(self.denied_table.id) in database.user_access_control.blocked_resource_ids_by_scope.get(
             "warehouse_table", set()
         )
+
+    def test_source_denial_reaches_its_tables_but_not_self_managed(self):
+        # The gate resolves each table through RESOURCE_FALLBACK_MAP, so a rule about a source must
+        # deny the tables it syncs while leaving tables no source owns untouched. Pins the gate's
+        # resolution call: a per-table or umbrella test passes even if the gate stops consulting the
+        # source, this one doesn't.
+        from products.warehouse_sources.backend.facade.models import DataWarehouseTable, ExternalDataSource
+
+        source = ExternalDataSource.objects.create(
+            team=self.team,
+            source_id="src",
+            connection_id="conn",
+            destination_id="dest",
+            source_type="Stripe",
+            prefix="stripe_",
+        )
+        sourced_table = DataWarehouseTable.objects.create(
+            name="stripe_customers",
+            format=DataWarehouseTable.TableFormat.Parquet,
+            team=self.team,
+            credential=self.credential,
+            external_data_source=source,
+            url_pattern="s3://bucket/stripe/*",
+            columns={"id": "String"},
+        )
+        self._create_ac(
+            resource="external_data_source",
+            resource_id=str(source.id),
+            access_level="none",
+            member=self._membership(),
+        )
+
+        database = Database.create_for(team=self.team, user=self.user)
+
+        assert sourced_table.name in database._denied_tables
+        # allowed_table has no source, so no rule about sources may reach it.
+        assert "allowed_table" not in database._denied_tables
 
     def test_warehouse_objects_resource_none_denies_all_tables(self):
         self._create_ac(resource="warehouse_objects", access_level="none")

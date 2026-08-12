@@ -88,6 +88,10 @@ export type NotebookNodeSQLV2DirectRows = {
 export interface RunQueryOptions {
     nodeType?: 'hogql' | 'python'
     outputName?: string
+    // SQL cells only: the data source to run against instead of PostHog, and whether to send the
+    // code to it verbatim. Absent means PostHog's own ClickHouse.
+    connectionId?: string | null
+    sendRawQuery?: boolean
 }
 
 export interface NotebookNodeSQLV2LogicProps {
@@ -472,12 +476,13 @@ export const notebookNodeSQLV2Logic = kea<notebookNodeSQLV2LogicType>([
                     return
                 }
                 // Which lane will this run take? Mirrors the backend's routing: python always
-                // needs the kernel; SQL needs it only when it reads a local (python-made) frame.
+                // needs the kernel; SQL needs it only when it reads a local (python-made) frame,
+                // and never when it targets an external connection (the sandbox can't reach one).
                 // The backend stays authoritative — this only drives the kernel panel, never
                 // dispatch.
                 const isKernelLane =
                     opts.nodeType === 'python' ||
-                    extractDuckSqlTables(code).some((name) => refs[name]?.kind === 'local')
+                    (!opts.connectionId && extractDuckSqlTables(code).some((name) => refs[name]?.kind === 'local'))
                 if (isKernelLane) {
                     // The backend provisions the sandbox itself when none is running; open the
                     // kernel panel so the user can watch it come up instead of guessing.
@@ -498,6 +503,11 @@ export const notebookNodeSQLV2Logic = kea<notebookNodeSQLV2LogicType>([
                         refs,
                         node_type: opts.nodeType,
                         output_name: opts.outputName,
+                        // Omitted entirely for a PostHog cell — the backend's defaults say the same
+                        // thing, and every existing run body stays byte-identical.
+                        ...(opts.connectionId
+                            ? { connection_id: opts.connectionId, send_raw_query: !!opts.sendRawQuery }
+                            : {}),
                     })
                     // Mark this as the active run so a still-in-flight poll from a previous run
                     // can't overwrite this result or stop this run's poller once it resolves.
@@ -534,7 +544,7 @@ export const notebookNodeSQLV2Logic = kea<notebookNodeSQLV2LogicType>([
                 const opts: RunQueryOptions =
                     self.nodeType === NotebookNodeType.PythonV2
                         ? { nodeType: 'python', outputName: self.returnVariable }
-                        : {}
+                        : { connectionId: self.connectionId ?? null, sendRawQuery: !!self.sendRawQuery }
                 actions.runQuery(self.code ?? '', collectSqlV2Refs(content, props.nodeId), opts)
             },
             startPolling: ({ runId }) => {

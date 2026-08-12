@@ -3,6 +3,8 @@ from .account_channel_summary import AccountChannelSummary, SlackSummaryCadence
 from .announcement import Announcement
 from .announcement_delivery import AnnouncementDelivery
 from .custom_property_definition import (
+    CANONICAL_DISPLAY_TYPE_BY_NAME,
+    CANONICAL_LAST_SLACK_MESSAGE_AT,
     DATA_TYPE_BY_DISPLAY_TYPE,
     CustomPropertyDefinition,
     DataType,
@@ -15,10 +17,13 @@ from .custom_property_value import CustomPropertyValue
 from .customer_journey import CustomerJourney
 from .customer_profile_config import CustomerProfileConfig
 from .event_stream import EventStream, EventStreamMember
+from .meeting import Meeting, MeetingParticipant, MeetingResponseStatus, MeetingStatus
 from .relationship import AccountRelationship, AccountRelationshipDefinition
 from .team_customer_analytics_config import TeamCustomerAnalyticsConfig
 
 __all__ = [
+    "CANONICAL_DISPLAY_TYPE_BY_NAME",
+    "CANONICAL_LAST_SLACK_MESSAGE_AT",
     "DATA_TYPE_BY_DISPLAY_TYPE",
     "Account",
     "AccountChannelSummary",
@@ -36,6 +41,10 @@ __all__ = [
     "DisplayType",
     "EventStream",
     "EventStreamMember",
+    "Meeting",
+    "MeetingParticipant",
+    "MeetingResponseStatus",
+    "MeetingStatus",
     "RelationshipDefinition",
     "SlackSummaryCadence",
     "SyncStatus",
