@@ -1,4 +1,5 @@
 import io
+import socket
 
 from posthog.test.base import APIBaseTest
 from unittest.mock import patch
@@ -230,6 +231,30 @@ class TestCreateTableFromUpload(APIBaseTest):
         assert table.columns == FAKE_COLUMNS
         # No pipeline source is created — this is the whole point of the self-managed shape.
         assert ExternalDataSource.objects.count() == 0
+
+    def test_an_uploaded_table_cannot_be_repointed_at_another_location(self) -> None:
+        # An uploaded table carries no credential, so it is read with the ClickHouse node's own role
+        # rather than a key the team supplied. That only holds while PostHog owns the URL, so a hosted
+        # table must not be movable. The target below is an ordinary customer bucket that nothing else
+        # in the request would object to, so what this pins is the hosted-table rule itself.
+        upload_id = self._upload()
+        created = self._create(upload_id=upload_id, filename="orders.csv", file_format="csv", table_name="orders")
+        assert created.status_code == status.HTTP_201_CREATED, created.json()
+        table = DataWarehouseTable.objects.get(id=created.json()["id"])
+        original_url_pattern = table.url_pattern
+
+        with patch(
+            "products.warehouse_sources.backend.models.util.socket.getaddrinfo",
+            return_value=[(socket.AF_INET, socket.SOCK_STREAM, socket.IPPROTO_TCP, "", ("93.184.216.34", 0))],
+        ):
+            response = self.client.patch(
+                f"/api/environments/{self.team.pk}/warehouse_tables/{table.id}",
+                {"url_pattern": "https://acme-exports.s3.amazonaws.com/exports/*.csv"},
+            )
+
+        assert response.status_code == status.HTTP_400_BAD_REQUEST
+        table.refresh_from_db()
+        assert table.url_pattern == original_url_pattern
 
     @parameterized.expand(
         [

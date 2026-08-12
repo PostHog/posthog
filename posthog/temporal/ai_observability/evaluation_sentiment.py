@@ -90,10 +90,10 @@ async def execute_sentiment_eval_activity(
     if isinstance(properties, str):
         properties = json.loads(properties)
 
-    input_raw, _output_raw = extract_event_io(event_data["event"], properties)
+    io = extract_event_io(event_data["event"], properties)
     event_uuid = event_data["uuid"]
     trace_id = properties.get("$ai_trace_id", event_uuid)
-    user_messages = extract_sentiment_eval_messages(input_raw)
+    user_messages = extract_sentiment_eval_messages(io.input_raw)
     if not user_messages:
         return _skipped_sentiment_activity_result(
             "no_user_messages", "No user messages found; sentiment evaluation skipped."

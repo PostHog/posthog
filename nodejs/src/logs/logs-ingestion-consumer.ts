@@ -430,7 +430,7 @@ export class LogsIngestionConsumer {
           }
         | {
               outcome: 'all_dropped'
-              reason: 'sampling_all_dropped' | 'transformations_all_dropped'
+              reason: 'sampling_all_dropped' | 'transformations_all_dropped' | 'empty_batch'
               pii: PiiScrubStats
               recordsDropped: number
               recordsDroppedByRuleId: Map<string, number>
@@ -510,9 +510,17 @@ export class LogsIngestionConsumer {
         }
 
         if (value === null) {
+            // `droppedBy` tells us which filter emptied the batch; its absence means the batch decoded
+            // to zero records to begin with, so attribute it to an empty batch rather than sampling.
+            const reason =
+                drops.droppedBy === 'transformations'
+                    ? 'transformations_all_dropped'
+                    : drops.droppedBy === 'sampling'
+                      ? 'sampling_all_dropped'
+                      : 'empty_batch'
             return {
                 outcome: 'all_dropped',
-                reason: drops.droppedBy === 'transformations' ? 'transformations_all_dropped' : 'sampling_all_dropped',
+                reason,
                 pii,
                 recordsDropped: drops.recordsDropped,
                 recordsDroppedByRuleId: drops.recordsDroppedByRuleId,

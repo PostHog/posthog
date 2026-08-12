@@ -117,6 +117,9 @@ def update_task_run_status(input: UpdateTaskRunStatusInput) -> None:
     if input.status in [TaskRun.Status.COMPLETED, TaskRun.Status.FAILED] and old_status != input.status:
         _capture_terminal_analytics(task_run, input)
 
+    if input.timed_out_inactivity and old_status != input.status:
+        task_run.task.soft_delete_if_unclaimed_prewarm(task_run)
+
     # This activity is how workflow-driven runs (finish tool, failures, timeouts, cancellations)
     # reach a terminal status, so loop bookkeeping must hook in here, not only in the HTTP PATCH
     # path (facade.api.update_task_run). Guarded on the actual transition so repeats and the

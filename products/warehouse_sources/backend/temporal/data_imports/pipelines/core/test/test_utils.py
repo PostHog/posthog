@@ -31,6 +31,7 @@ from products.warehouse_sources.backend.temporal.data_imports.pipelines.core.arr
     normalize_table_column_names,
     observe_and_project_table,
     observed_schema_metadata_columns,
+    raise_on_nullability_drift,
     source_uses_delta_write_column_selection,
     table_from_py_list,
 )
@@ -870,6 +871,56 @@ def test_evolve_pyarrow_schema_time_columns_reconcile_to_stored_seconds(
 
     assert evolved_table.schema.field("redeem_time").type == pa.float64()
     assert evolved_table.column("redeem_time").to_pylist() == expected_values
+
+
+def test_raise_on_nullability_drift_null_in_non_nullable_column_raises():
+    """A batch with a null in a column the table declares non-nullable raises the reset signal,
+    because neither deltalite nor delta-rs can relax an existing column to nullable in place."""
+    pa_table = pa.table(
+        {
+            "id": pa.array([1, 2], type=pa.int64()),
+            "name": pa.array(["a", None], type=pa.string()),
+        }
+    )
+    delta_fields: list[pa.Field] = [
+        pa.field("id", pa.int64(), nullable=False),
+        pa.field("name", pa.string(), nullable=False),
+    ]
+    delta_schema = deltalake.Schema.from_arrow(pa.schema(delta_fields))
+
+    with pytest.raises(SchemaColumnTypeChangedException, match="now contains nulls"):
+        raise_on_nullability_drift(pa_table, delta_schema)
+
+
+@pytest.mark.parametrize(
+    "delta_fields, batch_columns",
+    [
+        # Null lands in a column the table already marks nullable — the writer accepts it.
+        (
+            [pa.field("id", pa.int64(), nullable=False), pa.field("name", pa.string(), nullable=True)],
+            {"id": pa.array([1, 2], type=pa.int64()), "name": pa.array(["a", None], type=pa.string())},
+        ),
+        # No nulls arrive in the non-nullable column — nothing drifts.
+        (
+            [pa.field("id", pa.int64(), nullable=False), pa.field("name", pa.string(), nullable=False)],
+            {"id": pa.array([1, 2], type=pa.int64()), "name": pa.array(["a", "b"], type=pa.string())},
+        ),
+        # The non-nullable column is absent from the batch — no null to check.
+        (
+            [pa.field("id", pa.int64(), nullable=False), pa.field("name", pa.string(), nullable=False)],
+            {"id": pa.array([1, 2], type=pa.int64())},
+        ),
+    ],
+)
+def test_raise_on_nullability_drift_permits_valid_batches(
+    delta_fields: list[pa.Field], batch_columns: dict[str, pa.Array]
+):
+    """No drift is raised when the null lands in a nullable column, when the non-nullable column
+    carries no nulls, or when it is absent from the batch entirely."""
+    pa_table = pa.table(batch_columns)
+    delta_schema = deltalake.Schema.from_arrow(pa.schema(delta_fields))
+
+    raise_on_nullability_drift(pa_table, delta_schema)
 
 
 def test_evolve_pyarrow_schema_with_struct_containing_datetime_and_decimal():
