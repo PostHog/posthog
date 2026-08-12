@@ -101,7 +101,6 @@ export type MlMirrorConfig = {
     SESSION_RECORDING_ML_IMAGE_FETCH_REQUESTS_PER_SECOND: number
     /** Tokens a domain holds while idle, so a site seen once an hour gets a short run rather than one request. */
     SESSION_RECORDING_ML_IMAGE_FETCH_BURST: number
-    /** Connections this pod opens to one domain at once. */
     SESSION_RECORDING_ML_IMAGE_FETCH_MAX_CONCURRENT_PER_DOMAIN: number
     /**
      * Domains this pod fetches from at once.
@@ -116,7 +115,8 @@ export type MlMirrorConfig = {
      *
      * A batch can hold more URLs for one domain than a polite rate carries in this time. What the
      * pass does not reach is left unrecorded, so the next session that refers to it offers it again.
-     * Well inside Kafka's max.poll.interval.ms of 300s, with the sighting round trips after it.
+     * The value sits well inside Kafka's max.poll.interval.ms of 300s, which the sighting round
+     * trips share.
      */
     SESSION_RECORDING_ML_IMAGE_FETCH_REQUEST_BUDGET_MS: number
     /** Refused before the body when the response declares more, and abandoned mid-body when it declares nothing. */
@@ -127,7 +127,7 @@ export type MlMirrorConfig = {
     /** Consecutive failures of one domain before this pod stops sending to it. */
     SESSION_RECORDING_ML_IMAGE_FETCH_BREAKER_FAILURES: number
     SESSION_RECORDING_ML_IMAGE_FETCH_BREAKER_COOLDOWN_MS: number
-    /** Caps the doubling cooldown, and caps how long a site's own `Retry-After` can hold a domain. */
+    /** The longest a domain stays blocked, whether the breaker or a site's own `Retry-After` blocked it. */
     SESSION_RECORDING_ML_IMAGE_FETCH_BREAKER_MAX_COOLDOWN_MS: number
     /** Held after a 429 or a 503 that named no period. */
     SESSION_RECORDING_ML_IMAGE_FETCH_DEFAULT_RETRY_AFTER_MS: number

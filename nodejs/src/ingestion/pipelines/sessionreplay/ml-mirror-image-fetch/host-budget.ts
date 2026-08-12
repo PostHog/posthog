@@ -1,5 +1,5 @@
 export interface HostBudgetOptions {
-    /** The ceiling for one registrable domain. A backoff can lower a domain below it, and nothing raises a domain above it. */
+    /** The ceiling for one registrable domain. Only a backoff moves a domain off it, and always downward. */
     requestsPerSecond: number
     /** Tokens a domain holds while idle, so a domain seen once an hour can send a few requests together. */
     burst: number

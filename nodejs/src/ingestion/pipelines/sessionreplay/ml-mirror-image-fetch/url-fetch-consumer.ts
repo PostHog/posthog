@@ -33,7 +33,7 @@ export class UrlFetchConsumer {
     constructor(
         private readonly sightings: SightingStore,
         private readonly options: UrlFetchConsumerOptions,
-        /** Absent in dry run. The dry run then has nothing to send with, rather than a flag checked at each URL. */
+        /** Absent in dry run, which is why the dry run sends nothing. No flag is read per URL. */
         private readonly runner?: FetchPass
     ) {
         // These arrive from env, where a typo parses to NaN. A NaN age limit makes every comparison
@@ -118,13 +118,7 @@ export class UrlFetchConsumer {
         ImageFetchConsumerMetrics.observeBatch(domains.size, Number(process.hrtime.bigint() - startedAt) / 1e9)
     }
 
-    /**
-     * Send the requests, and report which URLs this lane is finished with.
-     *
-     * A URL the budget never sent, or one lost to a timeout, is left out so no sighting is written
-     * for it. The next session that refers to it then offers it again. That is the only retry this
-     * lane has, because nothing here re-reads a Kafka offset.
-     */
+    /** Send the requests, and report the URLs this lane is finished with. Nothing here re-reads a Kafka offset, so the URLs it leaves out are retried only when a session refers to them again. */
     private async fetchAll(runner: FetchPass, candidates: FetchCandidate[]): Promise<FetchCandidate[]> {
         let attempts
         try {

@@ -94,9 +94,9 @@ export class IngestionSessionReplayMlImageFetchServer implements NodeServer {
     private async startServices(): Promise<void> {
         initializePrometheusLabels(this.config.INGESTION_PIPELINE, this.config.INGESTION_LANE)
 
-        // Before anything connects. The request path exists, but two pieces of the plan do not: this
-        // lane reads no robots.txt, and it produces nothing to the scrub topic. Sending requests
-        // without the first would be rude, and without the second would download images and drop them.
+        // Before anything connects. The request path exists, but this lane reads no robots.txt and
+        // produces nothing to the scrub topic, so fetching now would be rude and would throw the
+        // images away.
         const dryRun = this.config.SESSION_RECORDING_ML_IMAGE_FETCH_DRY_RUN
         if (!dryRun) {
             throw new Error(

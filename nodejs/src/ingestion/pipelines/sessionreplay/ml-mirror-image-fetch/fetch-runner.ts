@@ -32,7 +32,7 @@ export interface FetchRunnerOptions {
 }
 
 /**
- * An outcome that says what this URL is, rather than what this moment is.
+ * Outcomes that will not change if the same URL is tried again.
  *
  * Only these record a sighting. A URL shed by the budget, or lost to a timeout, is left unrecorded
  * so the next session that refers to it tries again. A sighting written for one of those would
@@ -73,13 +73,13 @@ export interface FetchPass {
 /**
  * Runs the fetches of one poll batch inside the per-domain budget.
  *
- * Domains run in parallel and are independent: one slow site delays only its own URLs. Inside a
- * domain the worker count is the connection limit and the token bucket is the rate, so a domain
- * receives from this pod exactly what an operator configured for it.
+ * Domains run in parallel, so one slow site delays only its own URLs. Inside a domain the worker
+ * count is the connection limit and the token bucket is the rate, so a domain receives from this
+ * pod exactly what an operator configured for it.
  *
  * The pass is bounded by wall time rather than by work. A batch can hold more URLs for one domain
- * than a polite rate carries in the time a Kafka batch may take. The lane then does less work. It
- * does not send faster.
+ * than a polite rate carries in the time a Kafka batch may take, and the lane answers that by
+ * fetching fewer of them.
  */
 export class FetchRunner implements FetchPass {
     constructor(
@@ -92,8 +92,7 @@ export class FetchRunner implements FetchPass {
         requirePositive('SESSION_RECORDING_ML_IMAGE_FETCH_MAX_IMAGE_BYTES', options.maxBytes)
         requirePositive('SESSION_RECORDING_ML_IMAGE_FETCH_REQUEST_TIMEOUT_MS', options.requestTimeoutMs)
         requirePositive('SESSION_RECORDING_ML_IMAGE_FETCH_DEFAULT_RETRY_AFTER_MS', options.defaultRetryAfterMs)
-        // The batch budget and the redirect limit may be zero: no fetch at all, and no redirect at
-        // all, are both meaningful settings. A NaN is not.
+        // Zero is meaningful for both of these, meaning no fetch at all and no redirect at all.
         if (!Number.isFinite(options.batchBudgetMs) || !Number.isFinite(options.maxRedirects)) {
             throw new Error('SESSION_RECORDING_ML_IMAGE_FETCH_REQUEST_BUDGET_MS and MAX_REDIRECTS must be numbers')
         }
@@ -128,8 +127,8 @@ export class FetchRunner implements FetchPass {
      * One line for the whole pass rather than one per URL.
      *
      * A batch can carry thousands of URLs, and a site that is down turns every one of them into a
-     * log line. The counts answer the same question, and the hosts name where to look. The host,
-     * never the URL: a URL is page content and belongs in no log.
+     * log line. The counts answer the same question, and the hosts say where to look. A URL is page
+     * content, so it appears in no log.
      */
     private logFailures(attempts: FetchAttempt[]): void {
         const byOutcome = new Map<AttemptOutcome, { count: number; hosts: Set<string> }>()
@@ -241,8 +240,8 @@ export class FetchRunner implements FetchPass {
         if (result.bytes) {
             ImageFetchRequestMetrics.observeBytes(result.bytes.length)
         }
-        // The bytes stop here. Nothing produces them yet, and a batch of them held for a consumer
-        // that does not exist is the largest memory this lane could hold.
+        // The bytes stop here. Nothing produces them yet, and holding a batch of them would be the
+        // largest memory this lane ever took.
         return { candidate, outcome: result.outcome }
     }
 
@@ -266,8 +265,8 @@ export class FetchRunner implements FetchPass {
             return
         }
         if (outcome === 'forbidden') {
-            // One 403 is a missing image. A run of them is an anti-bot rule, so they count toward
-            // the breaker without cutting the rate that a single missing image would not deserve.
+            // One 403 is a missing image, which is no reason to slow down. A run of them is an
+            // anti-bot rule, which the breaker has to catch.
             this.budget.recordRefusal(domain, nowMs)
         }
     }
@@ -276,15 +275,15 @@ export class FetchRunner implements FetchPass {
      * A redirect target spends a token from its own domain, so the rate a site receives counts the
      * hops that land on it as well as the URLs keyed to it.
      *
-     * The outcome of the whole chain is still recorded against the domain the URL was keyed by. A
-     * site that redirects every image to a CDN therefore opens its own breaker when that CDN fails.
-     * The rate limit, which is what protects the CDN, is applied to the CDN either way.
+     * The outcome of the whole chain is still recorded against the domain the URL was keyed by, so
+     * a site that redirects every image to a CDN opens its own breaker when that CDN fails. The CDN
+     * still gets the rate limit, which is the part that protects it.
      */
     private async authorizeRedirect(url: URL, deadlineMs: number): Promise<RedirectDecision> {
         const grant = this.budget.take(politenessKey(url.hostname), Date.now(), deadlineMs)
         if (!grant.granted) {
-            // Deferred rather than refused, so no sighting is written. All three refusal reasons
-            // say the target cannot be reached now, not that this URL is unreachable.
+            // Deferred rather than refused, so no sighting is written. Every refusal reason here
+            // is about this moment rather than about the URL.
             return 'defer'
         }
         if (grant.waitMs > 0) {
