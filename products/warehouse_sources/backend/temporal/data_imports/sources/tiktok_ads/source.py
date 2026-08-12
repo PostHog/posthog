@@ -42,8 +42,9 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.tiktok_ads
 from products.warehouse_sources.backend.temporal.data_imports.sources.tiktok_ads.utils import (
     TIKTOK_APP_TOKEN_MISMATCH_MESSAGE,
     TIKTOK_AUTH_ERROR_CODES,
+    TIKTOK_CREATIVE_PERMISSION_DENIED_FRAGMENTS,
+    TIKTOK_CREATIVE_PERMISSION_DENIED_MESSAGE,
     TIKTOK_NON_RETRYABLE_ERROR_PREFIX,
-    TIKTOK_PERMISSION_DENIED_FRAGMENT,
     TIKTOK_TRANSIENT_ERROR_CODES,
     TIKTOK_TRANSIENT_ERROR_MESSAGE,
     TikTokAdsAPIError,
@@ -76,14 +77,8 @@ class TikTokAdsSource(ResumableSource[TikTokAdsSourceConfig, TikTokAdsResumeConf
             # MUST stay above TIKTOK_NON_RETRYABLE_ERROR_PREFIX: a permission denial arrives as a
             # 40001 wrapped in that prefix, so it matches both keys. `external_data_job` collects
             # every match in dict order and then drops the lot if the *first* one is None, so the
-            # specific entry has to come first or this message is silently discarded.
-            TIKTOK_PERMISSION_DENIED_FRAGMENT: (
-                "TikTok denied access to your creative library: the authorized advertiser account has not "
-                "granted PostHog permission to read creative assets. This only affects the creative_videos "
-                "and creative_images tables, which have been disabled. Your campaign, ad and report tables "
-                "keep syncing. If your TikTok admin can grant creative asset access, reconnect the TikTok Ads "
-                "integration and grant it when TikTok asks. Otherwise leave these two tables unselected."
-            ),
+            # specific entries have to come first or this message is silently discarded.
+            **dict.fromkeys(TIKTOK_CREATIVE_PERMISSION_DENIED_FRAGMENTS, TIKTOK_CREATIVE_PERMISSION_DENIED_MESSAGE),
             # Other TikTok client errors not in the retryable code set (e.g. 40001 — the advertiser
             # doesn't exist or has been deleted). The paginator raises these with this exact
             # prefix; retrying cannot recover, so fail the job fast. The raw message is kept as

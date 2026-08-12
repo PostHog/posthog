@@ -125,6 +125,27 @@ class TestTikTokAdsSource:
         assert "creative_videos" in friendly[0]
         assert "creative_images" in friendly[0]
 
+    @parameterized.expand(
+        [
+            ("report", "advertiser does not grant you /report/integrated/get/:GET permission"),
+            ("campaign", "advertiser does not grant you /campaign/get/:GET permission"),
+        ]
+    )
+    def test_non_creative_permission_denied_keeps_raw_message(self, name, message):
+        """Every table in this source shares one paginator, so a denial on a non-creative endpoint
+        carries the same "does not grant you" wording. Answering it with the creative-library
+        message would tell a user whose report table just failed that report tables keep syncing."""
+        error_message = f"{TIKTOK_NON_RETRYABLE_ERROR_PREFIX} {message} (code: 40001)"
+
+        friendly = [
+            friendly_error
+            for pattern, friendly_error in self.source.get_non_retryable_errors().items()
+            if error_message_matches(error_message, [pattern])
+        ]
+
+        assert friendly, "permission denial matched no non-retryable pattern"
+        assert friendly[0] is None
+
     def test_advertiser_deleted_40001_still_has_no_friendly_message(self):
         """The creative-permission key must not over-match the other 40001 meaning: a deleted
         advertiser should still surface TikTok's raw message, which names the advertiser."""
