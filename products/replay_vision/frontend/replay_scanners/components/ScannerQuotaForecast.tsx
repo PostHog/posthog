@@ -205,8 +205,13 @@ export function ScannerQuotaForecast({ scannerId }: Props): JSX.Element | null {
                 </div>
             ) : scannerEstimate ? (
                 <div className="text-xs text-muted">
-                    Based on <strong>{scannerEstimate.matched_sessions_in_window.toLocaleString()}</strong> matching
-                    recordings in the last {scannerEstimate.window_days} days.
+                    Based on{' '}
+                    <strong>
+                        {scannerEstimate.sampled ? '~' : ''}
+                        {scannerEstimate.matched_sessions_in_window.toLocaleString()}
+                    </strong>{' '}
+                    matching recordings in the last {scannerEstimate.window_days} days
+                    {scannerEstimate.sampled ? ', estimated from a sample of your traffic' : ''}.
                 </div>
             ) : scannerEstimateError ? (
                 <div className="text-xs text-danger">Couldn't estimate cost: {scannerEstimateError}</div>

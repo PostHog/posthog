@@ -2699,6 +2699,7 @@ class TestReplayScannerEstimateAction(ClickhouseTestMixin, _VisionAPITestCase):
         body = resp.json()
         self.assertEqual(body["matched_sessions_in_window"], 3)
         self.assertEqual(body["window_days"], 7)
+        self.assertIs(body["sampled"], False)
         self.assertEqual(body["estimated_observations_per_month"], round(3 / 7 * 30))
         # Defaults to gemini-3-flash-preview (5 credits) when the request names no model.
         self.assertEqual(body["credits_per_observation"], 5)

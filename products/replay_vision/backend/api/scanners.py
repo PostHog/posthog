@@ -68,6 +68,11 @@ from products.replay_vision.backend.models.replay_scanner import (
     ScannerType,
 )
 from products.replay_vision.backend.queries import (
+<<<<<<< HEAD
+=======
+    ESTIMATE_INTERACTIVE_MAX_EXECUTION_SECONDS,
+    ESTIMATE_SCAN_WINDOW_DAYS,
+>>>>>>> f88f150d77d (fix(replay-vision): incorrect projection in estimates)
     ESTIMATE_STALE_AFTER,
     MIN_SAMPLING_RATE,
     PREVIEW_ESTIMATE_BUDGET,
@@ -875,8 +880,8 @@ class EstimateRequestSerializer(serializers.Serializer):
             required=False,
             help_text=(
                 "Proposed `RecordingsQuery` for the candidate filter. `date_from`/`date_to` are "
-                "ignored — the estimate always uses a fixed 30-day lookback. Omit to estimate "
-                "against all recordings."
+                "ignored — the estimate always scans its own recent window (`window_days` in the "
+                "response) and extrapolates. Omit to estimate against all recordings."
             ),
         )
     )
@@ -962,13 +967,20 @@ class EstimateResponseSerializer(serializers.Serializer):
 
     matched_sessions_in_window = serializers.IntegerField(
         help_text=(
-            "Distinct sessions matching the query within the 30-day lookback, after the sampling_mode quality "
-            "filter but before random sampling."
+            "Distinct sessions matching the query within the `window_days` lookback, after the sampling_mode "
+            "quality filter but before random sampling. Approximate when `sampled` is true."
         ),
     )
     window_days = serializers.IntegerField(
         help_text=(
-            "Lookback window the estimate is based on. Normally 30; smaller when the team has fewer days of recordings."
+            f"Lookback window the estimate scanned, extrapolated to 30 days for the monthly projection. "
+            f"Normally {ESTIMATE_SCAN_WINDOW_DAYS}; smaller when the team has fewer days of recordings."
+        ),
+    )
+    sampled = serializers.BooleanField(
+        help_text=(
+            "True when the exact session count timed out and `matched_sessions_in_window` was instead "
+            "extrapolated from a sample of users, making it approximate."
         ),
     )
     estimated_observations_per_month = serializers.IntegerField(
@@ -1646,6 +1658,7 @@ class ReplayScannerViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, vi
                 {
                     "matched_sessions_in_window": estimate.matched_sessions,
                     "window_days": estimate.effective_window_days,
+                    "sampled": estimate.sampled,
                     "estimated_observations_per_month": observations_per_month,
                     "credits_per_observation": credits_per_observation,
                     "estimated_credits_per_month": observations_per_month * credits_per_observation,
