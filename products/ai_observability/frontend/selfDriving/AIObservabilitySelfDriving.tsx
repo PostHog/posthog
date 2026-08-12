@@ -80,8 +80,8 @@ export function AIObservabilitySelfDriving(): JSX.Element {
     const { loadSelfDrivingEvaluationReports } = useActions(aiObservabilitySelfDrivingLogic)
 
     const aiObservabilityScouts = scoutConfigs?.filter(isAIObservabilityScout) ?? []
-    const reportFor = (evaluation: EvaluationConfig): EvaluationReportApi | undefined =>
-        evaluationReportsByEvaluationId?.[evaluation.id]
+    const reportFor = (evaluation: EvaluationConfig): EvaluationReportApi | null =>
+        evaluationReportsByEvaluationId?.[evaluation.id] ?? null
     const evaluationColumns: LemonTableColumns<EvaluationConfig> = [
         {
             title: 'Name',
