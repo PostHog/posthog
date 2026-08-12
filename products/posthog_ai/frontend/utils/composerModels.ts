@@ -111,7 +111,8 @@ export function resolveEffortForModel(
     model: string | null | undefined
 ): ReasoningEffortEnumApi {
     const allowed = getEffortsForModel(catalogue, model).map((option) => option.value)
-    // A model with no effort control at all (the catalogue reports an empty list) still needs a value to send.
+    // A model with no effort control reports none; the picker hides the row, and `buildRunCreateRequest`
+    // omits the field entirely. This value is only ever a display fallback.
     if (!allowed.length) {
         return DEFAULT_COMPOSER_EFFORT
     }
@@ -135,12 +136,16 @@ export function buildRunCreateRequest(
     permissionMode: PermissionMode,
     rest: Partial<TaskRunCreateRequestSchemaApi>
 ): TaskRunCreateRequestSchemaApi {
+    // A model with no effort control rejects any effort at all — `get_reasoning_effort_error` answers
+    // "Supported values: none" — so the field is left off rather than sent with a display fallback.
+    const effort = getEffortsForModel(catalogue, model).length ? reasoningEffort : undefined
+
     if (getRuntimeAdapterForModel(catalogue, model) === CodexRuntimeAdapterEnumApi.Codex) {
         return {
             ...rest,
             runtime_adapter: CodexRuntimeAdapterEnumApi.Codex,
             model,
-            reasoning_effort: reasoningEffort,
+            reasoning_effort: effort,
             initial_permission_mode: resolveModeForRuntimeAdapter(
                 CodexRuntimeAdapterEnumApi.Codex,
                 permissionMode
@@ -151,7 +156,7 @@ export function buildRunCreateRequest(
         ...rest,
         runtime_adapter: ClaudeRuntimeAdapterEnumApi.Claude,
         model,
-        reasoning_effort: reasoningEffort,
+        reasoning_effort: effort,
         initial_permission_mode: resolveModeForRuntimeAdapter(
             ClaudeRuntimeAdapterEnumApi.Claude,
             permissionMode

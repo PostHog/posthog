@@ -58,8 +58,14 @@ export const modelCatalogueLogic = kea<modelCatalogueLogicType>([
                     if (values.currentProjectId == null) {
                         return FALLBACK_MODEL_CHOICES
                     }
-                    const response = await tasksModelsRetrieve(String(values.currentProjectId))
-                    return response.models.length ? response.models : FALLBACK_MODEL_CHOICES
+                    try {
+                        const response = await tasksModelsRetrieve(String(values.currentProjectId))
+                        return response.models.length ? response.models : FALLBACK_MODEL_CHOICES
+                    } catch {
+                        // A failed request is the same story as an empty one: offer the fallback lineup
+                        // rather than leaving the composer with no models at all.
+                        return FALLBACK_MODEL_CHOICES
+                    }
                 },
             },
         ],

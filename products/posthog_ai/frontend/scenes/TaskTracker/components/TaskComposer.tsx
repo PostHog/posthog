@@ -13,7 +13,11 @@ import {
 } from 'products/posthog_ai/frontend/api/primitives'
 import { modelCatalogueLogic } from 'products/posthog_ai/frontend/logics/modelCatalogueLogic'
 import { getRuntimeAdapterForModel, resolveEffortForModel } from 'products/posthog_ai/frontend/utils/composerModels'
-import { cycleMode, getModesForRuntimeAdapter } from 'products/posthog_ai/frontend/utils/composerModes'
+import {
+    cycleMode,
+    getModesForRuntimeAdapter,
+    resolveModeForRuntimeAdapter,
+} from 'products/posthog_ai/frontend/utils/composerModes'
 
 import { AttachedContextBar } from '../../../components/composer/AttachedContextBar'
 import { ComposerModelEffortPickers } from '../../../components/composer/ComposerModelEffortPickers'
@@ -102,6 +106,13 @@ export function TaskComposer(): JSX.Element {
                                                     catalogue,
                                                     newTaskData.reasoningEffort,
                                                     model
+                                                ),
+                                                // Clamp the mode too, not just the effort: leaving a
+                                                // Claude-only mode selected against a Codex model would
+                                                // show one permission ceiling and send a broader one.
+                                                permissionMode: resolveModeForRuntimeAdapter(
+                                                    getRuntimeAdapterForModel(catalogue, model),
+                                                    newTaskData.permissionMode
                                                 ),
                                             })
                                         }

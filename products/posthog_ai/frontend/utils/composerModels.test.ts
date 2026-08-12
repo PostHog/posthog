@@ -1,4 +1,5 @@
 import {
+    ClaudeTaskRunCreateSchemaApi,
     CodexTaskRunCreateSchemaInitialPermissionModeEnumApi,
     InitialPermissionModeEnumApi,
     ModelChoiceApi,
@@ -60,6 +61,28 @@ describe('composerModels', () => {
         )
 
         expect(request).toMatchObject({ runtime_adapter: 'claude' })
+    })
+
+    // Some models take no reasoning effort at all, and the backend rejects any value for them
+    // ("Supported values: none"). The composer always holds an effort for display, so the request has to drop it.
+    it('omits the effort for a model that takes none', () => {
+        const request = buildRunCreateRequest(
+            [
+                ...CATALOGUE,
+                {
+                    runtime_adapter: 'claude',
+                    model: 'moonshotai/kimi-k3',
+                    display_name: 'Moonshotai Kimi K3',
+                    supported_efforts: [],
+                },
+            ],
+            'moonshotai/kimi-k3',
+            ReasoningEffortEnumApi.High,
+            InitialPermissionModeEnumApi.Plan as PermissionMode,
+            {}
+        )
+
+        expect((request as ClaudeTaskRunCreateSchemaApi).reasoning_effort).toBeUndefined()
     })
 
     // The picker groups by harness and offers one row per runtime, so both have to come off the catalogue rather
