@@ -47,6 +47,9 @@ const MARKDOWN_NOTEBOOK_NODE_ID = 'markdown-notebook-v2'
 
 export const NOTEBOOK_NODE_TYPE_TO_MARKDOWN_TAG: Partial<Record<NotebookNodeType, string>> = {
     [NotebookNodeType.Query]: 'Query',
+    [NotebookNodeType.Dashboard]: 'Dashboard',
+    [NotebookNodeType.Action]: 'Action',
+    [NotebookNodeType.Workflow]: 'Workflow',
     [NotebookNodeType.Python]: 'Python',
     [NotebookNodeType.PythonV2]: 'PythonV2',
     [NotebookNodeType.DuckSQL]: 'DuckSQL',
@@ -74,6 +77,7 @@ export const NOTEBOOK_NODE_TYPE_TO_MARKDOWN_TAG: Partial<Record<NotebookNodeType
     [NotebookNodeType.TaskCreate]: 'TaskCreate',
     [NotebookNodeType.LLMTrace]: 'LLMTrace',
     [NotebookNodeType.Issues]: 'Issues',
+    [NotebookNodeType.ErrorTrackingIssue]: 'ErrorTrackingIssue',
     [NotebookNodeType.UsageMetrics]: 'UsageMetrics',
     [NotebookNodeType.ZendeskTickets]: 'ZendeskTickets',
     [NotebookNodeType.RelatedGroups]: 'RelatedGroups',
@@ -664,6 +668,15 @@ function serializeRichContentNode(
 
     if (nodeType === 'query') {
         return serializeLegacyQueryNode(node)
+    }
+
+    if (nodeType === NotebookNodeType.Query && typeof node.attrs?.id === 'string' && node.attrs.id) {
+        return serializeNode({
+            id: '',
+            type: 'component',
+            tagName: 'Insight',
+            props: getSerializableAttrs(node.attrs),
+        })
     }
 
     if (nodeType === 'ph-link') {
