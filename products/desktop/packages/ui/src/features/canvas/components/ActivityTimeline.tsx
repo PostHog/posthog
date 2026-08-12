@@ -145,15 +145,19 @@ const NO_COMMENT_THREADS: TaskCommentThreadSummary[] = [];
 export function ActivityTimeline({
   task,
   timeline,
+  messages,
   conversationItems,
   commentThreads = NO_COMMENT_THREADS,
   commentsEnabled = false,
   currentUserId,
   canOpenInPlace,
-  runCount = 1,
 }: {
   task: Task;
+  /** The human-facing rows, which carry the artifact cards. */
   timeline: ThreadTimelineRow<TaskThreadMessage>[];
+  /** Every thread message. The event rows live among the agent-authored ones, which
+   *  `timeline` filters out, so they have to arrive separately. */
+  messages: TaskThreadMessage[];
   conversationItems: ConversationItem[];
   /** The task's comment threads, already collapsed one row per thread by the backend. */
   commentThreads?: TaskCommentThreadSummary[];
@@ -164,21 +168,11 @@ export function ActivityTimeline({
    *  pane. False in the channel-home sidebar, where there is nothing to drive —
    *  rows there stay inert and PRs open externally instead of dead-clicking. */
   canOpenInPlace?: boolean;
-  /** How many runs the task has; a single-run task shouldn't label its run. */
-  runCount?: number;
 }) {
   const requestCommentFocus = useCommentNavigationStore(
     (state) => state.requestCommentFocus,
   );
 
-  // Thread messages arrive as `timeline` rows (human messages and the artifact
-  // announcements it already understands) plus the raw messages behind them, which carry
-  // the event rows. Rebuilding the message list from `timeline` keeps this component's
-  // props unchanged while the merge itself moves into core.
-  const messages = useMemo(
-    () => timeline.map((row) => row.message),
-    [timeline],
-  );
   const messageRows = useMemo(() => {
     const byId = new Map<string, ThreadTimelineRow<TaskThreadMessage>>();
     for (const row of timeline) byId.set(row.message.id, row);
@@ -194,6 +188,10 @@ export function ActivityTimeline({
           updatedAt: task.updated_at,
           latestRunId: task.latest_run?.id ?? null,
           latestRunStatus: task.latest_run?.status ?? null,
+          latestRunPrUrl:
+            typeof task.latest_run?.output?.pr_url === "string"
+              ? task.latest_run.output.pr_url
+              : null,
         },
         messages,
         commentThreads: commentThreads.map((thread) => ({
@@ -224,6 +222,21 @@ export function ActivityTimeline({
         commentsEnabled,
       }),
     [task, messages, commentThreads, conversationItems, commentsEnabled],
+  );
+
+  // Numbering a run and deciding whether to number it at all have to come from the same
+  // population. Counting the task's runs instead would label the one row a task with three
+  // runs happens to have emitted as "run 1".
+  const runStartedCount = useMemo(
+    () =>
+      rows.reduce(
+        (count, row) =>
+          row.kind === "event" && row.event.kind === "run_started"
+            ? count + 1
+            : count,
+        0,
+      ),
+    [rows],
   );
 
   const threadsById = useMemo(() => {
@@ -257,16 +270,39 @@ export function ActivityTimeline({
     (state) => state.requestScrollToMessage,
   );
 
+  // Prompts are the transcript's turn boundaries, and every one of them is a top-level row
+  // there, so a jump to one always resolves. A row that isn't itself a prompt lands on the
+  // prompt whose turn it happened in.
+  const promptAnchors = useMemo(() => {
+    const anchors: { id: string; at: number }[] = [];
+    for (const item of conversationItems) {
+      if (item.type === "user_message") {
+        anchors.push({ id: item.id, at: item.timestamp });
+      }
+    }
+    return anchors.sort((first, second) => first.at - second.at);
+  }, [conversationItems]);
+
   /**
-   * The jump into the chat, offered only by a prompt row, which points at itself.
-   *
-   * Nothing else can point anywhere reliably: the transcript resolves a jump against its
-   * top-level rows, so a target nested inside a turn scrolls nowhere, and an event row is
-   * stamped by the API rather than by the session, so it has no transcript id to name.
+   * The jump into the chat. Absent when no transcript is mounted to answer it, and when the
+   * transcript holds no prompt to land on.
    */
-  const showInChat = (promptId: string) => {
-    if (!hasTranscript) return undefined;
-    return () => requestScrollToMessage(task.id, promptId);
+  const showInChat = (timestamp: string, promptId?: string) => {
+    if (!hasTranscript || promptAnchors.length === 0) return undefined;
+    let target = promptId;
+    if (!target) {
+      const at = Date.parse(timestamp);
+      // Before the first prompt, that prompt is still the nearest point in the chat.
+      target = promptAnchors[0].id;
+      if (!Number.isNaN(at)) {
+        for (const anchor of promptAnchors) {
+          if (anchor.at > at) break;
+          target = anchor.id;
+        }
+      }
+    }
+    const messageId = target;
+    return () => requestScrollToMessage(task.id, messageId);
   };
 
   const renderRow = (
@@ -282,6 +318,7 @@ export function ActivityTimeline({
             connectedBelow={connectedBelow}
             gutter={<PersonBead user={task.created_by} badge={CREATED_BADGE} />}
             timestamp={task.created_at}
+            onShowInChat={showInChat(task.created_at)}
           >
             {`${task.created_by ? userDisplayName(task.created_by) : "Someone"} created this task`}
           </TimelineRow>
@@ -295,7 +332,10 @@ export function ActivityTimeline({
             content={row.item.content}
             timestamp={new Date(row.item.timestamp).toISOString()}
             // A prompt is a transcript row, so it points at itself.
-            onShowInChat={showInChat(row.item.id)}
+            onShowInChat={showInChat(
+              new Date(row.item.timestamp).toISOString(),
+              row.item.id,
+            )}
           />
         );
       case "human_message":
@@ -306,6 +346,7 @@ export function ActivityTimeline({
             author={row.message.author}
             content={row.message.content}
             timestamp={row.message.created_at}
+            onShowInChat={showInChat(row.message.created_at)}
           />
         );
       case "event": {
@@ -318,7 +359,8 @@ export function ActivityTimeline({
             connectedBelow={connectedBelow}
             event={row.event}
             timestamp={row.message.created_at}
-            runCount={runCount}
+            onShowInChat={showInChat(row.message.created_at)}
+            runCount={runStartedCount}
             runOrdinal={row.runOrdinal}
             detail={
               artifactRow?.kind === "artifact" ? (
@@ -339,6 +381,7 @@ export function ActivityTimeline({
             connectedAbove={connectedAbove}
             connectedBelow={connectedBelow}
             thread={thread}
+            onShowInChat={showInChat(thread.last_activity_at)}
             isMentioned={
               !!currentUserId &&
               (thread.mentioned_user_ids ?? []).includes(currentUserId)
@@ -354,16 +397,45 @@ export function ActivityTimeline({
           <CommentStateRow
             thread={thread}
             state={row.state}
+            onShowInChat={showInChat(
+              thread.state_event?.created_at ?? thread.last_activity_at,
+            )}
             connectedAbove={connectedAbove}
             connectedBelow={connectedBelow}
           />
         );
       }
+      case "run_output_pr":
+        return (
+          <ActivityEventRow
+            connectedAbove={connectedAbove}
+            connectedBelow={connectedBelow}
+            event={{
+              kind: "pr_created",
+              payload: {
+                prUrl: row.prUrl,
+                repository: null,
+                prNumber: null,
+                actor: null,
+              },
+            }}
+            timestamp={task.updated_at}
+            onShowInChat={showInChat(task.updated_at)}
+            runCount={runStartedCount}
+            detail={
+              <ThreadArtifactCard
+                artifact={{ kind: "pr", url: row.prUrl }}
+                openInPlaceTaskId={canOpenInPlace ? task.id : undefined}
+              />
+            }
+          />
+        );
       case "run_status":
         return (
           <RunStatusRow
             status={row.status}
             timestamp={task.updated_at}
+            onShowInChat={showInChat(task.updated_at)}
             connectedAbove={connectedAbove}
             connectedBelow={connectedBelow}
           />

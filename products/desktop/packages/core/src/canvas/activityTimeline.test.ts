@@ -210,6 +210,70 @@ describe("activity timeline", () => {
     });
   });
 
+  it("shows a pull request recorded only on the run's output", () => {
+    // Tasks from before the announcements carry the PR nowhere else, and dropping the row
+    // hid the pull request from the panel entirely.
+    const rows = build({
+      taskOverrides: {
+        latestRunId: "run-1",
+        latestRunPrUrl: "https://github.com/PostHog/posthog/pull/81410",
+      },
+    });
+
+    expect(rows).toContainEqual(
+      expect.objectContaining({
+        kind: "run_output_pr",
+        prUrl: "https://github.com/PostHog/posthog/pull/81410",
+      }),
+    );
+  });
+
+  it("leaves the run's output alone once the thread announced the pull request", () => {
+    const rows = build({
+      messages: [
+        eventMessage(
+          "m1",
+          "pr_created",
+          { pr_url: "https://github.com/PostHog/posthog/pull/81410" },
+          "2026-08-01T11:00:00Z",
+        ),
+      ],
+      taskOverrides: {
+        latestRunId: "run-1",
+        latestRunPrUrl: "https://github.com/PostHog/posthog/pull/81410",
+      },
+    });
+
+    expect(rows.filter((row) => row.kind === "run_output_pr")).toHaveLength(0);
+  });
+
+  it("keeps every ask for input a run makes, not just the first", () => {
+    // The dedupe guard exists for two paths reporting one occurrence. A run that asks
+    // twice is two occurrences, and collapsing them hides the second ask.
+    const rows = build({
+      messages: [
+        eventMessage(
+          "m1",
+          "awaiting_input",
+          { run_id: "run-1" },
+          "2026-08-01T11:00:00Z",
+        ),
+        eventMessage(
+          "m2",
+          "awaiting_input",
+          { run_id: "run-1" },
+          "2026-08-01T12:00:00Z",
+        ),
+      ],
+    });
+
+    expect(
+      rows.filter(
+        (row) => row.kind === "event" && row.event.kind === "awaiting_input",
+      ),
+    ).toHaveLength(2);
+  });
+
   it("prefers the failure event over the derived ending", () => {
     // The event carries the reason, which is the whole point of having it.
     const rows = build({

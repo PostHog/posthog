@@ -30,6 +30,9 @@ export interface ActivityTaskLike {
   updatedAt: string;
   latestRunId?: string | null;
   latestRunStatus?: string | null;
+  /** A pull request recorded on the run's output rather than announced in the thread.
+   *  Tasks from before the announcements have it only here. */
+  latestRunPrUrl?: string | null;
 }
 
 /** A prompt the task's author sent the agent, from the live session's own event stream.
@@ -65,7 +68,8 @@ export type ActivityRow<
       thread: TComment;
       state: string;
     }
-  | { kind: "run_status"; key: string; ts: number; status: string };
+  | { kind: "run_status"; key: string; ts: number; status: string }
+  | { kind: "run_output_pr"; key: string; ts: number; prUrl: string };
 
 /** Rows in the same second still need a stable order, so each kind carries a rank.
  *  Ordering by rank rather than nudging timestamps (the old `updatedTs + 1`) keeps two
@@ -77,6 +81,7 @@ const KIND_RANK: Record<ActivityRow["kind"], number> = {
   user_message: 1,
   comment: 1,
   comment_state: 2,
+  run_output_pr: 2,
   run_status: 3,
 };
 
@@ -116,6 +121,7 @@ export function buildActivityTimeline<
   // identity covers rows written before the key existed.
   const seenEvents = new Set<string>();
   let hasTerminalEvent = false;
+  let hasPrEvent = false;
   let runStartedSeen = 0;
 
   for (const message of messages) {
@@ -131,11 +137,18 @@ export function buildActivityTimeline<
       }
       continue;
     }
-    const identity = `${event.kind}:${eventIdentity(event)}`;
+    const identity = `${event.kind}:${eventIdentity(event, message)}`;
     if (seenEvents.has(identity)) continue;
     seenEvents.add(identity);
     if (event.kind === "run_failed") hasTerminalEvent = true;
     if (event.kind === "run_started") runStartedSeen += 1;
+    if (
+      event.kind === "pr_created" ||
+      event.kind === "pr_merged" ||
+      event.kind === "pr_closed"
+    ) {
+      hasPrEvent = true;
+    }
     rows.push({
       kind: "event",
       key: `event-${message.id}`,
@@ -177,6 +190,17 @@ export function buildActivityTimeline<
     }
   }
 
+  // A run that recorded its pull request only in its output still gets a row, so a task
+  // whose PR was never announced in the thread doesn't hide it entirely.
+  if (task.latestRunPrUrl && !hasPrEvent) {
+    rows.push({
+      kind: "run_output_pr",
+      key: `run-output-pr-${task.latestRunId ?? "latest"}`,
+      ts: timestamp(task.updatedAt) || timestamp(task.createdAt),
+      prUrl: task.latestRunPrUrl,
+    });
+  }
+
   // Fallback for tasks whose runs predate the event rows: derive the ending from the task.
   const status = task.latestRunStatus ?? null;
   if (status && isTerminalRunStatus(status) && !hasTerminalEvent) {
@@ -203,12 +227,18 @@ function isTerminalRunStatus(status: string): boolean {
 }
 
 /** What makes an event unique in the world, for the dedupe guard above. */
-function eventIdentity(event: ActivityEvent): string {
+function eventIdentity(
+  event: ActivityEvent,
+  message: ThreadMessageLike,
+): string {
   switch (event.kind) {
     case "run_started":
     case "run_failed":
-    case "awaiting_input":
       return event.payload.runId;
+    // A run can ask for input more than once, and each ask is its own row. Only the kinds
+    // two paths can both report need an identity that ignores which message carried them.
+    case "awaiting_input":
+      return `${event.payload.runId}:${message.created_at}`;
     case "commits_pushed":
       // The head SHA identifies the push, the way the backend keys it.
       return event.payload.commits.at(-1)?.sha ?? event.payload.runId;

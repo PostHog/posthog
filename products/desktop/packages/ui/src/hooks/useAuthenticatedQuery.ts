@@ -23,7 +23,7 @@ export function useAuthenticatedQuery<
   >,
 ): UseQueryResult<TData, TError> {
   const client = useOptionalAuthenticatedClient();
-  const { meta, enabled, ...restOptions } = options ?? {};
+  const { meta, ...restOptions } = options ?? {};
 
   return useQuery({
     queryKey,
@@ -31,17 +31,13 @@ export function useAuthenticatedQuery<
       if (!client) throw new Error("Not authenticated");
       return await queryFn(client);
     },
-    ...restOptions,
-    // After the caller's options, so a caller passing its own `enabled` can't drop the
-    // client gate. Without it the query fires before the client exists, throws
-    // "Not authenticated", and sits out its retry backoffs before it can succeed.
     enabled:
-      typeof enabled === "function"
-        ? (query) => !!client && enabled(query)
-        : !!client && (enabled ?? true),
+      !!client &&
+      (restOptions.enabled !== undefined ? restOptions.enabled : true),
     meta: {
       ...AUTH_SCOPED_QUERY_META,
       ...meta,
     },
+    ...restOptions,
   });
 }

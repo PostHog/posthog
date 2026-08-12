@@ -17,7 +17,6 @@ import {
   ThreadLoadingState,
 } from "@posthog/ui/features/canvas/components/ThreadPanel";
 import { useTaskCommentActivity } from "@posthog/ui/features/canvas/hooks/useTaskCommentActivity";
-import { useTaskRuns } from "@posthog/ui/features/canvas/hooks/useTaskRuns";
 import { useTaskThread } from "@posthog/ui/features/canvas/hooks/useTaskThread";
 import { useThreadConversation } from "@posthog/ui/features/canvas/hooks/useThreadConversation";
 import { useCommentNavigationStore } from "@posthog/ui/features/sessions/commentNavigationStore";
@@ -129,6 +128,7 @@ function ActivityConversation({
   const taskId = task.id;
   const {
     timeline,
+    messages,
     agentStatus,
     events,
     isPromptPending,
@@ -166,7 +166,6 @@ function ActivityConversation({
   useEffect(() => {
     if (hasLoadedThread && hasLoadedComments) hasDrawnTimeline.current = true;
   }, [hasLoadedThread, hasLoadedComments]);
-  const { runs } = useTaskRuns(taskId);
 
   const conversationItems = useMemo(
     () =>
@@ -267,10 +266,10 @@ function ActivityConversation({
       <ActivityTimeline
         task={task}
         timeline={timeline}
+        messages={messages}
         conversationItems={conversationItems}
         commentThreads={commentThreads}
         commentsEnabled={commentsEnabled}
-        runCount={runs.length}
         currentUserId={currentUser?.id}
         canOpenInPlace={canOpenInPlace}
       />

@@ -1,5 +1,6 @@
-import type { Task } from "@posthog/shared/domain-types";
-import { fireEvent, render, screen } from "@testing-library/react";
+import { buildThreadTimeline } from "@posthog/core/canvas/threadTimeline";
+import type { Task, TaskThreadMessage } from "@posthog/shared/domain-types";
+import { fireEvent, render, screen, within } from "@testing-library/react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
 vi.mock("@posthog/ui/features/git-interaction/usePrDetails", () => ({
@@ -41,6 +42,7 @@ function renderTimeline(canOpenInPlace?: boolean, items = conversationItems) {
     <ActivityTimeline
       task={task}
       timeline={[]}
+      messages={[]}
       // biome-ignore lint/suspicious/noExplicitAny: narrow fixture for the rows under test
       conversationItems={items as any}
       canOpenInPlace={canOpenInPlace}
@@ -156,18 +158,15 @@ describe("ActivityTimeline events and comments", () => {
     id: string,
     event: string,
     payload: Record<string, unknown>,
+    createdAt = "2026-07-17T09:20:00Z",
   ) => ({
-    kind: "human" as const,
-    timestamp: Date.parse("2026-07-17T09:20:00Z"),
-    message: {
-      id,
-      task: "task-1",
-      content: "",
-      created_at: "2026-07-17T09:20:00Z",
-      author_kind: "agent" as const,
-      event,
-      payload,
-    },
+    id,
+    task: "task-1",
+    content: "",
+    created_at: createdAt,
+    author_kind: "agent" as const,
+    event,
+    payload,
   });
 
   const commentThread = (overrides = {}) => ({
@@ -191,11 +190,18 @@ describe("ActivityTimeline events and comments", () => {
     ...overrides,
   });
 
-  function renderRows(props: Record<string, unknown>) {
+  // `timeline` is derived the way the panel derives it, so a fixture can't hand the
+  // component a row shape `buildThreadTimeline` would never emit. Event rows only render
+  // if they survive that filter on their way in.
+  function renderRows({
+    messages = [],
+    ...props
+  }: Record<string, unknown> & { messages?: TaskThreadMessage[] }) {
     return render(
       <ActivityTimeline
         task={task}
-        timeline={[]}
+        timeline={buildThreadTimeline(messages)}
+        messages={messages}
         conversationItems={[]}
         // biome-ignore lint/suspicious/noExplicitAny: narrow fixture for the rows under test
         {...(props as any)}
@@ -206,7 +212,7 @@ describe("ActivityTimeline events and comments", () => {
   it("keeps the failure reason one click away, not on the row", () => {
     // Rows are collapsed so the panel reads as a timeline; the detail is what opening is for.
     renderRows({
-      timeline: [
+      messages: [
         threadMessage("m1", "run_failed", {
           run_id: "run-1",
           error_summary: "Command failed: pnpm build",
@@ -220,7 +226,7 @@ describe("ActivityTimeline events and comments", () => {
     expect(screen.getByText(/Command failed: pnpm build/)).toBeInTheDocument();
   });
 
-  it("labels the run only once a task has run more than once", () => {
+  it("numbers a run only once the feed shows more than one", () => {
     const first = threadMessage("m1", "run_started", {
       run_id: "run-1",
       environment: "cloud",
@@ -228,11 +234,11 @@ describe("ActivityTimeline events and comments", () => {
     });
     const second = threadMessage("m2", "run_started", { run_id: "run-2" });
 
-    const single = renderRows({ timeline: [first], runCount: 1 });
+    const single = renderRows({ messages: [first] });
     expect(screen.getByText(/Agent started work/)).toBeInTheDocument();
     single.unmount();
 
-    renderRows({ timeline: [first, second], runCount: 2 });
+    renderRows({ messages: [first, second] });
     expect(screen.getByText(/Agent started run 2/)).toBeInTheDocument();
   });
 
@@ -308,29 +314,41 @@ describe("ActivityTimeline chat jump", () => {
     renderTimeline(true);
 
     fireEvent.click(screen.getByRole("button", { name: /second thing/ }));
-    fireEvent.click(screen.getByRole("button", { name: "Show in chat" }));
+    const row = screen
+      .getByRole("button", { name: /second thing/ })
+      .closest(".group") as HTMLElement;
+    fireEvent.click(within(row).getByRole("button", { name: "Show in chat" }));
 
     expect(useThreadNavigationStore.getState().scrollRequests["task-1"]).toBe(
       "turn-2-2-user",
     );
   });
 
-  it("offers the jump only from rows the chat actually contains", () => {
-    // The transcript resolves a jump against its top-level rows, so only a prompt has a
-    // target that can be scrolled to. A row the chat doesn't contain stays inert.
+  it("lands a row with no prompt of its own on the turn it happened in", () => {
+    // The task was created before either prompt, so the earliest one is the nearest point
+    // in the chat: the jump has to resolve to a prompt, which is what the transcript can
+    // scroll to.
     useThreadNavigationStore.getState().registerTranscript("task-1");
     renderTimeline(true);
+
+    fireEvent.click(screen.getByRole("button", { name: /created this task/ }));
+    fireEvent.click(screen.getByRole("button", { name: "Show in chat" }));
+
+    expect(useThreadNavigationStore.getState().scrollRequests["task-1"]).toBe(
+      "turn-1-1-user",
+    );
+  });
+
+  it("offers no jump when the chat holds no prompt to land on", () => {
+    // Nothing in the transcript can be scrolled to, so the row stays inert rather than
+    // growing a button that goes nowhere.
+    useThreadNavigationStore.getState().registerTranscript("task-1");
+    renderTimeline(true, []);
 
     expect(
       screen.queryByRole("button", { name: /created this task/ }),
     ).toBeNull();
-
-    for (const prompt of ["first thing", "second thing"]) {
-      fireEvent.click(screen.getByRole("button", { name: new RegExp(prompt) }));
-    }
-    expect(
-      screen.getAllByRole("button", { name: "Show in chat" }),
-    ).toHaveLength(2);
+    expect(screen.queryByRole("button", { name: "Show in chat" })).toBeNull();
   });
 
   it("offers no jump when no transcript is mounted to answer it", () => {
@@ -369,16 +387,12 @@ describe("ActivityTimeline connectors", () => {
 
 describe("ActivityTimeline thread replies", () => {
   const reply = {
-    kind: "human" as const,
-    timestamp: Date.parse("2026-07-17T09:30:00Z"),
-    message: {
-      id: "reply-1",
-      task: "task-1",
-      author: { id: 7, uuid: "u2", first_name: "Ben", last_name: "White" },
-      author_kind: "human" as const,
-      content: "@[Shy Alter](shy@example.com) you seeing this?\nsecond line",
-      created_at: "2026-07-17T09:30:00Z",
-    },
+    id: "reply-1",
+    task: "task-1",
+    author: { id: 7, uuid: "u2", first_name: "Ben", last_name: "White" },
+    author_kind: "human" as const,
+    content: "@[Shy Alter](shy@example.com) you seeing this?\nsecond line",
+    created_at: "2026-07-17T09:30:00Z",
   };
 
   it("collapses a legacy thread reply like every other row", () => {
@@ -388,7 +402,9 @@ describe("ActivityTimeline thread replies", () => {
       <ActivityTimeline
         task={task}
         // biome-ignore lint/suspicious/noExplicitAny: narrow fixture for the row under test
-        timeline={[reply] as any}
+        timeline={buildThreadTimeline([reply] as any)}
+        // biome-ignore lint/suspicious/noExplicitAny: narrow fixture for the row under test
+        messages={[reply] as any}
         conversationItems={[]}
       />,
     );

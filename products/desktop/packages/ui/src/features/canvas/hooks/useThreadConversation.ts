@@ -36,6 +36,9 @@ type SessionEvents = ReturnType<typeof useSessionViewState>["events"];
 
 export interface ThreadConversation {
   timeline: ThreadTimelineRow<TaskThreadMessage>[];
+  /** Every thread message, unfiltered. `timeline` is the human-facing subset, so a surface
+   *  that draws agent and system rows has to start here instead. */
+  messages: TaskThreadMessage[];
   agentStatus: ThreadAgentStatus | null;
   events: SessionEvents;
   isPromptPending: boolean;
@@ -201,6 +204,7 @@ export function useThreadConversation(
 
   return {
     timeline,
+    messages,
     agentStatus,
     events,
     isPromptPending,
