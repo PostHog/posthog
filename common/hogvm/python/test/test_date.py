@@ -11,7 +11,7 @@ from common.hogvm.python.stl.date import date_string_to_seconds, toDate, toDateT
 # The shared date-like grammar. The canonical spec lives above `parse_datetime_to_seconds` in
 # `rust/common/hogvm/src/stl.rs`; the same table is driven by `rust/common/hogvm/tests/datetime.rs`
 # and `common/hogvm/typescript/src/__tests__/date.test.ts`. All three must agree — before this was
-# pinned, only 4 of these 34 inputs produced the same answer in all three VMs.
+# pinned, only 4 of the original 34 of these inputs produced the same answer in all three VMs.
 ACCEPTED = [
     ("2024-01-01", 1704067200),
     ("2024-01-01T00:00:00Z", 1704067200),
@@ -50,6 +50,10 @@ REJECTED = [
     "0000-01-01",  # valid to chrono and luxon, not to Python datetime
     "2024-01-01T25:00:00Z",  # out-of-range hour
     "2024-01-01T00:60:00Z",  # out-of-range minute
+    "٢٠٢٤-٠١-٠١",  # Unicode digits. \d matches them in the Python/Rust regex engines (never in JS),
+    # and int() parses them, so this was a valid instant here and rejected by the other two VMs...
+    "2024-01-01T00:00+0١",  # ...and these two byte-sliced mid-codepoint in Rust — a panic, not an error
+    "2024-01-01T00:00:00.١٢Z",
 ]
 
 

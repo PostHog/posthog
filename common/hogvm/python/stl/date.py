@@ -79,12 +79,15 @@ def toTimeZone(date: dict, timezone: str):
     }
 
 
+# [0-9] and never \d: Python's re treats \d as any Unicode decimal digit, which int() then happily
+# parses — so e.g. an all-Arabic-Indic-digit date was a valid instant here and rejected by the
+# other two VMs. See the canonical grammar in the Rust STL.
 DATE_LIKE = re.compile(
-    r"""^(\d{4})-(\d{2})-(\d{2})
+    r"""^([0-9]{4})-([0-9]{2})-([0-9]{2})
         (?:
-            [Tt\ ]([01]\d|2[0-3]):([0-5]\d)
-            (?::([0-5]\d)(?:[.,](\d{1,9}))?)?
-            (Z|z|[+-](?:[01]\d|2[0-3])(?::?[0-5]\d)?)?
+            [Tt\ ]([01][0-9]|2[0-3]):([0-5][0-9])
+            (?::([0-5][0-9])(?:[.,]([0-9]{1,9}))?)?
+            (Z|z|[+-](?:[01][0-9]|2[0-3])(?::?[0-5][0-9])?)?
         )?\Z""",
     re.VERBOSE,
 )
@@ -131,10 +134,12 @@ def _parse_date_like(input: str, timezone: Optional[str] = None) -> Optional[dat
         )
     except ValueError:
         # Out-of-range calendar date (2024-02-30) or year 0. The tz construction is inside the `try`
-        # deliberately: an unknown zone name, or an offset the regex admits but `datetime.timezone`
-        # rejects, must return None like any other parse failure — this function is called from
-        # `unify_comparison_types` on every comparison opcode, where a bare ValueError would escape
-        # the VM entirely rather than leaving the operands uncoerced.
+        # deliberately: an offset the regex admits but `datetime.timezone` rejects must return None
+        # like any other parse failure — this function is called from `unify_comparison_types` on
+        # every comparison opcode, where a bare ValueError would escape the VM entirely rather than
+        # leaving the operands uncoerced. (An unknown zone *name* still raises — pytz's
+        # UnknownTimeZoneError is a KeyError — matching the natives' pre-existing behavior; only
+        # they pass a zone, never the comparison path.)
         return None
     # `localize` rather than `tzinfo=` — pytz zones carry a historical LMT offset that only
     # `localize` resolves to the right one for the date in question. `is_dst=True` picks the first

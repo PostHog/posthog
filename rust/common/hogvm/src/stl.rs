@@ -1633,6 +1633,11 @@ fn to_date(vm: &HogVM, args: Vec<HogValue>) -> Result<HogValue, VmError> {
 /// but not to `datetime`. A fraction is tied to seconds for the same reason — luxon rejects
 /// `HH:MM.sss` where the other two accepted it.
 ///
+/// DIGIT means ASCII `[0-9]`, spelled explicitly and never as `\d`: the Rust and Python regex
+/// engines treat `\d` as any Unicode decimal digit (JS's does not), which let Arabic-Indic digits
+/// match fields this parser then byte-slices — a panic on a char boundary — and parse as real
+/// values through Python's `int()`, another three-way divergence.
+///
 /// Deliberately rejected everywhere: bare numeric strings, partial dates (`2024`, `2024-01`), the
 /// compact basic format (`20240101`), ISO week (`2024-W05`) and ordinal (`2024-001`) dates, and
 /// time-only strings. Each of the three VMs used to accept some subset of these — only 4 of 13
@@ -1648,11 +1653,11 @@ fn to_date(vm: &HogVM, args: Vec<HogValue>) -> Result<HogValue, VmError> {
 static DATE_LIKE: Lazy<Regex> = Lazy::new(|| {
     Regex::new(
         r"(?x)
-        ^(\d{4})-(\d{2})-(\d{2})
+        ^([0-9]{4})-([0-9]{2})-([0-9]{2})
         (?:
-            [Tt\x20]([01]\d|2[0-3]):([0-5]\d)
-            (?::([0-5]\d)(?:[.,](\d{1,9}))?)?
-            (Z|z|[+-](?:[01]\d|2[0-3])(?::?[0-5]\d)?)?
+            [Tt\x20]([01][0-9]|2[0-3]):([0-5][0-9])
+            (?::([0-5][0-9])(?:[.,]([0-9]{1,9}))?)?
+            (Z|z|[+-](?:[01][0-9]|2[0-3])(?::?[0-5][0-9])?)?
         )?$",
     )
     .expect("date-like grammar is a valid regex")
@@ -1684,9 +1689,11 @@ pub(crate) fn parse_datetime_to_seconds(input: &str, zone: Option<&str>) -> Resu
     // Sub-millisecond digits are truncated, not rounded: the Node HogVM is the ingestion shadow
     // baseline and luxon parses to milliseconds, so keeping microseconds surfaced as a
     // `result_mismatch`. See `datetime_to_seconds`.
+    // char-wise truncation, not a byte slice: the regex guarantees ASCII, but a byte slice here
+    // panics on a char boundary the moment that guarantee slips.
     let millis = caps
         .get(7)
-        .map(|m| format!("{:0<3}", &m.as_str()[..m.as_str().len().min(3)]))
+        .map(|m| format!("{:0<3}", m.as_str().chars().take(3).collect::<String>()))
         .map_or(Ok(0), |s| s.parse::<u32>())
         .map_err(|_| unparseable())?;
     let naive = date
@@ -1704,7 +1711,13 @@ pub(crate) fn parse_datetime_to_seconds(input: &str, zone: Option<&str>) -> Resu
         Some(offset) => {
             let sign = if offset.starts_with('-') { -1 } else { 1 };
             let digits: String = offset[1..].chars().filter(char::is_ascii_digit).collect();
-            let hours: i32 = digits[..2].parse().map_err(|_| unparseable())?;
+            // `.get`, not an unchecked slice: a non-ASCII digit sneaking past the regex would
+            // shrink `digits` below 2 and an unchecked `[..2]` panics out of the VM.
+            let hours: i32 = digits
+                .get(..2)
+                .ok_or_else(unparseable)?
+                .parse()
+                .map_err(|_| unparseable())?;
             let minutes: i32 = digits.get(2..4).unwrap_or("0").parse().unwrap_or(0);
             let offset = FixedOffset::east_opt(sign * (hours * 3600 + minutes * 60))
                 .ok_or_else(unparseable)?;

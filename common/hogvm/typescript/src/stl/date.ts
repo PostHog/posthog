@@ -75,12 +75,12 @@ export function toTimeZone(input: HogDateTime, zone: string): HogDateTime | HogD
  * copy of the spec lives above `parse_datetime_to_seconds` in `rust/common/hogvm/src/stl.rs`;
  * `common/hogvm/python/stl/date.py` (`_parse_date_like`) is the third. Change all three together.
  *
- *     input := WS* date ( SEP time frac? zone? )? WS*
- *     date  := YYYY "-" MM "-" DD              # extended format only
+ *     input := WS* date ( SEP time zone? )? WS*
+ *     date  := YYYY "-" MM "-" DD              # extended format only, YYYY >= 0001
  *     SEP   := "T" | "t" | " "
- *     time  := HH ":" MM ( ":" SS )?
+ *     time  := HH ":" MM ( ":" SS frac? )?     # HH <= 23; a fraction requires seconds
  *     frac  := ("." | ",") DIGIT{1,9}          # truncated to milliseconds
- *     zone  := "Z" | "z" | ("+"|"-") HH ( ":"? MM )?
+ *     zone  := "Z" | "z" | ("+"|"-") HH ( ":"? MM )?   # offset HH <= 23, MM <= 59
  *
  * Luxon's `fromISO` is both too permissive and too strict for this. Too permissive: it accepts
  * `2024`, `2024-01`, `20240101`, `2024-W05`, `2024-001`, and a time-only `12:30` that silently
@@ -90,8 +90,10 @@ export function toTimeZone(input: HogDateTime, zone: string): HogDateTime | HogD
  * ClickHouse form that HogQL emits and that Python and Rust both accept — so `toDateTime` on it
  * returned `{dt: NaN}`. Validating against the grammar first fixes both directions.
  */
+// [0-9] to stay byte-for-byte parallel with the Rust and Python patterns, where \d is
+// Unicode-aware and had to be banned (JS's \d is already ASCII-only).
 const DATE_LIKE =
-    /^(\d{4})(-\d{2}-\d{2})(?:[Tt ]((?:[01]\d|2[0-3]):[0-5]\d)(?::([0-5]\d)(?:[.,](\d{1,9}))?)?(Z|z|[+-](?:[01]\d|2[0-3])(?::?[0-5]\d)?)?)?$/
+    /^([0-9]{4})(-[0-9]{2}-[0-9]{2})(?:[Tt ]((?:[01][0-9]|2[0-3]):[0-5][0-9])(?::([0-5][0-9])(?:[.,]([0-9]{1,9}))?)?(Z|z|[+-](?:[01][0-9]|2[0-3])(?::?[0-5][0-9])?)?)?$/
 
 /** Luxon `DateTime` for a string matching the shared grammar, else null. `zone` applies only to input carrying no zone of its own. */
 export function parseDateLike(input: string, zone?: string): DateTime | null {

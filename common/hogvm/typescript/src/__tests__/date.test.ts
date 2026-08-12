@@ -44,6 +44,11 @@ const REJECTED = [
     '0000-01-01', // valid to chrono and luxon, not to Python datetime
     '2024-01-01T25:00:00Z', // out-of-range hour
     '2024-01-01T00:60:00Z', // out-of-range minute
+    '٢٠٢٤-٠١-٠١', // Unicode digits. JS's \d is ASCII-only so these never matched here, but \d matches
+    // them in the Python/Rust engines: Python's int() read the first as a real date, and the other
+    // two byte-sliced mid-codepoint in Rust — a panic. Pinned in all three tables.
+    '2024-01-01T00:00+0١',
+    '2024-01-01T00:00:00.١٢Z',
 ]
 
 describe('date-like string grammar', () => {
