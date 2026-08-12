@@ -155,6 +155,23 @@
       .chip .x { background: none; border: 0; color: var(--muted); cursor: pointer; padding: 0 4px; font-size: 12px; }
       .chip .x:hover { color: var(--error); }
       tr.msg-detail td { background: var(--panel-2); }
+      .tree-row {
+        display: flex; align-items: center; gap: 6px; padding: 3px 14px 3px 0;
+        cursor: pointer; font-size: 12px;
+      }
+      .tree-row:hover { background: rgba(79,124,255,0.06); }
+      .tree-row.selected { background: rgba(79,124,255,0.1); }
+      .tree-row .chev { width: 14px; color: var(--muted); flex: 0 0 auto; text-align: center; }
+      .tree-row .meta {
+        margin-left: auto; display: flex; gap: 10px; align-items: center;
+        color: var(--muted); font-family: var(--mono); font-size: 11px; padding-right: 14px;
+      }
+      textarea.kv-value {
+        width: 100%; min-height: 180px; background: var(--bg); color: var(--text);
+        border: 1px solid var(--border); border-radius: 6px; padding: 10px;
+        font-family: var(--mono); font-size: 11px; box-sizing: border-box; resize: vertical;
+      }
+      textarea.kv-value:focus { outline: none; border-color: var(--accent); }
       pre.payload {
         margin: 0 0 8px; padding: 10px; background: var(--bg); border: 1px solid var(--border); border-radius: 6px;
         font-family: var(--mono); font-size: 11px; white-space: pre-wrap; word-break: break-word;
@@ -1038,8 +1055,423 @@
         },
       };
 
+      // ---------- section: etcd explorer ----------
+      // Generic prefix-bounded key browser with edit/create/delete. Raw
+      // writes to coordination state are protocol-dangerous, so every write
+      // confirms first, with an extra warning for assignment keys.
+      const etcdSection = {
+        id: "etcd",
+        title: "Etcd explorer",
+        description: "Browse keys under a prefix, inspect values and lease state, and edit, create, or delete keys. Writes bypass every coordination protocol: use with care.",
+        prefix: "/personhog/",
+        rows: [],
+        nextFromKey: null,
+        totalCount: null,
+        selectedKey: null,
+        mount(root) {
+          this.rows = [];
+          this.nextFromKey = null;
+          this.selectedKey = null;
+          this.query = "";
+          this.openState = new Map();
+
+          const search = el("input", {
+            type: "search", class: "search", placeholder: "Filter loaded keys…",
+            oninput: () => { this.query = search.value.trim().toLowerCase(); this.renderTree(); },
+          });
+          this.ui = {
+            prefixInput: el("input", {
+              type: "text", class: "search", value: this.prefix, spellcheck: "false",
+              onkeydown: (e) => { if (e.key === "Enter") this.reload(); },
+            }),
+            search,
+            matchCount: el("span", { class: "muted mono count" }),
+            status: el("span", { class: "muted mono" }),
+            loadMoreBtn: el("button", { class: "small", onclick: () => this.fetchPage() }, "Load more"),
+            error: el("div", {}),
+            treeBody: el("div", { style: "padding: 4px 0 8px" }),
+            detail: el("div", {}),
+          };
+
+          root.append(
+            el("div", { class: "panel" },
+              el("h2", {}, "Keys", this.ui.status),
+              el("div", { class: "row toolbar" },
+                el("span", { class: "muted" }, "prefix"),
+                this.ui.prefixInput,
+                el("button", { class: "small", onclick: () => this.reload() }, "Load"),
+                el("button", { class: "small", onclick: () => this.openEditor(null) }, "New key"),
+                this.ui.loadMoreBtn),
+              el("div", { class: "row toolbar" }, this.ui.search, this.ui.matchCount),
+              this.ui.error,
+              this.ui.treeBody),
+            this.ui.detail
+          );
+          this.reload();
+        },
+
+        reload() {
+          this.prefix = this.ui.prefixInput.value.trim();
+          this.rows = [];
+          this.nextFromKey = null;
+          this.totalCount = null;
+          this.openState = new Map();
+          this.renderStatus();
+          this.fetchPage();
+        },
+
+        async fetchPage() {
+          if (!this.prefix) return;
+          const params = new URLSearchParams({ prefix: this.prefix });
+          if (this.nextFromKey) params.set("from_key", this.nextFromKey);
+          this.ui.loadMoreBtn.disabled = true;
+          try {
+            const data = await fetchJSON(`api/etcd/keys?${params}`);
+            this.rows = this.rows.concat(data.keys);
+            this.nextFromKey = data.next_from_key;
+            this.totalCount = data.count;
+            this.ui.error.replaceChildren();
+            this.renderTree();
+          } catch (e) {
+            this.ui.error.replaceChildren(el("div", { class: "error-box" }, String(e)));
+          }
+          this.renderStatus();
+        },
+
+        renderStatus() {
+          this.ui.status.textContent = this.totalCount === null
+            ? ""
+            : `${fmtInt(this.rows.length)} of ${fmtInt(this.totalCount)} keys loaded`;
+          this.ui.loadMoreBtn.disabled = !this.nextFromKey;
+          this.ui.loadMoreBtn.style.display = this.nextFromKey ? "" : "none";
+        },
+
+        // The loaded keys form a tree on `/`. A node can be both a value
+        // and a directory (etcd allows `/a` and `/a/b` to coexist): its
+        // chevron toggles the children, clicking the row opens the value.
+        buildTree(rows) {
+          const root = { name: "", path: "", children: new Map(), leaf: null, count: 0 };
+          for (const row of rows) {
+            const parts = row.key.split("/").filter((s) => s !== "");
+            let node = root;
+            let path = "";
+            for (let i = 0; i < parts.length; i++) {
+              path += "/" + parts[i];
+              if (!node.children.has(parts[i])) {
+                node.children.set(parts[i], { name: parts[i], path, children: new Map(), leaf: null, count: 0 });
+              }
+              node = node.children.get(parts[i]);
+              node.count++;
+              if (i === parts.length - 1) node.leaf = row;
+            }
+          }
+          return root;
+        },
+
+        isOpen(node, depth) {
+          if (this.query) return true;
+          if (this.openState.has(node.path)) return this.openState.get(node.path);
+          // Top-level and single-child chains open by default, so the
+          // common deep prefix does not cost a click per segment.
+          return depth === 0 || node.children.size === 1;
+        },
+
+        toggleDir(node, depth) {
+          this.openState.set(node.path, !this.isOpen(node, depth));
+          this.renderTree();
+        },
+
+        renderTree() {
+          const q = this.query;
+          const rows = q ? this.rows.filter((row) => row.key.toLowerCase().includes(q)) : this.rows;
+          this.ui.matchCount.textContent = q ? `${fmtInt(rows.length)} of ${fmtInt(this.rows.length)}` : fmtInt(this.rows.length);
+          if (!rows.length) {
+            this.ui.treeBody.replaceChildren(el("div", { class: "empty" }, q ? "No matches." : "No keys loaded. Set a prefix and load."));
+            return;
+          }
+          const byName = (a, b) => a.name.localeCompare(b.name, undefined, { numeric: true });
+          const lines = [];
+          const renderNode = (node, depth) => {
+            const isDir = node.children.size > 0;
+            const open = isDir && this.isOpen(node, depth);
+            const meta = node.leaf
+              ? el("span", { class: "meta" },
+                  node.leaf.lease && node.leaf.lease !== 0 ? el("span", { class: "pill accent", title: `lease ${node.leaf.lease}` }, "leased") : null,
+                  el("span", {}, `v${fmtInt(node.leaf.version)}`),
+                  el("span", {}, fmtBytes(node.leaf.value_bytes)))
+              : el("span", { class: "meta" }, `${fmtInt(node.count)} key${node.count === 1 ? "" : "s"}`);
+            lines.push(el("div", {
+              class: `tree-row ${node.leaf && node.leaf.key === this.selectedKey ? "selected" : ""}`,
+              style: `padding-left: ${14 + depth * 16}px`,
+              title: node.leaf ? node.leaf.key : node.path,
+              onclick: () => node.leaf ? this.openKey(node.leaf.key) : this.toggleDir(node, depth),
+            },
+              isDir
+                ? el("span", { class: "chev", onclick: (e) => { e.stopPropagation(); this.toggleDir(node, depth); } }, open ? "▾" : "▸")
+                : el("span", { class: "chev" }),
+              el("span", { class: "mono" }, isDir && !node.leaf ? `${node.name}/` : node.name),
+              meta));
+            if (open) {
+              for (const child of [...node.children.values()].sort(byName)) renderNode(child, depth + 1);
+            }
+          };
+          const root = this.buildTree(rows);
+          for (const node of [...root.children.values()].sort(byName)) renderNode(node, 0);
+          this.ui.treeBody.replaceChildren(...lines);
+        },
+
+        async openKey(key) {
+          this.selectedKey = key;
+          this.renderTree();
+          try {
+            const detail = await fetchJSON(`api/etcd/key?key=${encodeURIComponent(key)}`);
+            this.renderDetail(detail);
+          } catch (e) {
+            this.ui.detail.replaceChildren(el("div", { class: "panel" }, el("div", { class: "error-box" }, String(e))));
+          }
+        },
+
+        confirmWrite(action, key) {
+          let message = `${action} etcd key:\n\n${key}\n\nThis bypasses every coordination protocol.`;
+          if (key.includes("/assignments/")) {
+            message += "\n\n⚠️ This is a personhog ASSIGNMENT key. Writing it directly is forbidden by the protocol: routers only observe ownership through handoff Complete events, so a raw write leaves an unfenced old owner serving beside the new one. A force-reassignment must create a handoff record instead.";
+          }
+          return window.confirm(message);
+        },
+
+        renderDetail(detail) {
+          let pretty = detail.value;
+          try { pretty = JSON.stringify(JSON.parse(detail.value), null, 2); } catch { /* not JSON */ }
+          const meta = el("div", { class: "row" },
+            el("span", { class: "pill muted" }, `version ${fmtInt(detail.version)}`),
+            el("span", { class: "pill muted" }, `mod rev ${fmtInt(detail.mod_revision)}`),
+            el("span", { class: "pill muted" }, `create rev ${fmtInt(detail.create_revision)}`),
+            detail.lease !== 0
+              ? el("span", { class: "pill accent", title: `lease ${detail.lease}` },
+                  detail.lease_ttl_secs === null ? "leased (ttl unknown)" : `lease ${detail.lease_ttl_secs}s / ${detail.lease_granted_ttl_secs}s`)
+              : null,
+            el("span", { class: "muted mono" }, fmtBytes(detail.value_bytes)),
+            el("span", { class: "row", style: "padding: 0; margin-left: auto" },
+              el("button", { class: "small", disabled: !detail.value_is_utf8, title: detail.value_is_utf8 ? "" : "Value is not UTF-8; editing would corrupt it", onclick: () => this.openEditor(detail) }, "Edit"),
+              el("button", { class: "small", onclick: () => this.deleteKey(detail.key) }, "Delete")));
+          this.ui.detail.replaceChildren(
+            el("div", { class: "panel" },
+              el("h2", {}, el("span", { class: "ns" }, detail.key)),
+              meta,
+              el("div", { style: "padding: 0 14px 12px" }, el("pre", { class: "payload" }, pretty)))
+          );
+        },
+
+        // `detail === null` creates a new key; otherwise edits in place.
+        openEditor(detail) {
+          const keyInput = el("input", {
+            type: "text", class: "search", style: "width: 100%; box-sizing: border-box",
+            value: detail ? detail.key : this.prefix, spellcheck: "false",
+            readonly: !!detail,
+          });
+          const valueInput = el("textarea", { class: "kv-value", spellcheck: "false" });
+          valueInput.value = detail ? detail.value : "";
+          const error = el("div", {});
+          const save = async () => {
+            const key = keyInput.value.trim();
+            if (!key) return;
+            if (detail && detail.lease !== 0 &&
+                !window.confirm(`${key}\n\nThis key is lease-backed; writing it detaches it from its lease, so it will no longer expire with its owner. Continue?`)) return;
+            if (!this.confirmWrite("Write", key)) return;
+            try {
+              await fetchJSON("api/etcd/key", {
+                method: "PUT",
+                headers: { "content-type": "application/json" },
+                body: JSON.stringify({ key, value: valueInput.value }),
+              });
+              this.reload();
+              this.openKey(key);
+            } catch (e) {
+              error.replaceChildren(el("div", { class: "error-box" }, String(e)));
+            }
+          };
+          this.ui.detail.replaceChildren(
+            el("div", { class: "panel" },
+              el("h2", {}, detail ? `Edit ${detail.key}` : "New key"),
+              el("div", { style: "padding: 10px 14px", class: "mono" },
+                detail ? null : el("div", { style: "margin-bottom: 8px" }, keyInput),
+                valueInput),
+              error,
+              el("div", { class: "row" },
+                el("button", { onclick: save }, "Save"),
+                el("button", { class: "small", onclick: () => detail ? this.renderDetail(detail) : this.ui.detail.replaceChildren() }, "Cancel")))
+          );
+        },
+
+        async deleteKey(key) {
+          if (!this.confirmWrite("Delete", key)) return;
+          try {
+            await fetchJSON(`api/etcd/key?key=${encodeURIComponent(key)}`, { method: "DELETE" });
+            this.selectedKey = null;
+            this.ui.detail.replaceChildren();
+            this.reload();
+          } catch (e) {
+            this.ui.detail.replaceChildren(el("div", { class: "panel" }, el("div", { class: "error-box" }, String(e))));
+          }
+        },
+      };
+
+      // ---------- section: personhog topology ----------
+      // Protocol-aware view over the personhog coordination prefix: pods,
+      // routers, assignments, and in-flight handoffs, with server-derived
+      // issues (stuck handoffs, dead owners, missing acks) computed by the
+      // same predicates the coordinator runs.
+      const personhogSection = {
+        id: "personhog",
+        title: "Personhog topology",
+        description: "Live view of personhog's etcd coordination state: coordinator, pods, routers, partition ownership, and in-flight handoffs, with derived issues. Refreshes every 5 seconds.",
+        timers: [],
+        refreshSeq: 0,
+        unmount() {
+          this.timers.forEach(clearInterval);
+          this.timers = [];
+        },
+        mount(root) {
+          this.ui = {
+            summary: el("div", { class: "row", style: "padding: 0 0 10px" }),
+            issuesBody: el("div", {}, el("div", { class: "empty" }, "Loading…")),
+            partitionsBody: el("div", {}, el("div", { class: "empty" }, "Loading…")),
+            podsBody: el("div", {}, el("div", { class: "empty" }, "Loading…")),
+            routersBody: el("div", {}, el("div", { class: "empty" }, "Loading…")),
+          };
+          this.partitionsView = listView({
+            placeholder: "Filter by partition, owner, or phase…",
+            pageSize: 100,
+            matches: (p, q) =>
+              String(p.partition).includes(q) ||
+              (p.owner || "").toLowerCase().includes(q) ||
+              (p.handoff ? p.handoff.phase.toLowerCase().includes(q) : false),
+            renderTable: (rows) => this.renderPartitionsTable(rows),
+            emptyText: "No partitions.",
+          });
+          root.append(
+            this.ui.summary,
+            el("div", { class: "panel" }, el("h2", {}, "Issues"), this.ui.issuesBody),
+            el("div", { class: "panel" }, el("h2", {}, "Partitions"), this.ui.partitionsBody),
+            el("div", { class: "panel" }, el("h2", {}, "Pods"), this.ui.podsBody),
+            el("div", { class: "panel" }, el("h2", {}, "Routers"), this.ui.routersBody)
+          );
+          this.refresh();
+          this.timers.push(setInterval(() => this.refresh(), 5000));
+        },
+
+        async refresh() {
+          const seq = ++this.refreshSeq;
+          let data;
+          try {
+            data = await fetchJSON("api/personhog/topology");
+          } catch (e) {
+            if (seq !== this.refreshSeq) return;
+            this.ui.summary.replaceChildren(el("div", { class: "error-box", style: "flex: 1 1 100%" }, String(e)));
+            return;
+          }
+          if (seq !== this.refreshSeq) return;
+          this.render(data);
+        },
+
+        render(data) {
+          const readyPods = data.pods.filter((p) => p.status === "Ready").length;
+          const errors = data.issues.filter((issue) => issue.severity === "error").length;
+          const warnings = data.issues.filter((issue) => issue.severity === "warning").length;
+          // replaceChildren stringifies nulls instead of skipping them like
+          // el() does, so absent pills must be filtered out.
+          this.ui.summary.replaceChildren(...[
+            data.leader
+              ? el("span", { class: "pill good", title: `lease ${data.leader.lease_id}${data.leader.lease_ttl_secs !== null ? ` · ttl ${data.leader.lease_ttl_secs}s` : ""}` }, `coordinator ${data.leader.holder}`)
+              : el("span", { class: "pill bad" }, "no coordinator"),
+            el("span", { class: "pill muted" },
+              data.total_partitions === null ? "total_partitions missing" : `${fmtInt(data.total_partitions)} partitions`),
+            el("span", { class: `pill ${readyPods === data.pods.length && readyPods > 0 ? "good" : "warn"}` },
+              `${fmtInt(readyPods)}/${fmtInt(data.pods.length)} pods ready`),
+            el("span", { class: "pill muted" }, `${fmtInt(data.routers.length)} router${data.routers.length === 1 ? "" : "s"}`),
+            errors ? el("span", { class: "pill bad" }, `${fmtInt(errors)} error${errors === 1 ? "" : "s"}`) : null,
+            warnings ? el("span", { class: "pill warn" }, `${fmtInt(warnings)} warning${warnings === 1 ? "" : "s"}`) : null,
+            el("span", { class: "muted mono", style: "margin-left: auto" },
+              `rev ${fmtInt(data.revision)} · as of ${new Date(data.fetched_at).toLocaleTimeString()}`),
+          ].filter(Boolean));
+
+          const pillFor = { error: "bad", warning: "warn", info: "muted" };
+          this.ui.issuesBody.replaceChildren(
+            data.issues.length === 0
+              ? el("div", { class: "empty" }, "No issues detected.")
+              : el("div", { style: "padding: 6px 0" }, data.issues.map((issue) =>
+                  el("div", { class: "row", style: "padding: 4px 14px" },
+                    el("span", { class: `pill ${pillFor[issue.severity] || "muted"}` }, issue.severity),
+                    el("span", {}, issue.summary))))
+          );
+
+          this.partitionsView.setRows(data.partitions);
+          this.ui.partitionsBody.replaceChildren(this.partitionsView.body);
+          this.ui.podsBody.replaceChildren(this.renderPodsTable(data.pods));
+          this.ui.routersBody.replaceChildren(this.renderRoutersTable(data.routers));
+        },
+
+        renderPartitionsTable(rows) {
+          return el("table", {},
+            el("thead", {}, el("tr", {},
+              el("th", {}, "partition"), el("th", {}, "owner"), el("th", {}, "address"),
+              el("th", {}, "handoff"), el("th", {}, "waiting on"))),
+            el("tbody", {}, rows.map((p) => {
+              const h = p.handoff;
+              const phasePill = h
+                ? el("span", {
+                    class: `pill ${h.past_deadline ? "bad" : h.phase === "Complete" ? "good" : "accent"}`,
+                    title: `${h.old_owner ? `${h.old_owner} → ` : ""}${h.new_owner} · ${h.handoff_id}`,
+                  }, `${h.phase}${h.phase_age_secs !== null ? ` ${h.phase_age_secs}s` : ""}${h.past_deadline ? " ⏰" : ""}`)
+                : el("span", { class: "muted" }, "–");
+              return el("tr", {},
+                el("td", { class: "mono" }, String(p.partition)),
+                el("td", { class: "mono" }, p.owner
+                  ? el("span", {}, p.owner, " ", p.owner_registered === false ? el("span", { class: "pill bad" }, "gone") : null)
+                  : el("span", { class: "pill warn" }, "unassigned")),
+                el("td", { class: "muted mono" }, p.advertise_address || "–"),
+                el("td", {}, phasePill),
+                el("td", { class: "muted" }, h && h.waiting_on ? h.waiting_on : "–"));
+            }))
+          );
+        },
+
+        renderPodsTable(pods) {
+          if (!pods.length) return el("div", { class: "empty" }, "No pods registered.");
+          return el("table", {},
+            el("thead", {}, el("tr", {},
+              el("th", {}, "pod"), el("th", {}, "status"), el("th", {}, "address"),
+              el("th", {}, "lease ttl"), el("th", {}, "heartbeat"), el("th", {}, "partitions"))),
+            el("tbody", {}, pods.map((pod) =>
+              el("tr", {},
+                el("td", { class: "mono" }, pod.pod_name),
+                el("td", {}, el("span", { class: `pill ${pod.status === "Ready" ? "good" : "warn"}` }, pod.status)),
+                el("td", { class: "muted mono" }, pod.advertise_address || "–"),
+                el("td", { class: "mono" }, pod.lease_ttl_secs === null ? "–" : `${pod.lease_ttl_secs}s`),
+                el("td", { class: "muted mono" }, pod.last_heartbeat ? fmtAgo(pod.last_heartbeat * 1000) : "–"),
+                el("td", { class: "mono", title: pod.partitions.join(", ") },
+                  `${fmtInt(pod.partitions.length)}`))
+            ))
+          );
+        },
+
+        renderRoutersTable(routers) {
+          if (!routers.length) return el("div", { class: "empty" }, "No routers registered.");
+          return el("table", {},
+            el("thead", {}, el("tr", {},
+              el("th", {}, "router"), el("th", {}, "lease ttl"), el("th", {}, "heartbeat"))),
+            el("tbody", {}, routers.map((router) =>
+              el("tr", {},
+                el("td", { class: "mono" }, router.router_name),
+                el("td", { class: "mono" }, router.lease_ttl_secs === null ? "–" : `${router.lease_ttl_secs}s`),
+                el("td", { class: "muted mono" }, router.last_heartbeat ? fmtAgo(router.last_heartbeat * 1000) : "–"))
+            ))
+          );
+        },
+      };
+
       // ---------- boot ----------
-      SECTIONS.push(lagSection, debugSection);
+      SECTIONS.push(lagSection, debugSection, personhogSection, etcdSection);
       const nav = document.getElementById("nav");
       for (const section of SECTIONS) {
         nav.append(el("span", { class: "nav-item", "data-id": section.id, onclick: () => navigate(section.id) }, section.title));

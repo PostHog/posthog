@@ -18,6 +18,7 @@ use personhog_leader::fencing::{
 };
 use personhog_leader::inflight::InflightTracker;
 use personhog_proto::personhog::types::v1::Person;
+use tokio::sync::Notify;
 use tokio::time::sleep;
 
 use common::{test_kafka_config, KAFKA_BOOTSTRAP};
@@ -98,6 +99,81 @@ fn fenced_producers(topic: &str) -> FencedChangelogProducers {
         window: Duration::from_millis(5),
         settle_budget: Duration::from_secs(5),
     })
+}
+
+/// The prepared path must fence exactly as the cold path does: a
+/// connection built ahead of acquisition carries no broker transactional
+/// state, so the epoch bump happens at `acquire` — and the previous
+/// owner must find itself fenced by it.
+#[tokio::test]
+async fn a_prepared_connection_still_fences_the_previous_owner() {
+    let topic = format!("fence_prepared_{}", uuid::Uuid::new_v4().simple());
+
+    let first = fenced_producers(&topic);
+    first.acquire(0).await.expect("first owner acquires");
+    first
+        .produce(0, &test_person(1))
+        .await
+        .expect("first owner produces while unfenced");
+
+    let second = fenced_producers(&topic);
+    second.preconnect(0).await;
+    assert!(second.has_prepared(0), "preconnect parks a connection");
+    // The property the phase split exists for: the parked connection has
+    // touched no broker transactional state, so the serving owner is
+    // still unfenced. Only the acquire below may cut it off.
+    first
+        .produce(0, &test_person(10))
+        .await
+        .expect("a parked connection must not fence the serving owner");
+    second.acquire(0).await.expect("second owner acquires");
+    assert!(
+        !second.has_prepared(0),
+        "acquisition consumes the parked connection"
+    );
+    second
+        .produce(0, &test_person(2))
+        .await
+        .expect("an acquisition through a prepared connection serves writes");
+
+    match first.produce(0, &test_person(3)).await {
+        Err(FencedProduceError::Fenced) | Err(FencedProduceError::NotAcquired) => {}
+        other => panic!("the prepared path must still fence the stale owner, got {other:?}"),
+    }
+}
+
+/// A parked connection nothing consumed must not outlive the sweep: a
+/// cancelled inbound handoff leaves no convergence behind to discard it,
+/// so the periodic sweep is the only owner its lifetime has.
+#[tokio::test]
+async fn the_sweep_discards_parked_connections() {
+    let topic = format!("fence_prepared_{}", uuid::Uuid::new_v4().simple());
+    let producers = fenced_producers(&topic);
+    producers.preconnect(6).await;
+    assert!(producers.has_prepared(6), "preconnect parks a connection");
+
+    producers.sweep_prepared();
+
+    assert!(
+        !producers.has_prepared(6),
+        "the sweep must discard a parked connection"
+    );
+}
+
+/// A partition released with a connection still parked must not keep the
+/// client alive: release is the one moment ownership says the connection
+/// has no future consumer.
+#[tokio::test]
+async fn a_released_partition_discards_its_prepared_connection() {
+    let topic = format!("fence_prepared_{}", uuid::Uuid::new_v4().simple());
+    let producers = fenced_producers(&topic);
+    producers.preconnect(5).await;
+    assert!(producers.has_prepared(5), "preconnect parks a connection");
+    producers.release(5);
+    assert!(
+        !producers.has_prepared(5),
+        "release must discard the parked connection"
+    );
 }
 
 /// The core fencing guarantee: after a second owner acquires the
@@ -372,6 +448,34 @@ async fn a_completed_warm_keeps_its_fence() {
         .produce(0, &test_person(1))
         .await
         .expect("a completed warm keeps a usable fence");
+}
+
+/// A condemnation must nudge its own repair: the fix for a condemned
+/// producer is a convergence-driven heal, and without the nudge that
+/// convergence waits for the next reconcile tick while every write on
+/// the partition bounces. Once per producer: the unusable swap, not the
+/// notify, bounds the nudges.
+#[tokio::test]
+async fn a_condemnation_nudges_repair_once() {
+    let topic = format!("fence_repair_{}", uuid::Uuid::new_v4().simple());
+    let nudge = Arc::new(Notify::new());
+    let producers = fenced_producers(&topic).with_repair_nudge(Arc::clone(&nudge));
+    producers.acquire(3).await.expect("acquire the fence");
+
+    producers.condemn_for_test(3);
+    tokio::time::timeout(Duration::from_secs(5), nudge.notified())
+        .await
+        .expect("a condemnation must nudge the repair pass");
+
+    // The permit was consumed above; a second condemnation of the same
+    // producer takes the unusable-swap early exit and stores no new one.
+    producers.condemn_for_test(3);
+    assert!(
+        tokio::time::timeout(Duration::from_millis(250), nudge.notified())
+            .await
+            .is_err(),
+        "a second condemnation of the same producer must not nudge again"
+    );
 }
 
 /// A producer whose abort exhausted its retries, or whose commit outcome

@@ -31,13 +31,17 @@ concurrency:
     group: ${{ github.workflow }}-${{ github.sha }}
     cancel-in-progress: false
 
+# ECR_REPOSITORY is workflow-level so ordered_image_alias reads it directly instead of
+# through a job output: the runner refuses to export job outputs whose value contains a
+# masked secret, and this value matches one, so a cross-job output of it arrives empty.
+env:
+    ECR_REPOSITORY: posthog-cloud
+
 jobs:
     posthog_build:
         name: Build and push PostHog
         outputs:
             image-digest: ${{ steps.image.outputs.digest }}
-            ecr-registry: ${{ steps.docker-meta.outputs.ecr-registry }}
-            ecr-repository: ${{ env.ECR_REPOSITORY }}
         # Production build/deploy runs only from the canonical deploy repo (CD_DEPLOY_ENABLED).
         if: github.repository_owner == 'PostHog' && vars.CD_DEPLOY_ENABLED == 'true'
         runs-on: depot-ubuntu-24.04
@@ -47,8 +51,6 @@ jobs:
             id-token: write # allow issuing OIDC tokens for this workflow run
             contents: read # allow at least reading the repo contents, add other permissions if necessary
             packages: write # allow push to ghcr.io
-        env:
-            ECR_REPOSITORY: posthog-cloud
 
         steps:
             - name: Check out
@@ -1248,6 +1250,7 @@ jobs:
 
             - name: Log in to Amazon ECR for ordered image alias
               if: ${{ steps.ordered-release.outputs.tag != '' }}
+              id: ecr-login
               uses: aws-actions/amazon-ecr-login@f2e9fc6c2b355c1890b65e6f6f0e2ac3e6e22f78 # v2.1.2
 
             - name: Publish and read back ordered image alias
@@ -1255,8 +1258,8 @@ jobs:
               timeout-minutes: 2
               shell: bash
               env:
-                  ECR_REGISTRY: ${{ needs.posthog_build.outputs.ecr-registry }}
-                  ECR_REPO: ${{ needs.posthog_build.outputs.ecr-repository }}
+                  ECR_REGISTRY: ${{ steps.ecr-login.outputs.registry }}
+                  ECR_REPO: ${{ env.ECR_REPOSITORY }}
                   EXPECTED_DIGEST: ${{ needs.posthog_build.outputs.image-digest }}
                   ORDERED_ALIAS: ${{ steps.ordered-release.outputs.tag }}
               run: |
@@ -1264,6 +1267,11 @@ jobs:
 
                   if [ -z "$EXPECTED_DIGEST" ]; then
                       echo "::warning title=Ordered image alias source digest unavailable::Ordered image alias publication was skipped because no image digest was resolved."
+                      exit 0
+                  fi
+
+                  if [ -z "$ECR_REGISTRY" ] || [ -z "$ECR_REPO" ]; then
+                      echo "::warning title=Ordered image alias destination unavailable::Ordered image alias publication was skipped because the ECR registry or repository name resolved empty."
                       exit 0
                   fi
 

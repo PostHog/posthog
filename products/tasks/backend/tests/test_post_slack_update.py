@@ -6,6 +6,7 @@ from django.test import TestCase, override_settings
 
 from parameterized import parameterized
 
+from products.slack_app.backend.services.slack_messages import RunFooter
 from products.slack_app.backend.slack_thread import SlackThreadHandler
 
 _post_slack_update_module = importlib.import_module(
@@ -24,12 +25,18 @@ class TestPostSlackUpdate(TestCase):
             "thread_ts": "1111.0000",
             "user_message_ts": "2222.0000",
         }
-        # Default the access gate to allow so existing call/URL assertions remain meaningful;
-        # tests that exercise the deny / error paths re-patch it locally.
-        self._access_patcher = patch(
-            "products.tasks.backend.temporal.process_task.activities.post_slack_update.has_tasks_access",
-            return_value=True,
+        # The footer, and the access gate behind its links, is built in slack_app and
+        # tested there. Here it only decides whether the cards carry a url, so default to
+        # "linkable" and let the deny-path test re-patch it.
+        self._footer_patcher = patch(
+            "products.slack_app.backend.services.slack_messages.load_run_footer",
+            return_value=RunFooter(task_url="http://localhost:8000/project/1/tasks/10?runId=run-1"),
         )
+        self._footer_patcher.start()
+        self.addCleanup(self._footer_patcher.stop)
+        # These tests mock the handler's __init__, so the reader gate is patched on the
+        # class rather than resolved from a Slack identity.
+        self._access_patcher = patch.object(SlackThreadHandler, "viewer_can_open_code_links", return_value=True)
         self._access_patcher.start()
         self.addCleanup(self._access_patcher.stop)
         # The PR-opened notification path resolves the reply target from a live
@@ -595,10 +602,7 @@ class TestPostSlackUpdate(TestCase):
         # (including the progress handler) receives ``task_url=None`` so the
         # web buttons are skipped.
         self._access_patcher.stop()
-        deny_patcher = patch(
-            "products.tasks.backend.temporal.process_task.activities.post_slack_update.has_tasks_access",
-            return_value=False,
-        )
+        deny_patcher = patch.object(SlackThreadHandler, "viewer_can_open_code_links", return_value=False)
         deny_patcher.start()
         self.addCleanup(deny_patcher.stop)
 
@@ -661,75 +665,6 @@ class TestPostSlackUpdate(TestCase):
         mock_post_pr_opened.assert_called_once()
         # task_url is the second positional argument on post_pr_opened.
         assert mock_post_pr_opened.call_args.args[1] is None
-
-    @patch.object(SlackThreadHandler, "post_pr_opened")
-    @patch.object(SlackThreadHandler, "update_reaction")
-    @patch.object(SlackThreadHandler, "__init__", return_value=None)
-    @patch("products.tasks.backend.models.TaskRun")
-    def test_missing_created_by_omits_task_url(
-        self,
-        mock_task_run_class,
-        _mock_handler_init,
-        _mock_update_reaction,
-        mock_post_pr_opened,
-    ):
-        # ``has_tasks_access`` is never reached when the run has no creator —
-        # a None viewer short-circuits to "no access" without consulting the
-        # flag service.
-        self._access_patcher.stop()
-
-        sentinel = MagicMock(name="should_not_be_called")
-        sentinel_patcher = patch(
-            "products.tasks.backend.temporal.process_task.activities.post_slack_update.has_tasks_access",
-            sentinel,
-        )
-        sentinel_patcher.start()
-        self.addCleanup(sentinel_patcher.stop)
-
-        run = self._make_mock_run(
-            mock_task_run_class.Status.COMPLETED, output={"pr_url": "https://github.com/org/repo/pull/1"}
-        )
-        run.task.created_by = None
-        mock_task_run_class.objects.select_related.return_value.get.return_value = run
-
-        post_slack_update(PostSlackUpdateInput(run_id="run-1", slack_thread_context=self.slack_thread_context))
-
-        sentinel.assert_not_called()
-        mock_post_pr_opened.assert_called_once_with(
-            "https://github.com/org/repo/pull/1", None, reply_target_slack_user_id=None
-        )
-
-    @patch.object(SlackThreadHandler, "post_pr_opened")
-    @patch.object(SlackThreadHandler, "update_reaction")
-    @patch.object(SlackThreadHandler, "__init__", return_value=None)
-    @patch("products.tasks.backend.models.TaskRun")
-    def test_access_check_exception_fails_closed(
-        self,
-        mock_task_run_class,
-        _mock_handler_init,
-        _mock_update_reaction,
-        mock_post_pr_opened,
-    ):
-        # A flag-service blip must not surface the link to a user we can't
-        # confirm has access — and must not break the surrounding update.
-        self._access_patcher.stop()
-        boom_patcher = patch(
-            "products.tasks.backend.temporal.process_task.activities.post_slack_update.has_tasks_access",
-            side_effect=RuntimeError("flag service down"),
-        )
-        boom_patcher.start()
-        self.addCleanup(boom_patcher.stop)
-
-        run = self._make_mock_run(
-            mock_task_run_class.Status.COMPLETED, output={"pr_url": "https://github.com/org/repo/pull/1"}
-        )
-        mock_task_run_class.objects.select_related.return_value.get.return_value = run
-
-        post_slack_update(PostSlackUpdateInput(run_id="run-1", slack_thread_context=self.slack_thread_context))
-
-        mock_post_pr_opened.assert_called_once_with(
-            "https://github.com/org/repo/pull/1", None, reply_target_slack_user_id=None
-        )
 
     @patch.object(SlackThreadHandler, "post_pr_opened")
     @patch.object(SlackThreadHandler, "update_reaction")

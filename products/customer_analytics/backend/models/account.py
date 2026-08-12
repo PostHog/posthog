@@ -5,7 +5,7 @@ from django.db.models import JSONField, Q
 from django.db.models.signals import pre_save
 from django.dispatch import receiver
 
-from pydantic import BaseModel, ConfigDict
+from pydantic import BaseModel, ConfigDict, field_validator
 
 from posthog.models.scoping.root_mixin import TeamScopedRootMixin
 from posthog.models.utils import CreatedMetaFields, UpdatedMetaFields, UUIDModel
@@ -27,6 +27,18 @@ class AccountProperties(BaseModel):
     # Individual addresses pinned to this account, checked before the domain
     # fallback. For contacts on personal/free domains a domain rule can't cover.
     known_emails: list[str] = []
+
+    @field_validator("email_domains")
+    @classmethod
+    def normalize_email_domains(cls, domains: list[str]) -> list[str]:
+        normalized = (domain.strip().lower().removeprefix("@") for domain in domains)
+        return list(dict.fromkeys(domain for domain in normalized if domain))
+
+    @field_validator("known_emails")
+    @classmethod
+    def normalize_known_emails(cls, emails: list[str]) -> list[str]:
+        normalized = (email.strip().lower() for email in emails)
+        return list(dict.fromkeys(email for email in normalized if email))
 
     # External connections
     stripe_customer_id: str | None = None

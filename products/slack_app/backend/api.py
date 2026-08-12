@@ -27,7 +27,6 @@ from posthog.git import extract_explicit_repo
 from posthog.helpers.slack_scopes import REQUIRED_SLACK_SCOPES
 from posthog.models.integration import (
     SLACK_INTEGRATION_KINDS,
-    GitHubIntegration,
     Integration,
     SlackIntegration,
     SlackIntegrationError,
@@ -63,7 +62,6 @@ from products.slack_app.backend.feature_flags import (
     ASSISTANT_REQUIRED_SCOPES,
     is_slack_app_assistant_enabled,
     is_slack_app_assistant_flag_enabled,
-    is_slack_app_bot_prs_enabled,
     is_slack_app_oauth_enabled,
     is_slack_app_untagged_thread_followups_enabled,
 )
@@ -74,6 +72,7 @@ from products.slack_app.backend.services.integration_resolver import (
     UserResolutionFailure,
     format_project_candidate_list,
     load_integrations,
+    resolve_from_candidates,
     resolve_user_for_workspace,
     user_resolution_failure_reply,
 )
@@ -920,16 +919,7 @@ def _extract_explicit_repo(text: str, all_repos: list[str]) -> str | None:
 
 
 def _get_full_repo_names(integration: Integration, *, user_id: int | None) -> list[str]:
-    """Repo names available to the mentioner: their personal install, plus the team install when bot PRs are on."""
-    user_repos = _get_user_repo_names(integration, user_id=user_id)
-    if not is_slack_app_bot_prs_enabled(integration.team):
-        return user_repos
-    combined = set(user_repos) | set(_get_team_repo_names(integration))
-    return sorted(combined)[:_MAX_GITHUB_REPOS]
-
-
-def _get_user_repo_names(integration: Integration, *, user_id: int | None) -> list[str]:
-    """Repo names from the mentioner's personal GitHub install, or []. Cached per user."""
+    """Repo names available to the mentioner, from their personal GitHub install. Cached per user."""
     if user_id is None:
         return []
     cache_key = _user_repo_list_cache_key(user_id)
@@ -967,17 +957,6 @@ def _get_user_repo_names(integration: Integration, *, user_id: int | None) -> li
     if result:
         cache.set(cache_key, result, timeout=REPO_LIST_CACHE_TTL_SECONDS)
     return result
-
-
-def _get_team_repo_names(integration: Integration) -> list[str]:
-    """Repo names from the team's org-owned GitHub install (cached JSONField read), or []."""
-    team_integration = Integration.objects.filter(
-        team=integration.team, kind=Integration.IntegrationKind.GITHUB
-    ).first()
-    if team_integration is None:
-        return []
-    github = GitHubIntegration(team_integration)
-    return [repo["full_name"] for repo in github.list_all_cached_repositories(max_repos=_MAX_GITHUB_REPOS)]
 
 
 def _replace_repo_picker_message_with_selection(
@@ -2220,9 +2199,28 @@ def route_posthog_code_event_to_relevant_region(
 
     # link_shared (unfurl) works with either integration kind.
     link_result = load_integrations(slack_team_id=slack_team_id, kinds=list(SLACK_INTEGRATION_KINDS))
-    local_match = _link_shared_integration(event, link_result.candidates)
+    if event_type == "link_shared":
+        link_target = _link_shared_target(event, link_result.candidates, slack_team_id=slack_team_id)
+        logger.info(
+            "slack_app_link_unfurl_target_selected",
+            slack_team_id=slack_team_id,
+            event_id=event_id,
+            source=link_target.source,
+            candidate_count=len(link_result.candidates),
+            integration_id=link_target.integration.id if link_target.integration else None,
+            team_id=link_target.integration.team_id if link_target.integration else None,
+        )
+    else:
+        # Every other event type reaching this fallthrough (``app_uninstalled``) is workspace-wide,
+        # so any install for the workspace serves it.
+        link_target = LinkSharedTarget(link_result.resolved_or_first(), "workspace")
+
+    local_match = link_target.integration
     if local_match:
-        if _us_should_handle_instead(
+        # A link naming a project this region holds is an unambiguous claim on the event, so skip
+        # the precedence probe: a probe flake proxies to a region that has no row for the
+        # workspace, which drops the event and loses an unfurl we could have served.
+        if not link_target.explicit and _us_should_handle_instead(
             slack_team_id,
             list(SLACK_INTEGRATION_KINDS),
             can_defer_to_other_region,
@@ -3067,29 +3065,84 @@ def _link_shared_resource_refs(event: dict[str, Any]) -> list[dict[str, str]]:
     return resources
 
 
-def _link_shared_integration(event: dict[str, Any], candidates: list[Integration]) -> Integration | None:
+@dataclass(frozen=True)
+class LinkSharedTarget:
+    """The install that serves a ``link_shared`` event, and how it was chosen.
+
+    ``explicit`` is set only when one of the shared links names a ``/project/:id`` this region
+    holds. That is an unambiguous claim on the event, which lets the caller skip the cross-region
+    precedence probe.
+    """
+
+    integration: Integration | None
+    source: str
+    explicit: bool = False
+
+
+def _link_shared_url_team_ids(event: dict[str, Any]) -> set[int]:
+    """Team ids named by ``/project/:id`` in the event's links, counting only unfurlable ones.
+
+    A shared replay or settings link carries a project id but can never produce an unfurl, so
+    letting it name the project would route a resource link in the same message to a project that
+    doesn't hold it.
+    """
     team_ids: set[int] = set()
     links = event.get("links")
-    if isinstance(links, list):
-        for link in links:
-            if not isinstance(link, dict):
+    if not isinstance(links, list):
+        return team_ids
+    for link in links:
+        if not isinstance(link, dict):
+            continue
+        url = link.get("url")
+        if not isinstance(url, str) or parse_posthog_resource_link(url) is None:
+            continue
+        parts = [part for part in urlparse(url).path.split("/") if part]
+        if len(parts) >= 2 and parts[0] == "project":
+            try:
+                team_ids.add(int(parts[1]))
+            except ValueError:
                 continue
-            url = link.get("url")
-            if not isinstance(url, str):
-                continue
-            parts = [part for part in urlparse(url).path.split("/") if part]
-            if len(parts) >= 2 and parts[0] == "project":
-                try:
-                    team_ids.add(int(parts[1]))
-                except ValueError:
-                    continue
+    return team_ids
+
+
+def _link_shared_target(
+    event: dict[str, Any], candidates: list[Integration], *, slack_team_id: str
+) -> LinkSharedTarget:
+    """Pick the install to unfurl with, preferring the project the link itself names."""
+    team_ids = _link_shared_url_team_ids(event)
 
     if len(team_ids) == 1:
         team_id = next(iter(team_ids))
-        return next((candidate for candidate in candidates if candidate.team_id == team_id), None)
+        match = next((candidate for candidate in candidates if candidate.team_id == team_id), None)
+        if match is not None:
+            return LinkSharedTarget(match, "url_project", explicit=True)
+        # The link names a project no install in this region covers. Refusing lets the caller fall
+        # through to the other region rather than unfurling out of an unrelated project.
+        return LinkSharedTarget(None, "url_project_not_local")
+
     if team_ids:
-        return None
-    return candidates[0] if candidates else None
+        # Links naming different projects cannot be served by one install, and picking either one
+        # would leak the wrong project's data, so serve none of them.
+        return LinkSharedTarget(None, "url_projects_conflict")
+
+    # Links with no project id (short ``/i/:short_id`` links, ticket links) go through the same
+    # precedence ladder mentions use, so a workspace with several connected projects lands on the
+    # project the user actually works in rather than on whichever install happens to be oldest.
+    # Resolving without a ``user`` only picks which project to look in — ``handle_posthog_link_unfurl``
+    # still resolves the sharer against that project and access-checks every resource it unfurls.
+    slack_user_id = str(event.get("user") or "")
+    thread_ts = event.get("thread_ts") or event.get("message_ts")
+    resolution = resolve_from_candidates(
+        candidates,
+        slack_team_id=slack_team_id,
+        slack_user_id="" if slack_user_id == SLACK_PLACEHOLDER_USER_ID else slack_user_id,
+        channel=event.get("channel") if isinstance(event.get("channel"), str) else None,
+        thread_ts=thread_ts if isinstance(thread_ts, str) else None,
+    )
+    # No thread mapping and no default in a multi-project workspace: there is no picker to fall
+    # back on for a pasted link, so ``resolved_or_first`` still answers with an install — the same
+    # id-ordered tie-break the other must-pick-something surfaces use.
+    return LinkSharedTarget(resolution.resolved_or_first(), resolution.source)
 
 
 def _extract_context_token(payload: dict) -> str:
@@ -3447,73 +3500,6 @@ def _handle_no_repo_needed_submit(payload: dict) -> HttpResponse:
     except Exception as e:
         logger.warning("slack_app_repo_none_signal_failed", workflow_id=workflow_id, error=str(e))
         return HttpResponse(status=200)
-
-
-def _handle_continue_as_bot(payload: dict) -> HttpResponse:
-    action = next(
-        (a for a in payload.get("actions", []) if a.get("action_id") == "posthog_code_continue_as_bot"),
-        None,
-    )
-    if not action:
-        return HttpResponse(status=200)
-
-    try:
-        value = json.loads(action.get("value") or "{}")
-    except (TypeError, ValueError):
-        value = {}
-
-    workflow_id = value.get("workflow_id")
-    integration_id = value.get("integration_id")
-    expected_user_id = value.get("mentioning_slack_user_id")
-
-    if not workflow_id:
-        logger.info("slack_app_continue_as_bot_missing_workflow_id")
-        return HttpResponse(status=200)
-
-    clicker_id = payload.get("user", {}).get("id")
-    if not expected_user_id or clicker_id != expected_user_id:
-        logger.info(
-            "slack_app_continue_as_bot_user_mismatch",
-            workflow_id=workflow_id,
-            expected_user_id=expected_user_id,
-            clicker_id=clicker_id,
-        )
-        return HttpResponse(status=200)
-
-    try:
-        client = sync_connect()
-        handle = client.get_workflow_handle(workflow_id)
-        asyncio.run(handle.signal(PostHogCodeSlackMentionWorkflow.authorship_confirmed))
-    except Exception as e:
-        logger.warning("slack_app_continue_as_bot_signal_failed", workflow_id=workflow_id, error=str(e))
-        return HttpResponse(status=200)
-
-    # Best-effort: replace the prompt so it can't be clicked twice.
-    slack_team_id = payload.get("team", {}).get("id")
-    channel = payload.get("channel", {}).get("id")
-    message_ts = payload.get("message", {}).get("ts")
-    if integration_id and slack_team_id and channel and message_ts:
-        try:
-            # nosemgrep: idor-lookup-without-team — Slack webhook: no team context; scoped by PK + kind + Slack team ID
-            integration = Integration.objects.get(
-                id=integration_id, kind=SLACK_INTEGRATION_KIND, integration_id=slack_team_id
-            )
-            text = "Continuing as PostHog — the PR will be authored by the PostHog bot."
-            SlackIntegration(integration).client.chat_update(
-                channel=channel,
-                ts=message_ts,
-                text=text,
-                blocks=[{"type": "section", "text": {"type": "mrkdwn", "text": text}}],
-            )
-        except Exception:
-            logger.warning(
-                "slack_app_continue_as_bot_picker_update_failed",
-                workflow_id=workflow_id,
-                channel=channel,
-                message_ts=message_ts,
-            )
-
-    return HttpResponse(status=200)
 
 
 def _delete_ephemeral_via_response_url(response_url: str) -> None:
@@ -4204,7 +4190,6 @@ def posthog_code_interactivity_handler(request: HttpRequest) -> HttpResponse:
     context = _decode_picker_context(context_token) if context_token else None
     hinted_integration_id, hinted_user_id = _extract_picker_hints(payload)
     terminate_integration_id, terminate_user_id = _extract_terminate_hints(payload)
-    authorship_integration_id, _ = _extract_action_value_hints(payload, "posthog_code_continue_as_bot")
     dismiss_integration_id = _extract_dismiss_hints(payload)
     alert_snooze_uuid = _extract_alert_snooze_hints(payload)
     inbox_integration_id = inbox_interactivity.extract_inbox_hints(payload)
@@ -4229,13 +4214,6 @@ def posthog_code_interactivity_handler(request: HttpRequest) -> HttpResponse:
     elif slack_team_id and terminate_integration_id and (not terminate_user_id or requesting_user == terminate_user_id):
         local = Integration.objects.filter(  # nosemgrep: idor-lookup-without-team
             id=terminate_integration_id,  # nosemgrep: idor-taint-user-input-to-model-get
-            kind=SLACK_INTEGRATION_KIND,
-            integration_id=slack_team_id,
-        ).exists()
-    elif slack_team_id and authorship_integration_id:
-        # Mentioner check lives in the handler, so routing only confirms we own the integration.
-        local = Integration.objects.filter(  # nosemgrep: idor-lookup-without-team
-            id=authorship_integration_id,  # nosemgrep: idor-taint-user-input-to-model-get
             kind=SLACK_INTEGRATION_KIND,
             integration_id=slack_team_id,
         ).exists()
@@ -4362,8 +4340,6 @@ def posthog_code_interactivity_handler(request: HttpRequest) -> HttpResponse:
                 return _handle_repo_picker_submit(payload)
             if action_id == "posthog_code_repo_none":
                 return _handle_no_repo_needed_submit(payload)
-            if action_id == "posthog_code_continue_as_bot":
-                return _handle_continue_as_bot(payload)
             if action_id == "posthog_code_terminate_task":
                 return _handle_terminate_task_submit(payload)
             if action_id == CHANNEL_APPROVAL_ACTION_APPROVE:
