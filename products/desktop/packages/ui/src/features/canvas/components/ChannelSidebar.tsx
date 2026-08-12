@@ -45,6 +45,7 @@ import {
 } from "@posthog/ui/features/canvas/components/channelPages";
 import { useChannelItems } from "@posthog/ui/features/canvas/hooks/useChannelItems";
 import { useChannels } from "@posthog/ui/features/canvas/hooks/useChannels";
+import { useLocalDayStart } from "@posthog/ui/features/canvas/hooks/useLocalDayStart";
 import { PERSONAL_CHANNEL_NAME } from "@posthog/ui/features/canvas/hooks/useTaskChannels";
 import { SHORTCUTS } from "@posthog/ui/features/command/keyboard-shortcuts";
 import { useCommandCenterStore } from "@posthog/ui/features/command-center/commandCenterStore";
@@ -347,9 +348,12 @@ export function ChannelSidebar({ channelId }: { channelId: string }) {
       ).slice(0, RECENTS_CAP),
     [tabItems, query, filters, sort, me],
   );
+  // Dated against the day rather than the moment, so the headers follow local
+  // midnight even when the list itself hasn't changed for hours.
+  const dayStart = useLocalDayStart();
   const sections = useMemo(
-    () => groupChannelItems(recentItems, sort),
-    [recentItems, sort],
+    () => groupChannelItems(recentItems, sort, new Date(dayStart)),
+    [recentItems, sort, dayStart],
   );
 
   const narrowed = filtersActive || searchOpen;
