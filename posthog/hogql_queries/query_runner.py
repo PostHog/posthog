@@ -2670,17 +2670,20 @@ class AnalyticsQueryRunner(QueryRunner, Generic[AR]):
 
         restricted_objects = self._get_object_access_restrictions(queried_resources)
         allowlisted_objects = self._get_object_access_allowlist(queried_resources)
+        restricted_resources = self._get_resource_access_restrictions(queried_resources)
         if restricted_objects:
             payload["restricted_objects"] = restricted_objects
         if allowlisted_objects:
             payload["allowlisted_objects"] = allowlisted_objects
-        if (restricted_objects or allowlisted_objects) and (user_access_control := self.user_access_control):
-            # Object-level filtering exempts objects the user created (see build_access_control_guard),
-            # so two users under identical rules can still see different rows. Partition by principal
-            # once any object-level rule is in play.
-            payload["restricted_for_user"] = user_access_control.user.pk
-        if restricted_resources := self._get_resource_access_restrictions(queried_resources):
+        if restricted_resources:
             payload["restricted_resources"] = restricted_resources
+        if (restricted_objects or allowlisted_objects or restricted_resources) and (
+            user_access_control := self.user_access_control
+        ):
+            # Access-control filtering exempts objects the user created (see build_access_control_guard),
+            # including when the resource is denied without any object-level rules. Partition by principal
+            # whenever access control narrows the query.
+            payload["restricted_for_user"] = user_access_control.user.pk
 
         return payload
 
