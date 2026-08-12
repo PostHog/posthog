@@ -110,16 +110,17 @@ class TestUpsertReviewReport(BaseTest):
         assert report.completed_head_sha == "sha-2"  # what the finished turn reviewed, for read anchoring
 
     def test_review_arm_is_drawn_once_and_sticky_across_turns(self) -> None:
-        # Sticky-per-report is the experiment's core invariant: a redraw on the update path would
+        # Sticky-per-report is the arm draw's core invariant: a redraw on the update path would
         # flip a report's reviewer between turns, poisoning per-arm metrics and feeding one arm's
-        # findings into the other's "already covered" injection.
-        sol = ReviewArm(
-            runtime_adapter=RuntimeAdapter.CODEX,
-            model="gpt-5.6-sol",
+        # findings into the other's "already covered" injection. The drawn arm deliberately differs
+        # from the default pins on every field so a loader that silently falls back cannot pass.
+        sonnet = ReviewArm(
+            runtime_adapter=RuntimeAdapter.CLAUDE,
+            model="claude-sonnet-5",
             reasoning_effort=ReasoningEffort.XHIGH,
-            initial_permission_mode="full-access",
+            initial_permission_mode=None,
         )
-        with patch("products.review_hog.backend.reviewer.persistence.draw_review_arm", return_value=sol):
+        with patch("products.review_hog.backend.reviewer.persistence.draw_review_arm", return_value=sonnet):
             report_id = upsert_review_report(
                 team_id=self.team.id, repository="o/r", pr_url="u", pr_metadata=_pr_metadata()
             )
@@ -129,10 +130,10 @@ class TestUpsertReviewReport(BaseTest):
             report.review_model,
             report.review_reasoning_effort,
             report.review_initial_permission_mode,
-        ) == ("codex", "gpt-5.6-sol", "xhigh", "full-access")
+        ) == ("claude", "claude-sonnet-5", "xhigh", None)
         # Through the real loader, not just the raw columns: the values_list → resolve positional
-        # coupling would otherwise silently fall every Codex report back to the default pins.
-        assert load_review_arm(team_id=self.team.id, report_id=report_id) == sol
+        # coupling would otherwise silently fall every off-default report back to the default pins.
+        assert load_review_arm(team_id=self.team.id, report_id=report_id) == sonnet
         assert load_review_arm(team_id=self.team.id, report_id=str(uuid.uuid4())) == DEFAULT_REVIEW_ARM
 
         with patch(
@@ -144,7 +145,7 @@ class TestUpsertReviewReport(BaseTest):
             )
         assert redraw.call_count == 0  # the update path must not even draw
         report.refresh_from_db()
-        assert report.review_model == "gpt-5.6-sol"
+        assert report.review_model == "claude-sonnet-5"
 
     def test_author_login_is_stamped_on_create_and_refreshed_each_turn(self) -> None:
         # The "For you" scope's authored-PRs match rides this stamp. It must track the PR's current
