@@ -3,9 +3,16 @@ import dataclasses
 
 from temporalio.common import RetryPolicy
 
+from posthog.exceptions import ClickHouseClusterMemoryLimitExceeded
 from posthog.schema_enums import AlertCalculationInterval
 
 from products.exports.backend.tasks.failure_handler import USER_QUERY_ERROR_NAMES
+
+# Cluster memory pressure is transient infrastructure, not a query the user has to narrow, and
+# evaluate_alert re-raises it for this policy to retry. It subclasses a user query error, so
+# subtract it by name to keep the retry even if someone lists the subclass in USER_QUERY_ERRORS.
+# Sorted for a stable order across processes.
+_EVALUATE_NON_RETRYABLE_ERROR_NAMES = sorted(USER_QUERY_ERROR_NAMES - {ClickHouseClusterMemoryLimitExceeded.__name__})
 
 ALERT_PREPARE_RETRY_POLICY = RetryPolicy(
     initial_interval=dt.timedelta(seconds=1),
@@ -19,7 +26,7 @@ ALERT_EVALUATE_RETRY_POLICY = RetryPolicy(
     maximum_interval=dt.timedelta(seconds=30),
     backoff_coefficient=2.0,
     maximum_attempts=5,
-    non_retryable_error_types=list(USER_QUERY_ERROR_NAMES),
+    non_retryable_error_types=_EVALUATE_NON_RETRYABLE_ERROR_NAMES,
 )
 
 ALERT_NOTIFY_RETRY_POLICY = RetryPolicy(
@@ -54,7 +61,7 @@ _REAL_TIME_EVALUATE_RETRY_POLICY = RetryPolicy(
     maximum_interval=dt.timedelta(seconds=10),
     backoff_coefficient=2.0,
     maximum_attempts=2,
-    non_retryable_error_types=list(USER_QUERY_ERROR_NAMES),
+    non_retryable_error_types=_EVALUATE_NON_RETRYABLE_ERROR_NAMES,
 )
 
 # workflow_execution covers prepare (2 min) + evaluate at its schedule_to_close cap
