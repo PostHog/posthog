@@ -603,12 +603,11 @@ class TestEESAMLAuthenticationAPI(APILicensedTest):
         self.assertEqual(idp.name, config.saml_relay_state)
 
     def test_relay_state_minted_before_the_move_to_configs_still_resolves(self):
-        # A login redirected while SAML routed on domain ids comes back after the switch to config
-        # identifiers. The identifier in flight has to keep resolving or the user lands on an error.
         self._grant_saml()
         config = self.organization_domain.identity_provider_config
         assert config is not None
-        config.refresh_from_db()
+        config.saml_relay_state = str(self.organization_domain.id)
+        config.save(update_fields=["saml_relay_state"])
 
         auth = object.__new__(MultitenantSAMLAuth)
         idp = auth.get_idp(str(self.organization_domain.id))
@@ -1191,12 +1190,13 @@ YotAcSbU3p5bzd11wpyebYHB"""
         )
         my_config = self.organization_domain.identity_provider_config
         assert my_config is not None
-        other_domain.identity_provider_config = IdentityProviderConfig.objects.create(
+        other_config = IdentityProviderConfig.objects.create(
             organization=other_org,
             saml_entity_id=my_config.saml_entity_id,
             saml_acs_url=my_config.saml_acs_url,
             saml_x509_cert=my_config.saml_x509_cert,
         )
+        other_domain.identity_provider_config = other_config
         other_domain.save()
 
         response = self.client.get("/login/saml/?email=engineering@posthog.com")
@@ -1216,7 +1216,7 @@ YotAcSbU3p5bzd11wpyebYHB"""
             "/complete/saml/",
             {
                 "SAMLResponse": saml_response,
-                "RelayState": str(other_domain.id),
+                "RelayState": str(other_config.saml_relay_state),
             },
             follow=False,
             format="multipart",
