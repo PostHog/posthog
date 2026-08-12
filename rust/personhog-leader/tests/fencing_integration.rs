@@ -73,7 +73,11 @@ async fn read_committed_count(topic: &str) -> usize {
 /// librdkafka requires the broker bound to cover.
 const BROKER_TXN_TIMEOUT: Duration = Duration::from_secs(30);
 
-fn fenced_producers_with_window(topic: &str, window: Duration) -> FencedChangelogProducers {
+fn fenced_producers_with_window_and_fill(
+    topic: &str,
+    window: Duration,
+    window_max_writes: usize,
+) -> FencedChangelogProducers {
     let mut kafka = test_kafka_config();
     kafka.kafka_hosts = KAFKA_BOOTSTRAP.to_string();
     FencedChangelogProducers::new(FencedProducerConfig {
@@ -83,8 +87,13 @@ fn fenced_producers_with_window(topic: &str, window: Duration) -> FencedChangelo
         commit_timeout: Duration::from_secs(10),
         broker_txn_timeout: BROKER_TXN_TIMEOUT,
         window,
+        window_max_writes,
         settle_budget: window + Duration::from_secs(5),
     })
+}
+
+fn fenced_producers_with_window(topic: &str, window: Duration) -> FencedChangelogProducers {
+    fenced_producers_with_window_and_fill(topic, window, 32)
 }
 
 fn fenced_producers(topic: &str) -> FencedChangelogProducers {
@@ -97,6 +106,7 @@ fn fenced_producers(topic: &str) -> FencedChangelogProducers {
         commit_timeout: Duration::from_secs(10),
         broker_txn_timeout: BROKER_TXN_TIMEOUT,
         window: Duration::from_millis(5),
+        window_max_writes: 32,
         settle_budget: Duration::from_secs(5),
     })
 }
@@ -230,6 +240,36 @@ async fn concurrent_writes_share_a_window() {
     };
     let (a, b) = (a.await.unwrap().unwrap(), b.await.unwrap().unwrap());
     assert_ne!(a, b, "each write must get its own offset");
+}
+
+/// A window that reaches its fill threshold commits immediately rather
+/// than holding for its timer. The window here is far longer than the
+/// test's own bound, so the acks can only arrive through the fill
+/// close.
+#[tokio::test]
+async fn a_filled_window_commits_before_its_timer() {
+    let topic = format!("fence_test_{}", uuid::Uuid::new_v4().simple());
+    let producers = Arc::new(fenced_producers_with_window_and_fill(
+        &topic,
+        Duration::from_secs(60),
+        3,
+    ));
+    producers.acquire(0).await.expect("acquire");
+
+    let writes: Vec<_> = (1..=3i64)
+        .map(|v| {
+            let p = Arc::clone(&producers);
+            tokio::spawn(async move { p.produce(0, &test_person(v)).await })
+        })
+        .collect();
+    tokio::time::timeout(Duration::from_secs(20), async {
+        for write in writes {
+            write.await.unwrap().expect("a filled window must commit");
+        }
+    })
+    .await
+    .expect("acks waited on the 60s timer — the fill close never fired");
+    assert_eq!(read_committed_count(&topic).await, 3);
 }
 
 /// Sustained open-loop arrivals across many window turnovers: every
@@ -1349,6 +1389,7 @@ async fn a_heal_that_cannot_acquire_does_not_fail_the_run() {
         commit_timeout: Duration::from_secs(2),
         broker_txn_timeout: BROKER_TXN_TIMEOUT,
         window: Duration::from_millis(5),
+        window_max_writes: 32,
         settle_budget: Duration::from_secs(1),
     }));
     let handler = common::test_handoff_handler(&topic, Arc::clone(&producers));
@@ -1468,6 +1509,7 @@ async fn the_derived_production_timescales_compose_against_a_real_broker() {
         commit_timeout: config.fencing_txn_timeout(),
         broker_txn_timeout: config.fencing_broker_txn_timeout(),
         window: Duration::from_millis(config.fencing_window_ms),
+        window_max_writes: config.fencing_window_max_writes,
         settle_budget: config.fencing_settle_budget(),
     }));
     producers
