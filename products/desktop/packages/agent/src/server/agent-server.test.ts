@@ -3413,17 +3413,24 @@ describe("AgentServer HTTP Mode", () => {
         sessionId: "prior-session",
       };
 
-      await s.sendResumeMessage(
-        payload,
-        createTaskRun({
-          id: "test-run-id",
-          task: "test-task-id",
-          state: {
-            pending_user_message: "visible follow-up",
-            pending_user_message_ts: "123.456",
-          },
-        }),
-      );
+      const taskRun = createTaskRun({
+        id: "test-run-id",
+        task: "test-task-id",
+        state: {
+          pending_user_message: "visible follow-up",
+          pending_user_message_ts: "123.456",
+        },
+      });
+      vi.spyOn(
+        (
+          s as unknown as {
+            posthogAPI: { getTaskRun: ReturnType<typeof vi.fn> };
+          }
+        ).posthogAPI,
+        "getTaskRun",
+      ).mockResolvedValue(taskRun);
+
+      await s.sendResumeMessage(payload, taskRun);
 
       const [{ prompt: promptBlocks }] = prompt.mock.calls[0] as unknown as [
         { prompt: ContentBlock[] },
@@ -3451,6 +3458,56 @@ describe("AgentServer HTTP Mode", () => {
         type: "text",
         _meta: { ui: { hidden: true } },
       });
+    });
+
+    it("refetches the run before choosing a native resume prompt", async () => {
+      const s = createServer();
+      await s.start();
+
+      const prompt = vi.fn(async () => ({ stopReason: "cancelled" }));
+      const internals = s as unknown as {
+        posthogAPI: { getTaskRun: ReturnType<typeof vi.fn> };
+        session: {
+          clientConnection: { prompt: typeof prompt };
+        };
+        nativeResume: { sessionId: string; warm: boolean } | null;
+        sendResumeContinuation(
+          payload: JwtPayload,
+          taskRun: TaskRun | null,
+        ): Promise<void>;
+      };
+      internals.session.clientConnection.prompt = prompt;
+      internals.nativeResume = { sessionId: "prior-session", warm: true };
+      vi.spyOn(internals.posthogAPI, "getTaskRun").mockResolvedValue(
+        createTaskRun({
+          id: "test-run-id",
+          task: "test-task-id",
+          state: { pending_user_message: "keep my follow-up" },
+        }),
+      );
+
+      await internals.sendResumeContinuation(
+        {
+          task_id: "test-task-id",
+          run_id: "test-run-id",
+          team_id: 1,
+          user_id: 1,
+          distinct_id: "test-distinct-id",
+          mode: "interactive",
+        },
+        createTaskRun({
+          id: "test-run-id",
+          task: "test-task-id",
+          state: { resume_from_run_id: "previous-run" },
+        }),
+      );
+
+      const [{ prompt: promptBlocks }] = prompt.mock.calls[0] as unknown as [
+        { prompt: ContentBlock[] },
+      ];
+      expect(promptBlocks).toEqual([
+        { type: "text", text: "keep my follow-up" },
+      ]);
     });
   });
 

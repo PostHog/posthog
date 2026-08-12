@@ -2299,7 +2299,11 @@ export class AgentServer {
 
       const checkpointApplied = await this.applyResumeGitCheckpoint(payload);
 
-      const pendingUserPrompt = await this.getPendingUserPrompt(taskRun);
+      const currentTaskRun = await this.refreshTaskRunForResume(
+        payload,
+        taskRun,
+      );
+      const pendingUserPrompt = await this.getPendingUserPrompt(currentTaskRun);
 
       const checkpointContext = checkpointApplied
         ? `The workspace environment (all files, packages, and code changes) has been fully restored from the latest checkpoint.`
@@ -2364,7 +2368,12 @@ export class AgentServer {
           ? false
           : await this.applyResumeGitCheckpoint(payload);
 
-        const pendingUserPrompt = await this.getPendingUserPrompt(taskRun);
+        const currentTaskRun = await this.refreshTaskRunForResume(
+          payload,
+          taskRun,
+        );
+        const pendingUserPrompt =
+          await this.getPendingUserPrompt(currentTaskRun);
         const prompt: ContentBlock[] = pendingUserPrompt?.prompt.length
           ? pendingUserPrompt.prompt
           : [
@@ -2389,6 +2398,22 @@ export class AgentServer {
       },
       { retryOnOversizedPrompt: true },
     );
+  }
+
+  private async refreshTaskRunForResume(
+    payload: JwtPayload,
+    fallback: TaskRun | null,
+  ): Promise<TaskRun | null> {
+    try {
+      return await this.posthogAPI.getTaskRun(payload.task_id, payload.run_id);
+    } catch (error) {
+      this.logger.debug("Failed to refresh task run before resume", {
+        taskId: payload.task_id,
+        runId: payload.run_id,
+        error,
+      });
+      return fallback;
+    }
   }
 
   /**
