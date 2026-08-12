@@ -6,8 +6,14 @@ request requires a non-empty ``query`` and supports ``from``/``to`` and
 ``limit`` (max 1000) but no documented page cursor, so listing walks the time
 range and recursively splits any window that fills a whole page; a window
 returning fewer than ``limit`` rows is provably complete. Documented search
-coverage is roughly the previous 90 days, so range starts are clamped to that
-horizon; older history is only available via the report tables.
+coverage is roughly the previous 90 days, which sets how far back a first sync
+reaches; the endpoint serves older payments too, so a configured ``start_date``
+reaching further back is honoured rather than clamped forward.
+
+A sync bounds its own API usage with per-run call budgets. Hitting one leaves the
+range incomplete, so it raises: returning would report the schema ``Completed``
+over months holding no rows. Each fully-drained window is checkpointed, so the
+retry resumes where the budget ran out.
 
 ``payment_actions``, ``customers`` and ``instruments`` have no listing
 endpoints at all, so their syncs walk the same payment windows and fan out to
@@ -48,9 +54,10 @@ SEARCH_PAGE_LIMIT = 1000
 # form (`field:>=value`) to match the documented `field:value` grammar; a bare
 # `amount>=0` appears in no official example.
 SEARCH_MATCH_ALL_QUERY = "amount:>=0"
-# Checkout.com documents payments search as covering roughly the previous 90 days, so
-# this is both the default backfill reach and the clamp for configured start dates and
-# stale watermarks; anything older can't come back from search.
+# Checkout.com documents payments search as covering roughly the previous 90 days, so this
+# is how far back a first sync reaches when nothing else says otherwise. It is a default,
+# not a limit: the endpoint serves well past its documented window, so a configured
+# `start_date` reaching further back is honoured rather than clamped forward.
 SEARCH_HORIZON = timedelta(days=90)
 REQUEST_TIMEOUT_SECONDS = 120
 # A window that still fills a whole page at this span can't be split further; anything
@@ -68,6 +75,19 @@ MAX_SEARCH_WINDOW = timedelta(days=90)
 MAX_SEARCH_REQUESTS_PER_SYNC = 2_000
 MAX_FANOUT_LOOKUPS_PER_SYNC = 10_000
 FANOUT_CHUNK_SIZE = 500
+
+# Stable marker so the source can classify a budget stop as retryable rather than a bug.
+SYNC_BUDGET_EXCEEDED_MARKER = "Checkout.com sync hit its per-run API budget"
+
+
+class CheckoutComSyncBudgetExceeded(Exception):
+    """A sync stopped at its per-run API call budget before covering its whole range.
+
+    Raised rather than returned. Returning cleanly reported the schema `Completed` with no
+    error while the range past the cut-off held no rows at all, so the gap was invisible:
+    `last_synced_at` moved, the table did not. Every window completed before the budget ran
+    out is checkpointed, so the retry resumes there instead of redoing the run.
+    """
 
 
 class _SyncBudget:
@@ -316,15 +336,6 @@ def _get_rows(
         resume.search_window_to if resume is not None else None,
         now,
     )
-    horizon_start = now - SEARCH_HORIZON
-    if start < horizon_start:
-        logger.warning(
-            "Checkout.com payments search covers roughly the previous 90 days; clamping the range start",
-            requested_start=_format_timestamp(start),
-            clamped_start=_format_timestamp(horizon_start),
-        )
-        start = horizon_start
-
     seen_ids: set[str] = set()
     chunk: list[dict[str, Any]] = []
     for window, payments in _iter_bounded_payment_windows(session, auth, hosts["api"], start, now, logger, budget):
@@ -359,13 +370,13 @@ def _get_rows(
             # next scheduled sync re-covers it (merge dedupes overlapping rows).
             break
         resumable_source_manager.save_state(CheckoutComResumeConfig(search_window_to=_format_timestamp(window.end)))
-    if budget.exhausted:
-        logger.warning(
-            "Checkout.com sync hit its per-run API budget; continuing from the last complete window next run",
-            schema=schema_name,
-        )
     if chunk:
         yield chunk
+    if budget.exhausted:
+        raise CheckoutComSyncBudgetExceeded(
+            f"{SYNC_BUDGET_EXCEEDED_MARKER} for {schema_name} before reaching "
+            f"{_format_timestamp(now)}; the range past the last complete window holds no rows yet"
+        )
 
 
 def checkout_com_payments_source(
