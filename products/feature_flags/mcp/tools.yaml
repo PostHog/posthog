@@ -266,7 +266,9 @@ tools:
             to see each flag's evaluated value and the reason for that evaluation (e.g. condition_match,
             no_condition_match, disabled). Pass flag_keys to scope the response to specific flags. This is strongly
             recommended on projects with many flags, since omitting it returns an entry for every flag and can produce a
-            very large payload.
+            very large payload. Flags that bucket by device hash on $device_id rather than distinct_id: the most recent
+            $device_id on the distinct_id's events is used automatically, and device_id can be passed to check a
+            specific device.
     feature-flags-matching-ids-retrieve:
         operation: feature_flags_matching_ids_retrieve
         enabled: false

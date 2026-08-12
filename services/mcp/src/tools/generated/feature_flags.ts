@@ -362,6 +362,7 @@ const featureFlagsEvaluationReasonsRetrieve = (): ToolBase<
             method: 'GET',
             path: `/api/projects/${encodeURIComponent(String(projectId))}/feature_flags/evaluation_reasons/`,
             query: {
+                device_id: params.device_id,
                 distinct_id: params.distinct_id,
                 flag_keys: params.flag_keys,
                 groups: params.groups,

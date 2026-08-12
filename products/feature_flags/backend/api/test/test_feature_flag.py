@@ -8,6 +8,7 @@ from posthog.test.base import (
     APIBaseTest,
     ClickhouseTestMixin,
     FuzzyInt,
+    _create_event,
     _create_person,
     flush_persons_and_events,
     snapshot_clickhouse_queries,
@@ -53,6 +54,7 @@ from products.dashboards.backend.models.dashboard import Dashboard
 from products.early_access_features.backend.models import EarlyAccessFeature
 from products.experiments.backend.models.experiment import Experiment
 from products.feature_flags.backend.api.feature_flag import FeatureFlagSerializer, parse_created_by_ids
+from products.feature_flags.backend.device_bucketing import resolve_device_id
 from products.feature_flags.backend.encrypted_flag_payloads import (
     REDACTED_PAYLOAD_VALUE,
     flag_payload_codec,
@@ -14071,3 +14073,83 @@ class TestFeatureFlagEvaluationReasons(APIBaseTest, ClickhouseTestMixin):
 
         self.assertEqual(response.status_code, status.HTTP_502_BAD_GATEWAY)
         self.assertIn("error", response.json())
+
+    @parameterized.expand(
+        [
+            ("resolved_from_events", "device_id", None, "device-from-events"),
+            ("explicit_param_wins", "device_id", "device-from-caller", "device-from-caller"),
+            ("skipped_when_no_flag_buckets_by_device", "distinct_id", None, None),
+        ]
+    )
+    @patch("products.feature_flags.backend.api.feature_flag.get_flags_from_service")
+    def test_evaluation_reasons_sends_device_id(
+        self, _name, bucketing_identifier, query_device_id, expected_device_id, mock_get_flags
+    ):
+        # A device-bucketed flag hashes on $device_id, and without one the flags service skips
+        # the condition and reports out_of_rollout_bound, which reads as "not in the rollout"
+        # even at 100%. The tab only knows a distinct id, so the device id has to come off the
+        # person's events unless the caller named one. Projects with no device-bucketed flag
+        # must not pay for that events query at all.
+        FeatureFlag.objects.create(
+            team=self.team,
+            key="banner-test",
+            bucketing_identifier=bucketing_identifier,
+        )
+        _create_person(team=self.team, distinct_ids=["user-1"])
+        _create_event(
+            team=self.team,
+            event="$pageview",
+            distinct_id="user-1",
+            properties={"$device_id": "device-from-events"},
+        )
+        flush_persons_and_events()
+        mock_get_flags.return_value = {"flags": {}}
+
+        query: dict[str, Any] = {"distinct_id": "user-1"}
+        if query_device_id:
+            query["device_id"] = query_device_id
+
+        response = self.client.get(
+            f"/api/projects/{self.team.pk}/feature_flags/evaluation_reasons/",
+            query,
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertEqual(mock_get_flags.call_args.kwargs["device_id"], expected_device_id)
+
+
+class TestResolveDeviceId(APIBaseTest, ClickhouseTestMixin):
+    @parameterized.expand(
+        [
+            ("most_recent", None, "newer-device"),
+            ("bounded_by_before", datetime(2026, 1, 2, 12, 0, tzinfo=UTC), "older-device"),
+        ]
+    )
+    def test_resolves_device_id(self, _name, before, expected_device_id):
+        # Hashing on a stale device id silently returns the wrong variant, so ordering matters,
+        # and point-in-time evaluation has to see the device used then rather than the latest one.
+        _create_person(team=self.team, distinct_ids=["user-1"])
+        for timestamp, device_id in [
+            ("2026-01-01T12:00:00Z", "older-device"),
+            ("2026-01-03T12:00:00Z", "newer-device"),
+        ]:
+            _create_event(
+                team=self.team,
+                event="$pageview",
+                distinct_id="user-1",
+                timestamp=timestamp,
+                properties={"$device_id": device_id},
+            )
+        flush_persons_and_events()
+
+        with freeze_time("2026-01-04T12:00:00Z"):
+            self.assertEqual(resolve_device_id(self.team, "user-1", before=before), expected_device_id)
+
+    def test_returns_none_when_events_carry_no_device_id(self):
+        # A server-only identity has no device id to find, and the caller has to be able to tell
+        # that apart from a resolved one rather than passing an empty string to the flags service.
+        _create_person(team=self.team, distinct_ids=["user-1"])
+        _create_event(team=self.team, event="$pageview", distinct_id="user-1", properties={})
+        flush_persons_and_events()
+
+        self.assertIsNone(resolve_device_id(self.team, "user-1"))

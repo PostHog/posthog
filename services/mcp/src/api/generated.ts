@@ -84477,6 +84477,10 @@ export namespace Schemas {
 
     export type FeatureFlagsEvaluationReasonsRetrieveParams = {
     /**
+     * Optional `$device_id` used to evaluate flags that bucket by device rather than by user. When omitted, the most recent `$device_id` on this distinct ID's events is used, so device-bucketed flags evaluate the same way they do for the SDK. Pass one explicitly to check a specific device.
+     */
+    device_id?: string;
+    /**
      * User distinct ID
      * @minLength 1
      */

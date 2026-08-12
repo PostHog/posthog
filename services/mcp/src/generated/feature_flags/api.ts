@@ -1081,6 +1081,12 @@ export const FeatureFlagsEvaluationReasonsRetrieveParams = /* @__PURE__ */ zod.o
 export const featureFlagsEvaluationReasonsRetrieveQueryGroupsDefault = `{}`
 
 export const FeatureFlagsEvaluationReasonsRetrieveQueryParams = /* @__PURE__ */ zod.object({
+    device_id: zod
+        .string()
+        .optional()
+        .describe(
+            "Optional `$device_id` used to evaluate flags that bucket by device rather than by user. When omitted, the most recent `$device_id` on this distinct ID's events is used, so device-bucketed flags evaluate the same way they do for the SDK. Pass one explicitly to check a specific device."
+        ),
     distinct_id: zod.string().min(1).describe('User distinct ID'),
     flag_keys: zod
         .array(zod.string())

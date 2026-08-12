@@ -1,7 +1,7 @@
 import { useActions, useValues } from 'kea'
 
 import { IconInfo } from '@posthog/icons'
-import { LemonInput, LemonSelect, LemonSnack, LemonTable, LemonTag, Tooltip } from '@posthog/lemon-ui'
+import { LemonInput, LemonSelect, LemonSnack, LemonTable, LemonTag, Link, Tooltip } from '@posthog/lemon-ui'
 
 import { LemonTableColumns } from 'lib/lemon-ui/LemonTable'
 import { LemonTableLink } from 'lib/lemon-ui/LemonTable/LemonTableLink'
@@ -101,6 +101,15 @@ const columns: LemonTableColumns<RelatedFeatureFlag> = [
                                 If you are using local flag evaluation, you must ensure that you provide any person
                                 properties, groups, or group properties used to evaluate the release conditions of the
                                 flag.
+                            </div>
+                            <div>
+                                Flags that use{' '}
+                                <Link to="https://posthog.com/docs/feature-flags/device-bucketing">
+                                    device bucketing
+                                </Link>{' '}
+                                are evaluated with the most recent <code>$device_id</code> on this distinct ID's events.
+                                A distinct ID with no client-side events has no device ID to bucket on, so those flags
+                                show as not matched here.
                             </div>
                         </div>
                     }

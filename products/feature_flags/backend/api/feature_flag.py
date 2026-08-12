@@ -86,6 +86,7 @@ from products.cohorts.backend.models.util import get_all_cohort_dependencies
 from products.dashboards.backend.api.dashboard import Dashboard
 from products.experiments.backend.models.experiment import Experiment, flag_has_live_experiment
 from products.feature_flags.backend.api.remote_config_shadow import shadow_compare_remote_config
+from products.feature_flags.backend.device_bucketing import has_device_bucketed_flags, resolve_device_id
 from products.feature_flags.backend.encrypted_flag_payloads import (
     REDACTED_PAYLOAD_VALUE,
     encrypt_flag_payloads,
@@ -2358,6 +2359,16 @@ class FlagKeysField(serializers.ListField):
 
 class EvaluationReasonsQuerySerializer(serializers.Serializer):
     distinct_id = serializers.CharField(required=True, help_text="User distinct ID")
+    device_id = serializers.CharField(
+        required=False,
+        allow_blank=True,
+        help_text=(
+            "Optional `$device_id` used to evaluate flags that bucket by device rather than by user. "
+            "When omitted, the most recent `$device_id` on this distinct ID's events is used, so "
+            "device-bucketed flags evaluate the same way they do for the SDK. Pass one explicitly to "
+            "check a specific device."
+        ),
+    )
     groups = GroupsJSONField()
     flag_keys = FlagKeysField(
         help_text=(
@@ -3874,6 +3885,14 @@ class FeatureFlagViewSet(
 
         flag_keys = request.validated_query_data.get("flag_keys") or None
 
+        # A device-bucketed flag hashes on $device_id, and the caller (the person profile
+        # flags tab) only knows a distinct id. Without a device id the service skips those
+        # conditions and reports out_of_rollout_bound, so resolve one off the person's
+        # events to match what the SDK would send.
+        device_id = request.validated_query_data.get("device_id") or None
+        if not device_id and has_device_bucketed_flags(self.project_id, flag_keys):
+            device_id = resolve_device_id(self.team, distinct_id)
+
         # PostHog UI debug endpoint, not customer SDK traffic. Pass the internal
         # token so the call bypasses per-team billing. Retry the transient
         # connection blips (the service occasionally times out or refuses the
@@ -3886,6 +3905,7 @@ class FeatureFlagViewSet(
                 distinct_id=distinct_id,
                 groups=groups,
                 flag_keys=flag_keys,
+                device_id=device_id,
                 evaluation_runtime="all",
                 internal_request_token=settings.INTERNAL_REQUEST_TOKEN,
                 max_retries=2,
@@ -4241,6 +4261,13 @@ class FeatureFlagViewSet(
                     status=status.HTTP_500_INTERNAL_SERVER_ERROR,
                 )
 
+            # This flag hashes on $device_id, which the caller doesn't supply, so read the
+            # device the person was last seen on. Bounded by the evaluation timestamp when one
+            # was given, to stay consistent with the point-in-time person properties above.
+            device_id = None
+            if feature_flag.bucketing_identifier == "device_id":
+                device_id = resolve_device_id(self.team, evaluation_distinct_id, before=timestamp)
+
             rust_response = get_flags_from_service(
                 token=team_token,
                 distinct_id=evaluation_distinct_id,
@@ -4249,6 +4276,7 @@ class FeatureFlagViewSet(
                 person_properties=person_properties,
                 only_use_override_person_properties=timestamp is not None,
                 flag_keys=[feature_flag.key],
+                device_id=device_id,
                 internal_request_token=internal_token,
                 override_flags_definitions=override_definitions,
             )
