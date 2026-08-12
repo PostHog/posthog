@@ -282,6 +282,45 @@ class AccountTableSort:
     definition_id: UUID | None = None
 
 
+class AccountTableAggregation(str, Enum):
+    SUM = "sum"
+    AVERAGE = "avg"
+    MINIMUM = "min"
+    MAXIMUM = "max"
+    MEDIAN = "median"
+
+
+class AccountTableThresholdOperator(str, Enum):
+    GREATER_THAN = "gt"
+    GREATER_THAN_OR_EQUAL = "gte"
+    LESS_THAN = "lt"
+    LESS_THAN_OR_EQUAL = "lte"
+    EQUAL = "exact"
+    NOT_EQUAL = "is_not"
+
+
+@dataclass(frozen=True, kw_only=True)
+class AccountTableCountMetric:
+    pass
+
+
+@dataclass(frozen=True, kw_only=True)
+class AccountTableAggregateMetric:
+    aggregation: AccountTableAggregation
+    definition_id: UUID
+    scale: float | None = None
+
+
+@dataclass(frozen=True, kw_only=True)
+class AccountTableCountThresholdMetric:
+    definition_id: UUID
+    operator: AccountTableThresholdOperator
+    value: float
+
+
+AccountTableMetric = AccountTableCountMetric | AccountTableAggregateMetric | AccountTableCountThresholdMetric
+
+
 @dataclass(frozen=True, kw_only=True)
 class AccountTableCustomPropertyHistoryPoint:
     timestamp: datetime
@@ -599,6 +638,11 @@ class CustomPropertySourceView:
     sync_frequency_interval_seconds: float | None = None
     next_sync_at: datetime | None = None
     latest_run: "CustomPropertySyncRunView | None" = None
+    # Person-target warehouse binding, for naming and linking to the table this source reads.
+    # ``external_data_source`` is the warehouse source owning the schema; ``table_name`` is the
+    # table as it is named in HogQL. Both None for account sources.
+    external_data_source: UUID | None = None
+    table_name: str | None = None
 
 
 @stdlib_dataclass(frozen=True)

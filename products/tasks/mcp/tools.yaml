@@ -99,6 +99,9 @@ tools:
     code-invites-redeem-create:
         operation: code_invites_redeem_create
         enabled: false
+    code-sandbox-pricing-list:
+        operation: code_sandbox_pricing_list
+        enabled: false
     loops-create:
         operation: loops_create
         enabled: true
@@ -607,6 +610,9 @@ tools:
         enabled: false
     tasks-runs-task-session-sync-create:
         operation: tasks_runs_task_session_sync_create
+        enabled: false
+    tasks-search-retrieve:
+        operation: tasks_search_retrieve
         enabled: false
     tasks-slack-thread-context-retrieve:
         operation: tasks_slack_thread_context_retrieve

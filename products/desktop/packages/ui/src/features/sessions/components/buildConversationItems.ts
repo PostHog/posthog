@@ -227,6 +227,30 @@ export interface BuildConversationOptions {
   showDebugLogs?: boolean;
 }
 
+/**
+ * The single ordering policy every conversation builder reads events in:
+ * ascending timestamp, ties keeping arrival order (`Array.sort` is stable).
+ * Returns `events` untouched when it already ascends — the normal streaming
+ * case — so the common path costs a scan rather than a copy and a sort.
+ *
+ * Both full builders and the incremental one must agree here, or the same
+ * transcript renders in one order while a turn streams and another once it
+ * settles.
+ */
+export function orderEventsByTimestamp<T>(
+  events: T[],
+  timestampOf: (event: T) => number,
+): T[] {
+  for (let i = 1; i < events.length; i++) {
+    if (timestampOf(events[i]) < timestampOf(events[i - 1])) {
+      return events.toSorted(
+        (left, right) => timestampOf(left) - timestampOf(right),
+      );
+    }
+  }
+  return events;
+}
+
 export function buildConversationItems(
   events: AcpMessage[],
   isPromptPending: boolean | null,
@@ -234,13 +258,7 @@ export function buildConversationItems(
 ): BuildResult {
   const b = createItemBuilder();
 
-  let ordered = events;
-  for (let i = 1; i < events.length; i++) {
-    if (events[i].ts < events[i - 1].ts) {
-      ordered = [...events].sort((a, b) => a.ts - b.ts);
-      break;
-    }
-  }
+  const ordered = orderEventsByTimestamp(events, (event) => event.ts);
   for (const event of ordered) {
     processEvent(b, event, options);
   }
@@ -295,9 +313,7 @@ export function buildAgentConversationItems(
   isPromptPending: boolean | null,
 ): BuildResult {
   const b = createItemBuilder();
-  const ordered = [...events].sort(
-    (left, right) => left.timestamp - right.timestamp,
-  );
+  const ordered = orderEventsByTimestamp(events, (event) => event.timestamp);
 
   for (const event of ordered) {
     processAgentConversationEvent(b, event);

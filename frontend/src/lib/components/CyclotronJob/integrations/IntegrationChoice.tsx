@@ -100,6 +100,7 @@ export function IntegrationChoice({
         : oauthUnavailable
           ? {
                 to: urls.settings('project-integrations'),
+                targetBlank: true,
                 sideIcon: <IconExternal />,
                 label: `${kindName} is not configured on this instance`,
             }
@@ -138,6 +139,7 @@ export function IntegrationChoice({
                     items: [
                         {
                             to: urls.settings('project-integrations'),
+                            targetBlank: true,
                             label: 'Manage integrations',
                             sideIcon: <IconExternal />,
                         },
