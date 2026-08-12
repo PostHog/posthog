@@ -16,6 +16,7 @@ describe('SyncFrequencySelect', () => {
             floor: { label: '6 hours', blocker: blocker('stripe_invoices') },
             ceiling: { label: '12 hours', blocker: blocker('daily_revenue') },
             best_effort_sources: [],
+            best_effort_sources_withheld: false,
             ...overrides,
         }) as SyncFrequencyBoundsApi
 
@@ -109,5 +110,70 @@ describe('SyncFrequencySelect', () => {
         const explanation = buildExplanation(bounds({ best_effort_sources: [blocker('hubspot_contacts')] }))
 
         expect(explanation).toContain('hubspot_contacts has no sync schedule')
+    })
+
+    describe('a blocker outside the caller access grants', () => {
+        // The backend nulls the whole blocker rather than blanking its name, so every surface that
+        // would have named it has to still say which direction blocks the cadence.
+        it('keeps the direction on a blocked segment', () => {
+            const options = buildOptions(
+                bounds({
+                    options: [
+                        { cadence: '15min', allowed: false, blocked_by: 'source', blocker: null },
+                        { cadence: '24hour', allowed: false, blocked_by: 'consumer', blocker: null },
+                    ],
+                } as Partial<SyncFrequencyBoundsApi>)
+            )
+
+            expect(options.find((option) => option.value === '15min')?.disabledReason).toBe(
+                'More often than the sources this view reads'
+            )
+            expect(options.find((option) => option.value === '24hour')?.disabledReason).toBe(
+                'Too slow for something built on this view'
+            )
+        })
+
+        it('still states the range under the bar', () => {
+            const explanation = buildExplanation(
+                bounds({
+                    floor: { label: '6 hours', blocker: null },
+                    ceiling: { label: '12 hours', blocker: null },
+                })
+            )
+
+            expect(explanation).toBe(
+                'Pick between 6 hours and 12 hours. An upstream source syncs every 6 hours, ' +
+                    'and a downstream view refreshes every 12 hours.'
+            )
+        })
+
+        it('still explains why no cadence works', () => {
+            const nothingAllowed = bounds({
+                options: [{ cadence: '6hour', allowed: false, blocked_by: 'source', blocker: null }],
+                floor: { label: '6 hours', blocker: null },
+                ceiling: null,
+            } as Partial<SyncFrequencyBoundsApi>)
+
+            expect(unsatisfiableReason(nothingAllowed)).toBe(
+                'No cadence works here: an upstream source only syncs every 6 hours, ' +
+                    'less often than anything this can refresh at. Speed up an upstream source first.'
+            )
+        })
+
+        it('keeps the best-effort caveat when every such source is withheld', () => {
+            const explanation = buildExplanation(
+                bounds({ best_effort_sources: [], best_effort_sources_withheld: true })
+            )
+
+            expect(explanation).toContain('Some sources upstream have no sync schedule')
+        })
+
+        it('says there are more when only some are withheld', () => {
+            const explanation = buildExplanation(
+                bounds({ best_effort_sources: [blocker('hubspot_contacts')], best_effort_sources_withheld: true })
+            )
+
+            expect(explanation).toContain('hubspot_contacts and other sources upstream have no sync schedule')
+        })
     })
 })

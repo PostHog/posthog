@@ -42,6 +42,32 @@ _ORIGIN_POSTHOG = "posthog"
 _ORIGIN_WAREHOUSE = "warehouse"
 
 
+@dataclasses.dataclass(frozen=True, kw_only=True, slots=True)
+class NodeIdentity:
+    """What a node is in access-control terms, so a caller can decide whether to name it.
+
+    All three empty means the node predates the origin stamp, and a caller that redacts should
+    treat it as withheld rather than guess.
+    """
+
+    saved_query_id: str | None  # views, materialized views and endpoints, under `warehouse_view`
+    warehouse_table_id: str | None  # imported source tables, under `warehouse_table`
+    is_posthog_table: bool  # `events`, `persons` and friends, readable by anyone on the project
+
+
+def node_identity(node: Node) -> NodeIdentity:
+    """Resolve one node to the resource its name belongs to."""
+    if node.saved_query_id is not None:
+        return NodeIdentity(saved_query_id=str(node.saved_query_id), warehouse_table_id=None, is_posthog_table=False)
+    properties = node.properties or {}
+    table_id = properties.get(_WAREHOUSE_TABLE_ID_KEY)
+    return NodeIdentity(
+        saved_query_id=None,
+        warehouse_table_id=str(table_id) if table_id else None,
+        is_posthog_table=properties.get(_ORIGIN_KEY) == _ORIGIN_POSTHOG,
+    )
+
+
 def get_declared_target(node: Node) -> timedelta | None:
     """Return the node's declared freshness target, or None if it has none."""
     seconds = (node.properties or {}).get(_SYSTEM_KEY, {}).get(_FREQUENCY_KEY, {}).get(_TARGET_SECONDS_KEY)
@@ -187,6 +213,7 @@ class FrequencyGraph:
     source_intervals: dict[str, timedelta]  # per source (TABLE) node
     best_effort_source_ids: set[str]  # sources treated as STREAMING but not guaranteed
     names: dict[str, str]  # node id -> display name, so a bound can name what set it
+    identities: dict[str, NodeIdentity]  # node id -> the resource its name belongs to
 
 
 def build_frequency_graph(dag: DAG) -> FrequencyGraph:
@@ -219,6 +246,7 @@ def build_frequency_graph(dag: DAG) -> FrequencyGraph:
         source_intervals=source_intervals,
         best_effort_source_ids=best_effort,
         names={str(node.id): node.name for node in nodes},
+        identities={str(node.id): node_identity(node) for node in nodes},
     )
 
 
@@ -228,6 +256,7 @@ class SavedQueryFrequencyBounds:
 
     bounds: TargetBounds
     names: dict[str, str]  # node id -> display name, covering every blocker the bounds reference
+    identities: dict[str, NodeIdentity]  # node id -> the resource its name belongs to
     best_effort_source_ids: set[str]  # upstream sources with no schedule, so the floor is a guess
 
 
@@ -246,6 +275,7 @@ def saved_query_target_bounds(team_id: int, saved_query_id: str | uuid.UUID) -> 
 
     per_dag: list[TargetBounds] = []
     names: dict[str, str] = {}
+    identities: dict[str, NodeIdentity] = {}
     best_effort: set[str] = set()
     graphs: dict[str, FrequencyGraph] = {}
     for node in nodes:
@@ -263,12 +293,14 @@ def saved_query_target_bounds(team_id: int, saved_query_id: str | uuid.UUID) -> 
             )
         )
         names.update(graph.names)
+        identities.update(graph.identities)
         # a best-effort source elsewhere in the DAG says nothing about this node's freshness
         best_effort |= graph.best_effort_source_ids & ancestors_of(str(node.id), graph.edges)
 
     return SavedQueryFrequencyBounds(
         bounds=intersect_target_bounds(per_dag),
         names=names,
+        identities=identities,
         best_effort_source_ids=best_effort,
     )
 

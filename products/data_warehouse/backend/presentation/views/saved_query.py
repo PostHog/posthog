@@ -44,7 +44,7 @@ from posthog.models.activity_logging.activity_page import activity_page_response
 from posthog.rate_limit import MaterializationRateThrottle, RunSavedQueryRateThrottle
 from posthog.rbac.access_control_api_mixin import AccessControlViewSetMixin
 from posthog.rbac.query_access import assert_user_can_read_query
-from posthog.rbac.user_access_control import UserAccessControlSerializerMixin
+from posthog.rbac.user_access_control import UserAccessControl, UserAccessControlSerializerMixin
 from posthog.temporal.common.client import sync_connect
 
 from products.data_modeling.backend.facade.modeling import DataWarehouseModelPath
@@ -136,7 +136,9 @@ class SyncFrequencyBoundSerializer(serializers.Serializer):
         "`sync_frequency` value because a source can deliver on a cadence no `sync_frequency` names."
     )
     blocker = SyncFrequencyBlockerSerializer(
-        allow_null=True, help_text="Node that set this bound. Null when nothing identifiable set it."
+        allow_null=True,
+        help_text="Node that set this bound. Null when nothing identifiable set it, and also when it "
+        "sits outside the caller's access grants: the bound still applies, it just goes unnamed.",
     )
 
 
@@ -151,7 +153,9 @@ class SyncFrequencyOptionSerializer(serializers.Serializer):
         "Null when the cadence is allowed.",
     )
     blocker = SyncFrequencyBlockerSerializer(
-        allow_null=True, help_text="The source or consumer named in `blocked_by`. Null when allowed."
+        allow_null=True,
+        help_text="The source or consumer named in `blocked_by`. Null when allowed, and also when the "
+        "blocker sits outside the caller's access grants, where `blocked_by` still gives the direction.",
     )
 
 
@@ -188,7 +192,12 @@ class SyncFrequencyBoundsSerializer(serializers.Serializer):
     best_effort_sources = SyncFrequencyBlockerSerializer(
         many=True,
         help_text="Upstream sources with no sync schedule, so the floor is a guess: these arrive when "
-        "someone runs them, and refreshing more often than they really sync will serve stale data.",
+        "someone runs them, and refreshing more often than they really sync will serve stale data. "
+        "Only sources the caller may read are listed.",
+    )
+    best_effort_sources_withheld = serializers.BooleanField(
+        help_text="True when at least one such source sits outside the caller's access grants, so the "
+        "list above is incomplete and the caveat still applies."
     )
 
 
@@ -207,22 +216,79 @@ def _unbounded_frequency_payload(mode: str) -> dict[str, Any]:
         "floor": None,
         "ceiling": None,
         "best_effort_sources": [],
+        "best_effort_sources_withheld": False,
     }
 
 
-def _frequency_bounds_payload(resolved: Any) -> dict[str, Any]:
+def _blocker_node_ids(resolved: Any) -> set[str]:
+    """Every node the bounds would name, across the two bounds, the options and the best-effort list."""
+    node_ids: set[str] = set(resolved.best_effort_source_ids)
+    for bound in (resolved.bounds.floor, resolved.bounds.ceiling):
+        if bound is not None and bound.blocker is not None:
+            node_ids.add(bound.blocker)
+    node_ids.update(option.blocker for option in resolved.bounds.options if option.blocker is not None)
+    return node_ids
+
+
+def visible_blocker_names(resolved: Any, user_access_control: UserAccessControl | None) -> dict[str, str]:
+    """The blocker names this caller may read, keyed by node id.
+
+    Fails closed, and withholds the node id along with the name: an id on its own still answers
+    "something upstream of this view exists", which is what the grant is there to withhold. A node
+    with no resolvable resource (predating the origin stamp) is withheld for the same reason.
+    """
+    node_ids = _blocker_node_ids(resolved)
+    if not node_ids or user_access_control is None:
+        return {}
+
+    visible: dict[str, str] = {}
+    node_id_by_saved_query: dict[str, str] = {}
+    table_node_ids: list[str] = []
+    for node_id in node_ids:
+        identity = resolved.identities.get(node_id)
+        name = resolved.names.get(node_id)
+        if identity is None or name is None:
+            continue
+        if identity.is_posthog_table:
+            visible[node_id] = name  # events, persons and friends: readable by anyone on the project
+        elif identity.saved_query_id is not None:
+            node_id_by_saved_query[identity.saved_query_id] = node_id
+        elif identity.warehouse_table_id is not None:
+            table_node_ids.append(node_id)
+
+    if node_id_by_saved_query:
+        creators = DataWarehouseSavedQuery.objects.filter(id__in=node_id_by_saved_query).values_list(
+            "id", "created_by_id"
+        )
+        levels = user_access_control.bulk_object_access_levels(
+            "warehouse_view", [(str(pk), created_by) for pk, created_by in creators]
+        )
+        for saved_query_id, level in levels.items():
+            node_id = node_id_by_saved_query[saved_query_id]
+            if level is not None and level != "none":
+                visible[node_id] = resolved.names[node_id]
+
+    # `warehouse_table` falls back to `external_data_source`, which the bulk call refuses, so tables
+    # resolve at resource granularity: named for everyone who may read them, or for no one.
+    if table_node_ids and user_access_control.check_access_level_for_resource("warehouse_table", "viewer"):
+        visible.update({node_id: resolved.names[node_id] for node_id in table_node_ids})
+    return visible
+
+
+def _frequency_bounds_payload(resolved: Any, visible_names: dict[str, str]) -> dict[str, Any]:
     from products.data_modeling.backend.facade.api import humanize_cadence
 
     def blocker(node_id: str | None) -> dict[str, str] | None:
-        if node_id is None:
+        if node_id is None or node_id not in visible_names:
             return None
-        return {"id": node_id, "name": resolved.names.get(node_id, node_id)}
+        return {"id": node_id, "name": visible_names[node_id]}
 
     def bound(value: Any) -> dict[str, Any] | None:
         if value is None:
             return None
         return {"label": humanize_cadence(value.value), "blocker": blocker(value.blocker)}
 
+    best_effort = sorted(resolved.best_effort_source_ids)
     return {
         "frequency_mode": "tiered",
         "options": [
@@ -236,7 +302,8 @@ def _frequency_bounds_payload(resolved: Any) -> dict[str, Any]:
         ],
         "floor": bound(resolved.bounds.floor),
         "ceiling": bound(resolved.bounds.ceiling),
-        "best_effort_sources": [blocker(node_id) for node_id in sorted(resolved.best_effort_source_ids)],
+        "best_effort_sources": [blocker(node_id) for node_id in best_effort if node_id in visible_names],
+        "best_effort_sources_withheld": any(node_id not in visible_names for node_id in best_effort),
     }
 
 
@@ -392,7 +459,8 @@ class DataWarehouseSavedQuerySerializerMixin:
         resolved = saved_query_target_bounds(view.team_id, view.pk)
         if resolved is None:
             return _unbounded_frequency_payload("no_node")
-        return _frequency_bounds_payload(resolved)
+        visible = visible_blocker_names(resolved, self.user_access_control)  # type: ignore[attr-defined]
+        return _frequency_bounds_payload(resolved, visible)
 
     @extend_schema_field(serializers.CharField(allow_null=True))
     def get_managed_viewset_kind(self, view: DataWarehouseSavedQuery) -> DataWarehouseManagedViewsetKind | None:
@@ -835,16 +903,22 @@ class DataWarehouseSavedQuerySerializer(
                     UnsupportedFrequencyTargetError,
                     apply_saved_query_frequency_target,
                     declared_targets_by_saved_query,
+                    saved_query_target_bounds,
                 )
 
                 target = (
                     None if sync_frequency == "never" else sync_frequency_to_sync_frequency_interval(sync_frequency)
                 )
                 previous_target = declared_targets_by_saved_query(view.team_id, [view.pk]).get(str(view.pk))
+                # A refusal names what blocks the cadence, so it obeys the same grants the read
+                # payload does — otherwise one rejected PATCH reads back a name the caller was
+                # never shown. Withheld nodes fall back to generic prose inside the refusal.
+                bounds = saved_query_target_bounds(view.team_id, view.pk)
+                visible = visible_blocker_names(bounds, self.user_access_control) if bounds is not None else {}
                 try:
                     # Validates inside the transaction (a rejected frequency rolls the whole
                     # update back) and queues the schedule reconcile for after commit.
-                    nodes_written = apply_saved_query_frequency_target(view, target)
+                    nodes_written = apply_saved_query_frequency_target(view, target, names_override=visible)
                 except (UnsatisfiableFrequencyError, UnsupportedFrequencyTargetError) as e:
                     raise serializers.ValidationError(str(e))
                 if target is not None and nodes_written == 0:
@@ -1422,6 +1496,27 @@ class DataWarehouseSavedQueryViewSet(TeamAndOrgViewSetMixin, AccessControlViewSe
         params.is_valid(raise_exception=True)
         sync_frequency_interval = sync_frequency_to_sync_frequency_interval(params.validated_data["sync_frequency"])
 
+        from products.data_modeling.backend.facade.api import (
+            UnsatisfiableFrequencyError,
+            UnsupportedFrequencyTargetError,
+            check_saved_query_frequency_target,
+            saved_query_target_bounds,
+        )
+
+        if sync_frequency_interval is not None and self._team_frequency_mode() == "tiered":
+            # Ask before writing, so the ordinary refusal never has to be undone below. Names only
+            # what this caller may read, matching the bounds payload — otherwise one rejected
+            # materialize reads back a node they were never shown.
+            bounds = saved_query_target_bounds(self.team_id, saved_query.pk)
+            try:
+                check_saved_query_frequency_target(
+                    saved_query,
+                    sync_frequency_interval,
+                    names_override=visible_blocker_names(bounds, self.user_access_control) if bounds else {},
+                )
+            except (UnsatisfiableFrequencyError, UnsupportedFrequencyTargetError) as e:
+                raise serializers.ValidationError(str(e))
+
         should_unpause = saved_query.sync_frequency_interval is None
         previous_interval = saved_query.sync_frequency_interval
         previously_materialized = saved_query.is_materialized
@@ -1430,25 +1525,23 @@ class DataWarehouseSavedQueryViewSet(TeamAndOrgViewSetMixin, AccessControlViewSe
         saved_query.is_materialized = True
         saved_query.save(update_fields=["sync_frequency_interval", "is_materialized"])
 
-        from products.data_modeling.backend.facade.api import (
-            UnsatisfiableFrequencyError,
-            UnsupportedFrequencyTargetError,
-        )
-
         # Enable materialization - this handles model path setup and schedule creation
         # If this fails, it will set is_materialized = False
         try:
             saved_query.schedule_materialization(unpause=should_unpause, trigger_immediate_run=True)
-        except (UnsatisfiableFrequencyError, UnsupportedFrequencyTargetError) as e:
-            # The requested cadence can't be honored (e.g. finer than an upstream source
-            # delivers) — a request problem, not a server one. `schedule_materialization`
-            # deliberately re-raises these without applying its disable-on-failure contract, and
-            # this action is not inside an atomic block, so undo the enable by hand: otherwise the
-            # 400 leaves is_materialized=True behind and the UI reads the rejection as a success.
+        except (UnsatisfiableFrequencyError, UnsupportedFrequencyTargetError):
+            # The check above already refused every cadence the lineage forbids, so reaching here
+            # means the lineage moved mid-request. Say so plainly rather than forwarding a message
+            # built from unredacted names. `schedule_materialization` re-raises these without
+            # applying its disable-on-failure contract, and this action is not inside an atomic
+            # block, so undo the enable by hand: otherwise the 400 leaves is_materialized=True
+            # behind and the UI reads the rejection as a success.
             saved_query.sync_frequency_interval = previous_interval
             saved_query.is_materialized = previously_materialized
             saved_query.save(update_fields=["sync_frequency_interval", "is_materialized"])
-            raise serializers.ValidationError(str(e))
+            raise serializers.ValidationError(
+                "This view's lineage changed while we were setting it up. Reopen it and pick a cadence again."
+            )
 
         # Refresh from DB to check if schedule_materialization set is_materialized = False on failure
         saved_query.refresh_from_db()

@@ -1156,14 +1156,14 @@ export interface SyncFrequencyOptionApi {
      * * `source` - source
      * * `consumer` - consumer */
     blocked_by: SyncFrequencyBlockedByEnumApi | null
-    /** The source or consumer named in `blocked_by`. Null when allowed. */
+    /** The source or consumer named in `blocked_by`. Null when allowed, and also when the blocker sits outside the caller's access grants, where `blocked_by` still gives the direction. */
     blocker: SyncFrequencyBlockerApi | null
 }
 
 export interface SyncFrequencyBoundApi {
     /** The bounding cadence in plain English, for example '6 hours'. Matches the wording used in the error raised when an out-of-bounds cadence is written. Prose rather than a `sync_frequency` value because a source can deliver on a cadence no `sync_frequency` names. */
     label: string
-    /** Node that set this bound. Null when nothing identifiable set it. */
+    /** Node that set this bound. Null when nothing identifiable set it, and also when it sits outside the caller's access grants: the bound still applies, it just goes unnamed. */
     blocker: SyncFrequencyBlockerApi | null
 }
 
@@ -1182,8 +1182,10 @@ export interface SyncFrequencyBoundsApi {
     floor: SyncFrequencyBoundApi | null
     /** The slowest bound: no cadence coarser than this is allowed, because the consumer named here refreshes that often. Null when no consumer withholds a cadence. */
     ceiling: SyncFrequencyBoundApi | null
-    /** Upstream sources with no sync schedule, so the floor is a guess: these arrive when someone runs them, and refreshing more often than they really sync will serve stale data. */
+    /** Upstream sources with no sync schedule, so the floor is a guess: these arrive when someone runs them, and refreshing more often than they really sync will serve stale data. Only sources the caller may read are listed. */
     best_effort_sources: SyncFrequencyBlockerApi[]
+    /** True when at least one such source sits outside the caller's access grants, so the list above is incomplete and the caveat still applies. */
+    best_effort_sources_withheld: boolean
 }
 
 /**

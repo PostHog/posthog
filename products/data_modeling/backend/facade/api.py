@@ -28,6 +28,7 @@ _LAZY = {
     "delete_team_data_modeling_schedules": "logic.schedule_reconcile",
     "apply_saved_query_frequency_anchor": "logic.schedule_reconcile",
     "apply_saved_query_frequency_target": "logic.schedule_reconcile",
+    "check_saved_query_frequency_target": "logic.schedule_reconcile",
     "tiered_schedules_enabled": "logic.schedule_reconcile",
     "declared_targets_by_saved_query": "logic.node_frequency",
     "get_declared_target": "logic.node_frequency",

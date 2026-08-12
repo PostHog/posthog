@@ -1,3 +1,5 @@
+from datetime import timedelta
+
 import pytest
 from unittest.mock import Mock, patch
 
@@ -7,7 +9,8 @@ from rest_framework import status
 from posthog.models.organization import OrganizationMembership
 from posthog.models.user import User
 
-from products.data_modeling.backend.facade.models import DAG, DataWarehouseSavedQuery, Node, NodeType
+from products.data_modeling.backend.facade.models import DAG, DataWarehouseSavedQuery, Edge, Node, NodeType
+from products.data_modeling.backend.logic.node_frequency import set_declared_target
 from products.data_tools.backend.models.datawarehouse_saved_query_folder import DataWarehouseSavedQueryFolder
 from products.warehouse_sources.backend.facade.models import DataWarehouseCredential, DataWarehouseTable
 from products.warehouse_sources.backend.tests.api._access_control_base import WarehouseAccessControlTestMixin
@@ -374,3 +377,116 @@ class TestMaterializationRequiresUnderlyingAccess(WarehouseAccessControlTestMixi
         response = self.client.post(f"{self._base()}/materialize/")
 
         self.assertNotEqual(response.status_code, status.HTTP_403_FORBIDDEN)
+
+
+@pytest.mark.ee
+class TestSyncFrequencyBoundsAccessControl(WarehouseAccessControlTestMixin):
+    """The cadence bounds name what blocks a cadence, so they answer to the same grants the rest does."""
+
+    resource = "warehouse_objects"
+
+    def setUp(self):
+        super().setUp()
+        self.upstream = DataWarehouseSavedQuery.objects.create(
+            team=self.team,
+            name="upstream_view",
+            query={"kind": "HogQLQuery", "query": "select 1 as event"},
+            created_by=self.user,
+        )
+        self.consumer = DataWarehouseSavedQuery.objects.create(
+            team=self.team,
+            name="consumer_view",
+            query={"kind": "HogQLQuery", "query": "select event from upstream_view"},
+            created_by=self.user,
+        )
+        dag = DAG.objects.create(team=self.team, name="dag")
+        self.upstream_node = Node.objects.create(
+            team=self.team, dag=dag, name=self.upstream.name, saved_query=self.upstream, type=NodeType.VIEW
+        )
+        self.consumer_node = Node.objects.create(
+            team=self.team, dag=dag, name=self.consumer.name, saved_query=self.consumer, type=NodeType.VIEW
+        )
+        Edge.objects.create(team=self.team, dag=dag, source=self.upstream_node, target=self.consumer_node)
+        set_declared_target(self.consumer_node, timedelta(hours=6))
+
+    def _tiered(self):
+        return (
+            patch(
+                "products.data_warehouse.backend.presentation.views.saved_query.posthoganalytics.feature_enabled",
+                side_effect=lambda key, *args, **kwargs: key == "data-modeling-backend-v2",
+            ),
+            patch(
+                "products.data_modeling.backend.logic.schedule_reconcile.tiered_schedules_enabled",
+                return_value=True,
+            ),
+        )
+
+    def _read_upstream(self) -> tuple[dict, str]:
+        v2, tiered = self._tiered()
+        with v2, tiered:
+            response = self.client.get(f"/api/environments/{self.team.pk}/warehouse_saved_queries/{self.upstream.id}/")
+        self.assertEqual(response.status_code, status.HTTP_200_OK, response.content)
+        return response.json()["sync_frequency_bounds"], response.content.decode()
+
+    def _deny_the_consumer(self, user):
+        self._create_access_control(
+            user, resource="warehouse_view", resource_id=str(self.consumer.id), access_level="none"
+        )
+
+    def test_a_denied_consumer_sets_the_bound_without_being_named(self):
+        self._create_access_control(self.viewer_user, access_level="viewer")
+        self._deny_the_consumer(self.viewer_user)
+        self.client.force_login(self.viewer_user)
+
+        bounds, body = self._read_upstream()
+
+        # The bound itself survives: the caller still learns 24hour is out, and that a consumer did it.
+        self.assertEqual(bounds["ceiling"]["label"], "6 hours")
+        self.assertIsNone(bounds["ceiling"]["blocker"])
+        blocked = {option["cadence"]: option for option in bounds["options"] if not option["allowed"]}
+        self.assertEqual(blocked["24hour"]["blocked_by"], "consumer")
+        self.assertIsNone(blocked["24hour"]["blocker"])
+        # Neither the name nor the node id reaches the wire.
+        self.assertNotIn("consumer_view", body)
+        self.assertNotIn(str(self.consumer_node.id), body)
+
+    def test_the_same_consumer_is_named_for_a_caller_who_may_read_it(self):
+        self._create_access_control(self.viewer_user, access_level="viewer")
+        self.client.force_login(self.viewer_user)
+
+        bounds, body = self._read_upstream()
+
+        self.assertEqual(bounds["ceiling"]["blocker"]["name"], "consumer_view")
+        self.assertEqual(bounds["ceiling"]["blocker"]["id"], str(self.consumer_node.id))
+        self.assertIn("consumer_view", body)
+
+    def test_a_refused_cadence_withholds_the_name_the_read_withheld(self):
+        self._create_access_control(self.editor_user, access_level="editor")
+        self._deny_the_consumer(self.editor_user)
+        self.client.force_login(self.editor_user)
+
+        v2, tiered = self._tiered()
+        with v2, tiered, patch("products.data_modeling.backend.logic.schedule_reconcile.maybe_reconcile_dag"):
+            response = self.client.patch(
+                f"/api/environments/{self.team.pk}/warehouse_saved_queries/{self.upstream.id}/",
+                {"sync_frequency": "24hour"},
+            )
+
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST, response.content)
+        detail = response.content.decode()
+        self.assertNotIn("consumer_view", detail)
+        self.assertIn("6 hours", detail)
+
+    def test_a_refused_cadence_names_the_consumer_for_a_caller_who_may_read_it(self):
+        self._create_access_control(self.editor_user, access_level="editor")
+        self.client.force_login(self.editor_user)
+
+        v2, tiered = self._tiered()
+        with v2, tiered, patch("products.data_modeling.backend.logic.schedule_reconcile.maybe_reconcile_dag"):
+            response = self.client.patch(
+                f"/api/environments/{self.team.pk}/warehouse_saved_queries/{self.upstream.id}/",
+                {"sync_frequency": "24hour"},
+            )
+
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST, response.content)
+        self.assertIn("consumer_view", response.content.decode())

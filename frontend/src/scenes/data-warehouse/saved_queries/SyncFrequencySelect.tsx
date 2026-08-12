@@ -121,14 +121,17 @@ function segment(cadence: DataModelingSyncInterval): LemonSegmentedButtonOption<
 /**
  * Terse on purpose: the line under the bar already spells out both bounds, so a segment only has to
  * say which direction it falls outside and who holds that end.
+ *
+ * A blocker the caller may not read arrives as `null`, so keep the direction and drop the name
+ * rather than falling through to something that says neither.
  */
 function blockedReason(option: SyncFrequencyBoundsApi['options'][number], bounds: SyncFrequencyBoundsApi): string {
     const name = option.blocker?.name
-    if (option.blocked_by === 'source' && name && bounds.floor) {
-        return `More often than ${name} syncs`
+    if (option.blocked_by === 'source' && bounds.floor) {
+        return name ? `More often than ${name} syncs` : 'More often than the sources this view reads'
     }
-    if (option.blocked_by === 'consumer' && name && bounds.ceiling) {
-        return `Too slow for ${name}`
+    if (option.blocked_by === 'consumer' && bounds.ceiling) {
+        return name ? `Too slow for ${name}` : 'Too slow for something built on this view'
     }
     return 'Not available for this view'
 }
@@ -145,7 +148,7 @@ export function unsatisfiableReason(bounds?: SyncFrequencyBoundsApi | null): str
         return null
     }
 
-    const source = bounds.floor?.blocker?.name ?? 'the sources this query reads'
+    const source = bounds.floor?.blocker?.name ?? 'an upstream source'
     const consumer = bounds.ceiling?.blocker?.name ?? 'a view or endpoint built on this one'
     if (bounds.floor && bounds.ceiling) {
         return (
@@ -201,25 +204,34 @@ export function buildExplanation(bounds?: SyncFrequencyBoundsApi | null): string
     }
 
     const parts: string[] = []
+    // A withheld blocker still has to hold its slot in the sentence, and the two slots read
+    // differently: one opens a sentence, one sits mid-clause.
     const floorName = bounds.floor?.blocker?.name ?? 'An upstream source'
-    const ceilingName = bounds.ceiling?.blocker?.name ?? 'A downstream view'
+    const ceilingLead = bounds.ceiling?.blocker?.name ?? 'A downstream view'
+    const ceilingMid = bounds.ceiling?.blocker?.name ?? 'a downstream view'
 
     if (bounds.floor && bounds.ceiling) {
         parts.push(
             `Pick between ${bounds.floor.label} and ${bounds.ceiling.label}. ` +
                 `${floorName} syncs every ${bounds.floor.label}, ` +
-                `and ${ceilingName} refreshes every ${bounds.ceiling.label}.`
+                `and ${ceilingMid} refreshes every ${bounds.ceiling.label}.`
         )
     } else if (bounds.floor) {
         parts.push(`${floorName} syncs every ${bounds.floor.label}, so this can't refresh more often.`)
     } else if (bounds.ceiling) {
-        parts.push(`${ceilingName} refreshes every ${bounds.ceiling.label}, so this can't refresh less often.`)
+        parts.push(`${ceilingLead} refreshes every ${bounds.ceiling.label}, so this can't refresh less often.`)
     }
 
-    if (bounds.best_effort_sources.length) {
-        const names = bounds.best_effort_sources.map((source) => source.name).join(', ')
-        const verb = bounds.best_effort_sources.length > 1 ? 'have' : 'has'
-        parts.push(`${names} ${verb} no sync schedule, so refreshing more often won't make that data any newer.`)
+    const named = bounds.best_effort_sources.map((source) => source.name).filter(Boolean)
+    if (named.length || bounds.best_effort_sources_withheld) {
+        const subject = named.length
+            ? `${named.join(', ')}${bounds.best_effort_sources_withheld ? ' and other sources upstream' : ''}`
+            : 'Some sources upstream'
+        const plural = named.length > 1 || bounds.best_effort_sources_withheld || !named.length
+        parts.push(
+            `${subject} ${plural ? 'have' : 'has'} no sync schedule, ` +
+                `so refreshing more often won't make that data any newer.`
+        )
     }
 
     return parts.length ? parts.join(' ') : null

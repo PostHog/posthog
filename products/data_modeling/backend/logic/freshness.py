@@ -471,7 +471,7 @@ def _describe(node_id: str | None, names: Mapping[str, str] | None, fallback: st
 def _nothing_satisfiable_message(bounds: TargetBounds, names: Mapping[str, str] | None) -> str:
     """Explain a node with no legal cadence at all: crossed bounds, or a source slower than 30 days."""
     floor, ceiling = bounds.floor, bounds.ceiling
-    source = _describe(floor.blocker, names, "the sources this query reads") if floor else ""
+    source = _describe(floor.blocker, names, "an upstream source") if floor else ""
     consumer = _describe(ceiling.blocker, names, "a view or endpoint built on this one") if ceiling else ""
     if floor is not None and ceiling is not None:
         return (
@@ -527,7 +527,7 @@ def validate_declared_target(
     # direction. Bounds are inclusive, so the bound is always a legal answer, while "or slower" /
     # "or faster" promises room that may not exist: a 15min ceiling has nothing fresher to offer.
     if option.blocked_by == "source" and bounds.floor is not None:
-        source = _describe(option.blocker, names, "the sources this query reads")
+        source = _describe(option.blocker, names, "an upstream source")
         raise UnsatisfiableFrequencyError(
             f"Can't refresh every {humanize_cadence(target)}: {source} only syncs every"
             f" {humanize_cadence(bounds.floor.value)}."
