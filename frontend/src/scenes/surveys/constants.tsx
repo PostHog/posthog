@@ -68,6 +68,9 @@ export const SurveyMatchTypeLabels = {
     [SurveyMatchType.NotRegex]: allOperatorsMapping[SurveyMatchType.NotRegex],
 }
 
+/** Wait period we pre-fill when someone turns one on, either per survey or as the project default. */
+export const DEFAULT_SURVEY_WAIT_PERIOD_IN_DAYS = 30
+
 // Sync with posthog/constants.py
 export const defaultSurveyAppearance = {
     fontFamily: 'inherit',

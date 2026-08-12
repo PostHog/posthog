@@ -393,6 +393,14 @@ const TEAM_PROPERTIES_MAPPING: Record<keyof TeamType, (change: ActivityChange) =
             )
         }
 
+        if (before?.seenSurveyWaitPeriodInDays !== after?.seenSurveyWaitPeriodInDays) {
+            descriptions.push(
+                after?.seenSurveyWaitPeriodInDays
+                    ? `${preamble} default survey wait period was set to ${after.seenSurveyWaitPeriodInDays} days`
+                    : `${preamble} default survey wait period was removed`
+            )
+        }
+
         propertyChangeDesc('backgroundColor', (c) => c?.appearance?.backgroundColor)
         propertyChangeDesc('submitButtonColor', (c) => c?.appearance?.submitButtonColor)
         propertyChangeDesc('submitButtonTextColor', (c) => c?.appearance?.submitButtonTextColor)

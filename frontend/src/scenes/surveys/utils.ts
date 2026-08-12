@@ -37,6 +37,7 @@ import {
     SurveySchedule,
     SurveyStats,
     SurveyType,
+    TeamSurveyConfigType,
 } from '~/types'
 
 const sanitizeConfig = { ADD_ATTR: ['target'] }
@@ -267,6 +268,22 @@ export function sanitizeSurveyDisplayConditions(
     }
 
     return sanitized
+}
+
+/**
+ * Seeds a new survey's display conditions with the project's default wait period. A wait period already
+ * on the survey, such as one coming from a template, is left alone.
+ */
+export function applyTeamDefaultWaitPeriod(
+    displayConditions: SurveyDisplayConditions | null,
+    surveyConfig?: TeamSurveyConfigType | null
+): SurveyDisplayConditions | null {
+    const waitPeriod = surveyConfig?.seenSurveyWaitPeriodInDays
+    if (!waitPeriod || displayConditions?.seenSurveyWaitPeriodInDays) {
+        return displayConditions
+    }
+
+    return { actions: null, events: null, ...displayConditions, seenSurveyWaitPeriodInDays: waitPeriod }
 }
 
 export function sanitizeSurveyAppearance(

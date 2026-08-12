@@ -19,6 +19,7 @@ import {
 } from '~/types'
 
 import {
+    applyTeamDefaultWaitPeriod,
     buildSurveyExampleInvocationGlobals,
     buildPartialResponsesFilter,
     buildSurveyOptionalBooleanPropertyFilter,
@@ -442,6 +443,48 @@ describe('survey utils', () => {
             expect(result?.actions).toEqual({ values: [{ id: 123, name: 'test' }] })
             expect(result?.events).toEqual({ values: [{ name: 'test' }] })
             expect(result?.deviceTypes).toEqual(['mobile'])
+        })
+    })
+
+    describe('applyTeamDefaultWaitPeriod', () => {
+        it('seeds the project default onto conditions that have no wait period', () => {
+            expect(applyTeamDefaultWaitPeriod(null, { seenSurveyWaitPeriodInDays: 30 })).toEqual({
+                actions: null,
+                events: null,
+                seenSurveyWaitPeriodInDays: 30,
+            })
+            expect(
+                applyTeamDefaultWaitPeriod(
+                    { url: 'https://example.com', actions: null, events: null },
+                    {
+                        seenSurveyWaitPeriodInDays: 30,
+                    }
+                )
+            ).toEqual({
+                url: 'https://example.com',
+                actions: null,
+                events: null,
+                seenSurveyWaitPeriodInDays: 30,
+            })
+        })
+
+        it('keeps a wait period the survey already has', () => {
+            expect(
+                applyTeamDefaultWaitPeriod(
+                    { seenSurveyWaitPeriodInDays: 14, actions: null, events: null },
+                    {
+                        seenSurveyWaitPeriodInDays: 30,
+                    }
+                )
+            ).toEqual({ seenSurveyWaitPeriodInDays: 14, actions: null, events: null })
+        })
+
+        it.each([
+            ['no survey config', undefined],
+            ['no default set', {}],
+            ['default cleared', { seenSurveyWaitPeriodInDays: null }],
+        ])('leaves conditions untouched with %s', (_name, surveyConfig) => {
+            expect(applyTeamDefaultWaitPeriod(null, surveyConfig)).toBeNull()
         })
     })
 

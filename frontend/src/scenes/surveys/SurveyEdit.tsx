@@ -67,7 +67,12 @@ import {
 import { SurveyBranchingFlowModal } from './branching-flow/SurveyBranchingFlowModal'
 import { SurveyPublicContentNotice } from './components/SurveyPublicContentNotice'
 import { SurveyUrlAudienceEstimate } from './components/SurveyUrlAudienceEstimate'
-import { SURVEY_TYPE_LABEL_MAP, SurveyMatchTypeLabels, defaultSurveyFieldValues } from './constants'
+import {
+    DEFAULT_SURVEY_WAIT_PERIOD_IN_DAYS,
+    SURVEY_TYPE_LABEL_MAP,
+    SurveyMatchTypeLabels,
+    defaultSurveyFieldValues,
+} from './constants'
 import { COMMON_LANGUAGES, getBaseLanguage, getSurveyLanguageName } from './language'
 import { SurveyAPIEditor } from './SurveyAPIEditor'
 import { SurveyAppearancePreview } from './SurveyAppearancePreview'
@@ -1720,7 +1725,7 @@ export default function SurveyEdit({ id }: { id: string }): JSX.Element {
                                                                                               seenSurveyWaitPeriodInDays:
                                                                                                   checked
                                                                                                       ? value?.seenSurveyWaitPeriodInDays ||
-                                                                                                        30
+                                                                                                        DEFAULT_SURVEY_WAIT_PERIOD_IN_DAYS
                                                                                                       : null,
                                                                                           })
                                                                                       }}

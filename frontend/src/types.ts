@@ -736,6 +736,8 @@ export interface ProjectType extends ProjectBasicType {
 
 export interface TeamSurveyConfigType {
     appearance?: SurveyAppearance
+    /** Default wait period new surveys start with, in days. Null or absent means no wait period. */
+    seenSurveyWaitPeriodInDays?: number | null
 }
 
 export type SessionRecordingMaskingLevel = 'normal' | 'total-privacy' | 'free-love'

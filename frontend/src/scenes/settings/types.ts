@@ -257,6 +257,7 @@ export type SettingId =
     | 'snippet'
     | 'snippet-v2'
     | 'surveys-default-appearance'
+    | 'surveys-default-wait-period'
     | 'surveys-interface'
     | 'theme'
     | 'user-delete'

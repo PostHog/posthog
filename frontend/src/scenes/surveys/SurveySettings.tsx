@@ -3,7 +3,7 @@ import { DeepPartialMap, ValidationErrorType } from 'kea-forms'
 import { useState } from 'react'
 
 import { IconGear } from '@posthog/icons'
-import { LemonBanner, LemonButton, LemonSwitch, Link } from '@posthog/lemon-ui'
+import { LemonBanner, LemonButton, LemonCheckbox, LemonInput, LemonSwitch, Link } from '@posthog/lemon-ui'
 
 import { RestrictionScope, useRestrictedArea } from 'lib/components/RestrictedArea'
 import { TeamMembershipLevel } from 'lib/constants'
@@ -14,7 +14,7 @@ import { teamLogic } from 'scenes/teamLogic'
 
 import { SurveyAppearance } from '~/types'
 
-import { NEW_SURVEY, defaultSurveyAppearance } from './constants'
+import { DEFAULT_SURVEY_WAIT_PERIOD_IN_DAYS, NEW_SURVEY, defaultSurveyAppearance } from './constants'
 import { Customization } from './survey-appearance/SurveyCustomization'
 import { SurveyAppearancePreview } from './SurveyAppearancePreview'
 
@@ -133,6 +133,57 @@ export function SurveyDefaultAppearance(): JSX.Element {
                     </div>
                 )}
             </div>
+        </div>
+    )
+}
+
+export function SurveyDefaultWaitPeriod(): JSX.Element {
+    const { currentTeam, currentTeamLoading } = useValues(teamLogic)
+    const { updateCurrentTeam } = useActions(teamLogic)
+
+    const restrictedReason = useRestrictedArea({
+        scope: RestrictionScope.Project,
+        minimumAccessLevel: TeamMembershipLevel.Admin,
+    })
+
+    const savedWaitPeriod = currentTeam?.survey_config?.seenSurveyWaitPeriodInDays ?? null
+    const [waitPeriod, setWaitPeriod] = useState<number | null>(savedWaitPeriod)
+
+    return (
+        <div className="flex flex-col gap-2 items-start">
+            <div className="flex flex-wrap gap-2 items-center text-sm">
+                <LemonCheckbox
+                    checked={waitPeriod !== null}
+                    onChange={(checked) => setWaitPeriod(checked ? DEFAULT_SURVEY_WAIT_PERIOD_IN_DAYS : null)}
+                    label="Don't show a new survey if another one was shown to the user in the last"
+                    disabledReason={restrictedReason}
+                />
+                <LemonInput
+                    type="number"
+                    size="xsmall"
+                    min={1}
+                    value={waitPeriod ?? undefined}
+                    onChange={(value) => setWaitPeriod(value && value > 0 ? value : null)}
+                    className="w-16 tabular-nums"
+                    disabledReason={restrictedReason}
+                />
+                <span className="text-secondary">days.</span>
+            </div>
+            <LemonButton
+                type="primary"
+                onClick={() =>
+                    updateCurrentTeam({
+                        survey_config: {
+                            ...currentTeam?.survey_config,
+                            seenSurveyWaitPeriodInDays: waitPeriod,
+                        },
+                    })
+                }
+                loading={currentTeamLoading}
+                disabledReason={restrictedReason ?? (waitPeriod === savedWaitPeriod ? 'No changes to save' : undefined)}
+            >
+                Save wait period
+            </LemonButton>
         </div>
     )
 }

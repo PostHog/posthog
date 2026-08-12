@@ -132,6 +132,7 @@ import {
     DATE_FORMAT,
     type OpenEndedColumnMap,
     type SurveyQueryFilters,
+    applyTeamDefaultWaitPeriod,
     buildAggregateQuery,
     buildOpenEndedQuery,
     buildPartialResponsesFilter,
@@ -1669,6 +1670,10 @@ export const surveyLogic = kea<surveyLogicType>([
                         ...defaultSurveyAppearance,
                         ...teamLogic.values.currentTeam?.survey_config?.appearance,
                     }
+                    templatedSurvey.conditions = applyTeamDefaultWaitPeriod(
+                        templatedSurvey.conditions,
+                        teamLogic.values.currentTeam?.survey_config
+                    )
                     return templatedSurvey
                 }
 
@@ -1677,6 +1682,10 @@ export const surveyLogic = kea<surveyLogicType>([
                     ...defaultSurveyAppearance,
                     ...teamLogic.values.currentTeam?.survey_config?.appearance,
                 }
+                newSurvey.conditions = applyTeamDefaultWaitPeriod(
+                    newSurvey.conditions,
+                    teamLogic.values.currentTeam?.survey_config
+                )
 
                 return newSurvey
             },
@@ -3887,6 +3896,10 @@ export const surveyLogic = kea<surveyLogicType>([
                     ...defaultSurveyAppearance,
                     ...teamLogic.values.currentTeam?.survey_config?.appearance,
                 },
+                conditions: applyTeamDefaultWaitPeriod(
+                    NEW_SURVEY.conditions,
+                    teamLogic.values.currentTeam?.survey_config
+                ),
             } as NewSurvey | Survey,
             errors: ({ name, questions, appearance, type }) => {
                 const sanitizedAppearance = sanitizeSurveyAppearance(appearance)

@@ -41,6 +41,7 @@ import {
 import type { NewSurvey } from '../constants'
 import { surveyLogic } from '../surveyLogic'
 import { surveysLogic } from '../surveysLogic'
+import { applyTeamDefaultWaitPeriod } from '../utils'
 
 export type WizardStep = 'template' | 'questions' | 'where' | 'when' | 'appearance' | 'success'
 
@@ -477,7 +478,10 @@ export const surveyWizardLogic = kea<surveyWizardLogicType>([
             actions.setSurveyValue('schedule', isOnce ? SurveySchedule.Once : SurveySchedule.Recurring)
             actions.setSurveyValue('iteration_count', isOnce ? 0 : 10)
             actions.setSurveyValue('iteration_frequency_days', isOnce ? 0 : frequencyToDays[frequencyValue])
-            actions.setSurveyValue('conditions', template.conditions ?? null)
+            actions.setSurveyValue(
+                'conditions',
+                applyTeamDefaultWaitPeriod(template.conditions ?? null, values.currentTeam?.survey_config)
+            )
 
             actions.reportSurveyTemplateClicked(template.templateType, SURVEY_CREATED_SOURCE.SURVEY_WIZARD)
 

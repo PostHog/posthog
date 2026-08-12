@@ -7,7 +7,7 @@ import { PropertyFilters } from 'lib/components/PropertyFilters/PropertyFilters'
 import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
 import { LemonRadio } from 'lib/lemon-ui/LemonRadio'
 import { AddEventButton } from 'scenes/surveys/AddEventButton'
-import { MAX_ITERATION_COUNT } from 'scenes/surveys/constants'
+import { DEFAULT_SURVEY_WAIT_PERIOD_IN_DAYS, MAX_ITERATION_COUNT } from 'scenes/surveys/constants'
 import { doesSurveyRepeatOnEveryEvent } from 'scenes/surveys/utils'
 
 import {
@@ -351,7 +351,9 @@ export function WhenStep(): JSX.Element {
                 <div className="flex flex-wrap items-center gap-2 text-sm mt-5">
                     <LemonCheckbox
                         checked={seenSurveyWaitPeriodInDays != null}
-                        onChange={(checked) => setSeenSurveyWaitPeriod(checked ? 30 : null)}
+                        onChange={(checked) =>
+                            setSeenSurveyWaitPeriod(checked ? DEFAULT_SURVEY_WAIT_PERIOD_IN_DAYS : null)
+                        }
                         label="Don't show this survey if another one was shown to the user in the last"
                     />
                     <LemonInput

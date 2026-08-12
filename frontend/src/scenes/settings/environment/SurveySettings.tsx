@@ -1,1 +1,1 @@
-export { SurveyEnableToggle, SurveyDefaultAppearance } from 'scenes/surveys/SurveySettings'
+export { SurveyEnableToggle, SurveyDefaultAppearance, SurveyDefaultWaitPeriod } from 'scenes/surveys/SurveySettings'

@@ -129,7 +129,7 @@ import {
     ReplayNetworkHeadersPayloads,
 } from './environment/SessionRecordingSettings'
 import { SessionSummariesSettings } from './environment/SessionSummariesSettings'
-import { SurveyDefaultAppearance, SurveyEnableToggle } from './environment/SurveySettings'
+import { SurveyDefaultAppearance, SurveyDefaultWaitPeriod, SurveyEnableToggle } from './environment/SurveySettings'
 import { TeamAccessControl } from './environment/TeamAccessControl'
 import {
     TeamAuthorizedURLs,
@@ -1286,6 +1286,15 @@ export const SETTINGS_MAP: SettingSection[] = [
                 docsUrl: 'https://posthog.com/docs/surveys/creating-surveys#customizing-the-look-and-feel',
                 component: <SurveyDefaultAppearance />,
                 keywords: ['appearance', 'style', 'theme', 'customization', 'popup'],
+            },
+            {
+                id: 'surveys-default-wait-period',
+                title: 'Default survey wait period',
+                description:
+                    'New surveys start with this wait period, so they skip anyone who has already seen a survey recently. Individual surveys can override it.',
+                docsUrl: 'https://posthog.com/docs/surveys/creating-surveys#display-conditions',
+                component: <SurveyDefaultWaitPeriod />,
+                keywords: ['wait', 'period', 'frequency', 'delay', 'fatigue', 'display', 'conditions'],
             },
         ],
     },
