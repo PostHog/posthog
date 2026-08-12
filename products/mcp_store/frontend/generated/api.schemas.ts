@@ -436,11 +436,13 @@ export const MCPServiceAccountStatusEnumApi = {
 } as const
 
 /**
- * One agent's access to a gateway server.
+ * One agent's access to a gateway server, on behalf of one member.
  */
 export interface GatewayAgentAccessApi {
     /** Service account granted access. */
     service_account_id: string
+    /** The member whose connection the agent uses. */
+    user: UserBasicApi
     /** Agent display name. */
     name: string
     /** Agent identity handle, e.g. posthog-support. */
@@ -455,7 +457,7 @@ export interface GatewayAgentAccessApi {
      * @nullable
      */
     last_active_at: string | null
-    /** Admin who shared this server with the agent. */
+    /** Member who shared this server with the agent. */
     granted_by: UserBasicApi | null
 }
 
@@ -723,6 +725,8 @@ export const ConnectionStateEnumApi = {
 export interface MCPServiceAccountServerApi {
     /** Gateway server granted to the agent. */
     id: string
+    /** The member whose connection the agent uses. */
+    shared_by: UserBasicApi
     /** Server display name. */
     name: string
     /** Server description. */
@@ -793,10 +797,12 @@ export interface PatchedMCPServiceAccountUpdateApi {
 }
 
 export interface ServiceAccountAccessUpdateApi {
-    /** Gateway server to grant or revoke. */
+    /** Gateway server to share or stop sharing. */
     gateway_server_id: string
-    /** True grants access, false revokes it. */
+    /** True shares the caller's own connection with the agent, false removes the caller's share. */
     enabled: boolean
+    /** Only valid with enabled=false. Removes every member's share of this server with this agent, along with the agent's tool policies for it. Project admins only. */
+    all?: boolean
     /**
      * Optional agent-scope tool policies to set alongside the grant. At most 1,000 entries per request.
      * @maxItems 1000
