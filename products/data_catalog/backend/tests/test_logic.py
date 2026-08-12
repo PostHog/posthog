@@ -12,6 +12,7 @@ from products.data_catalog.backend.logic.drift import compute_drift
 from products.data_catalog.backend.logic.exceptions import MetricDrifted, SourceInsightUnavailable
 from products.data_catalog.backend.logic.metrics import (
     approve_metric,
+    approved_metric_summaries_for_team,
     refresh_metric_from_insight,
     soft_delete_metric,
     update_metric,
@@ -471,3 +472,39 @@ class TestUpdateInsightLink(BaseTest):
                 definition=_HOGQL_A,
                 source_insight_short_id=self._insight().short_id,
             )
+
+
+class TestApprovedMetricSummaries(BaseTest):
+    def test_only_approved_non_drifted_metrics_are_summarized(self) -> None:
+        # Anything beyond approved + non-drifted leaking into the summaries would surface an
+        # unapproved or stale definition as canonical in cross-product agent prompts.
+        approved = upsert_metric(
+            team=self.team,
+            user=self.user,
+            name="mrr",
+            display_name="MRR",
+            description="Monthly recurring revenue",
+            unit="usd",
+            definition=_HOGQL_A,
+        )
+        approve_metric(approved, self.user)
+
+        upsert_metric(team=self.team, user=self.user, name="proposed_only", description="d", definition=_HOGQL_A)
+
+        removed = upsert_metric(team=self.team, user=self.user, name="removed", description="d", definition=_HOGQL_A)
+        approve_metric(removed, self.user)
+        soft_delete_metric(removed, self.user)
+
+        insight = Insight.objects.create(team=self.team, created_by=self.user, query=_HOGQL_A)
+        drifted = upsert_metric(
+            team=self.team, user=self.user, name="drifted", description="d", source_insight_short_id=insight.short_id
+        )
+        approve_metric(drifted, self.user)
+        Insight.objects.filter(pk=insight.pk).update(query=_HOGQL_B)
+
+        summaries = approved_metric_summaries_for_team(self.team)
+
+        assert [s.name for s in summaries] == ["mrr"]
+        assert summaries[0].display_name == "MRR"
+        assert summaries[0].description == "Monthly recurring revenue"
+        assert summaries[0].unit == "usd"

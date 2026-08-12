@@ -27,6 +27,7 @@ from posthog.models.scoping import team_scope
 from posthog.models.utils import uuid7
 from posthog.sync import database_sync_to_async
 
+from products.data_catalog.backend.facade.contracts import GovernedMetricSummary
 from products.signals.backend.agent_runtime import AgentRuntime
 from products.signals.backend.models import SignalScoutConfig, SignalScoutRun
 from products.signals.backend.report_charts import ReportChart
@@ -558,6 +559,44 @@ class TestPromptBuilder(BaseTest):
         assert "information_schema.metrics" not in disabled
         assert "data-catalog-metric-run" not in disabled
 
+    def test_prefetched_catalog_listing_replaces_the_probe_instruction(self) -> None:
+        # When the harness pre-fetched the governed listing, rendering the probe-and-cache rule
+        # alongside it would steer the scout into redundant catalog queries; and a listing rendered
+        # for a flag-off team would steer it at tables that don't exist for it.
+        LLMSkill.objects.create(team=self.team, name="signals-scout-catalog-listing", description="s", body="watch")
+        loaded = load_skill_for_run(self.team, "signals-scout-catalog-listing")
+        kwargs: dict = {
+            "run_id": "00000000-0000-0000-0000-000000000abc",
+            "team_id": self.team.id,
+            "started_at": datetime(2026, 5, 1, 12, 34, 56, tzinfo=UTC),
+        }
+        summaries = [
+            GovernedMetricSummary(
+                name="scout_run_fail_pct",
+                display_name="Scout run failure rate",
+                description="Share of scout runs ending in terminal failure",
+                unit="percent",
+            )
+        ]
+
+        listed = build_run_prompt(loaded, **kwargs, data_catalog_enabled=True, governed_metrics=summaries)
+        assert "scout_run_fail_pct" in listed
+        assert "Share of scout runs ending in terminal failure" in listed
+        assert "data-catalog-metric-run" in listed
+        assert "Cache the lookup outcome" not in listed
+
+        empty = build_run_prompt(loaded, **kwargs, data_catalog_enabled=True, governed_metrics=[])
+        assert "no approved metrics" in empty
+        assert "Cache the lookup outcome" not in empty
+
+        # Lookup unavailable (None): fall back to the probe-and-cache prose rule unchanged.
+        fallback = build_run_prompt(loaded, **kwargs, data_catalog_enabled=True, governed_metrics=None)
+        assert "Cache the lookup outcome" in fallback
+
+        flag_off = build_run_prompt(loaded, **kwargs, governed_metrics=summaries)
+        assert "scout_run_fail_pct" not in flag_off
+        assert "data-catalog-metric-run" not in flag_off
+
     def test_report_channel_renders_report_persona_and_guidance(self) -> None:
         LLMSkill.objects.create(
             team=self.team,
@@ -1030,6 +1069,61 @@ async def test_catalog_steering_reaches_the_prompt_from_the_team_flag(ateam, aer
 
     assert run_result.status == apps.get_model("tasks", "TaskRun").Status.COMPLETED.value
     assert ("information_schema.metrics" in captured["prompt"]) is expect_rule
+
+
+@pytest.mark.asyncio
+@pytest.mark.django_db
+@pytest.mark.parametrize(
+    "summaries,expected_marker",
+    [
+        pytest.param(
+            [
+                GovernedMetricSummary(
+                    name="scout_run_fail_pct",
+                    display_name="Scout run failure rate",
+                    description="Share of scout runs ending in terminal failure",
+                    unit="percent",
+                )
+            ],
+            "scout_run_fail_pct",
+            id="listing_injected",
+        ),
+        # A summaries-read error must degrade to the probe-and-cache prose rule, not fail the
+        # run: like the flag read above, this resolves inside `_spawn_and_run`, so an error here
+        # would book a failed run and advance the pause streak over a prompt optimization.
+        pytest.param(RuntimeError("catalog read down"), "Cache the lookup outcome", id="lookup_error_falls_back"),
+    ],
+)
+async def test_governed_listing_reaches_the_prompt_from_the_catalog(ateam, aerrors_skill, summaries, expected_marker):
+    session, result = await database_sync_to_async(_make_fake_session, thread_sensitive=False)(ateam)
+    captured: dict = {}
+
+    async def _capture_start(*args, on_task_run_created=None, **kwargs):
+        captured.update(kwargs)
+        if on_task_run_created is not None:
+            await on_task_run_created(session.task_run)
+        return session, result
+
+    summaries_mock = (
+        MagicMock(side_effect=summaries) if isinstance(summaries, Exception) else MagicMock(return_value=summaries)
+    )
+    with (
+        patch("products.signals.backend.scout_harness.runner.MultiTurnSession.start", new=_capture_start),
+        patch("products.signals.backend.scout_harness.runner.is_data_catalog_enabled", return_value=True),
+        patch("products.signals.backend.scout_harness.runner.approved_metric_summaries_for_team", summaries_mock),
+        patch(
+            "products.signals.backend.scout_harness.runner.get_or_create_signals_sandbox_env",
+            return_value="env-id",
+        ),
+        patch(
+            "products.signals.backend.scout_harness.runner.resolve_acting_user_id_for_team",
+            return_value=42,
+        ),
+    ):
+        run_result = await arun_signals_scout(team_id=ateam.id, skill_name="signals-scout-errors")
+
+    assert run_result.status == apps.get_model("tasks", "TaskRun").Status.COMPLETED.value
+    assert expected_marker in captured["prompt"]
 
 
 @pytest.mark.asyncio

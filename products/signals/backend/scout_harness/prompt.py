@@ -4,11 +4,17 @@ import json
 import hashlib
 from datetime import datetime
 from pathlib import Path
+from typing import TYPE_CHECKING
 
 from pydantic import BaseModel, Field
 
 from products.signals.backend.report_charts import MAX_REPORT_CHARTS
 from products.signals.backend.scout_harness.skill_loader import LoadedSkill, SkillAuthor, skill_uses_report_channel
+
+if TYPE_CHECKING:
+    from collections.abc import Sequence
+
+    from products.data_catalog.backend.facade.contracts import GovernedMetricSummary
 
 
 def _compute_harness_prompt_version() -> str:
@@ -117,16 +123,61 @@ _HOW_A_RUN_WORKS_HEAD = """# How a run works
 2. **Check what the rest of the fleet has seen.** Call `scout-runs-list` again without `skill_name`, passing `text=<the entity or topic>` once per thing you're about to investigate. That filter is load-bearing: the call returns 20 rows by default, so on a full fleet an unfiltered page covers barely a day and a relevant sibling sorts out of view before you read it. Nothing matches? Move on, rather than reading the fleet's whole recent output. On a match, follow that run's `emitted_report_ids` / `edited_report_ids` into `inbox-reports-retrieve`, or its `emitted_finding_ids` via `scout-runs-emissions-list` for a sibling still on the signal channel, and read the evidence rather than the prose summary. This read is context-gathering only: ignore the tool output's guidance about associating your task with a report (`task_run` artefacts), which applies to a run actually working a report and would staple your run onto a sibling's.
 3. **Investigate.** Use the PostHog MCP read tools to gather evidence, discovering what's available at run time. Your skill body tells you *what* to look at."""
 
-# Rendered into the head's investigate step only when the team's data catalog is enabled, because
-# `system.information_schema.metrics` and `data-catalog-metric-run` don't exist for flag-off teams
-# and unconditioned steering would burn those runs' budget on failing queries.
-_METRICS_CATALOG_RULE = """ When a hypothesis rests on a named, reusable measure, business (revenue, MRR, churn, activation) or operational telemetry computed to monitor or report (cost per run, failure or error rates, latency, throughput), check the governed metrics catalog first – `SELECT name, description, status, is_drifted FROM system.information_schema.metrics` via `execute-sql` – and run an approved, non-drifted match with `data-catalog-metric-run` rather than hand-deriving it, even when your skill body ships its own SQL for that measure: a governed definition outranks a playbook query, and a number derived outside it must be labeled noncanonical. Cache the lookup outcome in your scratchpad (`catalog:<scope>:<measure>`, match or no-match plus date) and reuse a fresh entry instead of re-querying every run; re-verify an entry roughly a day old, and immediately when a canonical run reports drift or a status change. Schema, availability, and freshness checks stay schema-first; no catalog detour for those."""
+# Catalog steering renders into the head's investigate step only when the team's data catalog is
+# enabled, because `system.information_schema.metrics` and `data-catalog-metric-run` don't exist for
+# flag-off teams and unconditioned steering would burn those runs' budget on failing queries. It has
+# three variants keyed on whether the harness pre-fetched the governed listing (see
+# `_how_a_run_works_head`): the prose probe-and-cache rule alone produced probabilistic compliance
+# in production, with most scouts following their skill's prescribed SQL instead of checking, so
+# the harness now does the lookup itself and injects the result, and the probe rule survives only
+# as the fallback for a failed lookup.
+_METRICS_CATALOG_SCOPE = "When a hypothesis rests on a named, reusable measure, business (revenue, MRR, churn, activation) or operational telemetry computed to monitor or report (cost per run, failure or error rates, latency, throughput),"
+
+_METRICS_CATALOG_RULE = f""" {_METRICS_CATALOG_SCOPE} check the governed metrics catalog first – `SELECT name, description, status, is_drifted FROM system.information_schema.metrics` via `execute-sql` – and run an approved, non-drifted match with `data-catalog-metric-run` rather than hand-deriving it, even when your skill body ships its own SQL for that measure: a governed definition outranks a playbook query, and a number derived outside it must be labeled noncanonical. Cache the lookup outcome in your scratchpad (`catalog:<scope>:<measure>`, match or no-match plus date) and reuse a fresh entry instead of re-querying every run; re-verify an entry roughly a day old, and immediately when a canonical run reports drift or a status change. Schema, availability, and freshness checks stay schema-first; no catalog detour for those."""
+
+_METRICS_CATALOG_PREFETCHED = f""" {_METRICS_CATALOG_SCOPE} run it through the governed metrics catalog. This run's catalog lookup is already done – the listing below is the complete set of approved, non-drifted metrics right now, so do not re-run the lookup query. Run a listed match with `data-catalog-metric-run` rather than hand-deriving it, even when your skill body ships its own SQL for that measure: a governed definition outranks a playbook query. A measure not listed has no canonical definition today – derive it by hand and label the result noncanonical. Re-check the catalog (`SELECT name, description, status, is_drifted FROM system.information_schema.metrics` via `execute-sql`) only if a canonical run reports drift or a status change. Schema, availability, and freshness checks stay schema-first; no catalog detour for those.
+
+Approved metrics in this project's catalog:
+{{listing}}"""
+
+_METRICS_CATALOG_EMPTY = f""" {_METRICS_CATALOG_SCOPE} note that this run's catalog lookup is already done and the governed metrics catalog holds no approved metrics right now: derive each measure by hand, label the result noncanonical, and do not re-run the lookup query (`system.information_schema.metrics` via `execute-sql`) this run."""
+
+# Bounds keep the injected listing from crowding out the rest of the prompt on metric-heavy
+# catalogs; overflow points back at the lookup query, which is exactly the case where re-querying
+# is worth its cost.
+_GOVERNED_METRIC_LISTING_CAP = 40
+_GOVERNED_METRIC_DESCRIPTION_CAP = 240
 
 
-def _how_a_run_works_head(*, data_catalog_enabled: bool) -> str:
+def _governed_metric_listing(governed_metrics: Sequence[GovernedMetricSummary]) -> str:
+    lines = []
+    for metric in governed_metrics[:_GOVERNED_METRIC_LISTING_CAP]:
+        label = f" ({metric.display_name})" if metric.display_name and metric.display_name != metric.name else ""
+        unit = f", unit: {metric.unit}" if metric.unit else ""
+        description = metric.description
+        if len(description) > _GOVERNED_METRIC_DESCRIPTION_CAP:
+            description = description[: _GOVERNED_METRIC_DESCRIPTION_CAP - 1] + "…"
+        lines.append(f"- `{metric.name}`{label}{unit}: {description}")
+    overflow = len(governed_metrics) - _GOVERNED_METRIC_LISTING_CAP
+    if overflow > 0:
+        lines.append(
+            f"- …and {overflow} more: query `system.information_schema.metrics` via `execute-sql` for the full set."
+        )
+    return "\n".join(lines)
+
+
+def _how_a_run_works_head(
+    *, data_catalog_enabled: bool, governed_metrics: Sequence[GovernedMetricSummary] | None = None
+) -> str:
     if not data_catalog_enabled:
         return _HOW_A_RUN_WORKS_HEAD
-    return _HOW_A_RUN_WORKS_HEAD + _METRICS_CATALOG_RULE
+    if governed_metrics is None:
+        return _HOW_A_RUN_WORKS_HEAD + _METRICS_CATALOG_RULE
+    if not governed_metrics:
+        return _HOW_A_RUN_WORKS_HEAD + _METRICS_CATALOG_EMPTY
+    return _HOW_A_RUN_WORKS_HEAD + _METRICS_CATALOG_PREFETCHED.format(
+        listing=_governed_metric_listing(governed_metrics)
+    )
 
 
 # The close-out step is identical on every channel bar the word for what the run produces, and it is
@@ -674,13 +725,17 @@ Respond at end_turn with a single JSON object matching this schema:
 
 
 def _signal_tail_sections(
-    *, followup_section: str, structured_output_section: str = "", data_catalog_enabled: bool = False
+    *,
+    followup_section: str,
+    structured_output_section: str = "",
+    data_catalog_enabled: bool = False,
+    governed_metrics: Sequence[GovernedMetricSummary] | None = None,
 ) -> list[str]:
     """Signal-channel tail. `followup_section` is the per-run composed self-validation section —
     channel-matched, so it can't live in a static list; `structured_output_section` is likewise
     per-run composed (empty when the config carries no schema)."""
     return [
-        f"{_how_a_run_works_head(data_catalog_enabled=data_catalog_enabled)}\n{_HOW_A_RUN_WORKS_SIGNAL_STEPS}",
+        f"{_how_a_run_works_head(data_catalog_enabled=data_catalog_enabled, governed_metrics=governed_metrics)}\n{_HOW_A_RUN_WORKS_SIGNAL_STEPS}",
         # Ground rules lead the tail: the untrusted-input rule is stated once there, and the sections
         # that read an untrusted source point back at it rather than restating the reasoning.
         _GROUND_RULES,
@@ -710,6 +765,7 @@ def _report_tail_sections(
     github_read_access: bool = False,
     structured_output_section: str = "",
     data_catalog_enabled: bool = False,
+    governed_metrics: Sequence[GovernedMetricSummary] | None = None,
 ) -> list[str]:
     """Report-channel tail, tailored to the report tools the scout actually opted into.
 
@@ -723,7 +779,7 @@ def _report_tail_sections(
     `github_read_access` appends the `gh` evidence section only when the sandbox actually got a
     read-only GitHub token — every persona here can set reviewers (edit-only routes unrouted
     reports), so it slots in wherever reviewer guidance lives."""
-    head = _how_a_run_works_head(data_catalog_enabled=data_catalog_enabled)
+    head = _how_a_run_works_head(data_catalog_enabled=data_catalog_enabled, governed_metrics=governed_metrics)
     if can_emit and can_edit:
         how_a_run_works = f"{head}\n{_REPORT_STEPS_BOTH}\n{_REPORT_CLOSE_OUT_STEP}"
         channel_sections = [
@@ -827,6 +883,7 @@ def build_run_prompt(
     github_read_access: bool = False,
     structured_output_schema: dict | None = None,
     data_catalog_enabled: bool = False,
+    governed_metrics: Sequence[GovernedMetricSummary] | None = None,
 ) -> str:
     """Render the opening prompt for one scout run.
 
@@ -864,8 +921,11 @@ def build_run_prompt(
     `gh` in a tokenless run would just burn budget on 401s.
 
     `data_catalog_enabled` must mirror the team's `product-data-catalog` flag: it renders the
-    governed-metrics catalog-first rule, and the catalog surfaces it names don't exist for
-    flag-off teams (see the note on `_METRICS_CATALOG_RULE`).
+    governed-metrics catalog-first steering, and the catalog surfaces it names don't exist for
+    flag-off teams (see the note on `_METRICS_CATALOG_RULE`). `governed_metrics` is the
+    harness-side pre-fetch of the team's approved, non-drifted metrics: a list (even empty)
+    renders the injected listing so the run is catalog-aware without a probe query, and `None`
+    means the lookup was unavailable, falling back to the prose probe-and-cache rule.
 
     Every prompt carries the self-validation follow-ups section: the scout keeps a `followup:`
     scratchpad queue and decides for itself, run by run, whether to spend the run validating it —
@@ -893,6 +953,7 @@ def build_run_prompt(
             github_read_access=github_read_access,
             structured_output_section=structured_output_section,
             data_catalog_enabled=data_catalog_enabled,
+            governed_metrics=governed_metrics,
         )
         # Point the run-identity line at a report tool the scout can actually call — prefer authoring,
         # fall back to editing for an edit-only scout. Never name a tool that would fail closed.
@@ -903,6 +964,7 @@ def build_run_prompt(
             followup_section=followup_section,
             structured_output_section=structured_output_section,
             data_catalog_enabled=data_catalog_enabled,
+            governed_metrics=governed_metrics,
         )
         emit_tool = "scout-emit-signal"
     # Slot the origin-matched improvement channel between friction reporting and the output format
