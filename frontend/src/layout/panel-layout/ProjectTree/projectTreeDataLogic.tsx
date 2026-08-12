@@ -63,6 +63,9 @@ const SHORTCUTS_LOADER_TIMEOUT_MS = 10000
 export const PAGINATION_LIMIT = 100
 const PRODUCTS_SHOWN_WITH_SELECTED_PRODUCTS: Record<string, string[]> = {
     'LLM analytics': ['MCP analytics'],
+    // Replay vision only analyzes recordings Session replay captured, so on its own it has
+    // nothing to scan.
+    'Session replay': ['Replay vision'],
 }
 
 // Returns `shortcuts` reordered to match `orderedIds`. Any shortcut not referenced in

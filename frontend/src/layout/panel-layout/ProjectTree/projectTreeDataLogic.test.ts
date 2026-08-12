@@ -4,8 +4,10 @@ import posthog from 'posthog-js'
 import api from 'lib/api'
 import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
 
+import { UserProductListReason } from '~/queries/schema/schema-general'
 import { initKeaTests } from '~/test/init'
 
+import { customProductsLogic } from './customProductsLogic'
 import { projectTreeDataLogic } from './projectTreeDataLogic'
 
 describe('projectTreeDataLogic', () => {
@@ -28,6 +30,27 @@ describe('projectTreeDataLogic', () => {
     afterEach(() => {
         unmount?.()
         jest.restoreAllMocks()
+    })
+
+    it('shows Replay vision to anyone who pinned Session replay', () => {
+        customProductsLogic.actions.loadCustomProductsSuccess([
+            {
+                id: 'abc',
+                product_path: 'Session replay',
+                enabled: true,
+                reason: UserProductListReason.PRODUCT_INTENT,
+                reason_text: null,
+                created_at: '2026-01-01T00:00:00Z',
+                updated_at: '2026-01-01T00:00:00Z',
+            },
+        ])
+
+        const paths = logic.values
+            .getCustomProductTreeItems('')
+            .map((item) => (item.record as { path?: string } | undefined)?.path)
+
+        expect(paths).toContain('Session replay')
+        expect(paths).toContain('Replay vision')
     })
 
     it('handles null unfiled item responses', async () => {
