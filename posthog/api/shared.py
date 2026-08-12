@@ -69,23 +69,29 @@ class UserBasicSerializer(serializers.ModelSerializer):
         ]
 
     def get_hedgehog_config(self, user: User) -> Optional[dict]:
-        if user.hedgehog_config:
-            if user.hedgehog_config.get("version") == 2:
-                actor_options = user.hedgehog_config.get("actor_options", {})
-                return {
-                    "use_as_profile": user.hedgehog_config.get("use_as_profile"),
-                    "color": actor_options.get("color"),
-                    "accessories": actor_options.get("accessories"),
-                    "skin": actor_options.get("skin"),
-                }
-            else:
-                return {
-                    "use_as_profile": user.hedgehog_config.get("use_as_profile"),
-                    "color": user.hedgehog_config.get("color"),
-                    "accessories": user.hedgehog_config.get("accessories"),
-                    "skin": user.hedgehog_config.get("skin"),
-                }
-        return None
+        # Rows predating write validation can hold any JSON. This serializer is embedded in most
+        # user-facing responses, so a single malformed row must not break unrelated endpoints.
+        config = user.hedgehog_config
+        if not isinstance(config, dict) or not config:
+            return None
+
+        if config.get("version") == 2:
+            actor_options = config.get("actor_options")
+            if not isinstance(actor_options, dict):
+                actor_options = {}
+            return {
+                "use_as_profile": config.get("use_as_profile"),
+                "color": actor_options.get("color"),
+                "accessories": actor_options.get("accessories"),
+                "skin": actor_options.get("skin"),
+            }
+
+        return {
+            "use_as_profile": config.get("use_as_profile"),
+            "color": config.get("color"),
+            "accessories": config.get("accessories"),
+            "skin": config.get("skin"),
+        }
 
 
 class ProjectBasicSerializer(serializers.ModelSerializer):

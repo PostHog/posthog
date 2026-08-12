@@ -264,6 +264,31 @@ class TestUserAPI(APIBaseTest):
         assert response.status_code == status.HTTP_200_OK
         assert response.json() == {"a bag": "of data"}
 
+    @parameterized.expand(
+        [
+            ("a_list", ["nope"]),
+            ("a_string", "nope"),
+            ("a_number", 5),
+        ]
+    )
+    def test_hedgehog_config_rejects_non_object_bodies(self, _name, body):
+        response = self.client.patch("/api/users/@me/hedgehog_config/", body, content_type="application/json")
+
+        assert response.status_code == status.HTTP_400_BAD_REQUEST
+        self.user.refresh_from_db()
+        assert self.user.hedgehog_config is None
+
+    def test_hedgehog_config_rejects_oversized_bodies(self):
+        response = self.client.patch(
+            "/api/users/@me/hedgehog_config/",
+            {"accessories": ["x" * 20_000]},
+            content_type="application/json",
+        )
+
+        assert response.status_code == status.HTTP_400_BAD_REQUEST
+        self.user.refresh_from_db()
+        assert self.user.hedgehog_config is None
+
     def test_can_update_ui_configuration(self):
         configuration = {
             "version": 1,
@@ -2320,6 +2345,34 @@ class TestUserAPI(APIBaseTest):
                 "pipeline_notifications_disabled": {},  # Default value
             },
         )
+
+
+class TestUserHedgehogConfigValidation(SimpleTestCase):
+    @parameterized.expand(
+        [
+            ("a_list", ["nope"]),
+            ("a_string", "nope"),
+            ("a_number", 5),
+            ("oversized", {"accessories": ["x" * 20_000]}),
+        ]
+    )
+    def test_invalid_hedgehog_config_is_rejected(self, _name, value):
+        serializer = UserSerializer(data={"hedgehog_config": value}, partial=True)
+
+        self.assertFalse(serializer.is_valid())
+        self.assertIn("hedgehog_config", serializer.errors)
+
+    @parameterized.expand(
+        [
+            ("null", None),
+            ("empty", {}),
+            ("v2", {"version": 2, "actor_options": {"color": "green"}}),
+        ]
+    )
+    def test_valid_hedgehog_config_is_accepted(self, _name, value):
+        serializer = UserSerializer(data={"hedgehog_config": value}, partial=True)
+
+        self.assertTrue(serializer.is_valid(), serializer.errors)
 
 
 class TestUserUIConfigurationValidation(SimpleTestCase):

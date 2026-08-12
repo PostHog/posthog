@@ -32,6 +32,16 @@ class TestOrganizationMembersAPI(APIBaseTest, QueryMatchingTest):
         self.assertEqual(response_data[0]["user"]["uuid"], str(instance.user.uuid))
         self.assertEqual(response_data[0]["user"]["first_name"], instance.user.first_name)
 
+    def test_list_organization_members_survives_malformed_hedgehog_config(self):
+        poisoned = User.objects.create_and_join(self.organization, "poisoned@posthog.com", None)
+        poisoned.hedgehog_config = {"version": 2, "actor_options": None}
+        poisoned.save()
+
+        response = self.client.get("/api/organizations/@current/members/")
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertEqual(len(response.json()["results"]), 2)
+
     # def test_list_organization_members_is_not_nplus1(self):
     #     self.user.totpdevice_set.create(name="default", key=random_hex(), digits=6)  # type: ignore
     #     with self.assertNumQueries(9), snapshot_postgres_queries_context(self):

@@ -212,6 +212,23 @@ class OnboardingSkipRequestSerializer(serializers.Serializer):
     )
 
 
+# A hedgehog config is a small avatar customization object; anything larger is not a real profile.
+MAX_HEDGEHOG_CONFIG_BYTES = 10_000
+
+
+def validate_hedgehog_config_value(value: Any) -> Optional[dict]:
+    """Shared by the serializer and the dedicated hedgehog_config action, which writes without one."""
+    if value is None:
+        return None
+    if not isinstance(value, dict):
+        raise serializers.ValidationError("Must be an object.", code="invalid_input")
+    if len(json.dumps(value, default=str).encode("utf-8")) > MAX_HEDGEHOG_CONFIG_BYTES:
+        raise serializers.ValidationError(
+            f"Must be under {MAX_HEDGEHOG_CONFIG_BYTES} bytes when serialized.", code="invalid_input"
+        )
+    return value
+
+
 class UserSerializer(serializers.ModelSerializer):
     has_password = serializers.SerializerMethodField()
     is_impersonated = serializers.SerializerMethodField()
@@ -670,6 +687,9 @@ class UserSerializer(serializers.ModelSerializer):
                 current_settings[key] = value
 
         return cast(Notifications, current_settings)
+
+    def validate_hedgehog_config(self, value: Any) -> Optional[dict]:
+        return validate_hedgehog_config_value(value)
 
     def validate_ui_configuration(self, value: Optional[dict[str, Any]]) -> Optional[dict[str, Any]]:
         if value is None:
@@ -1355,7 +1375,7 @@ class UserViewSet(
         if request.method == "GET":
             return Response(instance.hedgehog_config or {})
         else:
-            instance.hedgehog_config = request.data
+            instance.hedgehog_config = validate_hedgehog_config_value(request.data)
             instance.save()
             return Response(instance.hedgehog_config)
 
