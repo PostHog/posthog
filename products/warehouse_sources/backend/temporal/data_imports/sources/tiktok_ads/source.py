@@ -43,6 +43,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.tiktok_ads
     TIKTOK_APP_TOKEN_MISMATCH_MESSAGE,
     TIKTOK_AUTH_ERROR_CODES,
     TIKTOK_NON_RETRYABLE_ERROR_PREFIX,
+    TIKTOK_PERMISSION_DENIED_FRAGMENT,
     TIKTOK_TRANSIENT_ERROR_CODES,
     TIKTOK_TRANSIENT_ERROR_MESSAGE,
     TikTokAdsAPIError,
@@ -72,7 +73,18 @@ class TikTokAdsSource(ResumableSource[TikTokAdsSourceConfig, TikTokAdsResumeConf
 
     def get_non_retryable_errors(self) -> dict[str, str | None]:
         return {
-            # TikTok client errors not in the retryable code set (e.g. 40001 — the advertiser
+            # MUST stay above TIKTOK_NON_RETRYABLE_ERROR_PREFIX: a permission denial arrives as a
+            # 40001 wrapped in that prefix, so it matches both keys. `external_data_job` collects
+            # every match in dict order and then drops the lot if the *first* one is None, so the
+            # specific entry has to come first or this message is silently discarded.
+            TIKTOK_PERMISSION_DENIED_FRAGMENT: (
+                "TikTok denied access to your creative library: the authorized advertiser account has not "
+                "granted PostHog permission to read creative assets. This only affects the creative_videos "
+                "and creative_images tables, which have been disabled. Your campaign, ad and report tables "
+                "keep syncing. If your TikTok admin can grant creative asset access, reconnect the TikTok Ads "
+                "integration and grant it when TikTok asks. Otherwise leave these two tables unselected."
+            ),
+            # Other TikTok client errors not in the retryable code set (e.g. 40001 — the advertiser
             # doesn't exist or has been deleted). The paginator raises these with this exact
             # prefix; retrying cannot recover, so fail the job fast. The raw message is kept as
             # the user-facing error since it names the specific advertiser and TikTok error code.
@@ -106,7 +118,10 @@ class TikTokAdsSource(ResumableSource[TikTokAdsSourceConfig, TikTokAdsResumeConf
                 "If TikTok's authorization page rejects the connection before returning to PostHog, this is "
                 "usually an account or region restriction on TikTok's side. Check that you have an admin role "
                 "in the TikTok Business Center you're connecting, and that TikTok Ads is available in your region. "
-                "If it still fails, copy the Log ID from TikTok's error page and contact support."
+                "If it still fails, copy the Log ID from TikTok's error page and contact support.\n\n"
+                "The creative_videos and creative_images tables additionally need creative asset access on the "
+                "advertiser account. If your advertiser hasn't granted it, leave those two tables unselected. "
+                "Every other table syncs without it."
             ),
             releaseStatus=ReleaseStatus.GA,
             iconPath="/static/services/tiktok.png",

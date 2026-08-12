@@ -85,11 +85,21 @@ def list_advertisers(access_token: str) -> list[dict]:
     return (body.get("data") or {}).get("list") or []
 
 
-# Prefix for the ValueError raised when TikTok returns a client error code that
-# is not in the retryable set (e.g. 40001 "advertiser doesn't exist or has been
-# deleted"). Retrying these never succeeds, so `TikTokAdsSource.get_non_retryable_errors`
-# matches on this exact prefix to fail the job fast instead of looping forever.
+# Prefix for the ValueError raised when TikTok returns a client error code that is not in the
+# retryable set. 40001 is a generic client-error bucket rather than a single failure: it covers
+# both "the advertiser doesn't exist or has been deleted" and per-endpoint permission denials
+# (see TIKTOK_PERMISSION_DENIED_FRAGMENT). Retrying any of these never succeeds, so
+# `TikTokAdsSource.get_non_retryable_errors` matches on this exact prefix to fail the job fast
+# instead of looping forever.
 TIKTOK_NON_RETRYABLE_ERROR_PREFIX = "TikTok API client error (non-retryable):"
+
+# TikTok permissions are declared on the app in the developer portal and granted per-advertiser at
+# authorization time — our authorize URL sends no `scope`, so we can't widen them after the fact.
+# An advertiser that didn't grant creative/asset read gets 40001 with this fragment on the creative
+# library endpoints (`/file/video/ad/search/`, `/file/image/ad/search/`), while every other table
+# keeps syncing. Matched as a substring, so keep it narrow: plain "permission" would swallow
+# unrelated 40001s.
+TIKTOK_PERMISSION_DENIED_FRAGMENT = "does not grant you"
 
 
 class TikTokAdsAPIError(Exception):
