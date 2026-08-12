@@ -217,16 +217,18 @@ class TestBudgetExhaustion:
         _mock_capture_event: MagicMock,
         _mock_capture_exception: MagicMock,
     ) -> None:
-        # A rewrite that wrote no new rows since the last checkpoint (rows_written == high_water) is
-        # stuck, so budget exhaustion counts as a real failed attempt.
+        # A rewrite that committed no new rows before the budget ran out (error carries rows_written=0)
+        # is stuck, so budget exhaustion counts as a real failed attempt. A persisted checkpoint that
+        # still holds rows from an earlier attempt must not mask that stall — progress is judged by what
+        # this attempt streamed, not by the checkpoint's size.
         schema = _schema(
             name="public.usages",
             s3_folder_name="usages",
-            pending={**PENDING_TARGET, "attempts": prior_attempts, "rewrite_high_water": 12},
+            pending={**PENDING_TARGET, "attempts": prior_attempts},
             rewrite={"rows_written": 12},
         )
         mock_schema_model.objects.select_related.return_value.get.return_value = schema
-        mock_repartition.side_effect = RepartitionBudgetExceededError("out of budget")
+        mock_repartition.side_effect = RepartitionBudgetExceededError("out of budget", rows_written=0)
 
         _maybe_repartition_table(
             RepartitionActivityInputs(team_id=TEAM_ID, schema_id=SCHEMA_ID, job_id=JOB_ID, source_id=SOURCE_ID),
@@ -246,7 +248,18 @@ class TestBudgetExhaustion:
             schema.stamp_last_repartition_at.assert_not_called()
             schema.clear_repartition_rewrite.assert_not_called()
 
-    @parameterized.expand([("first_attempt", 0, 0), ("last_attempt_before_give_up", 2, 100)])
+    @parameterized.expand(
+        [
+            # A checkpoint that never persisted (the post-budget row count hit a transient read error)
+            # leaves no `repartition_rewrite`; the rows this attempt streamed are still forward progress.
+            ("checkpoint_did_not_persist", 0, None, None),
+            # A checkpoint rebuilt from row 0 (live changed between attempts, so the prior one was
+            # discarded) sits far below a `rewrite_high_water` left over from the discarded temp. Judged
+            # against that stale baseline the attempt reads as a stall; judged by what it streamed it is
+            # progress — and this is the last attempt before the cap, so a misjudgement gives up terminally.
+            ("stale_high_water_after_discard", 2, {"rows_written": 5}, 100_000),
+        ]
+    )
     @patch(f"{MODULE}.capture_exception")
     @patch(f"{MODULE}.capture_repartition_event")
     @patch(f"{MODULE}.HeartbeaterSync")
@@ -259,7 +272,8 @@ class TestBudgetExhaustion:
         self,
         _name: str,
         prior_attempts: int,
-        prior_high_water: int,
+        rewrite: dict | None,
+        stale_high_water: int | None,
         mock_schema_model: MagicMock,
         _mock_job_model: MagicMock,
         _mock_enabled: MagicMock,
@@ -269,18 +283,16 @@ class TestBudgetExhaustion:
         mock_capture_event: MagicMock,
         _mock_capture_exception: MagicMock,
     ) -> None:
-        # The checkpoint advanced (rows_written > high_water), so a table too large for one budget is
-        # converging across runs. It must never give up — even sitting at the last attempt before the
-        # cap — and must reset the failure counter and record the new high-water mark so the next run
-        # resumes rather than re-streaming from row 0.
-        schema = _schema(
-            name="public.usages",
-            s3_folder_name="usages",
-            pending={**PENDING_TARGET, "attempts": prior_attempts, "rewrite_high_water": prior_high_water},
-            rewrite={"rows_written": prior_high_water + 500},
-        )
+        # This attempt streamed new rows, so a table too large for one budget is converging across runs.
+        # It must never give up — even sitting at the last attempt before the cap — and must reset the
+        # failure counter, regardless of whether a checkpoint persisted or the recorded high-water mark
+        # is stale from a discarded temp.
+        pending = {**PENDING_TARGET, "attempts": prior_attempts}
+        if stale_high_water is not None:
+            pending["rewrite_high_water"] = stale_high_water
+        schema = _schema(name="public.usages", s3_folder_name="usages", pending=pending, rewrite=rewrite)
         mock_schema_model.objects.select_related.return_value.get.return_value = schema
-        mock_repartition.side_effect = RepartitionBudgetExceededError("out of budget")
+        mock_repartition.side_effect = RepartitionBudgetExceededError("out of budget", rows_written=500)
 
         _maybe_repartition_table(
             RepartitionActivityInputs(team_id=TEAM_ID, schema_id=SCHEMA_ID, job_id=JOB_ID, source_id=SOURCE_ID),
@@ -290,9 +302,7 @@ class TestBudgetExhaustion:
         schema.clear_repartition_pending.assert_not_called()
         schema.clear_repartition_rewrite.assert_not_called()
         schema.stamp_last_repartition_at.assert_not_called()
-        updated = schema.set_repartition_pending.call_args.args[0]
-        assert updated["attempts"] == 0
-        assert updated["rewrite_high_water"] == prior_high_water + 500
+        assert schema.set_repartition_pending.call_args.args[0]["attempts"] == 0
         emitted = [c.args[0] for c in mock_capture_event.call_args_list]
         assert "warehouse_repartition_failed" not in emitted
         assert "warehouse_repartition_skipped" in emitted

@@ -518,11 +518,17 @@ def _handle_budget_exceeded(
     """Record a rewrite that ran out of one activity's budget, distinguishing progress from a stall.
 
     Checkpoint/resume lets a table too large to rewrite in one activity converge across runs (see
-    `RepartitionBudgetExceededError`), so an attempt that advanced the checkpoint is forward progress,
-    not a failure: counting it against the finite `MAX_REPARTITION_ATTEMPTS` would abandon a table that
-    simply needs more than three budgets mid-convergence and leave it un-repartitioned. Only an attempt
-    that wrote no new rows since the last checkpoint is stuck; that one falls through to
-    `_handle_failure` so a rewrite which genuinely can't advance in one budget still gives up.
+    `RepartitionBudgetExceededError`), so an attempt that streamed new rows is forward progress, not a
+    failure: counting it against the finite `MAX_REPARTITION_ATTEMPTS` would abandon a table that simply
+    needs more than three budgets mid-convergence and leave it un-repartitioned. Only an attempt that
+    committed no new rows before the budget ran out is stuck; that one falls through to `_handle_failure`
+    so a rewrite which genuinely can't advance in one budget still gives up.
+
+    Progress is read from `error.rows_written` — the rows this attempt actually streamed and committed —
+    not from the persisted checkpoint. The checkpoint can be absent (the post-budget row count that
+    persists it hit a transient read error) or freshly rebuilt from row 0 (live changed between attempts,
+    so the prior checkpoint was discarded), and in both cases a large, genuinely-progressing rewrite
+    would read as a stall against a zero-or-stale baseline and burn an attempt it did not earn.
 
     Returns the metric outcome: "superseded" when a newer attempt owns the claim, "progressing" when
     the rewrite advanced, otherwise whatever `_handle_failure` returns.
@@ -534,22 +540,20 @@ def _handle_budget_exceeded(
         return "superseded"
 
     pending = schema.repartition_pending or pending or {}
-    rows_written = int((schema.repartition_rewrite or {}).get("rows_written", 0))
-    high_water = int(pending.get("rewrite_high_water", 0))
-    if rows_written > high_water:
-        # Forward progress this attempt: keep the checkpoint, record the new high-water mark, and reset
-        # the failure counter — a rewrite still advancing is not the doomed one the cap exists to stop.
-        # The next run resumes from the checkpoint rather than re-streaming from row 0.
-        schema.set_repartition_pending({**pending, "attempts": 0, "rewrite_high_water": rows_written})
+    if error.rows_written > 0:
+        # Forward progress this attempt: keep the checkpoint and reset the failure counter — a rewrite
+        # still advancing is not the doomed one the cap exists to stop. The next run resumes from the
+        # checkpoint (when one persisted) rather than re-streaming from row 0.
+        schema.set_repartition_pending({**pending, "attempts": 0})
         logger.info(
-            f"repartition: over budget but rewrite advanced to {rows_written} rows, resuming next run",
-            rows_written=rows_written,
+            f"repartition: over budget but rewrite advanced by {error.rows_written} rows, resuming next run",
+            rows_written=error.rows_written,
         )
         _capture_stood_down(schema, inputs, trigger_reason, "rewrite_progressing", logger)
         return "progressing"
 
-    # No new rows since the last checkpoint: the rewrite can't make headway inside one budget, so count
-    # it as a real failed attempt and let `MAX_REPARTITION_ATTEMPTS` eventually give up on it.
+    # No new rows committed before the budget ran out: the rewrite can't make headway inside one budget,
+    # so count it as a real failed attempt and let `MAX_REPARTITION_ATTEMPTS` eventually give up on it.
     return _handle_failure(inputs, schema, pending, trigger_reason, error, claim_token, logger)
 
 
