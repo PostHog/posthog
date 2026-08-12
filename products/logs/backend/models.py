@@ -1,20 +1,23 @@
 from __future__ import annotations
 
+import time
 import logging
 from datetime import UTC, datetime, timedelta
 from typing import TYPE_CHECKING
 
 from django.contrib.postgres.fields import ArrayField
 from django.core.exceptions import ValidationError
-from django.db import models
+from django.db import connection, models
 from django.db.models import Value
 
+from posthog.dataclasses import frozen
 from posthog.models.activity_logging.model_activity import ModelActivityMixin
 from posthog.models.scoping.manager import EnvironmentScopedManager
 from posthog.models.scoping.root_mixin import TeamScopedRootMixin
 from posthog.models.team.extensions import register_team_extension_signal
 from posthog.models.utils import CreatedMetaFields, UpdatedMetaFields, UUIDModel
 from posthog.utils import generate_short_id
+from posthog.uuidt import uuid7
 
 if TYPE_CHECKING:
     from products.logs.backend.alert_state_machine import AlertSnapshot
@@ -470,6 +473,21 @@ LOGS_VOLUME_READ_HORIZON_DAYS = 42
 LOGS_VOLUME_SWEEP_AFTER_DAYS = LOGS_VOLUME_READ_HORIZON_DAYS + 3
 
 
+class VolumeBucketGridMismatch(Exception):
+    """A commit computed its slot index on a different bucket_seconds grid than the
+    existing row's. Raised instead of writing, because the slot would land on the
+    wrong bucket. Cadence changes take effect from the next UTC day."""
+
+
+@frozen
+class CommittedBucket:
+    """One committed rollup bucket. Readers filter ClickHouse rows to exactly these
+    (time_bucket, generation) pairs; anything else in the rollup is invisible."""
+
+    time_bucket: datetime
+    generation: int
+
+
 class LogsVolumeBucketCompletion(UUIDModel):
     """Commit register for the logs_volume_buckets ClickHouse rollup: one row per
     (team, UTC day), holding the committed generation for each bucket of that day as
@@ -481,9 +499,10 @@ class LogsVolumeBucketCompletion(UUIDModel):
 
     Slots only ever advance (commits apply GREATEST(slot, generation) under the row
     lock), mirroring the cohort version pattern: a late-committing older generation
-    never becomes the visible one. The array length is 86400 / bucket_seconds — a
-    cadence change starts a new day at a new length, and readers take each row's own
-    grid from bucket_seconds rather than assuming 288."""
+    never becomes the visible one. The array grows with the day's commits up to
+    86400 / bucket_seconds slots — a cadence change starts a new day on a new grid,
+    and readers take each row's own grid from bucket_seconds rather than assuming
+    288."""
 
     # db_constraint=False keeps the CreateModel migration lock-free on posthog_team
     # (enforcement stays at the ORM level).
@@ -516,3 +535,91 @@ class LogsVolumeBucketCompletion(UUIDModel):
 
     def __str__(self) -> str:
         return f"logs_volume_buckets completions {self.date} team={self.team_id}"
+
+    @staticmethod
+    def allocate_generation() -> int:
+        """Fresh generation for one ClickHouse insert attempt: unix millis of the
+        attempt start. Per attempt, not per run: once any INSERT was issued under a
+        generation, a retry must allocate a new one, or a partially inserted attempt
+        could be topped up later and double-count under one committed generation."""
+        return time.time_ns() // 1_000_000
+
+    @classmethod
+    def commit_bucket(
+        cls,
+        team_id: int,
+        time_bucket: datetime,
+        generation: int,
+        bucket_seconds: int = LOGS_VOLUME_BUCKET_SECONDS,
+    ) -> None:
+        """Record `generation` as committed for the team's bucket at `time_bucket`.
+
+        Call only after the ClickHouse insert for this (team, bucket, generation)
+        fully succeeded. One statement: upsert of the day row with a GREATEST slot
+        advance under the row lock, so concurrent commits to other slots survive and
+        an older generation never regresses the pointer. Raises
+        VolumeBucketGridMismatch when the day row exists on a different
+        bucket_seconds grid, instead of writing to a wrong slot.
+        """
+        if time_bucket.tzinfo is None:
+            raise ValueError("time_bucket must be timezone-aware")
+        if generation <= 0:
+            # 0 is the GREATEST sentinel for an empty slot, so it can never commit.
+            raise ValueError(f"generation must be positive, got {generation}")
+        if bucket_seconds <= 0 or 86400 % bucket_seconds:
+            raise ValueError(f"bucket_seconds must evenly divide a day, got {bucket_seconds}")
+        bucket_utc = time_bucket.astimezone(UTC)
+        seconds_into_day = bucket_utc.hour * 3600 + bucket_utc.minute * 60 + bucket_utc.second
+        if bucket_utc.microsecond or seconds_into_day % bucket_seconds:
+            raise ValueError(f"{time_bucket.isoformat()} is not aligned to the {bucket_seconds}s UTC bucket grid")
+        slot = seconds_into_day // bucket_seconds
+        # Postgres arrays are 1-based; element assignment beyond the current length
+        # extends the array and fills the gap with NULLs.
+        sql_index = slot + 1
+        insert_array = [None] * slot + [generation]
+        with connection.cursor() as cursor:
+            cursor.execute(
+                f"""
+                INSERT INTO {cls._meta.db_table}
+                       (id, team_id, date, bucket_seconds, completed_generations, created_at, updated_at)
+                VALUES (%s, %s, %s, %s, %s, now(), now())
+                ON CONFLICT (team_id, date) DO UPDATE
+                   SET completed_generations[%s] =
+                           GREATEST(coalesce({cls._meta.db_table}.completed_generations[%s], 0), %s),
+                       updated_at = now()
+                 WHERE {cls._meta.db_table}.bucket_seconds = EXCLUDED.bucket_seconds
+                RETURNING id
+                """,
+                [uuid7(), team_id, bucket_utc.date(), bucket_seconds, insert_array, sql_index, sql_index, generation],
+            )
+            if cursor.fetchone() is None:
+                raise VolumeBucketGridMismatch(
+                    f"day {bucket_utc.date()} for team {team_id} is on a different bucket_seconds "
+                    f"grid than {bucket_seconds}; cadence changes take effect from the next UTC day"
+                )
+
+    @classmethod
+    def read_committed_pairs(cls, team_id: int, start: datetime, end: datetime) -> list[CommittedBucket]:
+        """Committed pairs for the team with start <= time_bucket < end, ordered by
+        bucket. This is the reader IN-list: an uncommitted (NULL) slot yields no
+        pair, which keeps its ClickHouse rows invisible. Each row's grid comes from
+        its own bucket_seconds, so a window spanning a cadence change is correct."""
+        if start.tzinfo is None or end.tzinfo is None:
+            raise ValueError("start and end must be timezone-aware")
+        start_utc = start.astimezone(UTC)
+        end_utc = end.astimezone(UTC)
+        if end_utc <= start_utc:
+            return []
+        rows = (
+            cls.objects.for_team(team_id).filter(date__gte=start_utc.date(), date__lte=end_utc.date()).order_by("date")
+        )
+        pairs: list[CommittedBucket] = []
+        for row in rows:
+            day_start = datetime(row.date.year, row.date.month, row.date.day, tzinfo=UTC)
+            for slot, generation in enumerate(row.completed_generations):
+                if generation is None:
+                    continue
+                bucket = day_start + timedelta(seconds=slot * row.bucket_seconds)
+                if start_utc <= bucket < end_utc:
+                    pairs.append(CommittedBucket(time_bucket=bucket, generation=generation))
+        return pairs
