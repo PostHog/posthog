@@ -46,6 +46,8 @@
 #   The shadow strips artifact uploads (above) and routes every cache write to Depot Cache
 #   (below), so it has neither the artifact to download nor a GitHub cache to fill: the job,
 #   and the check-migrations mig_schema_key output that feeds it, are depot-exempt.
+# - migrated-schema upload settings: canonical tunes the upload (e.g. retention-days);
+#   the shadow strips artifact uploads (above), so those tunings are depot-exempt.
 # - OpenAPI types: the check-openapi-types job is folded into check-migrations as a
 #   check-only step (drift still fails the run); only its auto-commit side effect is dropped
 # - events_json variants: the shadow never doubles the matrix (no RUN_NEW_EVENTS_SCHEMA
