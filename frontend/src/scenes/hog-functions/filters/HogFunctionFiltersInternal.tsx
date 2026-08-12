@@ -82,6 +82,13 @@ export const getProductEventFilterOptions = (contextId: HogFunctionConfiguration
                     value: '$health_check_issue_resolved',
                 },
             ]
+        case 'batch-export-alerts':
+            return [
+                {
+                    label: 'Batch export run failed',
+                    value: '$batch_export_run_failed',
+                },
+            ]
         default:
             return [
                 {
@@ -145,9 +152,14 @@ const setSimpleFilterValue = (
             },
         ],
     }
-    // Preserve properties bound by Logs alerting (alert_id) — the trigger event id changes between
-    // firing/resolved/auto-disabled/errored, but the binding to the parent alert must survive.
-    if (contextId === 'logs-alerting' && previous?.properties && previous.properties.length > 0) {
+    // Preserve properties bound by Logs alerting (alert_id) and batch export alerts
+    // (batch_export_id) — the trigger event id changes between the context's events, but the
+    // binding to the parent resource must survive.
+    if (
+        (contextId === 'logs-alerting' || contextId === 'batch-export-alerts') &&
+        previous?.properties &&
+        previous.properties.length > 0
+    ) {
         next.properties = previous.properties
     }
     return next
@@ -172,6 +184,8 @@ export function HogFunctionFiltersInternal(): JSX.Element {
         } else if (contextId === 'logs-alerting') {
             return [TaxonomicFilterGroupType.EventProperties]
         } else if (contextId === 'health-alerts') {
+            return [TaxonomicFilterGroupType.EventProperties]
+        } else if (contextId === 'batch-export-alerts') {
             return [TaxonomicFilterGroupType.EventProperties]
         }
         return []

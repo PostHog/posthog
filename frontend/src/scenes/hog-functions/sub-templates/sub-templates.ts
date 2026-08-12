@@ -61,6 +61,15 @@ function mcpFailedToolCallEvent(errorType?: string): CyclotronJobFilterEvents {
     return { id: '$mcp_tool_call', type: 'events', properties }
 }
 
+// A permanently broken batch export fails every run (as often as every 5 minutes), so dedupe
+// per export: one message per broken export per hour. The auto-pause threshold bounds the tail.
+const BATCH_EXPORT_ALERT_MASKING_TTL_SECONDS = 60 * 60
+
+// Keyed per batch export so two exports breaking at once both alert. The producer always sets
+// batch_export_id, but HogMaskerService skips masking on falsy hashes, so fall back defensively.
+const BATCH_EXPORT_ALERT_MASKING_HASH =
+    "{event.properties.batch_export_id ? event.properties.batch_export_id : 'unknown-batch-export'}"
+
 // The page a rageclick happened on: $pathname when posthog-js set it, else the full URL.
 const PA_RAGECLICK_PAGE_EXPR = 'event.properties.$pathname ? event.properties.$pathname : event.properties.$current_url'
 
@@ -225,6 +234,18 @@ export const HOG_FUNCTION_SUB_TEMPLATE_COMMON_PROPERTIES: Record<
         type: 'internal_destination',
         context_id: 'health-alerts',
         filters: { events: [{ id: '$health_check_issue_resolved', type: 'events' }] },
+    },
+    'batch-export-run-failed': {
+        sub_template_id: 'batch-export-run-failed',
+        type: 'internal_destination',
+        context_id: 'batch-export-alerts',
+        filters: { events: [{ id: '$batch_export_run_failed', type: 'events' }] },
+        masking: {
+            hash: BATCH_EXPORT_ALERT_MASKING_HASH,
+            ttl: BATCH_EXPORT_ALERT_MASKING_TTL_SECONDS,
+            threshold: null,
+        },
+        flag: FEATURE_FLAGS.BATCH_EXPORT_ALERTS,
     },
 }
 
@@ -1619,6 +1640,50 @@ export const HOG_FUNCTION_SUB_TEMPLATES: Record<HogFunctionSubTemplateIdType, Ho
             },
         },
     ],
+    'batch-export-run-failed': [
+        {
+            ...HOG_FUNCTION_SUB_TEMPLATE_COMMON_PROPERTIES['batch-export-run-failed'],
+            template_id: 'template-slack',
+            name: 'Post to Slack on batch export failure',
+            description: 'Post to a Slack channel when a batch export run fails',
+            inputs: {
+                blocks: {
+                    value: [
+                        { type: 'header', text: { type: 'plain_text', text: 'Batch export failed' } },
+                        {
+                            type: 'section',
+                            text: {
+                                type: 'mrkdwn',
+                                text: '*{event.properties.batch_export_name}* ({event.properties.destination_type}) failed to export data for {event.properties.data_interval_start} – {event.properties.data_interval_end}.',
+                            },
+                        },
+                        {
+                            type: 'section',
+                            text: { type: 'mrkdwn', text: '*Error:* {event.properties.error}' },
+                        },
+                        {
+                            type: 'context',
+                            elements: [{ type: 'mrkdwn', text: 'Project: <{project.url}|{project.name}>' }],
+                        },
+                        { type: 'divider' },
+                        {
+                            type: 'actions',
+                            elements: [
+                                {
+                                    url: '{project.url}/pipeline/batch-exports/{event.properties.batch_export_id}',
+                                    text: { text: 'View batch export', type: 'plain_text' },
+                                    type: 'button',
+                                },
+                            ],
+                        },
+                    ],
+                },
+                text: {
+                    value: "Batch export '{event.properties.batch_export_name}' failed: {event.properties.error}",
+                },
+            },
+        },
+    ],
 }
 
 export const getSubTemplate = (
@@ -1650,6 +1715,8 @@ export const eventToHogFunctionContextId = (event: string | undefined): HogFunct
         case '$health_check_issue_firing':
         case '$health_check_issue_resolved':
             return 'health-alerts'
+        case '$batch_export_run_failed':
+            return 'batch-export-alerts'
         default:
             return 'standard'
     }
