@@ -29,8 +29,8 @@ function makeCloud(count: number, seed: number, slope: number, spread: number): 
 
 const SINGLE: ScatterSeries[] = [{ key: 'orgs', label: 'Organizations', points: makeCloud(160, 1, 0.6, 260) }]
 
-// Chrome is off by default in the library, so every story opts in — `showGrid` alone, matching the
-// other chart types' stories. `HostChrome` below shows what a product consumer sees instead.
+// Chrome is off by default in the library, so every story opts into `showGrid` the way the other
+// chart types' stories do. `HostChrome` below shows what a product consumer sees instead.
 const CHROME = { showGrid: true } satisfies ScatterChartConfig
 
 const AXES = { ...CHROME, xAxis: { label: 'GB ingested' }, yAxis: { label: 'Queries run' } }
@@ -156,14 +156,12 @@ export const DragToZoom: Story = {
     },
 }
 
-// The dashed grid and crosshair are theme, not config, and the token vars carry no dash pattern —
-// PostHog layers these on top (`chartThemeDefaults` in `frontend/src/lib/charts/hooks.ts`). Both are
-// mode-independent, so one constant serves light and dark.
+// The dashed grid and crosshair are theme rather than config, and the token vars carry no dash
+// pattern: PostHog layers these on top in `chartThemeDefaults` (`frontend/src/lib/charts/hooks.ts`).
 const HOST_THEME_CHROME = { gridDashPattern: [3, 3], crosshairDashPattern: [3, 3] }
 
-/** The chart as PostHog renders it: every chrome toggle on, as a host's shared chart config
- *  defaults set them, over a theme carrying the host's dashed grid. The other stories show the
- *  library's own defaults, which own no house style. */
+/** The chart as PostHog renders it: every chrome toggle on, as a host's shared chart config defaults
+ *  set them, over a theme carrying the host's dashed grid. */
 export const HostChrome: Story = {
     render: function Render() {
         const theme = useReactiveTheme()

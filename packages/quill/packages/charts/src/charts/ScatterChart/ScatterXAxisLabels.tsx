@@ -15,14 +15,8 @@ const TICK_STYLE: React.CSSProperties = {
     transform: 'translateX(-50%)',
 }
 
-/** Numeric x-axis tick labels for {@link ScatterChart}.
- *
- *  The base chart's x-axis layer renders one label per category, which a continuous x axis has
- *  none of — so the chart feeds that layer nulls and this overlay draws the axis instead. The
- *  ticks are resolved in `createScales`, so the labels, the grid lines, and the tick marks are the
- *  same set by construction. It stays a DOM overlay (rather than canvas text) so it shares the
- *  library's overlay/canvas split, and its `data-attr` matches the base x ticks so test accessors
- *  read either chart the same way. */
+/** Numeric x-axis tick labels, standing in for the base chart's one-label-per-category x-axis layer.
+ *  Carries the base x ticks' `data-attr`, so test accessors read either chart the same way. */
 export function ScatterXAxisLabels(): React.ReactElement | null {
     const { scales, dimensions, theme } = useChartLayout()
     const ticks = readScatterLayout(scales)?.xTicks

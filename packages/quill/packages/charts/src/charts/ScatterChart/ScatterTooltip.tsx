@@ -30,11 +30,9 @@ function Row({ label, value }: { label: string; value: React.ReactNode }): React
     )
 }
 
-/** Default tooltip for {@link ScatterChart}: which point this is, then its two coordinates.
- *
- *  `DefaultTooltip` can't serve here — its rows are series values at an x-axis label, whereas a
- *  scatter point *is* the reading and both of its axes matter. The `data-attr` hooks are the same
- *  ones, so `createDefaultTooltipAccessor` reads this tooltip too. */
+/** Which point this is, then its two coordinates. `DefaultTooltip` can't serve, because its rows are
+ *  series values at one x-axis label, whereas a scatter point *is* the reading and both of its axes
+ *  matter. The `data-attr` hooks are the same ones, so `createDefaultTooltipAccessor` reads this too. */
 export function ScatterTooltip<Meta = unknown>({
     point,
     header,

@@ -544,10 +544,10 @@ export type DateRangeZoomData = LabelRange
 /** Payload of a completed 2D brush ({@link ChartProps.onAreaSelect}). The x axis resolves to
  *  labels like `onDateRangeZoom`; the y axis stays in canvas pixels — the core is label-generic
  *  and has no y-band concept, so chart-type adapters map the pixel range onto their own scales
- *  (e.g. the Heatmap converts it to row indices). The raw x pixels come along too, for chart
- *  types whose x axis is continuous rather than a band (e.g. ScatterChart inverts them back to
- *  data values); snapping those to the nearest label would round the selection to whichever
- *  points happen to sit near the drag edges. */
+ *  (e.g. the Heatmap converts it to row indices). The raw x pixels come along too, for chart types
+ *  whose x axis is continuous rather than a band (e.g. ScatterChart inverts them back to data
+ *  values), where the label range would round the selection to whichever points sit near the drag
+ *  edges. */
 export interface AreaSelectData extends LabelRange {
     /** Left edge of the dragged range in canvas pixels (always <= xPixel1). */
     xPixel0: number
@@ -604,8 +604,8 @@ export interface BoxRect {
     dataIndex: number
 }
 
-/** Marker glyph drawn at a scatter point. `cross` is the one open glyph — it reads as a distinct
- *  category at a glance even where the filled shapes overlap into a blob. */
+/** Marker glyph drawn at a scatter point. `cross` is the one open glyph, so it stays readable as a
+ *  distinct category where the filled shapes overlap into a blob. */
 export type ScatterMarkerShape = 'circle' | 'square' | 'triangle' | 'cross'
 
 /** Generic scale interface that Chart uses for shared overlays and interaction. */

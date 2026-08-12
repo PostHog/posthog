@@ -33,8 +33,8 @@ const SERIES: ScatterSeries[] = [
         points: [
             { x: 0, y: 0, label: 'Bottom left' },
             { x: 100, y: 100, label: 'Top right' },
-            // The one point whose coordinates differ from each other, so a tooltip that swapped
-            // the two axes couldn't still read correctly.
+            // The one point whose coordinates differ, so a tooltip that swapped the two axes
+            // couldn't still read correctly.
             { x: 25, y: 80, label: 'Off diagonal' },
         ],
     },
