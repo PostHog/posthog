@@ -26,6 +26,7 @@ import {
     OrNever,
 } from '~/types'
 
+import { IncrementalConfigOptions } from '../editor/IncrementalConfigFields'
 import { dataWarehouseViewsLogic } from './dataWarehouseViewsLogic'
 import { materializationJobsLogic } from './materializationJobsLogic'
 import { computeJobDuration, jobLogsWindow } from './materializationJobUtils'
@@ -85,6 +86,17 @@ const RESYNC_FREQUENCY_OPTIONS = [
 // offers RESYNC_FREQUENCY_OPTIONS on its own.
 const SYNC_FREQUENCY_OPTIONS = [{ value: 'never' as OrNever, label: 'No resync' }, ...RESYNC_FREQUENCY_OPTIONS]
 
+// Watermarks are only ISO strings for date/datetime incremental keys. Numeric and arbitrary
+// string keys must render as-is: pushing them through a date formatter shows a bogus timestamp.
+const ISO_DATE_PREFIX = /^\d{4}-\d{2}-\d{2}([T ]|$)/
+
+function formatWatermark(watermark: string | null | undefined): string {
+    if (watermark == null || watermark === '') {
+        return 'the last run'
+    }
+    return ISO_DATE_PREFIX.test(watermark) ? humanFriendlyDetailedTime(watermark) : watermark
+}
+
 function getMaterializationStatusMessage(
     rowsMaterialized: number,
     progressPercentage: number,
@@ -136,7 +148,7 @@ function getMaterializationDisabledReasons(
 }
 
 export function MaterializationStatusPanel({ viewId, kind = 'view' }: MaterializationStatusPanelProps): JSX.Element {
-    const jobsLogic = materializationJobsLogic({ viewId })
+    const jobsLogic = materializationJobsLogic({ viewId, kind })
     const {
         dataModelingJobs,
         dataModelingJobsLoading,
@@ -146,6 +158,8 @@ export function MaterializationStatusPanel({ viewId, kind = 'view' }: Materializ
         savedQuery,
         savedQueryLoading,
         initialSyncFrequency,
+        incrementalCheck,
+        incrementalDraft,
     } = useValues(jobsLogic)
     const {
         loadDataModelingJobs,
@@ -153,6 +167,7 @@ export function MaterializationStatusPanel({ viewId, kind = 'view' }: Materializ
         setStartingMaterialization,
         resumeMaterialization,
         setInitialSyncFrequency,
+        setIncrementalDraft,
     } = useActions(jobsLogic)
     const { featureFlags } = useValues(featureFlagLogic)
 
@@ -173,15 +188,29 @@ export function MaterializationStatusPanel({ viewId, kind = 'view' }: Materializ
     // schedules is evaluated server-side and never reaches the frontend. Managed viewsets reject
     // every update regardless of team.
     const canEditSyncFrequency = !savedQuery?.sync_frequency_managed_by_dag && !savedQuery?.managed_viewset_kind
-    const showIncremental =
-        kind !== 'endpoint' &&
-        !!featureFlags[FEATURE_FLAGS.DATA_MODELING_INCREMENTAL_VIEWS] &&
-        !!savedQuery?.incremental?.enabled
+    const incrementalFlagOn = kind !== 'endpoint' && !!featureFlags[FEATURE_FLAGS.DATA_MODELING_INCREMENTAL_VIEWS]
+    const showIncremental = incrementalFlagOn && !!savedQuery?.incremental?.enabled
+    // Blocks the Materialize button while the incremental picks are incomplete, mirroring the
+    // save-as-view form's validation.
+    const incrementalDraftError = !incrementalDraft.enabled
+        ? undefined
+        : !incrementalDraft.incrementalKey
+          ? 'Select the column that tracks new rows'
+          : incrementalDraft.uniqueKey.length === 0
+            ? 'Select at least one column that identifies a row'
+            : undefined
     const lastRunMode = savedQuery?.incremental_state?.last_run_mode
     const materializationAccessReason = getAccessControlDisabledReason(
         AccessControlResourceType.WarehouseObjects,
         AccessControlLevel.Editor
     )
+    const savedIncremental = savedQuery?.incremental
+    const refreshModeChanged = savedIncremental?.enabled
+        ? !incrementalDraft.enabled ||
+          incrementalDraft.incrementalKey !== savedIncremental.incremental_key ||
+          [...incrementalDraft.uniqueKey].sort().join(',') !== [...savedIncremental.unique_key].sort().join(',') ||
+          incrementalDraft.lookbackSeconds !== (savedIncremental.lookback_seconds ?? 0)
+        : incrementalDraft.enabled
 
     if (!savedQuery) {
         return (
@@ -254,8 +283,8 @@ export function MaterializationStatusPanel({ viewId, kind = 'view' }: Materializ
                                 {showIncremental && (
                                     <div className="text-xs text-secondary mt-1">
                                         {lastRunMode === 'incremental'
-                                            ? `Updating new rows only, up to ${humanFriendlyDetailedTime(
-                                                  savedQuery.incremental_state?.watermark ?? undefined
+                                            ? `Updating new rows only, up to ${formatWatermark(
+                                                  savedQuery.incremental_state?.watermark
                                               )}`
                                             : 'The last run rebuilt the whole table. The next one will update only new rows.'}
                                     </div>
@@ -354,6 +383,51 @@ export function MaterializationStatusPanel({ viewId, kind = 'view' }: Materializ
                                         />
                                     )}
                                 </div>
+                                {incrementalFlagOn && !savedQuery.managed_viewset_kind && (
+                                    <div className="mt-4 max-w-160">
+                                        <h4 className="mb-0">Refresh mode</h4>
+                                        <IncrementalConfigOptions
+                                            check={incrementalCheck}
+                                            draft={incrementalDraft}
+                                            onChange={setIncrementalDraft}
+                                        />
+                                        {refreshModeChanged && (
+                                            <LemonButton
+                                                type="primary"
+                                                size="small"
+                                                className="mt-2"
+                                                loading={updatingDataWarehouseSavedQuery}
+                                                disabledReason={
+                                                    materializationAccessReason || incrementalDraftError || sync
+                                                }
+                                                tooltip={
+                                                    incrementalDraft.enabled
+                                                        ? 'The next run rebuilds the table once, then updates only new rows.'
+                                                        : 'Every run rebuilds the whole table.'
+                                                }
+                                                onClick={() =>
+                                                    updateDataWarehouseSavedQuery({
+                                                        id: viewId,
+                                                        incremental:
+                                                            incrementalDraft.enabled && incrementalDraft.incrementalKey
+                                                                ? {
+                                                                      enabled: true,
+                                                                      incremental_key: incrementalDraft.incrementalKey,
+                                                                      unique_key: incrementalDraft.uniqueKey,
+                                                                      lookback_seconds:
+                                                                          incrementalDraft.lookbackSeconds,
+                                                                  }
+                                                                : null,
+                                                        types: [[]],
+                                                        lifecycle: 'update',
+                                                    })
+                                                }
+                                            >
+                                                Save refresh mode
+                                            </LemonButton>
+                                        )}
+                                    </div>
+                                )}
                             </div>
                         ) : (
                             <div>
@@ -373,10 +447,23 @@ export function MaterializationStatusPanel({ viewId, kind = 'view' }: Materializ
                                 <div className="flex gap-4">
                                     <LemonButton
                                         size="small"
-                                        onClick={() => materializeDataWarehouseSavedQuery(viewId, initialSyncFrequency)}
+                                        onClick={() =>
+                                            materializeDataWarehouseSavedQuery(
+                                                viewId,
+                                                initialSyncFrequency,
+                                                incrementalDraft.enabled && incrementalDraft.incrementalKey
+                                                    ? {
+                                                          enabled: true,
+                                                          incremental_key: incrementalDraft.incrementalKey,
+                                                          unique_key: incrementalDraft.uniqueKey,
+                                                          lookback_seconds: incrementalDraft.lookbackSeconds,
+                                                      }
+                                                    : undefined
+                                            )
+                                        }
                                         type="primary"
                                         loading={updatingDataWarehouseSavedQuery}
-                                        disabledReason={materializationAccessReason}
+                                        disabledReason={materializationAccessReason || incrementalDraftError}
                                     >
                                         Materialize
                                     </LemonButton>
@@ -391,6 +478,15 @@ export function MaterializationStatusPanel({ viewId, kind = 'view' }: Materializ
                                         />
                                     )}
                                 </div>
+                                {incrementalFlagOn && (
+                                    <div className="max-w-160">
+                                        <IncrementalConfigOptions
+                                            check={incrementalCheck}
+                                            draft={incrementalDraft}
+                                            onChange={setIncrementalDraft}
+                                        />
+                                    </div>
+                                )}
                             </div>
                         )}
                     </div>

@@ -1,8 +1,9 @@
 """Decide whether a saved query can be materialized incrementally, and say why not.
 
-Runs on the parsed AST alone, so it is cheap enough for the SQL editor's validation debounce and
-needs no ClickHouse round trip. The point is to fail at definition time with a message naming the
-construct, rather than at run time with a table that is quietly wrong.
+Runs on the parsed AST — resolved against the team's HogQL schema when a database is supplied, so
+``SELECT *`` checks against real columns — and needs no ClickHouse round trip, which keeps it cheap
+enough for the SQL editor's validation debounce. The point is to fail at definition time with a
+message naming the construct, rather than at run time with a table that is quietly wrong.
 
 The rule that does most of the work: when the query aggregates, the incremental key must be one of
 the grouping keys and the unique key must cover all of them. That makes every output row belong to
@@ -13,13 +14,18 @@ They have to reject them because they combine partial aggregates across refreshe
 """
 
 from dataclasses import dataclass, field
-from typing import Optional
+from typing import TYPE_CHECKING, Optional
 
 from posthog.hogql import ast
+from posthog.hogql.context import HogQLContext
 from posthog.hogql.errors import ExposedHogQLError
 from posthog.hogql.parser import parse_select
 from posthog.hogql.property import has_aggregation
-from posthog.hogql.visitor import TraversingVisitor, clear_locations
+from posthog.hogql.resolver import resolve_types
+from posthog.hogql.visitor import TraversingVisitor, clear_locations, clone_expr
+
+if TYPE_CHECKING:
+    from posthog.hogql.database.database import Database
 
 from products.data_modeling.backend.logic.incremental import IncrementalConfig
 from products.data_modeling.backend.logic.incremental_filter import find_key_expression
@@ -56,23 +62,33 @@ def check_incremental_eligibility(
     config: Optional[IncrementalConfig],
     *,
     column_types: Optional[dict[str, str]] = None,
+    database: Optional["Database"] = None,
 ) -> EligibilityResult:
     """``column_types`` is the saved query's stored ClickHouse types, used only to catch a nullable
-    unique key. Omit it and that check is skipped; the runtime guard still catches it."""
+    unique key. Omit it and that check is skipped; the runtime guard still catches it.
+
+    ``database`` is the team's HogQL schema. With it, ``SELECT *`` is expanded to real columns, so
+    the key candidates are pickable names and a config naming an expanded column passes. Without it
+    (or when the query does not resolve against it), the raw AST is checked as-is."""
     try:
         node = parse_select(query)
     except (ExposedHogQLError, ValueError) as err:
         return EligibilityResult(eligible=False, blockers=[f"This query could not be parsed: {err}"])
 
-    selects = _leaf_selects(node)
+    raw_selects = _leaf_selects(node)
+    selects = _resolved_selects(node, database)
+    if selects is None:
+        selects = raw_selects
     key_candidates = _key_candidates(selects)
 
     blockers: list[str] = []
     warnings: list[str] = []
 
     _check_set_operators(node, blockers)
-    for select in selects:
+    # Shape is purely structural, so the raw AST is enough — no need for the resolved copy.
+    for select in raw_selects:
         _check_shape(select, blockers)
+        _check_nested_shapes(select, blockers)
 
     if config is None:
         # Editor preflight: no config chosen yet, so report only what is true of the query itself.
@@ -80,8 +96,8 @@ def check_incremental_eligibility(
         return EligibilityResult(
             eligible=not blockers,
             key_candidates=key_candidates,
-            blockers=blockers,
-            warnings=warnings,
+            blockers=_unique(blockers),
+            warnings=_unique(warnings),
         )
 
     for select in selects:
@@ -94,9 +110,40 @@ def check_incremental_eligibility(
     return EligibilityResult(
         eligible=not blockers,
         key_candidates=key_candidates,
-        blockers=blockers,
-        warnings=warnings,
+        blockers=_unique(blockers),
+        warnings=_unique(warnings),
     )
+
+
+def _unique(messages: list[str]) -> list[str]:
+    """Recursing into every union branch, CTE and subquery can trip the same blocker several times;
+    the user needs to read it once."""
+    return list(dict.fromkeys(messages))
+
+
+def _resolved_selects(
+    node: ast.SelectQuery | ast.SelectSetQuery, database: Optional["Database"]
+) -> Optional[list[ast.SelectQuery]]:
+    """The query's leaf selects with types resolved, which expands ``*`` to the table's columns.
+
+    Resolution can fail for reasons eligibility should not care about (an unknown table, a bad
+    column — full validation reports those with a better message), so failure means falling back to
+    the unresolved AST rather than surfacing an error.
+
+    A column that is an aggregate one level down (``SELECT *`` over an aggregating subquery)
+    expands to a plain field carrying no aggregate marker, so it stays a key candidate — exactly as
+    it already does when the user writes that column out by hand.
+    """
+    if database is None:
+        return None
+    context = HogQLContext(team_id=None, database=database, enable_select_queries=True)
+    try:
+        # Resolve a private copy: a failure partway through could leave types on shared subtrees,
+        # and the fallback path needs `node` pristine.
+        resolved = resolve_types(clone_expr(node), context, dialect="hogql")
+    except Exception:
+        return None
+    return _leaf_selects(resolved)
 
 
 def _leaf_selects(node: ast.SelectQuery | ast.SelectSetQuery) -> list[ast.SelectQuery]:
@@ -161,20 +208,34 @@ def _check_set_operators(node: ast.SelectQuery | ast.SelectSetQuery, blockers: l
         _check_set_operators(branch, blockers)
 
 
-def _check_shape(select: ast.SelectQuery, blockers: list[str]) -> None:
+def _check_shape(select: ast.SelectQuery, blockers: list[str], *, nested: bool = False) -> None:
     if select.limit is not None:
-        blockers.append("LIMIT cannot be incremental. A top-N within one window is not a top-N overall.")
-    if select.limit_by is not None:
-        blockers.append("LIMIT BY cannot be incremental. A per-window limit is not a limit overall.")
-    if select.order_by:
+        blockers.append(_row_slice_blocker("LIMIT", "A top-N within one window is not a top-N overall.", nested))
+    if select.offset is not None:
         blockers.append(
-            "A top-level ORDER BY has no effect on a materialized table and cannot be incremental. "
-            "Sort when you query the view instead."
+            _row_slice_blocker("OFFSET", "The rows skipped within one window are not the rows skipped overall.", nested)
         )
-    if select.distinct and not _is_grouped(select):
+    if select.limit_by is not None:
+        blockers.append(_row_slice_blocker("LIMIT BY", "A per-window limit is not a limit overall.", nested))
+    if not nested:
+        # Only outer concerns. Nested, an ORDER BY without a LIMIT changes nothing (and with one,
+        # the LIMIT blocker already fires); a nested DISTINCT commutes with the window filter, so
+        # deduplicating before or after filtering gives the same rows.
+        if select.order_by:
+            blockers.append(
+                "A top-level ORDER BY has no effect on a materialized table and cannot be incremental. "
+                "Sort when you query the view instead."
+            )
+        if select.distinct and not _is_grouped(select):
+            blockers.append(
+                "SELECT DISTINCT cannot be incremental without a GROUP BY. Deduplicating one window "
+                "says nothing about rows in other windows. Group by the same columns instead."
+            )
+    if select.having is not None:
         blockers.append(
-            "SELECT DISTINCT cannot be incremental without a GROUP BY. Deduplicating one window "
-            "says nothing about rows in other windows. Group by the same columns instead."
+            "HAVING cannot be incremental. A group can pass the condition on one run and fail it "
+            "on a later one, and the upsert never deletes, so the row already written would stay "
+            "forever."
         )
     if _has_window_function(select):
         blockers.append(
@@ -186,6 +247,28 @@ def _check_shape(select: ast.SelectQuery, blockers: list[str]) -> None:
             f"GROUP BY {select.group_by_mode.upper()} cannot be incremental, because one source row "
             "contributes to several output rows at different levels."
         )
+
+
+def _row_slice_blocker(construct: str, outer_reason: str, nested: bool) -> str:
+    if nested:
+        article = "An" if construct[0] in "AEIOU" else "A"
+        return (
+            f"{article} {construct} inside a subquery or CTE cannot be incremental. Which rows it "
+            "lets through changes as data arrives, so a window cannot be recomputed to the same result."
+        )
+    return f"{construct} cannot be incremental. {outer_reason}"
+
+
+def _check_nested_shapes(select: ast.SelectQuery, blockers: list[str]) -> None:
+    """Row sources feed the outer result one for one, so a shape that breaks incremental at the top
+    breaks it just as well any number of levels down. Only row sources: a scalar or IN subquery in
+    an expression contributes a value, not rows — its hazard is that the value drifts as data
+    arrives, which holds with or without a LIMIT inside it and is the same class as ``now()``."""
+    for source in _source_nodes(select):
+        _check_set_operators(source, blockers)
+        for leaf in _leaf_selects(source):
+            _check_shape(leaf, blockers, nested=True)
+            _check_nested_shapes(leaf, blockers)
 
 
 def _check_key(select: ast.SelectQuery, config: IncrementalConfig, blockers: list[str], warnings: list[str]) -> None:
@@ -288,6 +371,11 @@ def _grouping_key_names(select: ast.SelectQuery) -> set[str]:
 
     names: set[str] = set()
     for entry in select.group_by or []:
+        # The resolver rewrites a grouping entry that names a select alias into an Alias node, so
+        # on a resolved AST this is the form a plain ``GROUP BY event`` arrives in.
+        if isinstance(entry, ast.Alias) and entry.alias in output_names:
+            names.add(entry.alias)
+            continue
         if isinstance(entry, ast.Field) and entry.chain and str(entry.chain[-1]) in output_names:
             names.add(str(entry.chain[-1]))
             continue
@@ -324,26 +412,31 @@ def _key_behind_aggregate_subquery(select: ast.SelectQuery, incremental_key: str
     return False
 
 
-def _source_selects(select: ast.SelectQuery) -> list[ast.SelectQuery]:
-    sources: list[ast.SelectQuery] = []
+def _source_nodes(select: ast.SelectQuery) -> list[ast.SelectQuery | ast.SelectSetQuery]:
+    """The selects this one draws rows from: subquery CTEs, plus subqueries in FROM or a JOIN.
+
+    A column CTE (``WITH (SELECT ...) AS x``) is a scalar value, not a row source, so it is
+    skipped. A bare table reference in FROM may name a CTE, whose body was already collected from
+    the declaration, so it needs no handling here.
+    """
+    sources: list[ast.SelectQuery | ast.SelectSetQuery] = []
     for cte in (select.ctes or {}).values():
-        if isinstance(cte.expr, ast.SelectQuery):
+        if cte.cte_type == "subquery" and isinstance(cte.expr, (ast.SelectQuery, ast.SelectSetQuery)):
             sources.append(cte.expr)
-        elif isinstance(cte.expr, ast.SelectSetQuery):
-            sources.extend(_leaf_selects(cte.expr))
 
     join: Optional[ast.JoinExpr] = select.select_from
     while join is not None:
-        table = join.table
-        if isinstance(table, ast.SelectQuery):
-            sources.append(table)
-        elif isinstance(table, ast.SelectSetQuery):
-            sources.extend(_leaf_selects(table))
-        elif isinstance(table, ast.Field) and table.chain:
-            # A bare table reference may name a CTE, whose body was already collected above.
-            pass
+        if isinstance(join.table, (ast.SelectQuery, ast.SelectSetQuery)):
+            sources.append(join.table)
         join = join.next_join
     return sources
+
+
+def _source_selects(select: ast.SelectQuery) -> list[ast.SelectQuery]:
+    selects: list[ast.SelectQuery] = []
+    for source in _source_nodes(select):
+        selects.extend(_leaf_selects(source))
+    return selects
 
 
 class _WindowFunctionFinder(TraversingVisitor):
@@ -355,8 +448,9 @@ class _WindowFunctionFinder(TraversingVisitor):
         self.found = True
 
     def visit_select_query(self, node: ast.SelectQuery) -> None:
-        # A window function inside a subquery is that subquery's business; only the outermost
-        # select's frames can reach across the window being recomputed.
+        # Scoped to one select: a row-source subquery gets its own shape check via the nested
+        # recursion, and a scalar subquery's window only feeds a value, whose drift is the
+        # non-determinism class, not a shape problem.
         pass
 
 

@@ -1176,12 +1176,17 @@ export const WarehouseSavedQueriesRunCreateBody = /* @__PURE__ */ zod
  * Parses the SQL only, so it is cheap enough to call from the editor as the user types. Lets
  * the editor explain why the incremental option is unavailable before anything is saved.
  */
+export const warehouseSavedQueriesCheckIncrementalCreateBodyQueryMax = 65536
+
 export const warehouseSavedQueriesCheckIncrementalCreateBodyLookbackSecondsMin = 0
 export const warehouseSavedQueriesCheckIncrementalCreateBodyLookbackSecondsMax = 2592000
 
 export const WarehouseSavedQueriesCheckIncrementalCreateBody = /* @__PURE__ */ zod
     .object({
-        query: zod.string().describe('The HogQL query to check.'),
+        query: zod
+            .string()
+            .max(warehouseSavedQueriesCheckIncrementalCreateBodyQueryMax)
+            .describe('The HogQL query to check.'),
         incremental_key: zod
             .string()
             .nullish()

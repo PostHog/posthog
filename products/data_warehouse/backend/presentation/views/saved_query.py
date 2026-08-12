@@ -41,7 +41,7 @@ from posthog.models.activity_logging.activity_log import (
     log_activity,
 )
 from posthog.models.activity_logging.activity_page import activity_page_response
-from posthog.rate_limit import MaterializationRateThrottle, RunSavedQueryRateThrottle
+from posthog.rate_limit import MaterializationRateThrottle, PersonalApiKeyOrUserRateThrottle, RunSavedQueryRateThrottle
 from posthog.rbac.access_control_api_mixin import AccessControlViewSetMixin
 from posthog.rbac.query_access import assert_user_can_read_query
 from posthog.rbac.user_access_control import UserAccessControlSerializerMixin
@@ -1000,6 +1000,11 @@ class DataWarehouseSavedQuerySerializer(
         # The stored column types describe the stored query, so they say nothing about a query being
         # replaced. The runtime guard still catches a nullable key on the first incremental run.
         column_types = None if query_changed or self.instance is None else self.instance.columns
+        # The context only carries a database when the request touches the query or name; a
+        # config-only PATCH still has to check `SELECT *` against real columns, so build one then.
+        database = self.context.get("database") or Database.create_for(
+            team_id=self.context["team_id"], user=cast(User, self.context["request"].user)
+        )
         result = check_incremental_eligibility(
             sql,
             IncrementalConfig(
@@ -1008,6 +1013,7 @@ class DataWarehouseSavedQuerySerializer(
                 lookback_seconds=config.get("lookback_seconds", 0),
             ),
             column_types=_clickhouse_types(column_types),
+            database=database,
         )
         if not result.eligible:
             raise serializers.ValidationError({"incremental": result.blockers})
@@ -1147,10 +1153,25 @@ class IncrementalEligibilitySerializer(serializers.Serializer):
     )
 
 
+# Same bound other SQL-accepting endpoints put on caller-supplied queries (see
+# `posthog/api/query_performance_proxy.py`): parsing runs synchronously on an API worker, so the
+# body has to be capped before it reaches the parser.
+CHECK_INCREMENTAL_MAX_QUERY_LENGTH = 64 * 1024
+
+
+class CheckIncrementalThrottle(PersonalApiKeyOrUserRateThrottle):
+    """check_incremental parses caller-supplied SQL synchronously on a read scope. The editor calls
+    it on a debounce, so a per-caller budget far above typing speed only stops scripted floods of
+    large bodies from tying up API workers."""
+
+    scope = "check_incremental"
+    rate = "120/minute"
+
+
 class CheckIncrementalSerializer(serializers.Serializer):
     """Body of the `check_incremental` action: a query and an optional config to check it against."""
 
-    query = serializers.CharField(help_text="The HogQL query to check.")
+    query = serializers.CharField(max_length=CHECK_INCREMENTAL_MAX_QUERY_LENGTH, help_text="The HogQL query to check.")
     incremental_key = serializers.CharField(
         required=False,
         allow_null=True,
@@ -1396,7 +1417,12 @@ class DataWarehouseSavedQueryViewSet(TeamAndOrgViewSetMixin, AccessControlViewSe
         return response.Response(status=status.HTTP_200_OK)
 
     @extend_schema(request=CheckIncrementalSerializer, responses={200: IncrementalEligibilitySerializer})
-    @action(methods=["POST"], detail=False, required_scopes=["warehouse_view:read"])
+    @action(
+        methods=["POST"],
+        detail=False,
+        required_scopes=["warehouse_view:read"],
+        throttle_classes=[CheckIncrementalThrottle],
+    )
     def check_incremental(self, request: request.Request, *args, **kwargs) -> response.Response:
         """Report whether a query can be materialized incrementally, without running it.
 
@@ -1417,7 +1443,11 @@ class DataWarehouseSavedQueryViewSet(TeamAndOrgViewSetMixin, AccessControlViewSe
                 lookback_seconds=data.get("lookback_seconds", 0),
             )
 
-        result = check_incremental_eligibility(data["query"], config)
+        result = check_incremental_eligibility(
+            data["query"],
+            config,
+            database=Database.create_for(team_id=self.team_id, user=cast(User, request.user)),
+        )
         return response.Response(
             IncrementalEligibilitySerializer(
                 {

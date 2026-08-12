@@ -2,6 +2,10 @@ from posthog.test.base import APIBaseTest
 from unittest.mock import patch
 
 from products.data_modeling.backend.facade.models import DataWarehouseSavedQuery
+from products.data_warehouse.backend.presentation.views.saved_query import (
+    CheckIncrementalThrottle,
+    DataWarehouseSavedQueryViewSet,
+)
 
 GROUPED = "SELECT toStartOfDay(timestamp) AS day, count() AS c FROM events GROUP BY day"
 CONFIG = {"enabled": True, "incremental_key": "day", "unique_key": ["day"]}
@@ -98,6 +102,34 @@ class TestSavedQueryIncremental(APIBaseTest):
         assert response.status_code == 200, response.json()
         assert response.json()["eligible"] is False
         assert any("LIMIT" in blocker for blocker in response.json()["blockers"])
+
+    def test_check_incremental_expands_star_to_real_columns(self):
+        response = self.client.post(self._url("check_incremental/"), {"query": "SELECT * FROM events"})
+
+        assert response.status_code == 200, response.json()
+        assert "timestamp" in response.json()["key_candidates"]
+        assert "*" not in response.json()["key_candidates"]
+
+    def test_a_star_query_saves_with_a_config_naming_an_expanded_column(self):
+        response = self._create(
+            query="SELECT * FROM events",
+            incremental={"enabled": True, "incremental_key": "timestamp", "unique_key": ["uuid"]},
+        )
+
+        assert response.status_code == 201, response.json()
+
+    def test_check_incremental_rejects_an_oversized_query(self):
+        # Parsing runs synchronously on an API worker, so the body has to be bounded before it
+        # reaches the parser.
+        response = self.client.post(self._url("check_incremental/"), {"query": "SELECT 1 -- " + "x" * (64 * 1024)})
+
+        assert response.status_code == 400
+        assert response.json()["attr"] == "query"
+
+    def test_check_incremental_declares_a_per_caller_throttle(self):
+        # A scripted flood of large bodies has to hit a rate limit; this fails if the throttle is
+        # dropped from the action.
+        assert DataWarehouseSavedQueryViewSet.check_incremental.kwargs["throttle_classes"] == [CheckIncrementalThrottle]
 
     def test_run_with_full_refresh_clears_the_watermark(self):
         """Dropping the watermark is the whole mechanism for a rebuild: the next run finds no

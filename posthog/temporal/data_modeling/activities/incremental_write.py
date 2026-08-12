@@ -25,9 +25,10 @@ from typing import Any, Optional
 import pyarrow as pa
 import pyarrow.compute as pc
 
-# Chunked so the pyarrow group_by that finds duplicate keys never materializes a table-sized
-# intermediate for a batch that is already ~100MB.
-_DUPLICATE_SCAN_CHUNK_ROWS = 1_000_000
+# Exact duplicate detection has to remember every distinct key a run has produced. The cap bounds
+# that state so a huge materialization cannot OOM the worker; hitting it fails the run loudly
+# rather than quietly skipping verification.
+MAX_UNIQUE_KEY_CHECK_BYTES = 256 * 1024 * 1024
 
 
 class IncrementalWriteError(Exception):
@@ -82,27 +83,53 @@ def assert_no_null_keys(batch: pa.RecordBatch, unique_key: tuple[str, ...]) -> N
             )
 
 
-def assert_unique(batch: pa.RecordBatch, unique_key: tuple[str, ...]) -> None:
-    """Duplicate keys mean the declared unique key does not identify a row.
+class UniqueKeyTracker:
+    """Exact unique-key enforcement across every batch of one materialization.
 
-    deltalite would reject the batch anyway; catching it here names the key and points at the
-    config instead of surfacing a Rust message about primary-key tuples. Not deduplicated
-    silently the way the import pipeline does, because there a source genuinely emits a key twice,
-    whereas here a duplicate means the config is wrong and quietly keeping one row would hide it.
+    Duplicate keys mean the declared unique key does not identify a row, and a duplicate is not
+    deduplicated silently the way the import pipeline does: there a source genuinely emits a key
+    twice, whereas here a duplicate means the config is wrong and quietly keeping one row would
+    hide it. A per-batch check cannot see a duplicate split across batches — deltalite would turn
+    it into an update, silently — so the distinct keys seen so far are carried across ``check``
+    calls. Only the key columns of the group_by output are retained, so memory grows with distinct
+    keys, not rows, and the byte cap turns "too big to verify" into a loud failure.
     """
-    table = pa.Table.from_batches([batch])
-    columns = list(unique_key)
-    for offset in range(0, table.num_rows, _DUPLICATE_SCAN_CHUNK_ROWS):
-        chunk = table.slice(offset, _DUPLICATE_SCAN_CHUNK_ROWS)
-        grouped = chunk.group_by(columns).aggregate([([], "count_all")])
-        if grouped.num_rows == chunk.num_rows:
-            continue
-        counts = grouped.column("count_all")
-        worst = pc.max(counts).as_py()
-        raise IncrementalWriteError(
-            f"The unique key ({', '.join(columns)}) does not identify a single row: one key appears "
-            f"{worst} times in this result. Add the columns that tell those rows apart."
-        )
+
+    def __init__(self, unique_key: tuple[str, ...], max_bytes: int = MAX_UNIQUE_KEY_CHECK_BYTES) -> None:
+        self._columns = list(unique_key)
+        self._max_bytes = max_bytes
+        self._seen: pa.Table | None = None
+
+    def check(self, batch: pa.RecordBatch) -> None:
+        """Fail if ``batch`` has a missing, null, or duplicate key — including a key already seen
+        in an earlier batch of this run. Meant to run before the batch is written, so a violating
+        batch never lands."""
+        missing = [column for column in self._columns if column not in batch.schema.names]
+        if missing:
+            raise IncrementalWriteError(
+                f"Unique key column(s) {', '.join(missing)} are not in the query's output. "
+                f"Update the incremental configuration to match the query's columns."
+            )
+        assert_no_null_keys(batch, tuple(self._columns))
+
+        keys = pa.Table.from_batches([batch]).select(self._columns)
+        combined = keys if self._seen is None else pa.concat_tables([self._seen, keys])
+        grouped = combined.group_by(self._columns).aggregate([([], "count_all")])
+        if grouped.num_rows != combined.num_rows:
+            worst = pc.max(grouped.column("count_all")).as_py()
+            raise IncrementalWriteError(
+                f"The unique key ({', '.join(self._columns)}) does not identify a single row: one key "
+                f"appears {worst} times in this run's result. Add the columns that tell those rows apart."
+            )
+
+        seen = grouped.select(self._columns)
+        if seen.nbytes > self._max_bytes:
+            raise IncrementalWriteError(
+                f"This query returns too many unique keys to verify ({seen.num_rows} so far). "
+                f"Reduce the rows the query returns, or turn off incremental materialization for "
+                f"this view to fall back to a full refresh."
+            )
+        self._seen = seen
 
 
 def max_of(batch: pa.RecordBatch, column: str, running: Any = None) -> Any:

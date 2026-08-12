@@ -7,7 +7,7 @@ would assert our idea of deltalite rather than deltalite.
 """
 
 from collections.abc import Collection
-from datetime import UTC, datetime
+from datetime import UTC, datetime, timedelta
 from typing import Any, cast
 
 import pytest
@@ -51,14 +51,17 @@ def _rows(table_uri: str) -> list[tuple[Any, Any]]:
     return sorted(pairs, key=lambda pair: (pair[0] is None, pair[0]))
 
 
-def _mock_hogql_table(*batches: pa.RecordBatch, value_column: str = "c"):
+def _mock_hogql_table(*batches: pa.RecordBatch, value_column: str = "c", windows: list[Any] | None = None):
     """Stand in for one run: yields the given batches, ignoring the window.
 
     The window's effect on the generated SQL is covered by the filter-injection tests; what matters
-    here is what the write path does with the rows that come back.
+    here is what the write path does with the rows that come back. ``windows`` collects the window
+    each run was given, for tests that assert on the computed lower bound.
     """
 
     def factory(*args, **kwargs):
+        if windows is not None:
+            windows.append(kwargs.get("window"))
         del args, kwargs
 
         async def generator():
@@ -90,11 +93,12 @@ async def _run(
     *batches: pa.RecordBatch,
     enabled: bool = True,
     value_column: str = "c",
+    windows: list[Any] | None = None,
 ):
     with (
         unittest.mock.patch(
             "posthog.temporal.data_modeling.activities.materialize_view.hogql_table",
-            _mock_hogql_table(*batches, value_column=value_column),
+            _mock_hogql_table(*batches, value_column=value_column, windows=windows),
         ),
         unittest.mock.patch(
             "posthog.temporal.data_modeling.activities.materialize_view._incremental_enabled",
@@ -327,8 +331,7 @@ class TestIncrementalMaterialization:
     async def test_multiple_batches_in_one_run_all_land(
         self, activity_environment, ateam, anode, asaved_query, ajob, bucket_name, adag
     ):
-        """A run streams ~100MB batches, each its own upsert, so a key can also repeat across
-        batches within one run."""
+        """A run streams ~100MB batches, each its own upsert. Every batch's rows must land."""
         await _configure(asaved_query)
 
         with _settings(bucket_name):
@@ -341,8 +344,83 @@ class TestIncrementalMaterialization:
                 adag,
                 _batch([DAY2], [20]),
                 _batch([DAY3], [30]),
-                _batch([DAY2], [21]),
             )
 
-        assert result.row_count == 3
-        assert _rows(first.table_uri) == [(DAY1, 1), (DAY2, 21), (DAY3, 30)]
+        assert result.row_count == 2
+        assert _rows(first.table_uri) == [(DAY1, 1), (DAY2, 20), (DAY3, 30)]
+
+    async def test_a_duplicate_key_across_batches_fails_the_run(
+        self, activity_environment, ateam, anode, asaved_query, ajob, bucket_name, adag
+    ):
+        """A key repeated across batches within one run is the same misconfiguration as within one
+        batch, but per-batch upserts would silently turn it into last-write-wins. The offending
+        batch must never be written, and the cleared watermark makes the retry rebuild."""
+        await _configure(asaved_query)
+
+        with _settings(bucket_name):
+            first = await _run(activity_environment, ateam, anode, ajob, adag, _batch([DAY1], [1]))
+
+            with pytest.raises(IncrementalWriteError, match="does not identify a single row"):
+                await _run(
+                    activity_environment,
+                    ateam,
+                    anode,
+                    ajob,
+                    adag,
+                    _batch([DAY2], [20]),
+                    _batch([DAY3], [30]),
+                    _batch([DAY2], [21]),
+                )
+
+        assert _rows(first.table_uri) == [(DAY1, 1), (DAY2, 20), (DAY3, 30)], (
+            "the duplicate batch must not have replaced the earlier one"
+        )
+
+        await database_sync_to_async(asaved_query.refresh_from_db)()
+        assert get_incremental_state(asaved_query).watermark is None
+
+    @pytest.mark.parametrize(
+        "batches,match",
+        [
+            pytest.param((_batch([DAY1, None], [10, 20]),), "is null", id="null_key"),
+            pytest.param(
+                (_batch([DAY1, DAY1], [10, 11]),),
+                "does not identify a single row",
+                id="duplicate_within_a_batch",
+            ),
+            pytest.param(
+                (_batch([DAY1], [10]), _batch([DAY1], [11])),
+                "does not identify a single row",
+                id="duplicate_across_batches",
+            ),
+        ],
+    )
+    async def test_the_first_run_enforces_the_unique_key(
+        self, activity_environment, ateam, anode, asaved_query, ajob, bucket_name, adag, batches, match
+    ):
+        """The seeding full refresh must fail on a null or duplicate key too — a table born in
+        violation of the contract would poison every later upsert."""
+        await _configure(asaved_query)
+
+        with _settings(bucket_name):
+            with pytest.raises(IncrementalWriteError, match=match):
+                await _run(activity_environment, ateam, anode, ajob, adag, *batches)
+
+        await database_sync_to_async(asaved_query.refresh_from_db)()
+        assert get_incremental_state(asaved_query).watermark is None
+
+    async def test_lookback_shifts_the_second_runs_window(
+        self, activity_environment, ateam, anode, asaved_query, ajob, bucket_name, adag
+    ):
+        """The watermark is persisted as an ISO string; the lookback has to apply to the
+        deserialized datetime, or every run silently ignores it and misses late-arriving rows."""
+        await _configure(asaved_query, {**CONFIG, "lookback_seconds": 3600})
+        windows: list[Any] = []
+
+        with _settings(bucket_name):
+            await _run(activity_environment, ateam, anode, ajob, adag, _batch([DAY1, DAY2], [10, 20]), windows=windows)
+            await _run(activity_environment, ateam, anode, ajob, adag, _batch([DAY3], [30]), windows=windows)
+
+        assert windows[0] is None, "the first run is a full refresh with no window"
+        assert windows[1] is not None
+        assert windows[1].since == DAY2 - timedelta(seconds=3600)

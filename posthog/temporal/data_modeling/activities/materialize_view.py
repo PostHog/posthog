@@ -33,9 +33,8 @@ from posthog.temporal.common.logger import get_logger
 from posthog.temporal.data_modeling.activities.incremental_write import (
     IncrementalWriteError,
     SchemaDriftError,
-    assert_no_null_keys,
+    UniqueKeyTracker,
     assert_schema_matches,
-    assert_unique,
     max_of,
     table_exists,
     upsert_batch,
@@ -48,7 +47,6 @@ from products.data_modeling.backend.facade.api import (
     IncrementalFilterError,
     clear_incremental_state,
     definition_fingerprint,
-    deserialize_watermark,
     get_incremental_config,
     get_incremental_state,
     inject_incremental_filter,
@@ -143,7 +141,7 @@ def _resolve_write_plan(saved_query: DataWarehouseSavedQuery, team_id: int) -> W
         # longer applies. Rebuilding is the only way the table still matches the SQL the user sees.
         return WritePlan(incremental=False, reason="definition changed", fingerprint=fingerprint, config=config)
 
-    since = deserialize_watermark(window_start(state, config))
+    since = window_start(state, config)
     if since is None:
         return WritePlan(incremental=False, reason="no usable watermark", fingerprint=fingerprint, config=config)
 
@@ -628,6 +626,9 @@ async def _materialize_fully(
     # pyarrow).
     pa_schema: pa.Schema | None = None
     watermark: typing.Any = None
+    # The declared unique key is enforced while seeding too: a table born with null or duplicate
+    # keys would break every later upsert's contract, silently.
+    tracker = UniqueKeyTracker(plan.config.unique_key) if plan.config is not None else None
 
     # write each batch as its own delta commit, imitating the data_imports pipeline
     # (DeltaWriter.write): the first batch overwrites — creating the
@@ -640,6 +641,8 @@ async def _materialize_fully(
         batch = _transform_unsupported_decimals(batch)
         batch = _transform_date_and_datetimes(batch, ch_types)
         batch = _force_nullable(batch)
+        if tracker is not None:
+            await asyncio.to_thread(tracker.check, batch)
         if delta_table is None:
             pa_schema = batch.schema
             await asyncio.to_thread(
@@ -716,6 +719,7 @@ async def _materialize_incrementally(
 
     row_count = 0
     watermark: typing.Any = None
+    tracker = UniqueKeyTracker(config.unique_key)
 
     try:
         async for batch, ch_types in hogql_table(hogql_query, objects.team, logger, window=window):
@@ -728,8 +732,9 @@ async def _materialize_incrementally(
                 continue
 
             assert_schema_matches(batch, target_schema)
-            assert_no_null_keys(batch, config.unique_key)
-            assert_unique(batch, config.unique_key)
+            # Checked before the upsert so a duplicate split across batches fails the run instead
+            # of the later batch silently replacing the earlier one.
+            await asyncio.to_thread(tracker.check, batch)
 
             stats = await asyncio.to_thread(
                 upsert_batch,

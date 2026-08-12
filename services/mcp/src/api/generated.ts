@@ -14697,7 +14697,10 @@ export namespace Schemas {
      * Body of the `check_incremental` action: a query and an optional config to check it against.
      */
     export interface CheckIncremental {
-      /** The HogQL query to check. */
+      /**
+         * The HogQL query to check.
+         * @maxLength 65536
+         */
       query: string;
       /**
          * Output column whose advancing value marks rows as new. Omit to only list candidates.

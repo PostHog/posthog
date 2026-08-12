@@ -79,30 +79,48 @@ class TestIncrementalConfig(BaseTest):
     def test_fingerprint_of_an_unparseable_query_is_none(self) -> None:
         assert definition_fingerprint({"query": "SELECT FROM WHERE"}, CONFIG) is None
 
-    def test_state_round_trips_a_datetime_watermark(self) -> None:
+    @parameterized.expand(
+        [
+            ("datetime", datetime(2026, 8, 1, 12, 30, tzinfo=UTC), datetime),
+            ("date", date(2026, 8, 1), date),
+            ("int", 42, int),
+            ("float", 42.5, float),
+            ("date_like_string", "2026-08-01", str),
+            ("datetime_like_string", "2026-08-01T12:30:00+00:00", str),
+        ]
+    )
+    def test_state_round_trips_a_watermark_by_type(self, _name: str, watermark, expected_type: type) -> None:
+        """The persisted type tag is what keeps a string key stable: a value such as
+        toString(toDate(timestamp)) looks like a date, and sniffing it back into one would compare
+        a Date constant against a String column on the next run."""
         saved_query = self._saved_query()
-        watermark = datetime(2026, 8, 1, 12, 30, tzinfo=UTC)
 
         set_incremental_state(saved_query, watermark=watermark, fingerprint="abc", mode="incremental")
 
         saved_query.refresh_from_db()
         state = get_incremental_state(saved_query)
-        assert deserialize_watermark(state.watermark) == watermark
+        restored = deserialize_watermark(state.watermark, state.watermark_type)
+        assert restored == watermark
+        assert type(restored) is expected_type
         assert state.definition_fingerprint == "abc"
         assert state.last_run_mode == "incremental"
 
-    def test_state_round_trips_a_date_watermark(self) -> None:
-        """A Date incremental key yields a plain date, which the JSON field cannot store, and which
-        must come back as a date rather than a midnight datetime so it compares against a Date
-        column as the right type."""
-        saved_query = self._saved_query()
+    @parameterized.expand(
+        [
+            ("datetime_string", "2026-08-01T12:30:00+00:00", datetime(2026, 8, 1, 12, 30, tzinfo=UTC)),
+            ("date_string", "2026-08-01", date(2026, 8, 1)),
+            ("non_iso_string", "not-a-date", "not-a-date"),
+            ("integer", 42, 42),
+        ]
+    )
+    def test_untagged_state_falls_back_to_sniffing(self, _name: str, stored, expected) -> None:
+        """States persisted before the type tag existed have no watermark_type, and their
+        already-running views must keep deserializing the way they always did."""
+        assert deserialize_watermark(stored, None) == expected
 
-        set_incremental_state(saved_query, watermark=date(2026, 8, 1), fingerprint="abc", mode="incremental")
-
-        saved_query.refresh_from_db()
-        restored = deserialize_watermark(get_incremental_state(saved_query).watermark)
-        assert restored == date(2026, 8, 1)
-        assert not isinstance(restored, datetime)
+    def test_a_corrupted_tagged_watermark_reads_as_absent(self) -> None:
+        """A watermark the tag cannot parse routes the run to a full refresh instead of failing it."""
+        assert deserialize_watermark("not-a-datetime", "datetime") is None
 
     def test_setting_state_leaves_a_concurrent_config_edit_alone(self) -> None:
         """The API writes config while a run writes state. Losing the config edit would silently
@@ -128,24 +146,53 @@ class TestIncrementalConfig(BaseTest):
         clear_incremental_state(saved_query)
 
         saved_query.refresh_from_db()
-        assert get_incremental_state(saved_query).watermark is None
+        state = get_incremental_state(saved_query)
+        assert state.watermark is None
+        assert state.watermark_type is None
         assert get_incremental_config(saved_query) is not None
 
     @parameterized.expand(
         [
-            ("no_watermark", None, 3600, None),
-            ("datetime_shifts_back", datetime(2026, 8, 2, tzinfo=UTC), 3600, datetime(2026, 8, 1, 23, tzinfo=UTC)),
-            ("datetime_no_lookback", datetime(2026, 8, 2, tzinfo=UTC), 0, datetime(2026, 8, 2, tzinfo=UTC)),
-            ("integer_key_ignores_lookback", 42, 3600, 42),
+            ("no_watermark", None, None, 3600, None),
+            (
+                "datetime_shifts_back",
+                datetime(2026, 8, 2, tzinfo=UTC),
+                "datetime",
+                3600,
+                datetime(2026, 8, 1, 23, tzinfo=UTC),
+            ),
+            (
+                "persisted_datetime_string_shifts_back",
+                "2026-08-02T00:00:00+00:00",
+                "datetime",
+                3600,
+                datetime(2026, 8, 1, 23, tzinfo=UTC),
+            ),
+            (
+                "datetime_no_lookback",
+                datetime(2026, 8, 2, tzinfo=UTC),
+                "datetime",
+                0,
+                datetime(2026, 8, 2, tzinfo=UTC),
+            ),
+            ("integer_key_ignores_lookback", 42, "int", 3600, 42),
+            ("string_key_ignores_lookback", "2026-08-02", "string", 3600, "2026-08-02"),
         ]
     )
-    def test_window_start(self, _name: str, watermark, lookback: int, expected) -> None:
+    def test_window_start(self, _name: str, watermark, watermark_type, lookback: int, expected) -> None:
         config = IncrementalConfig(incremental_key="day", unique_key=("day",), lookback_seconds=lookback)
 
-        assert window_start(IncrementalState(watermark=watermark), config) == expected
+        assert window_start(IncrementalState(watermark=watermark, watermark_type=watermark_type), config) == expected
 
-    def test_lookback_reaches_back_a_whole_number_of_seconds(self) -> None:
-        config = IncrementalConfig(incremental_key="day", unique_key=("day",), lookback_seconds=90)
+    def test_lookback_applies_to_a_watermark_persisted_through_the_database(self) -> None:
+        """The stored form of a datetime watermark is an ISO string. The lookback has to shift the
+        deserialized datetime — shifting nothing because the value is a string is how late-arriving
+        rows get silently missed."""
+        saved_query = self._saved_query()
         watermark = datetime(2026, 8, 2, tzinfo=UTC)
+        set_incremental_state(saved_query, watermark=watermark, fingerprint="abc", mode="incremental")
 
-        assert window_start(IncrementalState(watermark=watermark), config) == watermark - timedelta(seconds=90)
+        saved_query.refresh_from_db()
+        config = IncrementalConfig(incremental_key="day", unique_key=("day",), lookback_seconds=90)
+
+        assert window_start(get_incremental_state(saved_query), config) == watermark - timedelta(seconds=90)

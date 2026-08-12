@@ -1,6 +1,10 @@
+from typing import ClassVar, Optional
+
 from posthog.test.base import BaseTest
 
 from parameterized import parameterized
+
+from posthog.hogql.database.database import Database
 
 from products.data_modeling.backend.logic.incremental import IncrementalConfig
 from products.data_modeling.backend.logic.incremental_eligibility import check_incremental_eligibility
@@ -40,6 +44,36 @@ class TestIncrementalEligibility(BaseTest):
                 "group_by_all_with_a_covering_unique_key",
                 "SELECT toStartOfDay(timestamp) AS day, event, count() AS c FROM events GROUP BY ALL",
                 DAY_EVENT_KEY,
+            ),
+            (
+                "order_by_in_a_subquery_is_a_no_op_without_a_limit",
+                "SELECT toStartOfDay(timestamp) AS day, count() AS c FROM "
+                "(SELECT timestamp FROM events ORDER BY timestamp) GROUP BY day",
+                DAY_KEY,
+            ),
+            (
+                "distinct_in_a_subquery_commutes_with_the_window_filter",
+                "SELECT toStartOfDay(timestamp) AS day, count() AS c FROM "
+                "(SELECT DISTINCT timestamp FROM events) GROUP BY day",
+                DAY_KEY,
+            ),
+            (
+                "limit_in_a_scalar_where_subquery_is_value_drift_not_a_row_source",
+                "SELECT toStartOfDay(timestamp) AS day, count() AS c FROM events "
+                "WHERE timestamp > (SELECT min(timestamp) FROM events LIMIT 1) GROUP BY day",
+                DAY_KEY,
+            ),
+            (
+                "limit_in_an_in_subquery_is_value_drift_not_a_row_source",
+                "SELECT toStartOfDay(timestamp) AS day, count() AS c FROM events "
+                "WHERE event IN (SELECT event FROM events LIMIT 10) GROUP BY day",
+                DAY_KEY,
+            ),
+            (
+                "limit_in_a_column_cte_is_a_scalar_not_a_row_source",
+                "WITH (SELECT min(timestamp) FROM events LIMIT 1) AS m "
+                "SELECT toStartOfDay(timestamp) AS day, count() AS c FROM events WHERE timestamp > m GROUP BY day",
+                DAY_KEY,
             ),
         ]
     )
@@ -104,6 +138,85 @@ class TestIncrementalEligibility(BaseTest):
                 DAY_KEY,
                 "must include every GROUP BY column",
             ),
+            (
+                # A group can pass the condition on one run and fail it on the next; the upsert
+                # never deletes, so the stale row would stay forever.
+                "having_on_the_outer_select",
+                f"{GROUPED} HAVING count() > 0",
+                DAY_KEY,
+                "HAVING",
+            ),
+            (
+                "having_in_a_cte",
+                "WITH t AS (SELECT toStartOfDay(timestamp) AS day, count() AS c FROM events "
+                "GROUP BY day HAVING count() > 0) SELECT day, c FROM t",
+                DAY_KEY,
+                "HAVING",
+            ),
+            (
+                "limit_in_a_cte",
+                "WITH t AS (SELECT timestamp FROM events LIMIT 100) "
+                "SELECT toStartOfDay(timestamp) AS day, count() AS c FROM t GROUP BY day",
+                DAY_KEY,
+                "LIMIT inside a subquery or CTE",
+            ),
+            (
+                "limit_in_a_from_subquery",
+                "SELECT toStartOfDay(timestamp) AS day, count() AS c FROM "
+                "(SELECT timestamp FROM events LIMIT 100) GROUP BY day",
+                DAY_KEY,
+                "LIMIT inside a subquery or CTE",
+            ),
+            (
+                "limit_in_a_join_source",
+                "SELECT toStartOfDay(e.timestamp) AS day, count() AS c FROM events e "
+                "JOIN (SELECT distinct_id FROM events LIMIT 10) x ON e.distinct_id = x.distinct_id GROUP BY day",
+                DAY_KEY,
+                "LIMIT inside a subquery or CTE",
+            ),
+            (
+                "limit_two_subquery_levels_down",
+                "SELECT toStartOfDay(timestamp) AS day, count() AS c FROM "
+                "(SELECT timestamp FROM (SELECT timestamp FROM events LIMIT 100)) GROUP BY day",
+                DAY_KEY,
+                "LIMIT inside a subquery or CTE",
+            ),
+            (
+                "offset_in_a_subquery",
+                "SELECT toStartOfDay(timestamp) AS day, count() AS c FROM "
+                "(SELECT timestamp FROM events OFFSET 5) GROUP BY day",
+                DAY_KEY,
+                "OFFSET inside a subquery or CTE",
+            ),
+            (
+                "limit_by_in_a_subquery",
+                "SELECT toStartOfDay(timestamp) AS day, count() AS c FROM "
+                "(SELECT timestamp, event FROM events LIMIT 1 BY event) GROUP BY day",
+                DAY_KEY,
+                "LIMIT BY inside a subquery or CTE",
+            ),
+            (
+                # The row_number over full history changes for already-written rows as data
+                # arrives, and those rows are never rewritten.
+                "window_function_in_a_cte",
+                "WITH t AS (SELECT timestamp, row_number() OVER (ORDER BY timestamp) AS rn FROM events) "
+                "SELECT toStartOfDay(timestamp) AS day, count() AS c FROM t GROUP BY day",
+                DAY_KEY,
+                "Window functions",
+            ),
+            (
+                "except_inside_a_subquery",
+                f"SELECT day, c FROM (({GROUPED}) EXCEPT ({GROUPED}))",
+                DAY_KEY,
+                "EXCEPT",
+            ),
+            (
+                "rollup_in_a_subquery",
+                "SELECT day, c FROM (SELECT toStartOfDay(timestamp) AS day, count() AS c "
+                "FROM events GROUP BY ROLLUP(day))",
+                DAY_KEY,
+                "GROUP BY ROLLUP",
+            ),
         ]
     )
     def test_blocked(self, _name: str, query: str, config: IncrementalConfig, expected: str) -> None:
@@ -151,3 +264,105 @@ class TestIncrementalEligibility(BaseTest):
         )
 
         assert result.key_candidates == ["day"]
+
+    def test_the_same_construct_in_several_sources_reads_as_one_blocker(self) -> None:
+        result = check_incremental_eligibility(
+            "WITH a AS (SELECT timestamp FROM events LIMIT 10), b AS (SELECT timestamp FROM events LIMIT 10) "
+            "SELECT toStartOfDay(a.timestamp) AS day, count() AS c FROM a JOIN b ON a.timestamp = b.timestamp "
+            "GROUP BY day",
+            DAY_KEY,
+        )
+
+        assert not result.eligible
+        assert len(result.blockers) == 1, result.blockers
+
+
+class TestStarExpansion:
+    database: ClassVar[Database]
+
+    @classmethod
+    def setup_class(cls) -> None:
+        cls.database = Database()
+
+    def _check(self, query: str, config: Optional[IncrementalConfig] = None, *, database: Optional[Database] = None):
+        return check_incremental_eligibility(query, config, database=database or self.database)
+
+    def test_star_over_a_table_expands_to_real_columns(self) -> None:
+        result = self._check("SELECT * FROM events")
+
+        assert "timestamp" in result.key_candidates
+        assert "*" not in result.key_candidates
+
+    def test_aliased_star_expands_too(self) -> None:
+        result = self._check("SELECT e.* FROM events e")
+
+        assert "timestamp" in result.key_candidates
+        assert "*" not in result.key_candidates
+
+    def test_expanded_candidates_still_intersect_union_branches(self) -> None:
+        result = self._check("SELECT * FROM (SELECT 1 AS a, 2 AS b) UNION ALL SELECT 3 AS a, 4 AS c")
+
+        assert result.key_candidates == ["a"]
+
+    def test_an_aggregate_alongside_a_star_stays_excluded(self) -> None:
+        result = self._check("SELECT *, count() AS c FROM events GROUP BY ALL")
+
+        assert "timestamp" in result.key_candidates
+        assert "c" not in result.key_candidates
+
+    @parameterized.expand(
+        [
+            ("no_database", "SELECT * FROM events", False),
+            ("unresolvable_table", "SELECT * FROM definitely_not_a_table", True),
+        ]
+    )
+    def test_falls_back_to_the_raw_asterisk_when_expansion_is_unavailable(
+        self, _name: str, query: str, use_database: bool
+    ) -> None:
+        result = check_incremental_eligibility(query, None, database=self.database if use_database else None)
+
+        assert result.key_candidates == ["*"]
+
+    def test_a_config_naming_an_expanded_column_passes(self) -> None:
+        result = self._check(
+            "SELECT * FROM events", IncrementalConfig(incremental_key="timestamp", unique_key=("uuid",))
+        )
+
+        assert result.eligible, result.blockers
+
+    def test_without_a_database_a_config_on_a_star_query_still_blocks(self) -> None:
+        result = check_incremental_eligibility(
+            "SELECT * FROM events", IncrementalConfig(incremental_key="timestamp", unique_key=("uuid",))
+        )
+
+        assert not result.eligible
+        assert any("not one of this query's output columns" in blocker for blocker in result.blockers)
+
+    def test_grouping_columns_survive_resolution_for_the_coverage_check(self) -> None:
+        # The resolver rewrites `GROUP BY event` into an Alias node; if that form is not
+        # recognized, the column vanishes from the grouping set and an uncovered unique key passes.
+        result = self._check(
+            "SELECT toStartOfDay(timestamp) AS day, event, count() AS c FROM events GROUP BY day, event",
+            DAY_KEY,
+        )
+
+        assert not result.eligible
+        assert any("must include every GROUP BY column" in blocker for blocker in result.blockers), result.blockers
+
+    def test_grouping_by_the_inline_expression_still_matches_its_alias_on_the_resolved_ast(self) -> None:
+        result = self._check(
+            "SELECT toStartOfDay(timestamp) AS day, count() AS c FROM events GROUP BY toStartOfDay(timestamp)",
+            DAY_KEY,
+        )
+
+        assert result.eligible, result.blockers
+
+    def test_the_aggregating_cte_pushdown_warning_survives_resolution(self) -> None:
+        result = self._check(
+            "WITH daily AS (SELECT toStartOfDay(timestamp) AS day, count() AS c FROM events GROUP BY day) "
+            "SELECT day, c FROM daily",
+            DAY_KEY,
+        )
+
+        assert result.eligible
+        assert any("cannot be pushed down" in warning for warning in result.warnings), result.warnings

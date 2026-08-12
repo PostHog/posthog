@@ -14,6 +14,7 @@ including non-associative ones that other systems have to reject.
 
 import json
 import hashlib
+from collections.abc import Callable
 from dataclasses import dataclass
 from datetime import date, datetime, timedelta
 from typing import Any, Optional
@@ -52,6 +53,7 @@ class IncrementalState:
     """The system-written half: how far the last successful run got."""
 
     watermark: Any = None
+    watermark_type: Optional[str] = None
     definition_fingerprint: Optional[str] = None
     last_full_refresh_at: Optional[str] = None
     last_run_mode: Optional[str] = None
@@ -90,6 +92,7 @@ def get_incremental_state(saved_query) -> IncrementalState:
         return IncrementalState()
     return IncrementalState(
         watermark=raw.get("watermark"),
+        watermark_type=raw.get("watermark_type"),
         definition_fingerprint=raw.get("definition_fingerprint"),
         last_full_refresh_at=raw.get("last_full_refresh_at"),
         last_run_mode=raw.get("last_run_mode"),
@@ -127,12 +130,14 @@ def definition_fingerprint(query: dict | None, config: IncrementalConfig) -> Opt
 
 
 def window_start(state: IncrementalState, config: IncrementalConfig) -> Any:
-    """The lower bound for this run: the stored watermark, pulled back by the lookback.
+    """The lower bound for this run: the stored watermark, deserialized, then pulled back by the
+    lookback. Deserializing first is load-bearing: a persisted temporal watermark is an ISO
+    string, and shifting has to happen on the datetime it encodes, not on the string.
 
     Only datetime watermarks can be shifted; a numeric or string key has no meaningful notion of
     "seconds earlier", so its lookback is ignored rather than guessed at.
     """
-    watermark = state.watermark
+    watermark = deserialize_watermark(state.watermark, state.watermark_type)
     if watermark is None:
         return None
     if config.lookback_seconds and isinstance(watermark, datetime):
@@ -155,6 +160,7 @@ def set_incremental_state(saved_query, *, watermark: Any, fingerprint: Optional[
             state["last_full_refresh_at"] = _isoformat(watermark_now())
         if watermark is not None:
             state["watermark"] = _serialize_watermark(watermark)
+            state["watermark_type"] = _watermark_type(watermark)
         state["definition_fingerprint"] = fingerprint
         locked.incremental_state = state
         locked.save(update_fields=["incremental_state"])
@@ -169,6 +175,7 @@ def clear_incremental_state(saved_query) -> None:
         locked = model.objects.select_for_update().get(pk=saved_query.pk)
         state = dict(locked.incremental_state or {})
         state.pop("watermark", None)
+        state.pop("watermark_type", None)
         state.pop("definition_fingerprint", None)
         locked.incremental_state = state
         locked.save(update_fields=["incremental_state"])
@@ -189,13 +196,56 @@ def _serialize_watermark(value: Any) -> Any:
     return value
 
 
+def _watermark_type(value: Any) -> Optional[str]:
+    """The tag ``deserialize_watermark`` trusts. Written by the same code that serializes the
+    value, so a string key whose values merely look like dates never comes back as a date."""
+    if isinstance(value, datetime):
+        return "datetime"
+    if isinstance(value, date):
+        return "date"
+    if isinstance(value, str):
+        return "string"
+    if isinstance(value, bool):
+        return None
+    if isinstance(value, int):
+        return "int"
+    if isinstance(value, float):
+        return "float"
+    return None
+
+
 def _isoformat(value: date) -> str:
     return value.isoformat()
 
 
-def deserialize_watermark(value: Any) -> Any:
-    """Rehydrate a JSON-stored watermark. Dates and datetimes round-trip through ISO strings;
-    every other key type (integers, strings) is stored and compared as-is."""
+def _parse_iso(value: Any, parse: Callable[[str], Any]) -> Any:
+    if not isinstance(value, str):
+        return value
+    try:
+        return parse(value)
+    except ValueError:
+        # A corrupted watermark reads as absent, which routes the run to a full refresh.
+        return None
+
+
+def deserialize_watermark(value: Any, watermark_type: Optional[str] = None) -> Any:
+    """Rehydrate a JSON-stored watermark, strictly by its persisted type tag.
+
+    Sniffing the value would be wrong here: a string incremental key such as
+    ``toString(toDate(timestamp))`` produces values that look like dates, and turning one into a
+    date would compare a Date constant against a String column on the next run.
+    """
+    if value is None:
+        return None
+    if watermark_type == "datetime":
+        return _parse_iso(value, datetime.fromisoformat)
+    if watermark_type == "date":
+        return _parse_iso(value, date.fromisoformat)
+    if watermark_type in ("int", "float", "string"):
+        return value
+
+    # Legacy fallback: states persisted before the type tag existed carry no tag, so their
+    # original date/datetime sniffing is kept to avoid breaking already-running views.
     if isinstance(value, str):
         try:
             # A bare YYYY-MM-DD came from a Date key, so give the filter back a date rather than a
