@@ -844,7 +844,8 @@ def has_pending_slack_file_artifacts(run: TaskRun) -> bool:
     return any(_pending_slack_file_version(artifact) is not None for artifact in artifacts)
 
 
-@dataclass
+# Mutable: delivery accumulates into it as each card is posted.
+@dataclass(frozen=False)
 class SlackFileDeliveryResult:
     answer_posted: bool = False
     delivered_count: int = 0
@@ -1102,7 +1103,7 @@ def _pending_slack_content_type(artifact: TaskArtifact, version_payload: dict[st
 _SLACK_MESSAGE_BLOCK_LIMIT = 50
 
 
-@dataclass
+@dataclass(frozen=True)
 class _SlackImageCard:
     artifact: TaskArtifact
     version_payload: dict[str, Any]
