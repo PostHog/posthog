@@ -80,10 +80,12 @@ export const NotSignificant: Story = {
     play: async ({ canvasElement }) => await playHoverAtFraction(canvasElement, 0.4),
 }
 
-// The trailing day the daily job hasn't computed: adds the pending footer.
+// A day the daily job hasn't computed: adds the pending footer. Hovered mid-plot like the
+// others rather than at the trailing point, because a cursor-anchored tooltip near the right
+// edge clips out of the snapshot.
 export const PendingDay: Story = {
     render: () => <TooltipChart hasRealData={false} significant />,
-    play: async ({ canvasElement }) => await playHoverAtFraction(canvasElement, 0.92),
+    play: async ({ canvasElement }) => await playHoverAtFraction(canvasElement, 0.4),
 }
 
 // A ratio metric swaps the exposures row for the denominator.
