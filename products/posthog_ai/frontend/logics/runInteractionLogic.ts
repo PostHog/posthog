@@ -13,16 +13,21 @@ import {
     resolveEffortForModel,
 } from 'products/posthog_ai/frontend/utils/composerModels'
 import {
-    DEFAULT_COMPOSER_MODE,
+    getDefaultModeForRuntimeAdapter,
     getModeOption,
     type PermissionMode,
+    resolveModeForRuntimeAdapter,
 } from 'products/posthog_ai/frontend/utils/composerModes'
 import {
     tasksRunCreate,
     tasksRunsClearConversationCreate,
     tasksRunsCommandCreate,
 } from 'products/tasks/frontend/generated/api'
-import { type ModelChoiceApi, type ReasoningEffortEnumApi } from 'products/tasks/frontend/generated/api.schemas'
+import {
+    type ModelChoiceApi,
+    type ReasoningEffortEnumApi,
+    RuntimeAdapterEnumApi,
+} from 'products/tasks/frontend/generated/api.schemas'
 
 import { type AttachedContextItem, attachedContextItemKey } from '../types/contextTypes'
 import type { PermissionRequestRecord } from '../types/streamTypes'
@@ -81,9 +86,9 @@ function isClearCommand(content: string): boolean {
 export interface runInteractionLogicValues {
     dataProcessingAccepted: boolean // aiConsentLogic
     contextItems: AttachedContextItem[] // attachedContextLogic
-    catalogue: ModelChoiceApi[] // modelCatalogueLogic
     seenContextLinesByTask: Record<string, string[]> // attachedContextLogic
     sentContextKeysByTask: Record<string, string[]> // attachedContextLogic
+    catalogue: ModelChoiceApi[] // modelCatalogueLogic
     currentProjectId: number | null // projectLogic
     conversationClearSupported: boolean // runStreamLogic
     currentMode: string | null // runStreamLogic
@@ -319,8 +324,18 @@ export interface runInteractionLogicMeta {
     __keaTypeGenInternalSelectorTypes: {
         isTerminal: (currentRunStatus: RunStatus | null) => boolean
         selectedModel: (modelOverride: string | null, arg: any) => string
-        selectedEffort: (effortOverride: string | null, arg: any, selectedModel: string) => ReasoningEffortEnumApi
-        selectedMode: (modeOverride: PermissionMode | null, currentMode: string | null, arg: any) => PermissionMode
+        selectedEffort: (
+            effortOverride: string | null,
+            arg: any,
+            selectedModel: string,
+            catalogue: ModelChoiceApi[]
+        ) => ReasoningEffortEnumApi
+        selectedMode: (
+            modeOverride: PermissionMode | null,
+            currentMode: string | null,
+            arg: any,
+            arg2: any
+        ) => PermissionMode
         isBusy: (isThinking: boolean) => boolean
         canSend: (sending: boolean, isTerminal: boolean, currentProjectId: number | null) => boolean
         isSubmitting: (sending: boolean, startingRun: boolean, clearing: boolean) => boolean
@@ -605,9 +620,20 @@ export const runInteractionLogic = kea<runInteractionLogicType>([
         // mode, another runtime's vocabulary) degrades to the next fallback instead of leaking out as a
         // fake `PermissionMode`.
         selectedMode: [
-            (s) => [s.modeOverride, s.currentMode, (_, p) => p.currentMode],
-            (override: PermissionMode | null, current: string | null, initial): PermissionMode =>
-                override ?? getModeOption(current)?.value ?? getModeOption(initial)?.value ?? DEFAULT_COMPOSER_MODE,
+            (s) => [s.modeOverride, s.currentMode, (_, p) => p.currentMode, (_, p) => p.currentRuntimeAdapter],
+            (
+                override: PermissionMode | null,
+                current: string | null,
+                initial: string | null | undefined,
+                runtimeAdapter: string | null | undefined
+            ): PermissionMode => {
+                // Coerce onto the run's own harness: the wire can carry the other runtime's vocabulary
+                // (a run started from desktop or Slack), and showing `full access` on a Claude run — or
+                // sending it — is a mode that runtime rejects.
+                const adapter = runtimeAdapter ?? RuntimeAdapterEnumApi.Claude
+                const picked = override ?? getModeOption(current)?.value ?? getModeOption(initial)?.value
+                return picked ? resolveModeForRuntimeAdapter(adapter, picked) : getDefaultModeForRuntimeAdapter(adapter)
+            },
         ],
         // The agent is actively working a turn — a follow-up typed now should stage rather than send.
         isBusy: [(s) => [s.isThinking], (isThinking: boolean): boolean => isThinking],
@@ -725,11 +751,14 @@ export const runInteractionLogic = kea<runInteractionLogicType>([
                         })
                         actions.setSentEffort(values.selectedEffort)
                     }
-                    const activeMode =
+                    const modeAdapter = props.currentRuntimeAdapter ?? RuntimeAdapterEnumApi.Claude
+                    const lastKnownMode =
                         values.sentMode ??
                         getModeOption(values.currentMode)?.value ??
-                        getModeOption(props.currentMode)?.value ??
-                        DEFAULT_COMPOSER_MODE
+                        getModeOption(props.currentMode)?.value
+                    const activeMode = lastKnownMode
+                        ? resolveModeForRuntimeAdapter(modeAdapter, lastKnownMode)
+                        : getDefaultModeForRuntimeAdapter(modeAdapter)
                     if (values.selectedMode !== activeMode) {
                         await tasksRunsCommandCreate(String(values.currentProjectId), props.taskId, props.runId, {
                             jsonrpc: '2.0',

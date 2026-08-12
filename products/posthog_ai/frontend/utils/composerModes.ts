@@ -1,13 +1,15 @@
 import {
     CodexTaskRunCreateSchemaInitialPermissionModeEnumApi,
     InitialPermissionModeEnumApi,
+    RuntimeAdapterEnumApi,
 } from 'products/tasks/frontend/generated/api.schemas'
 
-/** The permission modes exposed by the PostHog AI composer. */
-export type PermissionMode =
-    | typeof InitialPermissionModeEnumApi.Auto
-    | typeof InitialPermissionModeEnumApi.BypassPermissions
-    | typeof InitialPermissionModeEnumApi.Plan
+/**
+ * A permission mode in either runtime's vocabulary. Claude and Codex name these differently and each
+ * validates against its own set, so the picker offers the modes of the harness the run will use rather
+ * than one blended list. Mirrors the desktop app's `ExecutionMode`.
+ */
+export type PermissionMode = InitialPermissionModeEnumApi | CodexTaskRunCreateSchemaInitialPermissionModeEnumApi
 
 export interface ComposerModeOption {
     value: PermissionMode
@@ -15,10 +17,28 @@ export interface ComposerModeOption {
     description: string
 }
 
-export const DEFAULT_COMPOSER_MODE: PermissionMode = InitialPermissionModeEnumApi.Auto
-
-// Ordered for the Shift+Tab cycle and the picker.
+/** Every mode either runtime offers, described once. `plan` and `auto` are shared. */
 export const MODE_OPTIONS: ComposerModeOption[] = [
+    {
+        value: InitialPermissionModeEnumApi.Default,
+        label: 'Default',
+        description: 'Asks before anything that changes files, runs commands, or touches live data.',
+    },
+    {
+        value: InitialPermissionModeEnumApi.AcceptEdits,
+        label: 'Accept edits',
+        description: 'Accepts file edits automatically. Still asks before shell commands and live data.',
+    },
+    {
+        value: InitialPermissionModeEnumApi.Plan,
+        label: 'Plan',
+        description: 'Plans the work first. Nothing runs until you approve the plan.',
+    },
+    {
+        value: CodexTaskRunCreateSchemaInitialPermissionModeEnumApi.ReadOnly,
+        label: 'Read only',
+        description: 'Inspects the repo and answers, but changes nothing.',
+    },
     {
         value: InitialPermissionModeEnumApi.Auto,
         label: 'Auto',
@@ -31,50 +51,81 @@ export const MODE_OPTIONS: ComposerModeOption[] = [
         description: 'Never asks. The agent can change or delete live data on its own.',
     },
     {
-        value: InitialPermissionModeEnumApi.Plan,
-        label: 'Plan',
-        description: 'Plans the work first. Nothing runs until you approve the plan.',
+        value: CodexTaskRunCreateSchemaInitialPermissionModeEnumApi.FullAccess,
+        label: 'Full access',
+        description: 'Never asks. The agent can change or delete live data on its own.',
     },
 ]
 
-// Modes retired from the picker resolve to their closest current equivalent, so persisted
-// selections and runs started before the retirement keep resolving to a real option.
-const LEGACY_MODE_ALIASES: Record<string, PermissionMode> = {
-    [InitialPermissionModeEnumApi.AcceptEdits]: InitialPermissionModeEnumApi.Auto,
+// Each runtime's own modes, in the order its picker shows them — the same sets and order the desktop app
+// uses, so a mode means the same thing and sits in the same place on both surfaces.
+const CLAUDE_MODES: PermissionMode[] = [
+    InitialPermissionModeEnumApi.Default,
+    InitialPermissionModeEnumApi.AcceptEdits,
+    InitialPermissionModeEnumApi.Plan,
+    InitialPermissionModeEnumApi.BypassPermissions,
+    InitialPermissionModeEnumApi.Auto,
+]
+
+const CODEX_MODES: PermissionMode[] = [
+    CodexTaskRunCreateSchemaInitialPermissionModeEnumApi.Plan,
+    CodexTaskRunCreateSchemaInitialPermissionModeEnumApi.ReadOnly,
+    CodexTaskRunCreateSchemaInitialPermissionModeEnumApi.Auto,
+    CodexTaskRunCreateSchemaInitialPermissionModeEnumApi.FullAccess,
+]
+
+export function getModesForRuntimeAdapter(runtimeAdapter: string): PermissionMode[] {
+    return runtimeAdapter === RuntimeAdapterEnumApi.Codex ? CODEX_MODES : CLAUDE_MODES
 }
 
-// The composer offers one set of permission concepts, but each runtime names them differently and validates
-// against its own vocabulary. Codex shares `auto` and `plan`; its equivalent of Claude's `bypassPermissions` is
-// `full-access`. Translating at send time is what lets the picker stay runtime-agnostic.
-const CODEX_MODE_BY_COMPOSER_MODE: Record<PermissionMode, CodexTaskRunCreateSchemaInitialPermissionModeEnumApi> = {
-    [InitialPermissionModeEnumApi.Auto]: CodexTaskRunCreateSchemaInitialPermissionModeEnumApi.Auto,
-    [InitialPermissionModeEnumApi.Plan]: CodexTaskRunCreateSchemaInitialPermissionModeEnumApi.Plan,
+/** Claude opens on Plan, Codex on Auto — matching the desktop app's per-runtime defaults. */
+export function getDefaultModeForRuntimeAdapter(runtimeAdapter: string): PermissionMode {
+    return runtimeAdapter === RuntimeAdapterEnumApi.Codex
+        ? CodexTaskRunCreateSchemaInitialPermissionModeEnumApi.Auto
+        : InitialPermissionModeEnumApi.Plan
+}
+
+export const DEFAULT_COMPOSER_MODE: PermissionMode = getDefaultModeForRuntimeAdapter(RuntimeAdapterEnumApi.Claude)
+
+// A mode that only exists on the other runtime maps to the nearest ceiling on this one, so switching
+// harness — or opening a run started from another surface — never silently loosens what the agent may do.
+const CODEX_FALLBACKS: Record<string, PermissionMode> = {
+    [InitialPermissionModeEnumApi.Default]: CodexTaskRunCreateSchemaInitialPermissionModeEnumApi.Auto,
+    [InitialPermissionModeEnumApi.AcceptEdits]: CodexTaskRunCreateSchemaInitialPermissionModeEnumApi.Auto,
     [InitialPermissionModeEnumApi.BypassPermissions]: CodexTaskRunCreateSchemaInitialPermissionModeEnumApi.FullAccess,
 }
 
-export function toCodexPermissionMode(mode: PermissionMode): CodexTaskRunCreateSchemaInitialPermissionModeEnumApi {
-    return CODEX_MODE_BY_COMPOSER_MODE[mode]
+const CLAUDE_FALLBACKS: Record<string, PermissionMode> = {
+    [CodexTaskRunCreateSchemaInitialPermissionModeEnumApi.ReadOnly]: InitialPermissionModeEnumApi.Plan,
+    [CodexTaskRunCreateSchemaInitialPermissionModeEnumApi.FullAccess]: InitialPermissionModeEnumApi.BypassPermissions,
+}
+
+/** Coerce a mode into the vocabulary the given runtime validates against. */
+export function resolveModeForRuntimeAdapter(runtimeAdapter: string, mode: PermissionMode): PermissionMode {
+    const native = getModesForRuntimeAdapter(runtimeAdapter)
+    if (native.includes(mode)) {
+        return mode
+    }
+    if (runtimeAdapter === RuntimeAdapterEnumApi.Codex) {
+        return CODEX_FALLBACKS[mode] ?? CodexTaskRunCreateSchemaInitialPermissionModeEnumApi.Auto
+    }
+    return CLAUDE_FALLBACKS[mode] ?? InitialPermissionModeEnumApi.Default
 }
 
 export function getModeOption(mode: string | null | undefined): ComposerModeOption | undefined {
-    if (mode == null) {
-        return undefined
-    }
-    const normalized = LEGACY_MODE_ALIASES[mode] ?? mode
-    return MODE_OPTIONS.find((option) => option.value === normalized)
+    return mode == null ? undefined : MODE_OPTIONS.find((option) => option.value === mode)
 }
 
 export function getModeLabel(mode: string | null | undefined): string {
     return getModeOption(mode)?.label ?? 'Mode'
 }
 
-// Advance to the next mode, wrapping around. Port of `/code`'s `cycleModeOption`. An unknown `current`
-// (null/undefined or a value not in the set) resets to the default so the cycle stays predictable.
-export function cycleMode(current: string | null | undefined): PermissionMode {
-    const order = MODE_OPTIONS.map((option) => option.value)
-    const index = order.indexOf((getModeOption(current)?.value ?? current) as PermissionMode)
-    if (index === -1) {
-        return DEFAULT_COMPOSER_MODE
-    }
-    return order[(index + 1) % order.length]
+// Advance to the next mode of the run's own runtime, wrapping around. Port of `/code`'s `cycleModeOption`.
+// A mode the runtime doesn't offer — carried from the other harness, or from a run started elsewhere — is
+// coerced onto this runtime first, so the cycle always starts from something the runtime accepts.
+export function cycleMode(runtimeAdapter: string, current: string | null | undefined): PermissionMode {
+    const order = getModesForRuntimeAdapter(runtimeAdapter)
+    const from = resolveModeForRuntimeAdapter(runtimeAdapter, (current ?? '') as PermissionMode)
+    const index = order.indexOf(from)
+    return index === -1 ? order[0] : order[(index + 1) % order.length]
 }

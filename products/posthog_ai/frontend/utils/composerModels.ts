@@ -1,13 +1,15 @@
 import {
     ClaudeRuntimeAdapterEnumApi,
     CodexRuntimeAdapterEnumApi,
+    CodexTaskRunCreateSchemaInitialPermissionModeEnumApi,
+    InitialPermissionModeEnumApi,
     ModelChoiceApi,
     ReasoningEffortEnumApi,
     RuntimeAdapterEnumApi,
     TaskRunCreateRequestSchemaApi,
 } from 'products/tasks/frontend/generated/api.schemas'
 
-import { type PermissionMode, toCodexPermissionMode } from './composerModes'
+import { type PermissionMode, resolveModeForRuntimeAdapter } from './composerModes'
 
 export interface ComposerEffortOption {
     value: ReasoningEffortEnumApi
@@ -139,7 +141,10 @@ export function buildRunCreateRequest(
             runtime_adapter: CodexRuntimeAdapterEnumApi.Codex,
             model,
             reasoning_effort: reasoningEffort,
-            initial_permission_mode: toCodexPermissionMode(permissionMode),
+            initial_permission_mode: resolveModeForRuntimeAdapter(
+                CodexRuntimeAdapterEnumApi.Codex,
+                permissionMode
+            ) as CodexTaskRunCreateSchemaInitialPermissionModeEnumApi,
         }
     }
     return {
@@ -147,6 +152,9 @@ export function buildRunCreateRequest(
         runtime_adapter: ClaudeRuntimeAdapterEnumApi.Claude,
         model,
         reasoning_effort: reasoningEffort,
-        initial_permission_mode: permissionMode,
+        initial_permission_mode: resolveModeForRuntimeAdapter(
+            ClaudeRuntimeAdapterEnumApi.Claude,
+            permissionMode
+        ) as InitialPermissionModeEnumApi,
     }
 }

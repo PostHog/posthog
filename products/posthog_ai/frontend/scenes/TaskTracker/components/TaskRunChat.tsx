@@ -10,7 +10,8 @@ import { Composer, QueuedMessageList } from 'products/posthog_ai/frontend/api/pr
 // flash. The inbox embeds keep the lazy `ReadonlyRunSurface`.
 import { RunSurface } from 'products/posthog_ai/frontend/api/runSurface'
 import { modelCatalogueLogic } from 'products/posthog_ai/frontend/logics/modelCatalogueLogic'
-import { cycleMode } from 'products/posthog_ai/frontend/utils/composerModes'
+import { getRuntimeAdapterForModel } from 'products/posthog_ai/frontend/utils/composerModels'
+import { cycleMode, getModesForRuntimeAdapter } from 'products/posthog_ai/frontend/utils/composerModes'
 
 import { AttachedContextBar } from '../../../components/composer/AttachedContextBar'
 import { ComposerModelEffortPickers } from '../../../components/composer/ComposerModelEffortPickers'
@@ -122,6 +123,8 @@ function LiveComposer({ logicProps }: { logicProps: RunInteractionLogicProps }):
         selectedMode,
     } = useValues(runInteractionLogic(logicProps))
     const { catalogue } = useValues(modelCatalogueLogic)
+    // A live run's harness is whatever it booted on; once terminal the next run follows the picked model.
+    const composerAdapter = logicProps.currentRuntimeAdapter ?? getRuntimeAdapterForModel(catalogue, selectedModel)
     const {
         setComposerFormValues,
         submitComposerForm,
@@ -139,7 +142,7 @@ function LiveComposer({ logicProps }: { logicProps: RunInteractionLogicProps }):
     return (
         <>
             {/* Inside the slot children: detaches while a pending approval replaces the composer. */}
-            <ComposerModeShortcut onCycle={() => setMode(cycleMode(selectedMode))} />
+            <ComposerModeShortcut onCycle={() => setMode(cycleMode(composerAdapter, selectedMode))} />
             <Composer.Root
                 value={draft.value}
                 onChange={draft.onChange}
@@ -171,7 +174,11 @@ function LiveComposer({ logicProps }: { logicProps: RunInteractionLogicProps }):
                         {/* Mode + model/effort pickers: selection lives in the bound runInteractionLogic and is
                         applied when the message is sent — synced to the running agent on a follow-up,
                         or used to seed the next run once terminal. */}
-                        <ComposerModePicker selectedMode={selectedMode} onModeChange={setMode} />
+                        <ComposerModePicker
+                            selectedMode={selectedMode}
+                            onModeChange={setMode}
+                            modes={getModesForRuntimeAdapter(composerAdapter)}
+                        />
                         <ComposerModelEffortPickers
                             models={catalogue}
                             selectedModel={selectedModel}

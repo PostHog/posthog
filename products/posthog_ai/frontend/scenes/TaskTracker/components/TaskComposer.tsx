@@ -12,8 +12,8 @@ import {
     Welcome,
 } from 'products/posthog_ai/frontend/api/primitives'
 import { modelCatalogueLogic } from 'products/posthog_ai/frontend/logics/modelCatalogueLogic'
-import { resolveEffortForModel } from 'products/posthog_ai/frontend/utils/composerModels'
-import { cycleMode } from 'products/posthog_ai/frontend/utils/composerModes'
+import { getRuntimeAdapterForModel, resolveEffortForModel } from 'products/posthog_ai/frontend/utils/composerModels'
+import { cycleMode, getModesForRuntimeAdapter } from 'products/posthog_ai/frontend/utils/composerModes'
 
 import { AttachedContextBar } from '../../../components/composer/AttachedContextBar'
 import { ComposerModelEffortPickers } from '../../../components/composer/ComposerModelEffortPickers'
@@ -29,6 +29,8 @@ export function TaskComposer(): JSX.Element {
     const { newTaskData, isSubmittingTask, activeSuggestionGroup, displayHeadline, consentBlocked } =
         useValues(taskTrackerSceneLogic)
     const { catalogue } = useValues(modelCatalogueLogic)
+    // Permission modes belong to the harness, so they follow the picked model.
+    const composerAdapter = getRuntimeAdapterForModel(catalogue, newTaskData.model)
 
     // Buffer the description locally and debounce the write to kea so each keystroke is a cheap, isolated
     // re-render instead of a store dispatch. `Composer.Root` already blocks send on an empty `draft.value`
@@ -62,7 +64,11 @@ export function TaskComposer(): JSX.Element {
                             onChange={(config) => setNewTaskData({ repositoryConfig: config })}
                         />
                         <ComposerModeShortcut
-                            onCycle={() => setNewTaskData({ permissionMode: cycleMode(newTaskData.permissionMode) })}
+                            onCycle={() =>
+                                setNewTaskData({
+                                    permissionMode: cycleMode(composerAdapter, newTaskData.permissionMode),
+                                })
+                            }
                         />
                         <Composer.Root
                             value={draft.value}
@@ -81,6 +87,7 @@ export function TaskComposer(): JSX.Element {
                                 </Composer.Field>
                                 <Composer.Footer className="flex flex-wrap items-center gap-1 pl-2">
                                     <ComposerModePicker
+                                        modes={getModesForRuntimeAdapter(composerAdapter)}
                                         selectedMode={newTaskData.permissionMode}
                                         onModeChange={(permissionMode) => setNewTaskData({ permissionMode })}
                                     />
