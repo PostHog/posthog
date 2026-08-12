@@ -3683,6 +3683,7 @@ describe("AgentServer HTTP Mode", () => {
         const newSession = vi.fn(async () => ({ sessionId: "fresh-session" }));
 
         const internals = s as unknown as {
+          posthogAPI: { getTaskRun: ReturnType<typeof vi.fn> };
           session: {
             acpSessionId: string;
             clientConnection: {
@@ -3705,6 +3706,12 @@ describe("AgentServer HTTP Mode", () => {
         internals.session.clientConnection.prompt = prompt;
         internals.session.clientConnection.newSession = newSession;
         internals.nativeResume = { sessionId: "prior-session", warm: true };
+        vi.spyOn(internals.posthogAPI, "getTaskRun").mockResolvedValue(
+          createTaskRun({
+            id: "test-run-id",
+            state: { resume_from_run_id: "previous-run" },
+          }),
+        );
         internals.loadResumeState = vi.fn(async () => {
           internals.resumeState = {
             conversation: [
