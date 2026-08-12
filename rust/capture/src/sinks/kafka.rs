@@ -538,7 +538,7 @@ impl<P: KafkaProducer> KafkaSinkBase<P> {
     /// await. librdkafka preserves on-wire partition order by `send_result`
     /// call order, so this MUST be called in the original event order within
     /// a batch.
-    fn enqueue_record(&self, payload: PreparedPayload) -> Result<P::AckFuture, CaptureError> {
+    fn enqueue_record(&self, payload: &PreparedPayload) -> Result<P::AckFuture, CaptureError> {
         counter!("capture_kafka_produce_bytes_total", "topic" => payload.destination.clone())
             .increment(payload.payload.len() as u64);
 
@@ -562,7 +562,7 @@ impl<P: KafkaProducer> KafkaSinkBase<P> {
     /// pieces through `prepare_batch` and `Sink::publish`.
     fn kafka_send(&self, event: ProcessedEvent) -> Result<P::AckFuture, CaptureError> {
         let payload = self.prepare_record(event)?;
-        self.enqueue_record(payload)
+        self.enqueue_record(&payload)
     }
 }
 
@@ -680,7 +680,7 @@ impl<P: KafkaProducer + 'static> Sink for KafkaSinkBase<P> {
     /// Results are batch-uniform: the whole batch reports the first failure,
     /// acked-before-failure events included. The per-event surface refines
     /// only with the per-event response model.
-    async fn publish(&self, payloads: Vec<PreparedPayload>) -> Vec<SinkResult> {
+    async fn publish(&self, payloads: &[PreparedPayload]) -> Vec<SinkResult> {
         // Results are built in payload order as the loop enqueues, so the one
         // Vec the return type requires is the only allocation on the happy
         // path. Failure paths rewrite it in place to the batch-uniform error.
@@ -688,13 +688,12 @@ impl<P: KafkaProducer + 'static> Sink for KafkaSinkBase<P> {
 
         let enqueue_start = Instant::now();
         let mut ack_set = JoinSet::new();
-        let mut payloads = payloads.into_iter();
+        let mut payloads = payloads.iter();
         for payload in payloads.by_ref() {
-            let uuid = payload.uuid;
             match self.enqueue_record(payload) {
                 Ok(ack_future) => {
                     ack_set.spawn(ack_future);
-                    results.push(SinkResult::published(uuid));
+                    results.push(SinkResult::published(payload.uuid));
                 }
                 Err(err) => {
                     // Record enqueue duration on the error path too so slow-fail
@@ -707,7 +706,7 @@ impl<P: KafkaProducer + 'static> Sink for KafkaSinkBase<P> {
                     for result in &mut results {
                         result.outcome = Outcome::Failed(err.clone());
                     }
-                    results.push(SinkResult::failed(uuid, err.clone()));
+                    results.push(SinkResult::failed(payload.uuid, err.clone()));
                     results.extend(payloads.map(|p| SinkResult::failed(p.uuid, err.clone())));
                     return results;
                 }
@@ -752,7 +751,7 @@ impl<P: KafkaProducer + 'static> Event for KafkaSinkBase<P> {
         histogram!("capture_event_batch_size").record(events.len() as f64);
 
         let payloads = self.prepare_batch(events).await?;
-        fold_results(self.publish(payloads).await)
+        fold_results(self.publish(&payloads).await)
     }
 
     fn flush(&self) -> Result<(), anyhow::Error> {
@@ -3125,7 +3124,7 @@ mod tests {
                 .expect("prepare_batch failed");
             let input_uuids: Vec<_> = payloads.iter().map(|p| p.uuid).collect();
 
-            let results = sink.publish(payloads).await;
+            let results = sink.publish(&payloads).await;
 
             assert_eq!(results.len(), 3);
             for (result, uuid) in results.iter().zip(&input_uuids) {
@@ -3148,7 +3147,7 @@ mod tests {
                 .expect("prepare_batch failed");
             let input_uuids: Vec<_> = payloads.iter().map(|p| p.uuid).collect();
 
-            let results = sink.publish(payloads).await;
+            let results = sink.publish(&payloads).await;
 
             // Every event reports the failure, the one enqueued before it
             // included; only the records before the failing index reached

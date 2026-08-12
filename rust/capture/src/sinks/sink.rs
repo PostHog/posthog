@@ -85,7 +85,10 @@ impl SinkResult {
 /// No prepare on the trait — payload assembly belongs to the layers above.
 #[async_trait]
 pub trait Sink {
-    async fn publish(&self, payloads: Vec<PreparedPayload>) -> Vec<SinkResult>;
+    /// Payloads are borrowed: the sink copies what the backend needs during
+    /// the enqueue phase (librdkafka copies records into its queue on send),
+    /// so the caller frees the batch as soon as `publish` returns.
+    async fn publish(&self, payloads: &[PreparedPayload]) -> Vec<SinkResult>;
 
     /// Flush any buffered/pending data before shutdown.
     fn flush(&self) -> Result<(), anyhow::Error>;
