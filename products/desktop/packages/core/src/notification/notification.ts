@@ -15,7 +15,7 @@ import type { OpenTargetLinkService } from "../links/open-target-link";
 
 @injectable()
 export class NotificationService {
-  private hasBadge = false;
+  private lastCount: number | null = null;
   private readonly log: ScopedLogger;
 
   constructor(
@@ -33,7 +33,9 @@ export class NotificationService {
 
   @postConstruct()
   init(): void {
-    this.mainWindow.onFocus(() => this.clearDockBadge());
+    // Focus answers an attention signal, so drop the taskbar flash, but leave
+    // the count alone: looking at the window does not deal with the work.
+    this.mainWindow.onFocus(() => this.notifier.clearAttention());
   }
 
   send(
@@ -74,22 +76,23 @@ export class NotificationService {
     this.log.info("Notification sent", { title, body, silent, target });
   }
 
-  showDockBadge(): void {
-    if (this.hasBadge) return;
-    this.hasBadge = true;
-    this.notifier.setUnreadIndicator(true);
-    this.log.info("Dock badge shown");
+  /**
+   * Mirror how many items await the user onto the dock badge.
+   *
+   * The renderer pushes this on every change, including React re-renders that
+   * recompute the same number, so unchanged counts are dropped rather than
+   * re-issued to the OS.
+   */
+  setUnreadCount(count: number): void {
+    const next = Number.isFinite(count) ? Math.max(0, Math.floor(count)) : 0;
+    if (this.lastCount === next) return;
+    this.lastCount = next;
+    this.notifier.setUnreadCount(next);
+    this.log.info("Dock badge count set", { count: next });
   }
 
   bounceDock(): void {
     this.notifier.requestAttention();
     this.log.info("Dock bounce triggered");
-  }
-
-  private clearDockBadge(): void {
-    if (!this.hasBadge) return;
-    this.hasBadge = false;
-    this.notifier.setUnreadIndicator(false);
-    this.log.info("Dock badge cleared");
   }
 }

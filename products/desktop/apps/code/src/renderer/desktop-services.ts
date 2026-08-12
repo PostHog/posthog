@@ -291,10 +291,12 @@ container.bind<INotifications>(NOTIFICATIONS_SERVICE).toConstantValue({
       notificationsLog.error("Failed to send notification", err);
     });
   },
-  showUnreadIndicator: () => {
-    hostTrpcClient.notification.showDockBadge.mutate().catch((err) => {
-      notificationsLog.error("Failed to show unread indicator", err);
-    });
+  setUnreadCount: (count) => {
+    hostTrpcClient.notification.setDockBadgeCount
+      .mutate({ count })
+      .catch((err) => {
+        notificationsLog.error("Failed to set dock badge count", err);
+      });
   },
   requestAttention: () => {
     hostTrpcClient.notification.bounceDock.mutate().catch((err) => {

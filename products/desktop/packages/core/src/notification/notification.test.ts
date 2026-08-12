@@ -21,7 +21,8 @@ function createDeps(supported = true) {
     notify: vi.fn((options: NotifyOptions) => {
       lastNotify = options;
     }),
-    setUnreadIndicator: vi.fn(),
+    setUnreadCount: vi.fn(),
+    clearAttention: vi.fn(),
     requestAttention: vi.fn(),
   };
 
@@ -102,28 +103,40 @@ describe("NotificationService.send", () => {
 });
 
 describe("NotificationService dock badge", () => {
-  it("sets the unread indicator once and is idempotent", () => {
+  it("forwards a changed count and drops a repeat of the same one", () => {
     const { service, notifier } = createDeps();
 
-    service.showDockBadge();
-    service.showDockBadge();
+    service.setUnreadCount(3);
+    service.setUnreadCount(3);
+    service.setUnreadCount(0);
 
-    expect(notifier.setUnreadIndicator).toHaveBeenCalledTimes(1);
-    expect(notifier.setUnreadIndicator).toHaveBeenCalledWith(true);
+    expect(notifier.setUnreadCount).toHaveBeenCalledTimes(2);
+    expect(notifier.setUnreadCount).toHaveBeenNthCalledWith(1, 3);
+    expect(notifier.setUnreadCount).toHaveBeenNthCalledWith(2, 0);
   });
 
-  it("clears the badge on window focus only when a badge is set", () => {
+  it.each([
+    ["negative", -1, 0],
+    ["non-finite", Number.NaN, 0],
+    ["fractional", 2.7, 2],
+  ])("coerces a %s count", (_label, input, expected) => {
+    const { service, notifier } = createDeps();
+
+    service.setUnreadCount(input);
+
+    expect(notifier.setUnreadCount).toHaveBeenCalledWith(expected);
+  });
+
+  it("stops the attention flash on focus without changing the count", () => {
     const { service, notifier, getFocusHandler } = createDeps();
     service.init();
+    service.setUnreadCount(3);
 
     getFocusHandler()?.();
-    expect(notifier.setUnreadIndicator).not.toHaveBeenCalled();
 
-    service.showDockBadge();
-    vi.mocked(notifier.setUnreadIndicator).mockClear();
-
-    getFocusHandler()?.();
-    expect(notifier.setUnreadIndicator).toHaveBeenCalledWith(false);
+    expect(notifier.clearAttention).toHaveBeenCalled();
+    expect(notifier.setUnreadCount).toHaveBeenCalledTimes(1);
+    expect(notifier.setUnreadCount).toHaveBeenCalledWith(3);
   });
 
   it("requests attention when bouncing the dock", () => {

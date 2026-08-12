@@ -15,7 +15,8 @@ export interface NotificationOptions {
 
 export interface INotifications {
   notify(options: NotificationOptions): void;
-  showUnreadIndicator(): void;
+  /** Mirror the number of items awaiting the user onto the host's app badge. */
+  setUnreadCount(count: number): void;
   requestAttention(): void;
 }
 
