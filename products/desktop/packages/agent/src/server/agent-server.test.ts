@@ -1276,6 +1276,29 @@ describe("AgentServer HTTP Mode", () => {
       },
     );
 
+    it("quietly ends an interactive follow-up when its idle ACP transport closed", async () => {
+      const testServer = createFailureTestServer();
+
+      await testServer.handleTurnFailure(
+        interactivePayload,
+        "followup",
+        new Error("ACP connection closed"),
+      );
+
+      expect(testServer.eventStreamSender.enqueue).toHaveBeenCalledTimes(1);
+      expect(testServer.eventStreamSender.enqueue).toHaveBeenCalledWith(
+        expect.objectContaining({
+          notification: expect.objectContaining({
+            method: "_posthog/turn_complete",
+            params: expect.objectContaining({
+              stopReason: "error_recoverable",
+            }),
+          }),
+        }),
+      );
+      expect(testServer.posthogAPI.updateTaskRun).not.toHaveBeenCalled();
+    });
+
     function createRetryTestServer(prompt: ReturnType<typeof vi.fn>) {
       const testServer = createFailureTestServer();
       testServer.session = {
