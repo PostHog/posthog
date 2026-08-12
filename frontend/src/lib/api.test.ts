@@ -1,7 +1,7 @@
 import * as fetchEventSourceModule from '@microsoft/fetch-event-source'
 import posthog from 'posthog-js'
 
-import api, { ApiConfig, ApiError, ApiRequest } from 'lib/api'
+import api, { ApiConfig, ApiError, ApiRequest, NetworkError } from 'lib/api'
 import { apiStatusLogic } from 'lib/logic/apiStatusLogic'
 
 import { NodeKind } from '~/queries/schema/schema-general'
@@ -340,6 +340,69 @@ describe('API helper', () => {
             const abortError = new DOMException('The operation was aborted', 'AbortError')
             fakeFetch.mockResolvedValue(fakeResponse({ text: () => Promise.reject(abortError) }))
             await expect(api.get('api/environments/2/insights')).rejects.toBe(abortError)
+        })
+    })
+
+    describe('requests that never reach the server', () => {
+        // `pagehide` sets a module-level flag in lib/api, so clear it after every case instead of
+        // letting one test's simulated navigation classify the next test's failure.
+        afterEach(() => {
+            window.dispatchEvent(new Event('pageshow'))
+        })
+
+        it.each([
+            ['offline', false, 'Network request failed: device is offline'],
+            ['network', true, 'Network request failed'],
+        ])('classifies a fetch rejection as %s', async (reason, onLine, message) => {
+            Object.defineProperty(window.navigator, 'onLine', { value: onLine, configurable: true })
+            fakeFetch.mockRejectedValue(new TypeError('Failed to fetch'))
+
+            const error = await api.get('api/environments/2/insights').catch((e) => e)
+
+            expect(error).toBeInstanceOf(NetworkError)
+            expect(error.reason).toBe(reason)
+            // The message is the only channel the reason has: the automatic unhandled-rejection
+            // capture carries no custom properties, so `before_send` and grouping rules match on it
+            expect(error.message).toBe(message)
+            // Recovery paths across the app read `status === undefined` as "transient, may be retried"
+            expect(error.status).toBeUndefined()
+        })
+
+        it('classifies a fetch rejection during page teardown as navigating', async () => {
+            window.dispatchEvent(new Event('pagehide'))
+            fakeFetch.mockRejectedValue(new TypeError('Failed to fetch'))
+
+            const error = await api.get('api/environments/2/insights').catch((e) => e)
+
+            expect(error).toMatchObject({ reason: 'navigating' })
+        })
+
+        it('reports the failure as a client_request_failure naming the endpoint', async () => {
+            fakeFetch.mockRejectedValue(new TypeError('Failed to fetch'))
+
+            await api.get('api/environments/2/insights').catch(() => null)
+
+            expect(posthog.capture).toHaveBeenCalledWith(
+                'client_request_failure',
+                expect.objectContaining({
+                    pathname: '/api/environments/2/insights/',
+                    method: 'GET',
+                    // 0 keeps these separable from failures that did come back with an HTTP status
+                    status: 0,
+                    failure_reason: 'network',
+                })
+            )
+        })
+
+        it('leaves a throw that is not a fetch failure as an unclassified ApiError', async () => {
+            // A real fault in the request path must not be relabelled as connectivity, or
+            // `dropUnactionableNetworkExceptions` would filter it out of error tracking.
+            fakeFetch.mockRejectedValue(new Error('the fetcher itself broke'))
+
+            const error = await api.get('api/environments/2/insights').catch((e) => e)
+
+            expect(error).toBeInstanceOf(ApiError)
+            expect(error).not.toBeInstanceOf(NetworkError)
         })
     })
 
