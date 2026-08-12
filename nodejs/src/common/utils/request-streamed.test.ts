@@ -50,6 +50,22 @@ describe('fetchStreamed', () => {
         expect(bytes).toHaveLength(0)
     })
 
+    it.each([
+        ['exactly its declared length', 5, 'abcde', false],
+        ['less than it declared', 10, 'abcde', false],
+        ['more than it declared', 3, 'abcde', true],
+    ])('handles a body that is %s', async (_name, declared, body, expectOverLimit) => {
+        // The declared length only decides how the bytes are gathered. A body that exceeds it is
+        // still cut off, so a wrong Content-Length cannot make the reader hold more than it agreed.
+        respond([Buffer.from(body)], { 'content-length': String(declared) })
+
+        const response = await fetchStreamed('https://example.com/a.png', { timeoutMs: 1000 })
+        const { bytes, overLimit } = await response.read(100)
+
+        expect(overLimit).toBe(expectOverLimit)
+        expect(bytes.toString()).toBe(expectOverLimit ? '' : body)
+    })
+
     it('reads no body after the response was discarded', async () => {
         respond([Buffer.from('abc')])
 

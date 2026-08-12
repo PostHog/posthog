@@ -1,3 +1,4 @@
+import { ConcurrencyController } from '~/common/utils/concurrencyController'
 import { logger } from '~/common/utils/logger'
 import { delay } from '~/common/utils/utils'
 
@@ -19,8 +20,17 @@ export interface FetchAttempt {
 export interface FetchRunnerOptions {
     /** Workers per domain. The limit itself lives in the budget, because a redirect reaches a domain without passing through this pool. */
     maxConcurrentPerDomain: number
-    /** Domains this pod fetches from at once. It bounds the whole pass, because a batch can carry one domain per record. */
-    maxConcurrentDomains: number
+    /**
+     * Requests open across every domain at once.
+     *
+     * Politeness is per domain and needs no cap here: the topic keys by registrable domain, so one
+     * domain lands on one partition and one pod, and its rate and connection limits are held in
+     * memory by that pod. Capping domains would only make unrelated sites wait for each other.
+     *
+     * What this bounds is the pod: a body is read into a buffer, so the peak is roughly this many
+     * times the byte limit, and the sockets and DNS lookups come with it.
+     */
+    maxInFlightRequests: number
     /** Wall time the whole pass may take. What it does not reach is shed and fetched again the next time a session refers to it. */
     batchBudgetMs: number
     maxBytes: number
@@ -98,13 +108,16 @@ export interface FetchPass {
  * fetching fewer of them.
  */
 export class FetchRunner implements FetchPass {
+    private readonly inFlight: ConcurrencyController
+
     constructor(
         private readonly fetcher: ImageFetcher,
         private readonly budget: HostBudget,
         private readonly options: FetchRunnerOptions
     ) {
         requirePositive('SESSION_RECORDING_ML_IMAGE_FETCH_MAX_CONCURRENT_PER_DOMAIN', options.maxConcurrentPerDomain)
-        requirePositive('SESSION_RECORDING_ML_IMAGE_FETCH_MAX_CONCURRENT_DOMAINS', options.maxConcurrentDomains)
+        requirePositive('SESSION_RECORDING_ML_IMAGE_FETCH_MAX_IN_FLIGHT_REQUESTS', options.maxInFlightRequests)
+        this.inFlight = new ConcurrencyController(options.maxInFlightRequests)
         requirePositive('SESSION_RECORDING_ML_IMAGE_FETCH_MAX_IMAGE_BYTES', options.maxBytes)
         requirePositive('SESSION_RECORDING_ML_IMAGE_FETCH_REQUEST_TIMEOUT_MS', options.requestTimeoutMs)
         requirePositive('SESSION_RECORDING_ML_IMAGE_FETCH_DEFAULT_RETRY_AFTER_MS', options.defaultRetryAfterMs)
@@ -169,27 +182,18 @@ export class FetchRunner implements FetchPass {
     }
 
     /**
-     * A pool rather than one promise per domain. One Kafka record carries one domain, so a full
-     * batch offers as many domains as it has records, and an unbounded fan-out would open that many
-     * budgets, sockets, and image buffers at once.
+     * Every domain runs at once. A domain spends nearly all of its time waiting on its own rate
+     * limit, so holding thousands of them costs a queue and a closure each, and letting only a few
+     * run would make sites wait on each other for no reason of politeness.
      *
-     * A domain the pool does not reach before the deadline still runs. Its first request is refused
-     * for the deadline, so it sheds its queue without sending.
+     * The requests underneath them are what is bounded, by `maxInFlightRequests`.
      */
     private async runDomains(entries: [string, FetchCandidate[]][], deadlineMs: number): Promise<FetchAttempt[]> {
         // Written into by every domain rather than concatenated afterwards. One batch can offer
         // hundreds of thousands of URLs to a single domain, and both `push(...array)` and
         // `concat` of that size exceed the argument limit of `Function.apply`.
         const attempts: FetchAttempt[] = []
-        let next = 0
-        const worker = async (): Promise<void> => {
-            while (next < entries.length) {
-                const [domain, queue] = entries[next++]
-                await this.runDomain(domain, queue, deadlineMs, attempts)
-            }
-        }
-        const workers = Math.min(this.options.maxConcurrentDomains, entries.length)
-        await Promise.all(Array.from({ length: workers }, () => worker()))
+        await Promise.all(entries.map(([domain, queue]) => this.runDomain(domain, queue, deadlineMs, attempts)))
         return attempts
     }
 
@@ -268,14 +272,18 @@ export class FetchRunner implements FetchPass {
         const startedAt = process.hrtime.bigint()
         let result: ImageFetchResult
         try {
-            result = await this.fetcher.fetch(candidate.url, {
-                maxBytes: this.options.maxBytes,
-                timeoutMs: this.options.requestTimeoutMs,
-                maxRedirects: this.options.maxRedirects,
-                // The earlier of the two clocks. A wait that outlives the request would be spent
-                // and then reported as the site timing out.
-                authorizeRedirect: (url, remainingMs) =>
-                    this.authorizeRedirect(url, Math.min(deadlineMs, Date.now() + remainingMs), acquire),
+            result = await this.inFlight.run({
+                debugTag: candidate.domain,
+                fn: () =>
+                    this.fetcher.fetch(candidate.url, {
+                        maxBytes: this.options.maxBytes,
+                        timeoutMs: this.options.requestTimeoutMs,
+                        maxRedirects: this.options.maxRedirects,
+                        // The earlier of the two clocks. A wait that outlives the request would be
+                        // spent and then reported as the site timing out.
+                        authorizeRedirect: (url, remainingMs) =>
+                            this.authorizeRedirect(url, Math.min(deadlineMs, Date.now() + remainingMs), acquire),
+                    }),
             })
         } catch (error) {
             // The fetcher answers with an outcome rather than a throw, so reaching here means a

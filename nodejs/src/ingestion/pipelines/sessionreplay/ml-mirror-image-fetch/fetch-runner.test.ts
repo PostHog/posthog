@@ -5,7 +5,7 @@ import { FetchOutcome, ImageFetchResult, ImageFetcher } from './image-fetcher'
 
 const OPTIONS: FetchRunnerOptions = {
     maxConcurrentPerDomain: 2,
-    maxConcurrentDomains: 8,
+    maxInFlightRequests: 50,
     batchBudgetMs: 5000,
     maxBytes: 1000,
     requestTimeoutMs: 1000,
@@ -177,6 +177,27 @@ describe('FetchRunner', () => {
 
         expect(targets.filter((t) => t.endsWith(':allow'))).toHaveLength(1)
         expect(targets.filter((t) => t.endsWith(':defer'))).toHaveLength(1)
+    })
+
+    it('runs every domain at once but holds the requests under them to the in-flight limit', async () => {
+        // The politeness limit is per domain, and one domain lands on one partition and one pod, so
+        // a pod owning many domains has to serve them all. What bounds the pod is the requests.
+        let inFlight = 0
+        let peak = 0
+        const fetcher: ImageFetcher = {
+            fetch: async () => {
+                peak = Math.max(peak, ++inFlight)
+                await new Promise((resolve) => setTimeout(resolve, 5))
+                inFlight--
+                return { outcome: 'ok', redirects: 0 }
+            },
+        }
+        const domains = Array.from({ length: 60 }, (_value, index) => candidate(`site${index}.com`, 0))
+
+        const attempts = await runner(fetcher, { maxInFlightRequests: 5 }).run(domains)
+
+        expect(peak).toBe(5)
+        expect(attempts.filter((a) => a.outcome === 'ok')).toHaveLength(60)
     })
 
     it.each([

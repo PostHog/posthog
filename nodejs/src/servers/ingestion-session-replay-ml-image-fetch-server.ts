@@ -43,7 +43,7 @@ export function buildFetchRunner(config: IngestionSessionReplayMlMirrorServerCon
     })
     return new FetchRunner(new HttpImageFetcher(), budget, {
         maxConcurrentPerDomain: config.SESSION_RECORDING_ML_IMAGE_FETCH_MAX_CONCURRENT_PER_DOMAIN,
-        maxConcurrentDomains: config.SESSION_RECORDING_ML_IMAGE_FETCH_MAX_CONCURRENT_DOMAINS,
+        maxInFlightRequests: config.SESSION_RECORDING_ML_IMAGE_FETCH_MAX_IN_FLIGHT_REQUESTS,
         batchBudgetMs: config.SESSION_RECORDING_ML_IMAGE_FETCH_REQUEST_BUDGET_MS,
         maxBytes: config.SESSION_RECORDING_ML_IMAGE_FETCH_MAX_IMAGE_BYTES,
         requestTimeoutMs: config.SESSION_RECORDING_ML_IMAGE_FETCH_REQUEST_TIMEOUT_MS,

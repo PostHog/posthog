@@ -103,13 +103,17 @@ export type MlMirrorConfig = {
     SESSION_RECORDING_ML_IMAGE_FETCH_BURST: number
     SESSION_RECORDING_ML_IMAGE_FETCH_MAX_CONCURRENT_PER_DOMAIN: number
     /**
-     * Domains this pod fetches from at once.
+     * Requests this pod holds open across every domain at once.
      *
-     * One record carries one domain and a batch carries hundreds of records, so without this the
-     * pass would open a socket per domain in the batch. It is also what bounds memory: a body is
-     * read into a buffer, so the peak is this times the per-domain connections times the byte limit.
+     * Nothing caps the number of domains: the topic keys by registrable domain, so a domain lands on
+     * one partition and one pod, and its rate limit is held there. A pod owning many domains must be
+     * able to serve them all, because each has its own allowance and none is waiting on the others.
+     *
+     * This bounds the pod instead. A body is read into a buffer, so the resident peak is roughly
+     * this times SESSION_RECORDING_ML_IMAGE_FETCH_MAX_IMAGE_BYTES, and the sockets and the DNS
+     * lookups scale with it too. Raise the pod's memory before raising this.
      */
-    SESSION_RECORDING_ML_IMAGE_FETCH_MAX_CONCURRENT_DOMAINS: number
+    SESSION_RECORDING_ML_IMAGE_FETCH_MAX_IN_FLIGHT_REQUESTS: number
     /**
      * Wall time the fetch pass of one poll batch may take.
      *
@@ -218,7 +222,7 @@ export function getDefaultMlMirrorConfig(): MlMirrorConfig {
         SESSION_RECORDING_ML_IMAGE_FETCH_REQUESTS_PER_SECOND: 1,
         SESSION_RECORDING_ML_IMAGE_FETCH_BURST: 5,
         SESSION_RECORDING_ML_IMAGE_FETCH_MAX_CONCURRENT_PER_DOMAIN: 2,
-        SESSION_RECORDING_ML_IMAGE_FETCH_MAX_CONCURRENT_DOMAINS: 16,
+        SESSION_RECORDING_ML_IMAGE_FETCH_MAX_IN_FLIGHT_REQUESTS: 300,
         SESSION_RECORDING_ML_IMAGE_FETCH_REQUEST_BUDGET_MS: 20_000,
         SESSION_RECORDING_ML_IMAGE_FETCH_MAX_IMAGE_BYTES: 2 * 1024 * 1024,
         SESSION_RECORDING_ML_IMAGE_FETCH_REQUEST_TIMEOUT_MS: 10_000,
