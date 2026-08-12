@@ -112,6 +112,12 @@ export type CommonConfig = BaseServerConfig & {
 
     // PersonHog gRPC
     PERSONHOG_ENABLED: boolean
+    /** Which world the ingestion persons store writes: 'pg' (default), 'personhog', or 'shadow' (pg authoritative, personhog best-effort). */
+    PERSONS_STORE_MODE: string
+    /** Comma-separated team ids the non-pg mode applies to; empty applies it to every team. */
+    PERSONS_STORE_MODE_TEAMS: string
+    /** Host and port of the personhog identity server. */
+    PERSONHOG_IDENTITY_ADDR: string
     PERSONHOG_ADDR: string
     PERSONHOG_GROUPS_ROLLOUT_PERCENTAGE: number
     PERSONHOG_GROUPS_ROLLOUT_TEAM_IDS: string
@@ -293,6 +299,9 @@ export function getDefaultCommonConfig(): CommonConfig {
         // PersonHog gRPC
         PERSONHOG_ENABLED: false,
         PERSONHOG_ADDR: '',
+        PERSONS_STORE_MODE: 'pg',
+        PERSONS_STORE_MODE_TEAMS: '',
+        PERSONHOG_IDENTITY_ADDR: '',
         PERSONHOG_GROUPS_ROLLOUT_PERCENTAGE: 0,
         PERSONHOG_GROUPS_ROLLOUT_TEAM_IDS: '',
         PERSONHOG_PERSONS_ROLLOUT_PERCENTAGE: 0,

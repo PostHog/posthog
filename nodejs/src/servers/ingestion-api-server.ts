@@ -14,6 +14,9 @@ import { ClickhouseGroupRepository } from '~/common/groups/repositories/clickhou
 import { PostgresGroupRepository } from '~/common/groups/repositories/postgres-group-repository'
 import { KafkaProducerRegistry } from '~/common/outputs/kafka-producer-registry'
 import { PersonHogConfig, buildGroupRepository, buildPersonRepository, createPersonHogClient } from '~/common/personhog'
+import { PersonHogClient, parseRolloutTeamIds } from '~/common/personhog/client'
+import { createIdentityClients } from '~/common/personhog/identity-clients'
+import { PersonHogPersonWriteRepository } from '~/common/personhog/personhog-person-write-repository'
 import { PostgresPersonRepository } from '~/common/persons/repositories/postgres-person-repository'
 import { PostgresRouter } from '~/common/utils/db/postgres'
 import { createRedisPoolFromConfig } from '~/common/utils/db/redis'
@@ -37,7 +40,13 @@ import {
 } from '~/ingestion/common/outputs/producers'
 import { BatchWritingPersonsStore } from '~/ingestion/common/persons/batch-writing-person-store'
 import { effectivePersonMergeEventsEnabled } from '~/ingestion/common/persons/person-merge-event'
+import { PersonhogPersonsStore } from '~/ingestion/common/persons/personhog-persons-store'
 import { PersonsStore } from '~/ingestion/common/persons/persons-store'
+import {
+    RoutingPersonsStore,
+    assertPersonsStoreModeConfig,
+    parsePersonsStoreMode,
+} from '~/ingestion/common/persons/routing-persons-store'
 import {
     FlushBatchStoresOutputs,
     createGroupProducePromises,
@@ -171,6 +180,8 @@ export class IngestionApiServer implements NodeServer {
     private cookielessManager?: CookielessManager
     private pubsub?: PubSub
     private personsStore?: BatchWritingPersonsStore
+    private personhogStore?: PersonhogPersonsStore
+    private personhogClientClosers: Array<() => void> = []
     private groupStore?: BatchWritingGroupStore
     // Held so shutdown cleanup can produce ClickHouse messages returned by a
     // bare groupStore.flush() — the store itself no longer holds outputs
@@ -363,7 +374,48 @@ export class IngestionApiServer implements NodeServer {
             optimisticUpdateRetryInterval: this.config.PERSON_BATCH_WRITING_OPTIMISTIC_UPDATE_RETRY_INTERVAL_MS,
             updateAllProperties: this.config.PERSON_PROPERTIES_UPDATE_ALL,
         })
-        const personsStore: PersonsStore = this.personsStore
+        // Which world person writes land in: pg (default) builds nothing
+        // new; the other modes construct the personhog store and route
+        // per team, shadow keeping pg authoritative.
+        const personsStoreMode = parsePersonsStoreMode(this.config.PERSONS_STORE_MODE)
+        assertPersonsStoreModeConfig(personsStoreMode, {
+            routerAddr: this.config.PERSONHOG_ADDR,
+            identityAddr: this.config.PERSONHOG_IDENTITY_ADDR,
+        })
+        let personsStore: PersonsStore = this.personsStore
+        if (personsStoreMode !== 'pg') {
+            const routerClient = PersonHogClient.fromConfig({
+                addr: this.config.PERSONHOG_ADDR,
+                useTls: this.config.PERSONHOG_TLS,
+                timeoutMs: this.config.PERSONHOG_TIMEOUT_MS,
+                readMaxBytes: this.config.PERSONHOG_READ_MAX_BYTES,
+                writeMaxBytes: this.config.PERSONHOG_WRITE_MAX_BYTES,
+                clientName: 'ingestion-persons-store',
+            })
+            const identityClients = createIdentityClients({
+                addr: this.config.PERSONHOG_IDENTITY_ADDR,
+                useTls: this.config.PERSONHOG_TLS,
+                timeoutMs: this.config.PERSONHOG_TIMEOUT_MS,
+                clientName: 'ingestion-persons-store',
+            })
+            this.personhogClientClosers = [() => routerClient.close(), identityClients.close]
+            const writeRepository = new PersonHogPersonWriteRepository(
+                routerClient,
+                identityClients.identity,
+                'ingestion-persons-store'
+            )
+            this.personhogStore = new PersonhogPersonsStore(writeRepository, {
+                maxConcurrentUpdates: this.config.PERSONHOG_STORE_MAX_CONCURRENT_UPDATES,
+                updateAllProperties: this.config.PERSON_PROPERTIES_UPDATE_ALL,
+            })
+            const teams = parseRolloutTeamIds(this.config.PERSONS_STORE_MODE_TEAMS)
+            personsStore = new RoutingPersonsStore(
+                this.personsStore,
+                this.personhogStore,
+                personsStoreMode,
+                teams.size > 0 ? teams : null
+            )
+        }
 
         this.groupStore = new BatchWritingGroupStore(groupRepository, clickhouseGroupRepository, {
             useBatchUpdates: this.config.GROUP_BATCH_WRITING_USE_BATCH_UPDATES,
@@ -584,6 +636,10 @@ export class IngestionApiServer implements NodeServer {
                     await this.personsStore.flushAndProduceMessages()
                     await this.personsStore.shutdown()
                 }
+                if (this.personhogStore) {
+                    await this.personhogStore.shutdown()
+                }
+                this.personhogClientClosers.forEach((close) => close())
                 if (this.groupStore) {
                     const groupFlushResults = await this.groupStore.flush()
                     // flush() returns messages for the caller to produce (it no

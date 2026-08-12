@@ -194,6 +194,26 @@ export class PersonHogClient {
     }
 
     static fromConfig(config: PersonHogClientConfig): PersonHogClient {
+        const { transport, stateMonitor } = createPersonhogTransport(config)
+        return new PersonHogClient(transport, stateMonitor)
+    }
+
+    close(): void {
+        this.stateMonitor?.close()
+    }
+}
+
+/**
+ * The transport every personhog gRPC client shares: caller headers,
+ * consistency stamping, and an HTTP/2 session kept alive and monitored.
+ * The identity server's clients build on it too, so the wire behavior
+ * cannot drift between endpoints.
+ */
+export function createPersonhogTransport(config: PersonHogClientConfig): {
+    transport: Transport
+    stateMonitor: SessionStateMonitor
+} {
+    {
         const scheme = config.useTls ? 'https' : 'http'
         const interceptors: Interceptor[] = []
         if (config.clientName) {
@@ -238,10 +258,6 @@ export class PersonHogClient {
             sessionManager: stateMonitor,
             interceptors,
         })
-        return new PersonHogClient(transport, stateMonitor)
-    }
-
-    close(): void {
-        this.stateMonitor?.close()
+        return { transport, stateMonitor }
     }
 }
