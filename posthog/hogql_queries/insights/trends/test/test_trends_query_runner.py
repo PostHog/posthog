@@ -783,6 +783,21 @@ class TestTrendsQueryRunner(ClickhouseTestMixin, APIBaseTest):
 
         self.assertEqual("2020-01-14", response.results[0]["days"][-1])
 
+    def test_exclude_incomplete_periods_drops_leading_partial_bucket(self):
+        self._create_test_events()
+
+        # 2020-01-19 is a Sunday (default week start), so -13d starts mid-week on Jan 6: the
+        # partial Jan 6-11 bucket is dropped alongside the current week, leaving Jan 12-18 only
+        with freeze_time("2020-01-19T12:00:00Z"):
+            query = TrendsQuery(
+                series=[EventsNode(event="$pageview")],
+                dateRange=DateRange(date_from="-13d", excludeIncompletePeriods=True),
+                interval=IntervalType.WEEK,
+            )
+            response = TrendsQueryRunner(team=self.team, query=query).calculate()
+
+        self.assertEqual(["2020-01-12"], response.results[0]["days"])
+
     def test_trends_days(self):
         self._create_test_events()
 
