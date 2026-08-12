@@ -73,37 +73,22 @@ const SignalSourceToggleCard = memo(function SignalSourceToggleCard({
   const statusInfo = checked ? syncStatusLabel(syncStatus) : null;
 
   return (
-    // biome-ignore lint/a11y/useSemanticElements: the card contains interactive controls
     <div
-      role="button"
-      tabIndex={disabled || loading ? -1 : 0}
-      onClick={
-        disabled || loading
-          ? undefined
-          : requiresSetup
-            ? onSetup
-            : () => onCheckedChange(!checked)
-      }
-      onKeyDown={(event) => {
-        if (
-          event.target !== event.currentTarget ||
-          (event.key !== "Enter" && event.key !== " ")
-        ) {
-          return;
-        }
-        event.preventDefault();
-        event.currentTarget.click();
-      }}
       className={[
         "rounded-(--radius-3) border bg-(--color-panel-solid) p-3 transition duration-150",
         checked ? "border-(--accent-6)" : "border-border",
         disabled || loading
-          ? "cursor-default"
-          : "cursor-pointer hover:border-(--gray-6) hover:bg-(--gray-2) hover:shadow-sm",
+          ? ""
+          : "hover:border-(--gray-6) hover:bg-(--gray-2) hover:shadow-sm",
       ].join(" ")}
     >
       <div className="flex items-center justify-between gap-4">
-        <div className="flex items-center gap-3">
+        <button
+          type="button"
+          disabled={disabled || loading}
+          onClick={requiresSetup ? onSetup : () => onCheckedChange(!checked)}
+          className="flex min-w-0 flex-1 items-center gap-3 text-left disabled:cursor-default"
+        >
           <div className="shrink-0 text-gray-11">{icon}</div>
           <div className="flex flex-col gap-1">
             <div className="flex items-center gap-2">
@@ -119,26 +104,8 @@ const SignalSourceToggleCard = memo(function SignalSourceToggleCard({
               )}
             </div>
             <span className="text-[13px] text-gray-11">{description}</span>
-            {docsUrl && (
-              <span className="text-[13px] text-gray-11">
-                <a
-                  href={docsUrl}
-                  target="_blank"
-                  rel="noopener noreferrer"
-                  onClick={(e) => {
-                    e.stopPropagation();
-                    e.preventDefault();
-                    window.open(docsUrl, "_blank", "noopener");
-                  }}
-                  className="inline-flex items-center gap-[4px] text-(--accent-11) no-underline"
-                >
-                  Learn about {docsLabel ?? label}
-                  <ArrowSquareOutIcon size={11} />
-                </a>
-              </span>
-            )}
           </div>
-        </div>
+        </button>
         {loading ? (
           <Spinner size="2" />
         ) : requiresSetup ? (
@@ -162,6 +129,23 @@ const SignalSourceToggleCard = memo(function SignalSourceToggleCard({
           />
         )}
       </div>
+      {docsUrl && (
+        <span className="ml-[32px] text-[13px] text-gray-11">
+          <a
+            href={docsUrl}
+            target="_blank"
+            rel="noopener noreferrer"
+            onClick={(e) => {
+              e.preventDefault();
+              window.open(docsUrl, "_blank", "noopener");
+            }}
+            className="inline-flex items-center gap-[4px] text-(--accent-11) no-underline"
+          >
+            Learn about {docsLabel ?? label}
+            <ArrowSquareOutIcon size={11} />
+          </a>
+        </span>
+      )}
       {statusSection && <div className="ml-[32px]">{statusSection}</div>}
     </div>
   );
