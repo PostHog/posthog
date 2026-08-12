@@ -2840,6 +2840,50 @@ export enum AccountsTableSortDirection {
     Descending = 'desc',
 }
 
+export enum AccountsTableAggregation {
+    Sum = 'sum',
+    Average = 'avg',
+    Minimum = 'min',
+    Maximum = 'max',
+    Median = 'median',
+}
+
+export enum AccountsTableThresholdOperator {
+    GreaterThan = 'gt',
+    GreaterThanOrEqual = 'gte',
+    LessThan = 'lt',
+    LessThanOrEqual = 'lte',
+    Equal = 'exact',
+    NotEqual = 'is_not',
+}
+
+export interface AccountsTableCountMetric {
+    kind: 'count'
+}
+
+export interface AccountsTableAggregateMetric {
+    kind: 'aggregate'
+    aggregation: AccountsTableAggregation
+    column: AccountsTableCustomPropertyColumn
+    scale?: number
+}
+
+export interface AccountsTableCountThresholdMetric {
+    kind: 'count_threshold'
+    column: AccountsTableCustomPropertyColumn
+    operator: AccountsTableThresholdOperator
+    value: number
+}
+
+/**
+ * A typed aggregate evaluated against the filtered account set.
+ * @discriminator kind
+ */
+export type AccountsTableMetric =
+    | AccountsTableCountMetric
+    | AccountsTableAggregateMetric
+    | AccountsTableCountThresholdMetric
+
 export interface AccountsTableSort {
     column: AccountsTableSortableColumn
     direction: AccountsTableSortDirection
@@ -2943,6 +2987,8 @@ export interface AccountsTableQueryResponse extends AnalyticsQueryResponseBase {
     hasMore: boolean
     limit: integer
     offset: integer
+    /** Aggregated values in the same order as the requested metrics. */
+    metricsResults?: (number | null)[]
 }
 
 export interface AccountsTableQuery extends DataNode<AccountsTableQueryResponse> {
@@ -2951,6 +2997,8 @@ export interface AccountsTableQuery extends DataNode<AccountsTableQueryResponse>
     columns: AccountsTableColumn[]
     /** Filters are combined with AND. Values within tag and assignment filters use OR. */
     filters?: AccountsTableFilter[]
+    /** Aggregates to evaluate against the filtered account set. A metrics query skips row loading. */
+    metrics?: AccountsTableMetric[]
     sort?: AccountsTableSort
     limit?: positive_integer
     offset?: integer
@@ -8899,6 +8947,8 @@ export const externalDataSources = [
     'Sevalla',
     'Motion',
     'Framer',
+    'Cloudinary',
+    'Uploadcare',
 ] as const
 
 export type ExternalDataSourceType = (typeof externalDataSources)[number]
