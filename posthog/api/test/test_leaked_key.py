@@ -1,9 +1,10 @@
 import json
 import secrets
 from datetime import timedelta
+from typing import Any
 
 from posthog.test.base import APIBaseTest
-from unittest.mock import patch
+from unittest.mock import MagicMock, patch
 
 from django.utils import timezone
 
@@ -50,7 +51,7 @@ class TestPublicLeakedKeyReport(APIBaseTest):
             user=self.user,
         )
 
-    def _post(self, token: str):
+    def _post(self, token: str) -> Any:
         return self.client.post(
             "/api/revoke_leaked_key",
             data=json.dumps({"token": token}),
@@ -73,9 +74,9 @@ class TestPublicLeakedKeyReport(APIBaseTest):
         self,
         kind: str,
         expected_type: str,
-        mock_send_personal_api_key_exposed,
-        mock_send_oauth_token_exposed,
-        mock_send_project_secret_api_key_exposed,
+        mock_send_personal_api_key_exposed: MagicMock,
+        mock_send_oauth_token_exposed: MagicMock,
+        mock_send_project_secret_api_key_exposed: MagicMock,
     ) -> None:
         if kind == "personal_api_key":
             token = generate_random_token_personal()
