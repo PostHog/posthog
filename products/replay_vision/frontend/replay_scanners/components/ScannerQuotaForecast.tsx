@@ -25,7 +25,7 @@ interface Props {
 }
 
 export function ScannerQuotaForecast({ scannerId }: Props): JSX.Element | null {
-    const { scanner, scannerEstimate, scannerEstimateLoading, scannerEstimateError } = useValues(
+    const { scanner, isNew, scannerEstimate, scannerEstimateLoading, scannerEstimateError } = useValues(
         replayScannerLogic({ id: scannerId })
     )
     const {
@@ -39,6 +39,11 @@ export function ScannerQuotaForecast({ scannerId }: Props): JSX.Element | null {
     if (!scanner) {
         return null
     }
+
+    // An unsaved scanner, or a saved one that is switched off, spends nothing yet. Its estimate still lands in the
+    // fleet projection below, so every line that reads as a statement about live spend has to say "would" instead.
+    const notRunning = isNew || !scanner.enabled
+    const draftAction = isNew ? 'create this scanner' : 'turn this scanner on'
 
     const samplingRatio = Math.max(0, Math.min(scanner.sampling_rate, 1))
     // The estimate already applies the quality filter and sampling rate backend-side.
@@ -72,7 +77,7 @@ export function ScannerQuotaForecast({ scannerId }: Props): JSX.Element | null {
         },
         {
             key: 'this-scanner',
-            label: 'Projected (this scanner)',
+            label: notRunning ? 'This scanner, if enabled' : 'Projected (this scanner)',
             credits: projectedCredits ?? 0,
             kind: 'monthly-rate',
             // The model resolves this to the card's status colour, which depends on the projection it is part of.
@@ -97,7 +102,8 @@ export function ScannerQuotaForecast({ scannerId }: Props): JSX.Element | null {
                 Spent this period: <strong>{formatCreditCount(used)}</strong>
             </div>
             <div>
-                Projected from this scanner: <strong>~{formatCreditCount(projectedCredits ?? 0)}/month</strong>
+                {notRunning ? 'From this scanner, if enabled' : 'Projected from this scanner'}:{' '}
+                <strong>~{formatCreditCount(projectedCredits ?? 0)}/month</strong>
             </div>
             <div>
                 Projected from other scanners: <strong>~{formatCreditCount(othersMonthly)}/month</strong>
@@ -124,7 +130,7 @@ export function ScannerQuotaForecast({ scannerId }: Props): JSX.Element | null {
     return (
         <LemonCard hoverEffect={false} className="p-3 space-y-2">
             <div className="flex items-baseline justify-between gap-3">
-                <LemonLabel>Estimated cost</LemonLabel>
+                <LemonLabel>{notRunning ? 'Estimated cost once enabled' : 'Estimated cost'}</LemonLabel>
                 {hasCap && projectedCredits !== null && (
                     <Tooltip title={breakdown}>
                         <span className={`text-xs tabular-nums ${styles.text}`}>
@@ -159,17 +165,25 @@ export function ScannerQuotaForecast({ scannerId }: Props): JSX.Element | null {
                 {/* The exhausted note and the imminent banner below carry this status, so don't say it twice. */}
                 {hasCap && !projection.exhausted && imminentDays === null && (
                     <span className="text-xs tabular-nums">
-                        <QuotaStatusLine projection={projection} onFreePlan={onFreePlan} />
+                        <QuotaStatusLine projection={projection} onFreePlan={onFreePlan} draft={notRunning} />
                     </span>
                 )}
             </div>
+
+            {notRunning && projectedCredits !== null && (
+                <div className="text-xs text-muted">
+                    {isNew
+                        ? 'This scanner is a draft. Nothing is scanned or charged until you create it.'
+                        : 'This scanner is off. Nothing is scanned or charged until you turn it on.'}
+                </div>
+            )}
 
             {/* `hasCap` is also false while quota is still loading, so require a resolved snapshot before
                 telling anyone their billing limit is missing. */}
             {quota !== null && !hasCap && projectedCredits !== null && (
                 <Tooltip title={breakdown}>
                     <div>
-                        <NoBillingLimitNote projectedCredits={newFleetMonthly} />
+                        <NoBillingLimitNote projectedCredits={newFleetMonthly} draft={notRunning} />
                     </div>
                 </Tooltip>
             )}
@@ -177,7 +191,11 @@ export function ScannerQuotaForecast({ scannerId }: Props): JSX.Element | null {
             {hasCap && projection.exhausted && <QuotaExhaustedNote onFreePlan={onFreePlan} />}
 
             {imminentDays !== null && projection.capReachDate && (
-                <QuotaImminentBanner capReachDate={projection.capReachDate} onFreePlan={onFreePlan} />
+                <QuotaImminentBanner
+                    capReachDate={projection.capReachDate}
+                    onFreePlan={onFreePlan}
+                    draftAction={notRunning ? draftAction : null}
+                />
             )}
 
             {hasCap && projectedCredits !== null && (
@@ -186,9 +204,9 @@ export function ScannerQuotaForecast({ scannerId }: Props): JSX.Element | null {
                         <div>
                             <QuotaMeter
                                 model={model}
-                                label={`Projected ${periodEndPct}% of the monthly spend limit by ${
-                                    resetsOn ?? 'period end'
-                                }`}
+                                label={`${
+                                    notRunning ? 'Would reach' : 'Projected'
+                                } ${periodEndPct}% of the monthly spend limit by ${resetsOn ?? 'period end'}`}
                             />
                         </div>
                     </Tooltip>

@@ -566,6 +566,19 @@ export const ScannerEditorTriggers: StoryObj = {
     parameters: { pageUrl: urls.replayVisionScannerTriggers(summarizerScanner.id) },
 }
 
+// A scanner that doesn't exist yet, sized against a quota its projection would overshoot. The estimate card is the
+// loudest spend surface in the product, so this pins the wording for the state where nothing is being spent.
+export const ScannerEditorTriggersDraft: StoryObj = {
+    parameters: { pageUrl: urls.replayVisionScannerTriggers('new') },
+    decorators: [
+        mswDecorator({
+            get: {
+                '/api/projects/:team_id/vision/quota/': { ...quota, credits_used: 8200, remaining: 1800 },
+            },
+        }),
+    ],
+}
+
 export const ActionEditorAlert: StoryObj = {
     parameters: {
         pageUrl: urls.replayVisionActionNew(summarizerScanner.id, 'alert'),

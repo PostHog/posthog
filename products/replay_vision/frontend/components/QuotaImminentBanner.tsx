@@ -10,9 +10,14 @@ interface Props {
     capReachDate: dayjs.Dayjs
     /** Free-plan orgs have no limit to raise; they need billing instead. */
     onFreePlan: boolean
+    /**
+     * What the reader would have to do for this projection to start applying, e.g. `create this scanner`.
+     * Set only when the projection counts a scanner that isn't running yet, so the banner asks rather than warns.
+     */
+    draftAction?: string | null
 }
 
-export function QuotaImminentBanner({ capReachDate, onFreePlan }: Props): JSX.Element {
+export function QuotaImminentBanner({ capReachDate, onFreePlan, draftAction = null }: Props): JSX.Element {
     // Calendar days off the rendered date, so the two can't disagree.
     const days = capReachDate.startOf('day').diff(dayjs().startOf('day'), 'day')
     const timing = days <= 0 ? 'today' : `in ${pluralize(days, 'day')} (${capReachDate.format('MMMM D')})`
@@ -26,7 +31,16 @@ export function QuotaImminentBanner({ capReachDate, onFreePlan }: Props): JSX.El
             }}
         >
             <span className="text-xs">
-                Enabled scanners are on track to {outcome} {timing}. Lower the sampling rate to slow spend.
+                {draftAction ? (
+                    <>
+                        If you {draftAction}, your scanners would {outcome} {timing}.
+                    </>
+                ) : (
+                    <>
+                        Enabled scanners are on track to {outcome} {timing}.
+                    </>
+                )}{' '}
+                Lower the sampling rate to slow spend.
             </span>
         </LemonBanner>
     )
