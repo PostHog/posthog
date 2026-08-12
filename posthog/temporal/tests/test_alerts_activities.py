@@ -22,7 +22,7 @@ from posthog.schema import (
 )
 
 from posthog.constants import AvailableFeature
-from posthog.exceptions import ClickHouseAtCapacity
+from posthog.exceptions import ClickHouseAtCapacity, ClickHouseQueryMemoryLimitExceeded
 from posthog.models import User
 from posthog.slo.types import SloOperation, SloOutcome
 from posthog.tasks.alerts.utils import (
@@ -55,6 +55,12 @@ def _valid_trends_query() -> dict:
 
 def _default_threshold_configuration() -> dict:
     return {"type": "absolute", "bounds": {"upper": 100.0}}
+
+
+def _memory_limit_error(*, is_per_query_limit: bool) -> ClickHouseQueryMemoryLimitExceeded:
+    error = ClickHouseQueryMemoryLimitExceeded()
+    error.is_per_query_limit = is_per_query_limit
+    return error
 
 
 async def _create_alert(
@@ -458,6 +464,46 @@ class TestEvaluateAlert:
         # No AlertCheck should have been written
         count = await sync_to_async(AlertCheck.objects.filter(alert_configuration=alert).count)()
         assert count == 0
+
+    async def test_evaluate_retries_when_cluster_ran_out_of_memory(self, alert) -> None:
+        # A memory limit raised against the server-wide ceiling clears on its own, so the check has
+        # to be retried in place. Recording it as an error instead sends the alert silent until its
+        # next cadence slot, which for an hourly alert is an hour.
+        with (
+            patch(
+                "posthog.temporal.alerts.activities.check_alert_for_insight",
+                side_effect=[
+                    _memory_limit_error(is_per_query_limit=False),
+                    AlertEvaluationResult(value=100.0, breaches=["value above threshold"]),
+                ],
+            ) as mock_check,
+            patch("posthog.temporal.alerts.activities._TRANSIENT_MEMORY_LIMIT_RETRY_DELAY_SECONDS", 0),
+        ):
+            env = ActivityEnvironment()
+            result = await env.run(evaluate_alert, EvaluateAlertActivityInputs(alert_id=str(alert.id)))
+
+        assert mock_check.call_count == 2
+        assert result.new_state == AlertState.FIRING
+
+        check = await sync_to_async(AlertCheck.objects.get)(pk=result.alert_check_id)
+        assert check.state == AlertState.FIRING
+        assert check.error is None
+
+    async def test_evaluate_does_not_retry_when_the_query_ran_out_of_memory(self, alert) -> None:
+        # The query hit its own memory ceiling, so a second attempt fails identically and only adds
+        # load to a cluster that is already struggling with this query.
+        with patch(
+            "posthog.temporal.alerts.activities.check_alert_for_insight",
+            side_effect=_memory_limit_error(is_per_query_limit=True),
+        ) as mock_check:
+            env = ActivityEnvironment()
+            result = await env.run(evaluate_alert, EvaluateAlertActivityInputs(alert_id=str(alert.id)))
+
+        assert mock_check.call_count == 1
+        assert result.new_state == AlertState.ERRORED
+
+        check = await sync_to_async(AlertCheck.objects.get)(pk=result.alert_check_id)
+        assert check.error is not None
 
     async def test_evaluate_non_retryable_when_alert_deleted_mid_workflow(self) -> None:
         env = ActivityEnvironment()

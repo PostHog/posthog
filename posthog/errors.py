@@ -1028,3 +1028,13 @@ CH_TRANSIENT_ERRORS = (
     CHQueryErrorTableIsReadOnly,
     ClickHouseAtCapacity,
 )
+
+
+def is_transient_memory_limit(error: Exception) -> bool:
+    """Whether a memory limit was cluster pressure rather than a query that is too heavy.
+
+    A memory limit only proves the query itself needs narrowing when ClickHouse hit that query's
+    own ceiling. The server-wide and per-user ceilings mean the cluster was busy, so re-running
+    the same query unchanged stands a real chance of succeeding.
+    """
+    return isinstance(error, ClickHouseQueryMemoryLimitExceeded) and not error.is_per_query_limit
