@@ -113,23 +113,34 @@ class TestCanvasCloudBuilder(SimpleTestCase):
         # The host delivers the MessagePort only after the artifact iframe's
         # load event, so a ph.query issued while the app mounts runs before the
         # port exists. Dropping it leaves the request to die on its 30s timeout.
+        # A request whose timeout already rejected must not be delivered on
+        # connect — the caller has given up, so executing it anyway would fire
+        # late host side effects.
         result = run_cloud_builder(self._project('document.body.textContent = "Hello"'))
 
         runtime = next(file["content"] for file in result["files"] if file["path"] == "assets/canvas-runtime.js")
         harness = "\n".join(
             [
                 "const listeners = {};",
+                "const timers = new Map();",
+                "let timerId = 0;",
                 "globalThis.window = globalThis;",
                 "globalThis.parent = {};",
                 'globalThis.document = { readyState: "complete" };',
+                'globalThis.location = { hash: "" };',
                 "globalThis.addEventListener = (type, fn) => { (listeners[type] ||= []).push(fn); };",
+                "globalThis.setTimeout = (fn) => { timers.set(++timerId, fn); return timerId; };",
+                "globalThis.clearTimeout = (id) => { timers.delete(id); };",
                 runtime,
                 "const received = [];",
                 "const port = { postMessage: (m) => received.push(m), addEventListener: () => {}, start: () => {} };",
+                'window.ph.query("SELECT expired").catch(() => {});',
+                "timers.get(timerId)();",
                 'window.ph.query("SELECT 1");',
                 'for (const fn of listeners.message) fn({ source: parent, data: { channel: "posthog-canvas", type: "connect" }, ports: [port] });',
-                'const request = received.find((m) => m.type === "data-request" && m.method === "query");',
-                'if (!request) { console.error("pre-connect request was dropped"); process.exit(1); }',
+                'const requests = received.filter((m) => m.type === "data-request" && m.method === "query");',
+                'if (!requests.some((m) => m.payload.hogql === "SELECT 1")) { console.error("pre-connect request was dropped"); process.exit(1); }',
+                'if (requests.some((m) => m.payload.hogql === "SELECT expired")) { console.error("expired request was still delivered"); process.exit(1); }',
                 'if (!received.some((m) => m.type === "ready")) { console.error("ready was not posted"); process.exit(1); }',
                 "process.exit(0);",
             ]
