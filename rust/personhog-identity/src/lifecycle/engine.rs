@@ -31,6 +31,7 @@ pub const STEP_COMPLETED: &str = "completed";
 pub const STEP_ABORTED: &str = "aborted";
 
 const OPS_COMPLETED_TOTAL: &str = "personhog_lifecycle_ops_completed_total";
+const OP_DURATION_MS: &str = "personhog_lifecycle_op_duration_ms";
 const SWEEPER_RESUMED_TOTAL: &str = "personhog_lifecycle_sweeper_resumed_total";
 const STEP_FAILURES_TOTAL: &str = "personhog_lifecycle_step_failures_total";
 const OPS_PARKED_TOTAL: &str = "personhog_lifecycle_ops_parked_total";
@@ -144,6 +145,7 @@ pub struct OpRow {
     pub attempt: i32,
     pub request: Value,
     pub outcome: Option<Value>,
+    pub created_at: DateTime<Utc>,
     pub completed_at: Option<DateTime<Utc>>,
 }
 
@@ -319,7 +321,7 @@ impl Engine {
                     "op {op_id} vanished while being driven"
                 )));
             };
-            if row.completed_at.is_some() {
+            if let Some(completed_at) = row.completed_at {
                 if claim_attempt.is_some() {
                     // We drove it over the line (vs attaching to an op that
                     // was already done).
@@ -330,6 +332,13 @@ impl Engine {
                             ("final_step".to_string(), row.step.clone()),
                         ],
                         1,
+                    );
+                    // Creation to terminal commit, so a sweeper-resumed op
+                    // reports its full lifetime, not the last drive's.
+                    common_metrics::histogram(
+                        OP_DURATION_MS,
+                        &[("op_type".to_string(), row.op_type.clone())],
+                        (completed_at - row.created_at).num_milliseconds() as f64,
                     );
                 }
                 return Ok(row);
@@ -454,7 +463,8 @@ impl Engine {
             OpRow,
             r#"
             SELECT op_id, op_type, team_id::bigint as "team_id!", step, attempt,
-                   request as "request: Value", outcome as "outcome: Value", completed_at
+                   request as "request: Value", outcome as "outcome: Value",
+                   created_at, completed_at
             FROM lifecycle_op
             WHERE op_id = $1
             "#,

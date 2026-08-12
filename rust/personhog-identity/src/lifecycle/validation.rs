@@ -124,6 +124,14 @@ pub fn validate_merge_persons(request: &MergePersonsRequest) -> Result<(Uuid, i6
             "target_distinct_id is an illegal distinct id",
         ));
     }
+    // Postgres cannot store NUL in text: an unresolved NUL target would
+    // reach the establish path and fail person creation with an internal
+    // error on every attempt.
+    if request.target_distinct_id.contains('\u{0000}') {
+        return Err(Status::invalid_argument(
+            "target_distinct_id must not contain NUL",
+        ));
+    }
     if request.sources.is_empty() {
         return Err(Status::invalid_argument("sources must not be empty"));
     }
@@ -138,9 +146,7 @@ pub fn validate_merge_persons(request: &MergePersonsRequest) -> Result<(Uuid, i6
         // NUL is a whole-request reject where oversized ids are a
         // per-source outcome: Postgres cannot store NUL in text at all,
         // so the frozen op row — which must record every requested
-        // source for retries — would be unwritable jsonb. (A NUL target
-        // needs no check: it can never resolve, so the unresolved-target
-        // refusal fires before any freeze.)
+        // source for retries — would be unwritable jsonb.
         if source.source_distinct_id.contains('\u{0000}') {
             return Err(Status::invalid_argument(
                 "source distinct ids must not contain NUL",
@@ -160,6 +166,9 @@ pub fn validate_merge_persons(request: &MergePersonsRequest) -> Result<(Uuid, i6
         Some(_) => return Err(Status::invalid_argument("move_limit must be positive")),
         None => return Err(Status::invalid_argument("move_limit is required")),
     };
+    if request.created_at < 0 {
+        return Err(Status::invalid_argument("created_at must not be negative"));
+    }
     let op_id = Uuid::parse_str(&request.op_id)
         .map_err(|_| Status::invalid_argument("op_id must be a valid UUID"))?;
     Ok((op_id, move_limit))
