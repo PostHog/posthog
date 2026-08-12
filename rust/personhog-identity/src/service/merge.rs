@@ -85,7 +85,8 @@ impl MergeEntrance {
             }
             let frozen = row.request.clone();
             let row = self.ops.execute(op_id, row.team_id, &frozen).await?;
-            return merge_response(&row);
+            let delivered = self.deliver_aborted_writes(&request, &row).await?;
+            return merge_response(&row, delivered);
         }
 
         // Classify: resolve everything once on the primary, settle what
@@ -228,7 +229,51 @@ impl MergeEntrance {
             .map_err(|e| Status::internal(format!("failed to freeze inline results: {e}")))?;
 
         let row = self.ops.execute(op_id, request.team_id, &frozen).await?;
-        merge_response(&row)
+        let delivered = self.deliver_aborted_writes(&request, &row).await?;
+        merge_response(&row, delivered)
+    }
+
+    /// An aborted saga never folds, so the merge event's writes (its
+    /// $set/$set_once and the identified flip) would otherwise reach
+    /// nobody. Ingestion applies both to the target even when it refuses a
+    /// merge (person-merge-service.ts sets updateIsIdentified before it
+    /// looks at the source), so the RPC must too: deliver them against
+    /// whatever the target distinct id resolves to now. The frozen request
+    /// is not consulted for the person, because the op that caused the
+    /// abort may have settled the target away since. A push failure errors
+    /// the call rather than answering OK with lost writes; the retry
+    /// attaches to the aborted op and re-drives this delivery.
+    async fn deliver_aborted_writes(
+        &self,
+        request: &MergePersonsRequest,
+        row: &OpRow,
+    ) -> Result<Option<ProtoPerson>, Status> {
+        let aborted = row
+            .outcome
+            .as_ref()
+            .and_then(|o| o.get("aborted"))
+            .and_then(Value::as_bool)
+            .unwrap_or(false);
+        if !aborted {
+            return Ok(None);
+        }
+        let key = (request.team_id, request.target_distinct_id.clone());
+        let mut resolved = self
+            .storage
+            .resolve_distinct_ids(std::slice::from_ref(&key))
+            .await
+            .map_err(|e| Status::internal(format!("target re-resolution failed: {e}")))?;
+        // A target that no longer resolves was destroyed after the abort;
+        // the writes have no person to land on, and the caller's retry
+        // semantics (re-deliver the event) cover the gap.
+        let Some(survivor) = resolved.remove(&key) else {
+            return Ok(None);
+        };
+        // A saga only exists for legal resolved pairs, and ingestion marks
+        // the target identified for any legal pair regardless of the merge
+        // outcome, so the flip always accompanies the delivery.
+        let pushed = self.push_event_properties(request, &survivor, true).await?;
+        Ok(Some(pushed.unwrap_or_else(|| survivor.into())))
     }
 
     /// Apply the merge event's $set/$set_once and the identified flip to
@@ -440,10 +485,15 @@ fn survivor_to_proto(survivor: &Value, team_id: i64) -> ProtoPerson {
 
 /// Assemble the response for an op that ran the saga: inline outcomes from
 /// the frozen request, saga outcomes from the recorded terminal outcome,
-/// in the original request's source order.
+/// in the original request's source order. An aborted outcome records no
+/// survivor; `delivered` fills it with the person the aborted delivery
+/// wrote to, so the caller still learns the event's person.
 // See `MergeEntrance::handle` for why result_large_err is allowed.
 #[allow(clippy::result_large_err)]
-fn merge_response(row: &OpRow) -> Result<MergePersonsResponse, Status> {
+fn merge_response(
+    row: &OpRow,
+    delivered: Option<ProtoPerson>,
+) -> Result<MergePersonsResponse, Status> {
     let Some(outcome) = &row.outcome else {
         return Err(Status::internal(format!(
             "op {} is terminal but has no recorded outcome",
@@ -504,7 +554,8 @@ fn merge_response(row: &OpRow) -> Result<MergePersonsResponse, Status> {
         survivor: outcome
             .survivor
             .as_ref()
-            .map(|s| survivor_to_proto(s, row.team_id)),
+            .map(|s| survivor_to_proto(s, row.team_id))
+            .or(delivered),
         results,
     })
 }

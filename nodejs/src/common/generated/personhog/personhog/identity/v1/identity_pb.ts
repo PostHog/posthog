@@ -535,7 +535,8 @@ export type MergePersonsResponse = Message<'personhog.identity.v1.MergePersonsRe
     /**
      * The surviving person's document. Authoritative (the folded document
      * the leader produced) when a merge ran; the resolved person otherwise.
-     * Absent when the operation aborted without merging anything.
+     * An aborted operation still answers the person the event's writes were
+     * delivered to; absent only when the target no longer resolves.
      *
      * @generated from field: optional personhog.types.v1.Person survivor = 2;
      */

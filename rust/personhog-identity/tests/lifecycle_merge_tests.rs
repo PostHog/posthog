@@ -2123,10 +2123,10 @@ async fn a_move_limited_source_skips_while_the_rest_merge_through_the_rpc() {
 }
 
 #[tokio::test]
-async fn an_identified_source_aborts_through_the_rpc_with_no_survivor() {
+async fn an_identified_source_abort_still_delivers_the_events_writes() {
     let h = MergeHarness::new().await;
     let service = h.service();
-    let _target = h
+    let target = h
         .ctx
         .insert_person_with_distinct_id("rpc-ident-target")
         .await;
@@ -2137,20 +2137,24 @@ async fn an_identified_source_aborts_through_the_rpc_with_no_survivor() {
     h.set_person(source, r#"{"plan": "pro"}"#, 3, true).await;
 
     let op_id = Uuid::now_v7();
-    let request = rpc_request(
+    let mut request = rpc_request(
         h.ctx.team_id,
         "rpc-ident-target",
         &["rpc-ident-source"],
         op_id,
     );
+    request.event_set = serde_json::to_vec(&json!({"tier": "pro"})).unwrap();
     let response = service
         .merge_persons(Request::new(request.clone()))
         .await
         .expect("an aborted op still answers OK")
         .into_inner();
 
-    // The skip is an answer, not an error — and an aborted op carries no
-    // survivor document.
+    // The skip is an answer, not an error. The saga never folds, so the
+    // event's $set and the identified flip are delivered through the
+    // ordinary write surface instead, and the answer carries the person
+    // they landed on — the same person ingestion continues the event with
+    // when it refuses a merge.
     assert_eq!(
         rpc_outcomes(&response),
         vec![(
@@ -2158,24 +2162,96 @@ async fn an_identified_source_aborts_through_the_rpc_with_no_survivor() {
             MergeSourceOutcome::SkippedAlreadyIdentified
         )]
     );
-    assert!(response.survivor.is_none());
+    assert_eq!(response.survivor.as_ref().expect("survivor").id, target);
+    assert_eq!(
+        h.leader.calls(),
+        vec![LeaderCall::PropertyPush {
+            person_id: target,
+            is_identified: Some(true),
+        }]
+    );
     let (source_deleted, _, _) = h.person_state(source).await;
     assert!(!source_deleted);
 
     // The abort is recorded: a retry reproduces the answer instead of
-    // re-running classification.
+    // re-running classification, and re-drives the delivery (the same
+    // at-least-once semantics as the inline branch).
     let retry = service
         .merge_persons(Request::new(request))
         .await
         .expect("retry succeeds")
         .into_inner();
-    assert!(retry.survivor.is_none());
+    assert_eq!(retry.survivor.as_ref().expect("survivor").id, target);
     assert_eq!(
         rpc_outcomes(&retry),
         vec![(
             "rpc-ident-source".to_string(),
             MergeSourceOutcome::SkippedAlreadyIdentified
         )]
+    );
+    assert_eq!(h.leader.calls().len(), 2);
+
+    h.ctx.cleanup().await.expect("cleanup");
+}
+
+#[tokio::test]
+async fn a_failed_abort_delivery_errors_the_call_and_the_retry_delivers() {
+    let h = MergeHarness::new().await;
+    let service = h.service();
+    let target = h
+        .ctx
+        .insert_person_with_distinct_id("rpc-abort-fail-target")
+        .await;
+    let source = h
+        .ctx
+        .insert_person_with_distinct_id("rpc-abort-fail-source")
+        .await;
+    h.set_person(source, r#"{"plan": "pro"}"#, 3, true).await;
+    h.leader.fail_next(
+        Rpc::PropertyPush,
+        target,
+        Status::unavailable("leader unavailable"),
+    );
+
+    let op_id = Uuid::now_v7();
+    let mut request = rpc_request(
+        h.ctx.team_id,
+        "rpc-abort-fail-target",
+        &["rpc-abort-fail-source"],
+        op_id,
+    );
+    request.event_set = serde_json::to_vec(&json!({"tier": "pro"})).unwrap();
+
+    // OK means the event's writes are durable, so a failed delivery must
+    // surface as an error, never as an aborted answer with lost writes.
+    let status = service
+        .merge_persons(Request::new(request.clone()))
+        .await
+        .expect_err("a failed delivery fails the call");
+    assert_eq!(status.code(), Code::Unavailable);
+    let (step, _) = op_row_state(&h.ctx.pool, op_id).await;
+    assert_eq!(step, STEP_ABORTED);
+
+    // The retry attaches to the recorded abort and re-drives the delivery.
+    let retry = service
+        .merge_persons(Request::new(request))
+        .await
+        .expect("retry succeeds")
+        .into_inner();
+    assert_eq!(retry.survivor.as_ref().expect("survivor").id, target);
+    assert_eq!(
+        rpc_outcomes(&retry),
+        vec![(
+            "rpc-abort-fail-source".to_string(),
+            MergeSourceOutcome::SkippedAlreadyIdentified
+        )]
+    );
+    assert_eq!(
+        h.leader.calls(),
+        vec![LeaderCall::PropertyPush {
+            person_id: target,
+            is_identified: Some(true),
+        }]
     );
 
     h.ctx.cleanup().await.expect("cleanup");
