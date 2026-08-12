@@ -12,7 +12,13 @@ from posthog.models.user import User
 from products.data_modeling.backend.facade.models import DAG, DataWarehouseSavedQuery, Edge, Node, NodeType
 from products.data_modeling.backend.logic.node_frequency import set_declared_target
 from products.data_tools.backend.models.datawarehouse_saved_query_folder import DataWarehouseSavedQueryFolder
-from products.warehouse_sources.backend.facade.models import DataWarehouseCredential, DataWarehouseTable
+from products.warehouse_sources.backend.facade.models import (
+    DataWarehouseCredential,
+    DataWarehouseTable,
+    ExternalDataSchema,
+    ExternalDataSource,
+)
+from products.warehouse_sources.backend.facade.types import ExternalDataSourceType
 from products.warehouse_sources.backend.tests.api._access_control_base import WarehouseAccessControlTestMixin
 
 try:
@@ -490,3 +496,123 @@ class TestSyncFrequencyBoundsAccessControl(WarehouseAccessControlTestMixin):
 
         self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST, response.content)
         self.assertIn("consumer_view", response.content.decode())
+
+    def test_a_refusal_names_nothing_when_the_caller_passes_no_visible_names(self):
+        """The default the endpoints API depends on: `schedule_materialization` re-raises this
+        refusal and the endpoints materialization view returns its text verbatim, with no per-user
+        name map to hand down. Naming by default there would leak past every grant."""
+        from products.data_modeling.backend.facade.api import (
+            UnsatisfiableFrequencyError,
+            apply_saved_query_frequency_target,
+        )
+
+        with patch("products.data_modeling.backend.logic.schedule_reconcile.maybe_reconcile_dag"):
+            with self.assertRaises(UnsatisfiableFrequencyError) as caught:
+                apply_saved_query_frequency_target(self.upstream, timedelta(days=1))
+
+        message = str(caught.exception)
+        self.assertNotIn("consumer_view", message)
+        self.assertNotIn(str(self.consumer_node.id), message)
+        # Still actionable: it names the cadence to pick instead, just not who withheld the other.
+        self.assertIn("6 hours", message)
+
+
+@pytest.mark.ee
+class TestSyncFrequencyTableBlockerAccessControl(WarehouseAccessControlTestMixin):
+    """A source table sets the floor, and is named only for a caller who may read the table itself."""
+
+    resource = "warehouse_objects"
+
+    def setUp(self):
+        super().setUp()
+        self.view = DataWarehouseSavedQuery.objects.create(
+            team=self.team,
+            name="downstream_view",
+            query={"kind": "HogQLQuery", "query": "select 1 as event"},
+            created_by=self.user,
+        )
+        self.source = ExternalDataSource.objects.create(
+            team=self.team,
+            source_id="source_id",
+            connection_id="connection_id",
+            status=ExternalDataSource.Status.COMPLETED,
+            source_type=ExternalDataSourceType.STRIPE,
+            prefix="posthog_test_",
+        )
+        # The FK, not just the schema link: it is what `warehouse_table` falls back through, and
+        # what the import pipeline sets on a real imported table.
+        self.table = DataWarehouseTable.objects.create(
+            name="stripe_charges", team=self.team, external_data_source=self.source
+        )
+        ExternalDataSchema.objects.create(
+            name="stripe_charges",
+            team=self.team,
+            source=self.source,
+            table=self.table,
+            sync_frequency_interval=timedelta(hours=6),
+        )
+        dag = DAG.objects.create(team=self.team, name="dag")
+        source_node = Node.objects.create(
+            team=self.team,
+            dag=dag,
+            name="stripe_charges",
+            type=NodeType.TABLE,
+            properties={"origin": "warehouse", "warehouse_table_id": str(self.table.id)},
+        )
+        self.view_node = Node.objects.create(
+            team=self.team, dag=dag, name=self.view.name, saved_query=self.view, type=NodeType.VIEW
+        )
+        Edge.objects.create(team=self.team, dag=dag, source=source_node, target=self.view_node)
+
+    def _read_view(self) -> tuple[dict, str]:
+        with (
+            patch(
+                "products.data_warehouse.backend.presentation.views.saved_query.posthoganalytics.feature_enabled",
+                side_effect=lambda key, *args, **kwargs: key == "data-modeling-backend-v2",
+            ),
+            patch(
+                "products.data_modeling.backend.logic.schedule_reconcile.tiered_schedules_enabled",
+                return_value=True,
+            ),
+        ):
+            response = self.client.get(f"/api/environments/{self.team.pk}/warehouse_saved_queries/{self.view.id}/")
+        self.assertEqual(response.status_code, status.HTTP_200_OK, response.content)
+        return response.json()["sync_frequency_bounds"], response.content.decode()
+
+    def test_the_source_table_is_named_for_a_caller_who_may_read_it(self):
+        self._create_access_control(self.viewer_user, access_level="viewer")
+        self.client.force_login(self.viewer_user)
+
+        bounds, body = self._read_view()
+
+        self.assertEqual(bounds["floor"]["label"], "6 hours")
+        self.assertEqual(bounds["floor"]["blocker"]["name"], "stripe_charges")
+        self.assertIn("stripe_charges", body)
+
+    @parameterized.expand(
+        [
+            # Denying the table itself, and denying the source it came from: `warehouse_table` falls
+            # back to `external_data_source`, so a deny on the source has to withhold the name too.
+            ("table_denied", "warehouse_table"),
+            ("source_denied", "external_data_source"),
+        ]
+    )
+    def test_a_denied_source_table_sets_the_floor_without_being_named(self, _name, resource):
+        self._create_access_control(self.viewer_user, access_level="viewer")
+        self._create_access_control(
+            self.viewer_user,
+            resource=resource,
+            resource_id=str(self.table.id if resource == "warehouse_table" else self.source.id),
+            access_level="none",
+        )
+        self.client.force_login(self.viewer_user)
+
+        bounds, body = self._read_view()
+
+        # The floor still applies and still says a source set it. Only the identity is withheld.
+        self.assertEqual(bounds["floor"]["label"], "6 hours")
+        self.assertIsNone(bounds["floor"]["blocker"])
+        blocked = {option["cadence"]: option for option in bounds["options"] if not option["allowed"]}
+        self.assertEqual(blocked["15min"]["blocked_by"], "source")
+        self.assertIsNone(blocked["15min"]["blocker"])
+        self.assertNotIn("stripe_charges", body)

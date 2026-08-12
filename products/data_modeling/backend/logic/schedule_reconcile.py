@@ -12,7 +12,7 @@ the Temporal schedule API.
 
 import uuid
 import dataclasses
-from collections.abc import Iterable
+from collections.abc import Iterable, Mapping
 from datetime import timedelta
 from typing import TYPE_CHECKING
 
@@ -210,7 +210,7 @@ def apply_saved_query_frequency_target(
     target: timedelta | None,
     *,
     reconcile: bool = True,
-    names_override: dict[str, str] | None = None,
+    visible_names: Mapping[str, str] | None = None,
 ) -> int:
     """Write a frequency target through to the DAG node(s) carrying this saved query.
 
@@ -223,9 +223,11 @@ def apply_saved_query_frequency_target(
 
     Returns the number of nodes written (0 = no DAG node, so a non-None target was stored nowhere).
 
-    `names_override` replaces the names a refusal may use, for callers serving a user who is only
-    entitled to see some of the lineage: anything left out falls back to generic prose rather than
-    naming a node the caller could not otherwise read.
+    `visible_names` is the set of node names a refusal is allowed to use. It defaults to naming
+    nothing, because a refusal travels: `schedule_materialization` re-raises it and the endpoints
+    API returns its text verbatim, so a default of "name everything" would hand a caller the name
+    of a node they may not read. Callers holding a per-user map (the saved-query surfaces) pass it
+    and get the better message; everything left out falls back to generic prose.
 
     Atomic because a saved query can still carry nodes in several DAGs while duplicates are being
     consolidated away: without it, a target rejected by the third node stays written on the first
@@ -251,7 +253,7 @@ def apply_saved_query_frequency_target(
                     edges=graph.edges,
                     declared_targets=graph.declared_targets,
                     source_intervals=graph.source_intervals,
-                    names=graph.names if names_override is None else names_override,
+                    names=visible_names or {},
                 )
                 set_declared_target(node, target)
             written += 1
@@ -261,13 +263,13 @@ def apply_saved_query_frequency_target(
 
 
 def check_saved_query_frequency_target(
-    saved_query: "DataWarehouseSavedQuery", target: timedelta, *, names_override: dict[str, str] | None = None
+    saved_query: "DataWarehouseSavedQuery", target: timedelta, *, visible_names: Mapping[str, str] | None = None
 ) -> None:
     """Raise if this target cannot be honored on any of the saved query's nodes, writing nothing.
 
     The write path validates too, but only after its caller has committed state it then has to undo
     by hand. Callers serving a user can ask first and refuse before touching anything. See
-    `apply_saved_query_frequency_target` for `names_override`.
+    `apply_saved_query_frequency_target` for `visible_names`.
     """
     for node in Node.objects.filter(team=saved_query.team, saved_query=saved_query).select_related("dag", "dag__team"):
         graph = build_frequency_graph(node.dag)
@@ -277,7 +279,7 @@ def check_saved_query_frequency_target(
             edges=graph.edges,
             declared_targets=graph.declared_targets,
             source_intervals=graph.source_intervals,
-            names=graph.names if names_override is None else names_override,
+            names=visible_names or {},
         )
 
 

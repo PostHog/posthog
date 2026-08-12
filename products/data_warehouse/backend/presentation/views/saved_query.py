@@ -4,7 +4,7 @@ from typing import Any, cast
 
 from django.conf import settings
 from django.db import transaction
-from django.db.models import Count, OuterRef, Prefetch, Q, Subquery, TextField
+from django.db.models import Count, Model, OuterRef, Prefetch, Q, Subquery, TextField
 from django.db.models.functions import Cast
 
 import structlog
@@ -71,6 +71,7 @@ from products.warehouse_sources.backend.facade.hogql import (
     get_view_or_table_by_name,
 )
 from products.warehouse_sources.backend.facade.models import (
+    DataWarehouseTable,
     sync_frequency_interval_to_sync_frequency,
     sync_frequency_to_sync_frequency_interval,
 )
@@ -230,7 +231,9 @@ def _blocker_node_ids(resolved: Any) -> set[str]:
     return node_ids
 
 
-def visible_blocker_names(resolved: Any, user_access_control: UserAccessControl | None) -> dict[str, str]:
+def visible_blocker_names(
+    resolved: Any, user_access_control: UserAccessControl | None, *, team_id: int
+) -> dict[str, str]:
     """The blocker names this caller may read, keyed by node id.
 
     Fails closed, and withholds the node id along with the name: an id on its own still answers
@@ -243,7 +246,7 @@ def visible_blocker_names(resolved: Any, user_access_control: UserAccessControl 
 
     visible: dict[str, str] = {}
     node_id_by_saved_query: dict[str, str] = {}
-    table_node_ids: list[str] = []
+    node_id_by_table: dict[str, str] = {}
     for node_id in node_ids:
         identity = resolved.identities.get(node_id)
         name = resolved.names.get(node_id)
@@ -254,7 +257,7 @@ def visible_blocker_names(resolved: Any, user_access_control: UserAccessControl 
         elif identity.saved_query_id is not None:
             node_id_by_saved_query[identity.saved_query_id] = node_id
         elif identity.warehouse_table_id is not None:
-            table_node_ids.append(node_id)
+            node_id_by_table[identity.warehouse_table_id] = node_id
 
     if node_id_by_saved_query:
         creators = DataWarehouseSavedQuery.objects.filter(id__in=node_id_by_saved_query).values_list(
@@ -268,10 +271,17 @@ def visible_blocker_names(resolved: Any, user_access_control: UserAccessControl 
             if level is not None and level != "none":
                 visible[node_id] = resolved.names[node_id]
 
-    # `warehouse_table` falls back to `external_data_source`, which the bulk call refuses, so tables
-    # resolve at resource granularity: named for everyone who may read them, or for no one.
-    if table_node_ids and user_access_control.check_access_level_for_resource("warehouse_table", "viewer"):
-        visible.update({node_id: resolved.names[node_id] for node_id in table_node_ids})
+    if node_id_by_table:
+        # One at a time rather than in bulk: `warehouse_table` falls back to `external_data_source`,
+        # and the bulk call refuses any resource with a fallback parent. Per object is also what
+        # honours a deny on one table, or on the source it came from. A table that no longer
+        # resolves keeps its name withheld.
+        tables = list(DataWarehouseTable.objects.filter(id__in=node_id_by_table, team_id=team_id).exclude(deleted=True))
+        user_access_control.preload_object_access_controls(cast(list[Model], tables))
+        for table in tables:
+            if user_access_control.check_access_level_for_object(table, "viewer"):
+                node_id = node_id_by_table[str(table.id)]
+                visible[node_id] = resolved.names[node_id]
     return visible
 
 
@@ -459,7 +469,7 @@ class DataWarehouseSavedQuerySerializerMixin:
         resolved = saved_query_target_bounds(view.team_id, view.pk)
         if resolved is None:
             return _unbounded_frequency_payload("no_node")
-        visible = visible_blocker_names(resolved, self.user_access_control)  # type: ignore[attr-defined]
+        visible = visible_blocker_names(resolved, self.user_access_control, team_id=view.team_id)  # type: ignore[attr-defined]
         return _frequency_bounds_payload(resolved, visible)
 
     @extend_schema_field(serializers.CharField(allow_null=True))
@@ -914,11 +924,15 @@ class DataWarehouseSavedQuerySerializer(
                 # payload does — otherwise one rejected PATCH reads back a name the caller was
                 # never shown. Withheld nodes fall back to generic prose inside the refusal.
                 bounds = saved_query_target_bounds(view.team_id, view.pk)
-                visible = visible_blocker_names(bounds, self.user_access_control) if bounds is not None else {}
+                visible = (
+                    visible_blocker_names(bounds, self.user_access_control, team_id=view.team_id)
+                    if bounds is not None
+                    else {}
+                )
                 try:
                     # Validates inside the transaction (a rejected frequency rolls the whole
                     # update back) and queues the schedule reconcile for after commit.
-                    nodes_written = apply_saved_query_frequency_target(view, target, names_override=visible)
+                    nodes_written = apply_saved_query_frequency_target(view, target, visible_names=visible)
                 except (UnsatisfiableFrequencyError, UnsupportedFrequencyTargetError) as e:
                     raise serializers.ValidationError(str(e))
                 if target is not None and nodes_written == 0:
@@ -1512,7 +1526,9 @@ class DataWarehouseSavedQueryViewSet(TeamAndOrgViewSetMixin, AccessControlViewSe
                 check_saved_query_frequency_target(
                     saved_query,
                     sync_frequency_interval,
-                    names_override=visible_blocker_names(bounds, self.user_access_control) if bounds else {},
+                    visible_names=(
+                        visible_blocker_names(bounds, self.user_access_control, team_id=self.team_id) if bounds else {}
+                    ),
                 )
             except (UnsatisfiableFrequencyError, UnsupportedFrequencyTargetError) as e:
                 raise serializers.ValidationError(str(e))
