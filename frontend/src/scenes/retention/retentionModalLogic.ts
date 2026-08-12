@@ -316,23 +316,18 @@ export const retentionModalLogic = kea<retentionModalLogicType>([
                 if (selectedInterval === null) {
                     return null
                 }
-                // Get the target date from the selected interval in the non-breakdown results
-                const rowAtInterval = results[selectedInterval] ?? null
-                if (!rowAtInterval || selectedBreakdownValue === null) {
-                    return rowAtInterval
-                }
-                // Find the row with matching breakdown value and date label
-                return (
-                    results.find(
-                        (r) => r.breakdown_value === selectedBreakdownValue && r.label === rowAtInterval.label
-                    ) ?? rowAtInterval
-                )
+                // The clicked index is relative to the rows of one breakdown, not to the flat results
+                const rows =
+                    selectedBreakdownValue === null
+                        ? results
+                        : results.filter((r) => r.breakdown_value === selectedBreakdownValue)
+                return rows[selectedInterval] ?? null
             },
         ],
     }),
     subscriptions(({ actions, values }) => ({
-        results: (results: ProcessedRetentionPayload[]) => {
-            if (results.length > 0 && values.selectedInterval !== null && !values.selectedRow) {
+        results: () => {
+            if (values.selectedInterval !== null && !values.selectedRow) {
                 actions.closeModal()
             }
         },

@@ -37,6 +37,14 @@ const cohortRow = (
 
 const fourCohorts = [cohortRow('Day 0', 100), cohortRow('Day 1', 90), cohortRow('Day 2', 80), cohortRow('Day 3', 70)]
 
+// Two breakdown groups, each with the same interval labels, as the query runner emits them
+const twoBreakdownGroups = [
+    cohortRow('Day 0', 100, 'Chrome'),
+    cohortRow('Day 1', 90, 'Chrome'),
+    cohortRow('Day 0', 50, 'Firefox'),
+    cohortRow('Day 1', 40, 'Firefox'),
+]
+
 let logic: ReturnType<typeof retentionModalLogic.build>
 
 describe('retentionModalLogic', () => {
@@ -97,15 +105,25 @@ describe('retentionModalLogic', () => {
             expectedCount: null,
         },
         {
-            name: 'resolves the breakdown row sharing the selected row label',
-            rows: [
-                cohortRow('Day 0', 100, 'Chrome'),
-                cohortRow('Day 1', 90, 'Chrome'),
-                cohortRow('Day 0', 50, 'Firefox'),
-            ],
-            rowIndex: 0,
+            name: 'resolves the row at the selected index within the breakdown group',
+            rows: twoBreakdownGroups,
+            rowIndex: 1,
             breakdownValue: 'Firefox',
-            expectedCount: 50,
+            expectedCount: 40,
+        },
+        {
+            name: 'resolves null when the index is past the end of the breakdown group',
+            rows: twoBreakdownGroups,
+            rowIndex: 3,
+            breakdownValue: 'Firefox',
+            expectedCount: null,
+        },
+        {
+            name: 'resolves null when the selected breakdown value is absent',
+            rows: twoBreakdownGroups,
+            rowIndex: 0,
+            breakdownValue: 'Safari',
+            expectedCount: null,
         },
     ])('$name', async ({ rows, rowIndex, breakdownValue, expectedCount }) => {
         await loadResults(rows)
@@ -146,7 +164,7 @@ describe('retentionModalLogic', () => {
         expect(logic.values.selectedRow?.values[0].count).toBe(9)
     })
 
-    it('keeps the modal open while the results are empty mid-reload', async () => {
+    it('closes the modal when the results come back empty', async () => {
         await loadResults(fourCohorts)
         await expectLogic(logic, () => {
             logic.actions.openModal(3)
@@ -154,6 +172,20 @@ describe('retentionModalLogic', () => {
 
         await loadResults([])
 
-        expect(logic.values.selectedInterval).toBe(3)
+        expect(logic.values.selectedInterval).toBeNull()
+        expect(logic.values.selectedRow).toBeNull()
+    })
+
+    it('closes the modal when the selected breakdown value disappears', async () => {
+        await loadResults(twoBreakdownGroups)
+        await expectLogic(logic, () => {
+            logic.actions.openModal(1, 'Firefox')
+        }).toFinishAllListeners()
+        expect(logic.values.selectedRow?.values[0].count).toBe(40)
+
+        await loadResults([cohortRow('Day 0', 100, 'Chrome'), cohortRow('Day 1', 90, 'Chrome')])
+
+        expect(logic.values.selectedInterval).toBeNull()
+        expect(logic.values.selectedRow).toBeNull()
     })
 })
