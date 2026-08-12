@@ -21,6 +21,7 @@ import {
 } from '../../components/WidgetCard'
 import { WidgetCardProductIntroduction } from '../../components/WidgetCardProductIntroduction/WidgetCardProductIntroduction'
 import type { DashboardWidgetComponentProps } from '../registry'
+import { buildFilterGroupFromWidgetFilters } from '../widgetConfigValidation'
 import type { WidgetIssueMetadataDelta } from './applyWidgetIssueMetadataChange'
 import { parseErrorTrackingWidgetConfig } from './errorTrackingWidgetConfigValidation'
 import { errorTrackingWidgetLogic } from './errorTrackingWidgetLogic'
@@ -121,7 +122,8 @@ function ErrorTrackingWidgetBody({
     const payload = result as ErrorTrackingWidgetResult | null | undefined
     const rows = payload?.results ?? []
     const parsedConfig = parseErrorTrackingWidgetConfig(config)
-    const { orderBy, dateRange, filterTestAccounts } = parsedConfig
+    const { orderBy, dateRange, filterTestAccounts, widgetFilters } = parsedConfig
+    const filterGroup = buildFilterGroupFromWidgetFilters(widgetFilters ?? undefined)
 
     if (rows.length === 0) {
         return (
@@ -150,6 +152,7 @@ function ErrorTrackingWidgetBody({
                     orderBy={orderBy}
                     canMutateIssues={canMutateIssues}
                     dateRange={dateRange ?? undefined}
+                    filterGroup={filterGroup}
                     filterTestAccounts={filterTestAccounts ?? undefined}
                 />
             </WidgetCardContent>

@@ -12,6 +12,7 @@ import { Params } from 'scenes/sceneTypes'
 import { urls } from 'scenes/urls'
 
 import { DateRange, ErrorTrackingIssue } from '~/queries/schema/schema-general'
+import type { UniversalFiltersGroup } from '~/types'
 
 import { useSparklineData } from '../../hooks/use-sparkline-data'
 import { errorTrackingIssueSceneLogic } from '../../scenes/ErrorTrackingIssueScene/errorTrackingIssueSceneLogic'
@@ -58,12 +59,14 @@ export function ErrorTrackingIssueListRow({
     orderBy = 'last_seen',
     canMutateIssues = true,
     dateRange,
+    filterGroup,
     filterTestAccounts,
 }: {
     issue: ErrorTrackingIssue
     orderBy?: string
     canMutateIssues?: boolean
     dateRange?: DateRange
+    filterGroup?: UniversalFiltersGroup
     filterTestAccounts?: boolean
 }): JSX.Element {
     const { updateIssueAssignee, updateIssueStatus } = useActions(issueActionsLogic)
@@ -76,7 +79,7 @@ export function ErrorTrackingIssueListRow({
         const params: Params = {}
         updateFilterSearchParams(params, {
             dateRange: dateRange ?? DEFAULT_DATE_RANGE,
-            filterGroup: DEFAULT_FILTER_GROUP,
+            filterGroup: filterGroup ?? DEFAULT_FILTER_GROUP,
             filterTestAccounts: filterTestAccounts ?? false,
             searchQuery: '',
         })
@@ -84,7 +87,7 @@ export function ErrorTrackingIssueListRow({
             timestamp: issue.last_seen,
             ...params,
         })
-    }, [issue.id, issue.last_seen, dateRange, filterTestAccounts])
+    }, [issue.id, issue.last_seen, dateRange, filterGroup, filterTestAccounts])
 
     return (
         <div
@@ -201,6 +204,7 @@ type ErrorTrackingIssueListProps = {
     className?: string
     listClassName?: string
     dateRange?: DateRange
+    filterGroup?: UniversalFiltersGroup
     filterTestAccounts?: boolean
 }
 
@@ -211,6 +215,7 @@ export function ErrorTrackingIssueList({
     className,
     listClassName,
     dateRange,
+    filterGroup,
     filterTestAccounts,
 }: ErrorTrackingIssueListProps): JSX.Element {
     return (
@@ -225,6 +230,7 @@ export function ErrorTrackingIssueList({
                             orderBy={orderBy}
                             canMutateIssues={canMutateIssues}
                             dateRange={dateRange}
+                            filterGroup={filterGroup}
                             filterTestAccounts={filterTestAccounts}
                         />
                     ))}
