@@ -1,3 +1,4 @@
+import { RevealPanelsProvider } from "@posthog/ui/features/panels/useRevealPanels";
 import { Theme } from "@radix-ui/themes";
 import { fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
@@ -231,6 +232,23 @@ describe("CloudArtifactDownloads", () => {
       artifactId: "output-1",
       name: "report.pdf",
     });
+  });
+
+  // Embedded surfaces — the command center grid, the canvas side panel — render
+  // the thread without a tab strip, so opening a file has to take the user to
+  // the panels instead of only mutating the stored layout.
+  it("reveals the panels of an embedded surface", () => {
+    const reveal = vi.fn();
+    render(
+      <RevealPanelsProvider reveal={reveal}>
+        <CloudArtifactDownloads taskId="task-1" task={task} />
+      </RevealPanelsProvider>,
+    );
+
+    fireEvent.click(screen.getByText("report.pdf"));
+
+    expect(openArtifactTab).toHaveBeenCalled();
+    expect(reveal).toHaveBeenCalledTimes(1);
   });
 
   // A re-upload replaces the file rather than adding a second row for it.

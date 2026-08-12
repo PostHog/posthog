@@ -3,6 +3,7 @@ import { Flex, Text } from "@radix-ui/themes";
 import { memo, useCallback } from "react";
 import { FileIcon } from "../../../../primitives/FileIcon";
 import { usePanelLayoutStore } from "../../../panels/panelLayoutStore";
+import { useRevealPanels } from "../../../panels/useRevealPanels";
 import { useCwd } from "../../../sidebar/useCwd";
 import { useWorkspace } from "../../../workspace/useWorkspace";
 import { useSessionTaskId } from "../../useSessionTaskId";
@@ -35,6 +36,7 @@ export const FileMentionChip = memo(function FileMentionChip({
   const repoPath = useCwd(taskId ?? "");
   const workspace = useWorkspace(taskId ?? undefined);
   const openFileInSplit = usePanelLayoutStore((s) => s.openFileInSplit);
+  const revealPanels = useRevealPanels();
   const { openForFile } = useFileContextMenu();
 
   const filename = getFilename(filePath);
@@ -44,7 +46,8 @@ export const FileMentionChip = memo(function FileMentionChip({
     if (!taskId) return;
     const relativePath = toRelativePath(filePath, repoPath ?? null);
     openFileInSplit(taskId, relativePath, true);
-  }, [taskId, filePath, repoPath, openFileInSplit]);
+    revealPanels();
+  }, [taskId, filePath, repoPath, openFileInSplit, revealPanels]);
 
   const handleContextMenu = useCallback(
     async (e: React.MouseEvent) => {

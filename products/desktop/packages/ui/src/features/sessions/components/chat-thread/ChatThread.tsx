@@ -43,6 +43,7 @@ import { SHORTCUTS } from "@posthog/ui/features/command/keyboard-shortcuts";
 import { useSmoothedText } from "@posthog/ui/features/editor/components/useSmoothedText";
 import { useFeatureFlag } from "@posthog/ui/features/feature-flags/useFeatureFlag";
 import { usePanelLayoutStore } from "@posthog/ui/features/panels/panelLayoutStore";
+import { useRevealPanels } from "@posthog/ui/features/panels/useRevealPanels";
 import type {
   BuildResult,
   ConversationItem,
@@ -431,6 +432,7 @@ function UserBubble({
   const openCanvasInstructionsInSplit = usePanelLayoutStore(
     (s) => s.openCanvasInstructionsInSplit,
   );
+  const revealPanels = useRevealPanels();
 
   const containsFileMentions = hasFileMentions(displayContent);
 
@@ -469,11 +471,13 @@ function UserBubble({
                   }CONTEXT.md`}
                   onClick={
                     taskId
-                      ? () =>
+                      ? () => {
                           openChannelContextInSplit(taskId, {
                             channelName: channelContext.mention.name,
                             body: channelContext.mention.body,
-                          })
+                          });
+                          revealPanels();
+                        }
                       : undefined
                   }
                 />
@@ -484,10 +488,12 @@ function UserBubble({
                   label="Canvas instructions"
                   onClick={
                     taskId
-                      ? () =>
+                      ? () => {
                           openCanvasInstructionsInSplit(taskId, {
                             body: canvasInstructions.body,
-                          })
+                          });
+                          revealPanels();
+                        }
                       : undefined
                   }
                 />

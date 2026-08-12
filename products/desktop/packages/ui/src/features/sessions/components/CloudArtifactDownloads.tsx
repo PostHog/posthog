@@ -33,6 +33,7 @@ import {
 } from "@posthog/ui/features/auth/store";
 import { useMeQuery } from "@posthog/ui/features/auth/useMeQuery";
 import { usePanelLayoutStore } from "@posthog/ui/features/panels/panelLayoutStore";
+import { useRevealPanels } from "@posthog/ui/features/panels/useRevealPanels";
 import { useSessionSelector } from "@posthog/ui/features/sessions/sessionStore";
 import {
   useArtifactFilesCollapsed,
@@ -88,6 +89,7 @@ export function CloudArtifactDownloads({
 }) {
   const sessionService = useService<SessionService>(SESSION_SERVICE);
   const openArtifactTab = usePanelLayoutStore((state) => state.openArtifactTab);
+  const revealPanels = useRevealPanels();
   const sessionArtifacts = useSessionSelector(
     taskId,
     (session) => session?.cloudArtifacts,
@@ -234,6 +236,7 @@ export function CloudArtifactDownloads({
               artifactId: selected.id,
               name: selected.name,
             });
+            revealPanels();
           }}
         >
           <FileIcon filename={selected.name} size={16} />

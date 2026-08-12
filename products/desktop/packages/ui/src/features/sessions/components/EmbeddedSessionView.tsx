@@ -1,6 +1,7 @@
 import type { Task } from "@posthog/shared/domain-types";
-import { Flex } from "@radix-ui/themes";
-import { useEffect } from "react";
+import { RevealPanelsProvider } from "@posthog/ui/features/panels/useRevealPanels";
+import { openTask } from "@posthog/ui/router/useOpenTask";
+import { useCallback, useEffect } from "react";
 import { useDraftStore } from "../../message-editor/draftStore";
 import { useSessionCallbacks } from "../hooks/useSessionCallbacks";
 import { useSessionConnection } from "../hooks/useSessionConnection";
@@ -53,32 +54,40 @@ export function EmbeddedSessionView({
     requestFocus(taskId);
   }, [taskId, requestFocus]);
 
+  // Files, artifacts and context open as panel tabs, and those only exist on
+  // the task's own route — so opening one here takes the user there.
+  const revealPanels = useCallback(() => {
+    void openTask(task);
+  }, [task]);
+
   return (
-    <Flex direction="column" height="100%">
-      <SessionView
-        events={events}
-        taskId={taskId}
-        task={task}
-        isRunning={isRunning}
-        isPromptPending={isPromptPending}
-        promptStartedAt={promptStartedAt}
-        onSendPrompt={handleSendPrompt}
-        onBashCommand={isCloud ? undefined : handleBashCommand}
-        onCancelPrompt={handleCancelPrompt}
-        repoPath={repoPath}
-        cloudBranch={cloudBranch}
-        hasError={hasError}
-        errorTitle={errorTitle}
-        errorMessage={errorMessage ?? undefined}
-        errorRetryable={errorRetryable}
-        onRetry={handleRetry}
-        onNewSession={isCloud ? undefined : handleNewSession}
-        isInitializing={isInitializing}
-        isCloud={isCloud}
-        cloudStatus={cloudStatus}
-        compact
-        isActiveSession={isActiveSession}
-      />
-    </Flex>
+    <RevealPanelsProvider reveal={revealPanels}>
+      <div className="flex h-full flex-col">
+        <SessionView
+          events={events}
+          taskId={taskId}
+          task={task}
+          isRunning={isRunning}
+          isPromptPending={isPromptPending}
+          promptStartedAt={promptStartedAt}
+          onSendPrompt={handleSendPrompt}
+          onBashCommand={isCloud ? undefined : handleBashCommand}
+          onCancelPrompt={handleCancelPrompt}
+          repoPath={repoPath}
+          cloudBranch={cloudBranch}
+          hasError={hasError}
+          errorTitle={errorTitle}
+          errorMessage={errorMessage ?? undefined}
+          errorRetryable={errorRetryable}
+          onRetry={handleRetry}
+          onNewSession={isCloud ? undefined : handleNewSession}
+          isInitializing={isInitializing}
+          isCloud={isCloud}
+          cloudStatus={cloudStatus}
+          compact
+          isActiveSession={isActiveSession}
+        />
+      </div>
+    </RevealPanelsProvider>
   );
 }

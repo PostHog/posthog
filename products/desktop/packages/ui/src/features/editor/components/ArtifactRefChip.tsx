@@ -1,5 +1,6 @@
 import { DownloadSimpleIcon } from "@phosphor-icons/react";
 import { usePanelLayoutStore } from "@posthog/ui/features/panels/panelLayoutStore";
+import { useRevealPanels } from "@posthog/ui/features/panels/useRevealPanels";
 import { useArtifactDownload } from "@posthog/ui/features/sessions/useArtifactDownload";
 import { useRunArtifacts } from "@posthog/ui/features/sessions/useRunArtifacts";
 import { useSessionTaskId } from "@posthog/ui/features/sessions/useSessionTaskId";
@@ -49,6 +50,7 @@ export function ArtifactRefChip({
   const artifact = artifacts ? findArtifactForLink(artifacts, target) : null;
 
   const openArtifactTab = usePanelLayoutStore((state) => state.openArtifactTab);
+  const revealPanels = useRevealPanels();
   const markdownLabel =
     typeof children === "string" && children !== href ? children : undefined;
   const fallbackName =
@@ -79,13 +81,14 @@ export function ArtifactRefChip({
       label={label}
       name={name}
       sizeLabel={sizeLabel}
-      onOpen={() =>
+      onOpen={() => {
         openArtifactTab(target.taskId, {
           runId: target.runId,
           artifactId,
           name,
-        })
-      }
+        });
+        revealPanels();
+      }}
       onDownload={() => {
         void download({
           taskId: target.taskId,
