@@ -18,8 +18,7 @@ from posthog.models.team.team import Team
 from posthog.models.utils import uuid7
 from posthog.sync import database_sync_to_async
 
-from products.data_catalog.backend.facade.api import approved_metric_summaries_for_team
-from products.data_catalog.backend.facade.contracts import GovernedMetricSummary
+from products.data_catalog.backend.facade.api import approved_metric_names_for_team
 from products.data_catalog.backend.facade.flags import is_data_catalog_enabled
 from products.signals.backend.agent_runtime import STEP_SCOUT, resolve_agent_runtime
 from products.signals.backend.models import SignalScoutConfig, SignalScoutRun
@@ -461,8 +460,8 @@ def _data_catalog_enabled_for_team(team: Team) -> bool:
         return False
 
 
-def _governed_metrics_for_team(team: Team) -> list[GovernedMetricSummary] | None:
-    """The team's approved metric listing for prompt injection, or None when the read fails.
+def _governed_metric_names_for_team(team: Team) -> list[str] | None:
+    """The team's approved metric names for prompt injection, or None when the read fails.
 
     Same failure posture as `_data_catalog_enabled_for_team`: this resolves inside
     `_spawn_and_run`, so a propagated catalog-read error would book a failed run and advance
@@ -470,7 +469,7 @@ def _governed_metrics_for_team(team: Team) -> list[GovernedMetricSummary] | None
     probe-and-cache rule, so a degraded read only costs the pre-fetch, never the steering.
     """
     try:
-        return approved_metric_summaries_for_team(team)
+        return approved_metric_names_for_team(team)
     except Exception as error:
         capture_exception(error)
         return None
@@ -561,8 +560,8 @@ async def _spawn_and_run(
         reasoning_effort=reasoning_effort,
     )
     data_catalog_enabled = await database_sync_to_async(_data_catalog_enabled_for_team, thread_sensitive=False)(team)
-    governed_metrics = (
-        await database_sync_to_async(_governed_metrics_for_team, thread_sensitive=False)(team)
+    governed_metric_names = (
+        await database_sync_to_async(_governed_metric_names_for_team, thread_sensitive=False)(team)
         if data_catalog_enabled
         else None
     )
@@ -573,7 +572,7 @@ async def _spawn_and_run(
         started_at=started_at,
         github_read_access=github_guidance,
         data_catalog_enabled=data_catalog_enabled,
-        governed_metrics=governed_metrics,
+        governed_metric_names=governed_metric_names,
         # Renders the structured-output section (schema + `scout-record-output` contract) only
         # when the config carries a schema AND emit is on — records land solely as project
         # events, so a dry-run scout must not be steered at a tool that fails closed.

@@ -12,7 +12,7 @@ from products.data_catalog.backend.logic.drift import compute_drift
 from products.data_catalog.backend.logic.exceptions import MetricDrifted, SourceInsightUnavailable
 from products.data_catalog.backend.logic.metrics import (
     approve_metric,
-    approved_metric_summaries_for_team,
+    approved_metric_names_for_team,
     refresh_metric_from_insight,
     soft_delete_metric,
     update_metric,
@@ -475,8 +475,8 @@ class TestUpdateInsightLink(BaseTest):
 
 
 class TestApprovedMetricSummaries(BaseTest):
-    def test_only_approved_non_drifted_metrics_are_summarized(self) -> None:
-        # Anything beyond approved + non-drifted leaking into the summaries would surface an
+    def test_only_approved_non_drifted_metric_names_are_listed(self) -> None:
+        # Anything beyond approved + non-drifted leaking into the listing would surface an
         # unapproved or stale definition as canonical in cross-product agent prompts.
         approved = upsert_metric(
             team=self.team,
@@ -502,9 +502,4 @@ class TestApprovedMetricSummaries(BaseTest):
         approve_metric(drifted, self.user)
         Insight.objects.filter(pk=insight.pk).update(query=_HOGQL_B)
 
-        summaries = approved_metric_summaries_for_team(self.team)
-
-        assert [s.name for s in summaries] == ["mrr"]
-        assert summaries[0].display_name == "MRR"
-        assert summaries[0].description == "Monthly recurring revenue"
-        assert summaries[0].unit == "usd"
+        assert approved_metric_names_for_team(self.team) == ["mrr"]

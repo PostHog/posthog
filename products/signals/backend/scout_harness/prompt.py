@@ -14,8 +14,6 @@ from products.signals.backend.scout_harness.skill_loader import LoadedSkill, Ski
 if TYPE_CHECKING:
     from collections.abc import Sequence
 
-    from products.data_catalog.backend.facade.contracts import GovernedMetricSummary
-
 
 def _compute_harness_prompt_version() -> str:
     """Identify the harness prompt build, so runs can be grouped by the instructions they got.
@@ -135,48 +133,32 @@ _METRICS_CATALOG_SCOPE = "When a hypothesis rests on a named, reusable measure, 
 
 _METRICS_CATALOG_RULE = f""" {_METRICS_CATALOG_SCOPE} check the governed metrics catalog first – `SELECT name, description, status, is_drifted FROM system.information_schema.metrics` via `execute-sql` – and run an approved, non-drifted match with `data-catalog-metric-run` rather than hand-deriving it, even when your skill body ships its own SQL for that measure: a governed definition outranks a playbook query, and a number derived outside it must be labeled noncanonical. Cache the lookup outcome in your scratchpad (`catalog:<scope>:<measure>`, match or no-match plus date) and reuse a fresh entry instead of re-querying every run; re-verify an entry roughly a day old, and immediately when a canonical run reports drift or a status change. Schema, availability, and freshness checks stay schema-first; no catalog detour for those."""
 
-_METRICS_CATALOG_PREFETCHED = f""" {_METRICS_CATALOG_SCOPE} run it through the governed metrics catalog. This run's catalog lookup is already done – the listing below is the complete set of approved, non-drifted metrics right now, so do not re-run the lookup query. Run a listed match with `data-catalog-metric-run` rather than hand-deriving it, even when your skill body ships its own SQL for that measure: a governed definition outranks a playbook query. A measure not listed has no canonical definition today – derive it by hand and label the result noncanonical. Re-check the catalog (`SELECT name, description, status, is_drifted FROM system.information_schema.metrics` via `execute-sql`) only if a canonical run reports drift or a status change. Schema, availability, and freshness checks stay schema-first; no catalog detour for those.
-
-Approved metrics in this project's catalog:
-{{listing}}"""
+_METRICS_CATALOG_PREFETCHED = f""" {_METRICS_CATALOG_SCOPE} run it through the governed metrics catalog. This run's catalog lookup is already done – the approved, non-drifted metrics right now are: {{listing}}. Do not re-run the lookup query. When a listed name matches the measure you need, read its definition (`SELECT name, description, unit FROM system.information_schema.metrics WHERE name = '<name>'` via `execute-sql`) and run it with `data-catalog-metric-run` rather than hand-deriving it, even when your skill body ships its own SQL for that measure: a governed definition outranks a playbook query. A measure matching no listed name has no canonical definition today – derive it by hand and label the result noncanonical. Schema, availability, and freshness checks stay schema-first; no catalog detour for those."""
 
 _METRICS_CATALOG_EMPTY = f""" {_METRICS_CATALOG_SCOPE} note that this run's catalog lookup is already done and the governed metrics catalog holds no approved metrics right now: derive each measure by hand, label the result noncanonical, and do not re-run the lookup query (`system.information_schema.metrics` via `execute-sql`) this run."""
 
-# Bounds keep the injected listing from crowding out the rest of the prompt on metric-heavy
-# catalogs; overflow points back at the lookup query, which is exactly the case where re-querying
-# is worth its cost.
+# The name cap keeps a metric-heavy catalog from crowding the prompt; overflow points back at the
+# lookup query, which is exactly the case where re-querying is worth its cost.
 _GOVERNED_METRIC_LISTING_CAP = 40
-_GOVERNED_METRIC_DESCRIPTION_CAP = 240
 
 
-def _governed_metric_listing(governed_metrics: Sequence[GovernedMetricSummary]) -> str:
-    lines = []
-    for metric in governed_metrics[:_GOVERNED_METRIC_LISTING_CAP]:
-        label = f" ({metric.display_name})" if metric.display_name and metric.display_name != metric.name else ""
-        unit = f", unit: {metric.unit}" if metric.unit else ""
-        description = metric.description
-        if len(description) > _GOVERNED_METRIC_DESCRIPTION_CAP:
-            description = description[: _GOVERNED_METRIC_DESCRIPTION_CAP - 1] + "…"
-        lines.append(f"- `{metric.name}`{label}{unit}: {description}")
-    overflow = len(governed_metrics) - _GOVERNED_METRIC_LISTING_CAP
+def _governed_metric_listing(governed_metric_names: Sequence[str]) -> str:
+    listing = ", ".join(f"`{name}`" for name in governed_metric_names[:_GOVERNED_METRIC_LISTING_CAP])
+    overflow = len(governed_metric_names) - _GOVERNED_METRIC_LISTING_CAP
     if overflow > 0:
-        lines.append(
-            f"- …and {overflow} more: query `system.information_schema.metrics` via `execute-sql` for the full set."
-        )
-    return "\n".join(lines)
+        listing += f", and {overflow} more (query `system.information_schema.metrics` for the full set)"
+    return listing
 
 
-def _how_a_run_works_head(
-    *, data_catalog_enabled: bool, governed_metrics: Sequence[GovernedMetricSummary] | None = None
-) -> str:
+def _how_a_run_works_head(*, data_catalog_enabled: bool, governed_metric_names: Sequence[str] | None = None) -> str:
     if not data_catalog_enabled:
         return _HOW_A_RUN_WORKS_HEAD
-    if governed_metrics is None:
+    if governed_metric_names is None:
         return _HOW_A_RUN_WORKS_HEAD + _METRICS_CATALOG_RULE
-    if not governed_metrics:
+    if not governed_metric_names:
         return _HOW_A_RUN_WORKS_HEAD + _METRICS_CATALOG_EMPTY
     return _HOW_A_RUN_WORKS_HEAD + _METRICS_CATALOG_PREFETCHED.format(
-        listing=_governed_metric_listing(governed_metrics)
+        listing=_governed_metric_listing(governed_metric_names)
     )
 
 
@@ -729,13 +711,13 @@ def _signal_tail_sections(
     followup_section: str,
     structured_output_section: str = "",
     data_catalog_enabled: bool = False,
-    governed_metrics: Sequence[GovernedMetricSummary] | None = None,
+    governed_metric_names: Sequence[str] | None = None,
 ) -> list[str]:
     """Signal-channel tail. `followup_section` is the per-run composed self-validation section —
     channel-matched, so it can't live in a static list; `structured_output_section` is likewise
     per-run composed (empty when the config carries no schema)."""
     return [
-        f"{_how_a_run_works_head(data_catalog_enabled=data_catalog_enabled, governed_metrics=governed_metrics)}\n{_HOW_A_RUN_WORKS_SIGNAL_STEPS}",
+        f"{_how_a_run_works_head(data_catalog_enabled=data_catalog_enabled, governed_metric_names=governed_metric_names)}\n{_HOW_A_RUN_WORKS_SIGNAL_STEPS}",
         # Ground rules lead the tail: the untrusted-input rule is stated once there, and the sections
         # that read an untrusted source point back at it rather than restating the reasoning.
         _GROUND_RULES,
@@ -765,7 +747,7 @@ def _report_tail_sections(
     github_read_access: bool = False,
     structured_output_section: str = "",
     data_catalog_enabled: bool = False,
-    governed_metrics: Sequence[GovernedMetricSummary] | None = None,
+    governed_metric_names: Sequence[str] | None = None,
 ) -> list[str]:
     """Report-channel tail, tailored to the report tools the scout actually opted into.
 
@@ -779,7 +761,7 @@ def _report_tail_sections(
     `github_read_access` appends the `gh` evidence section only when the sandbox actually got a
     read-only GitHub token — every persona here can set reviewers (edit-only routes unrouted
     reports), so it slots in wherever reviewer guidance lives."""
-    head = _how_a_run_works_head(data_catalog_enabled=data_catalog_enabled, governed_metrics=governed_metrics)
+    head = _how_a_run_works_head(data_catalog_enabled=data_catalog_enabled, governed_metric_names=governed_metric_names)
     if can_emit and can_edit:
         how_a_run_works = f"{head}\n{_REPORT_STEPS_BOTH}\n{_REPORT_CLOSE_OUT_STEP}"
         channel_sections = [
@@ -883,7 +865,7 @@ def build_run_prompt(
     github_read_access: bool = False,
     structured_output_schema: dict | None = None,
     data_catalog_enabled: bool = False,
-    governed_metrics: Sequence[GovernedMetricSummary] | None = None,
+    governed_metric_names: Sequence[str] | None = None,
 ) -> str:
     """Render the opening prompt for one scout run.
 
@@ -922,8 +904,8 @@ def build_run_prompt(
 
     `data_catalog_enabled` must mirror the team's `product-data-catalog` flag: it renders the
     governed-metrics catalog-first steering, and the catalog surfaces it names don't exist for
-    flag-off teams (see the note on `_METRICS_CATALOG_RULE`). `governed_metrics` is the
-    harness-side pre-fetch of the team's approved, non-drifted metrics: a list (even empty)
+    flag-off teams (see the note on `_METRICS_CATALOG_RULE`). `governed_metric_names` is the
+    harness-side pre-fetch of the team's approved, non-drifted metric names: a list (even empty)
     renders the injected listing so the run is catalog-aware without a probe query, and `None`
     means the lookup was unavailable, falling back to the prose probe-and-cache rule.
 
@@ -953,7 +935,7 @@ def build_run_prompt(
             github_read_access=github_read_access,
             structured_output_section=structured_output_section,
             data_catalog_enabled=data_catalog_enabled,
-            governed_metrics=governed_metrics,
+            governed_metric_names=governed_metric_names,
         )
         # Point the run-identity line at a report tool the scout can actually call — prefer authoring,
         # fall back to editing for an edit-only scout. Never name a tool that would fail closed.
@@ -964,7 +946,7 @@ def build_run_prompt(
             followup_section=followup_section,
             structured_output_section=structured_output_section,
             data_catalog_enabled=data_catalog_enabled,
-            governed_metrics=governed_metrics,
+            governed_metric_names=governed_metric_names,
         )
         emit_tool = "scout-emit-signal"
     # Slot the origin-matched improvement channel between friction reporting and the output format

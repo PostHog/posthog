@@ -22,7 +22,6 @@ from posthog.rbac.user_access_control import UserAccessControl
 
 from products.product_analytics.backend.models.insight import Insight
 
-from ..facade.contracts import GovernedMetricSummary
 from ..facade.enums import CreatedSource, MetricStatus
 from ..models import METRIC_NAME_REGEX, Metric
 from .analytics import (
@@ -372,22 +371,13 @@ def metrics_for_team(team: Team) -> QuerySet[Metric]:
     return Metric.objects.for_team(team.id).filter(deleted=False).order_by("-created_at")
 
 
-def approved_metric_summaries_for_team(team: Team) -> list[GovernedMetricSummary]:
-    """The team's approved, non-drifted metrics as contract summaries, sorted by name.
+def approved_metric_names_for_team(team: Team) -> list[str]:
+    """Names of the team's approved, non-drifted metrics, sorted.
 
     Backs cross-product prompt injection (the signals scout harness), so the filter must match
-    what `data-catalog-metric-run` treats as canonical: anything proposed, deleted, or drifted
-    in a summary would present an unapproved or stale definition as runnable.
+    what `data-catalog-metric-run` treats as canonical: a proposed, deleted, or drifted name in
+    the listing would present an unapproved or stale definition as runnable.
     """
     approved = list(metrics_for_team(team).filter(status=MetricStatus.APPROVED).order_by("name"))
     drifted = compute_drift(approved)
-    return [
-        GovernedMetricSummary(
-            name=metric.name,
-            display_name=metric.display_name,
-            description=metric.description,
-            unit=metric.unit,
-        )
-        for metric in approved
-        if not drifted[metric.id]
-    ]
+    return [metric.name for metric in approved if not drifted[metric.id]]
