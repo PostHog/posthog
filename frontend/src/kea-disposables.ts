@@ -20,10 +20,11 @@ export type DisposablesManager = {
     keyCounter: number
     logicPath: string
     /**
-     * True once the logic has unmounted and every registered cleanup has run. `add` and `dispose`
-     * are inert from that point on, so async continuations that outlive the unmount can call them
-     * unconditionally. Read it when the continuation itself must stop early, for instance to avoid
-     * dispatching an action into a torn-down logic.
+     * True once the logic has begun its final unmount. It is set before the registered cleanups
+     * run, so a cleanup that wakes a continuation already sees an inert manager. `add` and
+     * `dispose` do nothing from that point on, which is what lets async work that outlives the
+     * unmount call them unconditionally. Read it when the continuation itself must stop early,
+     * for instance before reading `values` on a logic whose reducers are already detached.
      */
     isDisposed: boolean
 }
