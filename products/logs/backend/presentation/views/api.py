@@ -760,7 +760,7 @@ class _LogPatternSerializer(serializers.Serializer):
     pattern = serializers.CharField(
         help_text=(
             'Mined log template with variable tokens masked, e.g. "Connected to <ip> in <num>ms". '
-            "Tokens: <uuid>, <ip>, <hex>, <num>, plus <*> for word positions Drain found to vary."
+            "Tokens: <timestamp>, <uuid>, <ip>, <hex>, <num>, plus <*> for word positions Drain found to vary."
         ),
     )
     count = serializers.IntegerField(
