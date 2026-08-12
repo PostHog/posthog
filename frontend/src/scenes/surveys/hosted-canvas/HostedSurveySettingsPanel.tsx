@@ -202,7 +202,14 @@ export function HostedSurveySettingsPanel({
                         />
                     )}
 
+                    {/* Keep this block inside the `!isConfirmation && question` guard: the Group
+                        binds to `questions.${activePageIndex}`, which is only a valid question
+                        index for real questions, never the confirmation page. */}
                     <div className="border-t pt-3">
+                        <SettingsSection
+                            title="Branching"
+                            subtitle="Send people to a different question based on their answer."
+                        />
                         <Group name={`questions.${activePageIndex}`}>
                             <QuestionBranchingInput questionIndex={activePageIndex} question={question} />
                         </Group>
