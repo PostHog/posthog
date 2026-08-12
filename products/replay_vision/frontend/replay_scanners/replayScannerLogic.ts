@@ -65,6 +65,7 @@ import {
     ExperimentScannerContext,
     parseExperimentScannerParams,
     prefillScannerForExperiment,
+    reconcileVariantKeys,
 } from './experimentTargeting'
 import { clearScannerDraft, readScannerDraft, writeScannerDraft } from './scannerDraft'
 import {
@@ -1326,16 +1327,24 @@ export const replayScannerLogic = kea<replayScannerLogicType>([
                     // strip the param so the URL matches what the user actually gets.
                     const templateKey =
                         !draft && urlTemplateKey && findScannerTemplate(urlTemplateKey) ? urlTemplateKey : null
-                    if (urlTemplateKey && !templateKey) {
-                        const { template: _drop, ...rest } = router.values.searchParams
-                        router.actions.replace(router.values.location.pathname, rest)
-                    }
                     const experimentParams = parseExperimentScannerParams(router.values.searchParams)
+                    // Strip the params the wizard has now consumed so a reload doesn't re-run the prefill
+                    // over the user's edits: an unknown template that fell back to from-scratch (a valid
+                    // template stays), and the experiment deep-link params. One replace covers both and
+                    // preserves the URL hash, which a second back-to-back replace would drop.
+                    const nextParams = { ...router.values.searchParams }
+                    if (urlTemplateKey && !templateKey) {
+                        delete nextParams.template
+                    }
                     if (experimentParams) {
-                        // Strip the experiment params so a reload doesn't re-run the prefill over the
-                        // user's edits, matching how the template param is dropped above.
-                        const { experiment: _e, variants: _v, exposure: _x, ...rest } = router.values.searchParams
-                        router.actions.replace(router.values.location.pathname, rest)
+                        delete nextParams.experiment
+                        delete nextParams.variants
+                        delete nextParams.exposure
+                    }
+                    if (Object.keys(nextParams).length !== Object.keys(router.values.searchParams).length) {
+                        router.actions.replace(router.values.location.pathname, nextParams, router.values.hashParams)
+                    }
+                    if (experimentParams) {
                         // An experiment deep link expresses fresh intent, so it outranks a saved
                         // draft; restoringDraft guards persistDraft so the prefill can't clobber the
                         // draft this user may already have for the next plain entry.
@@ -1344,12 +1353,17 @@ export const replayScannerLogic = kea<replayScannerLogicType>([
                             const experiment = await api.experiments.get(experimentParams.experimentId)
                             const context: ExperimentScannerContext = {
                                 experiment,
-                                variantKeys: experimentParams.variantKeys,
+                                variantKeys: reconcileVariantKeys(experiment, experimentParams.variantKeys),
                                 useExposureFallback: experimentParams.useExposureFallback,
                             }
+                            const prefilled = prefillScannerForExperiment(newScanner(templateKey), context)
+                            // Set the context only after the prefill is built, so a throw inside it
+                            // doesn't leave a dangling context that the next startFromTemplate re-applies.
                             actions.setExperimentContext(context)
-                            actions.loadScannerSuccess(prefillScannerForExperiment(newScanner(templateKey), context))
+                            actions.loadScannerSuccess(prefilled)
                         } catch {
+                            // Clear any context a partial run left set before surfacing the failure.
+                            actions.setExperimentContext(null)
                             lemonToast.error("Couldn't load the experiment. Set recording filters manually instead.")
                             actions.loadScannerSuccess(newScanner(templateKey))
                         } finally {

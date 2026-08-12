@@ -1,4 +1,8 @@
-import { getExposureFallbackFilter, getViewRecordingFiltersForVariant } from 'scenes/experiments/utils'
+import {
+    getExperimentVariants,
+    getExposureFallbackFilter,
+    getViewRecordingFiltersForVariant,
+} from 'scenes/experiments/utils'
 import { convertUniversalFiltersToRecordingsQuery } from 'scenes/session-recordings/filters/recordingsQueryConversions'
 import { DEFAULT_RECORDING_FILTERS } from 'scenes/session-recordings/playlist/sessionRecordingsPlaylistLogic'
 
@@ -45,14 +49,21 @@ export function experimentScannerParams(params: ExperimentScannerParams): Record
 
 /** Reads the experiment context params off a wizard URL. Null when the URL carries none. */
 export function parseExperimentScannerParams(searchParams: Record<string, any>): ExperimentScannerParams | null {
-    const experimentId = Number(searchParams.experiment)
+    const experimentRaw = searchParams.experiment
+    // kea-router coerces `?experiment=true` to boolean `true`, and `Number(true)` is 1, which would
+    // pass the check below and silently prefill experiment 1. Only a string or number is a real id.
+    if (typeof experimentRaw !== 'string' && typeof experimentRaw !== 'number') {
+        return null
+    }
+    const experimentId = Number(experimentRaw)
     if (!Number.isInteger(experimentId) || experimentId <= 0) {
         return null
     }
+    // kea-router coerces `?variants=1` to the number 1, so stringify before splitting.
     const variantsRaw = searchParams.variants
     const variantKeys =
-        typeof variantsRaw === 'string' && variantsRaw.length > 0
-            ? variantsRaw
+        typeof variantsRaw === 'string' || typeof variantsRaw === 'number'
+            ? String(variantsRaw)
                   .split(',')
                   .map((key) => key.trim())
                   .filter(Boolean)
@@ -118,6 +129,27 @@ export function buildExperimentScannerQuery(
         filter_test_accounts: converted.filter_test_accounts,
         operand: converted.operand,
     }
+}
+
+/**
+ * Keeps only the requested variant keys that the loaded experiment actually has. A URL can carry a
+ * stale `?variants=old-key`, which would build an exposure filter that never matches yet still
+ * persist on save; dropping the unknown keys prevents that. When some keys are valid and some are
+ * not, only the valid ones survive. When every requested key is unknown but the experiment does
+ * have variants, this returns the full variant set rather than the empty list that would broaden to
+ * an `IsSet` filter matching every session that evaluated the flag. An experiment with no variants
+ * loaded still yields an empty list, which is the only enrollment marker available there.
+ */
+export function reconcileVariantKeys(experiment: Experiment, requestedKeys: string[]): string[] {
+    if (requestedKeys.length === 0) {
+        return []
+    }
+    const known = new Set(getExperimentVariants(experiment).map((variant) => variant.key))
+    const valid = requestedKeys.filter((key) => known.has(key))
+    if (valid.length > 0) {
+        return valid
+    }
+    return [...known]
 }
 
 /** Scanner name for an experiment-scoped scanner, within the model's 255-char limit. */

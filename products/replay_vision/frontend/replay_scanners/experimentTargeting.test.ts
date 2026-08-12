@@ -5,6 +5,7 @@ import {
     experimentScannerName,
     experimentScannerParams,
     parseExperimentScannerParams,
+    reconcileVariantKeys,
 } from './experimentTargeting'
 
 const experiment = {
@@ -33,12 +34,46 @@ describe('experimentTargeting', () => {
         expect(parseExperimentScannerParams(experimentScannerParams(params))).toEqual(params)
     })
 
-    it.each([[{}], [{ experiment: 'not-a-number' }], [{ experiment: '-3' }], [{ variants: 'test' }]])(
-        'params without a valid experiment id parse as null: %j',
-        (searchParams) => {
-            expect(parseExperimentScannerParams(searchParams)).toBeNull()
-        }
-    )
+    it.each([
+        [{}],
+        [{ experiment: 'not-a-number' }],
+        [{ experiment: '-3' }],
+        [{ variants: 'test' }],
+        // kea-router coerces `?experiment=true` to boolean true, and Number(true) is 1; without a
+        // type guard that would prefill experiment 1 rather than parse as null.
+        [{ experiment: true }],
+        [{ experiment: false }],
+    ])('params without a valid experiment id parse as null: %j', (searchParams) => {
+        expect(parseExperimentScannerParams(searchParams)).toBeNull()
+    })
+
+    it.each([
+        // kea-router hands single numeric query values back as numbers, not strings. The router
+        // values, not the stringified ones experimentScannerParams emits, are what the parser sees.
+        [{ experiment: 7 }, { experimentId: 7, variantKeys: [], useExposureFallback: false }],
+        [
+            { experiment: 7, variants: 1 },
+            { experimentId: 7, variantKeys: ['1'], useExposureFallback: false },
+        ],
+        [
+            { experiment: '7', variants: '1,2' },
+            { experimentId: 7, variantKeys: ['1', '2'], useExposureFallback: false },
+        ],
+    ])('parses raw router values (numbers, not strings): %j', (searchParams, expected) => {
+        expect(parseExperimentScannerParams(searchParams)).toEqual(expected)
+    })
+
+    it.each([
+        // No selection means every variant, so an empty request stays empty.
+        [[], []],
+        // A stale key that the experiment no longer has is dropped rather than persisted.
+        [['test', 'old-variant'], ['test']],
+        // When every requested key is unknown, fall back to the full variant set rather than the
+        // empty list that would broaden to an IsSet filter matching every enrolled session.
+        [['old-variant'], ['control', 'test']],
+    ])('reconciles requested variant keys against the experiment: %j', (requested, expected) => {
+        expect(reconcileVariantKeys(experiment, requested)).toEqual(expected)
+    })
 
     it('compiles the default exposure event filter with the selected variants', () => {
         const query = buildExperimentScannerQuery(experiment, ['test'], false)
