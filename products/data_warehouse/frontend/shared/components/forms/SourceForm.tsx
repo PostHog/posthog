@@ -152,22 +152,25 @@ export const sourceFieldToElement = (
         return <React.Fragment key={field.name} />
     }
 
-    // It doesn't make sense for this to show on an update to an existing connection since we likely just want to change
-    // a field or two. There is also some divergence in creates vs. updates that make this a bit more complex to handle.
+    // On create, typing a connection string parses into the individual fields (host, user, ...).
+    // On update we still render it, as a blank secret input, because a source whose only credential is
+    // the connection string (e.g. MongoDB) otherwise has no way to rotate credentials in-app. A blank
+    // value on submit preserves the stored connection string, which the update serializer handles.
     if (field.type === 'text' && field.name === 'connection_string') {
-        if (isUpdateMode) {
-            return <React.Fragment key={field.name} />
-        }
         return (
             <React.Fragment key={field.name}>
-                <LemonField name={field.name} label={field.label}>
+                <LemonField
+                    name={field.name}
+                    label={field.label}
+                    help={isUpdateMode ? 'Leave blank to keep the current connection string.' : undefined}
+                >
                     {({ onChange }) => (
                         <LemonInput
                             key={field.name}
                             className="ph-connection-string"
                             data-attr={field.name}
-                            placeholder={field.placeholder}
-                            type="text"
+                            placeholder={isUpdateMode ? undefined : field.placeholder}
+                            type={isUpdateMode ? 'password' : 'text'}
                             onChange={(updatedConnectionString) => {
                                 onChange(updatedConnectionString)
                                 const { isValid, fields } = parseConnectionStringForSource(

@@ -1,4 +1,9 @@
-import { SourceConfig, SourceFieldSelectConfig, SourceFieldSwitchGroupConfig } from '~/queries/schema/schema-general'
+import {
+    SourceConfig,
+    SourceFieldInputConfig,
+    SourceFieldSelectConfig,
+    SourceFieldSwitchGroupConfig,
+} from '~/queries/schema/schema-general'
 
 import { sourceFieldToElement } from './SourceForm'
 
@@ -47,7 +52,41 @@ const switchGroupState = (storedGroupValue: any, formValue?: any): { checked: bo
     return { checked: toggle.props.checked, childrenVisible: !!children.find((child: any) => child?.props?.name) }
 }
 
+const CONNECTION_STRING_FIELD: SourceFieldInputConfig = {
+    type: 'text',
+    name: 'connection_string',
+    label: 'Connection String',
+    required: true,
+    placeholder: 'mongodb://username:password@host:port/database',
+    secret: true,
+}
+
+// Resolve the input rendered inside the connection-string field so we can assert on how it renders.
+const connectionStringInput = (isUpdateMode: boolean): { type: string; help: any } => {
+    const element = sourceFieldToElement(CONNECTION_STRING_FIELD, SOURCE_CONFIG, undefined, isUpdateMode)
+    const children = Array.isArray(element.props.children) ? element.props.children : [element.props.children]
+    const field = children.find((child: any) => child?.props?.name === 'connection_string')
+    if (!field) {
+        throw new Error('connection string field did not render')
+    }
+    const input = field.props.children({ onChange: jest.fn() })
+    return { type: input.props.type, help: field.props.help }
+}
+
 describe('sourceFieldToElement', () => {
+    // Regression: the connection string was returned as an empty fragment in update mode, so a source
+    // whose only credential is the connection string (e.g. MongoDB) could never rotate it in-app.
+    it('renders the connection string as an optional secret input on update', () => {
+        expect(connectionStringInput(true)).toEqual({
+            type: 'password',
+            help: 'Leave blank to keep the current connection string.',
+        })
+    })
+
+    it('renders the connection string as a plain text input with no keep-current help on create', () => {
+        expect(connectionStringInput(false)).toEqual({ type: 'text', help: undefined })
+    })
+
     it('renders a select field caption as field help text', () => {
         const element = sourceFieldToElement(SELECT_FIELD, SOURCE_CONFIG)
         expect(element.props.help).toBeTruthy()
