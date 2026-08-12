@@ -279,6 +279,28 @@ export {
     ProgressValue,
     progressIndicatorVariants,
 } from './progress'
+export {
+    Questionnaire,
+    QuestionnaireActions,
+    QuestionnaireChoice,
+    QuestionnaireChoiceDescription,
+    QuestionnaireChoices,
+    QuestionnaireDescription,
+    QuestionnaireError,
+    QuestionnaireInput,
+    QuestionnaireItem,
+    QuestionnaireNext,
+    QuestionnairePrevious,
+    QuestionnaireProgress,
+    QuestionnaireSkip,
+    QuestionnaireSubmit,
+    QuestionnaireTitle,
+    type QuestionnaireChoiceDefinition,
+    type QuestionnaireInputType,
+    type QuestionnaireItemDefinition,
+    type QuestionnaireItemStatus,
+    type QuestionnaireShortcutMode,
+} from './chat/questionnaire'
 export { RadioGroup, RadioGroupItem, RadioIndicator } from './radio-group'
 export { ResizableHandle, ResizablePanel, ResizablePanelGroup } from './resizable'
 export { ScrollArea, ScrollBar, scrollShadowsCss, SCROLL_SHADOWS_STYLE_ID } from './scroll-area'
