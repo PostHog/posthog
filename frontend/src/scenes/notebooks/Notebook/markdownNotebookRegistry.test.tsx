@@ -18,6 +18,7 @@ import {
     getHiddenInsertCommandKeysForFeatureFlags,
     getMarkdownNodeAttributeLabel,
     getMarkdownRegistryForFeatureFlags,
+    getNodeAttributes,
     getQueryTitle,
     getSerializableAttributeInputValue,
     getSerializableProps,
@@ -266,6 +267,27 @@ describe('markdownNotebookRegistry', () => {
         expect(getSerializableAttributeInputValue(NotebookNodeType.Group, 'groupTypeIndex', ' not-a-number ')).toEqual(
             'not-a-number'
         )
+    })
+
+    it('renders a SQL cell whose query arrived as a query prop', () => {
+        // Regression: a `<SQLV2 query={…} />` cell (the shape AI-authored notebooks use) has no
+        // `code` prop, so the editor rendered blank with no way to see or run the query.
+        const attributes = getNodeAttributes(
+            {
+                query: {
+                    kind: 'DataVisualizationNode',
+                    source: { kind: 'HogQLQuery', query: 'select event from events' },
+                    display: 'ActionsBar',
+                },
+            },
+            'block-1',
+            KNOWN_NODES[NotebookNodeType.SQLV2],
+            NotebookNodeType.SQLV2,
+            false
+        )
+
+        expect(attributes.code).toEqual('select event from events')
+        expect(attributes.vizQuery).toMatchObject({ display: 'ActionsBar' })
     })
 
     describe('getQueryTitle', () => {
