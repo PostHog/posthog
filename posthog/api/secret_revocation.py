@@ -54,7 +54,11 @@ def _revoke_project_secret_api_key(token: str, more_info: str) -> bool:
 def _revoke_oauth_token(token: str, more_info: str, *, kind: Literal["access", "refresh"]) -> bool:
     if kind == "access":
         access_token = find_oauth_access_token(token)
-        if access_token is None:
+        # An expired access token no longer authenticates, so possessing one doesn't
+        # give its holder the "already has full use of this credential" standing this
+        # endpoint's lack of a signature check relies on. Without this, anyone who once
+        # saw a since-expired token could still force-revoke the holder's live session.
+        if access_token is None or access_token.is_expired():
             return False
         revoke_oauth_session(access_token=access_token)
         user = access_token.user

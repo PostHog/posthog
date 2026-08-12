@@ -80,8 +80,8 @@ class PublicLeakedKeyReport(APIView):
             "personal API key, project secret API key, or OAuth access/refresh token. If the "
             "token is live it is revoked immediately and the owner is notified by email.\n\n"
             'This endpoint only checks the region it is running on. `"found": false` does not '
-            "guarantee the token is safe. If you're not sure which region issued it, also try "
-            "the other region's endpoint: https://app.posthog.com/api/revoke_leaked_key or "
+            "guarantee the token is safe. If you're not sure which region issued it, check "
+            "both: https://app.posthog.com/api/revoke_leaked_key and "
             "https://eu.posthog.com/api/revoke_leaked_key."
         ),
         extensions={"x-product": "core"},

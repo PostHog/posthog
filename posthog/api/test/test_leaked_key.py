@@ -204,6 +204,33 @@ class TestPublicLeakedKeyReport(APIBaseTest):
         self.team.refresh_from_db()
         self.assertEqual(self.team.secret_api_token, token)
 
+    def test_expired_oauth_access_token_does_not_revoke_the_live_session(self) -> None:
+        # An expired access token authenticates nothing, so possessing one grants no
+        # capability beyond what the endpoint's "possession = already usable" argument
+        # relies on. It must not be able to force-revoke a session its holder can no
+        # longer use.
+        oauth_app = self._create_oauth_app()
+        expired_token = "pha_expired_leaked_access_token"
+        OAuthAccessToken.objects.create(
+            user=self.user,
+            application=oauth_app,
+            token=expired_token,
+            expires=timezone.now() - timedelta(hours=1),
+            scope="openid profile",
+        )
+        live_refresh_token = OAuthRefreshToken.objects.create(
+            user=self.user,
+            application=oauth_app,
+            token="phr_live_session_refresh_token",
+        )
+
+        response = self._post(expired_token)
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertEqual(response.json(), {"found": False, "type": None})
+        live_refresh_token.refresh_from_db()
+        self.assertIsNone(live_refresh_token.revoked)
+
     def test_blank_token_returns_400(self) -> None:
         response = self._post("")
 
