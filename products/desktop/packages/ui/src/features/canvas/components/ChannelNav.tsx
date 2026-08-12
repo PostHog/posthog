@@ -264,7 +264,7 @@ export function ChannelNav() {
           icon={<SlidersHorizontal size={16} />}
           label="Configure"
           isActive={false}
-          onClick={withTrack("configure", () => openSettings("agents"))}
+          onClick={withTrack("configure", () => openSettings())}
         />
       </div>
     </TooltipProvider>

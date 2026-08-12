@@ -17,7 +17,6 @@ export type SettingsCategory =
   | "github"
   | "slack"
   | "signals"
-  | "updates"
   | "advanced"
   | "discord";
 
@@ -40,7 +39,6 @@ export const SETTINGS_CATEGORIES: readonly SettingsCategory[] = [
   "github",
   "slack",
   "signals",
-  "updates",
   "advanced",
   "discord",
 ];
@@ -54,6 +52,8 @@ export function isSettingsCategory(value: string): value is SettingsCategory {
 const RENAMED_SETTINGS_CATEGORIES: Readonly<Record<string, SettingsCategory>> =
   {
     "claude-code": "harness",
+    // The Updates page folded into General.
+    updates: "general",
   };
 
 export function resolveSettingsCategory(

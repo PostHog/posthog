@@ -19,12 +19,14 @@ export function SettingsSelect({
   onChange,
   ariaLabel,
   placeholder,
+  triggerClassName = "w-full",
 }: {
   value: string | null;
   options: SettingsSelectOption[];
   onChange: (value: string | null) => void;
   ariaLabel: string;
   placeholder?: string;
+  triggerClassName?: string;
 }) {
   return (
     <Select
@@ -32,7 +34,11 @@ export function SettingsSelect({
       onValueChange={(next: string | null) => onChange(next)}
       items={options.map((o) => ({ value: o.value, label: o.label }))}
     >
-      <SelectTrigger size="sm" aria-label={ariaLabel} className="w-full">
+      <SelectTrigger
+        size="sm"
+        aria-label={ariaLabel}
+        className={triggerClassName}
+      >
         <SelectValue placeholder={placeholder} />
       </SelectTrigger>
       <SelectContent align="start" side="bottom" sideOffset={6}>

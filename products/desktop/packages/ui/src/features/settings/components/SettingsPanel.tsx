@@ -1,6 +1,5 @@
 import {
   ArrowLeft,
-  ArrowsClockwise,
   Bell,
   CaretRight,
   Code,
@@ -23,7 +22,7 @@ import {
   TreeStructure,
   Wrench,
 } from "@phosphor-icons/react";
-import { MenuLabel } from "@posthog/quill";
+import { Avatar, AvatarFallback, MenuLabel } from "@posthog/quill";
 import { BILLING_FLAG } from "@posthog/shared";
 import { useOptionalAuthenticatedClient } from "@posthog/ui/features/auth/authClient";
 import { useAuthStateValue } from "@posthog/ui/features/auth/store";
@@ -40,7 +39,6 @@ import type { SettingsCategory } from "@posthog/ui/features/settings/types";
 import { useSpendAnalysisEnabled } from "@posthog/ui/features/usage/useSpendAnalysisEnabled";
 import * as nav from "@posthog/ui/router/navigationBridge";
 import { useHostCapabilities } from "@posthog/ui/shell/useHostCapabilities";
-import { Avatar, Flex, ScrollArea, Text } from "@radix-ui/themes";
 import type { ReactNode } from "react";
 import { useHotkeys } from "react-hotkeys-hook";
 
@@ -56,12 +54,26 @@ interface SidebarGroup {
   items: SidebarItem[];
 }
 
+// Grouped by the question being asked: how the app behaves, where code
+// lives, what agents can do, what's connected.
 const SIDEBAR_GROUPS: SidebarGroup[] = [
   {
-    label: "Account",
+    label: "App",
     items: [
       { id: "general", label: "General", icon: <GearSix size={16} /> },
       { id: "notifications", label: "Notifications", icon: <Bell size={16} /> },
+      {
+        id: "personalization",
+        label: "Personalization",
+        icon: <Palette size={16} />,
+      },
+      { id: "sidebar", label: "Sidebar", icon: <SidebarSimple size={16} /> },
+      { id: "shortcuts", label: "Shortcuts", icon: <Keyboard size={16} /> },
+    ],
+  },
+  {
+    label: "Account",
+    items: [
       {
         id: "plan-usage",
         label: "Plan & usage",
@@ -70,7 +82,7 @@ const SIDEBAR_GROUPS: SidebarGroup[] = [
     ],
   },
   {
-    label: "Workspace",
+    label: "Code",
     items: [
       { id: "workspaces", label: "Workspaces", icon: <Folder size={16} /> },
       {
@@ -79,37 +91,25 @@ const SIDEBAR_GROUPS: SidebarGroup[] = [
         icon: <TreeStructure size={16} />,
       },
       { id: "environments", label: "Environments", icon: <Cube size={16} /> },
+      { id: "terminal", label: "Terminal", icon: <Terminal size={16} /> },
     ],
   },
   {
-    label: "Configure",
+    label: "Agents",
     items: [
       { id: "agents", label: "Agents", icon: <Robot size={16} /> },
-      { id: "skills", label: "Skills", icon: <Lightbulb size={16} /> },
-      { id: "mcp-servers", label: "MCP servers", icon: <Plugs size={16} /> },
-      { id: "harness", label: "Harness", icon: <Code size={16} /> },
       {
         id: "signals",
         label: "Self-driving",
         icon: <TrafficSignal size={16} />,
       },
+      { id: "skills", label: "Skills", icon: <Lightbulb size={16} /> },
+      { id: "mcp-servers", label: "MCP servers", icon: <Plugs size={16} /> },
+      { id: "harness", label: "Harness", icon: <Code size={16} /> },
     ],
   },
   {
-    label: "Experience",
-    items: [
-      {
-        id: "personalization",
-        label: "Personalization",
-        icon: <Palette size={16} />,
-      },
-      { id: "sidebar", label: "Sidebar", icon: <SidebarSimple size={16} /> },
-      { id: "terminal", label: "Terminal", icon: <Terminal size={16} /> },
-      { id: "shortcuts", label: "Shortcuts", icon: <Keyboard size={16} /> },
-    ],
-  },
-  {
-    label: "Integrations",
+    label: "Connections",
     items: [
       { id: "github", label: "GitHub", icon: <GithubLogo size={16} /> },
       { id: "slack", label: "Slack", icon: <SlackLogo size={16} /> },
@@ -117,11 +117,8 @@ const SIDEBAR_GROUPS: SidebarGroup[] = [
     ],
   },
   {
-    label: "Application",
-    items: [
-      { id: "updates", label: "Updates", icon: <ArrowsClockwise size={16} /> },
-      { id: "advanced", label: "Advanced", icon: <Wrench size={16} /> },
-    ],
+    label: "System",
+    items: [{ id: "advanced", label: "Advanced", icon: <Wrench size={16} /> }],
   },
 ];
 
@@ -209,20 +206,14 @@ export function SettingsPanel({
         <div className="drag h-[36px] shrink-0 border-b border-b-(--gray-6)" />
 
         {isAuthenticated && user && (
-          <Flex
-            align="center"
-            gap="3"
-            px="3"
-            py="3"
-            className="border-b border-b-(--gray-5)"
-          >
-            <Avatar size="2" fallback={initials} radius="full" color="amber" />
-            <Flex direction="column" className="min-w-0">
-              <Text truncate className="font-medium text-sm">
-                {user.email}
-              </Text>
-            </Flex>
-          </Flex>
+          <div className="flex items-center gap-3 border-b border-b-(--gray-5) px-3 py-3">
+            <Avatar size="default">
+              <AvatarFallback>{initials}</AvatarFallback>
+            </Avatar>
+            <div className="flex min-w-0 flex-col">
+              <span className="truncate font-medium text-sm">{user.email}</span>
+            </div>
+          </div>
         )}
 
         <button
@@ -234,7 +225,7 @@ export function SettingsPanel({
           <span>Back to app</span>
         </button>
 
-        <ScrollArea className="flex-1">
+        <div className="flex-1 overflow-y-auto">
           <div className="flex flex-col gap-3 py-2">
             {sidebarGroups.map((group) => (
               <div key={group.label}>
@@ -255,7 +246,7 @@ export function SettingsPanel({
               </div>
             ))}
           </div>
-        </ScrollArea>
+        </div>
 
         {isAuthenticated && (
           <button
