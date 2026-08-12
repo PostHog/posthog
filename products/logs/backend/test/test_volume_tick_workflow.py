@@ -7,6 +7,9 @@ from datetime import UTC, datetime, timedelta
 import pytest
 from posthog.test.base import BaseTest, ClickhouseTestMixin
 
+from django.test import SimpleTestCase
+
+from parameterized import parameterized
 from temporalio import activity
 from temporalio.testing import WorkflowEnvironment
 from temporalio.worker import UnsandboxedWorkflowRunner, Worker
@@ -60,23 +63,27 @@ async def test_schedule_shaped_invocation_runs_the_tick() -> None:
     assert result["teams_with_logs"] == 3
 
 
-@pytest.mark.parametrize(
-    "now,expected_start",
-    [
-        # 10:16:30 - 10min allowance = 10:06:30; newest closed grid end is 10:05.
-        (datetime(2026, 8, 12, 10, 16, 30, tzinfo=UTC), datetime(2026, 8, 12, 10, 0, tzinfo=UTC)),
-        # Exactly on the boundary: at 10:20:00 the 10:05-10:10 bucket becomes due.
-        (datetime(2026, 8, 12, 10, 20, 0, tzinfo=UTC), datetime(2026, 8, 12, 10, 5, tzinfo=UTC)),
-        # One second before the boundary, the previous bucket is still the due one.
-        (datetime(2026, 8, 12, 10, 19, 59, tzinfo=UTC), datetime(2026, 8, 12, 10, 0, tzinfo=UTC)),
-        # Day boundary: just past midnight, the due bucket is yesterday's 23:45-23:50.
-        (datetime(2026, 8, 13, 0, 0, 30, tzinfo=UTC), datetime(2026, 8, 12, 23, 45, tzinfo=UTC)),
-    ],
-)
-def test_due_bucket_bounds(now: datetime, expected_start: datetime) -> None:
-    due = due_bucket_bounds(now)
-    assert due.start == expected_start
-    assert due.end == expected_start + timedelta(minutes=5)
+class TestDueBucketBounds(SimpleTestCase):
+    @parameterized.expand(
+        [
+            # 10:16:30 - 10min allowance = 10:06:30; newest closed grid end is 10:05.
+            ("mid_window", datetime(2026, 8, 12, 10, 16, 30, tzinfo=UTC), datetime(2026, 8, 12, 10, 0, tzinfo=UTC)),
+            # Exactly on the boundary: at 10:20:00 the 10:05-10:10 bucket becomes due.
+            ("on_the_boundary", datetime(2026, 8, 12, 10, 20, 0, tzinfo=UTC), datetime(2026, 8, 12, 10, 5, tzinfo=UTC)),
+            # One second before the boundary, the previous bucket is still the due one.
+            (
+                "second_before_boundary",
+                datetime(2026, 8, 12, 10, 19, 59, tzinfo=UTC),
+                datetime(2026, 8, 12, 10, 0, tzinfo=UTC),
+            ),
+            # Day boundary: just past midnight, the due bucket is yesterday's 23:45-23:50.
+            ("day_rollover", datetime(2026, 8, 13, 0, 0, 30, tzinfo=UTC), datetime(2026, 8, 12, 23, 45, tzinfo=UTC)),
+        ]
+    )
+    def test_due_bucket_bounds(self, _name: str, now: datetime, expected_start: datetime) -> None:
+        due = due_bucket_bounds(now)
+        assert due.start == expected_start
+        assert due.end == expected_start + timedelta(minutes=5)
 
 
 class TestCountTeamsWithLogs(ClickhouseTestMixin, BaseTest):

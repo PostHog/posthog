@@ -501,9 +501,8 @@ _task_queue_specs = [
         LOGS_ALERTING_WORKFLOWS,
         LOGS_ALERTING_ACTIVITIES,
     ),
-    # Dedicated landing zone for the logs volume tick. Defaults to the logs-alerting queue name (so it
-    # merges into that fleet until a dedicated worker exists); setting LOGS_VOLUME_TICK_TASK_QUEUE on a
-    # worker registers these workflows under the dedicated queue, letting dispatch move there with no code change.
+    # Dedicated queue, never merged with alerting: the tick becomes the scan-heavy
+    # rollup writer and must not share pods with the latency-sensitive alert checks.
     (
         settings.LOGS_VOLUME_TICK_TASK_QUEUE,
         LOGS_VOLUME_TICK_WORKFLOWS,
