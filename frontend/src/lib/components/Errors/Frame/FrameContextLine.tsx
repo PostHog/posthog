@@ -17,8 +17,8 @@ export function FrameContextLine({
 }): JSX.Element {
     const sortedLines = useMemo(() => [...lines].sort((a, b) => a.number - b.number), [lines])
     const backgroundClassName = highlight
-        ? 'bg-[var(--card)] shadow-[inset_0_0_0_9999px_color-mix(in_oklab,var(--destructive)_50%,transparent)]'
-        : 'bg-[var(--card)]'
+        ? 'bg-surface-popover shadow-[inset_0_0_0_9999px_color-mix(in_oklab,var(--destructive)_50%,transparent)]'
+        : 'bg-surface-popover'
 
     return (
         <div className={backgroundClassName}>
@@ -27,7 +27,9 @@ export function FrameContextLine({
                     <div
                         className={clsx(
                             'sticky left-0 z-10 w-16 shrink-0 border-l-2 pr-5 text-right text-muted-foreground tabular-nums select-none',
-                            highlight ? 'border-l-[var(--destructive-foreground)]' : 'border-l-[var(--card)]',
+                            highlight
+                                ? 'border-l-[var(--destructive-foreground)]'
+                                : 'border-l-[var(--color-bg-surface-popover)]',
                             backgroundClassName
                         )}
                     >

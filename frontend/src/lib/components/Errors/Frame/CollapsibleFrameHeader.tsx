@@ -57,7 +57,7 @@ export function CollapsibleFrameHeader({
     }, [functionRef, sourceContent])
 
     return (
-        <div className={cn('flex h-7 w-full bg-[var(--card)]')}>
+        <div className={cn('flex h-7 w-full bg-surface-popover')}>
             <Collapsible.Trigger
                 className={cn('collapsible-frame-header grow max-w-[calc(100%-30px)]', {
                     'cursor-progress': recordLoading,
@@ -82,7 +82,7 @@ export function CollapsibleFrameHeader({
                         .otherwise(() => null)}
                 </div>
             </Collapsible.Trigger>
-            <div className="border-l-1 shrink-0 w-7">
+            <div className="border-l-1 border-l-[color:var(--frame-border,var(--color-border-primary))] shrink-0 w-7">
                 <FrameDropDownMenu className="h-full w-7 rounded-none outline-none" frame={frame} record={record}>
                     <IconEllipsis />
                 </FrameDropDownMenu>

@@ -1,3 +1,14 @@
+// ButtonPrimitive paints its tertiary-active fill on any [aria-expanded='true']
+// trigger (see ButtonPrimitives.scss), which is meant for menu buttons that look
+// pressed while their menu is open. This header is a disclosure trigger, so that
+// fill reads as a stuck highlight on the open frame, especially in dark mode where
+// it is a translucent white overlay. The `button` qualifier plus `:not(:hover)`
+// outranks that rule regardless of stylesheet import order, while plain hover
+// feedback still applies.
+button.collapsible-frame-header[aria-expanded='true']:not(:hover) {
+    background-color: transparent;
+}
+
 .collapsible-frame-header {
     .frame-function {
         display: flex;
