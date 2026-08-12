@@ -11,8 +11,9 @@ export function usageLimitContent(args: {
   cause: GatewayLimitCause | null;
   resetLabel: string | null;
   subscribed: boolean | undefined;
+  canManageBilling: boolean;
 }): UsageLimitContent {
-  const { cause, resetLabel, subscribed } = args;
+  const { cause, resetLabel, subscribed, canManageBilling } = args;
 
   if (cause === "model_gate") {
     return {
@@ -25,6 +26,15 @@ export function usageLimitContent(args: {
   }
 
   if (cause === "org_limit") {
+    if (!canManageBilling) {
+      return {
+        title: "Organization usage limit reached",
+        description:
+          "Your organization has reached its PostHog Desktop credit limit. Contact an organization administrator to change the limit.",
+        actionLabel: null,
+        dismissLabel: "Got it",
+      };
+    }
     if (subscribed === false) {
       return {
         title: "Free usage used up",
@@ -38,8 +48,8 @@ export function usageLimitContent(args: {
     return {
       title: "Organization usage limit reached",
       description:
-        "Your organization has reached its spend limit for this billing period. Raise or remove the limit in your PostHog billing settings to keep going.",
-      actionLabel: "Manage billing",
+        "Your organization has reached its PostHog Desktop credit limit. Change the limit in Plan & usage to keep going.",
+      actionLabel: "Open Plan & usage",
       dismissLabel: "Got it",
     };
   }
