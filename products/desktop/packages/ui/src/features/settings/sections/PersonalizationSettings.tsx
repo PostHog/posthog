@@ -54,9 +54,9 @@ export function PersonalizationSettingsView({
         {syncFromFile && !synced && (
           <Callout.Root size="1" color="amber" mb="2">
             <Callout.Text>
-              No AGENTS.md or CLAUDE.md found in ~/.agents, ~/.codex or
-              ~/.claude. Nothing is synced — add one of those files, or turn
-              sync off to use the instructions below.
+              No AGENTS.md or CLAUDE.md found in your home directory or in
+              ~/.agents, ~/.codex or ~/.claude. Nothing is synced — add one of
+              those files, or turn sync off to use the instructions below.
             </Callout.Text>
           </Callout.Root>
         )}

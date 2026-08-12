@@ -58,6 +58,7 @@ export function AgentsTab(): JSX.Element {
     const {
         loadSources,
         loadSourceConfigs,
+        loadToolDataEvents,
         closeSessionAnalysisSetup,
         closeDataSourceSetup,
         onDataSourceSetupComplete,
@@ -66,6 +67,7 @@ export function AgentsTab(): JSX.Element {
     useEffect(() => {
         loadSources()
         loadSourceConfigs()
+        loadToolDataEvents()
     }, []) // eslint-disable-line react-hooks/exhaustive-deps
 
     let agentsBody: JSX.Element
@@ -106,7 +108,7 @@ export function AgentsTab(): JSX.Element {
 
                 <Subsection
                     title="Signal sources"
-                    description="Each source watches for signals and spins up work when something matters."
+                    description="Each source watches for signals, and spins up an agent to look into them."
                 >
                     {agentsBody}
                 </Subsection>

@@ -13,10 +13,10 @@ You will be given a sample of a single project's most-viewed URL paths (with vie
 the dynamic segments and propose a small, high-leverage set of cleaning rules.
 
 Rules:
-- Each rule is a `regex` (Google re2 syntax — do NOT escape `/`) and an `alias` (the literal
-  replacement). The alias is NOT a regex template: use angle-bracket placeholders like `<id>`,
-  `<uuid>`, `<slug>`, `<date>`, `<locale>` so the cleaned path stays human-readable. Do not use
-  backreferences.
+- Each rule is a `regex` (Google re2 syntax — do NOT escape `/`) and an `alias` (the
+  replacement). Use angle-bracket placeholders like `<id>`, `<uuid>`, `<slug>`, `<date>`,
+  `<locale>` so the cleaned path stays human-readable. Capture-group backreferences (`\\1`) are
+  supported by the query layer but are slower to evaluate, so do not propose them.
 - Anchor with `^` only when the segment must be at the start of the path; end with `$` (or `(/|$)`)
   to stop a generic rule like `\\d+` from matching every numeric run mid-path.
 - Order matters: rules apply sequentially, each rule's output feeds the next. List the MOST SPECIFIC

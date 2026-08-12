@@ -5,6 +5,8 @@ from temporalio.exceptions import ApplicationError
 
 from posthog.exceptions_capture import capture_exception
 
+from products.tasks.backend.facade.compute_quota import ComputeBillingLimitExceeded
+
 
 class ProcessTaskError(ApplicationError):
     def __init__(
@@ -92,6 +94,19 @@ class SandboxProvisionError(ProcessTaskTransientError):
     """Failed to provision sandbox environment."""
 
     pass
+
+
+class ComputeBillingLimitError(ProcessTaskError, ComputeBillingLimitExceeded):
+    def __init__(self, context: dict[str, Any]):
+        from products.tasks.backend.logic.services.compute_quota import COMPUTE_QUOTA_DENIAL_CODE
+
+        super().__init__(
+            "Your organization reached its PostHog Desktop usage limit.",
+            {**context, "reason": COMPUTE_QUOTA_DENIAL_CODE},
+            None,
+            capture=False,
+            non_retryable=True,
+        )
 
 
 class SandboxNotFoundError(ProcessTaskFatalError):

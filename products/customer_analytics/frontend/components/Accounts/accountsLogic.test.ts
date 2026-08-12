@@ -8,7 +8,12 @@ import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { urls } from 'scenes/urls'
 import { userLogic } from 'scenes/userLogic'
 
-import type { AccountsQuery } from '~/queries/schema/schema-general'
+import type { DataTableRow } from '~/queries/nodes/DataTable/dataTableLogic'
+import {
+    AccountsTableCustomPropertyOperator,
+    type AccountsQuery,
+    type AccountsTableQuery,
+} from '~/queries/schema/schema-general'
 import { initKeaTests } from '~/test/init'
 import type { UserBasicType, UserType } from '~/types'
 
@@ -68,10 +73,24 @@ const mockRelationshipsEnd = accountsRelationshipsEndCreate as jest.MockedFuncti
 const mockRelationshipsList = accountsRelationshipsList as jest.MockedFunction<typeof accountsRelationshipsList>
 const mockPartialUpdate = accountsPartialUpdate as jest.MockedFunction<typeof accountsPartialUpdate>
 
+const CSM_DEFINITION_ID = '11111111-2222-3333-4444-555555555555'
+const AE_DEFINITION_ID = '66666666-7777-8888-9999-aaaaaaaaaaaa'
+const OWNER_DEFINITION_ID = 'bbbbbbbb-cccc-dddd-eeee-ffffffffffff'
+const TILE_FILTER = {
+    tileId: 'tile-1',
+    expression: 'count() > 5',
+    filter: {
+        kind: 'custom_property' as const,
+        definitionId: CSM_DEFINITION_ID,
+        operator: AccountsTableCustomPropertyOperator.GreaterThan,
+        values: [5],
+    },
+}
+
 const DEFINITIONS: AccountRelationshipDefinitionApi[] = [
-    { id: 'def-csm', name: 'CSM', description: null, is_single_holder: true },
-    { id: 'def-ae', name: 'Account executive', description: null, is_single_holder: true },
-    { id: 'def-owner', name: 'Account owner', description: null, is_single_holder: true },
+    { id: CSM_DEFINITION_ID, name: 'CSM', description: null, is_single_holder: true },
+    { id: AE_DEFINITION_ID, name: 'Account executive', description: null, is_single_holder: true },
+    { id: OWNER_DEFINITION_ID, name: 'Account owner', description: null, is_single_holder: true },
 ]
 
 const buildRelationship = (overrides: Partial<AccountRelationshipApi> = {}): AccountRelationshipApi => ({
@@ -143,6 +162,111 @@ describe('accountsLogic', () => {
         expect(config.values.accountsColumnGroups.map((group) => group.key)).not.toContain('sql_expression')
     })
 
+    it('switches supported list queries to Postgres behind the execution flag', () => {
+        featureFlagLogic.actions.setFeatureFlags([FEATURE_FLAGS.CUSTOMER_ANALYTICS_ACCOUNTS_POSTGRES], {
+            [FEATURE_FLAGS.CUSTOMER_ANALYTICS_ACCOUNTS_POSTGRES]: true,
+        })
+
+        const source = logic.values.accountsQuerySource as AccountsTableQuery
+        expect(source.kind).toBe('AccountsTableQuery')
+        expect(source.columns).toEqual([
+            { kind: 'account_field', field: 'name' },
+            { kind: 'tags' },
+            { kind: 'note_count' },
+            { kind: 'relationship', definitionId: CSM_DEFINITION_ID },
+            { kind: 'relationship', definitionId: AE_DEFINITION_ID },
+            { kind: 'relationship', definitionId: OWNER_DEFINITION_ID },
+        ])
+        expect(logic.values.metricsQuery?.kind).toBe('AccountsTableQuery')
+    })
+
+    it('keeps the DataTable data node on the active Postgres source for refreshes', () => {
+        featureFlagLogic.actions.setFeatureFlags([FEATURE_FLAGS.CUSTOMER_ANALYTICS_ACCOUNTS_POSTGRES], {
+            [FEATURE_FLAGS.CUSTOMER_ANALYTICS_ACCOUNTS_POSTGRES]: true,
+        })
+
+        expect(logic.values.accountsDataTableQuery.source.kind).toBe('AccountsTableQuery')
+        expect(logic.values.accountsDataTableQuery.columns).toEqual(logic.values.visibleColumnNames)
+    })
+
+    it('keeps the previous positional response stable while switching runners', () => {
+        featureFlagLogic.actions.setFeatureFlags([FEATURE_FLAGS.CUSTOMER_ANALYTICS_ACCOUNTS_POSTGRES], {
+            [FEATURE_FLAGS.CUSTOMER_ANALYTICS_ACCOUNTS_POSTGRES]: true,
+        })
+        const previousRows = [
+            { result: [{ id: 'account-id', name: 'Acme', external_id: 'acme' }, [], 0, [], [], []] },
+        ] as DataTableRow[]
+
+        expect(logic.values.tableRowsTransformer?.(previousRows)).toEqual(previousRows)
+    })
+
+    it('keeps retained Postgres rows translated while a tile filter switches the runner to HogQL', () => {
+        featureFlagLogic.actions.setFeatureFlags([FEATURE_FLAGS.CUSTOMER_ANALYTICS_ACCOUNTS_POSTGRES], {
+            [FEATURE_FLAGS.CUSTOMER_ANALYTICS_ACCOUNTS_POSTGRES]: true,
+        })
+        const keyedRows = [
+            {
+                result: {
+                    id: 'account-id',
+                    name: 'Acme',
+                    externalId: 'acme',
+                    accountFields: { name: 'Acme' },
+                    tags: ['enterprise'],
+                    noteCount: 2,
+                    relationships: Object.fromEntries(DEFINITIONS.map(({ id }) => [id, []])),
+                    customProperties: {},
+                    customPropertyHistory: {},
+                },
+            },
+        ] as DataTableRow[]
+
+        logic.actions.setTileFilter({ ...TILE_FILTER, tileId: 'tile', expression: 'count() > 1' })
+
+        expect(logic.values.accountsQuerySource?.kind).toBe('AccountsQuery')
+        expect(logic.values.tableRowsTransformer?.(keyedRows)[0].result).toEqual([
+            { id: 'account-id', name: 'Acme', external_id: 'acme' },
+            ['enterprise'],
+            2,
+            [],
+            [],
+            [],
+        ])
+    })
+
+    it('hides incompatible retained Postgres rows while an unsupported column switches to HogQL', () => {
+        featureFlagLogic.actions.setFeatureFlags([FEATURE_FLAGS.CUSTOMER_ANALYTICS_ACCOUNTS_POSTGRES], {
+            [FEATURE_FLAGS.CUSTOMER_ANALYTICS_ACCOUNTS_POSTGRES]: true,
+        })
+        const keyedRows = [
+            {
+                result: {
+                    id: 'account-id',
+                    name: 'Acme',
+                    accountFields: { name: 'Acme' },
+                    relationships: {},
+                    customProperties: {},
+                    customPropertyHistory: {},
+                },
+            },
+        ] as DataTableRow[]
+
+        accountsColumnConfigLogic
+            .findMounted()!
+            .actions.setSelectColumns([...logic.values.selectColumns, 'arbitrary_hogql()'])
+
+        expect(logic.values.accountsQuerySource?.kind).toBe('AccountsQuery')
+        expect(logic.values.tableRowsTransformer?.(keyedRows)).toEqual([])
+    })
+
+    it('keeps unsupported list state on the HogQL runner', () => {
+        featureFlagLogic.actions.setFeatureFlags([FEATURE_FLAGS.CUSTOMER_ANALYTICS_ACCOUNTS_POSTGRES], {
+            [FEATURE_FLAGS.CUSTOMER_ANALYTICS_ACCOUNTS_POSTGRES]: true,
+        })
+        logic.actions.setTileFilter({ ...TILE_FILTER, tileId: 'tile', expression: 'count() > 1' })
+
+        expect(logic.values.accountsQuerySource?.kind).toBe('AccountsQuery')
+    })
+
     it('setTagsFilter updates the reducer', () => {
         logic.actions.setTagsFilter(['enterprise'])
         expect(logic.values.tagsFilter).toEqual(['enterprise'])
@@ -182,10 +306,10 @@ describe('accountsLogic', () => {
         expect(source.metrics).toBeUndefined()
     })
 
-    it('exposes the overview tile metrics on a separate metrics-only query (no select)', () => {
-        const metricsQuery = logic.values.metricsQuery as AccountsQuery
-        expect(metricsQuery.metrics).toEqual(['count()'])
-        expect(metricsQuery.select).toBeUndefined()
+    it('exposes the overview tile metrics on a separate Postgres metrics query', () => {
+        const metricsQuery = logic.values.metricsQuery as AccountsTableQuery
+        expect(metricsQuery.metrics).toEqual([{ kind: 'count' }])
+        expect(metricsQuery.columns).toEqual([])
     })
 
     it('setAllRolesUnassigned toggles the flag', () => {
@@ -481,9 +605,9 @@ describe('accountsLogic', () => {
                 ACCOUNTS_NAME_COLUMN,
                 'accounts.tags.names AS tag_names',
                 'accounts.notebooks.count AS notebook_count',
-                'accounts.relationships.values.`def-csm` AS csm',
-                'accounts.relationships.values.`def-ae` AS account_executive',
-                'accounts.relationships.values.`def-owner` AS account_owner',
+                `accounts.relationships.values.\`${CSM_DEFINITION_ID}\` AS csm`,
+                `accounts.relationships.values.\`${AE_DEFINITION_ID}\` AS account_executive`,
+                `accounts.relationships.values.\`${OWNER_DEFINITION_ID}\` AS account_owner`,
             ])
         })
 
@@ -549,7 +673,7 @@ describe('accountsLogic', () => {
                 logic.actions.setTagsFilter(['enterprise'])
                 logic.actions.setAssignedToFilter([7])
                 logic.actions.setSortOrder({ column: 'name', direction: 'desc' })
-                logic.actions.setTileFilter({ tileId: 'tile-1', expression: 'count() > 5' })
+                logic.actions.setTileFilter(TILE_FILTER)
             }).toFinishAllListeners()
 
             expect(router.values.hashParams.view).toEqual({
@@ -557,7 +681,7 @@ describe('accountsLogic', () => {
                 tags: ['enterprise'],
                 assignedTo: [7],
                 sort: { column: 'name', direction: 'desc' },
-                tileFilter: { tileId: 'tile-1', expression: 'count() > 5' },
+                tileFilter: TILE_FILTER,
             })
         })
 
@@ -571,7 +695,7 @@ describe('accountsLogic', () => {
         })
 
         it('restores filters, sort, and tile filter from the view hash param', async () => {
-            const tileFilter = { tileId: 'tile-1', expression: 'count() > 5' }
+            const tileFilter = TILE_FILTER
             router.actions.push(
                 urls.customerAnalyticsAccounts(),
                 {},
@@ -595,6 +719,37 @@ describe('accountsLogic', () => {
             await expectLogic(logic).toFinishAllListeners()
 
             expect(logic.values.assignedToFilter).toEqual([7])
+        })
+
+        it('translates restored URL state into the Postgres query', async () => {
+            featureFlagLogic.actions.setFeatureFlags([FEATURE_FLAGS.CUSTOMER_ANALYTICS_ACCOUNTS_POSTGRES], {
+                [FEATURE_FLAGS.CUSTOMER_ANALYTICS_ACCOUNTS_POSTGRES]: true,
+            })
+            router.actions.push(
+                urls.customerAnalyticsAccounts(),
+                {},
+                {
+                    view: {
+                        search: 'acme',
+                        tags: ['enterprise'],
+                        assignedTo: [7],
+                        columns: [ACCOUNTS_NAME_COLUMN, 'csm'],
+                    },
+                }
+            )
+            await expectLogic(logic).toFinishAllListeners()
+
+            const source = logic.values.accountsQuerySource as AccountsTableQuery
+            expect(source.kind).toBe('AccountsTableQuery')
+            expect(source.columns).toEqual([
+                { kind: 'account_field', field: 'name' },
+                { kind: 'relationship', definitionId: CSM_DEFINITION_ID },
+            ])
+            expect(source.filters).toEqual([
+                { kind: 'search', query: 'acme' },
+                { kind: 'tags', tagNames: ['enterprise'] },
+                { kind: 'assigned_to', userIds: [7] },
+            ])
         })
 
         it('restores columns from the view hash param', async () => {
@@ -700,7 +855,7 @@ describe('accountsLogic', () => {
             await expectLogic(logic).toFinishAllListeners()
 
             expect(mockRelationshipsCreate).toHaveBeenCalledWith(String(MOCK_DEFAULT_TEAM.id), 'acc-1', {
-                definition: 'def-csm',
+                definition: CSM_DEFINITION_ID,
                 user: user.id,
             })
             expect(logic.values.relationshipOverrides[savingRoleKey('acc-1', 'csm')]).toEqual([user.id])

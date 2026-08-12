@@ -17,8 +17,7 @@ import {
     FleetSummary,
     SCOUT_FLEET_OVERVIEW_PROMPT,
     SCOUT_RECENT_SIGNALS_PROMPT,
-    SCOUT_RUNS_WINDOW_SPAN,
-    scoutRunsWindowLabel,
+    SCOUT_RUNS_PER_SCOUT_LABEL,
 } from '../../../utils/scoutRunsWindow'
 import { agentSetupModalLogic } from '../../shell/agentSetupModalLogic'
 import { FleetFindingsCallout } from './FleetFindingsCallout'
@@ -172,7 +171,7 @@ function summarize(summary: FleetSummary | null): string {
  * leads with "what the troop is" before its controls.
  */
 function FleetStatsHeader(): JSX.Element {
-    const { scoutConfigs, enabledCount, lastRunAt, fleetSummary, runsWindowComplete } = useValues(scoutFleetLogic)
+    const { scoutConfigs, enabledCount, lastRunAt, fleetSummary } = useValues(scoutFleetLogic)
 
     return (
         <div className="flex flex-col gap-0.5">
@@ -187,7 +186,7 @@ function FleetStatsHeader(): JSX.Element {
                 ) : null}
             </div>
             <span className="text-xs text-muted">
-                {summarize(fleetSummary)} · {scoutRunsWindowLabel(runsWindowComplete)}
+                {summarize(fleetSummary)} · {SCOUT_RUNS_PER_SCOUT_LABEL} per scout
             </span>
         </div>
     )
@@ -269,9 +268,9 @@ function ScoutsFleetList(): JSX.Element {
 
             <div className="flex flex-col gap-1">
                 <span className="text-xs text-muted">
-                    Run counts and emitted totals cover the last {SCOUT_RUNS_WINDOW_SPAN} of troop runs. New scouts are
-                    created as <span className="font-mono text-[11px]">signals-scout-*</span> skills in your PostHog
-                    project.
+                    Run counts and emitted totals cover each scout’s {SCOUT_RUNS_PER_SCOUT_LABEL}, so scouts on
+                    different schedules are comparable. New scouts are created as{' '}
+                    <span className="font-mono text-[11px]">signals-scout-*</span> skills in your PostHog project.
                 </span>
                 <ScoutHelperSkillLinks />
             </div>
