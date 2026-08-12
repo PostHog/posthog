@@ -163,6 +163,19 @@ describe('HostBudget', () => {
         expect(host.take('flapping.com', 1000, FAR_FUTURE)).toEqual({ granted: false, reason: 'breaker_open' })
     })
 
+    it('keeps reporting an open breaker when a shorter rate-limit hold arrives inside it', () => {
+        const host = budget()
+        for (let i = 0; i < OPTIONS.breakerFailures; i++) {
+            host.recordBackoff('example.com', 1000)
+        }
+
+        host.recordRetryAfter('example.com', 1000, 1_000)
+
+        // The reason is what the shed outcome and the metric carry. Letting the shorter hold rename
+        // it would hide the breaker from the one number that exists to show it.
+        expect(host.take('example.com', 2000, FAR_FUTURE)).toEqual({ granted: false, reason: 'breaker_open' })
+    })
+
     it('evicts an idle domain in preference to one it is still holding back', () => {
         const host = budget({ maxTrackedDomains: 2 })
         host.recordRetryAfter('blocked.com', 1000, 60_000)

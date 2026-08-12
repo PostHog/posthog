@@ -171,8 +171,13 @@ export class HostBudget {
     public recordRetryAfter(domain: string, nowMs: number, retryAfterMs: number): void {
         const state = this.stateFor(domain, nowMs)
         const held = Math.min(Math.max(retryAfterMs, 0), this.options.breakerMaxCooldownMs)
-        state.blockedUntilMs = Math.max(state.blockedUntilMs, nowMs + held)
-        state.blockedReason = 'rate_limited'
+        // The reason moves only when this hold is the one that wins. A domain already held by an
+        // open breaker would otherwise report every later shed as a rate limit, which hides the
+        // breaker from the metric that exists to show it.
+        if (nowMs + held > state.blockedUntilMs) {
+            state.blockedUntilMs = nowMs + held
+            state.blockedReason = 'rate_limited'
+        }
     }
 
     public get trackedDomains(): number {

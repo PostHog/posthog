@@ -230,6 +230,12 @@ function resolveRedirect(from: string, location: string): URL | null {
     if (next.protocol !== 'http:' && next.protocol !== 'https:') {
         return null
     }
+    // A redirect may move up to HTTPS but never down from it. A downgrade puts the rest of the
+    // exchange on the wire in clear text, and the site that served the first hop over TLS gave no
+    // reason to accept that.
+    if (from.startsWith('https:') && next.protocol === 'http:') {
+        return null
+    }
     // This lane sends no credentials, and a userinfo part would put some back on the next hop.
     if (next.username || next.password) {
         return null

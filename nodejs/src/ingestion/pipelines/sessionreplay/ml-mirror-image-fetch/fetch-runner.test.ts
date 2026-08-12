@@ -201,6 +201,22 @@ describe('FetchRunner', () => {
     })
 
     it.each([
+        ['a 429', 'rate_limited' as const, undefined, true],
+        ['a 503 that named a period', 'server_error' as const, 30_000, true],
+        ['a one-off 500', 'server_error' as const, undefined, false],
+    ])('holds the whole domain after %s: %s', async (_name, outcome, retryAfterMs, expectHeld) => {
+        // A hold silences every URL of the domain. A site that only failed one request has not
+        // asked for that, so it gets the rate cut and the breaker count instead.
+        const fetcher = new FakeFetcher(() => ({ outcome, status: 500, retryAfterMs }))
+
+        const attempts = await runner(fetcher, { maxConcurrentPerDomain: 1 }).run(
+            [0, 1].map((index) => candidate('site.com', index))
+        )
+
+        expect(attempts.some((a) => a.outcome === 'rate_limited')).toBe(expectHeld)
+    })
+
+    it.each([
         ['ok', true],
         ['not_found', true],
         ['too_large', true],

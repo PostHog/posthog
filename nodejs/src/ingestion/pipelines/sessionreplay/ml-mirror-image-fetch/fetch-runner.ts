@@ -319,7 +319,12 @@ export class FetchRunner implements FetchPass {
             return
         }
         if (outcome === 'rate_limited' || outcome === 'server_error') {
-            this.budget.recordRetryAfter(domain, nowMs, retryAfterMs ?? this.options.defaultRetryAfterMs)
+            // The whole domain is held when the site asked to be left alone, meaning a 429 or any
+            // response that named a period. A one-off 500 gets the rate cut and the breaker count
+            // instead: it says this request failed, not that the site wants silence for a minute.
+            if (outcome === 'rate_limited' || retryAfterMs !== undefined) {
+                this.budget.recordRetryAfter(domain, nowMs, retryAfterMs ?? this.options.defaultRetryAfterMs)
+            }
             this.budget.recordBackoff(domain, nowMs)
             return
         }

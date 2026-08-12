@@ -128,6 +128,7 @@ describe('HttpImageFetcher', () => {
         ['the target is one this lane never follows', 'https://other.example/a.png', 'refuse' as const],
         ['it leaves HTTP for another scheme', 'javascript:alert(1)', 'allow' as const],
         ['it carries credentials for the next hop', 'https://user:pw@other.example/a.png', 'allow' as const],
+        ['it downgrades from HTTPS to plain HTTP', 'http://other.example/a.png', 'allow' as const],
     ])('refuses a redirect when %s', async (_name, location, decision) => {
         fetchStreamedMock.mockResolvedValue(respond(302, { location }))
 

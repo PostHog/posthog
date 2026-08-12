@@ -126,7 +126,11 @@ export class UrlFetchConsumer {
         } catch (error) {
             // The pass answers with outcomes rather than a throw, so reaching here means a defect.
             // A throw would leave this partition replaying the same batch against the same defect.
-            logger.error('🌐', 'ml_image_fetch_pass_failed', { count: candidates.length, error: String(error) })
+            // The name only. An error raised inside the pass can carry a URL in its message.
+            logger.error('🌐', 'ml_image_fetch_pass_failed', {
+                count: candidates.length,
+                error: error instanceof Error ? error.name : 'unknown',
+            })
             return []
         }
         return attempts.filter((attempt) => isTerminal(attempt.outcome)).map((attempt) => attempt.candidate)
