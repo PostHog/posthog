@@ -65,8 +65,8 @@ export interface workflowRevisionsLogicActions {
 export interface workflowRevisionsLogicMeta {
     key: string
     __keaTypeGenInternalSelectorTypes: {
-        revisions: (revisionsResponse: any) => HogFlowRevisionBasicApi[]
-        revisionsCount: (revisionsResponse: any) => number
+        revisions: (revisionsResponse: PaginatedHogFlowRevisionBasicListApi | null) => HogFlowRevisionBasicApi[]
+        revisionsCount: (revisionsResponse: PaginatedHogFlowRevisionBasicListApi | null) => number
     }
 }
 

@@ -156,13 +156,16 @@ class TestHogFlowDraftPublish(APIBaseTest):
             {"actions": [_trigger_action(), _webhook_action(url="https://live-v2.example.com")]},
         )
         assert live_edit.status_code == 200, live_edit.json()
-        version = (
+        revision = (
             HogFlowRevision.objects.for_team(self.team.id).filter(hog_flow_id=flow_id).order_by("version").first()
-        ).version
+        )
+        assert revision is not None
+        version = revision.version
 
         first = self._patch_actions_via_mcp(flow_id, url="https://first-draft.example.com")
         assert first.status_code == 200, first.json()
         stamp_at_dialog = HogFlow.objects.get(pk=flow_id).draft_updated_at
+        assert stamp_at_dialog is not None
 
         second = self._patch_actions_via_mcp(flow_id, url="https://second-draft.example.com")
         assert second.status_code == 200, second.json()
@@ -172,11 +175,9 @@ class TestHogFlowDraftPublish(APIBaseTest):
             {"overwrite": True, "expected_draft_updated_at": stamp_at_dialog.isoformat()},
         )
         assert response.status_code == 409, response.json()
-        draft_urls = [
-            a["config"]["inputs"]["url"]["value"]
-            for a in HogFlow.objects.get(pk=flow_id).draft["actions"]
-            if a["type"] == "function"
-        ]
+        draft = HogFlow.objects.get(pk=flow_id).draft
+        assert draft is not None
+        draft_urls = [a["config"]["inputs"]["url"]["value"] for a in draft["actions"] if a["type"] == "function"]
         assert draft_urls == ["https://second-draft.example.com"]
 
     def test_stage_draft_on_inactive_flow_applies_live(self):
