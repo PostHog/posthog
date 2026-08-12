@@ -11,8 +11,14 @@ Dataset item shape (same conventions as ee/hogai/eval/offline):
     expected_output: {"behavior": "<the governed behavior the judges should see>"}
 
 Usage:
-    python offline_governance_experiment.py --dataset-id <uuid>       # run the experiment
-    python offline_governance_experiment.py --seed                    # create + fill the dataset once
+    python offline_governance_experiment.py --dataset-id <uuid>            # run the experiment
+    python offline_governance_experiment.py --dataset-id <uuid> --compare  # control vs injected-listing A/B
+    python offline_governance_experiment.py --seed                         # create + fill the dataset once
+
+--compare runs every item twice: a control session (bare prompt, like a pre-fix scout) and a
+treatment session whose system prompt carries the approved-metric-name listing the scout harness
+now injects, fetched live from the catalog. The two land as separate experiments in the offline
+experiments view, so the fix's effect is the verdict diff between them.
 
 Run it after each remediation deploy and on a cadence; a previously-passing item failing is the
 regression signal. See products/data_catalog/docs/production-monitoring.md.
@@ -126,6 +132,18 @@ SEED_ITEMS: list[dict] = [
 ]
 
 
+CATALOG_LISTING_SYSTEM_PROMPT = (
+    "When a hypothesis rests on a named, reusable measure - business or operational telemetry "
+    "computed for monitoring or reporting - run it through the governed metrics catalog. This "
+    "run's catalog lookup is already done: the approved, non-drifted metrics right now are: "
+    "{listing}. Do not re-run the lookup query. When a listed name matches the measure you need, "
+    "read its definition and run it with the data-catalog-metric-run tool rather than "
+    "hand-deriving it: a governed definition outranks a playbook query. A measure matching no "
+    "listed name has no canonical definition today - derive it by hand, label the result "
+    "noncanonical, and say in that query's stated context that no listed metric matched."
+)
+
+
 @dataclass(frozen=True, kw_only=True)
 class ExperimentItem:
     id: str
@@ -186,7 +204,7 @@ def fetch_dataset_items(dataset_id: str) -> list[ExperimentItem]:
     return items
 
 
-def run_agent_session(client: anthropic.Anthropic, prompt: str, nonce: str) -> None:
+def run_agent_session(client: anthropic.Anthropic, prompt: str, nonce: str, system: str | None = None) -> None:
     messages: list[dict] = [{"role": "user", "content": f"[run marker {nonce}] {prompt}"}]
     mcp_servers = [
         {
@@ -204,6 +222,7 @@ def run_agent_session(client: anthropic.Anthropic, prompt: str, nonce: str) -> N
             mcp_servers=mcp_servers,
             tools=[{"type": "mcp_toolset", "mcp_server_name": "posthog"}],
             messages=messages,
+            **({"system": system} if system else {}),
         )
         if response.stop_reason != "pause_turn":
             return
@@ -247,6 +266,13 @@ def fetch_trace_transcript(trace_id: str) -> str:
     return "\n".join(lines)[:JUDGE_INPUT_CHAR_CAP]
 
 
+def fetch_approved_metric_names() -> list[str]:
+    rows = hogql(
+        "SELECT name FROM system.information_schema.metrics WHERE status = 'approved' AND NOT is_drifted ORDER BY name"
+    )
+    return [row[0] for row in rows]
+
+
 def fetch_judge_rubrics() -> dict[str, str]:
     return {
         metric_name: _api("GET", f"/evaluations/{evaluation_id}/").json()["evaluation_config"]["prompt"]
@@ -270,11 +296,18 @@ def judge_trace(client: anthropic.Anthropic, rubric: str, transcript: str) -> di
 
 
 def emit_evaluation_event(
-    *, experiment_id: str, dataset_id: str, item: ExperimentItem, metric_name: str, verdict: dict, trace_id: str
+    *,
+    experiment_id: str,
+    experiment_name: str,
+    dataset_id: str,
+    item: ExperimentItem,
+    metric_name: str,
+    verdict: dict,
+    trace_id: str,
 ) -> None:
     properties = {
         "$ai_experiment_id": experiment_id,
-        "$ai_experiment_name": EXPERIMENT_NAME,
+        "$ai_experiment_name": experiment_name,
         "$ai_experiment_item_id": f"{experiment_id}:{item.name}",
         "$ai_experiment_item_name": item.name,
         "$ai_dataset_id": dataset_id,
@@ -307,12 +340,13 @@ def emit_evaluation_event(
     response.raise_for_status()
 
 
-def run_experiment(dataset_id: str, only_items: list[str] | None) -> int:
+def run_experiment(dataset_id: str, only_items: list[str] | None, system: str | None, variant: str) -> int:
     client = anthropic.Anthropic()
     rubrics = fetch_judge_rubrics()
     items = fetch_dataset_items(dataset_id)
     experiment_id = str(uuid.uuid4())
-    print(f"experiment {EXPERIMENT_NAME} run {experiment_id} over {len(items)} dataset item(s)")
+    experiment_name = f"{EXPERIMENT_NAME}-{variant}"
+    print(f"experiment {experiment_name} run {experiment_id} over {len(items)} dataset item(s)")
 
     failures = 0
     for item in items:
@@ -320,8 +354,8 @@ def run_experiment(dataset_id: str, only_items: list[str] | None) -> int:
             continue
         nonce = uuid.uuid4().hex[:12]
         started_at = datetime.now(UTC)
-        print(f"[{item.name}] replaying agent session (marker {nonce})")
-        run_agent_session(client, item.prompt, nonce)
+        print(f"[{item.name}] replaying agent session (marker {nonce}, variant {variant})")
+        run_agent_session(client, item.prompt, nonce, system=system)
 
         trace_id = find_trace_id(nonce, started_at)
         if trace_id is None:
@@ -334,6 +368,7 @@ def run_experiment(dataset_id: str, only_items: list[str] | None) -> int:
             verdict = judge_trace(client, rubric, transcript)
             emit_evaluation_event(
                 experiment_id=experiment_id,
+                experiment_name=experiment_name,
                 dataset_id=dataset_id,
                 item=item,
                 metric_name=metric_name,
@@ -345,8 +380,8 @@ def run_experiment(dataset_id: str, only_items: list[str] | None) -> int:
             if verdict["applicable"] and not verdict["result"]:
                 failures += 1
 
-    print(f"done; {failures} failing verdicts (or unscored items)")
-    return 1 if failures else 0
+    print(f"{experiment_name} done; {failures} failing verdicts (or unscored items)")
+    return failures
 
 
 def main() -> int:
@@ -354,6 +389,7 @@ def main() -> int:
     parser.add_argument("--dataset-id", help="AI-evals dataset to run")
     parser.add_argument("--seed", action="store_true", help="create the dataset with the pinned items and exit")
     parser.add_argument("--items", nargs="*", help="run only these item names")
+    parser.add_argument("--compare", action="store_true", help="run control and injected-listing variants")
     args = parser.parse_args()
 
     if args.seed:
@@ -362,7 +398,14 @@ def main() -> int:
         return 0
     if not args.dataset_id:
         parser.error("--dataset-id is required (or use --seed to create one)")
-    return run_experiment(args.dataset_id, args.items)
+
+    failures = run_experiment(args.dataset_id, args.items, system=None, variant="control")
+    if args.compare:
+        names = fetch_approved_metric_names()
+        listing = ", ".join(f"`{name}`" for name in names) or "(none)"
+        system = CATALOG_LISTING_SYSTEM_PROMPT.format(listing=listing)
+        failures += run_experiment(args.dataset_id, args.items, system=system, variant="with-listing")
+    return 1 if failures else 0
 
 
 if __name__ == "__main__":
