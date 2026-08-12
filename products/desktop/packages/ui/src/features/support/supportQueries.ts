@@ -13,8 +13,6 @@ import { queryOptions } from "@tanstack/react-query";
 
 const TICKET_DETAIL_STALE_TIME_MS = 30_000;
 
-// Never polls or refetches in the background: reading a ticket marks it read for
-// the whole team. Writes seed the cache from their own response instead.
 export function supportTicketQuery(ticketId: string) {
   return queryOptions({
     queryKey: supportKeys.ticketDetail(ticketId),

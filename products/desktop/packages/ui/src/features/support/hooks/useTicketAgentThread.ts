@@ -18,7 +18,6 @@ import { useUpdateSupportTicket } from "@posthog/ui/features/support/hooks/useUp
 import { useCreateTask } from "@posthog/ui/features/tasks/useTaskCrudMutations";
 import { useCallback, useState } from "react";
 
-// An ordinary Desktop task, linked to the ticket only once it exists.
 export function useTicketAgentThread(ticket: SupportTicket | undefined) {
   const taskService = useService<TaskService>(TASK_SERVICE);
   const { invalidateTasks } = useCreateTask();

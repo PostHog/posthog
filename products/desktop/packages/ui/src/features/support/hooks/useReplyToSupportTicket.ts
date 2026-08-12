@@ -13,9 +13,6 @@ interface ReplyVariables {
   isPrivate: boolean;
 }
 
-// No optimistic row: a reply reaches a customer, so only the server's own
-// message goes in the thread. The backend replays an identical reply rather
-// than posting it twice, so resending after a failure is safe.
 export function useReplyToSupportTicket() {
   const queryClient = useQueryClient();
 

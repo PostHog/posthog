@@ -51,8 +51,6 @@ export function TicketComposer({ ticket }: { ticket: SupportTicket }) {
         isPrivate,
       });
     } catch {
-      // The hook has already explained the outcome; the draft stays put so it
-      // can be sent again once the person has checked the thread.
       return;
     }
 

@@ -159,8 +159,6 @@ export function TicketInfoPanel({ ticket }: { ticket: SupportTicket }) {
   );
 }
 
-// The pull request the ticket's agent thread opened, read from its task and its
-// state from the same source task rows use elsewhere.
 function TicketPullRequestRow({ taskId }: { taskId: string | null }) {
   const { data: task } = useQuery({
     ...taskDetailQuery(taskId ?? ""),

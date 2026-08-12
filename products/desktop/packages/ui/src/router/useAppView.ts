@@ -25,7 +25,6 @@ export type AppViewType =
 export interface AppView {
   type: AppViewType;
   taskId?: string;
-  /** The open ticket on the support surface: a ticket number or a UUID. */
   ticketId?: string;
   folderId?: string;
   folderRepository?: string;
@@ -106,11 +105,6 @@ function deriveFromMatches(matches: Match[]): AppView {
       // edit subtree ($loopId is an Outlet layout), so match the prefix.
       if (last.routeId.startsWith("/code/loops")) {
         return { type: "loops" };
-      }
-      // /support covers the queue and the open-ticket subtree, so match the
-      // prefix rather than only the routes enumerated above.
-      if (last.routeId.startsWith("/support")) {
-        return { type: "support", ticketId: last.params.ticketId };
       }
       return { type: "task-input" };
   }

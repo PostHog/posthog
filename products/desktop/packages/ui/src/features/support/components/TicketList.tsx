@@ -3,6 +3,7 @@ import {
   MagnifyingGlassIcon,
   SpinnerGapIcon,
 } from "@phosphor-icons/react";
+import type { Schemas } from "@posthog/api-client";
 import type {
   SupportAssigneeFilter,
   SupportTicket,
@@ -37,6 +38,7 @@ import {
   type SupportAssigneeScope,
   useSupportQueueStore,
 } from "@posthog/ui/features/support/supportQueueStore";
+import { useDebounce } from "@posthog/ui/primitives/hooks/useDebounce";
 import { navigateToSupportTicket } from "@posthog/ui/router/navigationBridge";
 import { useMemo } from "react";
 
@@ -45,6 +47,15 @@ const SCOPE_LABELS: Record<SupportAssigneeScope, string> = {
   unassigned: "Unassigned",
   all: "All tickets",
 };
+
+const QUEUE_STATUSES: Schemas.TicketStatusEnum[] = [
+  "new",
+  "open",
+  "pending",
+  "on_hold",
+];
+
+const SEARCH_DEBOUNCE_MS = 300;
 
 function assigneeFilterFor(
   scope: SupportAssigneeScope,
@@ -60,24 +71,24 @@ function assigneeFilterFor(
 
 export function TicketList({ activeTicketId }: { activeTicketId?: string }) {
   const assigneeScope = useSupportQueueStore((state) => state.assigneeScope);
-  const statuses = useSupportQueueStore((state) => state.statuses);
   const orderBy = useSupportQueueStore((state) => state.orderBy);
   const search = useSupportQueueStore((state) => state.search);
   const viewShortId = useSupportQueueStore((state) => state.viewShortId);
   const { setAssigneeScope, setOrderBy, setSearch, setViewShortId } =
     useSupportQueueStore.getState();
 
+  const debouncedSearch = useDebounce(search, SEARCH_DEBOUNCE_MS);
   const { data: views } = useSupportTicketViews();
 
   const listOptions = useMemo<SupportTicketListOptions>(
     () => ({
       assignee: assigneeFilterFor(assigneeScope),
-      status: statuses,
+      status: QUEUE_STATUSES,
       orderBy,
-      search: search.trim() || undefined,
+      search: debouncedSearch.trim() || undefined,
       view: viewShortId ?? undefined,
     }),
-    [assigneeScope, statuses, orderBy, search, viewShortId],
+    [assigneeScope, orderBy, debouncedSearch, viewShortId],
   );
 
   const { data, isPending, isError } = useSupportTickets(listOptions);

@@ -35,7 +35,6 @@ const STATUS_COMMANDS: Array<{
   { status: "resolved", label: "Resolve ticket" },
 ];
 
-// Ticket actions appear only while a ticket is open.
 export function useSupportCommands(closeSettingsDialog: () => void) {
   const supportEnabled = useSupportFlag();
   const view = useAppView();

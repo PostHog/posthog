@@ -15,6 +15,7 @@ import { TicketComposer } from "@posthog/ui/features/support/components/TicketCo
 import { TicketSidebar } from "@posthog/ui/features/support/components/TicketSidebar";
 import { TicketThread } from "@posthog/ui/features/support/components/TicketThread";
 import { useSupportTicketMessages } from "@posthog/ui/features/support/hooks/useSupportTicketMessages";
+import { supportKeys } from "@posthog/ui/features/support/supportKeys";
 import {
   isTicketNotFoundError,
   supportTicketQuery,
@@ -28,7 +29,8 @@ import {
   ticketRequesterName,
   ticketStatusLabel,
 } from "@posthog/ui/features/support/ticketPresentation";
-import { useQuery } from "@tanstack/react-query";
+import { useQuery, useQueryClient } from "@tanstack/react-query";
+import { useEffect } from "react";
 
 const TICKET_SIDEBAR_WIDTH_CLASS = "w-[340px]";
 
@@ -50,6 +52,16 @@ export function TicketDetailView({
 
   const { data: thread } = useSupportTicketMessages(ticketId);
   const messages = thread?.results ?? [];
+
+  const queryClient = useQueryClient();
+  const readTicketId = ticket?.id;
+  useEffect(() => {
+    if (!readTicketId) {
+      return;
+    }
+    queryClient.invalidateQueries({ queryKey: supportKeys.ticketLists() });
+    queryClient.invalidateQueries({ queryKey: supportKeys.unreadCount() });
+  }, [readTicketId, queryClient]);
 
   if (isPending && !ticket) {
     return (
@@ -86,7 +98,7 @@ export function TicketDetailView({
       <div className="flex min-w-0 flex-1 flex-col">
         <TicketHeader ticket={ticket} />
         <TicketThread messages={messages} />
-        <TicketComposer ticket={ticket} />
+        <TicketComposer key={ticket.id} ticket={ticket} />
       </div>
       <div
         className={cn(
@@ -94,7 +106,7 @@ export function TicketDetailView({
           TICKET_SIDEBAR_WIDTH_CLASS,
         )}
       >
-        <TicketSidebar ticket={ticket} messages={messages} />
+        <TicketSidebar key={ticket.id} ticket={ticket} messages={messages} />
       </div>
     </div>
   );

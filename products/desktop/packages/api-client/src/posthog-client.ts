@@ -200,7 +200,6 @@ export interface TaskRunSessionLogsResult {
 
 export const SUPPORT_THREAD_PAGE_SIZE = 50;
 
-// Widens the generated Ticket, which omits fields the serializer returns.
 export type SupportTicket = Omit<Schemas.Ticket, "tags" | "assignee"> & {
   tags?: string[];
   assignee: Schemas.TicketAssignment | null;
@@ -219,7 +218,6 @@ export interface SupportTicketMessage {
   author_type?: "customer" | "support" | "AI";
   author_name: string;
   is_private: boolean;
-  /** Edit count; anything above zero means the message was edited. */
   version: number;
   created_at: string;
 }
@@ -7180,9 +7178,6 @@ export class PostHogAPIClient {
     );
   }
 
-  // Conversations tickets. Only list / retrieve / partial_update are in the
-  // generated client; the rest use the raw fetcher.
-
   async listSupportTickets(
     options?: SupportTicketListOptions,
   ): Promise<SupportTicketPage> {
@@ -7207,7 +7202,6 @@ export class PostHogAPIClient {
     };
   }
 
-  // Marks the ticket read for the whole team server-side. Never poll it.
   async getSupportTicket(ticketId: string): Promise<SupportTicket> {
     const teamId = await this.getTeamId();
     const data = await this.api.get(
@@ -7217,7 +7211,6 @@ export class PostHogAPIClient {
     return data as SupportTicket;
   }
 
-  // Oldest first, keyed on the ticket UUID.
   async listSupportTicketMessages(
     ticketId: string,
     options?: { limit?: number; offset?: number },
@@ -7244,8 +7237,6 @@ export class PostHogAPIClient {
     };
   }
 
-  // Markdown only: rich_content joins the server's dedupe fingerprint, so
-  // sending it inconsistently would defeat replay matching on a retry.
   async replyToSupportTicket(
     ticketId: string,
     input: { message: string; isPrivate: boolean },
@@ -7267,9 +7258,6 @@ export class PostHogAPIClient {
     return (await response.json()) as SupportTicketMessage;
   }
 
-  // Omitting status lets the backend apply its own snooze transitions, so the
-  // response is authoritative. assignee rides this endpoint despite reading as
-  // read-only on the serializer.
   async updateSupportTicket(
     ticketId: string,
     updates: SupportTicketUpdate,

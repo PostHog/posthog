@@ -1,7 +1,5 @@
 import type { SupportTicketListOptions } from "@posthog/api-client/posthog-client";
 
-// Lists and details are separate namespaces: reading a ticket clears its unread
-// count team-wide, so a list invalidation must not reach the open ticket.
 export const supportKeys = {
   all: ["support"] as const,
   ticketLists: () => [...supportKeys.all, "ticket-list"] as const,

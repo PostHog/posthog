@@ -4,6 +4,7 @@ import { readTicketTaskId } from "@posthog/core/support/ticketTaskLink";
 import { Badge, cn, Text } from "@posthog/quill";
 import { formatRelativeTimeShort } from "@posthog/shared";
 import {
+  formatSlaCountdown,
   SLA_TEXT_CLASSES,
   TICKET_PRIORITY_VARIANTS,
   TICKET_STATUS_VARIANTS,
@@ -65,14 +66,14 @@ export function TicketRow({
         {readTicketTaskId(ticket.tags) && (
           <Badge variant="default">Agent</Badge>
         )}
-        {sla !== "none" && (
+        {(sla === "at-risk" || sla === "breached") && (
           <Text
             className={cn(
               "ml-auto shrink-0 text-[11px] tabular-nums",
               SLA_TEXT_CLASSES[sla],
             )}
           >
-            {sla === "breached" ? "overdue" : "SLA"}
+            {formatSlaCountdown(ticket.sla_due_at, now)}
           </Text>
         )}
       </div>

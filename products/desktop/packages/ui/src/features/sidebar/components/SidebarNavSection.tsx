@@ -108,7 +108,6 @@ export function SidebarNavSection({
   });
   const inboxPullRequestCount = inboxCounts.pulls;
 
-  // Only ask for the ticket count when the destination is actually shown.
   const { data: supportUnreadCount } = useSupportUnreadCount({
     enabled: supportEnabled,
   });

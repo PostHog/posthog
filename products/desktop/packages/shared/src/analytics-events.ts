@@ -64,8 +64,6 @@ export type CommandMenuAction =
   | "support-set-status"
   | "support-set-priority"
   | "support-snooze-ticket"
-  | "support-assign-ticket"
-  | "support-open-in-posthog"
   | "support-ask-agent"
   | "open-usage"
   | "search-files"

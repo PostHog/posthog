@@ -60,7 +60,6 @@ export function ticketStatusLabel(
   return TICKET_STATUS_LABELS[status ?? "new"];
 }
 
-// Null priority means untriaged, not low.
 export function ticketPriorityLabel(
   priority: SupportTicket["priority"],
 ): string {
