@@ -6,11 +6,7 @@ import { ProductKey } from '~/queries/schema/schema-general'
 import { initKeaTests } from '~/test/init'
 import { AnyPropertyFilter, PropertyFilterType, PropertyOperator } from '~/types'
 
-import {
-    aiObservabilitySharedLogic,
-    buildApplyUrlStatePayload,
-    getDashboardDateState,
-} from './aiObservabilitySharedLogic'
+import { aiObservabilitySharedLogic, buildApplyUrlStatePayload } from './aiObservabilitySharedLogic'
 import { hasRecentAIEvents } from './utils/aiEvents'
 
 jest.mock('lib/api')
@@ -19,52 +15,6 @@ jest.mock('./utils/aiEvents')
 const mockHasRecentAIEvents = hasRecentAIEvents as jest.MockedFunction<typeof hasRecentAIEvents>
 
 describe('aiObservabilitySharedLogic', () => {
-    describe('getDashboardDateState', () => {
-        it.each([
-            {
-                name: 'uses the saved dashboard range without adding an external override',
-                input: {
-                    dashboardDateFilter: { dateFrom: '-7d', dateTo: null },
-                    persistedFilters: { date_from: '-30d', date_to: null },
-                    searchParams: {},
-                },
-                expected: {
-                    dateFilter: { dateFrom: '-30d', dateTo: null },
-                    externalFilters: { date_from: undefined, date_to: undefined },
-                    hasUrlOverride: false,
-                },
-            },
-            {
-                name: 'keeps URL dates as a temporary override',
-                input: {
-                    dashboardDateFilter: { dateFrom: '-14d', dateTo: '-1d' },
-                    persistedFilters: { date_from: '-30d', date_to: null },
-                    searchParams: { date_from: '-14d', date_to: '-1d' },
-                },
-                expected: {
-                    dateFilter: { dateFrom: '-14d', dateTo: '-1d' },
-                    externalFilters: { date_from: '-14d', date_to: '-1d' },
-                    hasUrlOverride: true,
-                },
-            },
-            {
-                name: 'falls back to the template default when the dashboard has no saved range',
-                input: {
-                    dashboardDateFilter: { dateFrom: '-7d', dateTo: null },
-                    persistedFilters: {},
-                    searchParams: {},
-                },
-                expected: {
-                    dateFilter: { dateFrom: '-7d', dateTo: null },
-                    externalFilters: { date_from: undefined, date_to: undefined },
-                    hasUrlOverride: false,
-                },
-            },
-        ])('$name', ({ input, expected }) => {
-            expect(getDashboardDateState(input)).toEqual(expected)
-        })
-    })
-
     describe('buildApplyUrlStatePayload', () => {
         const currentDateFilter = { dateFrom: '-1h', dateTo: null as string | null }
         const currentPropertyFilters: AnyPropertyFilter[] = []

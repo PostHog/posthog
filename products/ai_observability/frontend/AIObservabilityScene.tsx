@@ -42,7 +42,6 @@ import {
     buildApplyUrlStatePayload,
     AI_OBSERVABILITY_DATA_COLLECTION_NODE_ID,
     aiObservabilitySharedLogic,
-    getDashboardDateState,
 } from './aiObservabilitySharedLogic'
 import { AIObservabilityTools } from './AIObservabilityTools'
 import { AIObservabilityTraces } from './AIObservabilityTracesScene'
@@ -79,7 +78,8 @@ const SENTIMENT_DATE_OPTIONS = dateMapping.filter(({ values }) =>
 const Filters = ({ hidePropertyFilters = false }: { hidePropertyFilters?: boolean }): JSX.Element => {
     const { dashboardDateFilter, dateFilter, shouldFilterTestAccounts, propertyFilters, activeTab } =
         useValues(aiObservabilitySharedLogic)
-    const { setDates, setShouldFilterTestAccounts, setPropertyFilters } = useActions(aiObservabilitySharedLogic)
+    const { setDashboardDates, setDates, setShouldFilterTestAccounts, setPropertyFilters } =
+        useActions(aiObservabilitySharedLogic)
     const { generationsQuery } = useValues(aiObservabilityGenerationsLogic)
     const { selectedDashboardId } = useValues(aiObservabilityDashboardLogic)
 
@@ -91,7 +91,7 @@ const Filters = ({ hidePropertyFilters = false }: { hidePropertyFilters?: boolea
             <DateFilter
                 dateFrom={dateFrom}
                 dateTo={dateTo}
-                onChange={setDates}
+                onChange={activeTab === 'dashboard' ? setDashboardDates : setDates}
                 dateOptions={activeTab === 'sentiment' ? SENTIMENT_DATE_OPTIONS : undefined}
                 showRollingRangePicker={activeTab !== 'sentiment'}
                 showCustomRangeOptions={activeTab !== 'sentiment'}
@@ -122,10 +122,8 @@ const Filters = ({ hidePropertyFilters = false }: { hidePropertyFilters?: boolea
 }
 
 function AIObservabilityDashboard(): JSX.Element {
-    const { dashboardDateFilter, propertyFilters } = useValues(aiObservabilitySharedLogic)
-    const { setDashboardDates } = useActions(aiObservabilitySharedLogic)
+    const { dashboardExternalDateFilters, propertyFilters } = useValues(aiObservabilitySharedLogic)
     const { selectedDashboardId, availableDashboardsLoading } = useValues(aiObservabilityDashboardLogic)
-    const { searchParams } = useValues(router)
 
     const dashboardLogicInstance = React.useMemo(
         () =>
@@ -139,28 +137,18 @@ function AIObservabilityDashboard(): JSX.Element {
         () => dashboardLogic({ id: 0, placement: DashboardPlacement.Builtin }),
         []
     )
-    const { dashboard, externalFilters } = useValues(dashboardLogicInstance || fallbackLogicInstance)
+    const { externalFilters } = useValues(dashboardLogicInstance || fallbackLogicInstance)
     const dashboardActions = useActions(dashboardLogicInstance || fallbackLogicInstance)
     const setExternalFilters =
         dashboardLogicInstance && dashboardActions?.setExternalFilters ? dashboardActions.setExternalFilters : undefined
     useAttachedLogic(dashboardLogicInstance || fallbackLogicInstance, aiObservabilitySharedLogic)
 
-    const dashboardDateState = React.useMemo(
-        () =>
-            getDashboardDateState({
-                dashboardDateFilter,
-                persistedFilters: dashboard?.persisted_filters ?? undefined,
-                searchParams,
-            }),
-        [dashboard?.persisted_filters, dashboardDateFilter, searchParams]
-    )
-
     const nextExternalFilters = React.useMemo(
         () => ({
-            ...dashboardDateState.externalFilters,
+            ...dashboardExternalDateFilters,
             properties: propertyFilters.length > 0 ? propertyFilters : null,
         }),
-        [dashboardDateState.externalFilters, propertyFilters]
+        [dashboardExternalDateFilters, propertyFilters]
     )
 
     const currentExternalFilters = React.useMemo(
@@ -178,16 +166,6 @@ function AIObservabilityDashboard(): JSX.Element {
             setExternalFilters(nextExternalFilters)
         }
     }, [currentExternalFilters, nextExternalFilters, selectedDashboardId, setExternalFilters])
-
-    React.useEffect(() => {
-        if (
-            dashboard &&
-            !dashboardDateState.hasUrlOverride &&
-            !objectsEqual(dashboardDateFilter, dashboardDateState.dateFilter)
-        ) {
-            setDashboardDates(dashboardDateState.dateFilter.dateFrom, dashboardDateState.dateFilter.dateTo)
-        }
-    }, [dashboard, dashboardDateFilter, dashboardDateState, setDashboardDates])
 
     return (
         <div className="@container/dashboard" data-attr="llm-analytics-costs">

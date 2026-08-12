@@ -81,53 +81,6 @@ const INITIAL_DASHBOARD_DATE_FROM = '-7d' as string | null
 const INITIAL_EVENTS_DATE_FROM = '-1h' as string | null
 const INITIAL_DATE_TO = null as string | null
 
-interface DashboardDateStateInput {
-    dashboardDateFilter: {
-        dateFrom: string | null
-        dateTo: string | null
-    }
-    persistedFilters?: {
-        date_from?: string | null
-        date_to?: string | null
-    }
-    searchParams: Record<string, unknown>
-}
-
-export function getDashboardDateState({
-    dashboardDateFilter,
-    persistedFilters,
-    searchParams,
-}: DashboardDateStateInput): {
-    dateFilter: { dateFrom: string | null; dateTo: string | null }
-    externalFilters: { date_from: string | null | undefined; date_to: string | null | undefined }
-    hasUrlOverride: boolean
-} {
-    const hasUrlOverride = typeof searchParams.date_from === 'string' || typeof searchParams.date_to === 'string'
-
-    if (hasUrlOverride) {
-        return {
-            dateFilter: dashboardDateFilter,
-            externalFilters: {
-                date_from: dashboardDateFilter.dateFrom,
-                date_to: dashboardDateFilter.dateTo,
-            },
-            hasUrlOverride,
-        }
-    }
-
-    return {
-        dateFilter: {
-            dateFrom: persistedFilters?.date_from ?? INITIAL_DASHBOARD_DATE_FROM,
-            dateTo: persistedFilters?.date_to ?? INITIAL_DATE_TO,
-        },
-        externalFilters: {
-            date_from: undefined,
-            date_to: undefined,
-        },
-        hasUrlOverride,
-    }
-}
-
 export interface AIObservabilitySharedLogicProps {
     logicKey?: string
     personId?: string
@@ -197,6 +150,11 @@ export interface aiObservabilitySharedLogicValues {
         dateFrom: string | null
         dateTo: string | null
     }
+    dashboardDateOverride: boolean
+    dashboardExternalDateFilters: {
+        date_from: string | null | undefined
+        date_to: string | null | undefined
+    }
     dateFilter: {
         dateFrom: string | null
         dateTo: string | null
@@ -204,6 +162,10 @@ export interface aiObservabilitySharedLogicValues {
     hasSentAiEvent: boolean | undefined
     hasSentAiEventLoading: boolean
     propertyFilters: AnyPropertyFilter[]
+    savedDashboardDateFilter: {
+        dateFrom: string | null
+        dateTo: string | null
+    }
     searchQuery: string
     shouldFilterSupportTraces: boolean
     shouldFilterTestAccounts: boolean
@@ -218,6 +180,13 @@ export interface aiObservabilitySharedLogicActions {
         status: ProductSetupStatus
     } // productSetupStatusLogic
     addProductIntent: (properties: ProductIntentProperties) => ProductIntentProperties // teamLogic
+    applyDashboardUrlDates: (
+        dateFrom: string | null,
+        dateTo: string | null
+    ) => {
+        dateFrom: string | null
+        dateTo: string | null
+    }
     applyUrlState: (state: ApplyUrlStatePayload) => ApplyUrlStatePayload
     loadAIEventDefinition: () => any
     loadAIEventDefinitionFailure: (
@@ -233,6 +202,13 @@ export interface aiObservabilitySharedLogicActions {
     ) => {
         hasSentAiEvent: boolean
         payload?: any
+    }
+    restoreSavedDashboardDates: (
+        dateFrom: string | null,
+        dateTo: string | null
+    ) => {
+        dateFrom: string | null
+        dateTo: string | null
     }
     setDashboardDates: (
         dateFrom: string | null,
@@ -251,6 +227,13 @@ export interface aiObservabilitySharedLogicActions {
     setPropertyFilters: (propertyFilters: AnyPropertyFilter[]) => {
         propertyFilters: AnyPropertyFilter[]
     }
+    setSavedDashboardDates: (
+        dateFrom: string | null,
+        dateTo: string | null
+    ) => {
+        dateFrom: string | null
+        dateTo: string | null
+    }
     setSearchQuery: (searchQuery: string) => {
         searchQuery: string
     }
@@ -266,6 +249,16 @@ export interface aiObservabilitySharedLogicActions {
 export interface aiObservabilitySharedLogicMeta {
     key: string
     __keaTypeGenInternalSelectorTypes: {
+        dashboardExternalDateFilters: (
+            dashboardDateFilter: {
+                dateFrom: string | null
+                dateTo: string | null
+            },
+            dashboardDateOverride: boolean
+        ) => {
+            date_from: string | null | undefined
+            date_to: string | null | undefined
+        }
         activeTab: (sceneKey: string | null) => AIObservabilityTabId
     }
 }
@@ -312,6 +305,9 @@ export const aiObservabilitySharedLogic = kea<aiObservabilitySharedLogicType>([
     actions({
         setDates: (dateFrom: string | null, dateTo: string | null) => ({ dateFrom, dateTo }),
         setDashboardDates: (dateFrom: string | null, dateTo: string | null) => ({ dateFrom, dateTo }),
+        applyDashboardUrlDates: (dateFrom: string | null, dateTo: string | null) => ({ dateFrom, dateTo }),
+        restoreSavedDashboardDates: (dateFrom: string | null, dateTo: string | null) => ({ dateFrom, dateTo }),
+        setSavedDashboardDates: (dateFrom: string | null, dateTo: string | null) => ({ dateFrom, dateTo }),
         setShouldFilterTestAccounts: (shouldFilterTestAccounts: boolean) => ({ shouldFilterTestAccounts }),
         setShouldFilterSupportTraces: (shouldFilterSupportTraces: boolean) => ({ shouldFilterSupportTraces }),
         setPropertyFilters: (propertyFilters: AnyPropertyFilter[]) => ({ propertyFilters }),
@@ -342,8 +338,27 @@ export const aiObservabilitySharedLogic = kea<aiObservabilitySharedLogicType>([
             {
                 setDates: (_, { dateFrom, dateTo }) => ({ dateFrom, dateTo }),
                 setDashboardDates: (_, { dateFrom, dateTo }) => ({ dateFrom, dateTo }),
-                applyUrlState: (state, { dateFrom, dateTo, datesChanged }) =>
-                    datesChanged ? { dateFrom, dateTo } : state,
+                applyDashboardUrlDates: (_, { dateFrom, dateTo }) => ({ dateFrom, dateTo }),
+                restoreSavedDashboardDates: (_, { dateFrom, dateTo }) => ({ dateFrom, dateTo }),
+            },
+        ],
+
+        dashboardDateOverride: [
+            false,
+            {
+                setDashboardDates: () => true,
+                applyDashboardUrlDates: () => true,
+                restoreSavedDashboardDates: () => false,
+            },
+        ],
+
+        savedDashboardDateFilter: [
+            {
+                dateFrom: INITIAL_DASHBOARD_DATE_FROM,
+                dateTo: INITIAL_DATE_TO,
+            },
+            {
+                setSavedDashboardDates: (_, { dateFrom, dateTo }) => ({ dateFrom, dateTo }),
             },
         ],
 
@@ -389,6 +404,11 @@ export const aiObservabilitySharedLogic = kea<aiObservabilitySharedLogicType>([
     })),
 
     listeners(({ actions, values, cache }) => ({
+        setSavedDashboardDates: ({ dateFrom, dateTo }) => {
+            if (!values.dashboardDateOverride) {
+                actions.restoreSavedDashboardDates(dateFrom, dateTo)
+            }
+        },
         loadAIEventDefinitionSuccess: ({ hasSentAiEvent }) => {
             // Feed the app-wide setup-status layer (drives the scene empty-state gate).
             actions.setDetectedStatus(hasSentAiEvent ? 'has-data' : 'needs-setup')
@@ -415,6 +435,19 @@ export const aiObservabilitySharedLogic = kea<aiObservabilitySharedLogicType>([
     })),
 
     selectors({
+        dashboardExternalDateFilters: [
+            (s) => [s.dashboardDateFilter, s.dashboardDateOverride],
+            (
+                dashboardDateFilter: {
+                    dateFrom: string | null
+                    dateTo: string | null
+                },
+                dashboardDateOverride: boolean
+            ) => ({
+                date_from: dashboardDateOverride ? dashboardDateFilter.dateFrom : undefined,
+                date_to: dashboardDateOverride ? dashboardDateFilter.dateTo : undefined,
+            }),
+        ],
         activeTab: [
             (s) => [s.sceneKey],
             (sceneKey: string | null): AIObservabilityTabId => {
@@ -532,9 +565,37 @@ export const aiObservabilitySharedLogic = kea<aiObservabilitySharedLogicType>([
             applySearchParams(searchParams)
         }
 
+        function applyDashboard(searchParams: Record<string, unknown>): void {
+            applySearchParams(searchParams)
+
+            const hasDateOverride =
+                typeof searchParams.date_from === 'string' || typeof searchParams.date_to === 'string'
+            if (hasDateOverride) {
+                const dateFrom =
+                    typeof searchParams.date_from === 'string' ? searchParams.date_from : INITIAL_EVENTS_DATE_FROM
+                const dateTo = typeof searchParams.date_to === 'string' ? searchParams.date_to : INITIAL_DATE_TO
+                if (
+                    !values.dashboardDateOverride ||
+                    dateFrom !== values.dashboardDateFilter.dateFrom ||
+                    dateTo !== values.dashboardDateFilter.dateTo
+                ) {
+                    actions.applyDashboardUrlDates(dateFrom, dateTo)
+                }
+            } else if (
+                values.dashboardDateOverride ||
+                values.dashboardDateFilter.dateFrom !== values.savedDashboardDateFilter.dateFrom ||
+                values.dashboardDateFilter.dateTo !== values.savedDashboardDateFilter.dateTo
+            ) {
+                actions.restoreSavedDashboardDates(
+                    values.savedDashboardDateFilter.dateFrom,
+                    values.savedDashboardDateFilter.dateTo
+                )
+            }
+        }
+
         return {
             [urls.aiObservabilityDashboard()]: (_, searchParams) => {
-                applySearchParams(searchParams)
+                applyDashboard(searchParams)
                 startDashboardTimer()
             },
             [urls.aiObservabilitySelfDriving()]: (_, searchParams) => applyNonDashboard(searchParams),
@@ -599,6 +660,14 @@ export const aiObservabilitySharedLogic = kea<aiObservabilitySharedLogicType>([
                 {
                     ...sharedSearchParams(),
                     date_from: dateFrom === INITIAL_EVENTS_DATE_FROM ? undefined : dateFrom || undefined,
+                    date_to: dateTo || undefined,
+                },
+            ],
+            setDashboardDates: ({ dateFrom, dateTo }) => [
+                router.values.location.pathname,
+                {
+                    ...sharedSearchParams(),
+                    date_from: dateFrom ?? 'all',
                     date_to: dateTo || undefined,
                 },
             ],
