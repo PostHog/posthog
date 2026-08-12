@@ -266,6 +266,7 @@ from .close.source import CloseSource
 from .cloudability.source import CloudabilitySource
 from .cloudbeds.source import CloudbedsSource
 from .cloudflare.source import CloudflareSource
+from .cloudinary.source import CloudinarySource
 from .cloudsmith.source import CloudsmithSource
 from .cloudzero.source import CloudzeroSource
 from .clover.source import CloverSource
@@ -437,6 +438,7 @@ from .fly_io.source import FlyIoSource
 from .formbricks.source import FormbricksSource
 from .fortnox.source import FortnoxSource
 from .fourthwall.source import FourthwallSource
+from .framer.source import FramerSource
 from .fred.source import FredSource
 from .freeagent.source import FreeAgentSource
 from .freightview.source import FreightviewSource
@@ -580,6 +582,7 @@ from .illumina_basespace.source import IlluminaBasespaceSource
 from .imagga.source import ImaggaSource
 from .imf_data.source import ImfDataSource
 from .impact.source import ImpactSource
+from .impact_partner.source import ImpactPartnerSource
 from .imperva.source import ImpervaSource
 from .incident_io.source import IncidentIoSource
 from .infisical.source import InfisicalSource
@@ -756,7 +759,9 @@ from .mono.source import MonoSource
 from .monte_carlo.source import MonteCarloSource
 from .moodle.source import MoodleSource
 from .motherduck.source import MotherduckSource
+from .motion.source import MotionSource
 from .moxie.source import MoxieSource
+from .msg91.source import MSG91Source
 from .mssql.source import MSSQLSource
 from .mux.source import MuxSource
 from .my_hours.source import MyHoursSource
@@ -886,7 +891,8 @@ from .pivotal_tracker.source import PivotalTrackerSource
 from .piwik.source import PiwikSource
 from .plaid.source import PlaidSource
 from .plain.source import PlainSource
-from .planetscale.source import PlanetScaleSource
+from .planetscale_mysql.source import PlanetScaleMySQLSource
+from .planetscale_postgres.source import PlanetScalePostgresSource
 from .planhat.source import PlanhatSource
 from .planning_center.source import PlanningCenterSource
 from .platform_sh.source import PlatformShSource
@@ -933,6 +939,7 @@ from .quay.source import QuaySource
 from .quickbooks.source import QuickBooksSource
 from .railway.source import RailwaySource
 from .railz.source import RailzSource
+from .raisely.source import RaiselySource
 from .raken.source import RakenSource
 from .ramp.source import RampSource
 from .rapid7_insightvm.source import Rapid7InsightvmSource
@@ -1018,6 +1025,7 @@ from .servicem8.source import Servicem8Source
 from .servicenow.source import ServiceNowSource
 from .servicetitan.source import ServicetitanSource
 from .servicetrade.source import ServicetradeSource
+from .sevalla.source import SevallaSource
 from .sevdesk.source import SevdeskSource
 from .sevenshifts.source import SevenShiftsSource
 from .sftp.source import SFTPSource
@@ -1186,6 +1194,7 @@ from .umami.source import UmamiSource
 from .un_comtrade.source import UnComtradeSource
 from .unleash.source import UnleashSource
 from .unstructured.source import UnstructuredSource
+from .uploadcare.source import UploadcareSource
 from .uppromote.source import UpPromoteSource
 from .upstash.source import UpstashSource
 from .uptick.source import UptickSource
@@ -1224,10 +1233,13 @@ from .webflow.source import WebflowSource
 from .weights_and_biases.source import WeightsAndBiasesSource
 from .whatsapp_business_management.source import WhatsappBusinessManagementSource
 from .when_i_work.source import WhenIWorkSource
+from .whmcs.source import WHMCSSource
 from .who_gho.source import WhoGhoSource
 from .whop.source import WhopSource
 from .wikipedia_pageviews.source import WikipediaPageviewsSource
 from .windmill.source import WindmillSource
+from .windsor_ai.source import WindsorAiSource
+from .wix.source import WixSource
 from .wiz.source import WizSource
 from .wompi.source import WompiSource
 from .woocommerce.source import WooCommerceSource

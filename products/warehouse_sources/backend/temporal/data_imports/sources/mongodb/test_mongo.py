@@ -564,21 +564,38 @@ class TestAdaptiveChunkSize(SimpleTestCase):
 
 
 class _FakeCursor:
-    def __init__(self, docs: list[dict[str, Any]], error: Exception | None = None) -> None:
+    def __init__(self, docs: list[dict[str, Any]], error: Exception | None = None, error_after: int = 0) -> None:
         self._iter = iter(docs)
         self._error = error
+        self._error_after = error_after
+        self._yielded = 0
         self.closed = False
+        self.sorted_by: list[Any] | None = None
 
     def __iter__(self) -> "_FakeCursor":
         return self
 
     def __next__(self) -> dict[str, Any]:
-        if self._error is not None:
+        if self._error is not None and self._yielded >= self._error_after:
             raise self._error
-        return next(self._iter)
+        doc = next(self._iter)
+        self._yielded += 1
+        return doc
+
+    def sort(self, key: str, direction: int) -> "_FakeCursor":
+        self.sorted_by = [key, direction]
+        return self
 
     def close(self) -> None:
         self.closed = True
+
+
+def _resume_after(query: dict[str, Any]) -> Any:
+    for clause in query.get("$and", [query]):
+        predicate = clause.get("_id")
+        if isinstance(predicate, dict) and "$gt" in predicate:
+            return predicate["$gt"]
+    return None
 
 
 class _FakeCollection:
@@ -587,14 +604,21 @@ class _FakeCollection:
         docs: list[dict[str, Any]],
         error: Exception | None = None,
         fallback_docs: list[dict[str, Any]] | None = None,
+        fallback_error: Exception | None = None,
+        fallback_error_after: int = 0,
     ) -> None:
         self._docs = docs
         self._error = error
         # Docs returned by a second find() call made without no_cursor_timeout, simulating the
         # fallback path taken when the tier rejects that option.
         self._fallback_docs = fallback_docs
+        # Raised by the first fallback cursor only, so a resumed read can be asserted on.
+        self._fallback_error = fallback_error
+        self._fallback_error_after = fallback_error_after
+        self._fallback_error_raised = False
         self.find_kwargs: dict[str, Any] | None = None
         self.find_calls: list[dict[str, Any]] = []
+        self.find_queries: list[dict[str, Any]] = []
         self.cursors: list[_FakeCursor] = []
         self.last_cursor: _FakeCursor | None = None
         self.database = MagicMock()
@@ -603,10 +627,19 @@ class _FakeCollection:
     def find(self, query: dict[str, Any], **kwargs: Any) -> _FakeCursor:
         self.find_kwargs = kwargs
         self.find_calls.append(kwargs)
+        self.find_queries.append(query)
         if kwargs.get("no_cursor_timeout"):
             cursor = _FakeCursor(self._docs, self._error)
         else:
-            cursor = _FakeCursor(self._fallback_docs if self._fallback_docs is not None else self._docs, None)
+            docs = self._fallback_docs if self._fallback_docs is not None else self._docs
+            resume_after = _resume_after(query)
+            if resume_after is not None:
+                docs = [doc for doc in docs if doc["_id"] > resume_after]
+            if self._fallback_error is not None and not self._fallback_error_raised:
+                self._fallback_error_raised = True
+                cursor = _FakeCursor(docs, self._fallback_error, self._fallback_error_after)
+            else:
+                cursor = _FakeCursor(docs)
         self.cursors.append(cursor)
         self.last_cursor = cursor
         return cursor
@@ -682,14 +715,19 @@ class TestMongoSourceCursorLifecycle(SimpleTestCase):
                 "Option noCursorTimeout not supported in aggregation, full error: {'ok': 0, 'errmsg': "
                 "'Option noCursorTimeout not supported in aggregation', 'code': 9, 'codeName': 'FailedToParse'}",
             ),
+            (
+                "backend_does_not_support_the_field",
+                "Field 'noCursorTimeout' is currently not supported, full error: {'ok': 0.0, 'code': 303, "
+                "'errmsg': \"Field 'noCursorTimeout' is currently not supported\", 'codeName': 'CommandNotSupported'}",
+            ),
         ]
     )
     def test_falls_back_to_normal_cursor_when_no_timeout_is_rejected(self, _name: str, error_message: str):
-        # Regression: some Atlas tiers (free/shared) reject no_cursor_timeout=True outright with
-        # OperationFailure code 8000, and MongoDB rewrites find() against a view into an
-        # aggregate() where noCursorTimeout isn't a valid option — both fail permanently without
-        # this fallback. Both fire on the very first read, so the fallback cursor must run instead
-        # and yield the real rows.
+        # Regression: some Atlas tiers (free/shared/flex) reject no_cursor_timeout=True outright
+        # with OperationFailure code 8000, MongoDB rewrites find() against a view into an
+        # aggregate() where noCursorTimeout isn't a valid option, and DocumentDB / Cosmos DB reject
+        # the field itself with code 303 — all fail permanently without this fallback. All fire on
+        # the very first read, so the fallback cursor must run instead and yield the real rows.
         notimeout_error = OperationFailure(error_message)
         collection = _FakeCollection([], error=notimeout_error, fallback_docs=[{"_id": "1"}, {"_id": "2"}])
 
@@ -712,3 +750,38 @@ class TestMongoSourceCursorLifecycle(SimpleTestCase):
             self._run_get_rows(collection)
 
         assert len(collection.find_calls) == 1
+
+    def test_expired_fallback_cursor_resumes_after_the_last_document(self):
+        # Dropping no_cursor_timeout puts the server's 10-minute idle timeout back in play, so a
+        # long sync on these backends dies mid-read with CursorNotFound. The fallback read is
+        # _id-ordered, so it must resume after the last document rather than lose the whole sync
+        # (or restart and emit duplicates).
+        collection = _FakeCollection(
+            [],
+            error=OperationFailure("Field 'noCursorTimeout' is currently not supported"),
+            fallback_docs=[{"_id": "1"}, {"_id": "2"}, {"_id": "3"}],
+            fallback_error=CursorNotFound("cursor id 123 not found"),
+            fallback_error_after=2,
+        )
+
+        rows = self._run_get_rows(collection)
+
+        assert [row["_id"] for row in rows] == ["1", "2", "3"]
+        assert collection.find_queries[-1] == {"_id": {"$gt": "2"}}
+        # cursors[2] is the read reopened after CursorNotFound; assert it resumes _id-ordered.
+        assert collection.cursors[2].sorted_by == ["_id", 1]
+
+    def test_fallback_cursor_that_expires_without_progress_is_not_retried_forever(self):
+        # Resuming re-runs the same query, so a cursor that dies before yielding anything would
+        # loop forever without this guard.
+        collection = _FakeCollection(
+            [],
+            error=OperationFailure("Field 'noCursorTimeout' is currently not supported"),
+            fallback_docs=[{"_id": "1"}],
+            fallback_error=CursorNotFound("cursor id 123 not found"),
+        )
+
+        with self.assertRaises(CursorNotFound):
+            self._run_get_rows(collection)
+
+        assert len(collection.find_calls) == 2

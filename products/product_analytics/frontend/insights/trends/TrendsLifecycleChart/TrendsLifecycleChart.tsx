@@ -19,6 +19,7 @@ import { InsightVizNode } from '~/queries/schema/schema-general'
 import { QueryContext } from '~/queries/types'
 import type { LifecycleToggle } from '~/types'
 
+import { hasTrendsChartData } from '../../shared/hasTrendsChartData'
 import { InsightSeriesTooltip } from '../../shared/InsightSeriesTooltip'
 import { AnnotationsLayer } from '../shared/AnnotationsLayer'
 import { buildBaseLegendConfig } from '../shared/buildBaseLegendConfig'
@@ -80,10 +81,7 @@ export function TrendsLifecycleChart({ context, inSharedMode = false }: TrendsLi
 
     const isStacked = lifecycleFilter?.stacked ?? true
 
-    const hasData =
-        !!indexedResults?.[0] &&
-        !!indexedResults[0].data &&
-        indexedResults.some((r: IndexedTrendResult) => r.count !== 0)
+    const hasData = hasTrendsChartData(indexedResults)
 
     const formatValue = useCallback(
         (value: number) => formatAggregationAxisValue(trendsFilter, value, baseCurrency),
@@ -112,7 +110,12 @@ export function TrendsLifecycleChart({ context, inSharedMode = false }: TrendsLi
             buildLifecycleChartModel<IndexedTrendResult, TrendsSeriesMeta>(indexedResults ?? [], {
                 getColor: (status) => getBarColorFromStatus((status ?? 'new') as LifecycleToggle),
                 buildMeta: buildTrendsSeriesMeta,
-                labels: currentPeriodResult?.labels ?? EMPTY_LABELS,
+                // Bands are keyed by these strings, so they must be unique per point. Display
+                // labels are not (week and hour labels omit the year, so multi-year ranges
+                // repeat them); use the ISO days, which ticks and tooltips format from.
+                labels: currentPeriodResult?.days?.length
+                    ? currentPeriodResult.days
+                    : (currentPeriodResult?.labels ?? EMPTY_LABELS),
                 isStacked,
                 trendsFilter,
                 baseCurrency,

@@ -14,6 +14,7 @@ from datetime import timedelta
 
 from django.db.models import Q, QuerySet
 
+from products.data_modeling.backend.logic.cohort_scheduling import MINUTES_PER_WEEK
 from products.data_modeling.backend.logic.freshness import STREAMING, all_source_floors, normalize_seed_target
 from products.data_modeling.backend.models.dag import DAG
 from products.data_modeling.backend.models.edge import Edge
@@ -24,6 +25,7 @@ from products.warehouse_sources.backend.facade.models import DataWarehouseTable,
 _SYSTEM_KEY = "system"
 _FREQUENCY_KEY = "frequency"
 _TARGET_SECONDS_KEY = "target_seconds"
+_ANCHOR_MINUTES_KEY = "anchor_minutes"
 
 # `resolve_dependency_to_node` stamps this on source (TABLE) nodes at creation.
 _ORIGIN_KEY = "origin"
@@ -65,6 +67,25 @@ def set_declared_target(node: Node, target: timedelta | None) -> None:
         frequency.pop(_TARGET_SECONDS_KEY, None)
     else:
         frequency[_TARGET_SECONDS_KEY] = int(target.total_seconds())
+    node.properties = properties
+    node.save(update_fields=["properties"])
+
+
+def get_declared_anchor(node: Node) -> int | None:
+    """Return the node's declared schedule anchor (minutes past Monday 00:00 UTC), or None."""
+    return (node.properties or {}).get(_SYSTEM_KEY, {}).get(_FREQUENCY_KEY, {}).get(_ANCHOR_MINUTES_KEY)
+
+
+def set_declared_anchor(node: Node, anchor_minutes: int | None) -> None:
+    """Set (or clear, with None) the node's schedule anchor without touching sibling system state."""
+    if anchor_minutes is not None and not 0 <= anchor_minutes < MINUTES_PER_WEEK:
+        raise ValueError(f"anchor_minutes must be in [0, {MINUTES_PER_WEEK}), got {anchor_minutes}")
+    properties = node.properties or {}
+    frequency = properties.setdefault(_SYSTEM_KEY, {}).setdefault(_FREQUENCY_KEY, {})
+    if anchor_minutes is None:
+        frequency.pop(_ANCHOR_MINUTES_KEY, None)
+    else:
+        frequency[_ANCHOR_MINUTES_KEY] = anchor_minutes
     node.properties = properties
     node.save(update_fields=["properties"])
 
@@ -154,6 +175,7 @@ class FrequencyGraph:
     nodes: set[str]  # schedulable (non-TABLE) node ids
     edges: list[tuple[str, str]]  # (upstream_id, downstream_id), includes source tables
     declared_targets: dict[str, timedelta]  # declared per-node targets
+    declared_anchors: dict[str, int]  # declared per-node schedule anchors (minutes past Monday 00:00 UTC)
     source_intervals: dict[str, timedelta]  # per source (TABLE) node
     best_effort_source_ids: set[str]  # sources treated as STREAMING but not guaranteed
 
@@ -168,10 +190,14 @@ def build_frequency_graph(dag: DAG) -> FrequencyGraph:
 
     schedulable = {str(node.id) for node in nodes if node.type != NodeType.TABLE}
     declared_targets: dict[str, timedelta] = {}
+    declared_anchors: dict[str, int] = {}
     for node in nodes:
         target = get_declared_target(node)
         if target is not None:
             declared_targets[str(node.id)] = target
+        anchor = get_declared_anchor(node)
+        if anchor is not None:
+            declared_anchors[str(node.id)] = anchor
 
     source_nodes = [node for node in nodes if node.type == NodeType.TABLE]
     source_intervals, best_effort = resolve_source_intervals(source_nodes)
@@ -180,6 +206,7 @@ def build_frequency_graph(dag: DAG) -> FrequencyGraph:
         nodes=schedulable,
         edges=edges,
         declared_targets=declared_targets,
+        declared_anchors=declared_anchors,
         source_intervals=source_intervals,
         best_effort_source_ids=best_effort,
     )

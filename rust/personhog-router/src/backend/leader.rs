@@ -13,7 +13,7 @@ use tonic::transport::Channel;
 use tonic::{Code, Status};
 use tower::{Service, ServiceExt};
 
-use personhog_common::grpc::current_client_name;
+use personhog_common::grpc::{current_client_name, SEMANTIC_REFUSAL_METADATA_KEY};
 use personhog_common::partitioning::partition_for_person;
 
 use super::stash::{StashDecision, StashTable};
@@ -125,6 +125,22 @@ pub struct LeaderBackend {
     /// handoffs. Consulted before every write; normal operation has no stash
     /// entries and hits the dashmap miss-path once per request.
     stash: StashTable,
+}
+
+/// Whether a bounce leaves the write's fate in doubt.
+///
+/// Only a transport failure does: the leader may have applied the frame
+/// before the connection broke. Every other bounce is a refusal the
+/// leader made before touching anything — including the fenced class,
+/// which carries one exception (a window fenced with its own commit
+/// outcome unknown) that is deliberately not counted here, since
+/// admission refusals are the ordinary traffic of every handoff and
+/// counting the class would swamp the signal.
+pub(crate) fn counts_as_possibly_applied(reason: BounceReason) -> bool {
+    match reason {
+        BounceReason::Transport => true,
+        BounceReason::Fenced | BounceReason::Unrouted => false,
+    }
 }
 
 impl LeaderBackend {
@@ -301,14 +317,31 @@ impl LeaderBackend {
             .send_frame(channel, forward_path, method, partition, headers, frame)
             .await
         {
-            // Every leader use of FailedPrecondition is a routing-race
-            // rejection at admission ("fenced for handoff", "partition
-            // not owned") — never a semantic client error — so it
-            // classifies as a bounce rather than an outcome.
-            Ok((response, _call_ms))
+            // A bare FailedPrecondition is a routing-race rejection
+            // ("fenced for handoff", "partition not owned", a person
+            // fence that clears in healer time) — it classifies as a
+            // bounce rather than an outcome. Almost all are refusals at
+            // admission, where nothing was attempted; the exception is a
+            // window fenced with its own commit outcome unknown, whose
+            // record may already be in the changelog. That case is not
+            // counted as a possible replay: admission refusals are the
+            // ordinary traffic of every handoff, so counting the class
+            // would swamp the signal it exists to carry. The one carve-out
+            // is a semantic refusal (the leader's fail-closed verification
+            // rejections, marked by metadata): that is a final answer
+            // about the request, and bouncing it would exhaust into a
+            // retriable UNAVAILABLE the caller loops on forever.
+            Ok((response, call_ms))
                 if grpc_status_code(&response) == Some(Code::FailedPrecondition as i32) =>
             {
-                ForwardDecision::Bounced(BounceReason::Fenced)
+                if response
+                    .headers()
+                    .contains_key(SEMANTIC_REFUSAL_METADATA_KEY)
+                {
+                    ForwardDecision::Delivered { response, call_ms }
+                } else {
+                    ForwardDecision::Bounced(BounceReason::Fenced)
+                }
             }
             Ok((response, call_ms)) => ForwardDecision::Delivered { response, call_ms },
             Err(_status) => ForwardDecision::Bounced(BounceReason::Transport),
@@ -398,7 +431,7 @@ impl LeaderBackend {
                     return (response, Some(call_ms));
                 }
                 ForwardDecision::Bounced(reason) => {
-                    if reason == BounceReason::Transport {
+                    if counts_as_possibly_applied(reason) {
                         possibly_applied = true;
                     }
                     consecutive_bounces += 1;
@@ -427,6 +460,20 @@ impl LeaderBackend {
 
 #[cfg(test)]
 mod tests {
+    use super::{counts_as_possibly_applied, BounceReason};
+
+    /// Only a transport failure leaves the write's fate in doubt, and
+    /// the distinction drives the replay counter operators consult when
+    /// deciding whether a duplicate write is possible. It had no test at
+    /// all while it lived inline in the forward loop, where reaching it
+    /// needs a live leader and a metrics recorder.
+    #[test]
+    fn only_a_transport_bounce_leaves_the_write_in_doubt() {
+        assert!(counts_as_possibly_applied(BounceReason::Transport));
+        assert!(!counts_as_possibly_applied(BounceReason::Fenced));
+        assert!(!counts_as_possibly_applied(BounceReason::Unrouted));
+    }
+
     use super::*;
 
     fn test_config(num_partitions: u32) -> LeaderBackendConfig {

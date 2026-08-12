@@ -35,6 +35,7 @@ class TestPersonaGetSchemas:
         [
             # (endpoint, supports_incremental, supports_append)
             ("inquiries", True, True),
+            ("verifications", True, True),
             ("accounts", True, True),
             ("cases", True, True),
             ("transactions", True, True),
@@ -54,12 +55,20 @@ class TestPersonaGetSchemas:
         schemas = PersonaSource().get_schemas(MagicMock(), team_id=1, names=["cases"])
         assert [s.name for s in schemas] == ["cases"]
 
+    def test_verifications_is_not_preselected(self) -> None:
+        # Verifications cost one extra request per inquiry, so they're opt-in while everything else
+        # stays pre-selected.
+        schemas = {s.name: s for s in PersonaSource().get_schemas(MagicMock(), team_id=1)}
+        assert schemas["verifications"].should_sync_default is False
+        assert all(s.should_sync_default for name, s in schemas.items() if name != "verifications")
+
     def test_lists_tables_without_credentials(self) -> None:
         # Static endpoint catalog (no I/O), so the public docs render the table list.
         assert PersonaSource.lists_tables_without_credentials is True
         tables = PersonaSource().get_documented_tables()
         assert {t["name"] for t in tables} == {
             "inquiries",
+            "verifications",
             "accounts",
             "cases",
             "transactions",

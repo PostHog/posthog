@@ -6,6 +6,7 @@ from temporalio import activity
 from posthog.sync import database_sync_to_async_pool
 from posthog.temporal.data_modeling.activities.utils import bind_data_modeling_log_context
 
+from products.data_modeling.backend.facade.api import promote_view_nodes_to_matview
 from products.data_modeling.backend.facade.models import DataWarehouseSavedQuery
 from products.data_warehouse.backend.facade.api import create_table_from_saved_query
 from products.warehouse_sources.backend.facade.models import DataWarehouseTable
@@ -44,6 +45,10 @@ def _update_saved_query_with_table(
 
     saved_query_table.row_count = inputs.row_count
     saved_query_table.save()
+
+    # The table is what makes the query a matview, so this is the one place that always knows the
+    # node type is stale — every other materialization entry point can leave it behind.
+    promote_view_nodes_to_matview(saved_query)
 
 
 @dataclasses.dataclass

@@ -61,12 +61,19 @@ text-card-foreground`; borders `border-border`. Never a hardcoded hex or light-o
 - Write Unicode glyphs (curly quotes, ellipsis, arrows, emoji) as literal characters in JSX —
   `\uXXXX` escapes render verbatim in JSX text.
 
-## Loading states
+## Loading, error, and empty states
 
 Every data point renders a skeleton in its own `Card` while loading or refreshing: `SkeletonText`
 (matching `lines` and text-size `className`) for text/number values, `Skeleton` for blocks/charts.
 Drive `isLoading` off the data calls and set it true again on refresh; never show a blank or a
-jumping layout, and handle the empty/error case.
+jumping layout.
+
+A failed query and an empty result are different states — never let one render as the other.
+`.catch` on every `ph.query`/`ph.loadInsight` must set an error state that renders visibly (the
+message plus a Retry button wired to the refresh nonce, as in the starter scaffold), not fall
+through to zeros, an empty chart, or a "no data yet" message. A query that silently swallows its
+error makes real breakage (a missing table, an auth failure, a bad query) look like missing data.
+Reserve the empty state for a query that succeeded with no rows.
 
 ## Date window
 

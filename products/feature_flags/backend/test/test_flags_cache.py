@@ -8,6 +8,7 @@ Tests cover:
 - Data format compatibility with service
 """
 
+import copy
 import json
 from datetime import UTC, datetime
 from pathlib import Path
@@ -28,10 +29,12 @@ from parameterized import parameterized
 
 from posthog.kafka_client.topics import KAFKA_FLAGS_CACHE_INVALIDATION
 from posthog.models import Team
+from posthog.storage.cache_expiry_manager import CacheRefreshCounts
 
 from products.cohorts.backend.models.cohort import Cohort
 from products.experiments.backend.models.experiment import Experiment
 from products.feature_flags.backend.flags_cache import (
+    _blank_inactive_filters,
     _compare_flag_fields,
     _compute_flag_dependencies,
     _extract_cohort_ids_from_flag_filters,
@@ -1147,6 +1150,7 @@ class TestServiceFlagsDataFormat(BaseTest):
             },
             last_backfill_person_properties_at=datetime(2024, 1, 15, 12, 0, 0, tzinfo=UTC),
             last_backfill_events_at=datetime(2024, 1, 15, 12, 0, 0, tzinfo=UTC),
+            last_realtime_cohort_calculation_at=datetime(2024, 1, 15, 12, 0, 0, tzinfo=UTC),
         )
 
         # 1) full-flag: exercises all optional nested structures.
@@ -1580,13 +1584,13 @@ class TestBatchOperations(BaseTest):
             refresh_expiring_flags_caches,
         )
 
-        mock_refresh.return_value = (2, 0)  # successful, failed
+        mock_refresh.return_value = CacheRefreshCounts(successful=2, failed=0)
 
-        successful, failed = refresh_expiring_flags_caches(ttl_threshold_hours=24)
+        counts = refresh_expiring_flags_caches(ttl_threshold_hours=24)
 
         # Should return result from generic function
-        self.assertEqual(successful, 2)
-        self.assertEqual(failed, 0)
+        self.assertEqual(counts.successful, 2)
+        self.assertEqual(counts.failed, 0)
 
         # Should call generic refresh_expiring_caches with correct config
         mock_refresh.assert_called_once_with(FLAGS_HYPERCACHE_MANAGEMENT_CONFIG, 24, settings.FLAGS_CACHE_REFRESH_LIMIT)
@@ -3119,6 +3123,39 @@ class TestExtractDirectDependencyIds:
         assert _extract_direct_dependency_ids(flag) == expected
 
 
+class TestBlankInactiveFilters:
+    @parameterized.expand(
+        [
+            ("active_flag_keeps_filters", _make_flag(1, "flag_a", deps=[2]), False),
+            ("inactive_flag_blanked", _make_flag(1, "flag_a", deps=[2], active=False), True),
+            ("deleted_flag_blanked", _make_flag(1, "flag_a", deps=[2], deleted=True), True),
+        ]
+    )
+    def test_blanks_only_unevaluatable_flags(self, _name, flag, expect_blanked):
+        # `payloads` makes clearing only `groups` distinguishable from replacing the whole
+        # dict. A partial clear would keep keys the Rust writer drops, splitting the etag.
+        flag["filters"]["payloads"] = {"true": "payload"}
+        original_filters = copy.deepcopy(flag["filters"])
+
+        _blank_inactive_filters([flag])
+
+        if expect_blanked:
+            assert flag["filters"] == {"groups": []}
+        else:
+            assert flag["filters"] == original_filters
+
+    def test_absent_active_key_keeps_filters(self):
+        # A serializer that stops emitting ``active`` must not overwrite every flag's
+        # targeting in the payload, so the default fails toward keeping filters.
+        flag = _make_flag(1, "flag_a", deps=[2])
+        del flag["active"]
+        original_filters = copy.deepcopy(flag["filters"])
+
+        _blank_inactive_filters([flag])
+
+        assert flag["filters"] == original_filters
+
+
 class TestComputeFlagDependencies:
     def test_no_dependencies(self):
         flags = [_make_flag(1, "flag_a"), _make_flag(2, "flag_b")]
@@ -3331,6 +3368,82 @@ class TestComputeFlagDependenciesIntegration(BaseTest):
         assert ctx["transitive_deps"][str(flag_b.id)] == [flag_c.id]
         assert ctx["transitive_deps"][str(flag_c.id)] == []
         assert ctx["dependency_stages"] == [[flag_c.id], [flag_b.id], [flag_a.id]]
+
+
+@override_settings(FLAGS_REDIS_URL="redis://test")
+class TestBlankInactiveFiltersInPayload(BaseTest):
+    def _targeting(self):
+        # `payloads` makes the blanked assertions prove the whole dict was replaced rather
+        # than just `groups` emptied, which would leave keys the Rust writer drops.
+        return {"groups": [{"properties": [], "rollout_percentage": 100}], "payloads": {"true": "payload"}}
+
+    def _create_flags(self):
+        active = FeatureFlag.objects.create(
+            team=self.team, key="active-flag", created_by=self.user, filters=self._targeting()
+        )
+        disabled = FeatureFlag.objects.create(
+            team=self.team, key="disabled-flag", created_by=self.user, active=False, filters=self._targeting()
+        )
+        # The archived_flag_must_be_disabled constraint means archived flags are always
+        # inactive, so they are blanked by the same check rather than one of their own.
+        archived = FeatureFlag.objects.create(
+            team=self.team,
+            key="archived-flag",
+            created_by=self.user,
+            active=False,
+            archived=True,
+            filters=self._targeting(),
+        )
+        return active, disabled, archived
+
+    def _assert_blanked(self, flags_data, active, disabled, archived):
+        by_id = {f["id"]: f for f in flags_data}
+
+        assert by_id.keys() == {active.id, disabled.id, archived.id}
+        assert by_id[active.id]["filters"] == self._targeting()
+        assert by_id[disabled.id]["filters"] == {"groups": []}
+        assert by_id[archived.id]["filters"] == {"groups": []}
+
+    def test_single_team_payload_blanks_inactive_filters(self):
+        active, disabled, archived = self._create_flags()
+
+        result = _get_feature_flags_for_service(self.team)
+
+        self._assert_blanked(result["flags"], active, disabled, archived)
+
+    def test_batch_payload_blanks_inactive_filters(self):
+        active, disabled, archived = self._create_flags()
+
+        result = _get_feature_flags_for_teams_batch([self.team])
+
+        self._assert_blanked(result[self.team.id]["flags"], active, disabled, archived)
+
+    def test_dependency_on_disabled_flag_survives_blanking(self):
+        disabled = FeatureFlag.objects.create(
+            team=self.team, key="disabled-dep", created_by=self.user, active=False, filters=self._targeting()
+        )
+        dependent = FeatureFlag.objects.create(
+            team=self.team,
+            key="dependent",
+            created_by=self.user,
+            filters={
+                "groups": [
+                    {
+                        "properties": [
+                            {"type": "flag", "key": str(disabled.id), "value": ["true"], "operator": "exact"}
+                        ],
+                        "rollout_percentage": 100,
+                    }
+                ]
+            },
+        )
+
+        result = _get_feature_flags_for_service(self.team)
+
+        # The disabled flag keeps its entry so the matcher can seed it as false rather
+        # than failing the dependent flag with DependencyNotFound.
+        assert {f["id"] for f in result["flags"]} == {disabled.id, dependent.id}
+        assert result["evaluation_metadata"]["transitive_deps"][str(dependent.id)] == [disabled.id]
 
 
 @override_settings(FLAGS_REDIS_URL="redis://test")
@@ -3613,6 +3726,7 @@ class TestSerializeCohort(BaseTest):
             team=self.team,
             name="Test",
             description="A test cohort",
+            last_realtime_cohort_calculation_at=datetime(2024, 1, 15, 12, 0, 0, tzinfo=UTC),
             filters={
                 "properties": {
                     "type": "OR",
@@ -3622,7 +3736,7 @@ class TestSerializeCohort(BaseTest):
         )
         result = _serialize_cohort(cohort)
 
-        # Hypercache/service cohort schema: these 19 fields must always be present in the serialized payload
+        # Hypercache/service cohort schema: every one of these fields must be present in the serialized payload
         expected_fields = {
             "id",
             "name",
@@ -3643,6 +3757,7 @@ class TestSerializeCohort(BaseTest):
             "condition_type",
             "last_backfill_person_properties_at",
             "last_backfill_events_at",
+            "last_realtime_cohort_calculation_at",
         }
         assert set(result.keys()) == expected_fields
         assert result["id"] == cohort.id
@@ -3651,6 +3766,10 @@ class TestSerializeCohort(BaseTest):
         assert result["deleted"] is False
         assert result["is_static"] is False
         assert result["is_calculating"] is False
+        assert result["last_realtime_cohort_calculation_at"] == "2024-01-15T12:00:00+00:00"
+
+        cohort.last_realtime_cohort_calculation_at = None
+        assert _serialize_cohort(cohort)["last_realtime_cohort_calculation_at"] is None
 
 
 @override_settings(FLAGS_REDIS_URL="redis://test")
@@ -3976,3 +4095,35 @@ class TestCompareFlagFieldsLooseness(unittest.TestCase):
         diffs = _compare_flag_fields(db_flag, cached_flag)
         self.assertEqual(len(diffs), 1)
         self.assertEqual(diffs[0]["field"], expected_field)
+
+    def test_blanked_filters_tolerance_is_opt_in(self) -> None:
+        # flags.json blanks an inactive flag's filters, so an entry still holding the full
+        # blob is not drift there. flags_with_cohorts.json shares this function and never
+        # blanks, so the same difference is real drift that a repair can settle.
+        db_flag = _flag(active=False, filters={"groups": []})
+        cached_flag = _flag(active=False, filters={"groups": [{"properties": [], "rollout_percentage": 100}]})
+
+        self.assertEqual(_compare_flag_fields(db_flag, cached_flag, tolerate_blanked_filters=True), [])
+
+        diffs = _compare_flag_fields(db_flag, cached_flag)
+        self.assertEqual([d["field"] for d in diffs], ["filters"])
+
+    @parameterized.expand(
+        [
+            # Even with the tolerance on, only a flag both sides agree is inactive gets it.
+            # An active flag's filters are what the matcher evaluates, and a cache entry
+            # still marked inactive after the flag was re-enabled is stale, so suppressing
+            # either would hide targeting the matcher is using.
+            ("both_active", True, True, {"filters"}),
+            ("reenabled_but_cache_stale", True, False, {"active", "filters"}),
+        ]
+    )
+    def test_tolerance_only_applies_when_both_sides_are_inactive(
+        self, _name: str, db_active: bool, cached_active: bool, expected_fields: set[str]
+    ) -> None:
+        db_flag = _flag(active=db_active, filters={"groups": [{"properties": [], "rollout_percentage": 100}]})
+        cached_flag = _flag(active=cached_active, filters={"groups": []})
+
+        diffs = _compare_flag_fields(db_flag, cached_flag, tolerate_blanked_filters=True)
+
+        self.assertEqual({d["field"] for d in diffs}, expected_fields)

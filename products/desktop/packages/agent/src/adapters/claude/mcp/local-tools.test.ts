@@ -79,4 +79,27 @@ describe("createLocalToolsMcpServer", () => {
 
     await client.close();
   });
+
+  it("exposes lazy repository tools in a repository-less cloud run", async () => {
+    const server = createLocalToolsMcpServer(
+      { cwd: "/tmp/workspace", token: "ghs_x" },
+      { environment: "cloud", channelMode: true },
+    );
+    if (!server) {
+      throw new Error("expected the local-tools server to be registered");
+    }
+
+    const [clientTransport, serverTransport] =
+      InMemoryTransport.createLinkedPair();
+    await server.instance.connect(serverTransport);
+    const client = new Client({ name: "test", version: "1.0.0" });
+    await client.connect(clientTransport);
+
+    const { tools } = await client.listTools();
+    const names = tools.map((tool) => tool.name);
+    expect(names).toContain("list_repos");
+    expect(names).toContain("clone_repo");
+
+    await client.close();
+  });
 });

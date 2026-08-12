@@ -16,9 +16,9 @@ use chrono::{DateTime, Duration as ChronoDuration, Utc};
 use cohort_core::filters::{CohortId, TeamId};
 use cohort_core::partitioner::COHORT_PARTITION_COUNT;
 use cohort_seeder::domain::{
-    CompletionPhase, DispatchEpoch, MarkerPartition, MarkerWatch, MembershipPartition, NextOffset,
-    ObservationEnds, PartitionBitmap, PersonShapeHash, ProducedOffset, ReconcileHwms,
-    ReconcileScope, RunId, SeedPartition, UndispatchedReason, WatchPositions,
+    CompletionPhase, DispatchEpoch, MarkerPartition, MarkerWatch, NextOffset, ObservationEnds,
+    PartitionBitmap, PersonShapeHash, ProducedOffset, ReconcileHwms, ReconcileScope, RunId,
+    SeedPartition, UndispatchedReason, WatchPartition, WatchPositions,
 };
 use cohort_seeder::store::chunks::PgChunkStore;
 use cohort_seeder::store::completion::{
@@ -44,6 +44,7 @@ use support::{
 };
 
 const ONE_BAND: NonZeroU16 = NonZeroU16::MIN;
+const MARKER_TOPIC: &str = "cohort_reconcile_markers";
 /// What discovery binds once `SEEDER_PERSON_SEEDS_ENABLED` is on.
 const BOTH_KINDS: &[RunKind] = &[RunKind::Behavioral, RunKind::PersonProperty];
 
@@ -63,15 +64,13 @@ fn full_hwms() -> ReconcileHwms {
 
 fn captured_ends() -> ObservationEnds {
     let mut ends = ObservationEnds::new();
-    ends.insert(
-        MembershipPartition::new(0),
-        NextOffset::from_high_watermark(10),
-    );
+    ends.insert(WatchPartition::new(0), NextOffset::from_high_watermark(10));
     ends
 }
 
 fn empty_watch() -> MarkerWatch {
     MarkerWatch {
+        topic: MARKER_TOPIC.to_string(),
         positions: WatchPositions::new(),
         ends: None,
     }
@@ -109,12 +108,19 @@ async fn completion_discovery_is_gated_by_the_allowed_kinds() -> Result<()> {
     with_db(|pool| async move {
         let person_run = insert_person_run(&pool, 2, "seeding", true, person_pinned(&[])).await?;
 
-        let dark = discover_completions(&pool, &TeamAllowlist::All, &[RunKind::Behavioral]).await?;
+        let dark = discover_completions(
+            &pool,
+            &TeamAllowlist::All,
+            &[RunKind::Behavioral],
+            MARKER_TOPIC,
+        )
+        .await?;
         ensure!(dark
             .iter()
             .all(|completion| completion.run_id != person_run));
 
-        let lit = discover_completions(&pool, &TeamAllowlist::All, BOTH_KINDS).await?;
+        let lit =
+            discover_completions(&pool, &TeamAllowlist::All, BOTH_KINDS, MARKER_TOPIC).await?;
         let discovered = lit
             .iter()
             .find(|completion| completion.run_id == person_run)
@@ -356,7 +362,8 @@ async fn revert_clears_the_dispatch_record_and_returns_to_seeding() -> Result<()
         .await?;
         ensure!(status == "seeding" && cleared);
 
-        let discovered = discover_completions(&pool, &TeamAllowlist::All, BOTH_KINDS).await?;
+        let discovered =
+            discover_completions(&pool, &TeamAllowlist::All, BOTH_KINDS, MARKER_TOPIC).await?;
         let phase = discovered
             .iter()
             .find(|completion| completion.run_id == run_id)
@@ -419,6 +426,7 @@ async fn record_is_fenced_against_a_dispatch_recorded_after_the_claim() -> Resul
             epoch,
             &[(CohortId(301), PartitionBitmap::from_bits(3)?)],
             &WatchPositions::new(),
+            MARKER_TOPIC,
         )
         .await?;
 
@@ -550,7 +558,9 @@ async fn fenced_writes_reject_stale_epoch_and_wrong_status() -> Result<()> {
                     .execute(&pool)
                     .await?;
             }
-            ensure_fence_lost(persist_observation_ends(&pool, run_id, at, &captured_ends()).await)?;
+            ensure_fence_lost(
+                persist_observation_ends(&pool, run_id, at, &captured_ends(), MARKER_TOPIC).await,
+            )?;
             ensure_fence_lost(
                 persist_marker_observations(
                     &pool,
@@ -558,6 +568,7 @@ async fn fenced_writes_reject_stale_epoch_and_wrong_status() -> Result<()> {
                     at,
                     &bit_updates,
                     &WatchPositions::new(),
+                    MARKER_TOPIC,
                 )
                 .await,
             )?;
@@ -689,12 +700,9 @@ async fn capturing_ends_leaves_the_watcher_positions_alone() -> Result<()> {
         let epoch = claim.record(&pool, &full_hwms(), &empty_watch()).await?;
 
         let mut advanced = WatchPositions::new();
-        advanced.insert(
-            MembershipPartition::new(0),
-            NextOffset::from_high_watermark(42),
-        );
-        persist_marker_observations(&pool, run_id, epoch, &[], &advanced).await?;
-        persist_observation_ends(&pool, run_id, epoch, &captured_ends()).await?;
+        advanced.insert(WatchPartition::new(0), NextOffset::from_high_watermark(42));
+        persist_marker_observations(&pool, run_id, epoch, &[], &advanced, MARKER_TOPIC).await?;
+        persist_observation_ends(&pool, run_id, epoch, &captured_ends(), MARKER_TOPIC).await?;
 
         let watch: Json<MarkerWatch> =
             sqlx::query_scalar("SELECT marker_watch FROM cohort_backfill_runs WHERE id = $1")
@@ -702,7 +710,7 @@ async fn capturing_ends_leaves_the_watcher_positions_alone() -> Result<()> {
                 .fetch_one(&pool)
                 .await?;
         ensure!(
-            watch.0.positions.get(MembershipPartition::new(0))
+            watch.0.positions.get(WatchPartition::new(0))
                 == Some(NextOffset::from_high_watermark(42)),
             "capturing the ends regressed the watcher positions"
         );
@@ -731,7 +739,8 @@ async fn unreconcilable_runs_are_marked_observed_for_django() -> Result<()> {
         ensure!(observed_stamp.is_some());
         // Observing it is what removes it from the driver's working set: everything left is
         // Django's, and the gauge reads it from the aggregate instead.
-        let discovered = discover_completions(&pool, &TeamAllowlist::All, BOTH_KINDS).await?;
+        let discovered =
+            discover_completions(&pool, &TeamAllowlist::All, BOTH_KINDS, MARKER_TOPIC).await?;
         ensure!(!discovered
             .iter()
             .any(|completion| completion.run_id == stranded));
@@ -775,6 +784,7 @@ async fn marker_observations_or_merge_round_trip_including_bit_63() -> Result<()
             epoch,
             &[(CohortId(401), low)],
             &WatchPositions::new(),
+            MARKER_TOPIC,
         )
         .await?;
 
@@ -786,6 +796,7 @@ async fn marker_observations_or_merge_round_trip_including_bit_63() -> Result<()
             epoch,
             &[(CohortId(401), high)],
             &WatchPositions::new(),
+            MARKER_TOPIC,
         )
         .await?;
 
@@ -814,9 +825,9 @@ async fn marker_observations_or_merge_round_trip_including_bit_63() -> Result<()
     .await
 }
 
-/// Discovery classifies each completion phase, including a reconciling run whose completion
-/// columns are all NULL — and drops the observed run, whose remaining work is Django's, while the
-/// reconciling-run count still reports it.
+/// Discovery classifies each completion phase, including a reconciling run whose completion columns
+/// are all NULL and one whose persisted watch names a different marker topic — and drops the observed
+/// run, whose remaining work is Django's, while the reconciling-run count still reports it.
 #[tokio::test]
 async fn discovery_classifies_each_phase_and_drops_observed_runs() -> Result<()> {
     with_db(|pool| async move {
@@ -853,7 +864,26 @@ async fn discovery_classifies_each_phase_and_drops_observed_runs() -> Result<()>
         let epoch = claim.record(&pool, &full_hwms(), &empty_watch()).await?;
         mark_run_observed(&pool, observed, epoch).await?;
 
-        let discovered = discover_completions(&pool, &TeamAllowlist::All, BOTH_KINDS).await?;
+        // A watch recorded against the topic markers used to ride. Its offsets name a different log,
+        // so resuming on them would settle the run against positions it never read.
+        let moved = insert_reconciling_run(&pool, 7).await?;
+        insert_participation(&pool, moved, 7, 701, false, empty_pinned()).await?;
+        let claim = confirm_reconciling(&pool, moved, RunKind::Behavioral)
+            .await?
+            .context("moved run should be claimable")?;
+        let _ = claim
+            .record(
+                &pool,
+                &full_hwms(),
+                &MarkerWatch {
+                    topic: "cohort_membership_changed_shadow".to_string(),
+                    ..empty_watch()
+                },
+            )
+            .await?;
+
+        let discovered =
+            discover_completions(&pool, &TeamAllowlist::All, BOTH_KINDS, MARKER_TOPIC).await?;
         let phase = |run| {
             discovered
                 .iter()
@@ -872,19 +902,25 @@ async fn discovery_classifies_each_phase_and_drops_observed_runs() -> Result<()>
                     UndispatchedReason::NeverDispatched
                 ))
         );
+        ensure!(
+            phase(moved)
+                == Some(CompletionPhase::ReconcilingUndispatched(
+                    UndispatchedReason::TopicChanged
+                ))
+        );
         // Dropped from discovery rather than hydrated and matched away: a run parked here behind
         // Django's readiness gate would otherwise cost two per-partition JSONB decodes every tick.
         ensure!(phase(observed).is_none());
 
-        // The three reconciling runs, observed or not, all still reach the gauge.
+        // Every reconciling run, observed or not, still reaches the gauge.
         let counts = count_reconciling_by_kind(&pool, &TeamAllowlist::All, BOTH_KINDS).await?;
-        ensure!(counts.get(&RunKind::Behavioral) == Some(&3));
+        ensure!(counts.get(&RunKind::Behavioral) == Some(&4));
         ensure!(!counts.contains_key(&RunKind::PersonProperty));
 
         // Both statements have a team-scoped variant, and dev — where this rollout lands first —
         // is the environment that runs allowlisted.
         let allowlisted = TeamAllowlist::Only([4, 6].into_iter().collect());
-        let scoped = discover_completions(&pool, &allowlisted, BOTH_KINDS).await?;
+        let scoped = discover_completions(&pool, &allowlisted, BOTH_KINDS, MARKER_TOPIC).await?;
         ensure!(scoped.iter().map(|row| row.run_id).eq([dispatched]));
         let scoped_counts = count_reconciling_by_kind(&pool, &allowlisted, BOTH_KINDS).await?;
         ensure!(scoped_counts.get(&RunKind::Behavioral) == Some(&2));

@@ -73,9 +73,6 @@ vi.mock("@posthog/ui/features/sidebar/components/ProjectSwitcher", () => ({
 vi.mock("@posthog/ui/features/sidebar/components/UpdateBanner", () => ({
   UpdateBanner: () => null,
 }));
-vi.mock("@posthog/ui/features/loops/components/LoopsPromoCard", () => ({
-  LoopsPromoCard: () => null,
-}));
 vi.mock("@posthog/ui/features/workspace/useWorkspace", () => ({
   useWorkspaces: () => ({ data: {}, isFetched: true }),
 }));

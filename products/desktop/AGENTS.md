@@ -119,6 +119,7 @@ For each new file or meaningful change:
 - Bespoke clients that wrap `trpcClient.x` one-to-one.
 - `*Port`, `*_PORT`, or `ports.ts` naming.
 - Business logic in `apps/<host>`.
+- New ad-hoc broad in-app announcement or promo surfaces (flag-gated promo cards, dismissible banners, one-time modals). Broad announcements are remotely controlled via the `posthog-desktop-announcements` flag payload — see [docs/ANNOUNCEMENTS.md](./docs/ANNOUNCEMENTS.md).
 
 ## Host Boundary
 
@@ -208,6 +209,7 @@ await boot(container);
 ## Commands
 
 - `pnpm install`: install dependencies.
+- `pnpm bootstrap:cloud-task`: link dependencies from the prebaked pnpm store without running unrelated app install hooks, then build the packages required before scoped typechecks in cloud tasks.
 - `pnpm dev`: run agent watch and desktop app.
 - `pnpm build`: build all packages.
 - `pnpm typecheck`: typecheck all packages.
@@ -327,6 +329,7 @@ See [docs/testing.md](./docs/testing.md).
 - [docs/architecture.md](./docs/architecture.md)
 - [docs/conventions.md](./docs/conventions.md)
 - [docs/testing.md](./docs/testing.md)
+- [docs/ANNOUNCEMENTS.md](./docs/ANNOUNCEMENTS.md)
 - [docs/DEEP-LINKS.md](./docs/DEEP-LINKS.md)
 - [docs/LOCAL-DEVELOPMENT.md](./docs/LOCAL-DEVELOPMENT.md)
 - [docs/UPDATES.md](./docs/UPDATES.md)

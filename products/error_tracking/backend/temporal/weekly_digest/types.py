@@ -10,35 +10,50 @@ class WeeklyDigestInputs:
     # targeted manual runs.
     dry_run: bool = True
     org_ids: list[str] | None = None
-    # How many per-org activities run at once (bounds ClickHouse load and webhook rate).
+    # How many per-org activities run at once within each page (bounds ClickHouse load
+    # and webhook rate per page).
     max_concurrent: int = 10
     # Total executions per org activity: initial run + 5 retries. The final attempt sends
     # partial digests instead of deferring recipients whose teams failed to build.
     max_attempts: int = 6
-    # Orgs handled per page. Per-org activity history lives in the page child workflows;
-    # the parent still records ~80KB per page (discovery result + child input), so it
-    # holds to roughly 600k orgs before nearing Temporal's 50MB history cap.
+    # Orgs handled per page child workflow. Bounds each page's history and the size of
+    # the org-id slice its load activity returns (~40KB per 1000 orgs).
     page_size: int = 1000
-    # Pages processed concurrently as child workflows. The global org-activity target is
-    # max_concurrent_pages * max_concurrent — keep it at or below the worker fleet's
-    # activity-slot capacity (35 in prod) or the extra pages just queue.
-    max_concurrent_pages: int = 3
 
 
 @dataclasses.dataclass(frozen=True)
 class GetDigestOrgsInputs:
+    # Object storage key the discovered org ids are written to. Discovery returns only this
+    # key and a count, keeping the discovered org list out of workflow history no matter how
+    # many orgs it finds. A targeted manual run still passes its org_ids through directly.
+    storage_key: str
     org_ids: list[str] | None = None
-    # Keyset page bounds: return at most ``limit`` org ids, sorted, strictly greater
-    # than ``after``. The candidate set is recomputed each call; sorting makes paging
-    # stable so an org can never be returned in two pages.
-    after: str | None = None
-    limit: int = 1000
+
+
+@dataclasses.dataclass(frozen=True)
+class GetDigestOrgsResult:
+    total_orgs: int
+
+
+@dataclasses.dataclass(frozen=True)
+class CleanupDigestOrgsInputs:
+    storage_key: str
+
+
+@dataclasses.dataclass(frozen=True)
+class LoadPageOrgsInputs:
+    storage_key: str
+    # 1-based page number into the stored sorted org list; the activity returns the
+    # [page_size * (page_number - 1), page_size * page_number) slice.
+    page_number: int
+    page_size: int
 
 
 @dataclasses.dataclass(frozen=True)
 class WeeklyDigestPageInputs:
-    # ~40 bytes per org id: a 1000-org page rides well under the 2 MiB payload cap.
-    org_ids: list[str]
+    storage_key: str
+    page_number: int
+    page_size: int
     dry_run: bool = True
     max_concurrent: int = 10
     max_attempts: int = 6
