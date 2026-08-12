@@ -92,20 +92,24 @@ jobs:
             || startsWith(github.head_ref, 'trunk-merge/')
             || !contains(github.event.pull_request.labels.*.name, 'no-ci')
         name: Determine need to run backend and migration checks
-        # Set job outputs to values from filter step
+        # Set job outputs to values from filter step. Booleans that gate whole jobs come
+        # from the push-delta `filter` step; the lists that scope work inside a job come
+        # from the whole-pull-request `whole_pr` step. Read both steps before moving one.
         outputs:
             backend: ${{ steps.filter.outputs.backend || 'true' }}
+            # Lists the pushed commits' files, not the pull request's. Unconsumed today —
+            # anything that scopes a check to it would validate a subset and report green.
             backend_files: ${{ steps.filter.outputs.backend_files }}
             migrations: ${{ steps.filter.outputs.migrations || 'true' }}
-            migrations_files: ${{ steps.filter.outputs.migrations_files }}
+            migrations_files: ${{ steps.whole_pr.outputs.migrations_files }}
             migrations_any: ${{ steps.filter.outputs.migrations_any || 'true' }}
             persons_sql: ${{ steps.filter.outputs.persons_sql || 'true' }}
             tasks_temporal: ${{ steps.filter.outputs.tasks_temporal || 'true' }}
             openapi_types: ${{ steps.filter.outputs.openapi_types || 'true' }}
             legacy: ${{ steps.filter.outputs.legacy || 'true' }}
             schema: ${{ steps.filter.outputs.schema || 'true' }}
-            product_yamls: ${{ steps.filter.outputs.product_yamls || 'false' }}
-            product_yamls_files: ${{ steps.filter.outputs.product_yamls_files }}
+            product_yamls: ${{ steps.whole_pr.outputs.product_yamls || 'false' }}
+            product_yamls_files: ${{ steps.whole_pr.outputs.product_yamls_files }}
             timing_scripts: ${{ steps.filter.outputs.timing_scripts }}
         steps:
             # For pull requests it's not necessary to checkout the code, but we
@@ -131,6 +135,17 @@ jobs:
               with:
                   token: ${{ steps.app-token.outputs.token || github.token }}
                   list-files: 'escape'
+                  # Filter on the pushed commits rather than the whole pull request, so a
+                  # follow-up push touching no backend code doesn't boot Postgres and
+                  # ClickHouse for the Django matrices and the migration checks again.
+                  # Only the gate booleans above read this step — the `whole_pr` step below
+                  # keeps the file lists on the full diff.
+                  # Pull request runs cancel in progress, so an earlier push's run can be
+                  # cancelled while this one filters itself out — the merge queue's full diff
+                  # against master is what still catches that, so its own runs must keep
+                  # filtering on the whole pull request.
+                  # See .github/actions/paths-filter/README.md.
+                  since-last-push: ${{ !startsWith(github.head_ref, 'trunk-merge/') }}
                   filters: |
                       backend:
                         # Avoid running backend tests for irrelevant changes
@@ -290,15 +305,6 @@ jobs:
                         - '.github/scripts/turbo-discover.js'
                       tasks_temporal:
                         - 'products/tasks/backend/temporal/**/*'
-                      product_yamls:
-                        # Validates owner team slugs against PostHog/posthog collaborator teams,
-                        # and lints the distributed owners.yaml files (schema, conflicts, dead
-                        # globs, coverage). Costs one GitHub API call; gated here so we only pay
-                        # it when ownership actually changes. Drives the validate-product-yamls job.
-                        - 'products/*/product.yaml'
-                        - '**/owners.yaml'
-                        # Resolver changes must re-run the owners.yaml lint too.
-                        - 'tools/owners/**'
                       openapi_types:
                         # Generated OpenAPI types - validate they match schema
                         - 'frontend/src/generated/**/*'
@@ -325,6 +331,40 @@ jobs:
                         # Exec command reference templates - feed generate-exec-docs.ts
                         - 'services/mcp/src/templates/sections/**/*'
                         - 'services/mcp/schema/exec-command-reference.md'
+
+            # A second pass over the whole pull request, for the outputs that scope work
+            # inside a job instead of gating whether it runs: the migration safety check
+            # validates `migrations_files`, and the owners lint reads `product_yamls_files`.
+            # Scoped to the pushed commits, both would check a subset of the pull request
+            # and still report green — a push that adds no migration would validate none of
+            # the ones the pull request already carries.
+            - uses: ./.github/actions/paths-filter
+              id: whole_pr
+              if: github.event_name != 'push'
+              with:
+                  token: ${{ steps.app-token.outputs.token || github.token }}
+                  list-files: 'escape'
+                  filters: |
+                      # Duplicated from the step above, which needs the boolean on the push
+                      # delta to gate check-migrations. One run reports one basis, so a
+                      # filter needed on both bases is declared on both. Keep them in step.
+                      migrations:
+                        - 'docker/clickhouse/**'
+                        - 'posthog/migrations/*.py'
+                        - 'products/*/backend/migrations/*.py'
+                        - 'products/*/migrations/*.py'  # Legacy structure
+                      # Validates owner team slugs against PostHog/posthog collaborator teams,
+                      # and lints the distributed owners.yaml files (schema, conflicts, dead
+                      # globs, coverage). Costs one GitHub API call; gated here so we only pay
+                      # it when ownership actually changes. Drives the validate-product-yamls job.
+                      # Whole-pull-request on both the gate and the list: the lint is cheap and
+                      # scopes itself to the list, so narrowing it buys little and risks a
+                      # green run that linted none of the pull request's owners.yaml changes.
+                      product_yamls:
+                        - 'products/*/product.yaml'
+                        - '**/owners.yaml'
+                        # Resolver changes must re-run the owners.yaml lint too.
+                        - 'tools/owners/**'
 
     detect-snapshot-mode:
         name: Detect snapshot mode

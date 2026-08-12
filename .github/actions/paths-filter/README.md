@@ -108,6 +108,16 @@ Enable this on suites where that trade is worth the runner time, and keep the me
 Detection is per invocation,
 so a workflow can gate cheap jobs on the push delta
 while a second step keeps the whole-pull-request `*_files` lists that test selection and lint scoping need.
+`ci-backend.yml` is the reference for that split:
+its `filter` step reports the push delta and drives the gate booleans,
+its `whole_pr` step reports the full diff and drives `migrations_files` and `product_yamls_files`.
+A list narrowed to one push would make a check validate a subset of the pull request and still report green.
+
+Selection that walks an import graph — snob, `jest --findRelatedTests`, the Rust affected-crate computation —
+must keep diffing the whole pull request against its base branch.
+Those selectors are monotone on the full diff: every run covers everything the pull request touches.
+Scope one to a push delta and coverage decays with each push,
+because a later push's run selects nothing for an earlier push's files.
 
 ## Rebuilding after source changes
 

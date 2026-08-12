@@ -45,6 +45,14 @@ jobs:
               if: github.event_name != 'push' # Run all tests on master push
               with:
                   token: ${{ steps.app-token.outputs.token || github.token }}
+                  # Filter on the pushed commits rather than the whole pull request, so a
+                  # follow-up push touching no Rust doesn't rebuild and retest the affected
+                  # crates again. Pull request runs cancel in progress, so an earlier push's
+                  # run can be cancelled while this one filters itself out — the merge
+                  # queue's full diff against master is what still catches that, so its own
+                  # runs must keep filtering on the whole pull request.
+                  # See .github/actions/paths-filter/README.md.
+                  since-last-push: ${{ !startsWith(github.head_ref, 'trunk-merge/') }}
                   filters: |
                       rust:
                         # Avoid running rust tests for irrelevant changes

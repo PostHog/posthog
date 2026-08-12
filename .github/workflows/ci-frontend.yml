@@ -77,6 +77,15 @@ jobs:
               if: github.event_name != 'push' # Run all tests on master push
               with:
                   token: ${{ steps.app-token.outputs.token || github.token }}
+                  # Filter on the pushed commits rather than the whole pull request. The
+                  # includes below reach '**/*.md' and '**/*.yml', so almost any follow-up
+                  # push re-runs jest, tsc, and format against a diff they already covered.
+                  # Pull request runs cancel in progress, so an earlier push's run can be
+                  # cancelled while this one filters itself out — the merge queue's full diff
+                  # against master is what still catches that, so its own runs must keep
+                  # filtering on the whole pull request.
+                  # See .github/actions/paths-filter/README.md.
+                  since-last-push: ${{ !startsWith(github.head_ref, 'trunk-merge/') }}
                   filters: |
                       frontend:
                         # Avoid running frontend tests for irrelevant changes
@@ -181,6 +190,10 @@ jobs:
               if: github.event_name != 'push'
               with:
                   token: ${{ steps.app-token.outputs.token || github.token }}
+                  # The gate ANDs this with the filter above, so both must read the same
+                  # diff. On the whole pull request this one would keep reporting true from
+                  # an earlier push's non-workspace files, cancelling out the narrowing.
+                  since-last-push: ${{ !startsWith(github.head_ref, 'trunk-merge/') }}
                   filters: ${{ runner.temp }}/frontend-exclude.yml
 
     # Pick which jest tests to run on draft PRs by passing changed files to
