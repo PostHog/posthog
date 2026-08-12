@@ -98,6 +98,12 @@
       "captureProduced": true
     },
     {
+      "type": "event_uuid_timestamp_divergent",
+      "category": "event",
+      "severity": "info",
+      "captureProduced": false
+    },
+    {
       "type": "group_key_too_long",
       "category": "size",
       "severity": "error",
