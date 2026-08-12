@@ -40,6 +40,7 @@ SLACK_DM_SETTING = "task_comments_slack_dm"
 # Slack allows 3000 characters per section; a DM that long is unreadable, and the link to the full
 # thread is right there in the heading.
 _BODY_LIMIT = 800
+_MAX_MENTION_LOOKUPS_PER_SLACK_WORKSPACE = 20
 
 # Slack resolves its own palette keyword per client, where a hex would be a fixed choice that
 # can't follow the reader's theme.
@@ -102,6 +103,9 @@ def send_comment_slack_dms(*, team_id: int, comment_id: UUID, task_id: UUID, rec
     integration_by_workspace = {integration.integration_id: integration for integration in integrations}
     slack_clients: dict[int, SlackIntegration] = {}
     mention_cache: dict[tuple[int, str], str | None] = {}
+    mention_lookup_allowances = {
+        integration.id: _MAX_MENTION_LOOKUPS_PER_SLACK_WORKSPACE for integration in integrations
+    }
     for user_id, kind in wanted.items():
         recipient = users.get(user_id)
         if recipient is None:
@@ -149,7 +153,12 @@ def send_comment_slack_dms(*, team_id: int, comment_id: UUID, task_id: UUID, rec
                 comment=comment,
                 task=task,
                 organization_id=team.organization_id,
-                slack_user_id_by_email=_mention_resolver(integration=integration, slack=slack, cache=mention_cache),
+                slack_user_id_by_email=_mention_resolver(
+                    integration=integration,
+                    slack=slack,
+                    cache=mention_cache,
+                    lookup_allowances=mention_lookup_allowances,
+                ),
             )
             slack.client.chat_postMessage(
                 channel=slack_user_id,
@@ -274,15 +283,23 @@ def _slack_user_id_by_email(*, email: str, integration: Integration, slack: Slac
 
 
 def _mention_resolver(
-    *, integration: Integration, slack: SlackIntegration, cache: dict[tuple[int, str], str | None]
+    *,
+    integration: Integration,
+    slack: SlackIntegration,
+    cache: dict[tuple[int, str], str | None],
+    lookup_allowances: dict[int, int],
 ) -> Callable[[str], str | None]:
     """Map a mentioned teammate's email to a Slack member of this workspace, so the DM body can
     render them as a Slack mention rather than a bare name. Unresolvable addresses stay as names."""
 
     def resolve(email: str) -> str | None:
         key = (integration.id, email.strip().lower())
-        if key not in cache:
-            cache[key] = _slack_user_id_by_email(email=email, integration=integration, slack=slack)
+        if key in cache:
+            return cache[key]
+        if lookup_allowances.get(integration.id, 0) <= 0:
+            return None
+        lookup_allowances[integration.id] -= 1
+        cache[key] = _slack_user_id_by_email(email=email, integration=integration, slack=slack)
         return cache[key]
 
     return resolve

@@ -80,6 +80,26 @@ class TestCommentSlackDm(CommentActivityTestCase):
         assert text.endswith("…")
         assert text.rfind("<") < text.rfind(">")
 
+    def test_inline_mention_lookups_are_bounded(self):
+        comment = self._comment(content=" ".join(f"@[Member {index}](member{index}@example.com)" for index in range(3)))
+
+        with (
+            patch("products.tasks.backend.logic.services.comment_slack_dm._MAX_MENTION_LOOKUPS_PER_SLACK_WORKSPACE", 2),
+            patch(
+                "products.tasks.backend.logic.services.comment_slack_dm.lookup_slack_user_id_by_email",
+                side_effect=["U-one", "U-two"],
+            ) as lookup,
+            patch(
+                "products.tasks.backend.logic.services.comment_slack_dm.resolve_slack_user",
+                return_value={"team_id": SLACK_WORKSPACE_ID},
+            ),
+        ):
+            self._record_activity(comment, [self.author.id])
+
+        assert lookup.call_count == 2
+        text = self._dm_text()
+        assert "<@U-one> <@U-two> @Member 2" in text
+
     def test_fallback_text_escapes_user_controlled_slack_markup(self):
         self.peer.first_name = "<@U-ATTACKER>"
         self.peer.last_name = ""
