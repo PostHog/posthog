@@ -267,6 +267,7 @@ def _insert_fingerprint_issue_state(
             "issue_name": issue.name,
             "issue_description": issue.description,
             "issue_status": issue.status,
+            "issue_severity": issue.severity,
             "assigned_user_id": None,
             "assigned_role_id": None,
             "first_seen": format_clickhouse_timestamp(first_seen) if first_seen else None,
