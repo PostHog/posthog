@@ -30,12 +30,17 @@ interface ClientMocks {
   extNotification: ReturnType<typeof vi.fn>;
 }
 
-function makeAgent(): { agent: Agent; client: ClientMocks } {
+function makeAgent(options?: {
+  onStructuredOutput?: (output: Record<string, unknown>) => Promise<void>;
+}): { agent: Agent; client: ClientMocks } {
   const client: ClientMocks = {
     sessionUpdate: vi.fn().mockResolvedValue(undefined),
     extNotification: vi.fn().mockResolvedValue(undefined),
   };
-  const agent = new ClaudeAcpAgent(client as unknown as AgentSideConnection);
+  const agent = new ClaudeAcpAgent(
+    client as unknown as AgentSideConnection,
+    options,
+  );
   return { agent, client };
 }
 
@@ -172,6 +177,13 @@ function assistantMessage(
       ...(usage ? { usage } : {}),
     },
   };
+}
+
+function resultStructured(
+  sessionId: string,
+  structured: Record<string, unknown>,
+) {
+  return { ...resultSuccess(sessionId), structured_output: structured };
 }
 
 function subagentMessage(sessionId: string, apiId: string, text: string) {
@@ -418,6 +430,42 @@ describe("ClaudeAcpAgent.prompt — streamed assistant text wiring", () => {
 
     await expect(steerPromise).resolves.toMatchObject({
       _meta: { steer: false },
+    });
+    await expect(promptPromise).resolves.toMatchObject({
+      stopReason: "end_turn",
+    });
+  });
+
+  it("delivers structured output from a result that defers on a steer", async () => {
+    const onStructuredOutput = vi.fn().mockResolvedValue(undefined);
+    const { agent } = makeAgent({ onStructuredOutput });
+    const sessionId = "s-steer-structured";
+    const { query, input } = installFakeSession(agent, sessionId);
+
+    const promptPromise = agent.prompt({
+      sessionId,
+      prompt: [{ type: "text", text: "use orange" }],
+    });
+    await tick();
+    await echoUserMessage(query, input);
+
+    const steerPromise = agent.prompt({
+      sessionId,
+      prompt: [{ type: "text", text: "use green instead" }],
+      _meta: { steer: true },
+    });
+    await tick();
+
+    // Deferring settlement must not skip the result's own side effects.
+    await send(query, resultStructured(sessionId, { answer: 42 }));
+    expect(onStructuredOutput).toHaveBeenCalledWith({ answer: 42 });
+
+    await echoUserMessage(query, input);
+    await send(query, assistantMessage(sessionId, "msg_green", "GREEN"));
+    await send(query, resultSuccess(sessionId));
+
+    await expect(steerPromise).resolves.toMatchObject({
+      _meta: { steer: true },
     });
     await expect(promptPromise).resolves.toMatchObject({
       stopReason: "end_turn",

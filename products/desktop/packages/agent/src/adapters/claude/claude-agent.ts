@@ -1184,36 +1184,6 @@ export class ClaudeAcpAgent extends BaseAcpAgent {
               break;
             }
 
-            // Runs after the refusal and error branches so a failed turn is
-            // reported as such rather than deferred and later settled as a
-            // success by the grace timer.
-            if (
-              !isTaskNotification &&
-              session.activeTurn &&
-              hasUnconsumedSteers(session.activeTurn)
-            ) {
-              const deferred = session.activeTurn;
-              stopReason = result.stopReason ?? "end_turn";
-              deferred.deferredResult = { stopReason, usage: sessionUsage() };
-              deferred.steerTimer ??= setTimeout(() => {
-                if (session.activeTurn !== deferred) {
-                  return;
-                }
-                this.logger.warn("Steer never reached the model", {
-                  sessionId,
-                  pendingSteers: deferred.pendingSteers.size,
-                });
-                settleActive(
-                  deferred.deferredResult ?? { stopReason: "end_turn" },
-                );
-              }, STEER_DELIVERY_GRACE_MS);
-              this.logger.debug(
-                "Deferring turn completion until pending steers are consumed",
-                { sessionId, pendingSteers: deferred.pendingSteers.size },
-              );
-              break;
-            }
-
             // Deliver structured output from SDK's native outputFormat
             if (
               message.subtype === "success" &&
@@ -1251,6 +1221,33 @@ export class ClaudeAcpAgent extends BaseAcpAgent {
               await this.client.extNotification(
                 POSTHOG_NOTIFICATIONS.BACKGROUND_TURN_COMPLETE,
                 { sessionId, stopReason: result.stopReason ?? "end_turn" },
+              );
+            } else if (
+              session.activeTurn &&
+              hasUnconsumedSteers(session.activeTurn)
+            ) {
+              // Only settlement waits on the steer. The refusal and error
+              // branches above already returned, and this result's own side
+              // effects have run, so nothing is dropped if the turn later
+              // settles from the grace timer.
+              const deferred = session.activeTurn;
+              stopReason = result.stopReason ?? "end_turn";
+              deferred.deferredResult = { stopReason, usage: sessionUsage() };
+              deferred.steerTimer ??= setTimeout(() => {
+                if (session.activeTurn !== deferred) {
+                  return;
+                }
+                this.logger.warn("Steer never reached the model", {
+                  sessionId,
+                  pendingSteers: deferred.pendingSteers.size,
+                });
+                settleActive(
+                  deferred.deferredResult ?? { stopReason: "end_turn" },
+                );
+              }, STEER_DELIVERY_GRACE_MS);
+              this.logger.debug(
+                "Deferring turn completion until pending steers are consumed",
+                { sessionId, pendingSteers: deferred.pendingSteers.size },
               );
             } else {
               stopReason = result.stopReason ?? "end_turn";
