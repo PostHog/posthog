@@ -230,7 +230,7 @@ matched `acting_user` only), no way to link to the report (drawer state was kea-
 blamed "the author's … ReviewHog settings" for a threshold that wasn't theirs, and the drawer's "Published (N)"
 tab claimed publication for findings computed against the _viewer's current_ threshold. Decisions:
 
-- **Report deep links**: `/code_review?review=<report UUID>`, mirrored both ways by the existing URL sync in
+- **Report deep links**: `/code-review?review=<report UUID>`, mirrored both ways by the existing URL sync in
   `reviewHogSettingsLogic` (`replace`, never `push`, so drawer open/close doesn't stack history). The status
   comment's held-back sentence links here ("View them in PostHog", auth-gated — same posture as Slack links),
   which makes the param a **permanent public contract**. A deep link has no list row, so the drawer renders
@@ -460,7 +460,7 @@ floor and blind-spots/validator are **exactly-one-active with deactivation block
 
 - **Placement (as of 2026-07-13 — standalone scene):** originally shipped as a `'code-review'`
   `InboxTabKey` after `'archived'` (staff-gated via `INBOX_STAFF_ONLY_TAB_KEYS`, "Alpha" tag from
-  `INBOX_TAB_TAG`). Moved out of the Inbox to its own `CodeReview` scene at `/code_review`, registered
+  `INBOX_TAB_TAG`). Moved out of the Inbox to its own `CodeReview` scene at `/code-review`, registered
   by `products/review_hog/manifest.tsx` with an "Unreleased" nav entry (`ProductItemCategory.UNRELEASED`,
   `tags: ['alpha']`). Gating was two-layer by design: `FEATURE_FLAGS.REVIEW_HOG` (`review-hog`) controls
   **only the menu entry's visibility** (who discovers it); the scene itself stays **staff-only**
