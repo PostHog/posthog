@@ -146,7 +146,7 @@ describe("CloudArtifactDownloads", () => {
     expect(screen.queryByText("handoff.pack")).not.toBeInTheDocument();
     expect(screen.queryByText("Edited by you")).not.toBeInTheDocument();
 
-    fireEvent.click(screen.getByText("Download"));
+    fireEvent.click(screen.getByLabelText("Download report.pdf"));
 
     await waitFor(() => expect(click).toHaveBeenCalledOnce());
     expect(fetchArtifact).toHaveBeenCalledWith(
@@ -187,7 +187,7 @@ describe("CloudArtifactDownloads", () => {
       openFiles();
 
       const downloadButtons = screen.getAllByRole("button", {
-        name: "Download",
+        name: /^Download /,
       });
       fireEvent.click(downloadButtons[0]);
 

@@ -276,8 +276,9 @@ export function CloudArtifactDownloads({
         ) : (
           <>
             <Button
-              size="sm"
+              size="icon-sm"
               variant="outline"
+              aria-label={`Download ${group.name}`}
               disabled={!canDownload || downloadingId !== null}
               onClick={() => {
                 if (!taskId || !selected.id) return;
@@ -290,7 +291,6 @@ export function CloudArtifactDownloads({
               }}
             >
               <DownloadSimple size={14} />
-              {downloadingId === selected.id ? "Opening..." : "Download"}
             </Button>
             <Button
               size="icon-sm"
