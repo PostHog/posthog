@@ -53,7 +53,6 @@ import type {
   BuildResult,
   ConversationItem,
 } from "@posthog/ui/features/sessions/components/buildConversationItems";
-import { CloudArtifactDownloads } from "@posthog/ui/features/sessions/components/CloudArtifactDownloads";
 import {
   ChatMarkdown,
   ChatStreamingMarkdown,
@@ -1438,7 +1437,6 @@ function ChatThreadRenderer({
 
   const footer = (
     <>
-      <CloudArtifactDownloads taskId={taskId} task={task} />
       <ChatThreadFooter
         events={footerEvents}
         isPromptPending={isPromptPending}
