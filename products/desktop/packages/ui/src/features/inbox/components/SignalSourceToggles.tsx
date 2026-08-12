@@ -107,7 +107,7 @@ const SignalSourceToggleCard = memo(function SignalSourceToggleCard({
           </div>
         </button>
         {loading ? (
-          <Spinner size="2" />
+          <Spinner className="size-4" />
         ) : requiresSetup ? (
           <Button
             type="button"
