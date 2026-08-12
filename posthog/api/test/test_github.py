@@ -1033,6 +1033,58 @@ class TestOAuthTokenSecretAlert(APIBaseTest):
 
     @patch("posthog.api.github.verify_github_signature")
     @patch("posthog.api.secret_revocation.send_oauth_token_exposed")
+    def test_expired_oauth_access_token_report_still_revokes_and_notifies(self, mock_send_email, mock_verify):
+        # An already-expired access token can't authenticate on its own, but revoking
+        # still matters if the same exposure also affects the longer-lived paired
+        # refresh token - and GitHub's scan-to-report latency for historical commits
+        # routinely exceeds the access token's own lifetime, so a report for an
+        # already-expired token is the common case here, not an edge case.
+        mock_verify.return_value = None
+
+        oauth_app = self._create_oauth_app()
+        token = "pha_expired_access_token_github_alert"
+        access_token = OAuthAccessToken.objects.create(
+            user=self.user,
+            application=oauth_app,
+            token=token,
+            expires=timezone.now() - timedelta(hours=1),
+            scope="openid profile",
+        )
+        access_token_id = access_token.id
+        refresh_token = OAuthRefreshToken.objects.create(
+            user=self.user,
+            application=oauth_app,
+            token="phr_live_session_for_expired_access",
+            access_token=access_token,
+        )
+
+        response = self.client.post(
+            "/api/alerts/github",
+            data=json.dumps(
+                [
+                    {
+                        "token": token,
+                        "type": GITHUB_TYPE_FOR_OAUTH_ACCESS_TOKEN,
+                        "url": "https://github.com/test/repo/blob/main/secrets.txt",
+                        "source": "github",
+                    }
+                ]
+            ),
+            content_type="application/json",
+            headers={"github-public-key-identifier": "test_kid", "github-public-key-signature": "test_sig"},
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        data = response.json()
+        self.assertEqual(data[0]["label"], "true_positive")
+
+        self.assertFalse(OAuthAccessToken.objects.filter(id=access_token_id).exists())
+        refresh_token.refresh_from_db()
+        self.assertIsNotNone(refresh_token.revoked)
+        mock_send_email.assert_called_once()
+
+    @patch("posthog.api.github.verify_github_signature")
+    @patch("posthog.api.secret_revocation.send_oauth_token_exposed")
     def test_oauth_refresh_token_found_and_revoked(self, mock_send_email, mock_verify):
         mock_verify.return_value = None
 

@@ -1,8 +1,8 @@
 """Read the scoring inputs Clay still owns, off the organization group it writes.
 
 Two of the ICP score's inputs have no first-party source yet, so while Clay runs in parallel
-we read its own group properties back and score on them. That keeps `clay-parity-1` scores
-bit-comparable with Clay's on the orgs it also scores.
+we read its own group properties back and score on them. That keeps our scores bit-comparable
+with Clay's on the orgs it also scores.
 
 The formula's third Clay-owned input, its GitHub profile lookup, is deliberately NOT read
 here: Clay never projects that column into PostHog at all (verified against live group and
