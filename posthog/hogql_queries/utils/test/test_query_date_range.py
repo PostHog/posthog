@@ -166,18 +166,19 @@ class TestQueryDateRange(APIBaseTest):
         [
             # now is 2021-08-25T10:00Z (a Wednesday): a relative date_from landing mid-interval is
             # advanced to the next boundary, so the leading bucket is a complete one
-            ("day_already_aligned", IntervalType.DAY, "-7d", "2021-08-18T00:00:00Z"),
-            ("week_sunday_start", IntervalType.WEEK, "-30d", "2021-08-01T00:00:00Z"),
-            ("week_monday_start", IntervalType.WEEK, "-33d", "2021-07-26T00:00:00Z"),
-            ("month", IntervalType.MONTH, "-3m", "2021-06-01T00:00:00Z"),
-            ("quarter", IntervalType.QUARTER, "-2y", "2019-10-01T00:00:00Z"),
-            ("year", IntervalType.YEAR, "-3y", "2019-01-01T00:00:00Z"),
+            ("day_already_aligned", IntervalType.DAY, "-7d", "2021-08-18T00:00:00Z", WeekStartDay.SUNDAY),
+            ("week_sunday_start", IntervalType.WEEK, "-30d", "2021-08-01T00:00:00Z", WeekStartDay.SUNDAY),
+            ("week_monday_start", IntervalType.WEEK, "-33d", "2021-07-26T00:00:00Z", WeekStartDay.MONDAY),
+            ("month", IntervalType.MONTH, "-3m", "2021-06-01T00:00:00Z", WeekStartDay.SUNDAY),
+            ("quarter", IntervalType.QUARTER, "-2y", "2019-10-01T00:00:00Z", WeekStartDay.SUNDAY),
+            ("year", IntervalType.YEAR, "-3y", "2019-01-01T00:00:00Z", WeekStartDay.SUNDAY),
         ]
     )
-    def test_exclude_incomplete_periods_clips_date_from(self, _name, interval, date_from, expected_date_from):
+    def test_exclude_incomplete_periods_clips_date_from(
+        self, _name, interval, date_from, expected_date_from, week_start_day
+    ):
         now = parser.isoparse("2021-08-25T10:00:00.000Z")
-        if interval == IntervalType.WEEK and "monday" in _name:
-            self.team.week_start_day = WeekStartDay.MONDAY
+        self.team.week_start_day = week_start_day
         query_date_range = QueryDateRange(
             team=self.team,
             date_range=DateRange(date_from=date_from, excludeIncompletePeriods=True),
