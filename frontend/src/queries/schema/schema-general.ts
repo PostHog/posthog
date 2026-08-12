@@ -8947,6 +8947,10 @@ export const externalDataSources = [
     'Sevalla',
     'Motion',
     'Framer',
+    'Cloudinary',
+    'Uploadcare',
+    'WHMCS',
+    'MSG91',
 ] as const
 
 export type ExternalDataSourceType = (typeof externalDataSources)[number]

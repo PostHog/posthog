@@ -98,6 +98,7 @@ from products.cohorts.backend.models.util import (
     cohort_filters_have_values,
     get_all_cohort_dependencies,
     get_friendly_error_message,
+    validate_actors_query_for_cohort,
 )
 from products.cohorts.backend.models.validation import CohortTypeValidationSerializer
 from products.feature_flags.backend.models.feature_flag import FeatureFlag
@@ -1022,6 +1023,7 @@ class CohortSerializer(SearchMatchTypeSerializerMixin, serializers.ModelSerializ
             raise ValidationError("Query must be a dictionary.")
         if query.get("kind") == "ActorsQuery":
             ActorsQuery.model_validate(query)
+            validate_actors_query_for_cohort(query)
         elif query.get("kind") == "HogQLQuery":
             HogQLQuery.model_validate(query)
         else:
