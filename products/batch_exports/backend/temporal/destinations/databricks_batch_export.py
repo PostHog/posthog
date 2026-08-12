@@ -1056,7 +1056,14 @@ def _get_databricks_merge_config(
     requires_merge = False
     merge_key = []
     update_key = []
-    if isinstance(model, BatchExportModel):
+    if model is None or (isinstance(model, BatchExportModel) and model.name == "events"):
+        # A `None` model is the default events export. Events are immutable, so merging on
+        # `uuid` drops rows a retry re-delivers. `timestamp` is stable per `uuid`, so a
+        # matched row is never updated: the merge only prevents the duplicate insert.
+        requires_merge = True
+        merge_key = ["uuid"]
+        update_key = ["timestamp"]
+    elif isinstance(model, BatchExportModel):
         if model.name == "persons":
             requires_merge = True
             merge_key = ["team_id", "distinct_id"]

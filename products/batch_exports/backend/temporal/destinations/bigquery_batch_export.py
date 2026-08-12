@@ -1302,16 +1302,21 @@ def _get_merge_settings(
     model: BatchExportModel | BatchExportSchema | None,
 ) -> MergeSettings | None:
     """Return merge settings for models that require merging."""
-    if isinstance(model, BatchExportModel):
-        if model.name == "persons":
-            primary_key: collections.abc.Sequence[str] = ("team_id", "distinct_id")
-            version_key: collections.abc.Sequence[str] = ("person_version", "person_distinct_id_version")
-        elif model.name == "sessions":
-            primary_key = ("team_id", "session_id")
-            version_key = ("end_timestamp",)
-        # TODO: Support merges in 'events'?
-        else:
-            return None
+    primary_key: collections.abc.Sequence[str]
+    version_key: collections.abc.Sequence[str]
+
+    if model is None or (isinstance(model, BatchExportModel) and model.name == "events"):
+        # A `None` model is the default events export. Events are immutable, so merging on
+        # `uuid` drops rows a retry re-delivers. `timestamp` is stable per `uuid`, so a
+        # matched row is never updated: the merge only prevents the duplicate insert.
+        primary_key = ("uuid",)
+        version_key = ("timestamp",)
+    elif isinstance(model, BatchExportModel) and model.name == "persons":
+        primary_key = ("team_id", "distinct_id")
+        version_key = ("person_version", "person_distinct_id_version")
+    elif isinstance(model, BatchExportModel) and model.name == "sessions":
+        primary_key = ("team_id", "session_id")
+        version_key = ("end_timestamp",)
     else:
         return None
 

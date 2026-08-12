@@ -829,7 +829,6 @@ MergeSettings = RequiredMergeSettings | NotRequiredMergeSettings
 
 def _get_merge_settings(
     model: BatchExportModel | BatchExportSchema | None,
-    use_super: bool = False,
 ) -> MergeSettings:
     """Return merge settings for models that require merging."""
     merge_key: Fields
@@ -864,7 +863,10 @@ def _get_merge_settings(
         return RequiredMergeSettings(
             requires_merge=True, merge_key=merge_key, update_key=update_key, primary_key=primary_key
         )
-    elif (model is None or (isinstance(model, BatchExportModel) and model.name == "events")) and use_super is True:
+    elif model is None or (isinstance(model, BatchExportModel) and model.name == "events"):
+        # Events are immutable, so merging on `uuid` drops rows a retry re-delivers.
+        # `timestamp` is stable per `uuid`, so a matched row is never updated: the merge
+        # only prevents the duplicate insert. This holds with or without SUPER columns.
         merge_key = [("uuid", "TEXT")]
         update_key = [("timestamp", "TIMESTAMP")]
         primary_key = [("uuid", "TEXT")]
@@ -957,7 +959,7 @@ async def insert_into_redshift_activity_from_stage(inputs: RedshiftInsertInputs)
         table_schemas = _get_table_schemas(
             model=model, record_batch_schema=record_batch_schema, properties_data_type=inputs.table.properties_data_type
         )
-        merge_settings = _get_merge_settings(model=model, use_super=table_schemas.use_super)
+        merge_settings = _get_merge_settings(model=model)
 
         data_interval_end_str = dt.datetime.fromisoformat(inputs.batch_export.data_interval_end).strftime(
             "%Y-%m-%d_%H-%M-%S"
@@ -1388,7 +1390,7 @@ async def copy_into_redshift_activity_from_stage(inputs: RedshiftCopyActivityInp
             max_file_size_bytes=max_file_size_mb * 1024**2,
         )
 
-        merge_settings = _get_merge_settings(model=model, use_super=table_schemas.use_super)
+        merge_settings = _get_merge_settings(model=model)
 
         data_interval_end_str = dt.datetime.fromisoformat(inputs.batch_export.data_interval_end).strftime(
             "%Y-%m-%d_%H-%M-%S"
