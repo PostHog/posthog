@@ -36,6 +36,7 @@ import {
 import { EvaluationBackTarget, getEvaluationBackTarget } from './evaluationNavigation'
 import { evaluationReportLogic, persistReportDraft } from './evaluationReportLogic'
 import { getHogEvalExample } from './hogEvalExamples'
+import { llmEvaluationsLogic } from './llmEvaluationsLogic'
 import { EvaluationTemplateKey, defaultEvaluationTemplates } from './templates'
 import type {
     EvaluationConditionSet,
@@ -1106,6 +1107,9 @@ export const llmEvaluationLogic = kea<llmEvaluationLogicType>([
                           values.evaluation as Parameters<typeof evaluationsPartialUpdate>[2]
                       )) as unknown as EvaluationConfig
                 actions.saveEvaluationSuccess(response)
+                // The list and the self-driving table read from llmEvaluationsLogic, which only
+                // fetches on mount. Refresh it here so they show the eval we just saved.
+                llmEvaluationsLogic.findMounted()?.actions.loadEvaluations()
                 if (isNew) {
                     globalSetupLogic.findMounted()?.actions.markTaskAsCompleted(SetupTaskId.SetUpLlmEvaluation)
                 }
