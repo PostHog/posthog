@@ -4,6 +4,7 @@ import { LemonBanner, LemonButton, SpinnerOverlay } from '@posthog/lemon-ui'
 
 import { HogFlowEditor } from './hogflows/HogFlowEditor'
 import { WorkflowLogicProps, workflowLogic } from './workflowLogic'
+import { WorkflowStatusBar } from './WorkflowStatusBar'
 
 export function Workflow(props: WorkflowLogicProps): JSX.Element {
     const { originalWorkflow, workflowLoading, externallyEdited, isSyncingExternalEdit } = useValues(
@@ -13,6 +14,7 @@ export function Workflow(props: WorkflowLogicProps): JSX.Element {
 
     return (
         <div className="flex flex-col grow relative border rounded-md">
+            <WorkflowStatusBar {...props} />
             {/* Brief working/disabled overlay while we reconcile to an edit made elsewhere (clean state). */}
             {isSyncingExternalEdit && <SpinnerOverlay />}
             {externallyEdited && (
