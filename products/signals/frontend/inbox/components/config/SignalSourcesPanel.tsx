@@ -29,7 +29,6 @@ export function SignalSourcesPanel(): JSX.Element {
         loadSources,
         loadSourceConfigs,
         loadVisionScanners,
-        loadEvaluations,
         loadToolDataEvents,
         closeSessionAnalysisSetup,
         closeDataSourceSetup,
@@ -40,7 +39,6 @@ export function SignalSourcesPanel(): JSX.Element {
         loadSources()
         loadSourceConfigs()
         loadVisionScanners()
-        loadEvaluations()
         loadToolDataEvents()
     }, []) // eslint-disable-line react-hooks/exhaustive-deps
 

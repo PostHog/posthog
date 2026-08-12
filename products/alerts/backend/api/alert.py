@@ -3,7 +3,7 @@ from typing import Annotated, Any, cast
 from zoneinfo import ZoneInfo
 
 from django.db import transaction
-from django.db.models import OuterRef, Q, QuerySet, Subquery
+from django.db.models import OuterRef, Prefetch, Q, QuerySet, Subquery
 
 import posthoganalytics
 from drf_spectacular.utils import OpenApiParameter, OpenApiTypes, extend_schema, extend_schema_view
@@ -29,6 +29,7 @@ from posthog.schema import (
 )
 
 from posthog.api.documentation import extend_schema_field
+from posthog.api.fields import OptionalBooleanField
 from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.api.scoped_related_fields import TeamScopedPrimaryKeyRelatedField
 from posthog.api.shared import SearchMatchTypeSerializerMixin, UserBasicSerializer
@@ -41,6 +42,8 @@ from posthog.helpers.trigram_search import (
     drop_similar_when_exact_exists,
 )
 from posthog.models import User
+from posthog.models.tag import tagify
+from posthog.models.tagged_item import TaggedItem
 from posthog.permissions import get_authenticator_scopes
 from posthog.rate_limit import AlertTestDeliveryThrottle
 from posthog.resource_limits import LimitKey, check_count_limit
@@ -322,6 +325,15 @@ class AlertSerializer(SearchMatchTypeSerializerMixin, serializers.ModelSerialize
         queryset=Insight.objects.all(),
         help_text="Insight ID monitored by this alert. Note: Response returns full InsightBasicSerializer object.",
     )
+    insight_short_id = serializers.CharField(
+        source="insight.short_id",
+        read_only=True,
+        help_text="Short ID of the insight monitored by this alert.",
+    )
+    insight_display_name = serializers.SerializerMethodField(
+        read_only=True,
+        help_text="Display name of the insight monitored by this alert.",
+    )
     name = serializers.CharField(
         required=False,
         allow_blank=True,
@@ -387,6 +399,9 @@ class AlertSerializer(SearchMatchTypeSerializerMixin, serializers.ModelSerialize
     def get_checks_total(self, obj: AlertConfiguration) -> int | None:
         return getattr(obj, "checks_total", None)
 
+    def get_insight_display_name(self, obj: AlertConfiguration) -> str:
+        return obj.insight.name or obj.insight.derived_name or "Untitled insight"
+
     class Meta:
         model = AlertConfiguration
         fields = [
@@ -394,6 +409,8 @@ class AlertSerializer(SearchMatchTypeSerializerMixin, serializers.ModelSerialize
             "created_by",
             "created_at",
             "insight",
+            "insight_short_id",
+            "insight_display_name",
             "name",
             "subscribed_users",
             "threshold",
@@ -912,6 +929,11 @@ class AlertTestDeliveryResponseSerializer(serializers.Serializer):
     )
 
 
+class AlertListFiltersSerializer(serializers.Serializer):
+    insight_tag = serializers.CharField(required=False, max_length=255)
+    has_detector = OptionalBooleanField(required=False)
+
+
 @extend_schema_view(
     list=extend_schema(
         parameters=[
@@ -937,6 +959,18 @@ class AlertTestDeliveryResponseSerializer(serializers.Serializer):
                 location=OpenApiParameter.QUERY,
                 description="Optional. Restrict results to alerts on this insight ID.",
             ),
+            OpenApiParameter(
+                "insight_tag",
+                OpenApiTypes.STR,
+                location=OpenApiParameter.QUERY,
+                description="Optional. Restrict results to alerts whose insight has this tag.",
+            ),
+            OpenApiParameter(
+                "has_detector",
+                OpenApiTypes.BOOL,
+                location=OpenApiParameter.QUERY,
+                description="Optional. Restrict results by whether the alert uses anomaly detection.",
+            ),
         ],
     ),
 )
@@ -944,19 +978,40 @@ class AlertViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
     scope_object = "alert"
     queryset = (
         AlertConfiguration.objects.select_related("team", "insight", "threshold", "created_by")
-        .prefetch_related("subscribed_users")
+        .prefetch_related(
+            "subscribed_users",
+            Prefetch(
+                "insight__tagged_items",
+                queryset=TaggedItem.objects.select_related("tag"),
+                to_attr="prefetched_tags",
+            ),
+        )
         .order_by("-created_at")
     )
     serializer_class = AlertSerializer
 
     def safely_get_queryset(self, queryset) -> QuerySet:
         filters = self.request.query_params
+        list_filters = AlertListFiltersSerializer(data=filters)
+        list_filters.is_valid(raise_exception=True)
+
         if "insight" in filters:
             queryset = queryset.filter(insight_id=filters["insight"])
 
         insight_id = filters.get("insight_id")
         if insight_id is not None:
             queryset = queryset.filter(insight_id=insight_id)
+
+        insight_tag = list_filters.validated_data.get("insight_tag")
+        if insight_tag:
+            queryset = queryset.filter(
+                insight__tagged_items__tag__name=tagify(insight_tag),
+                insight__tagged_items__tag__team_id=self.team_id,
+            )
+
+        has_detector = list_filters.validated_data.get("has_detector")
+        if has_detector is not None:
+            queryset = queryset.filter(detector_config__isnull=not has_detector)
 
         created_by = filters.get("created_by")
         if created_by:

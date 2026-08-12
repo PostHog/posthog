@@ -21,8 +21,6 @@ import {
     TeamType,
 } from '~/types'
 
-import { evaluationsList } from 'products/ai_observability/frontend/generated/api'
-import type { EvaluationApi } from 'products/ai_observability/frontend/generated/api.schemas'
 import { sourcesDataLogic } from 'products/data_warehouse/frontend/shared/logics/sourcesDataLogic'
 import {
     engineeringAnalyticsCiSignalsConfigRetrieve,
@@ -56,7 +54,7 @@ const TOOL_USAGE_EVENTS = ['$exception', '$ai_generation', '$ai_trace', '$pagevi
 
 /**
  * Cap on the per-source entity lists the roster inlines. Well past the tail: the busiest projects
- * run a few dozen scanners or evaluations, and the median runs one.
+ * run a few dozen scanners, and the median runs one.
  */
 const ENTITY_PAGE_SIZE = 100
 
@@ -226,8 +224,6 @@ export interface signalSourcesLogicValues {
         sourceType: SignalSourceType
     }[]
     evalReportsConfig: SignalSourceConfig | null
-    evaluations: EvaluationApi[] | null
-    evaluationsLoading: boolean
     githubIssuesConfig: SignalSourceConfig | null
     hasEmittingScanner: boolean | null
     hasNoSources: boolean
@@ -248,7 +244,6 @@ export interface signalSourcesLogicValues {
     pgAnalyzeIssuesConfig: SignalSourceConfig | null
     sessionAnalysisConfig: SignalSourceConfig | null
     sessionAnalysisSetupOpen: boolean
-    signalEmittingEvaluationIds: string[]
     sourceConfigs: SignalSourceConfig[] | null
     sourceConfigsLoading: boolean
     sourcesModalOpen: boolean
@@ -304,21 +299,6 @@ export interface signalSourcesLogicActions {
         payload?: any
     ) => {
         ciSignalsConfig: CISignalsConfigApi
-        payload?: any
-    }
-    loadEvaluations: () => any
-    loadEvaluationsFailure: (
-        error: string,
-        errorObject?: any
-    ) => {
-        error: string
-        errorObject?: any
-    }
-    loadEvaluationsSuccess: (
-        evaluations: EvaluationApi[],
-        payload?: any
-    ) => {
-        evaluations: EvaluationApi[]
         payload?: any
     }
     loadSourceConfigs: () => any
@@ -409,9 +389,6 @@ export interface signalSourcesLogicActions {
         enabled: boolean
         source: WarehouseBackedSource
     }
-    setEvaluationSignals: (evaluationIds: string[]) => {
-        evaluationIds: string[]
-    }
     startDataWarehouseSourceToggle: (source: WarehouseBackedSource) => {
         source: WarehouseBackedSource
     }
@@ -438,9 +415,6 @@ export interface signalSourcesLogicActions {
     }
     toggleEvalReports: () => {
         value: true
-    }
-    toggleEvaluationSignals: (evaluationId: string) => {
-        evaluationId: string
     }
     toggleHealthChecks: () => {
         value: true
@@ -515,7 +489,6 @@ export interface signalSourcesLogicMeta {
             enabled: boolean
             sourceType: SignalSourceType
         }[]
-        signalEmittingEvaluationIds: (sourceConfigs: SignalSourceConfig[] | null) => string[]
         enabledSourcesCount: (sourceConfigs: SignalSourceConfig[] | null, hasEmittingScanner: boolean | null) => number
         hasNoSources: (sourceConfigs: SignalSourceConfig[] | null, enabledSourcesCount: number) => boolean
     }
@@ -562,8 +535,6 @@ export const signalSourcesLogic = kea<signalSourcesLogicType>([
         toggleErrorTracking: true,
         toggleErrorTrackingComplete: true,
         toggleErrorTrackingType: (sourceType: SignalSourceType) => ({ sourceType }),
-        toggleEvaluationSignals: (evaluationId: string) => ({ evaluationId }),
-        setEvaluationSignals: (evaluationIds: string[]) => ({ evaluationIds }),
         setAllScannerSignals: (enabled: boolean) => ({ enabled }),
         toggleCiSignals: (viaSetupWizard?: boolean) => ({ viaSetupWizard: viaSetupWizard ?? false }),
         toggleCiSignalsComplete: true,
@@ -662,21 +633,6 @@ export const signalSourcesLogic = kea<signalSourcesLogicType>([
                     )
                     const byId = new Map(updated.map((scanner) => [scanner.id, scanner]))
                     return scanners.map((existing: ReplayScannerApi) => byId.get(existing.id) ?? existing)
-                },
-            },
-        ],
-        evaluations: [
-            null as EvaluationApi[] | null,
-            {
-                loadEvaluations: async (): Promise<EvaluationApi[]> => {
-                    try {
-                        const response = await evaluationsList(String(ApiConfig.getCurrentProjectId()), {
-                            limit: ENTITY_PAGE_SIZE,
-                        })
-                        return response.results
-                    } catch {
-                        return []
-                    }
                 },
             },
         ],
@@ -1035,29 +991,14 @@ export const signalSourcesLogic = kea<signalSourcesLogicType>([
                         )?.enabled === true,
                 })),
         ],
-        // Per-evaluation emission is an allowlist on the `evaluation` row's config, not a flag on the
-        // evaluation itself, so an evaluation can keep running while its findings stay out of the inbox.
-        signalEmittingEvaluationIds: [
-            (s) => [s.sourceConfigs],
-            (sourceConfigs: SignalSourceConfig[] | null): string[] => {
-                const row = sourceConfigs?.find(
-                    (c) =>
-                        c.source_product === SignalSourceProduct.LlmAnalytics &&
-                        c.source_type === SignalSourceType.Evaluation
-                )
-                if (!row?.enabled) {
-                    return []
-                }
-                const ids = (row.config as { evaluation_ids?: unknown })?.evaluation_ids
-                return Array.isArray(ids) ? ids.filter((id): id is string => typeof id === 'string') : []
-            },
-        ],
         enabledSourcesCount: [
             (s) => [s.sourceConfigs, s.hasEmittingScanner],
             // The scout gate is a meta-toggle surfaced in the Scout troop section, not a generic
             // signal source — exclude it so a scout-only project doesn't show the "Signal sources"
             // setup card as done with a phantom "1 watching". Replay Vision has no config row at
             // all, so it is counted separately, once, however many of its scanners emit.
+            // Evaluation configs can survive from the retired per-result path, but eval reports are
+            // the only AI observability source that emits signals.
             (sourceConfigs: SignalSourceConfig[] | null, hasEmittingScanner: boolean | null): number => {
                 const configured =
                     sourceConfigs?.filter(
@@ -1066,6 +1007,10 @@ export const signalSourcesLogic = kea<signalSourcesLogicType>([
                             !(
                                 c.source_product === SignalSourceProduct.SignalsScout &&
                                 c.source_type === SignalSourceType.CrossSourceIssue
+                            ) &&
+                            !(
+                                c.source_product === SignalSourceProduct.LlmAnalytics &&
+                                c.source_type === SignalSourceType.Evaluation
                             )
                     ).length ?? 0
                 return configured + (hasEmittingScanner ? 1 : 0)
@@ -1300,42 +1245,6 @@ export const signalSourcesLogic = kea<signalSourcesLogicType>([
                 }
                 actions.loadSourceConfigs()
             },
-            toggleEvaluationSignals: async ({ evaluationId }) => {
-                const current = values.signalEmittingEvaluationIds
-                actions.setEvaluationSignals(
-                    current.includes(evaluationId)
-                        ? current.filter((id) => id !== evaluationId)
-                        : [...current, evaluationId]
-                )
-            },
-            setEvaluationSignals: async ({ evaluationIds: nextIds }, breakpoint) => {
-                const existing = (values.sourceConfigs ?? []).find(
-                    (c) =>
-                        c.source_product === SignalSourceProduct.LlmAnalytics &&
-                        c.source_type === SignalSourceType.Evaluation
-                )
-                try {
-                    if (existing && !existing.id.startsWith('new_')) {
-                        await api.signalSourceConfigs.update(existing.id, {
-                            // The row gates the whole allowlist, so an empty list means nothing to send.
-                            enabled: nextIds.length > 0,
-                            config: { ...existing.config, evaluation_ids: nextIds },
-                        })
-                    } else {
-                        await api.signalSourceConfigs.create({
-                            source_product: SignalSourceProduct.LlmAnalytics,
-                            source_type: SignalSourceType.Evaluation,
-                            enabled: nextIds.length > 0,
-                            config: { evaluation_ids: nextIds },
-                        })
-                    }
-                    breakpoint()
-                } catch (error: any) {
-                    breakpoint()
-                    lemonToast.error(error?.detail || error?.message || 'Failed to toggle this evaluation')
-                }
-                actions.loadSourceConfigs()
-            },
             toggleCiSignals: async ({ viaSetupWizard }, breakpoint) => {
                 const desiredEnabled = !values.ciSignalsIsFullyEnabled
                 const wasConnected = values.ciSignalsConfig?.configured ?? false
@@ -1519,7 +1428,6 @@ export const signalSourcesLogic = kea<signalSourcesLogicType>([
                 // without needlessly loading the source configs
                 actions.loadSourceConfigs()
                 actions.loadVisionScanners()
-                actions.loadEvaluations()
                 if (values.featureFlags[FEATURE_FLAGS.ENGINEERING_ANALYTICS]) {
                     actions.loadCiSignalsConfig()
                 }

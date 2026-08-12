@@ -1,6 +1,6 @@
 import '@testing-library/jest-dom'
 
-import { cleanup, render, screen } from '@testing-library/react'
+import { cleanup, render, screen, within } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { Provider } from 'kea'
 import { router } from 'kea-router'
@@ -12,6 +12,8 @@ import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { useMocks } from '~/mocks/jest'
 import { initKeaTests } from '~/test/init'
 
+import * as alertsApi from 'products/alerts/frontend/generated/api'
+
 import * as aiObservabilityApi from '../generated/api'
 import { AIObservabilitySelfDriving } from './AIObservabilitySelfDriving'
 
@@ -19,6 +21,10 @@ jest.mock('../generated/api', () => ({
     evaluationDirectoriesList: jest.fn(),
     evaluationsList: jest.fn(),
     llmAnalyticsEvaluationReportsList: jest.fn(),
+}))
+
+jest.mock('products/alerts/frontend/generated/api', () => ({
+    alertsList: jest.fn(),
 }))
 
 jest.mock('products/signals/frontend/generated/api', () => ({
@@ -32,6 +38,7 @@ jest.mock('products/signals/frontend/inbox/components/config/scouts/ScoutCreateB
 
 describe('AIObservabilitySelfDriving', () => {
     beforeEach(() => {
+        localStorage.clear()
         useMocks({
             get: {
                 '/api/environments/:teamId/llm_analytics/provider_keys/': { results: [] },
@@ -124,10 +131,78 @@ describe('AIObservabilitySelfDriving', () => {
                 },
             ],
         })
+        jest.mocked(alertsApi.alertsList).mockResolvedValue({
+            count: 2,
+            next: null,
+            previous: null,
+            results: [
+                {
+                    id: 'alert-investigated',
+                    created_by: {
+                        id: 1,
+                        uuid: '00000000-0000-0000-0000-000000000001',
+                        email: 'person@example.com',
+                        hedgehog_config: null,
+                    },
+                    created_at: '2024-01-01T00:00:00Z',
+                    insight: 10,
+                    insight_short_id: 'insight-cost',
+                    insight_display_name: 'AI cost by model',
+                    name: 'Unexpected AI cost',
+                    subscribed_users: [],
+                    threshold: {
+                        id: 'threshold-investigated',
+                        created_at: '2024-01-01T00:00:00Z',
+                        configuration: { type: 'absolute', bounds: null },
+                    },
+                    state: 'Not firing',
+                    enabled: true,
+                    last_notified_at: null,
+                    last_checked_at: '2024-01-04T00:00:00Z',
+                    next_check_at: null,
+                    checks: [],
+                    checks_total: null,
+                    last_value: null,
+                    investigation_agent_enabled: true,
+                    search_match_type: null,
+                },
+                {
+                    id: 'alert-uninvestigated',
+                    created_by: {
+                        id: 1,
+                        uuid: '00000000-0000-0000-0000-000000000001',
+                        email: 'person@example.com',
+                        hedgehog_config: null,
+                    },
+                    created_at: '2024-01-02T00:00:00Z',
+                    insight: 11,
+                    insight_short_id: 'insight-errors',
+                    insight_display_name: 'AI errors by model',
+                    name: 'Unexpected error rate',
+                    subscribed_users: [],
+                    threshold: {
+                        id: 'threshold-uninvestigated',
+                        created_at: '2024-01-02T00:00:00Z',
+                        configuration: { type: 'absolute', bounds: null },
+                    },
+                    state: 'Not firing',
+                    enabled: true,
+                    last_notified_at: null,
+                    last_checked_at: null,
+                    next_check_at: null,
+                    checks: [],
+                    checks_total: null,
+                    last_value: null,
+                    investigation_agent_enabled: false,
+                    search_match_type: null,
+                },
+            ],
+        })
     })
 
     afterEach(() => {
         cleanup()
+        localStorage.clear()
     })
 
     it('renders scout templates and evaluation report status', async () => {
@@ -147,23 +222,32 @@ describe('AIObservabilitySelfDriving', () => {
         const docsLink = screen.getByText('Read the docs')
         expect(docsLink).toHaveAttribute('href', 'https://posthog.com/docs/ai-observability/self-driving')
         expect(docsLink).toHaveAttribute('target', '_blank')
-        expect(screen.getByText('ai-observability').closest('p')).toHaveTextContent(
+        const introBanner = screen.getByText('Self-driving').closest('.LemonBanner')
+        const inboxLink = within(introBanner as HTMLElement)
+            .getByText('inbox')
+            .closest('a')
+        expect(inboxLink).toHaveAttribute('href', '/project/997/inbox')
+        expect(inboxLink).toHaveAttribute('target', '_blank')
+        expect(screen.getAllByText('ai-observability')[0].closest('p')).toHaveTextContent(
             'Add the ai-observability label to a scout for it to appear here.'
         )
 
         expect(await screen.findByText('Correctness check')).toBeInTheDocument()
         expect(screen.getByText('Tone check')).toBeInTheDocument()
-        expect(screen.getByText('Enabled')).toBeInTheDocument()
-        expect(screen.getByText('Disabled')).toBeInTheDocument()
+        expect(screen.getAllByText('Enabled')).toHaveLength(2)
+        expect(screen.getAllByText('Disabled')).toHaveLength(2)
         expect(
             screen.getByText(/Signals from evals are only generated if eval reports are enabled/)
         ).toBeInTheDocument()
         expect(screen.getByText('Reports generated')).toBeInTheDocument()
         expect(screen.getByText('Last generated')).toBeInTheDocument()
         expect(screen.getByText('4')).toBeInTheDocument()
-        expect(screen.getAllByText('Never')).toHaveLength(1)
+        expect(screen.getAllByText('Never')).toHaveLength(2)
 
-        const evalReportsDocsLink = screen.getByText('Learn more').closest('a')
+        const evalReportsDescription = screen.getByText(
+            /Signals from evals are only generated if eval reports are enabled/
+        )
+        const evalReportsDocsLink = within(evalReportsDescription).getByText('Learn more').closest('a')
         expect(evalReportsDocsLink).toHaveAttribute(
             'href',
             'https://posthog.com/docs/ai-observability/self-driving#eval-reports'
@@ -175,10 +259,53 @@ describe('AIObservabilitySelfDriving', () => {
             'href',
             '/project/997/ai-evals/evaluations/evaluation-enabled?evaluation_tab=configuration'
         )
+        expect(editLinks[0]).toHaveAttribute('target', '_blank')
         expect(editLinks[1]).toHaveAttribute(
             'href',
             '/project/997/ai-evals/evaluations/evaluation-disabled?evaluation_tab=configuration'
         )
+        expect(editLinks[1]).toHaveAttribute('target', '_blank')
+
+        expect(screen.getByText('Anomaly alert investigations')).toBeInTheDocument()
+        const anomalyInvestigationsDescription = screen.getByText(
+            /Insights with anomaly detection alerts that have agent investigation enabled/
+        )
+        const anomalyInvestigationsDocsLink = within(anomalyInvestigationsDescription).getByText('Learn more')
+        expect(anomalyInvestigationsDocsLink).toHaveAttribute(
+            'href',
+            'https://posthog.com/docs/ai-observability/self-driving#anomaly-investigations'
+        )
+        expect(anomalyInvestigationsDocsLink).toHaveAttribute('target', '_blank')
+        expect(alertsApi.alertsList).toHaveBeenCalledWith('997', {
+            has_detector: true,
+            insight_tag: 'ai-observability',
+            limit: 100,
+            offset: 0,
+        })
+        const anomalyTable = document.querySelector('[data-attr="anomaly-alert-investigations-table"]')
+        expect(anomalyTable).toBeInTheDocument()
+        const anomalyTableQueries = within(anomalyTable as HTMLElement)
+        expect(anomalyTableQueries.getByText('Unexpected AI cost')).toBeInTheDocument()
+        expect(anomalyTableQueries.getByText('Unexpected error rate')).toBeInTheDocument()
+        expect(anomalyTableQueries.getByText('AI cost by model').closest('a')).toHaveAttribute(
+            'href',
+            '/project/997/insights/insight-cost'
+        )
+        expect(anomalyTableQueries.getByText('AI errors by model').closest('a')).toHaveAttribute(
+            'href',
+            '/project/997/insights/insight-errors'
+        )
+        const anomalyEditLinks = anomalyTableQueries.getAllByText('Edit').map((button) => button.closest('a'))
+        expect(anomalyEditLinks[0]).toHaveAttribute(
+            'href',
+            '/project/997/alerts?alert_type=insights&alert_id=alert-investigated'
+        )
+        expect(anomalyEditLinks[0]).toHaveAttribute('target', '_blank')
+        expect(anomalyEditLinks[1]).toHaveAttribute(
+            'href',
+            '/project/997/alerts?alert_type=insights&alert_id=alert-uninvestigated'
+        )
+        expect(anomalyEditLinks[1]).toHaveAttribute('target', '_blank')
 
         await userEvent.click(screen.getByText('Correctness check'))
         expect(router.values.location.pathname).toBe('/project/997/ai-evals/evaluations/evaluation-enabled')
@@ -229,6 +356,58 @@ describe('AIObservabilitySelfDriving', () => {
         expect(createEvalButton.closest('a')).toHaveAttribute('href', '/project/997/ai-evals/evaluations')
         expect(screen.getByText(/Use the connected PostHog MCP server/)).toBeInTheDocument()
         expect(document.querySelector('[data-attr="ai-observability-evaluations-table"]')).not.toBeInTheDocument()
+    })
+
+    it('links the empty anomaly state guidance', async () => {
+        jest.mocked(alertsApi.alertsList).mockResolvedValueOnce({
+            count: 0,
+            next: null,
+            previous: null,
+            results: [],
+        })
+
+        render(
+            <Provider>
+                <AIObservabilitySelfDriving />
+            </Provider>
+        )
+
+        const emptyStateCopy = await screen.findByText(/No anomaly alerts match this view/)
+        const insightLink = within(emptyStateCopy).getByText('insight').closest('a')
+        expect(insightLink).toHaveAttribute('href', '/project/997/insights')
+        expect(insightLink).toHaveAttribute('target', '_blank')
+        expect(screen.getByText('AI observability dashboard').closest('a')).toHaveAttribute(
+            'href',
+            '/project/997/ai-observability/dashboard'
+        )
+        expect(screen.getByText('AI observability dashboard').closest('a')).toHaveAttribute('target', '_blank')
+    })
+
+    it('remembers which sections are collapsed', async () => {
+        const firstRender = render(
+            <Provider>
+                <AIObservabilitySelfDriving />
+            </Provider>
+        )
+
+        expect(await screen.findByText('Correctness check')).toBeInTheDocument()
+        const evalReportsToggle = document.querySelector('[data-attr="ai-observability-eval-reports-collapse"]')
+        expect(evalReportsToggle?.closest('.LemonCollapsePanel')).toHaveAttribute('aria-expanded', 'true')
+
+        await userEvent.click(evalReportsToggle as HTMLElement)
+        expect(evalReportsToggle?.closest('.LemonCollapsePanel')).toHaveAttribute('aria-expanded', 'false')
+
+        firstRender.unmount()
+        initKeaTests()
+
+        render(
+            <Provider>
+                <AIObservabilitySelfDriving />
+            </Provider>
+        )
+
+        const restoredEvalReportsToggle = document.querySelector('[data-attr="ai-observability-eval-reports-collapse"]')
+        expect(restoredEvalReportsToggle?.closest('.LemonCollapsePanel')).toHaveAttribute('aria-expanded', 'false')
     })
 
     it('shows a retry instead of the empty state when evals fail to load', async () => {
