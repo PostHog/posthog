@@ -198,6 +198,33 @@ read `FINAL_REPORT.md` there first (config glossary + coverage matrix + ranking)
    rate drops materially (toward ≤50%) on frozen-PR evals with the valid-finding set intact (item 5's
    coverage matrix as the guard); kill if valid findings drop with the noise.
 
+### ✅ BUILT 2026-08-12 — review body cut to a severity tally (the chunk summary is gone)
+
+The published body opened with a walk of the chunk tree: a `## <chunk type>` heading per chunk, an `Issues: N`
+line, a collapsed file list, and a collapsed "What were the main changes" block built from the chunker's
+`key_changes`. It was the longest part of a review and the least read — a machine-written summary of a diff the
+author had just written, in front of the findings they actually came for. Sentiment across the company on
+LLM-written PR prose is blunt: people skip it. Decisions:
+
+- **The body is one line: `Found **2 must fix**, **1 consider**.`** Only severities with a non-zero count
+  appear, most urgent first (`PRIORITIES_BY_URGENCY`), and the tally counts exactly what publishes — valid
+  findings at or above the acting user's threshold, bucketed by **effective** (validator-wins) priority. An
+  empty tally renders "No issues to report." (defensive: publish self-skips with nothing publishable, but the
+  body is also stored and shown in the UI for store-only runs).
+- **Labels are shared, not duplicated.** `PRIORITY_LABELS` + `PRIORITIES_BY_URGENCY` moved to `constants.py`,
+  so the body and the status comment's found-counts line can't drift into two vocabularies.
+- **What deliberately stayed:** the `# ReviewHog Report` title (the report's identity in the UI and in the
+  publish test's marker assertions) and the "Other findings (outside the changed lines)" section — that one
+  isn't a summary, it's the only place off-diff findings surface at all.
+- **The chunk tree left the renderer entirely.** `_assemble_report` and
+  `models/prepare_validation_markdown.py` (`ValidationMarkdownReport*`) are deleted, and `build_review_body`
+  no longer takes `chunks_data` — so `_build_and_finalize` drops its `load_chunk_set` call. The chunker's
+  `chunk_type` / `key_changes` are untouched: perspective selection still reads them, and the pipeline-trace UI
+  still shows the chunks. Only the PR-facing prose was the problem.
+- Rejected: keeping the summary behind a `<details>` (still the first thing in the review, still written for
+  nobody), and shortening it with another LLM call (paying per review to generate text we just established
+  people skip).
+
 ### ✅ BUILT 2026-07-27 — reviews surface exposed as MCP tools (grantable `review_hog` scope)
 
 Agents needed to drive ReviewHog over MCP — kick off a review, poll progress, pull the finished findings
