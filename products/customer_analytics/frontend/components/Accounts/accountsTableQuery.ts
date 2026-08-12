@@ -178,6 +178,13 @@ function customPropertyFilter(
     }
 }
 
+export function supportedCustomPropertyFilters(
+    filters: AccountCustomPropertyFilter[],
+    definitionsById: Record<string, CustomPropertyDefinitionApi>
+): AccountCustomPropertyFilter[] {
+    return filters.filter((filter) => customPropertyFilter(filter, definitionsById) !== null)
+}
+
 function queryFilters(input: BuildAccountsTableQueryPlanInput): AccountsTableFilter[] {
     if (input.accountIdFilter) {
         return [{ kind: 'account_id', accountId: input.accountIdFilter } satisfies AccountsTableAccountIdFilter]

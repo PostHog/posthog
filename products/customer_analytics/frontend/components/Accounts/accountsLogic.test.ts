@@ -8,7 +8,7 @@ import { userLogic } from 'scenes/userLogic'
 
 import { AccountsTableCustomPropertyOperator, type AccountsTableQuery } from '~/queries/schema/schema-general'
 import { initKeaTests } from '~/test/init'
-import type { UserBasicType, UserType } from '~/types'
+import { PropertyFilterType, PropertyOperator, type UserBasicType, type UserType } from '~/types'
 
 import {
     accountRelationshipDefinitionsList,
@@ -22,6 +22,7 @@ import type {
     AccountApi,
     AccountRelationshipApi,
     AccountRelationshipDefinitionApi,
+    CustomPropertyDefinitionApi,
 } from 'products/customer_analytics/frontend/generated/api.schemas'
 
 import { customerAnalyticsSceneLogic } from '../../customerAnalyticsSceneLogic'
@@ -170,6 +171,27 @@ describe('accountsLogic', () => {
 
         expect(logic.values.accountsQuerySource?.kind).toBe('AccountsTableQuery')
         expect(logic.values.accountsDataTableQuery.columns).not.toContain('arbitrary_hogql()')
+    })
+
+    it('removes restored unsupported custom-property filters', () => {
+        logic.actions.loadCustomPropertyDefinitionsSuccess([
+            {
+                id: CSM_DEFINITION_ID,
+                name: 'Plan',
+                display_type: 'currency',
+            } as CustomPropertyDefinitionApi,
+        ])
+        logic.actions.setCustomPropertyFilters([
+            {
+                type: PropertyFilterType.AccountCustomProperty,
+                key: CSM_DEFINITION_ID,
+                operator: PropertyOperator.Regex,
+                value: 'enterprise.*',
+            },
+        ])
+
+        expect(logic.values.customPropertyFilters).toEqual([])
+        expect(logic.values.activeFilterCount).toBe(0)
     })
 
     it('setTagsFilter updates the reducer', () => {
