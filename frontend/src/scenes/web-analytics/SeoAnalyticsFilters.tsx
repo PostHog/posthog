@@ -1,0 +1,33 @@
+import { useActions, useValues } from 'kea'
+
+import { DateFilter } from 'lib/components/DateFilter/DateFilter'
+import { FilterBar } from 'lib/components/FilterBar'
+
+import { ReloadAll } from '~/queries/nodes/DataNode/Reload'
+
+import { webAnalyticsDateMapping } from './constants'
+import { webAnalyticsLogic } from './webAnalyticsLogic'
+
+export const SeoAnalyticsFilters = ({ tabs }: { tabs: JSX.Element }): JSX.Element => {
+    const {
+        dateFilter: { dateTo, dateFrom },
+    } = useValues(webAnalyticsLogic)
+    const { setDates } = useActions(webAnalyticsLogic)
+
+    return (
+        <FilterBar
+            top={tabs}
+            left={
+                <>
+                    <ReloadAll iconOnly />
+                    <DateFilter
+                        dateOptions={webAnalyticsDateMapping}
+                        dateFrom={dateFrom}
+                        dateTo={dateTo}
+                        onChange={setDates}
+                    />
+                </>
+            }
+        />
+    )
+}

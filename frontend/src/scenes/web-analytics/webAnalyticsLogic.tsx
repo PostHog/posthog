@@ -3039,9 +3039,9 @@ export const webAnalyticsLogic = kea<webAnalyticsLogicType>([
                         : null,
                 ]
 
-                // Bot analytics tiles live in `botAnalyticsLogic` so the bot tab keeps its own
-                // filter state. `MainContent` reads them directly when productTab === BOT_ANALYTICS.
-                if (productTab === ProductTab.BOT_ANALYTICS) {
+                // Bot analytics and SEO tiles live in their own logics so those tabs keep their own
+                // state. `MainContent` reads them directly for those tabs.
+                if (productTab === ProductTab.BOT_ANALYTICS || productTab === ProductTab.SEO) {
                     return []
                 }
 
@@ -3135,6 +3135,14 @@ export const webAnalyticsLogic = kea<webAnalyticsLogicType>([
                 urlParams.set('filter_test_accounts', shouldFilterTestAccounts.toString())
                 urlParams.set('compare_filter', JSON.stringify(rawCompareFilter))
                 return `/web/page-performance${urlParams.toString() ? '?' + urlParams.toString() : ''}`
+            } else if (productTab === ProductTab.SEO) {
+                // The SEO tab only supports the shared date range, so serialize just that.
+                if (dateFrom !== INITIAL_DATE_FROM || dateTo !== INITIAL_DATE_TO || interval !== INITIAL_INTERVAL) {
+                    urlParams.set('date_from', dateFrom ?? '')
+                    urlParams.set('date_to', dateTo ?? '')
+                    urlParams.set('interval', interval ?? '')
+                }
+                return `/web/seo${urlParams.toString() ? '?' + urlParams.toString() : ''}`
             }
 
             // Make sure we're storing the raw filters only, or else we'll have issues with the domain/device type filters
@@ -3294,6 +3302,7 @@ export const webAnalyticsLogic = kea<webAnalyticsLogicType>([
                     ProductTab.LIVE,
                     ProductTab.BOT_ANALYTICS,
                     ProductTab.PAGE_PERFORMANCE,
+                    ProductTab.SEO,
                 ].includes(productTab)
             ) {
                 return
@@ -3312,6 +3321,12 @@ export const webAnalyticsLogic = kea<webAnalyticsLogicType>([
                 productTab === ProductTab.PAGE_PERFORMANCE &&
                 !values.featureFlags[FEATURE_FLAGS.WEB_ANALYTICS_PAGE_PERFORMANCE]
             ) {
+                router.actions.replace(urls.webAnalytics())
+                return
+            }
+
+            // Redirect away from the SEO tab if the feature flag is disabled
+            if (productTab === ProductTab.SEO && !values.featureFlags[FEATURE_FLAGS.WEB_ANALYTICS_SEO]) {
                 router.actions.replace(urls.webAnalytics())
                 return
             }
@@ -3599,6 +3614,10 @@ export const webAnalyticsLogic = kea<webAnalyticsLogicType>([
                 }
                 if (tab === ProductTab.BOT_ANALYTICS && values.dateFilter.dateFrom === INITIAL_DATE_FROM) {
                     actions.setDates('-1d', null)
+                }
+                // Search Console data arrives with a ~3 day delay, so a short range shows mostly empty days
+                if (tab === ProductTab.SEO && values.dateFilter.dateFrom === INITIAL_DATE_FROM) {
+                    actions.setDates('-28d', null)
                 }
             },
             openFocusModeModal: () => {

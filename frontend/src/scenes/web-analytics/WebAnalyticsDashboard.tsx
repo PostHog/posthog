@@ -65,6 +65,8 @@ import { LiveBotTiles } from './LiveMetricsDashboard/LiveBotTiles'
 import { LiveWebAnalyticsMetrics } from './LiveMetricsDashboard/LiveWebAnalyticsMetrics'
 import { PagePerformance } from './PagePerformance'
 import { PagePerformanceFilters } from './PagePerformanceFilters'
+import { SeoAnalyticsFilters } from './SeoAnalyticsFilters'
+import { GSC_SOURCE_TYPE, seoAnalyticsLogic } from './seoAnalyticsLogic'
 import { WebAnalyticsExport } from './WebAnalyticsExport'
 import { WebAnalyticsFilters } from './WebAnalyticsFilters'
 import { webAnalyticsModalLogic } from './webAnalyticsModalLogic'
@@ -647,6 +649,8 @@ const Filters = ({ tabs }: { tabs: JSX.Element }): JSX.Element | null => {
             return <BotAnalyticsFilters tabs={tabs} />
         case ProductTab.PAGE_PERFORMANCE:
             return <PagePerformanceFilters tabs={tabs} />
+        case ProductTab.SEO:
+            return <SeoAnalyticsFilters tabs={tabs} />
         default:
             return <WebAnalyticsFilters tabs={tabs} />
     }
@@ -675,6 +679,10 @@ const MainContent = (): JSX.Element => {
         return <PagePerformance />
     }
 
+    if (productTab === ProductTab.SEO) {
+        return <SeoAnalyticsTiles />
+    }
+
     return <Tiles />
 }
 
@@ -691,6 +699,51 @@ const BotAnalyticsTiles = (): JSX.Element => {
                 don't execute JavaScript, so client-side tracking alone misses the majority of crawler traffic.
             </LemonBanner>
             <LiveBotTiles />
+            <Tiles tiles={tiles} />
+        </>
+    )
+}
+
+const SeoAnalyticsTiles = (): JSX.Element => {
+    // Drives the SEO tab off its own logic so warehouse source state stays out of the regular tabs.
+    useMountedLogic(seoAnalyticsLogic)
+    const { tiles, hasGscSource, dataWarehouseSourcesLoading, dataWarehouseSources } = useValues(seoAnalyticsLogic)
+
+    if (!dataWarehouseSources && dataWarehouseSourcesLoading) {
+        return <LemonSkeleton className="w-full h-32" />
+    }
+
+    if (!hasGscSource) {
+        return (
+            <div className="col-span-full w-full">
+                <ProductIntroduction
+                    productName="SEO"
+                    productKey={ProductKey.WEB_ANALYTICS}
+                    thingName="Google Search Console connection"
+                    isEmpty={true}
+                    titleOverride="Connect Google Search Console"
+                    description="See how your site performs in Google Search. Connect Google Search Console to bring clicks, impressions, CTR, and average position for your top queries and pages into PostHog."
+                    docsURL="https://posthog.com/docs/cdp/sources/google-search-console"
+                    actionElementOverride={
+                        <LemonButton
+                            type="primary"
+                            to={urls.dataWarehouseSourceNew(GSC_SOURCE_TYPE, urls.webAnalyticsSeo(), 'Web analytics')}
+                            data-attr="web-analytics-seo-connect-gsc"
+                        >
+                            Connect Google Search Console
+                        </LemonButton>
+                    }
+                />
+            </div>
+        )
+    }
+
+    return (
+        <>
+            <LemonBanner type="info" dismissKey="seo-analytics-data-delay-info" className="mb-4">
+                Google Search Console data is imported daily and arrives with a delay of about three days. Recent days
+                may look empty until Google publishes them.
+            </LemonBanner>
             <Tiles tiles={tiles} />
         </>
     )
@@ -773,6 +826,27 @@ const pagePerformanceTab = (
                 </div>
             ),
             link: urls.webAnalyticsPagePerformance(),
+        },
+    ]
+}
+
+const seoTab = (featureFlags: FeatureFlagsSet): { key: ProductTab; label: string | JSX.Element; link: string }[] => {
+    if (!featureFlags[FEATURE_FLAGS.WEB_ANALYTICS_SEO]) {
+        return []
+    }
+
+    return [
+        {
+            key: ProductTab.SEO,
+            label: (
+                <div className="flex items-center gap-1">
+                    SEO
+                    <LemonTag type="completion" className="uppercase">
+                        Alpha
+                    </LemonTag>
+                </div>
+            ),
+            link: urls.webAnalyticsSeo(),
         },
     ]
 }
@@ -891,6 +965,7 @@ const WebAnalyticsTabs = (): JSX.Element => {
                 ...liveTab(),
                 ...botAnalyticsTab(featureFlags),
                 ...pagePerformanceTab(featureFlags),
+                ...seoTab(featureFlags),
                 ...healthTab(),
             ]}
             sceneInset

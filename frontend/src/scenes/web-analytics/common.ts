@@ -107,6 +107,11 @@ export enum TileId {
     AI_CRAWLED_PAGES = 'AI_CRAWLED_PAGES',
 
     PAGE_PERFORMANCE_TABLE = 'PAGE_PERFORMANCE_TABLE',
+
+    // SEO Tiles (Google Search Console data)
+    SEO_TRENDS = 'SEO_TRENDS',
+    SEO_QUERIES = 'SEO_QUERIES',
+    SEO_PAGES = 'SEO_PAGES',
 }
 
 export enum ProductTab {
@@ -119,6 +124,7 @@ export enum ProductTab {
     LIVE = 'live',
     BOT_ANALYTICS = 'bots',
     PAGE_PERFORMANCE = 'page-performance',
+    SEO = 'seo',
 }
 
 export type DeviceType = 'Desktop' | 'Mobile'
@@ -200,6 +206,11 @@ export const loadPriorityMap: Record<TileId, number> = {
     [TileId.AI_CRAWLED_PAGES]: 9,
 
     [TileId.PAGE_PERFORMANCE_TABLE]: 1,
+
+    // SEO Tiles
+    [TileId.SEO_TRENDS]: 1,
+    [TileId.SEO_QUERIES]: 2,
+    [TileId.SEO_PAGES]: 3,
 }
 
 // To enable a tile here, you must update the QueryRunner to support it
@@ -279,6 +290,9 @@ export const TILE_LABELS: Record<TileId, string> = {
     [TileId.AI_CRAWLERS]: 'AI crawlers',
     [TileId.AI_CRAWLED_PAGES]: 'Pages AI crawlers read',
     [TileId.PAGE_PERFORMANCE_TABLE]: 'Page performance',
+    [TileId.SEO_TRENDS]: 'Search performance over time',
+    [TileId.SEO_QUERIES]: 'Top queries',
+    [TileId.SEO_PAGES]: 'Top pages',
 }
 
 export interface BaseTile {
