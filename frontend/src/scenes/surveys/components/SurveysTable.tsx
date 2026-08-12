@@ -81,7 +81,7 @@ export function SurveysTable(): JSX.Element {
                 render: function RenderResponses(_, survey) {
                     return (
                         <>
-                            {surveysResponsesCountLoading ? (
+                            {surveysResponsesCountLoading && !(survey.id in surveysResponsesCount) ? (
                                 <Spinner />
                             ) : (
                                 <div>{surveysResponsesCount[survey.id] ?? 0}</div>
