@@ -232,6 +232,7 @@ async fn a_failed_preconnect_releases_its_claim() {
         commit_timeout: Duration::from_secs(2),
         broker_txn_timeout: BROKER_TXN_TIMEOUT,
         window: Duration::from_millis(5),
+        window_max_writes: 32,
         settle_budget: Duration::from_secs(5),
     });
 
@@ -263,6 +264,7 @@ async fn a_stale_dials_failure_leaves_the_replacements_claim() {
         commit_timeout: Duration::from_secs(2),
         broker_txn_timeout: BROKER_TXN_TIMEOUT,
         window: Duration::from_millis(5),
+        window_max_writes: 32,
         settle_budget: Duration::from_secs(5),
     }));
 
