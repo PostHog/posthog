@@ -418,6 +418,9 @@ tools:
                 - internal
                 - created_at
                 - updated_at
+    tasks-models-retrieve:
+        operation: tasks_models_retrieve
+        enabled: false
     tasks-partial-update:
         operation: tasks_partial_update
         enabled: false
