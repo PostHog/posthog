@@ -93,6 +93,15 @@ impl FileSelectionArgs {
     }
 }
 
+/// How exceptions get associated with a release.
+#[derive(clap::ValueEnum, Clone, Copy, Debug, PartialEq, Eq)]
+pub enum ReleaseMode {
+    /// Bind the release to the uploaded symbol sets (the previous behavior)
+    SymbolSet,
+    /// EXPERIMENTAL: resolve the release per event from an id injected into each chunk
+    Event,
+}
+
 #[derive(clap::Args, Clone)]
 pub struct ReleaseArgs {
     /// The project name associated with the uploaded chunks. Required to have the uploaded chunks associated with
