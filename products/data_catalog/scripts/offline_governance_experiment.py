@@ -205,7 +205,11 @@ def fetch_dataset_items(dataset_id: str) -> list[ExperimentItem]:
 
 
 def run_agent_session(client: anthropic.Anthropic, prompt: str, nonce: str, system: str | None = None) -> None:
-    messages: list[dict] = [{"role": "user", "content": f"[run marker {nonce}] {prompt}"}]
+    marker_instruction = (
+        f"Include the marker {nonce} verbatim in the context/intent text of every PostHog "
+        "tool call you make in this session."
+    )
+    messages: list[dict] = [{"role": "user", "content": f"{marker_instruction}\n\n{prompt}"}]
     mcp_servers = [
         {
             "type": "url",
@@ -234,36 +238,50 @@ def hogql(query: str) -> list[list]:
     return _api("POST", "/query/", json={"query": {"kind": "HogQLQuery", "query": query}}).json()["results"]
 
 
-def find_trace_id(nonce: str, started_at: datetime) -> str | None:
-    since = started_at.strftime("%Y-%m-%d %H:%M:%S")
-    query = (
-        "SELECT DISTINCT trace_id FROM posthog.ai_events "
-        f"WHERE timestamp >= toDateTime('{since}', 'UTC') - INTERVAL 5 MINUTE "
-        f"AND event = '$ai_generation' AND toString(input) LIKE '%{nonce}%' LIMIT 1"
+def _marker_rows(nonce: str, since: str) -> tuple[list[list], list[list]]:
+    tool_rows = hogql(
+        "SELECT toString(properties.$mcp_tool_name) AS tool, toString(properties.$mcp_exec_verb) AS verb, "
+        "toString(properties.$mcp_intent) AS intent, toString(properties.$mcp_is_error) AS is_error "
+        f"FROM events WHERE event = '$mcp_tool_call' AND timestamp >= toDateTime('{since}', 'UTC') - INTERVAL 5 MINUTE "
+        f"AND toString(properties.$mcp_intent) LIKE '%{nonce}%' ORDER BY timestamp"
     )
-    for _ in range(TRACE_POLL_ATTEMPTS):
-        rows = hogql(query)
-        if rows:
-            return rows[0][0]
-        time.sleep(TRACE_POLL_SECONDS)
-    return None
-
-
-def fetch_trace_transcript(trace_id: str) -> str:
-    rows = hogql(
+    ai_rows = hogql(
         "SELECT event, coalesce(span_name, '') AS span_name, toString(input) AS input, "
         "toString(output_choices) AS output_choices, toString(input_state) AS input_state, "
-        "toString(output_state) AS output_state "
-        f"FROM posthog.ai_events WHERE trace_id = '{trace_id}' "
-        "AND event IN ('$ai_generation', '$ai_span') ORDER BY timestamp"
+        "toString(output_state) AS output_state, trace_id "
+        f"FROM posthog.ai_events WHERE timestamp >= toDateTime('{since}', 'UTC') - INTERVAL 5 MINUTE "
+        f"AND (toString(input) LIKE '%{nonce}%' OR toString(input_state) LIKE '%{nonce}%') ORDER BY timestamp"
     )
-    lines = []
-    for event, span_name, input_, output_choices, input_state, output_state in rows:
+    return tool_rows, ai_rows
+
+
+def fetch_session_transcript(nonce: str, started_at: datetime) -> tuple[str, str] | None:
+    """The connector calls the MCP server statelessly, so no unified trace exists; the marker in
+    every call's intent is the session key. Returns (transcript, trace_id) or None on no data."""
+    since = started_at.strftime("%Y-%m-%d %H:%M:%S")
+    tool_rows: list[list] = []
+    ai_rows: list[list] = []
+    for _ in range(TRACE_POLL_ATTEMPTS):
+        tool_rows, ai_rows = _marker_rows(nonce, since)
+        if tool_rows or ai_rows:
+            time.sleep(TRACE_POLL_SECONDS)
+            tool_rows, ai_rows = _marker_rows(nonce, since)
+            break
+        time.sleep(TRACE_POLL_SECONDS)
+    if not tool_rows and not ai_rows:
+        return None
+
+    lines = [
+        f"[tool_call:{tool}:{verb} error={is_error}] intent={intent}" for tool, verb, intent, is_error in tool_rows
+    ]
+    trace_id = nonce
+    for event, span_name, input_, output_choices, input_state, output_state, row_trace in ai_rows:
+        trace_id = row_trace or trace_id
         if event == "$ai_generation":
             lines.append(f"[generation:{span_name}] input={input_} output={output_choices}")
         else:
             lines.append(f"[span:{span_name}] input={input_state} result={output_state}")
-    return "\n".join(lines)[:JUDGE_INPUT_CHAR_CAP]
+    return "\n".join(lines)[:JUDGE_INPUT_CHAR_CAP], trace_id
 
 
 def fetch_approved_metric_names() -> list[str]:
@@ -357,12 +375,12 @@ def run_experiment(dataset_id: str, only_items: list[str] | None, system: str | 
         print(f"[{item.name}] replaying agent session (marker {nonce}, variant {variant})")
         run_agent_session(client, item.prompt, nonce, system=system)
 
-        trace_id = find_trace_id(nonce, started_at)
-        if trace_id is None:
-            print(f"[{item.name}] no trace found for marker {nonce}; skipping scoring", file=sys.stderr)
+        session = fetch_session_transcript(nonce, started_at)
+        if session is None:
+            print(f"[{item.name}] no session telemetry for marker {nonce}; skipping scoring", file=sys.stderr)
             failures += 1
             continue
-        transcript = fetch_trace_transcript(trace_id)
+        transcript, trace_id = session
 
         for metric_name, rubric in rubrics.items():
             verdict = judge_trace(client, rubric, transcript)
