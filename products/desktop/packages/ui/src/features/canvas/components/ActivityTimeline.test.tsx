@@ -43,17 +43,13 @@ function renderTimeline(canOpenInPlace?: boolean, items = conversationItems) {
       timeline={[]}
       // biome-ignore lint/suspicious/noExplicitAny: narrow fixture for the rows under test
       conversationItems={items as any}
-      isTaskAuthor
-      canForward={false}
       canOpenInPlace={canOpenInPlace}
-      onSendToAgent={() => {}}
-      onDelete={() => {}}
     />,
   );
 }
 
 beforeEach(() => {
-  useThreadNavigationStore.setState({ scrollRequests: {} });
+  useThreadNavigationStore.setState({ scrollRequests: {}, listeners: {} });
 });
 
 describe("ActivityTimeline", () => {
@@ -74,23 +70,12 @@ describe("ActivityTimeline", () => {
     expect(screen.queryByRole("button", { name: /SA/ })).toBeNull();
   });
 
-  it("asks the transcript to scroll to the clicked message", () => {
+  it("opens a message to its full text", () => {
     renderTimeline(true);
 
-    fireEvent.click(screen.getAllByRole("button")[1]);
+    fireEvent.click(screen.getByRole("button", { name: /first thing/ }));
 
-    expect(useThreadNavigationStore.getState().scrollRequests["task-1"]).toBe(
-      "turn-2-2-user",
-    );
-  });
-
-  it("leaves rows inert with no transcript alongside to drive", () => {
-    renderTimeline();
-
-    expect(screen.queryAllByRole("button")).toHaveLength(0);
-    const body = screen.getByText(/first thing/).closest("[data-slot]");
-    expect(body).toHaveClass("whitespace-pre-wrap", "break-words");
-    expect(body).not.toHaveClass("line-clamp-1");
+    expect(screen.getByText(/and more detail/)).toBeInTheDocument();
   });
 
   it("renders structured references natively in conversation previews", () => {
@@ -104,6 +89,7 @@ describe("ActivityTimeline", () => {
       },
     ]);
 
+    // The whole message fits on the row, so the preview is the content — rendered, not raw.
     expect(screen.getByText("#73874 - Loading…")).toBeInTheDocument();
     expect(screen.queryByText(/<github_pr/)).toBeNull();
   });
@@ -122,6 +108,8 @@ describe("ActivityTimeline", () => {
     expect(screen.getByText("Review this")).toBeInTheDocument();
     expect(screen.queryByText(/<channel_context/)).toBeNull();
     expect(screen.queryByText("Saved workspace context")).toBeNull();
+    // The context lives inside the row, so open it before reaching for the fold.
+    fireEvent.click(screen.getByRole("button", { name: /Review this/ }));
 
     fireEvent.click(screen.getByRole("button", { name: "#code CONTEXT.md" }));
 
@@ -160,5 +148,218 @@ describe("ActivityTimeline", () => {
 
     expect(screen.getByText(/user_custom_instructions/)).toBeInTheDocument();
     expect(screen.getByText(/be terse/)).toBeInTheDocument();
+  });
+});
+
+describe("ActivityTimeline events and comments", () => {
+  const threadMessage = (
+    id: string,
+    event: string,
+    payload: Record<string, unknown>,
+  ) => ({
+    kind: "human" as const,
+    timestamp: Date.parse("2026-07-17T09:20:00Z"),
+    message: {
+      id,
+      task: "task-1",
+      content: "",
+      created_at: "2026-07-17T09:20:00Z",
+      author_kind: "agent" as const,
+      event,
+      payload,
+    },
+  });
+
+  const commentThread = (overrides = {}) => ({
+    id: "thread-1",
+    target: { id: "artifact-1", type: "artifact", name: "report.md" },
+    content: "this needs a guard",
+    content_truncated: false,
+    selected_text: "every event should also go to the activity panel",
+    author: { id: 7, uuid: "u2", first_name: "Ben", last_name: "White" },
+    created_at: "2026-07-17T09:30:00Z",
+    last_activity_at: "2026-07-17T09:35:00Z",
+    reply_count: 2,
+    participants: [
+      { id: 7, uuid: "u2", first_name: "Ben", last_name: "White" },
+      { id: 9, uuid: "u3", first_name: "Shy", last_name: "Alter" },
+    ],
+    mentioned_user_ids: [],
+    resolved: false,
+    state_event: null,
+    latest_reply: null,
+    ...overrides,
+  });
+
+  function renderRows(props: Record<string, unknown>) {
+    return render(
+      <ActivityTimeline
+        task={task}
+        timeline={[]}
+        conversationItems={[]}
+        // biome-ignore lint/suspicious/noExplicitAny: narrow fixture for the rows under test
+        {...(props as any)}
+      />,
+    );
+  }
+
+  it("keeps the failure reason one click away, not on the row", () => {
+    // Rows are collapsed so the panel reads as a timeline; the detail is what opening is for.
+    renderRows({
+      timeline: [
+        threadMessage("m1", "run_failed", {
+          run_id: "run-1",
+          error_summary: "Command failed: pnpm build",
+        }),
+      ],
+    });
+
+    expect(screen.queryByText(/Command failed: pnpm build/)).toBeNull();
+    fireEvent.click(screen.getByRole("button", { name: /Run failed/ }));
+
+    expect(screen.getByText(/Command failed: pnpm build/)).toBeInTheDocument();
+  });
+
+  it("labels the run only once a task has run more than once", () => {
+    const first = threadMessage("m1", "run_started", {
+      run_id: "run-1",
+      environment: "cloud",
+      branch: "shy/activity",
+    });
+    const second = threadMessage("m2", "run_started", { run_id: "run-2" });
+
+    const single = renderRows({ timeline: [first], runCount: 1 });
+    expect(screen.getByText(/Agent started work/)).toBeInTheDocument();
+    single.unmount();
+
+    renderRows({ timeline: [first, second], runCount: 2 });
+    expect(screen.getByText(/Agent started run 2/)).toBeInTheDocument();
+  });
+
+  it("keeps the anchor with the comment it points at, once opened", () => {
+    renderRows({ commentThreads: [commentThread()], commentsEnabled: true });
+
+    expect(
+      screen.queryByText(/every event should also go to the activity panel/),
+    ).toBeNull();
+    fireEvent.click(screen.getByRole("button", { name: /commented on/ }));
+
+    expect(
+      screen.getByText(/every event should also go to the activity panel/),
+    ).toBeInTheDocument();
+    expect(
+      screen.getByText("2 replies · Ben White, Shy Alter"),
+    ).toBeInTheDocument();
+  });
+
+  it("reads as a mention when the mention is of you", () => {
+    renderRows({
+      commentThreads: [commentThread({ mentioned_user_ids: [42] })],
+      commentsEnabled: true,
+      currentUserId: 42,
+    });
+
+    expect(screen.getByText("mentioned you on")).toBeInTheDocument();
+  });
+
+  it("reads as an ordinary comment when someone else was mentioned", () => {
+    renderRows({
+      commentThreads: [commentThread({ mentioned_user_ids: [7] })],
+      commentsEnabled: true,
+      currentUserId: 42,
+    });
+
+    expect(screen.getByText("commented on")).toBeInTheDocument();
+  });
+
+  it("gives resolve its own row, with who resolved it", () => {
+    renderRows({
+      commentThreads: [
+        commentThread({
+          resolved: true,
+          state_event: {
+            state: "resolved",
+            created_at: "2026-07-17T09:40:00Z",
+            author: {
+              id: 9,
+              uuid: "u3",
+              first_name: "Shy",
+              last_name: "Alter",
+            },
+          },
+        }),
+      ],
+      commentsEnabled: true,
+    });
+
+    expect(screen.getByText("resolved a thread on")).toBeInTheDocument();
+  });
+
+  it("shows no comment rows when comments are off", () => {
+    renderRows({ commentThreads: [commentThread()], commentsEnabled: false });
+
+    expect(screen.queryByText("commented on")).toBeNull();
+  });
+});
+
+describe("ActivityTimeline connectors", () => {
+  it("runs the line between every pair of beads, and no further", () => {
+    // Each row draws the half above and the half below its own bead, so consecutive rows
+    // meet: the first row has no upper half and the last has no lower one.
+    const { container } = renderTimeline(true);
+
+    const rows = [...container.querySelectorAll(".group")];
+    const halves = rows.map(
+      (row) => row.querySelectorAll("[aria-hidden].w-px").length,
+    );
+    expect(rows.length).toBeGreaterThan(2);
+    expect(halves.at(0)).toBe(1);
+    expect(halves.at(-1)).toBe(1);
+    expect(halves.slice(1, -1).every((count) => count === 2)).toBe(true);
+  });
+
+  it("always opens a message to its full text", () => {
+    // A truncated one-line preview used to open onto nothing but the action.
+    renderTimeline(true);
+
+    fireEvent.click(screen.getByRole("button", { name: /second thing/ }));
+
+    expect(screen.getAllByText(/second thing/).length).toBeGreaterThan(1);
+  });
+});
+
+describe("ActivityTimeline thread replies", () => {
+  const reply = {
+    kind: "human" as const,
+    timestamp: Date.parse("2026-07-17T09:30:00Z"),
+    message: {
+      id: "reply-1",
+      task: "task-1",
+      author: { id: 7, uuid: "u2", first_name: "Ben", last_name: "White" },
+      author_kind: "human" as const,
+      content: "@[Shy Alter](shy@example.com) you seeing this?\nsecond line",
+      created_at: "2026-07-17T09:30:00Z",
+    },
+  };
+
+  it("collapses a legacy thread reply like every other row", () => {
+    // These predate comments and used to render as full message blocks, which is what made
+    // the panel read as a chat log rather than a timeline.
+    render(
+      <ActivityTimeline
+        task={task}
+        // biome-ignore lint/suspicious/noExplicitAny: narrow fixture for the row under test
+        timeline={[reply] as any}
+        conversationItems={[]}
+      />,
+    );
+
+    expect(screen.queryByText(/second line/)).toBeNull();
+    // The mention renders as a chip in the preview, not as its markup.
+    expect(screen.queryByText(/@\[/)).toBeNull();
+
+    fireEvent.click(screen.getByRole("button", { name: /you seeing this/ }));
+
+    expect(screen.getByText(/second line/)).toBeInTheDocument();
   });
 });

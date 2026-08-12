@@ -1,4 +1,5 @@
 import {
+  ArrowDownIcon,
   ArrowSquareOutIcon,
   CaretRightIcon,
   XIcon,
@@ -7,14 +8,16 @@ import { Button, Tabs, TabsList, TabsTrigger } from "@posthog/quill";
 import { ANALYTICS_EVENTS } from "@posthog/shared/analytics-events";
 import type { Task } from "@posthog/shared/domain-types";
 import { ActivityTimeline } from "@posthog/ui/features/canvas/components/ActivityTimeline";
+import { ActivityLoadingState } from "@posthog/ui/features/canvas/components/activityRows";
 import { TaskCard } from "@posthog/ui/features/canvas/components/ChannelFeedView";
 import { TaskArtifactsList } from "@posthog/ui/features/canvas/components/TaskArtifactsList";
 import { TaskCommentsList } from "@posthog/ui/features/canvas/components/TaskCommentsList";
 import {
   AgentStatusLine,
   ThreadLoadingState,
-  ThreadReplyComposer,
 } from "@posthog/ui/features/canvas/components/ThreadPanel";
+import { useTaskCommentActivity } from "@posthog/ui/features/canvas/hooks/useTaskCommentActivity";
+import { useTaskRuns } from "@posthog/ui/features/canvas/hooks/useTaskRuns";
 import { useThreadConversation } from "@posthog/ui/features/canvas/hooks/useThreadConversation";
 import { useCommentNavigationStore } from "@posthog/ui/features/sessions/commentNavigationStore";
 import { buildConversationItems } from "@posthog/ui/features/sessions/components/buildConversationItems";
@@ -128,18 +131,8 @@ function ActivityConversation({
     agentStatus,
     events,
     isPromptPending,
-    isReady,
-    members,
+    hasLoadedThread,
     currentUser,
-    isTaskAuthor,
-    canForward,
-    draft,
-    setDraft,
-    isSubmitDisabled,
-    submit,
-    sendMessageToAgent,
-    deleteMessage,
-    onMentionInsert,
   } = useThreadConversation(task, { surface: "activity_panel" });
 
   const [tab, setTab] = useState<ActivityTab>("timeline");
@@ -155,6 +148,20 @@ function ActivityConversation({
     },
     [taskId],
   );
+
+  // The comment feed is its own request, and only for the tab that draws it.
+  const { threads: commentThreads, hasLoaded: hasLoadedComments } =
+    useTaskCommentActivity(taskId, {
+      enabled: commentsEnabled && tab === "timeline",
+    });
+  // Draw the timeline once both of its durable sources have answered, and never take it
+  // away again. Gating on the live session instead (`isReady`) is what made the panel show
+  // rows, blink a loader while the session connected, then show the rows again.
+  const hasDrawnTimeline = useRef(false);
+  const timelineReady =
+    hasDrawnTimeline.current || (hasLoadedThread && hasLoadedComments);
+  if (timelineReady) hasDrawnTimeline.current = true;
+  const { runs } = useTaskRuns(taskId);
 
   const conversationItems = useMemo(
     () =>
@@ -199,14 +206,43 @@ function ActivityConversation({
   }, [acknowledgeCommentsTabOpen, commentFocus, tab, taskId]);
 
   const scrollRef = useRef<HTMLDivElement>(null);
-  // biome-ignore lint/correctness/useExhaustiveDependencies: scroll when rendered thread content changes
+  // Within this much of the bottom still counts as "watching the end", so a row arriving
+  // mid-poll keeps following. Wide enough to survive a partially scrolled last row.
+  const AT_BOTTOM_SLACK_PX = 48;
+  const [hasNewerBelow, setHasNewerBelow] = useState(false);
+  const scrollToLatest = useCallback(() => {
+    const node = scrollRef.current;
+    if (!node) return;
+    node.scrollTo({ top: node.scrollHeight });
+    setHasNewerBelow(false);
+  }, []);
+  const onScroll = useCallback(() => {
+    const node = scrollRef.current;
+    if (!node) return;
+    const atBottom =
+      node.scrollHeight - node.scrollTop - node.clientHeight <=
+      AT_BOTTOM_SLACK_PX;
+    if (atBottom) setHasNewerBelow(false);
+  }, []);
+  // biome-ignore lint/correctness/useExhaustiveDependencies: follow the end when rendered content changes
   useEffect(() => {
     // Only the timeline reads bottom-up; the other tabs put what matters on top.
     if (tab !== "timeline") return;
-    scrollRef.current?.scrollTo({ top: scrollRef.current.scrollHeight });
+    const node = scrollRef.current;
+    if (!node) return;
+    // Poll after poll, this ran on every refetch and yanked the panel to the bottom while
+    // someone was reading further up. Follow the end only for a reader already at it, and
+    // offer the jump to everyone else.
+    const atBottom =
+      node.scrollHeight - node.scrollTop - node.clientHeight <=
+      AT_BOTTOM_SLACK_PX;
+    if (atBottom) {
+      node.scrollTo({ top: node.scrollHeight });
+      setHasNewerBelow(false);
+      return;
+    }
+    setHasNewerBelow(true);
   }, [timeline, events.length, agentStatus?.phase, tab]);
-
-  const showComposer = tab === "timeline";
 
   const body = () => {
     if (tab === "comments") {
@@ -221,19 +257,17 @@ function ActivityConversation({
         />
       );
     }
-    if (!isReady) return <ThreadLoadingState />;
+    if (!timelineReady) return <ActivityLoadingState />;
     return (
       <ActivityTimeline
         task={task}
         timeline={timeline}
         conversationItems={conversationItems}
-        currentUserUuid={currentUser?.uuid}
-        currentUserEmail={currentUser?.email}
-        isTaskAuthor={isTaskAuthor}
-        canForward={canForward}
+        commentThreads={commentThreads}
+        commentsEnabled={commentsEnabled}
+        runCount={runs.length}
+        currentUserId={currentUser?.id}
         canOpenInPlace={canOpenInPlace}
-        onSendToAgent={sendMessageToAgent}
-        onDelete={deleteMessage}
       />
     );
   };
@@ -253,26 +287,30 @@ function ActivityConversation({
           <TaskCard task={task} channelId={channelId} inThread />
         </div>
       )}
-      <div
-        ref={scrollRef}
-        aria-busy={!isReady}
-        className="flex-1 overflow-y-auto"
-      >
-        {body()}
+      <div className="relative flex min-h-0 flex-1 flex-col">
+        <div
+          ref={scrollRef}
+          onScroll={onScroll}
+          aria-busy={!timelineReady}
+          className="flex-1 overflow-y-auto"
+        >
+          {body()}
+        </div>
+        {tab === "timeline" && hasNewerBelow && (
+          <Button
+            variant="default"
+            size="sm"
+            className="-translate-x-1/2 absolute bottom-2 left-1/2 z-20 shadow-md"
+            onClick={scrollToLatest}
+          >
+            <ArrowDownIcon size={12} />
+            New activity
+          </Button>
+        )}
       </div>
 
-      {showComposer && agentStatus && <AgentStatusLine status={agentStatus} />}
-
-      {showComposer && (
-        <ThreadReplyComposer
-          draft={draft}
-          onDraftChange={setDraft}
-          onSubmit={submit}
-          members={members}
-          allowAgentMention={isTaskAuthor && canForward}
-          onMentionInsert={onMentionInsert}
-          disabled={isSubmitDisabled}
-        />
+      {tab === "timeline" && agentStatus && (
+        <AgentStatusLine status={agentStatus} />
       )}
     </div>
   );

@@ -4,11 +4,16 @@ import { create } from "zustand";
 interface ThreadNavigationStoreState {
   /** taskId → conversation item id the transcript should scroll to, if any. */
   scrollRequests: Record<string, string | null>;
+  /** taskId → how many transcripts are mounted and listening. A request with no
+   *  listener goes nowhere, so callers offer the jump only when this is non-zero. */
+  listeners: Record<string, number>;
 }
 
 interface ThreadNavigationStoreActions {
   requestScrollToMessage: (taskId: string, messageId: string) => void;
   clearScrollRequest: (taskId: string) => void;
+  registerTranscript: (taskId: string) => void;
+  unregisterTranscript: (taskId: string) => void;
 }
 
 type ThreadNavigationStore = ThreadNavigationStoreState &
@@ -24,6 +29,7 @@ type ThreadNavigationStore = ThreadNavigationStoreState &
 export const useThreadNavigationStore = create<ThreadNavigationStore>()(
   (set) => ({
     scrollRequests: {},
+    listeners: {},
 
     requestScrollToMessage: (taskId, messageId) =>
       set((state) => ({
@@ -34,6 +40,23 @@ export const useThreadNavigationStore = create<ThreadNavigationStore>()(
       set((state) => ({
         scrollRequests: { ...state.scrollRequests, [taskId]: null },
       })),
+
+    registerTranscript: (taskId) =>
+      set((state) => ({
+        listeners: {
+          ...state.listeners,
+          [taskId]: (state.listeners[taskId] ?? 0) + 1,
+        },
+      })),
+
+    unregisterTranscript: (taskId) =>
+      set((state) => {
+        const next = (state.listeners[taskId] ?? 0) - 1;
+        const listeners = { ...state.listeners };
+        if (next > 0) listeners[taskId] = next;
+        else delete listeners[taskId];
+        return { listeners };
+      }),
   }),
 );
 
@@ -50,10 +73,27 @@ export function useThreadScrollRequest(
     taskId ? state.scrollRequests[taskId] : null,
   );
 
+  // Announce that this transcript can answer a jump, so a pane that offers one can hide
+  // the affordance when nothing is listening — a dead button is worse than no button.
+  useEffect(() => {
+    if (!taskId) return;
+    const { registerTranscript, unregisterTranscript } =
+      useThreadNavigationStore.getState();
+    registerTranscript(taskId);
+    return () => unregisterTranscript(taskId);
+  }, [taskId]);
+
   useEffect(() => {
     if (!taskId || !requestedMessageId) return;
     jumpToMessage(requestedMessageId);
     // Clear via getState so the action isn't an effect dependency.
     useThreadNavigationStore.getState().clearScrollRequest(taskId);
   }, [taskId, requestedMessageId, jumpToMessage]);
+}
+
+/** Whether a transcript for this task is mounted to answer a scroll request. */
+export function useHasTranscriptListener(taskId: string | undefined): boolean {
+  return useThreadNavigationStore((state) =>
+    taskId ? (state.listeners[taskId] ?? 0) > 0 : false,
+  );
 }
