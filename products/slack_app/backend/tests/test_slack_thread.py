@@ -329,14 +329,43 @@ class TestPostPrOpenedReplyTarget(SimpleTestCase):
 
 
 class TestReplyFooterGate(SimpleTestCase):
-    def _handler(self) -> SlackThreadHandler:
+    def _handler(self, footer: RunFooter | None = None) -> SlackThreadHandler:
         context = SlackThreadContext(
             integration_id=1,
             channel="C001",
             thread_ts="1234.5678",
             mentioning_slack_user_id="U123",
         )
-        return SlackThreadHandler(context, RunFooter(model="claude-opus-5"))
+        return SlackThreadHandler(context, footer or RunFooter(model="claude-opus-5"))
+
+    @parameterized.expand([("withheld", False, False), ("granted", True, True)])
+    @patch("products.slack_app.backend.slack_thread.is_slack_app_home_enabled", return_value=True)
+    @patch("products.slack_app.backend.slack_thread.is_slack_app_model_classifier_enabled", return_value=True)
+    @patch.object(SlackThreadHandler, "_get_integration")
+    @patch.object(SlackThreadHandler, "_get_client")
+    def test_a_run_on_the_default_model_drops_the_footer_with_its_links(
+        self,
+        _name: str,
+        code_access: bool,
+        expected: bool,
+        mock_get_client,
+        mock_get_integration,
+        _mock_flag,
+        _mock_home,
+    ) -> None:
+        # A default-model run pins no model, so the links are the whole line. Withholding
+        # them left a footer reading just "Configure" under the answer.
+        mock_client = MagicMock()
+        mock_get_client.return_value = mock_client
+        mock_get_integration.return_value = Integration(config={"app_id": "A1"}, integration_id="T1")
+        links_only = RunFooter(task_url="https://app/project/1/tasks/t", desktop_url="posthog-code://task/t")
+
+        with patch.object(SlackThreadHandler, "viewer_can_open_code_links", return_value=code_access):
+            self._handler(links_only).post_thread_message("the answer", with_footer=True)
+
+        kwargs = mock_client.chat_postMessage.call_args.kwargs
+        assert kwargs["text"] == "the answer"
+        assert bool(kwargs.get("blocks")) is expected
 
     @parameterized.expand([("off", False, False), ("on", True, True)])
     @patch("products.slack_app.backend.slack_thread.is_slack_app_home_enabled", return_value=False)

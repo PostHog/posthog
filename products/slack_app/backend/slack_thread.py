@@ -185,13 +185,17 @@ class SlackThreadHandler:
             return None
         if not self.footer_enabled():
             return None
+        footer = self.run_footer if include_task_url else replace(self.run_footer, task_url=None)
+        if not self.viewer_can_open_code_links():
+            footer = replace(footer, task_url=None, desktop_url=None)
+        # Withholding the links can empty a footer that had content a moment ago: a run on
+        # the default model pins none, so the links were the whole line.
+        if not footer.has_content():
+            return None
         integration = self._get_integration()
         configure_url = app_home_url(integration)
         if configure_url and not is_slack_app_home_enabled(integration):
             configure_url = None
-        footer = self.run_footer if include_task_url else replace(self.run_footer, task_url=None)
-        if not self.viewer_can_open_code_links():
-            footer = replace(footer, task_url=None, desktop_url=None)
         return reply_footer_block(footer, configure_url)
 
     def _get_bot_user_id(self) -> str | None:
