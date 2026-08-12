@@ -182,7 +182,10 @@ if (res.status >= 400) {
 }
 
 print(res.status, res.body)
-return res.body
+
+// Updating a record by ID answers with no body, so hand back a shape a workflow can read
+// either way. An upsert already returns success alongside the id it touched.
+return empty(res.body) ? {'success': true} : res.body
 """.strip(),
     inputs_schema=[
         common_inputs["oauth"],

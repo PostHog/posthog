@@ -155,6 +155,11 @@ class TestTemplateSalesforceUpdate(BaseHogFunctionTemplateTest):
         self.mock_fetch_response = lambda *args: {"status": 201, "body": {"id": "00Q1", "created": True}}  # type: ignore
         assert self.run_function(self._inputs()).result == {"id": "00Q1", "created": True}
 
+    @parameterized.expand([("no content", 204, None), ("empty body", 200, {})])
+    def test_reports_success_when_salesforce_returns_no_body(self, _name: str, status: int, body: dict | None):
+        self.mock_fetch_response = lambda *args: {"status": status, "body": body}  # type: ignore
+        assert self.run_function(self._inputs(path="Lead/00Q1")).result == {"success": True}
+
 
 class TestTemplateMigration(BaseTest):
     def get_plugin_config(self, config: dict):
