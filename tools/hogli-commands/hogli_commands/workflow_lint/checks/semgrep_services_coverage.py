@@ -16,6 +16,7 @@ CI — which sees only tracked files — would never scan those.
 
 from __future__ import annotations
 
+import re
 import subprocess
 from pathlib import Path
 
@@ -31,7 +32,7 @@ SECURITY_WORKFLOW_NAME = "ci-security.yaml"
 class SemgrepServicesCoverageCheck(WorkflowCheck):
     id = "WF004-semgrep-services-coverage"
     label = "semgrep services coverage"
-    description = f"every services/<name>/ appears in {' or '.join(COVERING_JOBS)} run-text in {SECURITY_WORKFLOW_NAME}"
+    description = f"every services/<name>/ appears in {' or '.join(COVERING_JOBS)} run or with-args text in {SECURITY_WORKFLOW_NAME}"
 
     def __init__(self, repo_root: Path | None = None) -> None:
         # Injected so tests can point at a fixture tree without monkeypatching env vars.
@@ -61,7 +62,9 @@ class SemgrepServicesCoverageCheck(WorkflowCheck):
 
         services = _tracked_services(self._repo_root, services_dir)
         for name in services:
-            if f"services/{name}/" not in run_text:
+            # boundary-delimited: matches `services/api/` run targets as well as
+            # `--include /services/api` args, but not `services/api-v2`
+            if not re.search(rf"services/{re.escape(name)}(?=[/\s]|$)", run_text):
                 result.issues.append(
                     Issue(
                         workflow=SECURITY_WORKFLOW_NAME,
@@ -97,6 +100,8 @@ def _tracked_services(repo_root: Path, services_dir: Path) -> list[str]:
 
 
 def _covering_run_text(wf: Workflow) -> str:
+    # scan targets may live in `run:` text or in a composite action's `with:`
+    # values (e.g. the semgrep-ci action's `args`)
     parts: list[str] = []
     for job in wf.jobs:
         if job.name not in COVERING_JOBS:
@@ -104,4 +109,6 @@ def _covering_run_text(wf: Workflow) -> str:
         for step in job.steps:
             if step.run is not None:
                 parts.append(step.run)
+            if step.with_ is not None:
+                parts.extend(value for value in step.with_.values() if isinstance(value, str))
     return "\n".join(parts)
