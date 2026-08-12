@@ -4,7 +4,9 @@ set -euo pipefail
 # CI-only helper around Docker Compose startup and readiness checks.
 #
 # `launch` starts services with the current Compose context and returns
-# immediately when `--background` is used so the runner can do other work.
+# immediately when `--background` is used so the runner can do other work. It
+# keeps its output in a log file and retries registry rate limits with a longer
+# backoff than other startup failures get.
 # `wait` delegates readiness polling to bin/wait-for-docker. It waits for any
 # in-flight background `launch` for the same Compose context before starting
 # health timeouts and retries only when timed-out services never materialized
@@ -19,8 +21,14 @@ DEFAULT_COMPOSE_FILE="${REPO_ROOT}/docker-compose.dev.yml"
 WAIT_RETRIES="${WAIT_FOR_DOCKER_RETRIES:-1}"
 WAIT_RETRY_TIMEOUT="${WAIT_FOR_DOCKER_RETRY_TIMEOUT:-120}"
 COMPOSE_WAIT_TIMEOUT="${WAIT_FOR_COMPOSE_TIMEOUT:-600}"
-LAUNCH_RETRIES="${WAIT_FOR_DOCKER_LAUNCH_RETRIES:-1}"
+LAUNCH_RETRIES="${WAIT_FOR_DOCKER_LAUNCH_RETRIES:-3}"
 LAUNCH_RETRY_DELAY="${WAIT_FOR_DOCKER_LAUNCH_RETRY_DELAY:-5}"
+# Registry rejections outlast the seconds-long backoff that a flaky daemon needs,
+# because Docker Hub meters pulls over a six-hour window.
+# https://docs.docker.com/docker-hub/usage/pulls/
+LAUNCH_RATE_LIMIT_RETRY_DELAY="${WAIT_FOR_DOCKER_RATE_LIMIT_RETRY_DELAY:-60}"
+RATE_LIMIT_PATTERN='toomanyrequests|pull rate limit'
+LAUNCH_LOG_TAIL_LINES=40
 
 usage() {
     cat <<'EOF'
@@ -55,12 +63,52 @@ compose() {
     fi
 }
 
-background_launch_pid_file() {
+compose_state_key() {
     local compose_file="${COMPOSE_FILE:-$DEFAULT_COMPOSE_FILE}"
-    local state_key
 
-    state_key=$(printf '%s\n%s\n%s\n' "$REPO_ROOT" "$compose_file" "${COMPOSE_PROFILES:-}" | cksum | awk '{print $1}')
-    printf '%s/ci-wait-for-docker-%s.pid\n' "${TMPDIR:-/tmp}" "$state_key"
+    printf '%s\n%s\n%s\n' "$REPO_ROOT" "$compose_file" "${COMPOSE_PROFILES:-}" | cksum | awk '{print $1}'
+}
+
+background_launch_pid_file() {
+    printf '%s/ci-wait-for-docker-%s.pid\n' "${TMPDIR:-/tmp}" "$(compose_state_key)"
+}
+
+# A background launch writes to the "Start services" step, which has already been
+# closed by the time `wait` reports the failure, so keep a copy the wait step can
+# quote from.
+launch_log_file() {
+    printf '%s/ci-wait-for-docker-%s.log\n' "${TMPDIR:-/tmp}" "$(compose_state_key)"
+}
+
+launch_log_shows_rate_limit() {
+    local launch_log
+    launch_log="$(launch_log_file)"
+
+    [ -s "$launch_log" ] && grep -qiE "$RATE_LIMIT_PATTERN" "$launch_log"
+}
+
+report_launch_diagnostics() {
+    local launch_log
+    launch_log="$(launch_log_file)"
+
+    if [ ! -s "$launch_log" ]; then
+        return 0
+    fi
+
+    if launch_log_shows_rate_limit; then
+        cat <<'EOF'
+==========================================
+Docker Hub rate-limited this job's image pulls, so the services never started.
+Anonymous pulls are metered per runner egress IP, so a job can be rejected as
+unauthenticated even after `docker login` succeeded. Confirm the credentials
+reached the pull before writing this off as a flake.
+https://docs.docker.com/docker-hub/usage/pulls/
+==========================================
+EOF
+    fi
+
+    echo "Last ${LAUNCH_LOG_TAIL_LINES} lines of the Docker Compose launch log:"
+    tail -n "$LAUNCH_LOG_TAIL_LINES" "$launch_log"
 }
 
 read_background_launch_pid() {
@@ -148,6 +196,10 @@ compose_up() {
     fi
 }
 
+compose_up_logged() {
+    compose_up "$@" 2>&1 | tee -a "$(launch_log_file)"
+}
+
 missing_services() {
     local services=("$@")
     local missing=()
@@ -181,7 +233,7 @@ run_launch_once() {
             ;;
     esac
 
-    compose_up "$@"
+    compose_up_logged "$@"
 }
 
 run_launch() {
@@ -220,6 +272,7 @@ run_launch() {
     done
 
     launch_services=("$@")
+    : > "$(launch_log_file)"
 
     launch_runner() {
         local inner_attempt=1
@@ -236,8 +289,13 @@ run_launch() {
                 return 1
             fi
 
-            inner_sleep_time=$(( LAUNCH_RETRY_DELAY * 2 ** (inner_attempt - 1) ))
-            echo "Docker Compose launch failed (attempt ${inner_attempt}/${LAUNCH_RETRIES}), retrying in ${inner_sleep_time}s..."
+            if launch_log_shows_rate_limit; then
+                inner_sleep_time=$(( LAUNCH_RATE_LIMIT_RETRY_DELAY * inner_attempt ))
+                echo "Docker Hub rate-limited the image pull (attempt ${inner_attempt}/${LAUNCH_RETRIES}), retrying in ${inner_sleep_time}s..."
+            else
+                inner_sleep_time=$(( LAUNCH_RETRY_DELAY * 2 ** (inner_attempt - 1) ))
+                echo "Docker Compose launch failed (attempt ${inner_attempt}/${LAUNCH_RETRIES}), retrying in ${inner_sleep_time}s..."
+            fi
             sleep "$inner_sleep_time"
             inner_attempt=$(( inner_attempt + 1 ))
         done
@@ -262,6 +320,17 @@ run_launch() {
 }
 
 run_wait() {
+    local status=0
+
+    wait_for_services "$@" || status=$?
+    if [ "$status" -ne 0 ]; then
+        report_launch_diagnostics
+    fi
+
+    return "$status"
+}
+
+wait_for_services() {
     # Default: wait for core (db redis7 kafka clickhouse) plus any extras passed
     # as args — matches `bin/wait-for-docker`'s semantics so the two helpers stay
     # consistent. Pass `--only` as the first arg to wait ONLY for the listed
@@ -335,7 +404,7 @@ run_wait() {
 
         attempt=$(( attempt + 1 ))
         echo "Retry ${attempt}/${WAIT_RETRIES}: re-running docker compose up for missing services: ${missing[*]}"
-        if ! compose_up "${missing[@]}"; then
+        if ! compose_up_logged "${missing[@]}"; then
             echo "Retry ${attempt}/${WAIT_RETRIES} failed while starting: ${missing[*]}"
         fi
         current_timeout="$WAIT_RETRY_TIMEOUT"

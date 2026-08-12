@@ -818,6 +818,20 @@ jobs:
                   username: ${{ vars.DOCKERHUB_USER }}
                   password: ${{ secrets.DOCKERHUB_TOKEN }}
 
+            # The warehouse-sources shards start their own containers through
+            # testcontainers, which authenticates from DOCKER_AUTH_CONFIG rather than
+            # the credentials the login step wrote.
+            # https://testcontainers-python.readthedocs.io/en/latest/#private-docker-registry
+            - name: Authenticate testcontainers image pulls
+              if: ${{ env.DOCKERHUB_USERNAME != '' && env.DOCKERHUB_TOKEN != '' }}
+              env:
+                  DOCKERHUB_USER: ${{ vars.DOCKERHUB_USER }}
+                  DOCKERHUB_PASSWORD: ${{ secrets.DOCKERHUB_TOKEN }}
+              run: |
+                  encoded=$(printf '%s:%s' "$DOCKERHUB_USER" "$DOCKERHUB_PASSWORD" | base64 -w 0)
+                  echo "::add-mask::$encoded"
+                  echo "DOCKER_AUTH_CONFIG={\"auths\":{\"https://index.docker.io/v1/\":{\"auth\":\"${encoded}\"}}}" >> "$GITHUB_ENV"
+
             - name: Start services
               env:
                   COMPOSE_FILE: docker-compose.dev.yml:docker-compose.profiles.yml

@@ -121,6 +121,7 @@ explains the run's conclusion. Keep excerpts under 40 lines.
 | `manage.py migrate` error, `migrations:check` failure, missing migration | migration / schema  | `hogli migrations:check` locally                                   |
 | OpenAPI schema diff, generated API types out of sync                     | codegen drift       | `hogli build:openapi`                                              |
 | `Cannot connect`, `ECONNREFUSED`, OOM, runner killed, setup step timeout | infra / runner      | treat as transient; report, do not fix                             |
+| `toomanyrequests` / `unauthenticated pull rate limit` on a pull          | Docker Hub limit    | read the launch log tail; check whether the pull was authenticated |
 | `apt-get`, `uv sync`, `pnpm install`, docker pull, setup action failures | environment / setup | diff `.nvmrc`, `pyproject.toml`, `package.json`, Dockerfiles       |
 | `hogli lint:skills`, `hogli build:skills` failure                        | skills build        | run the same `hogli` command locally                               |
 | SDK compat check, `ci-survey-sdk-check`, cross-version failure           | SDK compatibility   | check SDK version matrix for the affected package                  |
