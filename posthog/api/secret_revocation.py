@@ -31,7 +31,7 @@ class RevocationResult:
         return self.key_type is not None
 
 
-def _revoke_personal_api_key(token: str, more_info: str) -> bool:
+def _revoke_personal_api_key(token: str, more_info: str, *, trusted: bool) -> bool:
     key_lookup = find_personal_api_key(token)
     if key_lookup is None:
         return False
@@ -43,7 +43,7 @@ def _revoke_personal_api_key(token: str, more_info: str) -> bool:
     return True
 
 
-def _revoke_project_secret_api_key(token: str, more_info: str) -> bool:
+def _revoke_project_secret_api_key(token: str, more_info: str, *, trusted: bool) -> bool:
     project_secret_api_key = find_project_secret_api_key(token)
     if project_secret_api_key is None:
         return False
@@ -51,14 +51,20 @@ def _revoke_project_secret_api_key(token: str, more_info: str) -> bool:
     return True
 
 
-def _revoke_oauth_token(token: str, more_info: str, *, kind: Literal["access", "refresh"]) -> bool:
+def _revoke_oauth_token(token: str, more_info: str, *, kind: Literal["access", "refresh"], trusted: bool) -> bool:
     if kind == "access":
         access_token = find_oauth_access_token(token)
-        # An expired access token no longer authenticates, so possessing one doesn't
-        # give its holder the "already has full use of this credential" standing this
-        # endpoint's lack of a signature check relies on. Without this, anyone who once
-        # saw a since-expired token could still force-revoke the holder's live session.
-        if access_token is None or access_token.is_expired():
+        if access_token is None:
+            return False
+        # An expired access token no longer authenticates, so an anonymous possessor of
+        # one doesn't have the "already has full use of this credential" standing the
+        # public endpoint's lack of a signature check relies on - without this, anyone
+        # who once saw a since-expired token could force-revoke the holder's live
+        # session. A trusted, signed report (github.py) doesn't rest on that possession
+        # argument - GitHub independently verified the exposure - so it still revokes
+        # the paired refresh token and notifies the owner even if the access token
+        # itself has since expired and needs no revocation of its own.
+        if not trusted and access_token.is_expired():
             return False
         # Scoped to this one access/refresh token pair, not every session the user has
         # with the application - a leaked-token report is evidence about that one
@@ -76,12 +82,12 @@ def _revoke_oauth_token(token: str, more_info: str, *, kind: Literal["access", "
     return True
 
 
-def _revoke_oauth_access_token(token: str, more_info: str) -> bool:
-    return _revoke_oauth_token(token, more_info, kind="access")
+def _revoke_oauth_access_token(token: str, more_info: str, *, trusted: bool) -> bool:
+    return _revoke_oauth_token(token, more_info, kind="access", trusted=trusted)
 
 
-def _revoke_oauth_refresh_token(token: str, more_info: str) -> bool:
-    return _revoke_oauth_token(token, more_info, kind="refresh")
+def _revoke_oauth_refresh_token(token: str, more_info: str, *, trusted: bool) -> bool:
+    return _revoke_oauth_token(token, more_info, kind="refresh", trusted=trusted)
 
 
 _REVOKERS = {
@@ -155,13 +161,24 @@ def _detect_canonical_type(token: str) -> str | None:
     return None
 
 
-def revoke_leaked_secret(token: str, key_type: str | None, more_info: str) -> RevocationResult:
+def revoke_leaked_secret(
+    token: str, key_type: str | None, more_info: str, *, trusted: bool = False
+) -> RevocationResult:
     """Look up `token` as a leaked credential and revoke+notify on a match.
 
     If `key_type` is one of the CANONICAL_* constants, only that lookup runs.
     If `key_type` is None, the token's prefix determines which single lookup runs.
+
+    `trusted` should be True only when the report's authenticity is independently
+    verified before this function runs (e.g. GitHub's signed webhook). It only affects
+    OAuth access tokens: an expired one is otherwise treated as not found, since mere
+    possession of a dead token shouldn't grant an anonymous caller the power to
+    force-revoke a live session - a signed report doesn't rest on that possession
+    argument, so it still acts on an expired match. Defaults to False, the safer,
+    more restrictive behavior, so a caller that forgets to pass it gets the anonymous
+    (public-endpoint) semantics rather than the trusted ones.
     """
     resolved_type = key_type if key_type is not None else _detect_canonical_type(token)
-    if resolved_type is not None and _REVOKERS[resolved_type](token, more_info):
+    if resolved_type is not None and _REVOKERS[resolved_type](token, more_info, trusted=trusted):
         return RevocationResult(key_type=resolved_type)
     return RevocationResult(key_type=None)

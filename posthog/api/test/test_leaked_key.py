@@ -317,6 +317,36 @@ class TestPublicLeakedKeyReport(APIBaseTest):
         self.assertFalse(OAuthAccessToken.objects.filter(id=first_access_token.id).exists())
         self.assertFalse(OAuthAccessToken.objects.filter(id=second_access_token.id).exists())
 
+    @patch("posthog.api.secret_revocation.send_personal_api_key_exposed")
+    @patch("posthog.api.leaked_key.posthoganalytics.capture")
+    def test_analytics_capture_includes_token_hash_only_when_found(
+        self, mock_capture: MagicMock, mock_send_personal_api_key_exposed: MagicMock
+    ) -> None:
+        # A real PostHog key is high-entropy, so hashing it is safe to persist. An
+        # unrecognized string might be a low-entropy third-party secret pasted by
+        # mistake (a password, a short token) - an unsalted SHA-256 of that is
+        # dictionary/rainbow-table reversible, so it must not be persisted.
+        token = generate_random_token_personal()
+        PersonalAPIKey.objects.create(
+            user=self.user,
+            label="leaked",
+            secure_value=hash_key_value(token),
+            mask_value=mask_key_value(token),
+            scopes=["*"],
+        )
+
+        self._post(token)
+        found_properties = mock_capture.call_args.kwargs["properties"]
+        self.assertTrue(found_properties["found"])
+        self.assertIn("token_sha256", found_properties)
+
+        mock_capture.reset_mock()
+
+        self._post("not-a-posthog-key-at-all")
+        not_found_properties = mock_capture.call_args.kwargs["properties"]
+        self.assertFalse(not_found_properties["found"])
+        self.assertNotIn("token_sha256", not_found_properties)
+
     def test_blank_token_returns_400(self) -> None:
         response = self._post("")
 

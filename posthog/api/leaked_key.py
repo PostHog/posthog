@@ -94,20 +94,27 @@ class PublicLeakedKeyReport(APIView):
         # Unlike github_secret_alert, no token_prefix/token_suffix here: GitHub already
         # confirmed the string is a real PostHog-shaped secret before that event fires,
         # but this endpoint's callers are the whole internet, and people will paste
-        # things that aren't PostHog keys at all. token_sha256 alone is enough for
-        # dedup/monitoring without persisting fragments of third-party secrets.
+        # things that aren't PostHog keys at all.
+        properties: dict[str, str | int | bool | None] = {
+            "found": result.found,
+            "type": result.key_type,
+            "token_length": len(token),
+            # With no cross-region relay, this is the only signal showing whether
+            # callers in one region are reporting keys the other region issued.
+            "region": get_instance_region(),
+        }
+        if result.found:
+            # Only hash a token once it matched a real PostHog credential: those are
+            # high-entropy and this hash isn't practically reversible. For the common
+            # case of a caller pasting something that isn't a PostHog secret at all, an
+            # unsalted SHA-256 of a low-entropy string (a password, a short token) is
+            # dictionary/rainbow-table reversible, so we don't persist a recoverable
+            # copy of a third party's actual secret.
+            properties["token_sha256"] = sha256(token.encode("utf-8")).hexdigest()
         posthoganalytics.capture(
             distinct_id=None,
             event="public_leaked_key_report",
-            properties={
-                "found": result.found,
-                "type": result.key_type,
-                "token_length": len(token),
-                "token_sha256": sha256(token.encode("utf-8")).hexdigest(),
-                # With no cross-region relay, this is the only signal showing whether
-                # callers in one region are reporting keys the other region issued.
-                "region": get_instance_region(),
-            },
+            properties=properties,
         )
 
         return Response({"found": result.found, "type": result.key_type})
