@@ -1,0 +1,113 @@
+{
+    "$schema": "https://json-schema.org/draft/2020-12/schema",
+    "properties": {
+        "event_names": {
+            "description": "If sent, response value will have `is_seen_on_filtered_events` populated. JSON-encoded",
+            "minLength": 1,
+            "type": "string"
+        },
+        "exclude_core_properties": {
+            "default": false,
+            "description": "Whether to exclude core properties",
+            "type": "boolean"
+        },
+        "exclude_hidden": {
+            "default": false,
+            "description": "Whether to exclude properties marked as hidden",
+            "type": "boolean"
+        },
+        "exclude_restricted": {
+            "default": false,
+            "description": "Whether to exclude properties that the current user does not have read access to via field-level access control",
+            "type": "boolean"
+        },
+        "excluded_properties": {
+            "description": "JSON-encoded list of excluded properties",
+            "minLength": 1,
+            "type": "string"
+        },
+        "filter_by_event_names": {
+            "anyOf": [
+                {
+                    "type": "boolean"
+                },
+                {
+                    "type": "null"
+                }
+            ],
+            "description": "Whether to return only properties for events in `event_names`. Note: this event scoping does not apply to feature flag properties ($feature/*), which are global and not tracked per-event; to retrieve feature flags use is_feature_flag=true instead."
+        },
+        "group_type_index": {
+            "description": "What group type is the property for. Only should be set if `type=group`",
+            "type": "number"
+        },
+        "in_use": {
+            "anyOf": [
+                {
+                    "type": "boolean"
+                },
+                {
+                    "type": "null"
+                }
+            ],
+            "description": "Filter by usage in saved objects (insights, cohorts, feature flags, experiments, surveys, destinations, workflows). True returns only properties referenced somewhere, false returns only unreferenced ones."
+        },
+        "is_feature_flag": {
+            "anyOf": [
+                {
+                    "type": "boolean"
+                },
+                {
+                    "type": "null"
+                }
+            ],
+            "description": "Whether to return only (or excluding) feature flag properties ($feature/*). Flags are global, not per-event, so they can't be scoped by event_names/filter_by_event_names — pass is_feature_flag=true to list them all."
+        },
+        "is_numerical": {
+            "anyOf": [
+                {
+                    "type": "boolean"
+                },
+                {
+                    "type": "null"
+                }
+            ],
+            "description": "Whether to return only (or excluding) numerical property definitions"
+        },
+        "limit": {
+            "description": "Number of results to return per page.",
+            "type": "number"
+        },
+        "offset": {
+            "description": "The initial index from which to return the results.",
+            "type": "number"
+        },
+        "properties": {
+            "description": "Comma-separated list of properties to filter",
+            "minLength": 1,
+            "type": "string"
+        },
+        "search": {
+            "description": "Searches properties by name",
+            "type": "string"
+        },
+        "type": {
+            "default": "event",
+            "description": "What property definitions to return\n\n* `event` - event\n* `person` - person\n* `group` - group\n* `session` - session",
+            "enum": ["event", "person", "group", "session"],
+            "type": "string"
+        },
+        "verified": {
+            "anyOf": [
+                {
+                    "type": "boolean"
+                },
+                {
+                    "type": "null"
+                }
+            ],
+            "description": "Filter by verified status. True returns only verified, false returns only unverified."
+        }
+    },
+    "type": "object"
+}

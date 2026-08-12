@@ -1,0 +1,18 @@
+{
+    "$schema": "https://json-schema.org/draft/2020-12/schema",
+    "properties": {
+        "names": {
+            "description": "JSON-encoded list of property names to summarize usage for, e.g. [\"email\", \"plan\"]",
+            "minLength": 1,
+            "type": "string"
+        },
+        "type": {
+            "default": "person",
+            "description": "What type of properties the names refer to\n\n* `event` - event\n* `person` - person\n* `group` - group\n* `session` - session",
+            "enum": ["event", "person", "group", "session"],
+            "type": "string"
+        }
+    },
+    "required": ["names"],
+    "type": "object"
+}
