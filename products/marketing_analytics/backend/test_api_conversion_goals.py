@@ -389,13 +389,6 @@ class TestConversionGoalWrites(APIBaseTest):
 
 
 class TestConversionGoalIdIsOneName(APIBaseTest):
-    """The id a caller reads from one endpoint has to be the id the next one accepts.
-
-    It was three names — `id` from the list, `goal_id` on explain, `conversion_goal_id`
-    on update and delete — and nothing tested the seam, so MCP callers guessed and got
-    a validation error six times in a week across two different clients.
-    """
-
     def setUp(self):
         super().setUp()
         self.base_url = f"/api/projects/{self.team.pk}/marketing_analytics/conversion_goals"
