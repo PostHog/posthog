@@ -479,26 +479,20 @@ function AIObservabilitySceneContent(): JSX.Element {
     useShortcut({
         name: 'AIObservabilityTab2',
         keybind: [keyBinds.tab2],
-        intent: selfDrivingEnabled ? 'Go to Self-driving' : 'Go to Traces',
+        intent: 'Go to Traces',
         interaction: 'function',
-        callback: () =>
-            push(
-                combineUrl(
-                    selfDrivingEnabled ? urls.aiObservabilitySelfDriving() : urls.aiObservabilityTraces(),
-                    searchParams
-                ).url
-            ),
+        callback: () => push(combineUrl(urls.aiObservabilityTraces(), searchParams).url),
         scope: Scene.AIObservability,
     })
     useShortcut({
         name: 'AIObservabilityTab3',
         keybind: [keyBinds.tab3],
-        intent: selfDrivingEnabled ? 'Go to Traces' : 'Go to Generations',
+        intent: selfDrivingEnabled ? 'Go to Self-driving' : 'Go to Generations',
         interaction: 'function',
         callback: () =>
             push(
                 combineUrl(
-                    selfDrivingEnabled ? urls.aiObservabilityTraces() : urls.aiObservabilityGenerations(),
+                    selfDrivingEnabled ? urls.aiObservabilitySelfDriving() : urls.aiObservabilityGenerations(),
                     searchParams
                 ).url
             ),
@@ -569,7 +563,7 @@ function AIObservabilitySceneContent(): JSX.Element {
     ]
 
     if (selfDrivingEnabled) {
-        tabs.splice(1, 0, {
+        tabs.splice(2, 0, {
             key: 'self-driving',
             label: (
                 <>
