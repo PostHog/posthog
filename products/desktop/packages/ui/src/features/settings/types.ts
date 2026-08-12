@@ -48,7 +48,7 @@ export function isSettingsCategory(value: string): value is SettingsCategory {
 }
 
 // The display name of each settings page. Single source for the sidebar nav
-// and search — the `Record` type forces an entry per category, so a new page
+// and search. The `Record` type forces an entry per category, so a new page
 // can't ship without a name. `cloud-environments` shares the Environments page.
 export const SETTINGS_PAGE_LABELS: Record<SettingsCategory, string> = {
   general: "General",

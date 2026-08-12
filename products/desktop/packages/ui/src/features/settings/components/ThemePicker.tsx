@@ -11,7 +11,7 @@ interface ThemePalette {
 }
 
 // Fixed hexes rather than theme tokens: each thumbnail must show its own
-// theme regardless of the theme currently applied to the app.
+// theme regardless of the theme applied to the app.
 const LIGHT_PALETTE: ThemePalette = {
   canvas: "#fdfdfc",
   sidebar: "#f1f0ee",

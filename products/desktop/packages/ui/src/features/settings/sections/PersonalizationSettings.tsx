@@ -26,7 +26,7 @@ export interface PersonalizationSettingsViewProps {
   synced: SyncedCustomInstructions | null;
 }
 
-// Pure render of the instructions block — the container below owns the store
+// Pure render of the instructions block. The container below owns the store
 // wiring, debounce and analytics. Storybook targets this.
 export function PersonalizationSettingsView({
   instructions,
