@@ -11,22 +11,26 @@ use tracing::error;
 use crate::api::CaptureError;
 use crate::prometheus::report_dropped_events;
 
-/// A record to be produced to Kafka
-#[derive(Debug, Clone)]
-pub struct ProduceRecord {
-    pub topic: String,
-    pub key: Option<String>,
-    pub payload: Vec<u8>,
-    pub headers: CapturedEventHeaders,
+/// A record to be produced to Kafka. Borrowed: librdkafka copies the record
+/// into its internal queue during `send`, so the caller's buffers only need
+/// to outlive the `send` call, not the delivery ack.
+#[derive(Debug, Clone, Copy)]
+pub struct ProduceRecord<'a> {
+    pub topic: &'a str,
+    pub key: Option<&'a str>,
+    pub payload: &'a [u8],
+    pub headers: &'a CapturedEventHeaders,
 }
 
 /// Abstraction over Kafka producer for testability
 pub trait KafkaProducer: Send + Sync {
-    /// The future type returned by send() that resolves to the delivery acknowledgment
+    /// The future type returned by send() that resolves to the delivery acknowledgment.
+    /// Owns nothing from the input record, so the record's buffers can be freed
+    /// as soon as `send` returns.
     type AckFuture: Future<Output = Result<(), CaptureError>> + Send;
 
     /// Send a record to Kafka. Returns either an immediate error or a future to await for ack.
-    fn send(&self, record: ProduceRecord) -> Result<Self::AckFuture, CaptureError>;
+    fn send(&self, record: ProduceRecord<'_>) -> Result<Self::AckFuture, CaptureError>;
 
     /// Flush pending messages
     fn flush(&self) -> Result<(), KafkaError>;
@@ -131,22 +135,21 @@ impl<C: rdkafka::ClientContext + Send + Sync + 'static> RdKafkaProducer<C> {
 impl<C: rdkafka::ClientContext + Send + Sync + 'static> KafkaProducer for RdKafkaProducer<C> {
     type AckFuture = DeliveryAckFuture;
 
-    fn send(&self, record: ProduceRecord) -> Result<Self::AckFuture, CaptureError> {
+    fn send(&self, record: ProduceRecord<'_>) -> Result<Self::AckFuture, CaptureError> {
         let headers: rdkafka::message::OwnedHeaders = record.headers.into();
-        let topic = record.topic.clone();
 
         match self.producer.send_result(FutureRecord {
-            topic: &record.topic,
-            payload: Some(record.payload.as_slice()),
+            topic: record.topic,
+            payload: Some(record.payload),
             partition: None,
-            key: record.key.as_deref(),
+            key: record.key,
             timestamp: None,
             headers: Some(headers),
         }) {
             Ok(delivery_future) => Ok(DeliveryAckFuture {
                 inner: delivery_future,
                 started: Instant::now(),
-                topic,
+                topic: record.topic.to_string(),
                 recorded: false,
             }),
             Err((e, _)) => match e.rdkafka_error_code() {
@@ -171,6 +174,28 @@ impl<C: rdkafka::ClientContext + Send + Sync + 'static> KafkaProducer for RdKafk
     }
 }
 
+/// Owned copy of a [`ProduceRecord`] captured by [`MockKafkaProducer`] for
+/// later assertions. The borrowed record can't outlive `send`, so the mock
+/// copies each field — the same deep copy librdkafka makes internally.
+#[derive(Debug, Clone)]
+pub struct OwnedProduceRecord {
+    pub topic: String,
+    pub key: Option<String>,
+    pub payload: Vec<u8>,
+    pub headers: CapturedEventHeaders,
+}
+
+impl From<ProduceRecord<'_>> for OwnedProduceRecord {
+    fn from(record: ProduceRecord<'_>) -> Self {
+        Self {
+            topic: record.topic.to_string(),
+            key: record.key.map(str::to_string),
+            payload: record.payload.to_vec(),
+            headers: record.headers.clone(),
+        }
+    }
+}
+
 /// Mock Kafka producer for testing - captures all sent records.
 ///
 /// Optionally fails on a specific send index (0-based) by returning
@@ -179,7 +204,7 @@ impl<C: rdkafka::ClientContext + Send + Sync + 'static> KafkaProducer for RdKafk
 /// need to simulate a mid-batch enqueue failure.
 #[derive(Clone, Default)]
 pub struct MockKafkaProducer {
-    records: std::sync::Arc<std::sync::Mutex<Vec<ProduceRecord>>>,
+    records: std::sync::Arc<std::sync::Mutex<Vec<OwnedProduceRecord>>>,
     fail_at_index: Option<usize>,
     call_count: std::sync::Arc<std::sync::atomic::AtomicUsize>,
 }
@@ -199,7 +224,7 @@ impl MockKafkaProducer {
     }
 
     /// Get all records that were sent
-    pub fn get_records(&self) -> Vec<ProduceRecord> {
+    pub fn get_records(&self) -> Vec<OwnedProduceRecord> {
         self.records.lock().unwrap().clone()
     }
 
@@ -212,14 +237,14 @@ impl MockKafkaProducer {
 impl KafkaProducer for MockKafkaProducer {
     type AckFuture = std::future::Ready<Result<(), CaptureError>>;
 
-    fn send(&self, record: ProduceRecord) -> Result<Self::AckFuture, CaptureError> {
+    fn send(&self, record: ProduceRecord<'_>) -> Result<Self::AckFuture, CaptureError> {
         let idx = self
             .call_count
             .fetch_add(1, std::sync::atomic::Ordering::SeqCst);
         if self.fail_at_index == Some(idx) {
             return Err(CaptureError::RetryableSinkError);
         }
-        self.records.lock().unwrap().push(record);
+        self.records.lock().unwrap().push(record.into());
         Ok(std::future::ready(Ok(())))
     }
 

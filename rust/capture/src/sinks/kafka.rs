@@ -546,14 +546,14 @@ impl<P: KafkaProducer> KafkaSinkBase<P> {
         // every record onto one deterministic hot partition.
         let key = match payload.ordering {
             OrderingGuarantee::None => None,
-            _ => Some(payload.partition_key),
+            _ => Some(payload.partition_key.as_str()),
         };
 
         self.producer.send(ProduceRecord {
-            topic: payload.destination,
+            topic: &payload.destination,
             key,
-            payload: payload.payload,
-            headers: payload.headers,
+            payload: &payload.payload,
+            headers: &payload.headers,
         })
     }
 
