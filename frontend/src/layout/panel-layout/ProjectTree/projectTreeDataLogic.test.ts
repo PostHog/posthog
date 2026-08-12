@@ -136,13 +136,13 @@ describe('projectTreeDataLogic', () => {
             // per operation (a refetch) reads the boundary off the action instead of inferring it from a timer.
             .toDispatchActions([
                 ({ type, payload }) =>
-                    type === logic.actionTypes.movedItems &&
+                    type === logic.actionTypes.movesSettled &&
                     payload.moved.map(({ item }: MovedItem) => item.id).join() === 'fs-1,fs-2,fs-3',
             ])
             .toFinishAllListeners()
 
         expect(move).toHaveBeenCalledTimes(3)
-        // movedItems rides in the same branch as this toast, so one toast is one announcement.
+        // movesSettled rides in the same branch as this toast, so one toast is one announcement.
         expect(success).toHaveBeenCalledTimes(1)
         expect(toastText(success.mock.calls[0][0])).toEqual('Moved 3 items')
 
@@ -180,6 +180,13 @@ describe('projectTreeDataLogic', () => {
 
         expect(toastText(success.mock.calls[0][0])).toEqual('Moved 1 item')
         expect(toastText(error.mock.calls[0][0])).toEqual('Could not move 2 items. Try again.')
+
+        // Undo may only revert what landed. Reverting a failed item would move it away from where it still is.
+        const move = jest.mocked(api.fileSystem.move)
+        move.mockClear().mockResolvedValue({} as any)
+        success.mock.calls[0][1]?.button?.action?.()
+        await expectLogic(logic).toFinishAllListeners()
+        expect(move.mock.calls).toEqual([['fs-1', 'Marketing/A']])
     })
 
     it('keeps the underlying error on a single failed move', async () => {

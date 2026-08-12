@@ -1,5 +1,6 @@
 import { MakeLogicType, actions, afterMount, connect, kea, listeners, path, reducers, selectors } from 'kea'
 import { loaders } from 'kea-loaders'
+import posthog from 'posthog-js'
 
 import { IconDocument, IconFolder, IconPlus } from '@posthog/icons'
 import { LemonDialog } from '@posthog/lemon-ui'
@@ -65,6 +66,12 @@ const DELETE_ALERT_LIMIT = 0
  * Success/Failure reducers).
  */
 const SHORTCUTS_LOADER_TIMEOUT_MS = 10000
+/**
+ * Upper bound on a single move request. A batch reports only once every one of its moves has settled, so
+ * without this one stalled request would withhold the toast and the Undo from every item that already
+ * succeeded, and leave the batch in `cache.moveBatches` for the logic's lifetime.
+ */
+const MOVE_TIMEOUT_MS = 30000
 export const PAGINATION_LIMIT = 100
 const PRODUCTS_SHOWN_WITH_SELECTED_PRODUCTS: Record<string, string[]> = {
     'LLM analytics': ['MCP analytics'],
@@ -416,7 +423,7 @@ export interface projectTreeDataLogicActions {
         newPath: string
         oldPath: string
     }
-    movedItems: (moved: MovedItem[]) => {
+    movesSettled: (moved: MovedItem[]) => {
         moved: MovedItem[]
     }
     pruneClosedFolders: (expandedFolders: string[]) => {
@@ -625,9 +632,11 @@ export const projectTreeDataLogic = kea<projectTreeDataLogicType>([
             projectTreeLogicKey,
         }),
         movedItem: (item: FileSystemEntry, oldPath: string, newPath: string) => ({ item, oldPath, newPath }),
-        // Fired once a `moveItems` batch has fully settled, carrying only the moves that landed. Consumers
-        // that patch state per item want `movedItem`; this is for work worth doing once per operation.
-        movedItems: (moved: MovedItem[]) => ({ moved }),
+        // A move operation finished, carrying the moves that landed. This does not patch anything, and it
+        // does not replace `movedItem`: five stores take `movedItem` to re-path one row each, as each row
+        // lands. This exists for work worth doing once per operation rather than once per row, such as a
+        // refetch, which would otherwise have to guess the boundary from a timer.
+        movesSettled: (moved: MovedItem[]) => ({ moved }),
         // Emitted after an undo-delete restores items, so consumers (e.g. the dashboards tree) can refetch.
         restoredItems: true,
         queueAction: (action: ProjectTreeAction, projectTreeLogicKey: string) => ({ action, projectTreeLogicKey }),
@@ -692,9 +701,8 @@ export const projectTreeDataLogic = kea<projectTreeDataLogicType>([
                         }
                         cache.moveBatches.delete(action.batchId)
                         if (batch.moved.length > 0) {
-                            // Per-item `movedItem` has already patched every store. This marks the operation
-                            // boundary for consumers whose work is worth doing once, such as a refetch.
-                            actions.movedItems(batch.moved)
+                            // Every `movedItem` has already patched its row; this marks the operation boundary.
+                            actions.movesSettled(batch.moved)
                             lemonToast.success(`Moved ${pluralize(batch.moved.length, 'item')}`, {
                                 button: {
                                     label: 'Undo',
@@ -749,7 +757,11 @@ export const projectTreeDataLogic = kea<projectTreeDataLogicType>([
                         try {
                             const oldPath = action.item.path
                             const newPath = action.newPath
-                            await api.fileSystem.move(action.item.id, newPath)
+                            await withTimeout(
+                                () => api.fileSystem.move(action.item.id, newPath),
+                                MOVE_TIMEOUT_MS,
+                                `projectTreeDataLogic: moving ${action.item.type} timed out`
+                            )
                             actions.removeQueuedAction(action)
                             actions.movedItem(action.item, oldPath, newPath)
                             if (action.item.type === 'dashboard') {
@@ -769,7 +781,18 @@ export const projectTreeDataLogic = kea<projectTreeDataLogicType>([
                             }
                             settleMoveBatch((batch) => batch.moved.push({ item: action.item, oldPath, newPath }))
                         } catch (error) {
-                            console.error('Error moving item:', error)
+                            // The batch toast can only report a count, so the item and its batch have to reach
+                            // error tracking here or a failed bulk move leaves nothing to diagnose from.
+                            console.error('Error moving item:', error, {
+                                itemId: action.item.id,
+                                itemType: action.item.type,
+                                batchId: action.batchId,
+                            })
+                            posthog.captureException(error, {
+                                item_id: action.item.id,
+                                item_type: action.item.type,
+                                move_batch_id: action.batchId,
+                            })
                             settleMoveBatch((batch) => batch.failed.push({ error }))
                             actions.removeQueuedAction(action)
                         }

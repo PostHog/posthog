@@ -37,6 +37,7 @@ import {
     convertFileSystemEntryToTreeDataItem,
     findInProjectTree,
     formatUrlAsName,
+    calculateMovePath,
     joinPath,
     matchesRefType,
     refTypeParams,
@@ -1384,7 +1385,10 @@ export const projectTreeLogic = kea<projectTreeLogicType>([
                 }
                 const itemId = item.type === 'folder' ? `project://${item.path}` : `project/${item.id}`
                 if (checkedItems[itemId]) {
-                    moves.push({ item, newPath: joinPath([...splitPath(path), ...splitPath(item.path).slice(-1)]) })
+                    const { newPath, isValidMove } = calculateMovePath(item, path)
+                    if (isValidMove) {
+                        moves.push({ item, newPath })
+                    }
                     if (item.type === 'folder') {
                         skipInFolder = item.path
                     }
