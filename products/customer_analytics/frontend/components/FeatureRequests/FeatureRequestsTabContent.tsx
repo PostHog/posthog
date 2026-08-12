@@ -9,6 +9,7 @@ import {
     LemonInputSelect,
     LemonLabel,
     LemonModal,
+    LemonSkeleton,
     LemonSwitch,
     LemonTable,
     LemonTableColumns,
@@ -261,6 +262,68 @@ function ProductAreasModal(): JSX.Element {
     )
 }
 
+function FeatureRequestDetailSkeleton(): JSX.Element {
+    return (
+        <div
+            className="@container w-full max-w-[calc(160ch+5rem)] mx-auto px-6 py-5 text-sm"
+            role="status"
+            aria-label="Loading feature request"
+        >
+            <div className="flex flex-col gap-3.5 mb-6 pb-5 border-b border-primary" aria-hidden>
+                <LemonSkeleton className="h-7 w-32 rounded" />
+                <div className="flex flex-col gap-2 min-w-0">
+                    <LemonSkeleton className="h-6 w-2/3 max-w-xl rounded" />
+                    <div className="flex items-center gap-2">
+                        <LemonSkeleton className="h-5 w-20 rounded-full" />
+                        <LemonSkeleton className="h-3 w-56 rounded" />
+                    </div>
+                </div>
+            </div>
+
+            <div className="grid grid-cols-1 @5xl:grid-cols-[minmax(0,80ch)_minmax(22rem,1fr)] gap-5" aria-hidden>
+                <div className="min-w-0 flex flex-col gap-3">
+                    <div className="flex items-center gap-3">
+                        <LemonSkeleton className="h-4 w-28 rounded" />
+                        <div className="h-px min-w-4 flex-1 bg-border-light" />
+                    </div>
+                    <div className="flex flex-col gap-2.5">
+                        <LemonSkeleton className="h-3 w-full rounded" />
+                        <LemonSkeleton className="h-3 w-11/12 rounded" />
+                        <LemonSkeleton className="h-3 w-4/5 rounded" />
+                        <LemonSkeleton className="h-3 w-2/3 rounded" />
+                    </div>
+                </div>
+
+                <div className="flex flex-col min-w-0 gap-5">
+                    <div className="flex flex-col gap-3">
+                        <div className="flex items-center gap-3">
+                            <LemonSkeleton className="h-4 w-24 rounded" />
+                            <div className="h-px min-w-4 flex-1 bg-border-light" />
+                        </div>
+                        <div className="flex items-center gap-3 rounded border border-primary bg-surface-primary px-3 py-2.5">
+                            <LemonSkeleton className="size-8 shrink-0 rounded" />
+                            <div className="flex flex-1 flex-col gap-1.5">
+                                <LemonSkeleton className="h-3.5 w-32 rounded" />
+                                <LemonSkeleton className="h-2.5 w-16 rounded" />
+                            </div>
+                        </div>
+                    </div>
+                    <div className="flex flex-col gap-3">
+                        <div className="flex items-center gap-3">
+                            <LemonSkeleton className="h-4 w-28 rounded" />
+                            <div className="h-px min-w-4 flex-1 bg-border-light" />
+                        </div>
+                        <div className="flex gap-1.5">
+                            <LemonSkeleton className="h-5 w-24 rounded-full" />
+                            <LemonSkeleton className="h-5 w-20 rounded-full" />
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+    )
+}
+
 function FeatureRequestDetailSection({
     icon,
     title,
@@ -388,7 +451,7 @@ export function FeatureRequestsTabContent(): JSX.Element {
             )
         }
         if (activeRequestLoading || !activeRequest) {
-            return <div className="p-4 text-secondary">Loading feature request…</div>
+            return <FeatureRequestDetailSkeleton />
         }
         return <FeatureRequestDetail request={activeRequest} />
     }
