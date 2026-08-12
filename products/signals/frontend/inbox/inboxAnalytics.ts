@@ -1,4 +1,5 @@
 import posthog from 'posthog-js'
+import type { CaptureOptions } from 'posthog-js'
 
 import { dayjs } from 'lib/dayjs'
 
@@ -46,8 +47,11 @@ export type InboxReportActionSurface = 'detail_pane' | 'detail_footer' | 'list_r
 /** How a report detail was opened. */
 export type InboxReportOpenMethod = 'click' | 'deeplink' | 'unknown'
 
-/** How a report detail was closed. */
-export type InboxReportCloseMethod = 'next_report' | 'deselected' | 'unmount'
+/**
+ * How a report detail was closed. `page_unload` is a tab close or hard page navigation: the scene
+ * never unmounts, so it flushes on `pagehide` instead of the `unmount` path.
+ */
+export type InboxReportCloseMethod = 'next_report' | 'deselected' | 'unmount' | 'page_unload'
 
 /** Sentiment captured by the report feedback thumbs. */
 export type InboxReportFeedbackSentiment = 'positive' | 'negative'
@@ -115,8 +119,8 @@ export type ScoutActionType =
 /** What a scout chat CTA was asking for. Matches the desktop values. */
 export type ScoutChatType = 'author_scout' | 'fleet_overview' | 'recent_signals'
 
-function captureInboxEvent(event: InboxEvent, properties: Record<string, unknown>): void {
-    posthog.capture(event, { inbox_client: INBOX_CLIENT, ...properties })
+function captureInboxEvent(event: InboxEvent, properties: Record<string, unknown>, options?: CaptureOptions): void {
+    posthog.capture(event, { inbox_client: INBOX_CLIENT, ...properties }, options)
 }
 
 /** Whole hours since the report was created, rounded to one decimal. Mirrors desktop `report_age_hours`. */
@@ -260,16 +264,24 @@ export function captureInboxReportOpened(params: {
     })
 }
 
-export function captureInboxReportClosed(params: {
-    report: SignalReport
-    timeSpentMs: number
-    closeMethod: InboxReportCloseMethod
-}): void {
-    captureInboxEvent(INBOX_EVENTS.REPORT_CLOSED, {
-        ...baseReportProperties(params.report),
-        time_spent_ms: params.timeSpentMs,
-        close_method: params.closeMethod,
-    })
+export function captureInboxReportClosed(
+    params: {
+        report: SignalReport
+        timeSpentMs: number
+        closeMethod: InboxReportCloseMethod
+    },
+    /** The unload flush passes `{ send_instantly: true }` so the event leaves before the page goes. */
+    options?: CaptureOptions
+): void {
+    captureInboxEvent(
+        INBOX_EVENTS.REPORT_CLOSED,
+        {
+            ...baseReportProperties(params.report),
+            time_spent_ms: params.timeSpentMs,
+            close_method: params.closeMethod,
+        },
+        options
+    )
 }
 
 export function captureInboxReportAction(params: {
