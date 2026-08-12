@@ -1,27 +1,39 @@
 import { useActions, useValues } from 'kea'
 
-import { IconCopy, IconTrash } from '@posthog/icons'
-import { LemonBanner, LemonButton, LemonCard, LemonInput, LemonLabel, LemonSkeleton, LemonTag } from '@posthog/lemon-ui'
+import { IconPlus, IconTrash } from '@posthog/icons'
+import {
+    LemonBanner,
+    LemonButton,
+    LemonCard,
+    LemonCollapse,
+    LemonInput,
+    LemonLabel,
+    LemonSkeleton,
+    LemonTag,
+} from '@posthog/lemon-ui'
 
 import { LemonDialog } from 'lib/lemon-ui/LemonDialog'
-import { lemonToast } from 'lib/lemon-ui/LemonToast/LemonToast'
+
+import { EmailForwardingAddress } from 'products/conversations/frontend/components/EmailForwardingAddress'
 
 import { customerEmailConfigLogic } from './customerEmailConfigLogic'
 import type { CustomerEmailChannel } from './customerEmailConfigLogic'
 
-function ConnectedEmail({ channel }: { channel: CustomerEmailChannel }): JSX.Element {
+function ConnectedEmailContent({ channel }: { channel: CustomerEmailChannel }): JSX.Element {
     const { disconnectingChannelId } = useValues(customerEmailConfigLogic)
     const { disconnectEmail } = useActions(customerEmailConfigLogic)
 
     return (
-        <LemonCard hoverEffect={false} className="flex flex-col gap-3 p-4">
-            <div className="flex flex-wrap items-center justify-between gap-2">
-                <div className="flex items-center gap-2">
-                    <span className="font-medium">{channel.from_email}</span>
-                    <LemonTag type="success" size="small">
-                        Connected
-                    </LemonTag>
-                </div>
+        <div className="flex flex-col gap-3 p-3">
+            {channel.forwarding_address ? (
+                <EmailForwardingAddress forwardingAddress={channel.forwarding_address} />
+            ) : (
+                <p className="mb-0 text-sm text-secondary">
+                    A forwarding address is not available. Ask your PostHog administrator to configure the inbound email
+                    domain.
+                </p>
+            )}
+            <div className="flex justify-end border-t pt-2">
                 <LemonButton
                     type="secondary"
                     status="danger"
@@ -45,43 +57,75 @@ function ConnectedEmail({ channel }: { channel: CustomerEmailChannel }): JSX.Ele
                     Disconnect
                 </LemonButton>
             </div>
-            {channel.forwarding_address ? (
-                <div className="flex flex-col gap-1">
-                    <LemonLabel>Forward incoming email to</LemonLabel>
-                    <p className="mb-1 text-sm text-secondary">
-                        Add this as a forwarding address in your email provider. Forwarded messages appear on matching
-                        customer accounts.
-                    </p>
-                    <div className="flex items-center gap-2">
-                        <code className="break-all rounded bg-surface-primary px-2 py-1 text-sm">
-                            {channel.forwarding_address}
-                        </code>
-                        <LemonButton
-                            type="secondary"
-                            size="small"
-                            icon={<IconCopy />}
-                            tooltip="Copy forwarding address"
-                            onClick={() => {
-                                void navigator.clipboard.writeText(channel.forwarding_address!)
-                                lemonToast.success('Forwarding address copied')
-                            }}
-                        />
-                    </div>
-                </div>
-            ) : (
-                <p className="mb-0 text-sm text-secondary">
-                    A forwarding address is not available. Ask your PostHog administrator to configure the inbound email
-                    domain.
-                </p>
-            )}
+        </div>
+    )
+}
+
+function connectedEmailHeader(channel: CustomerEmailChannel): JSX.Element {
+    return (
+        <div className="flex min-w-0 items-center gap-2 text-left">
+            <span className="truncate font-medium">{channel.from_email}</span>
+            <LemonTag type="success" size="small" className="shrink-0">
+                Connected
+            </LemonTag>
+        </div>
+    )
+}
+
+function AddEmailForm(): JSX.Element {
+    const { addEmailFormVisible, connecting, emailDraft } = useValues(customerEmailConfigLogic)
+    const { connectEmail, setAddEmailFormVisible, setEmailDraft } = useActions(customerEmailConfigLogic)
+
+    if (!addEmailFormVisible) {
+        return (
+            <LemonButton type="secondary" size="small" icon={<IconPlus />} onClick={() => setAddEmailFormVisible(true)}>
+                Add email address
+            </LemonButton>
+        )
+    }
+
+    return (
+        <LemonCard hoverEffect={false} className="flex flex-col gap-2 px-4 py-3">
+            <LemonLabel>Connect new email</LemonLabel>
+            <p className="mb-0 text-sm text-secondary">
+                Enter the email address you use to talk to customers. After connecting it, forward incoming messages to
+                the PostHog address shown here.
+            </p>
+            <LemonInput
+                type="email"
+                value={emailDraft}
+                onChange={setEmailDraft}
+                placeholder="you@company.com"
+                fullWidth
+                disabled={connecting}
+                onPressEnter={connectEmail}
+            />
+            <div className="flex gap-2">
+                <LemonButton
+                    type="primary"
+                    size="small"
+                    loading={connecting}
+                    disabledReason={emailDraft.trim() ? undefined : 'Enter your email address'}
+                    onClick={connectEmail}
+                >
+                    Connect email
+                </LemonButton>
+                <LemonButton
+                    type="secondary"
+                    size="small"
+                    disabled={connecting}
+                    onClick={() => setAddEmailFormVisible(false)}
+                >
+                    Cancel
+                </LemonButton>
+            </div>
         </LemonCard>
     )
 }
 
 export function CustomerEmailConfig(): JSX.Element {
-    const { channels, channelsLoadFailed, channelsLoading, connecting, emailDraft } =
-        useValues(customerEmailConfigLogic)
-    const { connectEmail, loadChannels, setEmailDraft } = useActions(customerEmailConfigLogic)
+    const { channels, channelsLoadFailed, channelsLoading, expandedChannelIds } = useValues(customerEmailConfigLogic)
+    const { loadChannels, setExpandedChannelIds } = useActions(customerEmailConfigLogic)
 
     if (channelsLoading) {
         return <LemonSkeleton className="h-32 max-w-2xl" />
@@ -95,35 +139,22 @@ export function CustomerEmailConfig(): JSX.Element {
     }
 
     return (
-        <div className="flex max-w-2xl flex-col gap-4">
-            {channels.map((channel) => (
-                <ConnectedEmail key={channel.id} channel={channel} />
-            ))}
-            <div className="flex flex-col gap-2">
-                <LemonLabel>{channels.length ? 'Connect another email' : 'Work email'}</LemonLabel>
-                <p className="mb-0 text-sm text-secondary">
-                    Connect the email address you use to talk to customers. PostHog matches forwarded conversations to
-                    their accounts.
-                </p>
-                <div className="flex flex-wrap items-center gap-2">
-                    <LemonInput
-                        type="email"
-                        value={emailDraft}
-                        onChange={setEmailDraft}
-                        placeholder="you@company.com"
-                        className="min-w-72 flex-1"
-                        disabled={connecting}
-                        onPressEnter={connectEmail}
-                    />
-                    <LemonButton
-                        type="primary"
-                        loading={connecting}
-                        disabledReason={emailDraft.trim() ? undefined : 'Enter your email address'}
-                        onClick={connectEmail}
-                    >
-                        Connect email
-                    </LemonButton>
-                </div>
+        <div className="flex max-w-2xl flex-col gap-3">
+            {channels.length > 0 && (
+                <LemonCollapse
+                    className="bg-surface-primary"
+                    multiple
+                    activeKeys={expandedChannelIds}
+                    onChange={setExpandedChannelIds}
+                    panels={channels.map((channel) => ({
+                        key: channel.id,
+                        header: connectedEmailHeader(channel),
+                        content: <ConnectedEmailContent channel={channel} />,
+                    }))}
+                />
+            )}
+            <div className="flex">
+                <AddEmailForm />
             </div>
         </div>
     )

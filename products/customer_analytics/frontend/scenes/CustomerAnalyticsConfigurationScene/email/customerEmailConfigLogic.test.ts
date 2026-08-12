@@ -53,6 +53,8 @@ describe('customerEmailConfigLogic', () => {
         logic.mount()
         await expectLogic(logic).toFinishAllListeners()
 
+        expect(logic.values.addEmailFormVisible).toBe(false)
+        logic.actions.setAddEmailFormVisible(true)
         logic.actions.setEmailDraft(' CSM@Example.com ')
         logic.actions.connectEmail()
         await expectLogic(logic).toFinishAllListeners()
@@ -65,8 +67,10 @@ describe('customerEmailConfigLogic', () => {
         })
         expect(logic.values.channels).toEqual([channel])
         expect(logic.values.emailDraft).toBe('')
+        expect(logic.values.addEmailFormVisible).toBe(false)
         expect(logic.values.connecting).toBe(false)
 
+        logic.actions.setExpandedChannelIds([channel.id])
         logic.actions.disconnectEmail(channel.id)
         await expectLogic(logic).toFinishAllListeners()
 
@@ -74,6 +78,7 @@ describe('customerEmailConfigLogic', () => {
             config_id: channel.id,
         })
         expect(logic.values.channels).toEqual([])
+        expect(logic.values.expandedChannelIds).toEqual([])
         expect(logic.values.disconnectingChannelId).toBeNull()
     })
 })
