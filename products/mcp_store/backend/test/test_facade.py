@@ -281,6 +281,7 @@ class TestGetInstallationsForSandbox(BaseTest):
         )
         MCPServiceAccountServerAccess.objects.for_team(self.team.id).create(
             team_id=self.team.id,
+            user=self.user,
             service_account=account,
             gateway_server=granted_server,
             installation=personal,
@@ -293,6 +294,7 @@ class TestGetInstallationsForSandbox(BaseTest):
             include_personal=True,
             task_origin="support_reply",
             task_agent_key="support",
+            credential_owner_id=self.user.id,
         )
 
         assert [result.id for result in results] == [str(personal.id)]
@@ -307,6 +309,7 @@ class TestGetInstallationsForSandbox(BaseTest):
                 self.team.id,
                 task_origin="support_reply",
                 task_agent_key="support",
+                credential_owner_id=self.user.id,
             )
             == []
         )
@@ -319,6 +322,7 @@ class TestGetInstallationsForSandbox(BaseTest):
             user_id=self.user.id,
             include_personal=True,
             task_origin="support_reply",
+            credential_owner_id=self.user.id,
         )
         assert unstamped_results == []
 
@@ -328,8 +332,35 @@ class TestGetInstallationsForSandbox(BaseTest):
             include_personal=True,
             task_origin="support_reply",
             task_agent_key="scout",
+            credential_owner_id=self.user.id,
         )
         assert mismatched_results == []
+
+    def test_built_in_agent_only_gets_the_run_credential_owner_s_grants(self) -> None:
+        account = self._support_agent()
+        other_user = User.objects.create_and_join(self.organization, "other-owner@posthog.com", "password")
+        server = self._create_gateway_server(name="Granted", url="https://granted.example.com/mcp")
+        delegated = self._create_installation(scope="personal", gateway_server=server, url=server.url)
+        MCPServiceAccountServerAccess.objects.for_team(self.team.id).create(
+            team_id=self.team.id,
+            user=self.user,
+            service_account=account,
+            gateway_server=server,
+            installation=delegated,
+            granted_by=self.user,
+        )
+
+        def resolve(credential_owner_id: int | None) -> list[ActiveInstallationInfo]:
+            return get_installations_for_sandbox(
+                self.team.id,
+                task_origin="support_reply",
+                task_agent_key="support",
+                credential_owner_id=credential_owner_id,
+            )
+
+        assert [result.id for result in resolve(self.user.id)] == [str(delegated.id)]
+        assert resolve(other_user.id) == []
+        assert resolve(None) == []
 
     def test_built_in_agent_does_not_fall_back_after_delegated_credential_is_deleted(self) -> None:
         account = self._support_agent()
@@ -351,6 +382,7 @@ class TestGetInstallationsForSandbox(BaseTest):
         )
         access = MCPServiceAccountServerAccess.objects.for_team(self.team.id).create(
             team_id=self.team.id,
+            user=self.user,
             service_account=account,
             gateway_server=server,
             installation=delegated,
@@ -366,6 +398,7 @@ class TestGetInstallationsForSandbox(BaseTest):
                 self.team.id,
                 task_origin="support_reply",
                 task_agent_key="support",
+                credential_owner_id=self.user.id,
             )
             == []
         )
@@ -376,6 +409,7 @@ class TestGetInstallationsForSandbox(BaseTest):
         delegated = self._create_installation(scope="personal", gateway_server=server, url=server.url)
         MCPServiceAccountServerAccess.objects.for_team(self.team.id).create(
             team_id=self.team.id,
+            user=self.user,
             service_account=account,
             gateway_server=server,
             installation=delegated,
@@ -386,6 +420,7 @@ class TestGetInstallationsForSandbox(BaseTest):
             self.team.id,
             task_origin="support_reply",
             task_agent_key="support",
+            credential_owner_id=self.user.id,
         )
         assert [result.id for result in results] == [str(delegated.id)]
 
@@ -397,6 +432,7 @@ class TestGetInstallationsForSandbox(BaseTest):
                 self.team.id,
                 task_origin="support_reply",
                 task_agent_key="support",
+                credential_owner_id=self.user.id,
             )
             == []
         )
