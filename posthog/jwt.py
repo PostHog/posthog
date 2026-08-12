@@ -18,6 +18,7 @@ class PosthogJwtAudience(Enum):
     EXPORT_RENDERER = "posthog:export_renderer"
     LIVESTREAM = "posthog:livestream"
     SHARING_PASSWORD_PROTECTED = "posthog:sharing_password_protected"
+    RECORDING_API = "posthog:recording_api"
     INTEGRATION_SERVICE = "posthog:integration_service"
 
 
@@ -57,9 +58,9 @@ def encode_jwt(
     )
 
 
-def decode_jwt(token: str, audience: PosthogJwtAudience) -> dict[str, Any]:
+def decode_jwt(token: str, audience: PosthogJwtAudience, verification_keys: list[str] | None = None) -> dict[str, Any]:
     last_error: jwt.InvalidSignatureError | None = None
-    for key in _verification_keys():
+    for key in verification_keys if verification_keys is not None else _verification_keys():
         try:
             return jwt.decode(token, key, audience=audience.value, algorithms=[JWT_ALGORITHM])
         except jwt.InvalidSignatureError as error:
