@@ -4,7 +4,7 @@ import { CyclotronJobInputSchemaType, CyclotronJobInputType, HogFunctionTemplate
 
 import { AttachedContextItem } from 'products/posthog_ai/frontend/api/types'
 
-import { BUILDING_WORKFLOWS_SKILL, WORKFLOWS_MCP_TOOLS } from '../generated/agentContext'
+import { BUILDING_WORKFLOWS_SKILL, EMAIL_TEMPLATE_MCP_TOOLS, WORKFLOWS_MCP_TOOLS } from '../generated/agentContext'
 import { isEmailAction, isFunctionAction, isTriggerFunction } from './hogflows/steps/types'
 import type { HogFlow } from './hogflows/types'
 
@@ -64,6 +64,39 @@ export const WORKFLOW_AGENT_HEADLINES: string[] = [
     'How can I help with this workflow?',
     'What should this workflow do?',
 ]
+
+export const EMAIL_EDITOR_AGENT_HEADLINES: string[] = ['How should this email look?']
+
+const EMAIL_EDITING_DISMISS_GROUP = 'workflow-scene-email-editing'
+
+const EMAIL_TOOL_CONTEXT_ITEMS: AttachedContextItem[] = EMAIL_TEMPLATE_MCP_TOOLS.map((tool) => ({
+    type: 'instructions',
+    hidden: true,
+    dismissGroup: EMAIL_EDITING_DISMISS_GROUP,
+    value: `MCP tool ${tool.name}: ${tool.description}`,
+}))
+
+// Attached while the email takeover is open on a saved workflow, so "this email" resolves to the
+// action the user is actually looking at instead of the agent guessing between email steps.
+function buildEmailEditingContextItems(id: string, editingEmailActionId: string | null): AttachedContextItem[] {
+    if (!editingEmailActionId || id === 'new') {
+        return []
+    }
+    return [
+        {
+            type: 'instructions',
+            hidden: true,
+            dismissGroup: EMAIL_EDITING_DISMISS_GROUP,
+            value:
+                `The user has the email editor open for action '${editingEmailActionId}' in workflow ${id}. ` +
+                `Requests about "this email" mean that action's config.inputs.email.value. For content and ` +
+                `layout changes prefer workflows-patch-action-email with design operations targeting that ` +
+                `action; use workflows-patch with update_action on it for other fields. The open editor ` +
+                `reloads external edits live, so the user sees applied changes immediately.`,
+        },
+        ...EMAIL_TOOL_CONTEXT_ITEMS,
+    ]
+}
 
 function redactInputsRecord(
     inputs: Record<string, CyclotronJobInputType>,
@@ -189,7 +222,8 @@ export function serializeWorkflowEditorState(
 export function buildWorkflowAgentContext(
     workflow: HogFlow | null,
     id: string,
-    hogFunctionTemplatesById: Record<string, HogFunctionTemplateType>
+    hogFunctionTemplatesById: Record<string, HogFunctionTemplateType>,
+    editingEmailActionId: string | null = null
 ): AttachedContextItem[] {
     const items: AttachedContextItem[] = [
         PREAMBLE_CONTEXT_ITEM,
@@ -214,5 +248,6 @@ export function buildWorkflowAgentContext(
             value: serializeWorkflowEditorState(workflow, hogFunctionTemplatesById),
         })
     }
+    items.push(...buildEmailEditingContextItems(id, editingEmailActionId))
     return items
 }

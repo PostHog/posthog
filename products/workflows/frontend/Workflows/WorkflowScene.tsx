@@ -21,7 +21,11 @@ import { ActivityScope } from '~/types'
 
 import { batchWorkflowJobsLogic } from './batchWorkflowJobsLogic'
 import { Workflow } from './Workflow'
-import { WORKFLOW_AGENT_HEADLINES, buildWorkflowAgentContext } from './workflowAgentContext'
+import {
+    EMAIL_EDITOR_AGENT_HEADLINES,
+    WORKFLOW_AGENT_HEADLINES,
+    buildWorkflowAgentContext,
+} from './workflowAgentContext'
 import { WorkflowAssets } from './WorkflowAssets'
 import { WorkflowInvocations } from './WorkflowInvocations'
 import { workflowLogic } from './workflowLogic'
@@ -70,6 +74,12 @@ export function WorkflowScene(props: WorkflowSceneLogicProps): JSX.Element {
         500
     )
     const { sceneIntegrationEnabled } = useValues(sceneAgentPanelLogic)
+    // The email takeover reflects its state into the URL (?editor=email beside the step's ?node=);
+    // while it is open the panel's framing follows the email being edited, not the graph. Both
+    // swaps update the same provider registrations in place, so they keep their first-registered
+    // priority in the panel's first-writer-wins registries.
+    const emailEditorOpen = searchParams.editor === 'email'
+    const editingEmailActionId: string | null = emailEditorOpen ? ((searchParams.node as string) ?? null) : null
     // Serializing the whole graph is real work on large workflows, so skip building the context
     // entirely for users the integration flag hasn't reached.
     const agentContextItems = useMemo(
@@ -78,15 +88,16 @@ export function WorkflowScene(props: WorkflowSceneLogicProps): JSX.Element {
                 ? buildWorkflowAgentContext(
                       debouncedAgentSource.workflow,
                       debouncedAgentSource.id,
-                      hogFunctionTemplatesById
+                      hogFunctionTemplatesById,
+                      editingEmailActionId
                   )
                 : null,
-        [sceneIntegrationEnabled, debouncedAgentSource, hogFunctionTemplatesById]
+        [sceneIntegrationEnabled, debouncedAgentSource, hogFunctionTemplatesById, editingEmailActionId]
     )
     useSceneAgentPanel({
         sceneKey: 'workflow',
         contextItems: agentContextItems,
-        headlines: WORKFLOW_AGENT_HEADLINES,
+        headlines: emailEditorOpen ? EMAIL_EDITOR_AGENT_HEADLINES : WORKFLOW_AGENT_HEADLINES,
         active: !!originalWorkflow || workflowSceneProps.id === 'new',
     })
 

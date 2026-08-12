@@ -15,6 +15,7 @@ import { LemonInput } from 'lib/lemon-ui/LemonInput/LemonInput'
 import { LemonTextArea } from 'lib/lemon-ui/LemonTextArea'
 import { CodeEditorInline } from 'lib/monaco/CodeEditorInline'
 import { CodeEditorResizeable } from 'lib/monaco/CodeEditorResizable'
+import { sceneAgentPanelLogic } from 'scenes/max/sceneAgentPanelLogic'
 import { urls } from 'scenes/urls'
 
 import { sceneLayoutLogic } from '~/layout/scenes/sceneLayoutLogic'
@@ -22,6 +23,7 @@ import { sceneLayoutLogic } from '~/layout/scenes/sceneLayoutLogic'
 import 'products/workflows/frontend/TemplateLibrary/MessageTemplatesGrid.scss'
 import { MessageTemplateCard } from 'products/workflows/frontend/TemplateLibrary/MessageTemplateCard'
 
+import { collapseToolsPanelCustomJs } from './custom-tools/collapseToolsPanel'
 import { unsubscribeLinkToolCustomJs } from './custom-tools/unsubscribeLinkTool'
 import { EMAIL_TYPE_SUPPORTED_FIELDS, EmailTemplaterLogicProps, emailTemplaterLogic } from './emailTemplaterLogic'
 import { EmailFieldErrors } from './types'
@@ -382,6 +384,9 @@ function NativeEmailTemplaterForm({
         useValues(emailTemplaterLogic)
     const { setEmailEditorRef, onEmailEditorReady, setActiveContentTab, hideAdvancedField, revealAdvancedField } =
         useActions(emailTemplaterLogic)
+    // With the AI panel integration on, chat sits beside the editor and width is scarce, so the
+    // Unlayer tools panel starts collapsed to give the canvas room.
+    const { sceneIntegrationEnabled } = useValues(sceneAgentPanelLogic)
 
     // The template editor has only subject + preheader, so they share one row with the
     // visual/plain-text switch to keep vertical space for the canvas.
@@ -564,7 +569,9 @@ function NativeEmailTemplaterForm({
                                             ai: false,
                                         },
                                         projectId: unlayerEditorProjectId,
-                                        customJS: [unsubscribeLinkToolCustomJs],
+                                        customJS: sceneIntegrationEnabled
+                                            ? [unsubscribeLinkToolCustomJs, collapseToolsPanelCustomJs]
+                                            : [unsubscribeLinkToolCustomJs],
                                         fonts: unlayerEditorProjectId
                                             ? {
                                                   showDefaultFonts: true,

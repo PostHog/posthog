@@ -3,6 +3,7 @@ import { HogFunctionTemplateType } from '~/types'
 import type { HogFlow } from './hogflows/types'
 import {
     EDITOR_STATE_MAX_CHARS,
+    buildWorkflowAgentContext,
     redactWorkflowSecretInputs,
     serializeWorkflowEditorState,
 } from './workflowAgentContext'
@@ -193,6 +194,35 @@ describe('workflowAgentContext', () => {
             const emailValue = JSON.parse(serialized).actions[0].config.inputs.email.value
             expect(emailValue.design).toContain('elided for size')
             expect(emailValue.subject).toBe('Hi')
+        })
+    })
+
+    describe('buildWorkflowAgentContext email editing', () => {
+        const instructionValues = (items: ReturnType<typeof buildWorkflowAgentContext>): string[] =>
+            items.filter((item) => item.type === 'instructions').map((item) => item.value as string)
+
+        it('pins the open email action and attaches the template tools while the editor is open', () => {
+            const items = buildWorkflowAgentContext(workflowWith({}), 'flow-1', templatesById, 'e1')
+
+            const pinned = instructionValues(items).find((value) => value.includes("action 'e1'"))
+            expect(pinned).toBeTruthy()
+            expect(pinned).toContain('workflows-patch-action-email')
+            // The dedicated attached item, not the passing mention inside a base tool's description.
+            expect(
+                instructionValues(items).some((value) => value.startsWith('MCP tool workflows-patch-email-template'))
+            ).toBe(true)
+        })
+
+        it.each([
+            ['no email editor is open', 'flow-1', null],
+            ['the workflow is unsaved, so there is nothing to patch', 'new', 'e1'],
+        ])('attaches no email-editing context when %s', (_label, id, editingEmailActionId) => {
+            const items = buildWorkflowAgentContext(workflowWith({}), id, templatesById, editingEmailActionId)
+
+            expect(instructionValues(items).some((value) => value.includes('email editor open'))).toBe(false)
+            expect(
+                instructionValues(items).some((value) => value.startsWith('MCP tool workflows-patch-email-template'))
+            ).toBe(false)
         })
     })
 })
