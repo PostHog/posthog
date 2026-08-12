@@ -31,6 +31,12 @@ export const BillingLimit = ({ product }: { product: BillingProductV2Type }): JS
     const usingInitialBillingLimit = customLimitUsd === initialBillingLimit
     const hasBillingLimitNextPeriod = billingLimitNextPeriod !== null
 
+    // When you set a limit below your usage, we pin the current period to your usage and defer the
+    // lower number to next period. The two limits then differ, and only the current one is in force.
+    const currentPeriodLimitPinned =
+        hasBillingLimitNextPeriod && customLimitUsd !== null && customLimitUsd !== billingLimitNextPeriod
+    const isOverLimit = (product.percentage_usage ?? 0) > 1
+
     if (billing?.billing_period?.interval !== 'month' || !product.subscribed || product.inclusion_only) {
         return null
     }
@@ -48,7 +54,18 @@ export const BillingLimit = ({ product }: { product: BillingProductV2Type }): JS
                             <>
                                 {hasCustomLimitSet ? (
                                     <>
-                                        {usingInitialBillingLimit ? (
+                                        {currentPeriodLimitPinned ? (
+                                            <Tooltip title="The current period keeps this limit so you avoid extra charges. Your lower limit starts next period.">
+                                                <span
+                                                    className="text-sm"
+                                                    data-attr={`billing-limit-current-period-${product.type}`}
+                                                >
+                                                    Your limit for the current period is{' '}
+                                                    <b>${customLimitUsd?.toLocaleString()}</b>. We set it to your usage
+                                                    when you lowered the limit below it.
+                                                </span>
+                                            </Tooltip>
+                                        ) : usingInitialBillingLimit ? (
                                             <Tooltip title="Initial limits protect you from accidentally incurring large unexpected charges. Some features may stop working and data may be dropped if your usage exceeds your limit.">
                                                 <span
                                                     className="text-sm"
@@ -172,6 +189,16 @@ export const BillingLimit = ({ product }: { product: BillingProductV2Type }): JS
                         </div>
                     ) : null}
                 </div>
+                {currentPeriodLimitPinned && isOverLimit && !isEditingBillingLimit ? (
+                    <div
+                        className="text-xs text-danger mt-2"
+                        data-attr={`billing-limit-over-current-period-${product.type}`}
+                    >
+                        Your usage is over your current-period limit of <b>${customLimitUsd?.toLocaleString()}</b>, so
+                        we are dropping data. Raise this limit to start ingestion again. Your{' '}
+                        <b>${billingLimitNextPeriod?.toLocaleString()}</b> limit applies from next period.
+                    </div>
+                ) : null}
                 {billingLimitConfig.help && !isEditingBillingLimit ? (
                     <div className="text-xs text-secondary mt-2">{billingLimitConfig.help}</div>
                 ) : null}

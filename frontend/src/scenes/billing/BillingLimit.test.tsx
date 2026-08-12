@@ -90,6 +90,47 @@ describe('BillingLimit', () => {
         }
     )
 
+    // When you lower a limit below your usage, the backend pins the current period to your usage and
+    // defers the lower number to next period, so the two limits differ. The page must label the
+    // in-force current-period limit as such, not leave it reading like the next-period number is live.
+    const seedTwoLimits = async (current: number, next: number): Promise<void> => {
+        billingState = {
+            ...billingJson,
+            custom_limits_usd: { product_analytics: current },
+            next_period_custom_limits_usd: { product_analytics: next },
+        }
+        useMocks({ get: { '/api/billing': () => [200, billingState] } })
+        billingLogic.mount()
+        await expectLogic(billingLogic, () => billingLogic.actions.loadBilling()).toFinishAllListeners()
+    }
+
+    it('labels the pinned current-period limit and still shows the deferred next-period limit', async () => {
+        await seedTwoLimits(150, 100)
+        render(
+            <Provider>
+                <BillingLimit product={makeProduct()} />
+            </Provider>
+        )
+
+        expect(await screen.findByTestId('billing-limit-current-period-product_analytics')).toHaveTextContent(
+            'Your limit for the current period is $150. We set it to your usage when you lowered the limit below it.'
+        )
+        expect(screen.getByText(/Your limit for next period/)).toHaveTextContent('$100')
+    })
+
+    it('points at the current-period limit to raise when usage is over it', async () => {
+        await seedTwoLimits(150, 100)
+        render(
+            <Provider>
+                <BillingLimit product={{ ...makeProduct(), percentage_usage: 1.2 }} />
+            </Provider>
+        )
+
+        expect(await screen.findByTestId('billing-limit-over-current-period-product_analytics')).toHaveTextContent(
+            'Your usage is over your current-period limit of $150, so we are dropping data. Raise this limit to start ingestion again. Your $100 limit applies from next period.'
+        )
+    })
+
     it('removing an existing limit PATCHes a null limit and re-renders as unset', async () => {
         await seedBilling({ product_analytics: 500 })
         render(
