@@ -1,6 +1,9 @@
+import { expectLogic } from 'kea-test-utils'
+
 import { newInternalTab } from 'lib/utils/newInternalTab'
 import { databaseTableListLogic } from 'scenes/data-management/database/databaseTableListLogic'
 
+import { performQuery } from '~/queries/query'
 import { initKeaTests } from '~/test/init'
 
 import {
@@ -12,6 +15,7 @@ import {
 } from './queryDatabaseLogic'
 
 jest.mock('lib/utils/newInternalTab')
+jest.mock('~/queries/query')
 
 describe('queryDatabaseLogic', () => {
     it('groups direct connection tables into schema folders', () => {
@@ -284,6 +288,72 @@ describe('queryDatabaseLogic', () => {
 
             expect(logic.values.databaseLoadError).toEqual(null)
             expect(childNames('sources')).not.toContain("Couldn't load your schema")
+        })
+    })
+
+    describe('lazy schema hydration', () => {
+        let logic: ReturnType<typeof queryDatabaseLogic.build>
+        let dbLogic: ReturnType<typeof databaseTableListLogic.build>
+
+        const findTableNode = (): any =>
+            logic.values.treeData
+                .find((item) => item.record?.type === 'sources')
+                ?.children?.find((child) => child.id === 'source-posthog')
+                ?.children?.find((child) => child.id === 'table-events')
+
+        beforeEach(async () => {
+            initKeaTests()
+            // Earlier tests persist expanded folders; a restored expansion would trigger hydration
+            // before the assertions below stage their own state.
+            localStorage.clear()
+            ;(performQuery as jest.Mock).mockResolvedValue({ tables: {}, joins: [] })
+            logic = queryDatabaseLogic()
+            logic.mount()
+            dbLogic = databaseTableListLogic.findMounted()! as ReturnType<typeof databaseTableListLogic.build>
+            // Mounting the tree mounts sourceManagementLogic, whose afterMount fires a full
+            // loadDatabase; let it settle so it can't overwrite the shallow state staged below.
+            await expectLogic(dbLogic).toFinishAllListeners()
+            dbLogic.actions.loadDatabaseSuccess({
+                tables: { events: { id: 'events', name: 'events', type: 'posthog', fields: {} } },
+                joins: [],
+            })
+            dbLogic.actions.setDatabaseFieldsComplete(false)
+        })
+
+        afterEach(() => {
+            logic.unmount()
+            jest.clearAllMocks()
+        })
+
+        it('renders a hydration placeholder, hydrates on expand, then shows the columns', async () => {
+            const placeholder = findTableNode()?.children?.[0]
+            expect(placeholder?.type).toEqual('loading-indicator')
+            expect(placeholder?.record?.pendingTableName).toEqual('events')
+
+            logic.actions.toggleFolderOpen('table-events', false)
+            await expectLogic(dbLogic).toFinishAllListeners()
+
+            expect(performQuery).toHaveBeenCalledWith(expect.objectContaining({ tables: ['events'] }))
+
+            dbLogic.actions.hydrateTableFieldsSuccess(['events'], {
+                events: {
+                    id: 'events',
+                    name: 'events',
+                    type: 'posthog',
+                    fields: { uuid: { name: 'uuid', hogql_value: 'uuid', type: 'string', schema_valid: true } },
+                } as any,
+            })
+
+            const columnNames = findTableNode()?.children?.map((child: any) => child.name)
+            expect(columnNames).toEqual(['uuid'])
+        })
+
+        it('shows an error node when hydrating a table failed', () => {
+            dbLogic.actions.hydrateTableFieldsStart(['events'])
+            dbLogic.actions.hydrateTableFieldsFailure(['events'])
+
+            const errorNode = findTableNode()?.children?.[0]
+            expect(errorNode?.record?.type).toEqual('fields-load-error')
         })
     })
 

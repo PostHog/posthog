@@ -191,7 +191,12 @@ def process_database_schema_query(
             modifiers=create_default_modifiers_for_team(team),
         )
         context = HogQLContext(team_id=team.pk, team=team, database=database, user=user)
-        serialized_tables = database.serialize(context, include_hidden_posthog_tables=True)
+        serialized_tables = database.serialize(
+            context,
+            include_only=set(query.tables) if query.tables else None,
+            include_hidden_posthog_tables=True,
+            include_fields=query.includeFields is not False,
+        )
     except (APIException, ExposedHogQLError, ResolutionError, UserAccessControlError):
         # These already carry an actionable message, and the query view maps them to a 4xx.
         raise
