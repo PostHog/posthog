@@ -9,6 +9,7 @@ import { initKeaTests } from '~/test/init'
 import { mockGetEventDefinitions, mockGetPropertyDefinitions } from '~/test/mocks'
 import { FeatureFlagGroupType, FeatureFlagType } from '~/types'
 
+import { EARLY_ACCESS_GROUP_TARGETING_DISABLED_REASON } from './constants'
 import { FeatureFlagReleaseConditionsCollapsible } from './FeatureFlagReleaseConditionsCollapsible'
 
 jest.mock('lib/components/AutoSizer', () => ({
@@ -26,13 +27,14 @@ function buildFilters(): FeatureFlagType['filters'] {
     return { groups: [group], multivariate: null, payloads: {} }
 }
 
-async function openTargetBySelect(): Promise<HTMLButtonElement> {
+async function openTargetByAndGetGroupOption(): Promise<HTMLButtonElement> {
     await waitFor(() => {
         expect(document.querySelector('[data-attr="condition-set-0-aggregation"]')).toBeInTheDocument()
     })
     await userEvent.click(document.querySelector('[data-attr="condition-set-0-aggregation"]')!)
 
-    // The group type comes from the default mocked group types, which label it lowercase
+    // 'organizations' is seeded by initKeaTests() from MOCK_DEFAULT_TEAM.group_types;
+    // the groups_types API mock returns an empty list, so it is not the source here
     let option: HTMLButtonElement | undefined
     await waitFor(() => {
         option = Array.from(document.querySelectorAll('button')).find(
@@ -82,9 +84,20 @@ describe('release condition group targeting on early access flags', () => {
             </Provider>
         )
 
-        const organizations = await openTargetBySelect()
+        const organizations = await openTargetByAndGetGroupOption()
 
         expect(organizations).toHaveAttribute('aria-disabled', 'true')
+
+        // The gate must disable only group types, not the whole "Target by" list
+        const users = Array.from(document.querySelectorAll('[role="menuitem"]')).find(
+            (el) => el.textContent === 'Users'
+        )
+        expect(users).toHaveAttribute('aria-disabled', 'false')
+
+        await userEvent.hover(organizations)
+        await waitFor(() => {
+            expect(document.body).toHaveTextContent(EARLY_ACCESS_GROUP_TARGETING_DISABLED_REASON)
+        })
 
         // Clicking the disabled option must not change the aggregation
         await userEvent.click(organizations)
@@ -103,7 +116,7 @@ describe('release condition group targeting on early access flags', () => {
             </Provider>
         )
 
-        const organizations = await openTargetBySelect()
+        const organizations = await openTargetByAndGetGroupOption()
 
         expect(organizations).toHaveAttribute('aria-disabled', 'false')
     })
