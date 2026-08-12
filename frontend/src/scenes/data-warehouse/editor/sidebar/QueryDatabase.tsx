@@ -38,6 +38,7 @@ import { getAccessControlDisabledReason } from 'lib/utils/accessControlUtils'
 import { copyToClipboard } from 'lib/utils/copyToClipboard'
 import { cn } from 'lib/utils/css-classes'
 import { newInternalTab } from 'lib/utils/newInternalTab'
+import { PropertyDefinitionEditModal } from 'scenes/data-management/properties/PropertyDefinitionEditModal'
 import { biEditorLogic } from 'scenes/data-warehouse/editor/bi/biEditorLogic'
 import {
     BI_FIELD_DRAG_MIME_TYPE,
@@ -145,6 +146,7 @@ export const QueryDatabase = ({
         highlightedDropFolderId,
         highlightViewsSectionDrop,
         featureFlags,
+        editingPropertyDefinition,
     } = useValues(queryDatabaseLogic)
     const { config: biConfig, editorView } = useValues(biEditorLogic({ tabId }))
     const isBIEditor = editorView === BIEditorView.BI
@@ -164,6 +166,9 @@ export const QueryDatabase = ({
         openUnsavedQuery,
         deleteUnsavedQuery,
         setPropertyDefinitionSearch,
+        openPropertyDefinitionEditor,
+        closePropertyDefinitionEditor,
+        updatePropertyDefinition,
     } = useActions(queryDatabaseLogic)
     const {
         createDataWarehouseSavedQueryFolder,
@@ -390,7 +395,7 @@ export const QueryDatabase = ({
         return [...filterTreeSections(extraTreeSections, searchTerm), ...displayedTreeData]
     }, [extraTreeSections, displayedTreeData, searchTerm])
 
-    return (
+    const tree = (
         <LemonTree
             ref={treeRef}
             data={treeData}
@@ -578,6 +583,22 @@ export const QueryDatabase = ({
             itemSideAction={(item) => {
                 if (item.record?.type === 'property-field') {
                     return null
+                }
+
+                if (item.record?.propertyDefinition) {
+                    return (
+                        <DropdownMenuGroup>
+                            <DropdownMenuItem
+                                asChild
+                                onClick={(e) => {
+                                    e.stopPropagation()
+                                    openPropertyDefinitionEditor(item.record?.propertyDefinition)
+                                }}
+                            >
+                                <ButtonPrimitive menuItem>Edit definition</ButtonPrimitive>
+                            </DropdownMenuItem>
+                        </DropdownMenuGroup>
+                    )
                 }
 
                 const joinMenu =
@@ -1339,5 +1360,18 @@ export const QueryDatabase = ({
             virtualized
             virtualizationScrollContainerRef={virtualizationScrollContainerRef}
         />
+    )
+
+    return (
+        <>
+            {tree}
+            {editingPropertyDefinition ? (
+                <PropertyDefinitionEditModal
+                    propertyDefinition={editingPropertyDefinition}
+                    onClose={closePropertyDefinitionEditor}
+                    onSave={updatePropertyDefinition}
+                />
+            ) : null}
+        </>
     )
 }

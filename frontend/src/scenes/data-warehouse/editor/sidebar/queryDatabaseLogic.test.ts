@@ -165,6 +165,20 @@ describe('queryDatabaseLogic', () => {
         expect(propertyNode()?.children?.map((item) => item.name)).toEqual(['$browser'])
         expect(propertyNode()?.record?.propertyDefinitionSearch).toEqual('browser')
 
+        const browserDefinition = logic.values.propertyDefinitionLists['events:properties'].definitions[0]
+        expect(propertyNode()?.children?.[0].record?.propertyDefinition).toEqual(browserDefinition)
+
+        logic.actions.openPropertyDefinitionEditor(browserDefinition)
+        expect(logic.values.editingPropertyDefinition).toEqual(browserDefinition)
+
+        logic.actions.updatePropertyDefinition({ ...browserDefinition, property_type: 'Boolean' })
+        expect(propertyNode()?.children?.[0].record?.field.type).toEqual('boolean')
+        expect(propertyNode()?.children?.[0].record?.propertyDefinition.property_type).toEqual('Boolean')
+        expect(logic.values.editingPropertyDefinition).toBeNull()
+
+        logic.actions.updatePropertyDefinition({ ...browserDefinition, hidden: true })
+        expect(propertyNode()?.children?.map((item) => item.name)).toEqual(['No matching properties'])
+
         logic.unmount()
     })
 
