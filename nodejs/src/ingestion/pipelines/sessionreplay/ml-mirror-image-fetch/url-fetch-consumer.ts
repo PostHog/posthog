@@ -49,6 +49,10 @@ export class UrlFetchConsumer {
         // Wall clock, not the caller's nowMs: nowMs dates the URLs and a test is free to set it far
         // from the present, which would make the duration meaningless.
         const startedAt = process.hrtime.bigint()
+        ImageFetchConsumerMetrics.incPoll(messages.length === 0)
+        if (messages.length === 0) {
+            return
+        }
         const drops = new Map<UrlDropReason, number>()
         const countDrop = (reason: UrlDropReason, count = 1): void => {
             drops.set(reason, (drops.get(reason) ?? 0) + count)

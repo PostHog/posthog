@@ -1,4 +1,5 @@
 import { Message } from 'node-rdkafka'
+import { register } from 'prom-client'
 
 import { UrlFetchConsumer } from './url-fetch-consumer'
 import { SightingStore, sightingKey } from './url-sightings'
@@ -105,6 +106,37 @@ describe('UrlFetchConsumer', () => {
         expect(() => new UrlFetchConsumer(sightings, { maxAgeMs, dedupMaxRefs: 10, dryRun: true })).toThrow(
             'SESSION_RECORDING_ML_IMAGE_FETCH_MAX_AGE_MS'
         )
+    })
+
+    /** Reads a sample by its exported name. A histogram is registered under its base name, and its
+     *  count sample carries the `_count` suffix in metricName rather than in the metric's name. */
+    async function metric(exportedName: string, labels: Record<string, string> = {}): Promise<number> {
+        for (const m of await register.getMetricsAsJSON()) {
+            for (const v of m.values as { value: number; labels: Record<string, unknown>; metricName?: string }[]) {
+                if ((v.metricName ?? m.name) !== exportedName) {
+                    continue
+                }
+                if (Object.entries(labels).every(([key, value]) => String(v.labels[key]) === value)) {
+                    return v.value
+                }
+            }
+        }
+        return 0
+    }
+
+    it('counts an empty poll and leaves the batch histograms alone', async () => {
+        // The poll counter is the only thing separating a lane reading a topic that does not exist
+        // from one reading an empty topic: every other metric is zero in both cases. The batch
+        // histograms have to stay out of it, or an idle lane reports a steady stream of batches
+        // carrying no sites and drags the distribution the budget is sized from down to zero.
+        const pollsBefore = await metric('ml_image_fetch_consumer_polls_total', { empty: 'true' })
+        const batchesBefore = await metric('ml_image_fetch_consumer_domains_per_batch_count')
+
+        await consumer.handleBatch([], NOW)
+
+        expect(await metric('ml_image_fetch_consumer_polls_total', { empty: 'true' })).toBe(pollsBefore + 1)
+        expect(await metric('ml_image_fetch_consumer_domains_per_batch_count')).toBe(batchesBefore)
+        expect(sightings.reads).toBe(0)
     })
 
     it('writes one ledger entry per URL it would fetch', async () => {
