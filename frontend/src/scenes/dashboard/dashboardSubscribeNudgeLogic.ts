@@ -33,6 +33,7 @@ import {
     fetchHasSubscriptionForDashboard,
     fetchTeamSubscriptionCount,
 } from 'products/subscriptions/frontend/components/Subscriptions/subscriptionQueries'
+import { subscriptionsLogic } from 'products/subscriptions/frontend/components/Subscriptions/subscriptionsLogic'
 import { canNudgeToSubscribe } from 'products/subscriptions/frontend/components/Subscriptions/utils'
 
 import type { DashboardType, QueryBasedInsightModel } from '../../types'
@@ -205,8 +206,13 @@ export const dashboardSubscribeNudgeLogic = kea<dashboardSubscribeNudgeLogicType
         hasExistingSubscription: [
             null as boolean | null,
             {
-                loadExistingSubscription: async (_?: unknown, breakpoint?: BreakPointFunction) =>
-                    await fetchHasSubscriptionForDashboard(props.dashboardId, breakpoint),
+                loadExistingSubscription: async (_?: unknown, breakpoint?: BreakPointFunction) => {
+                    const mounted = subscriptionsLogic.findMounted({ dashboardId: props.dashboardId })
+                    if (mounted && !mounted.values.subscriptionsLoading) {
+                        return mounted.values.subscriptions.length > 0
+                    }
+                    return await fetchHasSubscriptionForDashboard(props.dashboardId, breakpoint)
+                },
             },
         ],
         // This team-wide count is separate from the dashboard-specific subscription check above.

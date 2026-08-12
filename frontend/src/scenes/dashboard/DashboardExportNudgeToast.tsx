@@ -5,7 +5,7 @@ import { ExportNudgeCandidate, claimExportNudge } from 'scenes/dashboard/dashboa
 import {
     SUBSCRIPTION_PREFILL_PARAMS,
     openSubscriptionFromNudge,
-} from 'products/subscriptions/frontend/components/Subscriptions/utils'
+} from 'products/subscriptions/frontend/components/Subscriptions/subscriptionNudge'
 
 export type ExportNudgeRenderer = (headline: string, secondaryAction?: ToastButton) => JSX.Element
 
@@ -27,7 +27,7 @@ export function claimExportNudgeMessage(
             </span>
             {/* The toast body gives every button a horizontal margin, which pulls this row off the
                 text above it and inflates the gap between the two buttons. */}
-            <span className="flex items-center gap-2 *:m-0!">
+            <span className="flex flex-wrap items-center gap-2 *:m-0!">
                 <LemonButton
                     type="primary"
                     size="small"

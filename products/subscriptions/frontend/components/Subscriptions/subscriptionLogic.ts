@@ -28,14 +28,9 @@ import type { SubscriptionResourceType, UserBasicType, WeekdayType } from '../..
 import type { OrganizationType, UserType } from '../../../../../frontend/src/types'
 import type { AIPromptConfigApi } from '../../generated/api.schemas'
 import { runSubscriptionTestDelivery } from './runSubscriptionTestDelivery'
+import { SUBSCRIPTION_PREFILL_PARAMS } from './subscriptionNudge'
 import { subscriptionsLogic } from './subscriptionsLogic'
-import {
-    ALL_DAYS,
-    AI_PROMPT_MAX_LENGTH,
-    SUBSCRIPTION_PREFILL_PARAMS,
-    SubscriptionBaseProps,
-    urlForSubscription,
-} from './utils'
+import { ALL_DAYS, AI_PROMPT_MAX_LENGTH, SubscriptionBaseProps, urlForSubscription } from './utils'
 
 // Surfaces that deep-link into the prefilled form, so the readout can compare them.
 const PREFILL_VIA_VALUES: readonly string[] = [

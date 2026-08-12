@@ -6,7 +6,7 @@ import { lemonToast } from 'lib/lemon-ui/LemonToast/LemonToast'
 import {
     SUBSCRIPTION_PREFILL_PARAMS,
     openSubscriptionFromNudge,
-} from 'products/subscriptions/frontend/components/Subscriptions/utils'
+} from 'products/subscriptions/frontend/components/Subscriptions/subscriptionNudge'
 
 export function dashboardSubscribeNudgeToastId(dashboardId: number): string {
     return `dashboard-subscribe-nudge-${dashboardId}`

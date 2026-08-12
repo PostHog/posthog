@@ -1,11 +1,9 @@
-import { router } from 'kea-router'
 import { RRule } from 'rrule'
 
 import { IconLetter } from '@posthog/icons'
 import { LemonSelectOption, LemonSelectOptionLeaf, LemonSelectOptions } from '@posthog/lemon-ui'
 
 import { IconSlack } from 'lib/lemon-ui/icons'
-import { lemonToast } from 'lib/lemon-ui/LemonToast/LemonToast'
 import { range } from 'lib/utils/arrays'
 import { urls } from 'scenes/urls'
 
@@ -56,15 +54,6 @@ export const urlForSubscriptions = ({ dashboardId, insightShortId }: Subscriptio
  * logic's urlToAction). The backend notification's source_url must mirror these — see the
  * comment on source_url in products/dashboards/backend/api/dashboard.py.
  */
-export const SUBSCRIPTION_PREFILL_PARAMS = {
-    param: 'prefill',
-    nudge: 'nudge',
-    viaParam: 'via',
-    viaToast: 'toast',
-    viaNotification: 'notification',
-    viaExport: 'export',
-} as const
-
 export const urlForSubscription = (
     id: number | 'new',
     { dashboardId, insightShortId }: SubscriptionBaseProps
@@ -76,23 +65,6 @@ export const urlForSubscription = (
     }
     // Parent-less (e.g. AI prompt) subscriptions: top-level detail/new page.
     return id === 'new' ? urls.subscriptionNew() : urls.subscription(id)
-}
-
-export type SubscriptionNudgeVia =
-    | typeof SUBSCRIPTION_PREFILL_PARAMS.viaToast
-    | typeof SUBSCRIPTION_PREFILL_PARAMS.viaExport
-
-// Deliberately free of any kea logic dependency: a sticky nudge toast can outlive the scene that
-// raised it, so the CTA only touches globals, the router and the toast itself.
-export function openSubscriptionFromNudge(
-    dashboardId: number,
-    { toastId, via }: { toastId: string; via: SubscriptionNudgeVia }
-): void {
-    lemonToast.dismiss(toastId)
-    router.actions.push(urlForSubscription('new', { dashboardId }), {
-        [SUBSCRIPTION_PREFILL_PARAMS.param]: SUBSCRIPTION_PREFILL_PARAMS.nudge,
-        [SUBSCRIPTION_PREFILL_PARAMS.viaParam]: via,
-    })
 }
 
 export const targetTypeOptions: LemonSelectOptions<'email' | 'slack'> = [
