@@ -22,9 +22,14 @@ from posthog.temporal.common.base import PostHogWorkflow
 from posthog.temporal.common.client import async_connect
 from posthog.temporal.common.logger import get_logger
 from posthog.temporal.proxy_service.cloudflare import (
+    BLOCKED_HOSTNAME_STATUSES,
+    CLOUDFLARE_ERROR_CROSS_USER_BANNED,
     CloudflareAPIError,
     CustomHostnameSSLStatus,
+    describe_blocked_hostname_status,
+    describe_cross_user_banned,
     get_custom_hostname_by_domain,
+    parse_cloudflare_error_code,
 )
 from posthog.temporal.proxy_service.common import (
     CaptureEventInputs,
@@ -178,6 +183,14 @@ async def _check_cloudflare_certificate_status(proxy_record, logger) -> CheckAct
                 warnings=[],
             )
 
+        # A blocked or moved hostname rejects traffic at the edge even when the certificate reads
+        # active, so it is an error in its own right — not a certificate warning.
+        if hostname_info.status in BLOCKED_HOSTNAME_STATUSES:
+            return CheckActivityOutput(
+                errors=[describe_blocked_hostname_status(hostname_info.status, proxy_record.domain)],
+                warnings=[],
+            )
+
         if hostname_info.ssl.status != CustomHostnameSSLStatus.ACTIVE:
             return CheckActivityOutput(
                 errors=[],
@@ -323,8 +336,18 @@ async def check_proxy_is_live(inputs: CheckActivityInput) -> CheckActivityOutput
             warnings=[],
         )
     except requests.exceptions.HTTPError as e:
+        # Read the Cloudflare error code out of the 403 body so a cross-user CNAME ban (1014)
+        # is reported as a hostname authorization problem rather than a bare status code.
+        response = e.response
+        cf_code = parse_cloudflare_error_code(response.text) if response is not None else None
+        if cf_code == CLOUDFLARE_ERROR_CROSS_USER_BANNED:
+            return CheckActivityOutput(
+                errors=[describe_cross_user_banned(proxy_record.domain)],
+                warnings=[],
+            )
+        status_code = response.status_code if response is not None else "unknown"
         return CheckActivityOutput(
-            errors=[f"Failed to send event to proxy, expected 200 but got {e.response.status_code}"],
+            errors=[f"Failed to send event to proxy, expected 200 but got {status_code}"],
             warnings=[],
         )
     except requests.exceptions.RequestException:

@@ -26,10 +26,15 @@ import dns.exception
 from posthog.exceptions_capture import capture_exception
 from posthog.models import ProxyRecord
 from posthog.temporal.proxy_service.cloudflare import (
+    BLOCKED_HOSTNAME_STATUSES,
+    CLOUDFLARE_ERROR_CROSS_USER_BANNED,
     CloudflareAPIError,
     CustomHostname,
     CustomHostnameSSLStatus,
+    describe_blocked_hostname_status,
+    describe_cross_user_banned,
     get_custom_hostname_by_domain,
+    parse_cloudflare_error_code,
 )
 from posthog.temporal.proxy_service.common import is_cloudflare_proxy_by_cname
 
@@ -374,6 +379,20 @@ def _check_cloudflare(record: ProxyRecord) -> tuple[CheckResult, Optional[Custom
             None,
         )
 
+    # A blocked or moved hostname rejects traffic at the edge even when the certificate reads
+    # active, so check it before the SSL status — otherwise an active cert masks the block.
+    if info.status in BLOCKED_HOSTNAME_STATUSES:
+        return (
+            CheckResult(
+                id="cloudflare",
+                name="Cloudflare custom hostname",
+                status="failed",
+                detail=describe_blocked_hostname_status(info.status, record.domain),
+                remediation=Remediation(type="config", summary="Contact support to release this domain."),
+            ),
+            info,
+        )
+
     ssl_status = info.ssl.status
     if ssl_status == CustomHostnameSSLStatus.ACTIVE:
         return (
@@ -604,6 +623,16 @@ def _check_live_event(record: ProxyRecord) -> CheckResult:
             detail=f"Live probe got HTTP {response.status_code} — proxy is up but failing.",
         )
     if response.status_code >= 400:
+        # A 403 carrying Cloudflare error 1014 is a hostname authorization problem, not a
+        # transient blip — report it as a failure with the actionable message.
+        if parse_cloudflare_error_code(response.text) == CLOUDFLARE_ERROR_CROSS_USER_BANNED:
+            return CheckResult(
+                id="live_event",
+                name="Live event probe",
+                status="failed",
+                detail=describe_cross_user_banned(record.domain),
+                remediation=Remediation(type="config", summary="Contact support to re-authorize this domain."),
+            )
         return CheckResult(
             id="live_event",
             name="Live event probe",

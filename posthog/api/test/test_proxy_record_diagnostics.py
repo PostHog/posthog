@@ -119,6 +119,27 @@ class TestCheckCloudflare(TestCase):
         self.assertEqual(result.remediation.type, "retry")
         self.assertIsNone(info)
 
+    @parameterized.expand(
+        [
+            ("blocked", CustomHostnameStatus.BLOCKED),
+            ("pending_blocked", CustomHostnameStatus.PENDING_BLOCKED),
+            ("moved", CustomHostnameStatus.MOVED),
+            ("pending_migration", CustomHostnameStatus.PENDING_MIGRATION),
+        ]
+    )
+    @patch("posthog.api.proxy_record_diagnostics.get_custom_hostname_by_domain")
+    def test_fail_when_hostname_blocked_despite_active_cert(self, _name, status, get_mock):
+        # An active SSL certificate must not let a blocked or moved hostname pass the check.
+        info = _hostname_info(ssl_status=CustomHostnameSSLStatus.ACTIVE)
+        info.status = status
+        get_mock.return_value = info
+
+        result, _ = diagnostics._check_cloudflare(_record())
+
+        self.assertEqual(result.status, "failed")
+        assert result.remediation is not None
+        self.assertEqual(result.remediation.type, "config")
+
     @patch("posthog.api.proxy_record_diagnostics.get_custom_hostname_by_domain")
     def test_fail_when_api_errors(self, get_mock):
         get_mock.side_effect = CloudflareAPIError("boom")
@@ -249,6 +270,14 @@ class TestCheckLiveEvent(TestCase):
         post_mock.return_value = MagicMock(status_code=200)
         result = diagnostics._check_live_event(_record())
         self.assertEqual(result.status, "passed")
+
+    @patch("posthog.api.proxy_record_diagnostics.requests.post")
+    def test_403_with_cloudflare_1014_fails_with_authorization_message(self, post_mock):
+        # A 403 carrying Cloudflare error 1014 is a hostname authorization problem, not a blip.
+        post_mock.return_value = MagicMock(status_code=403, text="<h1>Error 1014</h1>")
+        result = diagnostics._check_live_event(_record())
+        self.assertEqual(result.status, "failed")
+        self.assertIn("1014", result.detail)
 
 
 class TestCheckCertExpiry(TestCase):

@@ -7,6 +7,7 @@ This module provides functions to interact with Cloudflare's API for:
 - Getting Custom Hostname status (for monitoring certificate status)
 """
 
+import re
 import typing as t
 from dataclasses import dataclass, field
 from enum import Enum
@@ -90,6 +91,66 @@ class CustomHostnameStatus(CloudflareStatus):
     PENDING_PROVISIONED = "pending_provisioned"
     PROVISIONED = "provisioned"
     BLOCKED = "blocked"
+
+
+# Custom Hostname statuses where Cloudflare stops serving traffic for the hostname, even when
+# the SSL certificate itself reads active. `blocked`/`pending_blocked`: the edge rejects requests
+# (a common cause is a cross-user CNAME ban, error 1014, where the domain resolves to a hostname
+# owned by another account). `moved`: the hostname no longer points at our zone. `pending_migration`:
+# the hostname is mid-migration and not yet serving. All four fail the certificate check.
+BLOCKED_HOSTNAME_STATUSES: frozenset[CustomHostnameStatus] = frozenset(
+    {
+        CustomHostnameStatus.BLOCKED,
+        CustomHostnameStatus.PENDING_BLOCKED,
+        CustomHostnameStatus.MOVED,
+        CustomHostnameStatus.PENDING_MIGRATION,
+    }
+)
+
+# Cloudflare returns this error code in a 403 body when a hostname's CNAME target is banned
+# across accounts. See Cloudflare's 1xxx error reference.
+CLOUDFLARE_ERROR_CROSS_USER_BANNED = 1014
+
+# Cloudflare renders the code as "Error 1014" in its HTML error page.
+_CF_ERROR_CODE_RE = re.compile(r"error[ :]+(\d{4})", re.IGNORECASE)
+
+
+def parse_cloudflare_error_code(body: t.Any) -> t.Optional[int]:
+    """Extract the Cloudflare error code from a 403 or 5xx error page body.
+
+    Returns the first four-digit code found, or None when the body is not a string or holds
+    no recognizable Cloudflare error code.
+    """
+    if not isinstance(body, str):
+        return None
+    match = _CF_ERROR_CODE_RE.search(body)
+    if match:
+        return int(match.group(1))
+    return None
+
+
+def describe_blocked_hostname_status(status: CustomHostnameStatus, domain: str) -> str:
+    """Customer-facing sentence for a Custom Hostname stuck in a blocked or moved state.
+
+    Keeps the vendor unnamed to match the copy convention in proxy_record_diagnostics.
+    """
+    if status in (CustomHostnameStatus.MOVED, CustomHostnameStatus.PENDING_MIGRATION):
+        return (
+            f"`{domain}` is no longer served by the proxy. Its hostname was moved or is "
+            "mid-migration. Contact support to restore it."
+        )
+    return (
+        f"`{domain}` is blocked at the edge. This usually means the domain is already active "
+        "on another account, or its CNAME points at a banned target. Contact support to release it."
+    )
+
+
+def describe_cross_user_banned(domain: str) -> str:
+    """Customer-facing sentence for a 403 carrying Cloudflare error 1014."""
+    return (
+        f"`{domain}` is not authorized at the edge (error 1014). Its CNAME resolves to a "
+        "hostname registered to another account. Contact support to re-authorize it."
+    )
 
 
 @dataclass
