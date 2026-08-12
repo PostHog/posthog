@@ -42,6 +42,7 @@ from posthog.management.commands.compare_retention_legacy_vs_dwh import (
     shape_family,
     shape_fingerprint,
     stratified_sample,
+    summarize_regressions_by_shape,
     summarize_samples,
 )
 
@@ -820,6 +821,50 @@ class TestReportDurability(TestCase):
             self._run("s3://retention_compare/perf_report.md")
 
         self.assertIn("# Retention legacy vs DWH-variant comparison", fake.store["retention_compare/perf_report.md"])
+
+
+class TestSummarizeRegressionsByShape(TestCase):
+    @staticmethod
+    def _finding(insight_id, family_period, *, regression, source_json=None):
+        finding = InsightFinding(
+            insight_id=insight_id, short_id=f"s{insight_id}", team_id=1, name="", url="", status="OK"
+        )
+        finding.source_json = (
+            source_json
+            if source_json is not None
+            else json.dumps({"kind": "RetentionQuery", "retentionFilter": {"period": family_period}})
+        )
+        slow = [200.0] if regression else [100.0]
+        finding.perf = compute_perf_result([100.0], slow, [100.0], slow, regression_rel=0.10, regression_ms=50.0)
+        return finding
+
+    def test_only_families_containing_a_regression_are_ranked(self):
+        # The point of grouping is to name the slow builder path; carrying clean families into the
+        # table buries the signal, and ranking that ignores regression count buries broad ones.
+        findings = [
+            self._finding(1, "Day", regression=True),
+            self._finding(2, "Day", regression=True),
+            self._finding(3, "Day", regression=False),
+            self._finding(4, "Week", regression=True),
+            self._finding(5, "Month", regression=False),
+        ]
+
+        rows, omitted = summarize_regressions_by_shape(findings, limit=10)
+
+        self.assertEqual(omitted, 0)
+        self.assertEqual(
+            [(r.family.split()[-1], r.n_compared, r.n_regressions) for r in rows],
+            [("period=Day", 3, 2), ("period=Week", 1, 1)],
+        )
+
+    def test_a_trimmed_query_json_buckets_instead_of_failing_the_report(self):
+        # source_json is trimmed for embedding, so a large query arrives as invalid JSON. This runs
+        # while rendering, so raising here would cost the run its entire report.
+        findings = [self._finding(1, "Day", regression=True, source_json='{"kind": "RetentionQ')]
+
+        rows, _ = summarize_regressions_by_shape(findings, limit=10)
+
+        self.assertEqual([r.family for r in rows], ["(query json trimmed)"])
 
 
 class TestAttachResourceStats(TestCase):

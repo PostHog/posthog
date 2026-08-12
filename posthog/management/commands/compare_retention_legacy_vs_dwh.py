@@ -111,6 +111,7 @@ ROLLING_24H_WINDOW_MODE = "24_hour_windows"
 CLICKHOUSE_EXECUTE_TIMING_KEY = "clickhouse_execute"
 DEFAULT_MAX_CELL_DIFFS = 25
 DEFAULT_WORST_N = 15
+DEFAULT_SHAPE_ROWS = 25
 DEFAULT_QUERY_LOG_BATCH_SIZE = 500
 HEARTBEAT_EVERY = 10
 _SAFE_TABLE_RE = re.compile(r"^[A-Za-z0-9_.]+$")
@@ -235,6 +236,16 @@ class InsightFinding:
     legacy_query_ids: list[str] = dataclasses.field(default_factory=list)
     dwh_query_ids: list[str] = dataclasses.field(default_factory=list)
     bytes_ratio: Optional[float] = None
+
+
+@dataclasses.dataclass
+class ShapeRegressionRow:
+    family: str
+    n_compared: int
+    n_regressions: int
+    median_wall: Optional[float]
+    max_wall: Optional[float]
+    median_bytes: Optional[float]
 
 
 @dataclasses.dataclass
@@ -963,6 +974,61 @@ def aggregate_resource_stats(
     )
 
 
+def finding_shape_family(finding: InsightFinding) -> str:
+    """Shape family of a finding, from the query JSON recorded on it.
+
+    ``source_json`` is trimmed for embedding in the report, so a large query can arrive as invalid
+    JSON. Those bucket as unknown rather than raising — this runs while rendering the report, and a
+    decode error here would cost the whole run its output.
+    """
+    if not finding.source_json:
+        return "(no query recorded)"
+    try:
+        source = json.loads(finding.source_json)
+    except ValueError:
+        return "(query json trimmed)"
+    if not isinstance(source, dict):
+        return "(no query recorded)"
+    return shape_family(source)
+
+
+def summarize_regressions_by_shape(
+    findings: Sequence[InsightFinding], *, limit: int
+) -> tuple[list[ShapeRegressionRow], int]:
+    """Group compared insights by shape family, keeping the families that contain a regression.
+
+    A flat list of hundreds of regressions says nothing about *which* builder path got slower;
+    grouped by the family whose tokens select a code path, it becomes a diagnosis — one branch or
+    diffuse. Ranked by regression count, then by the family's worst ratio so a small family that
+    regresses hard still surfaces. Returns (rows, families omitted past the limit).
+    """
+    by_family: dict[str, list[InsightFinding]] = {}
+    for finding in findings:
+        if finding.perf is not None:
+            by_family.setdefault(finding_shape_family(finding), []).append(finding)
+
+    rows: list[ShapeRegressionRow] = []
+    for family, group in by_family.items():
+        n_regressions = sum(1 for f in group if f.perf and f.perf.is_regression)
+        if not n_regressions:
+            continue
+        walls = sorted(f.perf.ratio_median_wall for f in group if f.perf and f.perf.ratio_median_wall)
+        bytes_ratios = sorted(f.bytes_ratio for f in group if f.bytes_ratio)
+        rows.append(
+            ShapeRegressionRow(
+                family=family,
+                n_compared=len(group),
+                n_regressions=n_regressions,
+                median_wall=_percentile(walls, 50) if walls else None,
+                max_wall=walls[-1] if walls else None,
+                median_bytes=_percentile(bytes_ratios, 50) if bytes_ratios else None,
+            )
+        )
+
+    rows.sort(key=lambda row: (-row.n_regressions, -(row.max_wall or 0.0), row.family))
+    return rows[:limit], max(0, len(rows) - limit)
+
+
 def _wall_ratio_key(finding: InsightFinding) -> float:
     if finding.perf is None or finding.perf.ratio_median_wall is None:
         return 0.0
@@ -1604,7 +1670,7 @@ def render_markdown_report(
             f"> {run_meta['regression_ms']:.0f}ms slower).\n"
         )
 
-    _render_perf_distribution(out, aggregate)
+    _render_perf_distribution(out, aggregate, findings)
     _render_mismatches(out, findings, run_meta)
     _render_trailing_drift(out, findings, run_meta)
     _render_regressions(out, aggregate.regressions, run_meta)
@@ -1614,7 +1680,9 @@ def render_markdown_report(
     return "\n".join(lines) + "\n"
 
 
-def _render_perf_distribution(out: Callable[[str], None], aggregate: PerfAggregate) -> None:
+def _render_perf_distribution(
+    out: Callable[[str], None], aggregate: PerfAggregate, findings: list[InsightFinding]
+) -> None:
     if not aggregate.n_compared:
         return
     out("## Performance distribution\n")
@@ -1636,6 +1704,8 @@ def _render_perf_distribution(out: Callable[[str], None], aggregate: PerfAggrega
     out(dist_row("Bytes read", aggregate.bytes_ratio_dist))
     out("")
 
+    _render_regressions_by_shape(out, findings)
+
     if aggregate.worst_by_rel:
         out("### Worst by relative slowdown\n")
         _render_worst_table(out, aggregate.worst_by_rel)
@@ -1645,6 +1715,30 @@ def _render_perf_distribution(out: Callable[[str], None], aggregate: PerfAggrega
     if aggregate.worst_by_bytes:
         out("### Worst by bytes read\n")
         _render_worst_table(out, aggregate.worst_by_bytes, show_bytes=True)
+
+
+def _render_regressions_by_shape(out: Callable[[str], None], findings: list[InsightFinding]) -> None:
+    rows, omitted = summarize_regressions_by_shape(findings, limit=DEFAULT_SHAPE_ROWS)
+    if not rows:
+        return
+    out("### Regressions by query shape\n")
+    out("Which builder path got slower. A shape family is the query fingerprint reduced to the tokens")
+    out("that select a code path (retention type, period, breakdown kind, aggregation, and the")
+    out("presence of brackets / minimum-occurrences / sampling / group aggregation), so a family maps")
+    out("to a branch in the builder rather than to particular filter values.\n")
+    out("Read `n` as the denominator: a hard ratio over a small `n` is a narrow path worth fixing on")
+    out("its own, while a mild ratio over a large `n` is broad and shifts the whole median.\n")
+    out("| Shape family | n | Regressed | Median wall | Worst wall | Median bytes |")
+    out("| --- | --- | --- | --- | --- | --- |")
+    for row in rows:
+        share = row.n_regressions / row.n_compared
+        out(
+            f"| `{row.family}` | {row.n_compared} | {row.n_regressions} ({share:.0%}) | "
+            f"{_fmt_ratio(row.median_wall)} | {_fmt_ratio(row.max_wall)} | {_fmt_ratio(row.median_bytes)} |"
+        )
+    out("")
+    if omitted:
+        out(f"…and {omitted} further famil{'y' if omitted == 1 else 'ies'} with at least one regression.\n")
 
 
 def _render_worst_table(
