@@ -118,6 +118,7 @@ from products.tasks.backend.facade.tasks import (
     refresh_stale_sandbox_custom_images_task,
     sweep_loop_task_retention_task,
 )
+from products.warehouse_sources.backend.facade.tasks import sweep_stopped_schema_syncs
 from products.web_analytics.backend.achievements.tasks import sweep_web_analytics_achievement_team_tracks
 from products.web_analytics.backend.tasks.heatmap_screenshot import (
     reap_stale_prewarm_heatmaps,
@@ -569,6 +570,14 @@ def setup_periodic_tasks(sender: Celery, **kwargs: Any) -> None:
         crontab(hour=str(EXTERNAL_DATA_DIGEST_DAY_BOUNDARY_HOUR_UTC), minute="15"),
         send_external_data_failure_digest_catchup.s(),
         name="send external data failure digest catch-up",
+    )
+
+    # Backstop for the write-time teardown dispatch: Running import jobs whose schema
+    # stopped syncing (disabled or deleted) get the same teardown on the next tick.
+    sender.add_periodic_task(
+        crontab(hour="*", minute="25"),
+        sweep_stopped_schema_syncs.s(),
+        name="sweep stopped schema syncs",
     )
 
     # Background net for tables created while nobody visits the warehouse status page. Each

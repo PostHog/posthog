@@ -128,6 +128,7 @@ class TestErrorTracking(APIBaseTest):
             "cohort": None,
             "description": None,
             "status": "active",
+            "severity": None,
             "assignee": None,
             "first_seen": "2025-01-01T00:00:00Z",
             "external_issues": [],
@@ -161,7 +162,8 @@ class TestErrorTracking(APIBaseTest):
         issue = self.create_issue(["fingerprint"])
 
         response = self.client.patch(
-            f"/api/environments/{self.team.id}/error_tracking/issues/{issue.id}", data={"status": "resolved"}
+            f"/api/environments/{self.team.id}/error_tracking/issues/{issue.id}",
+            data={"status": "resolved", "severity": "high"},
         )
         issue.refresh_from_db()
 
@@ -172,11 +174,13 @@ class TestErrorTracking(APIBaseTest):
             "cohort": None,
             "description": None,
             "status": "resolved",
+            "severity": "high",
             "assignee": None,
             "first_seen": "2025-01-01T00:00:00Z",
             "external_issues": [],
         }
         assert issue.status == ErrorTrackingIssue.Status.RESOLVED
+        assert issue.severity == ErrorTrackingIssue.Severity.HIGH
 
         self._assert_logs_the_activity(
             issue.id,
@@ -192,7 +196,14 @@ class TestErrorTracking(APIBaseTest):
                                 "before": "active",
                                 "field": "status",
                                 "type": "ErrorTrackingIssue",
-                            }
+                            },
+                            {
+                                "action": "changed",
+                                "after": "high",
+                                "before": None,
+                                "field": "severity",
+                                "type": "ErrorTrackingIssue",
+                            },
                         ],
                         "name": issue.name,
                         "short_id": None,
@@ -807,7 +818,8 @@ class TestErrorTracking(APIBaseTest):
         assert symbol_set_upload_response["presigned_url"]["fields"]["key"] == symbol_set.storage_ptr
         assert symbol_set.last_used is None
 
-    def test_bulk_start_upload_skips_uploaded_symbol_sets(self) -> None:
+    @patch("products.error_tracking.backend.presentation.views.symbol_sets.posthoganalytics.capture")
+    def test_bulk_start_upload_skips_uploaded_symbol_sets(self, patched_capture: Mock) -> None:
         release = ErrorTrackingRelease.objects.create(
             team=self.team,
             hash_id="test-release",
@@ -858,6 +870,16 @@ class TestErrorTracking(APIBaseTest):
         assert new_symbol_set.release_id == release.id
         assert new_symbol_set.last_used is None
         assert id_map[str(new_chunk_id)]["symbol_set_id"] == str(new_symbol_set.id)
+
+        assert patched_capture.call_args.args[0] == "error_tracking_symbol_set_upload_started"
+        assert patched_capture.call_args.kwargs["properties"] == {
+            "team_id": self.team.id,
+            "endpoint": "bulk_start_upload",
+            "force": False,
+            "skip_on_conflict": False,
+            "total_chunks": 2,
+            "chunks_skipped": 1,
+        }
 
     @parameterized.expand(
         [

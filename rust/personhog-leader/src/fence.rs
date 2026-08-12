@@ -17,9 +17,13 @@
 //! The leader never reclaims a fence on its own, and deliberately so.
 //! personhog-identity owns lifecycle correctness: every op is driven to a
 //! terminal state (lease steal, sweeper resumption), so a `ReleaseFence`
-//! always eventually arrives. An entry that outlives a crashed saga is
-//! not stale — the mark is still live, the op really is unfinished, and
-//! the person really should stay frozen. For that guarantee to hold, a
+//! always eventually arrives, with one exception: an op whose committed
+//! release this leader definitively refused (a semantic refusal) is
+//! parked by the saga engine and stops retrying, so its fences hold
+//! until an operator re-drives it. The person stays frozen rather than
+//! half-destroyed. An entry that outlives a crashed saga is not stale —
+//! the mark is still live, the op really is unfinished, and the person
+//! really should stay frozen. For that guarantee to hold, a
 //! release must never *vacuously* succeed: both fence RPCs verify this
 //! pod serves the partition, so a misrouted call fails and identity's
 //! retry reaches the pod whose map actually gates the writes.
@@ -74,15 +78,7 @@ pub const FENCED_OP_ID_METADATA_KEY: &str = "x-person-fenced-op-id";
 /// retry loop; the marker (see
 /// `personhog_common::grpc::SEMANTIC_REFUSAL_METADATA_KEY`) makes the
 /// refusal survive the trip.
-pub fn semantic_refusal(message: impl Into<String>, reason: &'static str) -> Status {
-    let mut status = Status::failed_precondition(message.into());
-    if let Ok(value) = reason.parse() {
-        status
-            .metadata_mut()
-            .insert(personhog_common::grpc::SEMANTIC_REFUSAL_METADATA_KEY, value);
-    }
-    status
-}
+pub use personhog_common::grpc::semantic_refusal;
 
 /// The typed rejection for a write to a fenced person: PERSON_DELETING /
 /// PERSON_MERGING per the RFC, encoded as FAILED_PRECONDITION plus

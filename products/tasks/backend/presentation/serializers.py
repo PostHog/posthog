@@ -646,15 +646,15 @@ class TaskWriteSerializer(serializers.Serializer):
         cast(
             serializers.PrimaryKeyRelatedField, self.fields["signal_report"]
         ).queryset = tasks_facade.signal_report_queryset()
-        # Channel queryset comes from the facade so presentation stays off tasks models.
         cast(serializers.PrimaryKeyRelatedField, self.fields["channel"]).queryset = tasks_facade.channel_queryset()
 
     def validate_channel(self, value):
-        """Personal channels are private: only their owner may file tasks into them."""
         request = self.context.get("request")
         user = getattr(request, "user", None)
+        if value is not None and (value.deleted or value.channel_type not in {"public", "personal"}):
+            raise serializers.ValidationError("Space not found")
         if value is not None and value.channel_type == "personal" and value.created_by_id != getattr(user, "id", None):
-            raise serializers.ValidationError("Personal channels can only be used by their owner")
+            raise serializers.ValidationError("Private spaces can only be used by their owner")
         return value
 
     def validate_github_integration(self, value):
@@ -1521,10 +1521,30 @@ class TaskListQuerySerializer(serializers.Serializer):
         required=False,
         default=False,
         help_text=(
-            "Staff-only. When true, list every task on the team regardless of creator or channel, "
-            "bypassing the per-user visibility filter. Ignored for non-staff users."
+            "Local development only. With ph_debug=true, list all project tasks for debugging. "
+            "Ignored outside local development."
         ),
     )
+
+
+class TaskSearchQuerySerializer(serializers.Serializer):
+    q = serializers.CharField(min_length=1, max_length=512, help_text="Text or exact identifier to search for.")
+    limit = serializers.IntegerField(
+        required=False, default=20, min_value=1, max_value=50, help_text="Maximum number of results to return."
+    )
+
+
+class TaskSearchResultSerializer(serializers.Serializer):
+    id = serializers.UUIDField(help_text="Search document identifier.")
+    kind = serializers.ChoiceField(
+        choices=["task", "pull_request", "artifact", "channel"], help_text="Type of matched resource."
+    )
+    title = serializers.CharField(help_text="Primary result label.")
+    subtitle = serializers.CharField(allow_blank=True, help_text="Secondary result context.")
+    task_id = serializers.UUIDField(allow_null=True, help_text="Containing task identifier, when applicable.")
+    task_run_id = serializers.UUIDField(allow_null=True, help_text="Containing task run identifier, when applicable.")
+    channel_id = serializers.UUIDField(allow_null=True, help_text="Containing space identifier, when applicable.")
+    metadata = serializers.JSONField(help_text="Resource-specific navigation metadata.")
 
 
 class ChannelSerializer(DataclassSerializer):
@@ -1544,6 +1564,10 @@ class ChannelSerializer(DataclassSerializer):
             "created_by",
             "starred",
         ]
+
+
+class ChannelDeleteConflictSerializer(serializers.Serializer):
+    detail = serializers.CharField(help_text="Why the space cannot be deleted.")
 
 
 class ChannelWriteSerializer(serializers.Serializer):
