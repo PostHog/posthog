@@ -178,7 +178,7 @@ The conclusion to look for is whether one population exists or several. If theme
 
 **The org is the more reliable dimension of the two.** `$mcp_organization_id` was set on every session of a 90-day `workflows-create` corpus, against roughly two thirds of sessions for the caller properties. Where the two disagree about how concentrated the traffic is, trust the org.
 
-**An org column is identity, so keep it an id.** The analysis needs to know that two sessions share a customer, never which customer. Resolving ids to names turns a shareable notebook into a customer-identifying document and buys nothing the tables use.
+**The analytical tables run on org ids, not names.** They need to know that two sessions share a customer, not which customer. If the analysis exists to decide who to talk to, resolve names in a separate cell marked customer-identifying and keep these tables on 8-character prefixes — see "Default to the org id" in the skill.
 
 ### 5. Example traces (optional)
 

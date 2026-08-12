@@ -121,7 +121,15 @@ The two columns answer different questions and neither substitutes for the other
 
 `$mcp_organization_id` is the reliable one. On a 90-day `workflows-create` corpus it was set on every session, against roughly two thirds for the caller properties. Coalesce it onto the legacy unprefixed `organization_id`, the same way the tool name coalesces onto `tool_name`.
 
-**Keep the org as an id, never a name.** The id is opaque and the analysis only needs identity, not labels. A column of customer names turns a shareable notebook into a customer-identifying document, and nothing downstream needs it.
+**Default to the org id, and resolve names only deliberately.** The analysis itself needs identity, not labels: every table here works on an opaque id, and one notebook of ids can be shared without further thought.
+
+Names are what makes the output actionable, though — nobody follows up with `01968fc7`. Resolve them when the point of the analysis is who to talk to, and treat that as a decision rather than a default:
+
+- Put the names in **their own cell**, marked as customer-identifying, and leave the analytical tables on 8-character prefixes so they still read without it.
+- Once that cell exists the whole notebook is a customer-identifying document. Keep the link internal.
+- The join is `all_posthog_organization.id` against `$mcp_organization_id`, and it has to be a standalone ClickHouse query — joining it to a kernel frame hits the materialization budget.
+
+Session ids have no readable equivalent and should not get one. They are transport handles, and the useful upgrade is a trace link (see "Linking an intention to real sessions"), not a label.
 
 **Take every corpus count from this query, never from an earlier sizing query.** Sizing runs get done on a different window while you are deciding how much to bite off, and those numbers then look authoritative when you write the notebook intro. A run stated 520 sessions and 507 organic in its header when the actual window held 237 and 233, because the sizing query had used 30 days and the corpus used 14. Nothing catches this: both numbers are real, they just describe different things. Read the totals off the corpus and the caller-share query, and reconcile them against each other before writing any prose.
 
@@ -238,6 +246,7 @@ One is usually enough. See [`references/facet-schemas.md`](references/facet-sche
 Rules that decide whether the output is usable:
 
 - **Generalize.** Two sessions doing the same kind of work must produce the _same_ goal string. If they differ only by which company or metric was involved, they are the same goal.
+- **Keep the channel out of the goal.** `build a recurring digest email` and `build a recurring digest to slack` are one job with two sinks, and the `destination` facet already records which. Splitting the goal by channel makes that column redundant, doubles the label count, and halves each label's session count — which pushes both halves toward the 5-session suppression floor. A run that kept this pair split lost the smaller half entirely: 2 sessions suppressed that would have made the merged intention 8. The exception is when the channel _is_ the job, as in `configure email sending`.
 - **Recover the starting point, not the action.** "create a notebook" is the action. "investigate an error spike" is the goal. If a goal names the tool, it is wrong.
 - **Never write a customer, company, project, product, person, or app name into any field.** These appear constantly in intents. Write "a mobile app", not the app's name. This is not optional — the notebook is shareable, and the existing cluster snapshot already leaks customer names into its labels.
 
@@ -253,11 +262,11 @@ This embeds each distinct intention with `text-embedding-3-small` and prints the
 
 On the `workflows-create` run, 105 intentions produced three pairs above 0.80:
 
-| Similarity | Pair                                                                   | Verdict                                                                                 |
-| ---------: | ---------------------------------------------------------------------- | --------------------------------------------------------------------------------------- |
-|      0.819 | `investigate a product error` / `investigate a production error`       | same job, merge                                                                         |
-|      0.805 | `build a support automation` / `build a support reply automation`      | same job, merge                                                                         |
-|      0.805 | `build a recurring digest email` / `build a recurring digest to slack` | one job, two destinations — keep split, or the destination facet stops meaning anything |
+| Similarity | Pair                                                                   | Verdict                                                                                |
+| ---------: | ---------------------------------------------------------------------- | -------------------------------------------------------------------------------------- |
+|      0.819 | `investigate a product error` / `investigate a production error`       | same job, merge                                                                        |
+|      0.805 | `build a support automation` / `build a support reply automation`      | same job, merge                                                                        |
+|      0.805 | `build a recurring digest email` / `build a recurring digest to slack` | one job, two destinations — **merge**, and let the destination facet carry the channel |
 
 Two merges out of 105, touching 8 sessions. Small, but the point is that a run without the audit reports 105 intentions when the honest count is 103, and nothing in the pipeline would have said so.
 
