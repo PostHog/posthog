@@ -954,6 +954,7 @@ class TestSelectorRegexMatching(SimpleTestCase):
             ("pseudo-class after a tag", "button:hover", True),
             ("attribute operator", '[href^="http"]', True),
             ("tailwind variant, which is a real class", ".hover:bg-blue", False),
+            ("class named after a pseudo-class, with no colon to make it one", ".active", False),
             ("tailwind arbitrary value", ".sm:[max-width:640px]", False),
             ("universal selector, which the compiler supports", "*", False),
         ]

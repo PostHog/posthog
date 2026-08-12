@@ -187,11 +187,17 @@ class Selector:
             if any(not VALID_ATTRIBUTE_KEY_REGEX.fullmatch(key) for key in part.ch_attributes):
                 return True
             classes = part.data.get("attr_class__contains")
-            if isinstance(classes, list) and any(
-                name.rsplit(":", 1)[-1] in UNSUPPORTED_PSEUDO_CLASSES for name in classes
-            ):
+            if isinstance(classes, list) and any(self._class_carries_pseudo_class(name) for name in classes):
                 return True
         return False
+
+    @staticmethod
+    def _class_carries_pseudo_class(class_name: str) -> bool:
+        # Without a colon the whole name is the class, and plenty of real classes share a
+        # word with a pseudo-class ("active", "disabled"), so only look past a colon.
+        if ":" not in class_name:
+            return False
+        return class_name.rsplit(":", 1)[-1] in UNSUPPORTED_PSEUDO_CLASSES
 
 
 class Event(models.Model):
