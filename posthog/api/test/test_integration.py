@@ -2191,6 +2191,24 @@ class TestGitHubIntegrationStateValidation:
         assert response.status_code == status.HTTP_400_BAD_REQUEST
         assert "next must be a relative path" in response.json()["detail"]
 
+    @override_settings(TIKTOK_ADS_CLIENT_ID="tiktok-app-id", TIKTOK_ADS_CLIENT_SECRET="tiktok-secret")
+    @patch("posthog.api.integration.report_user_action")
+    def test_oauth_authorize_captures_handoff(self, mock_report, client: HttpClient):
+        # An authorize-page rejection (e.g. TikTok's "app has been blocked") never returns to us, so
+        # this hand-off event is the only leg we can record for the OAuth-start funnel.
+        client.force_login(self.user)
+
+        response = client.get(
+            f"/api/environments/{self.team.pk}/integrations/authorize/",
+            {"kind": "tiktok-ads"},
+        )
+
+        assert response.status_code == status.HTTP_302_FOUND
+        assert response["Location"].startswith("https://business-api.tiktok.com/portal/auth")
+        mock_report.assert_called_once()
+        assert mock_report.call_args.args[1] == "integration authorize started"
+        assert mock_report.call_args.args[2] == {"integration_kind": "tiktok-ads"}
+
     @patch("posthog.models.github_integration_base.GitHubIntegrationBase.verify_user_installation_access")
     @patch("posthog.models.integration.GitHubIntegration.github_user_from_code")
     @patch("posthog.models.integration.GitHubIntegration.integration_from_installation_id")
