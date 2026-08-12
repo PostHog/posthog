@@ -2,7 +2,6 @@ import type { Meta, StoryFn } from '@storybook/react'
 import { HttpResponse, delay } from 'msw'
 import { useEffect } from 'react'
 
-import { FEATURE_FLAGS } from 'lib/constants'
 import { useDelayedOnMountEffect } from 'lib/hooks/useOnMountEffect'
 import { userLogic } from 'scenes/userLogic'
 
@@ -35,9 +34,6 @@ const meta: Meta<StoryArgs> = {
     parameters: {
         layout: 'fullscreen',
         viewMode: 'story',
-        featureFlags: {
-            [FEATURE_FLAGS.AUTH_FLOW_VARIANT]: 'glass',
-        },
     },
     decorators: [
         mswDecorator({

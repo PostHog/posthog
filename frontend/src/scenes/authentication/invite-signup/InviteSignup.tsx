@@ -1,11 +1,7 @@
-import { useValues } from 'kea'
-
-import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { SceneExport } from 'scenes/sceneTypes'
 
-import { authFlowVariantRegistry } from '../authFlowVariantRegistry'
-import { resolveAuthFlowVariant } from '../authFlowVariants'
 import { inviteSignupLogic } from './inviteSignupLogic'
+import { GlassInviteSignup } from './variants/glass/GlassInviteSignup'
 
 export const scene: SceneExport = {
     component: InviteSignup,
@@ -13,7 +9,5 @@ export const scene: SceneExport = {
 }
 
 export function InviteSignup(): JSX.Element {
-    const { featureFlags } = useValues(featureFlagLogic)
-    const { InviteSignup: VariantInviteSignup } = authFlowVariantRegistry[resolveAuthFlowVariant(featureFlags)]
-    return <VariantInviteSignup />
+    return <GlassInviteSignup />
 }

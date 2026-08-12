@@ -1,8 +1,6 @@
 import type { Meta, StoryFn } from '@storybook/react'
 import { useEffect } from 'react'
 
-import { FEATURE_FLAGS } from 'lib/constants'
-
 import { useStorybookMocks } from '~/mocks/browser'
 import preflightJson from '~/mocks/fixtures/_preflight.json'
 
@@ -26,7 +24,6 @@ const meta: Meta<StoryArgs> = {
     parameters: {
         layout: 'fullscreen',
         viewMode: 'story',
-        featureFlags: { [FEATURE_FLAGS.AUTH_FLOW_VARIANT]: 'glass' },
     },
     argTypes: {
         cloud: { control: 'boolean', name: 'Cloud' },
