@@ -48,8 +48,10 @@ warning becomes `ignored` when report evidence establishes, and an `ignored` war
 to `no_output` when its evidence ages out, so a pause never lands on stale grounds), and
 whose `evaluated_at` check makes a racing human edit win over a sweep decision made on stale
 reads. There is no half-open probe on this axis: an inactivity pause never runs again on its
-own; a human re-enable is the only exit, and the update serializer marks that re-enable
-`auto_pause_exempt` so the sweep never overrules it.
+own; a human re-enable is the only exit. A resume re-anchors `in_cold_start_grace`, so the
+sweep waits a full fresh window and re-derives its verdict before judging the scout again;
+permanent immunity is the explicit `auto_pause_exempt` flag's job, never a side effect of the
+resume.
 """
 
 from __future__ import annotations
