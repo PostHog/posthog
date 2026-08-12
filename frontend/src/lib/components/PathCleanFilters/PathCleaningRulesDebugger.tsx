@@ -6,6 +6,7 @@ import { isValidRegexp } from 'lib/utils/regexp'
 import { PathCleaningFilter } from '~/types'
 
 import { parseAliasToReadable } from './PathCleanFilterItem'
+import { applyPathCleaningRule } from './pathCleaningUtils'
 
 interface ProcessingStep {
     stepNumber: number
@@ -28,11 +29,7 @@ const cleanPathWithDebugSteps = (path: string, filters: PathCleaningFilter[]): P
 
     filters.forEach((filter, index) => {
         const isValidRegex = isValidRegexp(filter.regex ?? '')
-        let outputPath = currentPath
-
-        if (isValidRegex) {
-            outputPath = currentPath.replace(new RegExp(filter.regex ?? '', 'gi'), filter.alias ?? '')
-        }
+        const outputPath = applyPathCleaningRule(currentPath, filter)
 
         steps.push({
             stepNumber: index + 1,

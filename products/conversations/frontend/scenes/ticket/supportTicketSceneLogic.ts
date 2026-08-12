@@ -28,6 +28,7 @@ import { isUUIDLike } from 'lib/utils/guards'
 import { markdownToHtml } from 'lib/utils/markdown'
 import { objectsEqual } from 'lib/utils/objects'
 import { fullName } from 'lib/utils/strings'
+import { commentsLogic } from 'scenes/comments/commentsLogic'
 import { teamLogic } from 'scenes/teamLogic'
 import { urls } from 'scenes/urls'
 import { userLogic } from 'scenes/userLogic'
@@ -53,6 +54,7 @@ import {
 } from 'products/conversations/frontend/generated/api'
 import { signalsReportsList } from 'products/signals/frontend/generated/api'
 import type { SignalReportApi } from 'products/signals/frontend/generated/api.schemas'
+import { SignalSourceProductApi } from 'products/signals/frontend/generated/api.schemas'
 
 import type { FeatureFlagsSet } from '../../../../../frontend/src/lib/logic/featureFlagLogic'
 import type { TeamPublicType, TeamType } from '../../../../../frontend/src/types'
@@ -72,6 +74,8 @@ import { conversationsDraftModeLogic } from '../settings/conversationsDraftModeL
 import { supportTicketsSceneLogic } from '../tickets/supportTicketsSceneLogic'
 
 const MESSAGE_POLL_INTERVAL = 5000 // 5 seconds
+/** Discussions ride the message timer at 1/4 the rate, so ~20s. */
+const DISCUSSION_POLL_EVERY_N_TICKS = 4
 /** Must not exceed the server's replay window, or recovery could adopt a message from an older send. */
 const SEND_RECOVERY_WINDOW_SECONDS = 120
 
@@ -232,6 +236,7 @@ export interface supportTicketSceneLogicValues {
     breadcrumbs: Breadcrumb[]
     chatMessages: ChatMessage[]
     chatPanelWidth: (desiredSize: number | null) => number
+    discussionsEnabled: boolean
     draftContent: string | JSONContent | null
     draftIsPrivate: boolean
     draftModeEnabled: boolean
@@ -387,6 +392,9 @@ export interface supportTicketSceneLogicActions {
     loadTicket: () => {
         value: true
     }
+    pollDiscussionThread: () => {
+        value: true
+    }
     recordAiReplyFeedback: (
         messageId: string,
         rating: AiReplyFeedbackRating
@@ -496,7 +504,8 @@ export interface supportTicketSceneLogicMeta {
             ticket: Ticket | null,
             currentTeam: TeamPublicType | TeamType | null
         ) => EmailReplyBlockedReason | null
-        sidePanelContext: (ticket: Ticket | null, featureFlags: FeatureFlagsSet) => SidePanelSceneContext | null
+        discussionsEnabled: (ticket: Ticket | null, featureFlags: FeatureFlagsSet) => boolean
+        sidePanelContext: (ticket: Ticket | null, discussionsEnabled: boolean) => SidePanelSceneContext | null
         replyRecipientDescription: (ticket: Ticket | null) => string
         unsavedTicketChanges: (
             priority: TicketPriority | null,
@@ -563,6 +572,8 @@ export const supportTicketSceneLogic = kea<supportTicketSceneLogicType>([
         setMessages: (messages: CommentType[]) => ({ messages }),
         setMessagesLoading: (loading: boolean) => ({ loading }),
         appendMessage: (message: CommentType) => ({ message }),
+
+        pollDiscussionThread: true,
 
         loadOlderMessages: true,
         setOlderMessages: (olderMessages: CommentType[]) => ({ olderMessages }),
@@ -658,10 +669,12 @@ export const supportTicketSceneLogic = kea<supportTicketSceneLogicType>([
                     try {
                         const response = await signalsReportsList(getCurrentTeamId().toString(), {
                             source_id: ticketUuid,
-                            source_product: 'conversations',
+                            source_product: SignalSourceProductApi.Conversations,
+                            // A teammate answering a customer needs to know an investigation was
+                            // dismissed just as much as that one is running.
                             include_all_statuses: true,
                         })
-                        return response.results || []
+                        return response.results
                     } catch (error) {
                         // Supplementary context: a signals or ClickHouse hiccup must not break the ticket.
                         console.error('Failed to load linked reports:', error)
@@ -912,9 +925,17 @@ export const supportTicketSceneLogic = kea<supportTicketSceneLogicType>([
             ): EmailReplyBlockedReason | null =>
                 getEmailReplyBlockedReason(ticket, currentTeam?.conversations_settings),
         ],
-        [SIDE_PANEL_CONTEXT_KEY]: [
+        // Whether this ticket has a discussion at all. The side-panel context, the in-thread discussion
+        // cards and the "Discuss with team" button all hang off this one gate so they can't drift into
+        // a state where one of them offers a discussion the others don't know about.
+        discussionsEnabled: [
             (s) => [s.ticket, s.featureFlags],
-            (ticket: Ticket | null, featureFlags: FeatureFlagsSet): SidePanelSceneContext | null =>
+            (ticket: Ticket | null, featureFlags: FeatureFlagsSet): boolean =>
+                !!ticket?.id && !!featureFlags[FEATURE_FLAGS.DISCUSSIONS_SLACK_SYNC],
+        ],
+        [SIDE_PANEL_CONTEXT_KEY]: [
+            (s) => [s.ticket, s.discussionsEnabled],
+            (ticket: Ticket | null, discussionsEnabled: boolean): SidePanelSceneContext | null =>
                 ticket?.id
                     ? {
                           access_control_resource: 'ticket',
@@ -922,7 +943,7 @@ export const supportTicketSceneLogic = kea<supportTicketSceneLogicType>([
                           // Scoping the discussion thread to the ticket is still flag-gated; the
                           // access control fields above are not, so the panel stays gated on
                           // ticket access either way.
-                          ...(featureFlags[FEATURE_FLAGS.DISCUSSIONS_SLACK_SYNC]
+                          ...(discussionsEnabled
                               ? {
                                     activity_scope: ActivityScope.TICKET,
                                     activity_item_id: `${ticket.id}`,
@@ -1155,9 +1176,17 @@ export const supportTicketSceneLogic = kea<supportTicketSceneLogicType>([
 
                 // Start message polling using disposables pattern
                 cache.disposables.dispose('messagePolling')
+                cache.discussionPollTick = 0
                 cache.disposables.add(() => {
                     const intervalId = setInterval(() => {
                         actions.loadMessages()
+                        // A discussion is a slower conversation than the ticket itself, and a Slack
+                        // reply landing a few seconds late costs nothing — so it rides the same timer
+                        // at a fraction of the rate rather than starting a second one.
+                        cache.discussionPollTick = (cache.discussionPollTick ?? 0) + 1
+                        if (cache.discussionPollTick % DISCUSSION_POLL_EVERY_N_TICKS === 0) {
+                            actions.pollDiscussionThread()
+                        }
                     }, MESSAGE_POLL_INTERVAL)
                     return () => clearInterval(intervalId)
                 }, 'messagePolling')
@@ -1224,6 +1253,26 @@ export const supportTicketSceneLogic = kea<supportTicketSceneLogicType>([
                     cache.ticketUpdateRequest = null
                 }
             }
+        },
+        // Refetches the whole discussion rather than checking a count first. A count only moves when a
+        // comment is added or removed, so an edit or a task being completed would leave the card and the
+        // open side panel showing text nobody has written for a while.
+        //
+        // `refreshComments` rather than `loadComments` because refreshing must not move the reader:
+        // `loadComments` scrolls the panel to the newest comment on every success, which is right when
+        // someone opens the thread and wrong every 20 seconds while they read back through it.
+        pollDiscussionThread: async () => {
+            const ticketId = values.ticket?.id
+            if (!values.discussionsEnabled || !ticketId) {
+                return
+            }
+            // findMounted is a null guard, not an optimisation: the ticket page mounts this logic to
+            // render its discussion cards, so on a flagged team it is mounted for every open ticket
+            // whether or not that ticket has any discussion. Every such ticket therefore pays one
+            // indexed comment query per interval. That is deliberate — a teammate starting a
+            // discussion elsewhere should make the card appear here, which is the moment this whole
+            // surface exists for, and it cannot be detected without asking.
+            commentsLogic.findMounted({ scope: ActivityScope.TICKET, item_id: ticketId })?.actions.refreshComments()
         },
         loadMessages: async () => {
             if (props.id === 'new' || !values.ticket?.id) {

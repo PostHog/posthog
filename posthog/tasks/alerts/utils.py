@@ -2,6 +2,7 @@ from collections.abc import Collection
 from contextlib import ExitStack
 from dataclasses import dataclass
 from datetime import UTC, datetime
+from zoneinfo import ZoneInfo
 
 from django.utils import timezone
 
@@ -10,6 +11,7 @@ import structlog
 
 from posthog.schema import AlertCalculationInterval, AlertState, ChartDisplayType, NodeKind, TrendsQuery
 
+from posthog.rbac.user_access_control import UserAccessControl
 from posthog.slo.context import get_current_slo
 from posthog.slo.types import SloOperation
 from posthog.tasks.alerts.schedule_restriction import snap_candidate_utc_to_schedule_restriction
@@ -244,33 +246,51 @@ def send_test_alert_email(alert: AlertConfiguration, recipients: Collection[str]
     )
 
 
-def send_notifications_for_errors(alert: AlertConfiguration, error: dict) -> list[str]:
+def send_notifications_for_errors(alert: AlertConfiguration, error: dict, idempotency_key: str) -> list[str]:
     logger.info("Sending alert error notifications", alert_id=alert.id, error=error)
-    email_targets = alert.get_subscribed_users_emails()
+    email_targets = [email for _, email in get_alert_error_notification_recipients(alert) if email]
+    if not email_targets:
+        return []
 
-    # TODO: uncomment this after checking errors sent
-    # if email_targets:
-    #     subject = f"PostHog alert {alert.name} check failed to evaluate"
-    #     campaign_key = f"alert-firing-notification-{alert.id}-{timezone.now().timestamp()}"
-    #     insight_url = f"/project/{alert.team.pk}/insights/{alert.insight.short_id}"
-    #     alert_url = f"{insight_url}?alert_id={alert.id}"
-    #     message = EmailMessage(
-    #         campaign_key=campaign_key,
-    #         subject=subject,
-    #         template_name="alert_check_failed_to_evaluate",
-    #         template_context={
-    #             "alert_error": error,
-    #             "insight_url": insight_url,
-    #             "insight_name": alert.insight.name,
-    #             "alert_url": alert_url,
-    #             "alert_name": alert.name,
-    #         },
-    #     )
-    #     for target in email_targets:
-    #         message.add_recipient(email=target)
-    #     message.send()
-
+    alert_name = alert.name or "Your alert"
+    subject_alert_name = alert.name or "your alert"
+    error_message = str(error.get("message") or "Unknown error").strip()[:1000] or "Unknown error"
+    insight_url = f"/project/{alert.team.pk}/insights/{alert.insight.short_id}"
+    alert_url = f"{insight_url}?alert_id={alert.id}"
+    send_alert_email(
+        recipients=email_targets,
+        campaign_key=f"alert-evaluation-failed-notification-{idempotency_key}",
+        subject=f"PostHog could not evaluate {subject_alert_name}",
+        template_name="alert_check_failed_to_evaluate",
+        template_context={
+            "alert_error": error_message,
+            "alert_url": alert_url,
+            "alert_name": alert_name,
+            "insight_url": insight_url,
+            "insight_name": alert.insight.name,
+            "next_check_at": alert.next_check_at,
+        },
+    )
     return email_targets
+
+
+def next_scheduled_check_time(alert: AlertConfiguration) -> str | None:
+    if alert.next_check_at is None:
+        return None
+    return alert.next_check_at.astimezone(ZoneInfo(alert.team.timezone)).strftime("%B %-d, %Y at %-I:%M %p %Z")
+
+
+def get_alert_error_notification_recipients(alert: AlertConfiguration) -> list[tuple[int, str]]:
+    candidates = (
+        alert.team.all_users_with_access()
+        .filter(id__in=alert.subscribed_users.values_list("id", flat=True))
+        .only("id", "email")
+    )
+    return [
+        (user.id, user.email)
+        for user in candidates
+        if UserAccessControl(user, team=alert.team).check_access_level_for_object(alert.insight, "viewer")
+    ]
 
 
 def dispatch_alert_notification(
@@ -320,7 +340,7 @@ def dispatch_alert_notification(
                         alert_check_id=alert_check.id,
                     )
                     return None
-                return send_notifications_for_errors(alert, alert_check.error)
+                return send_notifications_for_errors(alert, alert_check.error, idempotency_key=str(alert_check.id))
             case AlertState.FIRING:
                 if not breaches:
                     raise ValueError(
