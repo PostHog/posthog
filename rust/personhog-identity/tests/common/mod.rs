@@ -283,4 +283,15 @@ impl personhog_identity::storage::IdentityStorage for UnusedStorage {
     {
         panic!("not exercised by this test")
     }
+
+    async fn attach_distinct_ids(
+        &self,
+        _team_id: i64,
+        _person_id: i64,
+        _distinct_ids: &[String],
+    ) -> personhog_identity::storage::StorageResult<
+        std::collections::HashMap<String, personhog_identity::storage::AttachOutcome>,
+    > {
+        panic!("not exercised by this test")
+    }
 }
