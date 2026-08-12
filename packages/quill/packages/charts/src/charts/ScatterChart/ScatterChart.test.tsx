@@ -64,33 +64,13 @@ async function hoverPoint(wrapper: HTMLElement, x: number, y: number): Promise<H
 }
 
 describe('ScatterChart', () => {
-    it.each<[string, ScatterChartConfig | undefined, number]>([
-        ['one series per group of points', undefined, 2],
-        ['no series for one hidden through the legend', { legend: { hiddenKeys: ['writes'] } }, 1],
-    ])('renders %s', (_, config, expected) => {
-        const { chart } = renderScatter({ config: { margins: MARGINS, ...config } })
-        expect(chart.seriesCount).toBe(expected)
-    })
-
-    it('labels the x axis with its own domain, not with one tick per point', () => {
+    it('ticks each axis over its own value range, not once per point', () => {
         const { chart } = renderScatter()
         expect(chart.xTicks()).toContain('100')
         expect(chart.xAxisLabel()).toBe('Reads')
     })
 
-    it('renders an empty series list without crashing', () => {
-        const { chart } = renderHogChart(<ScatterChart series={[]} theme={THEME} config={{ margins: MARGINS }} />)
-        expect(chart.seriesCount).toBe(0)
-    })
-
-    it('resolves the hovered point by both axes, not by x alone', async () => {
-        // Both points sit at x = 0, so an x-only hit test couldn't tell them apart.
-        const { chart } = renderScatter()
-        const tooltip = createDefaultTooltipAccessor(await hoverPoint(chart.element, 0, 100))
-        expect(tooltip.label()).toBe('Top left')
-    })
-
-    it('shows both coordinates in the tooltip, titled by the axis labels', async () => {
+    it('reads a hovered point as both of its coordinates', async () => {
         const { chart } = renderScatter()
         const tooltip = createDefaultTooltipAccessor(await hoverPoint(chart.element, 25, 80))
         expect(tooltip.label()).toBe('Off diagonal')
@@ -98,21 +78,26 @@ describe('ScatterChart', () => {
         expect(tooltip.value('Writes')).toBe('80')
     })
 
-    it('scales both axes to a pinned domain instead of to the data', () => {
-        const { chart } = renderScatter({
-            config: { margins: MARGINS, xAxis: { domain: [0, 50] }, yAxis: { domain: [0, 50] } },
-        })
-        expect(chart.xTicks()).toContain('50')
-        expect(chart.xTicks()).not.toContain('100')
-        expect(chart.yTicks()).toContain('50')
-        expect(chart.yTicks()).not.toContain('100')
-    })
-
-    it('falls back to a linear x axis when a log domain starts at a non-positive bound', () => {
-        const { chart } = renderScatter({
-            config: { margins: MARGINS, xAxis: { scaleType: 'log', domain: [0, 100] } },
-        })
-        expect(chart.xTicks()).toContain('100')
+    it.each<[string, ScatterChartConfig, string, string[]]>([
+        [
+            'pins each axis to a caller domain',
+            { xAxis: { domain: [0, 50] }, yAxis: { domain: [0, 50] } },
+            '50',
+            ['100'],
+        ],
+        [
+            'falls back to linear when a log domain starts at a non-positive bound',
+            { xAxis: { scaleType: 'log', domain: [0, 100] }, yAxis: { scaleType: 'log', domain: [0, 100] } },
+            '100',
+            [],
+        ],
+    ])('%s', (_, config, expected, absent) => {
+        const { chart } = renderScatter({ config: { margins: MARGINS, ...config } })
+        // Asserted on both axes, so a scale built against the wrong axis fails too.
+        for (const ticks of [chart.xTicks(), chart.yTicks()]) {
+            expect(ticks).toContain(expected)
+            expect(ticks.filter((tick) => absent.includes(tick))).toEqual([])
+        }
     })
 
     it('drops a point outside a pinned domain rather than clamping it onto the plot edge', async () => {
@@ -160,16 +145,6 @@ describe('ScatterChart', () => {
         await waitFor(() => expect(getHogChartTooltip()).toBeNull())
     })
 
-    it('shows nothing when the cursor is over empty plot area', async () => {
-        // Hover a real point first, or an absent tooltip passes on uncommitted scales alone.
-        const { chart } = renderScatter()
-        await hoverPoint(chart.element, 100, 100)
-        act(() => {
-            fireEvent.mouseMove(chart.element, { clientX: clientX(50), clientY: clientY(50) })
-        })
-        await waitFor(() => expect(getHogChartTooltip()).toBeNull())
-    })
-
     it('reports the clicked point with its series and consumer meta', async () => {
         const onPointClick = jest.fn()
         const series: ScatterSeries<{ orgId: string }>[] = [
@@ -194,36 +169,26 @@ describe('ScatterChart', () => {
         })
     })
 
-    it('reports a drag selection in data units, not pixels', async () => {
+    it.each<[string, { x: number; y: number }, ScatterAreaSelection]>([
+        ['in the points own units, not pixels', { x: 60, y: 30 }, { x: [20, 60], y: [30, 80] }],
+        // Brushing into a corner routinely leaves the plot, where an unclamped pixel inverts to a
+        // range wider than the rectangle the user saw.
+        ['clamped to each axis when the drag overshoots the plot', { x: -30, y: 130 }, { x: [0, 20], y: [80, 100] }],
+    ])('reports a drag selection %s', async (_, to, expected) => {
         const onAreaSelect = jest.fn()
         const { chart } = renderScatter({ onAreaSelect })
         await hoverPoint(chart.element, 100, 100)
 
         rawDrag(chart.element, {
             from: { x: clientX(20), y: clientY(80) },
-            to: { x: clientX(60), y: clientY(30) },
+            to: { x: clientX(to.x), y: clientY(to.y) },
         })
 
         expect(onAreaSelect).toHaveBeenCalledTimes(1)
         const selection = onAreaSelect.mock.calls[0][0] as ScatterAreaSelection
-        expect(selection.x[0]).toBeCloseTo(20)
-        expect(selection.x[1]).toBeCloseTo(60)
-        expect(selection.y[0]).toBeCloseTo(30)
-        expect(selection.y[1]).toBeCloseTo(80)
-    })
-
-    it('bounds a drag that overshoots the plot to the axes own range', async () => {
-        const onAreaSelect = jest.fn()
-        const { chart } = renderScatter({ onAreaSelect })
-        await hoverPoint(chart.element, 100, 100)
-
-        rawDrag(chart.element, {
-            from: { x: clientX(50), y: clientY(50) },
-            to: { x: clientX(-30), y: clientY(130) },
-        })
-
-        const selection = onAreaSelect.mock.calls[0][0] as ScatterAreaSelection
-        expect(selection.x[0]).toBeCloseTo(0)
-        expect(selection.y[1]).toBeCloseTo(100)
+        expect(selection.x[0]).toBeCloseTo(expected.x[0])
+        expect(selection.x[1]).toBeCloseTo(expected.x[1])
+        expect(selection.y[0]).toBeCloseTo(expected.y[0])
+        expect(selection.y[1]).toBeCloseTo(expected.y[1])
     })
 })

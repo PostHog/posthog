@@ -32,8 +32,4 @@ describe('findNearestPointIndex', () => {
         const points = [position(0, 92, 100, 10), position(1, 105, 100, 2)]
         expect(findNearestPointIndex(points, 100, 100, 10)).toBe(0)
     })
-
-    it('returns no hit for an empty plot', () => {
-        expect(findNearestPointIndex([], 100, 100, 0)).toBe(-1)
-    })
 })

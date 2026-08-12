@@ -133,6 +133,9 @@ export const ClustersWithCentroids: Story = {
 
 /** Drag a rectangle to zoom; the button restores the data-derived domains. */
 export const DragToZoom: Story = {
+    // Skipped from visual regression: the selection rect only exists mid-drag, so a static snapshot
+    // is Default again. The story stays for interactive documentation of onAreaSelect.
+    tags: ['test-skip'],
     render: function Render() {
         const theme = useReactiveTheme()
         const [zoom, setZoom] = useState<ScatterAreaSelection | null>(null)
@@ -182,7 +185,11 @@ export const HostChrome: Story = {
     },
 }
 
+/** A degenerate domain: one point gives the axis no range to span. */
 export const SinglePoint: Story = {
+    // Skipped from visual regression: the degenerate-domain handling is `buildValueScale`'s, covered
+    // in core/scales.test.ts. The story stays to show the result.
+    tags: ['test-skip'],
     render: function Render() {
         const theme = useReactiveTheme()
         return (
@@ -197,7 +204,11 @@ export const SinglePoint: Story = {
     },
 }
 
+/** No series at all: the axes fall back to 0–1. */
 export const Empty: Story = {
+    // Skipped from visual regression: the empty-series fallback is `buildValueScale`'s, covered in
+    // core/scales.test.ts.
+    tags: ['test-skip'],
     render: function Render() {
         const theme = useReactiveTheme()
         return (
@@ -208,8 +219,11 @@ export const Empty: Story = {
     },
 }
 
-/** Thousands of overlapping markers — what the translucent fill is for. */
+/** Thousands of overlapping markers, which is what the translucent fill is for. */
 export const DenseCloud: Story = {
+    // Skipped from visual regression: Default already covers the translucent fill at the same
+    // opacity, and 3000 markers make for a slow, jitter-prone screenshot.
+    tags: ['test-skip'],
     render: function Render() {
         const theme = useReactiveTheme()
         const next = makeRandom(23)
