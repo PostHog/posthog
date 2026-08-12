@@ -227,7 +227,7 @@ export const materializationJobsLogic = kea<materializationJobsLogicType>([
                     const currentJobStatus = dataModelingJobs?.results?.[0]?.status
                     if (
                         currentJobStatus &&
-                        ['Running', 'Completed', 'Failed', 'Cancelled'].includes(currentJobStatus)
+                        ['Running', 'Completed', 'Failed', 'Cancelled', 'Skipped'].includes(currentJobStatus)
                     ) {
                         return false
                     }

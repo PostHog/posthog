@@ -150,10 +150,10 @@ class PostHogCodeRepoCascadeOutcome:
     """Synchronous fast-path repo resolution before the discovery agent runs.
 
     `auto` → use `repository` directly. `no_repo` → the mentioning user resolves no
-    repos, so the workflow classifies the ask and only gates on a personal GitHub
-    install when it actually needs code. `agent_needed` → there are multiple
-    candidates and no explicit mention. `needs_user_github` is no longer emitted and
-    survives only so workflow executions that recorded it still replay.
+    repos, so the mention becomes a repo-less task and the agent decides whether the
+    ask needs code. `agent_needed` → there are multiple candidates and no explicit
+    mention. `needs_user_github` is neither emitted nor handled any more; the value
+    stays in the `Literal` only so an old payload still parses.
     """
 
     mode: Literal["auto", "no_repo", "agent_needed", "needs_user_github"]

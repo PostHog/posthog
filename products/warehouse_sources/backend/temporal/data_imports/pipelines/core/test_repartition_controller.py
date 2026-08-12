@@ -248,6 +248,23 @@ class TestIsAutoRepartitionEnabled:
 
         assert mock_queryset.get.call_count == 2
 
+    def test_returns_false_when_db_connection_stays_down(self, team):
+        # If the connection is still down on the retry, is_auto_repartition_enabled must not raise —
+        # repartition_table.py calls it with no enclosing try/except, so an uncaught OperationalError
+        # here crashes the whole activity instead of just leaving the flag resolved as disabled.
+        schema = _make_schema(team, {})
+        mock_queryset = MagicMock()
+        mock_queryset.get.side_effect = OperationalError("server closed the connection unexpectedly")
+
+        with (
+            patch("posthog.models.Team.objects.only", return_value=mock_queryset),
+            patch.object(ctrl, "capture_exception") as mock_capture_exception,
+        ):
+            assert ctrl.is_auto_repartition_enabled(schema) is False
+
+        assert mock_queryset.get.call_count == 2
+        mock_capture_exception.assert_called_once()
+
 
 class TestRepartitionOOMHistoryTrigger:
     def _detect(self, team, schema: ExternalDataSchema, delta: deltalake.DeltaTable) -> None:
@@ -395,6 +412,10 @@ class TestCoarsenTrigger:
         [
             # Any memory-attributed OOM means bigger partitions are the wrong direction for this table.
             "recent_oom",
+            # The gate reads the RAW signal: an occurrence the classification rules would explain
+            # away (here: fresh extract-phase evidence, excluded from the split trigger) is still
+            # death evidence, and exclusion must never enable a coarsen it would have blocked.
+            "rule_excluded_oom",
             # A layout that was just rewritten hasn't had a chance to prove itself; undoing it within
             # the day is how the two directions would start handing the table back and forth.
             "fresh_layout",
@@ -410,6 +431,14 @@ class TestCoarsenTrigger:
         if case == "recent_oom":
             ExternalDataSchemaOOMEvent.objects.for_team(schema.team_id).create(
                 team_id=schema.team_id, schema=schema, run_id="run-1"
+            )
+        elif case == "rule_excluded_oom":
+            ExternalDataSchemaOOMEvent.objects.for_team(schema.team_id).create(
+                team_id=schema.team_id,
+                schema=schema,
+                run_id="run-1",
+                self_phase="extract",
+                self_report_age_at_death_seconds=1.0,
             )
 
         with tempfile.TemporaryDirectory() as d:

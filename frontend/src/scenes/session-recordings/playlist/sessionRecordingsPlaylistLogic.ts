@@ -447,6 +447,12 @@ function sortRecordings(
 
 export interface SessionRecordingPlaylistLogicProps {
     logicKey?: string
+    /**
+     * Which surface embeds this playlist, stamped on `recording list fetched`. Set it wherever the
+     * playlist is one part of another page, so its list loads can be told apart from the replay
+     * scene's own. Left unset, the event carries no source, as it did before.
+     */
+    analyticsSource?: string
     personUUID?: PersonUUID
     distinctIds?: string[]
     updateSearchParams?: boolean
@@ -534,11 +540,13 @@ export interface sessionRecordingsPlaylistLogicActions {
     reportRecordingsListFetched: (
         loadTime: number,
         filters: RecordingUniversalFilters,
-        defaultDurationFilter: RecordingDurationFilter
+        defaultDurationFilter: RecordingDurationFilter,
+        source?: string | undefined
     ) => {
         defaultDurationFilter: RecordingDurationFilter
         filters: RecordingUniversalFilters
         loadTime: number
+        source: string | undefined
     } // sessionRecordingEventUsageLogic
     reportRecordingsListFilterAdded: (filterType: SessionRecordingFilterType) => {
         filterType: SessionRecordingFilterType
@@ -995,7 +1003,12 @@ export const sessionRecordingsPlaylistLogic = kea<sessionRecordingsPlaylistLogic
                     const response = await api.recordings.list(params)
                     const loadTimeMs = performance.now() - startTime
 
-                    actions.reportRecordingsListFetched(loadTimeMs, values.filters, defaultRecordingDurationFilter)
+                    actions.reportRecordingsListFetched(
+                        loadTimeMs,
+                        values.filters,
+                        defaultRecordingDurationFilter,
+                        props.analyticsSource
+                    )
 
                     breakpoint()
 
@@ -1810,7 +1823,8 @@ export const sessionRecordingsPlaylistLogic = kea<sessionRecordingsPlaylistLogic
                     (equal(filters.duration?.[0] ?? defaultFilters.duration[0], defaultFilters.duration[0]) ? 0 : 1) +
                     (filters.date_from === defaultFilters.date_from && filters.date_to === defaultFilters.date_to
                         ? 0
-                        : 1)
+                        : 1) +
+                    (filters.session_ids?.length ? 1 : 0)
                 )
             },
         ],
@@ -2059,6 +2073,14 @@ export const sessionRecordingsPlaylistLogic = kea<sessionRecordingsPlaylistLogic
     // NOTE: It is important this comes after urlToAction, as it will override the default behavior
     afterMount(({ actions, props, values }) => {
         if (props.onlyPinned) {
+            return
+        }
+
+        // The filters reducer persists to localStorage and rehydrates without validation, so a stale
+        // or malformed entry poisons state and makes every later filter change fall back to defaults.
+        // Drop a bad rehydrated value here, reusing the check that already guards the URL and setFilters paths.
+        if (!isValidRecordingFilters(values.filters)) {
+            actions.resetFilters()
             return
         }
 

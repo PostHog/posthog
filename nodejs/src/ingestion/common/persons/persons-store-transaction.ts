@@ -1,6 +1,7 @@
 import { DateTime } from 'luxon'
 
 import { PersonMessage } from '~/common/persons/person-message'
+import { LifecycleMarkPerson } from '~/common/persons/repositories/person-repository'
 import { PersonRepositoryTransaction } from '~/common/persons/repositories/person-repository-transaction'
 import { CreatePersonResult, MoveDistinctIdsResult } from '~/common/utils/db/db'
 import { Properties } from '~/plugin-scaffold'
@@ -81,6 +82,23 @@ export class PersonsStoreTransaction {
         return await this.store.deletePerson(person, distinctId, this.tx)
     }
 
+    async claimLifecycleMarks(
+        opId: string,
+        teamId: number,
+        persons: LifecycleMarkPerson[],
+        distinctId: string
+    ): Promise<void> {
+        return await this.store.claimLifecycleMarks(opId, teamId, persons, distinctId, this.tx)
+    }
+
+    async releaseLifecycleMarks(opId: string, teamId: number, distinctId: string): Promise<void> {
+        return await this.store.releaseLifecycleMarks(opId, teamId, distinctId, this.tx)
+    }
+
+    async isPersonLive(person: InternalPerson, distinctId: string): Promise<boolean> {
+        return await this.store.isPersonLive(person, distinctId, this.tx)
+    }
+
     async addDistinctId(
         person: InternalPerson,
         distinctId: string,
@@ -149,10 +167,6 @@ export class PersonsStoreTransaction {
             distinctId,
             this.tx
         )
-    }
-
-    async addPersonlessDistinctIdForMerge(teamId: number, distinctId: string, batchId: number): Promise<boolean> {
-        return await this.store.addPersonlessDistinctIdForMerge(teamId, distinctId, this.tx, batchId)
     }
 
     async fetchPersonDistinctIds(person: InternalPerson, distinctId: string, limit?: number): Promise<string[]> {

@@ -62,12 +62,6 @@ export const MessagingTemplatesCreateBody = /* @__PURE__ */ zod.object({
                             .string()
                             .optional()
                             .describe("Plain-text fallback body for clients that can't render the email."),
-                        html: zod
-                            .string()
-                            .optional()
-                            .describe(
-                                "Rendered email body — derived from the design at save time. The visual editor's save path supplies it directly; omit it otherwise."
-                            ),
                         design: zod
                             .object({
                                 counters: zod
@@ -170,12 +164,6 @@ export const MessagingTemplatesPartialUpdateBody = /* @__PURE__ */ zod.object({
                             .string()
                             .optional()
                             .describe("Plain-text fallback body for clients that can't render the email."),
-                        html: zod
-                            .string()
-                            .optional()
-                            .describe(
-                                "Rendered email body — derived from the design at save time. The visual editor's save path supplies it directly; omit it otherwise."
-                            ),
                         design: zod
                             .object({
                                 counters: zod

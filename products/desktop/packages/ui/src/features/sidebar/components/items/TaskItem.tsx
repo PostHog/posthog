@@ -1,4 +1,5 @@
 import { Archive, GitPullRequest, PushPin } from "@phosphor-icons/react";
+import type { RunMode } from "@posthog/core/sidebar/buildSidebarData";
 import { parseGithubUrl } from "@posthog/git/utils";
 import type { WorkspaceMode } from "@posthog/shared";
 import { formatRelativeTimeShort } from "@posthog/shared";
@@ -45,6 +46,7 @@ interface TaskItemProps {
   isSuspended?: boolean;
   needsPermission?: boolean;
   taskRunStatus?: TaskRunStatus;
+  runMode?: RunMode;
   originProduct?: string;
   slackThreadUrl?: string;
   prState?: SidebarPrState;
@@ -117,6 +119,7 @@ export function TaskItem({
   isPinned = false,
   needsPermission = false,
   taskRunStatus,
+  runMode,
   originProduct,
   slackThreadUrl,
   prState,
@@ -143,6 +146,7 @@ export function TaskItem({
       isSuspended={isSuspended}
       needsPermission={needsPermission}
       taskRunStatus={taskRunStatus}
+      runMode={runMode}
       originProduct={originProduct}
       slackThreadUrl={slackThreadUrl}
       prState={prState}

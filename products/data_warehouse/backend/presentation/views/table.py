@@ -237,16 +237,22 @@ class TableSerializer(UserAccessControlSerializerMixin, serializers.ModelSeriali
         return table
 
     def validate_url_pattern(self, url_pattern):
-        s3_domain = settings.DATAWAREHOUSE_BUCKET_DOMAIN
-        if s3_domain in url_pattern:
-            raise serializers.ValidationError(
-                "This URL points to PostHog's internal storage and can't be used as a source. "
-                "Enter the location of your own bucket instead."
-            )
-
         is_valid, error_message = validate_warehouse_table_url_pattern(url_pattern)
         if not is_valid:
             raise serializers.ValidationError(error_message)
+
+        # A table with no credential is read with the ClickHouse node's own role rather than a key
+        # the team supplied, so the URL is only trustworthy because PostHog built it. `create`
+        # refuses that combination outright, and an update has to hold the same line.
+        if (
+            self.instance is not None
+            and self.instance.credential_id is None
+            and url_pattern != self.instance.url_pattern
+        ):
+            raise serializers.ValidationError(
+                "PostHog manages where this table reads from, so its URL can't be changed. "
+                "To read from your own bucket, add it as a self-managed source with an access key and secret."
+            )
 
         return url_pattern
 

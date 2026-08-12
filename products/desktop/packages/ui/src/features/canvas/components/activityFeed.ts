@@ -10,6 +10,7 @@ export function activityReadPayload(items: TaskActivityItem[]) {
   return items.map((item) => ({
     task_id: item.taskId,
     seen_before: item.activityAt,
+    ...(item.commentId ? { activity_id: item.id } : {}),
   }));
 }
 

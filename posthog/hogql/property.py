@@ -1269,6 +1269,78 @@ def property_to_expr(
     )
 
 
+def bound_property_to_expr(property: Property, expr: ast.Expr, team: Team) -> ast.Expr:
+    """Apply a property filter's operator and value to a caller-supplied expression, instead of
+    resolving the filter's key to a table field. Backs the column-bound `{filters(...)}` placeholder,
+    where the query author maps filter keys onto their own columns. Mirrors `property_to_expr`'s
+    multi-value handling, without the events-table special cases that don't apply to bound columns."""
+    operator = cast(Optional[PropertyOperator], property.operator) or PropertyOperator.EXACT
+    value = property.value
+
+    if property.key and GROUP_KEY_PATTERN.match(str(property.key)):
+        value = _stringify_group_key_value(value)
+
+    if isinstance(value, list) and operator not in (
+        PropertyOperator.BETWEEN,
+        PropertyOperator.NOT_BETWEEN,
+        PropertyOperator.ICONTAINS,
+        PropertyOperator.NOT_ICONTAINS,
+    ):
+        if len(value) == 0:
+            return ast.Constant(value=1)
+        if len(value) == 1:
+            value = value[0]
+        elif operator in (
+            PropertyOperator.EXACT,
+            PropertyOperator.IS_NOT,
+            PropertyOperator.IN_,
+            PropertyOperator.NOT_IN,
+        ):
+            op = (
+                ast.CompareOperationOp.In
+                if operator in (PropertyOperator.EXACT, PropertyOperator.IN_)
+                else ast.CompareOperationOp.NotIn
+            )
+            return ast.CompareOperation(
+                op=op,
+                left=clone_expr(expr),
+                right=ast.Tuple(exprs=[ast.Constant(value=v) for v in value]),
+            )
+        else:
+            exprs = [
+                bound_property_to_expr(
+                    Property(
+                        type=property.type,
+                        key=property.key,
+                        operator=property.operator,
+                        group_type_index=property.group_type_index,
+                        value=v,
+                    ),
+                    expr,
+                    team,
+                )
+                for v in value
+            ]
+            if (
+                operator == PropertyOperator.IS_NOT
+                or operator == PropertyOperator.NOT_ICONTAINS
+                or operator == PropertyOperator.NOT_REGEX
+                or operator == PropertyOperator.NOT_STARTS_WITH
+                or operator == PropertyOperator.NOT_ENDS_WITH
+            ):
+                return ast.And(exprs=exprs)
+            return ast.Or(exprs=exprs)
+
+    return _expr_to_compare_op(
+        expr=clone_expr(expr),
+        value=value,
+        operator=operator,
+        property=property,
+        is_json_field=False,
+        team=team,
+    )
+
+
 def steps_to_expr(steps: list[ActionStepJSON], team: Team, events_alias: Optional[str] = None) -> ast.Expr:
     if len(steps) == 0:
         return ast.Constant(value=True)
