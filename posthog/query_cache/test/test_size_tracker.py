@@ -1,6 +1,8 @@
 from posthog.test.base import BaseTest
+from unittest.mock import patch
 
 from django.core.cache import cache
+from django.db import OperationalError
 from django.test import override_settings
 
 from posthog.models import Team
@@ -277,6 +279,13 @@ class TestGetTeamCacheLimit(BaseTest):
         self.team.save()
 
         limit = get_team_cache_limit(self.team.pk)
+        self.assertEqual(limit, 500_000_000)
+
+    @override_settings(TEAM_CACHE_SIZE_LIMIT_BYTES=500_000_000)
+    def test_get_team_cache_limit_falls_back_to_default_when_postgres_errors(self):
+        with patch.object(Team.objects, "only", side_effect=OperationalError("query_wait_timeout")):
+            limit = get_team_cache_limit(self.team.pk)
+
         self.assertEqual(limit, 500_000_000)
 
     @override_settings(TEAM_CACHE_SIZE_LIMIT_BYTES=500_000_000)

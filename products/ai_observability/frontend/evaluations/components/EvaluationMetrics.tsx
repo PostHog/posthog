@@ -47,22 +47,16 @@ function SummaryCard({
 export function EvaluationMetrics(): JSX.Element {
     const { summaryMetrics, statsLoading, chartQuery } = useValues(evaluationMetricsLogic)
 
-    const { evaluations } = useValues(llmEvaluationsLogic)
+    const { evaluations, evaluationsLoading } = useValues(llmEvaluationsLogic)
 
     const enabledEvaluationsCount = evaluations.filter((e) => e.enabled && !e.deleted).length
-
-    if (statsLoading) {
-        return (
-            <div className="space-y-4 mb-6">
-                <LemonSkeleton className="h-96 w-full" />
-            </div>
-        )
-    }
 
     return (
         <div className="mb-6">
             <div className="flex gap-4 h-96">
-                {chartQuery ? (
+                {evaluationsLoading ? (
+                    <LemonSkeleton className="flex-1 h-full" />
+                ) : chartQuery ? (
                     <div className="flex-1 bg-bg-light rounded p-4 flex flex-col InsightCard h-full">
                         <h3 className="text-lg font-semibold mb-2">Pass rate over time</h3>
                         <p className="text-muted text-sm mb-4">Showing pass rate trends for enabled evaluations</p>
@@ -89,31 +83,40 @@ export function EvaluationMetrics(): JSX.Element {
                     </div>
                 )}
 
-                {/* Summary cards on the right in 2x2 grid */}
                 <div className="flex-1 grid grid-cols-2 gap-4">
-                    <SummaryCard
-                        title="Enabled evaluations"
-                        value={enabledEvaluationsCount}
-                        subtitle={`${evaluations.length} total`}
-                    />
-                    <SummaryCard
-                        title="Runs"
-                        value={summaryMetrics.total_runs}
-                        subtitle={summaryMetrics.total_runs === 0 ? 'No activity' : undefined}
-                    />
-                    <SummaryCard
-                        title="Pass rate"
-                        value={summaryMetrics.total_runs === 0 ? 'N/A' : `${summaryMetrics.overall_pass_rate}%`}
-                        colorClass={
-                            summaryMetrics.total_runs > 0 ? getPassRateColor(summaryMetrics.overall_pass_rate) : ''
-                        }
-                    />
-                    <SummaryCard
-                        title="Failing evaluations"
-                        value={summaryMetrics.failing_evaluations_count}
-                        subtitle="< 70% pass rate"
-                        colorClass={summaryMetrics.failing_evaluations_count > 0 ? 'text-danger' : 'text-success'}
-                    />
+                    {statsLoading ? (
+                        Array.from({ length: 4 }, (_, index) => <LemonSkeleton key={index} className="h-full w-full" />)
+                    ) : (
+                        <>
+                            <SummaryCard
+                                title="Enabled evaluations"
+                                value={enabledEvaluationsCount}
+                                subtitle={`${evaluations.length} total`}
+                            />
+                            <SummaryCard
+                                title="Runs"
+                                value={summaryMetrics.total_runs}
+                                subtitle={summaryMetrics.total_runs === 0 ? 'No activity' : undefined}
+                            />
+                            <SummaryCard
+                                title="Pass rate"
+                                value={summaryMetrics.total_runs === 0 ? 'N/A' : `${summaryMetrics.overall_pass_rate}%`}
+                                colorClass={
+                                    summaryMetrics.total_runs > 0
+                                        ? getPassRateColor(summaryMetrics.overall_pass_rate)
+                                        : ''
+                                }
+                            />
+                            <SummaryCard
+                                title="Failing evaluations"
+                                value={summaryMetrics.failing_evaluations_count}
+                                subtitle="< 70% pass rate"
+                                colorClass={
+                                    summaryMetrics.failing_evaluations_count > 0 ? 'text-danger' : 'text-success'
+                                }
+                            />
+                        </>
+                    )}
                 </div>
             </div>
         </div>

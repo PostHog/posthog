@@ -21,7 +21,7 @@ import { LemonTableColumns } from 'lib/lemon-ui/LemonTable'
 import { LemonTableLink } from 'lib/lemon-ui/LemonTable/LemonTableLink'
 import { ProfileBubbles, ProfilePicture } from 'lib/lemon-ui/ProfilePicture'
 import { getAccessControlTooltip } from 'lib/utils/accessControlUtils'
-import { capitalizeFirstLetter, fullName } from 'lib/utils/strings'
+import { fullName } from 'lib/utils/strings'
 import { urls } from 'scenes/urls'
 import { userLogic } from 'scenes/userLogic'
 
@@ -36,7 +36,8 @@ import {
     RoleType,
 } from '~/types'
 
-import { AccessControlLogicProps, accessControlLogic } from './accessControlLogic'
+import { AccessControlLogicProps, InheritedAccess, accessControlLogic } from './accessControlLogic'
+import { AccessLevelSelect } from './AccessLevelSelect'
 
 export function AccessControlObject(props: AccessControlLogicProps): JSX.Element | null {
     const { canEditAccessControls, humanReadableResource, resource } = useValues(accessControlLogic(props))
@@ -87,25 +88,31 @@ export function AccessControlObject(props: AccessControlLogicProps): JSX.Element
 }
 
 function AccessControlObjectDefaults(): JSX.Element | null {
-    const { accessControlDefault, accessControlDefaultOptions, accessControlsLoading, canEditAccessControls } =
+    const { accessControlDefault, accessControls, accessControlsLoading, availableLevelsWithNone, inheritedAccess } =
         useValues(accessControlLogic)
     const { updateAccessControlDefault } = useActions(accessControlLogic)
     const { guardAvailableFeature } = useValues(upgradeModalLogic)
 
+    if (!accessControls) {
+        // A null level is a real state ("No override") for this select, so it can't double as
+        // the loading state the way it does elsewhere — loading needs its own placeholder
+        return <LemonSelect placeholder="Loading..." disabledReason="Loading…" options={[]} />
+    }
+
     return (
-        <LemonSelect
-            placeholder="Loading..."
-            value={accessControlDefault?.access_level ?? undefined}
+        <SimplLevelComponent
+            // A null level renders as the "No override" option, which only exists when there is
+            // an inherited tier. With nothing to inherit (project/organization), a missing row
+            // means the built-in default applies — show that, not an empty selection.
+            level={accessControlDefault?.access_level ?? (inheritedAccess ? null : accessControls.default_access_level)}
+            levels={availableLevelsWithNone}
+            inherited={inheritedAccess}
+            disabledReason={accessControlsLoading ? 'Loading…' : undefined}
             onChange={(newValue) => {
                 guardAvailableFeature(AvailableFeature.ACCESS_CONTROL, () => {
-                    updateAccessControlDefault(newValue as AccessControlLevel)
+                    updateAccessControlDefault(newValue)
                 })
             }}
-            disabledReason={
-                accessControlsLoading ? 'Loading…' : !canEditAccessControls ? 'You cannot edit this' : undefined
-            }
-            dropdownMatchSelectWidth={false}
-            options={accessControlDefaultOptions}
         />
     )
 }
@@ -374,28 +381,28 @@ function SimplLevelComponent(props: {
     size?: LemonSelectProps<any>['size']
     level: AccessControlLevel | null
     levels: AccessControlLevel[]
-    onChange: (newValue: AccessControlLevel) => void
+    onChange: (newValue: AccessControlLevel | null) => void
     disabled?: boolean
+    disabledReason?: string
+    /**
+     * What applies once the rule is removed. Passing it offers "No override" as a way back, so
+     * only the object default sets it — member and role rows are removed with their own button.
+     */
+    inherited?: InheritedAccess | null
 }): JSX.Element | null {
     const { canEditAccessControls, minimumAccessLevel } = useValues(accessControlLogic)
 
     return (
-        <LemonSelect
+        <AccessLevelSelect
             size={props.size}
-            placeholder="Select level..."
-            value={props.level}
-            onChange={(newValue) => props.onChange(newValue as AccessControlLevel)}
-            disabledReason={!canEditAccessControls || props.disabled ? 'You cannot edit this' : undefined}
-            options={props.levels.map((level) => {
-                const isDisabled = minimumAccessLevel
-                    ? props.levels.indexOf(level) < props.levels.indexOf(minimumAccessLevel)
-                    : false
-                return {
-                    value: level,
-                    label: capitalizeFirstLetter(level ?? ''),
-                    disabledReason: isDisabled ? 'Not available for this resource type' : undefined,
-                }
-            })}
+            level={props.level}
+            levels={props.levels}
+            onChange={props.onChange}
+            // The permission gate wins over any caller-supplied reason, so a reason passed for
+            // some other purpose can never re-enable the control for someone who cannot edit
+            disabledReason={!canEditAccessControls || props.disabled ? 'You cannot edit this' : props.disabledReason}
+            minimumLevel={minimumAccessLevel}
+            inherited={props.inherited}
         />
     )
 }
@@ -442,7 +449,7 @@ function AddItemsControlsModal(props: {
     const { availableLevels, canEditAccessControls } = useValues(accessControlLogic)
     // TODO: Move this into a form logic
     const [items, setItems] = useState<string[]>([])
-    const [level, setLevel] = useState<AccessControlLevel>(availableLevels[0] ?? null)
+    const [level, setLevel] = useState<AccessControlLevel | null>(availableLevels[0] ?? null)
 
     useEffect(() => {
         setLevel(availableLevels[0] ?? null)

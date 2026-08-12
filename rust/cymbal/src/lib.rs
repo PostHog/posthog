@@ -1,8 +1,5 @@
 pub mod core;
 pub mod modes;
-#[cfg(test)]
-pub mod test_utils;
-
 // Compat re-exports: the shared kernel physically lives under `core/`, but much
 // of the crate still imports it by the old crate-root paths. Prefer
 // `crate::core::*` in new code.

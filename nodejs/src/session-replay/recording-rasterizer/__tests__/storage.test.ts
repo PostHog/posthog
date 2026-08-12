@@ -18,6 +18,17 @@ jest.mock('fs', () => ({
     createReadStream: jest.fn().mockReturnValue('mock-stream'),
 }))
 
+// The real pino logger flushes through fs.write, which the fs mock above doesn't provide.
+jest.mock('~/session-replay/recording-rasterizer/logger', () => ({
+    createLogger: () => ({
+        info: jest.fn(),
+        warn: jest.fn(),
+        error: jest.fn(),
+        debug: jest.fn(),
+        child: jest.fn().mockReturnThis(),
+    }),
+}))
+
 const { Upload } = require('@aws-sdk/lib-storage')
 const fsModule = require('fs')
 

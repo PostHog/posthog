@@ -3,7 +3,7 @@ from unittest.mock import MagicMock, patch
 
 from posthog.temporal.ingestion_acceptance_test.config import Config
 from posthog.temporal.ingestion_acceptance_test.results import TestResult, TestSuiteResult
-from posthog.temporal.ingestion_acceptance_test.runner import RunningTestInfo
+from posthog.temporal.ingestion_acceptance_test.runner import RunningTestSnapshot
 from posthog.temporal.ingestion_acceptance_test.slack import send_slack_notification, send_slack_timeout_notification
 
 
@@ -239,8 +239,8 @@ class TestSendSlackTimeoutNotification:
         [
             (
                 [
-                    RunningTestInfo(name="TestAlias::test_alias", pending_poll="person with distinct_id 'abc-123'"),
-                    RunningTestInfo(name="TestMerge::test_merge", pending_poll="events for person 'person-789'"),
+                    RunningTestSnapshot(name="TestAlias::test_alias", pending_poll="person with distinct_id 'abc-123'"),
+                    RunningTestSnapshot(name="TestMerge::test_merge", pending_poll="events for person 'person-789'"),
                 ],
                 [
                     "TestAlias::test_alias",
@@ -251,7 +251,7 @@ class TestSendSlackTimeoutNotification:
                 [],
             ),
             (
-                [RunningTestInfo(name="TestBasic::test_capture", pending_poll=None)],
+                [RunningTestSnapshot(name="TestBasic::test_capture", pending_poll=None)],
                 ["TestBasic::test_capture"],
                 ["waiting for"],
             ),
@@ -263,7 +263,7 @@ class TestSendSlackTimeoutNotification:
         self,
         mock_post: MagicMock,
         config: Config,
-        running_tests: list[RunningTestInfo],
+        running_tests: list[RunningTestSnapshot],
         expected_in_text: list[str],
         not_expected_in_text: list[str],
     ) -> None:

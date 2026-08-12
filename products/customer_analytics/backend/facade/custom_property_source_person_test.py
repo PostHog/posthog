@@ -1,16 +1,21 @@
+from datetime import timedelta
 from uuid import uuid4
 
 from posthog.test.base import APIBaseTest
 from unittest.mock import MagicMock, patch
 
+from django.utils import timezone
+
 from parameterized import parameterized
 
 from products.customer_analytics.backend.facade import api
-from products.customer_analytics.backend.models import CustomPropertySource, TargetType
+from products.customer_analytics.backend.models import CustomPropertySource, CustomPropertySyncRun, TargetType
 from products.customer_analytics.backend.models.team_scoped_test_base import TeamScopedTestMixin
 from products.customer_analytics.backend.test.factories import create_custom_property_definition
+from products.warehouse_sources.backend.models.credential import DataWarehouseCredential
 from products.warehouse_sources.backend.models.external_data_schema import ExternalDataSchema
 from products.warehouse_sources.backend.models.external_data_source import ExternalDataSource
+from products.warehouse_sources.backend.models.table import DataWarehouseTable
 
 
 class TestPersonCustomPropertySource(TeamScopedTestMixin, APIBaseTest):
@@ -248,11 +253,34 @@ class TestPersonCustomPropertySource(TeamScopedTestMixin, APIBaseTest):
         # Column descriptions leak warehouse metadata to a caller without warehouse-source access.
         assert denied.column_descriptions == {}
 
+        # The binding a link would be built from names a warehouse source the caller can't see.
+        assert denied.external_data_source is None and denied.table_name is None
+
         allowed = api.get_custom_property_source(self.team.id, source.id, user_access_control=self._uac(allowed=True))
         assert allowed is not None
         assert allowed.sync_frequency_interval_seconds == timedelta(hours=6).total_seconds()
         assert allowed.last_sync_error == "boom: internal warehouse detail" and allowed.consecutive_failures == 3
         assert allowed.column_descriptions == {"plan": "internal warehouse column note"}
+        assert allowed.external_data_source == self.schema.source_id
+        # No table row yet, so the schema name is the best label available.
+        assert allowed.table_name == "users"
+
+    def test_source_view_names_the_bound_table_as_hogql_queries_it(self):
+        credential = DataWarehouseCredential.objects.create(access_key="k", access_secret="s", team=self.team)
+        self.schema.table = DataWarehouseTable.objects.create(
+            team=self.team,
+            name="stripe_users",
+            format="Parquet",
+            credential=credential,
+            url_pattern="https://bucket.s3/data/*",
+        )
+        self.schema.save(update_fields=["table"])
+        source = self._create(user_access_control=self._uac(allowed=True))
+
+        view = api.get_custom_property_source(self.team.id, source.id, user_access_control=self._uac(allowed=True))
+
+        assert view is not None
+        assert view.table_name == "stripe.users"
 
     def test_list_sync_runs_requires_warehouse_source_viewer(self):
         source = self._create(user_access_control=self._uac(allowed=True))
@@ -260,6 +288,89 @@ class TestPersonCustomPropertySource(TeamScopedTestMixin, APIBaseTest):
             api.list_custom_property_sync_runs(
                 self.team.id, source.id, offset=0, limit=10, user_access_control=self._uac(allowed=False)
             )
+
+    @patch("products.warehouse_sources.backend.facade.temporal.trigger_schema_sync")
+    @patch("products.customer_analytics.backend.facade.api.person_properties_flag_enabled", return_value=True)
+    def test_trigger_sync_opens_a_running_run(self, _flag, _trigger_schema_sync):
+        # The sync itself only records a run once it finishes, so without this the history stays blank
+        # and the trigger buttons stay clickable for the whole import.
+        source = self._create(user_access_control=self._uac(allowed=True))
+        assert (
+            api.trigger_person_property_sync(
+                team_id=self.team.id, source_id=source.id, user_access_control=self._uac(allowed=True)
+            )
+            is True
+        )
+
+        run = CustomPropertySyncRun.objects.unscoped().get(source_id=source.id)
+        assert run.status == "running" and run.trigger == "sync"
+        assert run.started_at is not None and run.finished_at is None
+
+    @patch(
+        "products.warehouse_sources.backend.facade.temporal.trigger_schema_sync",
+        side_effect=RuntimeError("temporal unreachable"),
+    )
+    @patch("products.customer_analytics.backend.facade.api.person_properties_flag_enabled", return_value=True)
+    def test_trigger_sync_fails_its_run_when_the_sync_never_starts(self, _flag, _trigger_schema_sync):
+        # Nothing downstream will reconcile a run whose sync never started, so it would sit 'running'
+        # and keep the source's buttons disabled.
+        source = self._create(user_access_control=self._uac(allowed=True))
+        with self.assertRaises(RuntimeError):
+            api.trigger_person_property_sync(
+                team_id=self.team.id, source_id=source.id, user_access_control=self._uac(allowed=True)
+            )
+
+        run = CustomPropertySyncRun.objects.unscoped().get(source_id=source.id)
+        assert run.status == "failed" and run.error == "Failed to start sync"
+
+    @parameterized.expand(
+        [
+            ("stale", api.STALE_RUNNING_RUN_AFTER + timedelta(minutes=1), "failed"),
+            ("in_flight", timedelta(minutes=5), "running"),
+        ]
+    )
+    def test_abandoned_running_runs_expire_when_read(self, _name, age, expected_status):
+        # A run whose activity died never reaches a terminal state on its own; left alone it reports the
+        # source as perpetually syncing and blocks every retry.
+        source = self._create(user_access_control=self._uac(allowed=True))
+        run = CustomPropertySyncRun.objects.create(
+            team_id=self.team.id,
+            source_id=source.id,
+            schema_id=self.schema.id,
+            trigger="sync",
+            status="running",
+            started_at=timezone.now() - age,
+        )
+
+        views, _ = api.list_custom_property_sync_runs(
+            self.team.id, source.id, offset=0, limit=10, user_access_control=self._uac(allowed=True)
+        )
+
+        assert views[0].status == expected_status
+        run.refresh_from_db()
+        assert run.status == expected_status
+
+    def test_listing_sources_only_expires_runs_the_caller_can_view(self):
+        # The source-list page expires abandoned running runs as it enriches. A caller denied
+        # warehouse-source viewer access can't see the source's status, so it must not flip that
+        # source's run either — otherwise the list endpoint mutates rows hidden from the caller.
+        source = self._create(user_access_control=self._uac(allowed=True))
+        run = CustomPropertySyncRun.objects.create(
+            team_id=self.team.id,
+            source_id=source.id,
+            schema_id=self.schema.id,
+            trigger="sync",
+            status="running",
+            started_at=timezone.now() - (api.STALE_RUNNING_RUN_AFTER + timedelta(minutes=1)),
+        )
+
+        api.list_custom_property_sources(self.team.id, offset=0, limit=10, user_access_control=self._uac(allowed=False))
+        run.refresh_from_db()
+        assert run.status == "running"
+
+        api.list_custom_property_sources(self.team.id, offset=0, limit=10, user_access_control=self._uac(allowed=True))
+        run.refresh_from_db()
+        assert run.status == "failed"
 
     @patch("products.customer_analytics.backend.facade.api.person_properties_flag_enabled", return_value=True)
     def test_triggers_reject_disabled_source(self, _flag):

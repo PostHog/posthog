@@ -202,9 +202,8 @@ export const BatchExportsCreateBody = /* @__PURE__ */ zod
                         type: zod.enum(['AwsS3']),
                         integration_id: zod
                             .number()
-                            .optional()
                             .describe(
-                                'ID of an aws-s3-kind Integration providing AWS credentials. Preferred over inline credentials. Use the integrations-list MCP tool to find one.'
+                                'ID of an aws-s3-kind Integration providing AWS credentials. Required when creating a batch export. Use the integrations-list MCP tool to find one.'
                             ),
                         config: zod
                             .object({
@@ -258,9 +257,8 @@ export const BatchExportsCreateBody = /* @__PURE__ */ zod
                         type: zod.enum(['S3Compatible']),
                         integration_id: zod
                             .number()
-                            .optional()
                             .describe(
-                                'ID of an s3-compatible-kind Integration providing credentials and the provider endpoint URL. Preferred over inline credentials. Use the integrations-list MCP tool to find one.'
+                                'ID of an s3-compatible-kind Integration providing credentials and the provider endpoint URL. Required when creating a batch export. Use the integrations-list MCP tool to find one.'
                             ),
                         config: zod
                             .object({
@@ -562,9 +560,8 @@ export const BatchExportsPartialUpdateBody = /* @__PURE__ */ zod
                         type: zod.enum(['AwsS3']),
                         integration_id: zod
                             .number()
-                            .optional()
                             .describe(
-                                'ID of an aws-s3-kind Integration providing AWS credentials. Preferred over inline credentials. Use the integrations-list MCP tool to find one.'
+                                'ID of an aws-s3-kind Integration providing AWS credentials. Required when creating a batch export. Use the integrations-list MCP tool to find one.'
                             ),
                         config: zod
                             .object({
@@ -618,9 +615,8 @@ export const BatchExportsPartialUpdateBody = /* @__PURE__ */ zod
                         type: zod.enum(['S3Compatible']),
                         integration_id: zod
                             .number()
-                            .optional()
                             .describe(
-                                'ID of an s3-compatible-kind Integration providing credentials and the provider endpoint URL. Preferred over inline credentials. Use the integrations-list MCP tool to find one.'
+                                'ID of an s3-compatible-kind Integration providing credentials and the provider endpoint URL. Required when creating a batch export. Use the integrations-list MCP tool to find one.'
                             ),
                         config: zod
                             .object({
@@ -760,6 +756,9 @@ export const fileDownloadBatchExportsCreateBodyTwoFileMaxSizeMbMin = 0
 export const fileDownloadBatchExportsCreateBodyThreeFileFormatDefault = `Parquet`
 export const fileDownloadBatchExportsCreateBodyThreeFileMaxSizeMbMin = 0
 
+export const fileDownloadBatchExportsCreateBodyFourFileFormatDefault = `Parquet`
+export const fileDownloadBatchExportsCreateBodyFourFileMaxSizeMbMin = 0
+
 export const FileDownloadBatchExportsCreateBody = /* @__PURE__ */ zod.union([
     zod
         .object({
@@ -865,6 +864,43 @@ export const FileDownloadBatchExportsCreateBody = /* @__PURE__ */ zod.union([
             data_interval_end: zod.iso.datetime({ offset: true }),
         })
         .describe('Typed configuration for the sessions model.'),
+    zod
+        .object({
+            file: zod
+                .object({
+                    format: zod
+                        .enum(['Parquet', 'JSONLines'])
+                        .describe('\* `Parquet` - Parquet\n\* `JSONLines` - JSONLines')
+                        .default(fileDownloadBatchExportsCreateBodyFourFileFormatDefault)
+                        .describe('File format\n\n\* `Parquet` - Parquet\n\* `JSONLines` - JSONLines'),
+                    compression: zod
+                        .union([
+                            zod
+                                .enum(['brotli', 'gzip', 'lz4', 'snappy', 'zstd'])
+                                .describe(
+                                    '\* `brotli` - brotli\n\* `gzip` - gzip\n\* `lz4` - lz4\n\* `snappy` - snappy\n\* `zstd` - zstd'
+                                ),
+                            zod.null(),
+                        ])
+                        .optional()
+                        .describe(
+                            'Compress the file with a supported compression format\n\n\* `zstd` - zstd\n\* `gzip` - gzip\n\* `brotli` - brotli\n\* `lz4` - lz4\n\* `snappy` - snappy'
+                        ),
+                    max_size_mb: zod
+                        .number()
+                        .min(fileDownloadBatchExportsCreateBodyFourFileMaxSizeMbMin)
+                        .nullish()
+                        .describe('Split download into multiple files of at most this size in MB'),
+                })
+                .describe('Typed configuration for a FileDownload batch-export destination.'),
+            model: zod.enum(['hogql']),
+            hogql_query: zod
+                .string()
+                .describe(
+                    'HogQL SELECT query whose results are exported. Placeholders are not currently supported, and every column in the SELECT clause must be a field or have an alias. The query runs as of thetime the export starts; events ingested moments before may not be included yet.'
+                ),
+        })
+        .describe('Typed configuration for the hogql model.'),
 ])
 
 /**
@@ -928,11 +964,20 @@ export const FileDownloadBatchExportsCancelCreateBody = /* @__PURE__ */ zod
             })
             .describe('Typed configuration for a FileDownload batch-export destination.'),
         model: zod
-            .enum(['events', 'persons', 'sessions'])
-            .describe('\* `events` - events\n\* `persons` - persons\n\* `sessions` - sessions'),
+            .enum(['events', 'persons', 'sessions', 'hogql'])
+            .describe('\* `events` - events\n\* `persons` - persons\n\* `sessions` - sessions\n\* `hogql` - hogql'),
         include: zod.array(zod.string()).optional(),
         exclude: zod.array(zod.string()).optional(),
-        data_interval_start: zod.iso.datetime({ offset: true }),
-        data_interval_end: zod.iso.datetime({ offset: true }),
+        hogql_query: zod
+            .string()
+            .optional()
+            .describe(
+                'HogQL SELECT query whose results are exported. Placeholders are not currently supported, and every column in the SELECT clause must be a field or have an alias. The query runs as of thetime the export starts; events ingested moments before may not be included yet.'
+            ),
+        data_interval_start: zod.iso
+            .datetime({ offset: true })
+            .optional()
+            .describe('Start of the data interval to export'),
+        data_interval_end: zod.iso.datetime({ offset: true }).optional().describe('End of the data interval to export'),
     })
     .describe('Request shape for a FileDownload batch export on demand.')

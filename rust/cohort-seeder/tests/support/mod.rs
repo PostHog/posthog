@@ -152,32 +152,37 @@ pub async fn set_marker_bits(
     Ok(())
 }
 
-/// Insert a row into the schema-local `posthog_cohort` projection for `load_current_behavioral_hashes`.
+/// Insert a row into the schema-local `posthog_cohort` projection for `load_current_shape_hashes`.
+/// The two guard columns are set independently so a read of the wrong one cannot pass unnoticed.
 pub async fn insert_cohort(
     pool: &PgPool,
     id: i32,
     team_id: i32,
     behavioral_hash: Option<&str>,
+    person_hash: Option<&str>,
     deleted: bool,
 ) -> Result<()> {
     sqlx::query(
-        "INSERT INTO posthog_cohort (id, team_id, behavioral_filters_shape_hash, deleted) \
-         VALUES ($1, $2, $3, $4)",
+        "INSERT INTO posthog_cohort \
+             (id, team_id, behavioral_filters_shape_hash, person_filters_shape_hash, deleted) \
+         VALUES ($1, $2, $3, $4, $5)",
     )
     .bind(id)
     .bind(team_id)
     .bind(behavioral_hash)
+    .bind(person_hash)
     .bind(deleted)
     .execute(pool)
     .await?;
     Ok(())
 }
 
-/// Unwrap the inserted-chunk count, failing if the run was unexpectedly not seeding.
+/// Unwrap the inserted-chunk count, failing if the run was unexpectedly not seeding or planned.
 pub fn planned_count(outcome: PlanOutcome) -> Result<u64> {
     match outcome {
         PlanOutcome::Planned { inserted } => Ok(inserted),
         PlanOutcome::RunNotSeeding => bail!("run was unexpectedly not seeding"),
+        PlanOutcome::AlreadyPlanned => bail!("run was unexpectedly already planned"),
     }
 }
 
@@ -239,8 +244,85 @@ pub async fn insert_participation(
     Ok(())
 }
 
+/// A person run's participation: the person hash is pinned and the behavioral column stays `''`,
+/// exactly as `create_person_backfill_run_for_cohort` writes it.
+pub async fn insert_person_participation(
+    pool: &PgPool,
+    run_id: RunId,
+    team_id: i32,
+    cohort_id: i32,
+    person_hash: &str,
+) -> Result<()> {
+    sqlx::query(
+        r#"
+        INSERT INTO cohort_backfill_run_cohorts
+            (id, run_id, team_id, cohort_id, filters_shape_hash,
+             behavioral_filters_shape_hash, person_filters_shape_hash, pinned_filters)
+        VALUES ($1, $2, $3, $4, 'full-shape', '', $5, '{}'::jsonb)
+        "#,
+    )
+    .bind(Uuid::now_v7())
+    .bind(run_id)
+    .bind(team_id)
+    .bind(cohort_id)
+    .bind(person_hash)
+    .execute(pool)
+    .await?;
+    Ok(())
+}
+
+/// Insert a `person_property` run with a pinned `person_scan_since` 30 days back.
+pub async fn insert_person_run(
+    pool: &PgPool,
+    team_id: i32,
+    status: &str,
+    with_boundary: bool,
+    pinned: Value,
+) -> Result<RunId> {
+    let run_id = RunId(Uuid::now_v7());
+    sqlx::query(
+        r#"
+        INSERT INTO cohort_backfill_runs
+            (id, team_id, backfill_kind, trigger_kind, scope, status, timezone, boundary_at,
+             person_scan_since, pinned, preconditions, created_at, updated_at)
+        VALUES ($1, $2, 'person_property', 'cohort_created', 'cohort', $3, 'UTC',
+                CASE WHEN $4 THEN now() ELSE NULL END,
+                now() - interval '30 days', $5, '{}'::jsonb, now(), now())
+        "#,
+    )
+    .bind(run_id)
+    .bind(team_id)
+    .bind(status)
+    .bind(with_boundary)
+    .bind(Json(pinned))
+    .execute(pool)
+    .await?;
+    Ok(run_id)
+}
+
 pub fn empty_pinned() -> Value {
     json!({"schema_version": 1, "conditions": [], "event_names": []})
+}
+
+pub fn person_pinned(conditions: &[(i32, &str)]) -> Value {
+    let conditions = conditions
+        .iter()
+        .map(|(cohort_id, hash)| json!({"cohort_id": cohort_id, "condition_hash": hash}))
+        .collect::<Vec<_>>();
+    json!({"schema_version": 1, "conditions": conditions, "person_horizon_days": 30})
+}
+
+pub fn person_filter(hash: &str, key: &str) -> Value {
+    json!({
+        "properties": {"type": "AND", "values": [{
+            "type": "person",
+            "key": key,
+            "value": "expected",
+            "operator": "exact",
+            "conditionHash": hash,
+            "bytecode": ["_H", 1, 32, "expected", 32, key, 32, "properties", 32, "person", 1, 3, 11],
+        }]}
+    })
 }
 
 pub fn pinned_condition(cohort_id: i32, hash: &str, event_name: &str) -> Value {

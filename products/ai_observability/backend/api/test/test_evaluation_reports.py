@@ -241,14 +241,46 @@ class TestEvaluationReportApi(APIBaseTest):
         evaluation.refresh_from_db()
         return evaluation
 
+    def _create_session_evaluation(self) -> Evaluation:
+        return Evaluation.objects.create(
+            team=self.team,
+            name="Session Eval",
+            evaluation_type="llm_judge",
+            evaluation_config={"prompt": "test"},
+            output_type="boolean",
+            output_config={},
+            target=EvaluationTarget.SESSION,
+            target_config={"strategy": "inactivity", "quiet_period_seconds": 1800},
+            enabled=True,
+            created_by=self.user,
+            conditions=[{"id": "c1", "rollout_percentage": 100, "properties": []}],
+        )
+
     def test_unauthenticated_user_cannot_access(self):
         self.client.logout()
         response = self.client.get(self.base_url)
         self.assertEqual(response.status_code, status.HTTP_401_UNAUTHORIZED)
 
     def test_list_reports(self):
-        self._create_report(rrule="FREQ=DAILY", timezone_name="UTC")
-        self._create_report(evaluation=self._create_boolean_evaluation())
+        report_with_runs = self._create_report(rrule="FREQ=DAILY", timezone_name="UTC")
+        report_without_runs = self._create_report(evaluation=self._create_boolean_evaluation())
+        with freeze_time("2026-08-10T12:00:00Z"):
+            EvaluationReportRun.objects.create(
+                report=report_with_runs,
+                content={},
+                metadata={},
+                period_start=timezone.now() - dt.timedelta(hours=1),
+                period_end=timezone.now(),
+            )
+        with freeze_time("2026-08-11T12:00:00Z"):
+            EvaluationReportRun.objects.create(
+                report=report_with_runs,
+                content={},
+                metadata={},
+                period_start=timezone.now() - dt.timedelta(hours=1),
+                period_end=timezone.now(),
+            )
+
         response = self.client.get(self.base_url)
         self.assertEqual(response.status_code, status.HTTP_200_OK)
         results = response.json()["results"]
@@ -257,6 +289,12 @@ class TestEvaluationReportApi(APIBaseTest):
         first = results[0]
         for field in ("delivery_targets", "rrule", "starts_at", "timezone_name", "report_prompt_guidance"):
             self.assertIn(field, first)
+
+        results_by_id = {result["id"]: result for result in results}
+        self.assertEqual(results_by_id[str(report_with_runs.id)]["generated_report_count"], 2)
+        self.assertEqual(results_by_id[str(report_with_runs.id)]["last_generated_at"], "2026-08-11T12:00:00Z")
+        self.assertEqual(results_by_id[str(report_without_runs.id)]["generated_report_count"], 0)
+        self.assertIsNone(results_by_id[str(report_without_runs.id)]["last_generated_at"])
 
     def test_list_filters_by_evaluation(self) -> None:
         report = self._create_report()
@@ -366,13 +404,14 @@ class TestEvaluationReportApi(APIBaseTest):
         report = EvaluationReport.objects.get(evaluation=sentiment_evaluation)
         self.assertEqual(response.json()["id"], str(report.id))
 
-    def test_create_accepts_trace_evaluation(self) -> None:
-        trace_evaluation = self._create_trace_evaluation()
+    @parameterized.expand([("trace",), ("session",)])
+    def test_create_accepts_aggregate_target_evaluation(self, target: str) -> None:
+        evaluation = self._create_trace_evaluation() if target == "trace" else self._create_session_evaluation()
 
         response = self.client.post(
             self.base_url,
             {
-                "evaluation": str(trace_evaluation.id),
+                "evaluation": str(evaluation.id),
                 "frequency": "every_n",
                 "trigger_threshold": 100,
                 "delivery_targets": [],
@@ -381,7 +420,7 @@ class TestEvaluationReportApi(APIBaseTest):
         )
 
         self.assertEqual(response.status_code, status.HTTP_201_CREATED, response.json())
-        report = EvaluationReport.objects.get(evaluation=trace_evaluation)
+        report = EvaluationReport.objects.get(evaluation=evaluation)
         self.assertEqual(response.json()["id"], str(report.id))
 
     @parameterized.expand([("trace_sentiment", "trace_sentiment"), ("unsupported_output", "unsupported")])
@@ -405,16 +444,17 @@ class TestEvaluationReportApi(APIBaseTest):
         self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
         self.assertEqual(response.json().get("attr"), "evaluation")
 
-    def test_deliverable_includes_supported_generation_and_trace_evaluations(self):
+    def test_deliverable_includes_every_reportable_target(self):
         boolean_report = self._create_report()
         sentiment_report = self._create_report(evaluation=self._create_sentiment_evaluation())
         trace_report = self._create_report(evaluation=self._create_trace_evaluation())
+        session_report = self._create_report(evaluation=self._create_session_evaluation())
         trace_sentiment_report = self._create_report(evaluation=self._create_trace_sentiment_evaluation())
         unsupported_report = self._create_report(evaluation=self._create_unsupported_output_evaluation())
 
         deliverable_ids = set(EvaluationReport.objects.deliverable().values_list("id", flat=True))
 
-        self.assertEqual(deliverable_ids, {boolean_report.id, sentiment_report.id, trace_report.id})
+        self.assertEqual(deliverable_ids, {boolean_report.id, sentiment_report.id, trace_report.id, session_report.id})
         self.assertNotIn(trace_sentiment_report.id, deliverable_ids)
         self.assertNotIn(unsupported_report.id, deliverable_ids)
 

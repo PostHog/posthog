@@ -34,7 +34,6 @@ export const WorkflowSceneHeader = (props: WorkflowSceneLogicProps = {}): JSX.El
         isWorkflowSubmitting,
         workflowLoading,
         workflowHasErrors,
-        workflowHasActionErrors,
         workflowUserAccessLevel,
     } = useValues(workflowLogic)
     const { saveWorkflowPartial, submitWorkflow, setWorkflowValue, duplicate, archiveWorkflow, discardChanges } =
@@ -134,19 +133,16 @@ export const WorkflowSceneHeader = (props: WorkflowSceneLogicProps = {}): JSX.El
                                 >
                                     <LemonButton
                                         type={displayStatus === 'active' ? 'primary' : 'secondary'}
+                                        // Stays clickable when steps have errors: the attempt is what
+                                        // reveals the per-field messages, and saveWorkflowPartial
+                                        // guards the actual enable with a toast.
                                         onClick={() =>
                                             saveWorkflowPartial({
                                                 status: workflow?.status === 'draft' ? 'active' : 'draft',
                                             })
                                         }
                                         size="small"
-                                        disabledReason={
-                                            hasUnsavedChanges
-                                                ? 'Save changes first'
-                                                : workflow?.status === 'draft' && workflowHasActionErrors
-                                                  ? 'Fix all errors before enabling'
-                                                  : undefined
-                                        }
+                                        disabledReason={hasUnsavedChanges ? 'Save changes first' : undefined}
                                         className="transition-colors duration-300 ease-in-out"
                                         data-attr="workflow-launch"
                                     >

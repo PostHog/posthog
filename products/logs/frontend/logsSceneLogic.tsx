@@ -45,8 +45,23 @@ export const LOGS_SCENE_VIEWER_ID = `logs-scene-${window.POSTHOG_APP_CONTEXT?.cu
 
 const VALID_VIEW_MODES: LogsViewerViewMode[] = ['logs', 'patterns', 'group']
 
-export type LogsSceneActiveTab = 'viewer' | 'services' | 'alerts' | 'sql' | 'configuration'
-const VALID_ACTIVE_TABS: LogsSceneActiveTab[] = ['viewer', 'services', 'alerts', 'sql', 'configuration']
+export type LogsSceneActiveTab =
+    | 'viewer'
+    | 'services'
+    | 'alerts'
+    | 'anomalies'
+    | 'sql'
+    | 'transformations'
+    | 'configuration'
+const VALID_ACTIVE_TABS: LogsSceneActiveTab[] = [
+    'viewer',
+    'services',
+    'alerts',
+    'anomalies',
+    'sql',
+    'transformations',
+    'configuration',
+]
 export const DEFAULT_ACTIVE_TAB: LogsSceneActiveTab = 'viewer'
 
 const resolveActiveTabFromParams = (params: Params): LogsSceneActiveTab | null => {

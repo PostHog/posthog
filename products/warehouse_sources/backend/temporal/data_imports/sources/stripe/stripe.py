@@ -1,5 +1,7 @@
 import os
 import re
+import time
+import inspect
 import dataclasses
 from collections.abc import Callable, Mapping
 from typing import Any, Literal, Optional, Union, cast, get_args, get_type_hints
@@ -16,7 +18,10 @@ from structlog.types import FilteringBoundLogger
 
 from posthog.temporal.common.logger import get_logger
 
-from products.warehouse_sources.backend.models.external_table_definitions import get_dlt_mapping_for_external_table
+from products.warehouse_sources.backend.models.external_table_definitions import (
+    external_tables,
+    get_dlt_mapping_for_external_table,
+)
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.core.arrow_utils import table_from_py_list
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.core.batcher import Batcher
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.base import (
@@ -31,26 +36,61 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common.typ
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.webhook_s3 import WebhookSourceManager
 from products.warehouse_sources.backend.temporal.data_imports.sources.stripe.constants import (
     ACCOUNT_RESOURCE_NAME,
+    APPLICATION_FEE_RESOURCE_NAME,
     BALANCE_TRANSACTION_RESOURCE_NAME,
+    BILLING_CREDIT_BALANCE_SUMMARY_RESOURCE_NAME,
+    BILLING_CREDIT_BALANCE_TRANSACTION_RESOURCE_NAME,
+    BILLING_CREDIT_GRANT_RESOURCE_NAME,
+    BILLING_METER_RESOURCE_NAME,
     CHARGE_RESOURCE_NAME,
+    CHECKOUT_SESSION_RESOURCE_NAME,
     COUPON_RESOURCE_NAME,
     CREDIT_NOTE_RESOURCE_NAME,
     CUSTOMER_BALANCE_TRANSACTION_RESOURCE_NAME,
+    CUSTOMER_PAYMENT_METHOD_HISTORY_RESOURCE_NAME,
     CUSTOMER_PAYMENT_METHOD_RESOURCE_NAME,
     CUSTOMER_RESOURCE_NAME,
     DISPUTE_RESOURCE_NAME,
+    EARLY_FRAUD_WARNING_RESOURCE_NAME,
+    ENTITLEMENTS_ACTIVE_ENTITLEMENT_RESOURCE_NAME,
+    ENTITLEMENTS_FEATURE_RESOURCE_NAME,
+    EVENT_RESOURCE_NAME,
+    HISTORY_CAPTURED_AT_COLUMN,
+    HISTORY_EVENT_ID_COLUMN,
+    HISTORY_EVENT_TYPE_COLUMN,
+    HISTORY_PREVIOUS_ATTRIBUTES_COLUMN,
+    HISTORY_SNAPSHOT_EVENT_TYPE,
     INVOICE_ITEM_RESOURCE_NAME,
+    INVOICE_PAYMENT_RESOURCE_NAME,
     INVOICE_RESOURCE_NAME,
+    PAYMENT_INTENT_RESOURCE_NAME,
+    PAYMENT_LINK_RESOURCE_NAME,
     PAYOUT_RESOURCE_NAME,
+    PLAN_RESOURCE_NAME,
     PRICE_RESOURCE_NAME,
     PRODUCT_RESOURCE_NAME,
+    PROMOTION_CODE_RESOURCE_NAME,
+    QUOTE_RESOURCE_NAME,
     REFUND_RESOURCE_NAME,
     RESOURCE_TO_STRIPE_WEBHOOK_EVENT,
+    REVIEW_RESOURCE_NAME,
+    SETUP_ATTEMPT_RESOURCE_NAME,
+    SETUP_INTENT_RESOURCE_NAME,
+    SHIPPING_RATE_RESOURCE_NAME,
+    SUBSCRIPTION_ITEM_RESOURCE_NAME,
     SUBSCRIPTION_RESOURCE_NAME,
+    SUBSCRIPTION_SCHEDULE_RESOURCE_NAME,
+    TAX_ID_RESOURCE_NAME,
+    TAX_RATE_RESOURCE_NAME,
+    TOPUP_RESOURCE_NAME,
+    TRANSFER_RESOURCE_NAME,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.stripe.custom import InvoiceListWithAllLines
 from products.warehouse_sources.backend.temporal.data_imports.sources.stripe.settings import (
     APPEND_ONLY_INCREMENTAL_FIELDS,
+    DEFAULT_PRIMARY_KEYS,
+    NON_PARTITIONED_ENDPOINTS,
+    PRIMARY_KEYS,
     WEBHOOK_ONLY_ENDPOINTS,
 )
 
@@ -306,11 +346,73 @@ class StripeNestedResource:
     parent: StripeResource
     parent_name: str = ""
     params: dict[str, Any] = dataclasses.field(default_factory=dict)
+    # Optional builder for request params that depend on fields of the parent object beyond its id
+    # (e.g. the credit balance summary needs the grant's customer as well as the grant id). Merged
+    # over the resource's static params; unset for every resource keyed solely by the parent id.
+    nested_params_from_parent: Optional[Callable[[dict[str, Any]], dict[str, Any]]] = None
     # Optional predicate over a parent object. When set and it returns False, we skip the nested
     # API call for that parent entirely. Stripe has no top-level list for these nested resources, so
     # the default behaviour fans out one call per parent — most of which return nothing. A cheap
     # signal already present on the parent object lets us avoid the calls that can't yield data.
     parent_has_nested: Optional[Callable[[dict[str, Any]], bool]] = None
+    # Optional per-row rewrite applied to each nested row (after the parent id is stamped, before
+    # secret scrubbing). The history table uses it to stamp its observation-metadata columns onto
+    # the seed sweep's rows.
+    row_transform: Optional[Callable[[dict[str, Any]], dict[str, Any]]] = None
+
+
+class _SingleObjectList:
+    """Presents one retrieved Stripe object through the ``auto_paging_iter`` interface every other
+    resource in ``_build_resources`` exposes, so a retrieve-only endpoint rides the same fan-out
+    path as the list endpoints instead of needing its own branch in ``get_rows``."""
+
+    def __init__(self, obj: Any) -> None:
+        self._obj = obj
+
+    def auto_paging_iter(self):
+        yield self._obj
+
+
+def _credit_balance_summary_lister(client: StripeClient) -> Callable[..., ListObject[Any]]:
+    """`/v1/billing/credit_balance_summary` is a retrieve, not a list: it returns the balance for one
+    customer under a required `filter`. We scope it to a single credit grant so each row is the
+    current balance of a grant we already sync."""
+
+    def _retrieve(credit_grant: str, params: dict[str, Any]) -> ListObject[Any]:
+        summary = client.billing.credit_balance_summary.retrieve(
+            params={
+                "customer": params["customer"],
+                "filter": {"type": "credit_grant", "credit_grant": credit_grant},
+            }
+        )
+        return cast(ListObject[Any], _SingleObjectList(summary))
+
+    return _retrieve
+
+
+def _credit_grant_customer_params(credit_grant: dict[str, Any]) -> dict[str, Any]:
+    return {"customer": credit_grant.get("customer")}
+
+
+def _credit_balance_transaction_lister(client: StripeClient) -> Callable[..., ListObject[Any]]:
+    """`/v1/billing/credit_balance_transactions` requires a `customer` filter — like credit balance
+    summary, it has no unscoped list. Scope it to a single credit grant (also filtering on
+    `credit_grant` so a customer with several grants doesn't return the same transaction once per
+    grant) so each row is a transaction against a grant we already sync."""
+
+    def _list(credit_grant: str, params: dict[str, Any]) -> ListObject[Any]:
+        return client.billing.credit_balance_transactions.list(
+            params=cast(Any, {**params, "credit_grant": credit_grant})
+        )
+
+    return _list
+
+
+def _credit_grant_has_customer(credit_grant: dict[str, Any]) -> bool:
+    """Credit grants issued to an Account rather than a Customer carry `customer_account` instead of
+    `customer`. The summary endpoint takes one or the other, and we scope on `customer`, so skip the
+    rest rather than sending a request Stripe would reject."""
+    return bool(credit_grant.get("customer"))
 
 
 def _customer_might_have_balance_transactions(customer: dict[str, Any]) -> bool:
@@ -329,9 +431,48 @@ def _customer_might_have_balance_transactions(customer: dict[str, Any]) -> bool:
     return balance is None or balance != 0
 
 
+def _payment_method_history_snapshot_row(row: dict[str, Any]) -> dict[str, Any]:
+    """Stamp observation metadata onto one payment-method row from the history seed sweep.
+
+    The sweep can only observe currently-attached payment methods, so each row is a "snapshot"
+    observation keyed by payment method + customer: re-running the sweep (e.g. the poll fallback
+    while the webhook handler is disabled) refreshes the same row instead of appending a
+    duplicate, and a payment method later attached to a different customer gets a distinct
+    snapshot row rather than overwriting the first customer's history.
+    """
+    return {
+        **row,
+        HISTORY_EVENT_ID_COLUMN: f"{HISTORY_SNAPSHOT_EVENT_TYPE}:{row.get('id')}:{row.get('customer')}",
+        HISTORY_EVENT_TYPE_COLUMN: HISTORY_SNAPSHOT_EVENT_TYPE,
+        HISTORY_CAPTURED_AT_COLUMN: int(time.time()),
+    }
+
+
 @dataclasses.dataclass
 class StripeResumeConfig:
     starting_after: str
+
+
+def _scrub_client_secrets(obj: Any) -> Any:
+    """Recursively strip Stripe ``client_secret`` values before an object is persisted to a warehouse table.
+
+    PaymentIntent, SetupIntent, and embedded/custom Checkout Session objects carry a ``client_secret``
+    that authorizes Stripe's client-side API to retrieve or confirm that specific payment or setup flow.
+    Stripe requires it never be stored, logged, or exposed to anyone but the customer it belongs to, so
+    persisting it into a queryable table would let anyone with warehouse access act on another customer's
+    flow. Event objects embed full copies of these resources under ``data.object`` and
+    ``data.previous_attributes``, so the walk descends into every nested mapping and list rather than only
+    checking the top level.
+
+    Returns scrubbed plain ``dict``/``list`` structures (scalars pass through unchanged). ``StripeObject``
+    is a ``dict`` subclass, so nested SDK objects flatten into plain dicts, which the batcher already
+    serializes the same way it handles the nested-resource dicts.
+    """
+    if isinstance(obj, Mapping):
+        return {key: _scrub_client_secrets(value) for key, value in obj.items() if key != "client_secret"}
+    if isinstance(obj, list):
+        return [_scrub_client_secrets(value) for value in obj]
+    return obj
 
 
 def _batch_and_yield(
@@ -347,7 +488,7 @@ def _batch_and_yield(
         if stop_at_or_before is not None and incremental_field_name is not None:
             if obj[incremental_field_name] <= stop_at_or_before:
                 break
-        batcher.batch(obj)
+        batcher.batch(_scrub_client_secrets(obj))
         while batcher.should_yield():
             yield batcher.get_table()
 
@@ -417,6 +558,86 @@ def _build_resources(
             parent=StripeResource(method=client.customers.list),
             parent_name=CUSTOMER_RESOURCE_NAME,
         ),
+        # Same sweep as CustomerPaymentMethod, used only to seed the history table on its initial
+        # sync; from then on `payment_method.*` webhook events land one row per event. The sweep
+        # cannot see payment methods detached before it ran — Stripe exposes no endpoint listing
+        # detached payment methods — so history from before the source connected is unrecoverable.
+        CUSTOMER_PAYMENT_METHOD_HISTORY_RESOURCE_NAME: StripeNestedResource(
+            method=client.customers.payment_methods.list,
+            nested_parent_param="customer",
+            parent_id="id",
+            parent=StripeResource(method=client.customers.list),
+            parent_name=CUSTOMER_RESOURCE_NAME,
+            row_transform=_payment_method_history_snapshot_row,
+        ),
+        PAYMENT_INTENT_RESOURCE_NAME: StripeResource(method=client.payment_intents.list),
+        CHECKOUT_SESSION_RESOURCE_NAME: StripeResource(method=client.checkout.sessions.list),
+        SUBSCRIPTION_SCHEDULE_RESOURCE_NAME: StripeResource(method=client.subscription_schedules.list),
+        PROMOTION_CODE_RESOURCE_NAME: StripeResource(method=client.promotion_codes.list),
+        # Tiers are only returned when expanded, same as Price. Key must be "expand[]" for a single
+        # string value (see the Subscription note above for the list-valued form).
+        PLAN_RESOURCE_NAME: StripeResource(method=client.plans.list, params={"expand[]": "data.tiers"}),
+        TAX_RATE_RESOURCE_NAME: StripeResource(method=client.tax_rates.list),
+        # `/v1/tax_ids` without an `owner` filter lists the account's own tax IDs. Customer-owned tax
+        # IDs live under the customer and are not part of this list.
+        TAX_ID_RESOURCE_NAME: StripeResource(method=client.tax_ids.list),
+        QUOTE_RESOURCE_NAME: StripeResource(method=client.quotes.list),
+        EVENT_RESOURCE_NAME: StripeResource(method=client.events.list),
+        BILLING_METER_RESOURCE_NAME: StripeResource(method=client.billing.meters.list),
+        BILLING_CREDIT_GRANT_RESOURCE_NAME: StripeResource(method=client.billing.credit_grants.list),
+        BILLING_CREDIT_BALANCE_TRANSACTION_RESOURCE_NAME: StripeNestedResource(
+            method=_credit_balance_transaction_lister(client),
+            nested_parent_param="credit_grant",
+            parent_id="id",
+            parent=StripeResource(method=client.billing.credit_grants.list),
+            parent_name=BILLING_CREDIT_GRANT_RESOURCE_NAME,
+            parent_has_nested=_credit_grant_has_customer,
+            nested_params_from_parent=_credit_grant_customer_params,
+        ),
+        ENTITLEMENTS_FEATURE_RESOURCE_NAME: StripeResource(method=client.entitlements.features.list),
+        INVOICE_PAYMENT_RESOURCE_NAME: StripeResource(method=client.invoice_payments.list),
+        SETUP_INTENT_RESOURCE_NAME: StripeResource(method=client.setup_intents.list),
+        PAYMENT_LINK_RESOURCE_NAME: StripeResource(method=client.payment_links.list),
+        TRANSFER_RESOURCE_NAME: StripeResource(method=client.transfers.list),
+        APPLICATION_FEE_RESOURCE_NAME: StripeResource(method=client.application_fees.list),
+        TOPUP_RESOURCE_NAME: StripeResource(method=client.topups.list),
+        REVIEW_RESOURCE_NAME: StripeResource(method=client.reviews.list),
+        EARLY_FRAUD_WARNING_RESOURCE_NAME: StripeResource(method=client.radar.early_fraud_warnings.list),
+        SHIPPING_RATE_RESOURCE_NAME: StripeResource(method=client.shipping_rates.list),
+        # `/v1/subscription_items` requires a `subscription`, so it fans out over subscriptions. The
+        # parent list skips the discount expansions the Subscription table uses — we only need ids.
+        SUBSCRIPTION_ITEM_RESOURCE_NAME: StripeNestedResource(
+            method=client.subscription_items.list,
+            nested_parent_param="subscription",
+            parent_id="id",
+            parent=StripeResource(method=client.subscriptions.list, params={"status": "all"}),
+            parent_name=SUBSCRIPTION_RESOURCE_NAME,
+        ),
+        # `/v1/entitlements/active_entitlements` requires a `customer`.
+        ENTITLEMENTS_ACTIVE_ENTITLEMENT_RESOURCE_NAME: StripeNestedResource(
+            method=client.entitlements.active_entitlements.list,
+            nested_parent_param="customer",
+            parent_id="id",
+            parent=StripeResource(method=client.customers.list),
+            parent_name=CUSTOMER_RESOURCE_NAME,
+        ),
+        BILLING_CREDIT_BALANCE_SUMMARY_RESOURCE_NAME: StripeNestedResource(
+            method=_credit_balance_summary_lister(client),
+            nested_parent_param="credit_grant",
+            parent_id="id",
+            parent=StripeResource(method=client.billing.credit_grants.list),
+            parent_name=BILLING_CREDIT_GRANT_RESOURCE_NAME,
+            parent_has_nested=_credit_grant_has_customer,
+            nested_params_from_parent=_credit_grant_customer_params,
+        ),
+        # `/v1/setup_attempts` requires a `setup_intent`.
+        SETUP_ATTEMPT_RESOURCE_NAME: StripeNestedResource(
+            method=client.setup_attempts.list,
+            nested_parent_param="setup_intent",
+            parent_id="id",
+            parent=StripeResource(method=client.setup_intents.list),
+            parent_name=SETUP_INTENT_RESOURCE_NAME,
+        ),
     }
 
 
@@ -481,6 +702,11 @@ def get_rows(
                 resource.parent.method,
                 params={**default_params, **resource.parent.params, **resume_params},
             )
+            # Path-scoped services (e.g. customers.payment_methods.list) take the parent id as a
+            # method keyword, while flat services with a required filter (e.g.
+            # entitlements.active_entitlements.list) accept it only inside `params`. Route by the
+            # method's actual signature so both shapes get the parent id where Stripe expects it.
+            parent_param_is_kwarg = resource.nested_parent_param in inspect.signature(resource.method).parameters
             skipped_parents = 0
             for obj in stripe_parent_objects.auto_paging_iter():
                 parent_obj_id = obj[resource.parent_id]
@@ -489,19 +715,27 @@ def get_rows(
                 if resource.parent_has_nested is not None and not resource.parent_has_nested(obj):
                     skipped_parents += 1
                     continue
+                parent_params = resource.nested_params_from_parent(obj) if resource.nested_params_from_parent else {}
+                nested_params = {**default_params, **resource.params, **parent_params}
+                nested_kwargs: dict[str, Any] = {}
+                if parent_param_is_kwarg:
+                    nested_kwargs[resource.nested_parent_param] = parent_obj_id
+                else:
+                    nested_params[resource.nested_parent_param] = parent_obj_id
                 try:
                     stripe_nested_objects = _call_stripe(
                         resource.method,
-                        **{resource.nested_parent_param: parent_obj_id},
-                        params={**default_params, **resource.params},
+                        params=nested_params,
+                        **nested_kwargs,
                     )
                     for nested_obj in stripe_nested_objects.auto_paging_iter():
-                        batcher.batch(
-                            {
-                                **nested_obj,
-                                **{resource.nested_parent_param: parent_obj_id},
-                            }
-                        )
+                        row = {
+                            **nested_obj,
+                            **{resource.nested_parent_param: parent_obj_id},
+                        }
+                        if resource.row_transform is not None:
+                            row = resource.row_transform(row)
+                        batcher.batch(_scrub_client_secrets(row))
 
                         # A single batch can split into several ready chunks, so drain them all
                         # before batching the next item — otherwise the next batch() trips the
@@ -528,7 +762,7 @@ def get_rows(
                 resource.method, params={**default_params, **resource.params, **resume_params}
             )
             for obj in stripe_objects.auto_paging_iter():
-                batcher.batch(obj)
+                batcher.batch(_scrub_client_secrets(obj))
 
                 while batcher.should_yield():
                     py_table = batcher.get_table()
@@ -607,8 +841,54 @@ def _webhook_table_transformer(table: pa.Table) -> pa.Table:
         if existing is None or ts > existing[0]:
             best_by_id[obj_id] = (ts, obj)
 
-    rows = [obj for _, obj in best_by_id.values()]
+    rows = [_scrub_client_secrets(obj) for _, obj in best_by_id.values()]
     return table_from_py_list(rows)
+
+
+def _webhook_history_table_transformer(table: pa.Table) -> pa.Table:
+    """Turn a batch of webhook events into history rows: one immutable row per event.
+
+    Unlike `_webhook_table_transformer` there is no latest-per-object collapse — several events
+    for the same payment method in one batch (attached, updated, detached) must all survive, or
+    the intermediate states the table exists to record are lost. Rows are keyed by the Stripe
+    event id instead, so a redelivered event refreshes its own row rather than duplicating it.
+
+    Reading columns through `_column` (None-filled when absent) keeps a malformed payload — only
+    reachable with the signature check bypassed — from raising and wedging the batch forever:
+    the S3 files are only deleted after a successful yield, so a raising transformer would replay
+    the same poison batch on every sync.
+    """
+
+    def _column(name: str) -> list[Any]:
+        if name in table.column_names:
+            return table.column(name).to_pylist()
+        return [None] * table.num_rows
+
+    rows: dict[str, dict] = {}
+    for event_id, event_type, data_str, event_created in zip(
+        _column("id"), _column("type"), _column("data"), _column("created")
+    ):
+        if event_id is None or data_str is None:
+            continue
+        data = _scrub_client_secrets(orjson.loads(data_str))
+        obj = data.get("object")
+        if not isinstance(obj, dict) or obj.get("id") is None:
+            continue
+        # `previous_attributes` carries the pre-event values of the fields the event changed —
+        # for `payment_method.detached` that's the customer the method was detached from, which
+        # the object itself no longer shows (its `customer` is null after detachment).
+        previous_attributes = data.get("previous_attributes")
+        rows[event_id] = {
+            **obj,
+            HISTORY_EVENT_ID_COLUMN: event_id,
+            HISTORY_EVENT_TYPE_COLUMN: event_type,
+            HISTORY_CAPTURED_AT_COLUMN: event_created if isinstance(event_created, int) else None,
+            HISTORY_PREVIOUS_ATTRIBUTES_COLUMN: (
+                orjson.dumps(previous_attributes).decode() if previous_attributes else None
+            ),
+        }
+
+    return table_from_py_list(list(rows.values()))
 
 
 def stripe_source(
@@ -623,7 +903,10 @@ def stripe_source(
     api_version: str,
     should_use_incremental_field: bool = False,
 ):
-    column_mapping = get_dlt_mapping_for_external_table(f"stripe_{endpoint.lower()}")
+    # Only the endpoints with a PostHog-managed canonical schema have column hints; the rest let the
+    # pipeline infer their columns from the rows Stripe returns.
+    table_name = f"stripe_{endpoint.lower()}"
+    column_mapping = get_dlt_mapping_for_external_table(table_name) if table_name in external_tables else {}
     column_hints = {key: value.get("data_type") for key, value in column_mapping.items()}
 
     # Get the incremental field name for partition keys
@@ -638,7 +921,14 @@ def stripe_source(
 
     def items():
         if webhook_enabled:
-            return webhook_source_manager.get_items(table_transformer=_webhook_table_transformer)
+            # History tables keep every event as its own row; everything else collapses each
+            # batch to the latest state per object id and upserts it.
+            table_transformer = (
+                _webhook_history_table_transformer
+                if endpoint == CUSTOMER_PAYMENT_METHOD_HISTORY_RESOURCE_NAME
+                else _webhook_table_transformer
+            )
+            return webhook_source_manager.get_items(table_transformer=table_transformer)
 
         return get_rows(
             api_key=api_key,
@@ -652,19 +942,23 @@ def stripe_source(
             api_version=api_version,
         )
 
+    # A few Stripe objects carry no timestamp at all, so there is nothing to partition on — the
+    # datetime partitioner would KeyError looking for the fallback `created` field.
+    partitioned = endpoint not in NON_PARTITIONED_ENDPOINTS
+
     return SourceResponse(
         items=items,
-        primary_keys=["id"],
+        primary_keys=PRIMARY_KEYS.get(endpoint, DEFAULT_PRIMARY_KEYS),
         name=endpoint,
         column_hints=column_hints,
         webhook_only=webhook_only,
         # Stripe data is returned in descending timestamp order
         sort_mode="desc",
-        partition_count=1,  # this enables partitioning
-        partition_size=1,  # this enables partitioning
-        partition_mode="datetime",
-        partition_format="week",
-        partition_keys=[incremental_field_name],
+        partition_count=1 if partitioned else None,  # this enables partitioning
+        partition_size=1 if partitioned else None,  # this enables partitioning
+        partition_mode="datetime" if partitioned else None,
+        partition_format="week" if partitioned else None,
+        partition_keys=[incremental_field_name] if partitioned else None,
     )
 
 
@@ -685,11 +979,24 @@ class StripeAuthenticationError(Exception):
         super().__init__(stripe_message)
 
 
+class StripeTransientError(Exception):
+    """Raised when a credential probe fails because Stripe itself was unavailable (a 5xx APIError,
+    a connection failure, or a rate limit) rather than because the credentials are wrong. The key
+    may be perfectly valid, so callers surface a retry hint instead of Stripe's internal error text
+    (e.g. "Error while communicating with one of our backends")."""
+
+    def __init__(self, stripe_message: str):
+        self.stripe_message = stripe_message
+        super().__init__(stripe_message)
+
+
 class StripeValidationError(Exception):
-    """Raised when one or more resources failed with a non-403 exception (network, schema, rate
-    limit, etc.) during credential validation. Distinct from StripePermissionError so callers can
-    decide whether to surface the verbose underlying message — permission errors are
-    self-explanatory from the resource name, but unknown errors need the raw detail."""
+    """Raised when one or more resources failed with a non-403, non-transient exception (e.g. an
+    unexpected response or schema error) during credential validation. Transient Stripe-side
+    failures (5xx, connection, rate limit) raise StripeTransientError instead. Distinct from
+    StripePermissionError so callers can decide whether to surface the verbose underlying message —
+    permission errors are self-explanatory from the resource name, but unknown errors need the raw
+    detail."""
 
     def __init__(self, errors: dict[str, str], missing_permissions: Optional[dict[str, str]] = None):
         self.errors = errors
@@ -725,6 +1032,11 @@ def _probe_endpoint(resource: StripeResource) -> tuple[str | None, str | None]:
     except stripe_lib.PermissionError as e:
         raw = getattr(e, "user_message", None) or str(e)
         return _clean_stripe_error_message(raw), None
+    except (stripe_lib.APIError, stripe_lib.APIConnectionError, stripe_lib.RateLimitError) as e:
+        # Stripe was unreachable or returned a 5xx/rate-limit — transient and unrelated to the
+        # credentials. Fail fast with a distinct error so the caller can tell the user to retry
+        # rather than reporting Stripe's internal text as a validation failure.
+        raise StripeTransientError(_clean_stripe_error_message(str(e))) from e
     except Exception as e:
         return None, _clean_stripe_error_message(str(e))
 
@@ -813,7 +1125,13 @@ def check_endpoint_permissions(
             continue
 
         _, probe_resource = _resolve_to_flat(name, all_resources)
-        permission_msg, error_msg = _probe_endpoint(probe_resource)
+        try:
+            permission_msg, error_msg = _probe_endpoint(probe_resource)
+        except StripeTransientError as e:
+            # A transient Stripe outage isn't a per-endpoint verdict, but this function must return
+            # the full picture rather than raise (401 aside), so record it as this endpoint's reason.
+            results[name] = e.stripe_message
+            continue
         results[name] = permission_msg or error_msg
 
     return results
@@ -849,7 +1167,12 @@ def _is_stripe_account_access_error(error: Exception, error_str: str) -> bool:
     )
 
 
-def create_webhook(api_key: str, stripe_account_id: str | None, webhook_url: str) -> WebhookCreationResult:
+def create_webhook(
+    api_key: str,
+    stripe_account_id: str | None,
+    webhook_url: str,
+    auth_method: Literal["api_key", "oauth"] = "api_key",
+) -> WebhookCreationResult:
     logger = LOGGER.bind()
 
     filtered_events = _all_known_webhook_events()
@@ -904,6 +1227,11 @@ def create_webhook(api_key: str, stripe_account_id: str | None, webhook_url: str
             )
 
         if "permission" in error_str.lower() or "403" in error_str or "forbidden" in error_str.lower():
+            if auth_method == "oauth":
+                return WebhookCreationResult(
+                    success=False,
+                    error="Your Stripe integration doesn't have permission to create webhooks. Set up the webhook manually below, or reconnect your Stripe integration and grant webhook access.",
+                )
             return WebhookCreationResult(
                 success=False,
                 error="Your Stripe API key doesn't have permission to create webhooks. Please add the 'Write' permission for 'Webhook endpoints' to your API key, or create the webhook manually.",

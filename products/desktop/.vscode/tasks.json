@@ -1,0 +1,79 @@
+{
+  "version": "2.0.0",
+  "tasks": [
+    {
+      "label": "build-electron-trpc",
+      "type": "shell",
+      "command": "pnpm --filter @posthog/electron-trpc build",
+      "problemMatcher": [],
+      "presentation": {
+        "reveal": "silent",
+        "panel": "dedicated"
+      }
+    },
+    {
+      "label": "start-agent-watch",
+      "type": "shell",
+      "command": "pnpm --filter agent dev",
+      "isBackground": true,
+      "problemMatcher": {
+        "pattern": {
+          "regexp": "^.*$",
+          "file": 1,
+          "location": 2,
+          "message": 3
+        },
+        "background": {
+          "activeOnStart": true,
+          "beginsPattern": ".*Watching for changes.*",
+          "endsPattern": ".*Build success.*"
+        }
+      },
+      "presentation": {
+        "reveal": "always",
+        "panel": "dedicated",
+        "group": "agent"
+      }
+    },
+    {
+      "label": "start-electron-with-debug",
+      "type": "shell",
+      "command": "pnpm --filter code start:debug",
+      "isBackground": true,
+      "problemMatcher": {
+        "pattern": {
+          "regexp": "^.*$",
+          "file": 1,
+          "location": 2,
+          "message": 3
+        },
+        "background": {
+          "activeOnStart": true,
+          "beginsPattern": ".*Launched Electron app.*|.*Launching Vite dev servers.*",
+          "endsPattern": ".*"
+        }
+      },
+      "presentation": {
+        "reveal": "always",
+        "panel": "dedicated",
+        "group": "code"
+      },
+      "options": {
+        "env": {
+          "NODE_ENV": "development",
+          "ELECTRON_ENABLE_LOGGING": "1"
+        }
+      }
+    },
+    {
+      "label": "start-dev-with-debug",
+      "dependsOn": [
+        "build-electron-trpc",
+        "start-agent-watch",
+        "start-electron-with-debug"
+      ],
+      "dependsOrder": "sequence",
+      "problemMatcher": []
+    }
+  ]
+}

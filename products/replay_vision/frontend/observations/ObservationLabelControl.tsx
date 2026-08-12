@@ -66,7 +66,7 @@ function FeedbackEditor({
 }
 
 /**
- * Feedback cell for the quality table: optional written context on a rated observation (thumbs up or down).
+ * Feedback cell for the calibration table: optional written context on a rated observation (thumbs up or down).
  * Collapses to a truncated one-liner until clicked, so only the row being edited grows. Unrated rows
  * show a hint to rate first, since feedback lives on the shared label.
  */
