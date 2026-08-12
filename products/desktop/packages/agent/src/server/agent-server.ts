@@ -2112,6 +2112,8 @@ export class AgentServer {
       isUpstreamFailure &&
       phase === "followup" &&
       this.getEffectiveMode(payload) === "interactive";
+    const expectedIdleTransportClosure =
+      recoverable && /^ACP connection closed$/i.test(message.trim());
 
     this.logger.error(`send_${phase}_task_message_failed`, {
       classification,
@@ -2119,7 +2121,9 @@ export class AgentServer {
       recoverable,
     });
 
-    this.broadcastTurnFailure(classification, displayMessage);
+    if (!expectedIdleTransportClosure) {
+      this.broadcastTurnFailure(classification, displayMessage);
+    }
 
     if (recoverable) {
       this.broadcastTurnComplete("error_recoverable");
@@ -2291,6 +2295,7 @@ export class AgentServer {
   ): Promise<void> {
     if (!this.session || !this.resumeState) return;
     const resumeState = this.resumeState;
+    taskRun = await this.refreshTaskRunForResume(payload, taskRun);
 
     await this.runResumeTurn(payload, taskRun, "Resume message", async () => {
       const conversationSummary = formatConversationForResume(
@@ -2354,6 +2359,7 @@ export class AgentServer {
     taskRun: TaskRun | null,
   ): Promise<void> {
     if (!this.session) return;
+    taskRun = await this.refreshTaskRunForResume(payload, taskRun);
 
     await this.runResumeTurn(
       payload,
@@ -2389,6 +2395,22 @@ export class AgentServer {
       },
       { retryOnOversizedPrompt: true },
     );
+  }
+
+  private async refreshTaskRunForResume(
+    payload: JwtPayload,
+    fallback: TaskRun | null,
+  ): Promise<TaskRun | null> {
+    try {
+      return await this.posthogAPI.getTaskRun(payload.task_id, payload.run_id);
+    } catch (error) {
+      this.logger.debug("Failed to refresh task run before resume", {
+        taskId: payload.task_id,
+        runId: payload.run_id,
+        error,
+      });
+      return fallback;
+    }
   }
 
   /**
