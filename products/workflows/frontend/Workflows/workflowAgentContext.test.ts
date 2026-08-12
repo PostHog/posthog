@@ -202,7 +202,12 @@ describe('workflowAgentContext', () => {
             items.filter((item) => item.type === 'instructions').map((item) => item.value as string)
 
         it('pins the open email action and attaches the template tools while the editor is open', () => {
-            const items = buildWorkflowAgentContext(workflowWith({}), 'flow-1', templatesById, 'e1')
+            const items = buildWorkflowAgentContext(
+                workflowWith({ actions: emailActions({ subject: 'Hi' }) }),
+                'flow-1',
+                templatesById,
+                'e1'
+            )
 
             const pinned = instructionValues(items).find((value) => value.includes("action 'e1'"))
             expect(pinned).toBeTruthy()
@@ -211,11 +216,21 @@ describe('workflowAgentContext', () => {
             expect(
                 instructionValues(items).some((value) => value.startsWith('MCP tool workflows-patch-email-template'))
             ).toBe(true)
+            // The visible skill chip and its embedded content ride along.
+            expect(
+                items.some((item) => item.type === 'skill' && item.label === 'Designing email templates skill')
+            ).toBe(true)
+            expect(instructionValues(items).some((value) => value.startsWith('Skill designing-email-templates'))).toBe(
+                true
+            )
         })
 
         it.each([
             ['no email editor is open', 'flow-1', null],
             ['the workflow is unsaved, so there is nothing to patch', 'new', 'e1'],
+            // A lingering ?editor=email param must not attach email framing to a workflow
+            // that has no such email action.
+            ['the workflow has no email action with that id', 'flow-1', 'e1'],
         ])('attaches no email-editing context when %s', (_label, id, editingEmailActionId) => {
             const items = buildWorkflowAgentContext(workflowWith({}), id, templatesById, editingEmailActionId)
 

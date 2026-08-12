@@ -4,7 +4,12 @@ import { CyclotronJobInputSchemaType, CyclotronJobInputType, HogFunctionTemplate
 
 import { AttachedContextItem } from 'products/posthog_ai/frontend/api/types'
 
-import { BUILDING_WORKFLOWS_SKILL, EMAIL_TEMPLATE_MCP_TOOLS, WORKFLOWS_MCP_TOOLS } from '../generated/agentContext'
+import {
+    BUILDING_WORKFLOWS_SKILL,
+    DESIGNING_EMAIL_TEMPLATES_SKILL,
+    EMAIL_TEMPLATE_MCP_TOOLS,
+    WORKFLOWS_MCP_TOOLS,
+} from '../generated/agentContext'
 import { isEmailAction, isFunctionAction, isTriggerFunction } from './hogflows/steps/types'
 import type { HogFlow } from './hogflows/types'
 
@@ -76,10 +81,31 @@ const EMAIL_TOOL_CONTEXT_ITEMS: AttachedContextItem[] = EMAIL_TEMPLATE_MCP_TOOLS
     value: `MCP tool ${tool.name}: ${tool.description}`,
 }))
 
+function findEmailAction(workflow: HogFlow | null, actionId: string | null): HogFlow['actions'][number] | null {
+    if (!actionId) {
+        return null
+    }
+    const action = workflow?.actions?.find((a) => a.id === actionId)
+    return action && isEmailAction(action) ? action : null
+}
+
+/**
+ * Whether the URL says the email takeover is open on an email action this workflow actually has.
+ * The ?editor=email param can linger (the node/tab URL sync preserves foreign search params), so
+ * the params alone must never flip the panel into email-editing framing.
+ */
+export function isEditingEmailAction(workflow: HogFlow | null, searchParams: Record<string, any>): boolean {
+    return searchParams.editor === 'email' && !!findEmailAction(workflow, (searchParams.node as string) ?? null)
+}
+
 // Attached while the email takeover is open on a saved workflow, so "this email" resolves to the
 // action the user is actually looking at instead of the agent guessing between email steps.
-function buildEmailEditingContextItems(id: string, editingEmailActionId: string | null): AttachedContextItem[] {
-    if (!editingEmailActionId || id === 'new') {
+function buildEmailEditingContextItems(
+    workflow: HogFlow | null,
+    id: string,
+    editingEmailActionId: string | null
+): AttachedContextItem[] {
+    if (id === 'new' || !findEmailAction(workflow, editingEmailActionId)) {
         return []
     }
     return [
@@ -93,6 +119,21 @@ function buildEmailEditingContextItems(id: string, editingEmailActionId: string 
                 `layout changes prefer workflows-patch-action-email with design operations targeting that ` +
                 `action; use workflows-patch with update_action on it for other fields. The open editor ` +
                 `reloads external edits live, so the user sees applied changes immediately.`,
+        },
+        {
+            type: 'skill',
+            key: DESIGNING_EMAIL_TEMPLATES_SKILL.name,
+            label: 'Designing email templates skill',
+            dismissGroup: EMAIL_EDITING_DISMISS_GROUP,
+        },
+        {
+            type: 'instructions',
+            hidden: true,
+            dismissGroup: EMAIL_EDITING_DISMISS_GROUP,
+            value:
+                `Skill ${DESIGNING_EMAIL_TEMPLATES_SKILL.name} (embedded, including its design-JSON schema ` +
+                `and design guideline references): ` +
+                DESIGNING_EMAIL_TEMPLATES_SKILL.content,
         },
         ...EMAIL_TOOL_CONTEXT_ITEMS,
     ]
@@ -248,6 +289,6 @@ export function buildWorkflowAgentContext(
             value: serializeWorkflowEditorState(workflow, hogFunctionTemplatesById),
         })
     }
-    items.push(...buildEmailEditingContextItems(id, editingEmailActionId))
+    items.push(...buildEmailEditingContextItems(workflow, id, editingEmailActionId))
     return items
 }

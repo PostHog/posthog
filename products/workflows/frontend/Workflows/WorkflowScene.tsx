@@ -25,6 +25,7 @@ import {
     EMAIL_EDITOR_AGENT_HEADLINES,
     WORKFLOW_AGENT_HEADLINES,
     buildWorkflowAgentContext,
+    isEditingEmailAction,
 } from './workflowAgentContext'
 import { WorkflowAssets } from './WorkflowAssets'
 import { WorkflowInvocations } from './WorkflowInvocations'
@@ -77,9 +78,10 @@ export function WorkflowScene(props: WorkflowSceneLogicProps): JSX.Element {
     // The email takeover reflects its state into the URL (?editor=email beside the step's ?node=);
     // while it is open the panel's framing follows the email being edited, not the graph. Both
     // swaps update the same provider registrations in place, so they keep their first-registered
-    // priority in the panel's first-writer-wins registries.
-    const emailEditorOpen = searchParams.editor === 'email'
-    const editingEmailActionId: string | null = emailEditorOpen ? ((searchParams.node as string) ?? null) : null
+    // priority in the panel's first-writer-wins registries. Validated against the workflow's
+    // actions, since a lingering param must not flip the framing on a workflow without that email.
+    const editingEmail = isEditingEmailAction(workflow, searchParams)
+    const editingEmailActionId: string | null = editingEmail ? ((searchParams.node as string) ?? null) : null
     // Serializing the whole graph is real work on large workflows, so skip building the context
     // entirely for users the integration flag hasn't reached.
     const agentContextItems = useMemo(
@@ -97,7 +99,7 @@ export function WorkflowScene(props: WorkflowSceneLogicProps): JSX.Element {
     useSceneAgentPanel({
         sceneKey: 'workflow',
         contextItems: agentContextItems,
-        headlines: emailEditorOpen ? EMAIL_EDITOR_AGENT_HEADLINES : WORKFLOW_AGENT_HEADLINES,
+        headlines: editingEmail ? EMAIL_EDITOR_AGENT_HEADLINES : WORKFLOW_AGENT_HEADLINES,
         active: !!originalWorkflow || workflowSceneProps.id === 'new',
     })
 
