@@ -585,10 +585,22 @@ export interface workflowMetricsSummaryLogicActions {
         errorObject?: any
     }
     loadConversionStatsSuccess: (
-        conversionStats: WorkflowConversionStats,
+        conversionStats: {
+            conversions: number
+            convertedValues: number[]
+            enrolled: number
+            labels: string[]
+            triggered: number
+        },
         payload?: any
     ) => {
-        conversionStats: WorkflowConversionStats
+        conversionStats: {
+            conversions: number
+            convertedValues: number[]
+            enrolled: number
+            labels: string[]
+            triggered: number
+        }
         payload?: any
     }
     loadEmailLinkTotals: (_: any) => any
@@ -775,7 +787,8 @@ export interface workflowMetricsSummaryLogicMeta {
                 dateFrom: Dayjs
                 dateTo: Dayjs
                 diffMs: number
-            },
+            }, // appMetricsLogic
+            workflow: HogFlow,
             arg: string
         ) => string
         workflowSummaryTrends: (
@@ -785,7 +798,7 @@ export interface workflowMetricsSummaryLogicMeta {
             getCompletedSingleTrendSeries: (
                 name: string,
                 previousPeriod?: boolean
-            ) => AppMetricsTimeSeriesResponse | null,
+            ) => AppMetricsTimeSeriesResponse | null, // appMetricsLogic
             messagingChannels: {
                 hasEmail: boolean
                 hasPush: boolean
