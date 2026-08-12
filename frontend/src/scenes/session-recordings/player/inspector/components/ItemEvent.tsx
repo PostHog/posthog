@@ -22,7 +22,7 @@ import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { ceilMsToClosestSecond } from 'lib/utils/durations'
 import { autoCaptureEventToDescription } from 'lib/utils/events'
 import { getPrimaryPropertyForEvent } from 'lib/utils/events'
-import { isString } from 'lib/utils/guards'
+import { isNumber, isString } from 'lib/utils/guards'
 import { capitalizeFirstLetter } from 'lib/utils/strings'
 import { insightUrlForEvent } from 'scenes/insights/utils'
 import { urls } from 'scenes/urls'
@@ -52,7 +52,8 @@ function WebVitalEventSummary({ event }: { event: Record<string, any> }): JSX.El
                     titleSuffix=""
                     value={
                         <>
-                            {event.rating}: {event.value.toFixed(2)}
+                            {event.rating}
+                            {isNumber(event.value) ? `: ${event.value.toFixed(2)}` : ''}
                         </>
                     }
                 />
