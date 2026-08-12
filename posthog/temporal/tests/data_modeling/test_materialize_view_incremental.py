@@ -303,10 +303,10 @@ class TestIncrementalMaterialization:
         await database_sync_to_async(asaved_query.refresh_from_db)()
         assert get_incremental_state(asaved_query).watermark == before
 
-    async def test_flags_off_rebuilds_every_run(
+    async def test_flag_off_rebuilds_every_run(
         self, activity_environment, ateam, anode, asaved_query, ajob, bucket_name, adag
     ):
-        """The kill switch. With either flag off the behaviour is exactly what ships today."""
+        """The kill switch. With the flag off the behaviour is exactly what ships today."""
         await _configure(asaved_query)
 
         with _settings(bucket_name):

@@ -66,10 +66,9 @@ MB_100_IN_BYTES = 100 * 1000 * 1000
 CLICKHOUSE_MAX_BLOCK_SIZE_ROWS = 50 * 1000
 DELTA_TABLE_RETENTION_HOURS = 24
 
+# The only gate. Incremental is also the only path that writes through deltalite, so turning this
+# off falls back to full refresh on delta-rs and takes the engine with it.
 INCREMENTAL_FLAG = "data-modeling-incremental-views"
-# The engine gate, read separately so deltalite can be killed without killing the feature. Its
-# imports rollout owns this flag; incremental views must not ramp ahead of it.
-DELTALITE_FLAG = "data-warehouse-deltalite-write"
 
 # Above this many files, the per-run compaction is worth its full-table rewrite. Below it, skipping
 # keeps an incremental run's cost proportional to the rows it changed rather than the table's size.
@@ -92,28 +91,23 @@ class EmptyHogQLResponseColumnsError(Exception):
 
 
 def _incremental_enabled(team_id: int) -> bool:
-    """Both gates must be on. Fails closed: a flag-service outage produces a full refresh, which
-    costs money but is never wrong."""
+    """Fails closed: a flag-service outage produces a full refresh, which costs money but is
+    never wrong."""
     try:
         team = Team.objects.only("organization_id").get(id=team_id)
-        groups = {"organization": str(team.organization_id), "project": str(team_id)}
-        group_properties = {
-            "organization": {"id": str(team.organization_id)},
-            "project": {"id": str(team_id)},
-        }
-        return all(
-            feature_enabled_or_false(
-                flag,
-                str(team_id),
-                groups=groups,
-                group_properties=group_properties,
-                only_evaluate_locally=True,
-                send_feature_flag_events=False,
-            )
-            for flag in (INCREMENTAL_FLAG, DELTALITE_FLAG)
+        return feature_enabled_or_false(
+            INCREMENTAL_FLAG,
+            str(team_id),
+            groups={"organization": str(team.organization_id), "project": str(team_id)},
+            group_properties={
+                "organization": {"id": str(team.organization_id)},
+                "project": {"id": str(team_id)},
+            },
+            only_evaluate_locally=True,
+            send_feature_flag_events=False,
         )
     except Exception:
-        LOGGER.warning("Failed to evaluate incremental flags; falling back to full refresh", team_id=team_id)
+        LOGGER.warning("Failed to evaluate incremental flag; falling back to full refresh", team_id=team_id)
         return False
 
 
