@@ -81,14 +81,6 @@ export class ImageFetchConsumerMetrics {
         help: 'Age of a URL when this lane reached it, measured from capture rather than from produce. The tail against the configured age limit says how much of a backlog would be dropped rather than fetched',
         buckets: [1, 10, 60, 300, 900, 3600, 6 * 3600, 24 * 3600],
     })
-    /**
-     * Poll batches, split by whether Kafka returned anything.
-     *
-     * The one metric that separates a broken lane from an idle one. Every other number here is zero
-     * when the topic is missing, when the producer is off, and when traffic is genuinely quiet, and
-     * the phase 0 decision rests on telling those apart. A flat total means this lane is not polling
-     * at all. A climbing total with `empty="true"` means it polls and the topic holds nothing.
-     */
     private static readonly polls = new Counter({
         name: 'ml_image_fetch_consumer_polls_total',
         help: 'Poll batches, by whether Kafka returned records. A flat total means the lane is not polling; a climbing total with empty="true" means it polls and the topic is empty. Zero on every other metric cannot tell those apart',

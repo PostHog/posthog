@@ -108,8 +108,8 @@ describe('UrlFetchConsumer', () => {
         )
     })
 
-    /** Reads a sample by its exported name. A histogram is registered under its base name, and its
-     *  count sample carries the `_count` suffix in metricName rather than in the metric's name. */
+    /** prom-client registers a histogram under its base name and puts the `_count` suffix in
+     *  metricName, so matching on the metric's own name silently finds nothing. */
     async function metric(exportedName: string, labels: Record<string, string> = {}): Promise<number> {
         for (const m of await register.getMetricsAsJSON()) {
             for (const v of m.values as { value: number; labels: Record<string, unknown>; metricName?: string }[]) {
@@ -125,10 +125,8 @@ describe('UrlFetchConsumer', () => {
     }
 
     it('counts an empty poll and leaves the batch histograms alone', async () => {
-        // The poll counter is the only thing separating a lane reading a topic that does not exist
-        // from one reading an empty topic: every other metric is zero in both cases. The batch
-        // histograms have to stay out of it, or an idle lane reports a steady stream of batches
-        // carrying no sites and drags the distribution the budget is sized from down to zero.
+        // An idle lane must not add batches that carry no sites, because the per-site budget is
+        // sized from that distribution.
         const pollsBefore = await metric('ml_image_fetch_consumer_polls_total', { empty: 'true' })
         const batchesBefore = await metric('ml_image_fetch_consumer_domains_per_batch_count')
 

@@ -34,9 +34,7 @@ export function buildImageFetchConsumerConfig(config: IngestionSessionReplayMlMi
         groupId: config.SESSION_RECORDING_ML_IMAGE_FETCH_GROUP_ID,
         autoCommit: true,
         autoOffsetStore: true,
-        // So an empty poll still reaches the consumer and moves the poll counter. Without it a lane
-        // reading a topic that does not exist looks the same as one reading a topic with nothing on
-        // it: healthy pods, no lag, and every metric at zero.
+        // An empty poll reaches the consumer, which counts it. See ml_image_fetch_consumer_polls_total.
         callEachBatchWhenEmpty: true,
         fetchBatchSize: config.SESSION_RECORDING_ML_IMAGE_FETCH_BATCH_SIZE,
     }

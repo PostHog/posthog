@@ -50,6 +50,7 @@ export class UrlFetchConsumer {
         // from the present, which would make the duration meaningless.
         const startedAt = process.hrtime.bigint()
         ImageFetchConsumerMetrics.incPoll(messages.length === 0)
+        // Before the batch histograms, so an idle lane does not report batches that carry no sites.
         if (messages.length === 0) {
             return
         }
