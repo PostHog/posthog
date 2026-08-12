@@ -18,7 +18,6 @@ import {
     ChartDisplayType,
     PropertyFilterType,
     PropertyGroupFilter,
-    PropertyOperator,
     UniversalFiltersGroup,
 } from '~/types'
 
@@ -269,10 +268,8 @@ export const errorTrackingIssueBreakdownQuery = ({
                     math: BaseMathType.TotalCount,
                     properties: [
                         {
-                            key: '$exception_issue_id',
-                            type: PropertyFilterType.Event,
-                            value: issueId,
-                            operator: PropertyOperator.Exact,
+                            key: `issue_id = ${escapeHogQLString(issueId)}`,
+                            type: PropertyFilterType.HogQL,
                         },
                         ...properties,
                     ],
