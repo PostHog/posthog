@@ -6,26 +6,24 @@ describe('billing alert form server errors', () => {
     it('maps DRF field errors onto the form', () => {
         const error = new ApiError('Bad request', 400, undefined, {
             name: ['Ensure this field has no more than 160 characters.'],
-            threshold_percentage: ['A valid number is required.'],
+            threshold_value: ['A valid number is required.'],
         })
 
         expect(formErrorsFromApiError(error)).toEqual({
             name: 'Ensure this field has no more than 160 characters.',
-            thresholdPercentage: 'A valid number is required.',
+            thresholdValue: 'A valid number is required.',
         })
     })
 
     it('sends pending destinations in the atomic configuration write', () => {
         const payload = billingAlertWritePayload(
             {
-                name: 'Daily spend',
+                name: 'Period spend cap',
                 description: '',
                 enabled: true,
-                thresholdType: 'relative_increase',
-                thresholdPercentage: 50,
+                metric: 'projected_spend',
                 thresholdValue: 100,
                 minimumValue: 0,
-                baselineWindowDays: 7,
                 evaluationDelayHours: 6,
                 cooldownHours: 24,
             },
@@ -39,6 +37,8 @@ describe('billing alert form server errors', () => {
         )
 
         expect(payload.enabled).toBe(true)
+        expect(payload.metric).toBe('projected_spend')
+        expect(payload.threshold_type).toBe('absolute_value')
         expect(payload.destination_changes).toEqual({
             create: [{ type: 'webhook', webhook_url: 'https://example.com/alerts' }],
         })

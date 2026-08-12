@@ -8,6 +8,7 @@ import { organizationLogic } from 'scenes/organizationLogic'
 
 import type { OrganizationType } from '~/types'
 
+import { formatBillingValue, metricLabel } from './billingAlertDisplay'
 import { billingAlertRequestError, offsetFromPageLink } from './billingAlertUtils'
 import { billingAlertsCheckNowCreate, billingAlertsDestroy, billingAlertsList } from './generated/api'
 import type { BillingAlertConfigurationApi, PaginatedBillingAlertConfigurationListApi } from './generated/api.schemas'
@@ -39,12 +40,15 @@ export function mergeUniqueAlerts(
 export const CHECK_NOW_CONFIRMATION_DESCRIPTION =
     'This evaluates live billing data and may send Slack, Microsoft Teams, or webhook notifications.'
 
-export function openBillingAlertCheckNowConfirmation(onConfirm: () => void): void {
+export const PREVIEW_CHECK_CONFIRMATION_DESCRIPTION =
+    'This alert is paused. The check evaluates live billing data as a preview and does not send notifications or record an evaluation.'
+
+export function openBillingAlertCheckNowConfirmation(onConfirm: () => void, options?: { preview?: boolean }): void {
     LemonDialog.open({
-        title: 'Check billing alert now?',
-        description: CHECK_NOW_CONFIRMATION_DESCRIPTION,
+        title: options?.preview ? 'Preview billing alert check?' : 'Check billing alert now?',
+        description: options?.preview ? PREVIEW_CHECK_CONFIRMATION_DESCRIPTION : CHECK_NOW_CONFIRMATION_DESCRIPTION,
         primaryButton: {
-            children: 'Check now',
+            children: options?.preview ? 'Preview check' : 'Check now',
             onClick: onConfirm,
         },
         secondaryButton: { children: 'Cancel' },
@@ -196,7 +200,7 @@ export const billingAlertsLogic = kea<billingAlertsLogicType>([
             actions.loadAlerts()
         },
         checkNow: ({ alert }) => {
-            openBillingAlertCheckNowConfirmation(() => actions.runCheckNow(alert))
+            openBillingAlertCheckNowConfirmation(() => actions.runCheckNow(alert), { preview: !alert.enabled })
         },
         runCheckNow: async ({ alert }) => {
             const organizationId = values.currentOrganization?.id
@@ -209,7 +213,21 @@ export const billingAlertsLogic = kea<billingAlertsLogicType>([
                 if (values.currentOrganization?.id !== organizationId) {
                     return
                 }
-                lemonToast.success(result.event.kind === 'firing' ? 'Billing alert fired.' : 'Billing alert checked.')
+                if (result.preview) {
+                    const value =
+                        result.current_value !== null && result.current_value !== undefined
+                            ? formatBillingValue(result.current_value, alert.metric, alert.currency)
+                            : 'not available yet'
+                    lemonToast.success(
+                        result.threshold_breached
+                            ? `Preview: ${metricLabel(alert.metric)} is ${value}, above the threshold. No notifications were sent.`
+                            : `Preview: ${metricLabel(alert.metric)} is ${value}, below the threshold.`
+                    )
+                } else {
+                    lemonToast.success(
+                        result.event?.kind === 'firing' ? 'Billing alert fired.' : 'Billing alert checked.'
+                    )
+                }
                 actions.closeEditor()
                 actions.loadAlerts()
             } catch (error) {

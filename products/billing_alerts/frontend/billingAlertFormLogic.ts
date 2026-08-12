@@ -16,19 +16,17 @@ import { billingAlertRequestError } from './billingAlertUtils'
 import { billingAlertsCreate, billingAlertsPartialUpdate } from './generated/api'
 import type {
     BillingAlertConfigurationApi,
+    BillingAlertMetricEnumApi,
     PatchedBillingAlertConfigurationApi,
-    ThresholdTypeEnumApi,
 } from './generated/api.schemas'
 
 export interface BillingAlertFormValues {
     name: string
     description: string
     enabled: boolean
-    thresholdType: ThresholdTypeEnumApi
-    thresholdPercentage: number
+    metric: BillingAlertMetricEnumApi
     thresholdValue: number
     minimumValue: number
-    baselineWindowDays: number
     evaluationDelayHours: number
     cooldownHours: number
 }
@@ -41,11 +39,9 @@ const API_FIELD_TO_FORM_FIELD: Record<string, keyof BillingAlertFormValues> = {
     name: 'name',
     description: 'description',
     enabled: 'enabled',
-    threshold_type: 'thresholdType',
-    threshold_percentage: 'thresholdPercentage',
+    metric: 'metric',
     threshold_value: 'thresholdValue',
     minimum_value: 'minimumValue',
-    baseline_window_days: 'baselineWindowDays',
     evaluation_delay_hours: 'evaluationDelayHours',
     cooldown_hours: 'cooldownHours',
 }
@@ -105,11 +101,9 @@ function formDefaults(alert: BillingAlertConfigurationApi | null): BillingAlertF
         name: alert?.name ?? '',
         description: alert?.description ?? '',
         enabled: alert?.enabled ?? true,
-        thresholdType: alert?.threshold_type ?? 'relative_increase',
-        thresholdPercentage: numberValue(alert?.threshold_percentage, 50),
+        metric: alert?.metric ?? 'spend',
         thresholdValue: numberValue(alert?.threshold_value, 100),
         minimumValue: numberValue(alert?.minimum_value, ADVANCED_OPTION_DEFAULTS.minimumValue),
-        baselineWindowDays: alert?.baseline_window_days ?? 7,
         evaluationDelayHours: alert?.evaluation_delay_hours ?? ADVANCED_OPTION_DEFAULTS.evaluationDelayHours,
         cooldownHours: alert?.cooldown_hours ?? ADVANCED_OPTION_DEFAULTS.cooldownHours,
     }
@@ -123,11 +117,10 @@ export function billingAlertWritePayload(
         name: form.name.trim(),
         description: form.description.trim(),
         enabled: form.enabled,
-        threshold_type: form.thresholdType,
-        threshold_percentage: form.thresholdType === 'relative_increase' ? String(form.thresholdPercentage) : null,
-        threshold_value: form.thresholdType === 'relative_increase' ? null : String(form.thresholdValue),
+        metric: form.metric,
+        threshold_type: 'absolute_value',
+        threshold_value: String(form.thresholdValue),
         minimum_value: String(form.minimumValue),
-        baseline_window_days: form.baselineWindowDays,
         evaluation_delay_hours: form.evaluationDelayHours,
         cooldown_hours: form.cooldownHours,
         ...(pending.length > 0 ? { destination_changes: { create: pending.map(({ payload }) => payload) } } : {}),
@@ -233,19 +226,8 @@ export const billingAlertFormLogic = kea<billingAlertFormLogicType>([
             defaults: formDefaults(props.alert),
             errors: (form) => ({
                 name: form.name.trim() ? undefined : 'Name is required.',
-                thresholdPercentage:
-                    form.thresholdType === 'relative_increase' && form.thresholdPercentage <= 0
-                        ? 'Enter a percentage greater than 0.'
-                        : undefined,
-                thresholdValue:
-                    form.thresholdType !== 'relative_increase' && form.thresholdValue < 0
-                        ? 'Enter a value of 0 or more.'
-                        : undefined,
+                thresholdValue: form.thresholdValue < 0 ? 'Enter a value of 0 or more.' : undefined,
                 minimumValue: form.minimumValue < 0 ? 'Enter a value of 0 or more.' : undefined,
-                baselineWindowDays:
-                    form.baselineWindowDays < 1 || form.baselineWindowDays > 90
-                        ? 'Use a baseline between 1 and 90 days.'
-                        : undefined,
                 evaluationDelayHours:
                     form.evaluationDelayHours < 0 || form.evaluationDelayHours > 72
                         ? 'Use a delay between 0 and 72 hours.'

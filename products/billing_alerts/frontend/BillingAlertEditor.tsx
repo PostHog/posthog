@@ -43,6 +43,7 @@ function BillingAlertEditorContent(props: BillingAlertFormLogicProps): JSX.Eleme
         Number(alertForm.minimumValue > ADVANCED_OPTION_DEFAULTS.minimumValue) +
         Number(alertForm.evaluationDelayHours !== ADVANCED_OPTION_DEFAULTS.evaluationDelayHours) +
         Number(alertForm.cooldownHours !== ADVANCED_OPTION_DEFAULTS.cooldownHours)
+    const isPaused = props.alert !== null && !props.alert.enabled
 
     return (
         <Form
@@ -54,7 +55,7 @@ function BillingAlertEditorContent(props: BillingAlertFormLogicProps): JSX.Eleme
         >
             <AlertEditor
                 title={props.alert ? 'Edit billing alert' : 'New billing alert'}
-                description="Billing alerts evaluate organization spend daily against a configured threshold."
+                description="Billing alerts check your organization's billing-period spend once a day against a configured threshold."
                 onBack={closeEditor}
                 isEditing={props.alert !== null}
                 isSubmitting={isAlertFormSubmitting}
@@ -67,6 +68,11 @@ function BillingAlertEditorContent(props: BillingAlertFormLogicProps): JSX.Eleme
                             icon={<IconPlay />}
                             onClick={() => checkNow(props.alert!)}
                             loading={checkingAlertId === props.alert.id}
+                            tooltip={
+                                isPaused
+                                    ? 'This alert is paused, so the check runs as a preview and does not send notifications.'
+                                    : undefined
+                            }
                             disabledReason={
                                 alertFormChanged || pendingDestinations.length > 0
                                     ? 'Save your changes before checking.'
@@ -76,7 +82,7 @@ function BillingAlertEditorContent(props: BillingAlertFormLogicProps): JSX.Eleme
                             }
                             data-attr="billing-alert-check-now"
                         >
-                            Check now
+                            {isPaused ? 'Preview check' : 'Check now'}
                         </LemonButton>
                     ) : undefined
                 }
@@ -93,68 +99,39 @@ function BillingAlertEditorContent(props: BillingAlertFormLogicProps): JSX.Eleme
 
                     <AlertEditorSection
                         title="Definition"
-                        description="Billing data uses UTC date boundaries and completed daily values."
+                        description="You can choose when the daily check runs, but the underlying billing data updates once a day and usually settles around 8-10am UTC."
                     >
                         <div className="space-y-4" data-attr="billing-alert-definition">
                             <AlertDefinitionRow label="Alert on">
-                                <span className="text-sm font-medium">Spend</span>
-                                <span className="text-sm">when it</span>
                                 <LemonSelect
-                                    value={alertForm.thresholdType}
-                                    onChange={(thresholdType) => setAlertFormValue('thresholdType', thresholdType)}
+                                    value={alertForm.metric}
+                                    onChange={(metric) => setAlertFormValue('metric', metric)}
                                     options={[
-                                        { value: 'relative_increase', label: 'increases by' },
-                                        { value: 'absolute_value', label: 'goes above' },
-                                        { value: 'absolute_increase', label: 'increases over baseline by' },
+                                        { value: 'spend', label: 'Current period spend' },
+                                        { value: 'projected_spend', label: 'Projected period spend' },
                                     ]}
                                     size="small"
-                                    data-attr="billing-alert-threshold-type"
+                                    data-attr="billing-alert-metric"
                                 />
-                                {alertForm.thresholdType === 'relative_increase' ? (
-                                    <LemonField name="thresholdPercentage">
-                                        <LemonInput
-                                            type="number"
-                                            min={0.01}
-                                            step={0.01}
-                                            value={alertForm.thresholdPercentage}
-                                            onChange={(value) => setAlertFormValue('thresholdPercentage', value ?? 0)}
-                                            suffix={<span>%</span>}
-                                            className="w-28"
-                                            size="small"
-                                            data-attr="billing-alert-threshold-percentage"
-                                        />
-                                    </LemonField>
-                                ) : (
-                                    <LemonField name="thresholdValue">
-                                        <LemonInput
-                                            type="number"
-                                            min={0}
-                                            value={alertForm.thresholdValue}
-                                            onChange={(value) => setAlertFormValue('thresholdValue', value ?? 0)}
-                                            prefix={<span>$</span>}
-                                            className="w-32"
-                                            size="small"
-                                            data-attr="billing-alert-threshold-value"
-                                        />
-                                    </LemonField>
-                                )}
+                                <span className="text-sm">when it goes above</span>
+                                <LemonField name="thresholdValue">
+                                    <LemonInput
+                                        type="number"
+                                        min={0}
+                                        value={alertForm.thresholdValue}
+                                        onChange={(value) => setAlertFormValue('thresholdValue', value ?? 0)}
+                                        prefix={<span>$</span>}
+                                        className="w-32"
+                                        size="small"
+                                        data-attr="billing-alert-threshold-value"
+                                    />
+                                </LemonField>
                             </AlertDefinitionRow>
-                            {alertForm.thresholdType !== 'absolute_value' ? (
-                                <AlertDefinitionRow label="Compare against the previous">
-                                    <LemonField name="baselineWindowDays">
-                                        <LemonInput
-                                            type="number"
-                                            min={1}
-                                            max={90}
-                                            value={alertForm.baselineWindowDays}
-                                            onChange={(value) => setAlertFormValue('baselineWindowDays', value ?? 1)}
-                                            suffix={<span>days</span>}
-                                            className="w-28"
-                                            size="small"
-                                        />
-                                    </LemonField>
-                                </AlertDefinitionRow>
-                            ) : null}
+                            <div className="text-xs text-secondary">
+                                {alertForm.metric === 'projected_spend'
+                                    ? 'Projected period spend estimates what this billing period will cost by its end, after discounts.'
+                                    : 'Current period spend is what this billing period has cost so far, after discounts.'}
+                            </div>
                             <AlertNextEvaluationStatus loading={false}>
                                 {props.alert?.next_check_at
                                     ? dayjs.utc(props.alert.next_check_at).format('MMM D, HH:mm [UTC]')

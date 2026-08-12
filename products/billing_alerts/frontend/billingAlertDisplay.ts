@@ -5,8 +5,8 @@ import type {
     NotificationDestinationTypeEnumApi,
 } from './generated/api.schemas'
 
-export function metricLabel(_metric: BillingAlertMetricEnumApi | undefined): string {
-    return 'Spend'
+export function metricLabel(metric: BillingAlertMetricEnumApi | undefined): string {
+    return metric === 'projected_spend' ? 'Projected period spend' : 'Current period spend'
 }
 
 export function formatBillingValue(
@@ -21,7 +21,7 @@ export function formatBillingValue(
     if (!Number.isFinite(number)) {
         return String(value)
     }
-    if (metric === 'spend') {
+    if (metric === 'spend' || metric === 'projected_spend') {
         return new Intl.NumberFormat(undefined, {
             style: 'currency',
             currency,
@@ -84,7 +84,7 @@ export function thresholdView(alert: BillingAlertConfigurationApi): BillingAlert
             ? 'Increase'
             : alert.threshold_type === 'absolute_increase'
               ? 'Increase over baseline'
-              : 'Spend',
+              : metricLabel(alert.metric),
         pickEventValue: (event: BillingAlertEventApi): number | null => {
             const value = isRelative
                 ? event.relative_delta_percentage
