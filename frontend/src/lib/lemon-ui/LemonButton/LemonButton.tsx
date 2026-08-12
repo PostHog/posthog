@@ -32,6 +32,7 @@ export interface LemonButtonPropsBase
         | 'style'
         | 'role'
         | 'aria-haspopup'
+        | 'aria-pressed'
     > {
     children?: React.ReactNode
     type?: 'primary' | 'secondary' | 'tertiary'
