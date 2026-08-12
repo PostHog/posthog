@@ -42,6 +42,7 @@ from products.tasks.backend.facade.contracts import (
     TaskUserBasicInfo,
     WizardCloudRunDTO,
 )
+from products.tasks.backend.facade.model_catalogue import ModelChoice
 from products.tasks.backend.facade.run_config import (
     ALL_INITIAL_PERMISSION_MODE_CHOICES,
     CODEX_INITIAL_PERMISSION_MODE_CHOICES,
@@ -416,9 +417,12 @@ class TaskSerializer(DataclassSerializer):
     latest_run = TaskRunDetailSerializer(allow_null=True, required=False, help_text="Latest run details for this task")
     created_by = TaskUserBasicInfoSerializer(allow_null=True, required=False)
     slack_thread_references = SlackThreadReferenceSerializer(many=True, read_only=True)
+    # Not `read_only`, even though this is a response-only serializer: `@validated_request` re-reads
+    # its own output through `to_internal_value`, which drops read-only fields, and `runtime` is
+    # required on `TaskDetailDTO` — so a read-only declaration makes that round-trip raise. Writes
+    # never reach here; they go through `TaskCreateSerializer` / `TaskWriteSerializer`.
     runtime = serializers.ChoiceField(
         choices=tasks_facade.TaskRuntime.choices,
-        read_only=True,
         help_text="Agent protocol and harness used for this task's runs.",
     )
 
@@ -2059,6 +2063,37 @@ class TaskPinRequestSerializer(serializers.Serializer):
 class TaskPinResponseSerializer(serializers.Serializer):
     task_id = serializers.UUIDField(help_text="Task whose pin state was updated.")
     pinned = serializers.BooleanField(help_text="Current pin state for the requester.")
+
+
+class ModelChoiceSerializer(DataclassSerializer):
+    """One model a run may use. Reads a `ModelChoice` straight off the catalogue facade.
+
+    Both enums are declared with the same choices the run-detail response uses, so clients get the
+    generated adapter/effort types here rather than bare strings.
+    """
+
+    runtime_adapter = serializers.ChoiceField(
+        choices=[adapter.value for adapter in RuntimeAdapter],
+        help_text="Runtime that drives this model, such as 'claude' or 'codex'.",
+    )
+    display_name = serializers.CharField(
+        source="label", help_text="Display name for the model, such as 'Claude Opus 4.8'."
+    )
+    supported_efforts = serializers.ListField(
+        child=serializers.ChoiceField(choices=[effort.value for effort in PUBLIC_REASONING_EFFORTS]),
+        help_text="Reasoning efforts this model accepts, in ascending order. Empty for a model with no effort control.",
+    )
+
+    class Meta:
+        dataclass = ModelChoice
+        fields = ["runtime_adapter", "model", "display_name", "supported_efforts"]
+
+
+class ModelCatalogueResponseSerializer(serializers.Serializer):
+    models = ModelChoiceSerializer(
+        many=True,
+        help_text="Every model a run may use, newest catalogue from the LLM gateway. Empty when the gateway is unreachable.",
+    )
 
 
 class RepositoryReadinessQuerySerializer(serializers.Serializer):
