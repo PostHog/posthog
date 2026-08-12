@@ -173,6 +173,11 @@ export function MaterializationStatusPanel({ viewId, kind = 'view' }: Materializ
     // schedules is evaluated server-side and never reaches the frontend. Managed viewsets reject
     // every update regardless of team.
     const canEditSyncFrequency = !savedQuery?.sync_frequency_managed_by_dag && !savedQuery?.managed_viewset_kind
+    const showIncremental =
+        kind !== 'endpoint' &&
+        !!featureFlags[FEATURE_FLAGS.DATA_MODELING_INCREMENTAL_VIEWS] &&
+        !!savedQuery?.incremental?.enabled
+    const lastRunMode = savedQuery?.incremental_state?.last_run_mode
     const materializationAccessReason = getAccessControlDisabledReason(
         AccessControlResourceType.WarehouseObjects,
         AccessControlLevel.Editor
@@ -246,6 +251,15 @@ export function MaterializationStatusPanel({ viewId, kind = 'view' }: Materializ
                                         <span>Materialization scheduled</span>
                                     </div>
                                 )}
+                                {showIncremental && (
+                                    <div className="text-xs text-secondary mt-1">
+                                        {lastRunMode === 'incremental'
+                                            ? `Updating new rows only, up to ${humanFriendlyDetailedTime(
+                                                  savedQuery.incremental_state?.watermark ?? undefined
+                                              )}`
+                                            : 'The last run rebuilt the whole table. The next one will update only new rows.'}
+                                    </div>
+                                )}
                                 <div className="flex gap-4 mt-2">
                                     <LemonButton
                                         className="whitespace-nowrap"
@@ -287,6 +301,32 @@ export function MaterializationStatusPanel({ viewId, kind = 'view' }: Materializ
                                             loading={updatingDataWarehouseSavedQuery}
                                             options={SYNC_FREQUENCY_OPTIONS}
                                         />
+                                    )}
+                                    {showIncremental && (
+                                        <LemonButton
+                                            type="secondary"
+                                            size="small"
+                                            tooltip="Rebuild the whole table from scratch instead of updating it"
+                                            disabledReason={sync || materializationAccessReason}
+                                            onClick={() => {
+                                                LemonDialog.open({
+                                                    title: 'Rebuild this table',
+                                                    maxWidth: '30rem',
+                                                    description:
+                                                        'This runs the query over all of your data and replaces the table, instead of updating only new rows. It takes as long as the first materialization did. Use it after correcting upstream data.',
+                                                    primaryButton: {
+                                                        children: 'Rebuild',
+                                                        onClick: () => {
+                                                            setStartingMaterialization(true)
+                                                            runDataWarehouseSavedQuery(viewId, true)
+                                                        },
+                                                    },
+                                                    secondaryButton: { children: 'Cancel' },
+                                                })
+                                            }}
+                                        >
+                                            Rebuild
+                                        </LemonButton>
                                     )}
                                     {kind !== 'endpoint' && (
                                         <LemonButton

@@ -47,6 +47,7 @@ from posthog.rbac.query_access import assert_user_can_read_query
 from posthog.rbac.user_access_control import UserAccessControlSerializerMixin
 from posthog.temporal.common.client import sync_connect
 
+from products.data_modeling.backend.facade.api import MAX_LOOKBACK_SECONDS
 from products.data_modeling.backend.facade.modeling import DataWarehouseModelPath
 from products.data_modeling.backend.facade.models import (
     DataModelingJob,
@@ -342,10 +343,76 @@ class DataWarehouseSavedQueryMinimalSerializer(
         read_only_fields = fields
 
 
+def _clickhouse_types(columns: Any) -> dict[str, str] | None:
+    """Pull the ClickHouse type out of each entry in a saved query's stored `columns` blob.
+
+    Only used to spot a nullable unique key, which would silently duplicate rows on every run.
+    """
+    if not isinstance(columns, dict):
+        return None
+    types: dict[str, str] = {}
+    for name, meta in columns.items():
+        if isinstance(meta, dict) and isinstance(meta.get("clickhouse"), str):
+            types[name] = meta["clickhouse"]
+    return types or None
+
+
 class SavedQuerySuspensionSerializer(serializers.Serializer):
     at = serializers.DateTimeField(help_text="When materialization was suspended.")
     reason = serializers.CharField(help_text="Error from the materialization run that tripped suspension.")
     job_id = serializers.CharField(help_text="Materialization job that tripped suspension.")
+
+
+class IncrementalConfigSerializer(serializers.Serializer):
+    """How a view updates its materialized table in place rather than rebuilding it."""
+
+    enabled = serializers.BooleanField(
+        default=False, help_text="Whether runs update the table incrementally instead of rebuilding it."
+    )
+    incremental_key = serializers.CharField(
+        help_text="Output column whose advancing value marks rows as new. Each run reads only rows at "
+        "or after the last run's highest value for it. When the query groups, this must be one of the "
+        "grouped columns, so every group a run touches is recomputed in full.",
+    )
+    unique_key = serializers.ListField(
+        child=serializers.CharField(),
+        allow_empty=False,
+        help_text="Output columns that identify a row, used to match recomputed rows against stored "
+        "ones. Must include every GROUP BY column. These columns can never be null.",
+    )
+    lookback_seconds = serializers.IntegerField(
+        required=False,
+        default=0,
+        min_value=0,
+        max_value=MAX_LOOKBACK_SECONDS,
+        help_text="How far back before the last run's high point to re-read, so late-arriving data is "
+        "picked up. Only applies when the incremental key is a date or time.",
+    )
+
+
+class IncrementalStateSerializer(serializers.Serializer):
+    """Read-only progress written by the materialization run."""
+
+    watermark = serializers.CharField(
+        allow_null=True,
+        required=False,
+        help_text="Highest incremental key value written so far. The next run starts here.",
+    )
+    definition_fingerprint = serializers.CharField(
+        allow_null=True,
+        required=False,
+        help_text="Fingerprint of the query and config the stored rows were built from. When it stops "
+        "matching, the next run rebuilds the whole table.",
+    )
+    last_full_refresh_at = serializers.CharField(
+        allow_null=True, required=False, help_text="When the table was last rebuilt from scratch."
+    )
+    last_run_mode = serializers.ChoiceField(
+        choices=[("incremental", "incremental"), ("full_refresh", "full_refresh")],
+        allow_null=True,
+        required=False,
+        help_text="Whether the last run updated the table or rebuilt it.",
+    )
 
 
 class DataWarehouseSavedQuerySerializer(
@@ -416,6 +483,18 @@ class DataWarehouseSavedQuerySerializer(
     description = ViewDescriptionField(
         required=False, allow_blank=True, allow_null=True, help_text=VIEW_DESCRIPTION_HELP_TEXT
     )
+    incremental = IncrementalConfigSerializer(
+        source="incremental_config",
+        required=False,
+        allow_null=True,
+        help_text="Update the materialized table in place instead of rebuilding it. Null or absent "
+        "means every run rebuilds the whole table.",
+    )
+    incremental_state = IncrementalStateSerializer(
+        read_only=True,
+        help_text="How far incremental materialization has progressed. Written by the materialization "
+        "run, not by this API.",
+    )
 
     class Meta:
         model = DataWarehouseSavedQuery
@@ -424,6 +503,8 @@ class DataWarehouseSavedQuerySerializer(
             "deleted",
             "name",
             "query",
+            "incremental",
+            "incremental_state",
             "created_by",
             "created_at",
             "description",
@@ -452,6 +533,7 @@ class DataWarehouseSavedQuerySerializer(
             "created_by",
             "created_at",
             "columns",
+            "incremental_state",
             "status",
             "last_run_at",
             "managed_viewset_kind",
@@ -892,6 +974,35 @@ class DataWarehouseSavedQuerySerializer(
 
         return query
 
+    def validate(self, attrs):
+        attrs = super().validate(attrs)
+        config = attrs.get("incremental_config")
+        if not config or not config.get("enabled"):
+            return attrs
+
+        # Checked against the query being saved, or the stored one when only the config changed,
+        # so enabling incremental on an ineligible query fails here rather than at the next run.
+        query = attrs.get("query") or (self.instance.query if self.instance is not None else None)
+        sql = (query or {}).get("query")
+        if not isinstance(sql, str):
+            raise serializers.ValidationError({"incremental": "This view has no query to make incremental."})
+
+        from products.data_modeling.backend.facade.api import IncrementalConfig, check_incremental_eligibility
+
+        column_types = self.instance.columns if self.instance is not None else None
+        result = check_incremental_eligibility(
+            sql,
+            IncrementalConfig(
+                incremental_key=config["incremental_key"],
+                unique_key=tuple(config["unique_key"]),
+                lookback_seconds=config.get("lookback_seconds", 0),
+            ),
+            column_types=_clickhouse_types(column_types),
+        )
+        if not result.eligible:
+            raise serializers.ValidationError({"incremental": result.blockers})
+        return attrs
+
     def validate_is_test(self, is_test):
         if is_test and not self.context["request"].user.is_staff:
             raise serializers.ValidationError("Only staff users can create test views.")
@@ -1004,6 +1115,61 @@ class DataWarehouseSavedQueryFolderViewSet(TeamAndOrgViewSetMixin, AccessControl
 
 class SavedQueryResumeSerializer(serializers.Serializer):
     resumed = serializers.BooleanField(help_text="False when the query's materialization was not suspended.")
+
+
+class IncrementalEligibilitySerializer(serializers.Serializer):
+    """Whether a query can be materialized incrementally, and what stands in the way."""
+
+    eligible = serializers.BooleanField(help_text="True when nothing blocks incremental materialization.")
+    key_candidates = serializers.ListField(
+        child=serializers.CharField(),
+        help_text="Output columns that could be used as the incremental key. Excludes aggregates, "
+        "and for a union only includes columns every branch produces.",
+    )
+    blockers = serializers.ListField(
+        child=serializers.CharField(),
+        help_text="Reasons this query cannot be incremental. Each names the construct responsible.",
+    )
+    warnings = serializers.ListField(
+        child=serializers.CharField(),
+        help_text="Things that still work but are worth knowing, such as a filter that cannot be "
+        "pushed down so each run reads as much data as a full refresh.",
+    )
+
+
+class CheckIncrementalSerializer(serializers.Serializer):
+    """Body of the `check_incremental` action: a query and an optional config to check it against."""
+
+    query = serializers.CharField(help_text="The HogQL query to check.")
+    incremental_key = serializers.CharField(
+        required=False,
+        allow_null=True,
+        help_text="Output column whose advancing value marks rows as new. Omit to only list candidates.",
+    )
+    unique_key = serializers.ListField(
+        child=serializers.CharField(),
+        required=False,
+        allow_null=True,
+        help_text="Output columns that identify a row. Must include every GROUP BY column.",
+    )
+    lookback_seconds = serializers.IntegerField(
+        required=False,
+        min_value=0,
+        max_value=MAX_LOOKBACK_SECONDS,
+        help_text="How far back before the watermark to re-read each run, to pick up late-arriving data.",
+    )
+
+
+class SavedQueryRunSerializer(serializers.Serializer):
+    """Body of the `run` action."""
+
+    full_refresh = serializers.BooleanField(
+        required=False,
+        default=False,
+        help_text="Rebuild the whole table instead of updating it incrementally. Has no effect on a "
+        "view that is not incremental. This is how you reprocess history after changing what the "
+        "query means without changing its text, or after upstream data was corrected.",
+    )
 
 
 class SavedQueryMaterializeSerializer(serializers.Serializer):
@@ -1176,6 +1342,7 @@ class DataWarehouseSavedQueryViewSet(TeamAndOrgViewSetMixin, AccessControlViewSe
 
         return response.Response(status=status.HTTP_204_NO_CONTENT)
 
+    @extend_schema(request=SavedQueryRunSerializer, responses={200: None})
     @action(
         methods=["POST"],
         detail=True,
@@ -1184,9 +1351,21 @@ class DataWarehouseSavedQueryViewSet(TeamAndOrgViewSetMixin, AccessControlViewSe
     )
     def run(self, request: request.Request, *args, **kwargs) -> response.Response:
         """Run this saved query."""
-        from products.data_modeling.backend.facade.api import is_saved_query_on_v2_schedule, materialize_saved_query
+        from products.data_modeling.backend.facade.api import (
+            clear_incremental_state,
+            is_saved_query_on_v2_schedule,
+            materialize_saved_query,
+        )
+
+        body = SavedQueryRunSerializer(data=request.data)
+        body.is_valid(raise_exception=True)
 
         saved_query = self.get_object()
+
+        if body.validated_data["full_refresh"]:
+            # Dropping the watermark is the whole mechanism: the next run finds no progress to
+            # build on and rebuilds. Done before dispatch so the run it triggers is the rebuild.
+            clear_incremental_state(saved_query)
 
         if is_saved_query_on_v2_schedule(saved_query):
             materialize_saved_query(saved_query)
@@ -1205,6 +1384,41 @@ class DataWarehouseSavedQueryViewSet(TeamAndOrgViewSetMixin, AccessControlViewSe
         )
 
         return response.Response(status=status.HTTP_200_OK)
+
+    @extend_schema(request=CheckIncrementalSerializer, responses={200: IncrementalEligibilitySerializer})
+    @action(methods=["POST"], detail=False, required_scopes=["warehouse_view:read"])
+    def check_incremental(self, request: request.Request, *args, **kwargs) -> response.Response:
+        """Report whether a query can be materialized incrementally, without running it.
+
+        Parses the SQL only, so it is cheap enough to call from the editor as the user types. Lets
+        the editor explain why the incremental option is unavailable before anything is saved.
+        """
+        from products.data_modeling.backend.facade.api import IncrementalConfig, check_incremental_eligibility
+
+        body = CheckIncrementalSerializer(data=request.data)
+        body.is_valid(raise_exception=True)
+        data = body.validated_data
+
+        config = None
+        if data.get("incremental_key") and data.get("unique_key"):
+            config = IncrementalConfig(
+                incremental_key=data["incremental_key"],
+                unique_key=tuple(data["unique_key"]),
+                lookback_seconds=data.get("lookback_seconds", 0),
+            )
+
+        result = check_incremental_eligibility(data["query"], config)
+        return response.Response(
+            IncrementalEligibilitySerializer(
+                {
+                    "eligible": result.eligible,
+                    "key_candidates": result.key_candidates,
+                    "blockers": result.blockers,
+                    "warnings": result.warnings,
+                }
+            ).data,
+            status=status.HTTP_200_OK,
+        )
 
     @extend_schema(request=None, responses={200: SavedQueryResumeSerializer})
     @action(methods=["POST"], detail=True, required_scopes=["warehouse_view:write"])

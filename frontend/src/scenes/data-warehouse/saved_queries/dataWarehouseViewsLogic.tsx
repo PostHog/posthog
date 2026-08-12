@@ -177,7 +177,11 @@ export interface dataWarehouseViewsLogicActions {
     revertMaterialization: (viewId: string) => {
         viewId: string
     }
-    runDataWarehouseSavedQuery: (viewId: string) => {
+    runDataWarehouseSavedQuery: (
+        viewId: string,
+        fullRefresh?: boolean
+    ) => {
+        fullRefresh: boolean | undefined
         viewId: string
     }
     updateDataWarehouseSavedQuery: (
@@ -319,7 +323,7 @@ export const dataWarehouseViewsLogic = kea<dataWarehouseViewsLogicType>([
         ],
     }),
     actions({
-        runDataWarehouseSavedQuery: (viewId: string) => ({ viewId }),
+        runDataWarehouseSavedQuery: (viewId: string, fullRefresh?: boolean) => ({ viewId, fullRefresh }),
         cancelDataWarehouseSavedQuery: (viewId: string) => ({ viewId }),
         materializeDataWarehouseSavedQuery: (viewId: string, syncFrequency?: DataModelingSyncInterval) => ({
             viewId,
@@ -502,13 +506,13 @@ export const dataWarehouseViewsLogic = kea<dataWarehouseViewsLogicType>([
             actions.loadDataWarehouseSavedQueries()
             actions.refreshDatabaseSchema()
         },
-        runDataWarehouseSavedQuery: async ({ viewId }) => {
+        runDataWarehouseSavedQuery: async ({ viewId, fullRefresh }) => {
             try {
-                await api.dataWarehouseSavedQueries.run(viewId)
-                lemonToast.success('Materialization started')
+                await api.dataWarehouseSavedQueries.run(viewId, fullRefresh)
+                lemonToast.success(fullRefresh ? 'Rebuild started' : 'Materialization started')
                 actions.loadDataWarehouseSavedQueries()
             } catch {
-                lemonToast.error(`Failed to run materialization`)
+                lemonToast.error(fullRefresh ? 'Failed to start rebuild' : 'Failed to run materialization')
             }
         },
         cancelDataWarehouseSavedQuery: async ({ viewId }) => {
