@@ -2540,6 +2540,8 @@ class ExternalDataSourceType(StrEnum):
     SEVALLA = "Sevalla"
     MOTION = "Motion"
     FRAMER = "Framer"
+    CLOUDINARY = "Cloudinary"
+    UPLOADCARE = "Uploadcare"
 
 
 class ExternalQueryErrorCode(StrEnum):
