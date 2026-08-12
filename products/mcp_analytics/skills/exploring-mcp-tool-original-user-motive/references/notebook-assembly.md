@@ -138,6 +138,8 @@ GROUP BY p.org, f.theme, f.starting_intention
 ORDER BY sessions DESC
 ```
 
+**Both literals are executable source, so nothing untrusted goes into them raw.** The caller and org come from client-controlled properties, and a value containing `'''` would close the literal and execute what follows when the cell runs. The skill's corpus query constrains them to a safe charset and emits `unsafe-caller-value` for anything else; transcribe what that query returns and never widen it by hand. The goal labels are safe by a different route — you wrote them.
+
 **Joining the corpus cell instead does not work, and the reason is worth knowing before you design around it.** A SQL cell that another cell joins has to materialize into the notebook kernel, and materialization runs under its own caps ([`frame_materialize.py`](../../../../products/notebooks/backend/temporal/frame_materialize.py)): a 50 GB scan budget, a 2 GB result cap, 500k rows, 16 threads. A corpus query grouping 90 days of `$mcp_tool_call` by session id blows them and the cell fails with:
 
 ```text
