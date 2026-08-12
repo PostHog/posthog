@@ -17,6 +17,15 @@ description: >
 
 # Exploring user intentions of MCP tools
 
+> **Internal analyst tool. Do not seed it into customer teams.**
+> It queries PostHog's own MCP telemetry across all organizations, and its
+> corpus step reads customer-authored intent text. Nothing serves it to
+> customers today: `skill-list` returns per-team `LLMSkill` rows, and the only
+> repo-to-team seeding path is `sync_signals_scout_skills.py`, scoped to
+> `products/signals/skills/`. Keep it that way — do not add this product to a
+> seeding command, and do not name this skill in an MCP tool description, which
+> would send customer agents looking for it.
+
 `$mcp_intent` records the **action** an agent was taking at the moment of a call
 ("create a notebook titled Q3 funnel review").
 It does not record the **goal** the person started with ("investigate a conversion drop").
