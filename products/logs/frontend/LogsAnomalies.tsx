@@ -9,6 +9,7 @@ import { pluralize } from 'lib/utils/strings'
 
 import type { LogMessage } from '~/queries/schema/schema-general'
 
+import { AnomalyBandChart } from 'products/logs/frontend/components/AnomalyBandChart'
 import { ServiceFilter } from 'products/logs/frontend/components/LogsViewer/Filters/ServiceFilter'
 import { LogTag } from 'products/logs/frontend/components/LogTag'
 import {
@@ -139,7 +140,32 @@ function ScanResults({ result }: { result: LogsAnomalyScanResponseApi }): JSX.El
                     from <TZLabel time={result.eval_start} /> to <TZLabel time={result.eval_end} />.
                 </LemonBanner>
             )}
+            <BandCharts series={result.series} />
             <LearningStatus series={result.series} lookbackDays={result.lookback_days} />
+        </div>
+    )
+}
+
+function BandCharts({ series }: { series: LogsAnomalyScanSeriesApi[] }): JSX.Element | null {
+    const withBuckets = series.filter((s) => s.buckets.length > 0)
+    if (withBuckets.length === 0) {
+        return null
+    }
+    return (
+        <div className="flex flex-col gap-2" data-attr="logs-anomalies-band-charts">
+            <h3 className="mb-0">Observed vs expected</h3>
+            <div className="text-secondary text-sm">
+                Log volume per 5 minute bucket against the learned band. Marked points fell outside the band.
+            </div>
+            {withBuckets.map((s) => (
+                <div key={s.severity} className="rounded border bg-surface-primary p-3">
+                    <div className="mb-2 flex items-center gap-2">
+                        <LogTag level={s.severity as LogMessage['severity_text']} />
+                        <span className="text-secondary text-xs">{s.stage ? STAGE_LABEL[s.stage] : 'Not scored'}</span>
+                    </div>
+                    <AnomalyBandChart buckets={s.buckets} />
+                </div>
+            ))}
         </div>
     )
 }
