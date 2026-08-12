@@ -217,11 +217,12 @@ export function LoopInstructionsFields({
 
   return (
     <>
-      <Field label="Prompt source" required>
+      <Field label="Prompt source" required className="max-w-[260px]">
         <SettingsOptionSelect
           ariaLabel="Prompt source"
           value={skill ? "skill" : "instructions"}
           disabled={disabled}
+          size="lg"
           options={[
             { value: "instructions", label: "Write instructions" },
             { value: "skill", label: "Run a skill" },

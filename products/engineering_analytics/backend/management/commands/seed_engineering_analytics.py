@@ -49,6 +49,7 @@ from posthog.storage import object_storage
 from products.engineering_analytics.backend.logic.job_logs.constants import CI_LOGS_SERVICE_NAME
 from products.engineering_analytics.backend.logic.queries._test_spans import PYTEST_CI_SERVICE_NAME
 from products.engineering_analytics.backend.logic.sources import (
+    ISSUE_EVENTS_SCHEMA,
     PULL_REQUESTS_SCHEMA,
     TEAM_MEMBERS_SCHEMA,
     WORKFLOW_JOBS_SCHEMA,
@@ -56,6 +57,7 @@ from products.engineering_analytics.backend.logic.sources import (
 )
 from products.engineering_analytics.backend.logic.views.pull_requests import KNOWN_BOT_HANDLES
 from products.engineering_analytics.backend.logic.views.source_schema import (
+    ISSUE_EVENTS_COLUMNS,
     PULL_REQUESTS_COLUMNS,
     TEAM_MEMBERS_COLUMNS,
     WORKFLOW_JOBS_COLUMNS,
@@ -103,7 +105,7 @@ def _synthetic_repo_id(full_name: str) -> int:
 
 
 def _flatten_run(run: dict[str, Any]) -> dict[str, Any]:
-    json_keys = ("repository", "pull_requests", "head_commit")
+    json_keys = ("repository", "pull_requests", "head_commit", "actor")
     scalar_keys = [key for key in WORKFLOW_RUNS_COLUMNS if key not in json_keys]
     # A run is attributed to a PR only when the PR's base repo id equals the run's own — that's what
     # keeps the fork network's PRs out (see logic/views/workflow_runs). Snapshots captured before
@@ -121,6 +123,9 @@ def _flatten_run(run: dict[str, Any]) -> dict[str, Any]:
         "repository": json.dumps(repository),
         "pull_requests": json.dumps(associations),
         "head_commit": json.dumps(run.get("head_commit", {})),
+        # Snapshots captured before actor was kept land '{}', which reads as "not the merge queue" —
+        # the safe answer, since the branch parse it gates only ever adds attribution.
+        "actor": json.dumps(run.get("actor") or {}),
     }
 
 
@@ -326,6 +331,57 @@ def _spread_merges(prs: list[dict[str, Any]], anchor: datetime) -> None:
         pr["created_at"] = (merged_at - timedelta(hours=open_hours)).strftime("%Y-%m-%dT%H:%M:%SZ")
 
 
+# Synthetic PR draft/ready transition stream backing ready_to_merge_seconds and the lifecycle
+# timeline. A real issue-events sync covers a bounded recent window (GitHub caps the history
+# walk), so the seed mirrors that: events land only inside the last _ISSUE_EVENTS_WINDOW_DAYS
+# of the merge spread, leaving older merges NULL ("not observed") exactly like production.
+# Every in-window merge lands its `merged` event too — that is what arms the never-drafted
+# fallback's window proof. Deterministic (index arithmetic, no random).
+_ISSUE_EVENTS_WINDOW_DAYS = 10
+
+
+def _issue_event_rows(prs: list[dict[str, Any]], anchor: datetime) -> list[dict[str, Any]]:
+    window_start = anchor - timedelta(days=_ISSUE_EVENTS_WINDOW_DAYS)
+    rows: list[dict[str, Any]] = []
+
+    def add(event_id: int, event: str, pr: dict[str, Any], at: datetime) -> None:
+        if at < window_start:  # a real desc walk never lands rows past its cap
+            return
+        rows.append(
+            {
+                "id": event_id,
+                "event": event,
+                "actor": json.dumps({"login": (pr.get("user") or {}).get("login") or "", "avatar_url": ""}),
+                "issue": json.dumps({"number": pr["number"]}),
+                "created_at": at.strftime("%Y-%m-%dT%H:%M:%SZ"),
+            }
+        )
+
+    merged = [pr for pr in prs if pr.get("merged_at")]
+    if merged:
+        # Pin the observed range's left edge with a non-transition event type, so the window
+        # bound is deterministic rather than whichever transition happens to land first.
+        add(7_000_000_000, "labeled", merged[0], window_start)
+    for index, pr in enumerate(merged):
+        created = datetime.fromisoformat(pr["created_at"])
+        merged_at = datetime.fromisoformat(pr["merged_at"])
+        life = merged_at - created
+        base_id = 7_000_000_100 + index * 10
+        add(base_id, "merged", pr, merged_at)
+        if index % 3 == 0:  # opened as a draft, readied once (opening as draft emits no event)
+            add(base_id + 1, "ready_for_review", pr, created + life * 0.4)
+        elif index % 3 == 1:  # re-drafted mid-review, then readied again — only the last ready counts
+            add(base_id + 1, "convert_to_draft", pr, created + life * 0.3)
+            add(base_id + 2, "ready_for_review", pr, created + life * 0.75)
+        # index % 3 == 2: no transitions — an in-window life takes the never-drafted fallback
+    demo_pr = next((pr for pr in prs if pr.get("number") == _DEMO_PR_NUMBER), None)
+    if demo_pr is not None:  # the multi-push demo PR's timeline shows both transition kinds
+        created = datetime.fromisoformat(demo_pr["created_at"])
+        add(7_000_000_050, "convert_to_draft", demo_pr, created + timedelta(hours=6))
+        add(7_000_000_051, "ready_for_review", demo_pr, created + timedelta(hours=30))
+    return rows
+
+
 def _demo_multi_push(
     prs: list[dict[str, Any]], runs: list[dict[str, Any]]
 ) -> tuple[dict[str, Any], list[dict[str, Any]]]:
@@ -374,7 +430,7 @@ def _demo_multi_push(
         "closed_at": None,
         "user": {"login": "webjunkie", "avatar_url": ""},
         "head": {"sha": push_shas[3]},
-        "base": {"repo": {"full_name": "PostHog/posthog"}},
+        "base": {"repo": {"full_name": "PostHog/posthog", "default_branch": "master"}},
         "labels": ["demo"],
     }
     return demo_pr, demo_runs
@@ -664,7 +720,7 @@ def _demo_merged_prs(prs: list[dict[str, Any]]) -> list[dict[str, Any]]:
                 "closed_at": template_ts,
                 "user": {"login": authors[index % len(authors)], "avatar_url": ""},
                 "head": {"sha": f"seed{index:04d}" + "a" * 32, "ref": f"seed/pr-{number}"},
-                "base": {"ref": "master", "repo": {"full_name": SEED_REPOSITORY}},
+                "base": {"ref": "master", "repo": {"full_name": SEED_REPOSITORY, "default_branch": "master"}},
                 "labels": [],
             }
         )
@@ -937,11 +993,15 @@ class Command(BaseCommand):
         # merge_commit_sha with the commit it landed, which is what the attribution join reads.
         merged_prs = [pr for pr in prs if pr.get("merged_at")]
         runs.extend(_demo_master_commits(_fixture_anchor(prs, runs), merged_prs))
+        # Synthetic draft/ready transitions + merged events for ready_to_merge_seconds, windowed
+        # like a real capped issue-events sync (see _issue_event_rows).
+        issue_events = _issue_event_rows(prs, _fixture_anchor(prs, runs))
 
         # Always normalize timestamps to a ClickHouse-friendly format; rebasing is optional.
         shift = timedelta(0) if options["keep_dates"] else self._rebase_delta(prs, runs)
         prs = [self._shift_dates(pr, PR_DATE_FIELDS, shift) for pr in prs]
         runs = [self._shift_dates(run, RUN_DATE_FIELDS, shift) for run in runs]
+        issue_events = [self._shift_dates(event, ("created_at",), shift) for event in issue_events]
         if shift:
             self.stdout.write(f"Rebased timestamps forward by {shift}.")
 
@@ -966,6 +1026,9 @@ class Command(BaseCommand):
             # Synthetic author→team membership backing the per-team time-to-merge trend.
             self._upsert_schema_table(
                 team, source, credential, prefix, TEAM_MEMBERS_SCHEMA, TEAM_MEMBERS_COLUMNS, _team_membership_rows(prs)
+            )
+            self._upsert_schema_table(
+                team, source, credential, prefix, ISSUE_EVENTS_SCHEMA, ISSUE_EVENTS_COLUMNS, issue_events
             )
 
         # Per-test CI spans back the flaky-test leaderboard and the team CI health surfaces.
@@ -1082,7 +1145,11 @@ class Command(BaseCommand):
             existing.options = {**(existing.options or {}), "csv_allow_double_quotes": True}
             existing.deleted = False
             existing.deleted_at = None
-            existing.save()
+            # url_pattern is computed above from team/table_name, not request input, and credential
+            # is a real value from get_or_create_datawarehouse_credential (never None) - but the
+            # guard reads the row's prior DB state, so a stale credential-less row would still trip
+            # it without this declared explicitly.
+            existing.save(internally_computed_url_pattern=True)
             table = existing
         else:
             table = DataWarehouseTable.objects.create(

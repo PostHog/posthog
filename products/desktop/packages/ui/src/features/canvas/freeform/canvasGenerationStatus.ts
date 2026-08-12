@@ -23,11 +23,32 @@ export type CanvasTerminalStatus = Extract<
   "completed" | "failed" | "cancelled"
 >;
 
+// A cloud run's turn-level activity. The sandbox lingers after the agent's
+// turn so follow-ups can reuse it — the run record only completes on the
+// inactivity timeout, long after generation actually ended — so a non-terminal
+// status alone can't mean "generating". A live session mirror carries the
+// turn-level signal (prompt-pending arms on session/prompt and clears on
+// turn_complete); when one exists it decides, with "connecting" covering the
+// attach/replay window before the prompt event has streamed in. Without a
+// mirror the run status is all there is.
+function isCloudRunActive(
+  latestRun: Pick<TaskRun, "status">,
+  session: CanvasGenerationStatusInput["session"],
+): boolean {
+  const cloudStatus = session?.cloudStatus ?? latestRun.status;
+  if (isTerminalStatus(cloudStatus)) return false;
+  if (session) {
+    return session.status === "connecting" || session.isPromptPending === true;
+  }
+  return true;
+}
+
 // Whether a canvas generation task is still actively running.
 //
 // Cloud and local report progress through different channels:
-//   - cloud: status comes from the live session's `cloudStatus`, falling back to
-//     the persisted run record — running until that status is terminal.
+//   - cloud: terminal `cloudStatus`/run status ends it; otherwise the live
+//     session's turn-level signal decides (see isCloudRunActive) — the lingering
+//     sandbox can't pin the canvas on "Generating" after the agent finished.
 //   - local: progress is tied to the live ACP session (connecting/connected).
 //     But the session can go stale or stall without cleanly disconnecting, so a
 //     terminal run record (completed/failed/cancelled) ALWAYS wins — otherwise a
@@ -43,8 +64,7 @@ export function isCanvasGenerationRunning({
   if (genTaskLoading) return true;
 
   if (latestRun?.environment === "cloud") {
-    const cloudStatus = session?.cloudStatus ?? latestRun.status;
-    return !isTerminalStatus(cloudStatus);
+    return isCloudRunActive(latestRun, session);
   }
 
   // Local: a terminal run record means the run is done regardless of a stale or
@@ -69,8 +89,7 @@ export function isCanvasGenerating({
   if (genTaskLoading) return true;
 
   if (latestRun?.environment === "cloud") {
-    const cloudStatus = session?.cloudStatus ?? latestRun.status ?? null;
-    return !isTerminalStatus(cloudStatus);
+    return isCloudRunActive(latestRun, session);
   }
 
   if (isTerminalStatus(latestRun?.status)) return false;

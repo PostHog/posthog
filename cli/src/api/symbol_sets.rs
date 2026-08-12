@@ -38,6 +38,11 @@ pub struct SymbolSetUpload {
     pub release_id: Option<String>,
 
     pub data: Vec<u8>,
+
+    /// Precomputed hash for the server's skip-identical-content check; `None` hashes `data`
+    /// as-is. Set this when `data` contains bytes that vary between builds of identical code
+    /// (e.g. an injected release id), so unchanged chunks still skip re-upload.
+    pub content_hash: Option<String>,
 }
 
 /// Per-run tally of what an upload actually did. Without it a run that skipped
@@ -183,6 +188,7 @@ pub fn upload_with_retry_and_concurrency(
                     chunk_id: s.chunk_id.clone(),
                     release_id: None,
                     data: s.data,
+                    content_hash: s.content_hash,
                 })
                 .collect();
             let res = upload_inner(
@@ -247,8 +253,16 @@ fn upload_inner(
         info!("Starting upload of batch {i}, {} symbol sets", batch.len());
         // Hash each payload once, across the pool — the same hash is sent in the
         // start request and used to confirm the upload when finishing.
-        let content_hashes: Vec<String> =
-            thread_pool.install(|| batch.par_iter().map(|u| content_hash([&u.data])).collect());
+        let content_hashes: Vec<String> = thread_pool.install(|| {
+            batch
+                .par_iter()
+                .map(|u| {
+                    u.content_hash
+                        .clone()
+                        .unwrap_or_else(|| content_hash([&u.data]))
+                })
+                .collect()
+        });
         let start_response = start_upload(batch, &content_hashes, force, skip_on_conflict)?;
 
         let id_map: HashMap<_, _> = batch
@@ -460,6 +474,7 @@ impl SymbolSetUpload {
             chunk_id: self.chunk_id.clone(),
             release_id: self.release_id.clone(),
             data: vec![],
+            content_hash: self.content_hash.clone(),
         }
     }
 }
@@ -510,7 +525,7 @@ mod tests {
     use super::*;
     use std::{
         fmt::Debug,
-        sync::{Arc, Mutex},
+        sync::{Arc, Mutex, MutexGuard},
     };
     use tracing::{field::Visit, Event, Subscriber};
     use tracing_subscriber::{layer::Context, prelude::*, registry::Registry, Layer};
@@ -549,6 +564,19 @@ mod tests {
         }
     }
 
+    // `tracing` caches each callsite's `Interest` in process-global state, resolved against
+    // whichever thread reaches the callsite first. A test that drives `retry` with no subscriber
+    // installed caches "never" on `retry`'s `warn!` callsites, so a concurrent
+    // `capture_tracing_messages` silently observes none of the events it asserts on. Serialize
+    // every test that reaches those callsites so registration happens under a known subscriber.
+    static RETRY_TRACING_LOCK: Mutex<()> = Mutex::new(());
+
+    fn lock_retry_tracing() -> MutexGuard<'static, ()> {
+        RETRY_TRACING_LOCK
+            .lock()
+            .unwrap_or_else(|poisoned| poisoned.into_inner())
+    }
+
     fn capture_tracing_messages<F: FnOnce()>(f: F) -> Vec<String> {
         let messages = Arc::new(Mutex::new(Vec::new()));
         let subscriber = Registry::default().with(RecordingLayer {
@@ -563,6 +591,8 @@ mod tests {
 
     #[test]
     fn retry_does_not_log_retry_after_final_attempt() {
+        let _retry_tracing_lock = lock_retry_tracing();
+
         let messages = capture_tracing_messages(|| {
             let result: Result<(), &str> = retry(
                 vec![Duration::ZERO, Duration::ZERO, Duration::ZERO].into_iter(),
@@ -589,6 +619,9 @@ mod tests {
 
     #[test]
     fn finish_upload_failure_message_names_unattached_maps() {
+        // `finish_upload` retries, so it reaches the callsites `RETRY_TRACING_LOCK` protects.
+        let _retry_tracing_lock = lock_retry_tracing();
+
         crate::invocation_context::INVOCATION_CONTEXT.get_or_init(|| {
             let config = crate::invocation_context::InvocationConfig {
                 api_key: "phx_test".to_string(),

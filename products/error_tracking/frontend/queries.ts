@@ -18,7 +18,6 @@ import {
     ChartDisplayType,
     PropertyFilterType,
     PropertyGroupFilter,
-    PropertyOperator,
     UniversalFiltersGroup,
 } from '~/types'
 
@@ -137,14 +136,14 @@ export const errorTrackingIssueQuery = ({
 }
 
 export const errorTrackingIssueEventsQuery = ({
-    fingerprints,
+    issueId,
     filterTestAccounts,
     filterGroup,
     searchQuery,
     dateRange,
     columns,
 }: {
-    fingerprints: string[]
+    issueId: string
     filterTestAccounts: boolean
     filterGroup: UniversalFiltersGroup
     searchQuery: string
@@ -154,7 +153,7 @@ export const errorTrackingIssueEventsQuery = ({
     const group = filterGroup.values[0] as UniversalFiltersGroup
     const properties = [...group.values] as AnyPropertyFilter[]
 
-    let where_string = `properties.$exception_fingerprint in [${fingerprints.map((f) => escapeHogQLString(f)).join(', ')}] AND isNotNull(properties.$exception_issue_id)`
+    let where_string = `issue_id = toUUID(${escapeHogQLString(issueId)})`
     if (searchQuery) {
         // This is an ugly hack for the fact I don't think we support nested property filters in
         // the eventsquery
@@ -269,10 +268,8 @@ export const errorTrackingIssueBreakdownQuery = ({
                     math: BaseMathType.TotalCount,
                     properties: [
                         {
-                            key: '$exception_issue_id',
-                            type: PropertyFilterType.Event,
-                            value: issueId,
-                            operator: PropertyOperator.Exact,
+                            key: `issue_id = ${escapeHogQLString(issueId)}`,
+                            type: PropertyFilterType.HogQL,
                         },
                         ...properties,
                     ],

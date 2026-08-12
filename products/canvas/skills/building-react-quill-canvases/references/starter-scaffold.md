@@ -36,6 +36,7 @@ export default function Canvas() {
   const [open, setOpen] = useState(false)
 
   const [loading, setLoading] = useState(true)
+  const [error, setError] = useState(null)
   const [total, setTotal] = useState(0)
   const [series, setSeries] = useState([])
   // Refresh plumbing: bump this nonce to re-run the data effect on demand.
@@ -44,6 +45,7 @@ export default function Canvas() {
   useEffect(() => {
     let cancelled = false
     setLoading(true)
+    setError(null)
     // Typed query node, computed by PostHog's own runner so the numbers match
     // the UI exactly. `event: null` = all events (works on any project).
     ph.query({
@@ -62,9 +64,12 @@ export default function Canvas() {
         setSeries((s.days ?? []).map((day, i) => ({ day, value: s.data?.[i] ?? 0 })))
         setLoading(false)
       })
-      .catch((error) => {
-        if (!cancelled) setLoading(false)
-        throw error
+      .catch((err) => {
+        if (cancelled) return
+        setLoading(false)
+        // A failed query must LOOK failed — falling through to zeros or an
+        // empty chart reads as "no data" and hides real breakage.
+        setError(String(err?.message ?? err))
       })
     return () => {
       cancelled = true
@@ -101,6 +106,17 @@ export default function Canvas() {
         </div>
       </div>
 
+      {error && (
+        <Card size="sm">
+          <CardContent className="flex items-center justify-between gap-4">
+            <p className="text-sm text-destructive">Couldn't load data: {error}</p>
+            <Button variant="outline" size="sm" onClick={() => setNonce((n) => n + 1)}>
+              Retry
+            </Button>
+          </CardContent>
+        </Card>
+      )}
+
       <div className="grid gap-4 md:grid-cols-3">
         <Card size="sm">
           <CardHeader>
@@ -109,6 +125,8 @@ export default function Canvas() {
           <CardContent>
             {loading ? (
               <SkeletonText lines={1} className="text-3xl" />
+            ) : error ? (
+              <p className="text-sm text-muted-foreground">—</p>
             ) : (
               <Heading size="2xl">{total.toLocaleString()}</Heading>
             )}
@@ -123,6 +141,8 @@ export default function Canvas() {
         <CardContent>
           {loading ? (
             <SkeletonText lines={6} />
+          ) : error ? (
+            <p className="text-sm text-muted-foreground">—</p>
           ) : (
             <div className="h-[280px] w-full">
               <ResponsiveContainer>

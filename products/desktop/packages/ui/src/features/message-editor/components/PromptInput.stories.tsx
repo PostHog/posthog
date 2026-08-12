@@ -208,7 +208,7 @@ function PromptInputHarness({
           <ContextUsageIndicator usage={contextUsage} />
         ) : undefined
       }
-      attachmentsPrefix={
+      submitAdornment={
         channelContext ? (
           <ChannelContextChip channelName="engineering" onRemove={() => {}} />
         ) : undefined

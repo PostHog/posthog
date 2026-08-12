@@ -14,10 +14,12 @@ from products.data_modeling.backend.logic.freshness import (
 )
 from products.data_modeling.backend.logic.node_frequency import (
     build_frequency_graph,
+    get_declared_anchor,
     get_declared_target,
     persist_seed_targets,
     resolve_source_intervals,
     seed_targets,
+    set_declared_anchor,
     set_declared_target,
 )
 from products.data_modeling.backend.models.dag import DAG
@@ -64,6 +66,23 @@ class TestFrequencyTargetAccessors(BaseTest):
         node.refresh_from_db()
         self.assertEqual(node.properties["system"]["suspended"], {"duckdb": True})
         self.assertEqual(get_declared_target(node), H1)
+
+    def test_anchor_and_target_share_the_frequency_key_without_clobbering(self):
+        node = self._node()
+        set_declared_target(node, H1)
+        set_declared_anchor(node, 120)
+        node.refresh_from_db()
+        self.assertEqual(get_declared_target(node), H1)
+        self.assertEqual(get_declared_anchor(node), 120)
+        set_declared_anchor(node, None)
+        node.refresh_from_db()
+        self.assertIsNone(get_declared_anchor(node))
+        self.assertEqual(get_declared_target(node), H1)
+
+    @parameterized.expand([("negative", -1), ("full_week", 10080)])
+    def test_anchor_out_of_range_is_rejected(self, _name, anchor):
+        with self.assertRaises(ValueError):
+            set_declared_anchor(self._node(), anchor)
 
 
 @pytest.mark.django_db

@@ -1,5 +1,63 @@
 import { describe, expect, it } from "vitest";
-import { parseSkillDependencies } from "./parse-skill-frontmatter";
+import {
+  parseSkillDependencies,
+  parseSkillFrontmatter,
+} from "./parse-skill-frontmatter";
+
+describe("parseSkillFrontmatter disable-model-invocation", () => {
+  it.each([
+    ["absent", `---\nname: a\ndescription: d\n---\nbody`, false],
+    [
+      "true",
+      `---\nname: a\ndescription: d\ndisable-model-invocation: true\n---\nbody`,
+      true,
+    ],
+    [
+      "capitalized True",
+      `---\nname: a\ndescription: d\ndisable-model-invocation: True\n---\nbody`,
+      true,
+    ],
+    [
+      "quoted true",
+      `---\nname: a\ndescription: d\ndisable-model-invocation: "true"\n---\nbody`,
+      true,
+    ],
+    [
+      "false",
+      `---\nname: a\ndescription: d\ndisable-model-invocation: false\n---\nbody`,
+      false,
+    ],
+    [
+      "non-boolean value",
+      `---\nname: a\ndescription: d\ndisable-model-invocation: maybe\n---\nbody`,
+      false,
+    ],
+    [
+      "true with trailing comment",
+      `---\nname: a\ndescription: d\ndisable-model-invocation: true  # manual only\n---\nbody`,
+      true,
+    ],
+    [
+      "quoted true with trailing comment",
+      `---\nname: a\ndescription: d\ndisable-model-invocation: "true" # manual only\n---\nbody`,
+      true,
+    ],
+    [
+      "false with trailing comment",
+      `---\nname: a\ndescription: d\ndisable-model-invocation: false # keep automatic\n---\nbody`,
+      false,
+    ],
+    [
+      "quoted string that only starts with true",
+      `---\nname: a\ndescription: d\ndisable-model-invocation: "true # manual only"\n---\nbody`,
+      false,
+    ],
+  ])("parses %s", (_label, content, expected) => {
+    expect(parseSkillFrontmatter(content)?.disableModelInvocation).toBe(
+      expected,
+    );
+  });
+});
 
 describe("parseSkillDependencies", () => {
   it.each([

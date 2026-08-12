@@ -36,6 +36,8 @@ interface EvaluationRunRowOverrides {
     resultType?: EvaluationRunRow[10]
     sentimentLabel?: EvaluationRunRow[11]
     sentimentScore?: EvaluationRunRow[12]
+    sessionId?: EvaluationRunRow[13]
+    skipped?: EvaluationRunRow[14]
 }
 
 function makeEvaluationRunRow({
@@ -45,6 +47,8 @@ function makeEvaluationRunRow({
     resultType = 'boolean',
     sentimentLabel = null,
     sentimentScore = null,
+    sessionId = null,
+    skipped = null,
 }: EvaluationRunRowOverrides = {}): EvaluationRunRow {
     return [
         'run-1',
@@ -60,6 +64,8 @@ function makeEvaluationRunRow({
         resultType,
         sentimentLabel,
         sentimentScore,
+        sessionId,
+        skipped,
     ]
 }
 
@@ -102,6 +108,18 @@ describe('mapEvaluationRunRow', () => {
         const run = mapEvaluationRunRow(makeEvaluationRunRow({ result: null }))
 
         expect(run.result).toBeNull()
+    })
+
+    // A skip carries result: false when the evaluation disallows N/A, so anything reading the
+    // result alone reports a session that was never graded as one that failed.
+    it.each([
+        [true, true],
+        ['true', true],
+        [false, false],
+        [null, false],
+    ])('maps raw skipped %p to %p', (skipped, expected) => {
+        const run = mapEvaluationRunRow(makeEvaluationRunRow({ skipped }))
+        expect(run.skipped).toBe(expected)
     })
 
     it.each([true, 'true', 'True', '1'])('maps explicit pass result %p', (result) => {
@@ -2141,7 +2159,12 @@ describe.each(IMPLS)('AI observability utils [$name]', ({ normalizeMessage, norm
             expect(normalizeMessage(message, 'assistant')).toEqual([{ role: 'user', content: 'Hi' }])
         })
 
-        it('normalizes tool_call_response parts into tool messages', () => {
+        it.each([
+            ['the schema response key', { response: 'Sunny, 25°C' }],
+            ['the spec example result key', { result: 'Sunny, 25°C' }],
+            ['both keys, preferring response', { response: 'Sunny, 25°C', result: 'stale' }],
+            ['a null response falling back to result', { response: null, result: 'Sunny, 25°C' }],
+        ])('normalizes tool_call_response parts into tool messages from %s', (_label, resultFields) => {
             const message = {
                 role: 'user',
                 parts: [
@@ -2149,7 +2172,7 @@ describe.each(IMPLS)('AI observability utils [$name]', ({ normalizeMessage, norm
                         type: 'tool_call_response',
                         id: 'call_abc',
                         name: 'get_weather',
-                        result: 'Sunny, 25°C',
+                        ...resultFields,
                     },
                 ],
             }
@@ -2159,7 +2182,24 @@ describe.each(IMPLS)('AI observability utils [$name]', ({ normalizeMessage, norm
             ])
         })
 
-        it('stringifies non-string tool_call_response results', () => {
+        it('keeps an empty string response over a stale result', () => {
+            const message = {
+                role: 'user',
+                parts: [
+                    {
+                        type: 'tool_call_response',
+                        id: 'call_abc',
+                        name: 'get_weather',
+                        response: '',
+                        result: 'stale',
+                    },
+                ],
+            }
+
+            expect(normalizeMessage(message, 'user')).toEqual([{ role: 'tool', content: '', tool_call_id: 'call_abc' }])
+        })
+
+        it.each(['response', 'result'])('stringifies non-string tool_call_response %s values', (field) => {
             const message = {
                 role: 'user',
                 parts: [
@@ -2167,7 +2207,7 @@ describe.each(IMPLS)('AI observability utils [$name]', ({ normalizeMessage, norm
                         type: 'tool_call_response',
                         id: 'call_1',
                         name: 'get_data',
-                        result: { temperature: 25, unit: 'C' },
+                        [field]: { temperature: 25, unit: 'C' },
                     },
                 ],
             }

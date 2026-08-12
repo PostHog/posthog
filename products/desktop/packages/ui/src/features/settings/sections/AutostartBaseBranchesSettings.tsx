@@ -103,6 +103,7 @@ export function AutostartBaseBranchesSettings({
                 isLoading={
                   isLoadingRepos || (isRepoPickerOpen && repoPage.isPending)
                 }
+                isLoadingMore={repoPage.isFetchingMore}
                 isRefreshing={isRefreshingRepos}
                 onRefresh={refreshRepositories}
                 open={isRepoPickerOpen}

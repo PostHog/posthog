@@ -438,9 +438,14 @@ app.whenReady().then(async () => {
 
   if (process.env.POSTHOG_E2E_UPDATE_FEED) {
     const updates = container.get<UpdatesService>(UPDATES_SERVICE);
+    // Pin the re-staging rollout on: the packaged e2e app boots posthog with
+    // an anonymous user whose flags would otherwise sync this off mid-test.
+    updates.setStagedUpdatesEnabled(true);
+    updates.setStagedUpdatesEnabled = () => {};
     Object.assign(globalThis, {
       __e2eUpdates: {
         check: () => updates.checkForUpdates(),
+        periodicCheck: () => updates.checkForUpdates("periodic"),
         download: () => updates.requestDownload(),
         install: () => updates.installUpdate(),
         status: () => updates.getStatus(),

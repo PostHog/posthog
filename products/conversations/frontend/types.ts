@@ -206,6 +206,7 @@ export interface ConversationMessage {
 }
 
 export interface MessageAuthor {
+    id?: number
     first_name?: string
     last_name?: string
     email?: string
@@ -223,6 +224,8 @@ export interface ChatMessage {
     createdBy?: MessageAuthor | null
     createdAt: string
     isPrivate?: boolean
+    /** Edit count from the comment row. 0 means never edited. */
+    version?: number
     emailDeliveryStatus?: EmailDeliveryStatus
     /** Imported from an external tool (e.g. Zendesk). Such content is untrusted, so its Markdown
      * is rendered with external image auto-loading disabled. */

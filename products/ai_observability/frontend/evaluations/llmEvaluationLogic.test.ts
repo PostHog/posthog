@@ -1,5 +1,7 @@
-import { router } from 'kea-router'
+import { combineUrl, router } from 'kea-router'
 import { expectLogic } from 'kea-test-utils'
+
+import { urls } from 'scenes/urls'
 
 import { useMocks } from '~/mocks/jest'
 import { initKeaTests } from '~/test/init'
@@ -9,6 +11,7 @@ import { LLMProviderKey, llmProviderKeysLogic } from '../settings/llmProviderKey
 import { EVALUATION_SUMMARY_MAX_RUNS } from './constants'
 import { evaluationReportLogic } from './evaluationReportLogic'
 import { DEFAULT_HOG_SOURCE, llmEvaluationLogic } from './llmEvaluationLogic'
+import { llmEvaluationsLogic } from './llmEvaluationsLogic'
 import { EvaluationConfig, EvaluationReport, EvaluationRun } from './types'
 
 const mockProviderKeys: LLMProviderKey[] = [
@@ -462,6 +465,46 @@ return result`,
                 window_seconds: 900,
             })
         })
+
+        it('seeds inactivity defaults when switching to the session target', async () => {
+            await expectLogic(logic, () => {
+                logic.actions.setEvaluationTarget('session')
+            }).toMatchValues({
+                evaluation: expect.objectContaining({
+                    target: 'session',
+                    target_config: {
+                        strategy: 'inactivity',
+                        quiet_period_seconds: 3600,
+                        max_age_seconds: 86400,
+                    },
+                }),
+            })
+        })
+
+        it('reseeds with session defaults, not trace defaults, when switching strategy', async () => {
+            await expectLogic(logic, () => {
+                logic.actions.setEvaluationTarget('session')
+                logic.actions.setSettleStrategy('fixed_window')
+                logic.actions.setSettleStrategy('inactivity')
+            }).toMatchValues({
+                evaluation: expect.objectContaining({
+                    target_config: {
+                        strategy: 'inactivity',
+                        quiet_period_seconds: 3600,
+                        max_age_seconds: 86400,
+                    },
+                }),
+            })
+        })
+
+        it('clears the settle bag when switching back to generation', async () => {
+            await expectLogic(logic, () => {
+                logic.actions.setEvaluationTarget('session')
+                logic.actions.setEvaluationTarget('generation')
+            }).toMatchValues({
+                evaluation: expect.objectContaining({ target: 'generation', target_config: {} }),
+            })
+        })
     })
 
     describe('selectors', () => {
@@ -680,6 +723,26 @@ return result`,
                     },
                 })
             })
+        })
+    })
+
+    describe('routing', () => {
+        it('opens a direct configuration link and keeps tab changes in the URL', async () => {
+            router.actions.push(
+                combineUrl(urls.aiObservabilityEvaluation('eval-123'), {
+                    evaluation_tab: 'configuration',
+                }).url
+            )
+            logic = llmEvaluationLogic({ evaluationId: 'eval-123' })
+            logic.mount()
+
+            await expectLogic(logic).toDispatchActions(['loadEvaluationSuccess']).toMatchValues({
+                activeTab: 'configuration',
+            })
+
+            logic.actions.setActiveTab('runs')
+
+            expect(router.values.searchParams.evaluation_tab).toBeUndefined()
         })
     })
 
@@ -1030,6 +1093,25 @@ return result`,
 
                 await expectLogic(logic).toMatchValues({
                     filteredEvaluationRuns: [expect.objectContaining({ id: 'run-3', result: null })],
+                })
+            })
+
+            // An evaluation that disallows N/A emits result=false alongside skipped=true, so a
+            // session that was never graded would otherwise be counted and listed as a failure.
+            it('excludes skipped runs from the fail bucket', async () => {
+                const skippedRun: EvaluationRun = {
+                    ...mockRuns[1],
+                    id: 'run-skipped',
+                    generation_id: 'gen-skipped',
+                    result: false,
+                    skipped: true,
+                }
+                logic.actions.loadEvaluationRunsSuccess([...mockRuns, skippedRun])
+                logic.actions.setEvaluationSummaryFilter('fail', 'all')
+
+                await expectLogic(logic).toMatchValues({
+                    filteredEvaluationRuns: [expect.objectContaining({ id: 'run-2' })],
+                    runsToSummarizeCount: 1,
                 })
             })
 
@@ -1431,6 +1513,46 @@ return result`,
             await expectLogic(logic)
                 .toDispatchActions(['testHogOnSampleSuccess'])
                 .toMatchValues({ hogTestResults: null })
+        })
+    })
+
+    describe('saveEvaluation list refresh', () => {
+        it('reloads the evaluations list so it shows the eval just created', async () => {
+            const pushSpy = jest.spyOn(router.actions, 'push').mockImplementation(() => {})
+            let evaluationListCount = 0
+
+            useMocks({
+                get: {
+                    '/api/projects/:teamId/evaluations/': () => {
+                        evaluationListCount += 1
+                        return { results: evaluationListCount === 1 ? [] : [mockSentimentEvaluation] }
+                    },
+                    '/api/projects/:teamId/evaluation_directories/': [],
+                },
+                post: {
+                    '/api/projects/:teamId/evaluations/': () => mockSentimentEvaluation,
+                },
+            })
+
+            const evaluationsLogic = llmEvaluationsLogic()
+            evaluationsLogic.mount()
+
+            try {
+                await expectLogic(evaluationsLogic).toDispatchActions(['loadEvaluationsSuccess'])
+                expect(evaluationsLogic.values.evaluations).toEqual([])
+
+                logic = llmEvaluationLogic({ evaluationId: 'new', evaluationType: 'sentiment' })
+                logic.mount()
+                await expectLogic(logic).toDispatchActions(['loadEvaluationSuccess'])
+                logic.actions.setEvaluationName('Sentiment evaluation')
+                logic.actions.saveEvaluation()
+
+                await expectLogic(evaluationsLogic).toDispatchActions(['loadEvaluations', 'loadEvaluationsSuccess'])
+                expect(evaluationsLogic.values.evaluations).toHaveLength(1)
+            } finally {
+                pushSpy.mockRestore()
+                evaluationsLogic.unmount()
+            }
         })
     })
 

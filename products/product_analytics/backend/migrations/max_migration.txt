@@ -1,1 +1,1 @@
-0004_delete_revenue_analytics_insights
+0006_insightvariable_values_query_connection_id

@@ -131,10 +131,15 @@ LAZY_COMPUTATION_EXECUTIONS_TOTAL = Counter(
 # to get average jobs per miss execution (i.e. average miss window size).
 #
 # `finished` outcomes:
-#   - `ready`  → INSERT succeeded, row moved PENDING → READY.
-#   - `failed` → INSERT raised (retryable or non-retryable), row moved PENDING → FAILED.
-#   - `stale`  → another waiter detected the owning executor crashed and marked
-#                the row FAILED via `_try_mark_stale_job_as_failed`.
+#   - `ready`       → INSERT succeeded and wrote rows, row moved PENDING → READY.
+#   - `ready_empty` → INSERT succeeded but wrote no rows, row moved PENDING → READY. Split out
+#                     from `ready` because an empty window is only provisionally computed (see
+#                     `TtlSchedule.empty_result_ttl_seconds`); a climbing share here means a
+#                     source is lagging. Alert on `outcome=~"failed|stale"` rather than
+#                     `outcome!="ready"`, and sum both ready labels for total successes.
+#   - `failed`      → INSERT raised (retryable or non-retryable), row moved PENDING → FAILED.
+#   - `stale`       → another waiter detected the owning executor crashed and marked
+#                     the row FAILED via `_try_mark_stale_job_as_failed`.
 LAZY_COMPUTATION_JOBS_CREATED_TOTAL = Counter(
     "lazy_computation_jobs_created_total",
     "PreaggregationJob rows inserted in PENDING status (one per missing range, per executor).",
@@ -209,6 +214,26 @@ class TtlSchedule:
     non-UTC teams, whose UTC-aligned edge windows can land in a long-TTL band while
     still settling. `None` disables the check.
 
+    `empty_result_ttl_seconds` caps the TTL of a job that wrote no rows. A zero-row insert is
+    indistinguishable from a productive one at the SQL level, but it leaves the window only
+    *provisionally* computed: either the source genuinely had no activity, or it hadn't been
+    synced through the window yet (a paused or failed warehouse sync, a source that resumes
+    after a billing limit). Coverage keys on the job existing rather than on rows existing (see
+    `find_missing_contiguous_windows`), so an empty job holding a long band TTL freezes the
+    window at zero for that whole TTL even once the data lands. Opt in when a caller reads from
+    a source that can lag — data warehouse tables — and leave it `None` when empty genuinely
+    means empty (event tables), since the cap trades recompute work for freshness. Note the cap
+    bounds when the window is *recomputed*, not when a reader stops seeing zero: a caller serving
+    stale within a grace (`stale_while_revalidate_seconds`) can hand back the empty window for up
+    to the cap plus that grace.
+
+    `empty_result_max_age_seconds` bounds *which* empty windows get that cap, measured from
+    `time_range_end` to now. The cap only buys something while a sync could still deliver the
+    window; past that, empty almost certainly means empty, and re-capping forever turns a 7-day
+    band TTL into a 6-hourly rescan of history that will never change (~28x the insert work on a
+    long warmer window). Windows older than this keep their full band TTL. `None` caps every
+    empty window regardless of age.
+
     Use parse_ttl_schedule() to create from user-facing dict format.
     """
 
@@ -216,6 +241,8 @@ class TtlSchedule:
     default_ttl_seconds: int
     max_window_days: int | None = None
     settling_period_seconds: int | None = None
+    empty_result_ttl_seconds: int | None = None
+    empty_result_max_age_seconds: int | None = None
 
     def get_ttl(self, window_start: datetime) -> int:
         for cutoff, ttl in self.rules:
@@ -223,9 +250,34 @@ class TtlSchedule:
                 return ttl
         return self.default_ttl_seconds
 
+    def empty_result_expires_at(self, computed_at: datetime, window_end: datetime) -> datetime | None:
+        """When a zero-row job for this window should expire, or None to keep the band TTL.
+
+        A ceiling, never a floor: the caller takes `min` with the band expiry, so a short band
+        (today's window) still comes back sooner than the cap.
+        """
+        if self.empty_result_ttl_seconds is None:
+            return None
+        if (
+            self.empty_result_max_age_seconds is not None
+            and (computed_at - window_end).total_seconds() > self.empty_result_max_age_seconds
+        ):
+            return None
+        return computed_at + timedelta(seconds=self.empty_result_ttl_seconds)
+
     @classmethod
-    def from_seconds(cls, ttl_seconds: int) -> "TtlSchedule":
-        return cls(rules=[], default_ttl_seconds=ttl_seconds)
+    def from_seconds(
+        cls,
+        ttl_seconds: int,
+        empty_result_ttl_seconds: int | None = None,
+        empty_result_max_age_seconds: int | None = None,
+    ) -> "TtlSchedule":
+        return cls(
+            rules=[],
+            default_ttl_seconds=ttl_seconds,
+            empty_result_ttl_seconds=empty_result_ttl_seconds,
+            empty_result_max_age_seconds=empty_result_max_age_seconds,
+        )
 
 
 DEFAULT_TTL_SCHEDULE = TtlSchedule.from_seconds(DEFAULT_TTL_SECONDS)
@@ -236,6 +288,8 @@ def parse_ttl_schedule(
     team_timezone: str = "UTC",
     max_window_days: int | None = None,
     settling_period_seconds: int | None = None,
+    empty_result_ttl_seconds: int | None = None,
+    empty_result_max_age_seconds: int | None = None,
 ) -> TtlSchedule:
     """Parse a TTL specification into a TtlSchedule.
 
@@ -253,6 +307,13 @@ def parse_ttl_schedule(
 
     Raises ValueError for unrecognized keys or non-positive TTL values.
     """
+    # Validated like every other TTL on the schedule: 0 would expire a job the instant it is
+    # created, leaving the executor to lean on its own no-infinite-loop guard instead.
+    if empty_result_ttl_seconds is not None and empty_result_ttl_seconds <= 0:
+        raise ValueError(f"empty_result_ttl_seconds must be positive, got {empty_result_ttl_seconds}")
+    if empty_result_max_age_seconds is not None and empty_result_max_age_seconds <= 0:
+        raise ValueError(f"empty_result_max_age_seconds must be positive, got {empty_result_max_age_seconds}")
+
     if isinstance(ttl, int):
         if ttl <= 0:
             raise ValueError(f"TTL must be positive, got {ttl}")
@@ -261,6 +322,8 @@ def parse_ttl_schedule(
             default_ttl_seconds=ttl,
             max_window_days=max_window_days,
             settling_period_seconds=settling_period_seconds,
+            empty_result_ttl_seconds=empty_result_ttl_seconds,
+            empty_result_max_age_seconds=empty_result_max_age_seconds,
         )
 
     tz = ZoneInfo(team_timezone)
@@ -289,6 +352,8 @@ def parse_ttl_schedule(
         default_ttl_seconds=default_ttl,
         max_window_days=max_window_days,
         settling_period_seconds=settling_period_seconds,
+        empty_result_ttl_seconds=empty_result_ttl_seconds,
+        empty_result_max_age_seconds=empty_result_max_age_seconds,
     )
 
 
@@ -754,12 +819,26 @@ def build_lazy_computation_insert_sql(
     return sql, context.values
 
 
+def _written_rows(insert_result: object) -> int:
+    """How many rows an INSERT wrote, or 0.
+
+    `sync_execute` swaps an INSERT's result for the ClickHouse `written_rows` progress counter,
+    but only when that counter is nonzero — otherwise it passes the driver's (empty) result
+    through. So "not an int" is precisely the zero-row case.
+    """
+    return insert_result if isinstance(insert_result, int) else 0
+
+
 def run_lazy_computation_insert(
     team: Team,
     job: PreaggregationJob,
     query_info: QueryInfo,
-) -> None:
-    """Run the INSERT query to populate lazy-computed results in ClickHouse."""
+) -> int:
+    """Run the INSERT query to populate lazy-computed results in ClickHouse.
+
+    Returns the number of rows written, which the executor uses to tell a genuinely computed
+    window from an empty one.
+    """
     ch_expires_at = _get_ch_expires_at(job, LazyComputationTable.PREAGGREGATION_RESULTS)
 
     insert_sql, values = build_lazy_computation_insert_sql(
@@ -778,10 +857,12 @@ def run_lazy_computation_insert(
         precompute_window_start=str(job.time_range_start),
         precompute_window_end=str(job.time_range_end),
     ):
-        sync_execute(
-            insert_sql,
-            values,
-            settings=_get_insert_settings(team.id),
+        return _written_rows(
+            sync_execute(
+                insert_sql,
+                values,
+                settings=_get_insert_settings(team.id),
+            )
         )
 
 
@@ -845,7 +926,7 @@ class LazyComputationExecutor:
         query_info: QueryInfo,
         start: datetime,
         end: datetime,
-        run_insert: Callable[[Team, PreaggregationJob], None] | None = None,
+        run_insert: Callable[[Team, PreaggregationJob], int | None] | None = None,
     ) -> LazyComputationResult:
         """
         Execute computation jobs for the given query and time range.
@@ -859,7 +940,9 @@ class LazyComputationExecutor:
 
         Args:
             run_insert: Optional custom insert function. If not provided, uses the
-                        default AST-based run_computation_insert with query_info.
+                        default AST-based run_computation_insert with query_info. Returns the
+                        number of rows it wrote, or None when it can't report one — see the
+                        empty-insert branch below for what a 0 buys.
         """
         insert_fn = run_insert or (lambda t, j: run_lazy_computation_insert(t, j, query_info))
         query_hash = compute_query_hash(query_info)
@@ -1001,14 +1084,28 @@ class LazyComputationExecutor:
 
                         try:
                             insert_start = time.monotonic()
-                            insert_fn(team, new_job)
+                            rows_written = insert_fn(team, new_job)
                             insert_elapsed = time.monotonic() - insert_start
+                            # An empty window is only provisionally computed — see
+                            # `TtlSchedule.empty_result_ttl_seconds` for why, and note this only
+                            # applies to callers that opted in. `rows_written is None` means the
+                            # insert function can't report a count, which is not a claim of
+                            # emptiness. `min` because the cap is a ceiling, never a floor: a short
+                            # band (today's window) already comes back sooner than the cap.
+                            wrote_nothing = rows_written == 0
                             new_job.status = PreaggregationJob.Status.READY
                             new_job.computed_at = django_timezone.now()
+                            if wrote_nothing and new_job.expires_at is not None:
+                                empty_expires_at = self.ttl_schedule.empty_result_expires_at(
+                                    new_job.computed_at, range_end
+                                )
+                                if empty_expires_at is not None:
+                                    new_job.expires_at = min(new_job.expires_at, empty_expires_at)
                             new_job.save()
                             publish_job_completion(new_job.id, "ready")
                             LAZY_COMPUTATION_JOBS_FINISHED_TOTAL.labels(
-                                outcome="ready", table=str(query_info.table)
+                                outcome="ready_empty" if wrote_nothing else "ready",
+                                table=str(query_info.table),
                             ).inc()
                             jobs_created += 1
                             logger.info(
@@ -1020,6 +1117,8 @@ class LazyComputationExecutor:
                                 time_range_end=str(range_end),
                                 ttl_seconds=ttl,
                                 insert_duration_ms=round(insert_elapsed * 1000),
+                                rows_written=rows_written,
+                                expires_at=str(new_job.expires_at),
                             )
                         except Exception as e:
                             insert_elapsed = time.monotonic() - insert_start
@@ -1218,6 +1317,8 @@ def ensure_precomputed(
     stale_while_revalidate_seconds: float | None = None,
     modifiers: HogQLQueryModifiers | None = None,
     run_inserts: bool = True,
+    empty_result_ttl_seconds: int | None = None,
+    empty_result_max_age_seconds: int | None = None,
 ) -> LazyComputationResult:
     """
     Ensure lazy-computed data exists for the given query and time range.
@@ -1249,6 +1350,13 @@ def ensure_precomputed(
                      - dict: maps date strings to TTL values. Keys are parsed using
                        relative_date_parse (e.g. "7d", "24h", "2026-02-15"). The
                        "default" key sets the fallback TTL. Uses team timezone.
+        empty_result_ttl_seconds: Caps the TTL of a job that wrote no rows, so a window the
+                       source hadn't synced yet doesn't stay cached as zero for the full band
+                       TTL. See TtlSchedule.empty_result_ttl_seconds. Ignored when `ttl_seconds`
+                       is already a built TtlSchedule — set it on the schedule instead.
+        empty_result_max_age_seconds: Bounds which empty windows get that cap, measured from
+                       `time_range_end`. See TtlSchedule.empty_result_max_age_seconds. Same
+                       caveat: ignored when `ttl_seconds` is already a built TtlSchedule.
         table: The target computation table (default "preaggregation_results")
         placeholders: Additional placeholder values to substitute into the query.
                       time_window_min and time_window_max are added automatically.
@@ -1336,7 +1444,7 @@ def ensure_precomputed(
         timezone=team.timezone,
     )
 
-    def _run_manual_insert(t: Team, job: PreaggregationJob) -> None:
+    def _run_manual_insert(t: Team, job: PreaggregationJob) -> int:
         insert_sql, values = _build_manual_insert_sql(
             team=t,
             job=job,
@@ -1355,16 +1463,25 @@ def ensure_precomputed(
         if query_type:
             tag_kwargs["query_type"] = query_type
         with tags_context(**tag_kwargs):
-            sync_execute(
-                insert_sql,
-                values,
-                settings=_get_insert_settings(t.id, spill_to_disk=spill_to_disk),
+            return _written_rows(
+                sync_execute(
+                    insert_sql,
+                    values,
+                    settings=_get_insert_settings(t.id, spill_to_disk=spill_to_disk),
+                )
             )
 
     # A caller can hand in a fully-built TtlSchedule (e.g. one carrying a max_window_days
     # cap) to bound job width — "switch the schedule"; otherwise parse int/dict as usual.
     ttl_schedule = (
-        ttl_seconds if isinstance(ttl_seconds, TtlSchedule) else parse_ttl_schedule(ttl_seconds, team.timezone)
+        ttl_seconds
+        if isinstance(ttl_seconds, TtlSchedule)
+        else parse_ttl_schedule(
+            ttl_seconds,
+            team.timezone,
+            empty_result_ttl_seconds=empty_result_ttl_seconds,
+            empty_result_max_age_seconds=empty_result_max_age_seconds,
+        )
     )
     executor = LazyComputationExecutor(
         ttl_schedule=ttl_schedule,

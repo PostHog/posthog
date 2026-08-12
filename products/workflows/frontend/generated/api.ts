@@ -931,6 +931,21 @@ export const hogFlowsUserBlastRadiusCreate = async (
     })
 }
 
+export const getInternalHogFlowsAccountAudienceCreateUrl = (teamId: string) => {
+    return `/api/projects/${teamId}/internal/hog_flows/account_audience`
+}
+
+/**
+ * Internal endpoint for the Node batch resolver to page an account audience.
+ * Requires Bearer token authentication via INTERNAL_API_SECRET.
+ */
+export const internalHogFlowsAccountAudienceCreate = async (teamId: string, options?: RequestInit): Promise<void> => {
+    return apiMutator<void>(getInternalHogFlowsAccountAudienceCreateUrl(teamId), {
+        ...options,
+        method: 'POST',
+    })
+}
+
 export const getInternalHogFlowsBatchJobsStatusUpdateUrl = (teamId: string, batchJobId: string) => {
     return `/api/projects/${teamId}/internal/hog_flows/batch_jobs/${batchJobId}/status`
 }

@@ -6,6 +6,7 @@ from typing import Final
 
 from fastapi import HTTPException
 
+from llm_gateway.baseten import BASETEN_DEEPSEEK_PUBLIC_MODEL
 from llm_gateway.bedrock import BEDROCK_MODEL_IDS, get_bedrock_model_access_candidates, get_bedrock_region_name
 from llm_gateway.config import get_settings
 
@@ -91,17 +92,14 @@ _POSTHOG_CODE_AGENT_MODELS: Final[frozenset[str]] = frozenset(
     }
 )
 
-# Products whose requires_server_credential applies right away rather than waiting for
-# posthog_code_model_gate_enabled. The flag exists so products that already shipped accepting plain
-# Code OAuth tokens keep working until the Code billing cutover. A product that never had such a
-# permissive period has nothing to stay compatible with, and leaving it flag-gated would ship an
-# unbilled route open to any Code OAuth token for as long as the flag is off.
-UNCONDITIONAL_SERVER_CREDENTIAL_PRODUCTS: Final[frozenset[str]] = frozenset(
-    {
-        "custom_image_scans",
-        "onboarding",
-    }
-)
+# Models reserved for specific products must stay restricted even when a product otherwise allows
+# every model (`allowed_models=None`). This is an authorization boundary, not merely a
+# model-registry advertising filter; the registry also derives its advertising from it so the two
+# can't drift. Keys must be lowercase.
+RESTRICTED_MODEL_PRODUCTS: Final[dict[str, frozenset[str]]] = {
+    # Evaluated by ReviewHog; exposed in PostHog Code behind the posthog-code-deepseek-model flag.
+    BASETEN_DEEPSEEK_PUBLIC_MODEL: frozenset({"posthog_code", "review_hog"}),
+}
 
 PRODUCTS: Final[dict[str, ProductConfig]] = {
     "llm_gateway": ProductConfig(
@@ -119,7 +117,7 @@ PRODUCTS: Final[dict[str, ProductConfig]] = {
     ),
     "posthog_code": ProductConfig(
         allowed_application_ids=frozenset({POSTHOG_CODE_US_APP_ID, POSTHOG_CODE_EU_APP_ID, POSTHOG_CODE_DEV_APP_ID}),
-        allowed_models=_POSTHOG_CODE_AGENT_MODELS | BEDROCK_MODELS,
+        allowed_models=_POSTHOG_CODE_AGENT_MODELS | {BASETEN_DEEPSEEK_PUBLIC_MODEL} | BEDROCK_MODELS,
         allow_api_keys=False,
         # Bills as posthog_code credits (pass-through model costs, no markup) — see
         # get_teams_with_posthog_code_credits_used_in_period in posthog/tasks/usage_report.py.
@@ -147,6 +145,9 @@ PRODUCTS: Final[dict[str, ProductConfig]] = {
                 "gpt-5.3-codex",
                 "gpt-5.2",
                 "gpt-5-mini",
+                # ReviewHog sandbox runs route here (no review_hog entry in the agent's
+                # origin→product map), so its reviewer-experiment arms must be allowed.
+                "gpt-5.6-sol",
             }
             | BEDROCK_MODELS
         ),
@@ -202,7 +203,7 @@ PRODUCTS: Final[dict[str, ProductConfig]] = {
     ),
     "slack_app_routing": ProductConfig(
         allowed_application_ids=None,
-        allowed_models=frozenset({"claude-haiku-4-5"}),
+        allowed_models=frozenset({"claude-haiku-4-5", "gpt-5.6-luna"}),
         allow_api_keys=True,
         credit_bucket=CreditBucket.AI_CREDITS,
     ),
@@ -247,10 +248,11 @@ PRODUCTS: Final[dict[str, ProductConfig]] = {
         allowed_application_ids=None,
         # The models the review pipeline pins: sonnet-5 (perspectives + one-shots), opus-4-8
         # (validation), opus-5 (outcome judge), gpt-5.5 / gpt-5.6 sol+luna+terra (Codex reviewers),
-        # GLM 5.2 (evaluated as reviewer).
+        # GLM 5.2 and DeepSeek V4 Flash (evaluated as reviewers).
         allowed_models=frozenset(
             {
                 "@cf/zai-org/glm-5.2",
+                "deepseek-ai/deepseek-v4-flash-0731",
                 "claude-sonnet-5",
                 "claude-opus-4-8",
                 "claude-opus-5",
@@ -310,6 +312,12 @@ PRODUCTS: Final[dict[str, ProductConfig]] = {
         allowed_models=None,  # any model
         allow_api_keys=True,
         credit_bucket=CreditBucket.AI_CREDITS,
+    ),
+    "web_analytics": ProductConfig(
+        allowed_application_ids=None,
+        allowed_models=frozenset({"claude-haiku-4-5"}),
+        allow_api_keys=True,
+        credit_bucket=None,
     ),
     # changelog-bot. Exact-pinned to these two ids (the agent sends "openai/"-prefixed).
     "changelog_bot": ProductConfig(
@@ -413,15 +421,13 @@ def check_free_tier_model_access(
     code_usage_billed: bool,
     usage_unlimited: bool,
 ) -> tuple[bool, str | None]:
-    settings = get_settings()
-    if not settings.posthog_code_model_gate_enabled:
-        return True, None
     if resolve_product_alias(product) != "posthog_code":
         return True, None
     # model=None is safe: every route requires a model at validation, so the request 422s
     if code_usage_billed or usage_unlimited or model is None:
         return True, None
 
+    settings = get_settings()
     free_models = frozenset(settings.posthog_code_free_tier_models)
     if _model_matches_product_allowlist(model, free_models, provider=provider, settings=settings):
         return True, None
@@ -433,11 +439,38 @@ def check_free_tier_model_access(
     )
 
 
+# Models a caller may only select while the paired flag is enabled for them, mirroring
+# products/tasks MODEL_ACCESS_FLAGS. Each model maps to its own access flag — the same flag the
+# Desktop picker gates it behind — so an entitlement can't be widened for one model by proxy of
+# another. Keys are the model ids callers send.
+MODEL_ACCESS_FLAGS: Final[dict[str, str]] = {
+    "moonshotai/kimi-k3": "tasks-kimi-k3",
+    "deepseek-ai/deepseek-v4-flash-0731": "posthog-code-deepseek-model",
+}
+
+
+def get_required_model_flag(model: str | None) -> str | None:
+    """The feature flag a caller needs to select `model`, or None when it is generally available."""
+    if not model:
+        return None
+    normalized = model.strip().lower()
+    for gated_model, flag_key in MODEL_ACCESS_FLAGS.items():
+        if gated_model.lower() == normalized:
+            return flag_key
+    return None
+
+
 def filter_to_free_tier_models(model_ids: list[str]) -> list[str]:
     """Subset of model_ids on the posthog_code free tier."""
     settings = get_settings()
     free_models = frozenset(settings.posthog_code_free_tier_models)
     return [m for m in model_ids if _model_matches_product_allowlist(m, free_models, settings=settings)]
+
+
+def is_model_restricted_for_product(model: str, product: str) -> bool:
+    """Whether `model` is reserved for other products — see RESTRICTED_MODEL_PRODUCTS."""
+    allowed_products = RESTRICTED_MODEL_PRODUCTS.get(model.lower())
+    return allowed_products is not None and resolve_product_alias(product) not in allowed_products
 
 
 def check_product_access(
@@ -474,16 +507,12 @@ def check_product_access(
     # and route around the posthog_code free-tier model gate. Require the internal marker that
     # only server-minted tokens carry. OAuth-only: personal API keys reach the gateway with an
     # explicit, feature-gated llm_gateway:read scope (a `*` PAK is rejected at auth), so the
-    # shared server-side gateway key still works here. Products that shipped before this check
-    # existed stay behind the free-tier flag so they keep working until the Code billing cutover;
-    # the rest enforce it now, per UNCONDITIONAL_SERVER_CREDENTIAL_PRODUCTS.
-    if (
-        config.requires_server_credential
-        and is_oauth
-        and INTERNAL_RUN_SCOPE not in (scopes or [])
-        and (settings.posthog_code_model_gate_enabled or resolved_product in UNCONDITIONAL_SERVER_CREDENTIAL_PRODUCTS)
-    ):
+    # shared server-side gateway key still works here.
+    if config.requires_server_credential and is_oauth and INTERNAL_RUN_SCOPE not in (scopes or []):
         return False, f"Product '{product}' requires a server-minted credential"
+
+    if model and is_model_restricted_for_product(model, resolved_product):
+        return False, f"Model '{model}' not allowed for product '{product}'"
 
     if model and config.allowed_models is not None:
         if not _model_matches_product_allowlist(

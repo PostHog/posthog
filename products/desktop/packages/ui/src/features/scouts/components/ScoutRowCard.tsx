@@ -22,6 +22,7 @@ import { useScoutChatTask } from "../hooks/useScoutChatTask";
 import type { ScoutConfigUpdate } from "../hooks/useScoutConfigMutations";
 import { DryRunBadge, ScoutOriginBadge } from "./ScoutBadges";
 import { ScoutConfigForm, ScoutEnabledSwitch } from "./ScoutConfigControls";
+import { ScoutLifecycleBadge } from "./ScoutLifecycleBadges";
 import { ScoutRunBoxes } from "./ScoutRunBoxes";
 
 /**
@@ -104,6 +105,7 @@ export function ScoutRowCard({
           ) : null}
           <ScoutOriginBadge config={config} />
           <DryRunBadge config={config} />
+          <ScoutLifecycleBadge config={config} />
           <Text className="whitespace-nowrap text-[11px] text-gray-10">
             {formatRunIntervalShort(config.run_interval_minutes)}
           </Text>

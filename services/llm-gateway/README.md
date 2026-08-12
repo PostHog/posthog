@@ -60,6 +60,16 @@ python manage.py setup_local_api_key --add-scopes llm_gateway:read
 `--add-scopes` merges into existing scopes without removing any.
 `--scopes` replaces all scopes on the key.
 
+## Database access
+
+The gateway connects to the PostHog Postgres as a least-privilege role whose SELECT
+grants are a per-table allowlist maintained in posthog-cloud-infra. The tables the
+gateway reads are declared in `src/llm_gateway/db/required_tables.py`, and
+`tests/test_required_tables.py` binds that declaration to the SQL in the package.
+`/_readiness` verifies the connected role holds every declared grant on every probe,
+so a revoked grant unreadies serving pods as well as new rollouts. To add a table
+read, land the grant in every environment first, then declare the table.
+
 ## User attribution
 
 When using an OAuth Access Token, the user who's token it is is the user used for analytics and rate limiting.
@@ -200,10 +210,14 @@ To use Bedrock (either via `X-PostHog-Provider` or `X-PostHog-Use-Bedrock-Fallba
 Credentials are intentionally not loaded through `LLM_GATEWAY_*` settings in the gateway.
 Use your runtime's standard AWS authentication mechanism (e.g. IAM role, IRSA, ECS task role, or pre-existing `AWS_*` env vars provisioned by deployment).
 
-## GLM backends
+## Inference-provider routing
 
-GLM is served under the public model id `@cf/zai-org/glm-5.2` on every surface (Anthropic Messages, chat/completions, Responses).
-Which backend serves a request is a gateway-internal decision made in `src/llm_gateway/glm_routing.py`:
+The gateway exposes models consistently across Anthropic Messages, chat/completions, and Responses while choosing their inference provider internally in `src/llm_gateway/inference_routing.py`.
+
+- **GLM 5.2** (`@cf/zai-org/glm-5.2`) can run on Cloudflare Workers AI, Modal, or Baseten.
+- **DeepSeek V4 Flash** (`deepseek-ai/deepseek-v4-flash-0731`) runs only on Baseten and is available to ReviewHog and PostHog Desktop (client-gated by the `posthog-code-deepseek-model` flag).
+
+Provider configuration:
 
 - **Cloudflare Workers AI** (the incumbent) — configure `LLM_GATEWAY_CLOUDFLARE_API_KEY` and `LLM_GATEWAY_CLOUDFLARE_ACCOUNT_ID`.
 - **Modal** (an OpenAI-compatible vLLM endpoint) — configure `LLM_GATEWAY_MODAL_API_BASE`, `LLM_GATEWAY_MODAL_KEY`, and `LLM_GATEWAY_MODAL_SECRET` (a [Modal proxy-token](https://modal.com/docs/guide/endpoints) pair, sent as `Modal-Key`/`Modal-Secret` headers).

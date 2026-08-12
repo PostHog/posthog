@@ -1,8 +1,8 @@
 use std::time::Duration;
 
 use etcd_client::{
-    Client, ConnectOptions, DeleteOptions, GetOptions, PutOptions, Txn, TxnResponse, WatchOptions,
-    WatchStream,
+    Client, Compare, CompareOp, ConnectOptions, DeleteOptions, GetOptions, PutOptions, Txn, TxnOp,
+    TxnResponse, WatchOptions, WatchStream,
 };
 use serde::de::DeserializeOwned;
 use serde::Serialize;
@@ -258,6 +258,23 @@ impl EtcdStore {
     pub async fn txn(&self, txn: Txn) -> Result<TxnResponse> {
         let _t = OpTimer::new("txn");
         Ok(self.client.clone().txn(txn).await?)
+    }
+
+    /// Atomically create `key` bound to `lease_id`, only if it does not
+    /// exist; returns whether this call created it. The building block
+    /// for single-holder claims: the key lives and dies with the lease,
+    /// so revocation or expiry frees the claim for the next contender.
+    pub async fn put_if_absent(&self, key: &str, value: Vec<u8>, lease_id: i64) -> Result<bool> {
+        let _t = OpTimer::new("put_if_absent");
+        let txn = Txn::new()
+            .when(vec![Compare::version(key, CompareOp::Equal, 0)])
+            .and_then(vec![TxnOp::put(
+                key,
+                value,
+                Some(PutOptions::new().with_lease(lease_id)),
+            )]);
+        let resp = self.client.clone().txn(txn).await?;
+        Ok(resp.succeeded())
     }
 
     // ── Lease operations ─────────────────────────────────────────

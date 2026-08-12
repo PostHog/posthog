@@ -52,14 +52,12 @@ import { MentionComposer } from "@posthog/ui/features/canvas/components/MentionC
 import { MentionText } from "@posthog/ui/features/canvas/components/MentionText";
 import { ThreadTimestamp } from "@posthog/ui/features/canvas/components/ThreadTimestamp";
 import { useThreadConversation } from "@posthog/ui/features/canvas/hooks/useThreadConversation";
+import { canvasArtifactOpenHandler } from "@posthog/ui/features/canvas/utils/canvasArtifactNavigation";
 import { userDisplayName } from "@posthog/ui/features/canvas/utils/userDisplay";
 import { openPrInReview } from "@posthog/ui/features/code-review/openPrInReview";
 import { usePrArtifact } from "@posthog/ui/features/git-interaction/usePrArtifact";
 import { taskDetailQuery } from "@posthog/ui/features/tasks/queries";
 import { openExternalUrl } from "@posthog/ui/shell/openExternal";
-import { parseHttpsUrl, parseShareLink } from "@posthog/ui/utils/posthogLinks";
-import { navigateToShareTarget } from "@posthog/ui/utils/shareLinks";
-import { getPostHogUrl } from "@posthog/ui/utils/urls";
 import { useQuery } from "@tanstack/react-query";
 import { useEffect, useRef } from "react";
 
@@ -229,22 +227,7 @@ function CanvasArtifactCard({
   name: string;
   url: string | null;
 }) {
-  const parsedUrl = url ? parseHttpsUrl(url) : null;
-  const target = parsedUrl ? parseShareLink(parsedUrl.href) : null;
-  const open =
-    parsedUrl && target
-      ? () => {
-          const currentPostHogUrl = getPostHogUrl("/");
-          const currentPostHogOrigin = currentPostHogUrl
-            ? parseHttpsUrl(currentPostHogUrl)?.origin
-            : null;
-          if (parsedUrl.origin === currentPostHogOrigin) {
-            navigateToShareTarget(target);
-          } else {
-            openExternalUrl(parsedUrl.href);
-          }
-        }
-      : undefined;
+  const open = canvasArtifactOpenHandler(url);
   return (
     <ArtifactCardButton
       icon={iconForTemplate("", { size: 14, className: "text-violet-9" })}

@@ -18,7 +18,7 @@ import {
   navigateToLoops,
 } from "@posthog/ui/router/navigationBridge";
 import { track } from "@posthog/ui/shell/analytics";
-import { Box, Flex, Text, TextField } from "@radix-ui/themes";
+import { Box, Flex, Text, TextArea, TextField } from "@radix-ui/themes";
 import { type ReactNode, useEffect, useMemo, useState } from "react";
 import { useAuthStateValue } from "../../auth/store";
 import {
@@ -72,13 +72,41 @@ const ADAPTER_LABELS: Record<LoopSchemas.LoopRuntimeAdapterEnum, string> = {
 
 const STEPS = ["Prompt", "When", "Options", "Review"] as const;
 
+type LoopFormBaseline = {
+  loopId: string;
+  updatedAt: string;
+  values: LoopFormValues;
+  serialized: string;
+};
+
+function buildLoopFormBaseline(loop: LoopSchemas.Loop): LoopFormBaseline {
+  const values = normalizeLoopFormValues(loopToFormValues(loop));
+  return {
+    loopId: loop.id,
+    updatedAt: loop.updated_at,
+    values,
+    serialized: JSON.stringify(values),
+  };
+}
+
 interface LoopFormProps {
   /** Present in edit mode; absent when creating a new loop. */
   loop?: LoopSchemas.Loop;
+  variant?: "wizard" | "embedded";
+  onCancel?: () => void;
+  onDirtyChange?: (dirty: boolean) => void;
+  onSaved?: (loop: LoopSchemas.Loop) => void;
 }
 
-export function LoopForm({ loop }: LoopFormProps) {
+export function LoopForm({
+  loop,
+  variant = "wizard",
+  onCancel,
+  onDirtyChange,
+  onSaved,
+}: LoopFormProps) {
   const isEdit = !!loop;
+  const isEmbedded = variant === "embedded";
   const projectId = useAuthStateValue((state) => state.currentProjectId);
   const [values, setValues] = useState<LoopFormValues>(() => {
     if (loop) return normalizeLoopFormValues(loopToFormValues(loop));
@@ -92,15 +120,47 @@ export function LoopForm({ loop }: LoopFormProps) {
     });
   });
   const [step, setStep] = useState(0);
+  const [baseline, setBaseline] = useState<LoopFormBaseline | null>(() =>
+    loop ? buildLoopFormBaseline(loop) : null,
+  );
+  const [hasRemoteUpdate, setHasRemoteUpdate] = useState(false);
   // Open when editing a loop that already pins a model, so the pinned value
   // is visible without hunting for it.
   const [showAdvanced, setShowAdvanced] = useState(
     () => !!(loop && (loop.model || loop.reasoning_effort)),
   );
+  const isDirty = !!baseline && JSON.stringify(values) !== baseline.serialized;
 
   useEffect(() => {
     if (!loop) useLoopDraftStore.getState().setPrefill(null);
   }, [loop]);
+
+  useEffect(() => {
+    if (!loop) return;
+
+    const nextBaseline = buildLoopFormBaseline(loop);
+    if (!baseline || baseline.loopId !== loop.id) {
+      setBaseline(nextBaseline);
+      setValues(nextBaseline.values);
+      setHasRemoteUpdate(false);
+      return;
+    }
+
+    if (nextBaseline.updatedAt === baseline.updatedAt) return;
+
+    if (isDirty) {
+      setHasRemoteUpdate(true);
+      return;
+    }
+
+    setBaseline(nextBaseline);
+    setValues(nextBaseline.values);
+    setHasRemoteUpdate(false);
+  }, [loop, baseline, isDirty]);
+
+  useEffect(() => {
+    onDirtyChange?.(isDirty);
+  }, [isDirty, onDirtyChange]);
 
   // Contexts are a channels surface; hide the attachment UI when channels are
   // off, unless this loop is already attached so the link stays visible and
@@ -120,7 +180,8 @@ export function LoopForm({ loop }: LoopFormProps) {
     bundleSkill.isPending ||
     replaceSkillBundles.isPending ||
     deleteLoop.isPending;
-  const canSubmit = isLoopFormValid(values) && !isSubmitting;
+  const canSubmit =
+    isLoopFormValid(values) && !isSubmitting && !hasRemoteUpdate;
 
   // Per-step gate for the Next button. The final Create button is gated on the
   // whole form being valid, so jumping between steps can't submit a bad loop.
@@ -163,6 +224,10 @@ export function LoopForm({ loop }: LoopFormProps) {
     setValues((prev) => ({ ...prev, ...next }));
 
   const handleCancel = () => {
+    if (onCancel) {
+      onCancel();
+      return;
+    }
     if (isEdit) {
       navigateToLoopDetail(loop.id);
     } else {
@@ -171,6 +236,12 @@ export function LoopForm({ loop }: LoopFormProps) {
   };
 
   const handleSubmit = async () => {
+    if (hasRemoteUpdate) {
+      toast.error("Loop changed elsewhere", {
+        description: "Cancel and reopen editing before saving changes.",
+      });
+      return;
+    }
     if (!canSubmit) return;
     const body = formValuesToLoopWrite(values);
 
@@ -238,7 +309,11 @@ export function LoopForm({ loop }: LoopFormProps) {
           return;
         }
       }
-      navigateToLoopDetail(saved.id);
+      if (onSaved) {
+        onSaved(saved);
+      } else {
+        navigateToLoopDetail(saved.id);
+      }
     } catch (error) {
       const safetyLimit =
         error instanceof LoopsApiError ? error.safetyLimit : null;
@@ -260,6 +335,201 @@ export function LoopForm({ loop }: LoopFormProps) {
       });
     }
   };
+
+  if (isEmbedded) {
+    return (
+      <Flex
+        direction="column"
+        gap="4"
+        className="rounded-(--radius-2) border border-border bg-(--gray-1) p-4"
+      >
+        <Step
+          title="Prompt"
+          description="Name it and write the prompt the agent runs each time."
+        >
+          <Field label="Name" required>
+            <TextField.Root
+              size="2"
+              value={values.name}
+              placeholder="Daily standup summary"
+              disabled={isSubmitting}
+              onChange={(e) => patch({ name: e.target.value })}
+            />
+          </Field>
+          <Field label="Description">
+            <TextArea
+              value={values.description}
+              placeholder="A short summary shown on the Loops list"
+              disabled={isSubmitting}
+              className="min-h-[72px] text-[13px] leading-relaxed"
+              onChange={(e) => patch({ description: e.target.value })}
+            />
+          </Field>
+          <LoopInstructionsFields
+            values={values}
+            disabled={isSubmitting}
+            onPatch={patch}
+          />
+        </Step>
+
+        <Divider />
+
+        <Step
+          title="When"
+          description="Add automatic triggers, or leave this manual-only."
+        >
+          <LoopTriggerEditor
+            triggers={values.triggers}
+            triggerEndpointPath={triggerEndpointPath}
+            disabled={isSubmitting}
+            onChange={(triggers) => patch({ triggers })}
+          />
+        </Step>
+
+        <Divider />
+
+        <Step
+          title="Options"
+          description="Visibility, working context, and notifications."
+        >
+          <div className="grid gap-4 md:grid-cols-2">
+            <Field
+              label="Visibility"
+              hint={
+                values.contextTarget
+                  ? "Channel loops are team-visible."
+                  : undefined
+              }
+            >
+              <SettingsOptionSelect
+                value={values.visibility}
+                options={VISIBILITY_OPTIONS}
+                disabled={isSubmitting || !!values.contextTarget}
+                size="lg"
+                ariaLabel="Visibility"
+                onValueChange={(value) =>
+                  patch({
+                    visibility: value as LoopSchemas.LoopVisibilityEnum,
+                  })
+                }
+              />
+            </Field>
+
+            <Field
+              label="Base repository"
+              hint={
+                values.repositories.length > 1
+                  ? `${values.repositories.length - 1} more attached.`
+                  : "Optional for report-only loops."
+              }
+            >
+              <LoopRepositoryPicker
+                value={values.repositories[0] ?? null}
+                disabled={isSubmitting}
+                onChange={(repository) =>
+                  setValues((prev) => ({
+                    ...prev,
+                    repositories: repository
+                      ? [repository, ...prev.repositories.slice(1)]
+                      : prev.repositories.slice(1),
+                  }))
+                }
+              />
+            </Field>
+          </div>
+
+          {showContextField ? (
+            <Field label="Context" hint="Attach runs to a sidebar channel.">
+              <LoopContextFields
+                value={values.contextTarget}
+                disabled={isSubmitting}
+                onChange={(contextTarget) =>
+                  patch(
+                    contextTarget
+                      ? { contextTarget, visibility: "team" }
+                      : { contextTarget },
+                  )
+                }
+              />
+            </Field>
+          ) : null}
+
+          <Field label="Notifications">
+            <LoopNotificationsFields
+              notifications={values.notifications}
+              disabled={isSubmitting}
+              onChange={(notifications) => patch({ notifications })}
+            />
+          </Field>
+        </Step>
+
+        <Divider />
+
+        <Step title="Advanced" description="Behavior, model, and reasoning.">
+          <Field label="Behavior">
+            <LoopBehaviorFields
+              behaviors={values.behaviors}
+              disabled={isSubmitting}
+              onChange={(behaviors) => patch({ behaviors })}
+            />
+          </Field>
+          <LoopModelFields
+            adapter={values.runtimeAdapter}
+            model={values.model}
+            reasoningEffort={values.reasoningEffort}
+            disabled={isSubmitting}
+            onAdapterChange={(runtimeAdapter) => patch({ runtimeAdapter })}
+            onModelChange={(model) => patch({ model })}
+            onReasoningEffortChange={(reasoningEffort) =>
+              patch({ reasoningEffort })
+            }
+          />
+        </Step>
+
+        {hasRemoteUpdate ? (
+          <Flex
+            direction="column"
+            gap="1"
+            className="rounded-(--radius-2) border border-(--amber-6) bg-(--amber-2) px-3 py-2"
+          >
+            <Text className="font-medium text-(--amber-12) text-[12.5px]">
+              This loop changed elsewhere
+            </Text>
+            <Text className="text-(--amber-11) text-[12px] leading-snug">
+              Cancel and reopen editing before saving, so you don't overwrite
+              newer settings.
+            </Text>
+          </Flex>
+        ) : null}
+
+        <Flex
+          align="center"
+          justify="end"
+          gap="2"
+          className="sticky bottom-0 z-10 border-border border-t bg-(--gray-1) py-4"
+        >
+          <Button
+            variant="soft"
+            color="gray"
+            size="2"
+            disabled={isSubmitting}
+            onClick={handleCancel}
+          >
+            Cancel
+          </Button>
+          <Button
+            variant="solid"
+            size="2"
+            loading={isSubmitting}
+            disabled={!canSubmit}
+            onClick={() => void handleSubmit()}
+          >
+            Save changes
+          </Button>
+        </Flex>
+      </Flex>
+    );
+  }
 
   return (
     <Box className="flex h-full items-center justify-center p-6">

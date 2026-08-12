@@ -65,6 +65,8 @@ export {
   type WindowBounds,
   windowBoundsSchema,
 } from "./browser-tabs-schemas";
+export * from "./canvas-contracts";
+export * from "./canvas-platform";
 export type { CloudRunSource, PrAuthorshipMode } from "./cloud";
 export {
   CLOUD_PROMPT_PREFIX,
@@ -88,9 +90,11 @@ export {
   getCloudTaskGatewayUrl,
   getProviderName,
   isAnthropicModel,
+  isBasetenModel,
   isBlockedModelId,
   isCloudflareModel,
   isCloudflareModelId,
+  isDeepseekModelId,
   isGlmModelId,
   isModalModel,
   isModalModelId,
@@ -119,6 +123,7 @@ export {
   isDismissalReasonSnooze,
 } from "./dismissal-reasons";
 export {
+  type ArtifactSource,
   type ArtifactType,
   type CloudPermissionOption,
   type CloudTaskErrorUpdate,
@@ -162,10 +167,7 @@ export {
 } from "./execution-modes";
 export * from "./flags";
 export * from "./git-domain";
-export type {
-  GitHandoffCheckpoint,
-  HandoffLocalGitState,
-} from "./git-handoff";
+export type { GitHandoffCheckpoint, HandoffLocalGitState } from "./git-handoff";
 export * from "./git-naming";
 export type { GitFileStatus } from "./git-types";
 export type {
@@ -211,12 +213,19 @@ export {
 } from "./inbox-types";
 export { EXTERNAL_LINKS } from "./links";
 export type {
-  CloudMcpServerImport,
   CloudMcpServerRelayDesignation,
   LocalMcpServerDescriptor,
   LocalMcpServerScope,
   LocalMcpTransport,
+  McpServerConnection,
 } from "./local-mcp-domain";
+export {
+  MCP_TOOL_PERMISSION_OPTIONS,
+  type McpToolApprovalState,
+  type McpToolPermissionDecision,
+  type McpToolPermissionRequest,
+  type McpToolPolicy,
+} from "./mcp-tool-policy-domain";
 export {
   formatMention,
   type MentionSegment,
@@ -252,10 +261,7 @@ export {
   pathToFileUri,
   toRelativePath,
 } from "./path";
-export type {
-  PiMessagingMode,
-  PiRuntimeHealth,
-} from "./pi-session";
+export type { PiMessagingMode, PiRuntimeHealth } from "./pi-session";
 export {
   buildPrOutput,
   mergePrUrls,
@@ -263,10 +269,7 @@ export {
   readPrSummaries,
   readPrUrls,
 } from "./pr-urls";
-export {
-  isPrivateIpv4Octets,
-  isPrivateIpv6Literal,
-} from "./private-network";
+export { isPrivateIpv4Octets, isPrivateIpv6Literal } from "./private-network";
 export {
   type CapabilityNotch,
   DEFAULT_REASONING_EFFORT,
@@ -278,6 +281,7 @@ export {
   supports1MContext,
   supportsFastMode,
 } from "./reasoning-effort";
+export { REFUND_REASON_OPTIONS } from "./refund-reasons";
 export {
   type CloudRegion,
   formatRegionBadge,
@@ -286,12 +290,7 @@ export {
 } from "./regions";
 export { normalizeRepoKey } from "./repo";
 export { getTaskRepository, parseRepository } from "./repository";
-export {
-  Saga,
-  type SagaLogger,
-  type SagaResult,
-  type SagaStep,
-} from "./saga";
+export { Saga, type SagaLogger, type SagaResult, type SagaStep } from "./saga";
 export { scoutSkillNameFromSlug, scoutSkillSlug } from "./scout-naming";
 export {
   type AcpMessage,
@@ -337,6 +336,7 @@ export type {
   UploadableSkillSource,
 } from "./skills";
 export {
+  DISABLE_MODEL_INVOCATION_METADATA_KEY,
   SKILL_EXISTS_MARKER,
   serializeSkillMarkdown,
   stripFrontmatter,
@@ -363,6 +363,7 @@ export {
   formatDaySeparatorLabel,
   formatRelativeTimeLong,
   formatRelativeTimeShort,
+  formatShortDayLabel,
   getLocalDayDiff,
   getLocalDayKey,
   getRelativeDateGroup,
@@ -373,6 +374,7 @@ export {
   parseMcpToolName,
   posthogToolMeta,
   readAgentToolName,
+  readMcpInstallationId,
   readMcpToolDescriptor,
   readMcpToolName,
   readParentToolCallId,

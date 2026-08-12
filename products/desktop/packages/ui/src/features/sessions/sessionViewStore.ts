@@ -1,3 +1,4 @@
+import type { AgentTurnFeedbackSentiment } from "@posthog/shared";
 import { create } from "zustand";
 
 interface SessionViewState {
@@ -16,6 +17,17 @@ interface SessionViewState {
    * resets to expanded on app restart.
    */
   queueCollapsedByTaskId: Record<string, boolean>;
+  artifactFilesCollapseByTaskId: Record<
+    string,
+    { collapsed: boolean; fileListKey: string }
+  >;
+  /**
+   * Thumbs rating given to an agent turn, keyed by turn id. Feedback is
+   * analytics-only, so this exists purely to keep the chosen thumb lit —
+   * without it a rated turn would forget the click as soon as the virtualized
+   * thread scrolled its row out of the window. Not persisted.
+   */
+  turnFeedbackByTurnId: Record<string, AgentTurnFeedbackSentiment>;
 }
 
 interface SessionViewActions {
@@ -25,6 +37,16 @@ interface SessionViewActions {
   setGroupOverride: (id: string, expanded: boolean) => void;
   clearGroupOverrides: () => void;
   setQueueCollapsed: (taskId: string, collapsed: boolean) => void;
+  setArtifactFilesCollapsed: (
+    taskId: string,
+    collapsed: boolean,
+    fileListKey: string,
+  ) => void;
+  syncArtifactFilesListKey: (taskId: string, fileListKey: string) => void;
+  setTurnFeedback: (
+    turnId: string,
+    sentiment: AgentTurnFeedbackSentiment,
+  ) => void;
 }
 
 type SessionViewStore = SessionViewState & { actions: SessionViewActions };
@@ -35,6 +57,8 @@ const useStore = create<SessionViewStore>((set) => ({
   showSearch: false,
   groupOverrides: {},
   queueCollapsedByTaskId: {},
+  artifactFilesCollapseByTaskId: {},
+  turnFeedbackByTurnId: {},
   actions: {
     setShowRawLogs: (show) => set({ showRawLogs: show }),
     setSearchQuery: (query) => set({ searchQuery: query }),
@@ -60,6 +84,31 @@ const useStore = create<SessionViewStore>((set) => ({
           [taskId]: collapsed,
         },
       })),
+    setArtifactFilesCollapsed: (taskId, collapsed, fileListKey) =>
+      set((state) => ({
+        artifactFilesCollapseByTaskId: {
+          ...state.artifactFilesCollapseByTaskId,
+          [taskId]: { collapsed, fileListKey },
+        },
+      })),
+    syncArtifactFilesListKey: (taskId, fileListKey) =>
+      set((state) => {
+        const current = state.artifactFilesCollapseByTaskId[taskId];
+        if (!current || current.fileListKey === fileListKey) return state;
+        return {
+          artifactFilesCollapseByTaskId: {
+            ...state.artifactFilesCollapseByTaskId,
+            [taskId]: { collapsed: false, fileListKey },
+          },
+        };
+      }),
+    setTurnFeedback: (turnId, sentiment) =>
+      set((state) => ({
+        turnFeedbackByTurnId: {
+          ...state.turnFeedbackByTurnId,
+          [turnId]: sentiment,
+        },
+      })),
   },
 }));
 
@@ -69,4 +118,17 @@ export const useShowSearch = () => useStore((s) => s.showSearch);
 export const useGroupOverrides = () => useStore((s) => s.groupOverrides);
 export const useQueueCollapsed = (taskId: string) =>
   useStore((s) => s.queueCollapsedByTaskId[taskId] ?? false);
+export const useArtifactFilesCollapsed = (
+  taskId: string | undefined,
+  fileListKey: string | undefined,
+) =>
+  useStore((s) =>
+    taskId === undefined
+      ? false
+      : (s.artifactFilesCollapseByTaskId[taskId]?.collapsed ?? false) &&
+        (fileListKey === undefined ||
+          s.artifactFilesCollapseByTaskId[taskId]?.fileListKey === fileListKey),
+  );
+export const useTurnFeedback = (turnId: string) =>
+  useStore((s) => s.turnFeedbackByTurnId[turnId] ?? null);
 export const useSessionViewActions = () => useStore((s) => s.actions);

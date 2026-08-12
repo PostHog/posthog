@@ -7,9 +7,8 @@ const LOCAL_ONLY_CATEGORIES: ReadonlySet<SettingsCategory> = new Set([
   "workspaces",
   "worktrees",
   "terminal",
-  "claude-code",
+  "harness",
   "discord",
-  "updates",
 ]);
 
 interface SettingsVisibility {

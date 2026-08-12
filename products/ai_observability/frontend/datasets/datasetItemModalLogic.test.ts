@@ -30,7 +30,7 @@ describe('datasetItemModalLogic', () => {
     const mockDatasetItem: DatasetItem = {
         id: 'test-item-1',
         dataset: 'test-dataset-1',
-        external_id: null,
+        client_item_id: null,
         version: 2,
         version_id: 'test-item-version-2',
         dataset_revision: 2,
@@ -151,7 +151,7 @@ describe('datasetItemModalLogic', () => {
         expect(mockCloseModal).toHaveBeenCalledWith(true)
     })
 
-    it('offers to reload an item when editing an outdated version', async () => {
+    it('offers to reload items when editing an outdated version', async () => {
         const errorDetail = 'This dataset item changed after it was loaded. Reload it and try again.'
         mockDatasetsApi.updateItem.mockRejectedValue(
             new ApiError(errorDetail, 409, undefined, {
@@ -174,7 +174,7 @@ describe('datasetItemModalLogic', () => {
 
         expect(lemonToast.error).toHaveBeenCalledWith(errorDetail, {
             button: {
-                label: 'Reload item',
+                label: 'Reload items',
                 action: expect.any(Function),
             },
         })
@@ -274,7 +274,7 @@ describe('datasetItemModalLogic', () => {
 
         expect(mockDatasetsApi.createItem).toHaveBeenCalledWith({
             dataset: 'test-dataset-1',
-            external_id: undefined,
+            client_item_id: undefined,
             input: false,
             expected_output: ['first', 2],
             source_output: undefined,
@@ -282,6 +282,90 @@ describe('datasetItemModalLogic', () => {
             source_trace_id: undefined,
             source_event_id: undefined,
             source_timestamp: undefined,
+        })
+    })
+
+    it('does not submit mutations from a read-only item modal', async () => {
+        const logic = datasetItemModalLogic({
+            datasetId: 'test-dataset-1',
+            partialDatasetItem: mockDatasetItem,
+            closeModal: mockCloseModal,
+            isModalOpen: true,
+            readOnly: true,
+        })
+        logic.mount()
+
+        await expectLogic(logic, () => logic.actions.submitDatasetItemForm()).toFinishAllListeners()
+
+        expect(mockDatasetsApi.updateItem).not.toHaveBeenCalled()
+    })
+
+    it('preserves unsaved changes and prevents restoring a version', async () => {
+        const logicProps = {
+            datasetId: 'test-dataset-1',
+            partialDatasetItem: mockDatasetItem,
+            closeModal: mockCloseModal,
+            isModalOpen: true,
+        }
+        const logic = datasetItemModalLogic(logicProps)
+        logic.mount()
+
+        logic.actions.setDatasetItemFormValue('input', '{"message": "Changed"}')
+
+        await expectLogic(logic, () => {
+            datasetItemModalLogic({ ...logicProps, restoringVersion: 1 })
+        })
+
+        expect(logic.values.datasetItemFormChanged).toBe(true)
+        expect(logic.values.datasetItemForm.input).toBe('{"message": "Changed"}')
+        expect(logic.values.datasetItemVersionRestoreDisabledReason).toBe(
+            'Save or discard your changes before restoring a version'
+        )
+    })
+
+    it('prevents editing and saving while a version is being restored', async () => {
+        const logic = datasetItemModalLogic({
+            datasetId: 'test-dataset-1',
+            partialDatasetItem: mockDatasetItem,
+            closeModal: mockCloseModal,
+            isModalOpen: true,
+            restoringVersion: 1,
+        })
+        logic.mount()
+
+        expect(logic.values.isDatasetItemFormReadOnly).toBe(true)
+        expect(logic.values.datasetItemFormSubmitDisabledReason).toBe('Wait for the version to finish restoring')
+
+        await expectLogic(logic, () => logic.actions.submitDatasetItemForm()).toFinishAllListeners()
+
+        expect(mockDatasetsApi.updateItem).not.toHaveBeenCalled()
+    })
+
+    it('updates read-only state when restoring props change', async () => {
+        const logicProps = {
+            datasetId: 'test-dataset-1',
+            partialDatasetItem: mockDatasetItem,
+            closeModal: mockCloseModal,
+            isModalOpen: true,
+        }
+        const logic = datasetItemModalLogic(logicProps)
+        logic.mount()
+
+        expect(logic.values.isDatasetItemFormReadOnly).toBe(false)
+        expect(logic.values.datasetItemFormSubmitDisabledReason).toBeUndefined()
+
+        datasetItemModalLogic({ ...logicProps, restoringVersion: 1 })
+
+        await expectLogic(logic).toMatchValues({
+            isDatasetItemFormReadOnly: true,
+            datasetItemFormSubmitDisabledReason: 'Wait for the version to finish restoring',
+        })
+
+        datasetItemModalLogic({ ...logicProps, restoringVersion: null })
+
+        await expectLogic(logic).toMatchValues({
+            isDatasetItemFormReadOnly: false,
+            datasetItemFormSubmitDisabledReason: undefined,
         })
     })
 
