@@ -11,6 +11,7 @@ import {
   runArtifactVersionKey,
   runArtifactVersionLabel,
 } from "@posthog/core/canvas/runArtifactSchemas";
+import { artifactFilesListKey } from "@posthog/core/sessions/artifactFilesListKey";
 import {
   SESSION_SERVICE,
   type SessionService,
@@ -149,10 +150,10 @@ export function CloudArtifactDownloads({
   const visibleGroups = groups.filter((group) => !group.dismissed);
   const dismissedGroups = groups.filter((group) => group.dismissed);
   const fileListKey = artifactManifest
-    ? `${runId ?? ""}:${visibleGroups
-        .map((group) => group.name)
-        .sort()
-        .join("\u0000")}`
+    ? artifactFilesListKey(
+        runId,
+        visibleGroups.map((group) => group.name),
+      )
     : undefined;
   const collapsed = useArtifactFilesCollapsed(taskId, fileListKey);
 

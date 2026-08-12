@@ -92,9 +92,9 @@ function item(overrides: Partial<ChannelItemModel> = {}): ChannelItemModel {
 // A fresh element per render: React bails out of re-rendering an element it has
 // already seen by reference, and these tests change the hook's answer between
 // renders rather than the props.
-const sidebar = () => (
+const sidebar = (channelId = "channel-1") => (
   <Theme>
-    <ChannelSidebar channelId="channel-1" />
+    <ChannelSidebar channelId={channelId} />
   </Theme>
 );
 
@@ -114,19 +114,20 @@ describe("ChannelSidebar", () => {
       what: "nothing has arrived yet",
       state: { items: [], isLoading: true },
       shown: [] as string[],
-      hidden: ["Sessions", "No matches", "Nothing here yet"],
+      hidden: ["Sessions", "No matches", "No sessions yet"],
     },
     {
       what: "the space is settled and genuinely empty",
       state: { items: [], isLoading: false },
-      shown: ["Nothing here yet"],
-      hidden: ["Sessions", "No matches"],
+      // The tabs stay, or an empty tab is one you can't leave.
+      shown: ["Sessions", "No sessions yet"],
+      hidden: ["No matches"],
     },
     {
       what: "the space is settled with items",
       state: { items: [item()], isLoading: false },
       shown: ["Sessions", "Investigate signup drop-off"],
-      hidden: ["No matches", "Nothing here yet"],
+      hidden: ["No matches", "No sessions yet"],
     },
   ])("shows one state when $what", ({ state, shown, hidden }) => {
     mocks.items = state.items;
@@ -170,7 +171,7 @@ describe("ChannelSidebar", () => {
     rerender(sidebar());
 
     expect(screen.queryByText("No matches")).not.toBeInTheDocument();
-    expect(screen.queryByText("Nothing here yet")).not.toBeInTheDocument();
+    expect(screen.queryByText("No sessions yet")).not.toBeInTheDocument();
   });
 
   it("shows a single empty state when the last item goes away under a search", async () => {
@@ -183,7 +184,58 @@ describe("ChannelSidebar", () => {
     rerender(sidebar());
 
     expect(screen.getByText("No matches")).toBeInTheDocument();
-    expect(screen.queryByText("Nothing here yet")).not.toBeInTheDocument();
+    expect(screen.queryByText("No sessions yet")).not.toBeInTheDocument();
+  });
+
+  it("opens a space on its sessions, whichever tab the last one was left on", async () => {
+    const user = userEvent.setup({ pointerEventsCheck: 0 });
+    mocks.items = [item()];
+    const { rerender } = renderSidebar();
+
+    await user.click(screen.getByRole("tab", { name: "Canvases" }));
+    expect(screen.getByRole("tab", { name: "Canvases" })).toHaveAttribute(
+      "aria-selected",
+      "true",
+    );
+
+    // The pane stays mounted across a space switch, so the tab has to be put
+    // back rather than left where the last space was.
+    rerender(sidebar("channel-2"));
+
+    expect(screen.getByRole("tab", { name: "Sessions" })).toHaveAttribute(
+      "aria-selected",
+      "true",
+    );
+  });
+
+  it("shows one kind at a time, and drops the run filters with the sessions", async () => {
+    const user = userEvent.setup({ pointerEventsCheck: 0 });
+    mocks.items = [
+      item(),
+      item({
+        key: "canvas:c1",
+        kind: "canvas",
+        id: "c1",
+        title: "Signup funnel canvas",
+      }),
+    ];
+    renderSidebar();
+
+    await user.click(screen.getByRole("tab", { name: "Canvases" }));
+
+    expect(screen.getByText("Signup funnel canvas")).toBeInTheDocument();
+    expect(
+      screen.queryByText("Investigate signup drop-off"),
+    ).not.toBeInTheDocument();
+
+    // A canvas has no run, so the filters that ask about one are gone rather
+    // than left to empty the tab.
+    await user.click(screen.getByRole("button", { name: "Filter" }));
+    expect(
+      await screen.findByRole("menuitem", { name: /Pinned/ }),
+    ).toBeInTheDocument();
+    expect(screen.queryByRole("menuitem", { name: /Status/ })).toBeNull();
+    expect(screen.queryByRole("menuitem", { name: /Source/ })).toBeNull();
   });
 });
 
@@ -201,7 +253,7 @@ describe("ChannelSidebar recents list", () => {
     vi.useRealTimers();
   });
 
-  it("lists recents newest first without day separators", () => {
+  it("heads each run of days with the day it is", () => {
     mocks.items = [
       item({
         key: "task:a",
@@ -231,29 +283,24 @@ describe("ChannelSidebar recents list", () => {
 
     renderSidebar();
 
-    expect(screen.getByText("Today's work")).not.toBeNull();
-    expect(screen.getByText("Also today")).not.toBeNull();
-    expect(screen.getByText("Yesterday's work")).not.toBeNull();
-    expect(screen.getByText("Older work")).not.toBeNull();
-    expect(screen.queryByText("Today")).toBeNull();
-    expect(screen.queryByText("Yesterday")).toBeNull();
-    expect(screen.queryByText("Monday, July 20th")).toBeNull();
+    // The two same-day rows share one header rather than each getting their own.
+    const labelled = screen
+      .getAllByText(
+        /^(Today|Yesterday|Jul 20|Today's work|Also today|Yesterday's work|Older work)$/,
+      )
+      .map((el) => el.textContent);
+    expect(labelled).toEqual([
+      "Today",
+      "Today's work",
+      "Also today",
+      "Yesterday",
+      "Yesterday's work",
+      "Jul 20",
+      "Older work",
+    ]);
   });
 
-  it("keeps items from the same day as plain rows", () => {
-    mocks.items = [
-      item({ key: "task:a", id: "a", ts: new Date(2026, 6, 29, 9).getTime() }),
-      item({ key: "task:b", id: "b", ts: new Date(2026, 6, 29, 8).getTime() }),
-      item({ key: "task:c", id: "c", ts: new Date(2026, 6, 29, 1).getTime() }),
-    ];
-
-    renderSidebar();
-
-    expect(screen.getAllByText("Investigate signup drop-off")).toHaveLength(3);
-    expect(screen.queryByText("Today")).toBeNull();
-  });
-
-  it("lists pins in the one session list, ahead of newer items", () => {
+  it("leads with a pinned section, ahead of newer items", () => {
     mocks.items = [
       item({
         key: "task:newer",
@@ -272,15 +319,19 @@ describe("ChannelSidebar recents list", () => {
 
     renderSidebar();
 
-    // No section of its own — a pin is a mark on a session, and the row's badge
-    // is what says so.
-    expect(screen.queryByText("Pinned")).toBeNull();
-    const titles = screen
-      .getAllByText(/Kept at hand|Filed this morning/)
-      .map((el) => el.textContent);
     // Older, but pinned: it sorts above the newer row rather than risking the
-    // recents cap.
-    expect(titles).toEqual(["Kept at hand", "Filed this morning"]);
+    // recents cap, and it is listed under the pins rather than under its day.
+    const listed = screen
+      .getAllByText(/^(Pinned|Today|Kept at hand|Filed this morning)$/)
+      .map((el) => el.textContent);
+    expect(listed).toEqual([
+      "Pinned",
+      "Kept at hand",
+      "Today",
+      "Filed this morning",
+    ]);
+    // The header says it for the whole section, so the rows below drop the badge.
+    expect(screen.queryByRole("img", { name: "Pinned" })).toBeNull();
   });
 });
 
@@ -342,9 +393,11 @@ describe("ChannelSidebar multi-select", () => {
   // A canvas can't be archived, filed, or tiled like a session, so it stays out
   // of the selection and modifier-clicking one just opens it.
   it("opens a canvas even on a modifier-click", async () => {
-    const user = userEvent.setup();
+    const user = userEvent.setup({ pointerEventsCheck: 0 });
     renderSidebar();
 
+    // Canvases are their own tab, so the row has to be brought into view first.
+    await user.click(screen.getByRole("tab", { name: "Canvases" }));
     await user.keyboard("{Meta>}");
     await user.click(screen.getByText("A canvas"));
 

@@ -138,6 +138,7 @@ export function ChannelItemRow({
   actions,
   isEditing = false,
   onClick,
+  showPinBadge = true,
   onRename,
   onAddToCommandCenter,
   onEditSubmit,
@@ -153,6 +154,8 @@ export function ChannelItemRow({
   isEditing?: boolean;
   /** Takes over the row's click, e.g. to modifier-click a selection. Falls back to opening it. */
   onClick?: (e: React.MouseEvent) => void;
+  /** False under a "Pinned" header, which says it for every row beneath it. */
+  showPinBadge?: boolean;
   /** Puts the row into inline-rename mode. Absent for canvases. */
   onRename?: () => void;
   /** Absent when the command centre has no free cell, which disables the item. */
@@ -161,6 +164,7 @@ export function ChannelItemRow({
   onEditCancel?: () => void;
 }) {
   const status = useChannelTaskStatus(item);
+  const pinBadge = item.pinned && showPinBadge;
   const [confirmDeleteOpen, setConfirmDeleteOpen] = useState(false);
   // A canvas inside its undo window stays in the list rather than vanishing and
   // reappearing on Undo, so the row has to say what's happening to it.
@@ -247,12 +251,12 @@ export function ChannelItemRow({
                       card. The pin joins whichever stack the row has, rather
                       than standing beside it as a badge of its own. */}
             {status ? (
-              <TaskBadgeStack status={status} pinned={item.pinned} />
+              <TaskBadgeStack status={status} pinned={pinBadge} />
             ) : item.kind === "canvas" ? (
-              <CanvasBadgeStack item={item} pinned={item.pinned} />
+              <CanvasBadgeStack item={item} pinned={pinBadge} />
             ) : (
               <>
-                {item.pinned && (
+                {pinBadge && (
                   <AvatarGroup stacked reverse size="xs" className="shrink-0">
                     <PinnedBadge />
                   </AvatarGroup>

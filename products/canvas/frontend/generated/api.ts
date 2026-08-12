@@ -14,7 +14,11 @@ import type {
     CanvasBuildApi,
     CanvasBuildsResponseApi,
     CanvasCreateApi,
+    CanvasPromoteApi,
+    CanvasPublishCurrentVersionApi,
     CanvasRevertApi,
+    CanvasSourceDraftApi,
+    CanvasSourceDraftResponseApi,
     CanvasSourceEditApi,
     CanvasSourcePublishApi,
     CanvasSourcePublishResponseApi,
@@ -22,9 +26,11 @@ import type {
     CanvasValidateRequestApi,
     CanvasValidateResponseApi,
     CanvasesBuildsRetrieveParams,
+    CanvasesDraftsRetrieveParams,
     CanvasesListParams,
     CanvasesSourceRetrieveParams,
     CanvasesVersionsRetrieveParams,
+    PaginatedCanvasDraftListApi,
     PaginatedCanvasListApi,
     PaginatedCanvasVersionListApi,
     PatchedCanvasUpdateApi,
@@ -194,6 +200,68 @@ export const canvasesBuildActionCreate = async (
     })
 }
 
+export const getCanvasesDraftCreateUrl = (projectId: string, id: string) => {
+    return `/api/projects/${projectId}/canvases/${id}/draft/`
+}
+
+/**
+ * Stage a complete source project as a draft version and build it, without publishing.
+ *
+ * The draft gets the same validation, versioning, and server-side build as
+ * a publish, but the canvas's head and live build never move, so nothing
+ * changes for viewers. Promote the version with `promote` to make it live.
+ * The response reports how the draft's declared capabilities widen the
+ * current head's, so growth in access can be reviewed before it ships.
+ * No version guard applies: a draft conflicts with nothing.
+ */
+export const canvasesDraftCreate = async (
+    projectId: string,
+    id: string,
+    canvasSourceDraftApi: CanvasSourceDraftApi,
+    options?: RequestInit
+): Promise<CanvasSourceDraftResponseApi> => {
+    return apiMutator<CanvasSourceDraftResponseApi>(getCanvasesDraftCreateUrl(projectId, id), {
+        ...options,
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', ...options?.headers },
+        body: JSON.stringify(canvasSourceDraftApi),
+    })
+}
+
+export const getCanvasesDraftsRetrieveUrl = (projectId: string, id: string, params?: CanvasesDraftsRetrieveParams) => {
+    const normalizedParams = new URLSearchParams()
+
+    Object.entries(params || {}).forEach(([key, value]) => {
+        if (value !== undefined) {
+            normalizedParams.append(key, value === null ? 'null' : String(value))
+        }
+    })
+
+    const stringifiedParams = normalizedParams.toString()
+
+    return stringifiedParams.length > 0
+        ? `/api/projects/${projectId}/canvases/${id}/drafts/?${stringifiedParams}`
+        : `/api/projects/${projectId}/canvases/${id}/drafts/`
+}
+
+/**
+ * The canvas's staged draft versions, newest first, each with its latest build status.
+ *
+ * A draft is a version that was built but never made the head. Preview one
+ * with `source?version_id=`, then make it live with `promote`.
+ */
+export const canvasesDraftsRetrieve = async (
+    projectId: string,
+    id: string,
+    params?: CanvasesDraftsRetrieveParams,
+    options?: RequestInit
+): Promise<PaginatedCanvasDraftListApi> => {
+    return apiMutator<PaginatedCanvasDraftListApi>(getCanvasesDraftsRetrieveUrl(projectId, id, params), {
+        ...options,
+        method: 'GET',
+    })
+}
+
 export const getCanvasesEditCreateUrl = (projectId: string, id: string) => {
     return `/api/projects/${projectId}/canvases/${id}/edit/`
 }
@@ -221,6 +289,30 @@ export const canvasesEditCreate = async (
     })
 }
 
+export const getCanvasesPromoteCreateUrl = (projectId: string, id: string) => {
+    return `/api/projects/${projectId}/canvases/${id}/promote/`
+}
+
+/**
+ * Make a draft version the canvas's live head.
+ *
+ * A draft whose build is ready goes live immediately, with no rebuild;
+ * otherwise a fresh build is queued. Returns that build.
+ */
+export const canvasesPromoteCreate = async (
+    projectId: string,
+    id: string,
+    canvasPromoteApi: CanvasPromoteApi,
+    options?: RequestInit
+): Promise<CanvasBuildApi> => {
+    return apiMutator<CanvasBuildApi>(getCanvasesPromoteCreateUrl(projectId, id), {
+        ...options,
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', ...options?.headers },
+        body: JSON.stringify(canvasPromoteApi),
+    })
+}
+
 export const getCanvasesPublishCreateUrl = (projectId: string, id: string) => {
     return `/api/projects/${projectId}/canvases/${id}/publish/`
 }
@@ -243,6 +335,27 @@ export const canvasesPublishCreate = async (
         method: 'POST',
         headers: { 'Content-Type': 'application/json', ...options?.headers },
         body: JSON.stringify(canvasSourcePublishApi),
+    })
+}
+
+export const getCanvasesPublishCurrentVersionCreateUrl = (projectId: string, id: string) => {
+    return `/api/projects/${projectId}/canvases/${id}/publish-current-version/`
+}
+
+/**
+ * Queue a build for the current source version without changing source or metadata.
+ */
+export const canvasesPublishCurrentVersionCreate = async (
+    projectId: string,
+    id: string,
+    canvasPublishCurrentVersionApi: CanvasPublishCurrentVersionApi,
+    options?: RequestInit
+): Promise<CanvasBuildApi> => {
+    return apiMutator<CanvasBuildApi>(getCanvasesPublishCurrentVersionCreateUrl(projectId, id), {
+        ...options,
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', ...options?.headers },
+        body: JSON.stringify(canvasPublishCurrentVersionApi),
     })
 }
 
@@ -345,7 +458,11 @@ export const getCanvasesVersionsRetrieveUrl = (
 }
 
 /**
- * The canvas's source-version history, newest first (metadata only).
+ * The canvas's published source-version history, newest first (metadata only).
+ *
+ * Drafts are excluded: they are staged versions that have never been the
+ * head, so they are not part of the undo/revert timeline. Fetch a draft's
+ * files with `source?version_id=` to preview it before promoting.
  */
 export const canvasesVersionsRetrieve = async (
     projectId: string,

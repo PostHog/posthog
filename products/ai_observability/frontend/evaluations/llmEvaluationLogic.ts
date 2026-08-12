@@ -1,11 +1,12 @@
 import { MakeLogicType, actions, afterMount, connect, kea, key, listeners, path, props, reducers, selectors } from 'kea'
 import { loaders } from 'kea-loaders'
-import { router, urlToAction } from 'kea-router'
+import { actionToUrl, router, urlToAction } from 'kea-router'
 import posthog from 'posthog-js'
 
 import { SetupTaskId, globalSetupLogic } from 'lib/components/ProductSetup'
 import { lemonToast } from 'lib/lemon-ui/LemonToast'
 import { teamLogic } from 'scenes/teamLogic'
+import { urls } from 'scenes/urls'
 
 import { MaxContextInput, createMaxContextHelpers } from '~/scenes/max/maxTypes'
 import { Breadcrumb } from '~/types'
@@ -63,6 +64,11 @@ export const DEFAULT_SESSION_QUIET_PERIOD_SECONDS = 60 * 60
 export const DEFAULT_SESSION_MAX_AGE_SECONDS = 24 * 60 * 60
 
 const AGGREGATE_TARGETS: EvaluationTarget[] = ['trace', 'session']
+const EVALUATION_DETAIL_TABS = new Set(['configuration', 'reports', 'runs'])
+
+function evaluationDetailTab(value: unknown): string | null {
+    return typeof value === 'string' && EVALUATION_DETAIL_TABS.has(value) ? value : null
+}
 
 function seedSettleConfig(target: EvaluationTarget, strategy: EvaluationSettleStrategy): EvaluationTargetConfig {
     if (!AGGREGATE_TARGETS.includes(target)) {
@@ -312,6 +318,7 @@ export interface llmEvaluationLogicActions {
     }
     loadEvaluationSuccess: (evaluation: EvaluationConfig | null) => {
         evaluation: EvaluationConfig | null
+        requestedTab: string | null
     }
     loadRunsStats: () => any
     loadRunsStatsFailure: (
@@ -523,7 +530,10 @@ export const llmEvaluationLogic = kea<llmEvaluationLogicType>([
         saveEvaluationSuccess: (evaluation: EvaluationConfig) => ({ evaluation }),
         saveEvaluationFailure: (error: string) => ({ error }),
         loadEvaluation: true,
-        loadEvaluationSuccess: (evaluation: EvaluationConfig | null) => ({ evaluation }),
+        loadEvaluationSuccess: (evaluation: EvaluationConfig | null) => ({
+            evaluation,
+            requestedTab: evaluationDetailTab(router.values.searchParams.evaluation_tab),
+        }),
         resetEvaluation: true,
 
         // Evaluation runs actions
@@ -870,7 +880,8 @@ export const llmEvaluationLogic = kea<llmEvaluationLogicType>([
             {
                 setActiveTab: (_, { tab }) => tab,
                 // Show runs tab for existing evaluations, configuration for new
-                loadEvaluationSuccess: (_, { evaluation }) => (evaluation?.id ? 'runs' : 'configuration'),
+                loadEvaluationSuccess: (_, { evaluation, requestedTab }) =>
+                    requestedTab ?? (evaluation?.id ? 'runs' : 'configuration'),
             },
         ],
     }),
@@ -1343,8 +1354,14 @@ export const llmEvaluationLogic = kea<llmEvaluationLogicType>([
         ],
     }),
 
-    urlToAction(({ actions, props }) => ({
-        '/ai-evals/evaluations/:id': ({ id }, _, __, { method }) => {
+    urlToAction(({ actions, props, values }) => ({
+        [urls.aiObservabilityEvaluation(':id')]: ({ id }, searchParams, __, { method }) => {
+            const requestedTab =
+                evaluationDetailTab(searchParams.evaluation_tab) ?? (id === 'new' ? 'configuration' : 'runs')
+            if (requestedTab !== values.activeTab) {
+                actions.setActiveTab(requestedTab)
+            }
+
             // Only reload when navigating to a different evaluation, not on search param changes (e.g., pagination)
             const newEvaluationId = id && id !== 'new' ? id : 'new'
             if (method === 'PUSH' && newEvaluationId !== props.evaluationId) {
@@ -1353,6 +1370,23 @@ export const llmEvaluationLogic = kea<llmEvaluationLogicType>([
                     actions.loadEvaluationRuns()
                 }
             }
+        },
+    })),
+
+    actionToUrl(({ props }) => ({
+        setActiveTab: ({ tab }) => {
+            const defaultTab = props.evaluationId === 'new' ? 'configuration' : 'runs'
+            const evaluationTab = tab === defaultTab ? undefined : tab
+            if (router.values.searchParams.evaluation_tab === evaluationTab) {
+                return
+            }
+
+            return [
+                router.values.location.pathname,
+                { ...router.values.searchParams, evaluation_tab: evaluationTab },
+                router.values.hashParams,
+                { replace: true },
+            ]
         },
     })),
 

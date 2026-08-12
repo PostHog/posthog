@@ -85,6 +85,25 @@ class TestDecagonSource:
         assert tags.supports_incremental is False
         assert tags.supports_append is False
 
+        admin_logs = next(s for s in schemas if s.name == "admin_logs")
+        # Merge on id keeps the table correct even if the loosely typed `start` filter is
+        # ignored server-side; an append sync in that case would re-add all history every
+        # run, so it is not offered. Opt-in until the details columns are confirmed safe.
+        assert admin_logs.supports_incremental is True
+        assert admin_logs.supports_append is False
+        assert admin_logs.should_sync_default is False
+        assert [f["field"] for f in admin_logs.incremental_fields] == ["created_at"]
+
+        members = next(s for s in schemas if s.name == "team_members")
+        # Staff email addresses must be a deliberate opt-in, not something an account
+        # acquires by connecting the source.
+        assert members.should_sync_default is False
+        assert members.supports_incremental is False
+
+        watchtower = next(s for s in schemas if s.name == "watchtower_jobs")
+        assert watchtower.supports_incremental is False
+        assert watchtower.supports_append is False
+
     def test_get_schemas_filtered_by_names(self) -> None:
         assert [s.name for s in self.source.get_schemas(self.config, self.team_id, names=["conversations"])] == [
             "conversations"
