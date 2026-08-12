@@ -32,7 +32,18 @@ interface SidebarItemProps
   action?: SidebarItemAction;
   /** Hugs the label but never truncates with it; pushes endContent right. */
   badge?: React.ReactNode;
+  /**
+   * Trailing controls — hover toolbars, avatars, spinners, status badges. They
+   * sit flush with the row's edge, because an icon-sized control carries its
+   * own padding and reads as inset twice over if the row adds more.
+   */
   endContent?: React.ReactNode;
+  /**
+   * Trailing text — a shortcut hint, a count. Unlike a control it has no
+   * padding of its own, so the row gives it the gap from the edge. Rendered
+   * outside `endContent`, i.e. rightmost.
+   */
+  endHint?: React.ReactNode;
   disabled?: boolean;
 }
 
@@ -51,6 +62,7 @@ export function SidebarItem({
   onContextMenu,
   badge,
   endContent,
+  endHint,
   disabled,
   ref,
   ...buttonProps
@@ -101,6 +113,9 @@ export function SidebarItem({
             </span>
           ) : null}
           {endContent}
+          {endHint ? (
+            <span className="flex shrink-0 items-center pr-1">{endHint}</span>
+          ) : null}
         </span>
         {subtitle ? (
           <span className="truncate text-gray-10 group-data-active:text-gray-11">
