@@ -72,7 +72,7 @@ class EmailThreadMessage(TeamScopedRootMixin, UUIDModel):
             ),
             models.UniqueConstraint(
                 fields=["team", "message_id"],
-                condition=models.Q(message_id__isnull=False),
+                condition=models.Q(message_id__isnull=False) & ~models.Q(message_id=""),
                 name="unique_email_message_id_per_team",
             ),
         ]

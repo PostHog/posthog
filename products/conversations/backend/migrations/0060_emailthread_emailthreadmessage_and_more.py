@@ -145,7 +145,7 @@ class Migration(migrations.Migration):
         migrations.AddConstraint(
             model_name="emailthreadmessage",
             constraint=models.UniqueConstraint(
-                condition=models.Q(("message_id__isnull", False)),
+                condition=models.Q(("message_id__isnull", False), models.Q(("message_id", ""), _negated=True)),
                 fields=("team", "message_id"),
                 name="unique_email_message_id_per_team",
             ),

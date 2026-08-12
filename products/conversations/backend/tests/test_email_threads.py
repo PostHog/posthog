@@ -143,6 +143,25 @@ class TestEmailThreadPersistence(BaseTest):
                 sent_at=sent_at,
             )
 
+    def test_messages_without_rfc_ids_do_not_collide(self) -> None:
+        thread = self._create_thread()
+        sent_at = timezone.now()
+
+        first = self._create_message(
+            thread,
+            source_id="provider-1",
+            message_id="",
+            sent_at=sent_at,
+        )
+        second = self._create_message(
+            thread,
+            source_id="provider-2",
+            message_id="",
+            sent_at=sent_at,
+        )
+
+        assert first.id != second.id
+
     def test_canonical_thread_key_is_unique_per_team(self) -> None:
         self._create_thread()
 
