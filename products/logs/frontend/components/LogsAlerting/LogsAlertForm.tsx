@@ -115,7 +115,8 @@ export function LogsAlertForm(): JSX.Element {
     )
     const enabledAdvancedOptionsCount =
         Number(alertForm.evaluationPeriods > 1 || alertForm.datapointsToAlarm > 1) +
-        Number(alertForm.cooldownMinutes > 0)
+        Number(alertForm.cooldownMinutes > 0) +
+        Number(alertForm.scheduleRestriction !== null)
 
     return (
         <div className="space-y-6 max-w-2xl">
@@ -176,12 +177,6 @@ export function LogsAlertForm(): JSX.Element {
                 </div>
             </AlertEditorSection>
 
-            <QuietHoursFields
-                scheduleRestriction={alertForm.scheduleRestriction}
-                cadenceMinutes={5}
-                teamTimezone={timezone}
-                onChange={(next) => setAlertFormValue('scheduleRestriction', next)}
-            />
             <AlertTimezoneNotice
                 timezone={timezone}
                 settingsUrl={urls.settings('environment-customization', 'date-and-time')}
@@ -251,6 +246,12 @@ export function LogsAlertForm(): JSX.Element {
                         <span className="text-sm">minutes</span>
                     </div>
                 </LemonField.Pure>
+                <QuietHoursFields
+                    scheduleRestriction={alertForm.scheduleRestriction}
+                    cadenceMinutes={5}
+                    teamTimezone={timezone}
+                    onChange={(next) => setAlertFormValue('scheduleRestriction', next)}
+                />
             </AlertAdvancedOptions>
         </div>
     )

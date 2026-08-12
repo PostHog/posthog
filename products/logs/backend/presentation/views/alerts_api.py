@@ -940,8 +940,9 @@ class LogsAlertViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
             serializer.is_valid(raise_exception=True)
             self.perform_update(serializer)
 
-            if getattr(instance, "_prefetched_objects_cache", None):
-                instance._prefetched_objects_cache = {}
+            prefetched_objects_cache = getattr(instance, "_prefetched_objects_cache", None)
+            if prefetched_objects_cache:
+                prefetched_objects_cache.clear()
 
         return Response(serializer.data)
 
