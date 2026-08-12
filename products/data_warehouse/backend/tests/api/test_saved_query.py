@@ -827,6 +827,47 @@ class TestSavedQuery(APIBaseTest):
         # a stale v1 schedule from a half-finished migration must not be revived by the PATCH
         v1_exists.assert_not_called()
 
+    @parameterized.expand(
+        [
+            ("24hour", "12:00:00", "1 day, 0:00:00"),
+            ("never", "12:00:00", None),
+        ]
+    )
+    def test_sync_frequency_change_on_tiered_v2_is_recorded_in_the_activity_log(
+        self, sync_frequency: str, expected_before: str, expected_after: str | None
+    ):
+        # a tiered team stores the cadence on the DAG node and keeps the interval column NULL, so a
+        # frequency edit changes no model field — changes_between() returns nothing and log_activity
+        # drops an "updated" entry with no changes, leaving the edit with no audit trail at all
+        from products.data_modeling.backend.logic.node_frequency import set_declared_target
+        from products.data_modeling.backend.models import Node
+
+        saved_query = self._create_saved_query_for_frequency_tests()
+        node = Node.objects.get(saved_query_id=saved_query["id"])
+        set_declared_target(node, timedelta(hours=12))
+        reconcile_module = "products.data_modeling.backend.logic.schedule_reconcile"
+
+        with (
+            patch(
+                "products.data_warehouse.backend.presentation.views.saved_query.posthoganalytics.feature_enabled",
+                side_effect=self._v2_flag_only,
+            ),
+            patch(f"{reconcile_module}.tiered_schedules_enabled", return_value=True),
+            patch(f"{reconcile_module}.maybe_reconcile_dag"),
+        ):
+            response = self.client.patch(
+                f"/api/environments/{self.team.id}/warehouse_saved_queries/{saved_query['id']}",
+                {"sync_frequency": sync_frequency},
+            )
+
+        self.assertEqual(response.status_code, 200, response.json())
+        log = ActivityLog.objects.get(scope="DataWarehouseSavedQuery", item_id=saved_query["id"], activity="updated")
+        detail = cast(dict[str, Any], log.detail)
+        frequency_changes = [change for change in detail["changes"] if change["field"] == "sync_frequency_interval"]
+        self.assertEqual(len(frequency_changes), 1, detail["changes"])
+        self.assertEqual(frequency_changes[0]["before"], expected_before)
+        self.assertEqual(frequency_changes[0]["after"], expected_after)
+
     def test_update_sync_frequency_on_tiered_v2_without_node_is_rejected(self):
         from products.data_modeling.backend.models import Node
 

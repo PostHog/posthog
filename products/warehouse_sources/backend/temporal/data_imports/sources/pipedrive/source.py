@@ -105,6 +105,7 @@ You can find your personal API token in Pipedrive under **Settings > Personal pr
                         type=SourceFieldInputConfigType.TEXT,
                         required=True,
                         placeholder="mycompany",
+                        caption="Enter just your Pipedrive subdomain, not a full URL. For acme.pipedrive.com, enter acme.",
                         secret=False,
                     ),
                     SourceFieldInputConfig(

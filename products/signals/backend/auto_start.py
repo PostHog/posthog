@@ -264,10 +264,17 @@ def _build_autostart_task_description(
         "the user to that branch so they can review the changes and decide how to proceed, and explain in your "
         "turn summary why you didn't open the PR directly. Err on the side of caution to avoid committing a "
         "social faux pas in someone else's project.\n\n"
+        "Before you open the PR, run the `/simplify` skill over your branch and apply what it "
+        "finds; if the skill isn't available to you, reread your own diff for the same. Cut the "
+        "scaffolding a first draft accumulates, and any comment that only narrates the code. Only "
+        "remove, never widen the change, and rerun the tests if you removed anything.\n\n"
+        "Write everything you produce in Simplified Technical English, following the "
+        "`writing-simplified-technical-english` skill: one meaning per word, active voice, simple tenses, "
+        "one idea per sentence.\n\n"
         f"{_PR_DESCRIPTION_FORM_RULES}"
         f"{source_reference_instruction}"
         "When opening the PR, include this report link in the description footer, "
-        "making the footer '*Created with [PostHog Desktop](https://posthog.com/code?ref=pr) "
+        "making the footer '*Created with [PostHog Desktop](https://posthog.com/desktop?ref=pr) "
         f"from [this inbox report]({report_link}){footer_source_refs}.' - "
         "so the human reviewer can jump straight to it."
     )
@@ -682,9 +689,7 @@ async def maybe_autostart_implementation_task(
         )
         return
 
-    base_branch = None
-    if repository and team_config:
-        base_branch = (team_config.autostart_base_branches or {}).get(repository.lower())
+    base_branch = team_config.base_branch_for(repository) if team_config else None
 
     source_references = await database_sync_to_async(_fetch_source_references, thread_sensitive=False)(
         team_id, report_id

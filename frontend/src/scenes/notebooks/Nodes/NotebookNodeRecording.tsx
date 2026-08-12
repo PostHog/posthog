@@ -44,7 +44,8 @@ const Component = ({ attributes }: NotebookNodeProps<NotebookNodeRecordingAttrib
     }
 
     const { expanded } = useValues(notebookNodeLogic)
-    const { setActions, insertAfter, setMessageListeners, setExpanded } = useActions(notebookNodeLogic)
+    const { setActions, insertAfter, setMessageListeners, setExpanded, setTitlePlaceholder } =
+        useActions(notebookNodeLogic)
 
     const { sessionPlayerMetaData, sessionPlayerMetaDataLoading, sessionPlayerData } = useValues(
         sessionRecordingDataCoordinatorLogic(recordingLogicProps)
@@ -59,6 +60,7 @@ const Component = ({ attributes }: NotebookNodeProps<NotebookNodeRecordingAttrib
 
     useEffect(() => {
         const person = sessionPlayerMetaData?.person
+        setTitlePlaceholder(person ? asDisplay(person) : 'Session recording')
         setActions([
             person
                 ? {
@@ -150,6 +152,7 @@ type NotebookNodeRecordingAttributes = {
 export const NotebookNodeRecording = createPostHogWidgetNode<NotebookNodeRecordingAttributes>({
     nodeType: NotebookNodeType.Recording,
     titlePlaceholder: 'Session recording',
+    editableTitle: false,
     Component,
     heightEstimate: HEIGHT,
     minHeight: MIN_HEIGHT,

@@ -14,6 +14,7 @@ from pydantic import BaseModel, ConfigDict
 
 from posthog.schema import (
     AccountsQuery,
+    AccountsTableQuery,
     ActorsPropertyTaxonomyQuery,
     ActorsQuery,
     BreakdownType,
@@ -62,6 +63,7 @@ from posthog.schema import (
     MetricsQuery,
     NodeKind,
     PathsQuery,
+    PathsV2Query,
     PropertyGroupFilter,
     PropertyGroupFilterValue,
     QueryStatus,
@@ -341,6 +343,7 @@ RunnableQueryNode = Union[
     FunnelsQuery,
     RetentionQuery,
     PathsQuery,
+    PathsV2Query,
     StickinessQuery,
     LifecycleQuery,
     ActorsQuery,
@@ -364,6 +367,7 @@ RunnableQueryNode = Union[
     ActorsPropertyTaxonomyQuery,
     UsageMetricsQuery,
     AccountsQuery,
+    AccountsTableQuery,
     EndpointsUsageOverviewQuery,
     EndpointsUsageTableQuery,
     EndpointsUsageTrendsQuery,
@@ -452,6 +456,32 @@ def get_query_runner(
                 user=user,
             )
 
+        # Queries originating from the web analytics product take a WA-owned
+        # subclass that can serve eligible shapes from precompute buckets and
+        # falls back to the standard trends path internally. Tags-only check:
+        # all real gating (rollout flag, shape, team enrollment) lives in the
+        # runner so dispatch stays free of I/O.
+        query_tags = get_from_dict_or_attr(query_obj, "tags")
+        if query_tags and get_from_dict_or_attr(query_tags, "productKey") == "web_analytics":
+            from products.web_analytics.backend.hogql_queries.web_trends_lazy_precompute import (
+                is_trends_precompute_enabled_for_team,
+            )
+
+            # Flag-gated at dispatch: with the rollout flag off, WA queries take
+            # the vanilla trends path with zero new code in the way. Local flag
+            # evaluation only — no network I/O here.
+            if is_trends_precompute_enabled_for_team(team):
+                from products.web_analytics.backend.hogql_queries.web_trends import WebTrendsQueryRunner
+
+                return WebTrendsQueryRunner(
+                    query=query_obj,
+                    team=team,
+                    timings=timings,
+                    limit_context=limit_context,
+                    modifiers=modifiers,
+                    user=user,
+                )
+
         from .insights.trends.trends_query_runner import TrendsQueryRunner
 
         return TrendsQueryRunner(
@@ -496,6 +526,17 @@ def get_query_runner(
             user=user,
         )
 
+    if kind == "PathsV2Query":
+        from products.product_analytics.backend.hogql_queries.paths_v2.paths_v2_query_runner import PathsV2QueryRunner
+
+        return PathsV2QueryRunner(
+            query=cast(PathsV2Query | dict[str, Any], query),
+            team=team,
+            timings=timings,
+            limit_context=limit_context,
+            modifiers=modifiers,
+            user=user,
+        )
     if kind == "CalendarHeatmapQuery":
         from .insights.trends.calendar_heatmap_query_runner import CalendarHeatmapQueryRunner
 
@@ -605,6 +646,7 @@ def get_query_runner(
         "FunnelCorrelationActorsQuery",
         "ExperimentActorsQuery",
         "StickinessActorsQuery",
+        "PathsV2ActorsQuery",
     ):
         from .insights.insight_actors_query_runner import InsightActorsQueryRunner
 
@@ -1222,6 +1264,18 @@ def get_query_runner(
         from products.customer_analytics.backend.facade.queries import AccountsQueryRunner
 
         return AccountsQueryRunner(
+            query=query,
+            team=team,
+            timings=timings,
+            modifiers=modifiers,
+            limit_context=limit_context,
+            user=user,
+        )
+
+    if kind == "AccountsTableQuery":
+        from products.customer_analytics.backend.facade.queries import AccountsTableQueryRunner
+
+        return AccountsTableQueryRunner(
             query=query,
             team=team,
             timings=timings,

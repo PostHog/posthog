@@ -21,6 +21,7 @@ import { SetupTaskId, globalSetupLogic } from 'lib/components/ProductSetup'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { trackedActionToUrl } from 'lib/logic/scenes/trackedActionToUrl'
 import { objectsEqual } from 'lib/utils/objects'
+import { projectLogic } from 'scenes/projectLogic'
 import { sceneLogic } from 'scenes/sceneLogic'
 import { filterTestAccountsDefaultsLogic } from 'scenes/settings/environment/filterTestAccountDefaultsLogic'
 import { teamLogic } from 'scenes/teamLogic'
@@ -51,6 +52,7 @@ const STALE_PARAMS = new Set(['event', 'timestamp', 'msg'])
 
 export type AIObservabilityTabId =
     | 'dashboard'
+    | 'self-driving'
     | 'generations'
     | 'reviews'
     | 'traces'
@@ -139,6 +141,7 @@ export interface aiObservabilitySharedLogicValues {
     featureFlags: FeatureFlagsSet // featureFlagLogic
     filterTestAccountsDefault: boolean // filterTestAccountsDefaultsLogic
     setupStatus: ProductSetupStatus // productSetupStatusLogic
+    currentProjectId: number | null // projectLogic
     sceneKey: string | null // sceneLogic
     user: UserType | null // userLogic
     activeTab: AIObservabilityTabId
@@ -239,6 +242,8 @@ export const aiObservabilitySharedLogic = kea<aiObservabilitySharedLogicType>([
             ['filterTestAccountsDefault'],
             productSetupStatusLogic({ productKey: ProductKey.AI_OBSERVABILITY }),
             ['status as setupStatus'],
+            projectLogic,
+            ['currentProjectId'],
         ],
         actions: [
             teamLogic,
@@ -357,7 +362,9 @@ export const aiObservabilitySharedLogic = kea<aiObservabilitySharedLogicType>([
         activeTab: [
             (s) => [s.sceneKey],
             (sceneKey: string | null): AIObservabilityTabId => {
-                if (sceneKey === 'aiObservabilityGenerations') {
+                if (sceneKey === 'aiObservabilitySelfDriving') {
+                    return 'self-driving'
+                } else if (sceneKey === 'aiObservabilityGenerations') {
                     return 'generations'
                 } else if (sceneKey === 'aiObservabilityReviews') {
                     return 'reviews'
@@ -474,6 +481,7 @@ export const aiObservabilitySharedLogic = kea<aiObservabilitySharedLogicType>([
                 applySearchParams(searchParams)
                 startDashboardTimer()
             },
+            [urls.aiObservabilitySelfDriving()]: (_, searchParams) => applyNonDashboard(searchParams),
             [urls.aiObservabilityGenerations()]: (_, searchParams) => applyNonDashboard(searchParams),
             [urls.aiObservabilityReviews()]: (_, searchParams) => applyNonDashboard(searchParams),
             [urls.aiObservabilityTraces()]: (_, searchParams) => applyNonDashboard(searchParams),
@@ -556,12 +564,21 @@ export const aiObservabilitySharedLogic = kea<aiObservabilitySharedLogicType>([
     }),
 
     afterMount(({ actions, values, cache }) => {
-        actions.loadAIEventDefinition()
+        // The API layer takes the project id from bootstrap state, not from the URL, so a detection
+        // fired before the project resolves throws instead of answering. Skipping those ticks keeps
+        // the answer at "not known yet"; the poll below picks the check up once bootstrap settles.
+        const detectAIEventsIfProjectKnown = (): void => {
+            if (values.currentProjectId) {
+                actions.loadAIEventDefinition()
+            }
+        }
+
+        detectAIEventsIfProjectKnown()
         // While the empty state (or its post-skip reminder banner) is up, re-check on a
         // timer so the page flips to the real product on its own once events land.
         // Disposed as soon as data is detected; paused automatically on hidden tabs.
         cache.disposables.add(() => {
-            const id = window.setInterval(() => actions.loadAIEventDefinition(), SETUP_POLL_INTERVAL_MS)
+            const id = window.setInterval(detectAIEventsIfProjectKnown, SETUP_POLL_INTERVAL_MS)
             return () => clearInterval(id)
         }, 'setupPoll')
         globalSetupLogic.findMounted()?.actions.markTaskAsCompleted(SetupTaskId.TrackCosts)

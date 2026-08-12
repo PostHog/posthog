@@ -386,7 +386,7 @@ jobs:
               # seaweedfs backs the blob-store integration tests; the profile-scoped
               # stack launch above never starts it (it sits in the replay/agents
               # profiles), so start it explicitly here — no profiles overlay in play.
-              run: docker compose -f docker-compose.dev.yml up kafka redis7 clickhouse maildev localstack seaweedfs -d --wait
+              run: docker compose -f docker-compose.dev.yml up kafka redis7 valkey-cluster clickhouse maildev localstack seaweedfs -d --wait
 
             - name: Create Kafka topics
               run: docker compose -f docker-compose.dev.yml up kafka-init

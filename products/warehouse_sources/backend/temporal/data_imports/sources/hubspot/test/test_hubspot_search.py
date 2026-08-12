@@ -904,6 +904,73 @@ class TestGetRowsViaSearch:
         assoc_ids_seen = {i for call in mock_batch.call_args_list for i in call.kwargs["ids"]}
         assert {drain_id_1, drain_id_2} <= assoc_ids_seen
 
+    def test_drain_tied_cursor_restarts_anchor_before_paging_past_cap(self) -> None:
+        # Regression: if a single hs_object_id anchor itself has more than SEARCH_RESULT_CAP
+        # tied-cursor records, continuing to page it via `after` crosses HubSpot's per-query
+        # cap and returns a 400 ("Attempting to page beyond 10,000"). The drain must restart
+        # with an advanced anchor once it hits the cap, even though `after` still had more.
+        identical_cursor = 1_799_000_000_000
+        pages_in_cap = SEARCH_RESULT_CAP // SEARCH_PAGE_SIZE
+
+        def _tied_pages(start_id: int, mark_more_after_last: bool) -> list[dict[str, Any]]:
+            pages = []
+            for i in range(pages_in_cap):
+                batch = [
+                    _result(str(start_id + i * SEARCH_PAGE_SIZE + j), identical_cursor) for j in range(SEARCH_PAGE_SIZE)
+                ]
+                is_last = i == pages_in_cap - 1
+                after = f"c{i}" if not is_last or mark_more_after_last else None
+                pages.append(_search_page(batch, after=after))
+            return pages
+
+        # First window sub-slice hits the cap with every record sharing one cursor value.
+        window_pages = _tied_pages(start_id=0, mark_more_after_last=False)
+        # The first drain anchor (-1) itself has more than SEARCH_RESULT_CAP tied records —
+        # its last page still carries an `after` token, signalling more are available.
+        anchor_pages = _tied_pages(start_id=SEARCH_RESULT_CAP, mark_more_after_last=True)
+        max_anchor_id = SEARCH_RESULT_CAP + pages_in_cap * SEARCH_PAGE_SIZE - 1
+
+        responses = (
+            [_make_response(200, p) for p in window_pages]
+            + [_make_response(200, p) for p in anchor_pages]
+            + [_make_response(200, _search_page([]))]  # fresh query, advanced anchor: exhausted
+            + [_make_response(200, _search_page([]))]  # window resumes past the tied cursor
+        )
+        side_effect, captured = _setup_search_post(responses)
+        manager = _make_manager()
+        logger = MagicMock()
+
+        with patch(
+            "products.warehouse_sources.backend.temporal.data_imports.sources.hubspot.hubspot.make_tracked_session",
+            new=lambda *_a, **_k: type("_S", (), {"post": staticmethod(side_effect)})(),
+        ):
+            tables = list(
+                get_rows_via_search(
+                    api_key="k",
+                    refresh_token="r",
+                    endpoint="deals",
+                    logger=logger,
+                    resumable_source_manager=manager,
+                    db_incremental_field_last_value=str(identical_cursor - 1),
+                    include_custom_props=False,
+                    now_ms=identical_cursor + 1_000,
+                    api_version=HUBSPOT_API_VERSION_V3,
+                )
+            )
+
+        assert sum(t.num_rows for t in tables) == SEARCH_RESULT_CAP * 2
+
+        # The request right after the anchor's own cap is hit must be a fresh query (no
+        # `after`) anchored past the highest id seen — not a continuation of the anchor's
+        # `after` token, even though that token was available.
+        restart_request = captured[pages_in_cap * 2]["json"]
+        assert "after" not in restart_request
+        assert {
+            "propertyName": "hs_object_id",
+            "operator": "GT",
+            "value": str(max_anchor_id),
+        } in restart_request["filterGroups"][0]["filters"]
+
     def test_drain_tied_cursor_skips_records_with_non_numeric_id(self) -> None:
         # Defensive: a record with a missing/non-numeric id must not crash the drain — it's
         # still batched, just excluded from the id-anchor advance for that record.

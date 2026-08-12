@@ -41,6 +41,7 @@ import type {
     WebOverviewQuery,
     WebStatsTableQuery,
 } from '../../queries/schema/schema-general'
+import type { PathsV2Query } from '../../queries/schema/schema-general'
 import type { QuerySourceUpdate } from '../insights/insightVizDataLogic'
 
 const DEFAULT_RETENTION_LOGIC_KEY = 'default_retention_key'
@@ -74,6 +75,7 @@ export interface retentionLogicValues {
         | FunnelsQuery
         | LifecycleQuery
         | PathsQuery
+        | PathsV2Query
         | RetentionQuery
         | StickinessQuery
         | TrendsQuery
@@ -82,6 +84,7 @@ export interface retentionLogicValues {
         | null // insightVizDataLogic
     retentionFilter: RetentionFilter | null // insightVizDataLogic
     timezone: string // teamLogic
+    allCohortsEmpty: boolean
     breakdownDisplayNames: Record<string, string>
     breakdownValues: (number | string | null | undefined)[]
     dateMappings: DateMappingOption[]
@@ -94,6 +97,7 @@ export interface retentionLogicValues {
         rawBreakdownValue: number | string | null | undefined,
         seriesIndex: number
     ) => [DataColorTheme | null, DataColorToken | null]
+    hasEntityPropertyFilters: boolean
     hasValidBreakdown: boolean
     isPropertyValueAggregation: boolean
     isRetentionDWHEnabled: boolean
@@ -147,6 +151,8 @@ export interface retentionLogicMeta {
         hasValidBreakdown: (breakdownFilter: BreakdownFilter | null | undefined) => boolean
         isRetentionDWHEnabled: (featureFlags: FeatureFlagsSet) => boolean
         isPropertyValueAggregation: (retentionFilter: RetentionFilter | null) => boolean
+        hasEntityPropertyFilters: (retentionFilter: RetentionFilter | null) => boolean
+        allCohortsEmpty: (results: ProcessedRetentionPayload[]) => boolean
         results: (
             insightQuery: DataNode<Record<string, any>>,
             insightData: Record<string, any>,
@@ -172,12 +178,13 @@ export interface retentionLogicMeta {
             cohortsById: Partial<Record<number | string, CohortType>>
         ) => Record<string, string>
         getRetentionColorToken: (
-            getTheme: (themeId: number | string | null | undefined) => DataColorTheme | null, // insightVizDataLogic
+            getTheme: (themeId: number | string | null | undefined) => DataColorTheme | null,
             breakdownFilter: BreakdownFilter | null | undefined,
             querySource:
                 | FunnelsQuery
                 | LifecycleQuery
                 | PathsQuery
+                | PathsV2Query
                 | RetentionQuery
                 | StickinessQuery
                 | TrendsQuery
@@ -345,6 +352,19 @@ export const retentionLogic = kea<retentionLogicType>([
             (s) => [s.retentionFilter],
             (retentionFilter: RetentionFilter | undefined) =>
                 retentionFilter?.aggregationType === 'sum' || retentionFilter?.aggregationType === 'avg',
+        ],
+        hasEntityPropertyFilters: [
+            (s) => [s.retentionFilter],
+            (retentionFilter: RetentionFilter | null): boolean =>
+                [retentionFilter?.targetEntity, retentionFilter?.returningEntity].some(
+                    (entity) => (entity?.properties?.length ?? 0) > 0
+                ),
+        ],
+        allCohortsEmpty: [
+            (s) => [s.results],
+            // values[0] is interval 0, i.e. the cohort's size
+            (results: ProcessedRetentionPayload[]): boolean =>
+                results.length > 0 && results.every((result) => (result.values[0]?.count ?? 0) === 0),
         ],
         results: [
             (s) => [s.insightQuery, s.insightData, s.retentionFilter, s.timezone, s.isPropertyValueAggregation],

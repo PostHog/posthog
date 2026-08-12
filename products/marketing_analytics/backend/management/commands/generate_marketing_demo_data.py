@@ -86,6 +86,13 @@ class Command(BaseCommand):
             self._print_plan(days_past, scale)
             return
 
+        # Ahead of the event write: the per-table check in `register_table` fires too late to keep a
+        # wrong `--team-id` from leaving 48k events behind in ClickHouse.
+        try:
+            warehouse.assert_seedable(team)
+        except ValueError as error:
+            raise CommandError(str(error))
+
         generator = MarketingEventGenerator(team, seed=options["seed"], days_past=days_past, scale=scale, now=now)
         if options["skip_events"]:
             self.stdout.write("Skipping event generation.")

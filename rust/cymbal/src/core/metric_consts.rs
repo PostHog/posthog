@@ -23,6 +23,11 @@ pub const FRAME_CACHE_MISSES: &str = "cymbal_frame_cache_misses";
 pub const FRAME_DB_HITS: &str = "cymbal_frame_db_hits";
 pub const FRAME_DB_MISSES: &str = "cymbal_frame_db_misses";
 pub const FRAME_NOT_RESOLVED: &str = "cymbal_frame_not_resolved";
+pub const RELEASE_ID_CACHE_HITS: &str = "cymbal_release_id_cache_hits";
+pub const RELEASE_ID_CACHE_MISSES: &str = "cymbal_release_id_cache_misses";
+// Which source produced an event's release, labeled by `source`:
+// "release_id" / "mobile_hash" / "symbol_set" / "none".
+pub const EVENT_RELEASE_RESOLUTION: &str = "cymbal_event_release_resolution";
 // Client-expanded native inline groups, labeled by outcome: "replaced" when the
 // server expansion of the group's address superseded the client frames, "kept"
 // when resolution failed and the client expansion passed through.
