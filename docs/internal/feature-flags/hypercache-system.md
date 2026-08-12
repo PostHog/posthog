@@ -356,28 +356,8 @@ The feature-flags Rust service can use a separate Redis instance for caching, is
 FLAGS_REDIS_URL=redis://flags-redis:6379  # Separate instance for flags
 ```
 
-When `FLAGS_REDIS_URL` is set, the system uses a dual-write pattern:
-
-```python
-# posthog/caching/flags_redis_cache.py
-def write_flags_to_cache(key: str, value: Any, timeout: Optional[int] = None) -> None:
-    # Always write to shared cache (Django reads from here)
-    cache.set(key, value, timeout)
-
-    # Also write to dedicated cache if configured (Rust service reads from here)
-    if has_dedicated_cache:
-        dedicated_cache = caches[FLAGS_DEDICATED_CACHE_ALIAS]
-        dedicated_cache.set(key, value, timeout)
-```
-
-### Why dual-write?
-
-| Consumer     | Reads from      | Purpose                         |
-| ------------ | --------------- | ------------------------------- |
-| Django       | Shared cache    | Local evaluation, SDK endpoints |
-| Rust service | Dedicated cache | High-throughput flag evaluation |
-
-The dual-write pattern is temporary while the Rust port is being completed. Once the Rust service handles all flag evaluation, Django will stop writing to the shared cache for local evaluation, and only the dedicated cache will be used.
+When `FLAGS_REDIS_URL` is set, Django registers it as the `flags_dedicated` cache alias (`FLAGS_DEDICATED_CACHE_ALIAS` in `posthog/caching/flags_redis_cache.py`, wired up in `posthog/settings/data_stores.py`).
+Three HyperCache instances bind that alias: flags (`products/feature_flags/backend/flags_cache.py`), remote config, and team metadata. Django writes those to the dedicated instance and the Rust service reads them from it. The SDK-facing flag-definitions cache (`local_evaluation.py`) stays on the shared default cache on both the Django write side and the Rust read side.
 
 The Rust service only operates when `FLAGS_REDIS_URL` is configured. All cache update functions check this setting and skip operations if not set.
 
@@ -475,7 +455,7 @@ The local evaluation cache (for SDKs) also invalidates when cohorts change. See 
 # Required
 REDIS_URL=redis://localhost:6379
 
-# Dedicated flags Redis (optional, enables dual-write)
+# Dedicated flags Redis (optional)
 FLAGS_REDIS_URL=redis://flags-redis:6379
 
 # Cache TTL settings
@@ -503,7 +483,7 @@ REMOTE_CONFIG_CDN_PURGE_DOMAINS=["cdn.example.com"]
 - `posthog/models/feature_flag/local_evaluation.py` - Local evaluation caching
 - `posthog/models/feature_flag/flags_cache.py` - Flags cache, signal handlers, verification, dependency computation
 - `posthog/storage/hypercache_manager.py` - Batch management operations (warm, invalidate, stats)
-- `posthog/caching/flags_redis_cache.py` - Dual-write pattern for dedicated Redis
+- `posthog/caching/flags_redis_cache.py` - `FLAGS_DEDICATED_CACHE_ALIAS` constant for the dedicated flags Redis
 - `posthog/models/remote_config.py` - Remote config caching
 - `posthog/models/team/team_caching.py` - Team authentication caching
 - `posthog/tasks/feature_flags.py` - Cache update and refresh Celery tasks
