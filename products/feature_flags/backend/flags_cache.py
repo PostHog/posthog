@@ -698,12 +698,10 @@ def verify_team_flags(
     # Find stale flags (in cache but not in DB)
     for flag_id in cached_flags_by_id:
         if flag_id not in db_flags_by_id:
-            # Entries written before unreferenced unevaluable flags were dropped
-            # still carry inactive/deleted rows. Such a row is invisible to the
-            # matcher, and had any evaluable flag depended on it the expected side
-            # would have kept it — so anything landing here is unreferenced, and
-            # reporting it would repair-rewrite every old-shape entry at once. A
-            # stale ACTIVE flag still reports: its cached copy has active=True.
+            # An unevaluable cached row is invisible to the matcher, so its presence
+            # is not drift worth repairing, and reporting it would repair-rewrite
+            # every old-shape entry at once. A stale ACTIVE flag still reports: its
+            # cached copy has active=True.
             if _is_unevaluable(cached_flags_by_id[flag_id]):
                 continue
             diff = {

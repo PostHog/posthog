@@ -1103,7 +1103,7 @@ class TestServiceFlagsDataFormat(BaseTest):
         fixture_path = _REPO_ROOT / "rust" / "feature-flags" / "tests" / "fixtures" / "hypercache_contract.json"
         fixture = json.loads(fixture_path.read_text())
 
-        # --- Create test data mirroring the 4 fixture flag variants ---
+        # --- Create test data mirroring the fixture flag variants ---
 
         cohort = Cohort.objects.create(
             team=self.team,
@@ -1271,6 +1271,55 @@ class TestServiceFlagsDataFormat(BaseTest):
                                 "operator": "flag_evaluates_to",
                                 "type": "flag",
                                 "value": True,
+                            }
+                        ],
+                        "rollout_percentage": 100,
+                        "variant": None,
+                    }
+                ],
+                "multivariate": None,
+                "payloads": {},
+            },
+        )
+
+        # 6) referenced-disabled-flag: inactive but referenced by 7), so both writers
+        # keep the row and blank its filters. Created with real targeting so the
+        # fixture's empty shape proves the blank, not an empty input.
+        referenced_disabled = FeatureFlag.objects.create(
+            team=self.team,
+            key="referenced-disabled-flag",
+            name="Referenced disabled flag",
+            created_by=self.user,
+            active=False,
+            version=1,
+            evaluation_runtime="all",
+            bucketing_identifier=None,
+            filters={
+                "groups": [{"properties": [], "rollout_percentage": 100, "variant": None}],
+                "multivariate": None,
+                "payloads": {},
+            },
+        )
+
+        # 7) disabled-dependent-flag: active, its condition points at 6)
+        FeatureFlag.objects.create(
+            team=self.team,
+            key="disabled-dependent-flag",
+            name="Dependent on disabled flag",
+            created_by=self.user,
+            version=1,
+            evaluation_runtime="all",
+            bucketing_identifier=None,
+            filters={
+                "groups": [
+                    {
+                        "properties": [
+                            {
+                                "key": str(referenced_disabled.id),
+                                "label": "referenced-disabled-flag",
+                                "operator": "flag_evaluates_to",
+                                "type": "flag",
+                                "value": False,
                             }
                         ],
                         "rollout_percentage": 100,
@@ -3097,7 +3146,6 @@ class TestGetTeamsWithFlagsQueryset(BaseTest):
 
 
 def _dependency_filters(*dep_ids: int) -> dict:
-    """Filters dict with a single group whose properties depend on the given flag ids."""
     return {
         "groups": [
             {
@@ -3111,7 +3159,6 @@ def _dependency_filters(*dep_ids: int) -> dict:
 
 
 def _make_flag(id: int, key: str, deps: list[int] | None = None, active: bool = True, deleted: bool = False) -> dict:
-    """Helper to build a serialized flag dict with optional flag dependencies."""
     return {
         "id": id,
         "key": key,
@@ -3566,6 +3613,8 @@ class TestBlankInactiveFiltersInPayload(BaseTest):
         assert disabled.id in staged_ids
         dependent = next(f for f in result["flags"] if f["key"] == "dependent-flag")
         assert metadata["transitive_deps"][str(dependent["id"])] == [disabled.id]
+        # The referenced flag survives the drop, so no dependent is missing a dep.
+        assert metadata["flags_with_missing_deps"] == []
 
     def test_dependency_on_disabled_flag_survives_blanking(self):
         disabled = FeatureFlag.objects.create(

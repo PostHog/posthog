@@ -843,6 +843,28 @@ mod tests {
     }
 
     #[test]
+    fn test_retain_keeps_deleted_flag_referenced_by_active_dependent() {
+        // Mirrors Python's deleted_flag_referenced_by_active_dependent_kept case, so a
+        // Rust-only edit that drops deleted flags before consulting references fails here
+        // instead of splitting the two writers' flag sets.
+        let mut flags = vec![
+            make_flag(1, "dep", true, vec![group_with_properties(vec![])]),
+            make_flag(
+                2,
+                "dependent",
+                true,
+                vec![group_with_properties(vec![flag_dep_property(1)])],
+            ),
+        ];
+        flags[0].deleted = true;
+
+        retain_evaluable_and_referenced_flags(&mut flags);
+
+        let ids: Vec<i32> = flags.iter().map(|f| f.id).collect();
+        assert_eq!(ids, vec![1, 2]);
+    }
+
+    #[test]
     fn test_retain_truncates_chains_at_the_first_unevaluable_hop() {
         // active 3 → inactive 2 → inactive 1: flag 2 stays (it pre-seeds as false
         // for flag 3's condition); flag 1 goes (flag 2's conditions are never read).
