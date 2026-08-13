@@ -992,6 +992,14 @@ That said, **not all “LLM-ish” behavior in Signals goes through `call_llm()`
 - **Repository selection** runs via the sandbox agent flow, not `call_llm()`
 - **Agentic report research** runs via `MultiTurnSession` in `report_generation/research.py`, not `call_llm()`
 
+The sandbox-backed paths (repo selection, report research, scout runs, and the coding runs autonomy auto-starts) all
+land in the `posthog-sandbox-self-driving` Modal app rather than the default one, because their tasks carry
+`origin_product=signal_report` / `signals_scout` (see `SELF_DRIVING_ORIGIN_PRODUCTS` in
+`products/tasks/backend/logic/services/sandbox.py`). The app is resolved inside the Tasks provisioning activity, so
+nothing in Signals selects it. Same image, resources, and egress policy as any other run — the split only separates
+the fleet's Modal cost from user-driven runs. Egress is still governed by the `SandboxEnvironment` each caller
+upserts (`temporal/agentic/__init__.py`).
+
 ### `call_llm()` (`backend/temporal/llm.py`)
 
 A generic helper that abstracts the retry / validate / append-errors pattern used by direct LLM calls. It takes a system prompt, user prompt, validation function, and options like `thinking`, `temperature`, and retries.
