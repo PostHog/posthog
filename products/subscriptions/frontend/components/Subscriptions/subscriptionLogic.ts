@@ -863,15 +863,18 @@ export const subscriptionLogic = kea<subscriptionLogicType>([
                 actions.setSubscriptionValues(prefill)
                 cache.prefillBaseline = { ...NEW_SUBSCRIPTION, ...prefill }
                 // Both toast and notification links enter the nudge flow through this route.
-                posthog.capture(props.dashboardId ? 'dashboard subscribe nudge clicked' : 'insight subscribe nudge clicked', {
-                    dashboard_id: props.dashboardId,
-                    insight_short_id: props.insightShortId,
-                    prefilled: !!values.user?.email,
-                    via:
-                        searchParams[SUBSCRIPTION_PREFILL_PARAMS.viaParam] === SUBSCRIPTION_PREFILL_PARAMS.viaToast
-                            ? SUBSCRIPTION_PREFILL_PARAMS.viaToast
-                            : SUBSCRIPTION_PREFILL_PARAMS.viaNotification,
-                })
+                posthog.capture(
+                    props.dashboardId ? 'dashboard subscribe nudge clicked' : 'insight subscribe nudge clicked',
+                    {
+                        dashboard_id: props.dashboardId,
+                        insight_short_id: props.insightShortId,
+                        prefilled: !!values.user?.email,
+                        via:
+                            searchParams[SUBSCRIPTION_PREFILL_PARAMS.viaParam] === SUBSCRIPTION_PREFILL_PARAMS.viaToast
+                                ? SUBSCRIPTION_PREFILL_PARAMS.viaToast
+                                : SUBSCRIPTION_PREFILL_PARAMS.viaNotification,
+                    }
+                )
             }
             if (searchParams.target_type) {
                 actions.setSubscriptionValue('target_type', searchParams.target_type)

@@ -15,17 +15,20 @@ import { isSharedView } from '~/exporter/exporterViewLogic'
 import { DataNodeLogicProps, dataNodeLogic } from '~/queries/nodes/DataNode/dataNodeLogic'
 import { insightVizDataNodeKey } from '~/queries/nodes/InsightViz/insightVizKeys'
 import { Node } from '~/queries/schema/schema-general'
-import { AvailableFeature, InsightLogicProps } from '~/types'
 import { SubscriptionFreeTierLimit } from '~/queries/schema/schema-general'
+import { AvailableFeature, InsightLogicProps } from '~/types'
+
+import {
+    SUBSCRIPTION_PREFILL_PARAMS,
+    urlForSubscription,
+} from 'products/subscriptions/frontend/components/Subscriptions/utils'
+import { subscriptionsList } from 'products/subscriptions/frontend/generated/api'
 
 import type { DataNode } from '../../queries/schema/schema-general'
 import type { QueryBasedInsightModel } from '../../types'
 import { insightLogic } from './insightLogic'
 import { insightSceneLogic } from './insightSceneLogic'
 import { keyForInsightLogicProps } from './sharedUtils'
-
-import { subscriptionsList } from 'products/subscriptions/frontend/generated/api'
-import { SUBSCRIPTION_PREFILL_PARAMS, urlForSubscription } from 'products/subscriptions/frontend/components/Subscriptions/utils'
 
 const IS_TEST_MODE = process.env.NODE_ENV === 'test'
 
@@ -186,8 +189,10 @@ export const insightUsageLogic = kea<insightUsageLogicType>([
             }
 
             actions.requestInsightSubscriptionNudge()
-            await api.create(`api/projects/${getCurrentTeamId()}/insights/${insight.id}/subscribe_nudge`, {})
-            posthog.capture('insight subscribe nudge shown', { insight_id: insight.id, view_count_7d: values.nudgeViewTimestamps.length })
+            posthog.capture('insight subscribe nudge shown', {
+                insight_id: insight.id,
+                view_count_7d: values.nudgeViewTimestamps.length,
+            })
             lemonToast.info(`You've viewed this insight ${values.nudgeViewTimestamps.length} times this week.`, {
                 button: {
                     label: 'Set up subscription',
