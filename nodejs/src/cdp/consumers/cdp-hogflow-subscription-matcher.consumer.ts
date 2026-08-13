@@ -596,7 +596,13 @@ export class CdpHogflowSubscriptionMatcherConsumer<
         }
         counterHogflowMatcherWatchersEvaluated.inc(found.rows.length)
 
-        const converted: { row: any; distinctId?: string; eventName?: string; eventUuid?: string }[] = []
+        const converted: {
+            row: any
+            distinctId?: string
+            conversionType: 'property' | 'event'
+            eventName?: string
+            eventUuid?: string
+        }[] = []
         for (const row of found.rows) {
             const candidateGlobals = collectCandidateGlobals(
                 { teamId: row.team_id, distinctId: row.distinct_id, personId: row.person_id },
@@ -604,12 +610,18 @@ export class CdpHogflowSubscriptionMatcherConsumer<
                 byPersonId
             )
             for (const globals of candidateGlobals) {
-                if (await matchesPinnedGoal(row.goal, filterGlobalsFor(globals), row.function_id)) {
+                const conversionType = await matchesPinnedGoal(row.goal, filterGlobalsFor(globals), row.function_id)
+                if (conversionType) {
                     converted.push({
                         row,
                         distinctId: globals.event.distinct_id || row.distinct_id || undefined,
-                        eventName: globals.event.event,
-                        eventUuid: globals.event.uuid,
+                        conversionType,
+                        // Only an event goal is caused by the event that matched. A property goal is
+                        // detected against person state carried by whatever event delivered the update
+                        // (often the synthetic $person_updated, or an unrelated event), so stamping that
+                        // event would attribute the conversion to something that did not cause it.
+                        eventName: conversionType === 'event' ? globals.event.event : undefined,
+                        eventUuid: conversionType === 'event' ? globals.event.uuid : undefined,
                     })
                     break
                 }
@@ -627,7 +639,7 @@ export class CdpHogflowSubscriptionMatcherConsumer<
         )
         const claimedIds = new Set(claimed.rows.map((r) => r.id))
 
-        for (const { row, distinctId, eventName, eventUuid } of converted) {
+        for (const { row, distinctId, conversionType, eventName, eventUuid } of converted) {
             if (!claimedIds.has(row.id)) {
                 continue
             }
@@ -657,6 +669,7 @@ export class CdpHogflowSubscriptionMatcherConsumer<
                         $workflow_id: row.function_id,
                         $workflow_run_id: row.run_id,
                         $workflow_version: row.flow_version ?? undefined,
+                        $workflow_conversion_type: conversionType,
                         $workflow_conversion_event: eventName,
                         $workflow_conversion_event_uuid: eventUuid,
                     },
@@ -1164,17 +1177,17 @@ async function matchesPinnedGoal(
     goal: PinnedConversionGoal,
     filterGlobals: FilterGlobals,
     hogFlowId: string
-): Promise<boolean> {
+): Promise<'property' | 'event' | null> {
     const context = { hogFlowId }
     if (goal.properties?.length && (await runFilterBytecode(goal.properties, filterGlobals, context))) {
-        return true
+        return 'property'
     }
     for (const bytecode of goal.events ?? []) {
         if (await runFilterBytecode(bytecode, filterGlobals, context)) {
-            return true
+            return 'event'
         }
     }
-    return false
+    return null
 }
 
 // Single pass over the batch: dedup distinct/person ids, collect team ids,
