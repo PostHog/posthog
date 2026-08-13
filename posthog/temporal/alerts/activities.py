@@ -404,9 +404,16 @@ async def record_failed_evaluation(inputs: RecordFailedEvaluationActivityInputs)
                     .select_related("insight", "team", "threshold")
                     .get(id=inputs.alert_id)
                 )
-                # add_alert_check advances next_check_at and this activity retries, so an attempt
-                # that committed but never delivered its result would write a second errored check
-                # on retry. Skipping once next_check_at is in the future keeps the retry idempotent.
+                # Disabling an alert mid-check makes evaluate_alert raise a non-retryable "disabled
+                # between prepare and evaluate" error into this path. That is a normal user action,
+                # not an alert failure, so it must not gain an errored check or email subscribers.
+                if not alert.enabled:
+                    logger.info("alerts.skip_failed_evaluation_disabled", alert_id=inputs.alert_id)
+                    return RecordFailedEvaluationResult()
+                # add_alert_check advances next_check_at, so skipping once it is in the future keeps a
+                # committed-but-undelivered retry from writing a duplicate errored check. Best effort:
+                # a real-time alert lagging past its short cadence can still write one, but the state
+                # machine keeps that from sending a duplicate notification.
                 if alert.next_check_at is not None and alert.next_check_at > datetime.now(UTC):
                     return RecordFailedEvaluationResult()
                 alert_check, should_notify = _write_errored_alert_check(alert, {"message": inputs.error_message})

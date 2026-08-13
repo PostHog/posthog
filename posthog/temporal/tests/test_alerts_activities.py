@@ -34,13 +34,20 @@ from posthog.tasks.alerts.utils import (
     get_alert_error_notification_recipients,
     send_notifications_for_errors,
 )
-from posthog.temporal.alerts.activities import cleanup_alert_checks, evaluate_alert, notify_alert, prepare_alert
+from posthog.temporal.alerts.activities import (
+    cleanup_alert_checks,
+    evaluate_alert,
+    notify_alert,
+    prepare_alert,
+    record_failed_evaluation,
+)
 from posthog.temporal.alerts.retry_policy import alert_timeouts
 from posthog.temporal.alerts.types import (
     EvaluateAlertActivityInputs,
     NotifyAlertActivityInputs,
     PrepareAction,
     PrepareAlertActivityInputs,
+    RecordFailedEvaluationActivityInputs,
     SkipReason,
 )
 
@@ -504,6 +511,29 @@ class TestEvaluateAlert:
         with pytest.raises(ApplicationError) as exc_info:
             await env.run(evaluate_alert, EvaluateAlertActivityInputs(alert_id=str(alert.id)))
         assert exc_info.value.non_retryable is True
+
+
+@pytest.mark.asyncio
+@pytest.mark.django_db
+class TestRecordFailedEvaluation:
+    async def test_skips_disabled_alert_without_recording_or_notifying(self, alert_with_user) -> None:
+        # Disabling an alert mid-check makes evaluate_alert raise into this activity. A normal
+        # disable must not become an errored check or a "could not evaluate" email to subscribers.
+        await sync_to_async(AlertConfiguration.objects.filter(pk=alert_with_user.id).update)(enabled=False)
+
+        env = ActivityEnvironment()
+        result = await env.run(
+            record_failed_evaluation,
+            RecordFailedEvaluationActivityInputs(
+                alert_id=str(alert_with_user.id),
+                error_message="Alert disabled between prepare and evaluate",
+            ),
+        )
+
+        assert result.alert_check_id is None
+        assert result.should_notify is False
+        count = await sync_to_async(AlertCheck.objects.filter(alert_configuration=alert_with_user).count)()
+        assert count == 0
 
 
 @pytest.mark.asyncio
