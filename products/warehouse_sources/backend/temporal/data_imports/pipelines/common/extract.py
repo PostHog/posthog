@@ -393,14 +393,17 @@ async def handle_reset_or_full_refresh(
         # cleared; the incremental watermark and initial_sync_complete are kept since nothing
         # was wiped.
         await logger.adebug("Skipping table reset for webhook-only schema; resuming webhook ingestion")
+        # column_type_widened rides along with reset_pipeline (see auto_widen_resync); since this
+        # branch consumes the reset without wiping, drop the marker too so it can't linger forever.
         await database_sync_to_async_pool(update_sync_type_config_keys)(
-            schema.id, schema.team_id, removes=["reset_pipeline"]
+            schema.id, schema.team_id, removes=["reset_pipeline", "column_type_widened"]
         )
-        # Also drop it from the in-memory config: a later watermark save (update_incremental_field_values
+        # Also drop them from the in-memory config: a later watermark save (update_incremental_field_values
         # / V3 staging) persists this same schema's sync_type_config, which would otherwise write
         # reset_pipeline back and leave every subsequent run treated as a reset.
         if schema.sync_type_config:
             schema.sync_type_config.pop("reset_pipeline", None)
+            schema.sync_type_config.pop("column_type_widened", None)
     elif reset_pipeline and not should_resume:
         await logger.adebug("Deleting existing table due to reset_pipeline being set")
         await delta_table_ref.reset_table()
