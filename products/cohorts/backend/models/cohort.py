@@ -899,8 +899,10 @@ class Cohort(FileSystemSyncMixin, RootTeamMixin, models.Model):
             start_idx = batch_index * batch_size
             end_idx = start_idx + batch_size
             batch_items = items[start_idx:end_idx]
-            uuids, matched = self._get_uuids_and_matched_emails_batch_ch(batch_items, team_id)
+            matched: set[str] | None = set() if import_resolution is not None else None
+            uuids = self._get_uuids_for_emails_batch_ch(batch_items, team_id, matched_emails=matched)
             if import_resolution is not None:
+                assert matched is not None
                 import_resolution.record([email.strip().lower() for email in batch_items], matched)
             return uuids
 
@@ -909,27 +911,31 @@ class Cohort(FileSystemSyncMixin, RootTeamMixin, models.Model):
             batch_iterator, insert_in_clickhouse=True, team_id=team_id, raise_on_error=raise_on_error
         )
 
-    def _get_uuids_for_emails_batch_ch(self, emails: list[str], team_id: int) -> list[str]:
-        uuids, _ = self._get_uuids_and_matched_emails_batch_ch(emails, team_id)
-        return uuids
-
-    def _get_uuids_and_matched_emails_batch_ch(self, emails: list[str], team_id: int) -> tuple[list[str], set[str]]:
+    def _get_uuids_for_emails_batch_ch(
+        self, emails: list[str], team_id: int, *, matched_emails: set[str] | None = None
+    ) -> list[str]:
         if not emails:
-            return [], set()
+            return []
 
+        select_fields = "person.pmat_email, person.id" if matched_emails is not None else "person.id"
+        group_fields = "person.pmat_email, person.id" if matched_emails is not None else "person.id"
         query = """
-        SELECT person.pmat_email, person.id
+        SELECT {select_fields}
         FROM person
         WHERE person.team_id = %(team_id)s
           AND person.pmat_email IN %(emails)s
-        GROUP BY person.pmat_email, person.id
+        GROUP BY {group_fields}
         HAVING argMax(person.is_deleted, person.version) = 0
         SETTINGS optimize_aggregation_in_order = 1
-        """
+        """.format(select_fields=select_fields, group_fields=group_fields)
 
         tag_queries(product=ProductKey.COHORTS, feature=Feature.COHORT)
         result = sync_execute(query, {"team_id": team_id, "emails": emails})
-        return [str(row[1]) for row in result], {str(row[0]).strip().lower() for row in result}
+        if matched_emails is None:
+            return [str(row[0]) for row in result]
+
+        matched_emails.update(str(row[0]).strip().lower() for row in result)
+        return [str(row[1]) for row in result]
 
     def insert_users_list_by_uuid_into_pg_only(
         self,
