@@ -26,10 +26,11 @@ from posthog.tasks.utils import CeleryQueue
 
 from products.cohorts.backend.backfill.finalize import finalize_backfill_runs
 from products.cohorts.backend.backfill.runs import (
+    BackfillRefusalReason,
+    attempt_backfill_run_for_cohort,
+    attempt_person_backfill_run_for_cohort,
     check_person_run_preconditions,
     check_run_preconditions,
-    create_backfill_run_for_cohort,
-    create_person_backfill_run_for_cohort,
 )
 from products.cohorts.backend.models.backfill import CohortBackfillKind
 from products.cohorts.backend.models.calculation_history import CohortCalculationHistory
@@ -899,6 +900,25 @@ COHORT_BACKFILL_TRIGGER_TASK_COUNTER = Counter(
     labelnames=["backfill_kind", "outcome"],
 )
 
+# Refusals grouped by the operator response they call for, not one label per reason: a budget
+# refusal means raise the budget or wait for in-flight runs, an occupied slot means go find the run
+# that is wedged, and the rest are the cohort simply not being a candidate. Collapsing them into a
+# single `refused`, as this used to, made the first two indistinguishable. The full reason stays on
+# the log line, so cardinality does not have to carry it.
+COHORT_BACKFILL_REFUSAL_OUTCOMES: dict[BackfillRefusalReason, str] = {
+    BackfillRefusalReason.OVER_BUDGET: "refused_over_budget",
+    BackfillRefusalReason.RUN_SLOT_OCCUPIED: "refused_slot_occupied",
+    BackfillRefusalReason.PARTICIPATION_ACTIVE: "refused_slot_occupied",
+    BackfillRefusalReason.SLOT_RACE: "refused_slot_occupied",
+    BackfillRefusalReason.TEAM_NOT_REALTIME: "refused_ineligible",
+    BackfillRefusalReason.COHORT_MISSING: "refused_ineligible",
+    BackfillRefusalReason.COHORT_INELIGIBLE: "refused_ineligible",
+    BackfillRefusalReason.INVALID_HORIZON: "refused_ineligible",
+    BackfillRefusalReason.PINNING_CAP_EXCEEDED: "refused_ineligible",
+    BackfillRefusalReason.SIZING_SCAN_CAP_EXCEEDED: "refused_transient",
+    BackfillRefusalReason.DEFINITION_CHANGED: "refused_transient",
+}
+
 
 # acks_late: a countdown message acked on receipt sits in one worker's memory for the whole window
 # and dies with it, after the edit's supersession already ran. The creators refuse duplicates, so
@@ -952,19 +972,24 @@ def trigger_cohort_backfill_run_task(team_id: int, cohort_id: int, trigger_kind:
                 missing=missing,
             )
             return
-        run = (
-            create_person_backfill_run_for_cohort(team_id, cohort_id, trigger_kind)
+        attempt = (
+            attempt_person_backfill_run_for_cohort(team_id, cohort_id, trigger_kind)
             if person
-            else create_backfill_run_for_cohort(team_id, cohort_id, trigger_kind)
+            else attempt_backfill_run_for_cohort(team_id, cohort_id, trigger_kind)
         )
+        run = attempt.run
         if run is None:
-            COHORT_BACKFILL_TRIGGER_TASK_COUNTER.labels(backfill_kind=backfill_kind, outcome="refused").inc()
+            # An unmapped reason falls back to the old flat `refused` rather than vanishing, so
+            # adding an enum member can never silently drop refusals out of the metric.
+            outcome = COHORT_BACKFILL_REFUSAL_OUTCOMES.get(attempt.reason, "refused") if attempt.reason else "refused"
+            COHORT_BACKFILL_TRIGGER_TASK_COUNTER.labels(backfill_kind=backfill_kind, outcome=outcome).inc()
             logger.info(
                 "skipping_cohort_backfill_run_task",
                 cohort_id=cohort_id,
                 team_id=team_id,
                 trigger_kind=trigger_kind,
                 backfill_kind=backfill_kind,
+                refusal_reason=attempt.reason,
             )
             return
         COHORT_BACKFILL_TRIGGER_TASK_COUNTER.labels(backfill_kind=backfill_kind, outcome="created").inc()

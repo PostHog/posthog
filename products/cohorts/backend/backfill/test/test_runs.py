@@ -10,6 +10,9 @@ from parameterized import parameterized
 
 from products.cohorts.backend.backfill.pinning import PersonPinningCapExceeded
 from products.cohorts.backend.backfill.runs import (
+    BackfillRefusalReason,
+    attempt_backfill_run_for_cohort,
+    attempt_person_backfill_run_for_cohort,
     create_backfill_run_for_cohort,
     create_person_backfill_run_for_cohort,
     create_person_team_backfill_run,
@@ -133,6 +136,19 @@ class TestBackfillRuns(BaseTest):
 
         self.assertIsNone(create_backfill_run_for_cohort(self.team.id, cohort.id, "cohort_edited"))
         self.assertEqual(CohortBackfillRun.objects.for_team(self.team.id).count(), 1)
+
+    def test_attempt_names_the_occupied_slot_and_an_ineligible_cohort(self) -> None:
+        cohort = self._cohort()
+        created = attempt_backfill_run_for_cohort(self.team.id, cohort.id, "cohort_created")
+        self.assertIsNotNone(created.run)
+        self.assertIsNone(created.reason)
+
+        blocked = attempt_backfill_run_for_cohort(self.team.id, cohort.id, "cohort_edited")
+        self.assertIsNone(blocked.run)
+        self.assertEqual(blocked.reason, BackfillRefusalReason.PARTICIPATION_ACTIVE)
+
+        missing = attempt_backfill_run_for_cohort(self.team.id, cohort.id + 10_000, "cohort_edited")
+        self.assertEqual(missing.reason, BackfillRefusalReason.COHORT_MISSING)
 
     def test_failed_run_frees_the_per_cohort_slot(self) -> None:
         # The seeder fails a run whose chunk exhausted its retry budget. That only unwedges the
@@ -389,6 +405,49 @@ class TestPersonBackfillRuns(BaseTest):
 
         estimate.assert_not_called()
         self.assertEqual(CohortBackfillRun.objects.for_team(self.team.id).count(), 1)
+
+    @mock.patch("products.cohorts.backend.backfill.runs.estimate_person_seed_topic_bytes")
+    def test_both_budget_gates_report_over_budget(self, estimate: mock.Mock) -> None:
+        # The budget refuses in two places — before the sizing scan when in-flight runs already ate
+        # it, and after when the estimate pushes the total over. Both have to name the budget, or
+        # the alert only sees whichever one the team happens to hit.
+        estimate.return_value = self._estimate(estimated_topic_bytes=1_000_001)
+        first = self._cohort()
+        second = Cohort.objects.create(
+            team=self.team,
+            name="second person cohort",
+            cohort_type=CohortType.REALTIME,
+            filters=self._filters(),
+        )
+
+        post_scan = attempt_person_backfill_run_for_cohort(self.team.id, first.id, "cohort_created")
+        self.assertIsNone(post_scan.run)
+        self.assertEqual(post_scan.reason, BackfillRefusalReason.OVER_BUDGET)
+
+        estimate.return_value = self._estimate(estimated_topic_bytes=1_000_000)
+        self.assertIsNotNone(create_person_backfill_run_for_cohort(self.team.id, first.id, "cohort_created"))
+        estimate.reset_mock()
+        pre_scan = attempt_person_backfill_run_for_cohort(self.team.id, second.id, "cohort_created")
+
+        estimate.assert_not_called()
+        self.assertIsNone(pre_scan.run)
+        self.assertEqual(pre_scan.reason, BackfillRefusalReason.OVER_BUDGET)
+
+    def test_attempt_reports_the_occupied_slot_and_success(self) -> None:
+        cohort = self._cohort()
+
+        with mock.patch(
+            "products.cohorts.backend.backfill.runs.estimate_person_seed_topic_bytes",
+            return_value=self._estimate(),
+        ):
+            created = attempt_person_backfill_run_for_cohort(self.team.id, cohort.id, "cohort_created")
+            self.assertIsNotNone(created.run)
+            self.assertIsNone(created.reason)
+
+            blocked = attempt_person_backfill_run_for_cohort(self.team.id, cohort.id, "cohort_edited")
+
+        self.assertIsNone(blocked.run)
+        self.assertEqual(blocked.reason, BackfillRefusalReason.PARTICIPATION_ACTIVE)
 
     @override_settings(BEHAVIORAL_BACKFILL_PERSON_MAX_PINNED_CONDITIONS=0)
     def test_cohort_run_warns_and_refuses_pinning_cap(self) -> None:

@@ -1,5 +1,7 @@
 from collections.abc import Iterable
+from dataclasses import dataclass
 from datetime import UTC, datetime, timedelta
+from enum import StrEnum
 from typing import Any
 
 from django.conf import settings
@@ -178,9 +180,55 @@ def _active_person_seed_topic_bytes(team_id: int) -> int:
     )
 
 
+class BackfillRefusalReason(StrEnum):
+    """Why a creator declined to make a run.
+
+    The creators have always refused by returning ``None``, which collapsed a budget refusal and an
+    occupied run slot into the same signal — the two need entirely different operator responses
+    (raise the budget vs. go unwedge a stuck run), so the metric has to tell them apart.
+    """
+
+    TEAM_NOT_REALTIME = "team_not_realtime"
+    COHORT_MISSING = "cohort_missing"
+    COHORT_INELIGIBLE = "cohort_ineligible"
+    PARTICIPATION_ACTIVE = "participation_active"
+    RUN_SLOT_OCCUPIED = "run_slot_occupied"
+    SLOT_RACE = "slot_race"
+    INVALID_HORIZON = "invalid_horizon"
+    PINNING_CAP_EXCEEDED = "pinning_cap_exceeded"
+    OVER_BUDGET = "over_budget"
+    SIZING_SCAN_CAP_EXCEEDED = "sizing_scan_cap_exceeded"
+    DEFINITION_CHANGED = "definition_changed"
+
+
+@dataclass(frozen=True)
+class BackfillRunAttempt:
+    """A creator's outcome: the run, or the reason there isn't one. Exactly one is set."""
+
+    run: CohortBackfillRun | None
+    reason: BackfillRefusalReason | None
+
+    @classmethod
+    def created(cls, run: CohortBackfillRun) -> "BackfillRunAttempt":
+        return cls(run=run, reason=None)
+
+    @classmethod
+    def refused(cls, reason: BackfillRefusalReason) -> "BackfillRunAttempt":
+        return cls(run=None, reason=reason)
+
+
 def create_backfill_run_for_cohort(team_id: int, cohort_id: int, trigger_kind: str) -> CohortBackfillRun | None:
+    """The plain creator contract, for callers that only need the run.
+
+    Callers that report *why* a creation was refused (the signal path's metric) should call
+    ``attempt_backfill_run_for_cohort`` instead.
+    """
+    return attempt_backfill_run_for_cohort(team_id, cohort_id, trigger_kind).run
+
+
+def attempt_backfill_run_for_cohort(team_id: int, cohort_id: int, trigger_kind: str) -> BackfillRunAttempt:
     if not is_realtime_cohort_team(team_id):
-        return None
+        return BackfillRunAttempt.refused(BackfillRefusalReason.TEAM_NOT_REALTIME)
 
     try:
         with transaction.atomic():
@@ -190,18 +238,19 @@ def create_backfill_run_for_cohort(team_id: int, cohort_id: int, trigger_kind: s
                 .filter(id=cohort_id, team_id=team_id)
                 .first()
             )
+            if cohort is None:
+                return BackfillRunAttempt.refused(BackfillRefusalReason.COHORT_MISSING)
             if (
-                cohort is None
-                or cohort.cohort_type != CohortType.REALTIME
+                cohort.cohort_type != CohortType.REALTIME
                 or cohort.is_static
                 or cohort.deleted
                 or not has_behavioral_filters(cohort)
             ):
-                return None
+                return BackfillRunAttempt.refused(BackfillRefusalReason.COHORT_INELIGIBLE)
             if _active_participation_cohort_ids(team_id, [cohort_id], kind=CohortBackfillKind.BEHAVIORAL):
-                return None
+                return BackfillRunAttempt.refused(BackfillRefusalReason.PARTICIPATION_ACTIVE)
             if _has_active_cohort_run(team_id, cohort_id, kind=CohortBackfillKind.BEHAVIORAL):
-                return None
+                return BackfillRunAttempt.refused(BackfillRefusalReason.RUN_SLOT_OCCUPIED)
 
             filters_shape_hash = ensure_filters_shape_hash(cohort)
             behavioral_filters_shape_hash = cohort.behavioral_filters_shape_hash or ""
@@ -227,7 +276,7 @@ def create_backfill_run_for_cohort(team_id: int, cohort_id: int, trigger_kind: s
                 behavioral_filters_shape_hash=behavioral_filters_shape_hash,
                 pinned_filters=cohort.filters,
             )
-            return run
+            return BackfillRunAttempt.created(run)
     except IntegrityError:
         # A writer this transaction could not see won the unique-constraint race after the conflict
         # checks passed. Refusing is this creator's contract, so return None rather than raise.
@@ -237,7 +286,7 @@ def create_backfill_run_for_cohort(team_id: int, cohort_id: int, trigger_kind: s
             cohort_id=cohort_id,
             backfill_kind=CohortBackfillKind.BEHAVIORAL,
         )
-        return None
+        return BackfillRunAttempt.refused(BackfillRefusalReason.SLOT_RACE)
 
 
 def _validate_boundary_at(trigger_kind: str, boundary_at: datetime | None) -> datetime | None:
@@ -342,9 +391,24 @@ def create_person_backfill_run_for_cohort(
     sizing failure (a ClickHouse timeout or transport error), which propagates so the task's retry
     machinery re-runs it; the scan's own deterministic read cap still refuses quietly, since
     retrying it would only repeat the capped scan.
+
+    Callers that report *why* a creation was refused should call
+    ``attempt_person_backfill_run_for_cohort`` instead.
     """
+    return attempt_person_backfill_run_for_cohort(
+        team_id, cohort_id, trigger_kind, person_horizon_days=person_horizon_days
+    ).run
+
+
+def attempt_person_backfill_run_for_cohort(
+    team_id: int,
+    cohort_id: int,
+    trigger_kind: str,
+    *,
+    person_horizon_days: int | None = None,
+) -> BackfillRunAttempt:
     if not is_realtime_cohort_team(team_id):
-        return None
+        return BackfillRunAttempt.refused(BackfillRefusalReason.TEAM_NOT_REALTIME)
 
     horizon_days = (
         person_horizon_days
@@ -358,18 +422,20 @@ def create_person_backfill_run_for_cohort(
             cohort_id=cohort_id,
             person_horizon_days=horizon_days,
         )
-        return None
+        return BackfillRunAttempt.refused(BackfillRefusalReason.INVALID_HORIZON)
 
     # Unlocked pre-pass for the sizing gate: the estimate is a ClickHouse round trip, so it must not
     # run while the create path below holds the cohort row FOR UPDATE. The locked pass re-derives
     # eligibility and the pin, and refuses if the definition moved in between.
     cohort = Cohort.objects.filter(id=cohort_id, team_id=team_id).first()
-    if cohort is None or person_backfill_ineligibility_reason(cohort) is not None:
-        return None
+    if cohort is None:
+        return BackfillRunAttempt.refused(BackfillRefusalReason.COHORT_MISSING)
+    if person_backfill_ineligibility_reason(cohort) is not None:
+        return BackfillRunAttempt.refused(BackfillRefusalReason.COHORT_INELIGIBLE)
     if _active_participation_cohort_ids(team_id, [cohort_id], kind=CohortBackfillKind.PERSON_PROPERTY):
-        return None
+        return BackfillRunAttempt.refused(BackfillRefusalReason.PARTICIPATION_ACTIVE)
     if _has_active_cohort_run(team_id, cohort_id, kind=CohortBackfillKind.PERSON_PROPERTY):
-        return None
+        return BackfillRunAttempt.refused(BackfillRefusalReason.RUN_SLOT_OCCUPIED)
     try:
         pinned = pin_person_conditions_for_cohorts(
             [cohort],
@@ -382,7 +448,7 @@ def create_person_backfill_run_for_cohort(
             cohort_id=cohort_id,
             max_conditions=settings.BEHAVIORAL_BACKFILL_PERSON_MAX_PINNED_CONDITIONS,
         )
-        return None
+        return BackfillRunAttempt.refused(BackfillRefusalReason.PINNING_CAP_EXCEEDED)
 
     person_scan_since = django_timezone.now() - timedelta(days=horizon_days)
     # With a precondition missing the run below records as `blocked`, which the seeder never claims,
@@ -403,7 +469,7 @@ def create_person_backfill_run_for_cohort(
                 active_topic_bytes=active_topic_bytes,
                 budget_bytes=settings.BEHAVIORAL_BACKFILL_PERSON_TOPIC_BYTES_BUDGET,
             )
-            return None
+            return BackfillRunAttempt.refused(BackfillRefusalReason.OVER_BUDGET)
         try:
             estimate = estimate_person_seed_topic_bytes(team_id, person_scan_since, len(pinned["conditions"]))
         except PersonSeedEstimateScanCapExceeded as error:
@@ -413,7 +479,7 @@ def create_person_backfill_run_for_cohort(
                 cohort_id=cohort_id,
                 error=str(error),
             )
-            return None
+            return BackfillRunAttempt.refused(BackfillRefusalReason.SIZING_SCAN_CAP_EXCEEDED)
         if estimate.estimated_topic_bytes + active_topic_bytes > estimate.budget_bytes:
             logger.warning(
                 "cohort_person_backfill_over_budget",
@@ -423,22 +489,27 @@ def create_person_backfill_run_for_cohort(
                 active_topic_bytes=active_topic_bytes,
                 budget_bytes=estimate.budget_bytes,
             )
-            return None
+            return BackfillRunAttempt.refused(BackfillRefusalReason.OVER_BUDGET)
 
     try:
         with transaction.atomic():
+            # The locked re-checks reuse the unlocked reasons on purpose: which pass caught the
+            # refusal is a debugging detail for the log line, not a dimension worth doubling the
+            # metric's cardinality for.
             cohort = (
                 Cohort.objects.select_for_update(of=("self",))
                 .select_related("team")
                 .filter(id=cohort_id, team_id=team_id)
                 .first()
             )
-            if cohort is None or person_backfill_ineligibility_reason(cohort) is not None:
-                return None
+            if cohort is None:
+                return BackfillRunAttempt.refused(BackfillRefusalReason.COHORT_MISSING)
+            if person_backfill_ineligibility_reason(cohort) is not None:
+                return BackfillRunAttempt.refused(BackfillRefusalReason.COHORT_INELIGIBLE)
             if _active_participation_cohort_ids(team_id, [cohort_id], kind=CohortBackfillKind.PERSON_PROPERTY):
-                return None
+                return BackfillRunAttempt.refused(BackfillRefusalReason.PARTICIPATION_ACTIVE)
             if _has_active_cohort_run(team_id, cohort_id, kind=CohortBackfillKind.PERSON_PROPERTY):
-                return None
+                return BackfillRunAttempt.refused(BackfillRefusalReason.RUN_SLOT_OCCUPIED)
 
             try:
                 locked_pinned = pin_person_conditions_for_cohorts(
@@ -452,7 +523,7 @@ def create_person_backfill_run_for_cohort(
                     cohort_id=cohort_id,
                     max_conditions=settings.BEHAVIORAL_BACKFILL_PERSON_MAX_PINNED_CONDITIONS,
                 )
-                return None
+                return BackfillRunAttempt.refused(BackfillRefusalReason.PINNING_CAP_EXCEEDED)
             if locked_pinned != pinned:
                 # A racing edit changed the definition after sizing; its own save dispatched a fresh
                 # debounced task, so that task owns the re-sized run.
@@ -461,7 +532,7 @@ def create_person_backfill_run_for_cohort(
                     team_id=team_id,
                     cohort_id=cohort_id,
                 )
-                return None
+                return BackfillRunAttempt.refused(BackfillRefusalReason.DEFINITION_CHANGED)
 
             filters_shape_hash = ensure_filters_shape_hash(cohort)
             person_filters_shape_hash = cohort.person_filters_shape_hash or ""
@@ -487,7 +558,7 @@ def create_person_backfill_run_for_cohort(
                 person_filters_shape_hash=person_filters_shape_hash,
                 pinned_filters=cohort.filters,
             )
-            return run
+            return BackfillRunAttempt.created(run)
     except IntegrityError:
         # A writer this transaction could not see won the unique-constraint race after the conflict
         # checks passed. Refusing is this creator's contract, so return None rather than raise.
@@ -497,7 +568,7 @@ def create_person_backfill_run_for_cohort(
             cohort_id=cohort_id,
             backfill_kind=CohortBackfillKind.PERSON_PROPERTY,
         )
-        return None
+        return BackfillRunAttempt.refused(BackfillRefusalReason.SLOT_RACE)
 
 
 def _person_cohorts_for_team(team_id: int, requested_ids: set[int] | None, *, lock: bool) -> list[Cohort]:
