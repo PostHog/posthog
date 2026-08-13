@@ -65,9 +65,12 @@ COPY --from=frontend-build /code/frontend/dist /code/frontend/dist
 
 # Upload sourcemaps to error tracking, recording whether it GENUINELY succeeded so the later strip
 # only deletes the .map files when an uploaded copy exists. The build never fails on a sourcemap
-# problem (missing secret, CLI download / network / auth failure): in that case the status is
-# "retained" and the .map files are kept in the image. Uses explicit && chaining rather than `set -e`,
-# which bash ignores inside a `||`-guarded subshell — any failing link drops us into the retained branch.
+# problem. Two distinct things stop an upload and they want different responses, so they get
+# different statuses: "no-secret" is the expected state for a build that was never given the secret
+# (forks, self-hosted), while "upload-failed" means the secret was there and the upload still did
+# not happen — a build-infrastructure problem, not a configuration one. Both keep the .map files, so
+# the only remaining copy is never lost either way. Uses explicit && chaining rather than `set -e`,
+# which bash ignores inside a `||`-guarded subshell — any failing link drops us into upload-failed.
 #
 # The CLI installer is pinned to an immutable release tag and checksum-verified before execution:
 # the processed frontend/dist ships in the final image, so the CLI must not be mutable remote code.
@@ -76,8 +79,10 @@ COPY --from=frontend-build /code/frontend/dist /code/frontend/dist
 ARG POSTHOG_CLI_VERSION=0.11.0
 ARG POSTHOG_CLI_INSTALLER_SHA256=74b0e2d967b688f57432be5bbb78f96cb5dde69f9283c0d8930a01efc132fbc2
 RUN --mount=type=secret,id=posthog_upload_sourcemaps_cli_api_key \
-    if ( \
-        [ -f /run/secrets/posthog_upload_sourcemaps_cli_api_key ] && \
+    if [ ! -f /run/secrets/posthog_upload_sourcemaps_cli_api_key ]; then \
+        echo "sourcemaps not uploaded (no upload secret provided); .map files retained in the image" >&2; \
+        echo no-secret > /tmp/.sourcemaps-status; \
+    elif ( \
         apt-get update && \
         apt-get install -y --no-install-recommends ca-certificates curl && \
         curl --proto '=https' --tlsv1.2 -LsSf -o /tmp/posthog-cli-installer.sh \
@@ -96,8 +101,8 @@ RUN --mount=type=secret,id=posthog_upload_sourcemaps_cli_api_key \
     ); then \
         echo uploaded > /tmp/.sourcemaps-status; \
     else \
-        echo "WARNING: sourcemaps not uploaded (no secret or upload failed); .map files will be retained in the image" >&2; \
-        echo retained > /tmp/.sourcemaps-status; \
+        echo "WARNING: the upload secret was present and the sourcemap upload still failed; .map files retained in the image" >&2; \
+        echo upload-failed > /tmp/.sourcemaps-status; \
     fi && \
     touch /tmp/.sourcemaps-processed
 
@@ -382,8 +387,11 @@ ENV PATH=/python-runtime/bin:$PATH \
 # where the JS sourcemaps have already been stripped.
 COPY --from=posthog-build --chown=posthog:posthog /code/frontend/dist /code/frontend/dist
 
-# Ensure sourcemap-upload stage runs (the file itself is not needed in the final image).
-COPY --from=sourcemap-upload /tmp/.sourcemaps-processed /tmp/.sourcemaps-processed
+# Keep the sourcemap outcome with the image it describes, so whether the .map files were stripped
+# can be read off a published tag (`docker run --rm <image> cat /code/.sourcemaps-status`) rather
+# than inferred from its size. Written by the same RUN as the processed marker, so copying it keeps
+# sourcemap-upload a dependency of this stage.
+COPY --from=sourcemap-upload --chown=posthog:posthog /tmp/.sourcemaps-status /code/.sourcemaps-status
 
 # Copy products.json from the frontend-build stage
 COPY --from=frontend-build --chown=posthog:posthog /code/frontend/src/products.json /code/frontend/src/products.json
