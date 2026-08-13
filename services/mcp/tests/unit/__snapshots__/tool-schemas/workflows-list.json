@@ -13,6 +13,18 @@
         "id": {
             "type": "string"
         },
+        "kind": {
+            "anyOf": [
+                {
+                    "enum": ["broadcast"],
+                    "type": "string"
+                },
+                {
+                    "type": "null"
+                }
+            ],
+            "description": "* `broadcast` - Broadcast"
+        },
         "limit": {
             "description": "Number of results to return per page.",
             "type": "number"
