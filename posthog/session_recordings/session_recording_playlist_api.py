@@ -639,6 +639,14 @@ class SessionRecordingPlaylistViewSet(
     filterset_fields = ["short_id", "created_by"]
     lookup_field = "short_id"
 
+    def dangerously_get_required_scopes(self, request: request.Request, view: Any) -> list[str] | None:
+        # Scope parity with the recordings list: a filters playlist's recordings action parses
+        # the same query params into a RecordingsQuery, so the experiment_exposure filter reads
+        # experiment data here too. The result replaces the default, so both are listed.
+        if getattr(view, "action", None) == "recordings" and request.query_params.get("experiment_exposure"):
+            return ["session_recording_playlist:read", "experiment:read"]
+        return None
+
     def safely_get_object(self, queryset: QuerySet) -> SessionRecordingPlaylist:
         """Override to handle synthetic playlists in retrieve actions"""
         lookup_value = self.kwargs.get(self.lookup_field)
