@@ -45,7 +45,7 @@ import { getFirstTeam, resetTestDatabase } from '~/tests/helpers/sql'
 import { Hub, Team } from '../../src/types'
 import { createRedisV2PoolFromConfig } from '../common/redis/redis-v2'
 import { FixtureHogFlowBuilder } from './_tests/builders/hogflow.builder'
-import { HOG_FILTERS_EXAMPLES } from './_tests/examples'
+import { HOG_FILTERS_EXAMPLES, HOG_FLOW_MASK_EXAMPLES } from './_tests/examples'
 import { createHogExecutionGlobals, insertHogFunctionTemplate, insertIntegration } from './_tests/fixtures'
 import { insertHogFlow } from './_tests/fixtures-hogflows'
 import { CdpApi } from './cdp-api'
@@ -3722,10 +3722,11 @@ describe('Workflows E2E: batch resolver dispatch via cdp-api', () => {
         return new CdpCyclotronWorkerBatchResolve(hub, deps, cyclotronWorker, queryService, internalFetchService)
     }
 
-    async function insertActiveBatchFlow(): Promise<HogFlow> {
+    async function insertActiveBatchFlow(triggerMasking?: HogFlow['trigger_masking']): Promise<HogFlow> {
         const flow = new FixtureHogFlowBuilder()
             .withTeamId(team.id)
             .withStatus('active')
+            .withTriggerMasking(triggerMasking)
             .withWorkflow({
                 actions: {
                     trigger: {
@@ -3901,6 +3902,77 @@ describe('Workflows E2E: batch resolver dispatch via cdp-api', () => {
             [parentRunId]
         )
         expect(children.rows).toHaveLength(personIds.length)
+    })
+
+    // Regression test: batch-resolved invocations used to skip trigger_masking entirely
+    // (only the event-triggered pipeline applied it), so a scheduled batch workflow with
+    // a masking TTL re-enrolled the same audience on every run.
+    it('trigger_masking suppresses re-enrolling the same person across two batch runs', async () => {
+        const flow = await insertActiveBatchFlow(HOG_FLOW_MASK_EXAMPLES.oncePerTimePeriod.trigger_masking)
+        const personId = new UUIDT().toString()
+        const statusPuts: Array<{ status: string }> = []
+
+        mockInternalFetch.mockImplementation((url: string, opts: any) => {
+            if (url.includes('/user_blast_radius_persons')) {
+                return Promise.resolve({
+                    status: 200,
+                    headers: {},
+                    json: () => Promise.resolve({}),
+                    text: () =>
+                        Promise.resolve(JSON.stringify({ users_affected: [personId], cursor: null, has_more: false })),
+                    dump: () => Promise.resolve(),
+                })
+            }
+            if (url.includes('/batch_jobs/') && url.endsWith('/status')) {
+                statusPuts.push(parseJSON(opts.body) as { status: string })
+                return Promise.resolve({
+                    status: 200,
+                    headers: {},
+                    json: () => Promise.resolve({}),
+                    text: () => Promise.resolve('{}'),
+                    dump: () => Promise.resolve(),
+                })
+            }
+            return Promise.reject(new Error(`Unexpected internalFetch call to ${url}`))
+        })
+
+        resolverWorker = buildResolverConsumer()
+        await resolverWorker.start()
+
+        // First run: the person hasn't been masked yet, so they get enrolled.
+        const firstRunId = new UUIDT().toString()
+        await supertest(app)
+            .post(`/api/projects/${team.id}/hog_flows/${flow.id}/batch_invocations/${firstRunId}`)
+            .send({ filters: { filter_test_accounts: false }, max_audience_size: 1000 })
+            .expect(200)
+
+        await waitForExpect(() => {
+            expect(statusPuts).toHaveLength(1)
+        }, 20000)
+
+        const firstRunChildren = await cyclotronPool.query(
+            `SELECT id FROM cyclotron_jobs WHERE queue_name = 'hogflow' AND parent_run_id = $1`,
+            [firstRunId]
+        )
+        expect(firstRunChildren.rows).toHaveLength(1)
+
+        // Second run (simulating the next scheduled re-enrollment): the same person is
+        // masked, so no child invocation should be enqueued this time.
+        const secondRunId = new UUIDT().toString()
+        await supertest(app)
+            .post(`/api/projects/${team.id}/hog_flows/${flow.id}/batch_invocations/${secondRunId}`)
+            .send({ filters: { filter_test_accounts: false }, max_audience_size: 1000 })
+            .expect(200)
+
+        await waitForExpect(() => {
+            expect(statusPuts).toHaveLength(2)
+        }, 20000)
+
+        const secondRunChildren = await cyclotronPool.query(
+            `SELECT id FROM cyclotron_jobs WHERE queue_name = 'hogflow' AND parent_run_id = $1`,
+            [secondRunId]
+        )
+        expect(secondRunChildren.rows).toHaveLength(0)
     })
 
     it('failed lifecycle: workflow deleted before processing → resolver transitions to failed → Django PUT status=failed', async () => {
