@@ -70,6 +70,8 @@ function precheckFallback(email: string): PrecheckResponseType {
 
 // Routes that should be handled by Django, not the React router
 const BACKEND_ONLY_ROUTES = [
+    // Every OAuth callback lives under /complete/ and is Django-rendered
+    '/complete/',
     '/login/vercel/continue',
     '/oauth/authorize',
     '/toolbar_oauth/authorize',
