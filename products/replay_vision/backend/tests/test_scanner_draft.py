@@ -138,6 +138,12 @@ class TestFinalize:
 
         assert result.scanner_config == {"prompt": _draft().prompt, "length": "short"}
 
+    def test_rationale_is_trimmed_and_capped(self):
+        result = _finalize(_draft(rationale="  why " + "x" * 600))
+
+        assert result.rationale.startswith("why x")
+        assert len(result.rationale) == 500
+
     def test_blank_prompt_is_an_error(self):
         with pytest.raises(DraftError):
             _finalize(_draft(prompt="   "))
@@ -264,6 +270,7 @@ class TestDraftScannerEndpoint(_VisionAPITestCase):
             prompt="Classify the session by primary user intent.",
             tags=["Browsing", "Purchasing"],
             multi_label=False,
+            rationale="A classifier fits because you want the mix of visit intents, not a single yes/no.",
         )
 
         resp = self.client.post(self.draft_url, data={"goal": "understand what users come here to do"}, format="json")
@@ -278,6 +285,7 @@ class TestDraftScannerEndpoint(_VisionAPITestCase):
                 "tags": ["browsing", "purchasing"],
                 "multi_label": False,
             },
+            "rationale": "A classifier fits because you want the mix of visit intents, not a single yes/no.",
         }
 
     @patch(_CORE_MEMORY_FLAG_PATH, return_value=False)
