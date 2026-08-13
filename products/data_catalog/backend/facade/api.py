@@ -18,7 +18,6 @@ from ..logic.execution import run_metric
 from ..logic.metrics import (
     approve_metric,
     approved_metric_names_for_team,
-    approved_metric_summaries_for_team,
     metrics_for_team,
     refresh_metric_from_insight,
     soft_delete_metric,
@@ -27,18 +26,15 @@ from ..logic.metrics import (
 )
 from ..logic.relationships import accept_proposal, propose_relationship, reject_proposal, relationships_for_team
 from ..logic.validation import validate_metric_definition
-from .contracts import ApprovedMetricSummary
 from .models import Metric, RelationshipProposal, TableCertification
 
 __all__ = [
-    "ApprovedMetricSummary",
     "Metric",
     "RelationshipProposal",
     "TableCertification",
     "accept_proposal",
     "approve_metric",
     "approved_metric_names_for_team",
-    "approved_metric_summaries_for_team",
     "certifications_for_team",
     "certify",
     "compute_drift",
