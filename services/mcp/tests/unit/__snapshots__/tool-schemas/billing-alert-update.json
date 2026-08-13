@@ -2,7 +2,7 @@
     "$schema": "https://json-schema.org/draft/2020-12/schema",
     "properties": {
         "baseline_window_days": {
-            "description": "Number of preceding UTC billing dates averaged for relative and absolute increase baselines.",
+            "description": "Reserved for future increase-over-baseline rules. Not used by absolute value alerts.",
             "maximum": 90,
             "minimum": 1,
             "type": "number"
@@ -79,6 +79,11 @@
             "description": "A UUID string identifying this billing alert configuration.",
             "type": "string"
         },
+        "metric": {
+            "description": "Billing-period total to evaluate: current spend so far, or projected period-end spend.\n\n* `spend` - Spend\n* `projected_spend` - Projected spend",
+            "enum": ["spend", "projected_spend"],
+            "type": "string"
+        },
         "minimum_value": {
             "description": "Minimum current value before the alert can fire.",
             "format": "decimal",
@@ -114,10 +119,10 @@
                     "type": "null"
                 }
             ],
-            "description": "Percentage increase that triggers relative increase alerts."
+            "description": "Reserved for future increase-over-baseline rules. Not used by absolute value alerts."
         },
         "threshold_type": {
-            "description": "Threshold rule type.\n\n* `relative_increase` - Relative increase\n* `absolute_value` - Absolute value\n* `absolute_increase` - Absolute increase",
+            "description": "Threshold rule type. The first version supports absolute value only.\n\n* `relative_increase` - Relative increase\n* `absolute_value` - Absolute value\n* `absolute_increase` - Absolute increase",
             "enum": ["relative_increase", "absolute_value", "absolute_increase"],
             "type": "string"
         },
