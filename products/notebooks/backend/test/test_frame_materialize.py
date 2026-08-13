@@ -2,13 +2,17 @@ import io
 import uuid
 from types import SimpleNamespace
 
+import pytest
 from posthog.test.base import APIBaseTest
 from unittest.mock import patch
 
 from django.conf import settings
 
 from parameterized import parameterized
-from temporalio import exceptions
+from temporalio import activity, exceptions
+from temporalio.client import WorkflowFailureError
+from temporalio.testing import WorkflowEnvironment
+from temporalio.worker import UnsandboxedWorkflowRunner, Worker
 
 from posthog.schema import QueryStatus
 
@@ -311,7 +315,7 @@ class TestFrameMaterializeCHWrites(APIBaseTest):
         [
             # Budget failures sync_execute rewraps as APIException subclasses (NOT
             # InternalCHQueryError) — the case the earlier hand-built InternalCHQueryError
-            # masked. Must be terminal, else the canonical whale failures retry 10x.
+            # masked. Must be terminal, else the canonical whale failures re-scan on every retry.
             ("memory_wrapped", _per_query_memory_error(), True, "materialization limits"),
             # "(total)" / "(for user)" memory pressure: the cluster was busy, not this query too
             # big, so the same query can succeed on retry. Finalizing it would both waste the
@@ -386,3 +390,57 @@ class TestFrameMaterializeCHWrites(APIBaseTest):
         status = manager.get_query_status()
         self.assertTrue(status.complete and status.error)
         self.assertIn("too large", status.error_message or "")
+
+
+@pytest.mark.asyncio
+async def test_exhausted_retries_stop_at_three_scans_and_finalize_the_status():
+    # A transient tear leaves the activity retryable, so nothing in the activity itself ends
+    # the job. Two things have to hold at the workflow level: the scan repeats a bounded
+    # number of times (each attempt re-runs the whole ClickHouse query), and the run still
+    # reaches a terminal state. Without the second one the kernel polls a never-completing
+    # status until its own deadline and reports a timeout instead of the real error.
+    attempts = 0
+    marked_failed = False
+
+    @activity.defn(name="notebook-frame-materialize")
+    async def tear_every_attempt(inputs: frame_materialize.FrameMaterializeInputs) -> str:
+        nonlocal attempts
+        attempts += 1
+        raise ObjectStorageError("stream torn mid-upload")
+
+    @activity.defn(name="notebook-frame-materialize-mark-failed")
+    async def mark_failed(inputs: frame_materialize.FrameMaterializeInputs) -> None:
+        nonlocal marked_failed
+        marked_failed = True
+
+    inputs = frame_materialize.FrameMaterializeInputs(
+        query_id="fm-retry-cap",
+        team_id=1,
+        notebook_short_id="nbfm001",
+        user_id=1,
+        query="select 1",
+        query_hash="abc123",
+        cache_key="notebook-frame:1:abc123",
+    )
+    task_queue = str(uuid.uuid4())
+
+    # Time skipping fast-forwards the retry backoff, so the policy's real intervals cost the
+    # suite nothing.
+    async with await WorkflowEnvironment.start_time_skipping() as env:
+        async with Worker(
+            env.client,
+            task_queue=task_queue,
+            workflows=[frame_materialize.NotebookFrameMaterializeWorkflow],
+            activities=[tear_every_attempt, mark_failed],
+            workflow_runner=UnsandboxedWorkflowRunner(),
+        ):
+            with pytest.raises(WorkflowFailureError):
+                await env.client.execute_workflow(
+                    frame_materialize.NotebookFrameMaterializeWorkflow.run,
+                    inputs,
+                    id=str(uuid.uuid4()),
+                    task_queue=task_queue,
+                )
+
+    assert attempts == 3
+    assert marked_failed
