@@ -53,6 +53,16 @@ class RefreshPromptSuggestionInputs(BaseModel, frozen=True):
     team_id: int
 
 
+class CheckScannerBudgetInputs(BaseModel, frozen=True):
+    scanner_id: UUID
+    team_id: int
+
+
+class CheckScannerBudgetOutput(BaseModel, frozen=True):
+    # Defaults to not-capped so a replayed history missing this field decodes to "keep sweeping".
+    capped: bool = False
+
+
 class AdvanceScannerWatermarkInputs(BaseModel, frozen=True):
     scanner_id: UUID
     new_last_swept_at: dt.datetime

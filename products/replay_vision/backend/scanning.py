@@ -27,7 +27,7 @@ from products.replay_vision.backend.enqueue_claims import (
 from products.replay_vision.backend.inline_scan import create_inline_scanner, find_inline_scanner, inline_scan_key
 from products.replay_vision.backend.models.replay_observation import TERMINAL_STATUSES, ReplayObservation
 from products.replay_vision.backend.models.replay_scanner import ReplayScanner, ScannerType
-from products.replay_vision.backend.quota import quota_state
+from products.replay_vision.backend.quota import compute_scanner_budget, quota_state
 from products.replay_vision.backend.scanner_config import scanner_config_error
 from products.replay_vision.backend.temporal.constants import (
     MAX_IN_FLIGHT_APPLIES_PER_SCANNER,
@@ -85,10 +85,20 @@ def scan_headroom(*, team: Team, model: str, scanner: ReplayScanner | None) -> S
         ),
     )
     snapshot = quota_state(team.organization_id)
-    # None means nothing binds: uncapped org, or a free model that spends nothing.
-    affordable = snapshot.affordable_count(observation_credits_for_model(model))
+    cost = observation_credits_for_model(model)
+    # None means nothing binds: an uncapped org (or scanner), or a free model that spends nothing.
+    affordable = snapshot.affordable_count(cost)
     quota_limit = in_flight_limit if affordable is None else affordable
-    # Report quota as the reason only when it's the strictly tighter limit.
+    scanner_affordable = compute_scanner_budget(scanner).affordable_count(cost) if scanner is not None else None
+    scanner_limit = in_flight_limit if scanner_affordable is None else scanner_affordable
+    # Report whichever limit is strictly tighter, so the user knows which one to raise.
+    if scanner_limit < in_flight_limit and scanner_limit <= quota_limit:
+        return ScanHeadroom(
+            max_starts=scanner_limit,
+            skip_reason="skipped_scanner_limit",
+            team_rows=team_in_flight,
+            scanner_rows=scanner_in_flight,
+        )
     if quota_limit < in_flight_limit:
         return ScanHeadroom(
             max_starts=quota_limit,
@@ -270,6 +280,7 @@ def retry_observation(*, observation: ReplayObservation, user: User) -> tuple[Re
     from products.replay_vision.backend.api.trigger import (  # noqa: PLC0415
         WorkflowStartOutcome,
         check_observation_quota,
+        check_scanner_quota,
         check_team_in_flight_capacity,
         claim_apply_scanner_slot,
         start_apply_scanner_workflow,
@@ -294,6 +305,7 @@ def retry_observation(*, observation: ReplayObservation, user: User) -> tuple[Re
     # Raises QuotaLimitExceeded / Throttled, which callers already know how to render. Kept as
     # exceptions rather than outcomes so the API's existing 402 and 429 messages are unchanged.
     check_observation_quota(scanner.team.organization_id, observation_credits_for_model(scanner.model))
+    check_scanner_quota(scanner)
     check_team_in_flight_capacity(scanner.team_id)
 
     # Locked so two concurrent retries can't both pass the status check and both delete the row.
