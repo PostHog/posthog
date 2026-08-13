@@ -5,7 +5,7 @@ from uuid import UUID
 
 import temporalio.common
 import temporalio.workflow
-from temporalio.exceptions import ApplicationError, WorkflowAlreadyStartedError
+from temporalio.exceptions import WorkflowAlreadyStartedError
 
 from posthog.schema import AlertState
 
@@ -13,6 +13,7 @@ from posthog.slo.context import JsonValue
 from posthog.slo.types import SloArea, SloConfig, SloOperation
 from posthog.temporal.alerts.activities import (
     cleanup_alert_checks,
+    enqueue_alert_checks,
     evaluate_alert,
     notify_alert,
     prepare_alert,
@@ -21,7 +22,10 @@ from posthog.temporal.alerts.activities import (
 )
 from posthog.temporal.alerts.retry_policy import ALERT_NOTIFY_RETRY_POLICY, ALERT_PREPARE_RETRY_POLICY, alert_timeouts
 from posthog.temporal.alerts.types import (
+    AlertEvaluationDispatcherInputs,
+    AlertInfo,
     CheckAlertWorkflowInputs,
+    EnqueueAlertChecksActivityInputs,
     EvaluateAlertActivityInputs,
     NotifyAlertActivityInputs,
     PrepareAction,
@@ -53,65 +57,133 @@ class ScheduleDueAlertChecksWorkflow(PostHogWorkflow):
             ),
         )
 
-        # Fan-out child workflows — one per alert. Deterministic ID prevents
-        # duplicate checks when schedule runs overlap; Temporal guarantees no
-        # two open workflows can share the same ID, so a still-running child
-        # rejects the duplicate start.
-        tasks = []
+        await temporalio.workflow.execute_activity(
+            enqueue_alert_checks,
+            EnqueueAlertChecksActivityInputs(alerts=alerts),
+            start_to_close_timeout=dt.timedelta(minutes=1),
+            retry_policy=temporalio.common.RetryPolicy(
+                initial_interval=dt.timedelta(seconds=5),
+                maximum_interval=dt.timedelta(minutes=1),
+                maximum_attempts=3,
+            ),
+        )
+
+
+MAX_CONCURRENT_ALERT_CHECKS = 10
+
+
+@temporalio.workflow.defn(name="alert-evaluation-dispatcher")
+class AlertEvaluationDispatcherWorkflow(PostHogWorkflow):
+    def __init__(self) -> None:
+        self._pending_by_organization: dict[str, list[CheckAlertWorkflowInputs]] = {}
+        self._pending_or_in_flight_alert_ids: set[str] = set()
+        self._in_flight_alert_ids: set[str] = set()
+        self._organization_cursor = 0
+
+    @staticmethod
+    def parse_inputs(inputs: list[str]) -> None:
+        return None
+
+    @temporalio.workflow.signal
+    def enqueue_alerts(self, alerts: list[AlertInfo]) -> None:
         for alert in alerts:
+            if alert.alert_id in self._pending_or_in_flight_alert_ids:
+                continue
+
             slo_properties: dict[str, JsonValue] = {
                 "alert_type": "insight",
                 "calculation_interval": alert.calculation_interval,
                 "insight_id": alert.insight_id,
             }
-            task = temporalio.workflow.execute_child_workflow(
-                CheckAlertWorkflow.run,
-                CheckAlertWorkflowInputs(
-                    alert_id=alert.alert_id,
+            inputs = CheckAlertWorkflowInputs(
+                alert_id=alert.alert_id,
+                team_id=alert.team_id,
+                distinct_id=alert.distinct_id,
+                calculation_interval=alert.calculation_interval,
+                insight_id=alert.insight_id,
+                slo=SloConfig(
+                    operation=SloOperation.ALERT_CHECK,
+                    area=SloArea.ANALYTIC_PLATFORM,
                     team_id=alert.team_id,
+                    resource_id=alert.alert_id,
                     distinct_id=alert.distinct_id,
-                    calculation_interval=alert.calculation_interval,
-                    insight_id=alert.insight_id,
-                    slo=SloConfig(
-                        operation=SloOperation.ALERT_CHECK,
-                        area=SloArea.ANALYTIC_PLATFORM,
-                        team_id=alert.team_id,
-                        resource_id=alert.alert_id,
-                        distinct_id=alert.distinct_id,
-                        start_properties=slo_properties.copy(),
-                        completion_properties=slo_properties.copy(),
-                    ),
+                    start_properties=slo_properties.copy(),
+                    completion_properties=slo_properties.copy(),
                 ),
-                id=f"check-alert-{alert.alert_id}",
-                parent_close_policy=temporalio.workflow.ParentClosePolicy.ABANDON,
-                execution_timeout=alert_timeouts(alert.calculation_interval).workflow_execution,
             )
-            tasks.append(task)
+            self._pending_by_organization.setdefault(alert.organization_id, []).append(inputs)
+            self._pending_or_in_flight_alert_ids.add(alert.alert_id)
 
-        if tasks:
-            results = await asyncio.gather(*tasks, return_exceptions=True)
-            failed_ids = []
-            for alert, result in zip(alerts, results):
-                if isinstance(result, BaseException):
-                    if isinstance(result, WorkflowAlreadyStartedError):
-                        # Previous schedule run's child still processing this
-                        # alert — not a failure, just skip it.
-                        temporalio.workflow.logger.info(
-                            "check_alert.already_running",
-                            extra={"alert_id": alert.alert_id},
-                        )
-                    else:
-                        failed_ids.append(alert.alert_id)
-                        temporalio.workflow.logger.warning(
-                            "check_alert.child_workflow_error",
-                            extra={"alert_id": alert.alert_id, "error": str(result)},
-                        )
+    @temporalio.workflow.run
+    async def run(self, inputs: AlertEvaluationDispatcherInputs | None = None) -> None:
+        if inputs:
+            self._pending_by_organization = inputs.pending_by_organization or {}
+            self._pending_or_in_flight_alert_ids = set(inputs.pending_alert_ids or [])
+            self._organization_cursor = inputs.organization_cursor
 
-            if failed_ids:
-                raise ApplicationError(
-                    f"Alert checks failed for IDs: {failed_ids}",
-                    non_retryable=True,
+        while True:
+            await temporalio.workflow.wait_condition(
+                lambda: self._can_dispatch() or temporalio.workflow.info().is_continue_as_new_suggested()
+            )
+            if temporalio.workflow.info().is_continue_as_new_suggested():
+                await temporalio.workflow.wait_condition(lambda: not self._in_flight_alert_ids)
+                await temporalio.workflow.wait_condition(temporalio.workflow.all_handlers_finished)
+                temporalio.workflow.continue_as_new(
+                    AlertEvaluationDispatcherInputs(
+                        pending_by_organization=self._pending_by_organization,
+                        pending_alert_ids=sorted(self._pending_or_in_flight_alert_ids),
+                        organization_cursor=self._organization_cursor,
+                    )
                 )
+
+            while self._can_dispatch():
+                inputs = self._next_alert()
+                if inputs is None:
+                    break
+
+                self._in_flight_alert_ids.add(inputs.alert_id)
+                try:
+                    handle = await temporalio.workflow.start_child_workflow(
+                        CheckAlertWorkflow.run,
+                        inputs,
+                        id=f"check-alert-{inputs.alert_id}",
+                        parent_close_policy=temporalio.workflow.ParentClosePolicy.ABANDON,
+                        execution_timeout=alert_timeouts(inputs.calculation_interval).workflow_execution,
+                    )
+                except WorkflowAlreadyStartedError:
+                    temporalio.workflow.logger.info("check_alert.already_running", extra={"alert_id": inputs.alert_id})
+                    self._complete_alert_check(inputs.alert_id)
+                    continue
+                asyncio.create_task(self._wait_for_alert_check(inputs.alert_id, handle))
+
+    def _can_dispatch(self) -> bool:
+        return bool(self._pending_by_organization) and len(self._in_flight_alert_ids) < MAX_CONCURRENT_ALERT_CHECKS
+
+    def _next_alert(self) -> CheckAlertWorkflowInputs | None:
+        organization_ids = list(self._pending_by_organization)
+        if not organization_ids:
+            return None
+
+        organization_id = organization_ids[self._organization_cursor % len(organization_ids)]
+        self._organization_cursor = (self._organization_cursor + 1) % len(organization_ids)
+        inputs = self._pending_by_organization[organization_id].pop(0)
+        if not self._pending_by_organization[organization_id]:
+            del self._pending_by_organization[organization_id]
+        return inputs
+
+    async def _wait_for_alert_check(self, alert_id: str, handle: temporalio.workflow.ChildWorkflowHandle) -> None:
+        try:
+            await handle
+        except WorkflowAlreadyStartedError:
+            temporalio.workflow.logger.info("check_alert.already_running", extra={"alert_id": alert_id})
+        except Exception:
+            temporalio.workflow.logger.exception("check_alert.child_workflow_error", extra={"alert_id": alert_id})
+        finally:
+            self._complete_alert_check(alert_id)
+
+    def _complete_alert_check(self, alert_id: str) -> None:
+        self._in_flight_alert_ids.discard(alert_id)
+        self._pending_or_in_flight_alert_ids.discard(alert_id)
 
 
 @temporalio.workflow.defn(name="check-alert")

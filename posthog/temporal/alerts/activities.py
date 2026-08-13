@@ -2,6 +2,7 @@ import traceback
 from concurrent.futures import ThreadPoolExecutor
 from datetime import UTC, datetime
 
+from django.conf import settings
 from django.db import transaction
 from django.db.models import Case, F, IntegerField, Q, Value, When
 
@@ -36,6 +37,7 @@ from posthog.tasks.alerts.utils import (
 from posthog.temporal.alerts.investigation import claim_investigation_slot, should_trigger_investigation
 from posthog.temporal.alerts.types import (
     AlertInfo,
+    EnqueueAlertChecksActivityInputs,
     EvaluateAlertActivityInputs,
     EvaluateAlertResult,
     NotifyAlertActivityInputs,
@@ -44,6 +46,7 @@ from posthog.temporal.alerts.types import (
     PrepareAlertResult,
     SkipReason,
 )
+from posthog.temporal.common.client import async_connect
 from posthog.temporal.common.heartbeat import Heartbeater
 
 from products.alerts.backend.evaluation import check_alert_for_insight
@@ -86,15 +89,17 @@ async def retrieve_due_alerts() -> list[AlertInfo]:
             )
             .filter(Q(snoozed_until__isnull=True) | Q(snoozed_until__lt=now))
             .filter(insight__deleted=False)
+            .select_related("team")
             .annotate(_interval_order=calculation_interval_order)
             .order_by("_interval_order", F("next_check_at").asc(nulls_first=True))
-            .only("id", "team_id", "calculation_interval", "insight_id")
+            .only("id", "team_id", "team__organization_id", "calculation_interval", "insight_id")
         )
 
         return [
             AlertInfo(
                 alert_id=str(a.id),
                 team_id=a.team_id,
+                organization_id=str(a.team.organization_id),
                 distinct_id=str(a.id),
                 calculation_interval=a.calculation_interval,
                 insight_id=a.insight_id,
@@ -104,6 +109,21 @@ async def retrieve_due_alerts() -> list[AlertInfo]:
 
     async with Heartbeater():
         return await get_alerts()
+
+
+@temporalio.activity.defn
+async def enqueue_alert_checks(inputs: EnqueueAlertChecksActivityInputs) -> None:
+    if not inputs.alerts:
+        return
+
+    client = await async_connect()
+    await client.start_workflow(
+        "alert-evaluation-dispatcher",
+        id="alert-evaluation-dispatcher",
+        task_queue=settings.ANALYTICS_PLATFORM_TASK_QUEUE,
+        start_signal="enqueue_alerts",
+        start_signal_args=[inputs.alerts],
+    )
 
 
 @temporalio.activity.defn

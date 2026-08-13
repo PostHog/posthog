@@ -27,8 +27,17 @@ from posthog.slo.types import SloArea, SloConfig, SloOperation, SloOutcome
 from posthog.tasks.alerts.utils import AlertEvaluationResult
 from posthog.temporal.alerts.activities import evaluate_alert, notify_alert, prepare_alert
 from posthog.temporal.alerts.schedule import create_schedule_due_alert_checks_schedule
-from posthog.temporal.alerts.types import AlertInfo, CheckAlertWorkflowInputs, SkipReason
-from posthog.temporal.alerts.workflows import CheckAlertWorkflow, ScheduleDueAlertChecksWorkflow
+from posthog.temporal.alerts.types import (
+    AlertInfo,
+    CheckAlertWorkflowInputs,
+    EnqueueAlertChecksActivityInputs,
+    SkipReason,
+)
+from posthog.temporal.alerts.workflows import (
+    AlertEvaluationDispatcherWorkflow,
+    CheckAlertWorkflow,
+    ScheduleDueAlertChecksWorkflow,
+)
 from posthog.temporal.common.slo_interceptor import SloInterceptor
 
 from products.alerts.backend.models.alert import AlertCheck, AlertConfiguration, Threshold
@@ -38,10 +47,11 @@ CHECK_ALERT_ACTIVITIES: list[Callable[..., Any]] = [prepare_alert, evaluate_aler
 
 
 @pytest.mark.asyncio
-async def test_schedule_due_alert_checks_adds_shared_slo_context() -> None:
+async def test_schedule_due_alert_checks_enqueues_due_alerts() -> None:
     alert = AlertInfo(
         alert_id="alert-1",
         team_id=42,
+        organization_id="org-1",
         distinct_id="user-1",
         calculation_interval=AlertCalculationInterval.DAILY.value,
         insight_id=123,
@@ -50,31 +60,30 @@ async def test_schedule_due_alert_checks_adds_shared_slo_context() -> None:
     with (
         patch(
             "posthog.temporal.alerts.workflows.temporalio.workflow.execute_activity",
-            new=AsyncMock(return_value=[alert]),
-        ),
-        patch(
-            "posthog.temporal.alerts.workflows.temporalio.workflow.execute_child_workflow", new=AsyncMock()
-        ) as execute_child,
+            new=AsyncMock(side_effect=[[alert], None]),
+        ) as execute_activity,
     ):
         await ScheduleDueAlertChecksWorkflow().run()
 
-    inputs = execute_child.call_args.args[1]
-    assert isinstance(inputs, CheckAlertWorkflowInputs)
-    assert inputs.slo is not None
-    assert inputs.slo.operation == SloOperation.ALERT_CHECK
-    assert inputs.slo.area == SloArea.ANALYTIC_PLATFORM
-    assert inputs.slo.team_id == 42
-    assert inputs.slo.resource_id == "alert-1"
-    assert inputs.slo.distinct_id == "user-1"
-    assert inputs.slo.start_properties == {
-        "alert_type": "insight",
-        "calculation_interval": AlertCalculationInterval.DAILY.value,
-        "insight_id": 123,
-    }
-    assert inputs.slo.completion_properties == inputs.slo.start_properties
+    inputs = execute_activity.call_args_list[1].args[1]
+    assert isinstance(inputs, EnqueueAlertChecksActivityInputs)
+    assert inputs.alerts == [alert]
 
-    inputs.slo.completion_properties["alert_state"] = AlertState.FIRING
-    assert "alert_state" not in inputs.slo.start_properties
+
+def test_alert_evaluation_dispatcher_round_robins_organizations_and_deduplicates_alerts() -> None:
+    dispatcher = AlertEvaluationDispatcherWorkflow()
+    dispatcher.enqueue_alerts(
+        [
+            AlertInfo("alert-1", 1, "org-1", "alert-1", AlertCalculationInterval.DAILY.value, 1),
+            AlertInfo("alert-2", 1, "org-1", "alert-2", AlertCalculationInterval.DAILY.value, 2),
+            AlertInfo("alert-3", 2, "org-2", "alert-3", AlertCalculationInterval.DAILY.value, 3),
+            AlertInfo("alert-1", 1, "org-1", "alert-1", AlertCalculationInterval.DAILY.value, 1),
+        ]
+    )
+
+    dispatched = [dispatcher._next_alert(), dispatcher._next_alert(), dispatcher._next_alert()]
+
+    assert [alert.alert_id if alert else None for alert in dispatched] == ["alert-1", "alert-3", "alert-2"]
 
 
 def test_schedule_is_registered_in_init_schedules():

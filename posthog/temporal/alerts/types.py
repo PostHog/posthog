@@ -1,3 +1,5 @@
+from __future__ import annotations
+
 import dataclasses
 from enum import StrEnum
 
@@ -26,9 +28,22 @@ class SkipReason(StrEnum):
 class AlertInfo:
     alert_id: str
     team_id: int
+    organization_id: str
     distinct_id: str
     calculation_interval: str | None
     insight_id: int
+
+
+@dataclasses.dataclass(frozen=True)
+class EnqueueAlertChecksActivityInputs:
+    alerts: list[AlertInfo]
+
+
+@dataclasses.dataclass(frozen=True)
+class AlertEvaluationDispatcherInputs:
+    pending_by_organization: dict[str, list[CheckAlertWorkflowInputs]] | None = None
+    pending_alert_ids: list[str] | None = None
+    organization_cursor: int = 0
 
 
 @dataclasses.dataclass(frozen=True)
