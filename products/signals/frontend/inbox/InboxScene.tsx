@@ -205,9 +205,21 @@ function InboxListView(): JSX.Element {
  */
 function InboxDetailView({ report }: { report: SignalReport }): JSX.Element {
     const { activeTab } = useValues(inboxSceneLogic)
+    const { reportDetailScrolled } = useActions(inboxSceneLogic)
+    // Report only the first scroll per report to the logic (which fires `Inbox report scrolled` once),
+    // so a fast native scroll doesn't dispatch an action on every frame.
+    const scrolledReportRef = useRef<string | null>(null)
 
     return (
-        <div className="flex flex-col min-h-0 flex-1 overflow-auto">
+        <div
+            className="flex flex-col min-h-0 flex-1 overflow-auto"
+            onScroll={() => {
+                if (scrolledReportRef.current !== report.id) {
+                    scrolledReportRef.current = report.id
+                    reportDetailScrolled()
+                }
+            }}
+        >
             {/* Key on the report so per-report detail state (e.g. the active diff tab) resets on navigation. */}
             <ReportDetail key={report.id} report={report} tab={activeTab} />
         </div>
