@@ -25,7 +25,7 @@ import { type SseEvent, SseEventParser } from "./sse-parser";
 
 // Reconnect backoff: flat base delay for the first SSE_RECONNECT_FLAT_ATTEMPTS attempts, then
 // exponential up to the cap (0.5, 0.5, 0.5, 1, 2, 4, 8, 16, 30s), spanning ~60s before giving up.
-const MAX_SSE_RECONNECT_ATTEMPTS = 9;
+export const MAX_SSE_RECONNECT_ATTEMPTS = 9;
 const MAX_CUMULATIVE_RECONNECT_ATTEMPTS = 30;
 const SSE_RECONNECT_BASE_DELAY_MS = 500;
 const SSE_RECONNECT_FLAT_ATTEMPTS = 3;
