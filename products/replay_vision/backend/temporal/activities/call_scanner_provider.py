@@ -127,6 +127,38 @@ async def _call_scanner_provider(inputs: CallScannerProviderInputs) -> ScannerCa
         )
     scanner: BaseScanner = scanner_from_snapshot(snapshot)
     scanner = await _inject_known_freeform_tags(scanner, inputs)
+    return await run_scan(
+        snapshot=snapshot,
+        scanner=scanner,
+        llm_inputs=llm_inputs,
+        team_name=team_name,
+        file_uri=inputs.file_uri,
+        mime_type=inputs.mime_type,
+        team_id=inputs.team_id,
+        trace_id=_scan_trace_id(inputs),
+    )
+
+
+async def run_scan(
+    *,
+    snapshot: ScannerSnapshot,
+    llm_inputs: ScannerLlmInputs,
+    team_name: str,
+    file_uri: str,
+    mime_type: str,
+    team_id: int,
+    trace_id: str | None = None,
+    scanner: BaseScanner | None = None,
+) -> ScannerCallOutput:
+    """Run the scanner conversation over an already-uploaded video, independent of where the inputs came from.
+
+    The activity path above loads the snapshot and inputs from the observation row and Redis; the golden-dataset
+    eval suite (products/replay_vision/evals) feeds this same function from files on disk so prompt changes are
+    tested against the exact production pipeline. The production activity checks AI data-processing consent
+    before calling this; any other caller must do the same before recording data reaches the provider (the eval
+    suite is covered because dataset collection is consent-gated).
+    """
+    scanner = scanner if scanner is not None else scanner_from_snapshot(snapshot)
 
     preamble_text = scanner.preamble(
         team_name=team_name,
@@ -137,16 +169,16 @@ async def _call_scanner_provider(inputs: CallScannerProviderInputs) -> ScannerCa
         product_context=llm_inputs.product_context,
         event_descriptions=llm_inputs.event_descriptions,
     )
-    video_part = types.Part(file_data=types.FileData(file_uri=inputs.file_uri, mime_type=inputs.mime_type))
+    video_part = types.Part(file_data=types.FileData(file_uri=file_uri, mime_type=mime_type))
 
     finalized, signals = await _run_mission(
         scanner=scanner,
         snapshot=snapshot,
         video_part=video_part,
         preamble_text=preamble_text,
-        team_id=inputs.team_id,
+        team_id=team_id,
         llm_inputs=llm_inputs,
-        trace_id=_scan_trace_id(inputs),
+        trace_id=trace_id if trace_id is not None else str(uuid4()),
     )
     duration_ms = int(llm_inputs.metadata.duration_seconds * 1000)
     finalized = _resolve_citations(finalized, scanner, duration_ms)
@@ -679,4 +711,4 @@ async def _delete_video_cache(cache_client: GoogleGenAIClient, name: str) -> Non
         logger.info("replay_vision.video_cache.delete_failed", error=str(e))
 
 
-__all__ = ["call_scanner_provider_activity"]
+__all__ = ["call_scanner_provider_activity", "run_scan"]
