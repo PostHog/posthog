@@ -840,19 +840,29 @@ function EmailTemplaterTakeover({
         return () => setSceneTakeoverActive(false)
     }, [isModalOpen, setSceneTakeoverActive])
 
-    // LemonModal handled Escape for the modal variant; the takeover binds its own.
+    // LemonModal handled Escape and focus for the modal variant; the takeover binds its own.
+    // Focus moves into the editor on open (keyboard users would otherwise still be on the
+    // now-covered scene controls) and returns to the opener on close. No focus trap: the AI
+    // side panel next to the editor must stay reachable.
     useEffect(() => {
         if (!isModalOpen) {
             return
         }
+        const opener = document.activeElement instanceof HTMLElement ? document.activeElement : null
+        host.focus()
         const onKeyDown = (e: KeyboardEvent): void => {
             if (e.key === 'Escape') {
                 closeWithConfirmation()
             }
         }
         window.addEventListener('keydown', onKeyDown)
-        return () => window.removeEventListener('keydown', onKeyDown)
-    }, [isModalOpen, closeWithConfirmation])
+        return () => {
+            window.removeEventListener('keydown', onKeyDown)
+            if (opener && document.contains(opener)) {
+                opener.focus()
+            }
+        }
+    }, [isModalOpen, closeWithConfirmation, host])
 
     if (!isModalOpen) {
         // Mount the editor fresh on every open: re-parenting or hiding a mounted Unlayer iframe

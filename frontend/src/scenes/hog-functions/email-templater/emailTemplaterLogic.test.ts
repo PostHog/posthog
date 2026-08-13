@@ -432,6 +432,33 @@ describe('emailTemplaterLogic', () => {
             expect(onChange.mock.calls[0][0]).toMatchObject({ subject: 'Updated subject' })
         })
 
+        it('a plain-text edit replaces the html body, like the modal save does', async () => {
+            logic.actions.setActiveContentTab('plaintext')
+            logic.actions.setEmailTemplateValue('text', 'Plain words')
+
+            expect(onChange).toHaveBeenCalledTimes(1)
+            expect(onChange.mock.calls[0][0]).toMatchObject({ text: 'Plain words', html: '' })
+        })
+
+        it('closing mid-debounce flushes the pending canvas edit instead of dropping it', async () => {
+            jest.useFakeTimers()
+            editorDesign = DESIGN_EDITED
+            editorListeners['design:updated']()
+            // Close before the 500ms debounce fires - the last edit must still propagate.
+            logic.actions.closeWithConfirmation()
+            await jest.advanceTimersByTimeAsync(0)
+            expect(onChange).toHaveBeenCalledTimes(1)
+            expect(onChange.mock.calls[0][0]).toMatchObject({ design: DESIGN_EDITED, text: 'edited' })
+            expect(logic.values.isModalOpen).toBe(false)
+
+            // The debounced export still fires afterwards; the flush must have rebaselined so it
+            // does not propagate the same edit twice.
+            await jest.advanceTimersByTimeAsync(500)
+            jest.useRealTimers()
+            await expectLogic(logic).toFinishAllListeners()
+            expect(onChange).toHaveBeenCalledTimes(1)
+        })
+
         it('loads an externally changed design into the mounted canvas', async () => {
             updateProps({ design: DESIGN_EXTERNAL })
             await expectLogic(logic).toFinishAllListeners()

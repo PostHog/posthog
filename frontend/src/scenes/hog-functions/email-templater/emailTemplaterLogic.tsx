@@ -673,6 +673,9 @@ export const emailTemplaterLogic = kea<emailTemplaterLogicType>([
             props.onChange({
                 ...props.value,
                 [key]: value,
+                // Plain-text authoring replaces the html body (the modal save does this too);
+                // without it the stale html keeps winning over the text at send time.
+                ...(key === 'text' && values.activeContentTab === 'plaintext' ? { html: '' } : {}),
             } as EmailTemplate)
         },
 
@@ -702,7 +705,7 @@ export const emailTemplaterLogic = kea<emailTemplaterLogicType>([
             }
         },
 
-        closeWithConfirmation: () => {
+        closeWithConfirmation: async () => {
             // With live changes there is nothing unsaved to discard; edits already propagated.
             if (values.emailTemplateChanged && !props.liveChanges) {
                 LemonDialog.open({
@@ -719,9 +722,36 @@ export const emailTemplaterLogic = kea<emailTemplaterLogicType>([
                         children: 'Keep editing',
                     },
                 })
-            } else {
-                actions.setIsModalOpen(false)
+                return
             }
+            // A canvas edit made in the last 500ms is still inside designUpdated's debounce; closing
+            // unmounts the editor before it exports, silently dropping that edit. Flush it now,
+            // while the editor is still mounted. The debounced continuation then no-ops (or never
+            // resolves post-unmount), since lastEditorDesign already matches.
+            if (props.liveChanges && cache.pendingDesignEdit && values.isEmailEditorReady) {
+                const editor = values.emailEditorRef?.editor
+                if (editor) {
+                    const [htmlData, textData]: [{ html: string; design: JSONTemplate }, { text: string }] =
+                        await Promise.all([
+                            new Promise<any>((res) => editor.exportHtml(res)),
+                            new Promise<any>((res) => editor.exportPlainText(res)),
+                        ])
+                    cache.pendingDesignEdit = false
+                    if (!objectsEqual(htmlData.design, cache.lastEditorDesign)) {
+                        cache.lastEditorDesign = htmlData.design
+                        cache.lastLoadedExternalDesign = null
+                        props.onChange({
+                            ...values.emailTemplate,
+                            html: ['native_email', 'native_email_template'].includes(props.type)
+                                ? htmlData.html
+                                : escapeHTMLStringCurlies(htmlData.html),
+                            text: textData.text,
+                            design: htmlData.design,
+                        })
+                    }
+                }
+            }
+            actions.setIsModalOpen(false)
         },
 
         saveAsTemplate: async ({ name, description }) => {

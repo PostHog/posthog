@@ -224,10 +224,14 @@ export function Navigation({
                             underneath the open side panel. */}
                         <div
                             ref={takeoverCallbackRef}
-                            className={cn('absolute inset-0 z-50 bg-[var(--scene-layout-background)] flex flex-col', {
-                                hidden: !sceneTakeoverActive,
-                                'lg:max-w-[calc(100%-var(--side-panel-width))]': sidePanelOpen,
-                            })}
+                            tabIndex={-1}
+                            className={cn(
+                                'absolute inset-0 z-50 bg-[var(--scene-layout-background)] flex flex-col outline-none',
+                                {
+                                    hidden: !sceneTakeoverActive,
+                                    'lg:max-w-[calc(100%-var(--side-panel-width))]': sidePanelOpen,
+                                }
+                            )}
                         />
 
                         {scenePanelIsPresent && (

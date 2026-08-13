@@ -81,8 +81,13 @@ const EMAIL_TOOL_CONTEXT_ITEMS: AttachedContextItem[] = EMAIL_TEMPLATE_MCP_TOOLS
     value: `MCP tool ${tool.name}: ${tool.description}`,
 }))
 
+// Action IDs are arbitrary strings a workflow writer controls, and this one gets interpolated
+// into a trusted `instructions` context item; anything outside a generated-ID shape must not
+// reach trusted context, or a crafted ID becomes a prompt injection against the next reader.
+const SAFE_ACTION_ID = /^[A-Za-z0-9_-]{1,128}$/
+
 function findEmailAction(workflow: HogFlow | null, actionId: string | null): HogFlow['actions'][number] | null {
-    if (!actionId) {
+    if (!actionId || !SAFE_ACTION_ID.test(actionId)) {
         return null
     }
     const action = workflow?.actions?.find((a) => a.id === actionId)
@@ -115,6 +120,7 @@ function buildEmailEditingContextItems(
             dismissGroup: EMAIL_EDITING_DISMISS_GROUP,
             value:
                 `The user has the email editor open for action '${editingEmailActionId}' in workflow ${id}. ` +
+                `This supersedes any earlier email-editing instruction in this conversation. ` +
                 `Requests about "this email" mean that action's config.inputs.email.value. For content and ` +
                 `layout changes prefer workflows-patch-action-email with design operations targeting that ` +
                 `action; use workflows-patch with update_action on it for other fields. The open editor ` +
