@@ -38,6 +38,8 @@ import { AccountEventStreamToggle } from '../EventStream/AccountEventStreamToggl
 import { AccountBillingExpansion } from './AccountBillingExpansion'
 import { accountBillingLogic } from './accountBillingLogic'
 import { accountLinksLogic } from './accountLinksLogic'
+import { AccountMeetingsExpansion } from './AccountMeetingsExpansion'
+import { accountMeetingsLogic } from './accountMeetingsLogic'
 import { accountNotebooksLogic } from './accountNotebooksLogic'
 import { AccountOpportunitiesExpansion } from './AccountOpportunitiesExpansion'
 import { accountOpportunitiesLogic } from './accountOpportunitiesLogic'
@@ -178,6 +180,7 @@ export function AccountNotebooksExpansion({
     useMountedLogic(accountOpportunitiesLogic({ accountId }))
     useMountedLogic(accountSummariesLogic({ accountId }))
     useMountedLogic(accountSupportTicketsLogic({ accountId }))
+    useMountedLogic(accountMeetingsLogic({ accountId }))
     const { setSearchTerm, setSorting, createNote } = useActions(logic)
     const { featureFlags } = useValues(featureFlagLogic)
     const { activeTabFor } = useValues(accountsExpansionLogic)
@@ -355,6 +358,11 @@ export function AccountNotebooksExpansion({
                                 content: <AccountSupportTicketsExpansion accountId={accountId} />,
                             },
                             // Flag-gated here (not just inside the component) so the tab label hides too.
+                            !!featureFlags[FEATURE_FLAGS.CUSTOMER_ANALYTICS_CSP] && {
+                                key: 'meetings' as const,
+                                label: 'Meetings',
+                                content: <AccountMeetingsExpansion accountId={accountId} />,
+                            },
                             !!featureFlags[FEATURE_FLAGS.CUSTOMER_ANALYTICS_CSP] && {
                                 key: 'event_stream' as const,
                                 label: 'Event stream',

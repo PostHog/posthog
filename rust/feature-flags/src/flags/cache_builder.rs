@@ -13,7 +13,8 @@ use common_types::TeamId;
 use crate::api::errors::FlagError;
 use crate::cohorts::cohort_models::{Cohort, CohortId};
 use crate::flags::flag_models::{
-    EvaluationMetadata, FeatureFlag, FeatureFlagId, FeatureFlagList, HypercacheFlagsWrapper,
+    EvaluationMetadata, FeatureFlag, FeatureFlagId, FeatureFlagList, FlagFilters,
+    HypercacheFlagsWrapper,
 };
 use crate::properties::property_models::PropertyFilter;
 use crate::utils::graph_utils::{DependencyGraph, DependencyProvider, DependencyType};
@@ -49,9 +50,10 @@ pub async fn build_flags_cache(
     pg_reader: PostgresReader,
     team_id: TeamId,
 ) -> Result<HypercacheFlagsWrapper, FlagError> {
-    let flags = FeatureFlagList::from_pg(pg_reader.clone(), team_id).await?;
+    let mut flags = FeatureFlagList::from_pg(pg_reader.clone(), team_id).await?;
     let evaluation_metadata = compute_flag_dependencies(&flags)?;
     let cohorts = fetch_referenced_cohorts(pg_reader, team_id, &flags).await?;
+    blank_inactive_filters(&mut flags);
 
     Ok(HypercacheFlagsWrapper {
         flags,
@@ -60,9 +62,31 @@ pub async fn build_flags_cache(
     })
 }
 
+/// Whether `active`/`deleted` let the matcher evaluate this flag. Anything failing this
+/// lands in `filtered_out_flag_ids` before `filters` is read, so its filters cannot
+/// affect a response.
+///
+/// Do not widen this to the rest of that set (survey, evaluation runtime, evaluation
+/// contexts): those are request-scoped, so blanking on them would strip targeting that
+/// other requests still need.
+fn is_evaluable(flag: &FeatureFlag) -> bool {
+    flag.active && !flag.deleted
+}
+
+/// Empty the `filters` of flags that can never be evaluated, so the unreachable
+/// blob stops occupying Redis, S3, and the service's in-memory cache.
+///
+/// Mirrors Python's `_blank_inactive_filters()` in
+/// `products/feature_flags/backend/flags_cache.py`.
+fn blank_inactive_filters(flags: &mut [FeatureFlag]) {
+    for flag in flags.iter_mut().filter(|f| !is_evaluable(f)) {
+        flag.filters = FlagFilters::default();
+    }
+}
+
 /// Yields all property filters from an active, non-deleted flag's filter groups.
 fn active_flag_properties(flag: &FeatureFlag) -> impl Iterator<Item = &PropertyFilter> {
-    let groups = if flag.active && !flag.deleted {
+    let groups = if is_evaluable(flag) {
         flag.filters.groups.as_slice()
     } else {
         &[]
@@ -221,9 +245,23 @@ async fn load_cohorts_with_deps(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::flags::flag_models::{FlagFilters, FlagPropertyGroup};
+    use crate::flags::flag_models::{FeatureFlagRow, FlagFilters, FlagPropertyGroup};
     use crate::properties::property_models::{OperatorType, PropertyFilter, PropertyType};
+    use crate::utils::test_utils::TestContext;
     use test_case::test_case;
+
+    /// A minimal insertable flag row. `id` is a placeholder; the insert helper returns the
+    /// row with the real id.
+    fn base_flag_row(team_id: i32) -> FeatureFlagRow {
+        FeatureFlagRow {
+            team_id,
+            active: true,
+            // `posthog_featureflag.name` is NOT NULL.
+            name: Some(String::new()),
+            evaluation_runtime: Some("all".to_string()),
+            ..Default::default()
+        }
+    }
 
     fn make_flag(id: i32, key: &str, active: bool, groups: Vec<FlagPropertyGroup>) -> FeatureFlag {
         FeatureFlag {
@@ -764,6 +802,98 @@ mod tests {
         assert_eq!(
             computed.transitive_deps,
             wrapper.evaluation_metadata.transitive_deps
+        );
+    }
+
+    // -------------------------------------------------------------------------
+    // blank_inactive_filters tests
+    // -------------------------------------------------------------------------
+
+    #[test_case(true, false, false ; "active flag keeps its filters")]
+    #[test_case(false, false, true ; "inactive flag is blanked")]
+    #[test_case(true, true, true ; "deleted flag is blanked")]
+    fn test_blank_inactive_filters(active: bool, deleted: bool, expect_blanked: bool) {
+        let mut flags = vec![make_flag(
+            1,
+            "flag_a",
+            active,
+            vec![group_with_properties(vec![flag_dep_property(2)])],
+        )];
+        flags[0].deleted = deleted;
+        // Populated beyond `groups` so clearing only `groups` is distinguishable from a
+        // full reset. A partial clear would keep keys Python never writes, splitting the
+        // etag between the two writers.
+        flags[0].filters.payloads = Some(serde_json::json!({"true": "payload"}));
+        flags[0].filters.early_exit = Some(true);
+        let before = serde_json::to_value(&flags[0].filters).unwrap();
+
+        blank_inactive_filters(&mut flags);
+
+        let after = serde_json::to_value(&flags[0].filters).unwrap();
+        if expect_blanked {
+            // Python's `_blank_inactive_filters()` writes exactly this into the same
+            // hypercache entry. If this fails, reconcile the literal in that function
+            // (products/feature_flags/backend/flags_cache.py) with this shape.
+            assert_eq!(after, serde_json::json!({"groups": []}));
+        } else {
+            assert_eq!(after, before);
+        }
+        // The entry has to survive so a dependency on it seeds as false in the matcher.
+        assert_eq!(flags[0].id, 1);
+    }
+
+    #[tokio::test]
+    async fn test_build_flags_cache_blanks_inactive_filters() {
+        // Covers the wiring rather than the helper: the two cache-writing binaries call
+        // `build_flags_cache`, so an edit that stops it blanking would split the etag from
+        // the Python writer while every `blank_inactive_filters` test stayed green.
+        let context = TestContext::new(None).await;
+        let team = context
+            .insert_new_team(None)
+            .await
+            .expect("Failed to insert team");
+
+        let targeting = serde_json::json!({
+            "groups": [{"properties": [], "rollout_percentage": 100}],
+            "payloads": {"true": "payload"},
+        });
+        let inactive = FeatureFlagRow {
+            key: "disabled-flag".to_string(),
+            active: false,
+            filters: targeting.clone(),
+            ..base_flag_row(team.id)
+        };
+        let active = FeatureFlagRow {
+            key: "active-flag".to_string(),
+            filters: targeting.clone(),
+            ..base_flag_row(team.id)
+        };
+        let inactive = context
+            .insert_flag(team.id, Some(inactive))
+            .await
+            .expect("Failed to insert inactive flag");
+        let active = context
+            .insert_flag(team.id, Some(active))
+            .await
+            .expect("Failed to insert active flag");
+
+        let wrapper = build_flags_cache(context.non_persons_reader.clone(), team.id)
+            .await
+            .expect("Failed to build flags cache");
+
+        let by_id: HashMap<i32, &FeatureFlag> = wrapper.flags.iter().map(|f| (f.id, f)).collect();
+        assert_eq!(
+            serde_json::to_value(&by_id[&inactive.id].filters).unwrap(),
+            serde_json::json!({"groups": []})
+        );
+        // Asserted field-wise rather than against `targeting`, because a JSONB round trip
+        // through `Option<f64>` renders `rollout_percentage` as 100.0 and serde_json holds
+        // integer and float numbers unequal.
+        let active_filters = &by_id[&active.id].filters;
+        assert_eq!(active_filters.groups.len(), 1);
+        assert_eq!(
+            active_filters.payloads,
+            Some(serde_json::json!({"true": "payload"}))
         );
     }
 }

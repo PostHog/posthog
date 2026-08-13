@@ -26,6 +26,7 @@ from parameterized import parameterized
 from prometheus_client import REGISTRY
 from rest_framework import status
 from rest_framework.relations import ManyRelatedField
+from rest_framework.response import Response
 
 from posthog import redis
 from posthog.api.cohort import BATCH_FLAG_EVALUATION_PAGE_ATTEMPTS, get_cohort_actors_for_feature_flag
@@ -36,6 +37,7 @@ from posthog.models.group.util import create_group
 from posthog.models.organization import Organization, OrganizationMembership
 from posthog.models.personal_api_key import PersonalAPIKey
 from posthog.models.project_secret_api_key import ProjectSecretAPIKey
+from posthog.models.team.extensions import get_or_create_team_extension
 from posthog.models.team.team import Team
 from posthog.models.utils import generate_random_token_personal, hash_key_value
 from posthog.test.db_context_capturing import capture_db_queries
@@ -64,6 +66,7 @@ from products.feature_flags.backend.models.feature_flag import (
     FeatureFlagDashboards,
     get_feature_flags_for_team_in_cache,
 )
+from products.feature_flags.backend.models.team_feature_flags_config import TeamFeatureFlagsConfig
 from products.feature_flags.backend.user_blast_radius import get_user_blast_radius, get_user_blast_radius_persons
 from products.product_analytics.backend.models.insight import Insight
 from products.product_tours.backend.models import ProductTour
@@ -113,6 +116,10 @@ class TestFeatureFlag(APIBaseTest, ClickhouseTestMixin):
     def _insight_query_value(insight: Any) -> Any:
         query = cast(dict[str, Any], insight.query)
         return query["source"]["properties"]["values"][0]["values"][0]["value"]
+
+    def _generate_usage_dashboard(self, flag_id: int) -> None:
+        response = self.client.post(f"/api/projects/{self.team.id}/feature_flags/{flag_id}/dashboard")
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
 
     def test_cant_create_flag_with_duplicate_key(self):
         FeatureFlag.objects.create(team=self.team, created_by=self.user, key="red_button")
@@ -2994,6 +3001,7 @@ class TestFeatureFlag(APIBaseTest, ClickhouseTestMixin):
             )
             self.assertEqual(response.status_code, status.HTTP_201_CREATED)
             flag_id = response.json()["id"]
+            self._generate_usage_dashboard(flag_id)
 
             frozen_datetime.tick(delta=timedelta(minutes=10))
 
@@ -3178,6 +3186,7 @@ class TestFeatureFlag(APIBaseTest, ClickhouseTestMixin):
             )
             self.assertEqual(response.status_code, status.HTTP_201_CREATED)
             flag_id = response.json()["id"]
+            self._generate_usage_dashboard(flag_id)
 
             frozen_datetime.tick(delta=timedelta(minutes=10))
 
@@ -3267,6 +3276,7 @@ class TestFeatureFlag(APIBaseTest, ClickhouseTestMixin):
             )
             self.assertEqual(response.status_code, status.HTTP_201_CREATED)
             flag_id = response.json()["id"]
+            self._generate_usage_dashboard(flag_id)
 
             frozen_datetime.tick(delta=timedelta(minutes=10))
 
@@ -3356,6 +3366,7 @@ class TestFeatureFlag(APIBaseTest, ClickhouseTestMixin):
             )
             self.assertEqual(response.status_code, status.HTTP_201_CREATED)
             flag_id = response.json()["id"]
+            self._generate_usage_dashboard(flag_id)
 
             frozen_datetime.tick(delta=timedelta(minutes=10))
 
@@ -4410,7 +4421,7 @@ class TestFeatureFlag(APIBaseTest, ClickhouseTestMixin):
             # (they're survey-specific and filtered out from the main list)
 
     @patch("products.feature_flags.backend.api.feature_flag.report_user_action")
-    def test_create_feature_flag_usage_dashboard(self, mock_report_user_action):
+    def test_generate_usage_dashboard_creates_insights(self, mock_report_user_action):
         response = self.client.post(
             f"/api/projects/{self.team.id}/feature_flags/",
             {
@@ -4422,6 +4433,7 @@ class TestFeatureFlag(APIBaseTest, ClickhouseTestMixin):
         )
         self.assertEqual(response.status_code, status.HTTP_201_CREATED)
         flag_id = response.json()["id"]
+        self._generate_usage_dashboard(flag_id)
         instance = FeatureFlag.objects.get(id=flag_id)
         self.assertEqual(instance.key, "alpha-feature")
 
@@ -4794,7 +4806,7 @@ class TestFeatureFlag(APIBaseTest, ClickhouseTestMixin):
         ]
     )
     @patch("products.feature_flags.backend.api.feature_flag.report_user_action")
-    def test_create_group_feature_flag_usage_dashboard(
+    def test_generate_group_usage_dashboard_creates_insights(
         self, _name, group_type, expected_singular, expected_plural, mock_report_user_action
     ):
         if group_type is not None:
@@ -4831,7 +4843,9 @@ class TestFeatureFlag(APIBaseTest, ClickhouseTestMixin):
             format="json",
         )
         self.assertEqual(response.status_code, status.HTTP_201_CREATED)
-        instance = FeatureFlag.objects.get(id=response.json()["id"])
+        flag_id = response.json()["id"]
+        self._generate_usage_dashboard(flag_id)
+        instance = FeatureFlag.objects.get(id=flag_id)
 
         dashboard = instance.usage_dashboard
         assert dashboard is not None
@@ -4893,6 +4907,7 @@ class TestFeatureFlag(APIBaseTest, ClickhouseTestMixin):
         )
         self.assertEqual(create.status_code, status.HTTP_201_CREATED)
         flag_id = create.json()["id"]
+        self._generate_usage_dashboard(flag_id)
 
         response = self.client.patch(
             f"/api/projects/{self.team.id}/feature_flags/{flag_id}",
@@ -4946,6 +4961,7 @@ class TestFeatureFlag(APIBaseTest, ClickhouseTestMixin):
         )
         self.assertEqual(response.status_code, status.HTTP_201_CREATED)
         flag_id = response.json()["id"]
+        self._generate_usage_dashboard(flag_id)
         instance = FeatureFlag.objects.get(id=flag_id)
         self.assertEqual(instance.key, "alpha-feature")
 
@@ -4985,6 +5001,7 @@ class TestFeatureFlag(APIBaseTest, ClickhouseTestMixin):
         flag_id = response.json()["id"]
         instance = FeatureFlag.objects.get(id=flag_id)
         self.assertEqual(instance.key, "alpha-feature")
+        self._generate_usage_dashboard(flag_id)
 
         response = self.client.post(
             f"/api/projects/{self.team.id}/feature_flags/{flag_id}/enrich_usage_dashboard",
@@ -4998,6 +5015,88 @@ class TestFeatureFlag(APIBaseTest, ClickhouseTestMixin):
                 "success": False,
             },
         )
+
+    @patch("products.feature_flags.backend.api.feature_flag.report_user_action")
+    def test_dashboard_enrichment_fails_if_no_usage_dashboard(self, mock_report_user_action: MagicMock) -> None:
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/feature_flags/",
+            {
+                "name": "Alpha feature",
+                "key": "alpha-feature",
+                "filters": {"groups": [{"rollout_percentage": 50}]},
+            },
+            format="json",
+        )
+        self.assertEqual(response.status_code, status.HTTP_201_CREATED)
+        flag_id = response.json()["id"]
+
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/feature_flags/{flag_id}/enrich_usage_dashboard",
+            format="json",
+        )
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+        self.assertEqual(
+            response.json(),
+            {
+                "error": (
+                    "Usage dashboard not found. Create one first with "
+                    "POST /api/projects/{project_id}/feature_flags/{id}/dashboard/"
+                ),
+                "success": False,
+            },
+        )
+
+    def test_dashboard_endpoint_is_idempotent(self) -> None:
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/feature_flags/",
+            {"name": "Alpha feature", "key": "alpha-feature", "filters": {"groups": [{"rollout_percentage": 50}]}},
+            format="json",
+        )
+        self.assertEqual(response.status_code, status.HTTP_201_CREATED)
+        flag_id = response.json()["id"]
+
+        self._generate_usage_dashboard(flag_id)
+        first_dashboard_id = FeatureFlag.objects.get(id=flag_id).usage_dashboard_id
+        assert first_dashboard_id is not None
+
+        self._generate_usage_dashboard(flag_id)
+        instance = FeatureFlag.objects.get(id=flag_id)
+
+        self.assertEqual(instance.usage_dashboard_id, first_dashboard_id)
+        self.assertTrue(Dashboard.objects.filter(id=first_dashboard_id, deleted=False).exists())
+
+    def test_dashboard_endpoint_regenerates_after_dashboard_is_deleted(self) -> None:
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/feature_flags/",
+            {"name": "Alpha feature", "key": "alpha-feature", "filters": {"groups": [{"rollout_percentage": 50}]}},
+            format="json",
+        )
+        self.assertEqual(response.status_code, status.HTTP_201_CREATED)
+        flag_id = response.json()["id"]
+
+        self._generate_usage_dashboard(flag_id)
+        deleted_dashboard_id = FeatureFlag.objects.get(id=flag_id).usage_dashboard_id
+        assert deleted_dashboard_id is not None
+        Dashboard.objects.filter(id=deleted_dashboard_id).update(deleted=True)
+
+        self._generate_usage_dashboard(flag_id)
+        instance = FeatureFlag.objects.get(id=flag_id)
+
+        new_dashboard_id = instance.usage_dashboard_id
+        assert new_dashboard_id is not None
+        self.assertNotEqual(new_dashboard_id, deleted_dashboard_id)
+        self.assertTrue(Dashboard.objects.filter(id=new_dashboard_id, deleted=False).exists())
+
+    @parameterized.expand(["dashboard", "enrich_usage_dashboard"])
+    def test_dashboard_generating_endpoints_reject_a_deleted_flag(self, endpoint: str) -> None:
+        flag = FeatureFlag.objects.create(team=self.team, created_by=self.user, key="deleted-flag", deleted=True)
+
+        response = self.client.post(f"/api/projects/{self.team.id}/feature_flags/{flag.id}/{endpoint}")
+
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+        self.assertIn("has been deleted", response.json()["error"])
+        flag.refresh_from_db()
+        self.assertIsNone(flag.usage_dashboard_id)
 
     @patch("products.feature_flags.backend.flag_analytics.CACHE_BUCKET_SIZE", 10)
     def test_local_evaluation_billing_analytics_for_regular_feature_flag_list(self):
@@ -7784,10 +7883,12 @@ class TestFeatureFlag(APIBaseTest, ClickhouseTestMixin):
         assert data["keys"] == {str(flag1.id): "test-flag-1"}
 
     @patch("products.feature_flags.backend.api.feature_flag.report_user_action")
-    def test_create_feature_flag_without_usage_dashboard(self, mock_report_user_action):
+    def test_create_feature_flag_does_not_create_usage_dashboard(self, mock_report_user_action: MagicMock) -> None:
+        dashboard_count_before = Dashboard.objects.filter(team=self.team).count()
+
         response = self.client.post(
             f"/api/projects/{self.team.id}/feature_flags/",
-            {"key": "no-usage-dashboard", "_should_create_usage_dashboard": False},
+            {"key": "no-usage-dashboard"},
             format="json",
         )
         self.assertEqual(response.status_code, status.HTTP_201_CREATED)
@@ -7797,6 +7898,11 @@ class TestFeatureFlag(APIBaseTest, ClickhouseTestMixin):
         self.assertEqual(instance.key, "no-usage-dashboard")
         self.assertEqual(instance.name, "")
         assert instance.usage_dashboard is None, "Usage dashboard should not be created"
+        self.assertEqual(
+            Dashboard.objects.filter(team=self.team).count(),
+            dashboard_count_before,
+            "Feature flag creation should not create any dashboard",
+        )
 
     def test_feature_flag_detail_actions_respect_access_control(self) -> None:
         self.organization.available_product_features = [
@@ -13111,6 +13217,38 @@ class TestFeatureFlagLimits(APIBaseTest):
         assert response.status_code == status.HTTP_400_BAD_REQUEST
         assert "Maximum of 2 feature flags allowed per team" in str(response.json())
 
+    @parameterized.expand(
+        [
+            ("override_raises_the_limit", 3, status.HTTP_201_CREATED, None),
+            ("override_lowers_the_limit", 1, status.HTTP_400_BAD_REQUEST, 1),
+            ("no_override_falls_back_to_global", None, status.HTTP_400_BAD_REQUEST, 2),
+        ]
+    )
+    def test_flag_limit_uses_the_teams_effective_limit(self, _name, override, expected_status, rejected_at_limit):
+        # Guards the wiring: check_flag_limits_for_team must read get_max_feature_flags_for_team,
+        # not settings.MAX_FEATURE_FLAGS_PER_TEAM directly. A regression that reverts to reading
+        # the global would pass every other test in this class (they all use the global) but
+        # ignore a per-team override in either direction.
+        self._create_flag("flag-1")
+        self._create_flag("flag-2")
+
+        config = get_or_create_team_extension(self.team, TeamFeatureFlagsConfig)
+        config.max_feature_flags_override = override
+        config.save(update_fields=["max_feature_flags_override"])
+
+        with self.settings(MAX_FEATURE_FLAGS_PER_TEAM=2):
+            response = self.client.post(
+                f"/api/projects/{self.team.id}/feature_flags",
+                {
+                    "key": "flag-3",
+                    "filters": {"groups": [{"rollout_percentage": 100, "properties": []}]},
+                },
+            )
+
+        assert response.status_code == expected_status
+        if rejected_at_limit is not None:
+            assert f"Maximum of {rejected_at_limit} feature flags allowed per team" in response.json()["detail"]
+
 
 class TestFeatureFlagVersions(APIBaseTest):
     def _create_flag_via_api(self, key="test-flag", **kwargs):
@@ -13227,21 +13365,24 @@ class TestFeatureFlagVersions(APIBaseTest):
         assert response.status_code == status.HTTP_422_UNPROCESSABLE_ENTITY
         assert "incomplete" in response.json()["detail"].lower()
 
-    @parameterized.expand(
-        [
-            ("remote_configuration", {"is_remote_configuration": True}),
-            ("encrypted_payloads", {"has_encrypted_payloads": True}),
-        ]
-    )
-    def test_unsupported_flag_returns_400(self, _name, update_kwargs):
+    def test_encrypted_payloads_flag_returns_400(self):
         flag = self._create_flag_via_api()
         flag_id = flag["id"]
 
-        FeatureFlag.objects.filter(id=flag_id).update(**update_kwargs)
+        FeatureFlag.objects.filter(id=flag_id).update(has_encrypted_payloads=True)
 
         response = self.client.get(f"/api/projects/{self.team.id}/feature_flags/{flag_id}/versions/1/")
         assert response.status_code == status.HTTP_400_BAD_REQUEST
         assert "not available" in response.json()["detail"].lower()
+
+    def test_plaintext_remote_config_flag_is_reachable(self):
+        flag = self._create_flag_via_api()
+        flag_id = flag["id"]
+
+        FeatureFlag.objects.filter(id=flag_id).update(is_remote_configuration=True)
+
+        response = self.client.get(f"/api/projects/{self.team.id}/feature_flags/{flag_id}/versions/1/")
+        assert response.status_code == status.HTTP_200_OK
 
 
 class TestFeatureFlagTestEvaluation(APIBaseTest, ClickhouseTestMixin):
@@ -13976,3 +14117,93 @@ class TestFeatureFlagEvaluationReasons(APIBaseTest, ClickhouseTestMixin):
 
         self.assertEqual(response.status_code, status.HTTP_502_BAD_GATEWAY)
         self.assertIn("error", response.json())
+
+
+class TestFeatureFlagReplayLinkFollowsRename(APIBaseTest):
+    def _link_flag(self, team: Team, linked_flag: dict[str, Any]) -> None:
+        team.session_recording_linked_flag = linked_flag
+        team.save()
+
+    def _rename(self, flag: FeatureFlag, new_key: str) -> Response:
+        # The relink runs on transaction commit, which a TestCase never reaches on its own.
+        with self.captureOnCommitCallbacks(execute=True):
+            return self.client.patch(f"/api/projects/{self.team.id}/feature_flags/{flag.id}/", {"key": new_key})
+
+    def test_rename_outside_the_api_still_rewrites_the_stored_key(self) -> None:
+        # A rename from the Django admin or a shell never reaches FeatureFlagSerializer, so the
+        # relink hangs off the model signal instead.
+        flag = FeatureFlag.objects.create(team=self.team, created_by=self.user, key="replay-gate")
+        self._link_flag(self.team, {"id": flag.id, "key": "replay-gate"})
+
+        flag.key = "replay-gate-v2"
+        with self.captureOnCommitCallbacks(execute=True):
+            flag.save()
+
+        self.team.refresh_from_db()
+        assert self.team.session_recording_linked_flag == {"id": flag.id, "key": "replay-gate-v2"}
+
+    @parameterized.expand([("same_project", True, "replay-gate-v2"), ("other_project", False, "replay-gate")])
+    def test_rename_rewrites_stored_key_only_within_the_project(
+        self, _name: str, same_project: bool, expected_key: str
+    ) -> None:
+        # A sibling team can gate recording on a flag owned by another team in its project, so the
+        # lookup is project-scoped; a team in a different project holding the same id must not move.
+        flag = FeatureFlag.objects.create(team=self.team, created_by=self.user, key="replay-gate")
+        linking_team = Team.objects.create(
+            organization=self.organization, **({"project": self.team.project} if same_project else {})
+        )
+        self._link_flag(linking_team, {"id": flag.id, "key": "replay-gate"})
+
+        response = self._rename(flag, "replay-gate-v2")
+
+        assert response.status_code == status.HTTP_200_OK, response.content
+        linking_team.refresh_from_db()
+        assert linking_team.session_recording_linked_flag == {"id": flag.id, "key": expected_key}
+
+    def test_rename_rewrites_stored_key_for_the_flags_own_team_and_keeps_the_variant(self) -> None:
+        flag = FeatureFlag.objects.create(team=self.team, created_by=self.user, key="replay-gate")
+        self._link_flag(self.team, {"id": flag.id, "key": "replay-gate", "variant": "control"})
+
+        response = self._rename(flag, "replay-gate-v2")
+
+        assert response.status_code == status.HTTP_200_OK, response.content
+        self.team.refresh_from_db()
+        assert self.team.session_recording_linked_flag == {
+            "id": flag.id,
+            "key": "replay-gate-v2",
+            "variant": "control",
+        }
+
+    @patch("posthog.models.remote_config._update_team_remote_config")
+    def test_rename_refreshes_remote_config_for_a_relinked_sibling_team(self, mock_refresh: MagicMock) -> None:
+        # The flag's own team is refreshed by the FeatureFlag post_save receiver, but a sibling
+        # team that gates recording on the same flag only gets a fresh SDK payload if we save it.
+        flag = FeatureFlag.objects.create(team=self.team, created_by=self.user, key="replay-gate")
+        sibling_team = Team.objects.create(organization=self.organization, project=self.team.project)
+        self._link_flag(sibling_team, {"id": flag.id, "key": "replay-gate"})
+
+        response = self._rename(flag, "replay-gate-v2")
+
+        assert response.status_code == status.HTTP_200_OK, response.content
+        assert sibling_team.id in {call.args[0] for call in mock_refresh.call_args_list}
+
+    @parameterized.expand([("stored_key_already_matches",), ("links_a_different_flag",)])
+    @patch("posthog.models.remote_config._update_team_remote_config")
+    def test_rename_does_not_save_teams_it_has_nothing_to_change(self, scope: str, mock_refresh: MagicMock) -> None:
+        # Every team save enqueues a RemoteConfig sync, so a rewrite that changes nothing costs a
+        # write and a Celery task for no benefit.
+        flag = FeatureFlag.objects.create(team=self.team, created_by=self.user, key="replay-gate")
+        sibling_team = Team.objects.create(organization=self.organization, project=self.team.project)
+        if scope == "stored_key_already_matches":
+            self._link_flag(sibling_team, {"id": flag.id, "key": "replay-gate-v2"})
+        else:
+            other_flag = FeatureFlag.objects.create(team=self.team, created_by=self.user, key="other-gate")
+            self._link_flag(sibling_team, {"id": other_flag.id, "key": "other-gate"})
+        linked_flag_before = sibling_team.session_recording_linked_flag
+
+        response = self._rename(flag, "replay-gate-v2")
+
+        assert response.status_code == status.HTTP_200_OK, response.content
+        sibling_team.refresh_from_db()
+        assert sibling_team.session_recording_linked_flag == linked_flag_before
+        assert sibling_team.id not in {call.args[0] for call in mock_refresh.call_args_list}

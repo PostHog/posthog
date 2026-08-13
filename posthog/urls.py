@@ -20,6 +20,7 @@ from posthog.api import (
     api_not_found,
     authentication,
     github,
+    leaked_key,
     playwright_setup,
     report,
     router,
@@ -33,6 +34,7 @@ from posthog.api import (
 )
 from posthog.api.github_callback.views import github_oauth_callback, github_setup_callback
 from posthog.api.oauth.connected_apps import ConnectedAppsViewSet
+from posthog.api.oauth.hogli_metadata import HOGLI_METADATA_PATH, HogliClientMetadataView
 from posthog.api.oauth.raycast_metadata import RAYCAST_METADATA_PATH, RaycastClientMetadataView
 from posthog.api.oauth.wizard_metadata import WIZARD_METADATA_PATH, WizardClientMetadataView
 from posthog.api.sdk_health import sdk_health
@@ -131,6 +133,14 @@ def _dispatch_pull_request_event(
     return handle_pull_request_event(payload)
 
 
+def _dispatch_pull_request_review_event(
+    request: HttpRequest, event_type: str, payload: dict[str, Any], delivery_id: str
+) -> HttpResponse:
+    from products.tasks.backend.facade.webhooks import handle_pull_request_review_event
+
+    return handle_pull_request_review_event(payload)
+
+
 def _dispatch_installation_event(
     request: HttpRequest, event_type: str, payload: dict[str, Any], delivery_id: str
 ) -> HttpResponse:
@@ -162,6 +172,9 @@ GITHUB_WEBHOOK_HANDLERS: dict[str, list[tuple[str, GithubWebhookHandler]]] = {
     "pull_request": [
         ("tasks_pr_backstop", _dispatch_pull_request_event),
         ("loops", _dispatch_loop_triggers),
+    ],
+    "pull_request_review": [
+        ("tasks_pr_review", _dispatch_pull_request_review_event),
     ],
     "installation": [
         ("installation_lifecycle", _dispatch_installation_event),
@@ -476,6 +489,7 @@ urlpatterns = [
     # api
     path("api/unsubscribe", unsubscribe.unsubscribe),
     path("api/alerts/github", github.SecretAlert.as_view()),
+    opt_slash_path("api/revoke_leaked_key", leaked_key.PublicLeakedKeyReport.as_view()),
     path(
         "api/legal_documents/pandadoc",
         csrf_exempt(legal_document_pandadoc_webhook),
@@ -618,6 +632,11 @@ urlpatterns = [
         RAYCAST_METADATA_PATH,
         RaycastClientMetadataView.as_view(),
         name="raycast-client-metadata",
+    ),
+    path(
+        HOGLI_METADATA_PATH,
+        HogliClientMetadataView.as_view(),
+        name="hogli-client-metadata",
     ),
     re_path(r"^api.+", api_not_found),
     path("authorize_and_redirect/", login_required(authorize_and_redirect)),

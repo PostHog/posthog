@@ -228,6 +228,8 @@ interface TestableServer {
     run: TaskRun | null,
   ): Promise<void>;
   detectedPrUrl: string | null;
+  slackArtifactDelivery: "none" | "message" | "canvas_file" | null;
+  slackChartDelivery: boolean;
   buildCloudSystemPrompt(
     prUrl?: string | null,
     slackThreadUrl?: string | null,
@@ -1274,6 +1276,29 @@ describe("AgentServer HTTP Mode", () => {
         }
       },
     );
+
+    it("quietly ends an interactive follow-up when its idle ACP transport closed", async () => {
+      const testServer = createFailureTestServer();
+
+      await testServer.handleTurnFailure(
+        interactivePayload,
+        "followup",
+        new Error("ACP connection closed"),
+      );
+
+      expect(testServer.eventStreamSender.enqueue).toHaveBeenCalledTimes(1);
+      expect(testServer.eventStreamSender.enqueue).toHaveBeenCalledWith(
+        expect.objectContaining({
+          notification: expect.objectContaining({
+            method: "_posthog/turn_complete",
+            params: expect.objectContaining({
+              stopReason: "error_recoverable",
+            }),
+          }),
+        }),
+      );
+      expect(testServer.posthogAPI.updateTaskRun).not.toHaveBeenCalled();
+    });
 
     function createRetryTestServer(prompt: ReturnType<typeof vi.fn>) {
       const testServer = createFailureTestServer();
@@ -3412,17 +3437,24 @@ describe("AgentServer HTTP Mode", () => {
         sessionId: "prior-session",
       };
 
-      await s.sendResumeMessage(
-        payload,
-        createTaskRun({
-          id: "test-run-id",
-          task: "test-task-id",
-          state: {
-            pending_user_message: "visible follow-up",
-            pending_user_message_ts: "123.456",
-          },
-        }),
-      );
+      const taskRun = createTaskRun({
+        id: "test-run-id",
+        task: "test-task-id",
+        state: {
+          pending_user_message: "visible follow-up",
+          pending_user_message_ts: "123.456",
+        },
+      });
+      vi.spyOn(
+        (
+          s as unknown as {
+            posthogAPI: { getTaskRun: ReturnType<typeof vi.fn> };
+          }
+        ).posthogAPI,
+        "getTaskRun",
+      ).mockResolvedValue(taskRun);
+
+      await s.sendResumeMessage(payload, taskRun);
 
       const [{ prompt: promptBlocks }] = prompt.mock.calls[0] as unknown as [
         { prompt: ContentBlock[] },
@@ -3450,6 +3482,68 @@ describe("AgentServer HTTP Mode", () => {
         type: "text",
         _meta: { ui: { hidden: true } },
       });
+    });
+
+    it("refetches the run before choosing a native resume prompt", async () => {
+      const s = createServer();
+      await s.start();
+
+      const prompt = vi.fn(async () => ({ stopReason: "cancelled" }));
+      const updateTaskRun = vi.fn(async () => ({}));
+      const internals = s as unknown as {
+        posthogAPI: {
+          getTaskRun: ReturnType<typeof vi.fn>;
+          updateTaskRun: typeof updateTaskRun;
+        };
+        session: {
+          clientConnection: { prompt: typeof prompt };
+        };
+        nativeResume: { sessionId: string; warm: boolean } | null;
+        sendResumeContinuation(
+          payload: JwtPayload,
+          taskRun: TaskRun | null,
+        ): Promise<void>;
+      };
+      internals.session.clientConnection.prompt = prompt;
+      internals.nativeResume = { sessionId: "prior-session", warm: true };
+      internals.posthogAPI.updateTaskRun = updateTaskRun;
+      vi.spyOn(internals.posthogAPI, "getTaskRun").mockResolvedValue(
+        createTaskRun({
+          id: "test-run-id",
+          task: "test-task-id",
+          state: { pending_user_message: "keep my follow-up" },
+        }),
+      );
+
+      await internals.sendResumeContinuation(
+        {
+          task_id: "test-task-id",
+          run_id: "test-run-id",
+          team_id: 1,
+          user_id: 1,
+          distinct_id: "test-distinct-id",
+          mode: "interactive",
+        },
+        createTaskRun({
+          id: "test-run-id",
+          task: "test-task-id",
+          state: { resume_from_run_id: "previous-run" },
+        }),
+      );
+
+      const [{ prompt: promptBlocks }] = prompt.mock.calls[0] as unknown as [
+        { prompt: ContentBlock[] },
+      ];
+      expect(promptBlocks).toEqual([
+        { type: "text", text: "keep my follow-up" },
+      ]);
+      expect(updateTaskRun).toHaveBeenCalledWith(
+        "test-task-id",
+        "test-run-id",
+        {
+          state_remove_keys: ["pending_user_message"],
+        },
+      );
     });
   });
 
@@ -3613,6 +3707,7 @@ describe("AgentServer HTTP Mode", () => {
         const newSession = vi.fn(async () => ({ sessionId: "fresh-session" }));
 
         const internals = s as unknown as {
+          posthogAPI: { getTaskRun: ReturnType<typeof vi.fn> };
           session: {
             acpSessionId: string;
             clientConnection: {
@@ -3635,6 +3730,12 @@ describe("AgentServer HTTP Mode", () => {
         internals.session.clientConnection.prompt = prompt;
         internals.session.clientConnection.newSession = newSession;
         internals.nativeResume = { sessionId: "prior-session", warm: true };
+        vi.spyOn(internals.posthogAPI, "getTaskRun").mockResolvedValue(
+          createTaskRun({
+            id: "test-run-id",
+            state: { resume_from_run_id: "previous-run" },
+          }),
+        );
         internals.loadResumeState = vi.fn(async () => {
           internals.resumeState = {
             conversation: [
@@ -4011,6 +4112,98 @@ describe("AgentServer HTTP Mode", () => {
   });
 
   describe("buildCloudSystemPrompt", () => {
+    it.each([
+      {
+        delivery: "canvas_file" as const,
+        expected: "`slack_canvas`, `slack_message`, `slack_file`",
+        notExpected: "You do not have canvas or file delivery",
+      },
+      {
+        delivery: "message" as const,
+        expected: "You do not have canvas or file delivery in this workspace",
+        notExpected: "`slack_canvas`, `slack_message`, `slack_file`",
+      },
+      {
+        delivery: "none" as const,
+        expected: "You do not have artifact delivery in this workspace",
+        notExpected: "create a living artifact before claiming delivery",
+      },
+    ])(
+      "offers only the Slack delivery routes the workspace has: $delivery",
+      ({ delivery, expected, notExpected }) => {
+        const s = createServer() as unknown as TestableServer;
+        s.slackArtifactDelivery = delivery;
+
+        const prompt = s.buildCloudSystemPrompt();
+
+        expect(prompt).toContain("## Delivering to Slack");
+        expect(prompt).toContain(expected);
+        expect(prompt).not.toContain(notExpected);
+      },
+    );
+
+    it("says nothing about Slack delivery when the backend did not resolve it", () => {
+      const s = createServer() as unknown as TestableServer;
+      s.slackArtifactDelivery = null;
+
+      expect(s.buildCloudSystemPrompt()).not.toContain(
+        "## Delivering to Slack",
+      );
+    });
+
+    // Charts need only the rollout flag, while canvas/file also needs Slack scopes still in
+    // review, so the chart offer has to be independent of the delivery mode in both
+    // directions: present on a message-only workspace, absent on a canvas_file one whose
+    // backend never sent the key.
+    it.each([
+      { delivery: "canvas_file" as const, charts: true },
+      { delivery: "message" as const, charts: true },
+    ])(
+      "offers the chart endpoint on a $delivery workspace when charts are on",
+      ({ delivery, charts }) => {
+        const s = createServer() as unknown as TestableServer;
+        s.slackArtifactDelivery = delivery;
+        s.slackChartDelivery = charts;
+
+        const prompt = s.buildCloudSystemPrompt();
+
+        expect(prompt).toContain("living_artifacts/chart/");
+        expect(prompt).toContain("deliver a chart image by default");
+      },
+    );
+
+    it.each([
+      { delivery: "canvas_file" as const },
+      { delivery: "message" as const },
+      { delivery: "none" as const },
+    ])(
+      "never mentions charts on a $delivery workspace when charts are off",
+      ({ delivery }) => {
+        const s = createServer() as unknown as TestableServer;
+        s.slackArtifactDelivery = delivery;
+        s.slackChartDelivery = false;
+
+        expect(s.buildCloudSystemPrompt()).not.toContain(
+          "living_artifacts/chart/",
+        );
+      },
+    );
+
+    it("tells a message-only workspace that charts are the exception to the no-file rule", () => {
+      // Without this the two bullets contradict each other: one forbids file delivery, the
+      // other tells the agent to deliver an image.
+      const s = createServer() as unknown as TestableServer;
+      s.slackArtifactDelivery = "message";
+      s.slackChartDelivery = true;
+
+      const prompt = s.buildCloudSystemPrompt();
+
+      expect(prompt).toContain("Chart images are the one exception");
+      expect(prompt).toContain(
+        "cannot be expressed as a Slack message or a chart image",
+      );
+    });
+
     it("describes every repository in a shared multi-repository workspace", () => {
       const s = createServer({
         repositoryPath: undefined,
@@ -4047,7 +4240,7 @@ describe("AgentServer HTTP Mode", () => {
       );
       expect(prompt).not.toContain("gh pr checkout");
       expect(prompt).not.toContain("Create a draft pull request");
-      expect(prompt).toContain("Generated-By: PostHog Code");
+      expect(prompt).toContain("Generated-By: PostHog Desktop");
       expect(prompt).toContain("Task-Id: test-task-id");
     });
 
@@ -4058,16 +4251,16 @@ describe("AgentServer HTTP Mode", () => {
       expect(prompt).toContain(
         "Do NOT create a branch, commit, push, or open a pull request unless the user explicitly asks.",
       );
-      expect(prompt).toContain("Generated-By: PostHog Code");
+      expect(prompt).toContain("Generated-By: PostHog Desktop");
       expect(prompt).toContain("Task-Id: test-task-id");
       expect(prompt).not.toContain("gh pr create --draft");
       // If the user does explicitly ask for a PR in this review-first mode,
-      // the agent must still use the PostHog Code footer, not Claude Code's default.
+      // the agent must still use the PostHog Desktop footer, not Claude Code's default.
       expect(prompt).toContain(
         "If the user explicitly asks you to open a pull request",
       );
       expect(prompt).toContain(
-        "*Created with [PostHog Code](https://posthog.com/code?ref=pr)*",
+        "*Created with [PostHog Desktop](https://posthog.com/desktop?ref=pr)*",
       );
       expect(prompt).toContain(".github/pull_request_template.md");
       expect(prompt).toContain("gh issue list --search");
@@ -4099,7 +4292,7 @@ describe("AgentServer HTTP Mode", () => {
           ".github/pull_request_template.md",
           "gh issue list --search",
           "Closes #<n>",
-          "Generated-By: PostHog Code",
+          "Generated-By: PostHog Desktop",
           "Task-Id: test-task-id",
         ],
         shouldNotContain: ["gh repo clone"],
@@ -4140,12 +4333,12 @@ describe("AgentServer HTTP Mode", () => {
       process.env.POSTHOG_CODE_INTERACTION_ORIGIN = "slack";
       const s = createServer();
       const prompt = (s as unknown as TestableServer).buildCloudSystemPrompt();
-      expect(prompt).toContain("posthog-code/");
+      expect(prompt).toContain("posthog/");
       expect(prompt).toContain("Create a draft pull request");
       expect(prompt).toContain("gh pr create --draft");
-      expect(prompt).toContain("Generated-By: PostHog Code");
+      expect(prompt).toContain("Generated-By: PostHog Desktop");
       expect(prompt).toContain("Task-Id: test-task-id");
-      // Slack-origin PRs are attributed to PostHog, not the PostHog Code app.
+      // Slack-origin PRs are attributed to PostHog, not the PostHog Desktop app.
       expect(prompt).toContain(
         "Created with [PostHog](https://posthog.com?ref=pr)",
       );
@@ -4170,7 +4363,7 @@ describe("AgentServer HTTP Mode", () => {
       process.env.POSTHOG_CODE_INTERACTION_ORIGIN = "signal_report";
       const s = createServer();
       const prompt = (s as unknown as TestableServer).buildCloudSystemPrompt();
-      expect(prompt).toContain("posthog-code/");
+      expect(prompt).toContain("posthog/");
       expect(prompt).toContain("Create a draft pull request");
       expect(prompt).toContain("gh pr create --draft");
       delete process.env.POSTHOG_CODE_INTERACTION_ORIGIN;
@@ -4181,9 +4374,9 @@ describe("AgentServer HTTP Mode", () => {
       const prompt = (s as unknown as TestableServer).buildCloudSystemPrompt();
       expect(prompt).toContain("gh pr create --draft");
       expect(prompt).not.toContain("stop with local changes ready for review");
-      // Manual runs keep the PostHog Code attribution.
+      // Manual runs keep the PostHog Desktop attribution.
       expect(prompt).toContain(
-        "Created with [PostHog Code](https://posthog.com/code?ref=pr)",
+        "Created with [PostHog Desktop](https://posthog.com/desktop?ref=pr)",
       );
     });
 
@@ -4206,19 +4399,28 @@ describe("AgentServer HTTP Mode", () => {
     // resolved from run state when the first message arrives.
     type WarmTestable = {
       prewarmedRun: boolean;
-      session: { payload: { task_id: string; run_id: string } } | null;
+      session: {
+        payload: { task_id: string; run_id: string };
+        acpSessionId: string;
+        clientConnection: {
+          setSessionConfigOption: ReturnType<typeof vi.fn>;
+        };
+      } | null;
       posthogAPI: { getTaskRun: ReturnType<typeof vi.fn> };
-      resolveWarmAutoPublishUpgrade(): Promise<string | null>;
+      resolveWarmActivationSettings(): Promise<string | null>;
       buildCloudSystemPrompt(): string;
     };
     const makeWarmServer = (
       state: Record<string, unknown> | Error,
       overrides: Partial<ConstructorParameters<typeof AgentServer>[0]> = {},
+      setSessionConfigOption = vi.fn(async () => ({ configOptions: [] })),
     ): WarmTestable => {
       const t = createServer(overrides) as unknown as WarmTestable;
       t.prewarmedRun = true;
       t.session = {
         payload: { task_id: "test-task-id", run_id: "test-run-id" },
+        acpSessionId: "test-session-id",
+        clientConnection: { setSessionConfigOption },
       };
       t.posthogAPI = {
         getTaskRun:
@@ -4231,27 +4433,65 @@ describe("AgentServer HTTP Mode", () => {
       return t;
     };
 
+    it("applies activation-time reasoning before a prewarmed run's first turn", async () => {
+      const setSessionConfigOption = vi.fn(async () => ({ configOptions: [] }));
+      const t = createServer({ reasoningEffort: "high" }) as unknown as {
+        prewarmedRun: boolean;
+        session: {
+          payload: { task_id: string; run_id: string };
+          acpSessionId: string;
+          clientConnection: {
+            setSessionConfigOption: typeof setSessionConfigOption;
+          };
+        };
+        posthogAPI: { getTaskRun: ReturnType<typeof vi.fn> };
+        resolveWarmActivationSettings(): Promise<string | null>;
+      };
+      t.prewarmedRun = true;
+      t.session = {
+        payload: { task_id: "test-task-id", run_id: "test-run-id" },
+        acpSessionId: "test-session-id",
+        clientConnection: { setSessionConfigOption },
+      };
+      t.posthogAPI = {
+        getTaskRun: vi.fn(async () => ({
+          state: { prewarmed: true, reasoning_effort: "xhigh" },
+        })),
+      };
+
+      await t.resolveWarmActivationSettings();
+      await t.resolveWarmActivationSettings();
+
+      expect(setSessionConfigOption).toHaveBeenCalledOnce();
+      expect(setSessionConfigOption).toHaveBeenCalledWith({
+        sessionId: "test-session-id",
+        configId: "effort",
+        value: "xhigh",
+      });
+      expect(t.posthogAPI.getTaskRun).toHaveBeenCalledOnce();
+    });
+
     it("upgrades a prewarmed run to auto-publish from run state on the first message", async () => {
       const t = makeWarmServer({ prewarmed: true, auto_publish: true });
 
-      const override = await t.resolveWarmAutoPublishUpgrade();
+      const override = await t.resolveWarmActivationSettings();
       expect(override).toContain("OVERRIDE PREVIOUS INSTRUCTIONS");
       expect(override).toContain("gh pr create --draft");
       // The flip persists for the rest of the session...
       expect(t.buildCloudSystemPrompt()).toContain("gh pr create --draft");
       // ...and the override is injected only once.
-      expect(await t.resolveWarmAutoPublishUpgrade()).toBeNull();
+      expect(await t.resolveWarmActivationSettings()).toBeNull();
       expect(t.posthogAPI.getTaskRun).toHaveBeenCalledTimes(1);
     });
 
     it("keeps a prewarmed run review-first when run state has no auto_publish", async () => {
       const t = makeWarmServer({ prewarmed: true });
 
-      expect(await t.resolveWarmAutoPublishUpgrade()).toBeNull();
+      expect(await t.resolveWarmActivationSettings()).toBeNull();
       expect(t.buildCloudSystemPrompt()).toContain(
         "stop with local changes ready for review",
       );
-      expect(await t.resolveWarmAutoPublishUpgrade()).toBeNull();
+      expect(await t.resolveWarmActivationSettings()).toBeNull();
       expect(t.posthogAPI.getTaskRun).toHaveBeenCalledTimes(1);
     });
 
@@ -4263,8 +4503,8 @@ describe("AgentServer HTTP Mode", () => {
         { createPr: false },
       );
 
-      expect(await t.resolveWarmAutoPublishUpgrade()).toBeNull();
-      expect(t.posthogAPI.getTaskRun).not.toHaveBeenCalled();
+      expect(await t.resolveWarmActivationSettings()).toBeNull();
+      expect(t.posthogAPI.getTaskRun).toHaveBeenCalledOnce();
       expect(t.buildCloudSystemPrompt()).toContain(
         "stop with local changes ready for review",
       );
@@ -4272,14 +4512,32 @@ describe("AgentServer HTTP Mode", () => {
 
     it("retries the state fetch on a later message when it fails", async () => {
       const t = makeWarmServer(new Error("fetch failed"));
-      expect(await t.resolveWarmAutoPublishUpgrade()).toBeNull();
+      expect(await t.resolveWarmActivationSettings()).toBeNull();
 
       t.posthogAPI.getTaskRun = vi.fn(async () => ({
         state: { prewarmed: true, auto_publish: true },
       }));
-      expect(await t.resolveWarmAutoPublishUpgrade()).toContain(
+      expect(await t.resolveWarmActivationSettings()).toContain(
         "gh pr create --draft",
       );
+    });
+
+    it("retries reasoning configuration without blocking the first prompt", async () => {
+      const setSessionConfigOption = vi
+        .fn()
+        .mockRejectedValueOnce(new Error("adapter unavailable"))
+        .mockResolvedValueOnce({ configOptions: [] });
+      const t = makeWarmServer(
+        { prewarmed: true, reasoning_effort: "xhigh" },
+        { reasoningEffort: "high" },
+        setSessionConfigOption,
+      );
+
+      await expect(t.resolveWarmActivationSettings()).resolves.toBeNull();
+      await expect(t.resolveWarmActivationSettings()).resolves.toBeNull();
+
+      expect(setSessionConfigOption).toHaveBeenCalledTimes(2);
+      expect(t.posthogAPI.getTaskRun).toHaveBeenCalledTimes(2);
     });
 
     it.each([
@@ -4527,7 +4785,7 @@ describe("AgentServer HTTP Mode", () => {
             "*Created with [PostHog](https://posthog.com?ref=pr)*",
           );
           expect(prompt).not.toContain("from a [Slack thread]");
-          expect(prompt).not.toContain("PostHog Code](https://posthog.com");
+          expect(prompt).not.toContain("PostHog Desktop](https://posthog.com");
         } finally {
           delete process.env.POSTHOG_CODE_INTERACTION_ORIGIN;
         }
@@ -4601,7 +4859,7 @@ describe("AgentServer HTTP Mode", () => {
         expect(prompt).toContain("**Why**");
         expect(prompt).toContain("Keep the PR description brief");
         expect(prompt).toContain(
-          "*Created with [PostHog Code](https://posthog.com/code?ref=pr)*",
+          "*Created with [PostHog Desktop](https://posthog.com/desktop?ref=pr)*",
         );
         expect(prompt).not.toContain("from a [Slack thread]");
       });

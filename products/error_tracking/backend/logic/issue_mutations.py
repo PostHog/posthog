@@ -69,13 +69,16 @@ def update_issue(
     # (first_seen, assignment, external issues, cohorts) without a second read.
     issue = get_issue(issue_id=issue_id, team_id=team_id)
     status_before = issue.status
+    severity_before = issue.severity
     name_before = issue.name
     status_after = fields.get("status")
+    severity_after = fields.get("severity")
     name_after = fields.get("name")
     status_updated = "status" in fields and status_after != status_before
+    severity_updated = "severity" in fields and severity_after != severity_before
     name_updated = "name" in fields and name_after != name_before
 
-    for key in ("status", "name", "description"):
+    for key in ("status", "severity", "name", "description"):
         if key in fields:
             setattr(issue, key, fields[key])
     issue.save()
@@ -85,6 +88,16 @@ def update_issue(
         changes.append(
             Change(
                 type="ErrorTrackingIssue", field="status", before=status_before, after=status_after, action="changed"
+            )
+        )
+    if severity_updated:
+        changes.append(
+            Change(
+                type="ErrorTrackingIssue",
+                field="severity",
+                before=severity_before,
+                after=severity_after,
+                action="changed",
             )
         )
     if name_updated:

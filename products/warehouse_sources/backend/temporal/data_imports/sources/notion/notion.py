@@ -205,7 +205,15 @@ def _request(
         logger.error(f"Notion API error: status={response.status_code}, body={response.text}, url={url}")
         response.raise_for_status()
 
-    return response.json()
+    try:
+        return response.json()
+    except requests.exceptions.JSONDecodeError as e:
+        # A 2xx with an empty or non-JSON body is a truncated/garbled response (a proxy hiccup, or the
+        # connection dropped after the status line) rather than real Notion output — every success
+        # path returns JSON. Treat it like the other transient response failures and retry.
+        raise NotionRetryableError(
+            f"Notion returned a non-JSON response: status={response.status_code}, url={url}"
+        ) from e
 
 
 def validate_credentials(token: str, api_version: str) -> tuple[bool, str | None]:

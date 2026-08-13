@@ -13,6 +13,7 @@ import type { RequestProperties } from '@/lib/request-properties'
 import { filterStaffOnlyTools } from '@/lib/staff-only-tools'
 import type { McpMode } from '@/lib/utils'
 import { getRequiredFeatureFlags, getScopeGatedTools, type ScopeGatedTool } from '@/tools/toolDefinitions'
+import { TASKS_CONTEXT_TOOL_NAMES } from '@/tools/tasksContext'
 import type { Context, Tool, Env, ZodObjectAny } from '@/tools/types'
 
 import type { RedisLike } from './cache/RedisCache'
@@ -75,6 +76,10 @@ export function resolveMode(args: { mode: McpMode | undefined; clientProfile: MC
     return { mode: resolved, useSingleExec: resolved === 'cli' }
 }
 
+export function tasksContextToolsToExclude(clientProfile: MCPClientProfile, taskId: string | undefined): string[] {
+    return clientProfile.isPostHogCodeConsumer() && taskId ? [] : [...TASKS_CONTEXT_TOOL_NAMES]
+}
+
 /**
  * Which navigation switch tools to hide given the context the client explicitly
  * pinned via request params.
@@ -117,9 +122,7 @@ export class RequestStateResolver {
 
         const { features, tools, organizationId, projectId, readOnly } = props
         const contextPromise = reqCtx.getContext()
-        const pinnedSessionContextPromise = projectId
-            ? this.resolveSessionContext(requestContext, projectId)
-            : undefined
+        const pinnedSessionContextPromise = projectId ? this.resolveSessionContext(requestContext) : undefined
 
         await reqCtx.tokenCache.setMany({
             ...(organizationId ? { orgId: organizationId } : {}),
@@ -135,7 +138,7 @@ export class RequestStateResolver {
 
         const [context, sessionContext] = await Promise.all([
             contextPromise,
-            pinnedSessionContextPromise ?? this.resolveSessionContext(requestContext, cachedProjectId),
+            pinnedSessionContextPromise ?? this.resolveSessionContext(requestContext),
         ])
         const clientContext = getEffectiveMCPClientContext(requestContext, sessionContext)
 
@@ -193,7 +196,10 @@ export class RequestStateResolver {
         const availableFeatures = await context.stateManager.getAvailableFeatures()
         const isCloud = isCloudApi()
 
-        const excludeTools = switchToolsToExclude({ organizationId })
+        const excludeTools = [
+            ...switchToolsToExclude({ organizationId }),
+            ...tasksContextToolsToExclude(clientProfile, props.taskId),
+        ]
 
         const filterOptions = {
             features,
@@ -243,14 +249,11 @@ export class RequestStateResolver {
         }
     }
 
-    private async resolveSessionContext(
-        requestContext: MCPRequestContext,
-        projectId: string | undefined
-    ): Promise<MCPSessionContext | null> {
+    private async resolveSessionContext(requestContext: MCPRequestContext): Promise<MCPSessionContext | null> {
         if (!requestContext.mcpSessionId) {
             return null
         }
-        return new McpSessionRedisStore(this.redis, requestContext.mcpSessionId).resolve(requestContext, projectId)
+        return new McpSessionRedisStore(this.redis, requestContext.mcpSessionId).resolve(requestContext)
     }
 
     private async resolveAllFlags(

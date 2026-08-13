@@ -7,7 +7,12 @@ import { FEATURE_FLAGS } from 'lib/constants'
 import { dayjs } from 'lib/dayjs'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { formatDateRange } from 'lib/utils/datetime'
-import { BreakdownColorConfig, findBreakdownColorConfig } from 'scenes/dashboard/dashboardBreakdownColors'
+import {
+    BreakdownColorConfig,
+    computeTileFallbackTokens,
+    findBreakdownColorConfig,
+    getBreakdownPropertyKey,
+} from 'scenes/dashboard/dashboardBreakdownColors'
 import { dashboardLogic } from 'scenes/dashboard/dashboardLogic'
 import { getColorFromToken } from 'scenes/dataThemeLogic'
 import { insightVizDataLogic } from 'scenes/insights/insightVizDataLogic'
@@ -36,6 +41,7 @@ import type {
     WebOverviewQuery,
     WebStatsTableQuery,
 } from '../../queries/schema/schema-general'
+import type { PathsV2Query } from '../../queries/schema/schema-general'
 import type { QuerySourceUpdate } from '../insights/insightVizDataLogic'
 
 const DEFAULT_RETENTION_LOGIC_KEY = 'default_retention_key'
@@ -69,6 +75,7 @@ export interface retentionLogicValues {
         | FunnelsQuery
         | LifecycleQuery
         | PathsQuery
+        | PathsV2Query
         | RetentionQuery
         | StickinessQuery
         | TrendsQuery
@@ -171,20 +178,23 @@ export interface retentionLogicMeta {
             cohortsById: Partial<Record<number | string, CohortType>>
         ) => Record<string, string>
         getRetentionColorToken: (
-            getTheme: (themeId: number | string | null | undefined) => DataColorTheme | null, // insightVizDataLogic
+            getTheme: (themeId: number | string | null | undefined) => DataColorTheme | null,
             breakdownFilter: BreakdownFilter | null | undefined,
             querySource:
                 | FunnelsQuery
                 | LifecycleQuery
                 | PathsQuery
+                | PathsV2Query
                 | RetentionQuery
                 | StickinessQuery
                 | TrendsQuery
                 | WebOverviewQuery
                 | WebStatsTableQuery
                 | null,
+            breakdownValues: (number | string | null | undefined)[],
             arg: BreakdownColorConfig[] | null,
-            arg2: DataColorTheme | null
+            arg2: DataColorTheme | null,
+            arg3: boolean
         ) => (
             rawBreakdownValue: number | string | null | undefined,
             seriesIndex: number
@@ -631,6 +641,7 @@ export const retentionLogic = kea<retentionLogicType>([
                 s.getTheme,
                 s.breakdownFilter,
                 s.querySource,
+                s.breakdownValues,
                 // The dashboard's colors live in a different logic, so they must be selector
                 // inputs rather than reads inside the returned function: the charts memoize
                 // series on this function's identity, which only changes when inputs do.
@@ -643,6 +654,11 @@ export const retentionLogic = kea<retentionLogicType>([
                     props.dashboardId != null
                         ? (dashboardLogic.findMounted({ id: props.dashboardId })?.values.dataColorTheme ?? null)
                         : null,
+                () =>
+                    props.dashboardId != null
+                        ? (dashboardLogic.findMounted({ id: props.dashboardId })?.values.autoBreakdownColorsEnabled ??
+                          false)
+                        : false,
             ],
             (
                 getTheme: (themeId: number | string | null | undefined) => DataColorTheme | null,
@@ -657,9 +673,37 @@ export const retentionLogic = kea<retentionLogicType>([
                     | WebOverviewQuery
                     | WebStatsTableQuery
                     | null,
+                breakdownValues: (number | string | null | undefined)[],
                 dashboardBreakdownColors: BreakdownColorConfig[] | null,
-                dashboardDataColorTheme: DataColorTheme | null
+                dashboardDataColorTheme: DataColorTheme | null,
+                autoBreakdownColorsEnabled: boolean
             ) => {
+                const breakdownPropertyKey = getBreakdownPropertyKey(breakdownFilter)
+                // On dashboards with auto colors, series without a value override fill the
+                // palette slots the tile's overrides don't use, because the plain
+                // position-based fallback can land on the same slot as an override shown on
+                // this very chart. Retention has no resultCustomizations, so the series list
+                // is just the breakdown values in result order.
+                const fallbackTheme =
+                    dashboardDataColorTheme ||
+                    getTheme(querySource && 'dataColorTheme' in querySource ? querySource.dataColorTheme : undefined)
+                const fallbackTokens =
+                    autoBreakdownColorsEnabled && dashboardBreakdownColors && fallbackTheme
+                        ? computeTileFallbackTokens(
+                              breakdownValues.map((breakdownValue, index) => ({
+                                  position: index,
+                                  overrideToken:
+                                      findBreakdownColorConfig(
+                                          dashboardBreakdownColors,
+                                          breakdownValue,
+                                          breakdownFilter?.breakdown_type,
+                                          breakdownPropertyKey
+                                      )?.colorToken ?? null,
+                              })),
+                              Object.keys(fallbackTheme).length
+                          )
+                        : new Map<number, DataColorToken>()
+
                 return (
                     rawBreakdownValue: string | number | null | undefined,
                     seriesIndex: number
@@ -668,7 +712,8 @@ export const retentionLogic = kea<retentionLogicType>([
                     const colorOverride = findBreakdownColorConfig(
                         dashboardBreakdownColors,
                         rawBreakdownValue,
-                        breakdownFilter?.breakdown_type
+                        breakdownFilter?.breakdown_type,
+                        breakdownPropertyKey
                     )
 
                     if (colorOverride?.colorToken) {
@@ -684,6 +729,16 @@ export const retentionLogic = kea<retentionLogicType>([
                         )
                     if (!theme) {
                         return [null, null]
+                    }
+
+                    if (fallbackTokens.size > 0) {
+                        // Keyed by value rather than by the chart's series index, so a series
+                        // keeps its color when a breakdown-value filter shifts the indexes.
+                        const seriesPosition = breakdownValues.indexOf(rawBreakdownValue)
+                        const fallbackToken = seriesPosition === -1 ? undefined : fallbackTokens.get(seriesPosition)
+                        if (fallbackToken) {
+                            return [theme, fallbackToken]
+                        }
                     }
 
                     // retention has no resultCustomizations, so the fallback is purely positional
