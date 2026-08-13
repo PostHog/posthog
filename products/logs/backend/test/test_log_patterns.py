@@ -5,6 +5,7 @@ from itertools import zip_longest
 from unittest import TestCase
 
 from hypothesis import (
+    assume,
     given,
     settings,
     strategies as st,
@@ -12,6 +13,7 @@ from hypothesis import (
 from parameterized import parameterized
 
 from products.logs.backend.log_patterns import (
+    _HOST_SUFFIXES,
     _MASKING_INSTRUCTIONS,
     _PLACEHOLDER_PATTERNS,
     LogSample,
@@ -122,6 +124,18 @@ class TestMinePatterns(TestCase):
                 "<timestamp>",
                 "12T08",
             ),
+            (
+                "hostname",
+                ["upstream ingest.example.com refused", "upstream ingest.example.net refused"],
+                "<host>",
+                "example",
+            ),
+            (
+                "subdomains",
+                ["proxied to eu.i.example.com ok", "proxied to us.i.example.com ok"],
+                "<host>",
+                "example",
+            ),
         ]
     )
     def test_masking_collapses_variable_tokens(
@@ -162,6 +176,39 @@ class TestMinePatterns(TestCase):
         patterns = mine_patterns([_sample(line)])
 
         assert "<version>" not in patterns[0].pattern
+
+    @parameterized.expand(
+        [
+            ("module_path", "handler resolved in products.logs.backend module"),
+            ("logger_name", "logger django_structlog.celery.receivers ready"),
+            ("source_file", "raised from MergeFromLogEntryTask.cpp while merging"),
+        ]
+    )
+    def test_dotted_code_paths_are_not_masked_as_hosts(self, _name: str, line: str) -> None:
+        # A hostname mask keyed on "any trailing alphabetic label" swallows module paths,
+        # logger names, and source files, which is the literal content the template is for.
+        patterns = mine_patterns([_sample(line)])
+
+        assert "<host>" not in patterns[0].pattern
+
+    def test_a_name_that_starts_with_an_address_masks_the_address_first(self) -> None:
+        # Wildcard-DNS names carry an address in their leading labels ("10.0.0.1.nip.io"), and
+        # ip runs before host by design, so the address masks and the domain masks after it.
+        # Both halves are variable and both are covered; the order is what this pins, because
+        # letting host win would bury the address a reader opened the pattern for.
+        patterns = mine_patterns([_sample("upstream 10.0.0.1.nip.io refused")])
+
+        assert patterns[0].pattern == "upstream <ip>.<host> refused"
+
+    def test_a_dotted_run_longer_than_any_hostname_keeps_its_head_literal(self) -> None:
+        # The label repeat is capped because an uncapped one retries the suffix alternation at
+        # every boundary of a long dotted run, at a cost that grows with the square of its
+        # length. Masking only the tail is the visible price of that cap, so a crafted run of
+        # single-character labels must leave its head in the template.
+        patterns = mine_patterns([_sample("upstream " + "a." * 40 + "example.com refused")])
+
+        assert "<host>" in patterns[0].pattern
+        assert "a.a.a." in patterns[0].pattern
 
     def test_error_count_includes_only_error_and_fatal(self) -> None:
         samples = [
@@ -278,6 +325,7 @@ class TestCompileMatchRegex(TestCase):
             ("took <num> ms", "took 12345 ms"),
             ("request <uuid> failed", "request 93fce79d-6926-4b08-8fa5-00ffd8e65f4e failed"),
             ("peer <ip> disconnected", "peer 10.32.243.94 disconnected"),
+            ("upstream <host> refused", "upstream eu.i.example.com refused"),
             ("token <hex> rejected", "token 0xdeadbeef rejected"),
             ("agent Chrome/<version> connected", "agent Chrome/139.0.0.0 connected"),
             ("path /api/v1/users?id=<num> hit", "path /api/v1/users?id=42 hit"),
@@ -374,9 +422,41 @@ _version_st = st.lists(st.integers(min_value=0, max_value=9999), min_size=2, max
     lambda parts: ".".join(map(str, parts))
 )
 _decimal_context_st = st.sampled_from(["duration_ms=", "ratio=", "load ", "p95="])
+_label_st = st.text("abcdefghijklmnopqrstuvwxyz0123456789", min_size=1, max_size=12)
+# A label that is itself a host suffix would make a "code path" strategy generate a real
+# hostname, so it is excluded from both strategies below.
+_non_suffix_label_st = _label_st.filter(lambda label: label not in _HOST_SUFFIXES)
+
+
+# A name whose first four labels are a dotted quad ("0.0.0.0.ai", "10.0.0.1.nip.io") is an
+# address with a domain after it, and ip runs before host by design, so it masks as "<ip>.<host>"
+# rather than a single placeholder. That precedence has its own case above; excluding the shape
+# here keeps this strategy to names the host mask alone owns.
+# The trailing guards mirror the ip mask's own: a fifth label that starts with a digit makes the
+# leading quad the head of a longer dotted run, which the mask leaves alone.
+_LEADING_ADDRESS_RE = re.compile(r"^\d{1,3}\.\d{1,3}\.\d{1,3}\.\d{1,3}(?!\d)(?!\.\d)")
+
+
+# Up to five labels before the suffix, past the deepest names that show up in real logs
+# ("pod.ns.svc.cluster.local", "a.b.c.example.co.uk"). The mask caps how many labels it will
+# consume, and this range is deliberately not derived from that cap: tightening the cap below
+# what real hostnames need has to fail the collapse property, not narrow the strategy with it.
+@st.composite
+def _fqdn_st(draw: st.DrawFn) -> str:
+    labels = draw(st.lists(_non_suffix_label_st, min_size=1, max_size=5))
+    name = ".".join([*labels, draw(st.sampled_from(_HOST_SUFFIXES))])
+    assume(not _LEADING_ADDRESS_RE.match(name))
+    return name
+
+
+@st.composite
+def _dotted_code_path_st(draw: st.DrawFn) -> str:
+    return ".".join(draw(st.lists(_non_suffix_label_st, min_size=2, max_size=4)))
+
+
 _slash_version_st = st.tuples(_product_st, _version_st).map(lambda t: f"{t[0]}/{t[1]}")
 _variable_token_st = st.one_of(
-    _uuid_st, _hex_0x_st, _hex_bare_st, _num_st, _timestamp_st(), _ipv4_st, _slash_version_st
+    _uuid_st, _hex_0x_st, _hex_bare_st, _num_st, _timestamp_st(), _ipv4_st, _slash_version_st, _fqdn_st()
 )
 
 
@@ -474,6 +554,7 @@ _CONFUSABLE_PAIRS = [
     ("ip_vs_five_octets", _ipv4_st, _five_octet_st),
     ("ip_vs_versioned_quad", _ipv4_st, _versioned_quad_st),
     ("version_vs_plain_decimal", _slash_version_st, _plain_decimal_st),
+    ("host_vs_dotted_code_path", _fqdn_st(), _dotted_code_path_st()),
 ]
 
 
@@ -588,3 +669,38 @@ class TestVersionMaskProperties(TestCase):
         second = mine_patterns([_sample(line.format(version_b))])
 
         assert pattern_fingerprint(first[0].pattern) == pattern_fingerprint(second[0].pattern)
+
+
+class TestHostMaskProperties(TestCase):
+    """The cases above pin specific hostnames; these hold the rule over every shape of name.
+
+    The host mask is a trade: it has to catch any real domain while leaving dotted code
+    paths alone, and only the whole input space shows whether the suffix list draws that
+    line in the right place.
+    """
+
+    @given(fqdn=_fqdn_st())
+    @settings(max_examples=300, deadline=None)
+    def test_any_hostname_collapses_to_one_placeholder(self, fqdn: str) -> None:
+        patterns = mine_patterns([_sample(f"upstream {fqdn} refused")])
+
+        # exact template: the whole name is consumed, not partly masked and partly literal
+        assert patterns[0].pattern == "upstream <host> refused"
+
+    @given(path=_dotted_code_path_st())
+    @settings(max_examples=300, deadline=None)
+    def test_dotted_paths_without_a_host_suffix_stay_literal(self, path: str) -> None:
+        patterns = mine_patterns([_sample(f"handler in {path} module")])
+
+        assert "<host>" not in patterns[0].pattern
+
+    @given(host_a=_fqdn_st(), host_b=_fqdn_st())
+    @settings(max_examples=300, deadline=None)
+    def test_lines_differing_only_by_hostname_share_a_fingerprint(self, host_a: str, host_b: str) -> None:
+        # This is what the mask is for. The patterns diff and the pattern list both key on
+        # the fingerprint, so two hostnames that fingerprint apart show up as two templates.
+        line = '{{"authority":"{}","upstream_cluster":"capture"}}'
+        a = mine_patterns([_sample(line.format(host_a))])
+        b = mine_patterns([_sample(line.format(host_b))])
+
+        assert pattern_fingerprint(a[0].pattern) == pattern_fingerprint(b[0].pattern)

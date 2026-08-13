@@ -73,7 +73,7 @@ from products.signals.dags.inbox_ranking.dataset.queries import (
     valid_report_uuids,
 )
 
-FEATURE_SCHEMA_VERSION = 2
+FEATURE_SCHEMA_VERSION = 3
 
 # Statuses a report can be authored straight into and still be in the inbox (`create_scout_report`
 # and `create_custom_agent_ready_report`), which is how a report reaches the spine without a
@@ -189,6 +189,10 @@ LABEL_FIELDS: list[tuple[str, pa.DataType]] = [
     ("refund_reason", pa.string()),
     ("refund_billing_path", pa.string()),
     ("refund_credits", pa.int64()),
+    ("reviewer_add_count", pa.int32()),
+    ("first_reviewer_added_at", _TIMESTAMP),
+    ("reviewer_remove_count", pa.int32()),
+    ("first_reviewer_removed_at", _TIMESTAMP),
 ]
 
 _LABELS_FIELDS: list[tuple[str, pa.DataType]] = [
