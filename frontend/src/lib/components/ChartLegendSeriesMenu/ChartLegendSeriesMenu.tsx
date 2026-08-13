@@ -58,7 +58,7 @@ export function ChartLegendSeriesMenu({
             <Tooltip title={<ChartLegendSeriesMenuHint canIsolate={canIsolate} />} delayMs={500}>
                 <ContextMenuTrigger asChild>{children}</ContextMenuTrigger>
             </Tooltip>
-            <ContextMenuContent className="click-outside-block w-fit max-w-[260px] min-w-[180px] rounded-sm bg-surface-popover text-xs shadow-lg">
+            <ContextMenuContent className="click-outside-block w-fit max-w-[260px] min-w-[180px] rounded-sm bg-surface-popover text-xs">
                 <div className="flex items-center gap-1.5 px-2 pt-1.5 pb-1 text-xs">
                     <span
                         aria-hidden="true"
@@ -70,7 +70,9 @@ export function ChartLegendSeriesMenu({
                         {seriesLabel}
                     </span>
                 </div>
-                <ContextMenuSeparator />
+                {/* The separator's default -mx-1 assumes a padded menu; here it overflows instead,
+                    which makes ScrollableShadows paint a scroll shadow down the right edge. */}
+                <ContextMenuSeparator className="mx-0" />
                 <ContextMenuGroup>
                     {canIsolate && (
                         <ContextMenuItem asChild>
