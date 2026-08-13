@@ -121,6 +121,13 @@ class TestMaybeScheduleAutoWidenResync(BaseTest):
         assert self._call(_widening_error()) is None
         assert self._persisted_config() == {"cdc_mode": "streaming"}
 
+    def test_webhook_schema_is_skipped(self) -> None:
+        self.schema.sync_type = ExternalDataSchema.SyncType.WEBHOOK
+        self.schema.save()
+
+        assert self._call(_widening_error()) is None
+        assert self._persisted_config() == {}
+
     def test_internal_failure_returns_none_instead_of_raising(self) -> None:
         with patch(
             "products.warehouse_sources.backend.models.external_data_schema.update_sync_type_config_keys",

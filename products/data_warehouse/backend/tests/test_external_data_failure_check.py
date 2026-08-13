@@ -9,7 +9,9 @@ from products.warehouse_sources.backend.models.external_data_source import Exter
 
 
 class TestExternalDataFailureCheck(BaseTest):
-    def _create_failed_schema(self, sync_type_config: dict | None = None) -> ExternalDataSchema:
+    def _create_failed_schema(
+        self, sync_type_config: dict | None = None, latest_error: str | None = None
+    ) -> ExternalDataSchema:
         source = ExternalDataSource.objects.create(
             source_id=str(uuid.uuid4()), connection_id=str(uuid.uuid4()), team=self.team, source_type="Postgres"
         )
@@ -18,7 +20,8 @@ class TestExternalDataFailureCheck(BaseTest):
             team=self.team,
             source=source,
             status=ExternalDataSchema.Status.FAILED,
-            latest_error="Source column type changed: 'total_cost' has values that no longer fit its stored type",
+            latest_error=latest_error
+            or "Source column type changed: 'total_cost' has values that no longer fit its stored type",
             sync_type_config=sync_type_config or {},
         )
 
@@ -36,6 +39,14 @@ class TestExternalDataFailureCheck(BaseTest):
             sync_type_config={"column_type_widened": {"column": "total_cost", "detected_at": fresh}}
         )
         assert self._detected_schema_ids() == set()
+
+    def test_unrelated_failure_with_fresh_marker_still_alarms(self) -> None:
+        fresh = (dt.datetime.now(dt.UTC) - dt.timedelta(hours=1)).isoformat()
+        schema = self._create_failed_schema(
+            sync_type_config={"column_type_widened": {"column": "total_cost", "detected_at": fresh}},
+            latest_error="Couldn't connect to the source database",
+        )
+        assert self._detected_schema_ids() == {str(schema.id)}
 
     def test_stale_auto_widen_marker_still_alarms(self) -> None:
         # A marker older than the mute window means the automatic reset keeps getting blocked

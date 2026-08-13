@@ -22,6 +22,10 @@ def _pending_auto_widen_resync(schema: ExternalDataSchema) -> bool:
     marker = schema.column_type_widened
     if marker is None:
         return False
+    # Mute only the widening failure itself (same prefix the v3 consumer substring-matches): an
+    # unrelated failure landing while the marker is fresh still deserves an immediate alert.
+    if "Source column type changed" not in (schema.latest_error or ""):
+        return False
     detected_at_raw = marker.get("detected_at")
     if not isinstance(detected_at_raw, str):
         return False

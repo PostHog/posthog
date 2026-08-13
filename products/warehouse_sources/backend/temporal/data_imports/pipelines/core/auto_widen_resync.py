@@ -97,7 +97,7 @@ def maybe_schedule_auto_widen_resync(
 
     Returns the customer-facing message the failed run should surface instead of the manual-reset
     instruction when the resync was scheduled, and None otherwise (unsafe transition, flag off,
-    cooldown active, CDC streaming schema, or any internal failure). Best-effort by contract: this
+    cooldown active, CDC streaming or webhook schema, or any internal failure). Best-effort by contract: this
     runs inside the load consumer's failure path, so it must never raise; the original error is
     re-raised by the caller either way.
     """
@@ -130,6 +130,12 @@ def _schedule_auto_widen_resync(
     # A streaming-mode CDC schema has its per-schema schedule paused (CDCExtractionWorkflow owns
     # it), so a stamped reset would never run; leave it to the manual repair flow.
     if schema.is_cdc and schema.cdc_mode == "streaming":
+        return None
+    # A webhook-only resource consumes reset_pipeline without wiping the table (its rows can't be
+    # rebuilt from a poll; see handle_reset_or_full_refresh), so a stamp would promise a re-sync
+    # that never happens. Whether the resource is webhook-only isn't knowable here, so skip every
+    # webhook-mode schema conservatively.
+    if schema.is_webhook:
         return None
 
     source_type = schema.source.source_type if schema.source else None
