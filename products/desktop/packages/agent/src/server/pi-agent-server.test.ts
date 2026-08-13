@@ -139,6 +139,64 @@ describe("PiAgentServer", () => {
     ]);
   });
 
+  it("relays MCP permission requests and persists always-allow responses", async () => {
+    const approveMcpTool = vi.fn(async () => {});
+    const respondMcpToolPermission = vi.fn();
+    const server = new PiAgentServer(config()) as unknown as {
+      posthogAPI: { approveMcpTool: typeof approveMcpTool };
+      session: unknown;
+      pendingEvents: Record<string, unknown>[];
+      handleMcpToolPermissionRequest(request: Record<string, unknown>): void;
+      executeCommand(
+        method: string,
+        params: Record<string, unknown>,
+      ): Promise<unknown>;
+    };
+    server.posthogAPI.approveMcpTool = approveMcpTool;
+    server.session = {
+      runtime: { client: { respondMcpToolPermission } },
+    };
+    const request = {
+      requestId: "request-1",
+      serverName: "Cloudflare",
+      toolName: "search",
+      installationId: "installation-1",
+      arguments: { query: "workers" },
+      description: "Search resources",
+    };
+
+    server.handleMcpToolPermissionRequest(request);
+
+    expect(server.pendingEvents).toContainEqual(
+      expect.objectContaining({
+        type: "permission_request",
+        requestId: "request-1",
+        toolCall: expect.objectContaining({
+          rawInput: { query: "workers" },
+        }),
+        options: [
+          expect.objectContaining({ optionId: "allow_always" }),
+          expect.objectContaining({ optionId: "reject" }),
+        ],
+      }),
+    );
+
+    await server.executeCommand("pi/rpc", {
+      command: {
+        id: "response-1",
+        type: "mcp_permission_response",
+        requestId: "request-1",
+        decision: "allow_always",
+      },
+    });
+
+    expect(approveMcpTool).toHaveBeenCalledWith("installation-1", "search");
+    expect(respondMcpToolPermission).toHaveBeenCalledWith(
+      "request-1",
+      "allow_always",
+    );
+  });
+
   it("bounds events retained while no SSE client is connected", () => {
     const server = new PiAgentServer(config()) as unknown as {
       broadcast(event: Record<string, unknown>): void;
@@ -244,6 +302,31 @@ describe("PiAgentServer", () => {
       message: "hello",
       images: [],
     });
+  });
+
+  it("preserves the native Pi user prompt when auto-publish is enabled", async () => {
+    const sendCommand = vi.fn(
+      async (_command: Record<string, unknown>) => ({}),
+    );
+    const server = new PiAgentServer(
+      config({ autoPublish: true, createPr: true }),
+    ) as unknown as {
+      session: unknown;
+      executeCommand(
+        method: string,
+        params: Record<string, unknown>,
+      ): Promise<unknown>;
+    };
+    server.session = {
+      runtime: {
+        client: { getState: vi.fn(async () => ({ isStreaming: false })) },
+        sendCommand,
+      },
+    };
+
+    await server.executeCommand("user_message", { content: "fix it" });
+
+    expect(sendCommand.mock.calls[0]?.[0].message).toBe("fix it");
   });
 
   it("hydrates cloud artifacts into native Pi prompt inputs", async () => {

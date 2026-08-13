@@ -138,6 +138,7 @@ from products.dashboards.backend.widget_registry import (
     get_widget_registry_entry,
     validate_widget_config,
 )
+from products.dashboards.backend.widget_specs.configs import CONVERSATIONS_RECENT_TICKETS_WIDGET_TYPE
 from products.mcp_analytics.backend.dashboard_templates import get_mcp_analytics_default_template
 from products.notifications.backend.facade.api import (
     NotificationData,
@@ -319,6 +320,29 @@ def _compact_tile_layouts(tiles: list[DashboardTile]) -> set[int]:
                 changed.add(tile.id)
 
     return changed
+
+
+def tile_insight_prefetches() -> list[Prefetch]:
+    """Prefetches every tile-serializing path needs on its tiles queryset. InsightSerializer reads
+    `prefetched_tags` and `_prefetched_alerts` off each insight — a path that skips the alerts
+    prefetch silently serializes `alerts: []` for every tile, hiding alert threshold lines on
+    dashboards."""
+    return [
+        Prefetch(
+            "insight__tagged_items",
+            queryset=TaggedItem.objects.select_related("tag"),
+            to_attr="prefetched_tags",
+        ),
+        Prefetch(
+            "insight__alertconfiguration_set",
+            # AlertSerializer emits threshold and subscribed_users per alert; without these,
+            # every alert on the dashboard costs two extra queries
+            queryset=AlertConfiguration.objects.select_related("created_by", "threshold").prefetch_related(
+                "subscribed_users"
+            ),
+            to_attr="_prefetched_alerts",
+        ),
+    ]
 
 
 def serialize_tile_with_context(tile, order: int, context: dict) -> tuple[int, dict]:
@@ -699,6 +723,15 @@ class CanEditDashboard(BasePermission):
         return view.user_permissions.dashboard(dashboard).can_edit
 
 
+def _hide_extra_details(context: dict[str, Any], representation: dict[str, Any]) -> None:
+    """Drop authorship details, which carry the name and email of a teammate, when the caller
+    can't see them anyway — a shared dashboard, or `hideExtraDetails` on the sharing config."""
+    if not context.get("hide_extra_details", False):
+        return
+    for field in ("created_by", "last_modified_by", "created_at", "last_modified_at"):
+        representation.pop(field, None)
+
+
 class TextSerializer(serializers.ModelSerializer):
     created_by = UserBasicSerializer(read_only=True)
     last_modified_by = UserBasicSerializer(read_only=True)
@@ -715,6 +748,11 @@ class TextSerializer(serializers.ModelSerializer):
         model = Text
         fields = "__all__"
         read_only_fields = ["id", "created_by", "last_modified_by", "last_modified_at"]
+
+    def to_representation(self, instance: Text) -> dict[str, Any]:
+        representation = super().to_representation(instance)
+        _hide_extra_details(self.context, representation)
+        return representation
 
 
 class ButtonTileSerializer(serializers.ModelSerializer):
@@ -735,6 +773,11 @@ class ButtonTileSerializer(serializers.ModelSerializer):
         model = ButtonTile
         fields = "__all__"
         read_only_fields = ["id", "created_by", "last_modified_by", "last_modified_at"]
+
+    def to_representation(self, instance: ButtonTile) -> dict[str, Any]:
+        representation = super().to_representation(instance)
+        _hide_extra_details(self.context, representation)
+        return representation
 
     def validate_url(self, value: str) -> str:
         if value.startswith("/"):
@@ -799,15 +842,19 @@ class SharedDashboardWidgetMetadataSerializer(serializers.ModelSerializer):
         allow_blank=True,
         help_text="Optional markdown description shown on the dashboard tile when enabled.",
     )
-    config = DashboardWidgetConfigField(
-        required=False,
-        help_text="Widget-specific configuration JSON for this widget type.",
-    )
+    config = serializers.SerializerMethodField(help_text="Public-safe configuration for this widget type.")
 
     class Meta:
         model = DashboardWidget
         fields = ["id", "widget_type", "name", "description", "config"]
         read_only_fields = ["id", "widget_type", "name", "description", "config"]
+
+    @extend_schema_field(DashboardWidgetConfigField(required=False))
+    def get_config(self, widget: DashboardWidget) -> dict[str, Any]:
+        config = dict(widget.config)
+        if widget.widget_type == CONVERSATIONS_RECENT_TICKETS_WIDGET_TYPE:
+            config.pop("search", None)
+        return config
 
 
 class DashboardTileSerializer(serializers.ModelSerializer):
@@ -867,6 +914,11 @@ class DashboardTileErrorSerializer(DashboardTileSerializer):
                     "short_id": insight.short_id,
                     "user_access_level": user_access_level,
                 }
+
+        # InsightBasicSerializer ignores `hide_extra_details`, so strip authorship here too, otherwise
+        # a tile that errors on a shared dashboard leaks its insight's creator name and email.
+        if isinstance(representation.get("insight"), dict):
+            _hide_extra_details(self.context, representation["insight"])
 
         return representation
 
@@ -1083,6 +1135,7 @@ class DashboardMetadataSerializer(DashboardBasicSerializer):
         ret = super().to_representation(instance)
         if ret.get("quick_filter_ids") is None:
             ret["quick_filter_ids"] = []
+        _hide_extra_details(self.context, ret)
         return ret
 
     def _filter_out_non_existing_quick_filter_ids(self, quick_filter_ids: list[str], team_id: int) -> list[str]:
@@ -2078,22 +2131,7 @@ class DashboardSerializer(DashboardMetadataSerializer):
 
         serialized_tiles: list[ReturnDict] = []
 
-        tiles = DashboardTile.dashboard_queryset(dashboard.tiles.all()).prefetch_related(
-            Prefetch(
-                "insight__tagged_items",
-                queryset=TaggedItem.objects.select_related("tag"),
-                to_attr="prefetched_tags",
-            ),
-            Prefetch(
-                "insight__alertconfiguration_set",
-                # AlertSerializer emits threshold and subscribed_users per alert; without these,
-                # every alert on the dashboard costs two extra queries
-                queryset=AlertConfiguration.objects.select_related("created_by", "threshold").prefetch_related(
-                    "subscribed_users"
-                ),
-                to_attr="_prefetched_alerts",
-            ),
-        )
+        tiles = DashboardTile.dashboard_queryset(dashboard.tiles.all()).prefetch_related(*tile_insight_prefetches())
         self.user_permissions.set_preloaded_dashboard_tiles(list(tiles))
 
         team = self.context["get_team"]()
@@ -2469,13 +2507,7 @@ class DashboardsViewSet(
         )
 
         # Get tiles with proper prefetch
-        tiles = DashboardTile.dashboard_queryset(dashboard.tiles.all()).prefetch_related(
-            Prefetch(
-                "insight__tagged_items",
-                queryset=TaggedItem.objects.select_related("tag"),
-                to_attr="prefetched_tags",
-            )
-        )
+        tiles = DashboardTile.dashboard_queryset(dashboard.tiles.all()).prefetch_related(*tile_insight_prefetches())
 
         layout_size = self._get_layout_size_from_request(request)
 

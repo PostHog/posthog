@@ -11,7 +11,7 @@ from django.utils import timezone
 from posthog.clickhouse.client import sync_execute
 from posthog.models import Team, User
 from posthog.models.event.sql import BULK_INSERT_EVENT_SQL
-from posthog.persons_seed import PersonData, fetch_recent_persons_with_distinct_id
+from posthog.persons_seed import SeedPerson, fetch_recent_persons_with_distinct_id
 from posthog.settings.data_stores import CLICKHOUSE_CLUSTER
 
 from products.surveys.backend.models import Survey
@@ -806,7 +806,7 @@ class Command(BaseCommand):
         self,
         event_name: str,
         properties: dict[str, Any],
-        person_data: PersonData,
+        person_data: SeedPerson,
         timestamp: Any,
         team: Team,
         index: int,
@@ -884,7 +884,7 @@ class Command(BaseCommand):
         team: Team,
         num_responses: int,
         days_back: int,
-        persons_data: list[PersonData],
+        persons_data: list[SeedPerson],
         with_trace_ids: bool = False,
         real_trace_ids: list[str] | None = None,
     ) -> tuple[int, int, int]:
@@ -1103,7 +1103,7 @@ class Command(BaseCommand):
         total_dismissed = 0
 
         # Fetch real persons from the database if responses are requested
-        persons_data: list[PersonData] = []
+        persons_data: list[SeedPerson] = []
         if num_responses > 0:
             persons_data = fetch_recent_persons_with_distinct_id(team.id, limit=100)
             if persons_data:

@@ -92,10 +92,6 @@ from posthog.temporal.mcp_analytics.intent_clustering import (
     MCP_ANALYTICS_INTENT_CLUSTERING_ACTIVITIES,
     MCP_ANALYTICS_INTENT_CLUSTERING_WORKFLOWS,
 )
-from posthog.temporal.messaging import (
-    ACTIVITIES as MESSAGING_ACTIVITIES,
-    WORKFLOWS as MESSAGING_WORKFLOWS,
-)
 from posthog.temporal.product_analytics import (
     ACTIVITIES as PRODUCT_ANALYTICS_ACTIVITIES,
     WORKFLOWS as PRODUCT_ANALYTICS_WORKFLOWS,
@@ -150,10 +146,6 @@ from posthog.temporal.session_replay.surfacing_scoring_sweep import (
     SURFACING_SCORING_SWEEP_ACTIVITIES,
     SURFACING_SCORING_SWEEP_WORKFLOWS,
 )
-from posthog.temporal.signup_enrichment import (
-    ACTIVITIES as SIGNUP_ENRICHMENT_ACTIVITIES,
-    WORKFLOWS as SIGNUP_ENRICHMENT_WORKFLOWS,
-)
 from posthog.temporal.sync_events_retention import SYNC_EVENTS_RETENTION_ACTIVITIES, SYNC_EVENTS_RETENTION_WORKFLOWS
 from posthog.temporal.sync_person_distinct_ids import (
     ACTIVITIES as SYNC_PERSON_DISTINCT_IDS_ACTIVITIES,
@@ -188,6 +180,10 @@ from products.conversations.backend.temporal import (
     ACTIVITIES as CONVERSATIONS_ACTIVITIES,
     WORKFLOWS as CONVERSATIONS_WORKFLOWS,
 )
+from products.customer_analytics.backend.facade.temporal import (
+    ACTIVITIES as CUSTOMER_ANALYTICS_ACTIVITIES,
+    WORKFLOWS as CUSTOMER_ANALYTICS_WORKFLOWS,
+)
 from products.engineering_analytics.backend.facade.temporal import (
     CI_SIGNALS_ACTIVITIES,
     CI_SIGNALS_WORKFLOWS,
@@ -209,6 +205,10 @@ from products.experiments.backend.temporal import (
 from products.exports.backend.temporal.subscriptions import (
     ACTIVITIES as SUBSCRIPTION_ACTIVITIES,
     WORKFLOWS as SUBSCRIPTION_WORKFLOWS,
+)
+from products.growth.backend.temporal import (
+    ACTIVITIES as GROWTH_ACTIVITIES,
+    WORKFLOWS as GROWTH_WORKFLOWS,
 )
 from products.logs.backend.facade.temporal import (
     ACTIVITIES as LOGS_ALERTING_ACTIVITIES,
@@ -330,7 +330,7 @@ _task_queue_specs = [
         + JOB_LOGS_WORKFLOWS
         + CI_SIGNALS_WORKFLOWS
         + NOTEBOOKS_WORKFLOWS
-        + SIGNUP_ENRICHMENT_WORKFLOWS
+        + GROWTH_WORKFLOWS
         + LOGS_RETENTION_ENTITLEMENTS_WORKFLOWS,
         PROXY_SERVICE_ACTIVITIES
         + DELETE_PERSONS_ACTIVITIES
@@ -351,7 +351,7 @@ _task_queue_specs = [
         + JOB_LOGS_ACTIVITIES
         + CI_SIGNALS_ACTIVITIES
         + NOTEBOOKS_ACTIVITIES
-        + SIGNUP_ENRICHMENT_ACTIVITIES
+        + GROWTH_ACTIVITIES
         + LOGS_RETENTION_ENTITLEMENTS_ACTIVITIES,
     ),
     # Dedicated landing zone for signup enrichment. Defaults to the general-purpose queue name (so it
@@ -359,8 +359,8 @@ _task_queue_specs = [
     # worker registers these workflows under the dedicated queue, letting dispatch move there with no code change.
     (
         settings.SIGNUP_ENRICHMENT_TASK_QUEUE,
-        SIGNUP_ENRICHMENT_WORKFLOWS,
-        SIGNUP_ENRICHMENT_ACTIVITIES,
+        GROWTH_WORKFLOWS,
+        GROWTH_ACTIVITIES,
     ),
     (
         settings.EXPERIMENTS_RECALCULATION_TASK_QUEUE,
@@ -379,8 +379,12 @@ _task_queue_specs = [
     ),
     (
         settings.ANALYTICS_PLATFORM_TASK_QUEUE,
-        EXPORT_WORKFLOWS + SUBSCRIPTION_WORKFLOWS + ALERT_WORKFLOWS + PULSE_WORKFLOWS,
-        EXPORT_ACTIVITIES + SUBSCRIPTION_ACTIVITIES + ALERT_ACTIVITIES + PULSE_ACTIVITIES,
+        EXPORT_WORKFLOWS + SUBSCRIPTION_WORKFLOWS + ALERT_WORKFLOWS + PULSE_WORKFLOWS + SYNC_EVENTS_RETENTION_WORKFLOWS,
+        EXPORT_ACTIVITIES
+        + SUBSCRIPTION_ACTIVITIES
+        + ALERT_ACTIVITIES
+        + PULSE_ACTIVITIES
+        + SYNC_EVENTS_RETENTION_ACTIVITIES,
     ),
     (
         settings.TASKS_TASK_QUEUE,
@@ -416,11 +420,13 @@ _task_queue_specs = [
         + DATA_IMPORT_EMIT_SIGNALS_WORKFLOWS
         + BUSINESS_KNOWLEDGE_WORKFLOWS
         + CONVERSATIONS_WORKFLOWS
+        + CUSTOMER_ANALYTICS_WORKFLOWS
         + REVIEW_HOG_WORKFLOWS,
         SIGNALS_PRODUCT_ACTIVITIES
         + DATA_IMPORT_EMIT_SIGNALS_ACTIVITIES
         + BUSINESS_KNOWLEDGE_ACTIVITIES
         + CONVERSATIONS_ACTIVITIES
+        + CUSTOMER_ANALYTICS_ACTIVITIES
         + REVIEW_HOG_ACTIVITIES,
     ),
     (
@@ -453,15 +459,13 @@ _task_queue_specs = [
         REPLAY_VISION_WORKFLOWS,
         REPLAY_VISION_ACTIVITIES,
     ),
-    (
-        settings.MESSAGING_TASK_QUEUE,
-        MESSAGING_WORKFLOWS + WA_DIGEST_WORKFLOWS,
-        MESSAGING_ACTIVITIES + WA_DIGEST_ACTIVITIES,
-    ),
+    # The web-analytics digests share this queue with the PostHog-wide weekly digest: both are
+    # weekly crons with the same shape, and the messaging queue they used to sit on has no other
+    # workflows left, so a dedicated fleet for them isn't worth its reserved capacity.
     (
         settings.WEEKLY_DIGEST_TASK_QUEUE,
-        WEEKLY_DIGEST_WORKFLOWS,
-        WEEKLY_DIGEST_ACTIVITIES,
+        WEEKLY_DIGEST_WORKFLOWS + WA_DIGEST_WORKFLOWS,
+        WEEKLY_DIGEST_ACTIVITIES + WA_DIGEST_ACTIVITIES,
     ),
     (
         settings.LLMA_EVALS_TASK_QUEUE,

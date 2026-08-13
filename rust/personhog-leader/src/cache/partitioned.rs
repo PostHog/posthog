@@ -120,10 +120,12 @@ mod tests {
             id: 1,
             uuid: "abc-123".to_string(),
             team_id: 42,
-            properties: json!({"email": "test@example.com"}),
+            properties: serde_json::to_vec(&json!({"email": "test@example.com"})).unwrap(),
             created_at: 1700000000,
             version: 1,
             is_identified: false,
+            is_deleted: false,
+            last_seen_at: None,
             approx_bytes: approx_person_bytes(64),
         }
     }

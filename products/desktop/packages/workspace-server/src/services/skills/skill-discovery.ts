@@ -176,7 +176,7 @@ export async function readSkillMetadataFromDir(
   if (skillNames.length === 0) return [];
 
   const results = await Promise.all(
-    skillNames.map(async (skillName) => {
+    skillNames.map(async (skillName): Promise<SkillInfo | null> => {
       const skillPath = path.join(skillsDir, skillName);
       try {
         const content = await fs.promises.readFile(
@@ -192,6 +192,9 @@ export async function readSkillMetadataFromDir(
           ...(repoName ? { repoName } : {}),
           editable: isEditableSource(source),
           skillMdBytes: Buffer.byteLength(content, "utf-8"),
+          ...(frontmatter?.disableModelInvocation
+            ? { disableModelInvocation: true }
+            : {}),
         } satisfies SkillInfo;
       } catch {
         return null;

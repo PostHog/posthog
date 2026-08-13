@@ -163,7 +163,11 @@ export function FunnelLineChart({
     )
 
     const resolvedGroupTypeLabel = resolveGroupTypeLabel(labelGroupType, aggregationLabel)
-    const labels = steps[0]?.labels ?? EMPTY_STRINGS
+    // The chart keys x positions off these strings, so they must be unique per point. Display
+    // labels are not (week and hour labels omit the year), which draws a multi-year funnel
+    // trend backwards. Use the ISO days; ticks and tooltips format from them.
+    const days = steps[0]?.days
+    const labels = (days?.length ? days : steps[0]?.labels) ?? EMPTY_STRINGS
     const annotationDates = steps[0]?.days ?? EMPTY_STRINGS
     const showAnnotations = !inSharedMode && funnelsFilter?.showAnnotations !== false
 

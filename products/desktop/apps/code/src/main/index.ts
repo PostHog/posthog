@@ -441,6 +441,7 @@ app.whenReady().then(async () => {
     Object.assign(globalThis, {
       __e2eUpdates: {
         check: () => updates.checkForUpdates(),
+        periodicCheck: () => updates.checkForUpdates("periodic"),
         download: () => updates.requestDownload(),
         install: () => updates.installUpdate(),
         status: () => updates.getStatus(),

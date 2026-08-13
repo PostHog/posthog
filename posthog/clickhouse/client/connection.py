@@ -72,9 +72,12 @@ class ClickHouseUser(StrEnum):
     MESSAGING = "messaging"  # a.k.a. behavioral cohorts
     MAX_AI = "max_ai"  # llm/a
     LLM_ANALYTICS = "llm_analytics"  # background AI observability workflows; interactive requests use APP
+    # Notebook frame materializations (Temporal worker streaming to the object store)
+    NOTEBOOKS = "notebooks"
     ERROR_TRACKING = "error_tracking"
     ENDPOINTS = "endpoints"
     BILLING = "billing"
+    REPLAY_VISION = "replay_vision"
 
     # Backups - used by Dagster backup jobs
     BACKUPS = "backups"
@@ -89,7 +92,7 @@ class ClickHouseUser(StrEnum):
     DICT_READER = "dict_reader"
 
 
-@dataclass(frozen=True)
+@dataclass(frozen=True, kw_only=True, slots=True)
 class ClickHouseCredentials:
     user: str
     password: str = field(repr=False)

@@ -56,6 +56,7 @@ class CPTeam:
     persons_table_name: str | None
     schema_data_imports_name: str | None
     earliest_event_date: date | None
+    data_imports_table_naming_version: str = "legacy_batch_v1"
 
     @property
     def resolved_events_table(self) -> str:
@@ -112,6 +113,7 @@ def team_from_row(row: dict, *, organization_id: str | None = None) -> CPTeam | 
         persons_table_name=row.get("persons_table_name") or None,
         schema_data_imports_name=row.get("schema_data_imports_name") or None,
         earliest_event_date=_parse_earliest_event_date(row.get("earliest_event_date")),
+        data_imports_table_naming_version=str(row.get("data_imports_table_naming_version") or "legacy_batch_v1"),
     )
 
 
@@ -163,11 +165,19 @@ def _rows_from_response(response: http_requests.Response) -> list[dict] | None:
         data = response.json()
     except ValueError:
         return None
+    naming_version: object = None
     if isinstance(data, dict):
+        naming_version = data.get("data_imports_table_naming_version")
         data = data.get("teams")
     if not isinstance(data, list):
         return None
-    return [row for row in data if isinstance(row, dict)]
+    return [
+        {**row, "data_imports_table_naming_version": naming_version}
+        if isinstance(naming_version, str) and naming_version
+        else row
+        for row in data
+        if isinstance(row, dict)
+    ]
 
 
 def _fetch_rows(*, organization_id: str | None) -> list[dict] | None:

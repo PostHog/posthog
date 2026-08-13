@@ -5,6 +5,7 @@ import { useState } from 'react'
 import * as xRayPng from '@posthog/brand/hoggies/png/x-ray'
 import { IconPencil, IconPlus, IconRefresh, IconSearch, IconTrash } from '@posthog/icons'
 import {
+    LemonBanner,
     LemonButton,
     LemonInput,
     LemonSwitch,
@@ -12,18 +13,13 @@ import {
     LemonTabs,
     Link,
     Spinner,
-    SpinnerOverlay,
 } from '@posthog/lemon-ui'
 
 import { pngHoggie } from 'lib/brand/hoggies'
-import { NotFound } from 'lib/components/NotFound'
 import { ProductIntroduction } from 'lib/components/ProductIntroduction/ProductIntroduction'
-import { FEATURE_FLAGS } from 'lib/constants'
 import { LemonDialog } from 'lib/lemon-ui/LemonDialog'
 import { LemonTableColumns } from 'lib/lemon-ui/LemonTable'
 import { ProfilePicture } from 'lib/lemon-ui/ProfilePicture'
-import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
-import { appLogic } from 'scenes/appLogic'
 import { SceneExport } from 'scenes/sceneTypes'
 import { aiConsentLogic } from 'scenes/settings/organization/aiConsentLogic'
 import { AIConsentPopoverWrapper } from 'scenes/settings/organization/AIConsentPopoverWrapper'
@@ -37,6 +33,7 @@ import { FilterPill } from '../components/FilterPill'
 import { IngestionLimitBanner } from '../components/IngestionLimitBanner'
 import { ReplayVisionFeedbackButton } from '../components/ReplayVisionFeedbackButton'
 import { ScannerTypeBadge } from '../components/ScannerTypeBadge'
+import { visionQuotaLogic } from '../logics/visionQuotaLogic'
 import { getReplayVisionDeleteDisabledReason, getReplayVisionEditDisabledReason } from '../utils/accessControl'
 import { creditsToUsd, formatCreditCount } from '../utils/credits'
 import { VisionMetrics } from './components/VisionMetrics'
@@ -94,6 +91,7 @@ function CreateScannerButton({
             ignoreDismissal
             hideTrainingDisclaimer
             hidden={!consentRequested}
+            pendingRedirectUrl={urls.replayVisionTemplates()}
             onApprove={() => {
                 setConsentRequested(false)
                 goToCreate()
@@ -133,16 +131,7 @@ export function ReplayScannersScene(): JSX.Element {
         useActions(replayScannersLogic)
     const { push } = useActions(router)
     const { searchParams } = useValues(router)
-    const { featureFlags, receivedFeatureFlags } = useValues(featureFlagLogic)
-    const { featureFlagsTimedOut } = useValues(appLogic)
-
-    if (!featureFlags[FEATURE_FLAGS.REPLAY_VISION]) {
-        // Flags load asynchronously, so wait for them before deciding the page doesn't exist.
-        if (!receivedFeatureFlags && !featureFlagsTimedOut) {
-            return <SpinnerOverlay sceneLevel />
-        }
-        return <NotFound object="page" />
-    }
+    const { showUsd } = useValues(visionQuotaLogic)
 
     const columns: LemonTableColumns<ReplayScanner> = [
         {
@@ -205,7 +194,7 @@ export function ReplayScannersScene(): JSX.Element {
             render: (_, scanner) => (
                 <div className="text-sm tabular-nums">
                     <div>{formatCreditCount(scanner.credits_this_month)}</div>
-                    <div className="text-muted text-xs">≈ {creditsToUsd(scanner.credits_this_month)}</div>
+                    {showUsd && <div className="text-muted text-xs">≈ {creditsToUsd(scanner.credits_this_month)}</div>}
                 </div>
             ),
             sorter: true,
@@ -284,6 +273,17 @@ export function ReplayScannersScene(): JSX.Element {
 
             <IngestionLimitBanner />
 
+            {(scannerStats?.total ?? 0) - (scannerStats?.enabled ?? 0) > 0 && (
+                <LemonBanner type="warning" dismissKey="replay-vision-launch-beta-scanners">
+                    Replay vision is out of beta and scans now use billed credits. Your scanners were turned off for the
+                    launch, so re-enable the ones you want to keep running. See{' '}
+                    <Link to="https://posthog.com/docs/replay-vision/quota-and-limits" target="_blank">
+                        how credits are priced
+                    </Link>{' '}
+                    in the docs, or check the Usage tab for current spend.
+                </LemonBanner>
+            )}
+
             <ProductIntroduction
                 productName="Replay vision"
                 productKey={ProductKey.REPLAY_VISION}
@@ -316,9 +316,9 @@ export function ReplayScannersScene(): JSX.Element {
                     ) : null}
 
                     <div className="flex flex-col gap-3">
-                        <div className="flex items-center gap-2">
+                        <div className="flex flex-wrap items-center gap-2">
                             <h3 className="font-semibold text-base m-0">Scanners</h3>
-                            <div className="ml-auto flex items-center gap-2">
+                            <div className="ml-auto flex flex-wrap items-center gap-2">
                                 <LemonInput
                                     type="search"
                                     placeholder="Search scanners..."

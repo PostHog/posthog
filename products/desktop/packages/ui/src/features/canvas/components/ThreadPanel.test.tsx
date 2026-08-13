@@ -9,6 +9,7 @@ import {
 
 const openExternalUrl = vi.fn();
 const navigateToShareTarget = vi.fn();
+let postHogOrigin = "https://us.posthog.com";
 
 vi.mock("@posthog/ui/shell/openExternal", () => ({
   openExternalUrl: (url: string) => openExternalUrl(url),
@@ -19,7 +20,7 @@ vi.mock("@posthog/ui/utils/shareLinks", () => ({
 }));
 
 vi.mock("@posthog/ui/utils/urls", () => ({
-  getPostHogUrl: (path: string) => `https://us.posthog.com${path}`,
+  getPostHogUrl: (path: string) => `${postHogOrigin}${path}`,
 }));
 
 vi.mock("@posthog/ui/features/git-interaction/usePrDetails", () => ({
@@ -31,6 +32,7 @@ vi.mock("@posthog/ui/features/git-interaction/usePrDetails", () => ({
 beforeEach(() => {
   openExternalUrl.mockClear();
   navigateToShareTarget.mockClear();
+  postHogOrigin = "https://us.posthog.com";
 });
 
 describe("AgentStatusLine", () => {
@@ -121,6 +123,28 @@ describe("ThreadMessageRow", () => {
 });
 
 describe("ThreadArtifactRow", () => {
+  it("opens a canvas from the local development instance", () => {
+    postHogOrigin = "http://localhost:8010";
+    render(
+      <ThreadArtifactRow
+        artifact={{
+          kind: "canvas",
+          name: "Local canvas",
+          url: "http://localhost:8010/code/canvas/channel-1/dash-1",
+        }}
+        createdAt="2026-07-17T00:00:00Z"
+      />,
+    );
+
+    fireEvent.click(screen.getByRole("button", { name: /Local canvas/ }));
+
+    expect(navigateToShareTarget).toHaveBeenCalledWith({
+      kind: "canvas",
+      channelId: "channel-1",
+      dashboardId: "dash-1",
+    });
+  });
+
   it("renders a canvas artifact and navigates in-app to a shareable canvas", () => {
     render(
       <ThreadArtifactRow

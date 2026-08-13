@@ -41,6 +41,7 @@ path = "ee"
 depends_on = [
     "products.cohorts",
     "posthog",
+    "products.access_control",
     "products.actions",
     "products.alerts",
     "products.cdp",
@@ -57,6 +58,7 @@ depends_on = [
     "products.ai_observability",
     "products.mcp_store",
     "products.notebooks",
+    "products.notifications",
     "products.posthog_ai",
     "products.product_analytics",
     "products.replay",
@@ -82,12 +84,14 @@ depends_on = [
     "products.approvals",
     "products.batch_exports",
     "products.business_knowledge",
+    "products.canvas",
     "products.cdp",
     "products.conversations",
     "products.customer_analytics",
     "products.dashboards",
     "products.data_catalog",
     "products.data_modeling",
+    "products.data_quality",
     "products.data_warehouse",
     "products.demo",
     "products.early_access_features",
@@ -118,6 +122,7 @@ depends_on = [
     "products.revenue_analytics",
     "products.review_hog",
     "products.signals",
+    "products.skills",
     "products.slack_app",
     "products.stamphog",
     "products.streamlit_apps",
@@ -214,6 +219,11 @@ depends_on = [
 layer = "modules"
 
 [[modules]]
+path = "products.core_events"
+depends_on = []
+layer = "modules"
+
+[[modules]]
 path = "products.dashboards"
 depends_on = [
     "ee",
@@ -227,6 +237,7 @@ depends_on = [
     "products.mcp_analytics",
     "products.notifications",
     "products.product_analytics",
+    "products.conversations",
     "products.surveys",
 ]
 layer = "modules"
@@ -245,6 +256,56 @@ layer = "modules"
 [[modules]]
 path = "products.data_tools"
 depends_on = ["posthog"]
+layer = "modules"
+
+[[modules]]
+path = "products.games"
+depends_on = []
+layer = "modules"
+
+[[modules]]
+path = "products.groups"
+depends_on = []
+layer = "modules"
+
+[[modules]]
+path = "products.ingestion"
+depends_on = []
+layer = "modules"
+
+[[modules]]
+path = "products.integrations"
+depends_on = []
+layer = "modules"
+
+[[modules]]
+path = "products.persons"
+depends_on = []
+layer = "modules"
+
+[[modules]]
+path = "products.session_replay"
+depends_on = []
+layer = "modules"
+
+[[modules]]
+path = "products.session_summaries"
+depends_on = []
+layer = "modules"
+
+[[modules]]
+path = "products.subscriptions"
+depends_on = []
+layer = "modules"
+
+[[modules]]
+path = "products.support"
+depends_on = []
+layer = "modules"
+
+[[modules]]
+path = "products.toolbar"
+depends_on = []
 layer = "modules"
 
 [[modules]]
@@ -365,6 +426,7 @@ depends_on = [
     "products.cohorts",
     "ee",
     "posthog",
+    "products.alerts",
     "products.approvals",
     "products.dashboards",
     "products.early_access_features",
@@ -405,6 +467,7 @@ depends_on = [
     "ee",
     "posthog",
     "products.dashboards",
+    "products.exports",
     "products.workflows",
 ]
 layer = "modules"
@@ -423,6 +486,7 @@ path = "products.logs"
 depends_on = [
     "posthog",
     "products.alerts",
+    "products.apm",
     "products.cdp",
     "products.exports",
     "products.signals",
@@ -591,6 +655,7 @@ depends_on = [
     "posthog",
     "products.cdp",
     "products.cohorts",
+    "products.experiments",
     "products.exports",
     "products.signals",
     "products.tasks",
@@ -631,12 +696,18 @@ depends_on = [
     "products.cdp",
     "products.conversations",
     "products.dashboards",
+    # Facade-only (enforced by data_catalog's [[interfaces]] block): the scout harness gates
+    # its catalog-first prompt rule on the data catalog flag.
+    "products.data_catalog",
     "products.data_warehouse",
     "products.error_tracking",
     "products.experiments",
     "products.feature_flags",
     "products.notebooks",
     "products.product_analytics",
+    # Facade-only: Replay Vision authorizes signal emission per scanner rather than through a
+    # SignalSourceConfig row, so onboarding has to ask it whether any scanner is emitting.
+    "products.replay_vision",
     "products.skills",
     "products.surveys",
     "products.tasks",
@@ -740,6 +811,54 @@ depends_on = [
 layer = "modules"
 
 [[modules]]
+path = "products.canvas"
+depends_on = [
+    "posthog",
+    # Sandbox provisioning (via the tasks facade) and the Channel FK canvases file into.
+    "products.tasks",
+]
+layer = "modules"
+
+# Canvas's public surface: routes + presentation for the API layer, tasks for
+# the Celery registrations posthog/tasks/scheduled.py imports.
+[[interfaces]]
+expose = [
+    "backend\\.routes.*",
+]
+from = [
+    "products.canvas",
+]
+
+[[interfaces]]
+expose = [
+    "backend\\.artifacts.*",
+    "backend\\.tasks.*",
+]
+from = [
+    "products.canvas",
+]
+
+# Generic Comments delegates Canvas ownership checks to this narrow,
+# product-owned boundary; Canvas never imports Comments or Tasks here.
+[[interfaces]]
+expose = [
+    "backend\\.comment_access.*",
+]
+from = [
+    "products.canvas",
+]
+
+# The shared activity log delegates personal-canvas visibility to this narrow,
+# product-owned boundary, mirroring how loops do it for tasks.
+[[interfaces]]
+expose = [
+    "backend\\.activity_visibility.*",
+]
+from = [
+    "products.canvas",
+]
+
+[[modules]]
 path = "products.tracing"
 depends_on = [
     "posthog",
@@ -792,6 +911,7 @@ depends_on = [
     "products.actions",
     "products.cdp",
     "products.feature_flags",
+    "products.messaging",
     "products.notifications",
 ]
 layer = "modules"
@@ -1134,4 +1254,36 @@ expose = [
 ]
 from = [
     "products.data_catalog",
+]
+
+[[modules]]
+path = "products.apm"
+depends_on = ["posthog"]
+layer = "modules"
+
+[[modules]]
+path = "products.data_quality"
+depends_on = [
+    "posthog",
+    "products.data_modeling",
+    "products.warehouse_sources",
+]
+layer = "modules"
+
+[[interfaces]]
+expose = [
+    "backend\\.facade.*",
+    "backend\\.presentation\\.views.*",
+]
+from = [
+    "products.apm",
+]
+
+[[interfaces]]
+expose = [
+    "backend\\.facade.*",
+    "backend\\.presentation\\.views.*",
+]
+from = [
+    "products.data_quality",
 ]

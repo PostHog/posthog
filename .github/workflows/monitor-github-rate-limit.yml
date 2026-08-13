@@ -115,7 +115,7 @@ jobs:
 
             # Same pattern for the other high-volume App buckets: posthog-tests (CI
             # alerter, migration-risk checks, test-timing), posthog-paths-filter (the
-            # changes jobs across ~22 workflows), and the telemetry app (job-duration
+            # changes jobs across the workflow fleet), and the telemetry app (job-duration
             # emitters). Each is its own 15k/hr bucket, so each gets its own series.
             - name: Mint posthog-tests token
               id: tests-token
@@ -215,3 +215,26 @@ jobs:
                   script: |
                       const script = require('./.github/scripts/monitor-github-rate-limit.js')
                       await script({ github, context, core }, { source: 'posthog-product-tests' })
+
+            # A mint that fails is invisible from the buckets alone: the poll for
+            # that source is simply absent, which looks the same as an App whose
+            # secrets were never configured. Report the two apart so a broken
+            # credential — which silently redirects that App's whole call volume
+            # onto the shared GITHUB_TOKEN bucket — can be alerted on downstream.
+            # Only booleans are interpolated here, never the tokens themselves.
+            - name: Report App token mint failures
+              if: always()
+              uses: actions/github-script@ed597411d8f924073f98dfc5c65a23a2325f34cd # v8.0.0
+              env:
+                  POSTHOG_DEVEX_PROJECT_API_TOKEN: ${{ secrets.POSTHOG_DEVEX_PROJECT_API_TOKEN }}
+                  MINTS: >-
+                      [{"source":"posthog-devex-general","configured":${{ secrets.GH_APP_POSTHOG_DEVEX_GENERAL_APP_ID != '' && secrets.GH_APP_POSTHOG_DEVEX_GENERAL_PRIVATE_KEY != '' }},"minted":${{ steps.devex-token.outputs.token != '' }}},
+                      {"source":"posthog-tests","configured":${{ secrets.GH_APP_POSTHOG_TESTS_APP_ID != '' && secrets.GH_APP_POSTHOG_TESTS_PRIVATE_KEY != '' }},"minted":${{ steps.tests-token.outputs.token != '' }}},
+                      {"source":"posthog-paths-filter","configured":${{ secrets.GH_APP_POSTHOG_PATHS_FILTER_APP_ID != '' && secrets.GH_APP_POSTHOG_PATHS_FILTER_PRIVATE_KEY != '' }},"minted":${{ steps.paths-filter-token.outputs.token != '' }}},
+                      {"source":"posthog-telemetry","configured":${{ secrets.GH_APP_TELEMETRY_APP_ID != '' && secrets.GH_APP_TELEMETRY_PRIVATE_KEY != '' }},"minted":${{ steps.telemetry-token.outputs.token != '' }}},
+                      {"source":"posthog-setup-actions","configured":${{ secrets.GH_APP_POSTHOG_SETUP_ACTIONS_APP_ID != '' && secrets.GH_APP_POSTHOG_SETUP_ACTIONS_PRIVATE_KEY != '' }},"minted":${{ steps.setup-actions-token.outputs.token != '' }}},
+                      {"source":"posthog-product-tests","configured":${{ secrets.GH_APP_POSTHOG_PRODUCT_TESTS_APP_ID != '' && secrets.GH_APP_POSTHOG_PRODUCT_TESTS_PRIVATE_KEY != '' }},"minted":${{ steps.product-tests-token.outputs.token != '' }}}]
+              with:
+                  script: |
+                      const script = require('./.github/scripts/monitor-github-rate-limit.js')
+                      await script.reportMintFailures({ github, context, core }, { mints: JSON.parse(process.env.MINTS) })

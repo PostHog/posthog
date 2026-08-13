@@ -204,6 +204,41 @@ async def test_ready_is_idempotent_after_partial_commit(ateam, preexisting_statu
 
 @pytest.mark.asyncio
 @pytest.mark.django_db
+@pytest.mark.parametrize(
+    "pending_reason",
+    ["repo_selection_required", "agent_requested"],
+)
+async def test_pending_input_fires_completed_and_status_changed_with_pending_reason(ateam, pending_reason):
+    report = await database_sync_to_async(SignalReport.objects.create)(
+        team=ateam,
+        status=SignalReport.Status.IN_PROGRESS,
+        signal_count=3,
+        total_weight=2.0,
+    )
+    report_id = str(report.id)
+
+    with patch(f"{PIPELINE_MODULE_PATH}.posthoganalytics.capture") as capture:
+        await mark_report_pending_input_activity(
+            MarkReportPendingInput(
+                team_id=ateam.id,
+                report_id=report_id,
+                title="title",
+                summary="summary",
+                reason="Requires human input: some reason",
+                signal_count=3,
+                source_products=["zendesk"],
+                pending_reason=pending_reason,
+            )
+        )
+
+    calls_by_event = {call.kwargs["event"]: call.kwargs for call in capture.call_args_list}
+    assert calls_by_event["signal_report_completed"]["properties"]["result"] == "pending_input"
+    assert calls_by_event["signal_report_completed"]["properties"]["pending_reason"] == pending_reason
+    assert calls_by_event["signal_report_status_changed"]["properties"]["pending_reason"] == pending_reason
+
+
+@pytest.mark.asyncio
+@pytest.mark.django_db
 async def test_pending_input_is_idempotent_when_already_pending_input(ateam):
     report = await database_sync_to_async(SignalReport.objects.create)(
         team=ateam,
