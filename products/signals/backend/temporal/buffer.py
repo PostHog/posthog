@@ -16,6 +16,7 @@ from temporalio.common import MetricCounter, RetryPolicy
 
 from posthog.models import Team
 from posthog.storage import object_storage
+from posthog.sync import database_sync_to_async
 from posthog.temporal.common.client import async_connect
 from posthog.temporal.common.scoped import scoped_temporal
 from posthog.temporal.common.utils import close_db_connections
@@ -95,7 +96,7 @@ async def check_signals_quota_limited_activity(input: CheckSignalsQuotaInput) ->
         )
         metrics.increment_dropped(stage="ingestion", reason="quota_limited", count=input.signal_count)
         return True
-    daily_gate = await sync_to_async(daily_report_limit_gate)(team)
+    daily_gate = await database_sync_to_async(daily_report_limit_gate, thread_sensitive=False)(team)
     if daily_gate.limited:
         logger.info(
             "signals_buffer.dropped_batch_daily_limit",
