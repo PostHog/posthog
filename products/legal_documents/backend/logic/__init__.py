@@ -7,10 +7,12 @@ Called by facade/api.py — do not call from outside this module.
 
 from __future__ import annotations
 
+from datetime import timedelta
 from uuid import UUID
 
 from django.conf import settings
 from django.db.models import QuerySet
+from django.utils import timezone
 
 import structlog
 import posthoganalytics
@@ -97,6 +99,13 @@ def get_for_organization(document_id: UUID, organization_id: UUID) -> LegalDocum
         return None
 
 
+def get_by_id(document_id: UUID) -> LegalDocument | None:
+    try:
+        return LegalDocument.objects.get(id=document_id)
+    except LegalDocument.DoesNotExist:
+        return None
+
+
 def get_by_pandadoc_document_id(pandadoc_document_id: str) -> LegalDocument | None:
     if not pandadoc_document_id:
         return None
@@ -128,6 +137,72 @@ def mark_document_signed(document: LegalDocument) -> LegalDocument:
     document.status = LegalDocument.Status.SIGNED
     document.save(update_fields=["status", "updated_at"])
     return document
+
+
+def mark_signed_pdf_stored(document: LegalDocument) -> LegalDocument:
+    document.signed_pdf_stored = True
+    document.save(update_fields=["signed_pdf_stored", "updated_at"])
+    return document
+
+
+# PandaDoc status string for a fully-signed envelope. Mirrors the webhook layer.
+PANDADOC_COMPLETED_STATUS = "document.completed"
+
+# The reconciliation sweep polls PandaDoc once per pending row, so bound the set:
+# only rows created inside this window, capped per run. Envelopes older than this
+# are abandoned drafts, not late signatures — polling them forever would hammer
+# PandaDoc's API for no gain.
+_RECONCILE_LOOKBACK = timedelta(days=45)
+_RECONCILE_MAX_PER_RUN = 500
+
+
+def list_pending_signature_documents() -> QuerySet[LegalDocument]:
+    """
+    Rows we still think are out for signature but that have a PandaDoc envelope
+    to ask about. The reconciliation task polls each one so a dropped or 204'd
+    `document.completed` webhook can't strand a signature forever.
+    """
+    cutoff = timezone.now() - _RECONCILE_LOOKBACK
+    return (
+        LegalDocument.objects.filter(
+            status=LegalDocument.Status.SUBMITTED_FOR_SIGNATURE,
+            created_at__gte=cutoff,
+        )
+        .exclude(pandadoc_document_id="")
+        .order_by("created_at")[:_RECONCILE_MAX_PER_RUN]
+    )
+
+
+def list_signed_documents_missing_pdf() -> QuerySet[LegalDocument]:
+    """
+    Signed rows whose PDF never made it to object storage — the background
+    archive job failed every retry. The reconciliation task re-enqueues these.
+    """
+    return LegalDocument.objects.filter(
+        status=LegalDocument.Status.SIGNED,
+        signed_pdf_stored=False,
+    ).exclude(pandadoc_document_id="")
+
+
+def get_pandadoc_document_status(document: LegalDocument) -> str | None:
+    """
+    Ask PandaDoc for the envelope's current status. Returns None when we can't
+    reach PandaDoc or the envelope is gone — the caller skips the row this round
+    and retries on the next tick.
+    """
+    if not document.pandadoc_document_id:
+        return None
+    client = pandadoc_client.PandaDocClient()
+    try:
+        return client.get_document_status(document_id=document.pandadoc_document_id)
+    except pandadoc_client.PandaDocError as exc:
+        logger.warning(
+            "legal_document_pandadoc_status_poll_failed",
+            document_id=str(document.id),
+            pandadoc_document_id=document.pandadoc_document_id,
+            error=str(exc),
+        )
+        return None
 
 
 def delete_document(document: LegalDocument, *, strict_pandadoc: bool = False) -> None:

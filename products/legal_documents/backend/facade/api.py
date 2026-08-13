@@ -24,12 +24,12 @@ from . import contracts
 from .enums import LegalDocumentStatus
 
 
-class LegalDocumentDownloadFailed(Exception):
+class LegalDocumentPdfArchiveFailed(Exception):
     """
-    Raised when we own a row but couldn't pull the signed PDF from PandaDoc /
-    stash it in object storage. The webhook handler surfaces this as a 5xx so
-    PandaDoc retries; the underlying exception has already been logged +
-    captured at the source.
+    Raised by the background archive task when it can't pull the signed PDF from
+    PandaDoc or write it to object storage. The row is already `signed` — only
+    the download copy is missing — so the task retries and the reconciliation
+    sweep re-enqueues it if every retry is exhausted.
     """
 
 
@@ -41,6 +41,7 @@ def _to_dto(doc: LegalDocument) -> contracts.LegalDocumentDTO:
         company_name=doc.company_name,
         representative_email=doc.representative_email,
         status=doc.status,
+        signed_pdf_stored=doc.signed_pdf_stored,
         created_by=(
             contracts.LegalDocumentCreator(first_name=creator.first_name or "", email=creator.email)
             if creator is not None
@@ -66,7 +67,7 @@ def get_signed_pdf_download_url(document_id: UUID, organization_id: UUID) -> str
     storage (upload failed, storage disabled).
     """
     document = logic.get_for_organization(document_id, organization_id)
-    if document is None or document.status != LegalDocumentStatus.SIGNED:
+    if document is None or document.status != LegalDocumentStatus.SIGNED or not document.signed_pdf_stored:
         return None
     return logic.get_signed_pdf_presigned_url(document)
 
@@ -209,19 +210,19 @@ def mark_signed_by_pandadoc_document_id(
     template_id: str,
 ) -> contracts.LegalDocumentDTO | None:
     """
-    Entry point from the PandaDoc webhook. The caller must have already
-    verified the HMAC signature on the raw body; this function:
+    Entry point from the PandaDoc `document.completed` webhook. The caller must
+    have already verified the HMAC signature on the raw body; this function:
 
     - Looks up the row by the PandaDoc document uuid (no IDOR surface: unknown ids 404).
     - Double-checks the template matches the stored document variant, to guard
       against misconfigured PandaDoc templates flipping the wrong row.
-    - Downloads the signed PDF from PandaDoc and stashes it in object storage.
-    - Flips status to signed, fires analytics.
+    - Flips status to signed, fires analytics and BAA side effects, and schedules
+      the signed-PDF archive as a retried background job.
 
-    Idempotent: if the row is already signed we return the existing DTO
-    without re-downloading or re-firing analytics. If the download or
-    upload fails we leave the row unsigned and return None so the webhook
-    handler can surface 5xx; PandaDoc will retry.
+    The signature is recorded as soon as the webhook lands — it is never gated
+    on the PDF archival, which used to leave the row stuck when a download or
+    upload failed. Idempotent: an already-signed row returns its DTO without
+    re-firing side effects.
     """
     document = logic.get_by_pandadoc_document_id(pandadoc_document_id)
     if document is None:
@@ -230,9 +231,59 @@ def mark_signed_by_pandadoc_document_id(
         return None
     if document.status == LegalDocumentStatus.SIGNED:
         return _to_dto(document)
-    if not logic.download_and_store_signed_pdf(document):
-        raise LegalDocumentDownloadFailed(f"Failed to retrieve signed PDF for legal_document {document.id}")
+    return _to_dto(_mark_signed_and_schedule_archive(document))
+
+
+def _mark_signed_and_schedule_archive(document: LegalDocument) -> LegalDocument:
     document = logic.mark_document_signed(document)
     logic.apply_baa_signed_side_effects(document)
     logic.fire_legal_document_signed_event(document)
-    return _to_dto(document)
+    _schedule_pdf_archive(document)
+    return document
+
+
+def _schedule_pdf_archive(document: LegalDocument) -> None:
+    # Local import breaks the facade ⇄ tasks import cycle (tasks import the facade).
+    from ..tasks.tasks import archive_signed_legal_document_pdf  # noqa: PLC0415
+
+    document_id = str(document.id)
+    transaction.on_commit(lambda: archive_signed_legal_document_pdf.delay(document_id))
+
+
+def archive_signed_pdf(document_id: UUID) -> None:
+    """
+    Pull the signed PDF from PandaDoc and write it to object storage, then mark
+    the row archived. Called from the background task. Raises
+    LegalDocumentPdfArchiveFailed on any download/upload failure so the task
+    retries; a no-op if the row is gone or already archived.
+    """
+    document = logic.get_by_id(document_id)
+    if document is None or document.signed_pdf_stored:
+        return
+    if not logic.download_and_store_signed_pdf(document):
+        raise LegalDocumentPdfArchiveFailed(f"Failed to archive signed PDF for legal_document {document_id}")
+    logic.mark_signed_pdf_stored(document)
+
+
+def reconcile_pending_signatures() -> contracts.LegalDocumentReconcileResult:
+    """
+    Safety net for the whole completion path. Polls PandaDoc for every row we
+    still think is out for signature and marks the completed ones — recovering
+    dropped, throttled, or 204'd `document.completed` webhooks and clearing the
+    backlog. Also re-enqueues the archive for signed rows whose PDF never landed.
+    """
+    newly_signed = 0
+    for document in logic.list_pending_signature_documents():
+        if logic.get_pandadoc_document_status(document) == logic.PANDADOC_COMPLETED_STATUS:
+            _mark_signed_and_schedule_archive(document)
+            newly_signed += 1
+
+    archives_requeued = 0
+    for document in logic.list_signed_documents_missing_pdf():
+        _schedule_pdf_archive(document)
+        archives_requeued += 1
+
+    return contracts.LegalDocumentReconcileResult(
+        newly_signed=newly_signed,
+        archives_requeued=archives_requeued,
+    )

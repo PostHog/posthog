@@ -1042,6 +1042,7 @@ expose = [
     "backend\\.facade.*",
     "backend\\.presentation.*",
     "backend\\.routes.*",
+    "backend\\.tasks.*",
 ]
 from = [
     "products.legal_documents",
