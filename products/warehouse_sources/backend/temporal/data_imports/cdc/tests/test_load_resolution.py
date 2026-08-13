@@ -1,3 +1,4 @@
+import pytest
 from unittest.mock import MagicMock, patch
 
 import pyarrow as pa
@@ -261,6 +262,13 @@ class TestVerifyDeleteEnrichment:
 
 
 class TestIsCdcWriteResolutionEnabled:
+    @pytest.fixture(autouse=True)
+    def _clear_cache(self):
+        # The helper memoizes per run; tests reuse ids, so a stale entry would leak between them.
+        is_cdc_write_resolution_enabled.cache_clear()
+        yield
+        is_cdc_write_resolution_enabled.cache_clear()
+
     def _team(self):
         team = MagicMock()
         team.uuid = "team-uuid"
@@ -274,9 +282,23 @@ class TestIsCdcWriteResolutionEnabled:
             patch("posthoganalytics.feature_enabled", return_value=flag_value) as feature_enabled,
         ):
             objects.only.return_value.get.return_value = self._team()
-            assert is_cdc_write_resolution_enabled(2, "schema-1") is flag_value
+            assert is_cdc_write_resolution_enabled(2, "schema-1", "run-1") is flag_value
 
         assert feature_enabled.call_args.kwargs["person_properties"] == {"team_id": "2", "schema_id": "schema-1"}
+
+    def test_evaluates_once_per_run_then_again_on_the_next_run(self):
+        with (
+            patch("posthog.models.Team.objects") as objects,
+            patch("posthoganalytics.feature_enabled", return_value=True) as feature_enabled,
+        ):
+            objects.only.return_value.get.return_value = self._team()
+            for _ in range(5):
+                assert is_cdc_write_resolution_enabled(2, "schema-1", "run-1") is True
+            assert feature_enabled.call_count == 1
+
+            # A new run re-reads it, so a flag flip lands within one run rather than one pod.
+            assert is_cdc_write_resolution_enabled(2, "schema-1", "run-2") is True
+            assert feature_enabled.call_count == 2
 
     def test_fails_closed_when_flag_service_raises(self):
         with (
@@ -284,9 +306,9 @@ class TestIsCdcWriteResolutionEnabled:
             patch("posthoganalytics.feature_enabled", side_effect=Exception("flags down")),
         ):
             objects.only.return_value.get.return_value = self._team()
-            assert is_cdc_write_resolution_enabled(2, "schema-1") is False
+            assert is_cdc_write_resolution_enabled(2, "schema-1", "run-1") is False
 
     def test_fails_closed_when_team_is_missing(self):
         with patch("posthog.models.Team.objects") as objects:
             objects.only.return_value.get.side_effect = Exception("no such team")
-            assert is_cdc_write_resolution_enabled(2, "schema-1") is False
+            assert is_cdc_write_resolution_enabled(2, "schema-1", "run-1") is False

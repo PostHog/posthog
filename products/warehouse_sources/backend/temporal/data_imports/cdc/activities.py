@@ -68,6 +68,7 @@ from products.warehouse_sources.backend.temporal.data_imports.cdc.errors import 
     CDCSlotNotConfiguredError,
     classify_cdc_error,
 )
+from products.warehouse_sources.backend.temporal.data_imports.cdc.load_resolution import has_engine_seq
 from products.warehouse_sources.backend.temporal.data_imports.cdc.naming import cdc_qualified_table_name
 from products.warehouse_sources.backend.temporal.data_imports.cdc.types import ChangeEvent
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.helpers import resolve_table_and_folder_names
@@ -720,15 +721,13 @@ class CDCExtractActivity:
             enriched_table = enrich_toast_omitted_rows(raw_table, key_columns)
             enriched_table = enrich_delete_rows(enriched_table, key_columns)
 
-            # Shadow buffered ingress: persist the raw (pre-dedup/SCD2) stream, then
-            # strip the seq column so the legacy write path stays byte-identical.
-            # Strip by LAST field only — the batcher appends its seq column last and
-            # skips the append on collision, so a source column that happens to be
-            # named _ph_cdc_seq is never ours and must pass through untouched.
+            # Shadow buffered ingress: persist the raw (pre-dedup/SCD2) stream, then strip the seq
+            # column so the legacy write path stays byte-identical. Strip only OUR column — the
+            # batcher stamps it with provenance metadata and skips the append when a source column
+            # of the same name exists, so that one passes through untouched.
             self._maybe_shadow_write_buffer(schema, table_name, enriched_table)
-            last_field_idx = enriched_table.num_columns - 1
-            if enriched_table.schema.field(last_field_idx).name == CDC_SEQ_COLUMN:
-                enriched_table = enriched_table.remove_column(last_field_idx)
+            if has_engine_seq(enriched_table):
+                enriched_table = enriched_table.remove_column(enriched_table.column_names.index(CDC_SEQ_COLUMN))
 
             # Consolidated shares the snapshot's canonical folder; the `_cdc` companion is
             # CDC-only and stays self-consistent with its `name`-keyed snapshot seed.

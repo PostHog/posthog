@@ -35,6 +35,7 @@ from products.warehouse_sources.backend.temporal.data_imports.cdc.batcher import
 )
 from products.warehouse_sources.backend.temporal.data_imports.cdc.load_resolution import (
     SEQ_WATERMARK_METADATA_KEY,
+    WATERMARK_COMMIT_SCAN_LIMIT,
     batch_max_seq,
     has_engine_seq,
     is_cdc_write_resolution_enabled,
@@ -226,6 +227,58 @@ def _enrich_cdc_rows(
 
     if TOAST_OMITTED_COLUMN in pa_table.column_names:
         pa_table = pa_table.drop_columns([TOAST_OMITTED_COLUMN])
+
+    return pa_table
+
+
+def _resolve_cdc_positions(
+    pa_table: pa.Table,
+    *,
+    delta_table_ref: DeltaTableRef,
+    primary_keys: list[str],
+    cdc_write_mode: str | None,
+    commit_metadata: dict[str, str],
+    team_id: str,
+    batch_index: int,
+) -> pa.Table:
+    """Drop already-applied rows and tag the commit with how far this batch got.
+
+    Dormant until batches carry an engine-stamped position — the legacy lane strips it — so this
+    returns immediately, without the history read, on today's traffic. Mutates `commit_metadata`,
+    which the caller passes to the write.
+    """
+    if not has_engine_seq(pa_table):
+        return pa_table
+
+    raw_watermark = async_to_sync(DeltaWriter(delta_table_ref).latest_commit_metadata_value)(
+        SEQ_WATERMARK_METADATA_KEY, scan_limit=WATERMARK_COMMIT_SCAN_LIMIT
+    )
+    watermark = int(raw_watermark) if raw_watermark is not None and raw_watermark.isdigit() else None
+    if watermark is None:
+        # Fails open: every row is kept, so replay protection is simply absent rather than wrong.
+        # Worth knowing about — the usual cause is the tag ageing out behind maintenance commits.
+        logger.info("cdc_seq_guard_no_watermark", batch_index=batch_index, scan_limit=WATERMARK_COMMIT_SCAN_LIMIT)
+
+    pa_table, stats = resolve_batch(
+        pa_table,
+        primary_keys,
+        watermark=watermark,
+        cdc_write_mode=cdc_write_mode,
+    )
+    for reason, dropped in (("superseded", stats.superseded), ("duplicate_key", stats.duplicate_key)):
+        if dropped:
+            CDC_SEQ_GUARD_ROWS_DROPPED_TOTAL.labels(team_id=team_id, reason=reason).inc(dropped)
+            logger.debug(
+                "cdc_seq_guard_dropped_rows",
+                reason=reason,
+                dropped=dropped,
+                watermark=watermark,
+                batch_index=batch_index,
+            )
+
+    max_seq = batch_max_seq(pa_table)
+    if max_seq is not None:
+        commit_metadata[SEQ_WATERMARK_METADATA_KEY] = str(max_seq)
 
     return pa_table
 
@@ -838,10 +891,10 @@ def _process_message_reported(
             "batch_index": str(export_signal.batch_index),
         }
 
-        # One flag evaluation per CDC batch, mirroring the deltalite gate's cadence. Non-CDC
-        # batches never reach the flags service.
+        # Resolved once per schema per run (the helper memoizes on run_uuid), so a high-frequency
+        # source doesn't put a flags round trip on every batch. Non-CDC batches never evaluate it.
         resolution_enabled = cdc_write_mode is not None and is_cdc_write_resolution_enabled(
-            export_signal.team_id, schema_id_str
+            export_signal.team_id, schema_id_str, export_signal.run_uuid
         )
 
         pa_table = _enrich_cdc_rows(
@@ -854,35 +907,16 @@ def _process_message_reported(
             team_id=team_id_str,
         )
 
-        # Position resolution. Dormant until batches carry CDC_SEQ_COLUMN — the legacy lane strips
-        # it — so this costs nothing (not even the history read) on today's traffic.
-        if resolution_enabled and has_engine_seq(pa_table):
-            raw_watermark = async_to_sync(DeltaWriter(delta_table_ref).latest_commit_metadata_value)(
-                SEQ_WATERMARK_METADATA_KEY
-            )
-            watermark = int(raw_watermark) if raw_watermark is not None and raw_watermark.isdigit() else None
-
-            pa_table, stats = resolve_batch(
+        if resolution_enabled:
+            pa_table = _resolve_cdc_positions(
                 pa_table,
-                primary_keys or [],
-                watermark=watermark,
+                delta_table_ref=delta_table_ref,
+                primary_keys=primary_keys or [],
                 cdc_write_mode=cdc_write_mode,
+                commit_metadata=commit_metadata,
+                team_id=team_id_str,
+                batch_index=export_signal.batch_index,
             )
-            for reason, dropped in stats.as_pairs():
-                if dropped:
-                    CDC_SEQ_GUARD_ROWS_DROPPED_TOTAL.labels(team_id=team_id_str, reason=reason).inc(dropped)
-                    logger.debug(
-                        "cdc_seq_guard_dropped_rows",
-                        reason=reason,
-                        dropped=dropped,
-                        watermark=watermark,
-                        batch_index=export_signal.batch_index,
-                    )
-
-            # Tag the commit with how far this batch got, so the next one can resolve against it.
-            max_seq = batch_max_seq(pa_table)
-            if max_seq is not None:
-                commit_metadata[SEQ_WATERMARK_METADATA_KEY] = str(max_seq)
 
         if existing_delta_table is not None:
             pa_table = evolve_pyarrow_schema(pa_table, existing_delta_table.schema())

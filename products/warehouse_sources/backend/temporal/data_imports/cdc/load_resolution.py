@@ -22,6 +22,8 @@ lane strips it), so these helpers no-op on today's traffic.
 
 from __future__ import annotations
 
+from functools import lru_cache
+
 import pyarrow as pa
 
 from posthog.dataclasses import frozen
@@ -46,6 +48,11 @@ MAX_VERIFIED_DELETE_ROWS = 1_000
 # Enough to identify which columns regressed without unbounded log lines.
 MAX_REPORTED_COLUMNS = 10
 
+# How far back to look for the watermark tag. A CDC table takes a couple of commits per run plus
+# maintenance, so the default 50 only reaches ~an hour of history — and the guard matters most
+# exactly when a consumer is further behind than that.
+WATERMARK_COMMIT_SCAN_LIMIT = 500
+
 # The companion (_cdc) lane's write mode. Its table is append-only history, so it is the one lane
 # where collapsing to a single row per key would destroy data rather than resolve a conflict.
 SCD2_APPEND_MODE = "scd2_append"
@@ -57,9 +64,6 @@ class ResolutionStats:
 
     superseded: int
     duplicate_key: int
-
-    def as_pairs(self) -> tuple[tuple[str, int], ...]:
-        return (("superseded", self.superseded), ("duplicate_key", self.duplicate_key))
 
 
 @frozen
@@ -173,6 +177,11 @@ def resolve_batch(
     Both lanes drop already-applied rows — replaying a buffer file into the companion is how the
     duplicate history rows noted in `cdc/activities.py` arise. Only the consolidated lane dedupes:
     the companion keeps every version of a key on purpose.
+
+    Note the residue on the history lane: because rows AT the watermark are kept (see
+    `drop_superseded_rows` on split transactions), replaying the boundary batch re-appends those
+    rows rather than dropping them. That is the accepted trade — duplicate history rows on retry,
+    which this pipeline already tolerates, versus truncating a transaction, which it cannot.
     """
     table, superseded = drop_superseded_rows(table, watermark)
 
@@ -208,27 +217,31 @@ def verify_delete_enrichment(
     if not data_cols:
         return empty
 
+    # Narrow to the rows actually under inspection before materializing anything: this is a
+    # diagnostic, and a wide table would otherwise pull every data column of the whole batch into
+    # Python to look at a capped handful of DELETEs.
+    ops = table.column(CDC_OP_COLUMN).to_pylist()
+    delete_indices = [i for i, op in enumerate(ops) if op == "D"][:MAX_VERIFIED_DELETE_ROWS]
+    if not delete_indices:
+        return empty
+    deletes = table.take(pa.array(delete_indices, type=pa.int64()))
+
     existing_by_key: dict[tuple, dict[str, object]] = {}
     existing_keys = _pk_tuples(existing_rows, present_pks)
     existing_values = {c: existing_rows.column(c).to_pylist() for c in data_cols}
     for i, key in enumerate(existing_keys):
         existing_by_key[key] = {c: existing_values[c][i] for c in data_cols}
 
-    ops = table.column(CDC_OP_COLUMN).to_pylist()
-    keys = _pk_tuples(table, present_pks)
-    outgoing = {c: table.column(c).to_pylist() for c in data_cols}
+    keys = _pk_tuples(deletes, present_pks)
+    outgoing = {c: deletes.column(c).to_pylist() for c in data_cols}
 
     checked = 0
     rows_with_nulls = 0
     columns: set[str] = set()
-    for i, op in enumerate(ops):
-        if op != "D":
-            continue
+    for i in range(deletes.num_rows):
         previous = existing_by_key.get(keys[i])
         if previous is None:
             continue
-        if checked >= MAX_VERIFIED_DELETE_ROWS:
-            break
         checked += 1
         nulled = [c for c in data_cols if outgoing[c][i] is None and previous[c] is not None]
         if nulled:
@@ -242,8 +255,14 @@ def verify_delete_enrichment(
     )
 
 
-def is_cdc_write_resolution_enabled(team_id: int, schema_id: str) -> bool:
-    """Evaluate the per-team rollout flag for CDC write resolution.
+@lru_cache(maxsize=2048)
+def is_cdc_write_resolution_enabled(team_id: int, schema_id: str, run_uuid: str) -> bool:
+    """Evaluate the per-team rollout flag for CDC write resolution, once per schema per run.
+
+    Keyed on `run_uuid` so a long-running or high-frequency source does not put a flags-service
+    round trip on every batch's write path — CDC dispatches batches far more often than the
+    deltalite gate this otherwise mirrors. Bounding staleness to one run also matches how the
+    capture-side shadow flag resolves, so the two lanes flip on the same boundary.
 
     Fail closed on any error: a flags-service blip must leave today's write path untouched rather
     than silently start dropping rows. Mirrors `is_deltalite_write_enabled`'s property shape so a

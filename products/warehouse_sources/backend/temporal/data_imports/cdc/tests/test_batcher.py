@@ -687,6 +687,29 @@ class TestSeqColumn:
         # Unstamped, so the load side cannot mistake these user values for engine positions.
         assert table.schema.field(CDC_SEQ_COLUMN).metadata is None
 
+    def test_engine_seq_stamp_survives_the_whole_transform_chain(self):
+        # The load side gates every position decision on this stamp, and each transform below
+        # rebuilds the table. If one of them ever reconstructs the seq field instead of carrying
+        # it through, resolution silently turns itself off and every other test still passes.
+        from products.warehouse_sources.backend.temporal.data_imports.cdc.load_resolution import has_engine_seq
+
+        batcher = ChangeEventBatcher(position_to_seq=_pg_position_to_seq)
+        batcher.add(_make_event(op="I", position="0/100", columns={"id": 1, "name": "a", "big": "x"}))
+        batcher.add(
+            _make_event(op="U", position="0/150", columns={"id": 1, "name": "b"}, omitted_columns=frozenset({"big"}))
+        )
+        batcher.add(_make_event(op="D", position="0/200", columns={"id": 1}))
+        table = batcher.flush()["users"]
+
+        toasted = enrich_toast_omitted_rows(table, ["id"])
+        enriched = enrich_delete_rows(toasted, ["id"])
+
+        assert has_engine_seq(table)
+        assert has_engine_seq(toasted)
+        assert has_engine_seq(enriched)
+        assert has_engine_seq(deduplicate_table(enriched, ["id"]))
+        assert has_engine_seq(build_scd2_table(enriched, ["id"]))
+
     def test_engine_seq_is_stamped_and_survives_a_parquet_round_trip(self):
         # The load side tells our column from a same-named source column by this stamp, and it
         # reads batches back from parquet — so the metadata has to survive the file, not just

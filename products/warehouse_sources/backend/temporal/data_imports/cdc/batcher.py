@@ -547,8 +547,7 @@ def _events_to_table(events: list[ChangeEvent], position_to_seq: Callable[[str],
 
     # Skip on collision: a source column literally named _ph_cdc_seq must pass
     # through to the legacy lane untouched. The batch then carries no engine seq
-    # and the shadow writer skips it. Appended LAST by construction — the caller
-    # relies on that to strip our column without touching a same-named user one.
+    # and the shadow writer skips it.
     if position_to_seq is not None and CDC_SEQ_COLUMN not in column_names:
         seq_values = [position_to_seq(event.position_serialized) for event in events]
         arrays.append(pa.array(seq_values, type=pa.int64()))

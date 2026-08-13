@@ -12,9 +12,11 @@ from temporalio.service import RPCError, RPCStatusCode
 
 from products.warehouse_sources.backend.temporal.data_imports.cdc.batcher import (
     CDC_OP_COLUMN,
+    CDC_SEQ_COLUMN,
     SCD2_VALID_TO_COLUMN,
     TOAST_OMITTED_COLUMN,
 )
+from products.warehouse_sources.backend.temporal.data_imports.cdc.load_resolution import SEQ_WATERMARK_METADATA_KEY
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.core.consts import PARTITION_KEY
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline_v3.load.processor import (
     _apply_partitioning,
@@ -23,6 +25,7 @@ from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline
     _mark_job_completed,
     _promote_staged_cursor,
     _read_existing_rows_by_first_pk,
+    _resolve_cdc_positions,
     _trigger_post_import_workflow,
     process_message,
 )
@@ -662,6 +665,70 @@ class TestEnrichCdcRows:
                 TOAST_OMITTED_COLUMN: pa.array([r.get("omitted") for r in rows], pa.list_(pa.string())),
             }
         )
+
+    def _stamped(self, ids: list[int], ops: list[str], seqs: list[int]) -> pa.Table:
+        from products.warehouse_sources.backend.temporal.data_imports.cdc.batcher import CDC_SEQ_PROVENANCE
+
+        table = pa.table(
+            {
+                "id": pa.array(ids, pa.int64()),
+                "name": pa.array([f"n{i}" for i in ids], pa.string()),
+                CDC_OP_COLUMN: pa.array(ops, pa.string()),
+            }
+        )
+        return table.append_column(
+            pa.field(CDC_SEQ_COLUMN, pa.int64(), metadata=CDC_SEQ_PROVENANCE), pa.array(seqs, pa.int64())
+        )
+
+    def _resolve(self, table: pa.Table, *, watermark: str | None, cdc_write_mode: str = "incremental_merge"):
+        commit_metadata: dict[str, str] = {"run_uuid": "r1", "batch_index": "0"}
+        writer = MagicMock()
+        writer.latest_commit_metadata_value = AsyncMock(return_value=watermark)
+
+        with patch(f"{_PROCESSOR}.DeltaWriter", return_value=writer):
+            result = _resolve_cdc_positions(
+                table,
+                delta_table_ref=MagicMock(),
+                primary_keys=["id"],
+                cdc_write_mode=cdc_write_mode,
+                commit_metadata=commit_metadata,
+                team_id="2",
+                batch_index=0,
+            )
+        return result, commit_metadata, writer
+
+    def test_resolution_drops_applied_rows_and_tags_the_commit(self):
+        table = self._stamped([1, 2, 3], ["I", "I", "I"], [10, 20, 30])
+        result, commit_metadata, _ = self._resolve(table, watermark="20")
+
+        # Strictly-below only: 20 stays, because a split transaction shares its commit position.
+        assert result.column("id").to_pylist() == [2, 3]
+        assert commit_metadata[SEQ_WATERMARK_METADATA_KEY] == "30"
+
+    def test_resolution_is_skipped_without_an_engine_stamped_position(self):
+        # A source column named _ph_cdc_seq must not drive the guard, and must not cost a
+        # history read either.
+        table = self._stamped([1, 2], ["I", "I"], [10, 20]).drop_columns([CDC_SEQ_COLUMN])
+        table = table.append_column(pa.field(CDC_SEQ_COLUMN, pa.int64()), pa.array([10, 20], pa.int64()))
+        result, commit_metadata, writer = self._resolve(table, watermark="99")
+
+        assert result is table
+        assert SEQ_WATERMARK_METADATA_KEY not in commit_metadata
+        writer.latest_commit_metadata_value.assert_not_called()
+
+    def test_resolution_keeps_every_row_when_no_watermark_is_found(self):
+        # Fails open: the tag ageing out behind maintenance commits must not drop data.
+        table = self._stamped([1, 2], ["I", "I"], [10, 20])
+        result, commit_metadata, _ = self._resolve(table, watermark=None)
+
+        assert result.column("id").to_pylist() == [1, 2]
+        assert commit_metadata[SEQ_WATERMARK_METADATA_KEY] == "20"
+
+    def test_resolution_does_not_dedupe_the_history_lane(self):
+        table = self._stamped([1, 1], ["I", "U"], [10, 20])
+        result, _, _ = self._resolve(table, watermark=None, cdc_write_mode="scd2_append")
+
+        assert result.num_rows == 2
 
     def _write_existing(self, path: str) -> None:
         write_deltalake(
