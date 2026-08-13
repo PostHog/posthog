@@ -25654,7 +25654,10 @@
                 "MSG91",
                 "Depot",
                 "Schematic",
-                "Dokploy"
+                "Dokploy",
+                "RakutenAdvertising",
+                "Zitadel",
+                "DeelFlows"
             ],
             "type": "string"
         },
