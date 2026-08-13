@@ -4,7 +4,9 @@
 
 mod common;
 
+use std::future::Future;
 use std::sync::Arc;
+use std::task::Poll;
 use std::time::Duration;
 
 use common::{create_test_kafka, test_warming_config, CHANGELOG_TOPIC, NUM_PARTITIONS};
@@ -384,7 +386,8 @@ async fn warming_fails_loudly_on_properties_json_error() {
     let cache = PartitionedCache::new(1 << 20);
     let (cfg, pools) = warming_config_for("warmer-bad-props", &cluster);
 
-    let result = warm_from_kafka(&cfg, &pools, &cache, &DirtyIndex::new(1_000_000), 0).await;
+    let dirty_index = DirtyIndex::new(1_000_000);
+    let result = warm_from_kafka(&cfg, &pools, &cache, &dirty_index, 0).await;
     assert!(
         result.is_err(),
         "invalid JSON in properties must fail the entire warm"
@@ -397,6 +400,17 @@ async fn warming_fails_loudly_on_properties_json_error() {
     assert!(
         !cache.has_partition(0),
         "atomic commit: cache must not have been touched on JSON failure"
+    );
+    // Marks are written per record as the range streams; a failed warm
+    // must clear them — orphaned marks for a partition this pod never
+    // serves would pin memory and mislead a later owner's bookkeeping.
+    assert_eq!(
+        dirty_index.get(&PersonCacheKey {
+            team_id: 1,
+            person_id: 1,
+        }),
+        None,
+        "a failed warm must leave no dirty marks behind"
     );
 }
 
@@ -426,7 +440,8 @@ async fn warming_preserves_last_write_for_same_key() {
     let cache = PartitionedCache::new(1 << 20);
     let (cfg, pools) = warming_config_for("warmer-lww", &cluster);
 
-    warm_from_kafka(&cfg, &pools, &cache, &DirtyIndex::new(1_000_000), 0)
+    let dirty_index = DirtyIndex::new(1_000_000);
+    warm_from_kafka(&cfg, &pools, &cache, &dirty_index, 0)
         .await
         .expect("warming should succeed");
 
@@ -448,6 +463,11 @@ async fn warming_preserves_last_write_for_same_key() {
         }
         other => panic!("expected Found, got {:?}", std::mem::discriminant(&other)),
     }
+    // The dirty mark must carry the latest version too: the buffer keys
+    // by person, and a wrong-version-wins regression would surface here
+    // as a stale mark even while the cache looks right.
+    let mark = dirty_index.get(&key).expect("person must be marked dirty");
+    assert_eq!(mark.version, 3, "dirty mark must carry the latest version");
 }
 
 /// When the warm range spans the writer's committed offset, only the
@@ -667,4 +687,128 @@ async fn warming_still_fails_on_a_persistent_stop_class_error() {
         !cache.has_partition(0),
         "a failed warm must install nothing"
     );
+}
+
+/// The warm's memory contract: the build evicts under the partition's
+/// byte budget, so a range larger than the budget still warms — with a
+/// partial cache — while EVERY unapplied person gets a dirty mark. The
+/// marks are what make the evictions safe: a miss on a marked person
+/// recovers from the changelog instead of trusting a stale PG row, so
+/// full mark coverage under eviction is the invariant that lets the
+/// warm survive a backlog-sized range without holding it in memory.
+#[tokio::test]
+async fn warming_a_range_larger_than_the_budget_marks_every_person() {
+    let (cluster, producer) = create_test_kafka().await;
+
+    // Forty persons with ~4KB of properties each — far past the tiny
+    // budget below — with no writer committed offset, so every record
+    // counts as unapplied.
+    let persons = 40i64;
+    for person_id in 1..=persons {
+        let mut person = make_person(1, person_id);
+        person.properties = serde_json::to_vec(&serde_json::json!({
+            "email": format!("p{person_id}@example.com"),
+            "padding": "x".repeat(4096),
+        }))
+        .unwrap();
+        produce_person_to_partition(&producer, 0, &person).await;
+    }
+
+    let budget_bytes = 16 * 1024;
+    let cache = PartitionedCache::new(budget_bytes);
+    let (cfg, pools) = warming_config_for("warmer-bounded", &cluster);
+    let dirty_index = DirtyIndex::new(1_000_000);
+
+    warm_from_kafka(&cfg, &pools, &cache, &dirty_index, 0)
+        .await
+        .expect("a range larger than the budget must still warm");
+
+    assert!(cache.has_partition(0), "the partition must publish");
+    let mut resident = 0;
+    for person_id in 1..=persons {
+        let key = PersonCacheKey {
+            team_id: 1,
+            person_id,
+        };
+        if matches!(cache.get(0, &key), CacheLookup::Found(_)) {
+            resident += 1;
+        }
+        assert!(
+            dirty_index.get(&key).is_some(),
+            "person {person_id} must be marked dirty even if evicted"
+        );
+    }
+    assert!(
+        resident < persons,
+        "the budget must have evicted something ({resident}/{persons} resident) — \
+         if everything fit, this test no longer exercises eviction"
+    );
+}
+
+/// The coordination loop drops warms on lease loss and shutdown, and a
+/// dropped future never reaches post-await cleanup — the guard must run
+/// on cancellation. A surviving build pins memory for a partition this
+/// pod never serves; a surviving mark outlives re-acquisition (the
+/// re-warm only overwrites marks past the writer's new committed
+/// offset) and redirects a later miss to a superseded changelog offset.
+#[tokio::test]
+async fn a_cancelled_warm_leaves_no_build_and_no_marks() {
+    let (cluster, producer) = create_test_kafka().await;
+
+    // A range big enough that consuming it spans many polls, so the
+    // drop below always lands mid-range.
+    for person_id in 1..=2_000i64 {
+        let mut person = make_person(1, person_id);
+        person.properties = serde_json::to_vec(&serde_json::json!({
+            "email": format!("p{person_id}@example.com"),
+            "padding": "x".repeat(2048),
+        }))
+        .unwrap();
+        produce_person_to_partition(&producer, 0, &person).await;
+    }
+
+    let cache = PartitionedCache::new(1 << 20);
+    let dirty_index = DirtyIndex::new(1_000_000);
+    let (cfg, pools) = warming_config_for("warmer-cancelled", &cluster);
+
+    // Drive the warm by hand rather than aborting a spawned task: a
+    // future makes no progress except when polled, so a poll that
+    // returns `Pending` after a mark is seeded leaves the warm parked
+    // mid-range, and dropping it there is deterministic. Aborting a
+    // task races the warm's own completion, which a fast runner wins.
+    // Dropping the future is also what the coordination loop does.
+    let first = PersonCacheKey {
+        team_id: 1,
+        person_id: 1,
+    };
+    let mut warm = Box::pin(warm_from_kafka(&cfg, &pools, &cache, &dirty_index, 0));
+    let deadline = std::time::Instant::now() + Duration::from_secs(30);
+    loop {
+        let polled = std::future::poll_fn(|cx| Poll::Ready(warm.as_mut().poll(cx))).await;
+        if let Poll::Ready(result) = polled {
+            panic!("the warm ran to completion before it could be cancelled: {result:?}");
+        }
+        if dirty_index.get(&first).is_some() {
+            break;
+        }
+        assert!(
+            std::time::Instant::now() < deadline,
+            "the warm never started seeding marks"
+        );
+        tokio::time::sleep(Duration::from_millis(1)).await;
+    }
+
+    // The cancellation itself: the coordination loop drops the future.
+    drop(warm);
+
+    assert!(
+        dirty_index.get(&first).is_none(),
+        "a cancelled warm must clear the marks it seeded"
+    );
+    assert_eq!(
+        cache.usage_bytes(),
+        0,
+        "a cancelled warm must leave no build in flight"
+    );
+    assert!(!cache.has_partition(0), "nothing may have published");
 }
