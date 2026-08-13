@@ -509,21 +509,17 @@ class ExecuteDAGWorkflow(PostHogWorkflow):
 
         Best-effort and fully isolated: started by registered name so data_modeling never imports
         the catalog product, and ABANDON so a check suite can neither delay nor fail the DAG. The
-        node ids come from recorded child results, so replay stays deterministic; the selection
-        change itself is patch-gated because it alters a recorded command's arguments.
+        node ids come from recorded child results, so replay stays deterministic.
 
         The gate activity owns the feature flag and the "are there any checks here" question, both
         of which need the database. Asking first keeps a team with no checks, or an org that never
         opted in, from paying for a child workflow and a suite row on every materialization.
         """
-        if temporalio.workflow.patched("data-quality-node-audit-2026-08"):
-            checkable_node_ids = [
-                result.node_id
-                for result in node_results
-                if result.success and not result.skipped and not result.quality_audited
-            ]
-        else:
-            checkable_node_ids = [result.node_id for result in node_results if result.success and not result.skipped]
+        checkable_node_ids = [
+            result.node_id
+            for result in node_results
+            if result.success and not result.skipped and not result.quality_audited
+        ]
         if not checkable_node_ids:
             return
 
