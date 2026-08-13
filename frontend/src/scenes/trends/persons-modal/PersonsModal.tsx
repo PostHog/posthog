@@ -515,35 +515,32 @@ export function ActorRow({ actor, propertiesTimelineFilter }: ActorRowProps): JS
                     />
                 ) : matchedRecordings.length > 1 ? (
                     <div className="shrink-0">
-                        <LemonButton
-                            onClick={onOpenRecordingClick}
-                            sideIcon={matchedRecordings.length === 1 ? <IconPlayCircle /> : null}
-                            type="secondary"
-                            status={matchedRecordings.length > 1 ? 'alt' : undefined}
-                            size="small"
-                        >
+                        <LemonButton onClick={onOpenRecordingClick} type="secondary" status="alt" size="small">
                             {matchedRecordings.length} recordings
                         </LemonButton>
                     </div>
-                ) : (
+                ) : matchedRecordings.length === 1 ? (
                     <ViewRecordingButton
-                        sessionId={matchedRecordings[0]?.session_id}
-                        checkIfViewed={matchedRecordings.length > 0}
-                        matchingEvents={
-                            matchedRecordings[0]
-                                ? [
-                                      {
-                                          events: matchedRecordings[0].events,
-                                          session_id: matchedRecordings[0].session_id,
-                                      },
-                                  ]
-                                : undefined
-                        }
+                        sessionId={matchedRecordings[0].session_id}
+                        checkIfViewed={true}
+                        matchingEvents={[
+                            {
+                                events: matchedRecordings[0].events,
+                                session_id: matchedRecordings[0].session_id,
+                            },
+                        ]}
                         type="secondary"
                         size="small"
                         openPlayerIn={RecordingPlayerType.Modal}
-                        hasRecording={matchedRecordings.length > 0}
+                        hasRecording={true}
                     />
+                ) : (
+                    <Tooltip title="No recording for this event">
+                        <span className="shrink-0 flex items-center gap-1 px-2 text-xs text-muted">
+                            <IconPlayCircle />
+                            No recording
+                        </span>
+                    </Tooltip>
                 )}
             </div>
 

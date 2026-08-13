@@ -3,6 +3,7 @@ import { isValidElement, ReactNode } from 'react'
 import { IconRewindPlay } from '@posthog/icons'
 import { LemonButton, LemonButtonProps, Tooltip } from '@posthog/lemon-ui'
 
+import { lemonToast } from 'lib/lemon-ui/LemonToast/LemonToast'
 import { newInternalTab } from 'lib/utils/newInternalTab'
 import { urls } from 'scenes/urls'
 
@@ -34,6 +35,9 @@ export default function ViewRecordingsPlaylistButton({
         onClickCallback?.()
         const url = urls.replay(ReplayTabs.Home, filters)
         newInternalTab(url)
+        // The recordings open in a background tab, so the current tab does not change. Acknowledge the
+        // click so it does not read as unresponsive.
+        lemonToast.info('Recordings opened in a new tab')
     }
 
     const button = (
