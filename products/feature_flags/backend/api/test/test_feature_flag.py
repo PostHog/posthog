@@ -36,6 +36,7 @@ from posthog.models.group.util import create_group
 from posthog.models.organization import Organization, OrganizationMembership
 from posthog.models.personal_api_key import PersonalAPIKey
 from posthog.models.project_secret_api_key import ProjectSecretAPIKey
+from posthog.models.team.extensions import get_or_create_team_extension
 from posthog.models.team.team import Team
 from posthog.models.utils import generate_random_token_personal, hash_key_value
 from posthog.test.db_context_capturing import capture_db_queries
@@ -64,6 +65,7 @@ from products.feature_flags.backend.models.feature_flag import (
     FeatureFlagDashboards,
     get_feature_flags_for_team_in_cache,
 )
+from products.feature_flags.backend.models.team_feature_flags_config import TeamFeatureFlagsConfig
 from products.feature_flags.backend.user_blast_radius import get_user_blast_radius, get_user_blast_radius_persons
 from products.product_analytics.backend.models.insight import Insight
 from products.product_tours.backend.models import ProductTour
@@ -13213,6 +13215,38 @@ class TestFeatureFlagLimits(APIBaseTest):
 
         assert response.status_code == status.HTTP_400_BAD_REQUEST
         assert "Maximum of 2 feature flags allowed per team" in str(response.json())
+
+    @parameterized.expand(
+        [
+            ("override_raises_the_limit", 3, status.HTTP_201_CREATED, None),
+            ("override_lowers_the_limit", 1, status.HTTP_400_BAD_REQUEST, 1),
+            ("no_override_falls_back_to_global", None, status.HTTP_400_BAD_REQUEST, 2),
+        ]
+    )
+    def test_flag_limit_uses_the_teams_effective_limit(self, _name, override, expected_status, rejected_at_limit):
+        # Guards the wiring: check_flag_limits_for_team must read get_max_feature_flags_for_team,
+        # not settings.MAX_FEATURE_FLAGS_PER_TEAM directly. A regression that reverts to reading
+        # the global would pass every other test in this class (they all use the global) but
+        # ignore a per-team override in either direction.
+        self._create_flag("flag-1")
+        self._create_flag("flag-2")
+
+        config = get_or_create_team_extension(self.team, TeamFeatureFlagsConfig)
+        config.max_feature_flags_override = override
+        config.save(update_fields=["max_feature_flags_override"])
+
+        with self.settings(MAX_FEATURE_FLAGS_PER_TEAM=2):
+            response = self.client.post(
+                f"/api/projects/{self.team.id}/feature_flags",
+                {
+                    "key": "flag-3",
+                    "filters": {"groups": [{"rollout_percentage": 100, "properties": []}]},
+                },
+            )
+
+        assert response.status_code == expected_status
+        if rejected_at_limit is not None:
+            assert f"Maximum of {rejected_at_limit} feature flags allowed per team" in response.json()["detail"]
 
 
 class TestFeatureFlagVersions(APIBaseTest):
