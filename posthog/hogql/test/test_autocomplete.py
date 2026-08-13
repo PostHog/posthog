@@ -401,10 +401,14 @@ class TestAutocomplete(ClickhouseTestMixin, APIBaseTest):
             if suggestion.kind == AutocompleteCompletionItemKind.FUNCTION
         }
 
-        assert sort_text["now"] is not None
-        assert sort_text["toDateTime"] is not None
-        assert sort_text["now"] < sort_text["xor"]
-        assert sort_text["toDateTime"] < sort_text["xor"]
+        now_sort_text = sort_text["now"]
+        to_datetime_sort_text = sort_text["toDateTime"]
+        xor_sort_text = sort_text["xor"]
+        assert now_sort_text is not None
+        assert to_datetime_sort_text is not None
+        assert xor_sort_text is not None
+        assert now_sort_text < xor_sort_text
+        assert to_datetime_sort_text < xor_sort_text
 
         # Ranking orders functions against each other, never against the table's own columns. The
         # editor sorts variables under "1" and functions under "2", so a ranked function has to keep
@@ -415,7 +419,7 @@ class TestAutocomplete(ClickhouseTestMixin, APIBaseTest):
             if suggestion.kind == AutocompleteCompletionItemKind.VARIABLE
         }
         assert field_sort_text["event"] is None
-        assert sort_text["now"].startswith("2-")
+        assert now_sort_text.startswith("2-")
 
     def test_autocomplete_leaves_functions_unranked_without_an_expected_type(self):
         # No comparison means no expectation, so ranking stays off and the editor keeps its own
