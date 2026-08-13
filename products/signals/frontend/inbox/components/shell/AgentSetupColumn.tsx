@@ -1,24 +1,19 @@
 import { useActions, useMountedLogic, useValues } from 'kea'
 import { combineUrl, router } from 'kea-router'
 
-import { IconBolt, IconCheckCircle, IconChevronRight, IconCompass, IconGithub, IconServer } from '@posthog/icons'
+import { IconBolt, IconCheckCircle, IconChevronRight, IconCompass, IconGithub } from '@posthog/icons'
 import { LemonModal, LemonSkeleton, LemonTag, Link } from '@posthog/lemon-ui'
-import { ServerIcon } from '@posthog/products-mcp-store/frontend/scene/icons'
 
-import { FEATURE_FLAGS } from 'lib/constants'
 import { integrationsLogic } from 'lib/integrations/integrationsLogic'
 import { slackChannelDisplayName } from 'lib/integrations/slackChannel'
 import { IconSlack } from 'lib/lemon-ui/icons'
-import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { cn } from 'lib/utils/css-classes'
 import { GithubIntegration } from 'scenes/integrations/components/GithubIntegration'
 
 import { scoutFleetLogic } from '../../logics/scoutFleetLogic'
-import { scoutMcpServersLogic } from '../../logics/scoutMcpServersLogic'
 import { signalTeamConfigLogic } from '../../logics/signalTeamConfigLogic'
 import { userAutonomyLogic } from '../../logics/userAutonomyLogic'
 import { signalSourcesLogic } from '../../signalSourcesLogic'
-import { McpServersSection } from '../config/McpServersSection'
 import { ScoutsFleetSection } from '../config/scouts/ScoutsFleetSection'
 import { SelfDrivingSection } from '../config/SelfDrivingSection'
 import { SignalSourcesPanel } from '../config/SignalSourcesPanel'
@@ -221,51 +216,6 @@ function CodeAccessWidget(): JSX.Element {
     )
 }
 
-function McpServersWidget(): JSX.Element {
-    useMountedLogic(scoutMcpServersLogic)
-    const { availableScoutServers, scoutAccount, scoutServersLoading, scoutServersNeedingSetup, yourScoutServers } =
-        useValues(scoutMcpServersLogic)
-    const { openSetupModal } = useActions(agentSetupModalLogic)
-    const availableCount = availableScoutServers.length
-    const needsSetupCount = scoutServersNeedingSetup.length
-    let status = 'Share external tools'
-    let tone: WidgetTone = 'neutral'
-    if (scoutAccount?.status === 'paused') {
-        status = 'MCP access paused'
-    } else if (availableCount > 0 && needsSetupCount > 0) {
-        status = `${availableCount} available · ${needsSetupCount} need setup`
-        tone = 'done'
-    } else if (availableCount > 0) {
-        status = `${availableCount} available to your scouts`
-        tone = 'done'
-    } else if (needsSetupCount > 0) {
-        status = `${needsSetupCount} need setup`
-        tone = 'todo'
-    }
-    return (
-        <SetupWidgetCard
-            icon={<IconServer />}
-            title="MCP servers"
-            size="md"
-            tone={tone}
-            loading={scoutServersLoading && yourScoutServers.length === 0}
-            status={status}
-            onClick={() => openSetupModal('mcp-servers')}
-        >
-            {yourScoutServers.length > 0 && (
-                <div className="flex items-center gap-1 pt-1">
-                    {yourScoutServers.slice(0, 6).map((server) => (
-                        <ServerIcon key={server.id} iconDomain={server.icon_domain} size={16} />
-                    ))}
-                    {yourScoutServers.length > 6 && (
-                        <span className="text-[11px] text-muted">+{yourScoutServers.length - 6}</span>
-                    )}
-                </div>
-            )}
-        </SetupWidgetCard>
-    )
-}
-
 function NotificationsWidget(): JSX.Element {
     useMountedLogic(userAutonomyLogic)
     const { slackIntegrations, integrationsLoading } = useValues(integrationsLogic)
@@ -338,12 +288,6 @@ const SETUP_MODALS: Record<
         width: 760,
         body: <GithubSetupBody />,
     },
-    'mcp-servers': {
-        title: 'MCP servers',
-        description: 'Connections you share with your scheduled scouts.',
-        width: 560,
-        body: <McpServersSection />,
-    },
 }
 
 function SetupModal(): JSX.Element {
@@ -374,7 +318,6 @@ function SetupModal(): JSX.Element {
 export function AgentSetupColumn({ layout }: { layout: 'rail' | 'stacked' }): JSX.Element {
     useMountedLogic(integrationsLogic)
     useMountedLogic(signalSourcesLogic)
-    const { featureFlags } = useValues(featureFlagLogic)
 
     return (
         <div
@@ -392,7 +335,6 @@ export function AgentSetupColumn({ layout }: { layout: 'rail' | 'stacked' }): JS
             <SetupSection title="Connections">
                 <CodeAccessWidget />
                 <NotificationsWidget />
-                {featureFlags[FEATURE_FLAGS.MCP_SERVERS] && <McpServersWidget />}
             </SetupSection>
             <SetupSection title="Usage">
                 <InboxUsageWidget />

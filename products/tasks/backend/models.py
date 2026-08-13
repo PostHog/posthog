@@ -53,6 +53,7 @@ LogLevel = Literal["debug", "info", "warn", "error"]
 MCPBuiltInAgentKey = Literal["support", "scout"]
 MCP_BUILT_IN_AGENT_STATE_KEY = "mcp_builtin_agent_key"
 MCP_CREDENTIAL_OWNER_STATE_KEY = "mcp_credential_owner_id"
+MCP_GATEWAY_SERVER_ALLOWLIST_STATE_KEY = "mcp_gateway_server_ids"
 MCP_BUILT_IN_AGENT_KEY_BY_ORIGIN: dict[str, MCPBuiltInAgentKey] = {
     "support_reply": "support",
     "signals_scout": "scout",
@@ -373,12 +374,30 @@ class Task(DeletedMetaFields, models.Model):
 
         Only meaningful on a stamped built-in agent task, so it reads through
         `mcp_builtin_agent_key` — an unstamped or untrusted origin can never
-        borrow someone's grants, and a task with no owner mounts nothing.
+        borrow someone's grants. None means the run belongs to nobody, which
+        limits it to the team-scoped grants members have lent to agents.
         """
         if self.mcp_builtin_agent_key is None:
             return None
         owner_id = (self.state or {}).get(MCP_CREDENTIAL_OWNER_STATE_KEY)
         return owner_id if isinstance(owner_id, int) else None
+
+    @property
+    def mcp_gateway_server_allowlist(self) -> list[str] | None:
+        """Gateway server ids the run may mount, gating every grant regardless of scope.
+
+        None (no snapshot) leaves mount resolution unfiltered — every non-scout task, and
+        pre-snapshot rows. Once a snapshot exists, a malformed value fails closed to an empty
+        allowlist: a scout whose selection is unreadable must not fall back to mounting every
+        reachable grant. Reads through `mcp_builtin_agent_key` like the owner id: only a
+        stamped agent task carries one.
+        """
+        if self.mcp_builtin_agent_key is None:
+            return None
+        ids = (self.state or {}).get(MCP_GATEWAY_SERVER_ALLOWLIST_STATE_KEY)
+        if ids is None:
+            return None
+        return [str(i) for i in ids] if isinstance(ids, list) else []
 
     def capture_event(
         self, event: str, properties: dict | None = None, capture_fn: Callable[..., None] | None = None
@@ -610,6 +629,7 @@ class Task(DeletedMetaFields, models.Model):
         mcp_builtin_agent_key: MCPBuiltInAgentKey | None = None,
         client_provenance: TaskClientProvenance | None = None,
         mcp_credential_owner_id: int | None = None,
+        mcp_gateway_server_ids: list[str] | None = None,
     ) -> tuple["Task", dict[str, Any]]:
         """Create the Task row and assemble the initial run's `extra_state`.
 
@@ -695,6 +715,8 @@ class Task(DeletedMetaFields, models.Model):
             # run to delegate to, and a stray owner id must not be able to ride on a task.
             if mcp_credential_owner_id is not None:
                 initial_state[MCP_CREDENTIAL_OWNER_STATE_KEY] = mcp_credential_owner_id
+            if mcp_gateway_server_ids is not None:
+                initial_state[MCP_GATEWAY_SERVER_ALLOWLIST_STATE_KEY] = [str(i) for i in mcp_gateway_server_ids]
 
         task = Task.objects.create(
             team=team,
@@ -845,6 +867,7 @@ class Task(DeletedMetaFields, models.Model):
         mcp_builtin_agent_key: MCPBuiltInAgentKey | None = None,
         client_provenance: TaskClientProvenance | None = None,
         mcp_credential_owner_id: int | None = None,
+        mcp_gateway_server_ids: list[str] | None = None,
     ) -> "Task":
         """Create the Task row without an initial run or workflow.
 
@@ -873,6 +896,7 @@ class Task(DeletedMetaFields, models.Model):
             mcp_builtin_agent_key=mcp_builtin_agent_key,
             client_provenance=client_provenance,
             mcp_credential_owner_id=mcp_credential_owner_id,
+            mcp_gateway_server_ids=mcp_gateway_server_ids,
         )
         return task
 
@@ -916,6 +940,7 @@ class Task(DeletedMetaFields, models.Model):
         github_read_access: bool = False,
         mcp_builtin_agent_key: MCPBuiltInAgentKey | None = None,
         mcp_credential_owner_id: int | None = None,
+        mcp_gateway_server_ids: list[str] | None = None,
     ) -> "Task":
         from products.tasks.backend.temporal.client import _normalize_slack_context, execute_task_processing_workflow
 
@@ -951,6 +976,7 @@ class Task(DeletedMetaFields, models.Model):
             custom_image_id=custom_image_id,
             mcp_builtin_agent_key=mcp_builtin_agent_key,
             mcp_credential_owner_id=mcp_credential_owner_id,
+            mcp_gateway_server_ids=mcp_gateway_server_ids,
         )
 
         run_extra_state = dict(extra_state or {})

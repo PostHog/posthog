@@ -172,6 +172,23 @@ class TestReplayScanner(BaseTest):
         self.assertEqual(scanner.last_seen_session_id, "sess-tie")
         self.assertEqual(scanner.last_deep_swept_at, stale)
 
+    def test_full_save_does_not_clobber_sweep_owned_columns(self) -> None:
+        # A concurrent sweep stamps these via targeted updates; a full save from a stale
+        # in-memory instance (any API PATCH) must not write them back to their old values.
+        scanner = self._create_scanner()
+        watermark = timezone.now() - timedelta(days=3)
+        stamp = timezone.now() - timedelta(days=10)
+        ReplayScanner.objects.filter(pk=scanner.pk).update(
+            last_swept_at=watermark, last_seen_session_id="sess-tie", limit_notified_period_start=stamp
+        )
+        scanner.name = "renamed during a sweep"
+        scanner.save()
+        scanner.refresh_from_db()
+        self.assertEqual(scanner.name, "renamed during a sweep")
+        self.assertEqual(scanner.last_swept_at, watermark)
+        self.assertEqual(scanner.last_seen_session_id, "sess-tie")
+        self.assertEqual(scanner.limit_notified_period_start, stamp)
+
 
 class TestReplayObservation(BaseTest):
     def _create_scanner(self, **overrides) -> ReplayScanner:
