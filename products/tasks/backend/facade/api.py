@@ -3123,8 +3123,7 @@ def finalize_task_run_artifact_uploads(
             merged = [entry for entry in (locked_run.artifacts or []) if entry.get("id") not in new_ids]
             merged.extend(new_entries)
             _save_artifact_manifest(locked_run, merged)
-        # The locked merge is the authoritative manifest; version-counting from the
-        # pre-lock snapshot would miss a concurrent finalize of the same name.
+        # Count versions from the locked merge, or a concurrent same-named finalize is missed.
         manifest = merged
 
     for storage_path in new_storage_paths:
@@ -7004,10 +7003,8 @@ def _create_agent_thread_message(task: Task, content: str, *, event: str, payloa
         content=content,
     )
     try:
-        # Callers run this inside their dedup transaction; an inbox-projection failure
-        # (e.g. activity-row contention with a concurrent comment) must log, not roll
-        # back the announcement itself. The savepoint keeps a database error from
-        # poisoning the caller's transaction.
+        # A projection failure must not roll back the caller's dedup transaction with
+        # the announcement in it; the savepoint contains a database error.
         with transaction.atomic():
             project_thread_message_activity(message)
     except Exception:
@@ -7176,9 +7173,8 @@ def post_comment_thread_update(*, team_id: int, comment_id: UUID) -> None:
                 .exists()
             ):
                 return
-            # Written directly rather than through _create_agent_thread_message: the row
-            # carries the commenter as a human author, and the comment path already
-            # projected inbox activity and indexed mentions.
+            # Not _create_agent_thread_message: the commenter is the author, and the
+            # comment path already projected activity and indexed mentions.
             TaskThreadMessage.objects.for_team(task.team_id).create(
                 team_id=task.team_id,
                 task_id=task.id,
@@ -7219,9 +7215,8 @@ def _announce_agent_artifact_uploads(run: TaskRun, new_entries: list[dict], mani
 def post_artifact_thread_update(run: TaskRun, artifact: dict, *, revised: bool) -> None:
     try:
         artifact_id = str(artifact.get("id") or "")
-        # The name is caller-controlled and lands in rendered markdown content and the
-        # mention scanner, like the branch in the commits-pushed row: strip the characters
-        # that would forge a [label](url) link or an @[name](email) mention.
+        # Caller-controlled, rendered as markdown, and scanned for mentions: strip
+        # link/mention syntax like the commits-pushed branch field.
         name = re.sub(r"[\[\]\n]", " ", str(artifact.get("name") or "")).strip()[:255]
         if not artifact_id or not name:
             return
