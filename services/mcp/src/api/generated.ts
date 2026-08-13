@@ -14268,6 +14268,8 @@ export namespace Schemas {
       readonly created_by: UserBasic;
       readonly created_at: string;
       readonly updated_at: string;
+      /** Canonical link to the canvas in the PostHog app. The only valid way to link to a canvas — share this when pointing a user at it; never construct a canvas URL. */
+      readonly url: string;
     }
 
     /**
@@ -14746,6 +14748,8 @@ export namespace Schemas {
       published_build_id: string | null;
       /** When the canvas was created. */
       created_at: string;
+      /** Canonical link to the canvas in the PostHog app. The only valid way to link to a canvas — share this when pointing a user at it; never construct a canvas URL. */
+      readonly url: string;
     }
 
     /**
@@ -36346,6 +36350,18 @@ export namespace Schemas {
     }
 
     /**
+     * * `personal` - Personal
+     * * `team` - Team
+     */
+    export type MCPAgentGrantScopeEnum = typeof MCPAgentGrantScopeEnum[keyof typeof MCPAgentGrantScopeEnum];
+
+
+    export const MCPAgentGrantScopeEnum = {
+      Personal: 'personal',
+      Team: 'team',
+    } as const;
+
+    /**
      * * `active` - Active
      * * `paused` - Paused
      */
@@ -36365,6 +36381,11 @@ export namespace Schemas {
       service_account_id: string;
       /** The member whose connection the agent uses. */
       user: UserBasic;
+      /** 'personal' lets the agent use this connection only when working for the member who shared it. 'team' lets it use the connection for the whole project's agent runs.
+       *
+       * * `personal` - Personal
+       * * `team` - Team */
+      scope: MCPAgentGrantScopeEnum;
       /** Agent display name. */
       name: string;
       /** Agent identity handle, e.g. posthog-support. */
@@ -44355,6 +44376,7 @@ export namespace Schemas {
       Blocked: 'blocked',
     } as const;
 
+    export const MCPAuditEventGrantScope = {...MCPAgentGrantScopeEnum,...BlankEnum,} as const
     export interface MCPAuditEvent {
       readonly id: string;
       readonly created_at: string;
@@ -44375,6 +44397,13 @@ export namespace Schemas {
       readonly actor_service_account: AuditActorServiceAccount | null;
       /** Denormalized actor label (email or handle) that survives deletion. */
       readonly actor_label: string;
+      /** Member whose connection an agent call used. Null for member calls and for owners whose account has since been deleted. */
+      readonly credential_owner: UserBasic | null;
+      /** Scope of the agent grant the call used. Blank for member calls.
+       *
+       * * `personal` - Personal
+       * * `team` - Team */
+      readonly grant_scope: typeof MCPAuditEventGrantScope[keyof typeof MCPAuditEventGrantScope];
     }
 
     /**
@@ -45023,6 +45052,11 @@ export namespace Schemas {
       id: string;
       /** The member whose connection the agent uses. */
       shared_by: UserBasic;
+      /** 'personal' lets the agent use this connection only when working for the member who shared it. 'team' lets it use the connection for the whole project's agent runs.
+       *
+       * * `personal` - Personal
+       * * `team` - Team */
+      scope: MCPAgentGrantScopeEnum;
       /** Server display name. */
       name: string;
       /** Server description. */
@@ -49778,6 +49812,13 @@ export namespace Schemas {
        * * `balanced` - Balanced
        * * `comprehensive` - Comprehensive */
       sampling_mode?: SamplingModeEnum;
+      /**
+         * Optional cap on this scanner's own credit spend per billing period. Null means no scanner-level cap. When reached, this scanner stops scanning until the period resets. It stays enabled and does not scan the sessions it skipped.
+         * @minimum 1
+         * @maximum 2147483647
+         * @nullable
+         */
+      credit_limit?: number | null;
       /** LLM provider. v1 is Google-only.
        *
        * * `google` - Google */
@@ -49812,6 +49853,10 @@ export namespace Schemas {
       readonly credits_this_month: number;
       /** Succeeded observations this scanner produced in the current billing period. */
       readonly observations_this_month: number;
+      /** Credits counted against `credit_limit` for the current billing period: settled receipts plus in-flight observations and running prompt tests, priced from their frozen snapshot model. This is what the limit gate measures, so it includes work still in progress. It is not the same as `credits_this_month`, which counts only succeeded observations. */
+      readonly credits_used_against_limit: number;
+      /** Whether this scanner has stopped because of its own credit limit. True when `credit_limit` is set and the budget left cannot cover one more observation, which is the same test the scanner's enforcement gates apply. Always false when no limit is set. */
+      readonly limit_reached: boolean;
       /** Watermark for the scanner's last scheduled fire. Mirrors Temporal schedule state for recovery. */
       readonly last_swept_at: string;
       readonly created_at: string;
@@ -59009,6 +59054,13 @@ export namespace Schemas {
        * * `balanced` - Balanced
        * * `comprehensive` - Comprehensive */
       sampling_mode?: SamplingModeEnum;
+      /**
+         * Optional cap on this scanner's own credit spend per billing period. Null means no scanner-level cap. When reached, this scanner stops scanning until the period resets. It stays enabled and does not scan the sessions it skipped.
+         * @minimum 1
+         * @maximum 2147483647
+         * @nullable
+         */
+      credit_limit?: number | null;
       /** LLM provider. v1 is Google-only.
        *
        * * `google` - Google */
@@ -59043,6 +59095,10 @@ export namespace Schemas {
       readonly credits_this_month?: number;
       /** Succeeded observations this scanner produced in the current billing period. */
       readonly observations_this_month?: number;
+      /** Credits counted against `credit_limit` for the current billing period: settled receipts plus in-flight observations and running prompt tests, priced from their frozen snapshot model. This is what the limit gate measures, so it includes work still in progress. It is not the same as `credits_this_month`, which counts only succeeded observations. */
+      readonly credits_used_against_limit?: number;
+      /** Whether this scanner has stopped because of its own credit limit. True when `credit_limit` is set and the budget left cannot cover one more observation, which is the same test the scanner's enforcement gates apply. Always false when no limit is set. */
+      readonly limit_reached?: boolean;
       /** Watermark for the scanner's last scheduled fire. Mirrors Temporal schedule state for recovery. */
       readonly last_swept_at?: string;
       readonly created_at?: string;
@@ -69360,6 +69416,11 @@ export namespace Schemas {
       gateway_server_id: string;
       /** True shares the caller's own connection with the agent, false removes the caller's share. */
       enabled: boolean;
+      /** Applies to the caller's own share, and only alongside enabled=true. 'personal' lets the agent use the connection when it works for the caller. 'team' lets it use the connection for the whole project's agent runs, including runs nobody started. It never lets another person use the connection. Defaults to personal, so re-sharing without this field resets the caller's share to personal.
+       *
+       * * `personal` - Personal
+       * * `team` - Team */
+      scope?: MCPAgentGrantScopeEnum;
       /** Only valid with enabled=false. Removes every member's share of this server with this agent, along with the agent's tool policies for it. Project admins only. */
       all?: boolean;
       /**

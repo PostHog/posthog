@@ -11,8 +11,10 @@ import {
     LemonSwitch,
     LemonTable,
     LemonTabs,
+    LemonTag,
     Link,
     Spinner,
+    Tooltip,
 } from '@posthog/lemon-ui'
 
 import { pngHoggie } from 'lib/brand/hoggies'
@@ -40,6 +42,7 @@ import { creditsToUsd, formatCreditCount } from '../utils/credits'
 import { VisionMetrics } from './components/VisionMetrics'
 import { VisionUsageTab } from './components/VisionUsageTab'
 import { type ScannersSorting, SCANNERS_PAGE_SIZE, replayScannersLogic } from './replayScannersLogic'
+import { LIMIT_REACHED_TOOLTIP } from './scannerCopy'
 import { ENABLED_OPTIONS, EnabledFilter, SCANNER_TYPE_OPTIONS, ScannerType, ReplayScanner } from './types'
 
 const HedgehogXRay = pngHoggie(xRayPng)
@@ -169,6 +172,11 @@ export function ReplayScannersScene(): JSX.Element {
                     <span className={`inline-block min-w-[4.5rem] ${scanner.enabled ? 'text-success' : 'text-muted'}`}>
                         {scanner.enabled ? 'Enabled' : 'Disabled'}
                     </span>
+                    {scanner.limit_reached && (
+                        <Tooltip title={LIMIT_REACHED_TOOLTIP}>
+                            <LemonTag type="danger">Limit reached</LemonTag>
+                        </Tooltip>
+                    )}
                 </div>
             ),
             sorter: true,
