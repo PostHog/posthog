@@ -19179,6 +19179,10 @@
                     "description": "Optional direct external data source id for schema introspection",
                     "type": "string"
                 },
+                "includeFields": {
+                    "description": "When false, skip serializing each table's fields (`fields` comes back empty). Defaults to true.",
+                    "type": "boolean"
+                },
                 "kind": {
                     "const": "DatabaseSchemaQuery",
                     "type": "string"
@@ -19189,6 +19193,13 @@
                 },
                 "response": {
                     "$ref": "#/definitions/DatabaseSchemaQueryResponse"
+                },
+                "tables": {
+                    "description": "Only serialize these tables (keys as returned in the response, e.g. `events` or `zendesk.groups`). Omit for all tables.",
+                    "items": {
+                        "type": "string"
+                    },
+                    "type": "array"
                 },
                 "tags": {
                     "$ref": "#/definitions/QueryLogTags"
@@ -25647,7 +25658,17 @@
                 "Wix",
                 "Sevalla",
                 "Motion",
-                "Framer"
+                "Framer",
+                "Cloudinary",
+                "Uploadcare",
+                "WHMCS",
+                "MSG91",
+                "Depot",
+                "Schematic",
+                "Dokploy",
+                "RakutenAdvertising",
+                "Zitadel",
+                "DeelFlows"
             ],
             "type": "string"
         },
@@ -27240,7 +27261,7 @@
             "type": "string"
         },
         "GroupMathType": {
-            "const": "unique_group",
+            "enum": ["unique_group", "first_time_for_group", "first_matching_event_for_group"],
             "type": "string"
         },
         "GroupNode": {

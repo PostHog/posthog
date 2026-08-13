@@ -14,6 +14,7 @@ import posthog from 'posthog-js'
 
 import { lemonToast } from '@posthog/lemon-ui'
 
+import { UNACTIONABLE_NETWORK_ERROR_MESSAGES } from 'lib/api-error'
 import { FEATURE_FLAGS } from 'lib/constants'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { setReadOnlyGetter, setReadOnlyNotifier } from 'lib/readOnlyGuard'
@@ -72,6 +73,30 @@ export function dropHandledAuthGateExceptions<T extends { event?: string; proper
     }
     const list = (event.properties?.$exception_list ?? []) as Array<{ value?: string }>
     if (list.some((ex) => ex?.value != null && HANDLED_AUTH_GATE_MESSAGES.has(ex.value))) {
+        return null
+    }
+    return event
+}
+
+// Filters `$exception` events for requests the browser never sent because the client was offline or
+// the document was being torn down. Neither is a defect, and both arrive as unhandled rejections
+// from whichever logic happened to be fetching, so each one fingerprints against a different stack
+// and files its own error tracking issue. `NetworkError` with reason `network` is deliberately kept:
+// a request that failed while the user was online and staying put is worth seeing. Exported for
+// unit testing.
+export function dropUnactionableNetworkExceptions<
+    T extends { event?: string; properties?: Record<string, any> } | null,
+>(event: T): T | null {
+    if (!event || event.event !== '$exception') {
+        return event
+    }
+    const list = (event.properties?.$exception_list ?? []) as Array<{ type?: string; value?: string }>
+    if (
+        list.some(
+            (ex) =>
+                ex?.type === 'NetworkError' && ex?.value != null && UNACTIONABLE_NETWORK_ERROR_MESSAGES.has(ex.value)
+        )
+    ) {
         return null
     }
     return event
@@ -191,11 +216,14 @@ export const selfReadOnlyModeLogic = kea<selfReadOnlyModeLogicType>([
         setReadOnlyNotifier((method) => actions.notifyBlocked(method))
 
         // Central error-tracking filter chain — drops `$exception` events for a ReadOnlyModeError
-        // (a block by design) and for the handled auth gates (2FA setup/verify, re-auth). Catches
-        // direct captures *and* wrapped errors (`new Error('...', { cause: readOnlyErr })`). This
-        // logic mounts in the authenticated app, where every gated request happens, and no other
-        // code that runs there sets `before_send`, so we own this config slot.
-        posthog.set_config({ before_send: [dropReadOnlyExceptions, dropHandledAuthGateExceptions] })
+        // (a block by design), for the handled auth gates (2FA setup/verify, re-auth), and for the
+        // network failures that only describe the client's situation. Catches direct captures *and*
+        // wrapped errors (`new Error('...', { cause: readOnlyErr })`). This logic mounts in the
+        // authenticated app, where every gated request happens, and no other code that runs there
+        // sets `before_send`, so we own this config slot.
+        posthog.set_config({
+            before_send: [dropReadOnlyExceptions, dropHandledAuthGateExceptions, dropUnactionableNetworkExceptions],
+        })
 
         // The user-facing toast for blocked writes is shown by the standard
         // `e instanceof ApiError → lemonToast.error(e.detail)` pattern that

@@ -45,18 +45,12 @@ _FACADE_OBJECT_GRANT_TABLES: dict[str, str] = {
     "customer_analytics_account": "account",
 }
 
-# Team-level definition tables gated under an object-restrictable scope for resource-level
-# access only: their rows describe shapes shared by every account, not any single account's
-# data, so object-level denies don't apply (the default pk guard never matches a denied id).
+# Team-level definition tables gated under an object-restrictable scope for resource-level access
+# only, declared by `resource_level_access_only` on the table itself because it drives the runtime
+# decision too: their rows describe shapes shared by every object of the resource, so object-level
+# grants never key them.
 _SCOPE_GATED_METADATA_TABLES: frozenset[str] = frozenset(
-    {
-        "custom_property_definitions",
-        "account_relationship_definitions",
-        # Team-level messaging data not tied to any single flow; MessagePreferencesViewSet
-        # grants the same rows at resource level (hog_flow:read) with no object-level check.
-        "message_categories",
-        "message_recipient_preferences",
-    }
+    name for name, table in _SCOPED_SYSTEM_TABLES.items() if table.resource_level_access_only
 )
 
 
@@ -508,6 +502,55 @@ class TestObjectAccessControlIdField(SimpleTestCase):
             fk_columns,
             f"system.{table_name} is a child of '{scope}'; set access_control_id_field to the FK pointing at "
             f"its parent (one of {fk_columns}), got {table.access_control_id_field!r}.",
+        )
+
+
+class TestObjectAccessControlCreatorField(SimpleTestCase):
+    """REST exempts an object's creator from object-level denial
+    (`~Q(created_by=self._user)` in `filter_queryset_by_access_level`), and the HogQL guard
+    reproduces that only for tables that declare `access_control_creator_id_field` and expose the
+    column. A restrictable table that has a creator but doesn't declare it silently hides rows from
+    the person who created them, so require the declaration wherever REST would honor it."""
+
+    @parameterized.expand(sorted(_SCOPED_SYSTEM_TABLES))
+    def test_creator_field_is_declared_and_queryable(self, table_name: str) -> None:
+        table = _SCOPED_SYSTEM_TABLES[table_name]
+        model = _model_by_pg_table().get(table.postgres_table_name)
+        assert model is not None, f"could not resolve a Django model for system.{table_name}"
+
+        registry = _object_grant_registry()
+        rows_are_the_object = registry.get(model) == table.access_scope and not table.resource_level_access_only
+        model_columns = {field.attname for field in model._meta.get_fields() if hasattr(field, "attname")}
+
+        if not rows_are_the_object:
+            # A child row's creator isn't the parent's, and metadata rows have no denied object at
+            # all, so a declaration here would exempt the wrong person.
+            self.assertIsNone(
+                table.access_control_creator_id_field,
+                f"system.{table_name} rows are not the access-controlled object; a creator exemption "
+                f"would apply to the wrong person — remove access_control_creator_id_field.",
+            )
+            return
+
+        if "created_by_id" not in model_columns:
+            self.assertIsNone(
+                table.access_control_creator_id_field,
+                f"system.{table_name}'s model has no creator; remove access_control_creator_id_field.",
+            )
+            return
+
+        self.assertEqual(
+            table.access_control_creator_id_field,
+            "created_by_id",
+            f"system.{table_name} is object-restrictable under '{table.access_scope}' and its rows have a "
+            f"creator, so REST keeps them visible to that creator. Set "
+            f'access_control_creator_id_field="created_by_id" so HogQL does too.',
+        )
+        self.assertIn(
+            "created_by_id",
+            table.fields,
+            f"system.{table_name} declares a creator exemption, but the guard can only reference an "
+            f"exposed field — add created_by_id to its fields.",
         )
 
 

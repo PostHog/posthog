@@ -36,6 +36,7 @@ import { toString } from 'lib/utils/strings'
 import {
     PROPERTY_FILTER_TYPES_WITH_ALL_TIME_SUGGESTIONS,
     PROPERTY_FILTER_TYPES_WITH_TEMPORAL_SUGGESTIONS,
+    PropValue,
     propertyDefinitionsModel,
 } from '~/models/propertyDefinitionsModel'
 import { ErrorTrackingIssueAssignee } from '~/queries/schema/schema-general'
@@ -61,6 +62,12 @@ export interface PropertyValueProps {
     forceSingleSelect?: boolean
     validationError?: string | null
     showInlineValidationErrors?: boolean
+    /**
+     * Statically known value suggestions. When set, no values are fetched from the API,
+     * which matters for properties whose values can't be sourced from the events table
+     * (e.g. internal events, which are never ingested into ClickHouse).
+     */
+    staticValues?: PropValue[] | null
 }
 
 export function PropertyValue({
@@ -83,6 +90,7 @@ export function PropertyValue({
     forceSingleSelect = false,
     validationError = null,
     showInlineValidationErrors = false,
+    staticValues = null,
 }: PropertyValueProps): JSX.Element {
     const { formatPropertyValueForDisplay, describeProperty, options } = useValues(propertyDefinitionsModel)
     const { loadPropertyValues } = useActions(propertyDefinitionsModel)
@@ -136,8 +144,12 @@ export function PropertyValue({
     }>({ set: new Set(), orderedKeys: [] })
     const currentSearchInput = useRef<string>('')
 
+    const hasStaticValues = !!staticValues
     const load = useCallback(
         (newInput: string | undefined): void => {
+            if (hasStaticValues) {
+                return
+            }
             currentSearchInput.current = newInput || ''
             loadPropertyValues({
                 endpoint,
@@ -148,7 +160,7 @@ export function PropertyValue({
                 properties: [],
             })
         },
-        [loadPropertyValues, endpoint, propertyDefinitionType, propertyKey, eventNames]
+        [loadPropertyValues, endpoint, propertyDefinitionType, propertyKey, eventNames, hasStaticValues]
     )
 
     const setValue = (newValue: PropertyValueProps['value']): void => onSet(newValue)
@@ -224,6 +236,9 @@ export function PropertyValue({
 
     // show suggested values first, then any other available options that aren't in the suggested list
     const displayOptions = useMemo(() => {
+        if (staticValues) {
+            return staticValues
+        }
         const options = propertyOptions?.values || []
         if (initialSuggestedValues.set.size === 0) {
             return options
@@ -255,7 +270,7 @@ export function PropertyValue({
         }
 
         return [...suggestedOptions, ...otherOptions]
-    }, [propertyOptions?.values, initialSuggestedValues])
+    }, [propertyOptions?.values, initialSuggestedValues, staticValues])
 
     const onSearchTextChange = (newInput: string): void => {
         const trimmedInput = newInput.trim()
@@ -409,34 +424,40 @@ export function PropertyValue({
     // Disable comma splitting for user agent properties that contain commas in their values
     const isUserAgentProperty = ['$raw_user_agent', '$initial_raw_user_agent', '$user_agent'].includes(propertyKey)
 
-    const suggestionsLabel = PROPERTY_FILTER_TYPES_WITH_TEMPORAL_SUGGESTIONS.includes(type)
-        ? 'Suggested values (last 7 days)'
-        : PROPERTY_FILTER_TYPES_WITH_ALL_TIME_SUGGESTIONS.includes(type)
-          ? 'Suggested values'
-          : null
+    const suggestionsLabel = staticValues
+        ? staticValues.length > 0
+            ? 'Suggested values'
+            : null
+        : PROPERTY_FILTER_TYPES_WITH_TEMPORAL_SUGGESTIONS.includes(type)
+          ? 'Suggested values (last 7 days)'
+          : PROPERTY_FILTER_TYPES_WITH_ALL_TIME_SUGGESTIONS.includes(type)
+            ? 'Suggested values'
+            : null
     const refreshDisabledReason =
         propertyOptions?.status === 'loading' ? 'Loading values…' : isRefreshing ? 'Refreshing values…' : undefined
     const titleNode = suggestionsLabel ? (
         <span className="flex justify-between items-center gap-4">
             {suggestionsLabel}
-            <LemonButton
-                size="xsmall"
-                icon={<IconRefresh />}
-                tooltip="Refresh values"
-                disabledReason={refreshDisabledReason}
-                onClick={() =>
-                    loadPropertyValues({
-                        endpoint,
-                        type: propertyDefinitionType,
-                        newInput: currentSearchInput.current || undefined,
-                        propertyKey,
-                        eventNames,
-                        properties: [],
-                        refresh: 'force_blocking',
-                    })
-                }
-                noPadding
-            />
+            {!staticValues && (
+                <LemonButton
+                    size="xsmall"
+                    icon={<IconRefresh />}
+                    tooltip="Refresh values"
+                    disabledReason={refreshDisabledReason}
+                    onClick={() =>
+                        loadPropertyValues({
+                            endpoint,
+                            type: propertyDefinitionType,
+                            newInput: currentSearchInput.current || undefined,
+                            propertyKey,
+                            eventNames,
+                            properties: [],
+                            refresh: 'force_blocking',
+                        })
+                    }
+                    noPadding
+                />
+            )}
         </span>
     ) : undefined
 
@@ -445,11 +466,11 @@ export function PropertyValue({
             <LemonInputSelect
                 className={inputClassName}
                 data-attr="prop-val"
-                loading={propertyOptions?.status === 'loading' || isRefreshing}
+                loading={!staticValues && (propertyOptions?.status === 'loading' || isRefreshing)}
                 value={formattedValues}
                 mode={isMultiSelect ? 'multiple' : 'single'}
                 singleValueAsSnack
-                allowCustomValues={propertyOptions?.allowCustomValues ?? true}
+                allowCustomValues={staticValues ? true : (propertyOptions?.allowCustomValues ?? true)}
                 inputTransform={
                     shouldRestrictToNumericInput
                         ? (input: string) => {

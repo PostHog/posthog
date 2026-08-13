@@ -1465,6 +1465,7 @@ export enum SessionRecordingSidebarTab {
     NETWORK_WATERFALL = 'network-waterfall',
     LINKED_ISSUES = 'linked-issues',
     SESSIONS = 'sessions',
+    OBSERVATIONS = 'observations',
 }
 
 export enum SessionRecordingSidebarStacking {
@@ -2652,6 +2653,10 @@ export interface DashboardBasicType extends WithAccessControl {
     tags?: string[]
     /** Project-tree folder the dashboard is filed under, e.g. 'Unfiled/Dashboards'. Empty string is the project root; null means no file system entry. */
     folder?: string | null
+    /** Null when the dashboard was never filed, which is the case that cannot be moved. */
+    file_system_id?: string | null
+    /** Unlike `folder`, keeps the dashboard's own name as the last segment, which a move needs to compute the destination. */
+    file_system_path?: string | null
     /** Purely local value to determine whether the dashboard should be highlighted, e.g. as a fresh duplicate. */
     _highlight?: boolean
     /**
@@ -5320,6 +5325,8 @@ export enum HogQLMathType {
 }
 export enum GroupMathType {
     UniqueGroup = 'unique_group',
+    FirstTimeForGroup = 'first_time_for_group',
+    FirstMatchingEventForGroup = 'first_matching_event_for_group',
 }
 
 export enum ExperimentMetricMathType {
