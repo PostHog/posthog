@@ -6298,6 +6298,10 @@ snapshots:
         hash: v1.k794b7964.f3c8bc6697db692d759f57d5f1cba413b909e22923e87c65d0c223e613144076.sfVPBgq0NjbXJfcc8nye_vNXKKoaNiKVdX2kKdYWjug
     scenes-app-hogfunctions-destination--runs-with-data--light:
         hash: v1.k794b7964.7ebd6b1de8b3532192340ab4748697c7175fbb3e36227394abac3397e7fb36d5.g74q_2eAZTmStVOVUVR9w1MEZmTHfWR6PBmaj1xImiM
+    scenes-app-hogfunctions-invocationssparkline--with-activity--dark:
+        hash: v1.k794b7964.280a3bc355fbb852d9fa1d263e5b64b78075ab6c6736a681179d889b12509511.PXK7NUJxJ9CwB10xyOU3hwZ008ZQxMZnSz5_qfwYbRc
+    scenes-app-hogfunctions-invocationssparkline--with-activity--light:
+        hash: v1.k794b7964.fbda17e1097127a5e6f150791ea4f23188ea94b08f0c9296627184eeb9a913cd.j9uzkPUbG1EM3WLJ3QR02UGc6Wxqd7dn7FhSDvX7m4Q
     scenes-app-identitymatching--identity-matching-empty--dark:
         hash: v1.k794b7964.30bea223b948150a5eb1a169b853333dd9815447869ccbbdc30c1cffe2b78cd2.v7d6U5tiu6DTfHv0ZI3PW0Ps99p-BlQI_MZc7DuESbM
     scenes-app-identitymatching--identity-matching-empty--light:
