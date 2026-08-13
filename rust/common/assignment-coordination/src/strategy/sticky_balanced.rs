@@ -522,6 +522,71 @@ mod tests {
         assert_eq!(counts(&result, "new-1"), 4);
     }
 
+    /// A ten-pod fleet rolls two by two, drain-led: each wave two old
+    /// pods drain out and two new pods register at their final cap.
+    /// The orphan pool exactly covers the fresh pods' capacity, so
+    /// phase 1 absorbs it before any stealing: surviving old pods and
+    /// already-placed new pods keep their exact partitions, and every
+    /// partition moves exactly once, straight from a dying pod to its
+    /// final owner. (Surge ordering — new pods registering before old
+    /// ones drain — instead pre-drains surviving holds; still one move
+    /// per partition, but not only the dying pods'.)
+    #[test]
+    fn wave_rollout_moves_only_the_dying_pods_partitions() {
+        let strategy = StickyBalancedStrategy;
+        let total: u32 = 20;
+        let cap = 2u32; // 20 partitions over 10 desired replicas
+
+        let mut assignments: HashMap<u32, String> = (0..total)
+            .map(|p| (p, format!("old-{}", p / cap)))
+            .collect();
+        let mut moves_per_partition: HashMap<u32, u32> = HashMap::new();
+
+        for wave in 0..5u32 {
+            let dying: Vec<String> = (2 * wave..2 * wave + 2)
+                .map(|i| format!("old-{i}"))
+                .collect();
+            let dying_partitions: HashSet<u32> = assignments
+                .iter()
+                .filter(|(_, owner)| dying.contains(owner))
+                .map(|(p, _)| *p)
+                .collect();
+
+            let mut members: Vec<Member> = (2 * wave + 2..10)
+                .map(|i| Member::hold(format!("old-{i}")))
+                .collect();
+            members
+                .extend((0..2 * wave + 2).map(|i| Member::active_capped(format!("new-{i}"), cap)));
+
+            let next = strategy.compute_assignments(&assignments, &members, total);
+            assert_eq!(next.len(), total as usize);
+
+            for (partition, owner) in &next {
+                let previous = &assignments[partition];
+                if owner != previous {
+                    assert!(
+                        dying_partitions.contains(partition),
+                        "wave {wave}: partition {partition} moved {previous} -> {owner} but its owner was not dying"
+                    );
+                    *moves_per_partition.entry(*partition).or_insert(0) += 1;
+                }
+            }
+            assignments = next;
+        }
+
+        for pod in 0..10 {
+            assert_eq!(
+                assignments
+                    .values()
+                    .filter(|o| **o == format!("new-{pod}"))
+                    .count(),
+                cap as usize
+            );
+        }
+        assert_eq!(moves_per_partition.len(), total as usize);
+        assert!(moves_per_partition.values().all(|moves| *moves == 1));
+    }
+
     /// A capped member rejoining after a crash is leveled from siblings
     /// sitting above cap: with no Hold donors and no orphan pool,
     /// nothing else can feed it. (Over-cap siblings are what phase 4
