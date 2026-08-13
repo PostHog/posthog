@@ -145,19 +145,21 @@ class TestDirectDuckgresQuery(APIBaseTest):
             connect.call_args.kwargs["options"], "-c default_transaction_read_only=on -c statement_timeout=12000"
         )
 
-    @patch("posthog.hogql.direct_sql.duckgres_adapter.make_duckgres_conninfo")
+    @patch("posthog.hogql.direct_sql.duckgres_adapter.make_duckgres_conninfo", return_value="fresh-conninfo")
     @patch("posthog.hogql.direct_sql.duckgres_adapter.psycopg.connect")
-    @patch("posthog.hogql.query.raw_query_denied_by_table_access", return_value=True)
-    def test_table_access_denial_happens_before_credential_lookup(self, _denied, connect, make_conninfo) -> None:
+    @patch("posthog.hogql.query.raw_query_denied_by_table_access", side_effect=AssertionError)
+    def test_managed_warehouse_raw_queries_skip_unconfigured_table_access(
+        self, _denied, connect, _make_conninfo
+    ) -> None:
         source = self._managed_source()
+        connection, _cursor = self._connection_with_result([(1,)])
+        connect.return_value.__enter__.return_value = connection
 
-        with self.assertRaisesMessage(ExposedHogQLError, "You don't have access to every table"):
-            HogQLQueryExecutor(
-                query="SELECT 1", team=self.team, connection_id=str(source.id), send_raw_query=True
-            ).execute()
+        response = HogQLQueryExecutor(
+            query="SELECT 1", team=self.team, connection_id=str(source.id), send_raw_query=True
+        ).execute()
 
-        make_conninfo.assert_not_called()
-        connect.assert_not_called()
+        self.assertEqual(response.results, [(1,)])
 
     @patch("posthog.hogql.direct_sql.duckgres_adapter.make_duckgres_conninfo")
     @patch("posthog.hogql.direct_sql.duckgres_adapter.psycopg.connect")

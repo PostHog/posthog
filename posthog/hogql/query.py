@@ -601,7 +601,12 @@ class HogQLQueryExecutor:
         )
         if source is None:
             raise ExposedHogQLError("Sending a raw query requires a valid connection.")
-        if raw_query_denied_by_table_access(
+        self.connection_id = str(source.id)
+        self.direct_source_id = self.connection_id
+        adapter = get_raw_adapter_for_source(source)
+        if adapter is None:
+            raise ExposedHogQLError(INVALID_CONNECTION_ID_ERROR)
+        if adapter.engine != "duckgres" and raw_query_denied_by_table_access(
             self.team,
             source,
             user=self.user,
@@ -609,11 +614,6 @@ class HogQLQueryExecutor:
             bypass_warehouse_access_control=self.context.bypass_warehouse_access_control if self.context else False,
         ):
             raise ExposedHogQLError(RAW_QUERY_TABLE_DENIED_ERROR)
-        self.connection_id = str(source.id)
-        self.direct_source_id = self.connection_id
-        adapter = get_raw_adapter_for_source(source)
-        if adapter is None:
-            raise ExposedHogQLError(INVALID_CONNECTION_ID_ERROR)
         self.direct_dialect = adapter.dialect
         self.direct_sql = adapter.prepare_raw_sql(str(self.query))
         self._execute_direct_sql_query(adapter)
