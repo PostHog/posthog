@@ -2029,6 +2029,11 @@ export interface _LogsServicesBodyApi {
     serviceNames?: string[]
     /** Full-text search term to filter log bodies. */
     searchTerm?: string
+    /**
+     * Case-insensitive substring match on service name, applied before aggregation. Use to reach services beyond the response cap.
+     * @maxLength 200
+     */
+    serviceNameSearch?: string
     /** Property filters for the query. */
     filterGroup?: _LogPropertyFilterApi[]
 }
@@ -2083,10 +2088,12 @@ export interface _LogsServicesSummaryApi {
 }
 
 export interface _LogsServicesResponseApi {
-    /** Per-service aggregates, ordered by log_count descending. Capped at 25 services. */
+    /** Per-service aggregates, ordered by log_count descending. Capped at 1000 services. */
     services: _LogsServiceAggregateApi[]
-    /** Time-bucketed counts broken down by service, for plotting volume over time. */
+    /** Time-bucketed counts broken down by service, for plotting volume over time. Covers only the top 25 services in this response; re-request with `serviceNames` to get sparklines for specific services. */
     sparkline: _LogsServicesSparklineBucketApi[]
+    /** True distinct service count for the window and filters, unaffected by the 1000-service cap on `services`. Greater than the length of `services` when the response is truncated. */
+    total_services: number
     /** Roll-up stats for the Services tab header. */
     summary?: _LogsServicesSummaryApi
 }

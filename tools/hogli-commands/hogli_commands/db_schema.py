@@ -27,6 +27,7 @@ SCHEMA_ARTIFACT_NAME = "migrated-schema"
 SCHEMA_DUMP_NAME = "schema.sql.gz"
 LOCAL_SCHEMA_PATH = Path(".postgres-backups/schema-latest.sql.gz")
 MIN_SCHEMA_ARTIFACT_BYTES = 10_000
+MAX_ARTIFACT_PAGES = 10
 DEFAULT_BASE_BRANCH = "master"
 DIAGNOSTIC_CANDIDATE_LIMIT = 3
 DOCKER_COMPOSE = ["docker", "compose", "-f", "docker-compose.dev.yml"]
@@ -262,12 +263,20 @@ def select_newest_compatible_artifact(
     return candidates[0] if candidates else None
 
 
-def fetch_schema_artifacts(*, token: str | None, session: requests.Session | None = None) -> list[SchemaArtifact]:
+def find_newest_compatible_artifact(
+    *,
+    token: str | None,
+    session: requests.Session | None = None,
+    base_branch: str = DEFAULT_BASE_BRANCH,
+    max_pages: int = MAX_ARTIFACT_PAGES,
+) -> SchemaArtifact | None:
+    # The listing is newest-first, so the first page holding a candidate holds the
+    # newest one and the walk stops there. max_pages caps the miss case at a fixed
+    # number of requests instead of paging through the whole retention window.
     http = session or requests.Session()
-    artifacts: list[SchemaArtifact] = []
-    page = 1
+    fetched: list[SchemaArtifact] = []
 
-    while True:
+    for page in range(1, max_pages + 1):
         response = http.get(
             f"https://api.github.com/repos/{GITHUB_REPOSITORY}/actions/artifacts",
             params={"name": SCHEMA_ARTIFACT_NAME, "per_page": 100, "page": page},
@@ -287,13 +296,17 @@ def fetch_schema_artifacts(*, token: str | None, session: requests.Session | Non
             if isinstance(raw_artifact, Mapping):
                 artifact = _artifact_from_api(raw_artifact)
                 if artifact is not None:
-                    artifacts.append(artifact)
+                    fetched.append(artifact)
+
+        selected = select_newest_compatible_artifact(fetched, base_branch=base_branch)
+        if selected is not None:
+            return selected
 
         if "next" not in response.links:
             break
-        page += 1
 
-    return artifacts
+    _emit_selection_diagnostics(fetched, base_branch=base_branch)
+    return None
 
 
 def download_schema_artifact(
@@ -371,10 +384,8 @@ def download_latest_compatible_schema(
     session: requests.Session | None = None,
 ) -> SchemaArtifact:
     token = github_token()
-    artifacts = fetch_schema_artifacts(token=token, session=session)
-    artifact = select_newest_compatible_artifact(artifacts, base_branch=base_branch)
+    artifact = find_newest_compatible_artifact(token=token, session=session, base_branch=base_branch)
     if artifact is None:
-        _emit_selection_diagnostics(artifacts, base_branch=base_branch)
         raise SchemaRestoreUnavailable(
             f"no compatible {SCHEMA_ARTIFACT_NAME} artifact found for base_branch={base_branch}"
         )
