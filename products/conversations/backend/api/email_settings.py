@@ -2,10 +2,12 @@
 
 import uuid
 import secrets
+from datetime import timedelta
 from email.utils import formataddr, make_msgid
 
 from django.core import mail
 from django.db import IntegrityError, transaction
+from django.utils import timezone
 
 import structlog
 from drf_spectacular.utils import OpenApiResponse, extend_schema
@@ -32,14 +34,23 @@ from products.conversations.backend.mailgun import (
     send_mime,
     verify_domain as mailgun_verify_domain,
 )
-from products.conversations.backend.models import EmailChannel, EmailChannelKind
+from products.conversations.backend.models import (
+    EmailChannel,
+    EmailChannelConnectionStatus,
+    EmailChannelKind,
+    EmailChannelSetup,
+    EmailChannelSetupProvider,
+)
 from products.conversations.backend.models.team_conversations_email_config import (
     MAX_CUSTOMER_COMMUNICATION_CHANNELS_PER_TEAM,
     MAX_EMAIL_CONFIGS_PER_TEAM,
+    MAX_PENDING_CUSTOMER_COMMUNICATION_CHANNELS_PER_OWNER,
 )
 from products.conversations.backend.permissions import IsConversationsAdmin
 
 logger = structlog.get_logger(__name__)
+
+CUSTOMER_EMAIL_SETUP_TTL = timedelta(hours=24)
 
 
 def _get_team_from_request(request: Request) -> tuple[User, Team] | Response:
@@ -91,9 +102,13 @@ def _resolve_config_from_request(request: Request) -> tuple[User, Team, EmailCha
     return user, team, config
 
 
-def _config_to_dict(config: EmailChannel, inbound_domain: str | None = None) -> dict:
-    """Serialize a config to the API response shape."""
+def _config_to_dict(config: EmailChannel, inbound_domain: str | None = None) -> dict[str, object]:
     forwarding_address = f"team-{config.inbound_token}@{inbound_domain}" if inbound_domain else None
+    setup: EmailChannelSetup | None
+    try:
+        setup = config.setup
+    except EmailChannelSetup.DoesNotExist:
+        setup = None
     return {
         "id": config.id,
         "kind": config.kind,
@@ -105,21 +120,61 @@ def _config_to_dict(config: EmailChannel, inbound_domain: str | None = None) -> 
         "domain_verified": config.domain_verified,
         "dns_records": config.dns_records,
         "is_default": config.is_default,
+        "connection_status": config.connection_status,
+        "setup_expires_at": setup.expires_at if setup is not None else None,
+        "confirmation_available": bool(setup and setup.confirmation_action),
     }
 
 
+def _expire_customer_email_setups(*, team: Team, owner: User) -> None:
+    now = timezone.now()
+    expired_channel_ids = list(
+        EmailChannelSetup.objects.for_team(team.id)
+        .filter(channel__owner=owner, expires_at__lte=now)
+        .values_list("channel_id", flat=True)
+    )
+    if not expired_channel_ids:
+        return
+    with transaction.atomic():
+        EmailChannelSetup.objects.for_team(team.id).filter(
+            channel_id__in=expired_channel_ids,
+            expires_at__lte=now,
+        ).delete()
+        EmailChannel.objects.filter(
+            team=team,
+            owner=owner,
+            id__in=expired_channel_ids,
+            connection_status=EmailChannelConnectionStatus.PENDING_CONFIRMATION,
+        ).update(connection_status=EmailChannelConnectionStatus.CONFIRMATION_EXPIRED)
+
+
+def _release_expired_customer_email_reservation(*, from_email: str) -> None:
+    channel = (
+        EmailChannel.objects.select_for_update()
+        .filter(
+            from_email=from_email,
+            kind=EmailChannelKind.CUSTOMER_COMMUNICATION,
+        )
+        .first()
+    )
+    if channel is None or channel.connection_status == EmailChannelConnectionStatus.ACTIVE:
+        return
+
+    setup = EmailChannelSetup.objects.for_team(channel.team_id).filter(channel=channel).first()
+
+    setup_expired = setup is None or setup.expires_at <= timezone.now()
+    if channel.connection_status == EmailChannelConnectionStatus.CONFIRMATION_EXPIRED or setup_expired:
+        channel.delete()
+
+
 def _release_domain_if_unused(team: Team, domain: str) -> None:
-    """Best-effort removal of a Mailgun registration that no config ended up using.
+    """Best-effort removal of a Mailgun registration that no support config uses.
 
-    Left in place, the registration would make every future connect for this
-    domain fail with a domain conflict.
-
-    The `exists()` check narrows but cannot fully close a TOCTOU window: a
-    concurrent connect could persist a config on this domain between the check and
-    the delete. Mailgun calls run outside the team-row lock by design, so we accept
-    that window; the loser at worst re-registers on its next verify.
+    Customer communication channels only receive captured mail, so they do not
+    own Mailgun sending-domain registrations. The support connect that loses a
+    concurrent race can re-register on its next verify.
     """
-    if EmailChannel.objects.filter(domain=domain).exists():
+    if EmailChannel.objects.filter(domain=domain, kind=EmailChannelKind.SUPPORT).exists():
         return
     try:
         mailgun_delete_domain(domain)
@@ -128,7 +183,7 @@ def _release_domain_if_unused(team: Team, domain: str) -> None:
 
 
 def _try_reclaim_stranded_domain(team: Team, domain: str) -> dict | None:
-    """Recover a domain stranded in our Mailgun account with no config referencing it.
+    """Recover a domain stranded in our Mailgun account with no support config referencing it.
 
     A connect that registered the domain but failed to persist a config, or a
     disconnect whose Mailgun delete failed, leaves such a registration behind —
@@ -141,7 +196,7 @@ def _try_reclaim_stranded_domain(team: Team, domain: str) -> dict | None:
     Returns fresh DNS records when the domain was reclaimed, None when the
     conflict stands.
     """
-    if EmailChannel.objects.filter(domain=domain).exists():
+    if EmailChannel.objects.filter(domain=domain, kind=EmailChannelKind.SUPPORT).exists():
         return None
 
     # Decision phase (reads only). A lookup/verify failure here must leave the
@@ -169,7 +224,7 @@ def _try_reclaim_stranded_domain(team: Team, domain: str) -> dict | None:
     # first check (Mailgun calls run outside the team-row lock by design). This narrows
     # — does not close — that window, but the read-only decision phase above is where
     # most of the latency sits, so the remaining window is small.
-    if EmailChannel.objects.filter(domain=domain).exists():
+    if EmailChannel.objects.filter(domain=domain, kind=EmailChannelKind.SUPPORT).exists():
         return None
 
     # Mutation phase. If the delete lands but the re-add fails, the stale registration
@@ -278,6 +333,20 @@ class EmailChannelConfigSerializer(serializers.Serializer):
         read_only=True,
         help_text="Whether this support channel is the team's fallback sender.",
     )
+    connection_status = serializers.ChoiceField(
+        choices=EmailChannelConnectionStatus.choices,
+        read_only=True,
+        help_text="Whether forwarding setup is pending, active, or expired.",
+    )
+    setup_expires_at = serializers.DateTimeField(
+        read_only=True,
+        allow_null=True,
+        help_text="When the pending forwarding setup expires.",
+    )
+    confirmation_available = serializers.BooleanField(
+        read_only=True,
+        help_text="Whether an authenticated forwarding confirmation is ready for the owner.",
+    )
 
 
 class EmailStatusResponseSerializer(serializers.Serializer):
@@ -297,6 +366,13 @@ class EmailChannelOperationResponseSerializer(serializers.Serializer):
     ok = serializers.BooleanField(read_only=True, help_text="Whether the operation succeeded.")
 
 
+class EmailConfirmForwardingResponseSerializer(EmailChannelOperationResponseSerializer):
+    confirmation_url = serializers.URLField(
+        read_only=True,
+        help_text="Authenticated Google forwarding confirmation URL.",
+    )
+
+
 class EmailSendTestResponseSerializer(EmailChannelOperationResponseSerializer):
     sent_to = serializers.EmailField(read_only=True, help_text="Address that received the test email.")
 
@@ -307,6 +383,7 @@ class EmailStatusView(APIView):
     permission_classes = [IsAuthenticated]
 
     @extend_schema(
+        tags=["conversations"],
         parameters=[EmailChannelKindQuerySerializer],
         responses={
             200: EmailStatusResponseSerializer,
@@ -323,22 +400,25 @@ class EmailStatusView(APIView):
         query_serializer.is_valid(raise_exception=True)
         kind = query_serializer.validated_data["kind"]
         configs = EmailChannel.objects.filter(team=team, kind=kind)
-        if kind == EmailChannelKind.CUSTOMER_COMMUNICATION and not _is_organization_admin(user, team):
+        if kind == EmailChannelKind.CUSTOMER_COMMUNICATION:
+            _expire_customer_email_setups(team=team, owner=user)
             configs = configs.filter(owner=user)
-        configs = configs.order_by("created_at")
+        configs = configs.select_related("setup").order_by("created_at")
         inbound_domain = get_instance_setting("CONVERSATIONS_EMAIL_INBOUND_DOMAIN")
 
         return Response({"configs": [_config_to_dict(c, inbound_domain) for c in configs]})
 
 
 class EmailConnectView(APIView):
-    permission_classes = [IsAuthenticated, IsConversationsAdmin]
+    permission_classes = [IsAuthenticated]
 
     @extend_schema(
+        tags=["conversations"],
         request=EmailConnectSerializer,
         responses={
             200: EmailConnectResponseSerializer,
             400: OpenApiResponse(response=EmailChannelErrorSerializer),
+            403: OpenApiResponse(response=EmailChannelErrorSerializer),
             409: OpenApiResponse(response=EmailChannelErrorSerializer),
             502: OpenApiResponse(response=EmailChannelErrorSerializer),
         },
@@ -356,7 +436,11 @@ class EmailConnectView(APIView):
         from_name: str = serializer.validated_data["from_name"]
         kind: str = serializer.validated_data["kind"]
         owner: User | None = None
-        if kind == EmailChannelKind.CUSTOMER_COMMUNICATION:
+        is_admin = _is_organization_admin(user, team)
+        if kind == EmailChannelKind.SUPPORT:
+            if not is_admin:
+                return Response({"error": "Only organization admins can manage support email channels."}, status=403)
+        else:
             membership = (
                 OrganizationMembership.objects.filter(
                     organization_id=team.organization_id,
@@ -369,6 +453,8 @@ class EmailConnectView(APIView):
             if membership is None:
                 return Response({"error": "Owner must be an active member of this organization."}, status=400)
             owner = membership.user
+            if owner.id != user.id and not is_admin:
+                return Response({"error": "You can only connect your own email address."}, status=403)
 
         domain = from_email.split("@")[1]
         inbound_domain = get_instance_setting("CONVERSATIONS_EMAIL_INBOUND_DOMAIN")
@@ -378,44 +464,53 @@ class EmailConnectView(APIView):
                 status=400,
             )
 
-        # Guard: cross-org domain ownership
-        if EmailChannel.objects.filter(domain=domain).exclude(team__organization_id=team.organization_id).exists():
-            return Response({"error": "This domain is already in use by another organization."}, status=409)
-
-        # A verified sibling proves the organization already controls the sending domain.
-        sibling = (
-            EmailChannel.objects.filter(team__organization_id=team.organization_id, domain=domain)
-            .order_by("-domain_verified", "created_at")
-            .first()
-        )
-
+        sibling: EmailChannel | None = None
         dns_records: dict = {}
-        if sibling:
-            dns_records = sibling.dns_records
-        else:
-            try:
-                dns_records = mailgun_add_domain(domain)
-            except MailgunNotConfigured:
-                logger.info("email_connect_mailgun_not_configured", team_id=team.id, domain=domain)
-                return Response({"error": "Mailgun API key not configured"}, status=400)
-            except MailgunDomainConflict as e:
-                reclaimed = _try_reclaim_stranded_domain(team, domain)
-                if reclaimed is None:
-                    logger.info("email_connect_mailgun_domain_conflict", team_id=team.id, domain=domain, error=str(e))
-                    return Response(
-                        {
-                            "error": "This domain cannot be registered for sending. "
-                            "It may already be claimed by another account."
-                        },
-                        status=400,
-                    )
-                dns_records = reclaimed
-            except Exception:
-                logger.exception("email_connect_mailgun_add_domain_failed", team_id=team.id, domain=domain)
-                return Response(
-                    {"error": "Failed to register domain for sending. Please try again later."},
-                    status=502,
+        if kind == EmailChannelKind.SUPPORT:
+            if (
+                EmailChannel.objects.filter(domain=domain, kind=EmailChannelKind.SUPPORT)
+                .exclude(team__organization_id=team.organization_id)
+                .exists()
+            ):
+                return Response({"error": "This domain is already in use by another organization."}, status=409)
+
+            sibling = (
+                EmailChannel.objects.filter(
+                    team__organization_id=team.organization_id,
+                    domain=domain,
+                    kind=EmailChannelKind.SUPPORT,
                 )
+                .order_by("-domain_verified", "created_at")
+                .first()
+            )
+            if sibling:
+                dns_records = sibling.dns_records
+            else:
+                try:
+                    dns_records = mailgun_add_domain(domain)
+                except MailgunNotConfigured:
+                    logger.info("email_connect_mailgun_not_configured", team_id=team.id, domain=domain)
+                    return Response({"error": "Mailgun API key not configured"}, status=400)
+                except MailgunDomainConflict as e:
+                    reclaimed = _try_reclaim_stranded_domain(team, domain)
+                    if reclaimed is None:
+                        logger.info(
+                            "email_connect_mailgun_domain_conflict", team_id=team.id, domain=domain, error=str(e)
+                        )
+                        return Response(
+                            {
+                                "error": "This domain cannot be registered for sending. "
+                                "It may already be claimed by another account."
+                            },
+                            status=400,
+                        )
+                    dns_records = reclaimed
+                except Exception:
+                    logger.exception("email_connect_mailgun_add_domain_failed", team_id=team.id, domain=domain)
+                    return Response(
+                        {"error": "Failed to register domain for sending. Please try again later."},
+                        status=502,
+                    )
 
         config: EmailChannel | None = None
         failure: Response | None = None
@@ -424,13 +519,36 @@ class EmailConnectView(APIView):
                 # Lock team row to serialize concurrent connects and enforce the config limit
                 Team.objects.select_for_update().get(id=team.id)
 
-                current_count = EmailChannel.objects.filter(team=team, kind=kind).count()
+                if kind == EmailChannelKind.CUSTOMER_COMMUNICATION:
+                    _release_expired_customer_email_reservation(from_email=from_email)
+
+                channels = EmailChannel.objects.filter(team=team, kind=kind)
+                if kind == EmailChannelKind.CUSTOMER_COMMUNICATION:
+                    current_count = channels.exclude(
+                        connection_status=EmailChannelConnectionStatus.CONFIRMATION_EXPIRED
+                    ).count()
+                    pending_owner_count = channels.filter(
+                        owner=owner,
+                        connection_status=EmailChannelConnectionStatus.PENDING_CONFIRMATION,
+                    ).count()
+                else:
+                    current_count = channels.count()
+                    pending_owner_count = 0
+
                 max_channels = (
                     MAX_EMAIL_CONFIGS_PER_TEAM
                     if kind == EmailChannelKind.SUPPORT
                     else MAX_CUSTOMER_COMMUNICATION_CHANNELS_PER_TEAM
                 )
-                if current_count >= max_channels:
+                if pending_owner_count >= MAX_PENDING_CUSTOMER_COMMUNICATION_CHANNELS_PER_OWNER:
+                    failure = Response(
+                        {
+                            "error": f"You can have up to {MAX_PENDING_CUSTOMER_COMMUNICATION_CHANNELS_PER_OWNER} "
+                            "email addresses awaiting confirmation. Finish or disconnect one before adding another."
+                        },
+                        status=400,
+                    )
+                elif current_count >= max_channels:
                     channel_name = "support" if kind == EmailChannelKind.SUPPORT else "customer communication"
                     failure = Response(
                         {"error": f"Maximum of {max_channels} {channel_name} email addresses per team."},
@@ -448,16 +566,28 @@ class EmailConnectView(APIView):
                         dns_records=dns_records,
                         domain_verified=sibling.domain_verified if sibling else False,
                         is_default=kind == EmailChannelKind.SUPPORT and current_count == 0,
+                        connection_status=(
+                            EmailChannelConnectionStatus.ACTIVE
+                            if kind == EmailChannelKind.SUPPORT
+                            else EmailChannelConnectionStatus.PENDING_CONFIRMATION
+                        ),
                     )
                     if kind == EmailChannelKind.SUPPORT:
                         _set_email_enabled(team, enabled=True)
+                    else:
+                        EmailChannelSetup.objects.for_team(team.id).create(
+                            team=team,
+                            channel=config,
+                            provider=EmailChannelSetupProvider.GOOGLE,
+                            expires_at=timezone.now() + CUSTOMER_EMAIL_SETUP_TTL,
+                        )
         except IntegrityError:
             failure = Response({"error": "This email address is already connected."}, status=409)
 
         if config is None:
             # Failure responses are deferred to here so the Mailgun cleanup call
             # doesn't run inside the atomic block while the team row is locked.
-            if not sibling:
+            if kind == EmailChannelKind.SUPPORT and not sibling:
                 _release_domain_if_unused(team, domain)
             assert failure is not None
             return failure
@@ -644,13 +774,79 @@ class EmailSetDefaultView(APIView):
         return Response({"ok": True})
 
 
-class EmailDisconnectView(APIView):
-    permission_classes = [IsAuthenticated, IsConversationsAdmin]
+class EmailConfirmForwardingView(APIView):
+    permission_classes = [IsAuthenticated]
 
     @extend_schema(
+        tags=["conversations"],
+        request=ConfigIdSerializer,
+        responses={
+            200: EmailConfirmForwardingResponseSerializer,
+            400: OpenApiResponse(response=EmailChannelErrorSerializer),
+            404: OpenApiResponse(response=EmailChannelErrorSerializer),
+        },
+    )
+    def post(self, request: Request, *args, **kwargs) -> Response:
+        result = _get_team_from_request(request)
+        if isinstance(result, Response):
+            return result
+        user, team = result
+
+        id_serializer = ConfigIdSerializer(data=request.data)
+        id_serializer.is_valid(raise_exception=True)
+        config_id = id_serializer.validated_data["config_id"]
+
+        with transaction.atomic():
+            config = (
+                EmailChannel.objects.select_for_update()
+                .filter(
+                    id=config_id,
+                    team=team,
+                    kind=EmailChannelKind.CUSTOMER_COMMUNICATION,
+                    owner=user,
+                )
+                .first()
+            )
+            if config is None:
+                return Response({"error": "Email config not found"}, status=404)
+            if config.connection_status != EmailChannelConnectionStatus.PENDING_CONFIRMATION:
+                return Response({"error": "This forwarding setup is not pending confirmation."}, status=400)
+
+            setup = EmailChannelSetup.objects.for_team(team.id).select_for_update().filter(channel=config).first()
+            if setup is None:
+                return Response({"error": "This forwarding setup is no longer available."}, status=400)
+            if setup.expires_at <= timezone.now():
+                setup.delete()
+                config.connection_status = EmailChannelConnectionStatus.CONFIRMATION_EXPIRED
+                config.save(update_fields=["connection_status"])
+                return Response({"error": "This forwarding setup expired. Add the email again to restart."}, status=400)
+            if not setup.confirmation_action:
+                return Response({"error": "Gmail has not sent a forwarding confirmation yet."}, status=400)
+
+            confirmation_url = setup.confirmation_action
+            # Google provides no completion callback, so the owner's request for this authenticated action is the activation boundary.
+            setup.delete()
+            config.connection_status = EmailChannelConnectionStatus.ACTIVE
+            config.save(update_fields=["connection_status"])
+
+        logger.info(
+            "customer_email_forwarding_confirmed",
+            team_id=team.id,
+            config_id=config.id,
+            user_id=user.id,
+        )
+        return Response({"ok": True, "confirmation_url": confirmation_url})
+
+
+class EmailDisconnectView(APIView):
+    permission_classes = [IsAuthenticated]
+
+    @extend_schema(
+        tags=["conversations"],
         request=ConfigIdSerializer,
         responses={
             200: EmailChannelOperationResponseSerializer,
+            403: OpenApiResponse(response=EmailChannelErrorSerializer),
             404: OpenApiResponse(response=EmailChannelErrorSerializer),
         },
     )
@@ -672,11 +868,17 @@ class EmailDisconnectView(APIView):
             # race another default change into the partial unique constraint
             Team.objects.select_for_update().get(id=team.id)
             config = EmailChannel.objects.filter(id=config_id, team=team).first()
+            is_admin = _is_organization_admin(user, team)
             if not config:
+                return Response({"error": "Email config not found"}, status=404 if is_admin else 403)
+            if config.kind == EmailChannelKind.SUPPORT and not is_admin:
+                return Response({"error": "Only organization admins can manage support email channels."}, status=403)
+            if config.kind == EmailChannelKind.CUSTOMER_COMMUNICATION and config.owner_id != user.id and not is_admin:
                 return Response({"error": "Email config not found"}, status=404)
 
             domain_to_delete = config.domain
             was_default = config.is_default
+            was_support_channel = config.kind == EmailChannelKind.SUPPORT
             config.delete()
 
             # Keep a support fallback sender after its previous default is removed.
@@ -691,7 +893,13 @@ class EmailDisconnectView(APIView):
                     replacement.save(update_fields=["is_default"])
 
             # Only delete from Mailgun if no other config (on any team) uses this domain
-            if not EmailChannel.objects.filter(domain=domain_to_delete).exists():
+            if (
+                was_support_channel
+                and not EmailChannel.objects.filter(
+                    domain=domain_to_delete,
+                    kind=EmailChannelKind.SUPPORT,
+                ).exists()
+            ):
                 should_delete_from_mailgun = True
 
             # The legacy setting controls support email, not customer communication capture.
