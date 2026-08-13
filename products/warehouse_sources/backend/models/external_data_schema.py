@@ -824,7 +824,7 @@ class ExternalDataSchema(ModelActivityMixin, CreatedMetaFields, UpdatedMetaField
                 return str(value)
         return str(value)
 
-    def update_sync_type_config_for_reset_pipeline(self) -> None:
+    def update_sync_type_config_for_reset_pipeline(self, *, clear_initial_sync_complete: bool = True) -> None:
         self.sync_type_config.pop("reset_pipeline", None)
         # Any reset resolves a pending safe-widening marker; the re-created table adopts the new
         # type. column_type_widened_last_reset_at is deliberately kept so the auto-resync cooldown
@@ -849,7 +849,13 @@ class ExternalDataSchema(ModelActivityMixin, CreatedMetaFields, UpdatedMetaField
         # repartition / change-partition-mode actions precisely so they survive this reset and win
         # the resync it triggers. They're consumed in set_partitioning_enabled.
 
-        self.initial_sync_complete = False
+        # Routine full-refresh syncs pass False: the flag is a "first sync ever completed" latch
+        # consumed by webhook gating and schema-state displays, and clearing it on every run left
+        # it false between runs whenever a sync wrote zero rows (no Delta table means post-load
+        # never re-set it). Explicit resets (reset_pipeline, corruption rebuild, sync-method
+        # change, delete_table) keep clearing so CDC's False->True streaming flip still fires.
+        if clear_initial_sync_complete:
+            self.initial_sync_complete = False
 
         self.save(skip_activity_log=True)
 
