@@ -37,7 +37,7 @@ export const useCanvasChatPanelStore = create<CanvasChatPanelState>()(
         set(collapsed ? { collapsed, viewOpen: false } : { collapsed }),
       setWidth: (width) => set({ width }),
       setTab: (tab) => set({ tab }),
-      openChat: () => set({ collapsed: false, tab: "chat" }),
+      openChat: () => set({ collapsed: false, tab: "chat", viewOpen: false }),
       openComments: () =>
         set({ collapsed: false, tab: "comments", viewOpen: true }),
     }),
