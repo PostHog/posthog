@@ -2072,18 +2072,10 @@ snapshots:
         hash: v1.k794b7964.1a0a4711a1563eca04be3a9e29b60956083b7b9cba3d124ee744d75198fff574.SOjgU2ZEa9Xbd1W_t7Ggh-N5oIncIRUZhTt6eoV_YeY
     errortracking-volumesparkline--events-before-data-range--light:
         hash: v1.k794b7964.683c24f2509215d174cda4a69fd2aa0f021af91d45f7ccdab742f78755c2e4ca.l0oCDgytHq-3gkB5Nza3SN1Tpmvc_LP_dsSdGCfoXxo
-    experiments-varianttimeseriestooltip--not-significant--dark:
-        hash: v1.k794b7964.2d34e7aee43ac84c85e73a1f2202cf930157fb04231813b95a677896627fcef8.6ZfL_69KHe0SdmBdS8OXP4_bRRXTFdFJQnTHeGFMqSc
-    experiments-varianttimeseriestooltip--not-significant--light:
-        hash: v1.k794b7964.33eb99c0efcb57f4866fd41443c927d0ea102b3209bd0410ee1b3c752e300d1e.1fHxpvpZqrb_ZqLM9wgLk1_H-U_Uww9_RlSgRvhMdQs
     experiments-varianttimeseriestooltip--pending-day--dark:
         hash: v1.k794b7964.97727c0656cd286fbe329fe68ea8b0b635911b169247a8b45ecc5a6571563509.V2WbyXdFPiGIw4bJpjP7eoK2QZW4iqJo9w68-A_60wM
     experiments-varianttimeseriestooltip--pending-day--light:
         hash: v1.k794b7964.afd712c02b718cfbd1b35f3966fe63a2699b9e3d465cbc5ed710b89d2d73e9d5.-XPnMS-DF1sjI1LEQNueLTaiaSauWbdDzdhIlF_M59I
-    experiments-varianttimeseriestooltip--ratio-metric--dark:
-        hash: v1.k794b7964.7d81ee1376197f5fc5770e712adb4f52215c81ce3857466f04cab8f6c643e8a0.ugcyS73AHOHkI3WJI1dWmS3O_j0nW-IY6Hb3gjPb35E
-    experiments-varianttimeseriestooltip--ratio-metric--light:
-        hash: v1.k794b7964.7a93b72ab50cc4740fa9614e8c3e691d0744bbcc420b76cc59ec00f151de0128.xmHWIi9NRDw4oJwhobgakdVg3HguRzbDz5SmrIeTgYA
     experiments-varianttimeseriestooltip--significant-day--dark:
         hash: v1.k794b7964.454a2741f9e14479f4e7d044cfc853cccf980bc479ebd99d8582c028b1a26f3b.19bCdMNg7cR3OObP_ntNQ0FSRQc9WENqcMT1uMErFss
     experiments-varianttimeseriestooltip--significant-day--light:

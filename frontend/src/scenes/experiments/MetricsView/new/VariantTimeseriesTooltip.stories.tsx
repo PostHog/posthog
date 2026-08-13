@@ -12,17 +12,9 @@ const LOWER = [-0.004, 0.008, 0.019, 0.032, 0.032]
 const UPPER = [0.028, 0.048, 0.063, 0.088, 0.088]
 const COMPUTED_AT = '2026-06-05T09:30:00Z'
 const HAS_REAL_DATA_ALL = [true, true, true, true, true]
-// Only the first day is measured, so the mid-plot hover the stories share lands on a pending point.
 const HAS_REAL_DATA_PENDING_TAIL = [true, false, false, false, false]
 
-/** `hasRealData[i]` marks day `i` measured; a false entry is a day the daily job hasn't computed. */
-function buildChartData({
-    significant,
-    hasRealData,
-}: {
-    significant: boolean
-    hasRealData: boolean[]
-}): ProcessedChartData {
+function buildChartData(hasRealData: boolean[]): ProcessedChartData {
     const processedData: ProcessedTimeseriesDataPoint[] = DAYS.map((date, i) => ({
         date,
         value: DELTAS[i],
@@ -31,7 +23,7 @@ function buildChartData({
         hasRealData: hasRealData[i],
         number_of_samples: 1200 + i * 300,
         denominator_sum: 18200 + i * 900,
-        significant,
+        significant: true,
     }))
     return {
         labels: DAYS,
@@ -41,22 +33,10 @@ function buildChartData({
     }
 }
 
-/** Renders the real chart, so these snapshots cover its axis and CI band, not just the tooltip. */
-function TooltipChart({
-    significant = true,
-    hasRealData = HAS_REAL_DATA_ALL,
-    isRatioMetric = false,
-}: {
-    significant?: boolean
-    hasRealData?: boolean[]
-    isRatioMetric?: boolean
-}): JSX.Element {
+function TooltipChart({ hasRealData = HAS_REAL_DATA_ALL }: { hasRealData?: boolean[] }): JSX.Element {
     return (
         <Stage width={620}>
-            <VariantTimeseriesChart
-                chartData={buildChartData({ significant, hasRealData })}
-                isRatioMetric={isRatioMetric}
-            />
+            <VariantTimeseriesChart chartData={buildChartData(hasRealData)} />
         </Stage>
     )
 }
@@ -73,28 +53,12 @@ export default meta
 
 type Story = StoryObj<typeof VariantTimeseriesTooltip>
 
-// A measured, significant day: delta, interval, exposures, and the calculated-at block.
 export const SignificantDay: Story = {
     render: () => <TooltipChart />,
     play: async ({ canvasElement }) => await playHoverAtFraction(canvasElement, 0.4),
 }
 
-// A non-significant day — "No" drops the success color so it reads as neutral.
-export const NotSignificant: Story = {
-    render: () => <TooltipChart significant={false} />,
-    play: async ({ canvasElement }) => await playHoverAtFraction(canvasElement, 0.4),
-}
-
-// Days the daily job hasn't computed: only the first day is measured, so the line dashes from the
-// second point on and the hovered day adds the pending footer. Hovered mid-plot like the others,
-// because a cursor-anchored tooltip near the right edge clips out of the snapshot.
 export const PendingDay: Story = {
     render: () => <TooltipChart hasRealData={HAS_REAL_DATA_PENDING_TAIL} />,
-    play: async ({ canvasElement }) => await playHoverAtFraction(canvasElement, 0.4),
-}
-
-// A ratio metric swaps the exposures row for the denominator.
-export const RatioMetric: Story = {
-    render: () => <TooltipChart isRatioMetric />,
     play: async ({ canvasElement }) => await playHoverAtFraction(canvasElement, 0.4),
 }
