@@ -310,8 +310,6 @@ describe('queryDatabaseLogic', () => {
             logic = queryDatabaseLogic()
             logic.mount()
             dbLogic = databaseTableListLogic.findMounted()! as ReturnType<typeof databaseTableListLogic.build>
-            // Mounting the tree mounts sourceManagementLogic, whose afterMount fires a full
-            // loadDatabase; let it settle so it can't overwrite the shallow state staged below.
             await expectLogic(dbLogic).toFinishAllListeners()
             dbLogic.actions.loadDatabaseSuccess({
                 tables: { events: { id: 'events', name: 'events', type: 'posthog', fields: {} } },
@@ -360,11 +358,15 @@ describe('queryDatabaseLogic', () => {
     describe('direct connection state', () => {
         let logic: ReturnType<typeof queryDatabaseLogic.build>
 
-        beforeEach(() => {
+        beforeEach(async () => {
             initKeaTests()
+            ;(performQuery as jest.Mock).mockResolvedValue({ tables: {}, joins: [] })
             logic = queryDatabaseLogic()
             logic.mount()
-            databaseTableListLogic.findMounted()?.actions.setConnection('source-id')
+            const databaseLogic = databaseTableListLogic.findMounted()!
+            await expectLogic(databaseLogic).toFinishAllListeners()
+            databaseLogic.actions.setConnection('source-id')
+            ;(performQuery as jest.Mock).mockClear()
         })
 
         afterEach(() => {
@@ -396,6 +398,48 @@ describe('queryDatabaseLogic', () => {
             expect(newInternalTab).toHaveBeenCalledWith(
                 expect.stringContaining('/data-management/sources/managed-source-id/schemas')
             )
+        })
+
+        it('hydrates a table restored as expanded in the displayed direct-connection tree', async () => {
+            const databaseLogic = databaseTableListLogic.findMounted()!
+            databaseLogic.actions.loadDatabaseSuccess({
+                tables: {
+                    'public.accounts': {
+                        id: 'accounts',
+                        name: 'public.accounts',
+                        type: 'data_warehouse',
+                        fields: {},
+                        source: {
+                            id: 'source-id',
+                            status: 'Running',
+                            source_type: 'Postgres',
+                            prefix: '',
+                            access_method: 'direct',
+                        },
+                    },
+                },
+                joins: [],
+            } as any)
+            databaseLogic.actions.setDatabaseFieldsComplete(false)
+            ;(performQuery as jest.Mock).mockResolvedValueOnce({
+                tables: {
+                    'public.accounts': {
+                        id: 'accounts',
+                        name: 'public.accounts',
+                        type: 'data_warehouse',
+                        fields: {
+                            id: { name: 'id', hogql_value: 'id', type: 'string', schema_valid: true },
+                        },
+                    },
+                },
+                joins: [],
+            })
+
+            logic.actions.setExpandedFolders(['schema-public', 'table-public.accounts'], 'source-id')
+            await expectLogic(databaseLogic).toFinishAllListeners()
+
+            expect(performQuery).toHaveBeenCalledWith(expect.objectContaining({ tables: ['public.accounts'] }))
+            expect(databaseLogic.values.database?.tables['public.accounts'].fields).toHaveProperty('id')
         })
     })
 })

@@ -305,13 +305,27 @@ describe('databaseTableListLogic', () => {
             expect(logic.values.tableFieldsStatus).toMatchObject({ events: 'loaded' })
         })
 
-        it('a requested table missing from the response is marked as an error', async () => {
+        it('treats a requested table missing from the response as terminal', async () => {
             await loadShallow()
             ;(performQuery as jest.Mock).mockResolvedValueOnce({ tables: {}, joins: [] })
 
             await logic.asyncActions.hydrateTableFields(['events'])
 
-            expect(logic.values.tableFieldsStatus).toMatchObject({ events: 'error' })
+            expect(logic.values.tableFieldsStatus).toMatchObject({ events: 'missing' })
+            expect(logic.values.database?.tables['events']).toBeUndefined()
+            expect(logic.values.databaseFieldsComplete).toBe(false)
+
+            ;(performQuery as jest.Mock).mockResolvedValueOnce({
+                tables: { persons: { ...shallowTables.persons, fields: eventsFields } },
+                joins: [],
+            })
+            await logic.asyncActions.hydrateTableFields(['events', 'persons'])
+
+            expect(logic.values.databaseFieldsComplete).toBe(true)
+            expect((performQuery as jest.Mock).mock.calls[2][0]).toMatchObject({ tables: ['persons'] })
+
+            await logic.asyncActions.hydrateTableFields(['events'])
+            expect(performQuery).toHaveBeenCalledTimes(3)
         })
 
         it('ensureAllTableFields hydrates every table in place and marks the schema complete', async () => {

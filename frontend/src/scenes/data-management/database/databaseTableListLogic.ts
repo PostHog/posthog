@@ -34,7 +34,7 @@ const toMapById = <T extends { id: string }>(items: T[]): Record<string, T> =>
         {} as Record<string, T>
     )
 
-export type TableFieldsStatus = Record<string, 'loading' | 'loaded' | 'error'>
+export type TableFieldsStatus = Record<string, 'loading' | 'loaded' | 'error' | 'missing'>
 
 let inFlightDatabaseLoadKey: string | null = null
 let inFlightDatabaseLoadPromise: Promise<Required<DatabaseSchemaQueryResponse> | null> | null = null
@@ -299,8 +299,18 @@ export const databaseTableListLogic = kea<databaseTableListLogicType>([
     reducers({
         searchTerm: ['', { setSearchTerm: (_, { searchTerm }) => searchTerm }],
         database: {
-            hydrateTableFieldsSuccess: (state, { tables }) =>
-                state ? { ...state, tables: { ...state.tables, ...tables } } : state,
+            hydrateTableFieldsSuccess: (state, { tableNames, tables }) => {
+                if (!state) {
+                    return state
+                }
+                const nextTables = { ...state.tables, ...tables }
+                for (const tableName of tableNames) {
+                    if (!(tableName in tables)) {
+                        delete nextTables[tableName]
+                    }
+                }
+                return { ...state, tables: nextTables }
+            },
         },
         // False while the store only holds a shallow schema (table names and metadata, no fields).
         databaseFieldsComplete: [
@@ -322,8 +332,7 @@ export const databaseTableListLogic = kea<databaseTableListLogicType>([
                 hydrateTableFieldsSuccess: (state, { tableNames, tables }) => {
                     const next = { ...state }
                     for (const name of tableNames) {
-                        // A requested table missing from the response failed to serialize server-side.
-                        next[name] = name in tables ? 'loaded' : 'error'
+                        next[name] = name in tables ? 'loaded' : 'missing'
                     }
                     return next
                 },
@@ -536,7 +545,7 @@ export const databaseTableListLogic = kea<databaseTableListLogicType>([
             const tables = values.database?.tables ?? {}
             const toLoad = tableNames.filter((name) => {
                 const status = values.tableFieldsStatus[name]
-                if (status === 'loading' || status === 'loaded') {
+                if (status === 'loading' || status === 'loaded' || status === 'missing') {
                     return false
                 }
                 const table = tables[name]
@@ -570,7 +579,10 @@ export const databaseTableListLogic = kea<databaseTableListLogicType>([
                 const tablesNow = values.database?.tables ?? {}
                 const statusNow = values.tableFieldsStatus
                 const allLoaded = Object.values(tablesNow).every(
-                    (table) => Object.keys(table.fields).length > 0 || statusNow[table.name] === 'loaded'
+                    (table) =>
+                        Object.keys(table.fields).length > 0 ||
+                        statusNow[table.name] === 'loaded' ||
+                        statusNow[table.name] === 'missing'
                 )
                 if (allLoaded) {
                     actions.setDatabaseFieldsComplete(true)

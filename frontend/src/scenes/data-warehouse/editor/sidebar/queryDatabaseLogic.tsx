@@ -164,19 +164,19 @@ const getTableFieldsState = (
     fields: Record<string, DatabaseSchemaField> | undefined,
     hydration?: TableFieldsHydration
 ): TableFieldsState => {
+    const status = hydration?.tableFieldsStatus[tableName]
+    if (status === 'error') {
+        return 'error'
+    }
     if (!hydration || hydration.databaseFieldsComplete) {
         return 'ready'
     }
     if (fields && Object.keys(fields).length > 0) {
         return 'ready'
     }
-    const status = hydration.tableFieldsStatus[tableName]
     if (status === 'loaded') {
         // Hydrated and the table genuinely has no fields.
         return 'ready'
-    }
-    if (status === 'error') {
-        return 'error'
     }
     return 'pending'
 }
@@ -437,7 +437,7 @@ const createLazyTablePlaceholderNode = (lazyNodeId: string): TreeDataItem => {
 }
 
 // Placeholder shown while a table's fields are being lazy loaded. `pendingTableName` marks the
-// table to hydrate; the treeData subscription collects these for every visible placeholder.
+// table to hydrate; the tree subscription collects these for every visible placeholder.
 const createPendingFieldsNode = (nodeId: string, pendingTableName: string): TreeDataItem => {
     return {
         id: `${nodeId}-fields-pending/`,
@@ -3358,9 +3358,9 @@ export const queryDatabaseLogic = kea<queryDatabaseLogicType>([
     subscriptions(({ actions, values }) => ({
         // Hydrate fields for every visible "Loading..." placeholder. Covers expansion restored from
         // persisted state and nodes that were expanded before the shallow schema arrived; the
-        // hydrate action itself dedupes tables already loading or loaded.
-        treeData: (treeData: TreeDataItem[]) => {
-            const expanded = new Set(values.expandedFolders)
+        // hydrate action itself dedupes tables that are already loading or settled.
+        displayedTreeData: (displayedTreeData: TreeDataItem[]) => {
+            const expanded = new Set(values.searchTerm ? values.expandedSearchFolders : values.expandedFolders)
             const pendingTableNames = new Set<string>()
             const collect = (nodes: TreeDataItem[]): void => {
                 for (const node of nodes) {
@@ -3374,12 +3374,11 @@ export const queryDatabaseLogic = kea<queryDatabaseLogicType>([
                     }
                 }
             }
-            collect(treeData)
+            collect(displayedTreeData)
             if (pendingTableNames.size > 0) {
                 actions.hydrateTableFields(Array.from(pendingTableNames))
             }
-        },
-        displayedTreeData: (displayedTreeData: TreeDataItem[]) => {
+
             if (values.searchTerm || !shouldUseDirectConnectionTree(values.connectionId)) {
                 return
             }
