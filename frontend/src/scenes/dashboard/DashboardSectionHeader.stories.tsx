@@ -37,6 +37,10 @@ type Story = StoryObj<typeof DashboardSectionHeader>
 
 export const Default: Story = {}
 
+export const Draggable: Story = {
+    args: { onSectionPointerDown: () => {} },
+}
+
 export const Collapsed: Story = {
     args: { collapsed: true },
 }

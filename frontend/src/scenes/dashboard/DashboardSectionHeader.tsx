@@ -1,4 +1,5 @@
-import { useState } from 'react'
+import clsx from 'clsx'
+import { useState, type PointerEvent } from 'react'
 
 import { IconChevronRight, IconEllipsis } from '@posthog/icons'
 import type {
@@ -24,6 +25,7 @@ export interface DashboardSectionHeaderProps {
     onRename: (name: string) => void
     onMove: (position: number) => void
     onDelete: (memberHandling: MemberHandlingEnumApi) => void
+    onSectionPointerDown?: (event: PointerEvent<HTMLDivElement>) => void
 }
 
 export function DashboardSectionHeader({
@@ -36,6 +38,7 @@ export function DashboardSectionHeader({
     onRename,
     onMove,
     onDelete,
+    onSectionPointerDown,
 }: DashboardSectionHeaderProps): JSX.Element {
     const [editing, setEditing] = useState(false)
     const [name, setName] = useState(group.name ?? '')
@@ -51,7 +54,10 @@ export function DashboardSectionHeader({
     }
 
     return (
-        <div className="flex items-center gap-2 px-3 py-2">
+        <div
+            className={clsx('flex items-center gap-2 px-3 py-2', onSectionPointerDown && 'cursor-grab touch-none')}
+            onPointerDown={onSectionPointerDown}
+        >
             <LemonButton
                 icon={<IconChevronRight className={collapsed ? '' : 'rotate-90'} />}
                 size="small"
