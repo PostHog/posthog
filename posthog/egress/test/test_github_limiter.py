@@ -8,11 +8,14 @@ from parameterized import parameterized
 from requests.structures import CaseInsensitiveDict
 
 from posthog.egress.github.limiter import (
+    GitHubRateResource,
     _last_written,
     _observed_memo,
     _tier_budgets,
+    classify_github_resource,
     get_observed_core_limit,
     github_installation_key,
+    installation_id_from_key,
     observed_core_limit_cache_key,
     remember_observed_core_limit,
 )
@@ -110,3 +113,56 @@ class TestObservedCoreLimitStore(GitHubLimiterTestCase):
         # the policy's window smaller than a single call and raise on every acquire, CRITICAL included).
         cache.set(observed_core_limit_cache_key(self.installation_id), cached, 60)
         assert get_observed_core_limit(self.installation_id) is None
+
+
+class TestClassifyGithubResource(SimpleTestCase):
+    # The routing that this whole fix hinges on: a /search/code call charged to core would sail
+    # through the 5k/hour budget while GitHub 403/429s it at 10/min. Guards that each URL lands on
+    # the resource GitHub actually meters it against.
+    @parameterized.expand(
+        [
+            ("code_search_full_url", "https://api.github.com/search/code?q=x", GitHubRateResource.CODE_SEARCH),
+            ("code_search_bare_path", "/search/code", GitHubRateResource.CODE_SEARCH),
+            ("search_issues", "/search/issues", GitHubRateResource.SEARCH),
+            ("search_repositories", "/search/repositories?q=x", GitHubRateResource.SEARCH),
+            ("core_repo_call", "/repos/o/r/pulls/1", GitHubRateResource.CORE),
+            ("graphql_routes_to_core", "/graphql", GitHubRateResource.CORE),
+            ("access_tokens_is_core", "/app/installations/1/access_tokens", GitHubRateResource.CORE),
+        ]
+    )
+    def test_classify(self, _name: str, url: str, expected: GitHubRateResource) -> None:
+        assert classify_github_resource(url) == expected
+
+
+class TestSearchResourcePolicies(SimpleTestCase):
+    # The static search budgets and the reserve ladder attach: a regression here silently reverts
+    # /search/code to the flat core budget (the bug this fix closes) or drops the shedding ladder.
+    @parameterized.expand(
+        [
+            ("code_search", GitHubRateResource.CODE_SEARCH, (8, 60.0)),
+            ("search", GitHubRateResource.SEARCH, (27, 60.0)),
+        ]
+    )
+    def test_static_policy_and_reserve_ladder(
+        self, _name: str, resource: GitHubRateResource, expected_limit: tuple[int, float]
+    ) -> None:
+        policy = resolve_policy(github_installation_key("x", resource=resource))
+        assert policy.limits == (expected_limit,)
+        assert policy.reserve_fraction(Priority.BATCH) > policy.reserve_fraction(Priority.NORMAL) > 0.0
+        assert policy.reserve_fraction(Priority.CRITICAL) == 0.0
+
+
+class TestInstallationKeyResource(SimpleTestCase):
+    # The resource -> domain mapping plus the key round-trip: a broken mapping keys the wrong meter,
+    # and a broken round-trip means the tier lookup reads the wrong installation.
+    @parameterized.expand(
+        [
+            ("core", GitHubRateResource.CORE, "github"),
+            ("search", GitHubRateResource.SEARCH, "github_search"),
+            ("code_search", GitHubRateResource.CODE_SEARCH, "github_code_search"),
+        ]
+    )
+    def test_key_domain_and_round_trip(self, _name: str, resource: GitHubRateResource, expected_domain: str) -> None:
+        key = github_installation_key(42, resource=resource)
+        assert key.split(":")[0] == expected_domain
+        assert installation_id_from_key(key) == "42"

@@ -52,6 +52,8 @@ class Product(StrEnum):
     COHORTS = "cohorts"
     CONVERSATIONS = "conversations"
     CUSTOMER_ANALYTICS = "customer_analytics"
+    DATA_CATALOG = "data_catalog"
+    DATA_QUALITY = "data_quality"
     ENDPOINTS = "endpoints"
     ENGINEERING_ANALYTICS = "engineering_analytics"
     ERROR_TRACKING = "error_tracking"
@@ -59,6 +61,7 @@ class Product(StrEnum):
     FEATURE_FLAGS = "feature_flags"
     GROUP_ANALYTICS = "group_analytics"
     GROWTH = "growth"  # growth-team activation/lifecycle jobs (e.g. production-event detection)
+    HEATMAPS = "heatmaps"
     INGESTION = "ingestion"
     LLM_ANALYTICS = "llm_analytics"
     LOGS = "logs"
@@ -80,7 +83,9 @@ class Product(StrEnum):
     SDK_HEALTH = "sdk_health"
     SESSION_SUMMARY = "session_summary"
     SIGNALS = "signals"
+    SQL_EDITOR = "sql_editor"
     SURVEYS = "surveys"
+    TRACING = "tracing"
     USER_INTERVIEWS = "user_interviews"
     WAREHOUSE = "warehouse"
     WEB_ANALYTICS = "web_analytics"
@@ -105,8 +110,10 @@ class Feature(StrEnum):
     DATA_MODELING = "data_modeling"
     HEALTH_CHECK = "health_check"
     IMPORT_PIPELINE = "import_pipeline"
+    INGESTION_WARNINGS = "ingestion_warnings"
     PREAGGREGATION = "preaggregation"
     DATA_DELETION = "data_deletion"
+    DATA_QUALITY_CHECK = "data_quality_check"  # one data quality check assertion against its subject
     ENRICHMENT = "enrichment"  # background tasks that derive/sync data (not customer-facing)
     EVENT_FILTERS = "event_filters"
     SCHEMA_INTROSPECTION = "schema_introspection"
@@ -120,6 +127,7 @@ class Feature(StrEnum):
     # would be misleading; tagging by endpoint name keeps the signal honest.
     EVENTS_VALUES_API = "events_values_api"
     USAGE_REPORT = "usage_report"
+    DATA_FRESHNESS = "data_freshness"  # "when did this project last receive data" probes
     BILLING_ETL = "billing_etl"
     QUOTA_LIMITING = "quota_limiting"
     MIGRATION = "migration"
@@ -146,6 +154,7 @@ class FallbackTags(TypedDict):
 # fallback. The `None` rows double as breadcrumbs so the absence of a common scene is loud.
 SCENE_TO_TAGS: dict[str, FallbackTags | None] = {
     "Cohort": {"product": Product.COHORTS, "feature": Feature.COHORT},
+    "CustomerAnalytics": {"product": Product.CUSTOMER_ANALYTICS, "feature": Feature.QUERY},
     "EndpointScene": {"product": Product.ENDPOINTS, "feature": Feature.QUERY},
     "EndpointsScene": {"product": Product.ENDPOINTS, "feature": Feature.QUERY},
     "EngineeringAnalytics": {"product": Product.ENGINEERING_ANALYTICS, "feature": Feature.QUERY},
@@ -180,6 +189,7 @@ def kind_fallback_tags(kind: NodeKind) -> FallbackTags | None:
             | NodeKind.FUNNELS_QUERY
             | NodeKind.RETENTION_QUERY
             | NodeKind.PATHS_QUERY
+            | NodeKind.PATHS_V2_QUERY
             | NodeKind.STICKINESS_QUERY
             | NodeKind.LIFECYCLE_QUERY
             | NodeKind.EVENTS_QUERY
@@ -194,6 +204,7 @@ def kind_fallback_tags(kind: NodeKind) -> FallbackTags | None:
             | NodeKind.WEB_STATS_TABLE_QUERY
             | NodeKind.WEB_GOALS_QUERY
             | NodeKind.WEB_EXTERNAL_CLICKS_TABLE_QUERY
+            | NodeKind.WEB_BOTS_TABLE_QUERY
             | NodeKind.WEB_PAGE_URL_SEARCH_QUERY
             | NodeKind.WEB_VITALS_QUERY
             | NodeKind.WEB_VITALS_PATH_BREAKDOWN_QUERY
@@ -211,6 +222,10 @@ def kind_fallback_tags(kind: NodeKind) -> FallbackTags | None:
             return {"product": Product.ERROR_TRACKING}
         case NodeKind.LOGS_QUERY | NodeKind.LOG_ATTRIBUTES_QUERY | NodeKind.LOG_VALUES_QUERY:
             return {"product": Product.LOGS}
+        case NodeKind.METRICS_QUERY:
+            return {"product": Product.METRICS}
+        case NodeKind.ACCOUNTS_TABLE_QUERY:
+            return {"product": Product.CUSTOMER_ANALYTICS}
         case NodeKind.RECORDINGS_QUERY | NodeKind.SESSION_BATCH_EVENTS_QUERY:
             return {"product": Product.REPLAY}
         case (
@@ -252,27 +267,26 @@ def kind_fallback_tags(kind: NodeKind) -> FallbackTags | None:
         ):
             return {"product": Product.MAX_AI}
         case (
-            NodeKind.REVENUE_ANALYTICS_GROSS_REVENUE_QUERY
-            | NodeKind.REVENUE_ANALYTICS_MRR_QUERY
-            | NodeKind.REVENUE_ANALYTICS_METRICS_QUERY
-            | NodeKind.REVENUE_ANALYTICS_OVERVIEW_QUERY
-            | NodeKind.REVENUE_ANALYTICS_TOP_CUSTOMERS_QUERY
-            | NodeKind.REVENUE_EXAMPLE_EVENTS_QUERY
-            | NodeKind.REVENUE_EXAMPLE_DATA_WAREHOUSE_TABLES_QUERY
-        ):
-            return {"product": Product.REVENUE_ANALYTICS}
-        case (
             NodeKind.MARKETING_ANALYTICS_TABLE_QUERY
             | NodeKind.MARKETING_ANALYTICS_AGGREGATED_QUERY
+            | NodeKind.MARKETING_ANALYTICS_ATTRIBUTION_QUERY
+            | NodeKind.MARKETING_ANALYTICS_ATTRIBUTION_PATHS_QUERY
             | NodeKind.NON_INTEGRATED_CONVERSIONS_TABLE_QUERY
         ):
             return {"product": Product.MARKETING_ANALYTICS}
         case (
             NodeKind.MCP_HARNESS_BREAKDOWN_QUERY
+            | NodeKind.MCP_TOOL_CALL_BREAKDOWN_QUERY
+            | NodeKind.MCP_TOOL_CALLS_AND_ERRORS_QUERY
             | NodeKind.MCP_TOOL_TOP_USERS_QUERY
             | NodeKind.MCP_TOOL_FAILURES_QUERY
+            | NodeKind.MCP_TOOL_FAILURE_OCCURRENCES_QUERY
             | NodeKind.MCP_TOOL_STATS_QUERY
             | NodeKind.MCP_TOOL_DAILY_STATS_QUERY
+            | NodeKind.MCP_TOOL_QUALITY_ROWS_QUERY
+            | NodeKind.MCP_TOOL_QUALITY_DAILY_STATS_QUERY
+            | NodeKind.MCP_TOOL_CATEGORY_COUNTS_QUERY
+            | NodeKind.MCP_TOOL_CATEGORIES_QUERY
             | NodeKind.MCP_TOOL_DESCRIPTIONS_QUERY
             | NodeKind.MCP_TOOL_SAMPLE_INTENTS_QUERY
             | NodeKind.MCP_TOOL_NEIGHBORS_QUERY
@@ -296,6 +310,7 @@ def kind_fallback_tags(kind: NodeKind) -> FallbackTags | None:
             | NodeKind.FUNNELS_ACTORS_QUERY
             | NodeKind.FUNNEL_CORRELATION_QUERY
             | NodeKind.FUNNEL_CORRELATION_ACTORS_QUERY
+            | NodeKind.PATHS_V2_ACTORS_QUERY
             # data-source nodes, not full queries
             | NodeKind.EVENTS_NODE
             | NodeKind.GROUP_NODE
@@ -390,6 +405,7 @@ class QueryTags(BaseModel):
     workload: Optional[str] = None  # enum connection.Workload
     dashboard_id: Optional[int] = None
     insight_id: Optional[int] = None
+    scanner_id: Optional[str] = None  # replay-vision scanner, for per-scanner read metering
     exported_asset_id: Optional[int] = None
     export_format: Optional[str] = None
     chargeable: Optional[int] = None
@@ -423,6 +439,9 @@ class QueryTags(BaseModel):
     # Generic across products (experiments, marketing, web analytics) since they share the executor.
     precompute_window_start: Optional[str] = None
     precompute_window_end: Optional[str] = None
+    # True on precompute READ queries served from expired-within-grace jobs (serve-stale path),
+    # so query_log can compare stale-served vs fresh reads without joining Prometheus.
+    precompute_stale: Optional[bool] = None
     entity_math: Optional[list[str]] = None
 
     # replays
@@ -468,6 +487,12 @@ class QueryTags(BaseModel):
     filter: Optional[object] = None
     filter_by_type: Optional[list[str]] = None
     breakdown_by: Optional[list[str]] = None
+
+    # data quality
+    data_quality_check_id: Optional[str] = None
+    data_quality_check_type: Optional[str] = None  # not_null, unique, freshness, custom_sql, ...
+    data_quality_subject_type: Optional[str] = None  # table or view
+    data_quality_subject_id: Optional[str] = None
 
     # data warehouse
     trend_volume_display: Optional[str] = None
@@ -673,6 +698,7 @@ _EVENT_TO_TAGS: tuple[tuple[frozenset[str], FallbackTags], ...] = (
     (frozenset({"$exception"}), {"product": Product.ERROR_TRACKING}),
     (frozenset({"$web_vitals"}), {"product": Product.WEB_ANALYTICS}),
     (frozenset({"$feature_flag_called"}), {"product": Product.FEATURE_FLAGS}),
+    (frozenset({"$experiment_exposure"}), {"product": Product.EXPERIMENTS}),
 )
 
 # Union of every event the fallback can match — exposed so HogQLFeatureExtractor can use it as

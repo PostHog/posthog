@@ -1,20 +1,27 @@
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
+use std::str::from_utf8;
 use std::sync::Arc;
-use std::time::Duration;
+use std::time::{Duration, Instant};
 
-use etcd_client::EventType;
+use etcd_client::{EventType, WatchStream};
+use metrics::{counter, gauge, histogram};
+use tokio::sync::Notify;
 use tokio_util::sync::CancellationToken;
 
 use assignment_coordination::store::parse_watch_value;
-use assignment_coordination::util::compute_required_handoffs;
-use k8s_awareness::types::ControllerKind;
-use k8s_awareness::{DepartureReason, K8sAwareness};
+use k8s_awareness::types::{ControllerKind, ControllerRef};
+use k8s_awareness::{classify_departure, ClusterIntent, DepartureReason, K8sAwareness};
 
 use crate::error::{Error, Result};
+use crate::protocol::{
+    drain_satisfied, freeze_quorum_met, missing_freeze_ackers, past_phase_deadline,
+    plan_partial_rebalance, warm_satisfied,
+};
 use crate::store::{self, PersonhogStore};
-use crate::strategy::AssignmentStrategy;
+use crate::strategy::{AssignmentStrategy, Member, PlacementPolicy};
 use crate::types::{
-    AssignmentStatus, HandoffPhase, HandoffState, PartitionAssignment, PodStatus, RegisteredPod,
+    AssignmentPrecondition, HandoffPhase, HandoffReplacement, HandoffState, PodStatus,
+    RegisteredPod, RegisteredRouter,
 };
 
 use crate::util;
@@ -28,16 +35,82 @@ pub struct CoordinatorConfig {
     /// How long to wait after the first pod event before rebalancing, to batch
     /// rapid pod registrations into a single rebalance.
     pub rebalance_debounce_interval: Duration,
+    /// How often to re-evaluate in-flight handoffs regardless of watch
+    /// events. Phase advancement is event-driven — acks, handoff writes,
+    /// and router departures are all watched — so the tick is pure
+    /// defense-in-depth: it catches a dropped stream or an event lost in
+    /// a coordinator failover window, keeping a handoff from stalling
+    /// indefinitely on a missed delivery.
+    pub reconcile_interval: Duration,
+    /// How long a handoff may sit in Freezing or Draining before the
+    /// coordinator cancels it — by atomic replacement with whatever
+    /// resolves its stashes — and lets the plan try again.
+    ///
+    /// This is the backstop for causes we have not found: a participant
+    /// that never acks leaves a handoff that no other path removes, and
+    /// an in-flight handoff pins its partition so no re-plan can touch
+    /// it. Cancelling is the only safe response; force-advancing past a
+    /// missing freeze ack is exactly the split-brain the quorum exists
+    /// to prevent.
+    ///
+    /// Measured against time in the current phase (`phase_entered_at_ms`,
+    /// which every phase advance restamps): wedged is a property of a
+    /// phase, not of a lifetime. Freezing and Draining wait only on
+    /// acknowledgements, so their budget can be tight; Warming does real
+    /// work that scales with the partition and gets its own budget below.
+    ///
+    /// Generous by design: healthy ack waits complete in seconds, so
+    /// this sits orders of magnitude above them. Ages are wall-clock
+    /// differences that may span machines (a failover successor judges
+    /// records its predecessor stamped); NTP-bounded skew against a
+    /// deadline of minutes is tolerated, and a mistimed cancellation is
+    /// safe in either direction — early, the replacement is stamped and
+    /// judged by one clock; late, a wedge lives that much longer.
+    pub handoff_deadline: Duration,
+    /// How long a handoff may sit in Warming. A warm replays the
+    /// partition's changelog, whose length scales with the data — under
+    /// a general deadline a partition whose replay outlives the budget
+    /// could never complete: cancel, replan, warm from zero, forever.
+    /// Zero disables the Warming budget entirely.
+    pub warming_deadline: Duration,
 }
 
 impl Default for CoordinatorConfig {
     fn default() -> Self {
         Self {
             name: "coordinator-0".to_string(),
-            leader_lease_ttl: 15,
-            keepalive_interval: Duration::from_secs(5),
-            election_retry_interval: Duration::from_secs(5),
+            // A crashed leader blocks every handoff until its election
+            // lease expires and a survivor's next campaign fires, so the
+            // worst-case coordinator outage is ttl + retry. 5s + 1s keeps
+            // that near the pod-crash detection window, while the 1s
+            // keepalive gives the leader several attempts within the TTL
+            // before it abdicates. Graceful exits don't wait on any of
+            // this — the lease is revoked on the way out.
+            leader_lease_ttl: 5,
+            keepalive_interval: Duration::from_secs(1),
+            election_retry_interval: Duration::from_secs(1),
             rebalance_debounce_interval: Duration::from_secs(1),
+            reconcile_interval: Duration::from_secs(5),
+            handoff_deadline: Duration::from_secs(120),
+            warming_deadline: Duration::from_secs(1800),
+        }
+    }
+}
+
+/// The per-phase cancellation budgets, bundled for every path that
+/// judges handoff age (see `CoordinatorConfig::handoff_deadline` and
+/// `warming_deadline`).
+#[derive(Clone, Copy)]
+struct PhaseDeadlines {
+    handoff: Duration,
+    warming: Duration,
+}
+
+impl CoordinatorConfig {
+    fn phase_deadlines(&self) -> PhaseDeadlines {
+        PhaseDeadlines {
+            handoff: self.handoff_deadline,
+            warming: self.warming_deadline,
         }
     }
 }
@@ -47,6 +120,16 @@ pub struct Coordinator {
     config: CoordinatorConfig,
     strategy: Arc<dyn AssignmentStrategy>,
     k8s_awareness: Option<Arc<K8sAwareness>>,
+}
+
+/// What prompted a phase-advance evaluation. Only ack-triggered
+/// evaluations record the ack-to-advance span: a departure or tick can
+/// legitimately advance a handoff on acks that arrived long before, and
+/// that elapsed time measures the blocker, not coordinator reaction.
+#[derive(Clone, Copy, PartialEq, Eq)]
+enum AdvanceTrigger {
+    Ack,
+    Other,
 }
 
 impl Coordinator {
@@ -68,81 +151,176 @@ impl Coordinator {
     /// when elected, runs the coordination loop until leadership is lost
     /// or cancellation is requested.
     pub async fn run(&self, cancel: CancellationToken) -> Result<()> {
+        util::preregister_coordinator_metrics();
         loop {
+            if cancel.is_cancelled() {
+                return Ok(());
+            }
+            // Awaited to completion, never raced against cancellation:
+            // dropping try_lead mid-cleanup would strand the election
+            // lease until TTL expiry, stalling every handoff while the
+            // next coordinator's campaign waits it out. try_lead observes
+            // `cancel` internally and returns promptly on shutdown.
+            match self.try_lead(cancel.clone()).await {
+                Ok(true) => tracing::info!(name = %self.config.name, "leadership ended normally"),
+                Ok(false) => {}
+                Err(e) => {
+                    tracing::warn!(name = %self.config.name, error = %e, "leader loop ended with error")
+                }
+            }
             tokio::select! {
                 _ = cancel.cancelled() => return Ok(()),
-                result = self.try_lead(cancel.clone()) => {
-                    match result {
-                        Ok(()) => tracing::info!(name = %self.config.name, "leadership ended normally"),
-                        Err(e) => tracing::warn!(name = %self.config.name, error = %e, "leader loop ended with error"),
-                    }
-                    tokio::select! {
-                        _ = cancel.cancelled() => return Ok(()),
-                        _ = tokio::time::sleep(self.config.election_retry_interval) => {}
-                    }
-                }
+                _ = tokio::time::sleep(self.config.election_retry_interval) => {}
             }
         }
     }
 
-    async fn try_lead(&self, cancel: CancellationToken) -> Result<()> {
+    /// One leadership attempt; returns whether this candidate actually
+    /// led. Always runs its cleanup — keepalive shutdown and election
+    /// lease revoke — before returning, so a graceful exit frees the
+    /// election immediately instead of stranding it until TTL expiry.
+    /// `run` relies on that by awaiting this call to completion.
+    async fn try_lead(&self, cancel: CancellationToken) -> Result<bool> {
+        let granted_at = Instant::now();
         let lease_id = self.store.grant_lease(self.config.leader_lease_ttl).await?;
 
-        let acquired = self
+        let acquired = match self
             .store
             .try_acquire_leadership(&self.config.name, lease_id)
-            .await?;
+            .await
+        {
+            Ok(acquired) => acquired,
+            Err(e) => {
+                drop(self.store.revoke_lease(lease_id).await);
+                return Err(e);
+            }
+        };
 
         if !acquired {
             tracing::debug!(name = %self.config.name, "another coordinator is leader, standing by");
-            return Ok(());
+            // Nothing hangs off the lease; revoke it rather than leaking
+            // one lease per election retry from every standby candidate.
+            drop(self.store.revoke_lease(lease_id).await);
+            return Ok(false);
         }
 
         tracing::info!(name = %self.config.name, "acquired leadership");
+        gauge!("personhog_coordination_is_coordinator").set(1.0);
+        counter!("personhog_coordination_elections_won_total").increment(1);
 
-        // Spawn lease keepalive
+        // A failed keepalive means the lease is gone (or about to be) and
+        // another candidate can win the election: abdicate rather than
+        // keep coordinating as a zombie alongside the successor. The
+        // successor's bootstrap reconciles in-flight state, and handoff
+        // transitions are CAS-guarded against exactly this overlap.
         let keepalive_cancel = cancel.child_token();
+        let lease_lost = CancellationToken::new();
         let keepalive_handle = {
             let store = Arc::clone(&self.store);
             let interval = self.config.keepalive_interval;
+            let lease_ttl = self.config.leader_lease_ttl;
             let token = keepalive_cancel.clone();
+            let lease_lost = lease_lost.clone();
             tokio::spawn(async move {
-                if let Err(e) = util::run_lease_keepalive(store, lease_id, interval, token).await {
-                    tracing::error!(error = %e, "keepalive failed");
+                // The keepalive runs as its own inner task so a panic
+                // surfaces as a JoinError here instead of silently
+                // unwinding this watcher: a leader whose keepalive died
+                // without signalling would coordinate on with no renewal
+                // until a successor is elected alongside it.
+                let inner = tokio::spawn(util::run_lease_keepalive(
+                    store,
+                    lease_id,
+                    interval,
+                    lease_ttl,
+                    granted_at,
+                    "coordinator",
+                    // The coordinator serves no partition data; there is
+                    // no request path to gate on its lease.
+                    None,
+                    token.clone(),
+                ));
+                let failure = match inner.await {
+                    Ok(Ok(())) => (!token.is_cancelled())
+                        .then(|| "election lease keepalive exited unexpectedly".to_string()),
+                    Ok(Err(e)) => Some(format!("election lease keepalive failed: {e}")),
+                    Err(join_err) => Some(format!("election lease keepalive panicked: {join_err}")),
+                };
+                if let Some(reason) = failure {
+                    if !token.is_cancelled() {
+                        tracing::error!(reason, "abdicating leadership");
+                        lease_lost.cancel();
+                    }
                 }
             })
         };
 
-        let result = self.run_coordination_loop(cancel.clone()).await;
+        let result = tokio::select! {
+            _ = lease_lost.cancelled() => Err(Error::leadership_lost()),
+            result = self.run_coordination_loop(cancel.clone()) => result,
+        };
 
         // Clean up keepalive
         keepalive_cancel.cancel();
         drop(keepalive_handle.await);
 
-        // Best-effort revoke so next leader can take over quickly
+        // Revoke so the next candidate's campaign wins immediately instead
+        // of waiting out the lease TTL.
         drop(self.store.revoke_lease(lease_id).await);
 
-        result
+        reset_coordinator_gauges();
+
+        result.map(|()| true)
     }
 
     async fn run_coordination_loop(&self, cancel: CancellationToken) -> Result<()> {
-        // Spawn all watch loops BEFORE doing any work that produces etcd
-        // events. The new protocol requires the coordinator itself to
-        // observe ack writes (PodDrainedAck, PodWarmedAck, RouterFreezeAck)
-        // to advance handoffs through their phases. If we did initial
-        // bootstrap before attaching watches, events fired during bootstrap
-        // would be missed and handoffs would stall in their initial phase.
+        // Anchor every watch to a single revision taken BEFORE bootstrap.
+        // The coordinator must observe ack writes (PodDrainedAck,
+        // PodWarmedAck, RouterFreezeAck) to advance handoffs; anchoring
+        // guarantees that any event from this revision on is delivered
+        // even if it lands before a watch finishes attaching, so nothing
+        // written during (or racing) bootstrap can be missed. Bootstrap
+        // reads happen after this point and may double-observe events the
+        // watches also deliver — all downstream work is idempotent
+        // (CAS-guarded phase transitions, tolerant cleanup).
+        let anchor = self.store.current_revision().await? + 1;
+        let pods_stream = self.store.watch_pods_from(anchor).await?;
+        let handoffs_stream = self.store.watch_handoffs_from(anchor).await?;
+        let freeze_acks_stream = self.store.watch_freeze_acks_from(anchor).await?;
+        let drained_acks_stream = self.store.watch_drained_acks_from(anchor).await?;
+        let warmed_acks_stream = self.store.watch_warmed_acks_from(anchor).await?;
+        let routers_stream = self.store.watch_routers_from(anchor).await?;
+
         let mut tasks = tokio::task::JoinSet::new();
+
+        // Wakes the planning loop for state changes only the coordinator
+        // itself produces — a deadline cancellation deletes a handoff,
+        // which fires no pod event, so without an explicit wake no
+        // re-plan would run until the next unrelated pod change. Waking
+        // the one planning loop rather than planning inline keeps a
+        // single planner task; `Notify` stores a permit, so a wake fired
+        // mid-plan is picked up on the next iteration rather than lost.
+        let replan = Arc::new(Notify::new());
 
         {
             let store = Arc::clone(&self.store);
             let strategy = Arc::clone(&self.strategy);
             let k8s_awareness = self.k8s_awareness.clone();
             let debounce_interval = self.config.rebalance_debounce_interval;
+            let deadlines = self.config.phase_deadlines();
+            let replan = Arc::clone(&replan);
             let token = cancel.child_token();
             tasks.spawn(async move {
-                Self::watch_pods_loop(store, strategy, k8s_awareness, debounce_interval, token)
-                    .await
+                Self::watch_pods_loop(
+                    store,
+                    strategy,
+                    k8s_awareness,
+                    debounce_interval,
+                    deadlines,
+                    replan,
+                    token,
+                    pods_stream,
+                )
+                .await
             });
         }
 
@@ -150,34 +328,63 @@ impl Coordinator {
             let store = Arc::clone(&self.store);
             let strategy = Arc::clone(&self.strategy);
             let k8s_awareness = self.k8s_awareness.clone();
+            let deadlines = self.config.phase_deadlines();
             let token = cancel.child_token();
             tasks.spawn(async move {
-                Self::watch_handoffs_loop(store, strategy, k8s_awareness, token).await
+                Self::watch_handoffs_loop(
+                    store,
+                    strategy,
+                    k8s_awareness,
+                    deadlines,
+                    token,
+                    handoffs_stream,
+                )
+                .await
             });
         }
 
         {
             let store = Arc::clone(&self.store);
             let token = cancel.child_token();
-            tasks.spawn(async move { Self::watch_freeze_acks_loop(store, token).await });
+            tasks.spawn(async move {
+                Self::run_ack_watch("freeze", freeze_acks_stream, &store, token).await
+            });
         }
 
         {
             let store = Arc::clone(&self.store);
             let token = cancel.child_token();
-            tasks.spawn(async move { Self::watch_drained_acks_loop(store, token).await });
+            tasks.spawn(async move {
+                Self::run_ack_watch("drained", drained_acks_stream, &store, token).await
+            });
         }
 
         {
             let store = Arc::clone(&self.store);
             let token = cancel.child_token();
-            tasks.spawn(async move { Self::watch_warmed_acks_loop(store, token).await });
+            tasks.spawn(async move {
+                Self::run_ack_watch("warmed", warmed_acks_stream, &store, token).await
+            });
         }
 
-        // Watches are now attached at the current etcd revision.
-        // Any handoff/ack events produced from this point forward will be
-        // observed by the relevant watch loops.
-        //
+        {
+            let store = Arc::clone(&self.store);
+            let token = cancel.child_token();
+            tasks.spawn(async move {
+                Self::run_router_departure_watch(routers_stream, &store, token).await
+            });
+        }
+
+        {
+            let store = Arc::clone(&self.store);
+            let interval = self.config.reconcile_interval;
+            let replan = Arc::clone(&replan);
+            let token = cancel.child_token();
+            tasks.spawn(
+                async move { Self::reconcile_tick_loop(store, interval, replan, token).await },
+            );
+        }
+
         // Reconcile any handoffs that already have full ack quorum.
         // This handles acks that arrived before this coordinator took leadership.
         self.reconcile_pending_handoffs().await?;
@@ -198,19 +405,24 @@ impl Coordinator {
         result
     }
 
+    #[allow(clippy::too_many_arguments)]
     async fn watch_pods_loop(
         store: Arc<PersonhogStore>,
         strategy: Arc<dyn AssignmentStrategy>,
         k8s_awareness: Option<Arc<K8sAwareness>>,
         debounce_interval: Duration,
+        deadlines: PhaseDeadlines,
+        replan: Arc<Notify>,
         cancel: CancellationToken,
+        mut stream: WatchStream,
     ) -> Result<()> {
-        let mut stream = store.watch_pods().await?;
-
         loop {
-            // Wait for the first pod event
+            // Wait for the first pod event, or an explicit re-plan wake
+            // (a deadline cancellation deletes a handoff, which fires no
+            // pod event but leaves the placement short of desired).
             tokio::select! {
                 _ = cancel.cancelled() => return Ok(()),
+                _ = replan.notified() => {}
                 msg = stream.message() => {
                     let resp = msg?.ok_or_else(|| Error::invalid_state("pod watch stream ended".to_string()))?;
                     Self::log_pod_events(&resp);
@@ -230,8 +442,13 @@ impl Coordinator {
                 }
             }
 
-            Self::handle_pod_change_static(&store, strategy.as_ref(), k8s_awareness.as_deref())
-                .await?;
+            Self::handle_pod_change_static(
+                &store,
+                strategy.as_ref(),
+                k8s_awareness.as_deref(),
+                deadlines,
+            )
+            .await?;
         }
     }
 
@@ -248,10 +465,10 @@ impl Coordinator {
         store: Arc<PersonhogStore>,
         strategy: Arc<dyn AssignmentStrategy>,
         k8s_awareness: Option<Arc<K8sAwareness>>,
+        deadlines: PhaseDeadlines,
         cancel: CancellationToken,
+        mut stream: WatchStream,
     ) -> Result<()> {
-        let mut stream = store.watch_handoffs().await?;
-
         loop {
             tokio::select! {
                 _ = cancel.cancelled() => return Ok(()),
@@ -269,7 +486,7 @@ impl Coordinator {
                                     // Nudge advancement here so they don't
                                     // stall waiting for an ack event that
                                     // will never arrive.
-                                    Self::check_phase_advance(&store, handoff.partition).await?;
+                                    Self::check_phase_advance(&store, handoff.partition, AdvanceTrigger::Other).await?;
                                 }
                                 Err(e) => {
                                     tracing::error!(error = %e, "failed to parse handoff event");
@@ -279,13 +496,16 @@ impl Coordinator {
                     }
 
                     // After processing all events in this batch, check if all
-                    // handoffs have completed. If so, re-trigger rebalancing to
-                    // pick up any pod changes that were deferred.
+                    // handoffs have completed. If so, re-trigger rebalancing as
+                    // the final sweep for moves that were pinned while these
+                    // handoffs were in flight (pod changes themselves are never
+                    // deferred; they plan around the in-flight set).
                     if store.list_handoffs().await?.is_empty() {
                         Self::handle_pod_change_static(
                             &store,
                             strategy.as_ref(),
                             k8s_awareness.as_deref(),
+                            deadlines,
                         )
                         .await?;
                     }
@@ -294,36 +514,11 @@ impl Coordinator {
         }
     }
 
-    /// Watch for router freeze acks (routers confirming they have begun stashing).
-    async fn watch_freeze_acks_loop(
-        store: Arc<PersonhogStore>,
-        cancel: CancellationToken,
-    ) -> Result<()> {
-        let mut stream = store.watch_freeze_acks().await?;
-        Self::run_ack_watch("freeze", &mut stream, &store, cancel).await
-    }
-
-    /// Watch for the old owner's drained acks.
-    async fn watch_drained_acks_loop(
-        store: Arc<PersonhogStore>,
-        cancel: CancellationToken,
-    ) -> Result<()> {
-        let mut stream = store.watch_drained_acks().await?;
-        Self::run_ack_watch("drained", &mut stream, &store, cancel).await
-    }
-
-    /// Watch for the new owner's warmed acks.
-    async fn watch_warmed_acks_loop(
-        store: Arc<PersonhogStore>,
-        cancel: CancellationToken,
-    ) -> Result<()> {
-        let mut stream = store.watch_warmed_acks().await?;
-        Self::run_ack_watch("warmed", &mut stream, &store, cancel).await
-    }
-
+    /// Consume an ack watch stream (freeze, drained, or warmed), nudging
+    /// phase advancement for the acked partition on every event.
     async fn run_ack_watch(
         kind: &str,
-        stream: &mut etcd_client::WatchStream,
+        mut stream: WatchStream,
         store: &PersonhogStore,
         cancel: CancellationToken,
     ) -> Result<()> {
@@ -335,13 +530,103 @@ impl Coordinator {
                     for event in resp.events() {
                         if event.event_type() == EventType::Put {
                             let partition = event.kv().and_then(|kv| {
-                                let key = std::str::from_utf8(kv.key()).ok()?;
+                                let key = from_utf8(kv.key()).ok()?;
                                 store::extract_partition_from_ack_key(key)
                             });
 
                             if let Some(partition) = partition {
-                                Self::check_phase_advance(store, partition).await?;
+                                Self::check_phase_advance(store, partition, AdvanceTrigger::Ack).await?;
                             }
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    /// React to router departures. The freeze quorum's required set is
+    /// the handoff's creation snapshot intersected with the live
+    /// registry, so a router leaving — deregistering at shutdown, or its
+    /// lease expiring after a crash — can newly satisfy the quorum of
+    /// every in-flight freeze. Nothing else fires an event for that:
+    /// without this watch, such handoffs wait for the reconcile tick.
+    /// Registrations (Put events) are ignored — a router that joins
+    /// after a handoff's creation is never added to its quorum, so a Put
+    /// can't change any evaluation.
+    async fn run_router_departure_watch(
+        mut stream: WatchStream,
+        store: &PersonhogStore,
+        cancel: CancellationToken,
+    ) -> Result<()> {
+        loop {
+            tokio::select! {
+                _ = cancel.cancelled() => return Ok(()),
+                msg = stream.message() => {
+                    let resp = msg?.ok_or_else(|| {
+                        Error::invalid_state("router watch stream ended".to_string())
+                    })?;
+                    let departed = resp
+                        .events()
+                        .iter()
+                        .any(|e| e.event_type() == EventType::Delete);
+                    if departed {
+                        for handoff in store.list_handoffs().await? {
+                            Self::check_phase_advance(store, handoff.partition, AdvanceTrigger::Other).await?;
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    /// Periodically re-evaluate every in-flight handoff, mirroring what
+    /// the ack and router-departure watches do on events. This is the
+    /// liveness backstop for anything the watches miss — a dropped
+    /// stream, an event lost in a coordinator failover window. All the
+    /// work it drives is idempotent: phase transitions use CAS and
+    /// completed-handoff cleanup tolerates already-deleted records.
+    async fn reconcile_tick_loop(
+        store: Arc<PersonhogStore>,
+        interval: Duration,
+        replan: Arc<Notify>,
+        cancel: CancellationToken,
+    ) -> Result<()> {
+        let mut tick = tokio::time::interval(interval);
+        loop {
+            tokio::select! {
+                _ = cancel.cancelled() => return Ok(()),
+                _ = tick.tick() => {
+                    let handoffs = store.list_handoffs().await?;
+                    for handoff in &handoffs {
+                        Self::handle_handoff_update_static(&store, handoff).await?;
+                        Self::check_phase_advance(&store, handoff.partition, AdvanceTrigger::Other).await?;
+                    }
+                    // Advancement first, planning second: a handoff that
+                    // can still progress gets every chance to before the
+                    // planner judges it. The wake is unconditional —
+                    // level-triggered planning, exactly as the stateright
+                    // model assumes (its Rebalance action is enabled in
+                    // every state). The planner is cheap when there is
+                    // nothing to do, and an unconditional wake is what
+                    // catches the events no watch delivers: a pod
+                    // registration lost to a dropped stream, a doomed
+                    // handoff whose trigger event never arrived, placement
+                    // drift of any cause. Cancellation itself is a
+                    // planning decision — the planner replaces a doomed
+                    // handoff with whatever resolves its stashes.
+                    replan.notify_one();
+                    // The gauge refresh is best-effort and runs after the
+                    // reconcile pass: its reads exist only for metrics and
+                    // must never delay or interrupt handoff advancement.
+                    // A skipped refresh is repaired by the next tick.
+                    let pods = store.list_pods().await;
+                    let routers = store.list_routers().await;
+                    match (pods, routers) {
+                        (Ok(pods), Ok(routers)) => {
+                            record_cluster_gauges(&handoffs, &pods, routers.len());
+                        }
+                        (Err(e), _) | (_, Err(e)) => {
+                            tracing::debug!(error = %e, "skipping cluster gauge refresh");
                         }
                     }
                 }
@@ -362,7 +647,11 @@ impl Coordinator {
     ///
     /// Called whenever an ack key is observed. Safe to call spuriously: reads
     /// are idempotent and transitions use CAS.
-    async fn check_phase_advance(store: &PersonhogStore, partition: u32) -> Result<()> {
+    async fn check_phase_advance(
+        store: &PersonhogStore,
+        partition: u32,
+        trigger: AdvanceTrigger,
+    ) -> Result<()> {
         let handoff = match store.get_handoff(partition).await? {
             Some(h) => h,
             None => return Ok(()),
@@ -373,13 +662,9 @@ impl Coordinator {
                 let routers = store.list_routers().await?;
                 let freeze_acks = store.list_freeze_acks(partition).await?;
 
-                // With zero routers there is no traffic to stash, so the
-                // freeze quorum is vacuously met. This keeps bootstrap and
-                // router-less configurations (e.g. tests exercising only
-                // the coordinator+pod) unblocked.
-                let all_routers_frozen = freeze_acks.len() >= routers.len();
-
-                if all_routers_frozen {
+                // Quorum semantics live in `protocol::freeze_quorum_met`
+                // (shared with the stateright model).
+                if freeze_quorum_met(&routers, &freeze_acks, &handoff) {
                     // Initial assignments (no old owner) skip Draining
                     // entirely — there's no inflight to wait for. Advance
                     // straight to Warming.
@@ -388,9 +673,21 @@ impl Coordinator {
                         Some(_) => HandoffPhase::Draining,
                     };
                     let advanced = store
-                        .cas_handoff_phase(partition, HandoffPhase::Freezing, target)
+                        .cas_handoff_phase(
+                            partition,
+                            &handoff.handoff_id,
+                            HandoffPhase::Freezing,
+                            target,
+                        )
                         .await?;
                     if advanced {
+                        record_phase_advance(&handoff, target);
+                        if trigger == AdvanceTrigger::Ack {
+                            util::record_ack_to_advance(
+                                "freezing",
+                                freeze_acks.iter().map(|a| a.acked_at_ms),
+                            );
+                        }
                         tracing::info!(
                             partition,
                             freeze_acks = freeze_acks.len(),
@@ -400,43 +697,42 @@ impl Coordinator {
                             "freeze quorum reached, advanced from Freezing"
                         );
                     }
+                } else {
+                    // Evaluations are event-driven (acks, router
+                    // departures, the reconcile tick), so this names the
+                    // blocker a handful of times per stalled handoff
+                    // rather than spamming.
+                    tracing::info!(
+                        partition,
+                        handoff_id = %handoff.handoff_id,
+                        missing_freeze_ackers =
+                            ?missing_freeze_ackers(&routers, &freeze_acks, &handoff),
+                        "freeze quorum not yet met"
+                    );
                 }
             }
             HandoffPhase::Draining => {
-                let old_owner_condition = match &handoff.old_owner {
-                    // Defensive: a handoff that reached Draining without
-                    // an old owner shouldn't exist (Freezing skips
-                    // Draining when old_owner is None), but if it does,
-                    // there's nothing to drain.
-                    None => true,
-                    Some(name) => {
-                        // "Alive" here means the pod's etcd registration key
-                        // still exists (its lease hasn't expired) — not just
-                        // that it's `Ready`. A `Draining` pod is shutting
-                        // down gracefully but is still capable of running its
-                        // handoff handler and writing a `DrainedAck`, and may
-                        // still have inflight handlers. Bypassing the drain
-                        // requirement for such a pod would let the
-                        // coordinator advance to Warming while the old owner
-                        // is still producing — breaking the protocol's core
-                        // invariant. Only treat the old owner as drained
-                        // when its key is genuinely absent.
-                        let pods = store.list_pods().await?;
-                        let old_owner_present = pods.iter().any(|p| p.pod_name == *name);
-                        if !old_owner_present {
-                            true
-                        } else {
-                            let drained_acks = store.list_drained_acks(partition).await?;
-                            drained_acks.iter().any(|a| a.pod_name == *name)
-                        }
-                    }
-                };
-
-                if old_owner_condition {
+                // Drain semantics live in `protocol::drain_satisfied`
+                // (shared with the stateright model).
+                let pods = store.list_pods().await?;
+                let drained_acks = store.list_drained_acks(partition).await?;
+                if drain_satisfied(&pods, &drained_acks, &handoff) {
                     let advanced = store
-                        .cas_handoff_phase(partition, HandoffPhase::Draining, HandoffPhase::Warming)
+                        .cas_handoff_phase(
+                            partition,
+                            &handoff.handoff_id,
+                            HandoffPhase::Draining,
+                            HandoffPhase::Warming,
+                        )
                         .await?;
                     if advanced {
+                        record_phase_advance(&handoff, HandoffPhase::Warming);
+                        if trigger == AdvanceTrigger::Ack {
+                            util::record_ack_to_advance(
+                                "draining",
+                                drained_acks.iter().map(|a| a.acked_at_ms),
+                            );
+                        }
                         tracing::info!(
                             partition,
                             old_owner = ?handoff.old_owner,
@@ -447,16 +743,25 @@ impl Coordinator {
             }
             HandoffPhase::Warming => {
                 let warmed = store.list_warmed_acks(partition).await?;
-                let new_owner_warmed = warmed.iter().any(|a| a.pod_name == handoff.new_owner);
-
-                if new_owner_warmed {
+                if warm_satisfied(&warmed, &handoff) {
                     tracing::info!(
                         partition,
                         new_owner = %handoff.new_owner,
                         "new owner warmed, completing handoff"
                     );
-                    match store.complete_handoff(partition).await {
-                        Ok(true) => {}
+                    match store
+                        .complete_handoff(partition, &handoff.handoff_id, HandoffPhase::Warming)
+                        .await
+                    {
+                        Ok(true) => {
+                            record_phase_advance(&handoff, HandoffPhase::Complete);
+                            if trigger == AdvanceTrigger::Ack {
+                                util::record_ack_to_advance(
+                                    "warming",
+                                    warmed.iter().map(|a| a.acked_at_ms),
+                                );
+                            }
+                        }
                         Ok(false) => {
                             tracing::warn!(partition, "handoff modified concurrently, skipping");
                         }
@@ -498,7 +803,8 @@ impl Coordinator {
             // watch_handoffs_loop's Put-driven path won't replay them.
             Self::handle_handoff_update_static(&self.store, handoff).await?;
             // Non-terminal handoffs may have their preconditions already met.
-            Self::check_phase_advance(&self.store, handoff.partition).await?;
+            Self::check_phase_advance(&self.store, handoff.partition, AdvanceTrigger::Other)
+                .await?;
         }
 
         Ok(())
@@ -510,6 +816,7 @@ impl Coordinator {
             &self.store,
             self.strategy.as_ref(),
             self.k8s_awareness.as_deref(),
+            self.config.phase_deadlines(),
         )
         .await
     }
@@ -518,6 +825,7 @@ impl Coordinator {
         store: &PersonhogStore,
         strategy: &dyn AssignmentStrategy,
         k8s_awareness: Option<&K8sAwareness>,
+        deadlines: PhaseDeadlines,
     ) -> Result<()> {
         let pods = store.list_pods().await?;
         let total_partitions = match store.get_total_partitions().await {
@@ -529,179 +837,327 @@ impl Coordinator {
             Err(e) => return Err(e),
         };
 
-        let mut active_pods = active_pod_names(&pods);
+        // K8s-aware placement policies for smarter rebalancing
+        let members = match k8s_awareness {
+            Some(k8s) => members_for_k8s(k8s, &pods, total_partitions).await,
+            None => Member::active_all(&active_pod_names(&pods)),
+        };
 
-        // K8s-aware pod filtering for smarter rebalancing
-        if let Some(k8s) = k8s_awareness {
-            active_pods = filter_pods_for_k8s(k8s, &pods, active_pods).await;
+        // Classify the in-flight handoffs. One whose new owner's
+        // registration is gone can never advance (no WarmedAck will ever
+        // arrive); one that has outstayed its phase's deadline is wedged
+        // on an acknowledgement that is not coming. Both are cancelled by
+        // this pass — never by deletion, but by atomic replacement with
+        // whatever resolves their stashes, decided once the plan is
+        // known. A dead *old* owner is deliberately not a trigger:
+        // Freezing waits on routers, an absent old owner in Draining is
+        // vacuously drained, and such handoffs advance on their own —
+        // cancelling them would tear down a healthy in-flight warm.
+        // Everything else pins its partition: the plan excludes it and
+        // attributes it to its target, so a stuck handoff defers only
+        // its own partition.
+        let in_flight = store.list_handoffs_with_mod_revisions().await?;
+        let registered: HashSet<&str> = pods.iter().map(|p| p.pod_name.as_str()).collect();
+        let now_ms = util::now_millis();
+        let (cancelled, pinned): (Vec<_>, Vec<_>) = in_flight.into_iter().partition(|(h, _)| {
+            h.phase != HandoffPhase::Complete
+                && (!registered.contains(h.new_owner.as_str())
+                    || past_phase_deadline(h, now_ms, deadlines.handoff, deadlines.warming))
+        });
+        let pinned: Vec<HandoffState> = pinned.into_iter().map(|(h, _)| h).collect();
+        if !pinned.is_empty() {
+            tracing::info!(pinned = pinned.len(), "planning around in-flight handoffs");
         }
 
-        // Clean up any in-flight handoffs targeting pods whose etcd
-        // registration has disappeared. This happens when a pod crashes
-        // during the Warming phase before it can ack — the handoff would
-        // be stuck forever otherwise.
-        Self::cleanup_stale_handoffs(store).await?;
-
-        // Skip rebalancing while handoffs are in flight to prevent overlapping
-        // rebalances from overwriting each other. The watch_handoffs_loop will
-        // re-trigger rebalancing once all handoffs complete.
-        let remaining_handoffs = store.list_handoffs().await?;
-        if !remaining_handoffs.is_empty() {
-            tracing::info!(
-                in_flight = remaining_handoffs.len(),
-                "handoffs in progress, deferring rebalance"
-            );
-            return Ok(());
-        }
-
-        let current_assignments = store.list_assignments().await?;
+        // One revisioned snapshot feeds both the placement computation and
+        // the apply-time preconditions: a handoff's old_owner is only
+        // meaningful while the assignment it was read from is unchanged.
+        let current_assignments = store.list_assignments_with_mod_revisions().await?;
 
         let current_map: HashMap<u32, String> = current_assignments
             .iter()
-            .map(|a| (a.partition, a.owner.clone()))
+            .map(|(a, _)| (a.partition, a.owner.clone()))
             .collect();
-
-        let new_assignments =
-            strategy.compute_assignments(&current_map, &active_pods, total_partitions);
-        let reassignments = compute_required_handoffs(&current_map, &new_assignments);
-
-        // Every partition that has a new owner goes through the handoff
-        // protocol, including partitions that had no prior owner (initial
-        // assignment). This guarantees routers never route to a pod whose
-        // cache hasn't been warmed.
-        //
-        // Partitions that already have the correct owner are skipped.
-        let assigned_partitions: std::collections::HashSet<u32> =
-            new_assignments.keys().copied().collect();
-        let reassignment_partitions: std::collections::HashSet<u32> =
-            reassignments.iter().map(|(p, _, _)| *p).collect();
-
-        // Fresh partitions = assigned but neither in current nor being reassigned.
-        let fresh_partitions: Vec<u32> = assigned_partitions
+        let assignment_revisions: HashMap<u32, i64> = current_assignments
             .iter()
-            .copied()
-            .filter(|p| !current_map.contains_key(p) && !reassignment_partitions.contains(p))
+            .map(|(a, revision)| (a.partition, *revision))
             .collect();
 
-        if reassignments.is_empty() && fresh_partitions.is_empty() {
+        // Placement and diff semantics (moves carry the prior owner, fresh
+        // partitions carry none, everything goes through Freezing) live in
+        // `protocol::plan_partial_rebalance`, shared with the stateright
+        // model. Cancelled partitions are deliberately not pinned: the
+        // plan is free to place them, and whatever it decides becomes
+        // their replacement below.
+        let plan =
+            plan_partial_rebalance(strategy, &current_map, &pinned, &members, total_partitions);
+
+        if plan.handoffs.is_empty() && cancelled.is_empty() {
             tracing::debug!("no handoffs needed");
             return Ok(());
         }
 
+        // Snapshot the routers that must ack these freezes. Read here,
+        // once, rather than per-check: the whole point is that the
+        // requirement is fixed at creation and cannot grow as routers
+        // come and go (see `HandoffState::freeze_quorum`).
+        let routers = store.list_routers().await?;
+        let freeze_quorum: Vec<String> = routers.iter().map(|r| r.router_name.clone()).collect();
+
         let now = util::now_seconds();
-        let mut handoff_objects: Vec<HandoffState> = Vec::new();
-
-        // Reassignments: old_owner = Some(prior owner)
-        for (partition, old_owner, new_owner) in &reassignments {
-            handoff_objects.push(HandoffState {
-                partition: *partition,
-                old_owner: Some(old_owner.clone()),
-                new_owner: new_owner.clone(),
+        let handoff_objects: Vec<HandoffState> = plan
+            .handoffs
+            .iter()
+            .map(|h| HandoffState {
+                partition: h.partition,
+                old_owner: h.old_owner.clone(),
+                new_owner: h.new_owner.clone(),
+                new_owner_address: pods
+                    .iter()
+                    .find(|p| p.pod_name == h.new_owner)
+                    .and_then(|p| p.advertise_address.clone()),
                 phase: HandoffPhase::Freezing,
                 started_at: now,
-            });
+                handoff_id: util::new_handoff_id(),
+                freeze_quorum: Some(freeze_quorum.clone()),
+                created_at_ms: now_ms,
+                phase_entered_at_ms: now_ms,
+            })
+            .collect();
+
+        // Disposition for every cancelled handoff, in one pass over the
+        // plan. A cancelled partition the plan re-placed gets its
+        // successor as an atomic replacement — routers keep stashing
+        // without ever observing a gap. One the plan left alone resolves
+        // to its live current owner as a reaffirm: `Complete` toward that
+        // owner, which drains stashes home through the routers' ordinary
+        // Complete handling and converges the owner pod back to serving.
+        // (`old_owner` stays `None` on a reaffirm — naming the owner on
+        // both sides would match `desired_state`'s old-owner arm first
+        // and make the pod release the partition instead of resuming.)
+        // Only when neither exists — owner dead, nothing placeable — is
+        // the record deleted outright, which is safe fail-closed: with no
+        // live owner there is no one to drain to, and rejected requests
+        // surface as retryable errors rather than lost writes.
+        let mut cancelled_by_partition: HashMap<u32, (HandoffState, i64)> = cancelled
+            .into_iter()
+            .map(|(h, rev)| (h.partition, (h, rev)))
+            .collect();
+        let mut creations: Vec<HandoffState> = Vec::new();
+        let mut replacements: Vec<HandoffReplacement> = Vec::new();
+        let mut fallback_deletes: Vec<(HandoffState, i64)> = Vec::new();
+        let mut replaced_dispositions: Vec<&'static str> = Vec::new();
+
+        for handoff in handoff_objects {
+            match cancelled_by_partition.remove(&handoff.partition) {
+                Some((predecessor, mod_revision)) => {
+                    Self::log_cancellation(store, &routers, &predecessor, &registered, "successor")
+                        .await;
+                    replacements.push(HandoffReplacement {
+                        handoff,
+                        expected_mod_revision: mod_revision,
+                    });
+                    replaced_dispositions.push("successor");
+                }
+                None => creations.push(handoff),
+            }
+        }
+        for (predecessor, mod_revision) in cancelled_by_partition.into_values() {
+            let owner = current_map
+                .get(&predecessor.partition)
+                .filter(|owner| registered.contains(owner.as_str()));
+            match owner {
+                Some(owner) => {
+                    Self::log_cancellation(store, &routers, &predecessor, &registered, "reaffirm")
+                        .await;
+                    replacements.push(HandoffReplacement {
+                        handoff: HandoffState {
+                            partition: predecessor.partition,
+                            old_owner: None,
+                            new_owner: owner.clone(),
+                            new_owner_address: pods
+                                .iter()
+                                .find(|p| &p.pod_name == owner)
+                                .and_then(|p| p.advertise_address.clone()),
+                            phase: HandoffPhase::Complete,
+                            started_at: now,
+                            handoff_id: util::new_handoff_id(),
+                            freeze_quorum: Some(Vec::new()),
+                            created_at_ms: now_ms,
+                            phase_entered_at_ms: now_ms,
+                        },
+                        expected_mod_revision: mod_revision,
+                    });
+                    replaced_dispositions.push("reaffirm");
+                }
+                None => {
+                    Self::log_cancellation(store, &routers, &predecessor, &registered, "delete")
+                        .await;
+                    fallback_deletes.push((predecessor, mod_revision));
+                }
+            }
         }
 
-        // Fresh assignments: old_owner = None (skip drain, skip release)
-        for partition in &fresh_partitions {
-            let new_owner = &new_assignments[partition];
-            handoff_objects.push(HandoffState {
-                partition: *partition,
-                old_owner: None,
-                new_owner: new_owner.clone(),
-                phase: HandoffPhase::Freezing,
-                started_at: now,
-            });
-        }
-
+        let moves = creations
+            .iter()
+            .chain(replacements.iter().map(|r| &r.handoff))
+            .filter(|h| h.phase == HandoffPhase::Freezing && h.old_owner.is_some())
+            .count();
+        let freezing_total = creations.len()
+            + replacements
+                .iter()
+                .filter(|r| r.handoff.phase == HandoffPhase::Freezing)
+                .count();
         tracing::info!(
-            reassignments = reassignments.len(),
-            fresh = fresh_partitions.len(),
+            reassignments = moves,
+            fresh = freezing_total - moves,
+            replaced = replacements.len(),
             "creating handoffs"
         );
 
-        // Assignments for partitions that are NOT being moved (correct owner
-        // already) still need to be written to etcd, but reassignments and
-        // fresh assignments defer their PartitionAssignment writes until the
-        // handoff reaches Complete.
-        let handoff_partitions: std::collections::HashSet<u32> =
-            handoff_objects.iter().map(|h| h.partition).collect();
-        let assignment_objects: Vec<PartitionAssignment> = new_assignments
+        // The rebalance writes no assignment records: handoff completion is
+        // the sole writer of assignments (see `complete_handoff`'s
+        // invariant), so routers always observe owner changes as Complete
+        // events, and a stale plan can never restore a superseded owner.
+        // Each handoff instead carries a precondition tying it to the
+        // snapshot its old_owner came from.
+        let preconditions: Vec<AssignmentPrecondition> = creations
             .iter()
-            .map(|(&partition, owner)| PartitionAssignment {
-                partition,
-                owner: owner.clone(),
-                status: AssignmentStatus::Active,
+            .chain(replacements.iter().map(|r| &r.handoff))
+            .map(|h| match assignment_revisions.get(&h.partition) {
+                Some(&mod_revision) => AssignmentPrecondition::UnchangedSince {
+                    partition: h.partition,
+                    mod_revision,
+                },
+                None => AssignmentPrecondition::Absent {
+                    partition: h.partition,
+                },
             })
             .collect();
-        let stable_assignments: Vec<PartitionAssignment> = assignment_objects
-            .into_iter()
-            .filter(|a| !handoff_partitions.contains(&a.partition))
-            .collect();
 
-        store
-            .create_assignments_and_handoffs(&stable_assignments, &handoff_objects)
-            .await?;
+        if (!creations.is_empty() || !replacements.is_empty())
+            && !store
+                .apply_plan(&[], &creations, &replacements, &preconditions)
+                .await?
+        {
+            // A concurrent invocation (the empty-set re-trigger racing a
+            // pod event, or a failing-over coordinator) created a handoff
+            // first. Its plan acted on fresher state than ours; whatever
+            // this plan wanted beyond it is replanned by the next pod
+            // event or the final sweep.
+            tracing::info!("concurrent plan won handoff creation; standing down");
+            return Ok(());
+        }
+        for handoff in creations
+            .iter()
+            .chain(replacements.iter().map(|r| &r.handoff))
+        {
+            tracing::info!(
+                partition = handoff.partition,
+                handoff_id = %handoff.handoff_id,
+                old_owner = ?handoff.old_owner,
+                new_owner = %handoff.new_owner,
+                phase = ?handoff.phase,
+                "handoff created"
+            );
+        }
+        for disposition in &replaced_dispositions {
+            counter!(
+                "personhog_coordination_handoffs_replaced_total",
+                "disposition" => *disposition,
+            )
+            .increment(1);
+        }
+
+        // The fallback deletes are per-partition guarded transactions
+        // outside the plan txn: each partition's disposition is atomic on
+        // its own, which is what the safety argument needs, and a stale
+        // guard only ever skips a cancel for a record that changed under
+        // us.
+        for (predecessor, mod_revision) in fallback_deletes {
+            if store
+                .delete_handoff_and_acks_if_unchanged(predecessor.partition, mod_revision)
+                .await?
+            {
+                counter!(
+                    "personhog_coordination_handoffs_replaced_total",
+                    "disposition" => "delete",
+                )
+                .increment(1);
+            }
+        }
+
+        counter!("personhog_coordination_handoffs_created_total", "kind" => "move")
+            .increment(moves as u64);
+        counter!("personhog_coordination_handoffs_created_total", "kind" => "fresh")
+            .increment((freezing_total - moves) as u64);
 
         // Nudge advancement for handoffs whose preconditions are already
         // satisfied at creation time (no old_owner, dead old_owner, vacuous
         // router quorum). Without this, such handoffs would stall waiting
         // for an ack event that will never arrive — the watch loop's nudge
         // only catches subsequent Put events.
-        for handoff in &handoff_objects {
-            Self::check_phase_advance(store, handoff.partition).await?;
+        for handoff in creations
+            .iter()
+            .chain(replacements.iter().map(|r| &r.handoff))
+        {
+            Self::check_phase_advance(store, handoff.partition, AdvanceTrigger::Other).await?;
         }
 
         Ok(())
     }
 
-    /// Delete handoffs that cannot progress because either the new_owner is
-    /// gone, or the old_owner is gone before it wrote a DrainedAck.
-    ///
-    /// "Gone" here means the pod's etcd registration is absent — its lease
-    /// expired or it deregistered. A `Draining` pod is *not* gone: it is
-    /// still alive, still heartbeating, and still capable of running its
-    /// handoff handler. We deliberately don't reuse the assignment-eligible
-    /// pod set (which is `Ready`-only) for liveness here, because a Draining
-    /// pod that's mid-drain still owes the protocol a `DrainedAck` and must
-    /// be allowed to write it.
-    async fn cleanup_stale_handoffs(store: &PersonhogStore) -> Result<()> {
-        let handoffs = store.list_handoffs().await?;
-        let pods = store.list_pods().await?;
-        let registered_set: std::collections::HashSet<&str> =
-            pods.iter().map(|p| p.pod_name.as_str()).collect();
-
-        for handoff in &handoffs {
-            let new_owner_gone = !registered_set.contains(handoff.new_owner.as_str());
-
-            // Check if old_owner is gone and hasn't acked its drain yet.
-            // A dead old_owner with a DrainedAck already present is fine —
-            // the protocol has all it needs to advance. Without the ack the
-            // handoff is stuck in Freezing forever.
-            let stuck_on_dead_old_owner = match &handoff.old_owner {
-                Some(name) if !registered_set.contains(name.as_str()) => {
-                    let drained = store.list_drained_acks(handoff.partition).await?;
-                    !drained.iter().any(|a| a.pod_name == *name)
+    /// One log line per cancellation, error-level with the cause and the
+    /// disposition — and, for a Freezing predecessor, the required
+    /// routers whose acks never arrived: a freeze wedge is almost always
+    /// one specific non-acking router, and naming it turns the diagnosis
+    /// into reading a label. Attribution is best-effort; a failed ack
+    /// read must not block the replacement.
+    async fn log_cancellation(
+        store: &PersonhogStore,
+        routers: &[RegisteredRouter],
+        predecessor: &HandoffState,
+        registered: &HashSet<&str>,
+        disposition: &'static str,
+    ) {
+        let reason = if registered.contains(predecessor.new_owner.as_str()) {
+            "phase_deadline"
+        } else {
+            "dead_new_owner"
+        };
+        let missing_ackers = if predecessor.phase == HandoffPhase::Freezing {
+            match store.list_freeze_acks(predecessor.partition).await {
+                Ok(acks) => missing_freeze_ackers(routers, &acks, predecessor),
+                Err(e) => {
+                    tracing::warn!(error = %e, "could not read freeze acks for attribution");
+                    Vec::new()
                 }
-                _ => false,
-            };
-
-            if new_owner_gone || stuck_on_dead_old_owner {
-                tracing::warn!(
-                    partition = handoff.partition,
-                    new_owner = %handoff.new_owner,
-                    old_owner = ?handoff.old_owner,
-                    phase = ?handoff.phase,
-                    new_owner_gone,
-                    stuck_on_dead_old_owner,
-                    "cleaning up stale handoff"
-                );
-                store.delete_all_handoff_acks(handoff.partition).await?;
-                store.delete_handoff(handoff.partition).await?;
             }
+        } else {
+            Vec::new()
+        };
+        tracing::error!(
+            partition = predecessor.partition,
+            phase = ?predecessor.phase,
+            new_owner = %predecessor.new_owner,
+            old_owner = ?predecessor.old_owner,
+            reason,
+            disposition,
+            missing_freeze_ackers = ?missing_ackers,
+            "cancelling handoff by replacement"
+        );
+        counter!(
+            "personhog_coordination_handoffs_cancelled_total",
+            "reason" => reason,
+        )
+        .increment(1);
+        for router in &missing_ackers {
+            counter!(
+                "personhog_coordination_freeze_ack_missing_total",
+                "router" => router.clone(),
+            )
+            .increment(1);
         }
-
-        Ok(())
     }
 
     async fn handle_handoff_update_static(
@@ -709,15 +1165,169 @@ impl Coordinator {
         handoff: &HandoffState,
     ) -> Result<()> {
         if handoff.phase == HandoffPhase::Complete {
+            // Same guarded-delete discipline as the dead-new-owner cancellation:
+            // the Complete observation may be stale by the time we act on
+            // it, and the record at this key may already be a successor
+            // handoff.
+            let Some((current, mod_revision)) = store
+                .get_handoff_with_mod_revision(handoff.partition)
+                .await?
+            else {
+                return Ok(());
+            };
+            if current.phase != HandoffPhase::Complete {
+                return Ok(());
+            }
             tracing::info!(
-                partition = handoff.partition,
+                partition = current.partition,
                 "handoff complete, cleaning up"
             );
-            store.delete_all_handoff_acks(handoff.partition).await?;
-            store.delete_handoff(handoff.partition).await?;
+            if !store
+                .delete_handoff_and_acks_if_unchanged(current.partition, mod_revision)
+                .await?
+            {
+                tracing::info!(
+                    partition = current.partition,
+                    "handoff changed concurrently, skipping cleanup"
+                );
+            }
         }
         Ok(())
     }
+}
+
+// ── Metrics ─────────────────────────────────────────────────────
+
+fn phase_label(phase: HandoffPhase) -> &'static str {
+    match phase {
+        HandoffPhase::Freezing => "freezing",
+        HandoffPhase::Draining => "draining",
+        HandoffPhase::Warming => "warming",
+        HandoffPhase::Complete => "complete",
+    }
+}
+
+/// Record a successful phase advance: a transition counter plus a
+/// histogram of milliseconds elapsed since the handoff was created.
+/// `started_at` carries one-second resolution, so these timings exist to
+/// spot stalls (a handoff minutes into Freezing), not to micro-profile;
+/// the pod side's warm and drain histograms carry the precise
+/// per-operation cost.
+fn record_phase_advance(handoff: &HandoffState, to: HandoffPhase) {
+    // Moves drain and warm; fresh assignments only warm — two different
+    // duration distributions, split rather than muddled.
+    let kind = if handoff.old_owner.is_some() {
+        "move"
+    } else {
+        "fresh"
+    };
+    counter!(
+        "personhog_coordination_handoff_transitions_total",
+        "from" => phase_label(handoff.phase),
+        "to" => phase_label(to),
+    )
+    .increment(1);
+    let now_ms = util::now_millis();
+    // Cumulative creation→phase, millisecond-precise when the record
+    // carries `created_at_ms`; pre-upgrade records fall back to the
+    // second-resolution `started_at`.
+    // Clamped at zero: a phase stamped by one coordinator can be
+    // observed by its successor, and millisecond resolution makes even
+    // small clock skew visible — a negative observation would distort
+    // the histogram, incrementing every bucket.
+    let reached_ms = if handoff.created_at_ms > 0 {
+        Some(now_ms.saturating_sub(handoff.created_at_ms).max(0))
+    } else if handoff.started_at > 0 {
+        Some(util::now_seconds().saturating_sub(handoff.started_at) * 1000)
+    } else {
+        None
+    };
+    if let Some(reached_ms) = reached_ms {
+        histogram!(
+            "personhog_coordination_handoff_phase_reached_ms",
+            "phase" => phase_label(to),
+            "kind" => kind,
+        )
+        .record(reached_ms as f64);
+    }
+    // Time spent in the phase being exited. Phases are sequential and
+    // non-overlapping, so these are additive components of the total —
+    // the handoff waterfall. Zero means a pre-upgrade record with no
+    // phase clock; recording an epoch-sized value would be worse than
+    // recording nothing.
+    if handoff.phase_entered_at_ms > 0 {
+        histogram!(
+            "personhog_coordination_handoff_phase_duration_ms",
+            "phase" => phase_label(handoff.phase),
+            "kind" => kind,
+        )
+        .record(now_ms.saturating_sub(handoff.phase_entered_at_ms).max(0) as f64);
+    }
+}
+
+/// Refresh the coordinator's view-of-the-cluster gauges. Driven from the
+/// reconcile tick, so only the elected coordinator exports live values;
+/// `reset_coordinator_gauges` zeroes them when leadership ends.
+fn record_cluster_gauges(handoffs: &[HandoffState], pods: &[RegisteredPod], routers: usize) {
+    let now_ms = util::now_millis();
+    let now_s = util::now_seconds();
+    for phase in [
+        HandoffPhase::Freezing,
+        HandoffPhase::Draining,
+        HandoffPhase::Warming,
+        HandoffPhase::Complete,
+    ] {
+        // Oldest time-in-current-phase: the stuck-handoff signal,
+        // phase-localized. `phase_reached`/`phase_duration` sample only
+        // handoffs that advance, so a wedged one is invisible there —
+        // this gauge is its complement, and the one to alert on (age
+        // approaching the cancellation deadline means a participant is
+        // not acking). Falls back to total age for pre-upgrade records;
+        // zero when the phase is empty, which also resets it when
+        // leadership ends.
+        let max_age_secs = handoffs
+            .iter()
+            .filter(|h| h.phase == phase)
+            .map(|h| {
+                if h.phase_entered_at_ms > 0 {
+                    now_ms.saturating_sub(h.phase_entered_at_ms) / 1000
+                } else if h.started_at > 0 {
+                    now_s.saturating_sub(h.started_at)
+                } else {
+                    0
+                }
+            })
+            .max()
+            .unwrap_or(0)
+            .max(0);
+        gauge!(
+            "personhog_coordination_handoff_phase_age_seconds",
+            "phase" => phase_label(phase),
+        )
+        .set(max_age_secs as f64);
+        let count = handoffs.iter().filter(|h| h.phase == phase).count();
+        gauge!("personhog_coordination_handoffs_in_flight", "phase" => phase_label(phase))
+            .set(count as f64);
+    }
+    for (status, label) in [
+        (PodStatus::Ready, "ready"),
+        (PodStatus::Draining, "draining"),
+    ] {
+        let count = pods.iter().filter(|p| p.status == status).count();
+        gauge!("personhog_coordination_pods_registered", "status" => label).set(count as f64);
+    }
+    gauge!("personhog_coordination_routers_registered").set(routers as f64);
+}
+
+/// Zero every gauge this instance exports as coordinator. Called when
+/// leadership ends, so a former coordinator's scrape endpoint doesn't
+/// keep reporting the last-known cluster state alongside the new
+/// coordinator's live values.
+fn reset_coordinator_gauges() {
+    gauge!("personhog_coordination_is_coordinator").set(0.0);
+    gauge!("personhog_coordination_generation_hold_pods").set(0.0);
+    gauge!("personhog_coordination_generation_capped_pods").set(0.0);
+    record_cluster_gauges(&[], &[], 0);
 }
 
 // ── Pure functions ──────────────────────────────────────────────
@@ -732,64 +1342,195 @@ fn active_pod_names(pods: &[RegisteredPod]) -> Vec<String> {
     active.iter().map(|p| p.pod_name.clone()).collect()
 }
 
-/// Adjust the active pod list based on K8s controller intent.
+/// How long a first evaluation waits for a just-started controller
+/// watch's initial intent (a healthy watch reports well under a second).
+const FIRST_INTENT_WAIT: Duration = Duration::from_secs(3);
+
+/// Derive assignment members and placement policies from pod
+/// registrations and K8s controller intent.
 ///
+/// Outside a rollout every Ready pod is an uncapped active member.
 /// Two adjustments during rollouts:
 ///
-/// 1. **Deployment rollout** — old-gen Ready pods are excluded from the
-///    active list so the strategy never assigns partitions to them. Existing
-///    assignments move to new-gen pods via handoff.
+/// 1. **Deployment rollout** — old-gen Ready pods become Hold members:
+///    they stay serving and keep their assignments, but shed toward the
+///    incoming generation, whose Ready pods are capped at their final
+///    share (`total_partitions / desired_replicas`) so the first new pod
+///    up is never handed the whole partition space. Partitions actually
+///    move when an old pod drains (drops out of the member list) or when
+///    a below-cap new pod pre-drains a Hold member.
 ///
-/// 2. **StatefulSet rollout** — Draining pods are *added back* to the
-///    active list so their assignments are held. In a StatefulSet rollout the
-///    same pod name comes back with a new revision, so there's no point
-///    handing off to a different pod.
-async fn filter_pods_for_k8s(
+/// 2. **StatefulSet rollout** — Draining pods are *kept* as members so
+///    their assignments are held. In a StatefulSet rollout the same pod
+///    name comes back with a new revision, so there's no point handing
+///    off to a different pod.
+async fn members_for_k8s(
     k8s: &K8sAwareness,
     pods: &[RegisteredPod],
-    mut active: Vec<String>,
-) -> Vec<String> {
+    total_partitions: u32,
+) -> Vec<Member> {
+    let mut intents: HashMap<ControllerRef, ClusterIntent> = HashMap::new();
     for pod in pods {
-        let (Some(controller), generation) = (&pod.controller, &pod.generation) else {
+        let Some(controller) = pod.controller.as_ref() else {
             continue;
         };
-
-        if generation.is_empty() {
+        if pod.generation.is_empty() || intents.contains_key(controller) {
             continue;
         }
-
-        let reason = k8s.classify_departure(controller, generation).await;
-
-        match (&controller.kind, pod.status, reason) {
-            // Deployment rollout: old-gen Ready pod → exclude
-            (ControllerKind::Deployment, PodStatus::Ready, DepartureReason::Rollout) => {
-                tracing::info!(
-                    pod = %pod.pod_name,
+        // Lazily start the controller watch from the registration's own
+        // ref — the coordinator has no pod of its own to discover from,
+        // and without a watch `classify_departure` has no intent to
+        // consult. Idempotent, so calling per evaluation is cheap.
+        let newly_watched = match k8s.watch_controller(controller).await {
+            Ok(newly_watched) => newly_watched,
+            Err(e) => {
+                tracing::warn!(
                     controller = %controller,
-                    generation = %generation,
-                    "excluding old-gen deployment pod from active list"
+                    error = %e,
+                    "failed to start controller watch; using status-only policy"
                 );
-                active.retain(|name| name != &pod.pod_name);
+                continue;
             }
-            // StatefulSet rollout: Draining pod → add back (hold assignment)
-            (ControllerKind::StatefulSet, PodStatus::Draining, DepartureReason::Rollout) => {
-                tracing::info!(
-                    pod = %pod.pod_name,
-                    controller = %controller,
-                    generation = %generation,
-                    "holding assignment for statefulset pod during rollout"
-                );
-                if !active.contains(&pod.pod_name) {
-                    active.push(pod.pod_name.clone());
-                }
-            }
-            _ => {}
+        };
+        // A just-started watch reports no intent yet, and a freshly
+        // elected coordinator would otherwise deterministically plan its
+        // first evaluation policy-free — mid-rollout, that's a balanced
+        // plan moving partitions the rollout already placed. Bound-wait
+        // for the first report; on timeout (API server down) fall back
+        // to status-only membership, availability over placement.
+        let intent = if newly_watched {
+            k8s.cluster_intent_within(controller, FIRST_INTENT_WAIT)
+                .await
+        } else {
+            k8s.cluster_intent(controller).await
+        };
+        if let Some(intent) = intent {
+            intents.insert(controller.clone(), intent);
         }
     }
 
-    active.sort();
-    active.dedup();
-    active
+    let members = derive_members(pods, &intents, total_partitions);
+    let mut holds = 0u64;
+    let mut capped = 0u64;
+    for member in &members {
+        match member.policy {
+            PlacementPolicy::Hold => {
+                holds += 1;
+                tracing::debug!(
+                    pod = %member.name,
+                    "holding old-gen deployment pod during generation transition"
+                );
+            }
+            PlacementPolicy::Active { cap: Some(cap) } => {
+                capped += 1;
+                tracing::debug!(
+                    pod = %member.name,
+                    cap,
+                    "capping new-gen pod at its rollout quota"
+                );
+            }
+            PlacementPolicy::Active { cap: None } => {}
+        }
+    }
+    gauge!("personhog_coordination_generation_hold_pods").set(holds as f64);
+    gauge!("personhog_coordination_generation_capped_pods").set(capped as f64);
+    members
+}
+
+/// Derive placement policies from pod registrations and controller
+/// intents. Pure so the policy rules are unit-testable.
+///
+/// The cap is keyed on departing-generation *siblings*, not on the
+/// controller's rollout flag: a Deployment reports the rollout complete
+/// the moment its last new-gen pod is up, while the old-gen pods are
+/// still registered, still serving, and about to be SIGTERMed. The
+/// transition is live — and new-gen pods must keep pulling, capped at
+/// their final share — for exactly as long as any departing-generation
+/// pod of the same controller remains registered. Otherwise partitions
+/// sit on the old generation until termination forces every transfer
+/// into the pods' termination grace window.
+fn derive_members(
+    pods: &[RegisteredPod],
+    intents: &HashMap<ControllerRef, ClusterIntent>,
+    total_partitions: u32,
+) -> Vec<Member> {
+    let transitioning: HashSet<&ControllerRef> = pods
+        .iter()
+        .filter_map(|pod| {
+            let (controller, intent) = pod_intent(pod, intents)?;
+            (controller.kind == ControllerKind::Deployment
+                && classify_departure(intent, &pod.generation) == DepartureReason::Rollout)
+                .then_some(controller)
+        })
+        .collect();
+
+    let mut members: Vec<Member> = Vec::new();
+    for pod in pods {
+        let policy = match pod_intent(pod, intents) {
+            None => base_policy(pod.status),
+            Some((controller, intent)) => {
+                let reason = classify_departure(intent, &pod.generation);
+                match (&controller.kind, pod.status, reason) {
+                    // Old-gen Ready pod keeps serving and keeps its
+                    // assignments, but receives nothing new and sheds
+                    // toward the incoming generation.
+                    (ControllerKind::Deployment, PodStatus::Ready, DepartureReason::Rollout) => {
+                        Some(PlacementPolicy::Hold)
+                    }
+                    // Incoming-generation Ready pod is capped at its
+                    // final share while the transition is live, computed
+                    // fresh each evaluation so an HPA change mid-rollout
+                    // adjusts the quota.
+                    (ControllerKind::Deployment, PodStatus::Ready, _)
+                        if transitioning.contains(controller) && intent.desired_replicas > 0 =>
+                    {
+                        Some(PlacementPolicy::Active {
+                            cap: Some(total_partitions.div_ceil(intent.desired_replicas)),
+                        })
+                    }
+                    // StatefulSet rollout: Draining pod stays a member
+                    // (hold assignment) — the same pod name comes back
+                    // with a new revision.
+                    (
+                        ControllerKind::StatefulSet,
+                        PodStatus::Draining,
+                        DepartureReason::Rollout,
+                    ) => Some(PlacementPolicy::Active { cap: None }),
+                    _ => base_policy(pod.status),
+                }
+            }
+        };
+        if let Some(policy) = policy {
+            members.push(Member {
+                name: pod.pod_name.clone(),
+                policy,
+            });
+        }
+    }
+    members.sort_by(|a, b| a.name.cmp(&b.name));
+    members
+}
+
+/// A pod's controller ref and watched intent, when both are usable.
+fn pod_intent<'p, 'i>(
+    pod: &'p RegisteredPod,
+    intents: &'i HashMap<ControllerRef, ClusterIntent>,
+) -> Option<(&'p ControllerRef, &'i ClusterIntent)> {
+    let controller = pod.controller.as_ref()?;
+    if pod.generation.is_empty() {
+        return None;
+    }
+    let intent = intents.get(controller)?;
+    Some((controller, intent))
+}
+
+/// Membership when there is no K8s signal: Ready pods are uncapped
+/// active members, Draining pods are not members at all.
+fn base_policy(status: PodStatus) -> Option<PlacementPolicy> {
+    match status {
+        PodStatus::Ready => Some(PlacementPolicy::Active { cap: None }),
+        PodStatus::Draining => None,
+    }
 }
 
 #[cfg(test)]
@@ -804,6 +1545,7 @@ mod tests {
             registered_at: 0,
             last_heartbeat: 0,
             controller: None,
+            advertise_address: None,
         }
     }
 
@@ -814,5 +1556,203 @@ mod tests {
         let pods = vec![make_pod("pod-2"), draining, make_pod("pod-1")];
         let names = active_pod_names(&pods);
         assert_eq!(names, vec!["pod-1", "pod-2"]);
+    }
+
+    fn rollout_intent(
+        desired: u32,
+        rollout: bool,
+        current: &str,
+        target: Option<&str>,
+    ) -> ClusterIntent {
+        ClusterIntent {
+            desired_replicas: desired,
+            previous_replicas: None,
+            rollout_in_progress: rollout,
+            current_generation: current.to_string(),
+            target_generation: target.map(String::from),
+        }
+    }
+
+    fn deploy_ref() -> ControllerRef {
+        ControllerRef {
+            kind: ControllerKind::Deployment,
+            name: "deploy".to_string(),
+        }
+    }
+
+    fn ss_ref() -> ControllerRef {
+        ControllerRef {
+            kind: ControllerKind::StatefulSet,
+            name: "ss".to_string(),
+        }
+    }
+
+    fn k8s_pod(
+        name: &str,
+        generation: &str,
+        status: PodStatus,
+        controller: ControllerRef,
+    ) -> RegisteredPod {
+        RegisteredPod {
+            pod_name: name.to_string(),
+            generation: generation.to_string(),
+            status,
+            registered_at: 0,
+            last_heartbeat: 0,
+            controller: Some(controller),
+            advertise_address: None,
+        }
+    }
+
+    fn policy_of(members: &[Member], name: &str) -> Option<PlacementPolicy> {
+        members.iter().find(|m| m.name == name).map(|m| m.policy)
+    }
+
+    #[test]
+    fn deployment_rollout_holds_old_gen_and_caps_new_gen() {
+        let intents = HashMap::from([(deploy_ref(), rollout_intent(3, true, "old", Some("new")))]);
+        let pods = vec![
+            k8s_pod("old-0", "old", PodStatus::Ready, deploy_ref()),
+            k8s_pod("new-0", "new", PodStatus::Ready, deploy_ref()),
+        ];
+        let members = derive_members(&pods, &intents, 12);
+        assert_eq!(policy_of(&members, "old-0"), Some(PlacementPolicy::Hold));
+        assert_eq!(
+            policy_of(&members, "new-0"),
+            Some(PlacementPolicy::Active { cap: Some(4) })
+        );
+    }
+
+    /// The regression the k3s rollout test caught: after k8s reports the
+    /// rollout complete, still-registered old-gen pods must keep the
+    /// caps alive or the placement freezes with everything on the old
+    /// generation until termination.
+    #[test]
+    fn caps_survive_rollout_completion_while_old_gen_registered() {
+        let intents = HashMap::from([(deploy_ref(), rollout_intent(2, false, "new", None))]);
+        let pods = vec![
+            k8s_pod("old-0", "old", PodStatus::Ready, deploy_ref()),
+            k8s_pod("old-1", "old", PodStatus::Ready, deploy_ref()),
+            k8s_pod("new-0", "new", PodStatus::Ready, deploy_ref()),
+            k8s_pod("new-1", "new", PodStatus::Ready, deploy_ref()),
+        ];
+        let members = derive_members(&pods, &intents, 8);
+        assert_eq!(policy_of(&members, "old-0"), Some(PlacementPolicy::Hold));
+        assert_eq!(policy_of(&members, "old-1"), Some(PlacementPolicy::Hold));
+        assert_eq!(
+            policy_of(&members, "new-0"),
+            Some(PlacementPolicy::Active { cap: Some(4) })
+        );
+        assert_eq!(
+            policy_of(&members, "new-1"),
+            Some(PlacementPolicy::Active { cap: Some(4) })
+        );
+    }
+
+    /// A draining old-gen pod is not a member but still marks the
+    /// transition as live, so its incoming replacements stay capped.
+    #[test]
+    fn draining_old_gen_pod_keeps_the_transition_live() {
+        let intents = HashMap::from([(deploy_ref(), rollout_intent(2, false, "new", None))]);
+        let pods = vec![
+            k8s_pod("old-0", "old", PodStatus::Draining, deploy_ref()),
+            k8s_pod("new-0", "new", PodStatus::Ready, deploy_ref()),
+        ];
+        let members = derive_members(&pods, &intents, 8);
+        assert_eq!(policy_of(&members, "old-0"), None);
+        assert_eq!(
+            policy_of(&members, "new-0"),
+            Some(PlacementPolicy::Active { cap: Some(4) })
+        );
+    }
+
+    #[test]
+    fn deployment_steady_state_is_uncapped() {
+        let intents = HashMap::from([(deploy_ref(), rollout_intent(2, false, "gen", None))]);
+        let pods = vec![
+            k8s_pod("pod-0", "gen", PodStatus::Ready, deploy_ref()),
+            k8s_pod("pod-1", "gen", PodStatus::Ready, deploy_ref()),
+        ];
+        let members = derive_members(&pods, &intents, 8);
+        assert_eq!(
+            policy_of(&members, "pod-0"),
+            Some(PlacementPolicy::Active { cap: None })
+        );
+        assert_eq!(
+            policy_of(&members, "pod-1"),
+            Some(PlacementPolicy::Active { cap: None })
+        );
+    }
+
+    #[test]
+    fn zero_desired_replicas_leaves_new_gen_uncapped() {
+        let intents = HashMap::from([(deploy_ref(), rollout_intent(0, true, "old", Some("new")))]);
+        let pods = vec![
+            k8s_pod("old-0", "old", PodStatus::Ready, deploy_ref()),
+            k8s_pod("new-0", "new", PodStatus::Ready, deploy_ref()),
+        ];
+        let members = derive_members(&pods, &intents, 12);
+        assert_eq!(
+            policy_of(&members, "new-0"),
+            Some(PlacementPolicy::Active { cap: None })
+        );
+    }
+
+    #[test]
+    fn missing_intent_falls_back_to_status_only_membership() {
+        let intents = HashMap::new();
+        let pods = vec![
+            k8s_pod("pod-0", "old", PodStatus::Ready, deploy_ref()),
+            k8s_pod("pod-1", "old", PodStatus::Draining, deploy_ref()),
+        ];
+        let members = derive_members(&pods, &intents, 8);
+        assert_eq!(
+            policy_of(&members, "pod-0"),
+            Some(PlacementPolicy::Active { cap: None })
+        );
+        assert_eq!(policy_of(&members, "pod-1"), None);
+    }
+
+    #[test]
+    fn statefulset_draining_held_only_during_rollout() {
+        let rollout = HashMap::from([(ss_ref(), rollout_intent(3, true, "old", Some("new")))]);
+        let pods = vec![k8s_pod("ss-0", "old", PodStatus::Draining, ss_ref())];
+        let members = derive_members(&pods, &rollout, 8);
+        assert_eq!(
+            policy_of(&members, "ss-0"),
+            Some(PlacementPolicy::Active { cap: None })
+        );
+
+        let steady = HashMap::from([(ss_ref(), rollout_intent(3, false, "gen", None))]);
+        let pods = vec![k8s_pod("ss-0", "gen", PodStatus::Draining, ss_ref())];
+        let members = derive_members(&pods, &steady, 8);
+        assert_eq!(policy_of(&members, "ss-0"), None);
+    }
+
+    /// Old-gen pods of one controller must not cap pods of another.
+    #[test]
+    fn transition_is_scoped_per_controller() {
+        let other = ControllerRef {
+            kind: ControllerKind::Deployment,
+            name: "other".to_string(),
+        };
+        let intents = HashMap::from([
+            (deploy_ref(), rollout_intent(2, false, "new", None)),
+            (other.clone(), rollout_intent(2, false, "gen", None)),
+        ]);
+        let pods = vec![
+            k8s_pod("old-0", "old", PodStatus::Ready, deploy_ref()),
+            k8s_pod("new-0", "new", PodStatus::Ready, deploy_ref()),
+            k8s_pod("other-0", "gen", PodStatus::Ready, other),
+        ];
+        let members = derive_members(&pods, &intents, 8);
+        assert_eq!(
+            policy_of(&members, "new-0"),
+            Some(PlacementPolicy::Active { cap: Some(4) })
+        );
+        assert_eq!(
+            policy_of(&members, "other-0"),
+            Some(PlacementPolicy::Active { cap: None })
+        );
     }
 }

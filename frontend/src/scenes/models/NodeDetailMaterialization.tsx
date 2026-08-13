@@ -3,8 +3,7 @@ import { useActions, useValues } from 'kea'
 import { LemonTable, LemonTag, Tooltip } from '@posthog/lemon-ui'
 
 import { TZLabel } from 'lib/components/TZLabel'
-import { dayjsUtcToTimezone } from 'lib/dayjs'
-import { humanFriendlyDuration } from 'lib/utils/durations'
+import { computeJobDuration, jobLogsWindow } from 'scenes/data-warehouse/saved_queries/materializationJobUtils'
 import { LogsViewer } from 'scenes/hog-functions/logs/LogsViewer'
 import { teamLogic } from 'scenes/teamLogic'
 import { userLogic } from 'scenes/userLogic'
@@ -15,19 +14,6 @@ import { STATUS_TAG_SETTINGS } from './nodeDetailConstants'
 import { nodeDetailSceneLogic } from './nodeDetailSceneLogic'
 
 const LOG_LEVELS: LogEntryLevel[] = ['LOG', 'INFO', 'WARN', 'WARNING', 'ERROR']
-
-function computeDuration(job: DataModelingJob): string {
-    if (!job.created_at || !job.last_run_at) {
-        return '-'
-    }
-    const start = new Date(job.created_at).getTime()
-    const end = new Date(job.last_run_at).getTime()
-    const durationSeconds = (end - start) / 1000
-    if (durationSeconds <= 0) {
-        return '-'
-    }
-    return humanFriendlyDuration(durationSeconds)
-}
 
 export function NodeDetailMaterialization({ id }: { id: string }): JSX.Element | null {
     const { materializationJobs, materializationJobsLoading, jobsOffset, savedQuery } = useValues(
@@ -74,7 +60,7 @@ export function NodeDetailMaterialization({ id }: { id: string }): JSX.Element |
                     {
                         title: 'Duration',
                         key: 'duration',
-                        render: (_, job: DataModelingJob) => computeDuration(job),
+                        render: (_, job: DataModelingJob) => computeJobDuration(job),
                     },
                     {
                         title: 'Rows',
@@ -112,15 +98,8 @@ export function NodeDetailMaterialization({ id }: { id: string }): JSX.Element |
                                           hideLevelsFilter
                                           hideInstanceIdColumn
                                           defaultFilters={{
-                                              instanceId: job.workflow_run_id,
-                                              dateFrom: dayjsUtcToTimezone(job.created_at, timezone).format(
-                                                  'YYYY-MM-DD HH:mm:ss'
-                                              ),
-                                              dateTo: job.last_run_at
-                                                  ? dayjsUtcToTimezone(job.last_run_at, timezone)
-                                                        .add(1, 'hour')
-                                                        .format('YYYY-MM-DD HH:mm:ss')
-                                                  : undefined,
+                                              instanceId: job.workflow_run_id ?? undefined,
+                                              ...jobLogsWindow(job, timezone),
                                               levels: showDebugLogs ? ['DEBUG', ...LOG_LEVELS] : LOG_LEVELS,
                                           }}
                                       />

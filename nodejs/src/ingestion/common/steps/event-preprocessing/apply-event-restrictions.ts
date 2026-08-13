@@ -2,6 +2,7 @@ import { Counter } from 'prom-client'
 
 import { OVERFLOW_OUTPUT, OverflowOutput } from '~/common/outputs'
 import { EventIngestionRestrictionManager, RestrictionType } from '~/common/utils/event-ingestion-restrictions'
+import { IngestionOverflowMode } from '~/ingestion/config'
 import { dlq, drop, ok, redirect } from '~/ingestion/framework/results'
 import { ProcessingStep } from '~/ingestion/framework/steps'
 import { EventHeaders } from '~/types'
@@ -12,7 +13,7 @@ export const ingestionOverflowingMessagesTotal = new Counter({
 })
 
 export type RoutingConfig = {
-    overflowEnabled: boolean
+    overflowMode: IngestionOverflowMode
     preservePartitionLocality: boolean
 }
 
@@ -66,7 +67,7 @@ export function createApplyEventRestrictionsStep<T extends { headers: EventHeade
         }
 
         // Priority 3: Overflow
-        if (routingConfig.overflowEnabled && restrictions.has(RestrictionType.FORCE_OVERFLOW)) {
+        if (routingConfig.overflowMode === 'redirect' && restrictions.has(RestrictionType.FORCE_OVERFLOW)) {
             ingestionOverflowingMessagesTotal.inc()
             const shouldProcessPerson = !restrictions.has(RestrictionType.SKIP_PERSON_PROCESSING)
             const preservePartitionLocality = shouldProcessPerson ? true : routingConfig.preservePartitionLocality

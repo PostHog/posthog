@@ -20,7 +20,6 @@ from prometheus_client import Counter
 from posthog.caching.login_device_cache import check_and_cache_login_device
 from posthog.constants import AUTH_BACKEND_DISPLAY_NAMES
 from posthog.exceptions_capture import capture_exception
-from posthog.geoip import get_geoip_properties
 from posthog.helpers.impersonation import get_original_user_from_session, is_impersonated
 from posthog.models import Organization, PersonalAPIKey, Tag, TaggedItem
 from posthog.models.activity_logging.activity_log import (
@@ -33,7 +32,7 @@ from posthog.models.activity_logging.activity_log import (
     changes_between,
     log_activity,
 )
-from posthog.models.activity_logging.model_activity import get_current_user, get_was_impersonated
+from posthog.models.activity_logging.model_activity import get_current_trigger, get_current_user, get_was_impersonated
 from posthog.models.activity_logging.personal_api_key_utils import (
     log_personal_api_key_activity,
     log_personal_api_key_scope_change,
@@ -41,6 +40,7 @@ from posthog.models.activity_logging.personal_api_key_utils import (
 from posthog.models.activity_logging.project_secret_api_key_utils import log_project_secret_api_key_activity
 from posthog.models.activity_logging.tag_utils import get_tagged_item_related_object_info
 from posthog.models.activity_logging.utils import activity_storage
+from posthog.models.identity_provider_config import IdentityProviderConfig
 from posthog.models.oauth import OAuthApplication
 from posthog.models.organization import OrganizationMembership
 from posthog.models.organization_domain import OrganizationDomain
@@ -139,38 +139,61 @@ def _determine_login_method(request, was_impersonated):
     return login_method
 
 
+def log_login_activity(
+    user,
+    request: HttpRequest,
+    *,
+    login_method: str,
+    reauth: bool,
+    was_impersonated: bool = False,
+    log_user=None,
+    item_id: str | None = None,
+) -> None:
+    """Write the `logged_in` audit entry.
+
+    Also called directly for an SSO step-up re-auth, which keeps its session and so never fires
+    `user_logged_in` (see `posthog.api.authentication.social_reauth`).
+    """
+    organization_id = user.current_organization_id
+
+    if organization_id is None:
+        logger.info("Skipping login activity log - user has no organization", user_id=user.id)
+        return
+
+    log_activity(
+        organization_id=organization_id,
+        team_id=None,
+        user=log_user or user,
+        item_id=item_id or str(user.id),
+        scope="User",
+        activity="logged_in",
+        detail=Detail(
+            name=user.email,
+            changes=[],
+            context=UserLoginContext(
+                login_method=login_method,
+                ip_address=get_ip_address(request),
+                user_agent=get_short_user_agent(request),
+                reauth=reauth,
+            ),
+        ),
+        was_impersonated=was_impersonated,
+    )
+
+
 @receiver(user_logged_in)
 def log_user_login_activity(sender, user, request: HttpRequest, **kwargs):  # noqa: ARG001
     try:
         was_impersonated, log_user, item_id, _ = _detect_impersonation_for_login(user, request)
-        ip_address = get_ip_address(request)
-        user_agent = get_short_user_agent(request)
-        reauth = request.session.get("reauth") == "true"
 
-        organization_id = user.current_organization_id
-
-        if organization_id is None:
-            logger.info("Skipping login activity log - user has no organization", user_id=user.id)
-            return
-
-        log_activity(
-            organization_id=organization_id,
-            team_id=None,
-            user=log_user,
-            item_id=item_id,
-            scope="User",
-            activity="logged_in",
-            detail=Detail(
-                name=user.email,
-                changes=[],
-                context=UserLoginContext(
-                    login_method=_determine_login_method(request, was_impersonated),
-                    ip_address=ip_address,
-                    user_agent=user_agent,
-                    reauth=reauth,
-                ),
-            ),
+        log_login_activity(
+            user,
+            request,
+            login_method=_determine_login_method(request, was_impersonated),
+            reauth=request.session.get("reauth") == "true",
             was_impersonated=was_impersonated,
+            log_user=log_user,
+            item_id=item_id,
         )
     except Exception as e:
         logger.exception("Failed to log user login activity", user_id=user.id, error=e)
@@ -318,6 +341,50 @@ def handle_organization_domain_change(
         user=user,
         was_impersonated=was_impersonated,
         item_id=domain_instance.id,
+        scope=scope,
+        activity=activity,
+        detail=Detail(
+            changes=changes_between(scope, previous=before_update, current=after_update),
+            name=detail_name,
+            context=context,
+        ),
+    )
+
+
+@dataclasses.dataclass(frozen=True)
+class IdentityProviderConfigContext(ActivityContextBase):
+    organization_id: str
+    organization_name: str
+
+
+@mutable_receiver(model_activity_signal, sender=IdentityProviderConfig)
+def handle_identity_provider_config_change(
+    sender, scope, before_update, after_update, activity, user, was_impersonated=False, **kwargs
+):
+    config_instance = after_update or before_update
+
+    if not config_instance:
+        return
+
+    context = IdentityProviderConfigContext(
+        organization_id=str(config_instance.organization_id),
+        organization_name=config_instance.organization.name,
+    )
+
+    config_name = config_instance.name or str(config_instance.id)
+    if activity == "created":
+        detail_name = f"Identity provider config {config_name} added to {config_instance.organization.name}"
+    elif activity == "deleted":
+        detail_name = f"Identity provider config {config_name} removed from {config_instance.organization.name}"
+    else:
+        detail_name = f"Identity provider config {config_name} updated in {config_instance.organization.name}"
+
+    log_activity(
+        organization_id=config_instance.organization_id,
+        team_id=None,
+        user=user,
+        was_impersonated=was_impersonated,
+        item_id=config_instance.id,
         scope=scope,
         activity=activity,
         detail=Detail(
@@ -598,6 +665,8 @@ def handle_tagged_item_change(
     team = tagged_item.tag.team
     organization_id = team.organization_id if team else None
     team_id = tagged_item.tag.team_id
+    # Set by ActivityTriggerContext when the change comes from an automated source (e.g. a workflow)
+    trigger = get_current_trigger()
 
     log_activity(
         organization_id=organization_id,
@@ -611,6 +680,7 @@ def handle_tagged_item_change(
             changes=changes_between(scope, previous=before_update, current=after_update),
             name=tagged_item.tag.name,
             context=context,
+            trigger=trigger,
         ),
     )
 
@@ -638,6 +708,7 @@ def handle_tagged_item_change(
                         before=tagged_item.tag.name if activity == "deleted" else None,
                     )
                 ],
+                trigger=trigger,
             ),
         )
 
@@ -860,6 +931,11 @@ def post_login(sender, user, request: HttpRequest, **kwargs):
 
     # Cache device info on signup to skip login notification for this device
     if user.last_login is None:
+        # Deferred: importing posthog.geoip loads the MaxMind DB into memory at import time,
+        # which lands on the django.setup() path via this app's ready() and blows the startup
+        # import budget. Keep it at call time so only the signup path pays for it.
+        from posthog.geoip import get_geoip_properties  # noqa: PLC0415
+
         short_user_agent = get_short_user_agent(request)
         ip_address = get_ip_address(request)
         country = get_geoip_properties(ip_address).get("$geoip_country_name", "Unknown")

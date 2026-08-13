@@ -9,15 +9,18 @@ from cryptography.hazmat.primitives.asymmetric import rsa
 from snowflake.connector.errors import DatabaseError, HttpError
 
 from products.warehouse_sources.backend.models.external_data_source import ExternalDataSource
-from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline.typings import SourceInputs
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.sql.predicates import (
     ColumnTypeCategory,
     ValidatedRowFilter,
 )
-from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs import SnowflakeSourceConfig
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.typings import SourceInputs
+from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.snowflake import (
+    SnowflakeSourceConfig,
+)
 from products.warehouse_sources.backend.temporal.data_imports.sources.postgres.postgres import source_requires_ssl
 from products.warehouse_sources.backend.temporal.data_imports.sources.snowflake.snowflake import (
     _SNOWFLAKE_NETWORK_TIMEOUT_SECONDS,
+    _SNOWFLAKE_QUERY_TIMEOUT_SECONDS,
     SnowflakeImplementation,
     _build_query,
     _parse_clustering_key_leading_column,
@@ -556,11 +559,42 @@ class TestGetPrimaryKeysForTable:
         with pytest.raises(ValueError, match="column_name"):
             impl.get_primary_keys_for_table(cursor, "DB", "PUBLIC", "t")
 
+    def test_returns_none_when_show_fails(self, impl, cursor):
+        # A transient/permission SHOW failure must degrade to None so the pipeline falls back to a
+        # persisted or `id`-column PK, instead of crashing the incremental merge intermittently.
+        cursor.execute.side_effect = Exception("does not exist or not authorized")
+        assert impl.get_primary_keys_for_table(cursor, "DB", "PUBLIC", "t") is None
+
+    @pytest.mark.parametrize(
+        "error_msg,expect_capture",
+        [
+            # Table/schema dropped, renamed, or grant revoked after discovery — already classified
+            # as user/upstream and non-retryable by SnowflakeSource; not worth reporting as a bug.
+            (
+                "002003 (42S02): 01c5ed45-0a1f-ee98-0067-5f032313bb4a: SQL compilation error:\n"
+                "Table 'DB.PUBLIC.T' does not exist or not authorized.",
+                False,
+            ),
+            # Anything else is unexpected and should still be surfaced.
+            ("some other driver failure", True),
+        ],
+    )
+    def test_captures_only_unexpected_show_failures(self, impl, cursor, error_msg, expect_capture):
+        cursor.execute.side_effect = Exception(error_msg)
+        with patch(
+            "products.warehouse_sources.backend.temporal.data_imports.sources.snowflake.snowflake.capture_exception"
+        ) as mock_capture:
+            assert impl.get_primary_keys_for_table(cursor, "DB", "PUBLIC", "t") is None
+        assert mock_capture.called is expect_capture
+
 
 class TestGetRowsToSync:
     def test_returns_count(self, impl, cursor, logger):
         cursor.fetchone.return_value = (321,)
         assert impl.get_rows_to_sync(cursor, "SELECT 1", (), logger) == 321
+        # The COUNT(*) probe scans the same table, so it carries the same long per-query timeout —
+        # otherwise a large table trips the connector timebomb and the probe spuriously logs a 604.
+        assert cursor.execute.call_args.kwargs["timeout"] == _SNOWFLAKE_QUERY_TIMEOUT_SECONDS
 
     def test_returns_zero_on_exception(self, impl, cursor, logger):
         # Sync must never bail because the COUNT(*) probe failed
@@ -605,6 +639,11 @@ class TestBuildPipeline:
             assert list(response.items()) == [b"batch-1", b"batch-2"]
             # Pin a single timestamp unit so mixed ns/us batches don't break pyarrow assembly.
             streaming_cursor.fetch_arrow_batches.assert_called_once_with(force_microsecond_precision=True)
+            # The streaming scan must run with a per-query timeout well above `network_timeout`, or the
+            # connector's timebomb cancels a legitimately long full-table sync with ProgrammingError
+            # 000604/57014. Guards the regression that reused the 300s `network_timeout` as the cap.
+            assert streaming_cursor.execute.call_args.kwargs["timeout"] == _SNOWFLAKE_QUERY_TIMEOUT_SECONDS
+            assert _SNOWFLAKE_QUERY_TIMEOUT_SECONDS > _SNOWFLAKE_NETWORK_TIMEOUT_SECONDS
 
     def test_multi_schema_row_routes_to_qualified_namespace(self, impl):
         # A blank-namespace source pins each row's schema via the dotted schema_name.
@@ -760,6 +799,20 @@ class TestSnowflakeSourceNonRetryableErrors:
     @pytest.mark.parametrize(
         "error_msg",
         [
+            "HTTP 403: Forbidden",
+            # The real shape from production: the errno prefix and host vary, but the status
+            # text is stable. Newlines are normalized to spaces upstream.
+            "290403: 290403: HTTP 403: Forbidden",
+        ],
+    )
+    def test_forbidden_403_is_non_retryable(self, source, error_msg):
+        non_retryable = source.get_non_retryable_errors()
+        is_non_retryable = any(pattern in error_msg for pattern in non_retryable.keys())
+        assert is_non_retryable, f"Persistent HTTP 403 should be non-retryable: {error_msg}"
+
+    @pytest.mark.parametrize(
+        "error_msg",
+        [
             "JWT token is invalid",
             # The real shape from production: codes, host, and request id vary, but the substring is stable.
             "250001 (08001): None: Failed to connect to DB: novjltn-acme.snowflakecomputing.com:443. "
@@ -831,6 +884,28 @@ class TestSnowflakeSourceNonRetryableErrors:
     @pytest.mark.parametrize(
         "error_msg",
         [
+            # Wrong passphrase for an encrypted key (cryptography ValueError).
+            "Incorrect password, could not decrypt key",
+            # No passphrase given for an encrypted key (cryptography TypeError).
+            "Password was not given but private key is encrypted",
+        ],
+    )
+    def test_encrypted_key_passphrase_is_non_retryable(self, source, error_msg):
+        non_retryable = source.get_non_retryable_errors()
+        is_non_retryable = any(pattern in error_msg for pattern in non_retryable.keys())
+        assert is_non_retryable, f"Encrypted-key passphrase error should be non-retryable: {error_msg}"
+
+    def test_unencrypted_key_with_passphrase_is_non_retryable(self, source):
+        # A passphrase supplied for an unencrypted key (cryptography TypeError) — the inverse of the
+        # encrypted-key cases above. Fails to parse before reaching Snowflake, so retrying can't help.
+        error_msg = "Password was given but private key is not encrypted."
+        non_retryable = source.get_non_retryable_errors()
+        is_non_retryable = any(pattern in error_msg for pattern in non_retryable.keys())
+        assert is_non_retryable, f"Unencrypted-key-with-passphrase error should be non-retryable: {error_msg}"
+
+    @pytest.mark.parametrize(
+        "error_msg",
+        [
             "250003 (08001): Failed to connect to DB: acme-xy123.snowflakecomputing.com:443. Connection timed out",
             "Operation timed out while waiting for the warehouse to resume",
         ],
@@ -839,6 +914,40 @@ class TestSnowflakeSourceNonRetryableErrors:
         non_retryable = source.get_non_retryable_errors()
         is_non_retryable = any(pattern in error_msg for pattern in non_retryable.keys())
         assert not is_non_retryable, f"Error should remain retryable: {error_msg}"
+
+
+class TestSnowflakeSourceRetryableErrors:
+    @pytest.fixture
+    def source(self):
+        return SnowflakeSource()
+
+    @pytest.mark.parametrize(
+        "error_msg",
+        [
+            # The real shape from production: the connector's BadRequest formats as "<errno>: <errno>: <msg>".
+            "290400: 290400: HTTP 400: Bad Request",
+            "HTTP 400: Bad Request",
+        ],
+    )
+    def test_chunk_download_bad_request_is_retryable(self, source, error_msg):
+        # Downloading a query result chunk got HTTP 400, and the connector's own retry budget
+        # (`result_batch.py::_download`) was already exhausted before `BadRequest` re-raised. Without
+        # this classification `_handle_import_error` logs it at `exception` on every occurrence,
+        # flooding error tracking with a self-recovering failure.
+        retryable = source.get_retryable_errors()
+        is_retryable = any(pattern in error_msg for pattern in retryable)
+        assert is_retryable, f"Chunk-download bad-request error should be classified retryable: {error_msg}"
+
+    def test_login_internal_error_is_retryable(self, source):
+        # The real shape from production: the login-request endpoint responded with a generic
+        # internal-error message instead of a credential/config-specific one.
+        error_msg = (
+            "250001 (08001): None: Failed to connect to DB: acme-xy123.snowflakecomputing.com:443. "
+            "Internal error:  [f189e7a4-177b-4b96-a5cf-50a7193e2fff]"
+        )
+        retryable = source.get_retryable_errors()
+        is_retryable = any(pattern in error_msg for pattern in retryable)
+        assert is_retryable, f"Snowflake login internal-error should be classified retryable: {error_msg}"
 
 
 class TestSnowflakeValidateCredentials:
@@ -861,6 +970,44 @@ class TestSnowflakeValidateCredentials:
 
         assert ok is False
         assert message is not None and "PEM private key" in message
+        mock_capture.assert_not_called()
+
+    @pytest.mark.parametrize(
+        "error",
+        [
+            # Wrong passphrase for an encrypted key.
+            ValueError("Incorrect password, could not decrypt key"),
+            # No passphrase given for an encrypted key — a TypeError, not a ValueError.
+            TypeError("Password was not given but private key is encrypted"),
+        ],
+    )
+    def test_encrypted_key_passphrase_returns_friendly_message_without_capture(self, source, error):
+        with (
+            patch.object(source, "get_schemas", side_effect=error),
+            patch(
+                "products.warehouse_sources.backend.temporal.data_imports.sources.snowflake.source.capture_exception"
+            ) as mock_capture,
+        ):
+            ok, message = source.validate_credentials(_make_config("keypair"), team_id=1)
+
+        assert ok is False
+        assert message is not None and "passphrase" in message
+        mock_capture.assert_not_called()
+
+    def test_unencrypted_key_with_passphrase_returns_friendly_message_without_capture(self, source):
+        # A passphrase supplied for an unencrypted key — a TypeError raised while parsing, so it's a
+        # user config error that should surface an actionable message, not be captured.
+        error = TypeError("Password was given but private key is not encrypted.")
+        with (
+            patch.object(source, "get_schemas", side_effect=error),
+            patch(
+                "products.warehouse_sources.backend.temporal.data_imports.sources.snowflake.source.capture_exception"
+            ) as mock_capture,
+        ):
+            ok, message = source.validate_credentials(_make_config("keypair"), team_id=1)
+
+        assert ok is False
+        assert message is not None and "not encrypted" in message
         mock_capture.assert_not_called()
 
     def test_mfa_enrollment_required_returns_friendly_message_without_capture(self, source):

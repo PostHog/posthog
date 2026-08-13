@@ -1,3 +1,5 @@
+from datetime import UTC, datetime, timedelta
+
 from posthog.test.base import ClickhouseTestMixin, NonAtomicBaseTest
 
 from django.test import override_settings
@@ -5,7 +7,7 @@ from django.utils import timezone
 
 from parameterized import parameterized
 
-from posthog.schema import AccountsQuery, AccountsQueryResponse
+from posthog.schema import AccountsQuery, AccountsQueryResponse, HogQLQueryModifiers
 
 from posthog.hogql.errors import ExposedHogQLError
 
@@ -474,6 +476,53 @@ class TestAccountsQueryRunner(ClickhouseTestMixin, NonAtomicBaseTest):
         )
         self.assertEqual(names, ["Match"])
 
+    def test_filter_expression_can_reference_a_custom_property_not_in_select(self):
+        definition = create_custom_property_definition(team_id=self.team.id, name="Plan")
+        match = create_account(team_id=self.team.id, name="Enterprise co")
+        create_account(team_id=self.team.id, name="No value")
+        CustomPropertyValue.objects.unscoped().create(
+            team_id=self.team.id, account=match, definition=definition, value_str="enterprise"
+        )
+        # The custom-property filter UI compiles to filterExpression fragments like this, and the
+        # filtered property is usually not a selected column — the WHERE reference alone must
+        # expand the custom_properties lazy join.
+        names = self._names(filterExpression=f"accounts.custom_properties.values.`{definition.id}` = 'enterprise'")
+        self.assertEqual(names, ["Enterprise co"])
+
+    @parameterized.expand(
+        [
+            (
+                "boolean",
+                {"value_bool": True},
+                {"value_bool": False},
+                "accounts.custom_properties.values.`{id}` = 'true'",
+            ),
+            (
+                "datetime",
+                {"value_datetime": datetime(2026, 1, 10, tzinfo=UTC)},
+                {"value_datetime": datetime(2026, 6, 10, tzinfo=UTC)},
+                "parseDateTimeBestEffort(accounts.custom_properties.values.`{id}`) < parseDateTimeBestEffort('2026-03-01')",
+            ),
+        ]
+    )
+    def test_typed_custom_property_filter_expression_round_trips(
+        self, display_type, match_value, other_value, expression_template
+    ):
+        # These are the exact predicate shapes the filter UI compiles; they must match against
+        # the coalesced string column as it comes back through the federated read (where e.g.
+        # a PostgreSQL boolean arrives as UInt8, not as 'true'/'false').
+        definition = create_custom_property_definition(team_id=self.team.id, name="Prop", display_type=display_type)
+        match = create_account(team_id=self.team.id, name="Match")
+        other = create_account(team_id=self.team.id, name="Other")
+        CustomPropertyValue.objects.unscoped().create(
+            team_id=self.team.id, account=match, definition=definition, **match_value
+        )
+        CustomPropertyValue.objects.unscoped().create(
+            team_id=self.team.id, account=other, definition=definition, **other_value
+        )
+        names = self._names(filterExpression=expression_template.format(id=definition.id))
+        self.assertEqual(names, ["Match"])
+
     def test_custom_property_value_round_trips_through_a_selected_alias(self):
         account = create_account(team_id=self.team.id, name="A")
         definition = create_custom_property_definition(team_id=self.team.id, name="Plan")
@@ -494,6 +543,55 @@ class TestAccountsQueryRunner(ClickhouseTestMixin, NonAtomicBaseTest):
         self.assertEqual(values_by_id[str(account.id)], "enterprise")
         # An account with no value for the definition aggregates to NULL/empty.
         self.assertFalse(values_by_id[str(other.id)])
+
+    def test_custom_property_history_returns_ordered_writes_within_horizon(self):
+        account = create_account(team_id=self.team.id, name="A")
+        stale_account = create_account(team_id=self.team.id, name="Stale")
+        definition = create_custom_property_definition(team_id=self.team.id, name="Seats", display_type="number")
+        text_definition = create_custom_property_definition(team_id=self.team.id, name="Plan")
+        CustomPropertyValue.objects.unscoped().create(
+            team_id=self.team.id, account=account, definition=text_definition, value_str="enterprise"
+        )
+        now = timezone.now()
+        for target, value, is_deleted, written_at in [
+            (account, 99.0, True, now - timedelta(days=200)),
+            (account, 10.0, True, now - timedelta(days=10)),
+            (account, 33.0, False, now - timedelta(days=5)),
+            # An active value last written before the horizon must still surface as the
+            # current value — only superseded rows age out.
+            (stale_account, 77.0, False, now - timedelta(days=200)),
+        ]:
+            row = CustomPropertyValue.objects.unscoped().create(
+                team_id=self.team.id, account=target, definition=definition, value_num=value, is_deleted=is_deleted
+            )
+            CustomPropertyValue.objects.unscoped().filter(id=row.id).update(created_at=written_at)
+
+        runner = AccountsQueryRunner(
+            query=AccountsQuery(
+                select=[
+                    "id",
+                    f"accounts.custom_properties_history.values.`{definition.id}` AS numeric_history",
+                    f"accounts.custom_properties_history.values.`{text_definition.id}` AS text_history",
+                ]
+            ),
+            team=self.team,
+            user=self.user,
+        )
+        response = runner.calculate()
+        self.assertEqual(len(response.results), 2)
+        id_idx = runner.columns.index("id")
+        rows_by_id = {str(row[id_idx]): row for row in response.results}
+
+        numeric_history = rows_by_id[str(account.id)][runner.columns.index("numeric_history")]
+        # The 200-day-old superseded write falls outside the fetch horizon; the two in-horizon
+        # writes come back oldest first, superseded row included.
+        self.assertEqual([point[1] for point in numeric_history], [10.0, 33.0])
+        timestamps = [point[0] for point in numeric_history]
+        self.assertEqual(timestamps, sorted(timestamps))
+        self.assertFalse(rows_by_id[str(account.id)][runner.columns.index("text_history")])
+
+        stale_history = rows_by_id[str(stale_account.id)][runner.columns.index("numeric_history")]
+        self.assertEqual([point[1] for point in stale_history], [77.0])
 
     def test_numeric_custom_property_aggregates_in_metrics_mode(self):
         # Overview tiles sum/avg a numeric custom property by casting its (string) value to a float.
@@ -526,3 +624,69 @@ class TestAccountsQueryRunner(ClickhouseTestMixin, NonAtomicBaseTest):
 
         runner = AccountsQueryRunner(query=AccountsQuery(), team=self.team)
         self.assertRaises(UserAccessControlError, runner.validate_query_runner_access, self.user)
+
+    def test_multiple_aggregating_joins_preserve_left_join_defaults(self):
+        # Selecting tags + notebooks + a custom property together merges the sibling
+        # federated joins into one UNION ALL join; an account with none of them must
+        # keep the LEFT JOIN defaults (0 notebooks, [] tags, empty property) through
+        # the merged re-aggregation.
+        tag = Tag.objects.create(name="billing", team=self.team)
+        definition = create_custom_property_definition(team_id=self.team.id, name="Plan")
+        full = create_account(team_id=self.team.id, name="Full")
+        full.tagged_items.create(tag=tag)
+        notebook = Notebook.objects.create(team=self.team, created_by=self.user)
+        ResourceNotebook.objects.create(account=full, notebook=notebook)
+        CustomPropertyValue.objects.unscoped().create(
+            team_id=self.team.id, account=full, definition=definition, value_str="enterprise"
+        )
+        empty = create_account(team_id=self.team.id, name="Empty")
+
+        runner = AccountsQueryRunner(
+            query=AccountsQuery(
+                select=[
+                    "id",
+                    "accounts.tags.names AS tag_names",
+                    "accounts.notebooks.count AS notebook_count",
+                    f"accounts.custom_properties.values.`{definition.id}` AS plan",
+                ]
+            ),
+            team=self.team,
+            user=self.user,
+            modifiers=HogQLQueryModifiers(mergeFederatedAggregateJoins=True),
+        )
+        response = runner.calculate()
+        rows = {str(row[runner.columns.index("id")]): row for row in response.results}
+        tags_idx = runner.columns.index("tag_names")
+        count_idx = runner.columns.index("notebook_count")
+        plan_idx = runner.columns.index("plan")
+
+        self.assertEqual(rows[str(full.id)][tags_idx], ["billing"])
+        self.assertEqual(rows[str(full.id)][count_idx], 1)
+        self.assertEqual(rows[str(full.id)][plan_idx], "enterprise")
+        self.assertEqual(rows[str(empty.id)][tags_idx], [])
+        self.assertEqual(rows[str(empty.id)][count_idx], 0)
+        self.assertFalse(rows[str(empty.id)][plan_idx])
+
+    def test_join_merge_requires_modifier(self):
+        # The merge transform must stay behind the modifier: without it the printed
+        # SQL keeps the original per-join shape. The modifier-on run guards against
+        # the query silently becoming ineligible for the merge.
+        from posthog.hogql.query import HogQLQueryExecutor
+
+        query = AccountsQuery(
+            select=["id", "accounts.tags.names AS tag_names", "accounts.notebooks.count AS notebook_count"]
+        )
+
+        def generate_sql(modifiers: HogQLQueryModifiers | None) -> str:
+            runner = AccountsQueryRunner(query=query, team=self.team, user=self.user, modifiers=modifiers)
+            sql, _context = HogQLQueryExecutor(
+                query=runner.to_query(),
+                team=self.team,
+                query_type="AccountsQuery",
+                user=self.user,
+                modifiers=runner.modifiers,
+            ).generate_clickhouse_sql()
+            return sql
+
+        self.assertNotIn("__merged_aggregates", generate_sql(None))
+        self.assertIn("__merged_aggregates", generate_sql(HogQLQueryModifiers(mergeFederatedAggregateJoins=True)))

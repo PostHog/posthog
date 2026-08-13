@@ -3,7 +3,7 @@ from typing import Literal, Optional
 
 from products.warehouse_sources.backend.types import IncrementalField
 
-# How an endpoint's request URLs are derived:
+# How an endpoint's request URLs are derived (drives the rest_source resource chain):
 #   "none"          -> a single top-level list endpoint (no parent fan-out)
 #   "workspace"     -> one request per workspace the token can see
 #   "organization"  -> one request per workspace that is an organization
@@ -15,9 +15,10 @@ FanOut = Literal["none", "workspace", "organization", "project"]
 class AsanaEndpointConfig:
     name: str
     fan_out: FanOut
-    # Relative path appended to the API base. Contains a single ``{gid}`` placeholder for
-    # fan-out endpoints (the parent resource id), and no placeholder for top-level ones.
-    path_template: str
+    # Relative path appended to the API base. Fan-out endpoints carry a single ``{workspace_gid}``
+    # or ``{project_gid}`` placeholder that the framework binds from the parent row per request;
+    # top-level endpoints carry no placeholder.
+    path: str
     # Asana list endpoints return compact records ({gid, name, resource_type}) by default.
     # ``opt_fields`` opts extra properties into the response — keep the partition key here.
     opt_fields: list[str] = field(default_factory=list)
@@ -33,19 +34,19 @@ ASANA_ENDPOINTS: dict[str, AsanaEndpointConfig] = {
     "workspaces": AsanaEndpointConfig(
         name="workspaces",
         fan_out="none",
-        path_template="/workspaces",
+        path="/workspaces",
         opt_fields=["name", "email_domains", "is_organization", "resource_type"],
     ),
     "users": AsanaEndpointConfig(
         name="users",
         fan_out="none",
-        path_template="/users",
+        path="/users",
         opt_fields=["name", "email", "photo", "workspaces", "resource_type"],
     ),
     "projects": AsanaEndpointConfig(
         name="projects",
         fan_out="workspace",
-        path_template="/projects?workspace={gid}",
+        path="/projects?workspace={workspace_gid}",
         opt_fields=[
             "name",
             "created_at",
@@ -74,7 +75,7 @@ ASANA_ENDPOINTS: dict[str, AsanaEndpointConfig] = {
     "tasks": AsanaEndpointConfig(
         name="tasks",
         fan_out="project",
-        path_template="/tasks?project={gid}",
+        path="/tasks?project={project_gid}",
         opt_fields=[
             "name",
             "created_at",
@@ -102,27 +103,27 @@ ASANA_ENDPOINTS: dict[str, AsanaEndpointConfig] = {
     "tags": AsanaEndpointConfig(
         name="tags",
         fan_out="workspace",
-        path_template="/tags?workspace={gid}",
+        path="/tags?workspace={workspace_gid}",
         opt_fields=["name", "created_at", "color", "notes", "workspace", "permalink_url", "resource_type"],
         partition_key="created_at",
     ),
     "sections": AsanaEndpointConfig(
         name="sections",
         fan_out="project",
-        path_template="/projects/{gid}/sections",
+        path="/projects/{project_gid}/sections",
         opt_fields=["name", "created_at", "project", "resource_type"],
         partition_key="created_at",
     ),
     "teams": AsanaEndpointConfig(
         name="teams",
         fan_out="organization",
-        path_template="/organizations/{gid}/teams",
+        path="/organizations/{workspace_gid}/teams",
         opt_fields=["name", "description", "organization", "permalink_url", "visibility", "resource_type"],
     ),
     "custom_fields": AsanaEndpointConfig(
         name="custom_fields",
         fan_out="workspace",
-        path_template="/workspaces/{gid}/custom_fields",
+        path="/workspaces/{workspace_gid}/custom_fields",
         opt_fields=[
             "name",
             "description",

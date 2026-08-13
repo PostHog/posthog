@@ -222,6 +222,42 @@ export function getInlineEditableElementForSelection(
     return getClosestEditableBlockElement(getElementForNode(selection.anchorNode))
 }
 
+/** The subset of Range that StaticRange (from InputEvent.getTargetRanges) also implements. */
+type EditTargetRange = Pick<Range, 'collapsed' | 'startContainer' | 'endContainer'>
+
+/**
+ * Whether a native input event would edit content across inline-editable element boundaries.
+ * The browser implements such edits by restructuring the DOM in place (merging two `<li>`
+ * elements, joining table cells), which desyncs the React-managed element tree and makes the
+ * next React commit throw removeChild/insertBefore DOM exceptions — so these browser defaults
+ * must never be allowed to run.
+ */
+export function inputEventCrossesInlineEditableBoundary(event: InputEvent, rootElement: HTMLElement): boolean {
+    const eventWithTargetRanges = event as InputEvent & { getTargetRanges?: () => EditTargetRange[] }
+    const targetRanges =
+        typeof eventWithTargetRanges.getTargetRanges === 'function' ? eventWithTargetRanges.getTargetRanges() : []
+    if (targetRanges.length) {
+        return targetRanges.some((targetRange) => rangeCrossesInlineEditableBoundary(targetRange, rootElement))
+    }
+
+    const selection = window.getSelection()
+    if (!selection || selection.rangeCount === 0 || selection.isCollapsed) {
+        return false
+    }
+
+    return rangeCrossesInlineEditableBoundary(selection.getRangeAt(0), rootElement)
+}
+
+function rangeCrossesInlineEditableBoundary(range: EditTargetRange, rootElement: HTMLElement): boolean {
+    if (range.collapsed || !rootElement.contains(range.startContainer) || !rootElement.contains(range.endContainer)) {
+        return false
+    }
+
+    const startElement = getClosestEditableBlockElement(getElementForNode(range.startContainer))
+    const endElement = getClosestEditableBlockElement(getElementForNode(range.endContainer))
+    return !startElement || !endElement || startElement !== endElement
+}
+
 export function getCollapsedSelectionRestoreRequest(
     selection: Selection | null,
     rootElement: HTMLElement
@@ -612,8 +648,16 @@ export function rangeIntersectsNode(range: Range, node: Node): boolean {
     }
 }
 
+// Monaco belongs in this list because an embedded editor (SQLV2 and PythonV2 cells, the debug drawer)
+// owns its own editing and key handling, so the notebook has to leave Cmd+A, Backspace, copy and paste
+// to it rather than acting on the whole document. Tag names alone don't find it: with EditContext
+// enabled, which is Monaco's default on Chromium, the focused input host is a plain
+// `div.native-edit-context` instead of the legacy hidden textarea, and the DOM selection stays wherever
+// it was before the editor took focus.
+const NATIVE_EDITABLE_SELECTOR = 'input, textarea, select, .monaco-editor'
+
 export function isNativeEditableElement(element: HTMLElement): boolean {
-    return Boolean(element.closest('input, textarea, select'))
+    return Boolean(element.closest(NATIVE_EDITABLE_SELECTOR))
 }
 
 export function isFormattingToolbarFocused(): boolean {

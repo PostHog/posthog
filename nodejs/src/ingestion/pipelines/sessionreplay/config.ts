@@ -8,12 +8,18 @@ import {
     KAFKA_SESSION_RECORDING_SNAPSHOT_ITEM_DLQ,
     KAFKA_SESSION_RECORDING_SNAPSHOT_ITEM_EVENTS,
     KAFKA_SESSION_RECORDING_SNAPSHOT_ITEM_OVERFLOW,
+    KAFKA_SESSION_REPLAY_IMAGE_FETCH,
+    KAFKA_SESSION_REPLAY_IMAGE_SCRUB,
     KAFKA_SESSION_REPLAY_ML_BLOCK_METADATA,
 } from '~/common/config/kafka-topics'
 import { isDevEnv } from '~/common/utils/env-utils'
 import { INGESTION_DOWNSTREAM_PRODUCER, type IngestionDownstreamProducer } from '~/ingestion/common/outputs/producers'
 import {
+    INGESTION_SESSIONREPLAY_ML_IMAGE_FETCH_PRODUCER,
+    INGESTION_SESSIONREPLAY_ML_IMAGE_SCRUB_PRODUCER,
     INGESTION_SESSIONREPLAY_PRODUCER,
+    type IngestionSessionreplayMlImageFetchProducer,
+    type IngestionSessionreplayMlImageScrubProducer,
     type IngestionSessionreplayProducer,
 } from '~/ingestion/pipelines/sessionreplay/shared/outputs/producer-config'
 
@@ -24,7 +30,11 @@ import { KAFKA_CONSUMER_GROUP_ID as SESSION_RECORDING_DEFAULT_GROUP_ID } from '.
  * common) for ClickHouse-bound outputs, and SESSIONREPLAY (warpstream-replay, defined in the
  * session-replay folder) for replay-domain topics.
  */
-export type SessionReplayProducerName = IngestionDownstreamProducer | IngestionSessionreplayProducer
+export type SessionReplayProducerName =
+    | IngestionDownstreamProducer
+    | IngestionSessionreplayProducer
+    | IngestionSessionreplayMlImageScrubProducer
+    | IngestionSessionreplayMlImageFetchProducer
 
 export type SessionRecordingApiConfig = {
     SESSION_RECORDING_API_REDIS_HOST: string
@@ -83,6 +93,8 @@ export type SessionRecordingConfig = {
     SESSION_RECORDING_FEATURES_ENABLED: boolean
     SESSION_RECORDING_FEATURES_ROLLOUT_PERCENTAGE: number
     SESSION_RECORDING_CRYPTO_INTEGRITY_CHECK_RATE: number
+    /** Caps how many sessions resolve their encryption key concurrently, bounding KMS/DynamoDB fan-out. */
+    SESSION_RECORDING_KEY_RESOLUTION_MAX_CONCURRENCY: number
 
     // Kafka consumer config
     INGESTION_SESSION_REPLAY_CONSUMER_CONSUME_TOPIC: string
@@ -143,6 +155,7 @@ export function getDefaultSessionRecordingConfig(): SessionRecordingConfig {
         SESSION_RECORDING_FEATURES_ENABLED: true,
         SESSION_RECORDING_FEATURES_ROLLOUT_PERCENTAGE: 10,
         SESSION_RECORDING_CRYPTO_INTEGRITY_CHECK_RATE: 0,
+        SESSION_RECORDING_KEY_RESOLUTION_MAX_CONCURRENCY: 20,
 
         // Kafka consumer config
         INGESTION_SESSION_REPLAY_CONSUMER_CONSUME_TOPIC: KAFKA_SESSION_RECORDING_SNAPSHOT_ITEM_EVENTS,
@@ -181,6 +194,12 @@ export type SessionReplayOutputsConfig = {
 
     INGESTION_SESSIONREPLAY_OUTPUT_ML_BLOCK_METADATA_TOPIC: string
     INGESTION_SESSIONREPLAY_OUTPUT_ML_BLOCK_METADATA_PRODUCER: SessionReplayProducerName
+
+    INGESTION_SESSIONREPLAY_OUTPUT_ML_IMAGE_SCRUB_TOPIC: string
+    INGESTION_SESSIONREPLAY_OUTPUT_ML_IMAGE_SCRUB_PRODUCER: SessionReplayProducerName
+
+    INGESTION_SESSIONREPLAY_OUTPUT_ML_IMAGE_FETCH_TOPIC: string
+    INGESTION_SESSIONREPLAY_OUTPUT_ML_IMAGE_FETCH_PRODUCER: SessionReplayProducerName
 }
 
 export function getDefaultSessionReplayOutputsConfig(): SessionReplayOutputsConfig {
@@ -202,5 +221,11 @@ export function getDefaultSessionReplayOutputsConfig(): SessionReplayOutputsConf
         INGESTION_SESSIONREPLAY_OUTPUT_SESSION_FEATURES_PRODUCER: INGESTION_SESSIONREPLAY_PRODUCER,
         INGESTION_SESSIONREPLAY_OUTPUT_ML_BLOCK_METADATA_TOPIC: KAFKA_SESSION_REPLAY_ML_BLOCK_METADATA,
         INGESTION_SESSIONREPLAY_OUTPUT_ML_BLOCK_METADATA_PRODUCER: INGESTION_SESSIONREPLAY_PRODUCER,
+        INGESTION_SESSIONREPLAY_OUTPUT_ML_IMAGE_SCRUB_TOPIC: KAFKA_SESSION_REPLAY_IMAGE_SCRUB,
+        INGESTION_SESSIONREPLAY_OUTPUT_ML_IMAGE_SCRUB_PRODUCER: INGESTION_SESSIONREPLAY_ML_IMAGE_SCRUB_PRODUCER,
+        INGESTION_SESSIONREPLAY_OUTPUT_ML_IMAGE_FETCH_TOPIC: KAFKA_SESSION_REPLAY_IMAGE_FETCH,
+        // Its own producer instance, not the scrub lane's. See the doc block on
+        // INGESTION_SESSIONREPLAY_ML_IMAGE_FETCH_PRODUCER for why the two must not share a queue.
+        INGESTION_SESSIONREPLAY_OUTPUT_ML_IMAGE_FETCH_PRODUCER: INGESTION_SESSIONREPLAY_ML_IMAGE_FETCH_PRODUCER,
     }
 }

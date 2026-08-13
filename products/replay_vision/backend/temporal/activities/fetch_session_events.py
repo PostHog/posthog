@@ -1,18 +1,21 @@
 import hashlib
 import datetime as dt
 import itertools
+from dataclasses import dataclass
 from typing import Any
 
 import structlog
 from asgiref.sync import sync_to_async
 from temporalio import activity
 
+from posthog.clickhouse.client.connection import ClickHouseUser
 from posthog.models import Team
 from posthog.models.person.util import get_person_by_distinct_id
 from posthog.session_recordings.queries.session_replay_events import SessionReplayEvents
 
 from products.replay_vision.backend.models.replay_observation import ReplayObservation
-from products.replay_vision.backend.temporal.constants import (
+from products.replay_vision.backend.queries.session_group_keys import fetch_session_group_keys
+from products.replay_vision.backend.session_limits import (
     MAX_ACTIVE_SECONDS_FOR_VIDEO_SCANNER_S,
     MIN_ACTIVE_SECONDS_FOR_VIDEO_SCANNER_S,
     MIN_SESSION_DURATION_FOR_VIDEO_SCANNER_S,
@@ -24,9 +27,11 @@ from products.replay_vision.backend.temporal.state import (
     get_redis_state_client,
     store_data_in_redis,
 )
+from products.replay_vision.backend.temporal.team_context import fetch_event_descriptions, fetch_product_context
 from products.replay_vision.backend.temporal.types import (
     EventTable,
     FetchSessionEventsInputs,
+    NavigationEntry,
     ScannerLlmInputs,
     SessionMetadata,
 )
@@ -37,6 +42,9 @@ logger = structlog.get_logger(__name__)
 # Events are no longer inlined in the prompt — they're loaded into the table the model queries on demand — so we
 # page through the whole session.
 _EVENTS_PER_PAGE = 2000
+# Eligibility caps active seconds, not event count, so an instrumentation loop or bot can still emit
+# millions of rows. Cap the total we hold in memory, gzip into Redis, and index for the events tool.
+_MAX_TOTAL_EVENT_ROWS = 50_000
 
 # Noisy SDK-internal events that add no signal for the LLM.
 _EVENTS_TO_IGNORE = ["$feature_flag_called"]
@@ -56,6 +64,11 @@ _WINDOW_PREFIX = "window"
 _MAX_FIELD_LEN = 2000
 # Fixed-size dedup key — keeps `seen_hashes` bounded on chatty sessions where each row can carry ~KB-sized truncated exception text.
 _DEDUP_HASH_BYTES = 8
+# The preamble's navigation timeline stays a skim-able digest, not a second event dump: bounded per URL, per entry
+# count, and in total URL characters, so a bouncy session with long URLs can't bloat the cached prompt.
+_MAX_NAVIGATION_ENTRIES = 30
+_MAX_NAVIGATION_URL_LEN = 200
+_MAX_NAVIGATION_TOTAL_URL_CHARS = 3000
 
 
 @activity.defn
@@ -96,13 +109,35 @@ def _persist_session_identity(observation_id: Any, payload: ScannerLlmInputs) ->
         distinct_id=payload.distinct_id,
         recording_subject_email=email,
         session_started_at=payload.metadata.start_time,
+        session_group_keys=_resolve_group_keys(observation_id, payload),
     )
 
 
+def _resolve_group_keys(observation_id: Any, payload: ScannerLlmInputs) -> dict[int, str] | None:
+    """Group keys for the recorded session, or None when they can't be read.
+
+    Best-effort: a scan that produced a real observation must not fail over missing group attribution.
+    """
+    try:
+        team = Team.objects.get(pk=payload.team_id)
+        return fetch_session_group_keys(
+            team=team,
+            session_id=payload.session_id,
+            start=payload.metadata.start_time,
+            end=payload.metadata.end_time,
+        )
+    except Exception:
+        logger.warning(
+            "replay_vision.fetch.group_keys_lookup_failed", observation_id=str(observation_id), exc_info=True
+        )
+        return None
+
+
 def _fetch_payload(team_id: int, session_id: str) -> ScannerLlmInputs | None:
-    team = Team.objects.get(pk=team_id)
+    # select_related saves the extra round trip when fetch_product_context reads team.project.
+    team = Team.objects.select_related("project").get(pk=team_id)
     events_obj = SessionReplayEvents()
-    metadata = events_obj.get_metadata(session_id=session_id, team=team)
+    metadata = events_obj.get_metadata(session_id=session_id, team=team, ch_user=ClickHouseUser.REPLAY_VISION)
     if metadata is None:
         raise IneligibleSessionError(
             "No replay metadata found",
@@ -129,40 +164,64 @@ def _fetch_payload(team_id: int, session_id: str) -> ScannerLlmInputs | None:
 
     columns: list[str] | None = None
     all_rows: list[list[Any]] = []
-    for page in itertools.count():
-        page_columns, page_rows, has_more = events_obj.get_events(
+    events_truncated = False
+    for page_number in itertools.count():
+        page = events_obj.get_events(
             session_id=session_id,
             team=team,
             metadata=metadata,
             events_to_ignore=_EVENTS_TO_IGNORE,
             extra_fields=_EXTRA_FIELDS,
             limit=_EVENTS_PER_PAGE,
-            page=page,
+            page=page_number,
+            ch_user=ClickHouseUser.REPLAY_VISION,
         )
-        if page_columns and columns is None:
-            columns = list(page_columns)
-        if not page_rows:
+        if page.columns and columns is None:
+            columns = list(page.columns)
+        if not page.rows:
             break
-        all_rows.extend(list(row) for row in page_rows)
-        if not has_more:
+        all_rows.extend(list(row) for row in page.rows)
+        if len(all_rows) >= _MAX_TOTAL_EVENT_ROWS:
+            events_truncated = len(all_rows) > _MAX_TOTAL_EVENT_ROWS or page.has_more
+            del all_rows[_MAX_TOTAL_EVENT_ROWS:]
+            logger.warning(
+                "replay_vision.fetch.events_truncated",
+                session_id=session_id,
+                team_id=team_id,
+                cap=_MAX_TOTAL_EVENT_ROWS,
+            )
+            break
+        if not page.has_more:
             break
 
     if columns is None or not all_rows:
         return None
 
-    processed_columns, processed_rows, url_mapping, window_mapping, event_timestamps = _process_events(
-        columns, all_rows, session_start=metadata["start_time"]
-    )
+    processed = _process_events(columns, all_rows, session_start=metadata["start_time"])
     # Derive from duration; clamp because CH can yield active > duration (tab visibility, clock skew).
     inactive_seconds = max(0.0, duration_seconds - active_seconds)
+
+    # Best-effort: product context is a nice-to-have prompt block, so a Postgres hiccup must not fail the scan.
+    product_context = ""
+    event_descriptions: dict[str, str] = {}
+    try:
+        product_context = fetch_product_context(team)
+        event_descriptions = fetch_event_descriptions(team, processed.columns, processed.rows)
+    except Exception:
+        logger.warning("replay_vision.fetch.team_context_failed", team_id=team_id, session_id=session_id, exc_info=True)
 
     return ScannerLlmInputs(
         session_id=session_id,
         team_id=team_id,
-        events=EventTable(columns=processed_columns, rows=processed_rows),
-        url_mapping=url_mapping,
-        window_mapping=window_mapping,
-        event_timestamps=event_timestamps,
+        product_context=product_context,
+        event_descriptions=event_descriptions,
+        events=EventTable(columns=processed.columns, rows=processed.rows),
+        url_mapping=processed.url_mapping,
+        window_mapping=processed.window_mapping,
+        event_timestamps=processed.event_timestamps,
+        navigation=processed.navigation,
+        navigation_dropped=processed.navigation_dropped,
+        events_truncated=events_truncated,
         distinct_id=metadata.get("distinct_id"),
         metadata=SessionMetadata(
             start_time=metadata["start_time"],
@@ -179,10 +238,24 @@ def _fetch_payload(team_id: int, session_id: str) -> ScannerLlmInputs | None:
     )
 
 
+@dataclass(frozen=True)
+class ProcessedEvents:
+    """LLM-ready view of a session's raw event rows, produced by `_process_events`."""
+
+    columns: list[str]
+    rows: list[list[Any]]
+    url_mapping: dict[str, str]  # token -> actual URL
+    window_mapping: dict[str, str]  # token -> actual window UUID
+    event_timestamps: dict[str, int]  # event uuid -> ms since session start
+    navigation: list[NavigationEntry]
+    navigation_dropped: int
+
+
 def _process_events(
     raw_columns: list[str], raw_rows: list[list[Any]], *, session_start: dt.datetime
-) -> tuple[list[str], list[list[Any]], dict[str, str], dict[str, str], dict[str, int]]:
-    """Dedup, truncate, intern URLs/windows, surface uuid as `event_uuid` for the LLM, and build the uuid → relative-ms lookup."""
+) -> ProcessedEvents:
+    """Dedup, truncate, intern URLs/windows, surface uuid as `event_uuid` for the LLM, build the uuid → relative-ms
+    lookup, and derive the per-window URL-change timeline the preamble renders."""
     uuid_index = raw_columns.index("uuid") if "uuid" in raw_columns else None
     timestamp_index = raw_columns.index("timestamp") if "timestamp" in raw_columns else None
     # All other indexes are over the LLM-visible column set (uuid stripped); compute once.
@@ -195,6 +268,8 @@ def _process_events(
     event_timestamps: dict[str, int] = {}
     seen_hashes: set[str] = set()
     processed: list[list[Any]] = []
+    # (relative_ms, window token, actual URL) sightings; collapsed into the navigation timeline after the loop.
+    navigation_points: list[tuple[int, str | None, str]] = []
 
     for row in raw_rows:
         visible = list(row)
@@ -206,23 +281,75 @@ def _process_events(
             continue
         seen_hashes.add(dedup_key)
 
+        relative_ms = _relative_ms(row[timestamp_index] if timestamp_index is not None else None, session_start)
         uuid_str = str(uuid_value) if uuid_value is not None else ""
         if uuid_str:
-            event_timestamps[uuid_str] = _relative_ms(
-                row[timestamp_index] if timestamp_index is not None else None, session_start
-            )
+            event_timestamps[uuid_str] = relative_ms
 
+        raw_url = visible[url_index] if url_index is not None else None
         # Intern before truncate so the token map keys on the full value, not a clipped prefix.
         if url_index is not None:
             visible[url_index] = _intern(visible[url_index], url_tokens, _URL_PREFIX)
         if window_index is not None:
             visible[window_index] = _intern(visible[window_index], window_tokens, _WINDOW_PREFIX)
+        if isinstance(raw_url, str) and raw_url:
+            window_token = visible[window_index] if window_index is not None else None
+            navigation_points.append((relative_ms, window_token if isinstance(window_token, str) else None, raw_url))
         processed.append([uuid_str, *(_truncate(v) for v in visible)])
 
-    output_columns = ["event_uuid", *visible_columns]
-    url_mapping = {token: actual for actual, token in url_tokens.items()}
-    window_mapping = {token: actual for actual, token in window_tokens.items()}
-    return output_columns, processed, url_mapping, window_mapping, event_timestamps
+    navigation, navigation_dropped = _build_navigation(navigation_points)
+    return ProcessedEvents(
+        columns=["event_uuid", *visible_columns],
+        rows=processed,
+        url_mapping={token: actual for actual, token in url_tokens.items()},
+        window_mapping={token: actual for actual, token in window_tokens.items()},
+        event_timestamps=event_timestamps,
+        navigation=navigation,
+        navigation_dropped=navigation_dropped,
+    )
+
+
+def _build_navigation(points: list[tuple[int, str | None, str]]) -> tuple[list[NavigationEntry], int]:
+    """Collapse per-event URL sightings into the ordered URL-change timeline: one entry each time a window's URL
+    changes, kept within the entry and character budgets (the count of dropped tail entries is returned)."""
+    points.sort(key=lambda point: point[0])
+    changes: list[NavigationEntry] = []
+    last_url_by_window: dict[str | None, str] = {}
+    seen_windows: set[str | None] = set()
+    for relative_ms, window, url in points:
+        if not _is_navigable_url(url):
+            continue
+        if last_url_by_window.get(window) == url:
+            continue
+        new_window = bool(seen_windows) and window not in seen_windows
+        seen_windows.add(window)
+        last_url_by_window[window] = url
+        display_url = url if len(url) <= _MAX_NAVIGATION_URL_LEN else url[:_MAX_NAVIGATION_URL_LEN] + "…"
+        changes.append(
+            NavigationEntry(rec_t=relative_ms // 1000, window=window, url=display_url, new_window=new_window)
+        )
+
+    kept: list[NavigationEntry] = []
+    url_chars = 0
+    for entry in changes:
+        if len(kept) >= _MAX_NAVIGATION_ENTRIES or url_chars + len(entry.url) > _MAX_NAVIGATION_TOTAL_URL_CHARS:
+            break
+        kept.append(entry)
+        url_chars += len(entry.url)
+    return kept, len(changes) - len(kept)
+
+
+def _is_navigable_url(url: str) -> bool:
+    """Gate for the prompt timeline. `$current_url` is client-supplied free text rendered into the trusted preamble,
+    so only values shaped like real web URLs get in: http scheme, printable, no whitespace, and no backtick (a raw
+    backtick would escape the prompt's inline-code fencing, and real URLs percent-encode it). Anything else is
+    dropped rather than escaped."""
+    return (
+        url.startswith(("http://", "https://"))
+        and url.isprintable()
+        and "`" not in url
+        and not any(c.isspace() for c in url)
+    )
 
 
 def _relative_ms(event_timestamp: Any, session_start: dt.datetime) -> int:

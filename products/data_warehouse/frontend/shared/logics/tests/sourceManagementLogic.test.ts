@@ -8,6 +8,7 @@ import { DatabaseSchemaQueryResponse } from '~/queries/schema/schema-general'
 import { initKeaTests } from '~/test/init'
 import { ExternalDataSource } from '~/types'
 
+import { availableSourcesLogic } from '../../../scenes/NewSourceScene/availableSourcesLogic'
 import { sourceManagementLogic } from '../sourceManagementLogic'
 
 jest.mock('lib/api')
@@ -41,6 +42,55 @@ describe('sourceManagementLogic', () => {
     afterEach(() => {
         logic.unmount()
         databaseLogic.unmount()
+    })
+
+    it.each([
+        ['display label', 'Google ads'],
+        ['internal source_type', 'googleads'],
+    ])('finds a managed source by its %s', async (_, searchTerm) => {
+        jest.spyOn(api.externalDataSources, 'wizard').mockResolvedValue({
+            GoogleAds: { name: 'GoogleAds', label: 'Google Ads' },
+        } as any)
+
+        logic.mount()
+        await expectLogic(availableSourcesLogic).toDispatchActions(['loadSuccess'])
+
+        sourceManagementLogic.actions.loadSourcesSuccess({
+            results: [{ id: 's1', source_type: 'GoogleAds', access_method: 'warehouse', schemas: [] }],
+            count: 1,
+            next: null,
+            previous: null,
+        } as any)
+
+        logic.actions.setManagedSearchTerm(searchTerm)
+        await expectLogic(logic).toMatchValues({
+            filteredManagedSources: [expect.objectContaining({ source_type: 'GoogleAds' })],
+        })
+    })
+
+    it('lists direct connect sources separately from managed ones', async () => {
+        logic.mount()
+
+        sourceManagementLogic.actions.loadSourcesSuccess({
+            results: [
+                { id: 's1', source_type: 'Stripe', access_method: 'warehouse', schemas: [] },
+                { id: 's2', source_type: 'Postgres', prefix: 'prod', access_method: 'direct', schemas: [] },
+                { id: 's3', source_type: 'Snowflake', prefix: 'analytics', access_method: 'direct', schemas: [] },
+            ],
+            count: 3,
+            next: null,
+            previous: null,
+        } as any)
+
+        await expectLogic(logic).toMatchValues({
+            managedSources: [expect.objectContaining({ id: 's1' })],
+            directSources: [expect.objectContaining({ id: 's2' }), expect.objectContaining({ id: 's3' })],
+        })
+
+        logic.actions.setDirectSearchTerm('analytics')
+        await expectLogic(logic).toMatchValues({
+            filteredDirectSources: [expect.objectContaining({ id: 's3' })],
+        })
     })
 
     it('only includes tables with no source in selfManagedTables', async () => {
@@ -97,5 +147,25 @@ describe('sourceManagementLogic', () => {
                 }),
             ],
         })
+    })
+
+    it('does not supersede an in-flight shallow schema load when mounted', async () => {
+        let resolveShallowLoad: ((value: DatabaseSchemaQueryResponse) => void) | undefined
+        ;(performQuery as jest.Mock).mockImplementationOnce(
+            () =>
+                new Promise<DatabaseSchemaQueryResponse>((resolve) => {
+                    resolveShallowLoad = resolve
+                })
+        )
+        databaseLogic.mount()
+
+        const shallowLoad = databaseLogic.asyncActions.loadDatabase({ shallow: true })
+        logic.mount()
+
+        expect(performQuery).toHaveBeenCalledTimes(1)
+        expect(performQuery).toHaveBeenCalledWith(expect.objectContaining({ includeFields: false }))
+
+        resolveShallowLoad?.({ tables: {}, joins: [] } as DatabaseSchemaQueryResponse)
+        await shallowLoad
     })
 })

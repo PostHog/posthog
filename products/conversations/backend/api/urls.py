@@ -4,9 +4,11 @@ from django.urls import path, re_path
 
 from .email_events import email_inbound_handler
 from .email_settings import (
+    EmailConfirmForwardingView,
     EmailConnectView,
     EmailDisconnectView,
     EmailSendTestView,
+    EmailSetDefaultView,
     EmailStatusView,
     EmailVerifyDomainView,
 )
@@ -22,6 +24,7 @@ from .github_setup import (
 from .restore import WidgetRestoreRedeemView, WidgetRestoreRequestView
 from .slack_channels import SlackChannelsView
 from .slack_events import supporthog_event_handler
+from .slack_interactivity import supporthog_interactivity_handler
 from .slack_oauth import SupportSlackAuthorizeView, SupportSlackDisconnectView, support_slack_oauth_callback
 from .teams_channels import TeamsChannelsView, TeamsInstallAppView, TeamsSelectChannelView, TeamsTeamsView
 from .teams_events import teams_event_handler
@@ -37,6 +40,7 @@ urlpatterns = [
     path("v1/widget/restore", WidgetRestoreRedeemView.as_view(), name="widget-restore-v1"),
     # SupportHog Slack app
     re_path(r"^v1/slack/events/?$", supporthog_event_handler, name="supporthog-slack-events"),
+    re_path(r"^v1/slack/interactivity/?$", supporthog_interactivity_handler, name="supporthog-slack-interactivity"),
     re_path(r"^v1/slack/authorize/?$", SupportSlackAuthorizeView.as_view(), name="supporthog-slack-authorize"),
     re_path(r"^v1/slack/callback/?$", support_slack_oauth_callback, name="supporthog-slack-callback"),
     re_path(r"^v1/slack/disconnect/?$", SupportSlackDisconnectView.as_view(), name="supporthog-slack-disconnect"),
@@ -54,7 +58,13 @@ urlpatterns = [
     re_path(r"^v1/email/inbound/?$", email_inbound_handler, name="email-inbound"),
     re_path(r"^v1/email/status/?$", EmailStatusView.as_view(), name="email-status"),
     re_path(r"^v1/email/connect/?$", EmailConnectView.as_view(), name="email-connect"),
+    re_path(
+        r"^v1/email/confirm-forwarding/?$",
+        EmailConfirmForwardingView.as_view(),
+        name="email-confirm-forwarding",
+    ),
     re_path(r"^v1/email/disconnect/?$", EmailDisconnectView.as_view(), name="email-disconnect"),
+    re_path(r"^v1/email/set-default/?$", EmailSetDefaultView.as_view(), name="email-set-default"),
     re_path(r"^v1/email/verify-domain/?$", EmailVerifyDomainView.as_view(), name="email-verify-domain"),
     re_path(r"^v1/email/send-test/?$", EmailSendTestView.as_view(), name="email-send-test"),
     # GitHub Issues channel

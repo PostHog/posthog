@@ -18,6 +18,8 @@ from typing import Literal, TypeVar, cast
 import click
 import requests
 
+from hogli_commands.github_auth import github_headers, github_token
+
 ArtifactMode = Literal["off", "auto", "on"]
 
 GITHUB_REPOSITORY = "PostHog/posthog"
@@ -25,6 +27,7 @@ SCHEMA_ARTIFACT_NAME = "migrated-schema"
 SCHEMA_DUMP_NAME = "schema.sql.gz"
 LOCAL_SCHEMA_PATH = Path(".postgres-backups/schema-latest.sql.gz")
 MIN_SCHEMA_ARTIFACT_BYTES = 10_000
+MAX_ARTIFACT_PAGES = 10
 DEFAULT_BASE_BRANCH = "master"
 DIAGNOSTIC_CANDIDATE_LIMIT = 3
 DOCKER_COMPOSE = ["docker", "compose", "-f", "docker-compose.dev.yml"]
@@ -207,44 +210,6 @@ def restore_schema_dump(
     click.echo(f"Restored {target_db} from {schema_path}")
 
 
-def _github_token() -> str | None:
-    for env_var in ("GH_TOKEN", "GITHUB_TOKEN"):
-        token = os.environ.get(env_var)
-        if token:
-            return token
-
-    gh_path = shutil.which("gh")
-    if gh_path is None:
-        return None
-
-    try:
-        result = subprocess.run(
-            [gh_path, "auth", "token"],
-            cwd=REPO_ROOT,
-            capture_output=True,
-            text=True,
-            timeout=10,
-            check=False,
-        )
-    except (OSError, subprocess.TimeoutExpired):
-        return None
-
-    token = result.stdout.strip()
-    if result.returncode == 0 and token:
-        return token
-    return None
-
-
-def _github_headers(token: str | None) -> dict[str, str]:
-    headers = {
-        "Accept": "application/vnd.github+json",
-        "X-GitHub-Api-Version": "2022-11-28",
-    }
-    if token:
-        headers["Authorization"] = f"Bearer {token}"
-    return headers
-
-
 def _artifact_from_api(raw: Mapping[str, object]) -> SchemaArtifact | None:
     workflow_run = raw.get("workflow_run")
     if not isinstance(workflow_run, Mapping):
@@ -298,16 +263,24 @@ def select_newest_compatible_artifact(
     return candidates[0] if candidates else None
 
 
-def fetch_schema_artifacts(*, token: str | None, session: requests.Session | None = None) -> list[SchemaArtifact]:
+def find_newest_compatible_artifact(
+    *,
+    token: str | None,
+    session: requests.Session | None = None,
+    base_branch: str = DEFAULT_BASE_BRANCH,
+    max_pages: int = MAX_ARTIFACT_PAGES,
+) -> SchemaArtifact | None:
+    # The listing is newest-first, so the first page holding a candidate holds the
+    # newest one and the walk stops there. max_pages caps the miss case at a fixed
+    # number of requests instead of paging through the whole retention window.
     http = session or requests.Session()
-    artifacts: list[SchemaArtifact] = []
-    page = 1
+    fetched: list[SchemaArtifact] = []
 
-    while True:
+    for page in range(1, max_pages + 1):
         response = http.get(
             f"https://api.github.com/repos/{GITHUB_REPOSITORY}/actions/artifacts",
             params={"name": SCHEMA_ARTIFACT_NAME, "per_page": 100, "page": page},
-            headers=_github_headers(token),
+            headers=github_headers(token),
             timeout=30,
         )
         response.raise_for_status()
@@ -323,13 +296,17 @@ def fetch_schema_artifacts(*, token: str | None, session: requests.Session | Non
             if isinstance(raw_artifact, Mapping):
                 artifact = _artifact_from_api(raw_artifact)
                 if artifact is not None:
-                    artifacts.append(artifact)
+                    fetched.append(artifact)
+
+        selected = select_newest_compatible_artifact(fetched, base_branch=base_branch)
+        if selected is not None:
+            return selected
 
         if "next" not in response.links:
             break
-        page += 1
 
-    return artifacts
+    _emit_selection_diagnostics(fetched, base_branch=base_branch)
+    return None
 
 
 def download_schema_artifact(
@@ -345,7 +322,7 @@ def download_schema_artifact(
     http = session or requests.Session()
     response = http.get(
         artifact.archive_download_url,
-        headers=_github_headers(token),
+        headers=github_headers(token),
         stream=True,
         timeout=60,
     )
@@ -406,11 +383,9 @@ def download_latest_compatible_schema(
     base_branch: str = DEFAULT_BASE_BRANCH,
     session: requests.Session | None = None,
 ) -> SchemaArtifact:
-    token = _github_token()
-    artifacts = fetch_schema_artifacts(token=token, session=session)
-    artifact = select_newest_compatible_artifact(artifacts, base_branch=base_branch)
+    token = github_token()
+    artifact = find_newest_compatible_artifact(token=token, session=session, base_branch=base_branch)
     if artifact is None:
-        _emit_selection_diagnostics(artifacts, base_branch=base_branch)
         raise SchemaRestoreUnavailable(
             f"no compatible {SCHEMA_ARTIFACT_NAME} artifact found for base_branch={base_branch}"
         )

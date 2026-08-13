@@ -1,5 +1,5 @@
 import escapeStringRegexp from 'escape-string-regexp'
-import equal from 'fast-deep-equal'
+import { deepEqual as equal } from 'fast-equals'
 import { Summary } from 'prom-client'
 
 import { stringToBoolean } from '~/common/utils/env-utils'

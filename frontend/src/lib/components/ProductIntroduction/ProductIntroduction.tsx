@@ -1,8 +1,10 @@
 import { useActions, useValues } from 'kea'
 
-import { HedgehogConstruction2, HedgehogMagnifyingGlass } from '@posthog/brand/hoggies'
+import * as construction2 from '@posthog/brand/hoggies/png/construction-2'
+import * as magnifyingGlass from '@posthog/brand/hoggies/png/magnifying-glass-1'
 import { IconOpenSidebar, IconPlus, IconX } from '@posthog/icons'
 
+import { pngHoggie } from 'lib/brand/hoggies'
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { cn } from 'lib/utils/css-classes'
 import { userLogic } from 'scenes/userLogic'
@@ -11,6 +13,9 @@ import { ProductKey } from '~/queries/schema/schema-general'
 
 import { MCPUseCaseCard } from '../MCPHint/MCPUseCaseCard'
 import type { SurfaceKey } from '../MCPHint/prompts'
+
+const HedgehogConstruction2 = pngHoggie(construction2)
+const HedgehogMagnifyingGlass = pngHoggie(magnifyingGlass)
 
 /**
  * A component to introduce new users to a product, and to show something
@@ -39,6 +44,7 @@ export type ProductIntroductionProps = {
     actionElementOverride?: JSX.Element
     docsURL?: string
     customHog?: React.ComponentType<{ className?: string }>
+    hogClassName?: string
     className?: string
     /**
      * Default hides the hog below `md`. Use `responsive` to keep the hog visible on small screens with a vertical
@@ -63,6 +69,18 @@ export type ProductIntroductionProps = {
     mcpSurfaceKey?: SurfaceKey
 }
 
+/**
+ * @deprecated Use {@link ProductEmptyState} instead: declare {@link SceneExport.emptyState} on the
+ * scene's {@link SceneExport} (see {@link ../ProductEmptyState | ProductEmptyState} and the
+ * `building-product-empty-states` skill).
+ *
+ * {@link ProductEmptyState} covers both of this component's jobs -
+ * "product not installed" via real data detection and "no entities yet" via an
+ * entity-count status - with a local-only skip instead of {@link UserType.has_seen_product_intro_for}.
+ * Don't add new call sites; existing ones should migrate product by product.
+ *
+ * The Growth team is responsible for migrating all call sites to {@link ProductEmptyState}.
+ */
 export const ProductIntroduction = ({
     productName,
     productKey,
@@ -76,6 +94,7 @@ export const ProductIntroduction = ({
     actionElementOverride,
     docsURL,
     customHog: CustomHog,
+    hogClassName,
     className,
     hogLayout = 'default',
     useMainContentContainerQueries = false,
@@ -108,8 +127,9 @@ export const ProductIntroduction = ({
             )}
             data-attr={`product-introduction-${thingName}`}
         >
+            {/* Below md the copy starts in the top-right corner (no hog beside it), so only pull it up under the dismiss button from md on. */}
             {!isEmpty && (
-                <div className="flex justify-end -mb-6 -mt-2 -mr-2 relative z-10">
+                <div className="flex justify-end md:-mb-6 -mt-2 -mr-2 relative z-10">
                     <div>
                         <LemonButton
                             icon={<IconX />}
@@ -151,7 +171,8 @@ export const ProductIntroduction = ({
                                   ? useMainContentContainerQueries
                                       ? 'block w-56 sm:w-60 lg:w-70 mb-4 @min-[48rem]/main-content:mb-0'
                                       : 'block w-56 sm:w-60 lg:w-70 mb-4 md:mb-0'
-                                  : 'w-60 lg:w-70 mb-4 hidden md:block'
+                                  : 'w-60 lg:w-70 mb-4 hidden md:block',
+                            hogClassName
                         )}
                     >
                         <HogComponent className="w-full h-full" />

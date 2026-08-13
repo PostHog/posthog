@@ -1,7 +1,7 @@
 import threading
 from collections.abc import Sequence
 from copy import deepcopy
-from datetime import datetime, timedelta
+from datetime import date, datetime, timedelta
 from math import ceil
 from operator import itemgetter
 from typing import Any, Optional, Union
@@ -57,7 +57,11 @@ from posthog.clickhouse import query_tagging
 from posthog.clickhouse.query_tagging import QueryTags
 from posthog.hogql_queries.insights.trends.display import TrendsDisplay
 from posthog.hogql_queries.insights.trends.series_with_extras import SeriesWithExtras
-from posthog.hogql_queries.insights.trends.trend_validation_rules import ValidateDataWarehouseBreakdown
+from posthog.hogql_queries.insights.trends.trend_validation_rules import (
+    DisallowDaysOfWeekWithSmoothing,
+    DisallowUnsupportedPropertyMathForHistogramBreakdown,
+    ValidateDataWarehouseBreakdown,
+)
 from posthog.hogql_queries.insights.trends.trends_actors_query_builder import TrendsActorsQueryBuilder
 from posthog.hogql_queries.insights.trends.trends_query_builder import TrendsQueryBuilder
 from posthog.hogql_queries.insights.utils.breakdowns import (
@@ -69,7 +73,7 @@ from posthog.hogql_queries.insights.utils.breakdowns import (
     has_breakdown_filter,
 )
 from posthog.hogql_queries.insights.utils.utils import get_response_hogql
-from posthog.hogql_queries.query_runner import AnalyticsQueryRunner
+from posthog.hogql_queries.query_runner import AnalyticsQueryRunner, resolve_series_custom_name
 from posthog.hogql_queries.utils.formula_ast import FormulaAST
 from posthog.hogql_queries.utils.query_compare_to_date_range import QueryCompareToDateRange
 from posthog.hogql_queries.utils.query_date_range import QueryDateRange
@@ -151,6 +155,8 @@ class TrendsQueryRunner(AnalyticsQueryRunner[TrendsQueryResponse]):
             RequireAtLeastOneSeries(),
             DisallowUnsupportedDataWarehouseSettings(),
             ValidateDataWarehouseBreakdown(),
+            DisallowUnsupportedPropertyMathForHistogramBreakdown(),
+            DisallowDaysOfWeekWithSmoothing(),
         )
 
     def _refresh_frequency(self):
@@ -528,17 +534,12 @@ class TrendsQueryRunner(AnalyticsQueryRunner[TrendsQueryResponse]):
                 final_result = [item for item in final_result if not self._is_other_breakdown(item["breakdown_value"])]
             has_more = True
 
-        # Hiding weekends is purely a display concern: we keep weekend events in the aggregation
-        # (so windowed math like WAU/MAU, cumulative, and smoothing stay correct) and only drop the
-        # weekend date buckets from the response so the chart x-axis shows weekdays.
-        # For week/month intervals we keep all buckets since they span multiple days.
-        # For hour/minute intervals we skip bucket removal to avoid discarding all data on weekends.
-        if (
-            self.query.trendsFilter
-            and self.query.trendsFilter.hideWeekends
-            and self.query_date_range.interval_name not in ("hour", "minute", "week", "month")
-        ):
-            final_result = self._filter_weekend_buckets(final_result)
+        # daysOfWeek filters events at the query level; for day interval also drop the
+        # deselected day buckets so the chart doesn't show a row of zeros for them.
+        # Longer intervals span multiple days, so their buckets are kept.
+        days_of_week = self.query_date_range.days_of_week()
+        if days_of_week and self.query_date_range.interval_name == "day":
+            final_result = self._filter_buckets_to_days(final_result, set(days_of_week))
 
         return final_result, has_more
 
@@ -592,7 +593,7 @@ class TrendsQueryRunner(AnalyticsQueryRunner[TrendsQueryResponse]):
                         "type": "events",
                         "order": series.series_order,
                         "name": series_label or "All events",
-                        "custom_name": series.series.custom_name,
+                        "custom_name": resolve_series_custom_name(series.series, series_label),
                         "math": series.series.math,
                         "math_property": series.series.math_property,
                         "math_hogql": series.series.math_hogql,
@@ -629,7 +630,7 @@ class TrendsQueryRunner(AnalyticsQueryRunner[TrendsQueryResponse]):
                         "type": "events",
                         "order": series.series_order,
                         "name": series_label or "All events",
-                        "custom_name": series.series.custom_name,
+                        "custom_name": resolve_series_custom_name(series.series, series_label),
                         "math": series.series.math,
                         "math_property": series.series.math_property,
                         "math_hogql": series.series.math_hogql,
@@ -720,7 +721,21 @@ class TrendsQueryRunner(AnalyticsQueryRunner[TrendsQueryResponse]):
             res.append(series_object)
         return res
 
-    def _filter_weekend_buckets(self, results: list[dict]) -> list[dict]:
+    def _filter_buckets_to_days(self, results: list[dict], allowed_iso_days: set[int]) -> list[dict]:
+        # All series in a response usually share the same days axis, so cache the kept
+        # indices per axis instead of re-parsing every date string for every series
+        kept_indices_by_axis: dict[tuple, list[int]] = {}
+
+        def compute_kept_indices(days: list) -> list[int]:
+            kept_indices = []
+            for i, day_str in enumerate(days):
+                try:
+                    if date.fromisoformat(day_str[:10]).isoweekday() in allowed_iso_days:
+                        kept_indices.append(i)
+                except (ValueError, TypeError):
+                    kept_indices.append(i)  # Keep unparseable entries
+            return kept_indices
+
         filtered = []
         for series_result in results:
             days = series_result.get("days")
@@ -728,29 +743,24 @@ class TrendsQueryRunner(AnalyticsQueryRunner[TrendsQueryResponse]):
                 filtered.append(series_result)
                 continue
 
-            # Build weekday mask — parse date string and check day of week
-            weekday_indices = []
-            for i, day_str in enumerate(days):
-                try:
-                    dt = datetime.strptime(day_str[:10], "%Y-%m-%d")
-                    if dt.weekday() < 5:  # Mon=0..Fri=4
-                        weekday_indices.append(i)
-                except (ValueError, TypeError):
-                    weekday_indices.append(i)  # Keep unparseable entries
+            axis = tuple(days)
+            kept_indices = kept_indices_by_axis.get(axis)
+            if kept_indices is None:
+                kept_indices = compute_kept_indices(days)
+                kept_indices_by_axis[axis] = kept_indices
 
-            if len(weekday_indices) == len(days):
-                # No weekends found, nothing to filter
+            if len(kept_indices) == len(days):
                 filtered.append(series_result)
                 continue
 
             new_result = {**series_result}
-            new_result["days"] = [days[i] for i in weekday_indices]
+            new_result["days"] = [days[i] for i in kept_indices]
 
             if "data" in new_result and isinstance(new_result["data"], list):
-                new_result["data"] = [new_result["data"][i] for i in weekday_indices]
+                new_result["data"] = [new_result["data"][i] for i in kept_indices]
 
             if "labels" in new_result and isinstance(new_result["labels"], list):
-                new_result["labels"] = [new_result["labels"][i] for i in weekday_indices]
+                new_result["labels"] = [new_result["labels"][i] for i in kept_indices]
 
             # Recompute count from filtered data
             if "data" in new_result and new_result.get("count") is not None:
@@ -766,7 +776,7 @@ class TrendsQueryRunner(AnalyticsQueryRunner[TrendsQueryResponse]):
             if new_result.get("action") is not None and "days" in new_result["action"]:
                 action_days = new_result["action"]["days"]
                 new_result["action"] = {**new_result["action"]}
-                new_result["action"]["days"] = [d for d in action_days if d.weekday() < 5]
+                new_result["action"]["days"] = [d for d in action_days if d.isoweekday() in allowed_iso_days]
 
             filtered.append(new_result)
         return filtered
@@ -1119,7 +1129,15 @@ class TrendsQueryRunner(AnalyticsQueryRunner[TrendsQueryResponse]):
             series_data = [s["data"] for s in results_group]
             new_series_data = FormulaAST(series_data).call(formula)
             base_result["data"] = new_series_data
-            base_result["count"] = float(sum(new_series_data))
+            # The total for a time-series formula is the formula applied to each series' own total
+            # (ratio-of-sums), not the sum of the per-interval results. Summing per-interval ratios
+            # like `A/B` overcounts and can push a total that should be <=100% well past it. Each
+            # input series' total is the sum of its interval values, matching what that series'
+            # own total column would show and how the aggregate_values branch above evaluates
+            # formulas. This applies to every formula, not just ratios: a constant term in `B+1`
+            # counts once in the total, not once per interval.
+            series_totals = [[sum(value for value in (series or []) if value is not None)] for series in series_data]
+            base_result["count"] = float(FormulaAST(series_totals).call(formula)[0])
 
         return base_result
 

@@ -8,6 +8,7 @@ from typing import Any
 
 from django.conf import settings
 
+import httpx
 import posthoganalytics
 from google import genai
 from google.genai.errors import APIError
@@ -17,6 +18,9 @@ from pydantic import BaseModel
 
 from products.ai_observability.backend.llm.errors import (
     AuthenticationError,
+    ModelNotFoundError,
+    ModelPermissionError,
+    ProviderConnectionError,
     QuotaExceededError,
     RateLimitError,
     StructuredOutputParseError,
@@ -46,19 +50,17 @@ class GeminiConfig:
         "gemini-2.5-flash-lite",
         "gemini-2.5-pro",
         "gemini-2.0-flash",
-        "gemini-2.0-flash-lite",
         "gemini-1.5-flash",
         "gemini-1.5-pro",
     ]
 
-    # Models available to trial users (PostHog pays). Excludes older/preview
+    # Models available in the PostHog-funded playground. Excludes older/preview
     # pro tiers while keeping the current flagship (gemini-2.5-pro).
-    TRIAL_MODELS: list[str] = [
+    PLAYGROUND_MODELS: list[str] = [
         "gemini-2.5-pro",
         "gemini-2.5-flash",
         "gemini-2.5-flash-lite",
         "gemini-2.0-flash",
-        "gemini-2.0-flash-lite",
         "gemini-1.5-flash",
     ]
 
@@ -140,11 +142,23 @@ class GeminiAdapter:
             status_code = getattr(e, "code", None) or getattr(e, "status_code", None)
             if status_code == 401 or "authentication" in error_message or "api key" in error_message:
                 raise AuthenticationError(str(e))
+            if status_code == 403 or "permission denied" in error_message:
+                raise ModelPermissionError(request.model)
             if status_code == 429 or "rate limit" in error_message or "resource exhausted" in error_message:
                 if "quota" in error_message or "billing" in error_message:
                     raise QuotaExceededError(str(e))
                 raise RateLimitError(str(e))
+            # Google returns a 404-class error (often with "no longer available") when a
+            # model is retired/deprecated. Map it so call_llm_judge disables the eval
+            # gracefully instead of burning Temporal retries on an unhandled exception.
+            if status_code == 404 or "no longer available" in error_message or "not found" in error_message:
+                raise ModelNotFoundError(request.model)
             raise
+        except httpx.TransportError as e:
+            # google-genai doesn't wrap httpx transport failures (connection reset, read timeout)
+            # in APIError, so without this they escape as an unmapped exception and spam error
+            # tracking. Map to a quiet retryable error so the caller retries silently.
+            raise ProviderConnectionError(str(e)) from e
 
     def stream(
         self,

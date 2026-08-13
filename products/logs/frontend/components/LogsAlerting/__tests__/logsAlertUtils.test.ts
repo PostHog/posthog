@@ -26,6 +26,7 @@ const baseForm = (overrides: Partial<LogsAlertFormType> = {}): LogsAlertFormType
     evaluationPeriods: 1,
     datapointsToAlarm: 1,
     cooldownMinutes: 0,
+    scheduleRestriction: null,
     ...overrides,
 })
 
@@ -53,6 +54,7 @@ describe('logsAlertUtils', () => {
                 id,
                 name: `slack-${id}`,
                 enabled,
+                template: { id: 'template-slack' },
                 inputs: { channel: { value: channel } },
                 filters: {},
             }) as unknown as HogFunctionType
@@ -62,16 +64,17 @@ describe('logsAlertUtils', () => {
                 id,
                 name: `webhook-${id}`,
                 enabled,
+                template: { id: 'template-webhook' },
                 inputs: { url: { value: url } },
                 filters: {},
             }) as unknown as HogFunctionType
 
-        // The Microsoft Teams template stores its URL under `webhookUrl`, not `url`.
         const teamsHf = (id: string, url: string, enabled = true): HogFunctionType =>
             ({
                 id,
                 name: `teams-${id}`,
                 enabled,
+                template: { id: 'template-microsoft-teams' },
                 inputs: { webhookUrl: { value: url } },
                 filters: {},
             }) as unknown as HogFunctionType

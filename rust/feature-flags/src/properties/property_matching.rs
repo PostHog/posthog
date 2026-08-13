@@ -68,18 +68,94 @@ pub fn to_f64_representation(value: &Value) -> Option<f64> {
     to_string_representation(value).parse::<f64>().ok()
 }
 
+/// Parses the property value being matched as f64, for the numeric comparison operators
+/// (Gt/Gte/Lt/Lte, Between/NotBetween). A missing or non-numeric value is a validation
+/// error here, distinct from `match_value.is_none()` short-circuiting to `Ok(false)`
+/// earlier in each operator's match arm.
+fn parse_numeric_match_value(
+    match_value: Option<&Value>,
+    key: &str,
+    operator: OperatorType,
+) -> Result<f64, FlagMatchingError> {
+    let match_value = match_value.unwrap_or(&Value::Null);
+    to_f64_representation(match_value).ok_or_else(|| {
+        tracing::debug!(
+            "Failed to parse property value '{}' for key '{}' as number for operator {:?}",
+            match_value,
+            key,
+            operator
+        );
+        FlagMatchingError::ValidationError("value is not a number".to_string())
+    })
+}
+
 /// Strip 'v' prefix if present (e.g., "v1.2.3" -> "1.2.3")
 fn normalize_version_string(version: &str) -> &str {
     version.strip_prefix('v').unwrap_or(version).trim()
 }
 
+/// Strip leading zeros from an all-digit component ("08" -> "8", "000" -> "0").
+/// Non-numeric components are returned unchanged so invalid versions still fail to parse.
+fn strip_component_leading_zeros(part: &str) -> &str {
+    if part.is_empty() || !part.bytes().all(|b| b.is_ascii_digit()) {
+        return part;
+    }
+    let trimmed = part.trim_start_matches('0');
+    if trimmed.is_empty() {
+        "0"
+    } else {
+        trimmed
+    }
+}
+
+/// Canonicalize a version string into strict `MAJOR.MINOR.PATCH` semver so the `semver`
+/// crate can parse the shapes mobile SDKs actually emit. The crate rejects a missing patch
+/// component and any leading zeros, so real versions like "3.10", "3.08", and "2.48" would
+/// otherwise fail to parse and make version-gated flag conditions silently never match.
+///
+/// Two adjustments are made to the numeric core only, leaving any pre-release/build suffix
+/// (e.g. "-alpha.1", "+build.7") untouched:
+/// - pad a missing minor/patch component with 0 ("3" -> "3.0.0", "3.10" -> "3.10.0")
+/// - strip leading zeros from numeric identifiers ("3.08" -> "3.8.0", "0" -> "0.0.0")
+///
+/// Non-numeric components are left as-is so genuinely invalid versions still fail to parse.
+///
+/// Note: this is intentionally more permissive than two other surfaces that evaluate the
+/// same semver conditions: `STRICT_SEMVER_REGEX` in `posthog/hogql/property.py`, which
+/// gates the ClickHouse `sortableSemver` path used for insights/cohort analytics, and the
+/// posthog-python SDK's local evaluator (`parse_semver`), which rejects leading zeros
+/// outright. `match_property` also backs local cohort evaluation, so a person on a version
+/// like "3.08" can now satisfy a cohort-gated flag locally while being excluded from the
+/// same cohort as computed by ClickHouse. Flag evaluation here cleanly returns `false` on a
+/// parse failure (no ClickHouse array-ordering pitfall), so accepting these formats only
+/// turns silent non-matches into correct matches for direct flag conditions; the
+/// cross-engine divergence above is the tradeoff.
+fn canonicalize_version_string(version: &str) -> String {
+    // Split off any pre-release ("-") or build ("+") suffix; the numeric core precedes it.
+    let (core, suffix) = match version.find(['-', '+']) {
+        Some(idx) => version.split_at(idx),
+        None => (version, ""),
+    };
+
+    let mut components: Vec<&str> = core.split('.').map(strip_component_leading_zeros).collect();
+
+    // Pad two-component versions ("3.10" -> "3.10.0") so strict semver parsing succeeds.
+    while components.len() < 3 {
+        components.push("0");
+    }
+
+    format!("{}{}", components.join("."), suffix)
+}
+
 pub fn to_semver_representation(value: &Value) -> Option<Version> {
     let version_string = to_string_representation(value);
     let normalized = normalize_version_string(&version_string);
-    // TODO: Build metadata (e.g., "1.0.0+build.1") is not currently supported because
-    // our `sortableSemver` method in ClickHouse/HogQL doesn't support it yet.
-    // For semver equality checks, use regular string equality operators instead.
-    Version::parse(normalized).ok()
+    let canonical = canonicalize_version_string(normalized);
+    // Build metadata (e.g., "1.0.0+build.1") parses fine here and canonicalization above
+    // preserves it, but our `sortableSemver` method in ClickHouse/HogQL ignores it, so
+    // equality-gated flags can diverge from insights/cohort analytics for build-tagged
+    // versions. Prefer regular string equality operators for exact build-tagged matches.
+    Version::parse(&canonical).ok()
 }
 
 pub fn match_property(
@@ -94,7 +170,10 @@ pub fn match_property(
     // only looks for matches where key exists in override_property_values
     // doesn't support operator is_not_set with partial_props
     if partial_props && !matching_property_values.contains_key(key) {
-        tracing::warn!("Missing property for matching: {}", property.key);
+        // debug, not warn: this fires per filter per flag while person properties are
+        // degraded, and the request-level miss is already recorded at error level with
+        // a counter in get_person_properties_from_evaluation_state.
+        tracing::debug!("Missing property for matching: {}", property.key);
         return Err(FlagMatchingError::MissingProperty(format!(
             "can't match properties without a value. Missing property: {}",
             property.key
@@ -189,6 +268,44 @@ pub fn match_property(
                 Ok(operator == OperatorType::NotIcontains)
             }
         }
+        OperatorType::StartsWith | OperatorType::NotStartsWith => {
+            if let Some(match_value) = match_value {
+                // Using to_ascii_lowercase() since we only care about ASCII case insensitivity
+                let is_prefix = to_string_representation(match_value)
+                    .to_ascii_lowercase()
+                    .starts_with(&to_string_representation(value).to_ascii_lowercase());
+
+                if operator == OperatorType::StartsWith {
+                    Ok(is_prefix)
+                } else {
+                    Ok(!is_prefix)
+                }
+            } else {
+                // When value doesn't exist:
+                // - for StartsWith: it's not a match (false)
+                // - for NotStartsWith: it is a match (true)
+                Ok(operator == OperatorType::NotStartsWith)
+            }
+        }
+        OperatorType::EndsWith | OperatorType::NotEndsWith => {
+            if let Some(match_value) = match_value {
+                // Using to_ascii_lowercase() since we only care about ASCII case insensitivity
+                let is_suffix = to_string_representation(match_value)
+                    .to_ascii_lowercase()
+                    .ends_with(&to_string_representation(value).to_ascii_lowercase());
+
+                if operator == OperatorType::EndsWith {
+                    Ok(is_suffix)
+                } else {
+                    Ok(!is_suffix)
+                }
+            } else {
+                // When value doesn't exist:
+                // - for EndsWith: it's not a match (false)
+                // - for NotEndsWith: it is a match (true)
+                Ok(operator == OperatorType::NotEndsWith)
+            }
+        }
         OperatorType::IcontainsMulti | OperatorType::NotIcontainsMulti => {
             if let Some(match_value) = match_value {
                 let match_string = to_string_representation(match_value).to_ascii_lowercase();
@@ -274,22 +391,7 @@ pub fn match_property(
                 }
             };
 
-            let parsed_value = match to_f64_representation(
-                match_value.unwrap_or(&serde_json::Value::Null),
-            ) {
-                Some(parsed_value) => parsed_value,
-                None => {
-                    tracing::debug!(
-                        "Failed to parse property value '{}' for key '{}' as number for operator {:?}",
-                        match_value.unwrap_or(&serde_json::Value::Null),
-                        key,
-                        operator
-                    );
-                    return Err(FlagMatchingError::ValidationError(
-                        "value is not a number".to_string(),
-                    ));
-                }
-            };
+            let parsed_value = parse_numeric_match_value(match_value, key, operator)?;
 
             if let Some(filter_value) = to_f64_representation(value) {
                 Ok(compare(parsed_value, filter_value, operator))
@@ -303,6 +405,67 @@ pub fn match_property(
                 Err(FlagMatchingError::ValidationError(
                     "filter value is not a number".to_string(),
                 ))
+            }
+        }
+        OperatorType::Between | OperatorType::NotBetween => {
+            if match_value.is_none() {
+                // When value doesn't exist:
+                // - for Between/NotBetween: it's not a match (false)
+                return Ok(false);
+            }
+
+            // Mirrors HogQL semantics (posthog/hogql/property.py): between is inclusive
+            // on both ends, not_between is its complement, and the filter value must be
+            // a two-element numeric array with min <= max.
+            let bounds = match value.as_array() {
+                Some(bounds) if bounds.len() == 2 => bounds,
+                _ => {
+                    tracing::debug!(
+                        "Invalid filter value '{}' for key '{}' for operator {:?}",
+                        value,
+                        key,
+                        operator
+                    );
+                    return Err(FlagMatchingError::ValidationError(
+                        "between/not_between operator requires a two-element array [min, max]"
+                            .to_string(),
+                    ));
+                }
+            };
+
+            let (low, high) = match (
+                to_f64_representation(&bounds[0]),
+                to_f64_representation(&bounds[1]),
+            ) {
+                (Some(low), Some(high)) if !low.is_nan() && !high.is_nan() => (low, high),
+                _ => {
+                    return Err(FlagMatchingError::ValidationError(
+                        "between/not_between operator requires numeric values".to_string(),
+                    ));
+                }
+            };
+            if low > high {
+                return Err(FlagMatchingError::ValidationError(
+                    "between/not_between operator requires min value to be less than or equal to max value"
+                        .to_string(),
+                ));
+            }
+
+            let parsed_value = parse_numeric_match_value(match_value, key, operator)?;
+            if parsed_value.is_nan() {
+                // "NaN" parses successfully as f64::NAN rather than failing, but a NaN
+                // property value is malformed input, not a real number: it must be a
+                // non-match for both operators, not just the ones where NaN comparisons
+                // happen to fall out as false (Between would; NotBetween would flip it
+                // to true via `!in_range`).
+                return Ok(false);
+            }
+
+            let in_range = parsed_value >= low && parsed_value <= high;
+            if operator == OperatorType::Between {
+                Ok(in_range)
+            } else {
+                Ok(!in_range)
             }
         }
         OperatorType::SemverGt
@@ -383,8 +546,12 @@ pub fn match_property(
             let normalized_version = normalize_version_string(&version_string);
 
             let requirement_string = match operator {
-                OperatorType::SemverTilde => format!("~{normalized_version}"),
-                OperatorType::SemverCaret => format!("^{normalized_version}"),
+                OperatorType::SemverTilde => {
+                    format!("~{}", canonicalize_version_string(normalized_version))
+                }
+                OperatorType::SemverCaret => {
+                    format!("^{}", canonicalize_version_string(normalized_version))
+                }
                 OperatorType::SemverWildcard => {
                     // For wildcard, replace * with x for semver compatibility.
                     // Supported patterns: "1.*", "1.2.*", "1.*.*", "*"
@@ -399,7 +566,16 @@ pub fn match_property(
                     //
                     // Invalid patterns like "1.*.3" will fail VersionReq parsing and
                     // return a ValidationError, which is the expected behavior.
-                    normalized_version.replace('*', "x")
+                    //
+                    // Leading zeros are stripped from numeric components (not padded,
+                    // since "*" supplies the trailing components) so a mobile-shaped
+                    // wildcard filter like "3.08.*" parses the same way "~3.08" does.
+                    normalized_version
+                        .split('.')
+                        .map(strip_component_leading_zeros)
+                        .collect::<Vec<_>>()
+                        .join(".")
+                        .replace('*', "x")
                 }
                 _ => normalized_version.to_string(),
             };
@@ -1069,6 +1245,214 @@ mod test_match_properties {
     }
 
     #[test]
+    fn test_match_properties_starts_with() {
+        let property_starts_with = PropertyFilter {
+            key: "key".to_string(),
+            value: Some(json!("Val")),
+            operator: Some(OperatorType::StartsWith),
+            prop_type: PropertyType::Person,
+            group_type_index: None,
+            negation: None,
+            compiled_regex: None,
+            extra: Default::default(),
+        };
+
+        // case-insensitive match at the start
+        assert!(match_property(
+            &property_starts_with,
+            &HashMap::from([("key".to_string(), json!("value"))]),
+            true
+        )
+        .expect("expected match to exist"));
+        assert!(match_property(
+            &property_starts_with,
+            &HashMap::from([("key".to_string(), json!("VALUE"))]),
+            true
+        )
+        .expect("expected match to exist"));
+
+        // non-match: substring present but not at the start
+        assert!(!match_property(
+            &property_starts_with,
+            &HashMap::from([("key".to_string(), json!("prevalue"))]),
+            true
+        )
+        .expect("expected match to exist"));
+        assert!(!match_property(
+            &property_starts_with,
+            &HashMap::from([("key".to_string(), json!("Alakazam"))]),
+            true
+        )
+        .expect("expected match to exist"));
+
+        // numeric property value is stringified before matching
+        let property_starts_with_numeric = PropertyFilter {
+            key: "key".to_string(),
+            value: Some(json!("3")),
+            operator: Some(OperatorType::StartsWith),
+            prop_type: PropertyType::Person,
+            group_type_index: None,
+            negation: None,
+            compiled_regex: None,
+            extra: Default::default(),
+        };
+        assert!(match_property(
+            &property_starts_with_numeric,
+            &HashMap::from([("key".to_string(), json!(323))]),
+            true
+        )
+        .expect("expected match to exist"));
+        assert!(!match_property(
+            &property_starts_with_numeric,
+            &HashMap::from([("key".to_string(), json!(123))]),
+            true
+        )
+        .expect("expected match to exist"));
+
+        // negation
+        let property_not_starts_with = PropertyFilter {
+            key: "key".to_string(),
+            value: Some(json!("Val")),
+            operator: Some(OperatorType::NotStartsWith),
+            prop_type: PropertyType::Person,
+            group_type_index: None,
+            negation: None,
+            compiled_regex: None,
+            extra: Default::default(),
+        };
+        assert!(!match_property(
+            &property_not_starts_with,
+            &HashMap::from([("key".to_string(), json!("value"))]),
+            true
+        )
+        .expect("expected match to exist"));
+        assert!(match_property(
+            &property_not_starts_with,
+            &HashMap::from([("key".to_string(), json!("Alakazam"))]),
+            true
+        )
+        .expect("expected match to exist"));
+
+        // missing property: negative operator matches (true), positive operator does not (false)
+        assert!(!match_property(
+            &property_starts_with,
+            &HashMap::from([("key2".to_string(), json!("value"))]),
+            false
+        )
+        .expect("Expected no errors with full props mode"));
+        assert!(match_property(
+            &property_not_starts_with,
+            &HashMap::from([("key2".to_string(), json!("value"))]),
+            false
+        )
+        .expect("Expected no errors with full props mode"));
+    }
+
+    #[test]
+    fn test_match_properties_ends_with() {
+        let property_ends_with = PropertyFilter {
+            key: "key".to_string(),
+            value: Some(json!("Lue")),
+            operator: Some(OperatorType::EndsWith),
+            prop_type: PropertyType::Person,
+            group_type_index: None,
+            negation: None,
+            compiled_regex: None,
+            extra: Default::default(),
+        };
+
+        // case-insensitive match at the end
+        assert!(match_property(
+            &property_ends_with,
+            &HashMap::from([("key".to_string(), json!("value"))]),
+            true
+        )
+        .expect("expected match to exist"));
+        assert!(match_property(
+            &property_ends_with,
+            &HashMap::from([("key".to_string(), json!("VALUE"))]),
+            true
+        )
+        .expect("expected match to exist"));
+
+        // non-match: substring present but not at the end
+        assert!(!match_property(
+            &property_ends_with,
+            &HashMap::from([("key".to_string(), json!("valueish"))]),
+            true
+        )
+        .expect("expected match to exist"));
+        assert!(!match_property(
+            &property_ends_with,
+            &HashMap::from([("key".to_string(), json!("Alakazam"))]),
+            true
+        )
+        .expect("expected match to exist"));
+
+        // numeric property value is stringified before matching
+        let property_ends_with_numeric = PropertyFilter {
+            key: "key".to_string(),
+            value: Some(json!("3")),
+            operator: Some(OperatorType::EndsWith),
+            prop_type: PropertyType::Person,
+            group_type_index: None,
+            negation: None,
+            compiled_regex: None,
+            extra: Default::default(),
+        };
+        assert!(match_property(
+            &property_ends_with_numeric,
+            &HashMap::from([("key".to_string(), json!(323))]),
+            true
+        )
+        .expect("expected match to exist"));
+        assert!(!match_property(
+            &property_ends_with_numeric,
+            &HashMap::from([("key".to_string(), json!(321))]),
+            true
+        )
+        .expect("expected match to exist"));
+
+        // negation
+        let property_not_ends_with = PropertyFilter {
+            key: "key".to_string(),
+            value: Some(json!("Lue")),
+            operator: Some(OperatorType::NotEndsWith),
+            prop_type: PropertyType::Person,
+            group_type_index: None,
+            negation: None,
+            compiled_regex: None,
+            extra: Default::default(),
+        };
+        assert!(!match_property(
+            &property_not_ends_with,
+            &HashMap::from([("key".to_string(), json!("value"))]),
+            true
+        )
+        .expect("expected match to exist"));
+        assert!(match_property(
+            &property_not_ends_with,
+            &HashMap::from([("key".to_string(), json!("Alakazam"))]),
+            true
+        )
+        .expect("expected match to exist"));
+
+        // missing property: negative operator matches (true), positive operator does not (false)
+        assert!(!match_property(
+            &property_ends_with,
+            &HashMap::from([("key2".to_string(), json!("value"))]),
+            false
+        )
+        .expect("Expected no errors with full props mode"));
+        assert!(match_property(
+            &property_not_ends_with,
+            &HashMap::from([("key2".to_string(), json!("value"))]),
+            false
+        )
+        .expect("Expected no errors with full props mode"));
+    }
+
+    #[test]
     fn test_match_properties_regex() {
         let property_a = PropertyFilter {
             key: "key".to_string(),
@@ -1473,6 +1857,126 @@ mod test_match_properties {
         //     .expect("expected match to exist"),
         //     true
         // );
+    }
+
+    #[test_case(json!(70000), true; "at lower bound is inclusive")]
+    #[test_case(json!(80000), true; "at upper bound is inclusive")]
+    #[test_case(json!(75000), true; "inside range")]
+    #[test_case(json!("75000"), true; "string number property value coerces")]
+    #[test_case(json!(69999), false; "below range")]
+    #[test_case(json!(80001), false; "above range")]
+    fn test_match_properties_between_operator(property_value: Value, expected: bool) {
+        let between = PropertyFilter {
+            key: "key".to_string(),
+            value: Some(json!([70000, 80000])),
+            operator: Some(OperatorType::Between),
+            prop_type: PropertyType::Person,
+            group_type_index: None,
+            negation: None,
+            compiled_regex: None,
+            extra: Default::default(),
+        };
+        let not_between = PropertyFilter {
+            operator: Some(OperatorType::NotBetween),
+            ..between.clone()
+        };
+        let props = HashMap::from([("key".to_string(), property_value)]);
+
+        assert_eq!(
+            match_property(&between, &props, true).expect("expected match to exist"),
+            expected
+        );
+        // not_between is the exact complement
+        assert_eq!(
+            match_property(&not_between, &props, true).expect("expected match to exist"),
+            !expected
+        );
+    }
+
+    #[test]
+    fn test_match_properties_between_operator_edge_cases() {
+        let between = PropertyFilter {
+            key: "key".to_string(),
+            // String bounds coerce to numbers like the Gt/Lt operators do
+            value: Some(json!(["70000", "80000"])),
+            operator: Some(OperatorType::Between),
+            prop_type: PropertyType::Person,
+            group_type_index: None,
+            negation: None,
+            compiled_regex: None,
+            extra: Default::default(),
+        };
+
+        assert!(match_property(
+            &between,
+            &HashMap::from([("key".to_string(), json!(75000))]),
+            true
+        )
+        .expect("expected match to exist"));
+
+        // Missing person property is not a match, for both between and not_between
+        assert!(!match_property(&between, &HashMap::new(), false).expect("expected match to exist"));
+        let not_between = PropertyFilter {
+            operator: Some(OperatorType::NotBetween),
+            ..between.clone()
+        };
+        assert!(
+            !match_property(&not_between, &HashMap::new(), false).expect("expected match to exist")
+        );
+
+        // Non-numeric person property value is a validation error (like Gt/Lt), which
+        // cohort evaluation resolves to a non-match
+        assert!(matches!(
+            match_property(
+                &between,
+                &HashMap::from([("key".to_string(), json!("abc"))]),
+                true
+            ),
+            Err(FlagMatchingError::ValidationError(_))
+        ));
+
+        // A filter with no value is not a match
+        let no_value = PropertyFilter {
+            value: None,
+            ..between.clone()
+        };
+        assert!(!match_property(
+            &no_value,
+            &HashMap::from([("key".to_string(), json!(75000))]),
+            true
+        )
+        .expect("expected match to exist"));
+    }
+
+    #[test_case(json!(75000); "not an array")]
+    #[test_case(json!([70000]); "one element")]
+    #[test_case(json!([70000, 75000, 80000]); "three elements")]
+    #[test_case(json!(["a", "b"]); "non-numeric bounds")]
+    #[test_case(json!([80000, 70000]); "min greater than max")]
+    #[test_case(json!(["NaN", 80000]); "NaN lower bound")]
+    #[test_case(json!([70000, "NaN"]); "NaN upper bound")]
+    fn test_match_properties_between_operator_malformed_filter_value(filter_value: Value) {
+        for operator in [OperatorType::Between, OperatorType::NotBetween] {
+            let property = PropertyFilter {
+                key: "key".to_string(),
+                value: Some(filter_value.clone()),
+                operator: Some(operator),
+                prop_type: PropertyType::Person,
+                group_type_index: None,
+                negation: None,
+                compiled_regex: None,
+                extra: Default::default(),
+            };
+
+            assert!(matches!(
+                match_property(
+                    &property,
+                    &HashMap::from([("key".to_string(), json!(75000))]),
+                    true
+                ),
+                Err(FlagMatchingError::ValidationError(_))
+            ));
+        }
     }
 
     #[test]
@@ -2478,38 +2982,6 @@ mod test_match_properties {
         )
         .expect("expected match to exist"));
 
-        // Leading zeros are not valid semver
-        assert!(!match_property(
-            &property,
-            &HashMap::from([("version".to_string(), json!("01.02.03"))]),
-            true
-        )
-        .expect("expected match to exist"));
-
-        // Leading zero in a single component is also invalid (was the user-visible HogQL bug
-        // where "3.07" silently became [3, 7] and matched a "version >= 3.7" filter).
-        assert!(!match_property(
-            &property,
-            &HashMap::from([("version".to_string(), json!("3.07"))]),
-            true
-        )
-        .expect("expected match to exist"));
-
-        // Two-part versions are not valid semver (must be X.Y.Z)
-        assert!(!match_property(
-            &property,
-            &HashMap::from([("version".to_string(), json!("3.7"))]),
-            true
-        )
-        .expect("expected match to exist"));
-
-        assert!(!match_property(
-            &property,
-            &HashMap::from([("version".to_string(), json!("3.0"))]),
-            true
-        )
-        .expect("expected match to exist"));
-
         // Too many version components (common in .NET)
         assert!(!match_property(
             &property,
@@ -2605,6 +3077,146 @@ mod test_match_properties {
             true
         )
         .is_err());
+    }
+
+    #[test]
+    fn test_semver_zero_padded_and_short_form_versions() {
+        // These shapes used to be rejected as invalid semver; canonicalization now accepts
+        // them, so they're covered separately from `test_semver_invalid_versions`.
+        let property = PropertyFilter {
+            key: "version".to_string(),
+            value: Some(json!("1.0.0")),
+            operator: Some(OperatorType::SemverGt),
+            prop_type: PropertyType::Person,
+            group_type_index: None,
+            negation: None,
+            compiled_regex: None,
+            extra: Default::default(),
+        };
+
+        // Zero-padded components are canonicalized ("01.02.03" -> "1.2.3"), which many
+        // mobile SDKs emit. 1.2.3 > 1.0.0, so this matches.
+        assert!(match_property(
+            &property,
+            &HashMap::from([("version".to_string(), json!("01.02.03"))]),
+            true
+        )
+        .expect("expected match to exist"));
+
+        // A leading zero in a single component is canonicalized too ("3.07" -> "3.7.0").
+        assert!(match_property(
+            &property,
+            &HashMap::from([("version".to_string(), json!("3.07"))]),
+            true
+        )
+        .expect("expected match to exist"));
+
+        // Two-part versions get a padded patch component ("3.7" -> "3.7.0"), the common
+        // shape mobile SDKs emit. 3.7.0 > 1.0.0, so this matches.
+        assert!(match_property(
+            &property,
+            &HashMap::from([("version".to_string(), json!("3.7"))]),
+            true
+        )
+        .expect("expected match to exist"));
+
+        assert!(match_property(
+            &property,
+            &HashMap::from([("version".to_string(), json!("3.0"))]),
+            true
+        )
+        .expect("expected match to exist"));
+    }
+
+    #[test]
+    fn test_semver_mobile_version_formats() {
+        // Mobile SDKs commonly emit two-component versions ("3.10") and zero-padded
+        // components ("3.08"), neither of which is strict semver. Before canonicalization
+        // these silently failed to parse, so version-gated flag conditions never matched.
+
+        // "3.08+" is the reported enterprise case: property "3.08" (-> 3.8.0) satisfies
+        // a SemverGte "3.08" (-> 3.8.0) condition.
+        let gte_308 = PropertyFilter {
+            key: "version".to_string(),
+            value: Some(json!("3.08")),
+            operator: Some(OperatorType::SemverGte),
+            prop_type: PropertyType::Person,
+            group_type_index: None,
+            negation: None,
+            compiled_regex: None,
+            extra: Default::default(),
+        };
+
+        for version in ["3.08", "3.8", "3.8.0", "3.9", "3.10", "4.0.0"] {
+            assert!(
+                match_property(
+                    &gte_308,
+                    &HashMap::from([("version".to_string(), json!(version))]),
+                    true
+                )
+                .expect("expected match to exist"),
+                "expected {version} to satisfy SemverGte 3.08"
+            );
+        }
+
+        for version in ["3.07", "3.7", "2.48", "3.0"] {
+            assert!(
+                !match_property(
+                    &gte_308,
+                    &HashMap::from([("version".to_string(), json!(version))]),
+                    true
+                )
+                .expect("expected match to exist"),
+                "expected {version} to not satisfy SemverGte 3.08"
+            );
+        }
+
+        // Two-component ordering: 3.10 (-> 3.10.0) is greater than 3.9 (-> 3.9.0), not a
+        // string comparison where "3.10" < "3.9".
+        let gt_39 = PropertyFilter {
+            key: "version".to_string(),
+            value: Some(json!("3.9")),
+            operator: Some(OperatorType::SemverGt),
+            prop_type: PropertyType::Person,
+            group_type_index: None,
+            negation: None,
+            compiled_regex: None,
+            extra: Default::default(),
+        };
+
+        assert!(match_property(
+            &gt_39,
+            &HashMap::from([("version".to_string(), json!("3.10"))]),
+            true
+        )
+        .expect("expected match to exist"));
+
+        // Canonicalization also applies to the filter value in tilde/caret ranges.
+        let tilde_308 = PropertyFilter {
+            key: "version".to_string(),
+            value: Some(json!("3.08")),
+            operator: Some(OperatorType::SemverTilde),
+            prop_type: PropertyType::Person,
+            group_type_index: None,
+            negation: None,
+            compiled_regex: None,
+            extra: Default::default(),
+        };
+
+        // ~3.08 (-> ~3.8.0) means >=3.8.0 <3.9.0
+        assert!(match_property(
+            &tilde_308,
+            &HashMap::from([("version".to_string(), json!("3.8.5"))]),
+            true
+        )
+        .expect("expected match to exist"));
+
+        assert!(!match_property(
+            &tilde_308,
+            &HashMap::from([("version".to_string(), json!("3.9.0"))]),
+            true
+        )
+        .expect("expected match to exist"));
     }
 
     #[test]
@@ -2958,6 +3570,66 @@ mod test_match_properties {
             true
         )
         .is_err());
+
+        // Mobile SDKs emit zero-padded/two-part versions on the property side too.
+        let property_mobile_wildcard = PropertyFilter {
+            key: "version".to_string(),
+            value: Some(json!("3.*")),
+            operator: Some(OperatorType::SemverWildcard),
+            prop_type: PropertyType::Person,
+            group_type_index: None,
+            negation: None,
+            compiled_regex: None,
+            extra: Default::default(),
+        };
+
+        assert!(match_property(
+            &property_mobile_wildcard,
+            &HashMap::from([("version".to_string(), json!("3.08"))]),
+            true
+        )
+        .expect("expected match to exist"));
+
+        assert!(match_property(
+            &property_mobile_wildcard,
+            &HashMap::from([("version".to_string(), json!("3.10"))]),
+            true
+        )
+        .expect("expected match to exist"));
+
+        assert!(!match_property(
+            &property_mobile_wildcard,
+            &HashMap::from([("version".to_string(), json!("2.9"))]),
+            true
+        )
+        .expect("expected match to exist"));
+
+        // The filter value itself can be zero-padded ("3.08.*"), which needs the same
+        // canonicalization as "~3.08"/"^3.08" to parse as a VersionReq.
+        let property_zero_padded_filter = PropertyFilter {
+            key: "version".to_string(),
+            value: Some(json!("3.08.*")),
+            operator: Some(OperatorType::SemverWildcard),
+            prop_type: PropertyType::Person,
+            group_type_index: None,
+            negation: None,
+            compiled_regex: None,
+            extra: Default::default(),
+        };
+
+        assert!(match_property(
+            &property_zero_padded_filter,
+            &HashMap::from([("version".to_string(), json!("3.8.5"))]),
+            true
+        )
+        .expect("expected match to exist"));
+
+        assert!(!match_property(
+            &property_zero_padded_filter,
+            &HashMap::from([("version".to_string(), json!("3.9.0"))]),
+            true
+        )
+        .expect("expected match to exist"));
     }
 
     #[test]

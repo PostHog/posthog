@@ -24,12 +24,14 @@ interface DragState {
     initialPrevious: Window
 }
 
-const CURRENT_COLOR = 'rgba(255, 165, 0, 0.25)' // light orange
-const CURRENT_BORDER = 'rgba(255, 140, 0, 0.85)'
-const PREVIOUS_COLOR = 'rgba(99, 179, 237, 0.25)' // light blue
-const PREVIOUS_BORDER = 'rgba(56, 145, 212, 0.85)'
+// Shared with the ComparisonBar pills so "Current"/"Baseline" reads the same everywhere.
+export const COMPARE_CURRENT_COLOR = 'rgba(255, 165, 0, 0.25)' // light orange
+export const COMPARE_CURRENT_BORDER = 'rgba(255, 140, 0, 0.85)'
+export const COMPARE_PREVIOUS_COLOR = 'rgba(99, 179, 237, 0.25)' // light blue
+export const COMPARE_PREVIOUS_BORDER = 'rgba(56, 145, 212, 0.85)'
 
 const EDGE_WIDTH_PX = 6
+const BORDER_WIDTH_PX = 2
 const MIN_DURATION_MS = 60_000
 
 function clampWindowToBounds(w: Window, fullStartMs: number, fullEndMs: number): Window {
@@ -203,7 +205,8 @@ export function SparklineCompareOverlay({
         window: Window,
         kind: 'current' | 'previous',
         fill: string,
-        border: string
+        border: string,
+        label: string
     ): JSX.Element | null {
         if (pxPerMs === 0) {
             return null
@@ -218,17 +221,25 @@ export function SparklineCompareOverlay({
                     left,
                     width: w,
                     backgroundColor: fill,
-                    borderLeft: `1px solid ${border}`,
-                    borderRight: `1px solid ${border}`,
+                    borderLeft: `${BORDER_WIDTH_PX}px solid ${border}`,
+                    borderRight: `${BORDER_WIDTH_PX}px solid ${border}`,
                     pointerEvents: 'auto',
                     cursor: 'grab',
                 }}
                 onMouseDown={(e) => beginDrag(`${kind}-body` as DragKind, e)}
+                title={`${label} window — drag to move, drag an edge to resize`}
             >
+                {/* Persistent label chip: the drag affordance is invisible without it. */}
+                <span
+                    className="absolute top-0 left-0 px-1 text-[10px] font-semibold text-white leading-4 whitespace-nowrap pointer-events-none select-none rounded-br"
+                    style={{ backgroundColor: border }}
+                >
+                    {label}
+                </span>
                 <div
                     className="absolute top-0 h-full"
                     style={{
-                        left: -EDGE_WIDTH_PX / 2,
+                        left: -EDGE_WIDTH_PX / 2 - BORDER_WIDTH_PX / 2,
                         width: EDGE_WIDTH_PX,
                         cursor: 'ew-resize',
                     }}
@@ -237,7 +248,7 @@ export function SparklineCompareOverlay({
                 <div
                     className="absolute top-0 h-full"
                     style={{
-                        right: -EDGE_WIDTH_PX / 2,
+                        right: -EDGE_WIDTH_PX / 2 - BORDER_WIDTH_PX / 2,
                         width: EDGE_WIDTH_PX,
                         cursor: 'ew-resize',
                     }}
@@ -249,8 +260,8 @@ export function SparklineCompareOverlay({
 
     return (
         <div ref={containerRef} className="absolute inset-0" style={{ pointerEvents: 'none' }}>
-            {renderWindow(effectivePrevious, 'previous', PREVIOUS_COLOR, PREVIOUS_BORDER)}
-            {renderWindow(effectiveCurrent, 'current', CURRENT_COLOR, CURRENT_BORDER)}
+            {renderWindow(effectivePrevious, 'previous', COMPARE_PREVIOUS_COLOR, COMPARE_PREVIOUS_BORDER, 'Baseline')}
+            {renderWindow(effectiveCurrent, 'current', COMPARE_CURRENT_COLOR, COMPARE_CURRENT_BORDER, 'Current')}
         </div>
     )
 }

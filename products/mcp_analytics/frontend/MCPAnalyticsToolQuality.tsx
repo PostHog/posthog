@@ -8,16 +8,24 @@ import { TagsCombobox } from 'lib/components/Scenes/TagsCombobox'
 import { LinkPrimitive } from 'lib/lemon-ui/Link/Link'
 import { Tooltip } from 'lib/lemon-ui/Tooltip'
 import { teamLogic } from 'scenes/teamLogic'
-import { urls } from 'scenes/urls'
 
 import { McpDateFilter } from './components/McpDateFilter'
-import { mcpAnalyticsToolQualityLogic } from './mcpAnalyticsToolQualityLogic'
+import { McpIntervalFilter } from './components/McpIntervalFilter'
+import { mcpAnalyticsToolQualityLogic, mcpToolReportUrl } from './mcpAnalyticsToolQualityLogic'
 import { ToolQualityCharts } from './tool-quality/ToolQualityCharts'
 import { ToolQualityTable } from './tool-quality/ToolQualityTable'
 
 function FilterBar(): JSX.Element {
-    const { availableCategories, selectedCategories, scopeShare, dateFilter } = useValues(mcpAnalyticsToolQualityLogic)
-    const { setSelectedCategories, setDateFilter } = useActions(mcpAnalyticsToolQualityLogic)
+    const {
+        availableCategories,
+        selectedCategories,
+        scopeShare,
+        dateFilter,
+        dateRangeLabel,
+        interval,
+        intervalOptions,
+    } = useValues(mcpAnalyticsToolQualityLogic)
+    const { setSelectedCategories, setDateFilter, setPinnedInterval } = useActions(mcpAnalyticsToolQualityLogic)
 
     const hasScope = selectedCategories.length > 0
     const sharePct = scopeShare.pct === null ? null : Math.round(scopeShare.pct * 10) / 10
@@ -40,12 +48,18 @@ function FilterBar(): JSX.Element {
                 onChange={(dateFrom, dateTo) => setDateFilter(dateFrom, dateTo)}
                 dataAttr="mcp-tool-quality-date-filter"
             />
+            <McpIntervalFilter
+                interval={interval}
+                options={intervalOptions}
+                onChange={setPinnedInterval}
+                dataAttr="mcp-tool-quality-interval-filter"
+            />
             {hasScope && sharePct !== null ? (
                 <Tooltip
-                    title={`${scopeShare.inScope.toLocaleString()} of ${scopeShare.total.toLocaleString()} MCP tool calls in the last 7 days were in the selected categories`}
+                    title={`${scopeShare.inScope.toLocaleString()} of ${scopeShare.total.toLocaleString()} MCP tool calls were in the selected categories (${dateRangeLabel})`}
                 >
                     <div className="text-sm text-muted">
-                        <span className="font-semibold text-default">{sharePct}%</span> of MCP usage (last 7d)
+                        <span className="font-semibold text-default">{sharePct}%</span> of MCP usage ({dateRangeLabel})
                     </div>
                 </Tooltip>
             ) : null}
@@ -54,7 +68,7 @@ function FilterBar(): JSX.Element {
 }
 
 function ChartsScopeHeader(): JSX.Element {
-    const { selectedTool } = useValues(mcpAnalyticsToolQualityLogic)
+    const { selectedTool, dateFilter, pinnedInterval } = useValues(mcpAnalyticsToolQualityLogic)
     const { setSelectedTool } = useActions(mcpAnalyticsToolQualityLogic)
 
     if (!selectedTool) {
@@ -74,7 +88,7 @@ function ChartsScopeHeader(): JSX.Element {
             <Button
                 variant="outline"
                 size="sm"
-                render={<LinkPrimitive to={urls.mcpAnalyticsTool(selectedTool)} />}
+                render={<LinkPrimitive to={mcpToolReportUrl(selectedTool, dateFilter, pinnedInterval)} />}
                 data-attr="mcp-tool-quality-full-report"
             >
                 Full tool report
@@ -93,7 +107,7 @@ function ChartsScopeHeader(): JSX.Element {
 }
 
 export function MCPAnalyticsToolQuality(): JSX.Element {
-    const { dailyChartData, dailyStatsLoading } = useValues(mcpAnalyticsToolQualityLogic)
+    const { dailyChartData, dailyStatsLoading, interval, incompleteTail } = useValues(mcpAnalyticsToolQualityLogic)
     const { timezone } = useValues(teamLogic)
 
     const theme = useChartTheme()
@@ -102,7 +116,14 @@ export function MCPAnalyticsToolQuality(): JSX.Element {
         <div className="flex flex-col gap-4" data-quill>
             <FilterBar />
             <ChartsScopeHeader />
-            <ToolQualityCharts data={dailyChartData} loading={dailyStatsLoading} theme={theme} timezone={timezone} />
+            <ToolQualityCharts
+                data={dailyChartData}
+                loading={dailyStatsLoading}
+                theme={theme}
+                timezone={timezone}
+                interval={interval}
+                incompleteTail={incompleteTail}
+            />
             <ToolQualityTable />
         </div>
     )

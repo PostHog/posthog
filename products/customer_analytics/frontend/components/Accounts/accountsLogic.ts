@@ -1,47 +1,70 @@
-import { actions, afterMount, connect, kea, listeners, path, reducers, selectors } from 'kea'
+import { MakeLogicType, actions, afterMount, connect, kea, listeners, path, reducers, selectors } from 'kea'
 import { actionToUrl, router, urlToAction } from 'kea-router'
 import posthog from 'posthog-js'
 
 import { lemonToast } from 'lib/lemon-ui/LemonToast/LemonToast'
 import { isUUIDLike } from 'lib/utils/guards'
+import { removeProjectIdIfPresent } from 'lib/utils/kea-router'
 import { objectsEqual } from 'lib/utils/objects'
+import { membersLogic } from 'scenes/organization/membersLogic'
 import { teamLogic } from 'scenes/teamLogic'
 import { urls } from 'scenes/urls'
 import { userLogic } from 'scenes/userLogic'
 
-import { dataNodeLogic } from '~/queries/nodes/DataNode/dataNodeLogic'
-import { AccountsQuery, DataTableNode, NodeKind } from '~/queries/schema/schema-general'
-import type { UserBasicType } from '~/types'
-
-import { accountsPartialUpdate, accountsRetrieve } from 'products/customer_analytics/frontend/generated/api'
-import type {
-    AccountApi,
-    PatchedAccountApiProperties,
-} from 'products/customer_analytics/frontend/generated/api.schemas'
+import { tagsModel } from '~/models/tagsModel'
+import { type DataNodeLogicProps, dataNodeLogic } from '~/queries/nodes/DataNode/dataNodeLogic'
+import type { DataTableRow } from '~/queries/nodes/DataTable/dataTableLogic'
+import {
+    AccountsTableMetric,
+    AccountsTableQuery,
+    DataNode,
+    DataTableNode,
+    NodeKind,
+    RefreshType,
+} from '~/queries/schema/schema-general'
+import type { AccountCustomPropertyFilter, UserBasicType } from '~/types'
 
 import {
-    ACCOUNTS_HOGQL_DATA_NODE_KEY,
+    accountsPartialUpdate,
+    accountsRelationshipsCreate,
+    accountsRelationshipsEndCreate,
+    accountsRelationshipsList,
+} from 'products/customer_analytics/frontend/generated/api'
+
+import type { UserType } from '../../../../../frontend/src/types'
+import {
+    ACCOUNTS_TABLE_DATA_NODE_KEY,
     ACCOUNTS_METRICS_DATA_NODE_KEY,
     CUSTOMER_ANALYTICS_DEFAULT_QUERY_TAGS,
 } from '../../constants'
 import { customerAnalyticsSceneLogic } from '../../customerAnalyticsSceneLogic'
-import {
-    ACCOUNTS_HOGQL_DEFAULT_SELECT,
-    ACCOUNTS_NAME_COLUMN,
-    accountsColumnConfigLogic,
-} from './accountsColumnConfigLogic'
+import type { AccountRelationshipDefinitionApi, CustomPropertyDefinitionApi } from '../../generated/api.schemas'
+import { accountsColumnConfigLogic, isLegacyRoleColumn } from './accountsColumnConfigLogic'
+import type { AccountColumnDisplayState } from './accountsColumnConfigLogic'
 import {
     ACCOUNT_EXPANSION_TABS,
     AccountExpansionTab,
     accountsExpansionLogic,
     DEFAULT_ACCOUNT_TAB,
 } from './accountsExpansionLogic'
-import type { accountsLogicType } from './accountsLogicType'
 import { accountsOverviewTilesLogic, TileFilter } from './accountsOverviewTilesLogic'
+import { sortAccountRows } from './accountsSort'
+import {
+    AccountsTableQueryPlan,
+    BuildAccountsTableQueryPlanInput,
+    accountsTableCell,
+    buildAccountsTableQueryPlan,
+    isAccountsTableRow,
+    supportedCustomPropertyFilters,
+} from './accountsTableQuery'
 import { normalizeRoleFilter } from './accountsViewState'
 import { AccountsEvents } from './constants'
 
 export const SEARCH_DEBOUNCE_MS = 300
+
+// ObjectTags fires onChange per added/removed tag; the debounce collapses an
+// editing burst into one full-list PATCH.
+export const TAGS_SAVE_DEBOUNCE_MS = 300
 
 // Revealing an off-screen account triggers an async refetch, so its row may not
 // be in the DOM yet — poll briefly for it before scrolling.
@@ -72,9 +95,7 @@ function clearSortIfColumnRemoved(values: SortLikeValues, actions: SortLikeActio
 
 export type RoleFilterValue = number[]
 
-export type AccountRoleKey = 'csm' | 'account_executive' | 'account_owner'
-
-export type AccountFilterType = 'tag' | 'unassigned_only' | 'my_accounts' | 'assigned_to'
+export type AccountFilterType = 'tag' | 'unassigned_only' | 'my_accounts' | 'assigned_to' | 'custom_property'
 
 // `column` matches the visible column name (alias-stripped) so any selected
 // column can drive the sort.
@@ -84,69 +105,18 @@ export type AccountSortDirection = 'asc' | 'desc'
 
 export type AccountSortOrder = { column: AccountSortableColumn; direction: AccountSortDirection } | null
 
-// Columns that are HogQL `Tuple(id, email)` — sort by the `email` element so the
-// order matches what the user sees on screen rather than the opaque user id.
-const TUPLE_SORT_COLUMNS = new Set<string>(['csm', 'account_executive', 'account_owner'])
+export const savingRoleKey = (accountId: string, column: string): string => `${accountId}:${column}`
 
-// Resolve the HogQL expression to use in ORDER BY for a sortable column.
-// HogQL ORDER BY resolves SELECT aliases by name, so the visible column name
-// (which is the alias for aliased entries, or the bare expression otherwise)
-// works directly — except for tuple-shaped role columns, where we sort by
-// the email element so the visual order matches the rendered cell.
-export function deriveAccountsOrderByExpr(column: string): string {
-    if (TUPLE_SORT_COLUMNS.has(column)) {
-        return `tupleElement(${column}, 2)`
-    }
-    return column
+// Which accounts path the shareable view state gets written back to. It must be the path we are
+// already on: the setters that mirror view state into the URL also fire while state is being
+// restored (the default-column upgrade once relationship definitions load, the auto-restored saved
+// view), so pointing them at the list would bounce a single-account deep link to the unfiltered
+// list moments after it opened. Returns the live pathname so the deep link keeps its `/:tab`.
+function accountsPathToWriteBackTo(accountIdFilter: string | null): string {
+    const pathname = removeProjectIdIfPresent(router.values.location.pathname)
+    const deepLinkPath = accountIdFilter ? urls.customerAnalyticsAccount(accountIdFilter) : null
+    return deepLinkPath && pathname.startsWith(deepLinkPath) ? pathname : urls.customerAnalyticsAccounts()
 }
-
-interface AccountQueryFilters {
-    searchQuery: string
-    tagsFilter: string[]
-    allRolesUnassigned: boolean
-    assignedToFilter: RoleFilterValue
-    accountIdFilter: string | null
-    tileFilter: TileFilter | null
-}
-
-// Shared filter clauses for the list-rows query and the overview-metrics query,
-// so both always aggregate/list over the exact same set of accounts.
-function applyAccountFilters(source: AccountsQuery, filters: AccountQueryFilters): void {
-    const trimmed = filters.searchQuery.trim()
-    if (trimmed) {
-        source.search = trimmed
-    }
-    if (filters.tagsFilter.length > 0) {
-        source.tagNames = filters.tagsFilter
-    }
-    if (filters.allRolesUnassigned) {
-        source.allRolesUnassigned = true
-    }
-    if (filters.assignedToFilter.length > 0) {
-        source.assignedToUserIds = filters.assignedToFilter
-    }
-    // Combine the overview-tile filter with the single-account filter (path route). The
-    // id is the account PK; compare it stringified, matching how the name-cell id is built.
-    // accountIdFilter is only ever a validated UUID (set from the route), so it's injection-safe.
-    const filterExpressions: string[] = []
-    if (filters.tileFilter) {
-        filterExpressions.push(filters.tileFilter.expression)
-    }
-    if (filters.accountIdFilter) {
-        filterExpressions.push(`toString(id) = '${filters.accountIdFilter}'`)
-    }
-    if (filterExpressions.length > 0) {
-        source.filterExpression = filterExpressions.map((expr) => `(${expr})`).join(' AND ')
-    }
-}
-
-const ROLE_LABELS: Record<AccountRoleKey, string> = {
-    csm: 'CSM',
-    account_executive: 'Account executive',
-    account_owner: 'Account owner',
-}
-
-export const savingRoleKey = (accountId: string, role: AccountRoleKey): string => `${accountId}:${role}`
 
 // Shareable view state encoded into the URL hash (`#view=...`) so a copied URL
 // reproduces the exact accounts list a colleague is looking at. Only non-default
@@ -163,8 +133,310 @@ export interface AccountsViewUrlState {
     mine?: boolean
     sort?: NonNullable<AccountSortOrder>
     columns?: string[]
+    columnDisplay?: AccountColumnDisplayState
     tileFilter?: TileFilter
+    customProperties?: AccountCustomPropertyFilter[]
 }
+
+// Generated by kea-typegen. Update if you're an agent, ignore if you're human.
+export interface accountsLogicValues {
+    aliasToDefinition: Record<string, CustomPropertyDefinitionApi> // accountsColumnConfigLogic
+    aliasToRelationshipDefinition: Record<string, AccountRelationshipDefinitionApi> // accountsColumnConfigLogic
+    columnDisplay: AccountColumnDisplayState // accountsColumnConfigLogic
+    customPropertyDefinitionsById: Record<string, CustomPropertyDefinitionApi> // accountsColumnConfigLogic
+    defaultSelectColumns: string[] // accountsColumnConfigLogic
+    querySelectColumns: string[] // accountsColumnConfigLogic
+    relationshipDefinitionsLoaded: boolean // accountsColumnConfigLogic
+    selectColumns: string[] // accountsColumnConfigLogic
+    visibleColumnNames: string[] // accountsColumnConfigLogic
+    overviewMetrics: AccountsTableMetric[] // accountsOverviewTilesLogic
+    tileFilter: TileFilter | null // accountsOverviewTilesLogic
+    mineOnly: boolean // customerAnalyticsSceneLogic
+    listHasMoreData: boolean // dataNodeLogic
+    currentTeamId: number | null // teamLogic
+    user: UserType | null // userLogic
+    accountIdFilter: string | null
+    accountsDataTableQuery: DataTableNode
+    accountsQuerySource: AccountsTableQuery | null
+    accountsTableQueryPlan: AccountsTableQueryPlan
+    accountsTableQueryPlanInput: BuildAccountsTableQueryPlanInput
+    activeFilterCount: number
+    allRolesUnassigned: boolean
+    assignedToCurrentUser: boolean
+    assignedToFilter: RoleFilterValue
+    canSortClientSide: boolean
+    currentUserId: number | null
+    customPropertyFilters: AccountCustomPropertyFilter[]
+    isRoleSaving: (accountId: string, column: string) => boolean
+    isTagsSaving: (accountId: string) => boolean
+    listPaginated: boolean
+    metricsQuery: AccountsTableQuery | null
+    relationshipOverrides: Record<string, number[]>
+    savingRoles: Record<string, true>
+    savingTags: Record<string, true>
+    searchInput: string
+    searchQuery: string
+    sortOrder: AccountSortOrder
+    sortedRowsTransformer: ((rows: DataTableRow[]) => DataTableRow[]) | undefined
+    tagOverrides: Record<string, string[]>
+    tagsFilter: string[]
+    viewUrlState: AccountsViewUrlState
+}
+
+// Generated by kea-typegen. Update if you're an agent, ignore if you're human.
+export interface accountsLogicActions {
+    loadCustomPropertyDefinitionsSuccess: (
+        customPropertyDefinitions: CustomPropertyDefinitionApi[],
+        payload?: any
+    ) => {
+        customPropertyDefinitions: CustomPropertyDefinitionApi[]
+        payload?: any
+    } // accountsColumnConfigLogic
+    moveColumn: (
+        oldIndex: number,
+        newIndex: number
+    ) => {
+        newIndex: number
+        oldIndex: number
+    } // accountsColumnConfigLogic
+    resetColumns: () => {
+        value: true
+    } // accountsColumnConfigLogic
+    selectColumn: (column: string) => {
+        column: string
+    } // accountsColumnConfigLogic
+    setColumnDisplay: (
+        definitionId: string,
+        config: null | import('./accountsColumnConfigLogic').AccountColumnDisplayConfig
+    ) => {
+        config: null | import('./accountsColumnConfigLogic').AccountColumnDisplayConfig
+        definitionId: string
+    } // accountsColumnConfigLogic
+    setColumnDisplayConfig: (config: AccountColumnDisplayState) => {
+        config: AccountColumnDisplayState
+    } // accountsColumnConfigLogic
+    setSelectColumns: (columns: string[]) => {
+        columns: string[]
+    } // accountsColumnConfigLogic
+    unselectColumn: (column: string) => {
+        column: string
+    } // accountsColumnConfigLogic
+    openAccountTab: (
+        accountId: string,
+        tab: AccountExpansionTab
+    ) => {
+        accountId: string
+        tab: AccountExpansionTab
+    } // accountsExpansionLogic
+    setTileFilter: (filter: TileFilter | null) => {
+        filter: TileFilter | null
+    } // accountsOverviewTilesLogic
+    setMineOnly: (mineOnly: boolean) => {
+        mineOnly: boolean
+    } // customerAnalyticsSceneLogic
+    listLoadData: (
+        refresh?: RefreshType | undefined,
+        alreadyRunningQueryId?: string | undefined,
+        overrideQuery?: DataNode<Record<string, any>> | undefined
+    ) => {
+        overrideQuery: DataNode<Record<string, any>> | undefined
+        pollOnly: boolean
+        queryId: string
+        refresh: RefreshType | undefined
+    } // dataNodeLogic
+    listLoadNextData: () => any // dataNodeLogic
+    ensureAllMembersLoaded: () => {
+        value: true
+    } // membersLogic
+    loadUserSuccess: (
+        user: UserType | null,
+        payload?:
+            | {
+                  resetOnFailure: boolean | undefined
+              }
+            | undefined
+    ) => {
+        payload?: {
+            resetOnFailure: boolean | undefined
+        }
+        user: UserType | null
+    } // userLogic
+    addTagToFilter: (tag: string) => {
+        tag: string
+    }
+    openAccount: (
+        accountId: string,
+        externalId: string | null,
+        name: string,
+        tab: AccountExpansionTab
+    ) => {
+        accountId: string
+        externalId: string | null
+        name: string
+        tab: AccountExpansionTab
+    }
+    refresh: () => {
+        value: true
+    }
+    reportFilterChange: (filterType: AccountFilterType) => {
+        filterType: AccountFilterType
+    }
+    roleUpdateFinished: (
+        accountId: string,
+        column: string
+    ) => {
+        accountId: string
+        column: string
+    }
+    roleUpdateStarted: (
+        accountId: string,
+        column: string
+    ) => {
+        accountId: string
+        column: string
+    }
+    setAccountIdFilter: (accountId: string | null) => {
+        accountId: string | null
+    }
+    setAllRolesUnassigned: (value: boolean) => {
+        value: boolean
+    }
+    setAssignedToCurrentUser: (value: boolean) => {
+        value: boolean
+    }
+    setAssignedToFilter: (value: RoleFilterValue) => {
+        value: RoleFilterValue
+    }
+    setCustomPropertyFilters: (filters: AccountCustomPropertyFilter[]) => {
+        filters: AccountCustomPropertyFilter[]
+    }
+    setRelationshipOverride: (
+        accountId: string,
+        column: string,
+        userIds: number[]
+    ) => {
+        accountId: string
+        column: string
+        userIds: number[]
+    }
+    setSearchInput: (query: string) => {
+        query: string
+    }
+    setSearchQuery: (query: string) => {
+        query: string
+    }
+    setSortOrder: (sortOrder: AccountSortOrder) => {
+        sortOrder: AccountSortOrder
+    }
+    setTagsFilter: (tags: string[]) => {
+        tags: string[]
+    }
+    setTagsOverride: (
+        accountId: string,
+        tags: string[] | null
+    ) => {
+        accountId: string
+        tags: string[] | null
+    }
+    tagsUpdateFinished: (accountId: string) => {
+        accountId: string
+    }
+    tagsUpdateStarted: (accountId: string) => {
+        accountId: string
+    }
+    toggleSort: (column: AccountSortableColumn) => {
+        column: string
+    }
+    updateAccountRole: (
+        accountId: string,
+        column: string,
+        user: UserBasicType | null
+    ) => {
+        accountId: string
+        column: string
+        user: UserBasicType | null
+    }
+    updateAccountTags: (
+        accountId: string,
+        tags: string[]
+    ) => {
+        accountId: string
+        tags: string[]
+    }
+}
+
+// Generated by kea-typegen. Update if you're an agent, ignore if you're human.
+export interface accountsLogicMeta {
+    __keaTypeGenInternalSelectorTypes: {
+        currentUserId: (user: UserType | null) => number | null
+        assignedToCurrentUser: (assignedToFilter: RoleFilterValue, currentUserId: number | null) => boolean
+        isRoleSaving: (savingRoles: Record<string, true>) => (accountId: string, column: string) => boolean
+        isTagsSaving: (savingTags: Record<string, true>) => (accountId: string) => boolean
+        activeFilterCount: (
+            searchQuery: string,
+            tagsFilter: string[],
+            allRolesUnassigned: boolean,
+            assignedToFilter: RoleFilterValue,
+            customPropertyFilters: AccountCustomPropertyFilter[]
+        ) => number
+        viewUrlState: (
+            searchQuery: string,
+            tagsFilter: string[],
+            allRolesUnassigned: boolean,
+            assignedToFilter: RoleFilterValue,
+            sortOrder: AccountSortOrder,
+            selectColumns: string[],
+            defaultSelectColumns: string[],
+            tileFilter: TileFilter | null,
+            customPropertyFilters: AccountCustomPropertyFilter[],
+            columnDisplay: AccountColumnDisplayState
+        ) => AccountsViewUrlState
+        canSortClientSide: (listHasMoreData: boolean, listPaginated: boolean) => boolean
+        sortedRowsTransformer: (
+            canSortClientSide: boolean,
+            sortOrder: AccountSortOrder,
+            accountsTableQueryPlan: AccountsTableQueryPlan
+        ) => ((rows: DataTableRow[]) => DataTableRow[]) | undefined
+        accountsTableQueryPlanInput: (
+            querySelectColumns: string[],
+            visibleColumnNames: string[],
+            searchQuery: string,
+            tagsFilter: string[],
+            allRolesUnassigned: boolean,
+            assignedToFilter: RoleFilterValue,
+            accountIdFilter: string | null,
+            tileFilter: TileFilter | null,
+            customPropertyFilters: AccountCustomPropertyFilter[],
+            customPropertyDefinitionsById: Record<string, CustomPropertyDefinitionApi>,
+            columnDisplay: AccountColumnDisplayState,
+            sortOrder: AccountSortOrder,
+            canSortClientSide: boolean
+        ) => BuildAccountsTableQueryPlanInput
+        accountsTableQueryPlan: (
+            accountsTableQueryPlanInput: BuildAccountsTableQueryPlanInput
+        ) => AccountsTableQueryPlan
+        accountsQuerySource: (
+            accountsTableQueryPlan: AccountsTableQueryPlan,
+            relationshipDefinitionsLoaded: boolean
+        ) => AccountsTableQuery | null
+        accountsDataTableQuery: (
+            accountsTableQueryPlan: AccountsTableQueryPlan,
+            accountsQuerySource: AccountsTableQuery | null
+        ) => DataTableNode
+        metricsQuery: (
+            overviewMetrics: AccountsTableMetric[],
+            accountsTableQueryPlan: AccountsTableQueryPlan,
+            relationshipDefinitionsLoaded: boolean
+        ) => AccountsTableQuery | null
+    }
+}
+
+export type accountsLogicType = MakeLogicType<
+    accountsLogicValues,
+    accountsLogicActions,
+    Record<string, any>,
+    accountsLogicMeta
+>
 
 export const accountsLogic = kea<accountsLogicType>([
     path(['scenes', 'customerAnalytics', 'accounts', 'accountsLogic']),
@@ -175,15 +447,36 @@ export const accountsLogic = kea<accountsLogicType>([
             userLogic,
             ['user'],
             accountsColumnConfigLogic,
-            ['selectColumns', 'visibleColumnNames'],
+            [
+                'selectColumns',
+                'defaultSelectColumns',
+                'visibleColumnNames',
+                'querySelectColumns',
+                'aliasToRelationshipDefinition',
+                'aliasToDefinition',
+                'relationshipDefinitionsLoaded',
+                'customPropertyDefinitionsById',
+                'columnDisplay',
+            ],
             accountsOverviewTilesLogic,
             ['metrics as overviewMetrics', 'tileFilter'],
             customerAnalyticsSceneLogic,
             ['mineOnly'],
+            dataNodeLogic({ key: ACCOUNTS_TABLE_DATA_NODE_KEY } as DataNodeLogicProps),
+            ['hasMoreData as listHasMoreData'],
         ],
         actions: [
             accountsColumnConfigLogic,
-            ['setSelectColumns', 'selectColumn', 'unselectColumn', 'moveColumn', 'resetColumns'],
+            [
+                'loadCustomPropertyDefinitionsSuccess',
+                'setSelectColumns',
+                'selectColumn',
+                'unselectColumn',
+                'moveColumn',
+                'resetColumns',
+                'setColumnDisplay',
+                'setColumnDisplayConfig',
+            ],
             accountsOverviewTilesLogic,
             ['setTileFilter'],
             accountsExpansionLogic,
@@ -192,12 +485,17 @@ export const accountsLogic = kea<accountsLogicType>([
             ['setMineOnly'],
             userLogic,
             ['loadUserSuccess'],
+            membersLogic,
+            ['ensureAllMembersLoaded'],
+            dataNodeLogic({ key: ACCOUNTS_TABLE_DATA_NODE_KEY } as DataNodeLogicProps),
+            ['loadData as listLoadData', 'loadNextData as listLoadNextData'],
         ],
     })),
     actions({
         setSearchInput: (query: string) => ({ query }),
         setSearchQuery: (query: string) => ({ query }),
         setTagsFilter: (tags: string[]) => ({ tags }),
+        setCustomPropertyFilters: (filters: AccountCustomPropertyFilter[]) => ({ filters }),
         setAllRolesUnassigned: (value: boolean) => ({ value }),
         setAssignedToFilter: (value: RoleFilterValue) => ({ value }),
         // Shortcut for the "My accounts" checkbox — resolves to the current
@@ -210,14 +508,25 @@ export const accountsLogic = kea<accountsLogicType>([
         // The raw filter setters are also fired by URL sync and cross-filter
         // cascades, so capturing analytics here keeps phantom events out.
         reportFilterChange: (filterType: AccountFilterType) => ({ filterType }),
-        updateAccountRole: (accountId: string, role: AccountRoleKey, user: UserBasicType | null) => ({
+        updateAccountRole: (accountId: string, column: string, user: UserBasicType | null) => ({
             accountId,
-            role,
+            column,
             user,
         }),
-        roleUpdateStarted: (accountId: string, role: AccountRoleKey) => ({ accountId, role }),
-        roleUpdateFinished: (accountId: string, role: AccountRoleKey) => ({ accountId, role }),
-        replaceAccount: (account: AccountApi) => ({ account }),
+        roleUpdateStarted: (accountId: string, column: string) => ({ accountId, column }),
+        roleUpdateFinished: (accountId: string, column: string) => ({ accountId, column }),
+        setRelationshipOverride: (accountId: string, column: string, userIds: number[]) => ({
+            accountId,
+            column,
+            userIds,
+        }),
+        updateAccountTags: (accountId: string, tags: string[]) => ({ accountId, tags }),
+        // Clicking a tag in a row's tags cell adds it to the tags filter (compounding).
+        addTagToFilter: (tag: string) => ({ tag }),
+        tagsUpdateStarted: (accountId: string) => ({ accountId }),
+        tagsUpdateFinished: (accountId: string) => ({ accountId }),
+        // null drops the override, falling back to the fetched cell value.
+        setTagsOverride: (accountId: string, tags: string[] | null) => ({ accountId, tags }),
         openAccount: (accountId: string, externalId: string | null, name: string, tab: AccountExpansionTab) => ({
             accountId,
             externalId,
@@ -248,6 +557,12 @@ export const accountsLogic = kea<accountsLogicType>([
                 setTagsFilter: (_, { tags }) => tags,
             },
         ],
+        customPropertyFilters: [
+            [] as AccountCustomPropertyFilter[],
+            {
+                setCustomPropertyFilters: (_, { filters }) => filters,
+            },
+        ],
         allRolesUnassigned: [
             false,
             {
@@ -272,29 +587,73 @@ export const accountsLogic = kea<accountsLogicType>([
                 setSortOrder: (_, { sortOrder }) => sortOrder,
             },
         ],
+        // Keeps server-side sort while paging, so reaching the last page never drops the
+        // orderBy and collapses the accumulated rows back to page one. Resetting on every
+        // listLoadData is deliberate even for the refetch a sort-while-paginated triggers:
+        // that request already carries the new orderBy, and its response replaces the
+        // accumulated pages with one server-sorted page that is safe to client-sort next.
+        listPaginated: [
+            false,
+            {
+                listLoadData: () => false,
+                listLoadNextData: () => true,
+            },
+        ],
         savingRoles: [
             {} as Record<string, true>,
             {
-                roleUpdateStarted: (state, { accountId, role }) => ({
+                roleUpdateStarted: (state, { accountId, column }) => ({
                     ...state,
-                    [savingRoleKey(accountId, role)]: true,
+                    [savingRoleKey(accountId, column)]: true,
                 }),
-                roleUpdateFinished: (state, { accountId, role }) => {
+                roleUpdateFinished: (state, { accountId, column }) => {
                     const next = { ...state }
-                    delete next[savingRoleKey(accountId, role)]
+                    delete next[savingRoleKey(accountId, column)]
                     return next
                 },
             },
         ],
-        accountOverrides: [
-            {} as Record<string, AccountApi>,
+        // Assignments written from the list, keyed `${accountId}:${column}` — masks the
+        // stale fetched cell until the async refetch lands.
+        relationshipOverrides: [
+            {} as Record<string, number[]>,
             {
-                replaceAccount: (state, { account }) => ({ ...state, [account.id]: account }),
+                setRelationshipOverride: (state, { accountId, column, userIds }) => ({
+                    ...state,
+                    [savingRoleKey(accountId, column)]: userIds,
+                }),
+            },
+        ],
+        savingTags: [
+            {} as Record<string, true>,
+            {
+                tagsUpdateStarted: (state, { accountId }) => ({ ...state, [accountId]: true }),
+                tagsUpdateFinished: (state, { accountId }) => {
+                    const next = { ...state }
+                    delete next[accountId]
+                    return next
+                },
+            },
+        ],
+        // Tags written from the list, keyed by account id, mask the stale fetched
+        // cell until the async refetch lands.
+        tagOverrides: [
+            {} as Record<string, string[]>,
+            {
+                setTagsOverride: (state, { accountId, tags }) => {
+                    const next = { ...state }
+                    if (tags === null) {
+                        delete next[accountId]
+                    } else {
+                        next[accountId] = tags
+                    }
+                    return next
+                },
             },
         ],
     }),
     selectors({
-        currentUserId: [(s) => [s.user], (user): number | null => user?.id ?? null],
+        currentUserId: [(s) => [s.user], (user: null | import('~/types').UserType): number | null => user?.id ?? null],
         // The "My accounts" checkbox is checked exactly when the assigned-to
         // filter is just the current user — i.e. the user-agnostic id filter
         // happens to point at you.
@@ -306,20 +665,31 @@ export const accountsLogic = kea<accountsLogicType>([
         isRoleSaving: [
             (s) => [s.savingRoles],
             (savingRoles: Record<string, true>) =>
-                (accountId: string, role: AccountRoleKey): boolean =>
-                    !!savingRoles[savingRoleKey(accountId, role)],
+                (accountId: string, column: string): boolean =>
+                    !!savingRoles[savingRoleKey(accountId, column)],
+        ],
+        isTagsSaving: [
+            (s) => [s.savingTags],
+            (savingTags: Record<string, true>) =>
+                (accountId: string): boolean =>
+                    !!savingTags[accountId],
         ],
         activeFilterCount: [
-            (s) => [s.searchQuery, s.tagsFilter, s.allRolesUnassigned, s.assignedToFilter],
+            (s) => [s.searchQuery, s.tagsFilter, s.allRolesUnassigned, s.assignedToFilter, s.customPropertyFilters],
             (
                 searchQuery: string,
                 tagsFilter: string[],
                 allRolesUnassigned: boolean,
-                assignedToFilter: RoleFilterValue
+                assignedToFilter: RoleFilterValue,
+                customPropertyFilters: AccountCustomPropertyFilter[]
             ): number =>
-                [!!searchQuery.trim(), tagsFilter.length > 0, allRolesUnassigned, assignedToFilter.length > 0].filter(
-                    Boolean
-                ).length,
+                [
+                    !!searchQuery.trim(),
+                    tagsFilter.length > 0,
+                    allRolesUnassigned,
+                    assignedToFilter.length > 0,
+                    customPropertyFilters.length > 0,
+                ].filter(Boolean).length,
         ],
         viewUrlState: [
             (s) => [
@@ -329,7 +699,10 @@ export const accountsLogic = kea<accountsLogicType>([
                 s.assignedToFilter,
                 s.sortOrder,
                 s.selectColumns,
+                s.defaultSelectColumns,
                 s.tileFilter,
+                s.customPropertyFilters,
+                s.columnDisplay,
             ],
             (
                 searchQuery: string,
@@ -338,7 +711,10 @@ export const accountsLogic = kea<accountsLogicType>([
                 assignedToFilter: RoleFilterValue,
                 sortOrder: AccountSortOrder,
                 selectColumns: string[],
-                tileFilter: TileFilter | null
+                defaultSelectColumns: string[],
+                tileFilter: TileFilter | null,
+                customPropertyFilters: AccountCustomPropertyFilter[],
+                columnDisplay: AccountColumnDisplayState
             ): AccountsViewUrlState => {
                 const state: AccountsViewUrlState = {}
                 const trimmedSearch = searchQuery.trim()
@@ -357,110 +733,149 @@ export const accountsLogic = kea<accountsLogicType>([
                 if (sortOrder) {
                     state.sort = sortOrder
                 }
-                if (!objectsEqual(selectColumns, ACCOUNTS_HOGQL_DEFAULT_SELECT)) {
+                if (!objectsEqual(selectColumns, defaultSelectColumns)) {
                     state.columns = selectColumns
+                }
+                if (Object.keys(columnDisplay).length > 0) {
+                    state.columnDisplay = columnDisplay
                 }
                 if (tileFilter) {
                     state.tileFilter = tileFilter
                 }
+                if (customPropertyFilters.length > 0) {
+                    state.customProperties = customPropertyFilters
+                }
                 return state
             },
         ],
-        hogqlQuery: [
+        canSortClientSide: [
+            (s) => [s.listHasMoreData, s.listPaginated],
+            (listHasMoreData: boolean, listPaginated: boolean): boolean => !listHasMoreData && !listPaginated,
+        ],
+        sortedRowsTransformer: [
+            (s) => [s.canSortClientSide, s.sortOrder, s.accountsTableQueryPlan],
+            (
+                canSortClientSide: boolean,
+                sortOrder: AccountSortOrder,
+                plan: AccountsTableQueryPlan
+            ): ((rows: DataTableRow[]) => DataTableRow[]) | undefined =>
+                canSortClientSide && sortOrder
+                    ? (rows: DataTableRow[]): DataTableRow[] =>
+                          sortAccountRows(rows, sortOrder, (record, column) =>
+                              isAccountsTableRow(record) ? accountsTableCell(record, column, plan) : undefined
+                          )
+                    : undefined,
+        ],
+        accountsTableQueryPlanInput: [
             (s) => [
+                s.querySelectColumns,
+                s.visibleColumnNames,
                 s.searchQuery,
                 s.tagsFilter,
                 s.allRolesUnassigned,
                 s.assignedToFilter,
                 s.accountIdFilter,
                 s.tileFilter,
+                s.customPropertyFilters,
+                s.customPropertyDefinitionsById,
+                s.columnDisplay,
                 s.sortOrder,
-                s.selectColumns,
+                s.canSortClientSide,
             ],
             (
+                querySelectColumns: string[],
+                visibleColumnNames: string[],
                 searchQuery: string,
                 tagsFilter: string[],
                 allRolesUnassigned: boolean,
                 assignedToFilter: RoleFilterValue,
                 accountIdFilter: string | null,
                 tileFilter: TileFilter | null,
+                customPropertyFilters: AccountCustomPropertyFilter[],
+                customPropertyDefinitionsById: Record<string, CustomPropertyDefinitionApi>,
+                columnDisplay: AccountColumnDisplayState,
                 sortOrder: AccountSortOrder,
-                selectColumns: string[]
-            ): DataTableNode => {
-                const source: AccountsQuery = {
-                    kind: NodeKind.AccountsQuery,
-                    select: selectColumns,
-                    tags: { ...CUSTOMER_ANALYTICS_DEFAULT_QUERY_TAGS, name: 'customer_analytics_accounts_list' },
-                }
-                applyAccountFilters(source, {
-                    searchQuery,
-                    tagsFilter,
-                    allRolesUnassigned,
-                    assignedToFilter,
-                    accountIdFilter,
-                    tileFilter,
-                })
-                if (sortOrder) {
-                    const expr = deriveAccountsOrderByExpr(sortOrder.column)
-                    source.orderBy = [sortOrder.direction === 'asc' ? expr : `${expr} DESC`]
-                }
-                return {
-                    kind: NodeKind.DataTableNode,
-                    source,
-                    full: true,
-                    // Suppress DataTable's built-in sort indicator on column
-                    // headers — our `SortableColumnHeader` renders its own (and
-                    // correctly reflects sorts where the orderBy expression
-                    // differs from the column name, e.g. `tupleElement(csm, 2)`).
-                    allowSorting: true,
-                }
-            },
+                canSortClientSide: boolean
+            ): BuildAccountsTableQueryPlanInput => ({
+                querySelectColumns,
+                visibleColumnNames,
+                searchQuery,
+                tagsFilter,
+                allRolesUnassigned,
+                assignedToFilter,
+                accountIdFilter,
+                tileFilter,
+                customPropertyFilters,
+                customPropertyDefinitionsById,
+                columnDisplay,
+                sortOrder,
+                canSortClientSide,
+            }),
         ],
-        // The overview-tile aggregations run as their own metrics-only query (no
-        // `select`), keyed to ACCOUNTS_METRICS_DATA_NODE_KEY, so they load
-        // independently of the list rows. Null when there are no tiles — the
-        // data node then stays idle. Shares the list's filters so tiles
-        // aggregate over the same set the table shows.
-        metricsQuery: [
-            (s) => [
-                s.overviewMetrics,
-                s.searchQuery,
-                s.tagsFilter,
-                s.allRolesUnassigned,
-                s.assignedToFilter,
-                s.accountIdFilter,
-                s.tileFilter,
-            ],
+        accountsTableQueryPlan: [
+            (s) => [s.accountsTableQueryPlanInput],
+            (input: BuildAccountsTableQueryPlanInput): AccountsTableQueryPlan => buildAccountsTableQueryPlan(input),
+        ],
+        accountsQuerySource: [
+            (s) => [s.accountsTableQueryPlan, s.relationshipDefinitionsLoaded],
             (
-                overviewMetrics: string[],
-                searchQuery: string,
-                tagsFilter: string[],
-                allRolesUnassigned: boolean,
-                assignedToFilter: RoleFilterValue,
-                accountIdFilter: string | null,
-                tileFilter: TileFilter | null
-            ): AccountsQuery | null => {
-                if (overviewMetrics.length === 0) {
+                accountsTableQueryPlan: AccountsTableQueryPlan,
+                relationshipDefinitionsLoaded: boolean
+            ): AccountsTableQuery | null => (relationshipDefinitionsLoaded ? accountsTableQueryPlan.query : null),
+        ],
+        accountsDataTableQuery: [
+            (s) => [s.accountsTableQueryPlan, s.accountsQuerySource],
+            (
+                accountsTableQueryPlan: AccountsTableQueryPlan,
+                accountsQuerySource: AccountsTableQuery | null
+            ): DataTableNode => ({
+                kind: NodeKind.DataTableNode,
+                columns: accountsTableQueryPlan.columns.map((column) => column.visibleName),
+                source: accountsQuerySource ?? accountsTableQueryPlan.query,
+                full: true,
+                allowSorting: true,
+            }),
+        ],
+        metricsQuery: [
+            (s) => [s.overviewMetrics, s.accountsTableQueryPlan, s.relationshipDefinitionsLoaded],
+            (
+                overviewMetrics: AccountsTableMetric[],
+                accountsTableQueryPlan: AccountsTableQueryPlan,
+                relationshipDefinitionsLoaded: boolean
+            ): AccountsTableQuery | null => {
+                if (overviewMetrics.length === 0 || !relationshipDefinitionsLoaded) {
                     return null
                 }
-                const source: AccountsQuery = {
-                    kind: NodeKind.AccountsQuery,
+                return {
+                    ...accountsTableQueryPlan.query,
+                    columns: [],
                     metrics: overviewMetrics,
+                    sort: undefined,
                     tags: { ...CUSTOMER_ANALYTICS_DEFAULT_QUERY_TAGS, name: 'customer_analytics_accounts_overview' },
                 }
-                applyAccountFilters(source, {
-                    searchQuery,
-                    tagsFilter,
-                    allRolesUnassigned,
-                    assignedToFilter,
-                    accountIdFilter,
-                    tileFilter,
-                })
-                return source
             },
         ],
     }),
     listeners(({ actions, values, cache }) => ({
+        loadCustomPropertyDefinitionsSuccess: ({ customPropertyDefinitions }) => {
+            cache.customPropertyDefinitionsLoaded = true
+            const definitionsById = Object.fromEntries(
+                customPropertyDefinitions.map((definition) => [definition.id, definition])
+            )
+            const supportedFilters = supportedCustomPropertyFilters(values.customPropertyFilters, definitionsById)
+            if (!objectsEqual(supportedFilters, values.customPropertyFilters)) {
+                actions.setCustomPropertyFilters(supportedFilters)
+            }
+        },
+        setCustomPropertyFilters: ({ filters }) => {
+            if (!cache.customPropertyDefinitionsLoaded) {
+                return
+            }
+            const supportedFilters = supportedCustomPropertyFilters(filters, values.customPropertyDefinitionsById)
+            if (!objectsEqual(supportedFilters, filters)) {
+                actions.setCustomPropertyFilters(supportedFilters)
+            }
+        },
         setSearchInput: async ({ query }, breakpoint) => {
             await breakpoint(SEARCH_DEBOUNCE_MS)
             actions.setSearchQuery(query)
@@ -494,6 +909,11 @@ export const accountsLogic = kea<accountsLogicType>([
                     properties.value = values.assignedToFilter
                     properties.role_count = values.assignedToFilter.length
                     properties.is_cleared = values.assignedToFilter.length === 0
+                    break
+                // Only the shape is logged — property values can carry customer data.
+                case 'custom_property':
+                    properties.filter_count = values.customPropertyFilters.length
+                    properties.is_cleared = values.customPropertyFilters.length === 0
                     break
             }
             posthog.capture(AccountsEvents.FilterChanged, properties)
@@ -566,49 +986,92 @@ export const accountsLogic = kea<accountsLogicType>([
                 active_filter_count: values.activeFilterCount,
                 sort_column: values.sortOrder?.column ?? null,
             })
-            dataNodeLogic.findMounted({ key: ACCOUNTS_HOGQL_DATA_NODE_KEY })?.actions.loadData('force_async')
+            dataNodeLogic.findMounted({ key: ACCOUNTS_TABLE_DATA_NODE_KEY })?.actions.loadData('force_async')
             dataNodeLogic.findMounted({ key: ACCOUNTS_METRICS_DATA_NODE_KEY })?.actions.loadData('force_async')
         },
-        updateAccountRole: async ({ accountId, role, user }) => {
-            if (values.isRoleSaving(accountId, role)) {
+        updateAccountRole: async ({ accountId, column, user }) => {
+            if (values.isRoleSaving(accountId, column)) {
+                return
+            }
+            const definition = values.aliasToRelationshipDefinition[column]
+            if (!definition) {
                 return
             }
             const projectId = String(values.currentTeamId)
-            actions.roleUpdateStarted(accountId, role)
+            actions.roleUpdateStarted(accountId, column)
             try {
-                const current = await accountsRetrieve(projectId, accountId)
-                const nextProperties: PatchedAccountApiProperties = {
-                    ...current.properties,
-                    [role]: user ? { id: user.id, email: user.email } : null,
+                if (user) {
+                    // Assigning a single-holder relationship ends the current holder server-side.
+                    await accountsRelationshipsCreate(projectId, accountId, {
+                        definition: definition.id,
+                        user: user.id,
+                    })
+                } else {
+                    const active = await accountsRelationshipsList(projectId, accountId)
+                    await Promise.all(
+                        active
+                            .filter((relationship) => relationship.definition.id === definition.id)
+                            .map((relationship) =>
+                                accountsRelationshipsEndCreate(projectId, accountId, relationship.id)
+                            )
+                    )
                 }
-                const updated = await accountsPartialUpdate(projectId, accountId, { properties: nextProperties })
-                actions.replaceAccount(updated)
+                actions.setRelationshipOverride(accountId, column, user ? [user.id] : [])
                 posthog.capture(AccountsEvents.RoleAssigned, {
-                    role,
+                    role: isLegacyRoleColumn(column) ? column : definition.name,
                     is_assigned: user !== null,
                     assigned_user_id: user?.id ?? null,
                     source: 'list_row',
                 })
-                dataNodeLogic.findMounted({ key: ACCOUNTS_HOGQL_DATA_NODE_KEY })?.actions.loadData('force_async')
+                dataNodeLogic.findMounted({ key: ACCOUNTS_TABLE_DATA_NODE_KEY })?.actions.loadData('force_async')
                 dataNodeLogic.findMounted({ key: ACCOUNTS_METRICS_DATA_NODE_KEY })?.actions.loadData('force_async')
             } catch (error) {
                 posthog.captureException(error as Error, { scope: 'accountsLogic.updateAccountRole' })
-                lemonToast.error(`Failed to update ${ROLE_LABELS[role]}`)
+                lemonToast.error(`Failed to update ${definition.name}`)
             } finally {
-                actions.roleUpdateFinished(accountId, role)
+                actions.roleUpdateFinished(accountId, column)
+            }
+        },
+        addTagToFilter: ({ tag }) => {
+            if (values.tagsFilter.includes(tag)) {
+                return
+            }
+            actions.setTagsFilter([...values.tagsFilter, tag])
+            actions.reportFilterChange('tag')
+        },
+        updateAccountTags: async ({ accountId, tags }, breakpoint) => {
+            const previous = values.tagOverrides[accountId] ?? null
+            // Optimistic: ObjectTags is a controlled input firing per added/removed tag,
+            // so its value must reflect each change immediately or the editor reverts.
+            actions.setTagsOverride(accountId, tags)
+            // ponytail: the breakpoint is per-action, not per-account — editing two
+            // accounts' tags within 300ms drops the first save. Key it per account if
+            // that ever becomes a real interaction.
+            await breakpoint(TAGS_SAVE_DEBOUNCE_MS)
+            actions.tagsUpdateStarted(accountId)
+            try {
+                await accountsPartialUpdate(String(values.currentTeamId), accountId, { tags })
+                posthog.capture(AccountsEvents.TagsUpdated, { tag_count: tags.length })
+                // A newly created tag should show up in the available-tags pickers right away.
+                tagsModel.findMounted()?.actions.loadTags()
+                dataNodeLogic.findMounted({ key: ACCOUNTS_TABLE_DATA_NODE_KEY })?.actions.loadData('force_async')
+                dataNodeLogic.findMounted({ key: ACCOUNTS_METRICS_DATA_NODE_KEY })?.actions.loadData('force_async')
+            } catch (error) {
+                actions.setTagsOverride(accountId, previous)
+                posthog.captureException(error as Error, { scope: 'accountsLogic.updateAccountTags' })
+                lemonToast.error('Failed to update tags')
+            } finally {
+                actions.tagsUpdateFinished(accountId)
             }
         },
         openAccount: ({ accountId, externalId, name, tab }) => {
-            const dataNode = dataNodeLogic.findMounted({ key: ACCOUNTS_HOGQL_DATA_NODE_KEY })
+            const dataNode = dataNodeLogic.findMounted({ key: ACCOUNTS_TABLE_DATA_NODE_KEY })
             const results = (dataNode?.values.response as { results?: unknown[] } | undefined)?.results
             const rows = Array.isArray(results) ? results : []
-            const nameIndex = values.visibleColumnNames.indexOf(ACCOUNTS_NAME_COLUMN)
-            const isVisible =
-                nameIndex >= 0 &&
-                rows.some((row) => {
-                    const cell = Array.isArray(row) ? (row as unknown[])[nameIndex] : undefined
-                    return !!cell && typeof cell === 'object' && (cell as { id?: string }).id === accountId
-                })
+            const isVisible = rows.some(
+                (row) =>
+                    row && typeof row === 'object' && !Array.isArray(row) && (row as { id?: string }).id === accountId
+            )
             // Reveal the account if it isn't currently shown, so the expanded row actually renders.
             if (!isVisible) {
                 if (values.tagsFilter.length > 0) {
@@ -619,6 +1082,9 @@ export const accountsLogic = kea<accountsLogicType>([
                 }
                 if (values.assignedToFilter.length > 0) {
                     actions.setAssignedToFilter([])
+                }
+                if (values.customPropertyFilters.length > 0) {
+                    actions.setCustomPropertyFilters([])
                 }
                 const term = externalId || name
                 if (term) {
@@ -651,14 +1117,17 @@ export const accountsLogic = kea<accountsLogicType>([
             )
         },
     })),
-    afterMount(() => {
+    afterMount(({ actions }) => {
         posthog.capture(AccountsEvents.ListViewed)
+        // Relationship cells resolve assigned user ids against the org member list,
+        // so it must be loaded up front rather than on first dropdown open.
+        actions.ensureAllMembersLoaded()
     }),
     actionToUrl(({ values }) => {
         // Mirror the full view into the URL hash so the link is shareable.
         // Search params are preserved untouched — the parent scene owns those.
         const toUrl = (): [string, Record<string, any>, Record<string, any>, { replace: boolean }] => [
-            urls.customerAnalyticsAccounts(),
+            accountsPathToWriteBackTo(values.accountIdFilter),
             router.values.searchParams,
             objectsEqual(values.viewUrlState, {}) ? {} : { view: values.viewUrlState },
             { replace: true },
@@ -666,6 +1135,7 @@ export const accountsLogic = kea<accountsLogicType>([
         return {
             setSearchQuery: toUrl,
             setTagsFilter: toUrl,
+            setCustomPropertyFilters: toUrl,
             setAllRolesUnassigned: toUrl,
             setAssignedToFilter: toUrl,
             setSortOrder: toUrl,
@@ -674,14 +1144,17 @@ export const accountsLogic = kea<accountsLogicType>([
             unselectColumn: toUrl,
             moveColumn: toUrl,
             resetColumns: toUrl,
+            setColumnDisplay: toUrl,
+            setColumnDisplayConfig: toUrl,
             setTileFilter: toUrl,
         }
     }),
     urlToAction(({ actions, values }) => {
         // Path route `/accounts/:accountId/:tab`: filter the list to one account and open the tab.
-        // Neither setter is wired into actionToUrl, so the URL stays on the path (no navigate-away).
+        // The URL stays on the path — neither setter is wired into actionToUrl, and the setters that
+        // are keep the current path (see `accountsPathToWriteBackTo`).
         const openAccountByPath = (accountId: string | undefined, rawTab?: string): void => {
-            // Guard the path param before it's interpolated into the HogQL id filter.
+            // Invalid path ids must not reach the typed account filter.
             if (!accountId || !isUUIDLike(accountId)) {
                 return
             }
@@ -694,74 +1167,98 @@ export const accountsLogic = kea<accountsLogicType>([
             }
             actions.openAccountTab(accountId, tab)
         }
+        const restoreView = (view: AccountsViewUrlState): void => {
+            const search = view.search ?? ''
+            if (search !== values.searchQuery) {
+                actions.setSearchQuery(search)
+            }
+
+            const tags = view.tags ?? []
+            if (!objectsEqual(tags, values.tagsFilter)) {
+                actions.setTagsFilter(tags)
+            }
+
+            const customProperties = Array.isArray(view.customProperties) ? view.customProperties : []
+            if (!objectsEqual(customProperties, values.customPropertyFilters)) {
+                actions.setCustomPropertyFilters(customProperties)
+            }
+
+            const unassigned = view.unassigned ?? false
+            if (unassigned !== values.allRolesUnassigned) {
+                actions.setAllRolesUnassigned(unassigned)
+            }
+
+            const assignedTo = normalizeRoleFilter(view.assignedTo)
+            // Back-compat: legacy links encoded the viewer-relative `mine: true`;
+            // resolve it to the opener's own id so old shared links still work.
+            const legacyMine =
+                !assignedTo.length && view.mine && values.currentUserId !== null ? [values.currentUserId] : []
+            // With no explicit assignment in the hash (e.g. arriving via the tab
+            // link), fall back to the shared "mine only" toggle so the choice made
+            // on the Notes tab carries over.
+            const sharedMine =
+                !assignedTo.length && !view.mine && values.mineOnly && values.currentUserId !== null
+                    ? [values.currentUserId]
+                    : []
+            // The persisted "my accounts" intent can't be resolved until the user id is
+            // known. If the user hasn't loaded yet, leave the filter untouched (rather than
+            // writing an empty one, which would cascade to setMineOnly(false) and clobber the
+            // preference) and let the loadUserSuccess listener apply it once the user resolves.
+            const mineRestorePending =
+                !assignedTo.length && !view.mine && values.mineOnly && values.currentUserId === null
+            const nextAssignedTo = assignedTo.length ? assignedTo : legacyMine.length ? legacyMine : sharedMine
+            if (!mineRestorePending && !objectsEqual(nextAssignedTo, values.assignedToFilter)) {
+                actions.setAssignedToFilter(nextAssignedTo)
+            }
+
+            const sort = view.sort ?? null
+            if (!objectsEqual(sort, values.sortOrder)) {
+                actions.setSortOrder(sort)
+            }
+
+            // A shared link's columns win over the per-user saved column config;
+            // accountsColumnConfigLogic enforces this by reading the URL when its
+            // async saved-config load resolves.
+            if (view.columns && !objectsEqual(view.columns, values.selectColumns)) {
+                actions.setSelectColumns(view.columns)
+            }
+
+            const columnDisplay = view.columnDisplay && typeof view.columnDisplay === 'object' ? view.columnDisplay : {}
+            if (!objectsEqual(columnDisplay, values.columnDisplay)) {
+                actions.setColumnDisplayConfig(columnDisplay)
+            }
+
+            const tileFilter = view.tileFilter ?? null
+            if (!objectsEqual(tileFilter, values.tileFilter)) {
+                actions.setTileFilter(tileFilter)
+            }
+        }
+        const viewFromHash = (hashParams: Record<string, any> | undefined): AccountsViewUrlState =>
+            hashParams?.view && typeof hashParams.view === 'object' ? hashParams.view : {}
         return {
             [urls.customerAnalyticsAccounts()]: (_, __, hashParams): void => {
-                const view: AccountsViewUrlState =
-                    hashParams?.view && typeof hashParams.view === 'object' ? hashParams.view : {}
-
-                const search = view.search ?? ''
-                if (search !== values.searchQuery) {
-                    actions.setSearchQuery(search)
-                }
-
-                const tags = view.tags ?? []
-                if (!objectsEqual(tags, values.tagsFilter)) {
-                    actions.setTagsFilter(tags)
-                }
-
-                const unassigned = view.unassigned ?? false
-                if (unassigned !== values.allRolesUnassigned) {
-                    actions.setAllRolesUnassigned(unassigned)
-                }
-
-                const assignedTo = normalizeRoleFilter(view.assignedTo)
-                // Back-compat: legacy links encoded the viewer-relative `mine: true`;
-                // resolve it to the opener's own id so old shared links still work.
-                const legacyMine =
-                    !assignedTo.length && view.mine && values.currentUserId !== null ? [values.currentUserId] : []
-                // With no explicit assignment in the hash (e.g. arriving via the tab
-                // link), fall back to the shared "mine only" toggle so the choice made
-                // on the Notes tab carries over.
-                const sharedMine =
-                    !assignedTo.length && !view.mine && values.mineOnly && values.currentUserId !== null
-                        ? [values.currentUserId]
-                        : []
-                // The persisted "my accounts" intent can't be resolved until the user id is
-                // known. If the user hasn't loaded yet, leave the filter untouched (rather than
-                // writing an empty one, which would cascade to setMineOnly(false) and clobber the
-                // preference) and let the loadUserSuccess listener apply it once the user resolves.
-                const mineRestorePending =
-                    !assignedTo.length && !view.mine && values.mineOnly && values.currentUserId === null
-                const nextAssignedTo = assignedTo.length ? assignedTo : legacyMine.length ? legacyMine : sharedMine
-                if (!mineRestorePending && !objectsEqual(nextAssignedTo, values.assignedToFilter)) {
-                    actions.setAssignedToFilter(nextAssignedTo)
-                }
-
-                const sort = view.sort ?? null
-                if (!objectsEqual(sort, values.sortOrder)) {
-                    actions.setSortOrder(sort)
-                }
-
-                // A shared link's columns win over the per-user saved column config;
-                // accountsColumnConfigLogic enforces this by reading the URL when its
-                // async saved-config load resolves.
-                if (view.columns && !objectsEqual(view.columns, values.selectColumns)) {
-                    actions.setSelectColumns(view.columns)
-                }
-
-                const tileFilter = view.tileFilter ?? null
-                if (!objectsEqual(tileFilter, values.tileFilter)) {
-                    actions.setTileFilter(tileFilter)
-                }
+                restoreView(viewFromHash(hashParams))
 
                 // Back on the bare list — drop any single-account path filter.
                 if (values.accountIdFilter !== null) {
                     actions.setAccountIdFilter(null)
                 }
             },
-            [urls.customerAnalyticsAccount(':accountId')]: ({ accountId }): void => openAccountByPath(accountId),
-            [urls.customerAnalyticsAccount(':accountId', ':tab')]: ({ accountId, tab }): void =>
-                openAccountByPath(accountId, tab),
+            // A deep link carries the same shareable `#view=` hash, but only restore it when it's
+            // actually there — an absent hash on this route means "just open the account", not
+            // "reset the list", so the saved view stays in charge.
+            [urls.customerAnalyticsAccount(':accountId')]: ({ accountId }, __, hashParams): void => {
+                if (hashParams?.view) {
+                    restoreView(viewFromHash(hashParams))
+                }
+                openAccountByPath(accountId)
+            },
+            [urls.customerAnalyticsAccount(':accountId', ':tab')]: ({ accountId, tab }, __, hashParams): void => {
+                if (hashParams?.view) {
+                    restoreView(viewFromHash(hashParams))
+                }
+                openAccountByPath(accountId, tab)
+            },
         }
     }),
 ])

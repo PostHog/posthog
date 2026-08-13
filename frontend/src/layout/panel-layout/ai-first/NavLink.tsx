@@ -41,19 +41,27 @@ export function NavLink({
 
     const isHomePage = to === urls.projectRoot()
     const currentPath = removeProjectIdIfPresent(pathname)
-    const isActive = currentPath === to || (isHomePage && currentPath === urls.projectHomepage())
+    const isInbox = to === urls.inbox()
+    const isActive =
+        currentPath === to ||
+        (isHomePage && currentPath === urls.projectHomepage()) ||
+        (isInbox && currentPath.startsWith(`${to}/`))
     const hasSideActionRight = !!sideAction && !isCollapsed
 
     return (
         <ButtonGroupPrimitive
             fullWidth
-            className="group/wrapper flex justify-center [&>span]:w-full [&>span]:flex [&>span]:justify-center"
+            className="group/nav-link flex justify-center [&>span]:w-full [&>span]:flex [&>span]:justify-center"
         >
             <Link
                 buttonProps={{
                     menuItem: !isCollapsed,
                     iconOnly: isCollapsed,
-                    className: 'group -outline-offset-2',
+                    // Hovering the side action has to light up the whole row too, like tree items do
+                    className: cn(
+                        'group -outline-offset-2',
+                        hasSideActionRight && 'group-hover/nav-link:bg-fill-button-tertiary-hover'
+                    ),
                     active: isActive,
                     hasSideActionRight,
                 }}
@@ -93,7 +101,7 @@ export function NavLink({
             </Link>
             {hasSideActionRight && sideAction && (
                 <ButtonPrimitive
-                    className="group -outline-offset-2"
+                    className="-outline-offset-2"
                     iconOnly
                     isSideActionRight
                     onClick={(e) => {
@@ -104,7 +112,7 @@ export function NavLink({
                     tooltipPlacement="right"
                     data-attr={sideAction['data-attr']}
                 >
-                    <IconGear className="size-3 text-tertiary opacity-70 group-hover:text-primary group-hover:opacity-100" />
+                    <IconGear className="size-3 text-tertiary opacity-70 group-hover/nav-link:text-primary group-hover/nav-link:opacity-100" />
                 </ButtonPrimitive>
             )}
         </ButtonGroupPrimitive>

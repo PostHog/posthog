@@ -10,6 +10,7 @@ import type {
     ChartTheme,
     DrawHoverResult,
     ResolvedSeries,
+    ScatterMarkerShape,
 } from './types'
 
 export interface DrawContext {
@@ -591,6 +592,41 @@ export function drawPoints(drawCtx: DrawContext, series: ResolvedSeries, yValues
     }
 }
 
+/** Trace a scatter marker's outline at (x, y) without painting it, so the caller can fill it
+ *  translucently and stroke it opaquely from one traced path. `radius` is the glyph's half-extent,
+ *  so every shape spans the same width as a circle of that radius. `cross` traces two open strokes
+ *  and can only be stroked. */
+export function traceScatterMarker(
+    ctx: CanvasRenderingContext2D,
+    shape: ScatterMarkerShape,
+    x: number,
+    y: number,
+    radius: number
+): void {
+    ctx.beginPath()
+    switch (shape) {
+        case 'square':
+            ctx.rect(x - radius, y - radius, radius * 2, radius * 2)
+            return
+        case 'triangle':
+            // Base at half the radius, which puts the centroid rather than the bounding box on the
+            // data point, so the glyph's visual weight sits where the value is.
+            ctx.moveTo(x, y - radius)
+            ctx.lineTo(x + radius, y + radius * 0.5)
+            ctx.lineTo(x - radius, y + radius * 0.5)
+            ctx.closePath()
+            return
+        case 'cross':
+            ctx.moveTo(x - radius, y - radius)
+            ctx.lineTo(x + radius, y + radius)
+            ctx.moveTo(x + radius, y - radius)
+            ctx.lineTo(x - radius, y + radius)
+            return
+        default:
+            ctx.arc(x, y, radius, 0, Math.PI * 2)
+    }
+}
+
 /** Snap a coordinate to the nearest half-pixel so a 1px stroke fills exactly one pixel row/column.
  *  Every axis-adjacent stroke — grid lines, axis baselines, tick marks — must share this rule, or
  *  they land one pixel apart and visibly misalign. */
@@ -922,9 +958,19 @@ export function withVerticalClip(
     // Matches drawAxes' snapping: the axis line's 1px column starts at round(plotLeft), so trimming
     // there leaves the stroke flush against the axis line.
     const left = clipLeft ? Math.round(dimensions.plotLeft) : 0
+    const clipWidth = dimensions.width - left
+    // `useChartMargins` grows the left margin from measured label widths with a floor but no ceiling
+    // against the container, so a narrow chart with stacked y-axis gutters can reserve more than it
+    // has. That makes the rect negative, which canvas reads as a reversed rectangle sitting entirely
+    // off the right edge — clipping to it would discard the whole series layer while the DOM axis
+    // labels still render. Draw unclipped rather than invisibly. `!(> 0)` also bails on a NaN width.
+    if (!(clipWidth > 0)) {
+        draw()
+        return
+    }
     ctx.save()
     ctx.beginPath()
-    ctx.rect(left, dimensions.plotTop - pad, dimensions.width - left, dimensions.plotHeight + pad * 2)
+    ctx.rect(left, dimensions.plotTop - pad, clipWidth, dimensions.plotHeight + pad * 2)
     ctx.clip()
     try {
         draw()
@@ -1098,16 +1144,19 @@ export function drawBars(
     const dataLength = series.data.length
     const dashedFrom = resolvePartialIndex(series.stroke?.partial?.fromIndex, dataLength)
     const dashedTo = resolvePartialIndex(series.stroke?.partial?.toIndex, dataLength)
-    const hatch = dashedFrom !== null || dashedTo !== null ? getHatchPattern(ctx, series.color) : null
 
     for (const bar of bars) {
         if (bar.width <= 0 || bar.height <= 0) {
             continue
         }
         const useHatch =
-            hatch !== null &&
-            ((dashedFrom !== null && bar.dataIndex >= dashedFrom) || (dashedTo !== null && bar.dataIndex <= dashedTo))
-        ctx.fillStyle = useHatch ? hatch : makeBarFill(ctx, barColorAt(series, bar.dataIndex), bar, fillStyle)
+            (dashedFrom !== null && bar.dataIndex >= dashedFrom) ||
+            (dashedTo !== null && bar.dataIndex <= dashedTo) ||
+            !!series.bars?.[bar.dataIndex]?.hatch
+        // The hatch keeps the bar's own resolved color (per-bar override included) so a
+        // flagged bar still reads as belonging to its series. Pattern lookups are cached.
+        const barColor = barColorAt(series, bar.dataIndex)
+        ctx.fillStyle = useHatch ? getHatchPattern(ctx, barColor) : makeBarFill(ctx, barColor, bar, fillStyle)
         ctx.beginPath()
         traceRoundedBarPath(ctx, bar.x, bar.y, bar.width, bar.height, cornerRadius, bar.corners)
         ctx.fill()
@@ -1390,7 +1439,8 @@ export function drawSelectionRect(
     ctx.strokeRect(rect.x + 0.5, rect.y + 0.5, rect.width - 1, rect.height - 1)
 }
 
-// The selection always spans the full plot height — this is x-axis range selection only.
+// x-only drags (`onDateRangeZoom`) span the full plot height; a 2D drag (`onAreaSelect`)
+// carries `y0`/`y1` on the rect and the band clamps to that vertical range too.
 export function composeDrawHoverWithSelection(baseDrawHover: DrawHoverFn): DrawHoverFn {
     return (args) => {
         const result = baseDrawHover(args)
@@ -1400,14 +1450,19 @@ export function composeDrawHoverWithSelection(baseDrawHover: DrawHoverFn): DrawH
         }
         const x0 = Math.max(args.dimensions.plotLeft, Math.min(dragRect.x0, dragRect.x1))
         const x1 = Math.min(args.dimensions.plotLeft + args.dimensions.plotWidth, Math.max(dragRect.x0, dragRect.x1))
-        if (x1 <= x0) {
+        const plotBottom = args.dimensions.plotTop + args.dimensions.plotHeight
+        const { y0: rectY0, y1: rectY1 } = dragRect
+        const hasY = rectY0 != null && rectY1 != null
+        const y0 = hasY ? Math.max(args.dimensions.plotTop, Math.min(rectY0, rectY1)) : args.dimensions.plotTop
+        const y1 = hasY ? Math.min(plotBottom, Math.max(rectY0, rectY1)) : plotBottom
+        if (x1 <= x0 || y1 <= y0) {
             return result
         }
         drawSelectionRect(args.ctx, {
             x: x0,
-            y: args.dimensions.plotTop,
+            y: y0,
             width: x1 - x0,
-            height: args.dimensions.plotHeight,
+            height: y1 - y0,
         })
         return result
     }

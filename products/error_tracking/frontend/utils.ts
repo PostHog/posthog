@@ -1,14 +1,28 @@
-import equal from 'fast-deep-equal'
+import { deepEqual as equal } from 'fast-equals'
 import { LogicWrapper } from 'kea'
 import { routerType } from 'kea-router/lib/routerType'
 import { MouseEvent } from 'react'
 
 import { ErrorTrackingException } from 'lib/components/Errors/types'
 import { Dayjs, dayjs } from 'lib/dayjs'
+import { getAccessControlDisabledReason } from 'lib/utils/accessControlUtils'
 import { componentsToDayJs, dateStringToComponents, dateStringToDayJs, isStringDateRegex } from 'lib/utils/dateFilters'
 import { Params } from 'scenes/sceneTypes'
 
 import { DateRange, ErrorTrackingIssue } from '~/queries/schema/schema-general'
+import { escapeHogQLString } from '~/queries/utils'
+import {
+    AccessControlLevel,
+    AccessControlResourceType,
+    FilterLogicalOperator,
+    PropertyFilterType,
+    type UniversalFiltersGroup,
+} from '~/types'
+
+/** Reason error tracking write actions are disabled, or null when the user has editor access. */
+export function errorTrackingEditAccessDisabledReason(): string | null {
+    return getAccessControlDisabledReason(AccessControlResourceType.ErrorTracking, AccessControlLevel.Editor)
+}
 
 export const ERROR_TRACKING_LOGIC_KEY = 'errorTracking'
 export const ERROR_TRACKING_LISTING_RESOLUTION = 20
@@ -95,6 +109,41 @@ export const mergeIssues = (
 
 export function isThirdPartyScriptError(value: ErrorTrackingException['value']): boolean {
     return value === THIRD_PARTY_SCRIPT_ERROR
+}
+
+// Recordings match on session start time, so pad past first_seen to catch a session that began
+// before the exception fired, and past last_seen so a single-occurrence issue isn't a zero-width window.
+export function getIssueReplayDateRange(firstSeen: string, lastSeen: Dayjs | null): DateRange {
+    const from = dayjs(firstSeen)
+    const to = lastSeen && lastSeen.isAfter(from) ? lastSeen : from
+    return {
+        date_from: from.subtract(1, 'hour').toISOString(),
+        date_to: to.add(1, 'hour').toISOString(),
+    }
+}
+
+export function getIssueReplayFilterGroup(issueId: string): UniversalFiltersGroup {
+    return {
+        type: FilterLogicalOperator.And,
+        values: [
+            {
+                type: FilterLogicalOperator.And,
+                values: [
+                    {
+                        id: '$exception',
+                        name: '$exception',
+                        type: 'events',
+                        properties: [
+                            {
+                                key: `issue_id = ${escapeHogQLString(issueId)}`,
+                                type: PropertyFilterType.HogQL,
+                            },
+                        ],
+                    },
+                ],
+            },
+        ],
+    }
 }
 
 const customOptions: Record<string, string> = {

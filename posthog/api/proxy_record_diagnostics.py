@@ -27,7 +27,7 @@ from posthog.exceptions_capture import capture_exception
 from posthog.models import ProxyRecord
 from posthog.temporal.proxy_service.cloudflare import (
     CloudflareAPIError,
-    CustomHostnameInfo,
+    CustomHostname,
     CustomHostnameSSLStatus,
     get_custom_hostname_by_domain,
 )
@@ -203,8 +203,9 @@ def diagnose(record: ProxyRecord) -> DiagnosticReport:
         # Healthy — the endpoint works. The only remaining concern is renewal, read from the
         # certificate the proxy is actually serving.
         checks.append(_check_cert_expiry(record, is_cloudflare=is_cloudflare))
-    elif is_cloudflare:
-        # Not serving, and provisioned on the Cloudflare path — inspect the custom hostname.
+    elif is_cloudflare and cname_check.status == "passed":
+        # Not serving, DNS resolves, and provisioned on the Cloudflare path — the custom hostname
+        # should exist by now, so inspect it.
         cloudflare_check, hostname_info = _check_cloudflare(record)
         checks.append(cloudflare_check)
         checks.append(_check_caa(record, hostname_info, is_cloudflare=True))
@@ -213,6 +214,28 @@ def diagnose(record: ProxyRecord) -> DiagnosticReport:
         else:
             checks.append(_skip("http_challenge", "HTTP-01 challenge", "Skipped — no challenge URL available."))
         checks.append(_skip("cert_expiry", "Certificate expiry", "Skipped — certificate is not active yet."))
+    elif is_cloudflare:
+        # Cloudflare path, but DNS isn't pointing at us. The custom hostname is validated against
+        # the CNAME, so with DNS broken the hostname lookup can't tell us anything actionable —
+        # whether the proxy was never provisioned (DNS not yet set) or was provisioned and its DNS
+        # later regressed, the fix is the same: repair the CNAME. Skip the Cloudflare checks and
+        # point at the failed CNAME above rather than asserting a provisioning state we don't know
+        # (the old "we don't have a record of this proxy → Hit Retry" was wrong in both cases).
+        # CAA still matters pre-issuance.
+        checks.append(
+            _skip(
+                "cloudflare",
+                "Cloudflare custom hostname",
+                "Skipped — we can't check the certificate until the CNAME resolves. Fix the DNS record above first.",
+            )
+        )
+        checks.append(_check_caa(record, None, is_cloudflare=True))
+        checks.append(
+            _skip("http_challenge", "HTTP-01 challenge", "Skipped — we can't check this until the CNAME resolves.")
+        )
+        checks.append(
+            _skip("cert_expiry", "Certificate expiry", "Skipped — we can't check this until the CNAME resolves.")
+        )
     else:
         # Not serving, and provisioned on the legacy path — there is no Cloudflare custom
         # hostname by design, so the Cloudflare check would only ever produce a false
@@ -304,7 +327,7 @@ def _check_cname(record: ProxyRecord) -> CheckResult:
         )
 
 
-def _check_cloudflare(record: ProxyRecord) -> tuple[CheckResult, Optional[CustomHostnameInfo]]:
+def _check_cloudflare(record: ProxyRecord) -> tuple[CheckResult, Optional[CustomHostname]]:
     try:
         info = get_custom_hostname_by_domain(record.domain)
     except CloudflareAPIError as e:
@@ -413,7 +436,7 @@ def _check_cloudflare(record: ProxyRecord) -> tuple[CheckResult, Optional[Custom
     )
 
 
-def _check_caa(record: ProxyRecord, hostname_info: Optional[CustomHostnameInfo], *, is_cloudflare: bool) -> CheckResult:
+def _check_caa(record: ProxyRecord, hostname_info: Optional[CustomHostname], *, is_cloudflare: bool) -> CheckResult:
     """
     Walk up the DNS tree from `record.domain` to apex, looking for the first non-empty
     set of CAA records. Per RFC 8659, the first non-empty CAA result wins — climbing
@@ -492,7 +515,7 @@ def _extract_caa_issuers(answer: dns.resolver.Answer) -> list[str]:
     return issuers
 
 
-def _check_http_challenge(record: ProxyRecord, hostname_info: CustomHostnameInfo) -> CheckResult:
+def _check_http_challenge(record: ProxyRecord, hostname_info: CustomHostname) -> CheckResult:
     challenge_url = hostname_info.ssl.http_url
     expected_body = hostname_info.ssl.http_body
     if not challenge_url or not expected_body:

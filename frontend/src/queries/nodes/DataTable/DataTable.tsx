@@ -58,6 +58,7 @@ import { OpenEditorButton } from '~/queries/nodes/Node/OpenEditorButton'
 import { PersonPropertyFilters } from '~/queries/nodes/PersonsNode/PersonPropertyFilters'
 import { PersonsSearch } from '~/queries/nodes/PersonsNode/PersonsSearch'
 import { SessionPropertyFilters } from '~/queries/nodes/SessionsNode/SessionPropertyFilters'
+import { TracesSearch } from '~/queries/nodes/TracesQuery/TracesSearch'
 import {
     ActorsQuery,
     AnyResponseType,
@@ -84,7 +85,6 @@ import {
     isHogQLQuery,
     isInsightActorsQuery,
     isMarketingAnalyticsTableQuery,
-    isRevenueExampleEventsQuery,
     isSessionsQuery,
     taxonomicEventFilterToHogQL,
     taxonomicGroupFilterToHogQL,
@@ -745,10 +745,7 @@ export function DataTable({
                         onRowExpand: (_: DataTableRow, rowIndex: number) => toggleRowExpanded(rowIndex),
                         onRowCollapse: (_: DataTableRow, rowIndex: number) => toggleRowExpanded(rowIndex),
                         expandedRowRender: function renderExpand({ result }: DataTableRow) {
-                            if (
-                                (isEventsQuery(query.source) || isRevenueExampleEventsQuery(query.source)) &&
-                                Array.isArray(result)
-                            ) {
+                            if (isEventsQuery(query.source) && Array.isArray(result)) {
                                 return <EventDetails event={result[columnsInResponse.indexOf('*')] ?? {}} />
                             }
                             if (result && !Array.isArray(result)) {
@@ -863,6 +860,9 @@ export function DataTable({
                 setQuery={setQuerySource}
                 groupTypeLabel={context?.groupTypeLabel}
             />
+        ) : null,
+        showSearch && sourceFeatures.has(QueryFeature.tracesSearch) ? (
+            <TracesSearch key="traces-search" query={query.source as TracesQuery} setQuery={setQuerySource} />
         ) : null,
         showPropertyFilter &&
         sourceFeatures.has(QueryFeature.eventPropertyFilters) &&
@@ -1082,7 +1082,8 @@ export function DataTable({
                                 }
                                 footer={
                                     (dataTableRows ?? []).length > 0 &&
-                                    !sourceFeatures.has(QueryFeature.hideLoadNextButton) ? (
+                                    (context?.showLoadNextButton ||
+                                        !sourceFeatures.has(QueryFeature.hideLoadNextButton)) ? (
                                         <LoadNext query={query.source} />
                                     ) : null
                                 }

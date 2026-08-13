@@ -3,7 +3,7 @@ import pytest
 import posthog.egress.limiter.backends as backends_module
 import posthog.egress.limiter.outbound as outbound_module
 import posthog.egress.limiter.policies as policies_module
-from posthog.egress.github.limiter import acquire_github_installation, github_installation_key
+from posthog.egress.github.limiter import GitHubRateResource, acquire_github_installation, github_installation_key
 from posthog.egress.limiter.backends import LimitsBackend
 from posthog.egress.limiter.outbound import OutboundRateLimiter
 from posthog.egress.limiter.policies import Priority, RatePolicy, register_policy, resolve_policy
@@ -125,6 +125,20 @@ async def test_github_adapter_registers_policy_and_keys_per_installation():
     # installation so distinct installations draw on independent budgets.
     assert github_installation_key(1) != github_installation_key(2)
     assert await acquire_github_installation(987654321, 1) is True
+
+
+async def test_github_search_resource_meter_is_independent_of_core():
+    # The heart of the fix: code_search has its own 8/min meter, so it denies the 9th call while the
+    # SAME installation's core budget (thousands/hour) still grants — a regression that folded them
+    # back into one envelope would let /search/code sail past its real 10/min ceiling.
+    limiter = _fresh_limiter()
+    installation = "1234567890"
+    code_search_key = github_installation_key(installation, resource=GitHubRateResource.CODE_SEARCH)
+    core_key = github_installation_key(installation, resource=GitHubRateResource.CORE)
+
+    grants = [await limiter.acquire(code_search_key, 1, priority=Priority.CRITICAL) for _ in range(9)]
+    assert grants == [True] * 8 + [False]
+    assert await limiter.acquire(core_key, 1, priority=Priority.CRITICAL) is True
 
 
 _RESERVE = {Priority.NORMAL: 0.1, Priority.BATCH: 0.3}

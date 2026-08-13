@@ -1,15 +1,19 @@
 import json
 import uuid
 
+import pytest
 from posthog.test.base import BaseTest
 from unittest.mock import MagicMock, patch
 
 from asgiref.sync import async_to_sync
 from parameterized import parameterized
+from pydantic import ValidationError
 
 from posthog.hogql_queries.ai.utils import HEAVY_COLUMN_NAMES
 
-from products.ai_observability.backend.tools.run_hog_eval import RunHogEvalTestTool
+from products.ai_observability.backend.tools.run_hog_eval import RunHogEvalTestArgs, RunHogEvalTestTool
+
+EVENT_TIMESTAMP = "2026-07-20T12:34:56Z"
 
 
 def _make_event(
@@ -32,12 +36,18 @@ def _make_event(
             }
         ),
         "test-user",
+        EVENT_TIMESTAMP,
         *(None,) * len(HEAVY_COLUMN_NAMES),
     ]
 
 
 def _run_tool(tool, **kwargs):
     return async_to_sync(tool._arun_impl)(**kwargs)
+
+
+def test_run_hog_eval_args_reject_unknown_target():
+    with pytest.raises(ValidationError):
+        RunHogEvalTestArgs(source="return true", target="traces")
 
 
 class TestRunHogEvalTestTool(BaseTest):
@@ -50,6 +60,11 @@ class TestRunHogEvalTestTool(BaseTest):
             ("valid_return_false", "return false;", False),
             ("with_print", "print('checking'); return true;", True),
             ("length_check", "return length(output) > 0;", True),
+            (
+                "shared_timestamp",
+                f"return evaluation_events.1.timestamp == '{EVENT_TIMESTAMP}';",
+                True,
+            ),
         ]
     )
     @patch("products.ai_observability.backend.tools.run_hog_eval.query_ai_events")
@@ -150,6 +165,7 @@ class TestRunHogEvalTestTool(BaseTest):
             "$ai_metric",
             json.dumps({"$ai_input_state": "some input", "$ai_output_state": "some output"}),
             "test-user",
+            EVENT_TIMESTAMP,
         ]
         mock_response.results = [event_row]
         mock_query.return_value = mock_response
@@ -170,7 +186,7 @@ class TestRunHogEvalTestTool(BaseTest):
         from posthog.hogql_queries.ai.utils import HEAVY_COLUMN_NAMES
 
         # row[2]: stripped properties (no $ai_input).
-        # row[4..9]: native heavy column values, in HEAVY_COLUMN_NAMES order
+        # row[5..10]: native heavy column values, in HEAVY_COLUMN_NAMES order
         #   ("input", "output", "output_choices", "input_state", "output_state", "tools").
         stripped_props = json.dumps({"$ai_model": "gpt-4o"})
         heavy_input = '[{"role":"user","content":"recovered from native column"}]'
@@ -179,6 +195,7 @@ class TestRunHogEvalTestTool(BaseTest):
             "$ai_generation",
             stripped_props,
             "test-user",
+            EVENT_TIMESTAMP,
             heavy_input,  # input
             None,  # output
             None,  # output_choices
@@ -187,7 +204,7 @@ class TestRunHogEvalTestTool(BaseTest):
             None,  # tools
         ]
         # Sanity: row layout matches what the source expects.
-        assert len(row) == 4 + len(HEAVY_COLUMN_NAMES)
+        assert len(row) == 5 + len(HEAVY_COLUMN_NAMES)
         mock_query.return_value = MagicMock(results=[row])
 
         tool = self._make_tool()
@@ -199,6 +216,35 @@ class TestRunHogEvalTestTool(BaseTest):
         )
 
         assert "Result: PASS" in result, f"expected PASS after heavy-merge, got: {result}"
+
+    @patch("posthog.temporal.ai_observability.run_trace_evaluation.run_hog_eval_over_recent_traces")
+    def test_trace_target_evaluates_whole_traces(self, mock_run_over_traces):
+        from posthog.temporal.ai_observability.run_trace_evaluation import TraceHogTestResult
+
+        mock_run_over_traces.return_value = [
+            TraceHogTestResult(
+                trace_id="trace-1",
+                verdict=True,
+                reasoning="looks good",
+                error=None,
+                input_preview="hello",
+                output_preview="world",
+            )
+        ]
+
+        tool = self._make_tool()
+        result, artifact = _run_tool(
+            tool,
+            source="return target.type == 'trace';",
+            sample_count=2,
+            target="trace",
+            window_seconds=120,
+        )
+
+        assert artifact is None
+        assert mock_run_over_traces.call_args.kwargs["window_seconds"] == 120
+        assert "Trace trace-1" in result
+        assert "Result: PASS" in result
 
     @patch("products.ai_observability.backend.tools.run_hog_eval.query_ai_events")
     def test_query_targets_ai_events(self, mock_query):

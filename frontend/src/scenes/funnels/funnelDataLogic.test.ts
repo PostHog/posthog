@@ -1,3 +1,4 @@
+import { router } from 'kea-router'
 import { expectLogic } from 'kea-test-utils'
 import timekeeper from 'timekeeper'
 
@@ -804,6 +805,26 @@ describe('funnelDataLogic', () => {
 
             const order = getBreakdownOrder(logic.values.flattenedBreakdowns)
             expect(order).toEqual(expectedOrder)
+        })
+
+        it('setBreakdownSorting updates the query without clobbering compareFilter or the URL', async () => {
+            const query: FunnelsQuery = {
+                kind: NodeKind.FunnelsQuery,
+                series: [],
+                funnelsFilter: { funnelVizType: FunnelVizType.Steps },
+                compareFilter: { compare: true },
+            }
+
+            await expectLogic(logic, () => {
+                logic.actions.updateQuerySource(query)
+                logic.actions.setBreakdownSorting('-total_conversion')
+            }).toFinishAllListeners()
+
+            expect(logic.values.querySource).toMatchObject({
+                funnelsFilter: { funnelVizType: FunnelVizType.Steps, breakdownSorting: '-total_conversion' },
+                compareFilter: { compare: true },
+            })
+            expect(router.values.searchParams.order).toBeUndefined()
         })
 
         it('visibleStepsWithConversionMetrics matches flattenedBreakdowns order', async () => {
@@ -1785,6 +1806,39 @@ describe('funnelDataLogic', () => {
                 .filter((b) => !b.isBaseline)
                 .map((b) => getVisibilityKey(b.breakdown_value))
             expect(breakdownValues).toEqual(['Chrome', 'Chrome', 'Safari', 'Safari'])
+        })
+
+        it('hides both periods of the baseline when its legend entry is hidden', async () => {
+            const insight: Partial<InsightModel> = {
+                filters: { insight: InsightType.FUNNELS },
+                result: funnelResultStepsBreakdownCompare.result as InsightModel['result'],
+            }
+            await expectLogic(logic, () => {
+                const query: FunnelsQuery = {
+                    ...stepsQuery,
+                    funnelsFilter: { ...stepsQuery.funnelsFilter, hiddenLegendBreakdowns: ['Baseline'] },
+                }
+                logic.actions.updateQuerySource(query)
+                builtDataNodeLogic.actions.loadDataSuccess(insight)
+            }).toFinishAllListeners()
+
+            // The synthesized baseline pair takes a separate path than the value bars, so it must be
+            // hidden too; the values keep their baseline-shifted orders (hence colors) while the
+            // baseline is merely hidden.
+            const visibleValues = logic.values.visibleStepsWithConversionMetrics[0].nested_breakdown?.map((b) => [
+                getVisibilityKey(b.breakdown_value),
+                b.compare_label,
+                b.order,
+            ])
+            expect(visibleValues).toEqual([
+                ['Chrome', 'current', 1],
+                ['Chrome', 'previous', 1],
+                ['Safari', 'current', 2],
+                ['Safari', 'previous', 2],
+            ])
+
+            // The table still lists both baseline rows (just unchecked), so they can be toggled back on.
+            expect(logic.values.flattenedBreakdowns.filter((b) => b.isBaseline)).toHaveLength(2)
         })
     })
 })

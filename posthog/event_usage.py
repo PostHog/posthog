@@ -14,6 +14,7 @@ from opentelemetry import trace
 from rest_framework.authentication import SessionAuthentication
 
 from posthog.clickhouse.query_tagging import get_query_tag_value
+from posthog.constants import POSTHOG_INTERNAL_EMAIL_SUFFIX
 from posthog.models import Organization, User
 from posthog.models.activity_logging.model_activity import is_impersonated_session
 from posthog.models.team import Team
@@ -71,6 +72,9 @@ def report_user_signed_up(
         properties=props,
         groups=groups(user.organization, user.team),
     )
+
+    if is_organization_first_user and user.organization is not None:
+        exclude_internal_organization_from_crm(user.organization, user)
 
 
 def report_user_verified_email(current_user: User) -> None:
@@ -284,6 +288,15 @@ class EventSource(StrEnum):
     SUBSCRIPTION = "subscription"
 
 
+# Surfaces where an LLM drives the request through a managed channel (classification is stamped by
+# the harness, not self-reported by the model). Callers use this to hold agent writes to a
+# review-then-apply path; the web app has its own confirm UI, and headless callers (raw API keys,
+# Terraform) apply in one call.
+AGENT_EVENT_SOURCES = frozenset(
+    {EventSource.MCP, EventSource.POSTHOG_CODE, EventSource.WIZARD, EventSource.CLI, EventSource.POSTHOG_AI}
+)
+
+
 class McpProps(TypedDict):
     mcp_user_agent: str | None
     mcp_client_name: str | None
@@ -314,6 +327,11 @@ AnalyticsProps = TypedDict(
 
 _POSTHOG_CODE_UA_RE = re.compile(r"posthog/(code|[\w.-]+\.hog\.dev)")
 
+# The wizard appends `program: <id>` to its user-agent so the backend can tell the
+# self-driving onboarding program apart from other wizard programs (they all share the
+# `posthog/wizard` UA). Used to attribute self-driving-created sources distinctly.
+_WIZARD_SELF_DRIVING_PROGRAM_RE = re.compile(r"program:\s*self-driving")
+
 
 def get_event_source(request) -> EventSource:
     """Determine the source of an API request for analytics."""
@@ -341,6 +359,25 @@ def get_event_source(request) -> EventSource:
     if getattr(getattr(request, "session", None), "session_key", None) is not None:
         return EventSource.WEB
     return EventSource.API
+
+
+def is_wizard_self_driving_program(request) -> bool:
+    """Whether the request comes from the wizard's `self-driving` onboarding program.
+
+    All wizard programs share the `posthog/wizard` user-agent, so `get_event_source`
+    can only tell they're "the wizard". The self-driving program additionally tags its
+    UA with a `program: self-driving` marker, letting callers attribute its work apart
+    from other wizard runs.
+
+    When the request is proxied through the PostHog MCP server, that server overwrites
+    `User-Agent` with its own token and forwards the wizard's original UA — marker
+    included — in `X-Posthog-Mcp-User-Agent`. Inspect both so the marker is found whether
+    the wizard called us directly or via the MCP server.
+    """
+    user_agent = request.headers.get("user-agent", "") or ""
+    mcp_user_agent = request.headers.get("X-Posthog-Mcp-User-Agent", "") or ""
+    combined = "\n".join(part for part in (user_agent, mcp_user_agent) if isinstance(part, str))
+    return "posthog/wizard" in combined and bool(_WIZARD_SELF_DRIVING_PROGRAM_RE.search(combined))
 
 
 MAX_HEADER_VALUE_LENGTH = 1000
@@ -577,3 +614,18 @@ def report_organization_action(
 
     if group_properties:
         posthoganalytics.group_identify("organization", str(organization.id), properties=group_properties)
+
+
+def exclude_internal_organization_from_crm(organization: Organization, creator: Optional[User]) -> None:
+    """
+    Organizations created by PostHog staff are internal demo or test workspaces, which must never
+    be synced to customer-facing CRM tooling. The `exclude_from_crm` organization group property
+    gates the CDP destinations that push organizations and their members to those tools.
+    """
+    if creator is None or not creator.email or not creator.email.endswith(POSTHOG_INTERNAL_EMAIL_SUFFIX):
+        return
+    posthoganalytics.group_identify(
+        "organization",
+        str(organization.id),
+        properties={"exclude_from_crm": True},
+    )

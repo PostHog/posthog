@@ -9,6 +9,7 @@ from posthog.models.integration import Integration
 from posthog.models.user import User
 from posthog.user_permissions import UserPermissions
 
+from products.slack_app.backend.helpers import local_dev_slack_email
 from products.slack_app.backend.models import SlackSettings, SlackThreadTaskMapping
 
 logger = structlog.get_logger(__name__)
@@ -60,6 +61,19 @@ class ResolutionResult:
     integration: Integration | None
     source: ResolutionSource
     candidates: list[Integration] = field(default_factory=list)
+
+    def resolved_or_first(self) -> Integration | None:
+        """The resolved integration, falling back to the workspace's oldest install.
+
+        Surfaces that must act on *some* integration rather than prompt for one share this
+        tie-break, so a workspace with no saved pick is answered for the same project
+        whichever surface handles it. Ordered by id rather than taken off the front of
+        `candidates`: the auth filter sorts that list freshest-verdict-first, which
+        reshuffles as cache entries expire and would make the fallback drift.
+        """
+        if self.integration is not None and self.integration in self.candidates:
+            return self.integration
+        return min(self.candidates, key=lambda candidate: candidate.id, default=None)
 
 
 def format_project_candidate_list(candidates: list[Integration]) -> str:
@@ -240,14 +254,20 @@ def resolve_user_for_workspace(
 
     probe = workspace_result.candidates[0]
 
-    # Pass slack_email=None so the linked-user path short-circuits before
-    # users.info; the resolver fetches lazily on the email-fallback branch.
-    # Re-fetch on the failure branches below is a cache hit.
+    # In local dev, match the seeded user the single-integration resolver also
+    # uses. Keep this at the resolver layer so lower-level callers like channel
+    # approval can still exercise real or stubbed Slack emails under DEBUG.
+    slack_email = local_dev_slack_email()
+
+    # Pass slack_email=None outside local dev so the linked-user path
+    # short-circuits before users.info; the resolver fetches lazily on the
+    # email-fallback branch. Re-fetch on the failure branches below is a cache
+    # hit.
     posthog_user = resolve_posthog_user_from_event(
         slack_user_id=slack_user_id,
         probe_integration=probe,
         candidate_integrations=workspace_result.candidates,
-        slack_email=None,
+        slack_email=slack_email,
     )
     if posthog_user is None:
         slack_email = get_slack_email_for_user(probe, slack_user_id)

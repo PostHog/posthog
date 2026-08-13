@@ -50,6 +50,10 @@ class ExternalDataSourceEntry(_Section):
     status: str
     prefix: str
     created_at: str | None
+    # `last_run_at` (most recent completed sync) and `latest_error` disambiguate a source stuck
+    # in `Running` that has never synced from a healthy one — `status` alone conflates them.
+    last_run_at: str | None
+    latest_error: str | None
 
 
 class SignalSourceConfigEntry(_Section):
@@ -78,6 +82,44 @@ class EmitEligibility(_Section):
     source_enabled: bool
     can_emit: bool
     remediation: str | None
+
+
+class ScoutFleetEntry(_Section):
+    skill_name: str
+    run_interval_minutes: int
+    run_cron_schedule: str | None
+    # The config's dry-run toggle: False means that scout runs but its findings are discarded,
+    # so a reader must not treat its silence as "nothing to find on that surface".
+    emit: bool
+    last_run_at: str | None
+    # Most recent run of this scout that produced output on either channel (a finding or an
+    # authored/edited report), within the run-history window `_scout_fleet` scans. Null means
+    # the scout has been quiet for at least that window, not that it has never emitted.
+    last_emitted_at: str | None
+    # Why this scout is in the `disabled` bucket: `turned_off` (a human or seed posture set
+    # `enabled=False`), `auto_paused` (the system paused it — no operator chose this), or
+    # `skill_unavailable` (left on, but its skill was deleted, superseded, or withheld, so the
+    # coordinator never dispatches it). Null for scouts that actually run.
+    not_running_reason: str | None
+    # The cause behind an `auto_paused` entry (`no_output` / `ignored` / `repeated_failures`);
+    # null for every other entry.
+    pause_reason: str | None
+
+
+class ScoutFleet(_Section):
+    """The other `signals-scout-*` scouts configured on this team.
+
+    Split on whether the scout actually runs, for the same reason `SignalSourceConfigs` splits
+    on `enabled`: a scout deliberately turned off is different from a surface nobody ever
+    covered. Without this section a running scout can only infer its fleet from
+    `scout-runs-list` skill names, which under-reports any scout whose schedule hasn't come due
+    yet and can't distinguish a disabled scout from one that never existed.
+    """
+
+    enabled: list[ScoutFleetEntry]
+    disabled: list[ScoutFleetEntry]
+    # The window `last_emitted_at` was resolved over, so a reader can size the null case.
+    emitted_lookback_days: int
 
 
 class StatusCount(_Section):
@@ -261,13 +303,17 @@ class BusinessKnowledge(_Section):
 
 
 class TopEvent(_Section):
+    # `window_days` rides on every row (not the block, since `top_events` is a flat list)
+    # so a scout can't read a `count` without seeing that it's windowed, not lifetime — a
+    # thin count during a capture gap must not read as a genuinely low-volume project.
+    window_days: int
     event: str
     count: int
     distinct_users: int
     recent_24h_count: int
     recent_24h_users: int
-    first_seen: str | None
-    last_seen: str | None
+    first_seen_in_window: str | None
+    last_seen_in_window: str | None
 
 
 class Inventory(_Section):
@@ -285,6 +331,7 @@ class Inventory(_Section):
     external_data_sources: list[ExternalDataSourceEntry]
     signal_source_configs: SignalSourceConfigs
     emit_eligibility: EmitEligibility
+    scout_fleet: ScoutFleet
     existing_inbox_reports: ExistingInboxReports
     recent_activity: RecentActivity
     recent_reviewer_corrections: RecentReviewerCorrections

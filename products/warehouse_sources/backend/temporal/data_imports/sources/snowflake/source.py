@@ -22,7 +22,9 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common.bas
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.registry import SourceRegistry
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.schema import SourceSchema
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.sql.base import SQLSource
-from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs import SnowflakeSourceConfig
+from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.snowflake import (
+    SnowflakeSourceConfig,
+)
 from products.warehouse_sources.backend.temporal.data_imports.sources.snowflake.snowflake import (
     SnowflakeImplementation,
     get_connection_metadata as get_connection_metadata_snowflake,
@@ -42,11 +44,28 @@ _MALFORMED_PEM_MESSAGE = (
     "then {action}"
 )
 
+# `load_pem_private_key` rejects an encrypted key-pair private key with a wrong passphrase
+# (ValueError "Incorrect password, could not decrypt key") or no passphrase at all
+# (TypeError "Password was not given but private key is encrypted"). Same `{action}` placeholder
+# convention as `_MALFORMED_PEM_MESSAGE`.
+_WRONG_KEY_PASSPHRASE_MESSAGE = (
+    "Your Snowflake key-pair private key is encrypted, but the passphrase is missing or incorrect. "
+    "Enter the passphrase that decrypts your private key (or paste an unencrypted key), then {action}"
+)
+
+# The inverse of `_WRONG_KEY_PASSPHRASE_MESSAGE`: `load_pem_private_key` raises
+# TypeError "Password was given but private key is not encrypted." when a passphrase is supplied
+# for an unencrypted key-pair private key. Same `{action}` placeholder convention.
+_UNENCRYPTED_KEY_WITH_PASSPHRASE_MESSAGE = (
+    "You entered a passphrase, but the Snowflake key-pair private key you pasted is not encrypted. "
+    "Remove the passphrase, or paste your encrypted private key, then {action}"
+)
+
 SnowflakeErrors = {
-    "No active warehouse selected in the current session": "No warehouse found for selected role",
+    "No active warehouse selected in the current session": "No active warehouse is available for this connection. Check that the configured warehouse exists, is running, and that the connecting role has USAGE on it, then try again.",
     "or attempt to login with another role": "Role specified doesn't exist or is not authorized",
     "Incorrect username or password was specified": "Incorrect username or password was specified",
-    "This session does not have a current database": "Database specified not found",
+    "This session does not have a current database": "No database is available for this connection. Check that the configured database exists and that the connecting role has USAGE on it, then try again.",
     "Verify the account name is correct": "Can't find an account with the specified account ID",
     "Multi-factor authentication is required for this account": "This Snowflake account requires multi-factor authentication enrollment. Connect with a service user that uses key-pair authentication or is exempt from MFA.",
     # Snowflake error 290404: the login-request endpoint 404s because the account identifier doesn't
@@ -72,6 +91,7 @@ class SnowflakeSource(SQLSource[SnowflakeSourceConfig]):
         return SourceConfig(
             name=SchemaExternalDataSourceType.SNOWFLAKE,
             category=DataWarehouseSourceCategory.DATABASES,
+            keywords=["sql"],
             caption="Enter your Snowflake credentials to automatically pull your Snowflake data into the PostHog Data warehouse.",
             iconPath="/static/services/snowflake.png",
             docsUrl="https://posthog.com/docs/cdp/sources/snowflake",
@@ -257,6 +277,19 @@ class SnowflakeSource(SQLSource[SnowflakeSourceConfig]):
             # See `_MALFORMED_PEM_MESSAGE`: the key-pair private key can't be parsed, so retrying can
             # never succeed until the user pastes a valid PEM key.
             "Unable to load PEM file": _MALFORMED_PEM_MESSAGE.format(action="resync."),
+            # See `_WRONG_KEY_PASSPHRASE_MESSAGE`: the encrypted key-pair private key can't be decrypted
+            # because the passphrase is wrong (ValueError) or was never provided (TypeError), so retrying
+            # can never succeed until the user fixes it.
+            "Incorrect password, could not decrypt key": _WRONG_KEY_PASSPHRASE_MESSAGE.format(action="resync."),
+            "Password was not given but private key is encrypted": _WRONG_KEY_PASSPHRASE_MESSAGE.format(
+                action="resync."
+            ),
+            # See `_UNENCRYPTED_KEY_WITH_PASSPHRASE_MESSAGE`: a passphrase was supplied for an
+            # unencrypted key-pair private key, which fails to parse before we reach Snowflake, so
+            # retrying can never succeed until the user removes the passphrase or pastes an encrypted key.
+            "Password was given but private key is not encrypted": _UNENCRYPTED_KEY_WITH_PASSPHRASE_MESSAGE.format(
+                action="resync."
+            ),
             # Snowflake error 002003 (SQLSTATE 42S02 for tables / 02000 for schemas): a table or
             # schema the source syncs was dropped or renamed in Snowflake, or the role's grant on it
             # was revoked, after the schema was discovered. The driver raises "<object> does not exist
@@ -264,7 +297,7 @@ class SnowflakeSource(SQLSource[SnowflakeSourceConfig]):
             # until the user restores the object or re-grants access. The object name and query id in
             # the message are volatile, so we match on the stable trailing phrase.
             "does not exist or not authorized": "A table or schema this source syncs no longer exists in Snowflake, or your role is no longer authorized to access it. Check that the object still exists and that your Snowflake role has access, then resync.",
-            # Raised from the shared `evolve_pyarrow_schema` in `pipelines/pipeline/utils.py`
+            # Raised from the shared `evolve_pyarrow_schema` in `pipelines/core/arrow_utils.py`
             # when an integer column's source type was widened (e.g. a narrower NUMBER widened
             # to a larger NUMBER/BIGINT) after the destination table was created with the
             # narrower type. Delta Lake can't widen an existing column in place, so retrying
@@ -274,6 +307,36 @@ class SnowflakeSource(SQLSource[SnowflakeSourceConfig]):
             # matches the columns its query produces, so the view itself fails to compile. This is
             # a broken object on the source side that retrying can't repair.
             "but view query produces": "A Snowflake view in your source is invalid — the columns it declares no longer match the columns its query returns. Please recreate the view in Snowflake so the two agree, then resync.",
+            # Snowflake connector error 290403 (ER_HTTP_GENERAL_ERROR + 403): a request to Snowflake
+            # returned HTTP 403 Forbidden and kept doing so through the connector's own retry budget.
+            # The connector treats 403 as retryable and retries within the request timeout, so a
+            # ForbiddenError reaching us means the 403 is persistent — an access-denied condition
+            # (a network policy/firewall/proxy blocking PostHog, or the role's access to the data
+            # being revoked), not a transient blip. Retrying the whole sync can't fix it. The errno
+            # prefix and host are volatile, so we match the stable status text.
+            "HTTP 403: Forbidden": "Snowflake refused the request with an HTTP 403 (forbidden). This usually means a network policy or firewall on your account is blocking PostHog's access, or your role's access to the data was revoked. Check your Snowflake network access rules and role grants, then resync.",
+        }
+
+    def get_retryable_errors(self) -> set[str]:
+        return {
+            # Snowflake connector error 290400 (ER_HTTP_GENERAL_ERROR + 400): downloading a query
+            # result chunk got HTTP 400, which the connector's own `is_retryable_http_code` already
+            # retries with backoff before re-raising the plain `BadRequest` once its download retry
+            # budget is exhausted (`result_batch.py::_download`). Unlike the persistent-403 case
+            # above, every Temporal-level retry of `get_rows` opens a fresh connection and re-executes
+            # the query from scratch, getting a brand new set of chunk URLs — a stale one from the
+            # previous attempt doesn't carry over. Self-recovering, so keep retrying instead of
+            # stopping the sync. The errno prefix is volatile, so we match the stable status text.
+            "HTTP 400: Bad Request",
+            # Snowflake error 250001 (08001): the login-request endpoint itself responded with a
+            # generic "Internal error" (`auth/_auth.py` formats this as "Failed to connect to DB:
+            # {host}:{port}. {message}", where `message` is Snowflake's own internal-error text) —
+            # a transient blip on Snowflake's authentication service, not a credential or config
+            # problem. It isn't retried inside the connector's own auth flow, so without this marker
+            # every Temporal-level retry logs it as unclassified error-tracking noise instead of the
+            # self-recovering failure it is. The request id in brackets is volatile, so we match the
+            # stable phrase.
+            "Internal error:",
         }
 
     def reconcile_schema_metadata(
@@ -292,7 +355,11 @@ class SnowflakeSource(SQLSource[SnowflakeSourceConfig]):
         return get_connection_metadata_snowflake(config)
 
     def validate_credentials(
-        self, config: SnowflakeSourceConfig, team_id: int, schema_name: Optional[str] = None
+        self,
+        config: SnowflakeSourceConfig,
+        team_id: int,
+        schema_name: Optional[str] = None,
+        api_version: str | None = None,
     ) -> tuple[bool, str | None]:
         if config.auth_type.selection == "password" and (not config.auth_type.user or not config.auth_type.password):
             return False, "Missing required parameters: username, password"
@@ -302,7 +369,7 @@ class SnowflakeSource(SQLSource[SnowflakeSourceConfig]):
             return False, "Missing required parameters: username, private key"
 
         try:
-            self.get_schemas(config, team_id)
+            self.get_schemas(config, team_id, api_version=api_version)
         except (ProgrammingError, DatabaseError, ForbiddenError, HttpError) as e:
             error_msg = e.msg or e.raw_msg or ""
             for key, value in SnowflakeErrors.items():
@@ -311,11 +378,22 @@ class SnowflakeSource(SQLSource[SnowflakeSourceConfig]):
 
             capture_exception(e)
             return False, "Could not connect to Snowflake. Please check all connection details are valid."
-        except ValueError as e:
+        except (ValueError, TypeError) as e:
+            error_str = str(e)
             # A malformed key-pair private key fails to parse in `load_pem_private_key` before we ever
             # reach Snowflake — a user config error, not an unexpected failure worth capturing.
-            if "Unable to load PEM file" in str(e):
+            if "Unable to load PEM file" in error_str:
                 return False, _MALFORMED_PEM_MESSAGE.format(action="try again.")
+            # An encrypted private key whose passphrase is wrong (ValueError) or was never provided
+            # (TypeError) — also a user config error.
+            if (
+                "Incorrect password, could not decrypt key" in error_str
+                or "Password was not given but private key is encrypted" in error_str
+            ):
+                return False, _WRONG_KEY_PASSPHRASE_MESSAGE.format(action="try again.")
+            # The inverse: a passphrase was supplied for an unencrypted private key (TypeError).
+            if "Password was given but private key is not encrypted" in error_str:
+                return False, _UNENCRYPTED_KEY_WITH_PASSPHRASE_MESSAGE.format(action="try again.")
             capture_exception(e)
             return False, "Could not connect to Snowflake. Please check all connection details are valid."
         except Exception as e:

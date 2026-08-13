@@ -6,7 +6,8 @@ scan (``PrecomputationMode.DIRECT``). Two checks per metric:
 
 - stability (A vs B): two precomputed reads seconds apart must agree. Funnel reads are fully frozen, so the
   tolerance is strict; mean/ratio metrics join live event values onto frozen exposures, so only the exposure
-  counts are held to the strict tolerance.
+  counts are held to the strict tolerance. Retention resolves both of its numbers from metric events, so
+  both get the loose tolerance.
 - correctness (B vs C): the precomputed read must agree with the events table within a loose tolerance that
   covers live ingestion between the cache writes and the direct scan.
 
@@ -87,8 +88,9 @@ LOOSE_TOLERANCE = 0.02
 # Below this, a single user moves a variant by more than the strict tolerance and comparison is meaningless.
 MIN_EXPOSURES_PER_VARIANT = 100
 
-# Only metric types that use the precompute path. Retention metrics don't, so a paired run tests nothing.
-ELIGIBLE_METRIC_TYPES = ("funnel", "mean", "ratio")
+# Metric types that use the precompute path: all of them read precomputed exposures, and funnel,
+# mean, and retention also read precomputed metric events when eligible.
+ELIGIBLE_METRIC_TYPES = ("funnel", "mean", "ratio", "retention")
 
 # Experiments must have been running this long to be sampled — comfortably past the runner's 12h
 # precomputation gate, with enough accumulated exposures for the comparison to be meaningful.
@@ -172,7 +174,12 @@ def sample_canary_targets_sync(inputs: ExperimentPrecomputeCanaryInputs) -> list
     if inputs.experiment_id is not None:
         return _forensics_targets(inputs.experiment_id, inputs.metric_uuids)
 
-    quotas = {"funnel": inputs.funnel_quota, "mean": inputs.mean_quota, "ratio": inputs.ratio_quota}
+    quotas = {
+        "funnel": inputs.funnel_quota,
+        "mean": inputs.mean_quota,
+        "ratio": inputs.ratio_quota,
+        "retention": inputs.retention_quota,
+    }
     experiments = _eligible_experiments()
     random.shuffle(experiments)
 
@@ -241,9 +248,13 @@ def _max_deviation(run_x: CanaryRunSnapshot, run_y: CanaryRunSnapshot) -> float:
 def _stability_violated(metric_type: str, run_a: CanaryRunSnapshot, run_b: CanaryRunSnapshot) -> bool:
     for key, stats_a in run_a.variants.items():
         stats_b = run_b.variants[key]
-        if relative_deviation(stats_a.number_of_samples, stats_b.number_of_samples) > STRICT_TOLERANCE:
+        # Funnel/mean/ratio sample counts come from frozen exposures. Retention counts users with
+        # a start event, resolved from metric events that can be live-scanned (flag off, or an
+        # ineligible metric), so its count gets the loose bound too.
+        samples_tolerance = LOOSE_TOLERANCE if metric_type == "retention" else STRICT_TOLERANCE
+        if relative_deviation(stats_a.number_of_samples, stats_b.number_of_samples) > samples_tolerance:
             return True
-        # Funnel sums are reads of frozen caches; mean/ratio sums join live event values and drift.
+        # Funnel sums are reads of frozen caches; mean/ratio/retention sums join live event values and drift.
         sum_tolerance = STRICT_TOLERANCE if metric_type == "funnel" else LOOSE_TOLERANCE
         if relative_deviation(stats_a.sum, stats_b.sum) > sum_tolerance:
             return True

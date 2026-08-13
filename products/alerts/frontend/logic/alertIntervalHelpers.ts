@@ -59,6 +59,10 @@ const CADENCE_DURATION_MINUTES: Record<AlertCalculationInterval, number> = {
     [AlertCalculationInterval.MONTHLY]: 60 * 24 * 30,
 }
 
+export function alertCadenceMinutes(interval: AlertCalculationInterval): number {
+    return CADENCE_DURATION_MINUTES[interval]
+}
+
 const INSIGHT_INTERVAL_DURATION_MINUTES: Record<IntervalType, number> = {
     second: 1 / 60,
     minute: 1,
@@ -66,6 +70,8 @@ const INSIGHT_INTERVAL_DURATION_MINUTES: Record<IntervalType, number> = {
     day: 60 * 24,
     week: 60 * 24 * 7,
     month: 60 * 24 * 30,
+    quarter: 60 * 24 * 30 * 3,
+    year: 60 * 24 * 365,
 }
 
 /** An alert re-checks the insight's last completed bucket, whose size is the insight's grouping
@@ -78,7 +84,7 @@ export function cadenceFinerThanInsightInterval(
     const insightMinutes =
         INSIGHT_INTERVAL_DURATION_MINUTES[(insightInterval as IntervalType | null) ?? 'day'] ??
         INSIGHT_INTERVAL_DURATION_MINUTES.day
-    return CADENCE_DURATION_MINUTES[cadence] < insightMinutes
+    return alertCadenceMinutes(cadence) < insightMinutes
 }
 
 type EntitlementResult =

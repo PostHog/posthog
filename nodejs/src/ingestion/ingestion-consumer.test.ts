@@ -6,7 +6,7 @@ import { DateTime } from 'luxon'
 import { Message } from 'node-rdkafka'
 
 import { insertHogFunction as _insertHogFunction } from '~/cdp/_tests/fixtures'
-import { HogTransformerService, createHogTransformerService } from '~/cdp/hog-transformations/hog-transformer.service'
+import { createHogTransformerService } from '~/cdp/hog-transformations/hog-transformer.service'
 import { template as geoipTemplate } from '~/cdp/templates/_transformations/geoip/geoip.template'
 import { compileHog } from '~/cdp/templates/compiler'
 import { HogFunctionType } from '~/cdp/types'
@@ -21,7 +21,7 @@ import {
 } from '~/ingestion/common/cookieless/cookieless-manager'
 import { BatchWritingPersonsStore } from '~/ingestion/common/persons/batch-writing-person-store'
 import { createPrepareEventStep } from '~/ingestion/common/steps/event-processing/prepare-event-step'
-import { createAiEventSubpipeline } from '~/ingestion/pipelines/ai'
+import { createProcessGroupsStep } from '~/ingestion/common/steps/event-processing/process-groups-step'
 import { IngestionTestInfra, createIngestionTestInfra } from '~/tests/helpers/ingestion-e2e'
 import { createTestIngestionOutputs, createTestMonitoringOutputs } from '~/tests/helpers/ingestion-outputs'
 import { forSnapshot } from '~/tests/helpers/snapshots'
@@ -41,9 +41,14 @@ jest.mock('~/common/utils/posthog', () => {
     }
 })
 
-// Mock the prepare event step for error testing
+// Mock the prepare event step for error testing (a step without a retry option)
 jest.mock('~/ingestion/common/steps/event-processing/prepare-event-step', () => ({
     createPrepareEventStep: jest.fn(),
+}))
+
+// Mock the process groups step for error testing (a step with a retry option)
+jest.mock('~/ingestion/common/steps/event-processing/process-groups-step', () => ({
+    createProcessGroupsStep: jest.fn(),
 }))
 
 // Mock the IngestionWarningLimiter to always allow warnings (prevents rate limiting between tests)
@@ -115,7 +120,6 @@ describe('IngestionConsumer', () => {
                 ...infra,
                 outputs,
                 clickhouseGroupRepository: new ClickhouseGroupRepository(outputs),
-                aiSubpipelineFactory: createAiEventSubpipeline,
                 hogTransformer: createHogTransformerService(infra.config, {
                     ...infra,
                     monitoringOutputs: createTestMonitoringOutputs(mockProducer),
@@ -189,6 +193,11 @@ describe('IngestionConsumer', () => {
             return original.createPrepareEventStep(...args)
         })
 
+        jest.mocked(createProcessGroupsStep).mockImplementation((...args) => {
+            const original = jest.requireActual('~/ingestion/common/steps/event-processing/process-groups-step')
+            return original.createProcessGroupsStep(...args)
+        })
+
         ingester = await createIngestionConsumer(infra)
     })
 
@@ -215,12 +224,6 @@ describe('IngestionConsumer', () => {
         })
 
         it('should process a cookieless event', async () => {
-            await infra.postgres.query(
-                PostgresUse.COMMON_WRITE,
-                `UPDATE posthog_team SET cookieless_server_hash_mode = $1 WHERE id = $2`,
-                [CookielessServerHashMode.Stateful, team.id],
-                'set cookieless to stateful'
-            )
             await ingester.handleKafkaBatch(createKafkaMessages([createCookielessEvent()]))
 
             expect(forSnapshot(mockProducerObserver.getProducedKafkaMessages())).toMatchSnapshot()
@@ -281,13 +284,17 @@ describe('IngestionConsumer', () => {
 
         describe('overflow', () => {
             const now = () => DateTime.now().toMillis()
-            beforeEach(() => {
+            beforeEach(async () => {
                 // Just to make it easy to see what is configured
                 expect(infra.config.EVENT_OVERFLOW_BUCKET_CAPACITY).toEqual(1000)
+                // Overflow is now gated on explicit mode; the main lane redirects.
+                infra.config.INGESTION_OVERFLOW_MODE = 'redirect'
+                await ingester.stop()
+                ingester = await createIngestionConsumer(infra)
             })
 
             it('should emit to overflow if token and distinct_id are overflowed', async () => {
-                ;(ingester['overflowRedirectService'] as any)['rateLimiter'].consume(
+                ;(ingester['overflowRedirectService'] as any)['strategies'][0]['limiter'].consume(
                     `${team.api_token}:overflow-distinct-id`,
                     1000,
                     now()
@@ -308,7 +315,8 @@ describe('IngestionConsumer', () => {
             })
 
             it('does not overflow if it is consuming from the overflow topic', async () => {
-                // Create a new consumer that consumes from the overflow topic
+                // Overflow lane consumes the overflow topic; it never redirects back.
+                infra.config.INGESTION_OVERFLOW_MODE = 'consume'
                 const overflowIngester = await createIngestionConsumer(infra, {
                     INGESTION_CONSUMER_CONSUME_TOPIC: 'events_plugin_ingestion_overflow_test',
                 })
@@ -332,10 +340,9 @@ describe('IngestionConsumer', () => {
 
             describe('stateful overflow redirect', () => {
                 it('refreshes Redis TTL when processing events in overflow lane', async () => {
-                    // Enable stateful overflow
-                    infra.config.INGESTION_STATEFUL_OVERFLOW_ENABLED = true
                     infra.config.INGESTION_STATEFUL_OVERFLOW_REDIS_TTL_SECONDS = 300
                     infra.config.INGESTION_LANE = 'overflow'
+                    infra.config.INGESTION_OVERFLOW_MODE = 'consume'
 
                     // Create overflow lane consumer
                     const overflowIngester = await createIngestionConsumer(infra, {
@@ -376,10 +383,9 @@ describe('IngestionConsumer', () => {
                 })
 
                 it('does not create keys when refreshing TTL for non-existent keys', async () => {
-                    // Enable stateful overflow
-                    infra.config.INGESTION_STATEFUL_OVERFLOW_ENABLED = true
                     infra.config.INGESTION_STATEFUL_OVERFLOW_REDIS_TTL_SECONDS = 300
                     infra.config.INGESTION_LANE = 'overflow'
+                    infra.config.INGESTION_OVERFLOW_MODE = 'consume'
 
                     // Create overflow lane consumer
                     const overflowIngester = await createIngestionConsumer(infra, {
@@ -834,134 +840,6 @@ describe('IngestionConsumer', () => {
             expect(recentEventMessage).toBeDefined()
             expect(recentEventMessage?.value.historical_migration).toBeUndefined()
         })
-
-        it('should process AI events with invalid token properties by nulling the bad values', async () => {
-            const events = [
-                createEvent({
-                    distinct_id: 'user-valid-ai',
-                    event: '$ai_generation',
-                    properties: {
-                        $ai_input_tokens: 100,
-                        $ai_cache_read_input_tokens: 50,
-                        $ai_model: 'gpt-4',
-                    },
-                }),
-                createEvent({
-                    distinct_id: 'user-invalid-ai',
-                    event: '$ai_generation',
-                    properties: {
-                        $ai_input_tokens: 'invalid-not-a-number',
-                        $ai_model: 'gpt-4',
-                    },
-                }),
-                createEvent({
-                    distinct_id: 'user-invalid-ai-cache',
-                    event: '$ai_embedding',
-                    properties: {
-                        $ai_input_tokens: 100,
-                        $ai_cache_read_input_tokens: { nested: 'object' },
-                        $ai_model: 'text-embedding-3-small',
-                    },
-                }),
-                createEvent({
-                    distinct_id: 'user-nested-token-objects',
-                    event: '$ai_generation',
-                    properties: {
-                        $ai_input_tokens: { total: 10585, noCache: 10585, cacheRead: 0, cacheWrite: 0 },
-                        $ai_output_tokens: { total: 163, text: 163, reasoning: 0 },
-                        $ai_provider: 'amazon-bedrock',
-                        $ai_model: 'anthropic.claude-sonnet-4-6',
-                    },
-                }),
-                createEvent({
-                    distinct_id: 'user-non-ai',
-                    event: '$pageview',
-                    properties: {
-                        $ai_input_tokens: 'invalid-but-not-ai-event',
-                    },
-                }),
-            ]
-
-            const messages = createKafkaMessages(events)
-            await ingester.handleKafkaBatch(messages)
-
-            const producedMessages = mockProducerObserver.getProducedKafkaMessages()
-            const eventsTopicMessages = producedMessages.filter((m) => m.topic === 'clickhouse_events_json_test')
-
-            // Valid AI event should be processed with tokens intact
-            const validAiEvent = eventsTopicMessages.find((m) => m.value.distinct_id === 'user-valid-ai')
-            expect(validAiEvent).toBeDefined()
-
-            // AI event with invalid string token should be processed with token nulled
-            const invalidAiEvent = eventsTopicMessages.find((m) => m.value.distinct_id === 'user-invalid-ai')
-            expect(invalidAiEvent).toBeDefined()
-            expect(parseJSON(invalidAiEvent?.value.properties as any).$ai_input_tokens).toBeNull()
-
-            // AI event with non-normalizable object token should be processed with token nulled
-            const invalidCacheEvent = eventsTopicMessages.find((m) => m.value.distinct_id === 'user-invalid-ai-cache')
-            expect(invalidCacheEvent).toBeDefined()
-            expect(parseJSON(invalidCacheEvent?.value.properties as any).$ai_cache_read_input_tokens).toBeNull()
-            expect(parseJSON(invalidCacheEvent?.value.properties as any).$ai_input_tokens).toBe(100)
-
-            // AI event with nested token objects (Bedrock/Vercel V3) should be normalized
-            const nestedTokenEvent = eventsTopicMessages.find(
-                (m) => m.value.distinct_id === 'user-nested-token-objects'
-            )
-            expect(nestedTokenEvent).toBeDefined()
-            expect(parseJSON(nestedTokenEvent?.value.properties as any).$ai_input_tokens).toBe(10585)
-            expect(parseJSON(nestedTokenEvent?.value.properties as any).$ai_output_tokens).toBe(163)
-
-            // Non-AI event with invalid token property should still be processed unchanged
-            const nonAiEvent = eventsTopicMessages.find((m) => m.value.event === '$pageview')
-            expect(nonAiEvent).toBeDefined()
-            expect(nonAiEvent?.value.distinct_id).toBe('user-non-ai')
-        })
-
-        it('should split AI events with large properties into events + ai_events', async () => {
-            await ingester.stop()
-            ingester = await createIngestionConsumer(infra)
-
-            const events = [
-                createEvent({
-                    distinct_id: 'user-ai-split',
-                    event: '$ai_generation',
-                    properties: {
-                        $ai_model: 'gpt-4',
-                        $ai_provider: 'openai',
-                        $ai_input_tokens: 100,
-                        $ai_output_tokens: 50,
-                        $ai_input: 'What is the meaning of life?',
-                        $ai_output: 'The meaning of life is 42.',
-                    },
-                }),
-            ]
-
-            await ingester.handleKafkaBatch(createKafkaMessages(events))
-
-            const producedMessages = mockProducerObserver.getProducedKafkaMessages()
-            const eventsTopicMessages = producedMessages.filter((m) => m.topic === 'clickhouse_events_json_test')
-            const aiEventsTopicMessages = producedMessages.filter((m) => m.topic === 'clickhouse_ai_events_json_test')
-
-            // Main events topic: stripped of large AI properties
-            expect(eventsTopicMessages).toHaveLength(1)
-            const mainEvent = eventsTopicMessages[0]
-            expect(mainEvent.value.event).toBe('$ai_generation')
-            expect(typeof mainEvent.value.properties).toBe('string')
-            const mainProps = parseJSON(mainEvent.value.properties as any)
-            expect(mainProps.$ai_model).toBe('gpt-4')
-            expect(mainProps.$ai_input).toBeUndefined()
-            expect(mainProps.$ai_output).toBeUndefined()
-
-            // AI events topic: full event with all properties
-            expect(aiEventsTopicMessages).toHaveLength(1)
-            const aiEvent = aiEventsTopicMessages[0]
-            expect(aiEvent.value.event).toBe('$ai_generation')
-            expect(typeof aiEvent.value.properties).toBe('string')
-            const aiProps = parseJSON(aiEvent.value.properties as any)
-            expect(aiProps.$ai_model).toBe('gpt-4')
-            expect(aiProps.$ai_input).toBe('What is the meaning of life?')
-            expect(aiProps.$ai_output).toBe('The meaning of life is 42.')
-        })
     })
 
     describe('error handling', () => {
@@ -974,15 +852,14 @@ describe('IngestionConsumer', () => {
         })
 
         it('should handle explicitly non retriable errors by sending to DLQ', async () => {
-            // NOTE: I don't think this makes a lot of sense but currently is just mimicing existing behavior for the migration
-            // We should figure this out better and have more explictly named errors
-
+            // Non-retriable errors are converted to DLQ results by the retry wrapper,
+            // so the throwing step must be one that carries a retry option.
             const error: any = new Error('test')
             error.isRetriable = false
 
-            // Mock the prepare event step to throw the error
-            jest.mocked(createPrepareEventStep).mockImplementation(() => {
-                return async function prepareEventStepWrapper() {
+            // Mock the process groups step (retry-wrapped) to throw the error
+            jest.mocked(createProcessGroupsStep).mockImplementation(() => {
+                return async function processGroupsStepWrapper() {
                     return Promise.reject(error)
                 }
             })
@@ -990,7 +867,11 @@ describe('IngestionConsumer', () => {
             const ingester = await createIngestionConsumer(infra)
             await ingester.handleKafkaBatch(messages)
 
-            expect(jest.mocked(logger.error)).toHaveBeenCalledWith('🔥', 'Error processing message', expect.any(Object))
+            expect(jest.mocked(logger.error)).toHaveBeenCalledWith(
+                '🔥',
+                'Step process_groups failed',
+                expect.any(Object)
+            )
 
             expect(forSnapshot(mockProducerObserver.getProducedKafkaMessages())).toMatchSnapshot()
         })
@@ -1010,14 +891,31 @@ describe('IngestionConsumer', () => {
             await expect(ingester.handleKafkaBatch(messages)).rejects.toThrow()
         })
 
+        it('should throw non retriable errors from steps without a retry option', async () => {
+            // Steps without a retry option have no error classification: an
+            // explicitly non-retriable error crashes the batch instead of DLQing.
+            const error: any = new Error('test')
+            error.isRetriable = false
+
+            // Mock the prepare event step (no retry option) to throw the error
+            jest.mocked(createPrepareEventStep).mockImplementation(() => {
+                return async function prepareEventStepWrapper() {
+                    return Promise.reject(error)
+                }
+            })
+
+            const ingester = await createIngestionConsumer(infra)
+            await expect(ingester.handleKafkaBatch(messages)).rejects.toThrow()
+        })
+
         it('should emit failures to dead letter queue for non-retriable errors', async () => {
             const error = new Error('Non-retriable processing error')
             const errorAny = error as any
             errorAny.isRetriable = false
 
-            // Mock the prepare event step to throw the error
-            jest.mocked(createPrepareEventStep).mockImplementation(() => {
-                return async function prepareEventStepWrapper() {
+            // Mock the process groups step (retry-wrapped) to throw the error
+            jest.mocked(createProcessGroupsStep).mockImplementation(() => {
+                return async function processGroupsStepWrapper() {
                     return Promise.reject(error)
                 }
             })
@@ -1278,82 +1176,6 @@ describe('IngestionConsumer', () => {
 
             ingester = await createIngestionConsumer(infra)
         })
-
-        it(
-            'should call hogwatcher state caching methods and observe results when hogwatcher is enabled (sample rate = 1)',
-            async () => {
-                // Create a new ingester with the sample rate we want to test
-                infra.config.CDP_HOG_WATCHER_SAMPLE_RATE = 1
-                const localIngester = await createIngestionConsumer(infra)
-
-                // Create spies for methods after the service is configured. The consumer exposes the
-                // transformer via its interface, so cast to the concrete service for these internal spies.
-                const concreteTransformer = localIngester.hogTransformer as HogTransformerService
-                const fetchAndCacheSpy = jest.spyOn(concreteTransformer, 'fetchAndCacheHogFunctionStates')
-                const clearStatesSpy = jest.spyOn(concreteTransformer, 'clearHogFunctionStates')
-                const observeResultsSpy = jest.spyOn(concreteTransformer['hogWatcher'], 'observeResults')
-
-                // Process batch with hogwatcher enabled
-                // in this stage we do not have the teamId on the event but the token is in kafka headers
-                const event = createEvent({
-                    ip: '89.160.20.129',
-                    properties: { $ip: '89.160.20.129' },
-                })
-                const messages = createKafkaMessages([event])
-
-                await localIngester.handleKafkaBatch(messages)
-
-                // Verify that fetchAndCacheHogFunctionStates and clearHogFunctionStates were called
-                expect(fetchAndCacheSpy).toHaveBeenCalled()
-                expect(clearStatesSpy).toHaveBeenCalled()
-
-                // Verify the full integration flow worked
-                expect(observeResultsSpy).toHaveBeenCalled()
-
-                // Verify that results were passed to observeResults with the correct structure
-                const results = observeResultsSpy.mock.calls[0][0]
-                expect(results).toBeInstanceOf(Array)
-                expect(results.length).toBeGreaterThan(0)
-
-                // Check that the results contain our transformation function
-                const functionResult = results.find((r) => r.invocation.functionId === transformationFunction.id)
-                expect(functionResult).toBeDefined()
-                expect(functionResult?.finished).toBe(true)
-
-                await localIngester.stop()
-            },
-            TRANSFORMATION_TEST_TIMEOUT
-        )
-
-        it(
-            'should not call hogwatcher state caching methods when hogwatcher is disabled (sample rate = 0)',
-            async () => {
-                // Create a new ingester with the sample rate we want to test
-                infra.config.CDP_HOG_WATCHER_SAMPLE_RATE = 0
-                const localIngester = await createIngestionConsumer(infra)
-
-                // Create spies for methods after the service is configured (cast to the concrete service)
-                const concreteTransformer = localIngester.hogTransformer as HogTransformerService
-                const fetchAndCacheSpy = jest.spyOn(concreteTransformer, 'fetchAndCacheHogFunctionStates')
-                const clearStatesSpy = jest.spyOn(concreteTransformer, 'clearHogFunctionStates')
-
-                // Process batch with hogwatcher disabled
-                const event = createEvent({
-                    ip: '89.160.20.129',
-                    properties: { $ip: '89.160.20.129' },
-                })
-                const messages = createKafkaMessages([event])
-
-                await localIngester.handleKafkaBatch(messages)
-
-                // Verify that fetchAndCacheHogFunctionStates and clearHogFunctionStates were NOT called
-                expect(fetchAndCacheSpy).not.toHaveBeenCalled()
-                expect(clearStatesSpy).not.toHaveBeenCalled()
-
-                await localIngester.stop()
-            },
-            TRANSFORMATION_TEST_TIMEOUT
-        )
 
         it(
             'should invoke transformation for matching team with error case',

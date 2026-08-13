@@ -23,7 +23,7 @@ from posthog.models.filters.mixins.utils import cached_property
 from posthog.models.filters.utils import GroupTypeIndex
 from posthog.models.instance_setting import get_instance_setting
 from posthog.models.organization import Organization, OrganizationMembership
-from posthog.models.signals import mutable_receiver
+from posthog.models.signals import mutable_receiver, secret_api_token_rotated
 from posthog.models.utils import (
     UUIDTClassicModel,
     generate_random_token_project,
@@ -36,6 +36,10 @@ from posthog.ph_client import feature_enabled_or_false
 from posthog.rbac.decorators import field_access_control
 from posthog.session_recordings.models.session_recording_playlist import SessionRecordingPlaylist
 from posthog.settings.utils import get_list
+
+# Relocated to the Django-free posthog.week_start_day module so the HogQL engine can use it
+# without booting Django; re-exported here for existing callers.
+from posthog.week_start_day import WeekStartDay  # noqa: F401
 
 from products.customer_analytics.backend.facade.constants import DEFAULT_ACTIVITY_EVENT
 
@@ -238,15 +242,6 @@ class TeamManager(models.Manager):
 
 def get_default_data_attributes() -> list[str]:
     return ["data-attr"]
-
-
-class WeekStartDay(models.IntegerChoices):
-    SUNDAY = 0, "Sunday"
-    MONDAY = 1, "Monday"
-
-    @property
-    def clickhouse_mode(self) -> str:
-        return "3" if self == WeekStartDay.MONDAY else "0"
 
 
 class CookielessServerHashMode(models.IntegerChoices):
@@ -606,6 +601,8 @@ class Team(UUIDTClassicModel):
     human_friendly_comparison_periods = field_access_control(
         models.BooleanField(default=False, null=True, blank=True), "project", "admin"
     )
+    # Enable/disable toggle for cookieless ingestion. STATELESS (1) is sunset: any non-disabled
+    # value is processed as stateful.
     cookieless_server_hash_mode = field_access_control(
         models.SmallIntegerField(
             default=CookielessServerHashMode.DISABLED,
@@ -999,6 +996,8 @@ class Team(UUIDTClassicModel):
         if expired_token:
             # Clear the previous backup token from cache since it's being replaced
             set_team_in_cache(expired_token, None)
+
+        secret_api_token_rotated.send(sender=self.__class__, team=self)
 
         # Build up the changes.
 

@@ -22,11 +22,15 @@ from __future__ import annotations
 import datetime as dt
 from dataclasses import dataclass
 
-from .enums import AttributeScope, FilterOp, MetricAggregation
+from .enums import AttributeScope, FilterOp, MetricAggregation, MetricType
 
 # Each clause runs its own ClickHouse query on the shared logs cluster, so
 # the clause count per request is hard-capped.
 MAX_CLAUSES_PER_QUERY = 10
+
+# Private-alpha gate. Every read surface (viewset, query runner, MCP tools)
+# must check the same flag, or one of them becomes a bypass.
+METRICS_FEATURE_FLAG = "metrics"
 
 
 @dataclass(frozen=True, slots=True)
@@ -60,6 +64,8 @@ class MetricQueryClause:
     group_by: tuple[MetricGroupBy, ...] = ()
     # Required for QUANTILE / HISTOGRAM_QUANTILE; ignored otherwise.
     quantile: float | None = None
+    # Constrains rows to one metric type; None keeps all types (legacy).
+    metric_type: MetricType | None = None
 
     def __post_init__(self) -> None:
         if self.aggregation.needs_quantile:
@@ -102,10 +108,12 @@ class MetricQueryRequest:
 
 @dataclass(frozen=True, slots=True)
 class MetricPoint:
-    """One bucketed datapoint. `time` is the bucket start, ISO 8601."""
+    """One bucketed datapoint. `time` is the bucket start, ISO 8601.
+    `value` is None when the bucket's aggregate isn't representable (e.g.
+    a float overflow to inf) — consumers render a gap."""
 
     time: str
-    value: float
+    value: float | None
 
 
 @dataclass(frozen=True, slots=True)
@@ -234,8 +242,8 @@ class InvestigationChartSpec:
 @dataclass(frozen=True, slots=True)
 class TraceExemplar:
     """A pointer from a metric sample into a concrete trace at the anomaly, for
-    the metric->trace pivot. Populated by the trace-pivot primitive once the
-    `metric_samples` table is live; empty until then.
+    the metric->trace pivot. Trace/span ids are hex, matching the tracing
+    product's contract, so they can be passed straight to a trace URL.
     """
 
     trace_id: str
@@ -273,3 +281,29 @@ class InvestigationResult:
     evidence: InvestigationEvidence
     confidence: str  # "high" | "medium" | "low"
     narrative: str
+
+
+@dataclass(frozen=True, slots=True)
+class IncidentContext:
+    """Structured context from a fired alert (or a manual "this looks wrong"),
+    so an investigation never has to parse a timestamp out of prose. `fired_at`
+    must be timezone-aware and is normalized to UTC at construction; the
+    anomaly window is derived as [fired_at - lookback, fired_at + leadout],
+    and `service_name` scopes the investigation to the implicated service.
+    """
+
+    metric_name: str
+    fired_at: dt.datetime
+    lookback: dt.timedelta = dt.timedelta(minutes=15)
+    leadout: dt.timedelta = dt.timedelta(minutes=15)
+    service_name: str | None = None
+    companions: tuple[CompanionMetric, ...] = ()
+
+    def __post_init__(self) -> None:
+        # A naive datetime would be taken as UTC by the window math and
+        # silently mis-bucket a local-time fire; fail fast at construction.
+        # Aware non-UTC instants are fine — normalize them so downstream
+        # window math always operates on UTC.
+        if self.fired_at.tzinfo is None:
+            raise ValueError("fired_at must be timezone-aware")
+        object.__setattr__(self, "fired_at", self.fired_at.astimezone(dt.UTC))

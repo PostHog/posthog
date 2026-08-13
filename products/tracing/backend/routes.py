@@ -5,13 +5,13 @@ from products.tracing.backend.presentation.views_api import TracingViewViewSet
 
 
 def register_routes(routers: RouterRegistry) -> None:
-    routers.register_legacy_dual_route(
+    routers.projects.register(
         r"tracing/spans",
         SpansViewSet,
         "project_tracing_spans",
         ["team_id"],
     )
-    routers.register_legacy_dual_route(
+    routers.projects.register(
         r"tracing/views",
         TracingViewViewSet,
         "project_tracing_views",

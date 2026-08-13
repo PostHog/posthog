@@ -5,11 +5,11 @@ import { NodeKind } from '~/queries/schema/schema-general'
 import type {
     ClassifierScannerConfig,
     MonitorScannerConfig,
-    ReplayScanner,
+    ScannerFormValues,
     ScorerScannerConfig,
     SummarizerScannerConfig,
 } from './types'
-import { DEFAULT_MODEL, DEFAULT_PROVIDER } from './types'
+import { DEFAULT_MODEL, DEFAULT_PROVIDER, OBSERVATION_CREDITS_BY_MODEL } from './types'
 
 export type ScannerTemplateIcon = 'warning' | 'notebook' | 'target' | 'thumbs-down' | 'check'
 
@@ -120,10 +120,11 @@ export function findScannerTemplate(key: string | undefined): ScannerTemplate | 
     return defaultScannerTemplates.find((t) => t.key === key)
 }
 
-export function newScanner(templateKey?: string | null): ReplayScanner {
+export function newScanner(templateKey?: string | null): ScannerFormValues {
     const base = {
         id: 'new',
         enabled: true,
+        tags: [] as string[],
         sampling_rate: 1,
         sampling_mode: 'comprehensive' as const,
         query: { kind: NodeKind.RecordingsQuery },
@@ -136,6 +137,21 @@ export function newScanner(templateKey?: string | null): ReplayScanner {
         updated_at: dayjs().toISOString(),
         created_by: null,
         estimated_monthly_observations: null,
+        feedback_themes: null,
+        estimated_monthly_credits: null,
+        // Seed price for the unsaved scanner; the server-computed value takes over after the first save.
+        credits_per_observation: OBSERVATION_CREDITS_BY_MODEL[DEFAULT_MODEL],
+        // An unsaved scanner has no object yet, so there's no effective access level for it —
+        // create-time gating falls back to the resource-level default instead (see getReplayVisionEditDisabledReason).
+        user_access_level: null,
+        credits_this_month: 0,
+        observations_this_month: 0,
+        credit_limit: null,
+        // Materialized here so toggling the limit on and off compares equal to this baseline again.
+        credit_limit_enabled: false,
+        // An unsaved scanner has no spend yet, so it can't have hit a limit it doesn't have.
+        credits_used_against_limit: 0,
+        limit_reached: false,
     } as const
 
     const template = findScannerTemplate(templateKey ?? undefined)
@@ -147,7 +163,7 @@ export function newScanner(templateKey?: string | null): ReplayScanner {
             scanner_type: template.scanner_type,
             // Cloned so an in-place form mutation can never corrupt the module-level template.
             scanner_config: structuredClone(template.scanner_config),
-        } as ReplayScanner
+        } as ScannerFormValues
     }
     return {
         ...base,

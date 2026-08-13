@@ -1,0 +1,206 @@
+from parameterized import parameterized
+
+from products.growth.backend.enrichment.transform import MAX_INVESTORS, transform_harmonic_company
+
+
+def _company(**overrides):
+    company = {
+        "companyType": "STARTUP",
+        "headcount": 120,
+        "location": {"country": "United States"},
+        "foundingDate": {"date": "2019-06-01", "granularity": "DAY"},
+        "funding": {
+            "fundingStage": "SERIES_A",
+            "fundingTotal": 12000000,
+            "lastFundingTotal": 8000000,
+            "lastFundingAt": "2024-02-25T00:00:00Z",
+            "investors": [{"name": "Y Combinator"}],
+        },
+        "tractionMetrics": {
+            "headcount": {"latestMetricValue": 130},
+            "headcountEngineering": {"latestMetricValue": 45},
+            "webTraffic": {"latestMetricValue": 551400},
+        },
+        "tags": [{"type": "INDUSTRY", "displayValue": "Developer Tools", "isPrimaryTag": True}],
+        "tagsV2": [],
+    }
+    company.update(overrides)
+    return company
+
+
+def test_transform_maps_all_registry_fields():
+    fields = transform_harmonic_company(_company())
+    assert fields is not None
+    assert fields.to_dict() == {
+        "company_type": "STARTUP",
+        "headcount": 130,  # tractionMetrics wins over the top-level headcount
+        "headcount_engineering": 45,
+        "web_traffic": 551400,
+        "industry": "Developer Tools",
+        "country": "US",  # ISO alpha-2, matching the icp_country format
+        "founded_year": 2019,
+        "funding_stage": "SERIES_A",
+        "total_raised": 12000000,
+        "last_round_size": 8000000,
+        "last_round_date": "2024-02-25",  # ISO datetime truncated to the date
+        "investors": ["Y Combinator"],
+        "is_yc_company": True,
+        # is_ai_native stays unset: tagsV2 is empty, which is absence of tag data
+    }
+
+
+def test_investors_capture_company_and_person_names_skipping_malformed_entries():
+    investors = [
+        {"name": "Formus Capital"},
+        {"fullName": "Julia Dewahl"},  # angels come back as Person entries
+        {"foo": "bar"},  # neither name nor fullName
+        "not-a-dict",
+    ]
+    fields = transform_harmonic_company(_company(funding={"investors": investors}))
+    assert fields is not None
+    assert fields.investors == ["Formus Capital", "Julia Dewahl"]
+
+
+def test_investors_unset_when_funding_has_no_investors():
+    fields = transform_harmonic_company(_company(funding={"fundingStage": "SEED"}))
+    assert fields is not None
+    assert fields.investors is None
+    assert "investors" not in fields.to_dict()
+
+
+def test_investors_capped_to_bound():
+    fields = transform_harmonic_company(_company(funding={"investors": [{"name": f"VC {i}"} for i in range(40)]}))
+    assert fields is not None
+    assert fields.investors is not None
+    assert len(fields.investors) == MAX_INVESTORS
+    assert fields.investors[0] == "VC 0"
+
+
+@parameterized.expand(
+    [
+        ("ai_display_value", [{"type": "TECHNOLOGY_TYPE", "displayValue": "Artificial Intelligence (AI)"}], True),
+        ("ml_display_value", [{"type": "MARKET_VERTICAL", "displayValue": "Machine Learning"}], True),
+        ("non_ai_tags_present", [{"type": "MARKET_VERTICAL", "displayValue": "Fintech"}], False),
+    ]
+)
+def test_is_ai_native_matches_conservatively(_name, tags_v2, expected):
+    fields = transform_harmonic_company(_company(tagsV2=tags_v2))
+    assert fields is not None
+    assert fields.is_ai_native is expected
+
+
+def test_is_ai_native_unset_when_tags_v2_absent():
+    fields = transform_harmonic_company(_company(tagsV2=[]))
+    assert fields is not None
+    assert fields.is_ai_native is None
+    assert "is_ai_native" not in fields.to_dict()
+
+
+def test_headcount_falls_back_to_top_level_when_no_traction_metric():
+    fields = transform_harmonic_company(_company(tractionMetrics={}))
+    assert fields is not None
+    assert fields.headcount == 120
+
+
+def test_industry_falls_back_to_market_vertical_tag_v2():
+    fields = transform_harmonic_company(_company(tags=[], tagsV2=[{"type": "MARKET_VERTICAL", "displayValue": "SaaS"}]))
+    assert fields is not None
+    assert fields.industry == "SaaS"
+
+
+def test_non_yc_investors():
+    fields = transform_harmonic_company(_company(funding={"fundingStage": "SEED", "investors": [{"name": "Acme VC"}]}))
+    assert fields is not None
+    assert fields.is_yc_company is False
+
+
+def test_unmapped_country_name_is_dropped_not_written_raw():
+    fields = transform_harmonic_company(_company(location={"country": "Kingdom of Freedonia"}))
+    assert fields is not None
+    assert fields.country is None
+
+
+def test_web_traffic_maps_from_traction_metrics():
+    fields = transform_harmonic_company(_company(tractionMetrics={"webTraffic": {"latestMetricValue": 12345}}))
+    assert fields is not None
+    assert fields.web_traffic == 12345
+
+
+def test_web_traffic_unset_when_traction_metrics_missing_key():
+    fields = transform_harmonic_company(_company(tractionMetrics={"headcount": {"latestMetricValue": 130}}))
+    assert fields is not None
+    assert fields.web_traffic is None
+    assert "web_traffic" not in fields.to_dict()
+
+
+def test_none_and_empty_payloads_return_none():
+    assert transform_harmonic_company(None) is None
+    assert transform_harmonic_company({}) is None
+
+
+def test_partial_payload_leaves_missing_fields_unset():
+    fields = transform_harmonic_company({"companyType": "ENTERPRISE"})
+    assert fields is not None
+    assert fields.to_dict() == {"company_type": "ENTERPRISE", "is_yc_company": False}
+
+
+@parameterized.expand(
+    [
+        ("mapped_when_present", {"ownershipStatus": "ACQUIRED_OR_MERGED"}, "ACQUIRED_OR_MERGED"),
+        ("unset_when_absent", {}, None),
+    ]
+)
+def test_ownership_status_mapping(_name, overrides, expected):
+    fields = transform_harmonic_company(_company(**overrides))
+    assert fields is not None
+    assert fields.ownership_status == expected
+    # Parent resolution is a provider-level concern (REST lookup), not part of the pure transform.
+    assert fields.parent_company is None
+    assert fields.parent_company_domain is None
+    assert "parent_company" not in fields.to_dict()
+
+
+@parameterized.expand(
+    [
+        ("dropped_with_no_round_data", "VENTURE_UNKNOWN", {}, None),
+        ("kept_with_funding_total", "VENTURE_UNKNOWN", {"fundingTotal": 5000000}, "VENTURE_UNKNOWN"),
+        ("kept_with_funding_rounds", "VENTURE_UNKNOWN", {"numFundingRounds": 1}, "VENTURE_UNKNOWN"),
+        ("real_stage_kept_with_no_round_data", "SEED", {}, "SEED"),
+    ]
+)
+def test_venture_unknown_placeholder_filtered_only_without_round_data(_name, stage, funding_overrides, expected):
+    funding = {"fundingStage": stage, **funding_overrides}
+    fields = transform_harmonic_company(_company(funding=funding))
+    assert fields is not None
+    assert fields.funding_stage == expected
+
+
+def test_venture_unknown_placeholder_dropped_entirely_from_to_dict():
+    fields = transform_harmonic_company(_company(funding={"fundingStage": "VENTURE_UNKNOWN"}))
+    assert fields is not None
+    assert "funding_stage" not in fields.to_dict()
+
+
+@parameterized.expand(
+    [
+        ("mapped_when_present", {"customerType": "B2B"}, "B2B"),
+        ("unset_when_absent", {}, None),
+    ]
+)
+def test_customer_type_mapping(_name, overrides, expected):
+    fields = transform_harmonic_company(_company(**overrides))
+    assert fields is not None
+    assert fields.customer_type == expected
+
+
+@parameterized.expand(
+    [
+        # Top-level Company field in the GraphQL schema, not nested under funding.
+        ("mapped_when_present", {"fundingAttributeNullStatus": "NULL_TRUE_ZERO"}, "NULL_TRUE_ZERO"),
+        ("unset_when_absent", {}, None),
+    ]
+)
+def test_funding_status_mapping(_name, overrides, expected):
+    fields = transform_harmonic_company(_company(**overrides))
+    assert fields is not None
+    assert fields.funding_status == expected

@@ -27,6 +27,14 @@ export class MemoryCachedKeyStore implements KeyStore {
     }
 
     async generateKey(sessionId: string, teamId: number, retentionDays: number): Promise<SessionKey> {
+        // Serve a cached key if one exists, so repeated new-session sightings within a batch (grouped
+        // per session) don't each hit KMS/DynamoDB — the delegate's generateKey is idempotent, so a
+        // cached key is the same key it would return anyway.
+        const cached = this.cache.get(this.cacheKey(sessionId, teamId))
+        if (cached) {
+            return cached
+        }
+
         const key = await this.delegate.generateKey(sessionId, teamId, retentionDays)
         this.cache.set(this.cacheKey(sessionId, teamId), key)
         return key

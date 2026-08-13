@@ -16,6 +16,8 @@ import type {
     BulkKeysResponseApi,
     BulkUpdateTagsRequestApi,
     BulkUpdateTagsResponseApi,
+    CopyFlagsDependencyRequirementsRequestApi,
+    CopyFlagsDependencyRequirementsResponseApi,
     CopyFlagsRequestApi,
     CopyFlagsResponseApi,
     DependentFlagApi,
@@ -35,6 +37,7 @@ import type {
     FeatureFlagsMyFlagsRetrieveParams,
     FeatureFlagsStaffCacheEntryRetrieveParams,
     FeatureFlagsStaffCacheListParams,
+    FeatureFlagsStaffTeamConfigListParams,
     FeatureFlagsStaffTeamsListParams,
     FlagValueResponseApi,
     FlagValueValuesRetrieveParams,
@@ -52,7 +55,12 @@ import type {
     StaffCacheMutationApi,
     StaffCacheMutationResponseApi,
     StaffCacheStatusResponseApi,
+    StaffTeamConfigApi,
+    StaffTeamConfigListResponseApi,
+    StaffTeamConfigMutationApi,
     StaffTeamSearchResponseApi,
+    StaffWarmRunCancelResponseApi,
+    StaffWarmRunResponseApi,
     UserBlastRadiusRequestApi,
     UserBlastRadiusResponseApi,
 } from './api.schemas'
@@ -93,10 +101,8 @@ export const getFeatureFlagsStaffCacheListUrl = (params: FeatureFlagsStaffCacheL
 /**
  * Staff-only, unscoped status/entry/rebuild/clear for the HyperCache-backed flag caches.
  *
- * Rebuild/clear act on two logical targets ('evaluation' and 'definitions'; the latter rebuilds
- * or clears both definitions-cache variants together). Status/entry can read a third, narrower
- * target ('definitions_no_cohorts') independently, since the two definitions-cache variants are
- * individually readable even though they're only mutated as a pair.
+ * Rebuild/clear act on two logical targets: 'evaluation' (the /flags cache) and 'definitions'
+ * (the /flags/definitions local-eval cache), independently readable and mutable.
  *
  * Reuses the existing cache functions and Celery tasks (the same mechanism signal handlers use
  * when a flag changes) rather than re-implementing cache-write logic. Registered on the root
@@ -119,10 +125,8 @@ export const getFeatureFlagsStaffCacheClearCreateUrl = () => {
 /**
  * Staff-only, unscoped status/entry/rebuild/clear for the HyperCache-backed flag caches.
  *
- * Rebuild/clear act on two logical targets ('evaluation' and 'definitions'; the latter rebuilds
- * or clears both definitions-cache variants together). Status/entry can read a third, narrower
- * target ('definitions_no_cohorts') independently, since the two definitions-cache variants are
- * individually readable even though they're only mutated as a pair.
+ * Rebuild/clear act on two logical targets: 'evaluation' (the /flags cache) and 'definitions'
+ * (the /flags/definitions local-eval cache), independently readable and mutable.
  *
  * Reuses the existing cache functions and Celery tasks (the same mechanism signal handlers use
  * when a flag changes) rather than re-implementing cache-write logic. Registered on the root
@@ -159,10 +163,8 @@ export const getFeatureFlagsStaffCacheEntryRetrieveUrl = (params: FeatureFlagsSt
 /**
  * Staff-only, unscoped status/entry/rebuild/clear for the HyperCache-backed flag caches.
  *
- * Rebuild/clear act on two logical targets ('evaluation' and 'definitions'; the latter rebuilds
- * or clears both definitions-cache variants together). Status/entry can read a third, narrower
- * target ('definitions_no_cohorts') independently, since the two definitions-cache variants are
- * individually readable even though they're only mutated as a pair.
+ * Rebuild/clear act on two logical targets: 'evaluation' (the /flags cache) and 'definitions'
+ * (the /flags/definitions local-eval cache), independently readable and mutable.
  *
  * Reuses the existing cache functions and Celery tasks (the same mechanism signal handlers use
  * when a flag changes) rather than re-implementing cache-write logic. Registered on the root
@@ -185,10 +187,8 @@ export const getFeatureFlagsStaffCacheRebuildCreateUrl = () => {
 /**
  * Staff-only, unscoped status/entry/rebuild/clear for the HyperCache-backed flag caches.
  *
- * Rebuild/clear act on two logical targets ('evaluation' and 'definitions'; the latter rebuilds
- * or clears both definitions-cache variants together). Status/entry can read a third, narrower
- * target ('definitions_no_cohorts') independently, since the two definitions-cache variants are
- * individually readable even though they're only mutated as a pair.
+ * Rebuild/clear act on two logical targets: 'evaluation' (the /flags cache) and 'definitions'
+ * (the /flags/definitions local-eval cache), independently readable and mutable.
  *
  * Reuses the existing cache functions and Celery tasks (the same mechanism signal handlers use
  * when a flag changes) rather than re-implementing cache-write logic. Registered on the root
@@ -203,6 +203,114 @@ export const featureFlagsStaffCacheRebuildCreate = async (
         method: 'POST',
         headers: { 'Content-Type': 'application/json', ...options?.headers },
         body: JSON.stringify(staffCacheMutationApi),
+    })
+}
+
+export const getFeatureFlagsStaffCacheWarmRunRetrieveUrl = () => {
+    return `/api/feature_flags_staff_cache/warm_run/`
+}
+
+/**
+ * Status of the most recent warm-all run, published by the Rust warmer.
+ */
+export const featureFlagsStaffCacheWarmRunRetrieve = async (
+    options?: RequestInit
+): Promise<StaffWarmRunResponseApi> => {
+    return apiMutator<StaffWarmRunResponseApi>(getFeatureFlagsStaffCacheWarmRunRetrieveUrl(), {
+        ...options,
+        method: 'GET',
+    })
+}
+
+export const getFeatureFlagsStaffCacheWarmRunCancelCreateUrl = () => {
+    return `/api/feature_flags_staff_cache/warm_run/cancel/`
+}
+
+/**
+ * Request cancellation of the active warm-all run.
+ *
+ * Sets the cancel key the warmer polls between status heartbeats; the run winds down after
+ * in-flight teams finish. Cancelling a stale run is allowed (the key is scoped to the run id,
+ * so a dead process simply never reads it).
+ */
+export const featureFlagsStaffCacheWarmRunCancelCreate = async (
+    options?: RequestInit
+): Promise<StaffWarmRunCancelResponseApi> => {
+    return apiMutator<StaffWarmRunCancelResponseApi>(getFeatureFlagsStaffCacheWarmRunCancelCreateUrl(), {
+        ...options,
+        method: 'POST',
+    })
+}
+
+export const getFeatureFlagsStaffTeamConfigListUrl = (params: FeatureFlagsStaffTeamConfigListParams) => {
+    const normalizedParams = new URLSearchParams()
+
+    Object.entries(params || {}).forEach(([key, value]) => {
+        if (value !== undefined) {
+            normalizedParams.append(key, value === null ? 'null' : String(value))
+        }
+    })
+
+    const stringifiedParams = normalizedParams.toString()
+
+    return stringifiedParams.length > 0
+        ? `/api/feature_flags_staff_team_config/?${stringifiedParams}`
+        : `/api/feature_flags_staff_team_config/`
+}
+
+/**
+ * Staff-only, unscoped read/write for TeamFeatureFlagsConfig: the minimal_flag_called_events
+ * rollout gate and the per-team feature-flag count override.
+ *
+ * Single-team writes only, by design. minimal_flag_called_events is flipped one team at a time
+ * after staff verify that team's SDK versions support the slim $feature_flag_called event shape,
+ * and max_feature_flags_override is a per-customer capacity grant. Neither is a bulk operation,
+ * unlike the cache tools' rebuild and clear.
+ *
+ * set() takes partial updates: omit a setting to leave it unchanged, and send
+ * max_feature_flags_override as null to clear the override.
+ *
+ * Registered on the root router so it is not team-nested; staff act on teams they do not
+ * belong to, same as staff_cache.py / staff_teams.py.
+ */
+export const featureFlagsStaffTeamConfigList = async (
+    params: FeatureFlagsStaffTeamConfigListParams,
+    options?: RequestInit
+): Promise<StaffTeamConfigListResponseApi> => {
+    return apiMutator<StaffTeamConfigListResponseApi>(getFeatureFlagsStaffTeamConfigListUrl(params), {
+        ...options,
+        method: 'GET',
+    })
+}
+
+export const getFeatureFlagsStaffTeamConfigSetCreateUrl = () => {
+    return `/api/feature_flags_staff_team_config/set/`
+}
+
+/**
+ * Staff-only, unscoped read/write for TeamFeatureFlagsConfig: the minimal_flag_called_events
+ * rollout gate and the per-team feature-flag count override.
+ *
+ * Single-team writes only, by design. minimal_flag_called_events is flipped one team at a time
+ * after staff verify that team's SDK versions support the slim $feature_flag_called event shape,
+ * and max_feature_flags_override is a per-customer capacity grant. Neither is a bulk operation,
+ * unlike the cache tools' rebuild and clear.
+ *
+ * set() takes partial updates: omit a setting to leave it unchanged, and send
+ * max_feature_flags_override as null to clear the override.
+ *
+ * Registered on the root router so it is not team-nested; staff act on teams they do not
+ * belong to, same as staff_cache.py / staff_teams.py.
+ */
+export const featureFlagsStaffTeamConfigSetCreate = async (
+    staffTeamConfigMutationApi: StaffTeamConfigMutationApi,
+    options?: RequestInit
+): Promise<StaffTeamConfigApi> => {
+    return apiMutator<StaffTeamConfigApi>(getFeatureFlagsStaffTeamConfigSetCreateUrl(), {
+        ...options,
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', ...options?.headers },
+        body: JSON.stringify(staffTeamConfigMutationApi),
     })
 }
 
@@ -270,6 +378,26 @@ export const featureFlagsCopyFlagsCreate = async (
         headers: { 'Content-Type': 'application/json', ...options?.headers },
         body: JSON.stringify(copyFlagsRequestApi),
     })
+}
+
+export const getFeatureFlagsCopyFlagsDependencyRequirementsCreateUrl = (organizationId: string) => {
+    return `/api/organizations/${organizationId}/feature_flags/copy_flags/dependency_requirements/`
+}
+
+export const featureFlagsCopyFlagsDependencyRequirementsCreate = async (
+    organizationId: string,
+    copyFlagsDependencyRequirementsRequestApi: CopyFlagsDependencyRequirementsRequestApi,
+    options?: RequestInit
+): Promise<CopyFlagsDependencyRequirementsResponseApi> => {
+    return apiMutator<CopyFlagsDependencyRequirementsResponseApi>(
+        getFeatureFlagsCopyFlagsDependencyRequirementsCreateUrl(organizationId),
+        {
+            ...options,
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json', ...options?.headers },
+            body: JSON.stringify(copyFlagsDependencyRequirementsRequestApi),
+        }
+    )
 }
 
 export const getOrgFeatureFlagsKeysUrl = (organizationId: string, params?: OrgFeatureFlagsKeysParams) => {
@@ -647,14 +775,11 @@ export const getFeatureFlagsDashboardCreateUrl = (projectId: string, id: number)
 export const featureFlagsDashboardCreate = async (
     projectId: string,
     id: number,
-    featureFlagApi: NonReadonly<FeatureFlagApi>,
     options?: RequestInit
 ): Promise<void> => {
     return apiMutator<void>(getFeatureFlagsDashboardCreateUrl(projectId, id), {
         ...options,
         method: 'POST',
-        headers: { 'Content-Type': 'application/json', ...options?.headers },
-        body: JSON.stringify(featureFlagApi),
     })
 }
 
@@ -688,14 +813,11 @@ export const getFeatureFlagsEnrichUsageDashboardCreateUrl = (projectId: string, 
 export const featureFlagsEnrichUsageDashboardCreate = async (
     projectId: string,
     id: number,
-    featureFlagApi: NonReadonly<FeatureFlagApi>,
     options?: RequestInit
 ): Promise<void> => {
     return apiMutator<void>(getFeatureFlagsEnrichUsageDashboardCreateUrl(projectId, id), {
         ...options,
         method: 'POST',
-        headers: { 'Content-Type': 'application/json', ...options?.headers },
-        body: JSON.stringify(featureFlagApi),
     })
 }
 

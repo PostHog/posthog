@@ -30,6 +30,12 @@ class QuotaExceededError(LLMError):
     """Raised when API quota is exceeded"""
 
 
+class ProviderConnectionError(LLMError):
+    """Raised on a transient network/transport error talking to the provider — connection reset,
+    read timeout, DNS failure. Retryable: callers should retry rather than treat it as a hard error,
+    and should not log it as an exception since it's usually resolved on the next attempt."""
+
+
 class ProviderMismatchError(LLMError):
     """Raised when request provider doesn't match provider key's provider"""
 
@@ -49,6 +55,26 @@ class ModelNotFoundError(LLMError):
 
 class StructuredOutputParseError(LLMError):
     """Raised when the LLM response cannot be parsed into the expected structured output format"""
+
+
+class ContextWindowExceededError(LLMError):
+    """Raised when the prompt exceeds the model's context window."""
+
+
+_CONTEXT_WINDOW_ERROR_MARKERS = (
+    "context_length_exceeded",
+    "maximum context length",
+    "input tokens exceed",
+    "reduce the length of the messages",
+    "prompt is too long",
+    "context window",
+    "exceed context limit",
+)
+
+
+def is_context_window_error_message(message: str) -> bool:
+    lowered = message.lower()
+    return any(marker in lowered for marker in _CONTEXT_WINDOW_ERROR_MARKERS)
 
 
 class ModelPermissionError(LLMError):

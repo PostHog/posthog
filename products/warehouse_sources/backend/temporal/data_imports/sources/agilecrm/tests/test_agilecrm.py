@@ -1,64 +1,77 @@
+import json
 from typing import Any
 
 import pytest
-from unittest.mock import MagicMock, patch
+from unittest import mock
 
-import requests
 from parameterized import parameterized
+from requests import Response
 
-from products.warehouse_sources.backend.temporal.data_imports.sources.agilecrm import agilecrm
 from products.warehouse_sources.backend.temporal.data_imports.sources.agilecrm.agilecrm import (
     AgileCRMResumeConfig,
+    agilecrm_source,
     base_url,
-    get_rows,
     validate_credentials,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.agilecrm.settings import AGILECRM_ENDPOINTS
 
+# RESTClient builds its session via make_tracked_session in the rest_client module.
+CLIENT_SESSION_PATCH = "products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.rest_client.make_tracked_session"
+# validate_credentials builds its own tracked session in the agilecrm module.
+AGILECRM_SESSION_PATCH = (
+    "products.warehouse_sources.backend.temporal.data_imports.sources.agilecrm.agilecrm.make_tracked_session"
+)
 
-class _FakeResumableManager:
-    def __init__(self, state: AgileCRMResumeConfig | None = None) -> None:
-        self._state = state
-        self.saved: list[AgileCRMResumeConfig] = []
-
-    def can_resume(self) -> bool:
-        return self._state is not None
-
-    def load_state(self) -> AgileCRMResumeConfig | None:
-        return self._state
-
-    def save_state(self, data: AgileCRMResumeConfig) -> None:
-        self.saved.append(data)
+PAGE_SIZE = AGILECRM_ENDPOINTS["contacts"].page_size
 
 
-def _collect_rows(
-    monkeypatch: Any,
-    pages: list[list[dict[str, Any]]],
-    manager: _FakeResumableManager,
-    endpoint: str = "contacts",
-) -> tuple[list[dict[str, Any]], list[dict[str, Any]]]:
-    """Drive get_rows against a queue of fake pages, returning (rows, recorded request params)."""
-    recorded_params: list[dict[str, Any]] = []
-    queue = list(pages)
+def _response(body: Any) -> Response:
+    # Agile CRM list endpoints return a bare JSON array as the body.
+    resp = Response()
+    resp.status_code = 200
+    resp._content = json.dumps(body).encode()
+    return resp
 
-    def fake_fetch(session: Any, url: str, params: dict[str, Any], logger: Any) -> list[dict[str, Any]]:
-        recorded_params.append(dict(params))
-        return queue.pop(0) if queue else []
 
-    monkeypatch.setattr(agilecrm, "_fetch_page", fake_fetch)
-    monkeypatch.setattr(agilecrm, "_make_session", lambda email, api_key: MagicMock())
+def _make_manager(resume_state: AgileCRMResumeConfig | None = None) -> mock.MagicMock:
+    manager = mock.MagicMock()
+    manager.can_resume.return_value = resume_state is not None
+    manager.load_state.return_value = resume_state
+    return manager
 
-    rows: list[dict[str, Any]] = []
-    for table in get_rows(
+
+def _wire(session: mock.MagicMock, responses: list[Response]) -> list[dict[str, Any]]:
+    """Wire a mock session and return a list that captures each request's params AT SEND TIME.
+
+    ``request.params`` is a single dict mutated in place across pages, so inspecting it after the run
+    shows only the final state — snapshot a copy when each request is prepared instead.
+    """
+    session.headers = {}
+    param_snapshots: list[dict[str, Any]] = []
+
+    def _prepare(request: Any) -> mock.MagicMock:
+        param_snapshots.append(dict(request.params or {}))
+        return mock.MagicMock()
+
+    session.prepare_request.side_effect = _prepare
+    session.send.side_effect = responses
+    return param_snapshots
+
+
+def _rows(source_response) -> list[dict[str, Any]]:
+    return [row for page in source_response.items() for row in page]
+
+
+def _source(manager: mock.MagicMock, endpoint: str = "contacts"):
+    return agilecrm_source(
         domain="acme",
         email="a@b.com",
         api_key="key",
         endpoint=endpoint,
-        logger=MagicMock(),
-        resumable_source_manager=manager,  # type: ignore[arg-type]
-    ):
-        rows.extend(table.to_pylist())
-    return rows, recorded_params
+        team_id=1,
+        job_id="j",
+        resumable_source_manager=manager,
+    )
 
 
 class TestBaseUrl:
@@ -89,81 +102,103 @@ class TestBaseUrl:
 
 
 class TestPagination:
-    def test_paginates_until_short_page(self, monkeypatch: Any) -> None:
-        page_size = AGILECRM_ENDPOINTS["contacts"].page_size
-        first_page = [{"id": i} for i in range(page_size - 1)] + [{"id": page_size, "cursor": "CURSOR1"}]
+    @mock.patch(CLIENT_SESSION_PATCH)
+    def test_paginates_until_short_page(self, MockSession) -> None:
+        session = MockSession.return_value
+        first_page = [{"id": i} for i in range(PAGE_SIZE - 1)] + [{"id": PAGE_SIZE, "cursor": "CURSOR1"}]
         second_page = [{"id": 9001}]  # short page -> terminal
-        manager = _FakeResumableManager()
+        params = _wire(session, [_response(first_page), _response(second_page)])
 
-        rows, params = _collect_rows(monkeypatch, [first_page, second_page], manager)
+        manager = _make_manager()
+        rows = _rows(_source(manager))
 
-        assert len(rows) == page_size + 1
+        assert len(rows) == PAGE_SIZE + 1
         # First request has no cursor; the second carries the cursor from the last item of page one.
         assert "cursor" not in params[0]
+        assert params[0]["page_size"] == PAGE_SIZE
         assert params[1]["cursor"] == "CURSOR1"
         # The cursor is navigation metadata and must never leak into the warehouse rows.
         assert all("cursor" not in row for row in rows)
+        # Checkpoint saved after the first page (points at the next page); the short page ends it.
+        manager.save_state.assert_called_once()
+        assert manager.save_state.call_args.args[0] == AgileCRMResumeConfig(cursor="CURSOR1")
 
-    def test_stops_when_full_page_has_no_cursor(self, monkeypatch: Any) -> None:
+    @mock.patch(CLIENT_SESSION_PATCH)
+    def test_stops_when_full_page_has_no_cursor(self, MockSession) -> None:
         # A full page whose last item carries no cursor must terminate rather than loop forever.
-        page_size = AGILECRM_ENDPOINTS["contacts"].page_size
-        full_page_no_cursor = [{"id": i} for i in range(page_size)]
-        manager = _FakeResumableManager()
+        session = MockSession.return_value
+        full_page_no_cursor = [{"id": i} for i in range(PAGE_SIZE)]
+        _wire(session, [_response(full_page_no_cursor), _response([{"id": 1}])])
 
-        rows, params = _collect_rows(monkeypatch, [full_page_no_cursor, [{"id": 1}]], manager)
+        manager = _make_manager()
+        rows = _rows(_source(manager))
 
-        assert len(rows) == page_size
-        assert len(params) == 1
+        assert len(rows) == PAGE_SIZE
+        assert session.send.call_count == 1
+        manager.save_state.assert_not_called()
 
-    def test_empty_first_page_yields_nothing(self, monkeypatch: Any) -> None:
-        manager = _FakeResumableManager()
-        rows, params = _collect_rows(monkeypatch, [[]], manager)
+    @mock.patch(CLIENT_SESSION_PATCH)
+    def test_stops_on_short_page_even_with_cursor(self, MockSession) -> None:
+        # A short page is terminal even if its last item still carries a cursor.
+        session = MockSession.return_value
+        short_page = [{"id": 1}, {"id": 2, "cursor": "DANGLING"}]
+        _wire(session, [_response(short_page), _response([{"id": 3}])])
+
+        manager = _make_manager()
+        rows = _rows(_source(manager))
+
+        assert [r["id"] for r in rows] == [1, 2]
+        assert session.send.call_count == 1
+        assert all("cursor" not in row for row in rows)
+        manager.save_state.assert_not_called()
+
+    @mock.patch(CLIENT_SESSION_PATCH)
+    def test_empty_first_page_yields_nothing(self, MockSession) -> None:
+        session = MockSession.return_value
+        _wire(session, [_response([])])
+
+        manager = _make_manager()
+        rows = _rows(_source(manager))
+
         assert rows == []
-        assert len(params) == 1
+        assert session.send.call_count == 1
+        manager.save_state.assert_not_called()
 
-    def test_resume_uses_saved_cursor(self, monkeypatch: Any) -> None:
-        manager = _FakeResumableManager(AgileCRMResumeConfig(cursor="SAVED"))
-        rows, params = _collect_rows(monkeypatch, [[{"id": 1}]], manager)
+    @mock.patch(CLIENT_SESSION_PATCH)
+    def test_resume_uses_saved_cursor(self, MockSession) -> None:
+        session = MockSession.return_value
+        params = _wire(session, [_response([{"id": 1}])])
+
+        manager = _make_manager(AgileCRMResumeConfig(cursor="SAVED"))
+        rows = _rows(_source(manager))
 
         assert rows == [{"id": 1}]
         assert params[0]["cursor"] == "SAVED"
 
-    def test_saves_state_after_yielding_batch(self, monkeypatch: Any) -> None:
-        # The Batcher flushes once 2000 rows accumulate; state must be saved (with the next cursor)
-        # only after that batch is yielded, so a crash re-yields the last page rather than skipping it.
-        big_first_page = [{"id": i} for i in range(2499)] + [{"id": 2500, "cursor": "NEXT"}]
-        manager = _FakeResumableManager()
+    @mock.patch(CLIENT_SESSION_PATCH)
+    def test_non_list_body_raises_loudly(self, MockSession) -> None:
+        session = MockSession.return_value
+        _wire(session, [_response({"error": "something went wrong"})])
 
-        rows, _ = _collect_rows(monkeypatch, [big_first_page, [{"id": 1}]], manager)
-
-        assert manager.saved
-        assert manager.saved[0].cursor == "NEXT"
-        # The cursor is navigation metadata and must never leak into the warehouse rows.
-        assert all("cursor" not in row for row in rows)
+        # A 200 object body means the response shape changed — fail loud, not silently mis-sync.
+        with pytest.raises(ValueError, match="Required a list response body"):
+            _rows(_source(_make_manager()))
 
 
 class TestValidateCredentials:
     @parameterized.expand([("ok", 200, True), ("unauthorized", 401, False), ("forbidden", 403, False)])
     def test_status_maps_to_bool(self, _name: str, status_code: int, expected: bool) -> None:
-        response = MagicMock()
-        response.status_code = status_code
-        session = MagicMock()
-        session.get.return_value = response
-
-        with patch.object(agilecrm, "_make_session", lambda email, api_key: session):
+        with mock.patch(AGILECRM_SESSION_PATCH) as mock_session:
+            mock_session.return_value.get.return_value = mock.MagicMock(status_code=status_code)
             assert validate_credentials("acme", "a@b.com", "key") is expected
 
-    def test_invalid_domain_short_circuits_to_false(self, monkeypatch: Any) -> None:
+    def test_invalid_domain_short_circuits_to_false(self) -> None:
         # An invalid domain must fail before any request is attempted.
-        session = MagicMock()
-        monkeypatch.setattr(agilecrm, "_make_session", lambda email, api_key: session)
+        with mock.patch(AGILECRM_SESSION_PATCH) as mock_session:
+            assert validate_credentials("evil.com#", "a@b.com", "key") is False
+            mock_session.assert_not_called()
 
-        assert validate_credentials("evil.com#", "a@b.com", "key") is False
-        session.get.assert_not_called()
-
-    def test_network_error_is_false(self, monkeypatch: Any) -> None:
-        session = MagicMock()
-        session.get.side_effect = requests.ConnectionError("boom")
-        monkeypatch.setattr(agilecrm, "_make_session", lambda email, api_key: session)
-
-        assert validate_credentials("acme", "a@b.com", "key") is False
+    def test_network_error_is_false(self) -> None:
+        with mock.patch(AGILECRM_SESSION_PATCH) as mock_session:
+            mock_session.return_value.get.side_effect = Exception("boom")
+            assert validate_credentials("acme", "a@b.com", "key") is False

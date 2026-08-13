@@ -4,11 +4,8 @@ import { useEffect } from 'react'
 import { ExportType, ExportedData } from '~/exporter/types'
 
 import __funnelHistoricalTrends from '../../mocks/fixtures/api/projects/team_id/insights/funnelHistoricalTrends.json'
-import __funnelLeftToRight from '../../mocks/fixtures/api/projects/team_id/insights/funnelLeftToRight.json'
-import __funnelLeftToRightBreakdown from '../../mocks/fixtures/api/projects/team_id/insights/funnelLeftToRightBreakdown.json'
 import __funnelTimeToConvert from '../../mocks/fixtures/api/projects/team_id/insights/funnelTimeToConvert.json'
 import __funnelTopToBottom from '../../mocks/fixtures/api/projects/team_id/insights/funnelTopToBottom.json'
-import __funnelTopToBottomBreakdown from '../../mocks/fixtures/api/projects/team_id/insights/funnelTopToBottomBreakdown.json'
 import { Exporter } from '../Exporter'
 
 type Story = StoryObj<ExportedData>
@@ -45,28 +42,6 @@ const meta: Meta<ExportedData> = {
 
 export default meta
 
-export const FunnelLeftToRightInsight: Story = {
-    args: {
-        insight: __funnelLeftToRight as any,
-    },
-}
-
-/** This should not happen in the exporter, but if it does, it shouldn't error out - we want a clear message. */
-export const FunnelLeftToRightInsightNoResults: Story = {
-    args: {
-        insight: {
-            ...(__funnelLeftToRight as any),
-            result: null,
-        },
-    },
-}
-
-export const FunnelLeftToRightBreakdownInsight: Story = {
-    args: {
-        insight: __funnelLeftToRightBreakdown as any,
-    },
-}
-
 export const FunnelTopToBottomInsight: Story = {
     args: {
         insight: __funnelTopToBottom as any,
@@ -79,12 +54,6 @@ export const FunnelTopToBottomInsightNoResults: Story = {
             ...(__funnelTopToBottom as any),
             result: null,
         },
-    },
-}
-
-export const FunnelTopToBottomBreakdownInsight: Story = {
-    args: {
-        insight: __funnelTopToBottomBreakdown as any,
     },
 }
 

@@ -1,30 +1,46 @@
 import { BuiltLogic, useActions, useValues } from 'kea'
 import { useEffect, useMemo } from 'react'
 
+import { LemonTag } from '@posthog/lemon-ui'
 import { PostHogErrorBoundary } from '@posthog/react'
 
+import { NotFound } from 'lib/components/NotFound'
 import { JSONContent } from 'lib/components/RichContentEditor/types'
 import { useOnMountEffect } from 'lib/hooks/useOnMountEffect'
+import { LemonSkeleton } from 'lib/lemon-ui/LemonSkeleton'
 import { createPostHogWidgetNode } from 'scenes/notebooks/Nodes/NodeWrapper'
+import { defineNotebookWidgetViews, getNotebookWidgetDefaultView } from 'scenes/notebooks/notebookWidgetCatalog'
 import { RecordingsUniversalFiltersEmbed } from 'scenes/session-recordings/filters/RecordingsUniversalFiltersEmbed'
 import { sessionRecordingPlayerLogic } from 'scenes/session-recordings/player/sessionRecordingPlayerLogic'
-import { sessionRecordingPlayerLogicType } from 'scenes/session-recordings/player/sessionRecordingPlayerLogicType'
+import type { sessionRecordingPlayerLogicType } from 'scenes/session-recordings/player/sessionRecordingPlayerLogic'
 import { SessionRecordingsPlaylist } from 'scenes/session-recordings/playlist/SessionRecordingsPlaylist'
 import {
+    asUniversalFilters,
     DEFAULT_RECORDING_FILTERS,
     SessionRecordingPlaylistLogicProps,
-    convertLegacyFiltersToUniversalFilters,
     sessionRecordingsPlaylistLogic,
 } from 'scenes/session-recordings/playlist/sessionRecordingsPlaylistLogic'
+import { sessionRecordingsPlaylistSceneLogic } from 'scenes/session-recordings/playlist/sessionRecordingsPlaylistSceneLogic'
 import { urls } from 'scenes/urls'
 
-import { FilterType, RecordingUniversalFilters, ReplayTabs } from '~/types'
+import { FilterType, RecordingUniversalFilters } from '~/types'
 
 import { notebookLogic } from '../Notebook/notebookLogic'
 import { NotebookNodeAttributeProperties, NotebookNodeProps, NotebookNodeType } from '../types'
 import { notebookNodeLogic } from './notebookNodeLogic'
 
 const Component = ({
+    attributes,
+    updateAttributes,
+}: NotebookNodeProps<NotebookNodePlaylistAttributes>): JSX.Element => {
+    if (attributes.id) {
+        return <SavedPlaylistDetail attributes={attributes} updateAttributes={updateAttributes} />
+    }
+
+    return <PlaylistContent attributes={attributes} updateAttributes={updateAttributes} />
+}
+
+const PlaylistContent = ({
     attributes,
     updateAttributes,
 }: NotebookNodeProps<NotebookNodePlaylistAttributes>): JSX.Element => {
@@ -53,7 +69,7 @@ const Component = ({
         [playerKey, universalFilters, pinned]
     )
 
-    const { setActions, insertAfter, setMessageListeners, scrollIntoView } = useActions(notebookNodeLogic)
+    const { setActions, insertAfter, setMessageListeners } = useActions(notebookNodeLogic)
 
     const logic = sessionRecordingsPlaylistLogic(recordingPlaylistLogicProps)
     const { activeSessionRecording } = useValues(logic)
@@ -95,7 +111,6 @@ const Component = ({
             'play-replay': ({ sessionRecordingId, time }) => {
                 // IDEA: We could add the desired start time here as a param, which is picked up by the player...
                 setSelectedRecordingId(sessionRecordingId)
-                scrollIntoView()
 
                 setTimeout(() => {
                     // NOTE: This is a hack but we need a delay to give time for the player to mount
@@ -106,6 +121,45 @@ const Component = ({
     })
 
     return <SessionRecordingsPlaylist {...recordingPlaylistLogicProps} />
+}
+
+function SavedPlaylistDetail(props: NotebookNodeProps<NotebookNodePlaylistAttributes>): JSX.Element {
+    const { id } = props.attributes
+    const logic = sessionRecordingsPlaylistSceneLogic({ shortId: id || 'new' })
+    const { filters, pinnedRecordings, playlist, playlistLoading } = useValues(logic)
+    const { setTitlePlaceholder, setTitleStatus } = useActions(notebookNodeLogic)
+
+    useEffect(() => {
+        setTitlePlaceholder(playlist?.name || playlist?.derived_name || 'Recording playlist')
+        setTitleStatus(
+            playlist?.type
+                ? { label: playlist.type === 'collection' ? 'Collection' : 'Saved filter', type: 'default' }
+                : null
+        )
+    }, [playlist, setTitlePlaceholder, setTitleStatus])
+
+    if (!playlist && !playlistLoading) {
+        return <NotFound object="recording playlist" />
+    }
+    if (!playlist || !filters) {
+        return (
+            <div className="p-3">
+                <LemonSkeleton className="h-6 w-full" />
+            </div>
+        )
+    }
+
+    return (
+        <PlaylistContent
+            {...props}
+            attributes={{
+                ...props.attributes,
+                id: undefined,
+                universalFilters: asUniversalFilters(filters) || DEFAULT_RECORDING_FILTERS,
+                pinned: pinnedRecordings?.map((recording) => String(recording.id)),
+            }}
+        />
+    )
 }
 
 export const Settings = ({
@@ -126,22 +180,131 @@ export const Settings = ({
 }
 
 export type NotebookNodePlaylistAttributes = {
+    id?: string
+    view?: string
     universalFilters: RecordingUniversalFilters
     pinned?: string[]
 }
 
+function PlaylistSummary({ attributes }: NotebookNodeProps<NotebookNodePlaylistAttributes>): JSX.Element {
+    if (!attributes.id) {
+        return (
+            <div className="flex items-center gap-2 p-3">
+                <span className="flex-1">Ad hoc recording playlist</span>
+                <LemonTag type="muted">Unsaved</LemonTag>
+            </div>
+        )
+    }
+
+    return <SavedPlaylistSummary id={attributes.id} />
+}
+
+function SavedPlaylistSummary({ id }: { id: string }): JSX.Element {
+    const logic = sessionRecordingsPlaylistSceneLogic({ shortId: id })
+    const { derivedName, playlist, playlistLoading } = useValues(logic)
+    const { setTitlePlaceholder, setTitleStatus } = useActions(notebookNodeLogic)
+
+    useEffect(() => {
+        setTitlePlaceholder(playlist?.name || playlist?.derived_name || 'Recording playlist')
+        setTitleStatus(
+            playlist?.type
+                ? { label: playlist.type === 'collection' ? 'Collection' : 'Saved filter', type: 'default' }
+                : null
+        )
+    }, [playlist, setTitlePlaceholder, setTitleStatus])
+
+    if (!playlist && !playlistLoading) {
+        return <NotFound object="recording playlist" />
+    }
+    if (!playlist) {
+        return (
+            <div className="p-3">
+                <LemonSkeleton className="h-6 w-full" />
+            </div>
+        )
+    }
+
+    const recordingCount =
+        playlist.type === 'collection'
+            ? playlist.recordings_counts?.collection?.count || 0
+            : playlist.recordings_counts?.saved_filters?.count || 0
+
+    return (
+        <div className="flex flex-wrap items-center gap-2 p-3">
+            <span className="min-w-48 flex-1 truncate">{playlist.description || derivedName}</span>
+            <span className="text-xs text-secondary">
+                {recordingCount} {recordingCount === 1 ? 'recording' : 'recordings'}
+            </span>
+        </div>
+    )
+}
+
+function PlaylistConditions({ attributes }: NotebookNodeProps<NotebookNodePlaylistAttributes>): JSX.Element {
+    if (!attributes.id) {
+        return <Settings attributes={attributes} updateAttributes={() => {}} />
+    }
+
+    return <SavedPlaylistConditions id={attributes.id} />
+}
+
+function SavedPlaylistConditions({ id }: { id: string }): JSX.Element {
+    const { playlist, playlistLoading } = useValues(sessionRecordingsPlaylistSceneLogic({ shortId: id }))
+    const { setTitlePlaceholder, setTitleStatus } = useActions(notebookNodeLogic)
+
+    useEffect(() => {
+        setTitlePlaceholder(playlist?.name || playlist?.derived_name || 'Recording playlist')
+        setTitleStatus(
+            playlist?.type
+                ? { label: playlist.type === 'collection' ? 'Collection' : 'Saved filter', type: 'default' }
+                : null
+        )
+    }, [playlist, setTitlePlaceholder, setTitleStatus])
+
+    if (!playlist && !playlistLoading) {
+        return <NotFound object="recording playlist" />
+    }
+
+    if (!playlist || playlistLoading) {
+        return (
+            <div className="p-3">
+                <LemonSkeleton className="h-6 w-full" />
+            </div>
+        )
+    }
+
+    return (
+        <Settings
+            attributes={{
+                nodeId: `playlist-${id}-conditions`,
+                universalFilters: asUniversalFilters(playlist.filters) || DEFAULT_RECORDING_FILTERS,
+            }}
+            updateAttributes={() => {}}
+        />
+    )
+}
+
+const PLAYLIST_NOTEBOOK_WIDGET_VIEWS = defineNotebookWidgetViews<NotebookNodePlaylistAttributes, 'RecordingPlaylist'>(
+    'RecordingPlaylist',
+    {
+        summary: PlaylistSummary,
+        conditions: PlaylistConditions,
+    }
+)
+
 export const NotebookNodePlaylist = createPostHogWidgetNode<NotebookNodePlaylistAttributes>({
     nodeType: NotebookNodeType.RecordingPlaylist,
     titlePlaceholder: 'Session replays',
+    editableTitle: false,
     Component,
     heightEstimate: 'calc(100vh - 20rem)',
     href: (attrs) => {
-        // TODO: Fix parsing of attrs
-        return urls.replay(undefined, attrs.universalFilters)
+        return attrs.id ? urls.replayPlaylist(attrs.id) : urls.replay(undefined, attrs.universalFilters)
     },
     resizeable: true,
     expandable: false,
     attributes: {
+        id: {},
+        view: {},
         universalFilters: {
             default: DEFAULT_RECORDING_FILTERS,
         },
@@ -149,17 +312,10 @@ export const NotebookNodePlaylist = createPostHogWidgetNode<NotebookNodePlaylist
             default: undefined,
         },
     },
-    pasteOptions: {
-        find: urls.replay(ReplayTabs.Home) + '(.*)',
-        getAttributes: async (match) => {
-            const url = new URL(match[0])
-            const stringifiedFilters = url.searchParams.get('filters')
-            const filters = stringifiedFilters ? JSON.parse(stringifiedFilters) : {}
-            const universalFilters = convertLegacyFiltersToUniversalFilters({}, filters)
-            return { filters, universalFilters, pinned: [] }
-        },
-    },
     Settings,
+    defaultView: getNotebookWidgetDefaultView('RecordingPlaylist'),
+    views: PLAYLIST_NOTEBOOK_WIDGET_VIEWS,
+    serializedText: () => 'Recording playlist',
 })
 
 export function buildPlaylistContent(filters: Partial<FilterType>): JSONContent {

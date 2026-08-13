@@ -10,27 +10,32 @@ import { CollapsibleFrame, CollapsibleFrameProps } from './CollapsibleFrame'
 
 const frameContext: ErrorTrackingStackFrameContext = {
     before: [
-        { number: 7, line: '    const displayFrames = showAllFrames ? frames : frames.filter((f) => f.in_app)' },
-        { number: 8, line: '' },
-        { number: 9, line: '    useEffect(() => {' },
+        { number: 6, line: 'type RetryPolicy = { maxRetries: number; enabled: boolean }' },
+        { number: 7, line: 'const DEFAULT_POLICY: RetryPolicy = { maxRetries: 3, enabled: true }' },
+        { number: 8, line: '// Keep retries bounded before surfacing the error' },
+        { number: 9, line: 'class FrameLoader {' },
+        { number: 10, line: '    @trace({ category: "frames" })' },
     ],
-    line: { number: 10, line: '        loadFrameContexts({ frames })' },
+    line: { number: 11, line: '    async loadFrameContexts(policy: RetryPolicy | null): Promise<void> {' },
     after: [
-        { number: 11, line: '    }, [frames, loadFrameContexts])' },
-        { number: 12, line: '' },
-        { number: 13, line: '    const initiallyActiveIndex = displayFrames.findIndex((f) => f.in_app) || 0' },
+        {
+            number: 12,
+            line: '        await loadFrames(policy?.maxRetries ?? DEFAULT_POLICY.maxRetries)',
+        },
+        { number: 13, line: '    }' },
+        { number: 14, line: '}' },
     ],
 }
 
 const baseFrame: ErrorTrackingStackFrame = {
     raw_id: 'frame-1',
     mangled_name: 'loadFrameContexts',
-    line: 10,
-    column: 8,
-    source: 'src/lib/components/Errors/ErrorDisplay.tsx',
+    line: 11,
+    column: 5,
+    source: 'src/lib/components/Errors/FrameLoader.ts',
     in_app: true,
     resolved_name: 'loadFrameContexts',
-    lang: 'javascript',
+    lang: 'typescript',
     resolved: true,
     resolve_failure: null,
     module: null,
@@ -110,6 +115,15 @@ export function InAppWithContext(): JSX.Element {
 export function InitiallyExpanded(): JSX.Element {
     return <Wrapper frame={baseFrame} record={baseRecord} initialExpanded />
 }
+InitiallyExpanded.parameters = { testOptions: { skipDarkMode: true } }
+
+export function InitiallyExpandedDark(): JSX.Element {
+    return <Wrapper frame={baseFrame} record={baseRecord} initialExpanded />
+}
+InitiallyExpandedDark.globals = { theme: 'dark' }
+InitiallyExpandedDark.parameters = {
+    testOptions: { skipLightMode: true, waitForSelector: "[theme='dark'] .hljs" },
+}
 
 export function VendorFrame(): JSX.Element {
     return (
@@ -137,6 +151,39 @@ export function UnresolvedFrame(): JSX.Element {
             }}
         />
     )
+}
+
+const rustFrame: ErrorTrackingStackFrame = {
+    ...baseFrame,
+    raw_id: 'rust-1',
+    mangled_name: '_ZN7example4main17h5c8e...',
+    resolved_name: 'load_frames',
+    source: 'src/main.rs',
+    line: 12,
+    column: 5,
+    lang: 'rust',
+}
+
+const rustRecord: ErrorTrackingStackFrameRecord = {
+    ...baseRecord,
+    raw_id: 'rust-1',
+    context: {
+        before: [
+            { number: 9, line: 'struct RetryPolicy { max_retries: usize }' },
+            { number: 10, line: 'const DEFAULT_RETRIES: Option<usize> = None;' },
+            { number: 11, line: '#[instrument(fields(category = "frames"))]' },
+        ],
+        line: { number: 12, line: 'fn load_frames(policy: &RetryPolicy) -> Result<Vec<Frame>, Error> {' },
+        after: [
+            { number: 13, line: '    // Keep retries bounded before surfacing the error' },
+            { number: 14, line: '    client.load(policy.max_retries).expect("frames should load")' },
+            { number: 15, line: '}' },
+        ],
+    },
+}
+
+export function RustFrameWithContext(): JSX.Element {
+    return <Wrapper frame={rustFrame} record={rustRecord} initialExpanded />
 }
 
 export function NoContext(): JSX.Element {

@@ -72,15 +72,24 @@ def update_related_teams_metadata_cache_task(organization_id: int | None = None,
     the signal enqueues a single task no matter how many teams the org or project owns, and each
     per-team update runs as its own task so the work spreads across workers.
     """
-    if organization_id is not None:
-        team_ids = Team.objects.filter(organization_id=organization_id).values_list("id", flat=True)
-    elif project_id is not None:
-        team_ids = Team.objects.filter(project_id=project_id).values_list("id", flat=True)
-    else:
-        return
+    try:
+        if organization_id is not None:
+            team_ids = Team.objects.filter(organization_id=organization_id).values_list("id", flat=True)
+        elif project_id is not None:
+            team_ids = Team.objects.filter(project_id=project_id).values_list("id", flat=True)
+        else:
+            return
 
-    for team_id in team_ids:
-        update_team_metadata_cache_task.delay(team_id)
+        for team_id in team_ids:
+            update_team_metadata_cache_task.delay(team_id)
+    except Exception as e:
+        logger.exception(
+            "Failed to fan out related team metadata cache refresh",
+            organization_id=organization_id,
+            project_id=project_id,
+            error=str(e),
+        )
+        raise
 
 
 @shared_task(ignore_result=True, queue=CeleryQueue.DEFAULT.value)
@@ -105,7 +114,7 @@ def refresh_expiring_team_metadata_cache_entries() -> None:
     logger.info("Starting team metadata cache sync")
 
     try:
-        successful, failed = refresh_expiring_caches(ttl_threshold_hours=24)
+        counts = refresh_expiring_caches(ttl_threshold_hours=24)
 
         # Note: Teams processed metrics are pushed to Pushgateway by
         # cache_expiry_manager.refresh_expiring_caches() via push_hypercache_teams_processed_metrics()
@@ -117,8 +126,8 @@ def refresh_expiring_team_metadata_cache_entries() -> None:
 
         logger.info(
             "Completed team metadata cache refresh",
-            successful_refreshes=successful,
-            failed_refreshes=failed,
+            successful_refreshes=counts.successful,
+            failed_refreshes=counts.failed,
             total_cached=stats_after.get("total_cached", 0),
             total_teams=stats_after.get("total_teams", 0),
             cache_coverage=stats_after.get("cache_coverage", "unknown"),
