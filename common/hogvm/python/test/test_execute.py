@@ -16,7 +16,7 @@ from common.hogvm.python.operation import (
     HOGQL_BYTECODE_VERSION as VERSION,
     Operation as op,
 )
-from common.hogvm.python.stl import sleep
+from common.hogvm.python.stl import STL, sleep
 from common.hogvm.python.utils import HogVMException, UncaughtHogVMException
 
 
@@ -181,6 +181,28 @@ class TestBytecodeExecute:
             assert str(e) == "Invalid bytecode. More than one value left on stack"
         else:
             raise AssertionError("Expected Exception not raised")
+
+    def test_every_builtin_tolerates_its_own_min_args(self):
+        # A builtin whose fn indexes past its declared minArgs raises a bare IndexError instead of a
+        # HogVMException, which callers cannot tell apart from a bug in their own code. Blocking
+        # builtins are excluded because calling them would sleep or shell out.
+        leaked = []
+        for name, stl_fn in STL.items():
+            if stl_fn.is_blocking:
+                continue
+            arg_count = stl_fn.minArgs or 0
+            bytecode: list[Any] = [_H, VERSION]
+            for _ in range(arg_count):
+                bytecode += [op.STRING, "1"]
+            bytecode += [op.CALL_GLOBAL, name, arg_count]
+            try:
+                execute_bytecode(bytecode, {})
+            except IndexError:
+                leaked.append(name)
+            except Exception:
+                pass
+
+        assert leaked == []
 
     def test_memory_limits_1(self):
         # let string := 'banana'

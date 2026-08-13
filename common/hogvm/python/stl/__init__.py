@@ -1133,7 +1133,9 @@ STL: dict[str, STLFunction] = {
     "toDateTime": STLFunction(fn=lambda args, team, stdout, timeout: toDateTime(args[0]), minArgs=1, maxArgs=2),
     "formatDateTime": STLFunction(fn=_formatDateTime, minArgs=2, maxArgs=3),
     "HogError": STLFunction(
-        fn=lambda args, team, stdout, timeout: new_hog_error(args[0], args[1], args[2] if len(args) > 2 else None),
+        fn=lambda args, team, stdout, timeout: new_hog_error(
+            args[0], args[1] if len(args) > 1 else None, args[2] if len(args) > 2 else None
+        ),
         minArgs=1,
         maxArgs=3,
     ),
@@ -1145,13 +1147,15 @@ STL: dict[str, STLFunction] = {
         maxArgs=2,
     ),
     "RetryError": STLFunction(
-        fn=lambda args, team, stdout, timeout: new_hog_error("RetryError", args[0], args[1] if len(args) > 1 else None),
+        fn=lambda args, team, stdout, timeout: new_hog_error(
+            "RetryError", args[0] if len(args) > 0 else None, args[1] if len(args) > 1 else None
+        ),
         minArgs=0,
         maxArgs=2,
     ),
     "NotImplementedError": STLFunction(
         fn=lambda args, team, stdout, timeout: new_hog_error(
-            "NotImplementedError", args[0], args[1] if len(args) > 1 else None
+            "NotImplementedError", args[0] if len(args) > 0 else None, args[1] if len(args) > 1 else None
         ),
         minArgs=0,
         maxArgs=2,
