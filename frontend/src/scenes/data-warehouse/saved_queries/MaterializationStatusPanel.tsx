@@ -392,39 +392,42 @@ export function MaterializationStatusPanel({ viewId, kind = 'view' }: Materializ
                                             onChange={setIncrementalDraft}
                                         />
                                         {refreshModeChanged && (
-                                            <LemonButton
-                                                type="primary"
-                                                size="small"
-                                                className="mt-2"
-                                                loading={updatingDataWarehouseSavedQuery}
-                                                disabledReason={
-                                                    materializationAccessReason || incrementalDraftError || sync
-                                                }
-                                                tooltip={
-                                                    incrementalDraft.enabled
-                                                        ? 'The next run rebuilds the table once, then updates only new rows.'
-                                                        : 'Every run rebuilds the whole table.'
-                                                }
-                                                onClick={() =>
-                                                    updateDataWarehouseSavedQuery({
-                                                        id: viewId,
-                                                        incremental:
-                                                            incrementalDraft.enabled && incrementalDraft.incrementalKey
-                                                                ? {
-                                                                      enabled: true,
-                                                                      incremental_key: incrementalDraft.incrementalKey,
-                                                                      unique_key: incrementalDraft.uniqueKey,
-                                                                      lookback_seconds:
-                                                                          incrementalDraft.lookbackSeconds,
-                                                                  }
-                                                                : null,
-                                                        types: [[]],
-                                                        lifecycle: 'update',
-                                                    })
-                                                }
-                                            >
-                                                Save refresh mode
-                                            </LemonButton>
+                                            <div className="mt-2">
+                                                <LemonButton
+                                                    type="primary"
+                                                    size="small"
+                                                    loading={updatingDataWarehouseSavedQuery}
+                                                    disabledReason={
+                                                        materializationAccessReason || incrementalDraftError || sync
+                                                    }
+                                                    onClick={() =>
+                                                        updateDataWarehouseSavedQuery({
+                                                            id: viewId,
+                                                            incremental:
+                                                                incrementalDraft.enabled &&
+                                                                incrementalDraft.incrementalKey
+                                                                    ? {
+                                                                          enabled: true,
+                                                                          incremental_key:
+                                                                              incrementalDraft.incrementalKey,
+                                                                          unique_key: incrementalDraft.uniqueKey,
+                                                                          lookback_seconds:
+                                                                              incrementalDraft.lookbackSeconds,
+                                                                      }
+                                                                    : null,
+                                                            types: [[]],
+                                                            lifecycle: 'update',
+                                                        })
+                                                    }
+                                                >
+                                                    Save refresh mode
+                                                </LemonButton>
+                                                <div className="text-xs text-secondary mt-1">
+                                                    {incrementalDraft.enabled
+                                                        ? 'Changing these settings rebuilds the whole table on the next run. After that, runs update only new rows.'
+                                                        : 'Every run will rebuild the whole table.'}
+                                                </div>
+                                            </div>
                                         )}
                                     </div>
                                 )}

@@ -70,6 +70,17 @@ class TestIncrementalConfig(BaseTest):
 
         assert definition_fingerprint(QUERY, CONFIG) != definition_fingerprint(QUERY, other)
 
+    def test_a_lookback_change_alone_forces_a_rebuild(self) -> None:
+        """A larger lookback promises rows the previous windows never re-read; only a rebuild
+        delivers them. Dropping lookback from the fingerprint would keep those gaps forever."""
+        wider = IncrementalConfig(
+            incremental_key=CONFIG.incremental_key,
+            unique_key=CONFIG.unique_key,
+            lookback_seconds=CONFIG.lookback_seconds + 3600,
+        )
+
+        assert definition_fingerprint(QUERY, CONFIG) != definition_fingerprint(QUERY, wider)
+
     def test_fingerprint_ignores_unique_key_order(self) -> None:
         a = IncrementalConfig(incremental_key="day", unique_key=("day", "event"))
         b = IncrementalConfig(incremental_key="day", unique_key=("event", "day"))
