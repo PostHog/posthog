@@ -6,7 +6,7 @@ import { parseJSON } from '~/common/utils/json-parse'
 import { HogInvocationResultsService } from '../monitoring/hog-invocation-results.service'
 import { CyclotronV2Janitor, JANITOR_POISON_PILL_ERROR_KIND } from './janitor'
 import { CyclotronV2Manager } from './manager'
-import { CyclotronV2BatchLimit, CyclotronV2DequeuedJob, CyclotronV2JobInit } from './types'
+import { CYCLOTRON_COUNTER_MAX, CyclotronV2BatchLimit, CyclotronV2DequeuedJob, CyclotronV2JobInit } from './types'
 import { CyclotronV2Worker } from './worker'
 import { CyclotronV2RateLimitedWorker } from './worker-rate-limited'
 
@@ -768,6 +768,27 @@ describe('Cyclotron V2', () => {
             const jobs = await dequeueOneBatch(worker)
             expect(jobs).toHaveLength(2)
             expect(await countByStatus('running')).toBe(2)
+        })
+
+        it('dequeues alongside a job whose transition_count is at the smallint ceiling', async () => {
+            // Dequeue bumps transition_count for the whole batch in one UPDATE, so an
+            // unclamped increment on a saturated row aborts the statement and stops every
+            // job on the queue from being dequeued, not just the saturated one.
+            const saturated = await manager.createJob({ teamId: 1, queueName: QUEUE })
+            const healthy = await manager.createJob({ teamId: 1, queueName: QUEUE })
+            await assertPool.query('UPDATE cyclotron_jobs SET transition_count = $1 WHERE id = $2', [
+                CYCLOTRON_COUNTER_MAX,
+                saturated,
+            ])
+
+            const worker = createWorker()
+            const jobs = await dequeueOneBatch(worker)
+
+            expect(jobs.map((j) => j.id).sort()).toEqual([saturated, healthy].sort())
+            const { rows } = await assertPool.query('SELECT transition_count FROM cyclotron_jobs WHERE id = $1', [
+                saturated,
+            ])
+            expect(rows[0].transition_count).toBe(CYCLOTRON_COUNTER_MAX)
         })
 
         it('respects priority ordering (lower number = higher priority)', async () => {

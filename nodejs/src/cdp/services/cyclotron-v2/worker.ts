@@ -6,6 +6,7 @@ import { logger } from '~/common/utils/logger'
 
 import { assignEmailDequeueSeq } from './manager'
 import {
+    CYCLOTRON_COUNTER_MAX,
     CyclotronV2BulkCreateAndCheckInInput,
     CyclotronV2DequeuedJob,
     CyclotronV2JobInit,
@@ -147,7 +148,7 @@ async function updateSelfInTx(
         const result = await client.query(
             `UPDATE cyclotron_jobs
              SET status = 'completed', lock_id = NULL, last_heartbeat = NULL,
-                 last_transition = NOW(), transition_count = transition_count + 1,
+                 last_transition = NOW(), transition_count = LEAST(transition_count + 1, ${CYCLOTRON_COUNTER_MAX}),
                  janitor_touch_count = 0
              WHERE id = $1 AND lock_id = $2`,
             [jobId, lockId]
@@ -159,7 +160,7 @@ async function updateSelfInTx(
         const result = await client.query(
             `UPDATE cyclotron_jobs
              SET status = 'failed', lock_id = NULL, last_heartbeat = NULL,
-                 last_transition = NOW(), transition_count = transition_count + 1,
+                 last_transition = NOW(), transition_count = LEAST(transition_count + 1, ${CYCLOTRON_COUNTER_MAX}),
                  janitor_touch_count = 0
              WHERE id = $1 AND lock_id = $2`,
             [jobId, lockId]
@@ -174,7 +175,7 @@ async function updateSelfInTx(
         `lock_id = NULL`,
         `last_heartbeat = NULL`,
         `last_transition = NOW()`,
-        `transition_count = transition_count + 1`,
+        `transition_count = LEAST(transition_count + 1, ${CYCLOTRON_COUNTER_MAX})`,
         `janitor_touch_count = 0`,
         `scheduled = $3`,
     ]
@@ -307,7 +308,7 @@ export class CyclotronV2Worker {
                 lock_id = $3,
                 last_heartbeat = NOW(),
                 last_transition = NOW(),
-                transition_count = transition_count + 1
+                transition_count = LEAST(transition_count + 1, ${CYCLOTRON_COUNTER_MAX})
             FROM available
             WHERE cyclotron_jobs.id = available.id
             RETURNING
@@ -368,7 +369,7 @@ export class CyclotronV2Worker {
                 lock_id = $3,
                 last_heartbeat = NOW(),
                 last_transition = NOW(),
-                transition_count = transition_count + 1
+                transition_count = LEAST(transition_count + 1, ${CYCLOTRON_COUNTER_MAX})
             FROM available
             WHERE cyclotron_jobs.id = available.id
             RETURNING
@@ -427,7 +428,7 @@ export class CyclotronV2Worker {
                 await pool.query(
                     `UPDATE cyclotron_jobs
                      SET status = 'completed', lock_id = NULL, last_heartbeat = NULL,
-                         last_transition = NOW(), transition_count = transition_count + 1,
+                         last_transition = NOW(), transition_count = LEAST(transition_count + 1, ${CYCLOTRON_COUNTER_MAX}),
                          janitor_touch_count = 0
                      WHERE id = $1 AND lock_id = $2`,
                     [row.id, lockId]
@@ -439,7 +440,7 @@ export class CyclotronV2Worker {
                 await pool.query(
                     `UPDATE cyclotron_jobs
                      SET status = 'failed', lock_id = NULL, last_heartbeat = NULL,
-                         last_transition = NOW(), transition_count = transition_count + 1,
+                         last_transition = NOW(), transition_count = LEAST(transition_count + 1, ${CYCLOTRON_COUNTER_MAX}),
                          janitor_touch_count = 0
                      WHERE id = $1 AND lock_id = $2`,
                     [row.id, lockId]
@@ -456,7 +457,7 @@ export class CyclotronV2Worker {
                     `lock_id = NULL`,
                     `last_heartbeat = NULL`,
                     `last_transition = NOW()`,
-                    `transition_count = transition_count + 1`,
+                    `transition_count = LEAST(transition_count + 1, ${CYCLOTRON_COUNTER_MAX})`,
                     // A deliberate release means the worker is healthy, so the
                     // poison budget counts CONSECUTIVE stalls — long-lived jobs
                     // (e.g. wait_until_condition polls) don't accrue touches for
@@ -514,7 +515,7 @@ export class CyclotronV2Worker {
                 await pool.query(
                     `UPDATE cyclotron_jobs
                      SET status = 'canceled', lock_id = NULL, last_heartbeat = NULL,
-                         last_transition = NOW(), transition_count = transition_count + 1,
+                         last_transition = NOW(), transition_count = LEAST(transition_count + 1, ${CYCLOTRON_COUNTER_MAX}),
                          janitor_touch_count = 0
                      WHERE id = $1 AND lock_id = $2`,
                     [row.id, lockId]

@@ -3,6 +3,16 @@ import { z } from 'zod'
 
 export type CyclotronV2JobStatus = 'available' | 'running' | 'completed' | 'failed' | 'canceled'
 
+/**
+ * Ceiling for `transition_count` and `janitor_touch_count`, which are SMALLINT.
+ * Incrementing past it raises `smallint out of range`, and because dequeue bumps
+ * `transition_count` in the same UPDATE that claims a batch, one saturated row
+ * aborts the dequeue for every job on its queue rather than just itself. Both
+ * counters are only ever read for observability, never compared against a limit,
+ * so saturating preserves their meaning without that blast radius.
+ */
+export const CYCLOTRON_COUNTER_MAX = 32767
+
 export type CyclotronV2PoolConfig = {
     dbUrl: string
     maxConnections?: number

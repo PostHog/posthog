@@ -7,7 +7,12 @@ import { logger } from '~/common/utils/logger'
 import { CYCLOTRON_INVOCATION_JOB_QUEUES, CyclotronJobInvocationHogFlow } from '../../types'
 import { v2JobToInvocation } from '../job-queue/job-queue-postgres-v2'
 import { HogInvocationResultsService } from '../monitoring/hog-invocation-results.service'
-import { CyclotronV2CleanupResult, CyclotronV2DequeuedJob, CyclotronV2JanitorConfig } from './types'
+import {
+    CYCLOTRON_COUNTER_MAX,
+    CyclotronV2CleanupResult,
+    CyclotronV2DequeuedJob,
+    CyclotronV2JanitorConfig,
+} from './types'
 
 // Stable, low-cardinality `error_kind` stamped on the failed invocation result
 // the janitor writes when it gives up on a poison pill. Lets operators target
@@ -222,7 +227,7 @@ export class CyclotronV2Janitor {
         const result = await this.pool.query<{ id: string }>(
             `UPDATE cyclotron_jobs
              SET status = 'failed', lock_id = NULL, last_heartbeat = NULL,
-                 last_transition = NOW(), transition_count = transition_count + 1
+                 last_transition = NOW(), transition_count = LEAST(transition_count + 1, ${CYCLOTRON_COUNTER_MAX})
              WHERE id IN (
                  SELECT id
                  FROM cyclotron_jobs
@@ -453,7 +458,7 @@ export class CyclotronV2Janitor {
             )
             UPDATE cyclotron_jobs
             SET status = 'available', lock_id = NULL, last_heartbeat = NULL,
-                janitor_touch_count = janitor_touch_count + 1${backoffClause}
+                janitor_touch_count = LEAST(janitor_touch_count + 1, ${CYCLOTRON_COUNTER_MAX})${backoffClause}
             FROM stalled
             WHERE cyclotron_jobs.id = stalled.id`,
             params
