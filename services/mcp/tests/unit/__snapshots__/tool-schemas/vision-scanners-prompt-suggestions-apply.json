@@ -1,0 +1,17 @@
+{
+    "$schema": "https://json-schema.org/draft/2020-12/schema",
+    "properties": {
+        "config": {
+            "description": "The edited config to apply, assembled from the recommendation's approved fields. Omit to apply the full suggested config unchanged."
+        },
+        "id": {
+            "description": "A UUID string identifying this replay scanner prompt suggestion.",
+            "type": "string"
+        },
+        "scanner_id": {
+            "type": "string"
+        }
+    },
+    "required": ["id", "scanner_id"],
+    "type": "object"
+}

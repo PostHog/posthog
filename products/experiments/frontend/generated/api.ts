@@ -22,9 +22,12 @@ import type {
     ExperimentMetricsRecalculationApi,
     ExperimentSavedMetricApi,
     ExperimentSavedMetricsListParams,
+    ExperimentSessionBucketRequestApi,
+    ExperimentSessionBucketResponseApi,
     ExperimentSessionContextResponseApi,
     ExperimentSessionContextsRequestApi,
     ExperimentSessionContextsResponseApi,
+    ExperimentSessionEventDeltaResponseApi,
     ExperimentWriteApi,
     ExperimentsActivityRetrieveParams,
     ExperimentsListParams,
@@ -594,10 +597,10 @@ export const getExperimentsFlagCleanupTargetRetrieveUrl = (projectId: string, id
 /**
  * Repository a flag-cleanup pull request for this experiment would be opened in.
  *
- * Resolution order: the experiment's saved repository, else the team's only connected
- * GitHub repository. When the team has several repositories and none is saved
- * (source=ambiguous), pass one via `repository` on end/ship_variant. Requires access
- * to PostHog Desktop, like open_cleanup_pr (403 otherwise).
+ * Resolution order: the experiment's saved repository, else the environment's default
+ * cleanup repository, else the team's only connected GitHub repository. When the team
+ * has several repositories and none is saved (source=ambiguous), pass one via
+ * `repository` on end/ship_variant.
  */
 export const experimentsFlagCleanupTargetRetrieve = async (
     projectId: string,
@@ -863,6 +866,72 @@ export const experimentsResumeCreate = async (
         ...options,
         method: 'POST',
     })
+}
+
+export const getExperimentsSessionBucketsCreateUrl = (projectId: string, id: number) => {
+    return `/api/projects/${projectId}/experiments/${id}/session_buckets/`
+}
+
+/**
+ * Session recordings of this experiment matching a bucket.
+ *
+ * Answers the questions a recordings query can't express on its own — "fired any of these
+ * metrics", "fired none of them", "was exposed but never completed the funnel in this
+ * session" — by returning a bounded, most-recent-first list of session IDs to pass back as
+ * a recordings query's session_ids. POST because the metric list doesn't fit a query
+ * string; the endpoint only reads.
+ *
+ * Session-scoped and goal-free: the set describes what happened in each session, while the
+ * experiment analysis counts per person over the whole run window. A session can be in the
+ * drop-off bucket while the same person converts in a later one.
+ */
+export const experimentsSessionBucketsCreate = async (
+    projectId: string,
+    id: number,
+    experimentSessionBucketRequestApi: ExperimentSessionBucketRequestApi,
+    options?: RequestInit
+): Promise<ExperimentSessionBucketResponseApi> => {
+    return apiMutator<ExperimentSessionBucketResponseApi>(getExperimentsSessionBucketsCreateUrl(projectId, id), {
+        ...options,
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', ...options?.headers },
+        body: JSON.stringify(experimentSessionBucketRequestApi),
+    })
+}
+
+export const getExperimentsSessionEventDeltasCreateUrl = (projectId: string, id: number) => {
+    return `/api/projects/${projectId}/experiments/${id}/session_event_deltas/`
+}
+
+/**
+ * The recordings worth watching for this experiment, grouped into cards.
+ *
+ * Each card is one sentence and the recordings that back it: an event one variant did clearly
+ * more than the others, an error signal concentrated in one variant, or a shortcut to a
+ * metric event happening on screen. Every card's count is a count of recordings that actually
+ * exist, so handing its session ids to the recordings list can't come back empty. POST to
+ * take the same throttle and cache posture as the other reads in this family rather than
+ * because it carries a body: it takes no parameters, and it only reads.
+ *
+ * It reports no effect size. Cards carry a direction and a band rather than a rate, a ratio
+ * or a person count: the experiment's results already state magnitudes, computed per person
+ * over the whole run window, and this reads one session per person over a clamped one. Two
+ * numbers for the same event would read as a contradiction, so this surface states none. That
+ * is what lets a card sit on one of the experiment's own metric events, which it names, so a
+ * reader is sent to the results rather than given a second answer.
+ */
+export const experimentsSessionEventDeltasCreate = async (
+    projectId: string,
+    id: number,
+    options?: RequestInit
+): Promise<ExperimentSessionEventDeltaResponseApi> => {
+    return apiMutator<ExperimentSessionEventDeltaResponseApi>(
+        getExperimentsSessionEventDeltasCreateUrl(projectId, id),
+        {
+            ...options,
+            method: 'POST',
+        }
+    )
 }
 
 export const getExperimentsShipVariantCreateUrl = (projectId: string, id: number) => {

@@ -95,6 +95,11 @@ describe('CDP API', () => {
     }
 
     beforeAll(async () => {
+        // Reset before caching the team: without this, getFirstTeam picks up
+        // whatever team the previous suite left with the lowest id, and every
+        // beforeEach reset then deletes it — inserts against the cached team
+        // id fail on the team FK.
+        await resetTestDatabase()
         hub = await createHub({
             SITE_URL: 'http://localhost:8000',
         })
@@ -1621,7 +1626,7 @@ describe('CDP API', () => {
     // The test panel POSTs to /hog_flows/:id/invocations and runs the executor in-process —
     // it never enqueues into cyclotron. If the executor routes an email action onto the
     // dedicated email queue, nothing services that job and the workflow stalls on a
-    // "Workflow will pause until …" log. The handler forces `sendEmailsInline: true` so the
+    // "Workflow will pause until …" log. The handler forces `isTest: true` so the
     // email branch always goes through EmailService directly on this path.
     describe('hog_flows/:id/invocations — email actions are sent inline despite queue routing', () => {
         let emailSpy: jest.SpyInstance
@@ -1706,7 +1711,7 @@ describe('CDP API', () => {
             // Stub EmailService so the test doesn't depend on a running maildev SMTP. The spy
             // captures whether the inline path was taken — that's the assertion that proves the fix.
             emailSpy = jest
-                .spyOn(api['hogExecutor']['emailService'], 'executeSendEmail')
+                .spyOn(api['hogExecutorAsync']['deps'].emailService, 'executeSendEmail')
                 .mockImplementation((invocation: any) =>
                     Promise.resolve({
                         invocation,
@@ -1724,7 +1729,7 @@ describe('CDP API', () => {
                         ],
                         capturedPostHogEvents: [],
                         warehouseWebhookPayloads: [],
-                        emailAssets: [],
+                        messageAssets: [],
                     })
                 )
         })

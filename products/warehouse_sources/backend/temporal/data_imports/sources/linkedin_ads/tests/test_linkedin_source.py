@@ -120,6 +120,26 @@ class TestLinkedInAdsSource:
 
         assert mock_client_for_integration.call_args.kwargs["api_version"] == "202607"
 
+    def test_demographic_breakdowns_are_offered_but_not_enabled_by_default(self):
+        # These fan out to one row per day per demographic value on top of the performance tables,
+        # so auto-enabling them would multiply every existing connection's sync cost.
+        schemas = {schema.name: schema for schema in self.source.get_schemas(self.config, self.team_id)}
+
+        demographic_tables = [name for name in schemas if name.startswith("member_")]
+        assert sorted(demographic_tables) == [
+            "member_company_size_stats",
+            "member_company_stats",
+            "member_country_stats",
+            "member_industry_stats",
+            "member_job_title_stats",
+            "member_seniority_stats",
+        ]
+        assert all(not schemas[name].should_sync_default for name in demographic_tables)
+        assert all(schemas[name].supports_incremental for name in demographic_tables)
+
+        for name in ("accounts", "campaigns", "campaign_groups", "creatives", "conversions"):
+            assert schemas[name].should_sync_default
+
     def test_validate_credentials_missing_account_id(self):
         """Test credential validation with missing account ID."""
         invalid_config = LinkedinAdsSourceConfig(linkedin_ads_integration_id=456, account_id="")

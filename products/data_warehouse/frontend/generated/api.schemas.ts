@@ -12,6 +12,7 @@
  * * `Completed` - Completed
  * * `Failed` - Failed
  * * `Running` - Running
+ * * `Skipped` - Skipped
  */
 export type DataModelingJobStatusEnumApi =
     (typeof DataModelingJobStatusEnumApi)[keyof typeof DataModelingJobStatusEnumApi]
@@ -21,6 +22,7 @@ export const DataModelingJobStatusEnumApi = {
     Completed: 'Completed',
     Failed: 'Failed',
     Running: 'Running',
+    Skipped: 'Skipped',
 } as const
 
 export interface DataModelingJobApi {
@@ -33,6 +35,8 @@ export interface DataModelingJobApi {
     readonly error: string | null
     readonly created_at: string
     readonly last_run_at: string
+    /** When the job row last changed. For finished jobs this is when the run reached its terminal status. */
+    readonly updated_at: string
     /** @nullable */
     readonly workflow_id: string | null
     /** @nullable */
@@ -166,10 +170,10 @@ export interface ManagedWarehouseSourceSummaryApi {
     detail: string
     /** Number of this source's schemas visible to the warehouse. */
     total_schemas: number
-    /** Number of schemas whose one-time historical copy into the warehouse has completed. */
-    backfilled_schemas: number
+    /** Number of schemas applied by a completed copy or register workflow. */
+    applied_schemas: number
     /**
-     * Most recent time an imported batch was applied to the warehouse across this source's schemas, or null if no apply has been recorded.
+     * Most recent completed copy or register workflow across this source's schemas, or null if none completed.
      * @nullable
      */
     last_applied_at: string | null
@@ -192,7 +196,7 @@ export interface ManagedWarehouseSourcesStatusApi {
     readiness_state: ManagedWarehouseReadinessStateEnumApi
     /** Human-readable explanation of imported source readiness. */
     detail: string
-    /** Per-source rollup of schema backfill and live import application statuses. Reflects only warehouse source imports with sync enabled — manage sources at /data-management/sources. */
+    /** Per-source rollup of copy and register workflow statuses for configured warehouse source imports. */
     sources: ManagedWarehouseSourceSummaryApi[]
 }
 
@@ -216,6 +220,34 @@ export interface ManagedWarehouseDataStatusResponseApi {
     generated_at: string
 }
 
+/**
+ * * `copy` - copy
+ * * `register` - register
+ */
+export type WorkflowTypeEnumApi = (typeof WorkflowTypeEnumApi)[keyof typeof WorkflowTypeEnumApi]
+
+export const WorkflowTypeEnumApi = {
+    Copy: 'copy',
+    Register: 'register',
+} as const
+
+/**
+ * * `running` - running
+ * * `completed` - completed
+ * * `failed` - failed
+ * * `skipped` - skipped
+ * * `stale` - stale
+ */
+export type WorkflowStatusEnumApi = (typeof WorkflowStatusEnumApi)[keyof typeof WorkflowStatusEnumApi]
+
+export const WorkflowStatusEnumApi = {
+    Running: 'running',
+    Completed: 'completed',
+    Failed: 'failed',
+    Skipped: 'skipped',
+    Stale: 'stale',
+} as const
+
 export interface ManagedWarehouseSourceTableStatusApi {
     /** Imported source schema identifier. */
     schema_id: string
@@ -238,17 +270,28 @@ export interface ManagedWarehouseSourceTableStatusApi {
     readiness_state: ManagedWarehouseReadinessStateEnumApi
     /** Human-readable explanation of the table's readiness state. */
     detail: string
-    /** Whether the one-time historical copy into the warehouse has completed for this table. */
-    backfilled: boolean
-    /** Backfill chunks already copied into the warehouse. */
-    completed_chunks: number
+    /** Workflow applying the latest source import, or null if no workflow has run.
+     *
+     * * `copy` - copy
+     * * `register` - register */
+    workflow_type: WorkflowTypeEnumApi | null
+    /** State of the latest copy or register workflow, or null if no workflow has run.
+     *
+     * * `running` - running
+     * * `completed` - completed
+     * * `failed` - failed
+     * * `skipped` - skipped
+     * * `stale` - stale */
+    workflow_status: WorkflowStatusEnumApi | null
     /**
-     * Total backfill chunks, or null before the copy plan is ready.
+     * When the latest copy or register workflow started, or null if no workflow has run.
      * @nullable
      */
-    total_chunks: number | null
+    workflow_started_at: string | null
+    /** Whether a copy or register workflow has applied this table to the warehouse. */
+    applied: boolean
     /**
-     * When an imported batch was most recently applied to the warehouse, or null if no apply has been recorded for this table.
+     * When a copy or register workflow most recently applied this table, or null if no workflow completed.
      * @nullable
      */
     last_applied_at: string | null
@@ -260,7 +303,7 @@ export interface ManagedWarehouseSourceTableStatusApi {
 }
 
 export interface ManagedWarehouseSourceSchemasResponseApi {
-    /** Per-schema backfill and live import application status for the requested source. */
+    /** Per-schema copy or register workflow status for the requested source. */
     schemas: ManagedWarehouseSourceTableStatusApi[]
 }
 
@@ -428,6 +471,18 @@ export interface InsightVariableApi {
     readonly code_name: string | null
     /** Allowed values for List variables. Null for other variable types. */
     values?: unknown
+    /** Whether a List variable accepts multiple selected values. */
+    is_multi?: boolean
+    /**
+     * HogQL query whose first result column supplies the allowed values for a List variable. An optional second column supplies display labels.
+     * @nullable
+     */
+    values_query?: string | null
+    /**
+     * ID of the external data source connection values_query runs against. Null runs it against PostHog.
+     * @nullable
+     */
+    values_query_connection_id?: string | null
 }
 
 export interface PaginatedInsightVariableListApi {
@@ -471,6 +526,18 @@ export interface PatchedInsightVariableApi {
     readonly code_name?: string | null
     /** Allowed values for List variables. Null for other variable types. */
     values?: unknown
+    /** Whether a List variable accepts multiple selected values. */
+    is_multi?: boolean
+    /**
+     * HogQL query whose first result column supplies the allowed values for a List variable. An optional second column supplies display labels.
+     * @nullable
+     */
+    values_query?: string | null
+    /**
+     * ID of the external data source connection values_query runs against. Null runs it against PostHog.
+     * @nullable
+     */
+    values_query_connection_id?: string | null
 }
 
 export interface QueryTabStateApi {
@@ -707,6 +774,7 @@ export interface PaginatedWarehouseColumnStatisticsListApi {
  * * `leadership` - Leadership
  * * `marketing` - Marketing
  * * `sales` - Sales / Success
+ * * `student` - Student
  * * `other` - Other
  */
 export type RoleAtOrganizationEnumApi = (typeof RoleAtOrganizationEnumApi)[keyof typeof RoleAtOrganizationEnumApi]
@@ -719,6 +787,7 @@ export const RoleAtOrganizationEnumApi = {
     Leadership: 'leadership',
     Marketing: 'marketing',
     Sales: 'sales',
+    Student: 'student',
     Other: 'other',
 } as const
 
@@ -752,6 +821,79 @@ export interface UserBasicApi {
     /** @nullable */
     readonly hedgehog_config: UserBasicApiHedgehogConfig
     role_at_organization?: RoleAtOrganizationEnumApi | BlankEnumApi | null
+}
+
+export interface DataWarehouseExpressionApi {
+    readonly id: string
+    /**
+     * Whether this expression has been soft-deleted.
+     * @nullable
+     */
+    deleted?: boolean | null
+    readonly created_by: UserBasicApi
+    readonly created_at: string
+    /**
+     * Name of the table the expression field is added to, for example events.
+     * @maxLength 400
+     */
+    table_name: string
+    /**
+     * Name of the virtual field the expression is exposed as. Letters, numbers, underscores and $ only, starting with a letter, underscore or $. Must not clash with an existing field on the table.
+     * @maxLength 400
+     * @pattern ^[A-Za-z_$][A-Za-z0-9_$]*$
+     */
+    field_name: string
+    /**
+     * HogQL expression evaluated in the context of the table, for example properties.$browser or lower(email).
+     * @maxLength 10000
+     */
+    expression: string
+    /**
+     * ExternalDataSource id to scope the expression to that connection's direct-query database. Null applies it to the default warehouse database.
+     * @nullable
+     */
+    connection_id?: string | null
+}
+
+export interface PaginatedDataWarehouseExpressionListApi {
+    count: number
+    /** @nullable */
+    next?: string | null
+    /** @nullable */
+    previous?: string | null
+    results: DataWarehouseExpressionApi[]
+}
+
+export interface PatchedDataWarehouseExpressionApi {
+    readonly id?: string
+    /**
+     * Whether this expression has been soft-deleted.
+     * @nullable
+     */
+    deleted?: boolean | null
+    readonly created_by?: UserBasicApi
+    readonly created_at?: string
+    /**
+     * Name of the table the expression field is added to, for example events.
+     * @maxLength 400
+     */
+    table_name?: string
+    /**
+     * Name of the virtual field the expression is exposed as. Letters, numbers, underscores and $ only, starting with a letter, underscore or $. Must not clash with an existing field on the table.
+     * @maxLength 400
+     * @pattern ^[A-Za-z_$][A-Za-z0-9_$]*$
+     */
+    field_name?: string
+    /**
+     * HogQL expression evaluated in the context of the table, for example properties.$browser or lower(email).
+     * @maxLength 10000
+     */
+    expression?: string
+    /**
+     * ExternalDataSource id to scope the expression to that connection's direct-query database. Null applies it to the default warehouse database.
+     * @nullable
+     */
+    connection_id?: string | null
 }
 
 export interface DataWarehouseModelPathApi {
@@ -1160,6 +1302,47 @@ export interface PatchedDataWarehouseSavedQueryApi {
     readonly suspended?: PatchedDataWarehouseSavedQueryApiSuspended
 }
 
+/**
+ * * `15min` - 15min
+ * * `30min` - 30min
+ * * `1hour` - 1hour
+ * * `6hour` - 6hour
+ * * `12hour` - 12hour
+ * * `24hour` - 24hour
+ * * `7day` - 7day
+ * * `30day` - 30day
+ */
+export type SavedQueryMaterializeSyncFrequencyEnumApi =
+    (typeof SavedQueryMaterializeSyncFrequencyEnumApi)[keyof typeof SavedQueryMaterializeSyncFrequencyEnumApi]
+
+export const SavedQueryMaterializeSyncFrequencyEnumApi = {
+    '15min': '15min',
+    '30min': '30min',
+    '1hour': '1hour',
+    '6hour': '6hour',
+    '12hour': '12hour',
+    '24hour': '24hour',
+    '7day': '7day',
+    '30day': '30day',
+} as const
+
+/**
+ * Body of the `materialize` action: which cadence to enable materialization at.
+ */
+export interface SavedQueryMaterializeApi {
+    /** How often to refresh the materialized table, defaulting to daily. Rejected with a 400 when it falls outside what the query's lineage allows: no more often than its sources deliver new data, and no less often than a downstream view or endpoint needs.
+     *
+     * * `15min` - 15min
+     * * `30min` - 30min
+     * * `1hour` - 1hour
+     * * `6hour` - 6hour
+     * * `12hour` - 12hour
+     * * `24hour` - 24hour
+     * * `7day` - 7day
+     * * `30day` - 30day */
+    sync_frequency?: SavedQueryMaterializeSyncFrequencyEnumApi
+}
+
 export interface SavedQueryResumeApi {
     /** False when the query's materialization was not suspended. */
     resumed: boolean
@@ -1475,7 +1658,8 @@ export interface CredentialApi {
  * * `Pingdom` - Pingdom
  * * `Cloudflare` - Cloudflare
  * * `CosmosDB` - CosmosDB
- * * `PlanetScale` - PlanetScale
+ * * `PlanetScaleMySQL` - PlanetScaleMySQL
+ * * `PlanetScalePostgres` - PlanetScalePostgres
  * * `SapHana` - SapHana
  * * `Rippling` - Rippling
  * * `HiBob` - HiBob
@@ -1603,6 +1787,7 @@ export interface CredentialApi {
  * * `FloatApp` - FloatApp
  * * `Flowlu` - Flowlu
  * * `Formbricks` - Formbricks
+ * * `Framer` - Framer
  * * `FreeAgent` - FreeAgent
  * * `Freightview` - Freightview
  * * `Freshcaller` - Freshcaller
@@ -2558,6 +2743,23 @@ export interface CredentialApi {
  * * `Odoo` - Odoo
  * * `Airbridge` - Airbridge
  * * `Snovio` - Snovio
+ * * `GoogleMerchantCenter` - GoogleMerchantCenter
+ * * `Raisely` - Raisely
+ * * `RakutenAdvertising` - RakutenAdvertising
+ * * `Zitadel` - Zitadel
+ * * `DeelFlows` - DeelFlows
+ * * `WindsorAi` - WindsorAi
+ * * `Wix` - Wix
+ * * `Sevalla` - Sevalla
+ * * `Motion` - Motion
+ * * `ImpactPartner` - ImpactPartner
+ * * `Cloudinary` - Cloudinary
+ * * `Uploadcare` - Uploadcare
+ * * `WHMCS` - WHMCS
+ * * `MSG91` - MSG91
+ * * `Depot` - Depot
+ * * `Schematic` - Schematic
+ * * `Dokploy` - Dokploy
  */
 export type ExternalDataSourceTypeEnumApi =
     (typeof ExternalDataSourceTypeEnumApi)[keyof typeof ExternalDataSourceTypeEnumApi]
@@ -2756,7 +2958,8 @@ export const ExternalDataSourceTypeEnumApi = {
     Pingdom: 'Pingdom',
     Cloudflare: 'Cloudflare',
     CosmosDB: 'CosmosDB',
-    PlanetScale: 'PlanetScale',
+    PlanetScaleMySQL: 'PlanetScaleMySQL',
+    PlanetScalePostgres: 'PlanetScalePostgres',
     SapHana: 'SapHana',
     Rippling: 'Rippling',
     HiBob: 'HiBob',
@@ -2884,6 +3087,7 @@ export const ExternalDataSourceTypeEnumApi = {
     FloatApp: 'FloatApp',
     Flowlu: 'Flowlu',
     Formbricks: 'Formbricks',
+    Framer: 'Framer',
     FreeAgent: 'FreeAgent',
     Freightview: 'Freightview',
     Freshcaller: 'Freshcaller',
@@ -3839,6 +4043,23 @@ export const ExternalDataSourceTypeEnumApi = {
     Odoo: 'Odoo',
     Airbridge: 'Airbridge',
     Snovio: 'Snovio',
+    GoogleMerchantCenter: 'GoogleMerchantCenter',
+    Raisely: 'Raisely',
+    RakutenAdvertising: 'RakutenAdvertising',
+    Zitadel: 'Zitadel',
+    DeelFlows: 'DeelFlows',
+    WindsorAi: 'WindsorAi',
+    Wix: 'Wix',
+    Sevalla: 'Sevalla',
+    Motion: 'Motion',
+    ImpactPartner: 'ImpactPartner',
+    Cloudinary: 'Cloudinary',
+    Uploadcare: 'Uploadcare',
+    Whmcs: 'WHMCS',
+    Msg91: 'MSG91',
+    Depot: 'Depot',
+    Schematic: 'Schematic',
+    Dokploy: 'Dokploy',
 } as const
 
 export interface SimpleExternalDataSourceSerializersApi {
@@ -4243,6 +4464,21 @@ export type WarehouseColumnStatisticsListParams = {
      * Only return statistics for this data warehouse table.
      */
     table_id?: string
+}
+
+export type WarehouseExpressionsListParams = {
+    /**
+     * Number of results to return per page.
+     */
+    limit?: number
+    /**
+     * The initial index from which to return the results.
+     */
+    offset?: number
+    /**
+     * A search term.
+     */
+    search?: string
 }
 
 export type WarehouseModelPathsListParams = {

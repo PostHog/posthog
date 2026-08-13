@@ -15,6 +15,7 @@
  * * `leadership` - Leadership
  * * `marketing` - Marketing
  * * `sales` - Sales / Success
+ * * `student` - Student
  * * `other` - Other
  */
 export type RoleAtOrganizationEnumApi = (typeof RoleAtOrganizationEnumApi)[keyof typeof RoleAtOrganizationEnumApi]
@@ -27,6 +28,7 @@ export const RoleAtOrganizationEnumApi = {
     Leadership: 'leadership',
     Marketing: 'marketing',
     Sales: 'sales',
+    Student: 'student',
     Other: 'other',
 } as const
 
@@ -594,6 +596,10 @@ export interface AlertApi {
     readonly created_at: string
     /** Insight ID monitored by this alert. Note: Response returns full InsightBasicSerializer object. */
     insight: number
+    /** Short ID of the insight monitored by this alert. */
+    readonly insight_short_id: string
+    /** Display name of the insight monitored by this alert. */
+    readonly insight_display_name: string
     /**
      * Human-readable name for the alert.
      * @maxLength 255
@@ -679,6 +685,10 @@ export interface PatchedAlertApi {
     readonly created_at?: string
     /** Insight ID monitored by this alert. Note: Response returns full InsightBasicSerializer object. */
     insight?: number
+    /** Short ID of the insight monitored by this alert. */
+    readonly insight_short_id?: string
+    /** Display name of the insight monitored by this alert. */
+    readonly insight_display_name?: string
     /**
      * Human-readable name for the alert.
      * @maxLength 255
@@ -865,9 +875,17 @@ export type AlertsListParams = {
      */
     created_by?: string
     /**
+     * Optional. Restrict results by whether the alert uses anomaly detection.
+     */
+    has_detector?: boolean
+    /**
      * Optional. Restrict results to alerts on this insight ID.
      */
     insight_id?: number
+    /**
+     * Optional. Restrict results to alerts whose insight has this tag.
+     */
+    insight_tag?: string
     /**
      * Number of results to return per page.
      */

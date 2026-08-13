@@ -5,6 +5,7 @@ from urllib.parse import parse_qs, urlparse
 from posthog.test.base import APIBaseTest, ClickhouseTestMixin, QueryMatchingTest
 from unittest.mock import patch
 
+from django.conf import settings
 from django.core.cache import cache
 from django.core.signing import SignatureExpired
 from django.db import connection
@@ -734,6 +735,7 @@ class TestMCPGatewayServerAPI(APIBaseTest):
         )
 
         assert tools_response.status_code == status.HTTP_200_OK
+        assert tools_response.json()["results"][0]["is_destructive"] is True
         assert tools_response.json()["results"][0]["team_state"] == "do_not_use"
         assert active_response.status_code == status.HTTP_400_BAD_REQUEST
 
@@ -888,6 +890,28 @@ class TestMCPGatewayConfigAPI(APIBaseTest):
             url=f"https://mcp.{name.lower()}.config-test.example.com/mcp",
             is_team_enabled=is_team_enabled,
         )
+
+    def test_config_lists_registered_catalog_templates_for_members(self) -> None:
+        template = MCPServerTemplate.objects.create(
+            name="Registered template",
+            url="https://mcp.registered-template.config-test.example.com/mcp",
+            auth_type="oauth",
+            is_active=True,
+        )
+        MCPGatewayServer.objects.for_team(self.team.id).create(
+            team=self.team,
+            name=template.name,
+            url=template.url,
+            template=template,
+            is_team_enabled=False,
+        )
+        self._server("Custom")
+        self._make_member()
+
+        response = self.client.get(self._api_url())
+
+        assert response.status_code == status.HTTP_200_OK
+        assert response.json()["registered_template_ids"] == [str(template.id)]
 
     def test_default_servers_enabled_round_trips_through_config_api(self) -> None:
         self._make_admin()
@@ -1113,11 +1137,18 @@ class TestMCPServiceAccountAPI(APIBaseTest):
     def _active_scout_account(self) -> MCPServiceAccount:
         return next(agent for agent in sync_built_in_agents(self.team) if agent.handle == "posthog-scout")
 
-    @staticmethod
-    def _agent_client(account: MCPServiceAccount, token: str | None = None) -> APIClient:
+    def _agent_client(self, account: MCPServiceAccount, token: str | None = None) -> APIClient:
         client = APIClient()
-        client.credentials(HTTP_AUTHORIZATION=f"Bearer {token or create_gateway_agent_token(account)}")
+        client.credentials(
+            HTTP_AUTHORIZATION=f"Bearer {token or self._agent_token(account)}",
+        )
         return client
+
+    def _agent_token(self, account: MCPServiceAccount, *, credential_owner_id: int | None = None) -> str:
+        return create_gateway_agent_token(
+            account,
+            credential_owner_id=credential_owner_id if credential_owner_id is not None else self.user.id,
+        )
 
     def _oauth_client(self, *, built_in_agent: bool) -> APIClient:
         application = OAuthApplication.objects.create(
@@ -1330,6 +1361,7 @@ class TestMCPServiceAccountAPI(APIBaseTest):
 
         member_response = self.client.get(self._api_url())
         scout = next(row for row in member_response.json()["results"] if row["agent_key"] == "scout")
+        assert [server.pop("shared_by")["id"] for server in scout["servers"]] == [self.user.id]
         assert scout["servers"] == [
             {
                 "id": str(server.id),
@@ -1340,6 +1372,84 @@ class TestMCPServiceAccountAPI(APIBaseTest):
                 "connection_state": "ready",
             }
         ]
+
+    @parameterized.expand(
+        [
+            ("member_revoked", True, "api_key", {"api_key": "secret"}, True, status.HTTP_403_FORBIDDEN, False),
+            (
+                "connection_disabled",
+                False,
+                "api_key",
+                {"api_key": "secret"},
+                False,
+                status.HTTP_400_BAD_REQUEST,
+                False,
+            ),
+            ("oauth_pending", True, "oauth", {}, False, status.HTTP_400_BAD_REQUEST, False),
+            (
+                "oauth_needs_reauth",
+                True,
+                "oauth",
+                {"access_token": "token", "needs_reauth": True},
+                False,
+                status.HTTP_400_BAD_REQUEST,
+                False,
+            ),
+            ("open_api_key", True, "api_key", {}, False, status.HTTP_200_OK, True),
+        ]
+    )
+    def test_agent_grant_requires_member_access_and_a_ready_connection(
+        self,
+        _name: str,
+        connection_enabled: bool,
+        auth_type: str,
+        sensitive_configuration: dict[str, object],
+        member_revoked: bool,
+        expected_status: int,
+        expected_access: bool,
+    ) -> None:
+        self._make_member()
+        account = self._active_scout_account()
+        server = MCPGatewayServer.objects.for_team(self.team.id).create(
+            team=self.team,
+            name="Agent grant server",
+            url="https://mcp.ready-agent-grant.example.com/mcp",
+        )
+        MCPServerInstallation.objects.create(
+            team=self.team,
+            user=self.user,
+            display_name=server.name,
+            url=server.url,
+            auth_type=auth_type,
+            is_enabled=connection_enabled,
+            sensitive_configuration=sensitive_configuration,
+            scope="personal",
+            gateway_server=server,
+        )
+        if member_revoked:
+            MCPMemberServerRevocation.objects.for_team(self.team.id).create(
+                team=self.team,
+                gateway_server=server,
+                user=self.user,
+                revoked_by=self.user,
+            )
+
+        response = self.client.post(
+            self._api_url(f"{account.id}/access/"),
+            data={"gateway_server_id": str(server.id), "enabled": True},
+            format="json",
+        )
+
+        assert response.status_code == expected_status
+        assert (
+            MCPServiceAccountServerAccess.objects.for_team(self.team.id)
+            .filter(
+                service_account=account,
+                gateway_server=server,
+            )
+            .exists()
+            is expected_access
+        )
 
     def test_restricted_member_cannot_change_existing_agent_access_but_admin_can(self) -> None:
         self._make_member()
@@ -1366,6 +1476,7 @@ class TestMCPServiceAccountAPI(APIBaseTest):
         )
         access = MCPServiceAccountServerAccess.objects.for_team(self.team.id).create(
             team=self.team,
+            user=self.user,
             service_account=account,
             gateway_server=server,
             installation=installation,
@@ -1400,6 +1511,101 @@ class TestMCPServiceAccountAPI(APIBaseTest):
         )
         assert admin_revoke_response.status_code == status.HTTP_200_OK
         assert not MCPServiceAccountServerAccess.objects.for_team(self.team.id).filter(id=access.id).exists()
+
+    def _server_shared_by_two_members(self, account: MCPServiceAccount) -> tuple[MCPGatewayServer, User]:
+        server = MCPGatewayServer.objects.for_team(self.team.id).create(
+            team=self.team,
+            name="Team Notion",
+            url="https://mcp.team-notion.example.com/mcp",
+        )
+        teammate = User.objects.create_and_join(self.organization, "teammate-share@posthog.com", "password")
+        for owner in (self.user, teammate):
+            installation = MCPServerInstallation.objects.create(
+                team=self.team,
+                user=owner,
+                display_name=server.name,
+                url=server.url,
+                auth_type="api_key",
+                sensitive_configuration={"api_key": "secret"},
+                scope="personal",
+                gateway_server=server,
+            )
+            MCPServiceAccountServerAccess.objects.for_team(self.team.id).create(
+                team=self.team,
+                user=owner,
+                service_account=account,
+                gateway_server=server,
+                installation=installation,
+                granted_by=owner,
+            )
+        MCPToolPolicy.objects.for_team(self.team.id).create(
+            team=self.team,
+            gateway_server=server,
+            tool_name="create_issue",
+            scope_type="agent",
+            scope_service_account=account,
+            state="do_not_use",
+        )
+        return server, teammate
+
+    def _agent_grant_user_ids(self, account: MCPServiceAccount, server: MCPGatewayServer) -> list[int]:
+        return sorted(
+            MCPServiceAccountServerAccess.objects.for_team(self.team.id)
+            .filter(service_account=account, gateway_server=server)
+            .values_list("user_id", flat=True)
+        )
+
+    def _agent_policy_exists(self, account: MCPServiceAccount, server: MCPGatewayServer) -> bool:
+        return (
+            MCPToolPolicy.objects.for_team(self.team.id)
+            .filter(gateway_server=server, scope_type="agent", scope_service_account=account)
+            .exists()
+        )
+
+    def test_member_unshare_leaves_teammate_shares_and_agent_tool_policies_alone(self) -> None:
+        self._make_member()
+        account = self._active_scout_account()
+        server, teammate = self._server_shared_by_two_members(account)
+
+        response = self.client.post(
+            self._api_url(f"{account.id}/access/"),
+            data={"gateway_server_id": str(server.id), "enabled": False},
+            format="json",
+        )
+
+        assert response.status_code == status.HTTP_200_OK
+        assert self._agent_grant_user_ids(account, server) == [teammate.id]
+        assert self._agent_policy_exists(account, server)
+
+    def test_admin_can_remove_every_members_share_of_a_server(self) -> None:
+        self._make_admin()
+        account = self._active_scout_account()
+        server, _teammate = self._server_shared_by_two_members(account)
+
+        response = self.client.post(
+            self._api_url(f"{account.id}/access/"),
+            data={"gateway_server_id": str(server.id), "enabled": False, "all": True},
+            format="json",
+        )
+
+        assert response.status_code == status.HTTP_200_OK
+        assert self._agent_grant_user_ids(account, server) == []
+        assert not self._agent_policy_exists(account, server)
+
+    def test_member_cannot_remove_every_members_share_of_a_server(self) -> None:
+        self._make_member()
+        account = self._active_scout_account()
+        server, teammate = self._server_shared_by_two_members(account)
+
+        response = self.client.post(
+            self._api_url(f"{account.id}/access/"),
+            data={"gateway_server_id": str(server.id), "enabled": False, "all": True},
+            format="json",
+        )
+
+        assert response.status_code == status.HTTP_403_FORBIDDEN
+        assert self._agent_grant_user_ids(account, server) == sorted([self.user.id, teammate.id])
+        assert self._agent_policy_exists(account, server)
 
     def test_only_admin_can_update_member_agent_access_setting(self) -> None:
         self._make_member()
@@ -1455,6 +1661,7 @@ class TestMCPServiceAccountAPI(APIBaseTest):
         )
         MCPServiceAccountServerAccess.objects.for_team(self.team.id).create(
             team=self.team,
+            user=self.user,
             service_account=account,
             gateway_server=server,
             granted_by=self.user,
@@ -1465,6 +1672,7 @@ class TestMCPServiceAccountAPI(APIBaseTest):
 
         assert response.status_code == status.HTTP_200_OK
         scout = next(row for row in response.json()["results"] if row["agent_key"] == "scout")
+        assert [server.pop("shared_by")["id"] for server in scout["servers"]] == [self.user.id]
         assert scout["servers"] == [
             {
                 "id": str(server.id),
@@ -1505,6 +1713,7 @@ class TestMCPServiceAccountAPI(APIBaseTest):
         )
         access = MCPServiceAccountServerAccess.objects.for_team(self.team.id).create(
             team=self.team,
+            user=self.user,
             service_account=account,
             gateway_server=server,
             installation=personal_installation,
@@ -1522,7 +1731,7 @@ class TestMCPServiceAccountAPI(APIBaseTest):
 
     def test_agent_endpoint_rejects_tampered_signed_token(self) -> None:
         account = self._active_scout_account()
-        token = create_gateway_agent_token(account)
+        token = self._agent_token(account)
         tampered_token = f"{token[:-1]}{'a' if token[-1] != 'a' else 'b'}"
 
         response = self._agent_client(account, tampered_token).get("/api/mcp_store/gateway/servers/")
@@ -1566,7 +1775,7 @@ class TestMCPServiceAccountAPI(APIBaseTest):
 
     def test_agent_endpoint_rechecks_pause_after_mint(self) -> None:
         account = self._active_scout_account()
-        token = create_gateway_agent_token(account)
+        token = self._agent_token(account)
         client = self._agent_client(account, token)
 
         account.status = "paused"
@@ -1592,14 +1801,18 @@ class TestMCPServiceAccountAPI(APIBaseTest):
             ),
         ]
     )
-    def test_agent_gateway_rate_limits_are_scoped_per_service_account(
+    def test_agent_gateway_rate_limits_are_scoped_per_account_and_credential_owner(
         self, _name: str, method: str, url: str, allowed_status: int
     ) -> None:
         accounts = sync_built_in_agents(self.team)
         primary_account = next(account for account in accounts if account.handle == "posthog-scout")
         secondary_account = next(account for account in accounts if account.handle == "posthog-support")
+        other_member = User.objects.create_and_join(self.organization, "other-throttle@posthog.com", "password")
         primary_client = self._agent_client(primary_account)
         secondary_client = self._agent_client(secondary_account)
+        other_owner_client = self._agent_client(
+            primary_account, self._agent_token(primary_account, credential_owner_id=other_member.id)
+        )
         cache.clear()
         self.addCleanup(cache.clear)
 
@@ -1616,10 +1829,12 @@ class TestMCPServiceAccountAPI(APIBaseTest):
             first_response = primary_client.generic(method, url, REMOTE_ADDR="192.0.2.1")
             throttled_response = primary_client.generic(method, url, REMOTE_ADDR="192.0.2.2")
             secondary_response = secondary_client.generic(method, url, REMOTE_ADDR="192.0.2.1")
+            other_owner_response = other_owner_client.generic(method, url, REMOTE_ADDR="192.0.2.1")
 
         assert first_response.status_code == allowed_status
         assert throttled_response.status_code == status.HTTP_429_TOO_MANY_REQUESTS
         assert secondary_response.status_code == allowed_status
+        assert other_owner_response.status_code == allowed_status
 
     @parameterized.expand(
         [
@@ -1642,6 +1857,7 @@ class TestMCPServiceAccountAPI(APIBaseTest):
         if scenario == "revoked":
             access = MCPServiceAccountServerAccess.objects.for_team(self.team.id).create(
                 team=self.team,
+                user=self.user,
                 service_account=account,
                 gateway_server=server,
                 granted_by=self.user,
@@ -1655,6 +1871,47 @@ class TestMCPServiceAccountAPI(APIBaseTest):
         )
 
         assert response.status_code == status.HTTP_404_NOT_FOUND
+        mock_proxy.assert_not_called()
+
+    @patch("products.mcp_store.backend.presentation.agent_views.proxy_mcp_request")
+    def test_agent_cannot_use_a_grant_belonging_to_another_member(self, mock_proxy) -> None:
+        account = self._active_scout_account()
+        other_user = User.objects.create_and_join(self.organization, "other-grant@posthog.com", "password")
+        server = MCPGatewayServer.objects.for_team(self.team.id).create(
+            team=self.team,
+            name="Personal grant",
+            url="https://mcp.personal-grant.example.com/mcp",
+        )
+        installation = MCPServerInstallation.objects.create(
+            team=self.team,
+            user=self.user,
+            display_name="Personal",
+            url=server.url,
+            auth_type="api_key",
+            sensitive_configuration={"api_key": "secret"},
+            scope="personal",
+            gateway_server=server,
+        )
+        MCPServiceAccountServerAccess.objects.for_team(self.team.id).create(
+            team=self.team,
+            user=self.user,
+            service_account=account,
+            gateway_server=server,
+            installation=installation,
+            granted_by=self.user,
+        )
+        client = self._agent_client(account, self._agent_token(account, credential_owner_id=other_user.id))
+
+        catalog_response = client.get("/api/mcp_store/gateway/servers/")
+        proxy_response = client.post(
+            f"/api/mcp_store/gateway/servers/{server.id}/proxy/",
+            data={"jsonrpc": "2.0", "method": "tools/list", "id": 1},
+            format="json",
+        )
+
+        assert catalog_response.status_code == status.HTTP_200_OK
+        assert catalog_response.json()["results"] == []
+        assert proxy_response.status_code == status.HTTP_404_NOT_FOUND
         mock_proxy.assert_not_called()
 
     @patch("products.mcp_store.backend.presentation.agent_views.proxy_mcp_request")
@@ -1678,6 +1935,7 @@ class TestMCPServiceAccountAPI(APIBaseTest):
         )
         MCPServiceAccountServerAccess.objects.for_team(self.team.id).create(
             team=self.team,
+            user=self.user,
             service_account=account,
             gateway_server=server,
             installation=installation,
@@ -1719,6 +1977,7 @@ class TestMCPServiceAccountAPI(APIBaseTest):
         )
         MCPServiceAccountServerAccess.objects.for_team(self.team.id).create(
             team=self.team,
+            user=self.user,
             service_account=account,
             gateway_server=server,
             installation=installation,
@@ -1803,7 +2062,9 @@ class TestMCPServiceAccountAPI(APIBaseTest):
             gateway_server=granted_server,
         )
         assert access.installation == personal_installation
-        assert grant_response.json()["servers"] == [
+        granted_servers = grant_response.json()["servers"]
+        assert [server.pop("shared_by")["id"] for server in granted_servers] == [self.user.id]
+        assert granted_servers == [
             {
                 "id": str(granted_server.id),
                 "name": "Agent only",
@@ -1816,7 +2077,7 @@ class TestMCPServiceAccountAPI(APIBaseTest):
 
         account = MCPServiceAccount.objects.for_team(self.team.id).get(id=scout["id"])
         agent_client = APIClient()
-        agent_client.credentials(HTTP_AUTHORIZATION=f"Bearer {create_gateway_agent_token(account)}")
+        agent_client.credentials(HTTP_AUTHORIZATION=f"Bearer {self._agent_token(account)}")
         dormant_response = agent_client.get("/api/mcp_store/gateway/servers/")
 
         assert dormant_response.status_code == status.HTTP_200_OK
@@ -1870,6 +2131,7 @@ class TestMCPServiceAccountAPI(APIBaseTest):
             )
             MCPServiceAccountServerAccess.objects.for_team(self.team.id).create(
                 team=self.team,
+                user=self.user,
                 service_account=account,
                 gateway_server=server,
                 installation=installation,
@@ -2444,6 +2706,7 @@ class TestOAuthCallback(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
         *,
         template=None,
         created_by=None,
+        web_return_path="",
     ):
         from datetime import timedelta
 
@@ -2458,8 +2721,26 @@ class TestOAuthCallback(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
             pkce_verifier=pkce_verifier,
             install_source=install_source,
             posthog_code_callback_url=posthog_code_callback_url,
+            web_return_path=web_return_path,
             expires_at=timezone.now() + timedelta(seconds=600),
             created_by=created_by if created_by is not None else self.user,
+        )
+
+    def test_oauth_redirect_places_callback_query_before_return_fragment(self):
+        installation = self._create_installation()
+        state_token = "web-return-with-fragment"
+        return_path = f"/project/{self.team.id}/mcp-servers/server/server-id?scope=team&keep=value#panel=open"
+        self._create_oauth_state(installation, state_token, web_return_path=return_path)
+
+        response = self.client.get(
+            "/api/mcp_store/oauth_redirect/",
+            {"state": state_token, "error": "access_denied"},
+        )
+
+        assert response.status_code == status.HTTP_302_FOUND
+        assert response["Location"] == (
+            f"{settings.SITE_URL}/project/{self.team.id}/mcp-servers/server/server-id"
+            "?scope=team&keep=value&oauth_error=true#panel=open"
         )
 
     @patch("products.mcp_store.backend.oauth.is_url_allowed", return_value=(True, None))

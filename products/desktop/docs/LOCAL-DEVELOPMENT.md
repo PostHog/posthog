@@ -60,6 +60,17 @@ openssl genrsa 2048 | openssl pkcs8 -topk8 -nocrypt -outform PEM | \
 
 ## 3. Clone and run the app
 
+Already working in the posthog/posthog monorepo? Skip the clone: the app lives at `products/desktop`. Note it needs Node 22 (see `.node-version`), not the Node version the monorepo's flox environment provides, so switch with your version manager first.
+
+```bash
+cd products/desktop
+pnpm install
+cp .env.example .env
+pnpm dev
+```
+
+Starting fresh from the standalone repo instead:
+
 ```bash
 git clone https://github.com/PostHog/code.git
 cd code
@@ -154,10 +165,10 @@ The OAuth application in your local PostHog must have the client ID `DC5uRLVbGI0
 
 ### "OAuth error: invalid_scope"
 
-PostHog Code requests the wildcard scope `*` (see `OAUTH_SCOPES` in
+PostHog Desktop requests the wildcard scope `*` (see `OAUTH_SCOPES` in
 `packages/shared/src/oauth.ts`). PostHog's OAuth server only grants `*` at
 `/authorize` when the OAuth application's **scope ceiling is empty** — this is
-the grandfathering path for the PostHog Code client. If the application has any
+the grandfathering path for the PostHog Desktop client. If the application has any
 explicit `scopes` or `optional_scopes` configured, the wildcard is rejected with
 `invalid_scope`.
 

@@ -7,6 +7,7 @@ import { urls } from 'scenes/urls'
 import IconPostHog from 'public/posthog-icon.svg'
 import IconClickHouse from 'public/services/clickhouse.png'
 import IconDuckDB from 'public/services/duckdb.svg'
+import IconMotherDuck from 'public/services/motherduck.png'
 import IconMySQL from 'public/services/mysql.png'
 import IconPostgres from 'public/services/postgres.png'
 import IconRedshift from 'public/services/redshift.png'
@@ -45,7 +46,7 @@ export interface ConnectionSelectOptionGroup {
     options: ConnectionSelectOption[]
 }
 
-type ConnectionEngine = 'duckdb' | 'postgres' | 'mysql' | 'snowflake' | 'redshift' | 'clickhouse'
+type ConnectionEngine = 'duckdb' | 'postgres' | 'mysql' | 'snowflake' | 'redshift' | 'clickhouse' | 'motherduck'
 
 const ENGINE_LABELS: Record<ConnectionEngine, string> = {
     duckdb: 'DuckDB',
@@ -54,6 +55,7 @@ const ENGINE_LABELS: Record<ConnectionEngine, string> = {
     snowflake: 'Snowflake',
     redshift: 'Redshift',
     clickhouse: 'ClickHouse',
+    motherduck: 'MotherDuck',
 }
 
 const ENGINE_ICONS: Record<ConnectionEngine, string> = {
@@ -63,6 +65,7 @@ const ENGINE_ICONS: Record<ConnectionEngine, string> = {
     snowflake: IconSnowflake,
     redshift: IconRedshift,
     clickhouse: IconClickHouse,
+    motherduck: IconMotherDuck,
 }
 
 function getConnectionEngine(
@@ -73,7 +76,8 @@ function getConnectionEngine(
         source.engine === 'mysql' ||
         source.engine === 'snowflake' ||
         source.engine === 'redshift' ||
-        source.engine === 'clickhouse'
+        source.engine === 'clickhouse' ||
+        source.engine === 'motherduck'
     ) {
         return source.engine
     }
@@ -83,6 +87,14 @@ function getConnectionEngine(
         return sourceTypeEngine as ConnectionEngine
     }
     return 'postgres'
+}
+
+export function getConnectionOptionLabel(source: ExternalDataSourceConnectionOptionApi): string {
+    const engine = getConnectionEngine(source)
+    const isSynced = source.access_method === 'warehouse'
+    // Prefer the user-set description, then the prefix; fall back to the source type name (never the raw UUID).
+    const name = source.description || source.prefix || source.source_type || source.id
+    return `${name} (${ENGINE_LABELS[engine]}${isSynced ? ' · synced' : ''})`
 }
 
 export function getConnectionSelectorValue(
@@ -251,19 +263,12 @@ export const connectionSelectorLogic = kea<connectionSelectorLogicType>([
             ): ConnectionSelectOptionGroup[] => {
                 const sourceOptions = connectionOptionsLoading
                     ? [{ value: LOADING_CONNECTIONS, label: 'Loading...', disabled: true }]
-                    : (connectionOptions ?? []).map((source) => {
-                          const engine = getConnectionEngine(source)
-                          const isSynced = source.access_method === 'warehouse'
-                          // Prefer the user-set description, then the prefix; fall back to the source type name (never the raw UUID).
-                          const name = source.description || source.prefix || source.source_type || source.id
-
-                          return {
-                              value: source.id,
-                              label: `${name} (${ENGINE_LABELS[engine]}${isSynced ? ' · synced' : ''})`,
-                              iconSrc: ENGINE_ICONS[engine],
-                              managementUrl: urls.dataWarehouseSource(`managed-${source.id}`),
-                          }
-                      })
+                    : (connectionOptions ?? []).map((source) => ({
+                          value: source.id,
+                          label: getConnectionOptionLabel(source),
+                          iconSrc: ENGINE_ICONS[getConnectionEngine(source)],
+                          managementUrl: urls.dataWarehouseSource(`managed-${source.id}`),
+                      }))
 
                 // Driven by the backend direct-SQL capability surface so the menu never drifts from
                 // the engines we actually support (a new direct source shows up with no frontend change).

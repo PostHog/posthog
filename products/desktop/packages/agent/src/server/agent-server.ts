@@ -21,11 +21,18 @@ import {
   type Adapter,
   buildPrOutput,
   getErrorMessage,
+  type McpServerConnection,
   mergePrUrls,
   parseMcpToolName,
   readMcpToolDescriptor,
   readPrUrls,
 } from "@posthog/shared";
+import {
+  buildPosthogPropertiesHeaderLines,
+  buildPosthogPropertiesHeaderRecord,
+  buildPosthogScopedPropertyHeaderLines,
+  buildPosthogScopedPropertyHeaderRecord,
+} from "@posthog/shared/posthog-property-headers";
 import { unzipSync } from "fflate";
 import { Hono } from "hono";
 import { z } from "zod";
@@ -90,14 +97,7 @@ import type {
 } from "../types";
 import { resourceLink } from "../utils/acp-content";
 import { AsyncMutex } from "../utils/async-mutex";
-import {
-  buildGatewayPropertiesHeader,
-  buildGatewayPropertiesHeaderRecord,
-  buildGatewayPropertyHeaderRecord,
-  buildGatewayPropertyHeaders,
-  resolveGatewayProduct,
-  resolveGatewayTarget,
-} from "../utils/gateway";
+import { resolveGatewayProduct, resolveGatewayTarget } from "../utils/gateway";
 import { resolveGithubToken } from "../utils/github-token";
 import { Logger } from "../utils/logger";
 import { logAgentshRuntimeInfo } from "./agentsh-runtime";
@@ -117,7 +117,6 @@ import { RunUsageAccumulator } from "./run-usage";
 import {
   handoffLocalGitStateSchema,
   jsonRpcRequestSchema,
-  type RemoteMcpServer,
   validateCommandParams,
 } from "./schemas";
 import type { AgentServerConfig } from "./types";
@@ -347,6 +346,43 @@ function getTaskRunStateString(
   return typeof value === "string" ? value : null;
 }
 
+/** Which delivery routes a Slack run has, as resolved by the backend from flags and Slack scopes. */
+type SlackArtifactDelivery = "none" | "message" | "canvas_file";
+
+const SLACK_ARTIFACT_DELIVERY_MODES: SlackArtifactDelivery[] = [
+  "none",
+  "message",
+  "canvas_file",
+];
+
+/**
+ * An unset key means the backend told us nothing — any non-Slack run, or a Slack run that
+ * predates this. Emit no constraints rather than guessing: the agent must never be offered a
+ * route delivery would reject, nor told it has none while it actually does.
+ */
+function readSlackArtifactDelivery(
+  taskRun: TaskRun | null,
+): SlackArtifactDelivery | null {
+  const mode = getTaskRunStateString(taskRun, "slack_artifact_delivery");
+  return SLACK_ARTIFACT_DELIVERY_MODES.find((known) => known === mode) ?? null;
+}
+
+/**
+ * Charts ride on their own key rather than a delivery mode: they need only the rollout
+ * flag, while canvas and file delivery also needs Slack scopes that are still in review,
+ * so a workspace can have charts and nothing else. Absent or non-boolean means a backend
+ * that predates charts, which is the same as off.
+ */
+function readSlackChartDelivery(taskRun: TaskRun | null): boolean {
+  const state = taskRun?.state;
+
+  if (!state || typeof state !== "object") {
+    return false;
+  }
+
+  return (state as Record<string, unknown>).slack_chart_delivery === true;
+}
+
 // Prompt block we hand the agent when the user attached files but we could not
 // load any of them into the session (missing from the run manifest, no storage
 // path, etc.). Without this the caller falls back to the bare task description —
@@ -380,6 +416,9 @@ export class AgentServer {
   private suppressAdapterTurnComplete = false;
   private runUsage = new RunUsageAccumulator();
   private detectedPrUrl: string | null = null;
+  private slackArtifactDelivery: SlackArtifactDelivery | null = null;
+  private slackChartDelivery = false;
+  private taskRepositories: string[] = [];
   // Reset per session. `evaluatedPrUrls` dedupes per URL; `prAttributionChain` serializes
   // attributions so the most recently created PR in a run wins.
   private readonly evaluatedPrUrls = new Set<string>();
@@ -390,9 +429,10 @@ export class AgentServer {
   private oversizedResumeRetried = false;
   // Prewarmed runs boot before the user's first message exists, so the boot-time
   // --autoPublish flag can't carry the user's choice; it is resolved from run
-  // state when the first message arrives (see resolveWarmAutoPublishUpgrade).
+  // state when the first message arrives (see resolveWarmActivationSettings).
   private prewarmedRun = false;
   private warmAutoPublishResolved = false;
+  private warmReasoningEffortResolved = false;
   private installedSkillBundles = new Set<string>();
   private installedSkillBundleInfo = new Map<string, InstalledSkillBundle>();
   private installingSkillBundles = new Map<string, Promise<void>>();
@@ -438,7 +478,7 @@ export class AgentServer {
    * servers and return their session mcpServers entries. No designations →
    * no relay server, no entries.
    */
-  private async startMcpRelayServer(): Promise<RemoteMcpServer[]> {
+  private async startMcpRelayServer(): Promise<McpServerConnection[]> {
     const names = this.config.relayMcpServers ?? [];
     if (names.length === 0) return [];
     if (!this.mcpRelayServer) {
@@ -1145,9 +1185,12 @@ export class AgentServer {
             `Processing user message (detectedPrUrl=${this.detectedPrUrl ?? "none"}): ${promptPreview.substring(0, 100)}...`,
           );
 
+          // Apply activation-time settings before the warmed agent sees its
+          // first prompt. The sandbox and session can be prepared with one
+          // effort while the final composer selection uses another.
           // Resolve before buildDetectedPrContext so a warm auto-publish upgrade
           // also flips the detected-PR context to its push variant.
-          const autoPublishUpgrade = await this.resolveWarmAutoPublishUpgrade();
+          const autoPublishUpgrade = await this.resolveWarmActivationSettings();
           const hostContext = [
             ...(autoPublishUpgrade ? [autoPublishUpgrade] : []),
             ...(this.detectedPrUrl
@@ -1544,6 +1587,7 @@ export class AgentServer {
     this.preSessionEvents = [];
     this.prewarmedRun = false;
     this.warmAutoPublishResolved = false;
+    this.warmReasoningEffortResolved = false;
 
     this.logger.debug("Initializing session", {
       runId: payload.run_id,
@@ -1574,6 +1618,9 @@ export class AgentServer {
         return null;
       }),
     ]);
+    this.taskRepositories =
+      preTask?.repositories ??
+      (preTask?.repository ? [preTask.repository] : []);
 
     this.prewarmedRun =
       (preTaskRun?.state as Record<string, unknown> | undefined)?.prewarmed ===
@@ -1596,6 +1643,7 @@ export class AgentServer {
       void fetchGatewayModels({
         gatewayUrl: gatewayEnv.anthropicBaseUrl,
         authToken: gatewayEnv.anthropicAuthToken,
+        projectId: Number(gatewayEnv.posthogProjectId) || undefined,
       }).catch(() => {});
     }
 
@@ -1608,6 +1656,11 @@ export class AgentServer {
       preTaskRun,
       "slack_thread_url",
     );
+
+    // Unconditional for the same reason as detectedPrUrl: a re-init on this
+    // instance must not keep the previous run's delivery capability.
+    this.slackArtifactDelivery = readSlackArtifactDelivery(preTaskRun);
+    this.slackChartDelivery = readSlackChartDelivery(preTaskRun);
 
     // Web backlink to the inbox report that spawned this task, so the
     // auto-generated PR can point back at it. Built from the same pieces as the
@@ -1726,7 +1779,7 @@ export class AgentServer {
     const runState = preTaskRun?.state as Record<string, unknown> | undefined;
     // Preserve native Codex modes for cloud runs so they behave the same as
     // local sessions. Claude keeps the historical auto-approved default when
-    // PostHog Code has not explicitly selected a mode.
+    // PostHog Desktop has not explicitly selected a mode.
     const initialPermissionMode: PermissionMode =
       typeof runState?.initial_permission_mode === "string"
         ? (runState.initial_permission_mode as PermissionMode)
@@ -1741,6 +1794,10 @@ export class AgentServer {
         )
       : [];
     const sessionCwd = this.config.repositoryPath ?? "/tmp/workspace";
+    // Only a run with no repository at all gets the discover-and-clone tools;
+    // a multi-repository workspace already has its repos on disk.
+    const channelMode =
+      !this.config.repositoryPath && this.taskRepositories.length === 0;
     const sessionMeta = {
       sessionId: payload.run_id,
       taskRunId: payload.run_id,
@@ -1752,6 +1809,7 @@ export class AgentServer {
       allowedDomains: this.config.allowedDomains,
       jsonSchema: preTask?.json_schema ?? null,
       permissionMode: initialPermissionMode,
+      ...(channelMode && { channelMode: true }),
       posthogExecPermissionRegex: this.posthogExecPermissionRegexSource,
       ...(this.config.baseBranch && { baseBranch: this.config.baseBranch }),
       ...(runtimeAdapter === "claude" &&
@@ -1782,7 +1840,7 @@ export class AgentServer {
     let effectiveSessionMeta: typeof sessionMeta & {
       nativeGoal?: NonNullable<ResumeState["nativeGoal"]>;
     } = sessionMeta;
-    let sessionMcpServers: RemoteMcpServer[];
+    let sessionMcpServers: McpServerConnection[];
     try {
       await this.installSkillBundleArtifacts(
         payload.task_id,
@@ -2077,6 +2135,8 @@ export class AgentServer {
       isUpstreamFailure &&
       phase === "followup" &&
       this.getEffectiveMode(payload) === "interactive";
+    const expectedIdleTransportClosure =
+      recoverable && /^ACP connection closed$/i.test(message.trim());
 
     this.logger.error(`send_${phase}_task_message_failed`, {
       classification,
@@ -2084,7 +2144,9 @@ export class AgentServer {
       recoverable,
     });
 
-    this.broadcastTurnFailure(classification, displayMessage);
+    if (!expectedIdleTransportClosure) {
+      this.broadcastTurnFailure(classification, displayMessage);
+    }
 
     if (recoverable) {
       this.broadcastTurnComplete("error_recoverable");
@@ -2256,6 +2318,7 @@ export class AgentServer {
   ): Promise<void> {
     if (!this.session || !this.resumeState) return;
     const resumeState = this.resumeState;
+    taskRun = await this.refreshTaskRunForResume(payload, taskRun);
 
     await this.runResumeTurn(payload, taskRun, "Resume message", async () => {
       const conversationSummary = formatConversationForResume(
@@ -2319,6 +2382,7 @@ export class AgentServer {
     taskRun: TaskRun | null,
   ): Promise<void> {
     if (!this.session) return;
+    taskRun = await this.refreshTaskRunForResume(payload, taskRun);
 
     await this.runResumeTurn(
       payload,
@@ -2354,6 +2418,22 @@ export class AgentServer {
       },
       { retryOnOversizedPrompt: true },
     );
+  }
+
+  private async refreshTaskRunForResume(
+    payload: JwtPayload,
+    fallback: TaskRun | null,
+  ): Promise<TaskRun | null> {
+    try {
+      return await this.posthogAPI.getTaskRun(payload.task_id, payload.run_id);
+    } catch (error) {
+      this.logger.debug("Failed to refresh task run before resume", {
+        taskId: payload.task_id,
+        runId: payload.run_id,
+        error,
+      });
+      return fallback;
+    }
   }
 
   /**
@@ -3395,7 +3475,7 @@ export class AgentServer {
   /**
    * Automated, PostHog-branded origins: the Slack app and the Self-driving
    * inbox. These both auto-publish by default and attribute their PRs to
-   * "PostHog" rather than the PostHog Code desktop app.
+   * "PostHog" rather than the PostHog Desktop app.
    */
   private isAutomatedOrigin(): boolean {
     const origin = this.getCloudInteractionOrigin();
@@ -3415,6 +3495,66 @@ export class AgentServer {
     );
   }
 
+  /** Apply activation-time settings before a prewarmed session's first turn. */
+  private async resolveWarmActivationSettings(): Promise<string | null> {
+    if (!this.prewarmedRun || !this.session) {
+      return null;
+    }
+    if (this.warmReasoningEffortResolved && this.warmAutoPublishResolved) {
+      return null;
+    }
+
+    let state: Record<string, unknown> | undefined;
+    try {
+      const run = await this.posthogAPI.getTaskRun(
+        this.session.payload.task_id,
+        this.session.payload.run_id,
+      );
+      state = run?.state as Record<string, unknown> | undefined;
+    } catch (error) {
+      // Keep both settings unresolved so a later message retries. A transient
+      // control-plane failure must not prevent the first prompt from running.
+      this.logger.debug("Failed to fetch warm activation settings", { error });
+      return null;
+    }
+
+    await this.resolveWarmReasoningEffort(state);
+    return this.resolveWarmAutoPublishUpgrade(state);
+  }
+
+  private async resolveWarmReasoningEffort(
+    state: Record<string, unknown> | undefined,
+  ): Promise<void> {
+    if (this.warmReasoningEffortResolved || !this.session) {
+      return;
+    }
+
+    const reasoningEffort = state?.reasoning_effort;
+    if (typeof reasoningEffort === "string" && reasoningEffort.length > 0) {
+      try {
+        await this.session.clientConnection.setSessionConfigOption({
+          sessionId: this.session.acpSessionId,
+          configId: "effort",
+          value: reasoningEffort,
+        });
+      } catch (error) {
+        // Keep this unresolved so a later message retries, but continue with
+        // the effort used to start the warm session for the current prompt.
+        this.logger.warn("Failed to apply warm activation reasoning effort", {
+          error,
+          reasoningEffort,
+        });
+        return;
+      }
+      this.config.reasoningEffort =
+        reasoningEffort as AgentServerConfig["reasoningEffort"];
+      this.logger.debug("Applied warm activation reasoning effort", {
+        reasoningEffort,
+      });
+    }
+    this.warmReasoningEffortResolved = true;
+  }
+
   /**
    * A prewarmed run boots before the user's first message exists, so the
    * --autoPublish flag can't carry the user's choice; the backend persists it
@@ -3424,8 +3564,10 @@ export class AgentServer {
    * buildDetectedPrContext see it) and return the auto-publish cloud
    * instructions to inject into the first prompt as an override.
    */
-  private async resolveWarmAutoPublishUpgrade(): Promise<string | null> {
-    if (!this.prewarmedRun || this.warmAutoPublishResolved || !this.session) {
+  private resolveWarmAutoPublishUpgrade(
+    state: Record<string, unknown> | undefined,
+  ): string | null {
+    if (this.warmAutoPublishResolved) {
       return null;
     }
     if (
@@ -3435,20 +3577,6 @@ export class AgentServer {
     ) {
       // The boot decision already publishes (or never may) — nothing to upgrade.
       this.warmAutoPublishResolved = true;
-      return null;
-    }
-    let state: Record<string, unknown> | undefined;
-    try {
-      const run = await this.posthogAPI.getTaskRun(
-        this.session.payload.task_id,
-        this.session.payload.run_id,
-      );
-      state = run?.state as Record<string, unknown> | undefined;
-    } catch (error) {
-      // Leave unresolved so the next message retries; stay review-first for now.
-      this.logger.debug("Failed to fetch run state for auto-publish upgrade", {
-        error,
-      });
       return null;
     }
     this.warmAutoPublishResolved = true;
@@ -3536,6 +3664,91 @@ export class AgentServer {
     );
   }
 
+  /**
+   * How this run may hand a deliverable to the Slack thread it is answering in.
+   *
+   * The offer has to match what delivery will actually accept: naming an adapter the
+   * workspace cannot use gets the request rejected server-side after the agent has already
+   * promised the user a canvas or a spreadsheet. The backend resolves that capability from
+   * the workspace's feature flags and Slack scopes when the task starts and hands it to us
+   * on the run state, so the wording lives here and the gating stays there.
+   */
+  private buildSlackDeliveryInstructions(): string {
+    if (this.slackArtifactDelivery === null) {
+      return "";
+    }
+
+    if (this.slackArtifactDelivery === "none") {
+      return `
+## Delivering to Slack
+- You do not have artifact delivery in this workspace: you cannot create or share artifacts (files, canvases, documents) from this run, so do not attempt to. Deliver results as plain text in your reply.
+- Do not attach, upload, link to, or expose run artifacts or local working files, including /tmp/workspace paths.`;
+    }
+
+    const endpoint = `$POSTHOG_API_URL/api/projects/$POSTHOG_PROJECT_ID/tasks/$POSTHOG_TASK_ID/runs/$POSTHOG_TASK_RUN_ID/living_artifacts/`;
+    const preamble = `
+## Delivering to Slack
+- Local sandbox paths such as /tmp/workspace/... are not visible to Slack users.
+- Do not say a file, report, PDF, spreadsheet, document, or other artifact is attached, uploaded, or shared unless a tool explicitly confirms that delivery.
+- Run artifacts that are not your uploaded outputs (plans, context, tree snapshots, checkpoints, user uploads) are internal: never deliver them to Slack or mention them in your reply.`;
+
+    // Charts attach to both modes: they post as an image block referencing a PostHog-hosted
+    // url, so they work wherever the workspace can post at all.
+    const chartBullets = this.slackChartDelivery
+      ? `
+- When an analytics answer is naturally visual (a trend over time, funnel, breakdown comparison, retention curve), deliver a chart image by default alongside the summary. Do not wait for the user to say "chart". Skip the image only when the result is a single number, a short list, or the user asked for raw data.
+- To show a chart in Slack (a saved insight or an ad-hoc analytics query result), make a single call: POST to \`${endpoint}chart/\` with \`$POSTHOG_PERSONAL_API_KEY\` and body \`{"name": "<chart title>", "query": <query JSON, e.g. {"kind": "InsightVizNode", "source": {"kind": "TrendsQuery", ...}}>}\`, or \`{"name": "<chart title>", "insight_id": <numeric insight id>}\` for a saved insight. It renders the chart server-side and registers it for Slack delivery in one step, blocking until done (typically a few seconds).
+- The chart renders directly under your answer text with its name as the title, so do not restate the title or announce the chart ("Here's a chart of…"). Spend your answer text on the takeaway instead: the trend, inflection points, spikes, or drops a reader should notice, with numbers where they matter. Each chart is delivered with an "Open in PostHog" button, so do not paste the response \`url\` into your answer unless the user explicitly asks for a link. Do not download, view, or re-upload the image yourself.
+- Report a chart failure rather than retrying blindly: a 400 carries the reason in \`error\`, or in \`detail\` when the request body itself was rejected, and a 429 means the project's chart render limit is saturated, so answer without the chart.
+- SQL results cannot be charted yet, because the chart endpoint rejects SQL queries. Chart with an insight query (e.g. TrendsQuery) when the question can be expressed as one; otherwise summarize the SQL result in your answer text.`
+      : "";
+
+    if (this.slackArtifactDelivery === "message") {
+      const chartException = this.slackChartDelivery
+        ? " Chart images are the one exception: deliver them through the dedicated chart endpoint below, never through the generic living-artifacts endpoint."
+        : "";
+      const unsupportedDeliverable = this.slackChartDelivery
+        ? "- If a deliverable cannot be expressed as a Slack message or a chart image (for example .xlsx/.pdf/.docx), say that plainly and summarize the result in Slack instead."
+        : "- If a deliverable cannot be expressed as a Slack message (for example .xlsx/.pdf/.docx), say that plainly and summarize the result in Slack instead.";
+      return `${preamble}
+- You do not have canvas or file delivery in this workspace: do not use the \`slack_canvas\` or \`slack_file\` adapters, and do not promise a canvas, uploaded spreadsheet, or downloadable file.${chartException}
+- For Slack deliverables, create a living artifact before claiming delivery. POST to \`${endpoint}\` with \`$POSTHOG_PERSONAL_API_KEY\` using adapter \`slack_message\`. To update a prior deliverable, GET the returned artifact id or POST new \`content\` to \`${endpoint}<artifact_id>/edit/\`.${chartBullets}
+${unsupportedDeliverable}`;
+    }
+
+    return `${preamble}
+- For Slack deliverables, create a living artifact before claiming delivery. POST to \`${endpoint}\` with \`$POSTHOG_PERSONAL_API_KEY\`; choose adapter \`slack_canvas\`, \`slack_message\`, \`slack_file\`, or \`document_connector\`. Use \`adapter=slack_file\` with \`content_base64\` for binary deliverables such as .xlsx/.pdf/.docx, or \`source_artifact_id\` / \`source_storage_path\` for a file you already uploaded as a \`type=output\` run artifact.
+- To update a prior deliverable, GET the returned artifact id or POST new \`content\`, \`content_base64\`, or source artifact fields to \`${endpoint}<artifact_id>/edit/\`.${chartBullets}
+- Do not paste living-artifact Slack file links or permalinks into your final Slack answer unless the user explicitly asks for the URL. The Slack relay attaches pending file artifacts to your final answer automatically, so mention the artifact by name only if useful.
+- If you created a local file but no upload or delivery tool is available, say that plainly and summarize the result in Slack instead.`;
+  }
+
+  /**
+   * What to do when a cloud run has no way to reach the user's code.
+   *
+   * Repository access on a cloud run comes from the user's own GitHub connection in
+   * PostHog, so a run can legitimately start without one — nothing is checked out and
+   * there are no credentials to push with. The Slack mention path used to refuse those
+   * mentions outright, which walled off every question that only looked like it needed
+   * code; it now starts the run and leaves the judgement here, where the request itself
+   * is visible. The settings link is built from this run's own host and project so it
+   * lands the user in the right region rather than a hardcoded one.
+   *
+   * Appended to every cloud branch on purpose: a checkout is not proof of access. A
+   * public repository clones with no token at all, so a run can hold the code and still
+   * have no way to push it.
+   */
+  private buildSourceControlAccessInstructions(): string {
+    const settingsUrl = `${this.config.apiUrl.replace(/\/$/, "")}/project/${this.config.projectId}/settings/user-personal-integrations`;
+    return `
+## When you cannot reach the code
+You may have no repository checked out, or no credentials to push and open a pull request with.
+- Answer the part of the request that does not need the code first — questions about PostHog, their data, or their configuration are all still answerable.
+- If the request turns out not to need a code change at all, just answer it and say nothing about GitHub.
+- Only if it genuinely needs a code change, say so plainly and link them to ${settingsUrl} to connect GitHub, then ask them to come back to you.
+- Do not work around it: no guessing at file contents you cannot read, and no starting a change you have no way to deliver.`;
+  }
+
   private buildCloudSystemPrompt(
     prUrl?: string | null,
     slackThreadUrl?: string | null,
@@ -3557,6 +3770,13 @@ You are replying in a Slack thread. Slack readers want short, skimmable answers 
 - Do not narrate your thinking or list every step you took; report what matters and the result.
 - This is a default, not a hard rule. If the user (or their saved memory) asks for more depth or a specific format, follow that instead.
 
+# PostHog products first
+PostHog is a product suite, not just analytics — session replay, feature flags, experiments, surveys, error tracking, logs, data warehouse, CDP, messaging, and customer support all ship as PostHog products.
+- When someone asks how to set up, enable, configure, or use a capability, assume they mean PostHog's version of it and answer about that.
+- Search our docs with the \`docs-search\` tool before you answer, and ground the answer in what it returns rather than in what you remember. The product changes faster than your training data.
+- Never send the user to a third-party product for something PostHog does. If you are unsure whether we cover it, search the docs before concluding we don't — and if we genuinely don't, say so plainly instead of recommending a competitor. Pointing at a third party we integrate with, as a source or destination, is fine.
+- When a request could mean either a PostHog feature or something in the user's own codebase, ask which they mean instead of guessing.
+
 # Mentioning users
 To ping a Slack user, reuse a \`<@U…|displayname>\` token that already appears in the message context — copy it verbatim, including the \`U…\` ID. Do NOT construct a mention token from a name, and do NOT substitute the display name (or any other string) for the \`U…\` ID — \`<@Jane|Jane Doe>\` is not a valid mention; only the form with the real ID like \`<@U01ABCDEF23|Jane Doe>\` is. If the person you want to refer to has no \`<@U…|displayname>\` token anywhere in the thread context, write their name as plain text instead of inventing one. These \`<@U…>\` tokens are Slack-only: never carry one — or a name or handle derived from it — into a GitHub PR, commit message, or review request as an \`@\`-mention. A Slack display name or handle is NOT a GitHub username; see the pull-request instructions below.
 
@@ -3570,7 +3790,7 @@ Commits MUST be signed. \`git commit\` and \`git push\` are blocked in this envi
 To commit: stage your changes with \`git add\`, then call the \`git_signed_commit\` tool (full
 name \`${SIGNED_COMMIT_QUALIFIED_TOOL_NAME}\`) with a \`message\` (and optional \`body\`/\`paths\`).
 It creates a GitHub-signed ("Verified") commit on the branch and keeps your local checkout in
-sync. To start a new branch, pass \`branch\` (prefixed with \`posthog-code/\`) — the tool creates
+sync. To start a new branch, pass \`branch\` (prefixed with \`posthog/\`) — the tool creates
 it on the remote for you.
 
 ## Updating from the base branch
@@ -3608,7 +3828,7 @@ hard reset is the safe one here — your work is held in the stash.
 Do NOT add "Co-Authored-By" trailers or "Generated with [Claude Code]" lines to your
 commit messages. The \`git_signed_commit\` tool automatically appends the only trailers
 we want:
-  Generated-By: PostHog Code
+  Generated-By: PostHog Desktop
   Task-Id: ${taskId}`;
 
     const prLinkInstructions = `
@@ -3629,20 +3849,30 @@ Optimize for the fewest shell round trips.
 ## Delivering non-code files (artifacts)
 When you create a non-code file the user should be able to download (such as a report, chart, image, archive, or data file), call the \`upload_artifact\` tool with its path before your final reply. In your final reply, link to the download URL returned by the tool—never link to the file's local workspace path. Files left in the workspace don't reach the user. Don't upload source code or repository changes—those belong in a commit or PR.`;
 
+    // Closes out every branch below, so a new section is added once rather than five times.
+    const commonInstructions = `${signedCommitInstructions}${prLinkInstructions}${shellEfficiencyInstructions}${artifactInstructions}${this.buildSlackDeliveryInstructions()}${this.buildSourceControlAccessInstructions()}`;
+
     const whyContextInstruction = `   - Add a brief **Why** to the body — one or two sentences capturing the reason the user asked for this change (the motivation, not a restatement of the diff). Keep it short.`;
     const publicRepoSafetyInstruction = `   - **Public-repo safety.** Treat the target repository as public-readable unless you have verified otherwise. The PR title, description, and commit messages must not contain private operational scale (exact event counts, internal row volumes, customer-usage percentages), customer names / emails / companies, references to internal tickets or incidents, the contents of Slack threads (do not quote or paraphrase what was said), or unreleased roadmap details. Linking to the originating Slack thread is fine and encouraged — Slack links are auth-gated and useful as context — as are channel references like "raised in #team-foo". Describe findings qualitatively ("present on nearly all X events, absent from Y") rather than with quantitative figures pulled from analytics queries — the reasoning that uses those numbers can stay in the thread; the PR copy cannot.`;
     const prMentionSafetyInstruction = `   - **Never guess a GitHub identity.** Do NOT \`@\`-mention, tag, assign, request review from, or attribute the PR to a person (in the title, description, commit message, or reviewers) using a name or handle taken from Slack or this thread. A Slack display name or handle is NOT a GitHub username. Finding a similar-looking handle in the repo's git history, CODEOWNERS, or existing PRs/issues does NOT confirm it belongs to this person: repository presence proves the handle exists, not that it is the person you mean, so treating it as a match still \`@\`-tags an unrelated account (e.g. Slack "Ross" is not necessarily GitHub \`@ross\`, even if some \`@ross\` has committed to the repo). Only \`@\`-mention a GitHub \`@handle\` the user gave you explicitly in this thread. Otherwise refer to people by plain-text name, or omit the mention entirely.`;
     // Slack- and inbox-originated PRs are attributed to PostHog, not the
-    // PostHog Code desktop app — they come from the Slack app / Self-driving
+    // PostHog Desktop app — they come from the Slack app / Self-driving
     // inbox, which users know as "PostHog".
     const createdWith = this.isAutomatedOrigin()
       ? "Created with [PostHog](https://posthog.com?ref=pr)"
-      : "Created with [PostHog Code](https://posthog.com/code?ref=pr)";
+      : "Created with [PostHog Desktop](https://posthog.com/desktop?ref=pr)";
     const prFooter = slackThreadUrl
       ? `*${createdWith} from a [Slack thread](${slackThreadUrl})*`
       : inboxReportUrl
         ? `*${createdWith} from an [inbox report](${inboxReportUrl})*`
         : `*${createdWith}*`;
+    const repositoryWorkspaceInstructions =
+      this.taskRepositories.length > 1
+        ? `The task workspace contains these repositories:
+${this.taskRepositories.map((repository) => `- ${repository}: /tmp/workspace/repos/${repository.toLowerCase()}`).join("\n")}
+
+Apply the repository workflow below separately in every repository you change. Keep branches, commits, diffs, and pull requests repository-specific.`
+        : "";
 
     if (prUrl) {
       if (!shouldAutoCreatePr) {
@@ -3656,7 +3886,7 @@ Do the requested work, but stop with local changes ready for review.
 Important:
 - Do NOT create new commits, push to the branch, or update the pull request unless the user explicitly asks.
 - Do NOT create a new branch or a new pull request unless the user explicitly asks.
-${signedCommitInstructions}${prLinkInstructions}${shellEfficiencyInstructions}${artifactInstructions}
+${commonInstructions}
 `;
       }
 
@@ -3677,22 +3907,27 @@ After completing the requested changes:
 Important:
 - Do NOT create a new branch or a new pull request unless the user explicitly asks.
 - Do NOT push fixes for review comments without replying to and resolving each related thread.
-${signedCommitInstructions}${prLinkInstructions}${shellEfficiencyInstructions}${artifactInstructions}
+${commonInstructions}
 `;
     }
 
-    if (!this.config.repositoryPath) {
+    if (!this.config.repositoryPath && this.taskRepositories.length === 0) {
+      const repositoryInstructions = `
+When the task requires a GitHub repository:
+- If the repository is not specified, call \`list_repos\` and use the task context to choose it. If multiple repositories remain plausible, ask the user.
+- Call \`clone_repo\` with the chosen \`owner/repo\` and optional branch. It creates a shallow clone under \`/tmp/workspace/repos/<owner>/<repo>\` and returns the path.
+- Work from inside the returned path for all code changes.
+- The clone starts with one commit. If older history is genuinely needed, fetch it in bounded steps with \`git fetch --deepen=50 origin <branch>\`, then \`git fetch --deepen=200 origin <branch>\`. Use \`git fetch --unshallow\` only when the task explicitly requires full history, such as a long-range blame or bisect.
+`;
       const publishInstructions =
         this.config.createPr === false
           ? `
 When the user asks for code changes:
-- You may clone a repository and make local edits in that clone
+- You may make local edits in a repository cloned with \`clone_repo\`
 - Do NOT create branches, commits, push changes, or open pull requests in this run`
           : shouldAutoCreatePr
             ? `
-When the user asks to clone or work in a GitHub repository:
-- Clone the repository into /tmp/workspace/repos/<owner>/<repo> using \`gh repo clone <owner>/<repo> /tmp/workspace/repos/<owner>/<repo>\`
-- Work from inside that cloned repository for follow-up code changes
+When the user asks for code changes in a GitHub repository:
 - After completing code changes in a cloned repository, create a branch, stage your changes with \`git add\` and commit them with the \`git_signed_commit\` tool (do NOT use \`git commit\`/\`git push\` — they are blocked), and open a draft pull request from inside the clone without waiting to be asked. Before opening the PR, check the cloned repo for a PR template at \`.github/pull_request_template.md\` (or variants; fall back to the org's \`.github\` repo via \`gh api\`) and use it as the body structure, and search for matching open issues with \`gh issue list --search\` to include \`Closes #<n>\` / \`Refs #<n>\` links.
 - Keep the PR description brief overall. Summarize only the most important changes — do NOT enumerate every change you made. A few sentences or bullets is plenty.
 ${whyContextInstruction.trimStart()}
@@ -3701,9 +3936,7 @@ ${prMentionSafetyInstruction.trimStart()}
 - End the PR description with a horizontal rule followed by this footer line: ${prFooter}
 - Always create the PR as a draft. Do not ask for confirmation before publishing completed code changes`
             : `
-When the user explicitly asks to clone or work in a GitHub repository:
-- Clone the repository into /tmp/workspace/repos/<owner>/<repo> using \`gh repo clone <owner>/<repo> /tmp/workspace/repos/<owner>/<repo>\`
-- Work from inside that cloned repository for follow-up code changes
+When the user explicitly asks for code changes in a GitHub repository:
 - If the user explicitly asks you to open or update a pull request, create a branch, stage your changes with \`git add\` and commit them with the \`git_signed_commit\` tool (do NOT use \`git commit\`/\`git push\` — they are blocked), and open a draft pull request from inside the clone. Before opening the PR, check the cloned repo for a PR template at \`.github/pull_request_template.md\` (or variants; fall back to the org's \`.github\` repo via \`gh api\`) and use it as the body structure, and search for matching open issues with \`gh issue list --search\` to include \`Closes #<n>\` / \`Refs #<n>\` links.
 - Keep the PR description brief overall. Summarize only the most important changes — do NOT enumerate every change you made. A few sentences or bullets is plenty.
 ${whyContextInstruction.trimStart()}
@@ -3723,13 +3956,12 @@ When the user asks about analytics, data, metrics, events, funnels, dashboards, 
 - Use tools like insight-query, query-run, event-definitions-list, and others to answer questions directly
 
 When the user asks for code changes or software engineering tasks:
-- Let them know you can help but don't have a repository connected for this session
-- If they have not specified a repository to clone, offer to write code snippets, scripts, or provide guidance
-${publishInstructions}
+- Choose and clone a repository only when the task requires one. For questions and analysis, answer without cloning when possible.
+${repositoryInstructions}${publishInstructions}
 
 Important:
 - Prefer using MCP tools to answer questions with real data over giving generic advice.
-${signedCommitInstructions}${prLinkInstructions}${shellEfficiencyInstructions}${artifactInstructions}
+${commonInstructions}
 `;
     }
 
@@ -3737,27 +3969,31 @@ ${signedCommitInstructions}${prLinkInstructions}${shellEfficiencyInstructions}${
       return `${identityInstructions}
 # Cloud Task Execution
 
+${repositoryWorkspaceInstructions}
+
 Do the requested work, but stop with local changes ready for review.
 
 Important:
 - Do NOT create a branch, commit, push, or open a pull request unless the user explicitly asks.
-- If the user explicitly asks you to open a pull request: pick a new branch name prefixed with \`posthog-code/\`, stage your changes with \`git add\`, and call the \`git_signed_commit\` tool with \`branch\` set to that name and a clear \`message\` (do NOT use \`git commit\`/\`git push\` — they are blocked). Before opening the PR, check the repo for a PR template at \`.github/pull_request_template.md\` (or variants; fall back to the org's \`.github\` repo via \`gh api\`) and use it as the body structure, and search for matching open issues with \`gh issue list --search\` to include \`Closes #<n>\` / \`Refs #<n>\` links. Keep the description brief overall — summarize only the most important changes.
+- If the user explicitly asks you to open a pull request: pick a new branch name prefixed with \`posthog/\`, stage your changes with \`git add\`, and call the \`git_signed_commit\` tool with \`branch\` set to that name and a clear \`message\` (do NOT use \`git commit\`/\`git push\` — they are blocked). Before opening the PR, check the repo for a PR template at \`.github/pull_request_template.md\` (or variants; fall back to the org's \`.github\` repo via \`gh api\`) and use it as the body structure, and search for matching open issues with \`gh issue list --search\` to include \`Closes #<n>\` / \`Refs #<n>\` links. Keep the description brief overall — summarize only the most important changes.
 ${whyContextInstruction.trimStart()}
 ${publicRepoSafetyInstruction.trimStart()}
 ${prMentionSafetyInstruction.trimStart()}
 - End the PR description with a horizontal rule followed by this footer line: ${prFooter}
 - Always create the PR as a draft.
-${signedCommitInstructions}${prLinkInstructions}${shellEfficiencyInstructions}${artifactInstructions}
+${commonInstructions}
 `;
     }
 
     return `${identityInstructions}
 # Cloud Task Execution
 
+${repositoryWorkspaceInstructions}
+
 If the work you are being asked to do already has an open pull request — for example, the inbox report you fetched links an implementation PR (its \`implementation_pr_url\`), or this same thread already produced a PR that you are now being asked to revise — do NOT open a second PR. Check that PR out with \`gh pr checkout <url>\`, continue on its branch, and commit your changes to it with the \`git_signed_commit\` tool (if the branch is behind its base, call \`git_signed_merge\` first). A PR is only the one to continue if it is for this same request; if the thread merely mentions an unrelated or older PR, ignore it. Only open a new, separate PR when the change is genuinely distinct from the existing one.
 
 Otherwise, after completing the requested changes:
-1. Pick a new branch name prefixed with \`posthog-code/\` (e.g. \`posthog-code/fix-login-redirect\`)
+1. Pick a new branch name prefixed with \`posthog/\` (e.g. \`posthog/fix-login-redirect\`)
 2. Stage your changes with \`git add\`, then call the \`git_signed_commit\` tool with \`branch\` set to that name and a clear \`message\` (do NOT use \`git commit\`/\`git push\` — they are blocked). The tool creates the branch on the remote and a signed commit on it.
 3. Before opening the PR, prepare the body:
    - Keep the PR description brief overall. Summarize only the most important changes — do NOT enumerate every change you made. A few sentences or bullets is plenty.
@@ -3775,7 +4011,7 @@ ${prFooter}
 
 Important:
 - Always create the PR as a draft. Do not ask for confirmation.
-${signedCommitInstructions}${prLinkInstructions}${shellEfficiencyInstructions}${artifactInstructions}
+${commonInstructions}
 `;
   }
 
@@ -3971,17 +4207,23 @@ ${signedCommitInstructions}${prLinkInstructions}${shellEfficiencyInstructions}${
         ai_product: aiProduct,
         team_id: projectId,
       };
-      customHeaders = buildGatewayPropertiesHeader(properties);
-      openaiCustomHeaders = buildGatewayPropertiesHeaderRecord(properties);
+      customHeaders = buildPosthogPropertiesHeaderLines(properties);
+      openaiCustomHeaders = buildPosthogPropertiesHeaderRecord(properties);
     } else {
-      customHeaders = buildGatewayPropertyHeaders(gatewayProperties);
+      customHeaders = buildPosthogScopedPropertyHeaderLines(
+        gatewayProperties,
+        projectId,
+      );
       // No $ai_session_id on the Go-gateway path above: it strips $-prefixed
       // blob keys, so the session id would be silently dropped there.
-      openaiCustomHeaders = buildGatewayPropertyHeaderRecord({
-        ...gatewayProperties,
-        team_id: projectId,
-        $ai_session_id: taskId,
-      });
+      openaiCustomHeaders = buildPosthogScopedPropertyHeaderRecord(
+        {
+          ...gatewayProperties,
+          team_id: projectId,
+          $ai_session_id: taskId,
+        },
+        projectId,
+      );
     }
 
     // Server-level constants that don't vary per task — safe to keep in
@@ -4677,7 +4919,7 @@ ${signedCommitInstructions}${prLinkInstructions}${shellEfficiencyInstructions}${
   private async captureCheckpointState(
     localGitState?: HandoffLocalGitState,
   ): Promise<void> {
-    if (!this.session || !this.config.repositoryPath) {
+    if (!this.session) {
       return;
     }
     if (!this.posthogAPI) {
@@ -4686,38 +4928,57 @@ ${signedCommitInstructions}${prLinkInstructions}${shellEfficiencyInstructions}${
       );
       return;
     }
+    const session = this.session;
 
-    const tracker = new HandoffCheckpointTracker({
-      repositoryPath: this.config.repositoryPath ?? "/tmp/workspace",
-      taskId: this.session.payload.task_id,
-      runId: this.session.payload.run_id,
-      apiClient: this.posthogAPI,
-      logger: this.logger.child("HandoffCheckpoint"),
-    });
+    const repositories =
+      this.taskRepositories.length > 1
+        ? this.taskRepositories.map((repository) => ({
+            repository,
+            path: `/tmp/workspace/repos/${repository.toLowerCase()}`,
+          }))
+        : this.config.repositoryPath
+          ? [
+              {
+                repository: this.taskRepositories[0],
+                path: this.config.repositoryPath,
+              },
+            ]
+          : [];
 
-    const checkpoint = await tracker.captureForHandoff(localGitState);
-    if (!checkpoint) return;
+    await Promise.all(
+      repositories.map(async ({ repository, path }) => {
+        const tracker = new HandoffCheckpointTracker({
+          repositoryPath: path,
+          taskId: session.payload.task_id,
+          runId: session.payload.run_id,
+          apiClient: this.posthogAPI,
+          logger: this.logger.child("HandoffCheckpoint"),
+        });
+        const checkpoint = await tracker.captureForHandoff(
+          repositories.length === 1 ? localGitState : undefined,
+        );
+        if (!checkpoint) return;
 
-    const checkpointWithDevice: GitCheckpointEvent = {
-      ...checkpoint,
-      device: this.session.deviceInfo,
-    };
-
-    const notification = {
-      jsonrpc: "2.0" as const,
-      method: POSTHOG_NOTIFICATIONS.GIT_CHECKPOINT,
-      params: checkpointWithDevice,
-    };
-
-    this.broadcastEvent({
-      type: "notification",
-      timestamp: new Date().toISOString(),
-      notification,
-    });
-
-    this.session.logWriter.appendRawLine(
-      this.session.payload.run_id,
-      JSON.stringify(notification),
+        const checkpointWithDevice: GitCheckpointEvent = {
+          ...checkpoint,
+          repository,
+          device: session.deviceInfo,
+        };
+        const notification = {
+          jsonrpc: "2.0" as const,
+          method: POSTHOG_NOTIFICATIONS.GIT_CHECKPOINT,
+          params: checkpointWithDevice,
+        };
+        this.broadcastEvent({
+          type: "notification",
+          timestamp: new Date().toISOString(),
+          notification,
+        });
+        session.logWriter.appendRawLine(
+          session.payload.run_id,
+          JSON.stringify(notification),
+        );
+      }),
     );
   }
 
