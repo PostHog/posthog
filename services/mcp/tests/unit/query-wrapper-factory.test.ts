@@ -211,7 +211,12 @@ describe('createQueryWrapper _posthogUrl', () => {
 
     it.each([
         ['fills a placeholder from the query body', { traceId: 'abc-123' }, '/ai-observability/traces/abc-123'],
-        ['encodes a placeholder value', { traceId: 'a/b c' }, '/ai-observability/traces/a%2Fb%20c'],
+        ['encodes a placeholder value', { traceId: 'a/b c' }, '/ai-observability/traces/a%252Fb%2520c'],
+        [
+            'encodes an opaque placeholder value',
+            { traceId: 'trace](id /?#' },
+            '/ai-observability/traces/trace%255D%2528id%2520%252F%253F%2523',
+        ],
         ['drops the segment when the placeholder is unset', {}, '/ai-observability/traces'],
     ])('%s', async (_name, params, expectedPath) => {
         const context = createMockContext()

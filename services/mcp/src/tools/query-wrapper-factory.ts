@@ -75,6 +75,21 @@ function withoutTestAccountFilterDefault<T extends ZodObjectAny>(schema: T): T {
 }
 
 /**
+ * Kea Router decodes paths before route matching, and scenes decode captured parameters again.
+ * Double encoding keeps opaque values within the route matcher character set through both steps.
+ */
+function encodeRouterPathSegment(value: string): string {
+    const encodedValue = encodeURIComponent(value).replace(
+        /[!'()*]/g,
+        (character) => `%${character.charCodeAt(0).toString(16).toUpperCase()}`
+    )
+    return encodeURIComponent(encodedValue).replace(
+        /[!'()*]/g,
+        (character) => `%${character.charCodeAt(0).toString(16).toUpperCase()}`
+    )
+}
+
+/**
  * Fill `{param}` placeholders in a `urlPrefix` from the query body. A placeholder the query
  * leaves unset (or sets to something other than a non-empty string/number) truncates the path
  * at that segment, so the link falls back to the closest parent page instead of pointing at a
@@ -95,7 +110,7 @@ function resolveUrlPrefix(urlPrefix: string, query: Record<string, unknown>): st
         if ((typeof value !== 'string' && typeof value !== 'number') || value === '') {
             break
         }
-        segments.push(encodeURIComponent(String(value)))
+        segments.push(encodeRouterPathSegment(String(value)))
     }
     return segments.join('/')
 }
