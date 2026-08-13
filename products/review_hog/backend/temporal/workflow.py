@@ -447,11 +447,14 @@ class ReviewPRWorkflow:
             return report_id
         acting_user_id = acting.acting_user_id
 
+        # One gate, three consumers: the status comment, finalize's deferred idle write, and the
+        # stage-7 publish dispatch all key off "this run publishes to a PR".
+        publishes_to_pr = inputs.publish and meta.pr_number is not None
         # The PR's live status comment: posted once every gate has passed, refreshed by the pipeline
         # activities as they persist progress, and rewritten with the outcome below. Publish-path
         # only — eval / CLI / branch-target runs keep zero GitHub footprint. Best-effort throughout:
         # a status comment must never cost a review.
-        status_comment = inputs.publish and meta.pr_number is not None
+        status_comment = publishes_to_pr
         if status_comment:
             try:
                 await workflow.execute_activity(
@@ -557,13 +560,15 @@ class ReviewPRWorkflow:
                     run_index=stage.run_index,
                     issue_ids=dedup.issue_ids,
                     urgency_threshold=acting.urgency_threshold,
+                    # Publishing runs stay ACTIVE through stage 7; publish/failure return them to rest.
+                    will_publish=publishes_to_pr,
                 ),
                 start_to_close_timeout=_QUICK_TIMEOUT,
                 retry_policy=_RETRY,
             )
 
             workflow.logger.info("STAGE 7/7 · Publish review")
-            if inputs.publish and meta.pr_number is not None:
+            if publishes_to_pr:
                 publish_result = await workflow.execute_activity(
                     publish_review_activity,
                     PublishInput(
@@ -586,8 +591,9 @@ class ReviewPRWorkflow:
             else:
                 workflow.logger.info("Publishing disabled for this run (publish=False)")
         except Exception:
-            # A dead run must not read as forever in progress on the PR; best-effort so the status
-            # edit can never mask the original error.
+            # A dead run must not read as forever in progress on the PR or in the Code review UI
+            # (the activity also returns the report to rest, covering a publish that died with the
+            # idle write still deferred); best-effort so the edit can never mask the original error.
             if status_comment:
                 try:
                     await workflow.execute_activity(
