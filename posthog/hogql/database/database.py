@@ -687,7 +687,7 @@ class Database(BaseModel):
             schema = prefix.casefold()
             if not any(c.casefold().startswith(f"{schema}.") for c in candidates):
                 known = sorted({c.rpartition(".")[0].casefold() for c in candidates if "." in c})
-                nearest = difflib.get_close_matches(schema, known, n=1, cutoff=0.8)
+                nearest = difflib.get_close_matches(schema, known, n=1, cutoff=0.89)
                 schema = nearest[0] if nearest else schema
             candidates = {c for c in candidates if c.casefold().startswith(f"{schema}.")}
         if not candidates:

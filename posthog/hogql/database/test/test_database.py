@@ -247,6 +247,13 @@ class TestUnknownTableSuggestions(TestCase):
                 "public.customer_orders",
                 "Unknown table `public.customer_orders`.",
             ),
+            (
+                "sibling_schema_on_one_connection_is_not_resolved_to_the_other",
+                ["postgres.pg.customer_orders"],
+                [],
+                "postgres.ph3.customer_orders",
+                "Unknown table `postgres.ph3.customer_orders`.",
+            ),
         ]
     )
     def test_suggestions_stay_within_the_namespace_the_author_named(
