@@ -16,12 +16,78 @@ from products.logs.backend.log_patterns import (
     _HOST_SUFFIXES,
     _MASKING_INSTRUCTIONS,
     _PLACEHOLDER_PATTERNS,
+    _WHITESPACE_RE,
     LogSample,
+    _prepare_body,
     compile_match_regex,
     extract_match_literal,
     mine_patterns,
     pattern_fingerprint,
 )
+
+_BODY_TRUNCATE = 512
+
+# Printable, non-whitespace characters: Drain splits on whitespace, so these are the
+# characters a single token can hold. The range covers regex metacharacters and the angle
+# brackets the placeholders use, which is where escaping and placeholder round-tripping break.
+_token_st = st.text(st.characters(min_codepoint=33, max_codepoint=126), min_size=1, max_size=20)
+_gap_st = st.sampled_from([" ", "  ", "\t", "\n", "\r\n", " \n  "])
+
+
+@st.composite
+def _log_body_st(draw: st.DrawFn) -> str:
+    """A whitespace-separated body of any length."""
+    tokens = draw(st.lists(_token_st, min_size=1, max_size=150))
+    body = tokens[0]
+    for token in tokens[1:]:
+        body += draw(_gap_st) + token
+    return body
+
+
+_word_st = st.sampled_from(
+    ["request", "failed", "retrying", "user", "team", "cache", "hit", "GET", "POST", "attempt", "closed"]
+)
+_key_st = st.sampled_from(["team_id=", "attempt=", "status=", "peer=", "ts=", "job="])
+# Values that masking is meant to consume. Drawing these rather than random characters is
+# what makes the placeholder round-trip reachable: a mask that never fires proves nothing.
+_maskable_st = st.one_of(
+    st.integers(min_value=0, max_value=10**12).map(str),
+    st.tuples(*[st.integers(min_value=0, max_value=255)] * 4).map(lambda octets: ".".join(map(str, octets))),
+    st.uuids().map(str),
+    st.datetimes(min_value=dt.datetime(2020, 1, 1), max_value=dt.datetime(2030, 1, 1)).map(dt.datetime.isoformat),
+    st.text("0123456789abcdef", min_size=16, max_size=40),
+    st.integers(min_value=0, max_value=999).map(lambda n: f"0x{n:x}"),
+    st.tuples(st.integers(min_value=0, max_value=99), st.integers(min_value=0, max_value=99)).map(
+        lambda parts: f"{parts[0]}.{parts[1]}"
+    ),
+)
+
+
+@st.composite
+def _log_line_st(draw: st.DrawFn) -> str:
+    """A log-shaped line: literal words and key prefixes mixed with maskable values."""
+    parts = draw(
+        st.lists(
+            st.one_of(_word_st, _maskable_st, st.tuples(_key_st, _maskable_st).map("".join)),
+            min_size=1,
+            max_size=14,
+        )
+    )
+    return " ".join(parts)
+
+
+@st.composite
+def _long_log_body_st(draw: st.DrawFn) -> str:
+    """A body that always crosses the truncation cap.
+
+    Hypothesis biases toward small inputs, so a general body strategy almost never reaches
+    the cap and leaves the prefix handling untested. Repeating one filler token forces it.
+    """
+    prefix = draw(st.lists(_token_st, min_size=1, max_size=8))
+    filler = draw(st.text(st.characters(min_codepoint=33, max_codepoint=126), min_size=3, max_size=14))
+    gap = draw(_gap_st)
+    repeats = _BODY_TRUNCATE // (len(filler) + len(gap)) + draw(st.integers(min_value=2, max_value=20))
+    return gap.join([*prefix, *[filler] * repeats])
 
 
 def _sample(
@@ -825,3 +891,50 @@ class TestKlogTimestampProperties(TestCase):
 
         assert patterns[0].match_regex is not None
         assert re.search(patterns[0].match_regex, line.format(headers[1]))
+
+
+class TestTruncationProperties(TestCase):
+    """The cases above pin specific cut points; these hold the invariants over all bodies.
+
+    Truncation is where a body stops being the line a person wrote and becomes a prefix the
+    miner invented, so both properties are about that prefix staying honest.
+    """
+
+    @given(body=st.one_of(_log_body_st(), _long_log_body_st()), cap=st.integers(min_value=8, max_value=600))
+    @settings(max_examples=400, deadline=None)
+    def test_prepared_body_holds_only_whole_tokens(self, body: str, cap: int) -> None:
+        collapsed = _WHITESPACE_RE.sub(" ", body).strip()
+
+        prepared = _prepare_body(body, cap)
+
+        assert len(prepared.text) <= cap
+        # the flag has to mean "text is a prefix, not the whole line" for every input, since
+        # compile_match_regex decides the end anchor from it alone
+        assert prepared.truncated == (prepared.text != collapsed)
+        if " " in collapsed[:cap]:
+            # a cut back to a boundary can only drop whole tokens, never split one
+            assert set(prepared.text.split(" ")) <= set(collapsed.split(" "))
+
+    @given(body=st.one_of(_log_body_st(), _long_log_body_st(), _log_line_st()))
+    @settings(max_examples=300, deadline=None)
+    def test_mined_regex_matches_the_raw_body_it_came_from(self, body: str) -> None:
+        # The pivot from a pattern to its logs runs match_regex against raw bodies in
+        # ClickHouse, while mining sees a collapsed and truncated copy. Any disagreement
+        # between the two produces a filter that returns nothing for a pattern the person is
+        # looking at. A None regex is the honest outcome and is allowed.
+        patterns = mine_patterns([_sample(body)])
+
+        assert len(patterns) == 1
+        if patterns[0].match_regex is not None:
+            assert re.search(patterns[0].match_regex, body)
+
+    @given(body=st.one_of(_log_body_st(), _long_log_body_st(), _log_line_st()))
+    @settings(max_examples=300, deadline=None)
+    def test_mined_literal_is_present_in_the_body(self, body: str) -> None:
+        # match_literal is the icontains fallback when no regex compiles, so it has to be
+        # text that really occurs in the line, not a fragment masking invented.
+        patterns = mine_patterns([_sample(body)])
+
+        literal = patterns[0].match_literal
+        if literal is not None:
+            assert literal in _WHITESPACE_RE.sub(" ", body)
