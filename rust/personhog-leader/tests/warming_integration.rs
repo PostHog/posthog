@@ -4,7 +4,9 @@
 
 mod common;
 
+use std::future::Future;
 use std::sync::Arc;
+use std::task::Poll;
 use std::time::Duration;
 
 use common::{create_test_kafka, test_warming_config, CHANGELOG_TOPIC, NUM_PARTITIONS};
@@ -753,9 +755,8 @@ async fn warming_a_range_larger_than_the_budget_marks_every_person() {
 async fn a_cancelled_warm_leaves_no_build_and_no_marks() {
     let (cluster, producer) = create_test_kafka().await;
 
-    // Enough records that the consume demonstrably outlasts the abort
-    // below: the poll waits for the first mark, so the abort lands
-    // mid-range with the rest of the range still unconsumed.
+    // A range big enough that consuming it spans many polls, so the
+    // drop below always lands mid-range.
     for person_id in 1..=2_000i64 {
         let mut person = make_person(1, person_id);
         person.properties = serde_json::to_vec(&serde_json::json!({
@@ -766,36 +767,39 @@ async fn a_cancelled_warm_leaves_no_build_and_no_marks() {
         produce_person_to_partition(&producer, 0, &person).await;
     }
 
-    let cache = Arc::new(PartitionedCache::new(1 << 20));
-    let dirty_index = Arc::new(DirtyIndex::new(1_000_000));
+    let cache = PartitionedCache::new(1 << 20);
+    let dirty_index = DirtyIndex::new(1_000_000);
     let (cfg, pools) = warming_config_for("warmer-cancelled", &cluster);
-    let warm = {
-        let cache = Arc::clone(&cache);
-        let dirty_index = Arc::clone(&dirty_index);
-        tokio::spawn(async move { warm_from_kafka(&cfg, &pools, &cache, &dirty_index, 0).await })
-    };
 
+    // Drive the warm by hand rather than aborting a spawned task: a
+    // future makes no progress except when polled, so a poll that
+    // returns `Pending` after a mark is seeded leaves the warm parked
+    // mid-range, and dropping it there is deterministic. Aborting a
+    // task races the warm's own completion, which a fast runner wins.
+    // Dropping the future is also what the coordination loop does.
     let first = PersonCacheKey {
         team_id: 1,
         person_id: 1,
     };
-    let deadline = std::time::Instant::now() + Duration::from_secs(20);
-    while dirty_index.get(&first).is_none() {
-        if warm.is_finished() {
-            let result = warm.await;
-            panic!("the warm finished before the abort could land: {result:?}");
+    let mut warm = Box::pin(warm_from_kafka(&cfg, &pools, &cache, &dirty_index, 0));
+    let deadline = std::time::Instant::now() + Duration::from_secs(30);
+    loop {
+        let polled = std::future::poll_fn(|cx| Poll::Ready(warm.as_mut().poll(cx))).await;
+        if let Poll::Ready(result) = polled {
+            panic!("the warm ran to completion before it could be cancelled: {result:?}");
+        }
+        if dirty_index.get(&first).is_some() {
+            break;
         }
         assert!(
             std::time::Instant::now() < deadline,
             "the warm never started seeding marks"
         );
-        tokio::time::sleep(Duration::from_millis(2)).await;
+        tokio::time::sleep(Duration::from_millis(1)).await;
     }
-    warm.abort();
-    let err = warm
-        .await
-        .expect_err("the warm must have been cancelled mid-range, not completed");
-    assert!(err.is_cancelled(), "expected cancellation, got: {err}");
+
+    // The cancellation itself: the coordination loop drops the future.
+    drop(warm);
 
     assert!(
         dirty_index.get(&first).is_none(),
