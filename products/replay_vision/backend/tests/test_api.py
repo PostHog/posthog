@@ -450,7 +450,14 @@ class TestReplayScannerViewSet(_VisionAPITestCase):
         self.assertNotIn("date_to", body_query)
         self.assertEqual(body_query["filter_test_accounts"], True)
 
-    def test_create_rejects_invalid_query(self) -> None:
+    @parameterized.expand(
+        [
+            ("unknown_field", {"this_field_does_not_exist": True}),
+            # An oversized query is copied into every observation's snapshot, so it is capped on save.
+            ("oversized", {"distinct_ids": ["x" * 1_000 for _ in range(100)]}),
+        ]
+    )
+    def test_create_rejects_invalid_query(self, _name: str, query: dict) -> None:
         resp = self.client.post(
             self.scanners_url,
             data={
@@ -458,7 +465,7 @@ class TestReplayScannerViewSet(_VisionAPITestCase):
                 "scanner_type": ScannerType.MONITOR,
                 "scanner_config": {"prompt": "p"},
                 "model": ScannerModel.GEMINI_3_6_FLASH,
-                "query": {"this_field_does_not_exist": True},
+                "query": query,
             },
             format="json",
         )
