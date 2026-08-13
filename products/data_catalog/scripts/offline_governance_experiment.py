@@ -44,6 +44,7 @@ from datetime import UTC, datetime
 
 import requests
 import anthropic
+from anthropic.types.beta import BetaMessageParam, BetaRequestMCPServerURLDefinitionParam
 
 POSTHOG_HOST = os.environ.get("POSTHOG_HOST", "https://us.posthog.com")
 POSTHOG_MCP_URL = os.environ.get("POSTHOG_MCP_URL", "https://mcp.posthog.com/mcp")
@@ -55,6 +56,8 @@ AGENT_MAX_CONTINUATIONS = 16
 TRACE_POLL_ATTEMPTS = 12
 TRACE_POLL_SECONDS = 15
 JUDGE_INPUT_CHAR_CAP = 150_000
+# `DatasetItemPagination` caps `limit` at 25, so a larger page size is silently clamped.
+DATASET_ITEM_PAGE_SIZE = 25
 
 EXPERIMENT_NAME = "semantic-layer-governance-regressions"
 DATASET_NAME = EXPERIMENT_NAME
@@ -152,6 +155,21 @@ class ExperimentItem:
     expected: str
 
 
+@dataclass(frozen=True, kw_only=True)
+class MarkerRows:
+    tool_calls: list[list]
+    ai_events: list[list]
+
+    def __bool__(self) -> bool:
+        return bool(self.tool_calls or self.ai_events)
+
+
+@dataclass(frozen=True, kw_only=True)
+class SessionTranscript:
+    transcript: str
+    trace_id: str
+
+
 def _api(method: str, path: str, **kwargs) -> requests.Response:
     response = requests.request(
         method,
@@ -184,24 +202,34 @@ def seed_dataset() -> str:
     return dataset["id"]
 
 
+def _experiment_item(row: dict) -> ExperimentItem | None:
+    input_ = row.get("input") or {}
+    expected = row.get("expected_output") or {}
+    if not input_.get("prompt"):
+        print(f"skipping dataset item {row['id']}: no input.prompt", file=sys.stderr)
+        return None
+    return ExperimentItem(
+        id=row["id"],
+        name=input_.get("name") or row["id"],
+        prompt=input_["prompt"],
+        expected=expected.get("behavior") or json.dumps(expected),
+    )
+
+
 def fetch_dataset_items(dataset_id: str) -> list[ExperimentItem]:
-    rows = _api("GET", f"/dataset_items/?dataset={dataset_id}&limit=100").json()["results"]
-    items = []
-    for row in rows:
-        input_ = row.get("input") or {}
-        expected = row.get("expected_output") or {}
-        if not input_.get("prompt"):
-            print(f"skipping dataset item {row['id']}: no input.prompt", file=sys.stderr)
-            continue
-        items.append(
-            ExperimentItem(
-                id=row["id"],
-                name=input_.get("name") or row["id"],
-                prompt=input_["prompt"],
-                expected=expected.get("behavior") or json.dumps(expected),
-            )
-        )
-    return items
+    items: list[ExperimentItem] = []
+    offset = 0
+    while True:
+        page = _api(
+            "GET", f"/dataset_items/?dataset={dataset_id}&limit={DATASET_ITEM_PAGE_SIZE}&offset={offset}"
+        ).json()
+        rows = page["results"]
+        if not rows:
+            return items
+        items.extend(item for item in map(_experiment_item, rows) if item is not None)
+        offset += len(rows)
+        if offset >= page["count"]:
+            return items
 
 
 def run_agent_session(client: anthropic.Anthropic, prompt: str, nonce: str, system: str | None = None) -> None:
@@ -209,8 +237,8 @@ def run_agent_session(client: anthropic.Anthropic, prompt: str, nonce: str, syst
         f"Include the marker {nonce} verbatim in the context/intent text of every PostHog "
         "tool call you make in this session."
     )
-    messages: list[dict] = [{"role": "user", "content": f"{marker_instruction}\n\n{prompt}"}]
-    mcp_servers = [
+    messages: list[BetaMessageParam] = [{"role": "user", "content": f"{marker_instruction}\n\n{prompt}"}]
+    mcp_servers: list[BetaRequestMCPServerURLDefinitionParam] = [
         {
             "type": "url",
             "url": POSTHOG_MCP_URL,
@@ -226,11 +254,13 @@ def run_agent_session(client: anthropic.Anthropic, prompt: str, nonce: str, syst
             mcp_servers=mcp_servers,
             tools=[{"type": "mcp_toolset", "mcp_server_name": "posthog"}],
             messages=messages,
-            **({"system": system} if system else {}),
+            system=system or anthropic.omit,
         )
         if response.stop_reason != "pause_turn":
             return
-        messages = [messages[0], {"role": "assistant", "content": response.content}]
+        # Append rather than rebuild from the first message: a second pause would otherwise drop the
+        # tool calls and results of the first continuation, leaving the judges a truncated trace.
+        messages.append({"role": "assistant", "content": response.content})
     print("agent session hit the continuation cap; scoring what landed", file=sys.stderr)
 
 
@@ -238,7 +268,7 @@ def hogql(query: str) -> list[list]:
     return _api("POST", "/query/", json={"query": {"kind": "HogQLQuery", "query": query}}).json()["results"]
 
 
-def _marker_rows(nonce: str, since: str) -> tuple[list[list], list[list]]:
+def _marker_rows(nonce: str, since: str) -> MarkerRows:
     tool_rows = hogql(
         "SELECT toString(properties.$mcp_tool_name) AS tool, toString(properties.$mcp_exec_verb) AS verb, "
         "toString(properties.$mcp_intent) AS intent, toString(properties.$mcp_is_error) AS is_error "
@@ -252,36 +282,37 @@ def _marker_rows(nonce: str, since: str) -> tuple[list[list], list[list]]:
         f"FROM posthog.ai_events WHERE timestamp >= toDateTime('{since}', 'UTC') - INTERVAL 5 MINUTE "
         f"AND (toString(input) LIKE '%{nonce}%' OR toString(input_state) LIKE '%{nonce}%') ORDER BY timestamp"
     )
-    return tool_rows, ai_rows
+    return MarkerRows(tool_calls=tool_rows, ai_events=ai_rows)
 
 
-def fetch_session_transcript(nonce: str, started_at: datetime) -> tuple[str, str] | None:
+def fetch_session_transcript(nonce: str, started_at: datetime) -> SessionTranscript | None:
     """The connector calls the MCP server statelessly, so no unified trace exists; the marker in
-    every call's intent is the session key. Returns (transcript, trace_id) or None on no data."""
+    every call's intent is the session key. Returns None when no telemetry landed."""
     since = started_at.strftime("%Y-%m-%d %H:%M:%S")
-    tool_rows: list[list] = []
-    ai_rows: list[list] = []
+    rows = MarkerRows(tool_calls=[], ai_events=[])
     for _ in range(TRACE_POLL_ATTEMPTS):
-        tool_rows, ai_rows = _marker_rows(nonce, since)
-        if tool_rows or ai_rows:
+        rows = _marker_rows(nonce, since)
+        if rows:
+            # First rows landed, so re-read once after a beat to pick up the tail of the session.
             time.sleep(TRACE_POLL_SECONDS)
-            tool_rows, ai_rows = _marker_rows(nonce, since)
+            rows = _marker_rows(nonce, since)
             break
         time.sleep(TRACE_POLL_SECONDS)
-    if not tool_rows and not ai_rows:
+    if not rows:
         return None
 
     lines = [
-        f"[tool_call:{tool}:{verb} error={is_error}] intent={intent}" for tool, verb, intent, is_error in tool_rows
+        f"[tool_call:{tool}:{verb} error={is_error}] intent={intent}"
+        for tool, verb, intent, is_error in rows.tool_calls
     ]
     trace_id = nonce
-    for event, span_name, input_, output_choices, input_state, output_state, row_trace in ai_rows:
+    for event, span_name, input_, output_choices, input_state, output_state, row_trace in rows.ai_events:
         trace_id = row_trace or trace_id
         if event == "$ai_generation":
             lines.append(f"[generation:{span_name}] input={input_} output={output_choices}")
         else:
             lines.append(f"[span:{span_name}] input={input_state} result={output_state}")
-    return "\n".join(lines)[:JUDGE_INPUT_CHAR_CAP], trace_id
+    return SessionTranscript(transcript="\n".join(lines)[:JUDGE_INPUT_CHAR_CAP], trace_id=trace_id)
 
 
 def fetch_approved_metric_names() -> list[str]:
@@ -334,9 +365,6 @@ def emit_evaluation_event(
         "$ai_metric_version": "1",
         "$ai_status": "completed",
         "$ai_result_type": "boolean",
-        "$ai_score": 1 if verdict["result"] else 0,
-        "$ai_score_min": 0,
-        "$ai_score_max": 1,
         "$ai_reasoning": verdict["reasoning"],
         "$ai_trace_id": trace_id,
         "$ai_target_id": trace_id,
@@ -344,6 +372,11 @@ def emit_evaluation_event(
         "$ai_expected": item.expected,
         "$ai_evaluation_applicable": verdict["applicable"],
     }
+    # The offline experiments view aggregates `$ai_score` without reading
+    # `$ai_evaluation_applicable`, so scoring an N/A verdict 0 would read as a governance failure.
+    # Leave the score off entirely and let the applicable flag plus the reasoning carry the N/A.
+    if verdict["applicable"]:
+        properties |= {"$ai_score": 1 if verdict["result"] else 0, "$ai_score_min": 0, "$ai_score_max": 1}
     response = requests.post(
         f"{POSTHOG_HOST.replace('us.posthog.com', 'us.i.posthog.com')}/i/v0/e/",
         json={
@@ -380,10 +413,9 @@ def run_experiment(dataset_id: str, only_items: list[str] | None, system: str | 
             print(f"[{item.name}] no session telemetry for marker {nonce}; skipping scoring", file=sys.stderr)
             failures += 1
             continue
-        transcript, trace_id = session
 
         for metric_name, rubric in rubrics.items():
-            verdict = judge_trace(client, rubric, transcript)
+            verdict = judge_trace(client, rubric, session.transcript)
             emit_evaluation_event(
                 experiment_id=experiment_id,
                 experiment_name=experiment_name,
@@ -391,7 +423,7 @@ def run_experiment(dataset_id: str, only_items: list[str] | None, system: str | 
                 item=item,
                 metric_name=metric_name,
                 verdict=verdict,
-                trace_id=trace_id,
+                trace_id=session.trace_id,
             )
             label = "N/A" if not verdict["applicable"] else ("PASS" if verdict["result"] else "FAIL")
             print(f"[{item.name}] {metric_name}: {label}")
