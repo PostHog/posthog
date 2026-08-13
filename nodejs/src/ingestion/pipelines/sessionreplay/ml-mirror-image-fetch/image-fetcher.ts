@@ -93,6 +93,8 @@ const REDIRECT_STATUSES = new Set([301, 302, 303, 307, 308])
  * time, and a throw would abandon the URLs after it in the same batch.
  */
 export class HttpImageFetcher implements ImageFetcher {
+    constructor(private readonly policy: RedirectPolicy) {}
+
     public async fetch(url: string, options: ImageFetchOptions): Promise<ImageFetchResult> {
         const deadlineMs = Date.now() + options.timeoutMs
         let target = url
@@ -115,7 +117,7 @@ export class HttpImageFetcher implements ImageFetcher {
             if (redirects >= options.maxRedirects) {
                 return { outcome: 'too_many_redirects', redirects, status: hop.status }
             }
-            const next = resolveRedirect(target, hop.location)
+            const next = resolveRedirect(target, hop.location, this.policy)
             if (!next) {
                 return { outcome: 'bad_redirect', redirects, status: hop.status }
             }
@@ -239,7 +241,20 @@ export function parseRetryAfterMs(value: string | undefined): number | undefined
     return heldMs > 0 ? heldMs : undefined
 }
 
-function resolveRedirect(from: string, location: string): URL | null {
+/**
+ * The rules a redirect target must pass, beyond the SSRF checks every hop re-enters.
+ *
+ * The first candidate passed all of these in the collector before it reached the topic. A redirect
+ * target has passed none of them, so a hop could otherwise reach a host the collector itself would
+ * have refused: a single-label name, or one under a suffix that resolves only inside a network.
+ * Requirement 8.
+ */
+export interface RedirectPolicy {
+    maxUrlLength: number
+    isPublicHost: (host: string) => boolean
+}
+
+function resolveRedirect(from: string, location: string, policy: RedirectPolicy): URL | null {
     let next: URL
     try {
         next = new URL(location, from)
@@ -257,6 +272,13 @@ function resolveRedirect(from: string, location: string): URL | null {
     }
     // This lane sends no credentials, and a userinfo part would put some back on the next hop.
     if (next.username || next.password) {
+        return null
+    }
+    const target = next.toString()
+    if (target.length > policy.maxUrlLength) {
+        return null
+    }
+    if (!policy.isPublicHost(next.hostname)) {
         return null
     }
     return next

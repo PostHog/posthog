@@ -229,9 +229,15 @@ export class KafkaConsumer {
     }
 
     public heartbeat(): void {
-        // Can be called externally to update the heartbeat time and keep the consumer alive
-        // This is maintained for backward compatibility with the legacy health check mechanism
+        // Called by a lane whose batch runs longer than a health check interval, to say the work is
+        // progressing rather than stalled. Both clocks move, because either check may be the active
+        // one: the legacy check reads lastHeartbeatTime, and the loop-based check reads
+        // lastConsumerLoopTime and would otherwise fail a consumer that is deliberately waiting.
+        //
+        // A stalled loop cannot reach here. This runs from inside batch handling, so a call proves
+        // the batch is still running.
         this.lastHeartbeatTime = Date.now()
+        this.lastConsumerLoopTime = Date.now()
     }
 
     public isHealthy(): HealthCheckResult {

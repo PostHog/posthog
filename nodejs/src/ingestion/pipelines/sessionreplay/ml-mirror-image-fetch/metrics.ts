@@ -1,5 +1,7 @@
 import { Counter, Gauge, Histogram } from 'prom-client'
 
+import type { TeamVolume } from './team-volume'
+
 export type UrlDropReason =
     | 'malformed'
     | 'unsupported_version'
@@ -262,10 +264,50 @@ export class RetryDelayMetrics {
         buckets: [1, 10, 60, 300, 600, 1800, 3600],
     })
 
-    public static incReleased(outcome: 'released' | 'failed' | 'malformed'): void {
+    public static incReleased(outcome: 'released' | 'failed' | 'malformed' | 'abandoned'): void {
         this.released.labels(outcome).inc()
     }
     public static observeWait(waitSeconds: number): void {
         this.waitSeconds.observe(waitSeconds)
+    }
+}
+
+/**
+ * How the lane's work divides between teams, without an unbounded label.
+ *
+ * The team ID space is in the low millions, so `pseudo_team` is bounded here rather than at the
+ * database: the busiest teams are named, everything else is one `other` row, and the count of
+ * distinct teams is an estimate in a single series. Requirements 29, 30, and 31.
+ *
+ * The label is the pseudonym the topic carries, not the team ID. Nothing on this path has the team
+ * ID, and putting one here would need the mirror to send it.
+ */
+export class ImageFetchTeamMetrics {
+    private static source: TeamVolume | undefined
+
+    private static readonly urlsByTeam = new Gauge({
+        name: 'ml_image_fetch_team_urls',
+        help: 'URLs handled for each of the busiest teams, with the rest summed as "other". The label is the team pseudonym the topic carries, not the team ID',
+        labelNames: ['pseudo_team'],
+        collect() {
+            // Rebuilt at scrape rather than kept in step with the counts, so a team that drops out
+            // of the top list loses its series instead of freezing at its last value.
+            this.reset()
+            for (const { team, count } of ImageFetchTeamMetrics.source?.top() ?? []) {
+                this.labels(team).set(count)
+            }
+        },
+    })
+    private static readonly distinctTeams = new Gauge({
+        name: 'ml_image_fetch_distinct_teams',
+        help: 'About how many distinct teams this pod has handled URLs for, estimated rather than counted, because an exact set of a million team pseudonyms costs hundreds of megabytes',
+        collect() {
+            this.set(ImageFetchTeamMetrics.source?.distinctTeams() ?? 0)
+        },
+    })
+
+    /** The consumer owns the counts. These gauges read them at scrape time. */
+    public static track(volume: TeamVolume): void {
+        this.source = volume
     }
 }

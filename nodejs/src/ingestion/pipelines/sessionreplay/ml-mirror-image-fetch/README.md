@@ -129,8 +129,10 @@ consumer that sleeps for 10 minutes is evicted, and its partition is replayed by
 will sleep just as long. Raise it per consumer group: 900000 for the 10m topic, 4200000 for the 1h
 topic.
 
-**A sleeping consumer must keep reporting itself healthy.** The health check fails a consumer that
-has not called `heartbeat()` for 60 seconds. Pump it on a timer for the whole wait.
+**A sleeping consumer must keep reporting itself healthy.** `KafkaConsumer.heartbeat()` moves both
+health clocks, so either check is satisfied while a batch is deliberately waiting. That change is in
+shared consumer code and has no test: driving the health check needs a connected consumer, and the
+mocked one in `consumer-v1.test.ts` does not complete a poll loop.
 
 **Lag on a delay topic is the design working.** A 1h topic reports an hour of lag whenever it holds
 anything. Alert on the age of the oldest message passing the topic's period by a wide margin, which
@@ -151,23 +153,20 @@ An earlier version of this lane treated an absent crawl history entry as a retry
 
 ## What is not built
 
-The requirements above are the target. These parts of them have no implementation yet, and the
-code is the authority until they do.
+The requirements above are the target. These parts have no implementation yet, and the code is the
+authority until they do.
 
-**The publisher is built but not reachable in production.** `FetchRunner` republishes a
-cross-domain redirect and retries a transient failure through `FrontierPublisher`, and the server
-builds one. The lane still refuses to leave dry run, so none of it runs yet.
+**The lane cannot leave dry run.** It reads no robots.txt, and it produces no image to the scrub
+topic, so the bytes are counted and dropped. The server refuses to start with the flag cleared, and
+names both.
 
-**Requirement 8 is partly met.** A redirect target is checked for scheme, an HTTPS downgrade, and
-userinfo, and every hop re-enters the SSRF checks. It is not checked against the public-host rule
-or the length limit that the first candidate passed.
+**Nothing is shared across pods.** A rebalance can put two pods on one domain for a few seconds,
+and the rate doubles for that long. The per-origin record of section 4.4 of the plan, which would
+carry robots rules and breaker state between pods, does not exist.
 
-**Requirements 29 and 30 have no metrics.** There is no per-team view. Requirement 31 holds only
-because nothing team-aware exists to break it.
+**The team label is the pseudonym, not the team.** Nothing on this path has the team ID. Naming a
+team on a dashboard needs the mirror to send it, which is a change to the producer.
 
-**No counter across pods.** A rebalance can put two pods on one domain for a few seconds, and the
-rate doubles for that long.
-
-**No robots.txt.** The lane cannot leave dry run until it reads one.
-
-**No produce to the scrub topic.** The bytes are counted and dropped.
+**Offsets commit before the work is durable.** Requirement 21 wants the opposite. The consumer uses
+`autoCommit`, so a crash between reading a batch and republishing its retries loses them. They come
+back only when a session refers to them again.

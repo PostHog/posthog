@@ -38,6 +38,21 @@ const BATCH_HEARTBEAT_INTERVAL_MS = 10_000
  */
 const STORE_BATCH_BUDGET_MS = 50_000
 
+/** Matches MAX_URL_LEN in the crate, which is what the collector applied to the first candidate. */
+const MAX_REDIRECT_URL_LENGTH = 2048
+
+/** The addon holds a 15 MB native library and `index.ts` imports every server, so it loads on first use. */
+let anonymizer: typeof import('@posthog/replay-anonymizer') | undefined
+function getAnonymizer(): typeof import('@posthog/replay-anonymizer') {
+    if (!anonymizer) {
+        anonymizer = require('@posthog/replay-anonymizer') as typeof import('@posthog/replay-anonymizer')
+        if (typeof anonymizer.isPublicHost !== 'function') {
+            throw new Error('the replay-anonymizer addon has no isPublicHost: rebuild index.node')
+        }
+    }
+    return anonymizer
+}
+
 export function buildFrontierPublisher(producer: KafkaProducerWrapper): FrontierPublisher {
     return new FrontierPublisher(producer, {
         frontierTopic: KAFKA_SESSION_REPLAY_IMAGE_FETCH,
@@ -65,7 +80,12 @@ export function buildFetchRunner(
         maxTrackedDomains: config.SESSION_RECORDING_ML_IMAGE_FETCH_MAX_TRACKED_DOMAINS,
     })
     return new FetchRunner(
-        new HttpImageFetcher(),
+        new HttpImageFetcher({
+            maxUrlLength: MAX_REDIRECT_URL_LENGTH,
+            // The crate's rule, so a redirect target passes the check the collector already applied
+            // to the first candidate rather than a second answer to the same question.
+            isPublicHost: (host) => getAnonymizer().isPublicHost(host),
+        }),
         budget,
         {
             maxConcurrentPerDomain: config.SESSION_RECORDING_ML_IMAGE_FETCH_MAX_CONCURRENT_PER_DOMAIN,

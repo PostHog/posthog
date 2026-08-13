@@ -6,7 +6,8 @@ import { RefDedupCache } from '~/ingestion/pipelines/sessionreplay/shared/ref-de
 import { FetchCandidate, parseCollectedUrlsRecord } from './collected-urls-record'
 import { CRAWL_HISTORY_TTL_SECONDS, CrawlHistoryStore, crawlHistoryKey } from './crawl-history'
 import { FetchPass } from './fetch-runner'
-import { ImageFetchConsumerMetrics, UrlDropReason } from './metrics'
+import { ImageFetchConsumerMetrics, ImageFetchTeamMetrics, UrlDropReason } from './metrics'
+import { TeamVolume } from './team-volume'
 
 export interface UrlFetchConsumerOptions {
     /** A URL older than this is dropped rather than fetched, so a backlog sheds work instead of downloading stale work. */
@@ -29,6 +30,8 @@ export interface UrlFetchConsumerOptions {
  */
 export class UrlFetchConsumer {
     private readonly seenRefs: RefDedupCache
+    /** Bounded on purpose: one series per busy team, one for the rest, one estimate. Requirement 31. */
+    private readonly teamVolume = new TeamVolume()
 
     constructor(
         private readonly crawlHistory: CrawlHistoryStore,
@@ -48,6 +51,7 @@ export class UrlFetchConsumer {
         }
         this.seenRefs = new RefDedupCache('image_fetch_consumer', options.dedupMaxRefs)
         ImageFetchConsumerMetrics.setDryRun(options.dryRun)
+        ImageFetchTeamMetrics.track(this.teamVolume)
     }
 
     public async handleBatch(messages: Message[], nowMs: number): Promise<void> {
@@ -100,6 +104,7 @@ export class UrlFetchConsumer {
                 // After dedup, so the distribution describes the URLs this lane acts on rather than
                 // being weighted by how often a popular image reappears.
                 ImageFetchConsumerMetrics.observeAge(Math.max(0, nowMs - candidate.capturedAtMs) / 1000)
+                this.teamVolume.record(candidate.pseudoTeam)
                 candidates.push(candidate)
             }
         }

@@ -185,3 +185,16 @@ export async function anonymizeKafkaPayload(
 export function politenessKey(host: string): string {
     return native.politenessKey(host)
 }
+
+/**
+ * Whether a host is one this lane may send a request to.
+ *
+ * The collector applies this rule before a URL reaches the topic. A redirect target has not been
+ * through it, so the fetcher asks the same function rather than deriving a second answer.
+ *
+ * It refuses a private or reserved address, a single-label name, and a name under a suffix that
+ * resolves only inside a network, which is the split-horizon DNS case.
+ */
+export function isPublicHost(host: string): boolean {
+    return native.isPublicHost(host)
+}

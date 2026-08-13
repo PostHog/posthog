@@ -15,6 +15,8 @@ export interface RetryDelayConsumerOptions {
     heartbeat: () => void
     /** How often to beat during a wait. The health check fails a consumer silent for 60s, so the default sits well inside that. */
     heartbeatIntervalMs?: number
+    /** True once the pod is shutting down. A wait of an hour would otherwise hold the rolling deploy until Kubernetes killed it. */
+    isStopping?: () => boolean
 }
 
 const DEFAULT_HEARTBEAT_INTERVAL_MS = 10_000
@@ -47,13 +49,26 @@ export class RetryDelayConsumer {
 
     public async handleBatch(messages: Message[]): Promise<void> {
         for (const message of messages) {
+            if (this.stopping()) {
+                // Left where it is. The offset is uncommitted, so the next pod reads it again and
+                // waits out whatever is left of its period, measured from when it was written.
+                RetryDelayMetrics.incReleased('abandoned')
+                return
+            }
             const waitMs = this.remainingWaitMs(message)
             if (waitMs > 0) {
                 RetryDelayMetrics.observeWait(waitMs / 1000)
-                await this.sleepWithHeartbeat(waitMs)
+                if (!(await this.sleepWithHeartbeat(waitMs))) {
+                    RetryDelayMetrics.incReleased('abandoned')
+                    return
+                }
             }
             await this.release(message)
         }
+    }
+
+    private stopping(): boolean {
+        return this.options.isStopping?.() ?? false
     }
 
     /**
@@ -68,14 +83,19 @@ export class RetryDelayConsumer {
         return writtenAtMs + this.options.delayMs - Date.now()
     }
 
-    private async sleepWithHeartbeat(waitMs: number): Promise<void> {
+    /** False when the pod started shutting down during the wait, so the caller abandons the record. */
+    private async sleepWithHeartbeat(waitMs: number): Promise<boolean> {
         const interval = this.options.heartbeatIntervalMs ?? DEFAULT_HEARTBEAT_INTERVAL_MS
         const deadline = Date.now() + waitMs
         while (Date.now() < deadline) {
+            if (this.stopping()) {
+                return false
+            }
             this.options.heartbeat()
             await delay(Math.min(interval, deadline - Date.now()))
         }
         this.options.heartbeat()
+        return !this.stopping()
     }
 
     /**
