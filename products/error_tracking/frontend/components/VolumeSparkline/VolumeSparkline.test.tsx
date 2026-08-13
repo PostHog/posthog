@@ -125,6 +125,31 @@ describe('VolumeSparkline', () => {
             expect(onSpikeClick).toHaveBeenCalledWith(data[2], 123, 45)
         })
 
+        it('prefers onSpikeClick over onBucketClick when a flagged bucket is clicked', () => {
+            const onBucketClick = jest.fn()
+            const onSpikeClick = jest.fn()
+            const data = buildData({ 2: { isSpike: true, color: 'var(--brand-red)' } })
+            const { container } = render(
+                <VolumeSparkline
+                    sparklineKey={SPARKLINE_KEY}
+                    data={data}
+                    layout="detailed"
+                    xAxis="full"
+                    onBucketClick={onBucketClick}
+                    onSpikeClick={onSpikeClick}
+                />
+            )
+            const wrapper = getHogChart(container).element
+
+            hoverAtIndex(wrapper, 2, data.length)
+            fireEvent.mouseMove(container.firstElementChild as HTMLElement, { clientX: 123, clientY: 45 })
+            fireEvent.click(wrapper)
+
+            expect(onSpikeClick).toHaveBeenCalledTimes(1)
+            expect(onSpikeClick).toHaveBeenCalledWith(data[2], 123, 45)
+            expect(onBucketClick).not.toHaveBeenCalled()
+        })
+
         it('does not fire onSpikeClick for an ordinary (non-spike) bucket', () => {
             const onSpikeClick = jest.fn()
             // A spike elsewhere enables the handler (`hasSpikes`); the click lands on an

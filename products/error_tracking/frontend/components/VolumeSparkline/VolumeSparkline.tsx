@@ -168,12 +168,14 @@ export function VolumeSparkline({
             const endDate =
                 adjacentDate ??
                 (previousDate ? new Date(datum.date.getTime() + datum.date.getTime() - previousDate.getTime()) : null)
-            if (onBucketClick && endDate && endDate.getTime() > datum.date.getTime()) {
-                onBucketClick(datum.date, endDate)
-                return
-            }
+            // A flagged spike takes precedence: it opens the spike details popover rather than
+            // filtering to the bucket, so callers passing both handlers still reach the popover.
             if (datum.isSpike && onSpikeClick) {
                 onSpikeClick(datum, cursorRef.current.x, cursorRef.current.y)
+                return
+            }
+            if (onBucketClick && endDate && endDate.getTime() > datum.date.getTime()) {
+                onBucketClick(datum.date, endDate)
             }
         }
     }, [data, hasSpikes, onBucketClick, onSpikeClick])
