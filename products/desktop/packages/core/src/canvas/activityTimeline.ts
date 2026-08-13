@@ -115,7 +115,9 @@ export function buildActivityTimeline<
   for (const message of messages) {
     const event = parseActivityEvent(message);
     if (!event) {
-      if ((message.author_kind ?? "human") === "human") {
+      // A message carrying an event we couldn't parse is a future event kind, not a human
+      // reply; drawing it as one would misattribute a server announcement to the person.
+      if (!message.event && (message.author_kind ?? "human") === "human") {
         rows.push({
           kind: "human_message",
           key: `message-${message.id}`,
@@ -230,6 +232,10 @@ function eventIdentity(
       return `${event.payload.artifactId}:${event.payload.version}`;
     case "canvas_created":
       return event.payload.name;
+    // One row per comment id: the backend emits roots and state changes only.
+    case "comment_added":
+    case "comment_state_changed":
+      return event.payload.commentId;
     case "pr_created":
     case "pr_merged":
     case "pr_closed":

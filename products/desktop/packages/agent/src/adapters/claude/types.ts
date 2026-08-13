@@ -66,6 +66,9 @@ export type Turn = {
 
 export type Session = BaseSession & {
   query: Query;
+  /** Id of the underlying SDK session. Equal to the ACP session id until a
+   * /clear swaps in a fresh SDK session; resume/refresh must target this id. */
+  sdkSessionId: string;
   /** The Options object passed to query() — mutating it affects subsequent prompts */
   queryOptions: Options;
   /** Rebuilds the in-process ("sdk") signed-commit server with a fresh instance
@@ -117,6 +120,10 @@ export type Session = BaseSession & {
   queryGeneration: number;
   /** The query iterator ended and can't be revived; new prompts reject. */
   queryClosed?: boolean;
+  /** Set while a /clear is swapping the SDK query; resolves when it settles
+   * (success or failure). Prompts await it, cancel/refresh refuse during it,
+   * and a second /clear is rejected — the swap must never be raced. */
+  clearing?: Promise<void>;
   cancelController?: AbortController;
   forceCancelTimer?: ReturnType<typeof setTimeout>;
   emitRawSDKMessages: boolean | SDKMessageFilter[];
