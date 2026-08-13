@@ -307,23 +307,6 @@ export function ChannelSidebar({ channelId }: { channelId: string }) {
   const { channels } = useChannels();
   const isPersonalChannel =
     channels.find((c) => c.id === channelId)?.name === PERSONAL_CHANNEL_NAME;
-  // A canvas has no run, so the three run filters can only ever empty the
-  // canvases tab. Same treatment as createdBy above: neutralised as well as
-  // hidden, or a choice made on the sessions tab would empty this one.
-  const filters = useMemo<ChannelItemFilters>(() => {
-    const scoped = isPersonalChannel
-      ? { ...rawFilters, createdBy: "anyone" as const }
-      : rawFilters;
-    return tab === "canvas"
-      ? {
-          ...scoped,
-          attention: "any",
-          environment: "any",
-          source: ANY_SOURCE,
-        }
-      : scoped;
-  }, [isPersonalChannel, rawFilters, tab]);
-  const filtersActive = hasActiveChannelItemFilters(filters);
   // The tab is the list, so everything below it — the filters, the empty state,
   // the sections — is about one kind of thing at a time.
   const tabItems = useMemo(
@@ -334,6 +317,35 @@ export function ChannelSidebar({ channelId }: { channelId: string }) {
   // in the tab rather than from what the current filters left behind — picking
   // one source must not be what removes the others from the menu.
   const sources = useMemo(() => channelItemSources(tabItems), [tabItems]);
+  // A canvas has no run, so the three run filters can only ever empty the
+  // canvases tab. Same treatment as createdBy above: neutralised as well as
+  // hidden, or a choice made on the sessions tab would empty this one.
+  //
+  // A source the tab has none of goes the same way, and for the same reason: it
+  // would empty the list while its submenu shows no chosen option, so there'd be
+  // nothing to switch off. Rows arriving later put the source back, because the
+  // stored filter is untouched.
+  const filters = useMemo<ChannelItemFilters>(() => {
+    const sourceMissing =
+      rawFilters.source !== ANY_SOURCE && !sources.includes(rawFilters.source);
+    const scoped =
+      isPersonalChannel || sourceMissing
+        ? {
+            ...rawFilters,
+            ...(isPersonalChannel ? { createdBy: "anyone" as const } : {}),
+            ...(sourceMissing ? { source: ANY_SOURCE } : {}),
+          }
+        : rawFilters;
+    return tab === "canvas"
+      ? {
+          ...scoped,
+          attention: "any",
+          environment: "any",
+          source: ANY_SOURCE,
+        }
+      : scoped;
+  }, [isPersonalChannel, rawFilters, sources, tab]);
+  const filtersActive = hasActiveChannelItemFilters(filters);
 
   const base = `/website/${channelId}`;
   // Activeness is a key comparison rather than a flag baked into each item, so
