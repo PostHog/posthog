@@ -20,6 +20,12 @@ This first implementation deliberately uses the existing generated Canvas and ta
 
 Current data limits are four frames, 100 columns, 100 saved preview rows, 200 KiB per frame, and 4,096 characters per cell. The host permits at most eight concurrent requests, limits request payloads to 8 KiB, and times each request out after 30 seconds.
 
+### Local development
+
+Start the development stack through `./bin/start` so it loads `.env.development`.
+The `ai_features` intent includes the MCP server because GenUI task sandboxes publish through `mcp__posthog__exec`.
+The development environment also provides a local-only Canvas artifact signing key so ready builds include iframe artifact URLs.
+
 ## Objective
 
 Add a notebook-native `<GenUI />` node that lets PostHog AI generate a custom interactive visualization from a prompt and one or more notebook dataframes.
@@ -296,6 +302,8 @@ If Desktop opens a backing Canvas that requires notebook frames, it may show a c
 - [x] Tell the agent to render responsively without assuming a fixed notebook width.
 - [x] Tell the agent to clean up animation frames, WebGL resources, timers, and event listeners.
 - [x] Tell the agent to include a useful empty or error state in the artifact.
+- [x] Give the agent the complete disabled PostHog and network capability objects required by Canvas validation.
+- [x] Require the agent to validate, publish, and check the build instead of stopping after it writes source code.
 - [x] Keep source generation separate from dataframe reads so customer values do not enter the model prompt.
 - [ ] Make generation idempotent for one generation hash.
 - [x] Keep the previous ready artifact if generation or building fails.
@@ -469,7 +477,7 @@ Read the repository's test-writing skill before adding or changing tests.
 
 - [ ] Build a Python dataframe with `lat`, `lng`, and `timestamp` columns through the notebook UI.
 - [ ] Insert the example `<GenUI />` tag through PostHog AI.
-- [ ] Generate a spinning globe using Three.js through the GenUI task flow.
+- [x] Generate a spinning globe using Three.js through the GenUI task flow.
 - [ ] Verify points come from the dataframe snapshot.
 - [ ] Resize the notebook node and confirm the WebGL scene follows it.
 - [ ] Switch light and dark themes.

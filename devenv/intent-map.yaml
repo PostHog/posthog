@@ -367,6 +367,7 @@ intents:
                 property_values,
                 temporal_workflows,
                 agent_proxy,
+                mcp_server,
             ]
 
     tasks:

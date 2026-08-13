@@ -36,6 +36,7 @@ from products.replay_vision.backend.temporal.activities.refresh_prompt_suggestio
 from products.replay_vision.backend.temporal.constants import (
     MAX_IN_FLIGHT_APPLIES_PER_SCANNER,
     MAX_IN_FLIGHT_APPLIES_PER_TEAM,
+    SWEEP_READ_BUDGET_BYTES_24H,
     build_process_vision_action_workflow_id,
 )
 from products.replay_vision.backend.temporal.sweep_types import (
@@ -377,6 +378,41 @@ class TestFindScannerCandidatesActivity:
         assert [c.session_id for c in result.deep_candidates] == ["deep-0", "deep-1", "deep-2"]
         # The walk is newest-first, so advancing on a truncated batch would drop the oldest for good.
         assert result.deep_swept_through is None
+
+    @parameterized.expand(
+        [
+            # Default watermark sits one settle-interval back, i.e. the last sweep just ran.
+            ("over_budget_recent_sweep_skips", None, dt.timedelta(0), False),
+            # Enough watermark lag accumulated (>= 12 x 5 min at the factor cap): the sweep runs and batches it.
+            ("over_budget_stale_watermark_runs", None, dt.timedelta(minutes=61), True),
+            ("override_disables_throttle", 1, dt.timedelta(0), True),
+        ]
+    )
+    def test_read_budget_throttle(
+        self, _name: str, override: int | None, extra_watermark_lag: dt.timedelta, expect_query: bool
+    ) -> None:
+        hour = dt.datetime.now(dt.UTC).replace(minute=0, second=0, microsecond=0)
+        scanner = _make_scanner(
+            sweep_read_bytes_by_hour={hour.isoformat(): 100 * SWEEP_READ_BUDGET_BYTES_24H},
+            sweep_throttle_factor_override=override,
+        )
+        if extra_watermark_lag:
+            scanner.last_swept_at = scanner.last_swept_at - extra_watermark_lag
+            scanner.save(update_fields=["last_swept_at"])
+
+        with patch(
+            "products.replay_vision.backend.temporal.activities.find_scanner_candidates.ScannerCandidateQuery"
+        ) as MockQuery:
+            MockQuery.return_value.run.return_value = []
+            result = find_scanner_candidates_activity(
+                FindScannerCandidatesInputs(scanner_id=scanner.id, team_id=scanner.team_id)
+            )
+
+        assert MockQuery.called is expect_query
+        if not expect_query:
+            # No horizon means the workflow can't advance the watermark, so the skipped range stays covered.
+            assert result.swept_through is None
+            assert result.candidates == []
 
     def test_raises_non_retryable_on_malformed_query(self) -> None:
         scanner = _make_scanner()

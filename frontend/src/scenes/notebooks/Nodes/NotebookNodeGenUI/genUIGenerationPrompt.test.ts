@@ -44,6 +44,9 @@ describe('buildGenUIGenerationPrompt', () => {
         expect(prompt).toContain('Read notebook data only with `await ph.readFrame(name)`')
         expect(prompt).toContain('"name":"pandas_df"')
         expect(prompt).toContain('"name":"lat","type":"float64"')
+        expect(prompt).toContain(
+            'project.capabilities` to exactly `{"posthog":{"insights":[],"inlineQueries":false,"captureEvents":[]},"network":{"origins":[]},"notebook":{"frames":["pandas_df"]}}`'
+        )
         expect(prompt).toContain('Update the existing canvas')
     })
 })

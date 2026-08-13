@@ -23,6 +23,12 @@ export function buildGenUIGenerationPrompt(input: {
 }): string {
     const { canvasId, name, instruction, frames, missingFrames, isEdit } = input
     const frameContract = frames.length ? JSON.stringify(frames) : 'No dataframe preview is currently available.'
+    const frameNames = [...new Set([...frames.map((frame) => frame.name), ...missingFrames])]
+    const capabilityContract = JSON.stringify({
+        posthog: { insights: [], inlineQueries: false, captureEvents: [] },
+        network: { origins: [] },
+        notebook: { frames: frameNames },
+    })
     const missingContract = missingFrames.length
         ? `The requested frames without a saved result are: ${missingFrames.join(', ')}. Render a useful empty state if reading one fails.`
         : 'Every requested frame currently has a saved preview.'
@@ -30,7 +36,7 @@ export function buildGenUIGenerationPrompt(input: {
     return `${instruction}
 
 <genui_generation_instructions>
-${isEdit ? 'Update' : 'Build'} the existing canvas "${name}" (id "${canvasId}") as a live embedded notebook visualization. Do not create another canvas or write local files.
+${isEdit ? 'Update' : 'Build'} the existing canvas "${name}" (id "${canvasId}") as a live embedded notebook visualization. Do not create another canvas. Publishing the canvas is the result; do not stop after generating source code in the task workspace.
 
 Use the bundled \`building-canvases\` skill for the project format and validation rules.
 
@@ -45,7 +51,7 @@ Follow this sequence:
 
 Read notebook data only with \`await ph.readFrame(name)\`. It returns \`{ name, columns: [{ name, type }], rows: unknown[][], totalRowCount, includedRowCount, truncated }\`.
 
-Declare every literal frame name you read in \`capabilities.notebook.frames\`. Keep PostHog query, capture, and network capabilities disabled unless the user's request explicitly needs them. Never call \`fetch\`, \`ph.query\`, or \`ph.loadInsight\` for notebook dataframe data.
+Set \`project.capabilities\` to exactly \`${capabilityContract}\`. Do not add PostHog or network capabilities. Never call \`fetch\`, \`ph.query\`, or \`ph.loadInsight\` for notebook dataframe data.
 
 Requested frames: ${frameContract}
 

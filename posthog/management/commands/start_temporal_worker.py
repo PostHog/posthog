@@ -180,6 +180,10 @@ from products.customer_analytics.backend.facade.temporal import (
     ACTIVITIES as CUSTOMER_ANALYTICS_ACTIVITIES,
     WORKFLOWS as CUSTOMER_ANALYTICS_WORKFLOWS,
 )
+from products.data_quality.backend.facade.temporal import (
+    ACTIVITIES as DATA_QUALITY_ACTIVITIES,
+    WORKFLOWS as DATA_QUALITY_WORKFLOWS,
+)
 from products.engineering_analytics.backend.facade.temporal import (
     CI_SIGNALS_ACTIVITIES,
     CI_SIGNALS_WORKFLOWS,
@@ -208,6 +212,8 @@ from products.growth.backend.temporal import (
 )
 from products.logs.backend.facade.temporal import (
     ACTIVITIES as LOGS_ALERTING_ACTIVITIES,
+    VOLUME_TICK_ACTIVITIES as LOGS_VOLUME_TICK_ACTIVITIES,
+    VOLUME_TICK_WORKFLOWS as LOGS_VOLUME_TICK_WORKFLOWS,
     WORKFLOWS as LOGS_ALERTING_WORKFLOWS,
 )
 from products.logs.backend.temporal.retention_entitlements import (
@@ -303,8 +309,8 @@ _task_queue_specs = [
     ),
     (
         settings.DATA_MODELING_TASK_QUEUE,
-        DATA_MODELING_WORKFLOWS,
-        DATA_MODELING_ACTIVITIES,
+        DATA_MODELING_WORKFLOWS + DATA_QUALITY_WORKFLOWS,
+        DATA_MODELING_ACTIVITIES + DATA_QUALITY_ACTIVITIES,
     ),
     (
         settings.GENERAL_PURPOSE_TASK_QUEUE,
@@ -498,6 +504,13 @@ _task_queue_specs = [
         settings.LOGS_ALERTING_TASK_QUEUE,
         LOGS_ALERTING_WORKFLOWS,
         LOGS_ALERTING_ACTIVITIES,
+    ),
+    # Dedicated queue, never merged with alerting: the tick becomes the scan-heavy
+    # rollup writer and must not share pods with the latency-sensitive alert checks.
+    (
+        settings.LOGS_VOLUME_TICK_TASK_QUEUE,
+        LOGS_VOLUME_TICK_WORKFLOWS,
+        LOGS_VOLUME_TICK_ACTIVITIES,
     ),
     (
         settings.STAMPHOG_TASK_QUEUE,
