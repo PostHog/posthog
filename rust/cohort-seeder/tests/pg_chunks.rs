@@ -803,6 +803,146 @@ async fn expired_scanning_chunk_at_the_cap_is_reaped_not_reclaimed() -> Result<(
     .await
 }
 
+/// Only chunks that saturated the attempt cap count as exhausted. A `failed` chunk still under the
+/// cap is reclaimable and will retry, so reporting it would fail runs that were about to recover.
+#[tokio::test]
+async fn runs_with_exhausted_chunks_selects_only_capped_failures() -> Result<()> {
+    with_db(|pool| async move {
+        let seeding_run =
+            insert_run(&pool, 2, "team_enablement", "seeding", true, empty_pinned()).await?;
+        let store = PgChunkStore::new(pool.clone());
+        ensure!(planned_count(store.plan_chunks(seeding_run, [100, 101], ONE_BAND).await?)? == 2);
+        let attempts5 = MaxAttempts::new(5)?;
+        let run_ids = [seeding_run];
+
+        let chunk_ids: Vec<Uuid> = sqlx::query_scalar(
+            "SELECT id FROM cohort_backfill_chunks WHERE run_id = $1 ORDER BY day",
+        )
+        .bind(seeding_run)
+        .fetch_all(&pool)
+        .await?;
+        sqlx::query(
+            "UPDATE cohort_backfill_chunks SET status = 'failed', attempts = 4, last_error = 'still retrying' WHERE id = $1",
+        )
+        .bind(chunk_ids[0])
+        .execute(&pool)
+        .await?;
+        ensure!(store
+            .runs_with_exhausted_chunks(&run_ids, attempts5)
+            .await?
+            .is_empty());
+
+        sqlx::query(
+            "UPDATE cohort_backfill_chunks SET status = 'failed', attempts = 5, last_error = 'scan blew up' WHERE id = $1",
+        )
+        .bind(chunk_ids[1])
+        .execute(&pool)
+        .await?;
+        let exhausted = store.runs_with_exhausted_chunks(&run_ids, attempts5).await?;
+        ensure!(exhausted.len() == 1);
+        ensure!(exhausted[0].run_id == seeding_run);
+        ensure!(exhausted[0].exhausted == 1, "only the capped chunk counts");
+        ensure!(exhausted[0].chunk_id == chunk_ids[1].to_string());
+        ensure!(exhausted[0].last_error == "scan blew up");
+
+        ensure!(store
+            .runs_with_exhausted_chunks(&[], attempts5)
+            .await?
+            .is_empty());
+        Ok(())
+    })
+    .await
+}
+
+/// Failing a run whose chunk exhausted its retries stops the run dead: a still-pending sibling is no
+/// longer claimable, a live sibling's heartbeat is refused, and a second failure is a no-op rather
+/// than a double-count. Without it the run sits in `seeding` forever holding its cohort's slot.
+#[tokio::test]
+async fn exhausted_chunk_fails_the_run_and_stops_further_claims() -> Result<()> {
+    with_db(|pool| async move {
+        let seeding_run =
+            insert_run(&pool, 2, "team_enablement", "seeding", true, empty_pinned()).await?;
+        let store = PgChunkStore::new(pool.clone());
+        ensure!(
+            planned_count(store.plan_chunks(seeding_run, [100, 101, 102], ONE_BAND).await?)? == 3
+        );
+
+        let lease60 = LeaseDuration::new(Duration::from_secs(60))?;
+        let attempts5 = MaxAttempts::new(5)?;
+        let run_ids = [seeding_run];
+        let claimant = Claimant::new("worker-a")?;
+
+        // One chunk mid-scan with a live lease, one capped out, one left pending.
+        let claimed = store
+            .claim_next(&run_ids, &claimant, lease60, attempts5)
+            .await?
+            .context("claimant found no chunk")?;
+        let live_lease = claimed.chunk.spec().lease;
+        let capped_id: Uuid = sqlx::query_scalar(
+            "SELECT id FROM cohort_backfill_chunks WHERE run_id = $1 AND status = 'pending' ORDER BY day LIMIT 1",
+        )
+        .bind(seeding_run)
+        .fetch_one(&pool)
+        .await?;
+        sqlx::query(
+            "UPDATE cohort_backfill_chunks SET status = 'failed', attempts = 5, last_error = 'scan blew up' WHERE id = $1",
+        )
+        .bind(capped_id)
+        .execute(&pool)
+        .await?;
+
+        let exhausted = store.runs_with_exhausted_chunks(&run_ids, attempts5).await?;
+        ensure!(exhausted.len() == 1);
+        fail_run(
+            &pool,
+            seeding_run,
+            &RenderedError::from_message(format!(
+                "{} chunk(s) exhausted the 5 attempt retry budget; chunk {}: {}",
+                exhausted[0].exhausted, exhausted[0].chunk_id, exhausted[0].last_error,
+            )),
+        )
+        .await?;
+
+        let (status, error, finished): (String, String, bool) = sqlx::query_as(
+            "SELECT status, error, finished_at IS NOT NULL FROM cohort_backfill_runs WHERE id = $1",
+        )
+        .bind(seeding_run)
+        .fetch_one(&pool)
+        .await?;
+        ensure!(status == "failed");
+        ensure!(error.contains("exhausted the"));
+        ensure!(error.contains("scan blew up"));
+        ensure!(finished);
+
+        // The claim and heartbeat predicates both join `runs.status = 'seeding'`, so the pending
+        // sibling stops being claimable and the in-flight one halts on its next beat.
+        ensure!(store
+            .claim_next(&run_ids, &Claimant::new("worker-b")?, lease60, attempts5)
+            .await?
+            .is_none());
+        let still_pending: i64 = sqlx::query_scalar(
+            "SELECT count(*) FROM cohort_backfill_chunks WHERE run_id = $1 AND status = 'pending'",
+        )
+        .bind(seeding_run)
+        .fetch_one(&pool)
+        .await?;
+        ensure!(
+            still_pending == 1,
+            "a claimable chunk remained, so the run status is what blocked the claim"
+        );
+        ensure_lease_lost(test_support::heartbeat(&store, live_lease, &claimant, lease60).await)?;
+        drop(claimed);
+
+        // Idempotent: a later pass re-reads the same exhausted chunks and must not re-fail the run.
+        ensure!(matches!(
+            fail_run(&pool, seeding_run, &RenderedError::from_message("again")).await,
+            Err(RunError::NotActive(_))
+        ));
+        Ok(())
+    })
+    .await
+}
+
 /// Both persisted error columns are truncated to the limit: `chunk.fail` clamps `last_error` and
 /// `fail_run` clamps `run.error`, each flipping the row to `failed`.
 #[tokio::test]

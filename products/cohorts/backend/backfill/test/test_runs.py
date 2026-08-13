@@ -134,6 +134,21 @@ class TestBackfillRuns(BaseTest):
         self.assertIsNone(create_backfill_run_for_cohort(self.team.id, cohort.id, "cohort_edited"))
         self.assertEqual(CohortBackfillRun.objects.for_team(self.team.id).count(), 1)
 
+    def test_failed_run_frees_the_per_cohort_slot(self) -> None:
+        # The seeder fails a run whose chunk exhausted its retry budget. That only unwedges the
+        # cohort if `failed` stops counting as active here: otherwise the uniqueness slot stays
+        # taken and no replacement run can ever be created for that cohort.
+        cohort = self._cohort()
+        first = create_backfill_run_for_cohort(self.team.id, cohort.id, "cohort_created")
+        assert first is not None
+        self.assertIsNone(create_backfill_run_for_cohort(self.team.id, cohort.id, "cohort_edited"))
+
+        first.status = CohortBackfillRunStatus.FAILED
+        first.save(update_fields=["status"])
+
+        self.assertIsNotNone(create_backfill_run_for_cohort(self.team.id, cohort.id, "cohort_edited"))
+        self.assertEqual(CohortBackfillRun.objects.for_team(self.team.id).count(), 2)
+
     def test_active_team_run_prevents_overlapping_cohort_run(self) -> None:
         cohort = self._cohort()
         create_team_backfill_run(self.team.id, "team_enablement")
