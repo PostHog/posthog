@@ -100,6 +100,7 @@ services:
             SESSION_RECORDING_V2_S3_SECRET_ACCESS_KEY: 'any'
             OBJECT_STORAGE_ENABLED: true
             RECORDING_API_URL: http://recording-api:6738
+            INTERNAL_API_SECRET: ${INTERNAL_API_SECRET:-$POSTHOG_SECRET}
             ENCRYPTION_SALT_KEYS: $ENCRYPTION_SALT_KEYS
             POSTHOG_SKIP_MIGRATION_CHECKS: '1'
             PERSONHOG_ADDR: 'personhog-router:50052'
@@ -159,6 +160,7 @@ services:
             SESSION_RECORDING_V2_S3_ENDPOINT: http://seaweedfs:8333
             OBJECT_STORAGE_ENABLED: true
             RECORDING_API_URL: http://recording-api:6738
+            INTERNAL_API_SECRET: ${INTERNAL_API_SECRET:-$POSTHOG_SECRET}
             ENCRYPTION_SALT_KEYS: $ENCRYPTION_SALT_KEYS
             OTEL_SERVICE_NAME: 'posthog'
             OTEL_EXPORTER_OTLP_ENDPOINT: ''
@@ -234,11 +236,17 @@ services:
             PERSONS_DATABASE_URL: 'postgres://posthog:posthog@db:5432/posthog'
             BEHAVIORAL_COHORTS_DATABASE_URL: 'postgres://posthog:posthog@db:5432/posthog'
             ENCRYPTION_SALT_KEYS: $ENCRYPTION_SALT_KEYS
+            # The combined-mode AI consumer reads persons through PersonHog
+            PERSONHOG_ADDR: 'personhog-router:50052'
+            PERSONHOG_ENABLED: 'true'
         depends_on:
             - db
             - redis7
             - clickhouse
             - kafka
+            # The combined AI consumer's blob store healthchecks the ai-blobs bucket at startup
+            - objectstorage
+            - personhog-router
 
     ingestion-sessionreplay:
         extends:
@@ -266,6 +274,10 @@ services:
         logging: *default-logging
         environment:
             ENCRYPTION_SALT_KEYS: $ENCRYPTION_SALT_KEYS
+            # Must resolve to the same value as the web and worker services, which send it as
+            # X-Internal-Api-Secret. The JWT signing secret is deliberately left unset here, so hobby
+            # stays on the legacy shared secret until that scheme is rolled out.
+            INTERNAL_API_SECRET: ${INTERNAL_API_SECRET:-$POSTHOG_SECRET}
         depends_on:
             - db
             - redis7
@@ -279,6 +291,7 @@ services:
         logging: *default-logging
         environment:
             ENCRYPTION_SALT_KEYS: $ENCRYPTION_SALT_KEYS
+            ERROR_TRACKING_CYMBAL_BASE_URL: 'http://cymbal:3302'
         depends_on:
             - db
             - redis7
@@ -596,6 +609,7 @@ services:
                     clickhouse_heatmap_events \
                     clickhouse_flag_evaluations \
                     clickhouse_ingestion_warnings \
+                    events_plugin_ingestion_ai \
                     events_plugin_ingestion_dlq \
                     events_plugin_ingestion_overflow \
                     events_plugin_ingestion_async \

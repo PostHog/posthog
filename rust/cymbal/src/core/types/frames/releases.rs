@@ -5,6 +5,8 @@ use sha2::{Digest, Sha512};
 use sqlx::Executor;
 use uuid::Uuid;
 
+use crate::symbolication::symbol_store::saving::truncate_ref;
+
 /// The release API does not bound what a row can hold (`version`/`project`/`metadata` are
 /// unbounded TextField/JSONField columns), but every one of these fields is embedded into every
 /// matching exception event, so a single oversized row would be amplified across the whole event
@@ -84,6 +86,43 @@ impl ReleaseRecord {
         Ok(row.map(Self::clamped))
     }
 
+    /// The newest release bound to any of `symbol_set_refs`, as an id. One query per exception
+    /// replaces the per-frame join the resolver used to run, and the id is all the caller needs:
+    /// it re-reads the row through its own release cache.
+    ///
+    /// Ties break on id so a stack spanning two releases created in the same instant still picks
+    /// deterministically.
+    pub async fn latest_id_for_symbol_set_refs<'c, E>(
+        e: E,
+        symbol_set_refs: &[String],
+        team_id: i32,
+    ) -> Result<Option<Uuid>, sqlx::Error>
+    where
+        E: Executor<'c, Database = sqlx::Postgres>,
+    {
+        // Stored refs are truncated to MAX_REF_BYTES by SymbolSetRecord::load/save; match on the
+        // same truncated value or long refs (e.g. >2KB JS source URLs) never join.
+        let refs: Vec<String> = symbol_set_refs
+            .iter()
+            .map(|r| truncate_ref(r).to_string())
+            .collect();
+
+        sqlx::query_scalar!(
+            r#"
+            SELECT r.id
+            FROM posthog_errortrackingsymbolset ss
+            INNER JOIN posthog_errortrackingrelease r ON ss.release_id = r.id
+            WHERE ss.ref = ANY($1) AND ss.team_id = $2
+            ORDER BY r.created_at DESC, r.id DESC
+            LIMIT 1
+            "#,
+            &refs,
+            team_id
+        )
+        .fetch_optional(e)
+        .await
+    }
+
     pub fn to_info(&self) -> ReleaseInfo {
         ReleaseInfo {
             id: self.id,
@@ -94,9 +133,17 @@ impl ReleaseRecord {
         }
     }
 
-    /// Bounds every field this record can carry into an event: `metadata` over the cap the API
-    /// enforces on new writes is dropped, `version`/`project` are truncated. The `id` survives,
-    /// so consumers can still fetch the full release.
+    /// The most recently created release, with ties broken by id so the pick is deterministic
+    /// regardless of input order.
+    pub fn latest(releases: impl IntoIterator<Item = Self>) -> Option<Self> {
+        releases
+            .into_iter()
+            .max_by_key(|release| (release.created_at, release.id))
+    }
+
+    /// Bounds every field this record can carry into an event: `metadata` over the cap is
+    /// dropped, `version`/`project` are truncated. The `id` survives, so consumers can still
+    /// fetch the full release.
     fn clamped(mut self) -> Self {
         let oversized = self.metadata.as_ref().is_some_and(|metadata| {
             serde_json::to_string(metadata).map_or(true, |s| s.len() > MAX_RELEASE_METADATA_BYTES)

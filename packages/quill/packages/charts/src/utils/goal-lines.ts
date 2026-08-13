@@ -56,3 +56,19 @@ export function goalLineValueDomain(referenceLines: readonly ReferenceLineProps[
     const values = referenceLines.map((line) => line.value).filter((v): v is number => typeof v === 'number')
     return values.length > 0 ? { include: values } : undefined
 }
+
+/** Combine a consumer-set {@link ValueDomain} with the goal-line stretch. A fixed `[min, max]`
+ *  wins outright — the consumer pinned the axis, so nothing may stretch it — while two `include`
+ *  sets merge, so an explicit include and off-scale goal lines both widen the auto domain. */
+export function mergeValueDomains(a: ValueDomain | undefined, b: ValueDomain | undefined): ValueDomain | undefined {
+    if (!a || !b) {
+        return a ?? b
+    }
+    if (!('include' in a)) {
+        return a
+    }
+    if (!('include' in b)) {
+        return b
+    }
+    return { include: [...a.include, ...b.include] }
+}

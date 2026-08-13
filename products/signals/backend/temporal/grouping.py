@@ -23,6 +23,7 @@ from temporalio.workflow import ParentClosePolicy
 from posthog.schema import EmbeddingModelName
 
 from posthog.api.embedding_worker import async_generate_embedding, emit_embedding_request
+from posthog.dataclasses import frozen
 from posthog.event_usage import groups
 from posthog.models import Team
 from posthog.sync import database_sync_to_async
@@ -687,7 +688,7 @@ class AssignAndEmitSignalOutput:
     research_debounce_seconds: int = 0
 
 
-@dataclass(frozen=True, kw_only=True, slots=True)
+@frozen
 class AssignAndEmitDbResult:
     report_id: str
     promoted: bool

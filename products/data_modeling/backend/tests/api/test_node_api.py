@@ -7,6 +7,7 @@ from unittest.mock import AsyncMock, patch
 
 from parameterized import parameterized
 from rest_framework import status
+from temporalio.common import WorkflowIDConflictPolicy, WorkflowIDReusePolicy
 
 from posthog.models import Team
 from posthog.temporal.common.logger import resolve_log_source
@@ -345,6 +346,9 @@ class TestNodeViewSet(APIBaseTest):
         self.assertEqual(response.status_code, status.HTTP_200_OK)
         call_args = mock_client.start_workflow.call_args
         self.assertEqual(call_args[0][0], "data-modeling-materialize-view")
+        self.assertEqual(call_args.kwargs["id"], f"materialize-view-{self.view_node.id}")
+        self.assertEqual(call_args.kwargs["id_conflict_policy"], WorkflowIDConflictPolicy.USE_EXISTING)
+        self.assertEqual(call_args.kwargs["id_reuse_policy"], WorkflowIDReusePolicy.ALLOW_DUPLICATE)
 
     @patch("products.data_modeling.backend.presentation.views.node.feature_enabled_or_false", return_value=False)
     @patch("products.data_modeling.backend.logic.node_materialization.sync_connect")

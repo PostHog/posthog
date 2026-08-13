@@ -1,14 +1,10 @@
 import { useActions, useValues } from 'kea'
 
 import { IconSparkles } from '@posthog/icons'
-import { LemonBanner, LemonButton, SpinnerOverlay } from '@posthog/lemon-ui'
+import { LemonBanner, LemonButton, LemonTag, Tooltip } from '@posthog/lemon-ui'
 
-import { NotFound } from 'lib/components/NotFound'
-import { FEATURE_FLAGS } from 'lib/constants'
 import { LemonTabs } from 'lib/lemon-ui/LemonTabs'
-import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { useAttachedLogic } from 'lib/logic/scenes/useAttachedLogic'
-import { appLogic } from 'scenes/appLogic'
 import { SceneExport } from 'scenes/sceneTypes'
 import { urls } from 'scenes/urls'
 
@@ -22,6 +18,7 @@ import { visionQuotaLogic } from '../logics/visionQuotaLogic'
 import { getReplayVisionEditDisabledReason } from '../utils/accessControl'
 import { formatCreditsRange } from '../utils/credits'
 import { quotaBannerState } from '../utils/quotaProjection'
+import { ScannerBackfillsTab } from './components/ScannerBackfillsTab'
 import { ScannerCalibrationTab } from './components/ScannerCalibrationTab'
 import { ScannerConfigReadonly } from './components/ScannerConfigReadonly'
 import { ScannerDigestCard } from './components/ScannerDigestCard'
@@ -31,6 +28,7 @@ import { ScannerRunTab } from './components/ScannerRunTab'
 import { VisionActionsTab } from './components/VisionActionsTab'
 import { replayScannerLogic } from './replayScannerLogic'
 import { ReplayScannerTab, replayScannerSceneLogic } from './replayScannerSceneLogic'
+import { LIMIT_REACHED_TOOLTIP } from './scannerCopy'
 
 export const scene: SceneExport = {
     component: ReplayScannerSceneComponent,
@@ -41,22 +39,11 @@ export const scene: SceneExport = {
 export function ReplayScannerSceneComponent(): JSX.Element {
     const { scannerId, activeTab } = useValues(replayScannerSceneLogic)
     const { setActiveTab } = useActions(replayScannerSceneLogic)
-    const { featureFlags, receivedFeatureFlags } = useValues(featureFlagLogic)
-    const { featureFlagsTimedOut } = useValues(appLogic)
-    const actionsTabEnabled = !!featureFlags[FEATURE_FLAGS.REPLAY_VISION_ACTIONS]
 
     const scannerLogic = replayScannerLogic({ id: scannerId })
     useAttachedLogic(scannerLogic, replayScannerSceneLogic)
 
     const { scanner, scannerLoading } = useValues(scannerLogic)
-
-    if (!featureFlags[FEATURE_FLAGS.REPLAY_VISION]) {
-        // Flags load asynchronously, so wait for them before deciding the page doesn't exist.
-        if (!receivedFeatureFlags && !featureFlagsTimedOut) {
-            return <SpinnerOverlay sceneLevel />
-        }
-        return <NotFound object="page" />
-    }
 
     if (scannerLoading || !scanner) {
         return (
@@ -70,6 +57,13 @@ export function ReplayScannerSceneComponent(): JSX.Element {
         <SceneContent>
             <SceneTitleSection
                 name={scanner.name || 'Untitled scanner'}
+                nameSuffix={
+                    scanner.limit_reached ? (
+                        <Tooltip title={LIMIT_REACHED_TOOLTIP}>
+                            <LemonTag type="danger">Limit reached</LemonTag>
+                        </Tooltip>
+                    ) : undefined
+                }
                 description={scanner.description}
                 resourceType={{ type: 'replay_vision' }}
                 actions={
@@ -114,9 +108,7 @@ export function ReplayScannerSceneComponent(): JSX.Element {
                         label: 'Overview',
                         content: (
                             <div className="flex flex-col gap-6">
-                                {actionsTabEnabled && (
-                                    <ScannerDigestCard scannerId={scannerId} scannerName={scanner.name || ''} />
-                                )}
+                                <ScannerDigestCard scannerId={scannerId} scannerName={scanner.name || ''} />
                                 <ScannerOverview scannerId={scannerId} />
                             </div>
                         ),
@@ -132,6 +124,11 @@ export function ReplayScannerSceneComponent(): JSX.Element {
                         content: <ScannerRunTab scannerId={scannerId} />,
                     },
                     {
+                        key: ReplayScannerTab.Backfills,
+                        label: 'Backfills',
+                        content: <ScannerBackfillsTab scannerId={scannerId} />,
+                    },
+                    {
                         key: ReplayScannerTab.Configuration,
                         label: 'Configuration',
                         content: <ScannerConfigReadonly scanner={scanner} />,
@@ -141,7 +138,7 @@ export function ReplayScannerSceneComponent(): JSX.Element {
                         label: 'Calibration',
                         content: <ScannerCalibrationTab scannerId={scannerId} />,
                     },
-                    actionsTabEnabled && {
+                    {
                         key: ReplayScannerTab.Actions,
                         label: 'Digests and alerts',
                         content: (

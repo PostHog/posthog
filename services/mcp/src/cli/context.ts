@@ -7,6 +7,7 @@ import { buildMCPAnalyticsGroups, buildMCPContextProperties } from '@/lib/postho
 import type { AnalyticsEvent } from '@/lib/posthog/analytics'
 import { SessionManager } from '@/lib/SessionManager'
 import { StateManager } from '@/lib/StateManager'
+import { sanitizeHeaderValue } from '@/lib/utils'
 import type { Context, Env, State } from '@/tools/types'
 
 import type { CliConfig } from './config'
@@ -53,7 +54,7 @@ export async function buildCliContext(config: CliConfig): Promise<Context> {
         baseUrl: config.host.replace(/\/+$/, ''),
         clientUserAgent: `posthog-cli api`,
         mcpClientName: 'posthog-cli',
-        mcpClientVersion: process.env.POSTHOG_CLI_VERSION,
+        mcpClientVersion: sanitizeHeaderValue(process.env.POSTHOG_CLI_VERSION),
         mcpConsumer: 'posthog-cli',
     })
     const stateManager = new StateManager(cache, api)

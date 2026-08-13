@@ -28,6 +28,12 @@ class TestCreateNotebookTool(BaseTest):
             node_path=self.node_path,
         )
 
+    def test_description_includes_object_widget_views(self) -> None:
+        assert "FeatureFlag" in self.tool.description
+        assert "summary: Show the flag status" in self.tool.description
+        assert "editor: Edit the flag status" in self.tool.description
+        assert "Cohort" in self.tool.description
+
     def test_returns_error_when_both_content_and_draft_content_provided(self):
         result, artifact = async_to_sync(self.tool._arun_impl)(
             title="Test Notebook",
