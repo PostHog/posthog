@@ -378,20 +378,37 @@ _truncated_uuid_st = st.uuids().map(lambda u: str(u)[:23])
 
 # Tokens the masker deliberately leaves (fully or partly) literal. A pivot regex mined
 # from a masked body must not match a sibling holding one of these in the same slot.
-_impostor_st = st.one_of(_digit_letter_run_st, _date_only_st, _minute_timestamp_st, _letter_hex_st, _truncated_uuid_st)
+# One row per (masked kind, confusable neighbor). Both halves of the row matter: the mask
+# has to tell the pair apart, and so does the pivot regex the mask produces. A single
+# union-of-everything property dilutes each pair to a fraction of the example budget, so
+# every pair draws its own.
+_CONFUSABLE_PAIRS = [
+    ("num_vs_digit_letter_run", _num_st, _digit_letter_run_st),
+    ("timestamp_vs_digit_letter_run", _timestamp_st(), _digit_letter_run_st),
+    ("timestamp_vs_date_only", _timestamp_st(), _date_only_st),
+    ("timestamp_vs_minute_precision", _timestamp_st(), _minute_timestamp_st),
+    ("uuid_vs_truncated_uuid", _uuid_st, _truncated_uuid_st),
+    ("hex_vs_letter_only_hex", st.one_of(_hex_0x_st, _hex_bare_st), _letter_hex_st),
+]
 
 
 class TestPivotSoundness(TestCase):
-    @given(value=_variable_token_st, impostor=_impostor_st)
+    @parameterized.expand([(name,) for name, _, _ in _CONFUSABLE_PAIRS])
+    @given(data=st.data())
     @settings(deadline=None)
-    def test_pivot_rejects_bodies_that_mask_to_another_template(self, value: str, impostor: str) -> None:
-        # A placeholder pattern broader than its masking rule pulls unrelated lines into
-        # the "view matching logs" pivot: the sibling masks to a different template, yet
-        # the pivot regex still matches it.
-        patterns = mine_patterns([_sample(f"event {value} done")])
-        assert patterns[0].match_regex is not None
+    def test_confusable_neighbor_stays_distinguishable(self, name: str, data: st.DataObject) -> None:
+        value_st, impostor_st = next((v, i) for n, v, i in _CONFUSABLE_PAIRS if n == name)
+        value_body = f"event {data.draw(value_st)} done"
+        impostor_body = f"event {data.draw(impostor_st)} done"
 
-        sibling = f"event {impostor} done"
-        sibling_template = mine_patterns([_sample(sibling)])[0].pattern
-        if sibling_template != patterns[0].pattern:
-            assert not re.search(patterns[0].match_regex, sibling)
+        mined = mine_patterns([_sample(value_body)])[0]
+        impostor_template = mine_patterns([_sample(impostor_body)])[0].pattern
+
+        # A masking rule that also swallows its neighbor erases the literal content the
+        # template exists to show. Asserted first, and unconditionally: guarding the pivot
+        # check on "the templates differ" makes an over-broad mask pass by doing nothing.
+        assert impostor_template != mined.pattern
+        # A placeholder broader than the rule that produced it pulls unrelated lines into
+        # the "view matching logs" pivot.
+        assert mined.match_regex is not None
+        assert not re.search(mined.match_regex, impostor_body)
