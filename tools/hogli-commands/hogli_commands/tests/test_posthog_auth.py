@@ -443,6 +443,27 @@ def test_status_reports_the_same_verdict_in_both_output_shapes(runner: CliRunner
     assert runner.invoke(posthog_auth_cli.posthog_status, ["--json"]).exit_code == 0
 
 
+# A token runs for days, so reporting only minutes prints "expires in 10079m" and leaves the reader
+# dividing by hand. The absent case is here too because a server that issues no `expires_in` would
+# otherwise reach the arithmetic with None and crash the whole status table.
+@pytest.mark.parametrize(
+    "seconds,expected",
+    [
+        (7 * 86400, "expires in 7d"),
+        (90, "expires in 1m"),
+        (30, "expires in under a minute"),
+        (-1, "expired"),
+        (None, "no expiry reported"),
+    ],
+)
+def test_status_reports_a_lifetime_at_a_readable_unit(
+    monkeypatch: pytest.MonkeyPatch, seconds: int | None, expected: str
+) -> None:
+    # Pinned, because flooring an exact multiple drops a unit as soon as the clock moves.
+    monkeypatch.setattr(posthog_auth_cli.time, "time", lambda: 1_700_000_000.0)
+    assert posthog_auth_cli._lifetime(None if seconds is None else 1_700_000_000.0 + seconds) == expected
+
+
 def test_status_never_prints_the_token(runner: CliRunner) -> None:
     # Status is run to diagnose auth, often with a terminal being shared or logged.
     posthog_auth.save(_credential())

@@ -35,6 +35,23 @@ def _fail(error: posthog_auth.AuthError) -> NoReturn:
     raise SystemExit(error.exit_code)
 
 
+def _lifetime(expires_at: float | None) -> str:
+    """What the access token has left, at the coarsest unit that still reads usefully.
+
+    Tokens run to days, and minutes alone renders a week as "expires in 10079m", which a reader
+    has to divide before it means anything.
+    """
+    if expires_at is None:
+        return "no expiry reported"
+    remaining = int(expires_at - time.time())
+    if remaining <= 0:
+        return "expired"
+    for unit, size in (("d", 86400), ("h", 3600), ("m", 60)):
+        if remaining >= size:
+            return f"expires in {remaining // size}{unit}"
+    return "expires in under a minute"
+
+
 @click.command(name="auth:posthog:login", help="Sign hogli in to PostHog in your browser.")
 @_HOST_OPTION
 @click.option(
@@ -97,13 +114,7 @@ def posthog_status(host: str, as_json: bool) -> None:
         click.echo(f"credential     none cached for {host}. Run `hogli auth:posthog:login`")
         raise SystemExit(0 if env_key else posthog_auth.EXIT_NOT_CONFIGURED)
 
-    remaining = None if credential.expires_at is None else int(credential.expires_at - time.time())
-    if remaining is None:
-        lifetime = "no expiry reported"
-    elif remaining > 0:
-        lifetime = f"expires in {remaining // 60}m"
-    else:
-        lifetime = "expired"
+    lifetime = _lifetime(credential.expires_at)
     click.echo(f"host           {credential.host}")
     click.echo(f"client         {credential.client_id}")
     click.echo(f"scopes         {' '.join(credential.granted) or '(none reported)'}")
