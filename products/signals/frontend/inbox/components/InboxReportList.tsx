@@ -23,7 +23,9 @@ export interface InboxReportCardProps {
 
 interface InboxReportListProps extends ReportListLogicProps {
     Card: ComponentType<InboxReportCardProps>
-    emptyState: { icon: JSX.Element; title: string; description: string; extra?: JSX.Element }
+    emptyState:
+        | { content: JSX.Element }
+        | { icon: JSX.Element; title: string; description: string; extra?: JSX.Element }
 }
 
 /**
@@ -149,14 +151,18 @@ function InboxReportListInner({ tabKey, Card, emptyState }: InboxReportListProps
             {showSkeleton ? (
                 <CardSkeleton count={Math.min(count ?? 4, 6)} variant="cards" dashed={tabKey !== 'pulls'} />
             ) : reports.length === 0 ? (
-                <div className="mx-auto max-w-md flex flex-col items-center text-center py-12 gap-2">
-                    <div className="flex items-center justify-center h-12 w-12 rounded-full bg-fill-primary text-secondary mb-1">
-                        {emptyState.icon}
+                'content' in emptyState ? (
+                    emptyState.content
+                ) : (
+                    <div className="mx-auto max-w-md flex flex-col items-center text-center py-12 gap-2">
+                        <div className="flex items-center justify-center h-12 w-12 rounded-full bg-fill-primary text-secondary mb-1">
+                            {emptyState.icon}
+                        </div>
+                        <h3 className="text-base font-semibold m-0">{emptyState.title}</h3>
+                        <p className="text-sm text-tertiary m-0">{emptyState.description}</p>
+                        {emptyState.extra}
                     </div>
-                    <h3 className="text-base font-semibold m-0">{emptyState.title}</h3>
-                    <p className="text-sm text-tertiary m-0">{emptyState.description}</p>
-                    {emptyState.extra}
-                </div>
+                )
             ) : (
                 <>
                     {/* Each report is its own freestanding card, separated by a small gap. */}

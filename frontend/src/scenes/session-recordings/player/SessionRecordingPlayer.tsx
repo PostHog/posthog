@@ -4,15 +4,13 @@ import clsx from 'clsx'
 import { BindLogic, useValues } from 'kea'
 import { useRef } from 'react'
 
-import { FEATURE_FLAGS } from 'lib/constants'
-import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { MatchingEventsMatchType } from 'scenes/session-recordings/playlist/sessionRecordingsPlaylistLogic'
 
 import { ObservationsDock } from 'products/replay_vision/frontend/components/ObservationsDock'
+import { visionSurfaceShown } from 'products/replay_vision/frontend/utils/visionSurface'
 
 import { playerSettingsLogic } from './playerSettingsLogic'
 import { PlayerSidebar } from './PlayerSidebar'
-import { PlayerSummaryDock } from './PlayerSummaryDock'
 import { PurePlayer } from './PurePlayer'
 import {
     SessionRecordingPlayerLogicProps,
@@ -60,6 +58,8 @@ export function SessionRecordingPlayer(props: SessionRecordingPlayerProps): JSX.
         sessionRecordingData,
         autoPlay,
         withSidebar,
+        noMeta,
+        noDock,
         mode,
         playerRef,
         pinned,
@@ -75,7 +75,6 @@ export function SessionRecordingPlayer(props: SessionRecordingPlayerProps): JSX.
             <SessionRecordingPlayerInternal
                 noMeta={noMeta}
                 noBorder={noBorder}
-                noDock={noDock}
                 withSidebar={withSidebar}
                 playerRef={playerRef}
             />
@@ -86,24 +85,16 @@ export function SessionRecordingPlayer(props: SessionRecordingPlayerProps): JSX.
 function SessionRecordingPlayerInternal({
     noMeta,
     noBorder,
-    noDock,
     withSidebar,
     playerRef,
 }: {
     noMeta: boolean
     noBorder: boolean
-    noDock: boolean
     withSidebar: boolean
     playerRef: React.RefObject<HTMLDivElement>
 }): JSX.Element {
     const { isVerticallyStacked, sidebarOpen } = useValues(playerSettingsLogic)
     const { logicProps } = useValues(sessionRecordingPlayerLogic)
-    const { featureFlags } = useValues(featureFlagLogic)
-    const showSummaryDock =
-        !noMeta &&
-        !noDock &&
-        (logicProps.mode ?? SessionRecordingPlayerMode.Standard) === SessionRecordingPlayerMode.Standard
-    const showVisionDock = showSummaryDock && !!featureFlags[FEATURE_FLAGS.REPLAY_VISION]
 
     return (
         <div
@@ -114,7 +105,7 @@ function SessionRecordingPlayerInternal({
         >
             <div className="flex flex-col flex-1 min-w-0 min-h-0">
                 <PurePlayer noMeta={noMeta} noBorder={noBorder} />
-                {showVisionDock ? <ObservationsDock /> : showSummaryDock && <PlayerSummaryDock />}
+                {visionSurfaceShown(logicProps) && <ObservationsDock />}
             </div>
             {withSidebar && <PlayerSidebar />}
         </div>

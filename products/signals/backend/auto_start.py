@@ -274,7 +274,7 @@ def _build_autostart_task_description(
         f"{_PR_DESCRIPTION_FORM_RULES}"
         f"{source_reference_instruction}"
         "When opening the PR, include this report link in the description footer, "
-        "making the footer '*Created with [PostHog Desktop](https://posthog.com/code?ref=pr) "
+        "making the footer '*Created with [PostHog Desktop](https://posthog.com/desktop?ref=pr) "
         f"from [this inbox report]({report_link}){footer_source_refs}.' - "
         "so the human reviewer can jump straight to it."
     )

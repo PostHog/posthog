@@ -28,11 +28,11 @@ import { IconOpenInNew } from 'lib/lemon-ui/icons'
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { Link } from 'lib/lemon-ui/Link/Link'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
+import { buildTeamScopedPersistenceConfig } from 'lib/logic/persistence'
 import { trackedActionToUrl } from 'lib/logic/scenes/trackedActionToUrl'
 import { getDefaultInterval, isValidRelativeOrAbsoluteDate } from 'lib/utils/dateFilters'
 import { isDefinitionStale } from 'lib/utils/definitions'
 import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
-import { getCurrentTeamId } from 'lib/utils/getAppContext'
 import { UnexpectedNeverError, isNotNil } from 'lib/utils/guards'
 import { objectsEqual } from 'lib/utils/objects'
 import { addProductIntentForCrossSell } from 'lib/utils/product-intents'
@@ -104,6 +104,7 @@ import {
     INITIAL_DATE_FROM,
     INITIAL_DATE_TO,
     INITIAL_INTERVAL,
+    INITIAL_WEB_ANALYTICS_FILTER,
     PathTab,
     ProductTab,
     SourceTab,
@@ -850,12 +851,12 @@ export const webAnalyticsLogic = kea<webAnalyticsLogicType>([
         },
     })),
     reducers(() => {
-        const persistConfig = { persist: true, prefix: `${getCurrentTeamId()}__` }
+        const persistConfig = buildTeamScopedPersistenceConfig()
         // The precompute toggle changed from opt-in (default `false`) to a tri-state where
         // `null` means "use the team default". Legacy users persisted the old `false`, which
         // would now read as an explicit opt-out. A versioned prefix orphans that stale value so
         // they rehydrate `null` and the backend's per-team default applies.
-        const precomputePersistConfig = { persist: true, prefix: `${getCurrentTeamId()}__precompute_optout_v2__` }
+        const precomputePersistConfig = buildTeamScopedPersistenceConfig('precompute_optout_v2__')
         return {
             surveyModalPath: [
                 null as string | null,
@@ -3237,7 +3238,8 @@ export const webAnalyticsLogic = kea<webAnalyticsLogicType>([
                 device_type,
                 tile_visualizations,
                 include_host_path,
-            }: Record<string, any>
+            }: Record<string, any>,
+            isInitialRestore: boolean
         ): void => {
             if (
                 ![
@@ -3261,6 +3263,8 @@ export const webAnalyticsLogic = kea<webAnalyticsLogicType>([
                 return
             }
 
+            cache.hasRestoredWebUrl = true
+
             // Stamp the last-used timestamp for feature flag targeting (throttled to once per day per browser).
             const stampKey = `ph_last_web_analytics_stamp_${posthog.get_distinct_id()}`
             const oneDayMs = 24 * 60 * 60 * 1000
@@ -3270,16 +3274,26 @@ export const webAnalyticsLogic = kea<webAnalyticsLogicType>([
                 localStorage.setItem(stampKey, Date.now().toString())
             }
 
-            const parsedFilters = filters ? (isWebAnalyticsPropertyFilters(filters) ? filters : []) : undefined
-            if (parsedFilters) {
+            const applyRestoredFilters = (nextFilters: WebAnalyticsPropertyFilters): void => {
                 if (productTab === ProductTab.BOT_ANALYTICS) {
                     const botLogic = botAnalyticsLogic.findMounted()
-                    if (botLogic && !objectsEqual(parsedFilters, botLogic.values.rawBotAnalyticsFilters)) {
-                        botLogic.actions.setBotAnalyticsFilters(parsedFilters)
+                    if (botLogic && !objectsEqual(nextFilters, botLogic.values.rawBotAnalyticsFilters)) {
+                        botLogic.actions.setBotAnalyticsFilters(nextFilters)
                     }
-                } else if (!objectsEqual(parsedFilters, values.rawWebAnalyticsFilters)) {
-                    actions.setWebAnalyticsFilters(parsedFilters)
+                } else if (!objectsEqual(nextFilters, values.rawWebAnalyticsFilters)) {
+                    actions.setWebAnalyticsFilters(nextFilters)
                 }
+            }
+
+            const tabSerializesFilters = productTab !== ProductTab.LIVE && productTab !== ProductTab.HEALTH
+            const shouldResetAbsentFilters =
+                !isInitialRestore && !!values.featureFlags[FEATURE_FLAGS.WEB_ANALYTICS_BACK_NAVIGATION_RESET]
+
+            const parsedFilters = filters ? (isWebAnalyticsPropertyFilters(filters) ? filters : []) : undefined
+            if (parsedFilters) {
+                applyRestoredFilters(parsedFilters)
+            } else if (shouldResetAbsentFilters && tabSerializesFilters) {
+                applyRestoredFilters(INITIAL_WEB_ANALYTICS_FILTER)
             }
             if (
                 conversionGoalActionId &&
@@ -3396,9 +3410,10 @@ export const webAnalyticsLogic = kea<webAnalyticsLogicType>([
         // into a burst of redundant URL evaluations and trip the rapid-URL-change detector. The depth
         // counter keeps the guard correct if a restore re-enters (e.g. the bots-flag redirect).
         const toAction = (params: { productTab?: ProductTab }, searchParams: Record<string, any>): void => {
+            const isInitialRestore = !cache.hasRestoredWebUrl
             cache.applyUrlStateDepth = (cache.applyUrlStateDepth ?? 0) + 1
             try {
-                applyUrlState(params, searchParams)
+                applyUrlState(params, searchParams, isInitialRestore)
             } finally {
                 cache.applyUrlStateDepth -= 1
             }

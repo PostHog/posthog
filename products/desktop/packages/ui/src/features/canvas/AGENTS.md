@@ -77,7 +77,8 @@ The root `AGENTS.md` architecture rules still apply.
   `TaskRowMenuProps`, so the facts and the actions can't drift.
   Rename is the one item the tree drops, because it edits in place and there is
   no inline editor on a row the keyboard is walking.
-  The card also opens on the keyboard's highlight, 350ms after it lands.
+  The card also opens on the keyboard's highlight, 350ms after it lands — on a space row as well as a session one, so walking the tree shows the same card whichever kind of row the highlight lands on.
+  The row that opened it is the only one that may take it away (`openFromKeyboard` / `closeFromKeyboard` on the provider, released the moment a pointer enters any row): the pointer moves the same popup between rows without telling the row that opened it, so an unconditional close on the next keypress reached across and shut a card the pointer was on.
   Rows read that highlight from `spaceTreeStore` as a boolean
   (`highlightedValue === item.key`) so a keypress re-renders two rows, and the
   list still writes it to a ref as well, because the arrow handlers read the
@@ -89,6 +90,39 @@ The root `AGENTS.md` architecture rules still apply.
   whole list and passed through `SpaceTaskActionsProvider`, which keeps one pin
   and one archive mutation for the tree instead of one per row and keeps them
   out of the memo comparisons.
+- **There is one card, not one per row.** `ChannelItemPreviewCardProvider`,
+  mounted once around the whole sidebar, owns the popup; a row is only a
+  `PreviewCard.Trigger` on its handle, carrying what the card should say as the
+  trigger's payload.
+  So the card's queries and derivations run for the row being pointed at rather
+  than once per row in the list, and Base UI skips the open delay when the
+  pointer crosses to another trigger of a card that is already open — which is
+  the point: sliding down the list moves one card instead of re-waiting 400ms
+  on every row.
+  Two things keep that working: a row's payload has to stay referentially stable
+  (memoize the `menu`), and a surface that lists rows has to sit under the
+  provider, or its rows get no card at all.
+- **A space has a card too, on the same handle.** `SpaceHoverCard` is a trigger on the one popup the session rows use, so crossing from a space to a session under it swaps the card's contents instead of closing one popup and opening another. The payload is a discriminated union (`ChannelPreviewPayload`), and `kind` picks `SpacePreview` or `ChannelItemPreview`.
+  It shows who has been working in the space, what it is wired to, and the counts the row draws as dots: the creator leads the avatar group wearing a crown, then whoever ran the newest sessions.
+  The people are not a membership list — the backend has none. They come from `useSpaceOverview`, off the same `space-tree-tasks` page the tree's rows are built from, which the row's own hover prefetch has already warmed, so the card costs no request.
+  The group is `reverse`d, so each face tucks behind the one after it — which puts the creator's right corner under its neighbour, so the crown goes on its left corner instead.
+  `useChannelActions` memoizes its action list, and `ChannelSection` memoizes the payload, because both travel to the card's store on every identity change. Its memo comparator also compares `repositories` by content — the channel list is polled and hands out a new array each time.
+- **The card names the row's marks rather than inventing a second scale.**
+  It spells out the dot's own label and the badges' (`taskDot`, `taskBadges`),
+  and shows the last thing the agent said.
+  It used to show the run's raw status ("Ready", "In progress"), a vocabulary
+  the rows dropped when the dot took over, which left a quiet row sitting under
+  a green "Ready".
+  The message comes from `useLatestTurnMessage`: the live session's events where
+  this window has the session, otherwise the closing prose a cloud run persists
+  to `latest_run.output.final_message`.
+  Neither costs a request.
+- **The card's badges are buttons where they point somewhere; the row's never are.** A row is a `<button>`, so its badges stay spans — the card isn't, so a badge carrying a `url` opens it externally and is underlined, dotted, to say so.
+  `taskBadges` sets the url on the PR badges, and on the origin badge for Slack — the one origin that hands back a place to go (`slack_thread_url` off the run's state), rather than just naming itself.
+  A PR's url reaches the badge by two routes: a cloud run's `pr_url`, or the one the host cached against the task, which `getTaskPrStatus` returns alongside the state so a local PR is clickable too.
+- **The card's `Item`s are `flex-nowrap`, and neither card has a gutter.** quill's `Item` wraps, and a message with a url in it has a min-content wider than the card, which dropped the whole text column onto a line of its own and out past the card's edge.
+  `min-w-0` on the `ItemContent` and `break-words` on the message keep it inside. The `Crowded` story is that case.
+  A row's mark rides beside the title rather than in an `ItemMedia` column: one glyph on one line does not earn an indent down the whole height of the card.
 - **A row's own colour utilities outrank quill's highlight styling.** quill
   brings a highlighted option's contents to `--foreground` with
   `.quill-autocomplete__item[data-highlighted] *`, but that rule lives in the
@@ -129,9 +163,10 @@ The root `AGENTS.md` architecture rules still apply.
   means synthesizing the arrow keys it listens for — and moving *before*
   collapsing, while the rows still exist.
 - One `ChannelsFab` serves both panes: given a `channelId` it creates inside
-  that channel (task, canvas), and either way it can create a channel. Off the
-  layout it keeps its original two-item menu. Archived moves out of the sidebar
-  and into the account menu (`ProjectSwitcher`), beside Settings.
+  that channel (task, canvas); from the list, where nothing else offers it, it
+  creates a space instead. Off the layout it keeps its original two-item menu.
+  Archived moves out of the sidebar and into the account menu
+  (`ProjectSwitcher`), beside Settings.
 - **Which pane shows is view state, not a route.** `channelPaneStore` holds it,
   separately from the scoped channel (`currentChannelStore`): "back to channels"
   browses the list while the route, the main pane and the scoped channel stay

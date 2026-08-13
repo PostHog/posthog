@@ -1,0 +1,16 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "UPDATE lifecycle_op_person SET sealed = $2 WHERE op_id = $1 AND role = $3",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "Uuid",
+        "Jsonb",
+        "Text"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "88c5c79bf91abf98a71cac3239c6002efe488df90268884cc0bb866ced94d021"
+}

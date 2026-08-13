@@ -36,6 +36,7 @@ from posthog.models.team import Team
 from posthog.models.utils import uuid7
 from posthog.session_recordings.models.session_recording_event import SessionRecordingViewed
 from posthog.session_recordings.queries.test.session_replay_sql import produce_replay_summary
+from posthog.session_recordings.session_recording_api import RecordingsListingResult
 from posthog.test.persons import create_person
 
 
@@ -305,7 +306,9 @@ class TestSessionRecordings(APIBaseTest, ClickhouseTestMixin, QueryMatchingTest)
     @patch("posthoganalytics.capture")
     @patch("posthog.session_recordings.session_recording_api.list_recordings_from_query")
     def test_console_log_filters_are_correctly_passed_to_listing(self, mock_query_lister, mock_capture):
-        mock_query_lister.return_value = ([], False)
+        mock_query_lister.return_value = RecordingsListingResult(
+            recordings=[], more_recordings_available=False, timings_header="", next_cursor=None
+        )
 
         params_string = urlencode(
             {

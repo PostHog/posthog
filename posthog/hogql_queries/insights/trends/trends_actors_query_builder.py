@@ -21,6 +21,7 @@ from posthog.schema import (
 
 from posthog.hogql import ast
 from posthog.hogql.constants import LimitContext
+from posthog.hogql.errors import QueryError
 from posthog.hogql.parser import parse_expr
 from posthog.hogql.property import action_to_expr, property_to_expr
 from posthog.hogql.timings import HogQLTimings
@@ -232,6 +233,7 @@ class TrendsActorsQueryBuilder:
                 event_or_action_filter=self._event_or_action_where_expr(),
                 ratio=self._ratio_expr(),
                 is_first_matching_event=self.trends_aggregation_operations.is_first_matching_event(),
+                math_group_type_index=self.trends_aggregation_operations.first_time_math_group_type_index(),
             )
             query_builder.append_select(actor_col)
             query_builder.extend_select(columns, aggregate=True)
@@ -418,17 +420,15 @@ class TrendsActorsQueryBuilder:
         actors_to_op: ast.CompareOperationOp = ast.CompareOperationOp.Lt
 
         if self.is_total_value:
-            assert self.time_frame is None, (
-                "A `day` is forbidden for trends actors queries with total value aggregation"
-            )
+            if self.time_frame is not None:
+                raise QueryError("A `day` is forbidden for trends actors queries with total value aggregation")
 
             actors_from = query_from
             actors_to = query_to
             actors_to_op = ast.CompareOperationOp.LtEq
         else:
-            assert self.time_frame is not None, (
-                "A `day` is required for trends actors queries without total value aggregation"
-            )
+            if self.time_frame is None:
+                raise QueryError("A `day` is required for trends actors queries without total value aggregation")
 
             # use previous day/week/... for time_frame
             if self.is_compare_previous:

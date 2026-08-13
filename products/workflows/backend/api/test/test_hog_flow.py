@@ -1,7 +1,7 @@
 import json
 from copy import deepcopy
 from datetime import UTC, datetime, timedelta
-from typing import Optional
+from typing import Any, Optional
 
 from posthog.test.base import APIBaseTest, ClickhouseTestMixin
 from unittest.mock import MagicMock, PropertyMock, patch
@@ -604,7 +604,7 @@ class TestHogFlowAPI(APIBaseTest):
             ("seconds_as_input_shape", {"inputs": {"duration": {"value": 1800}}}),
             ("iso_8601_duration", {"delay_duration": "P30D"}),
             ("unit_and_duration_shape", {"unit": "days", "duration": 3}),
-            ("unsupported_unit", {"delay_duration": "30s"}),
+            ("unsupported_unit", {"delay_duration": "30w"}),
             ("empty_string", {"delay_duration": ""}),
         ]
     )
@@ -615,15 +615,15 @@ class TestHogFlowAPI(APIBaseTest):
             "attr": "actions__1__config",
             "code": "invalid_input",
             "detail": (
-                "delay_duration must be a string matching ^\\d*\\.?\\d+[dhm]$ "
-                "(e.g. '30m', '2h', '1d'). ISO-8601 formats are not supported. "
-                "For seconds, use a fraction of a minute."
+                "delay_duration must be a string matching ^\\d*\\.?\\d+[dhms]$ "
+                "(e.g. '30s', '30m', '2h', '1.5d'). ISO-8601 formats are not supported."
             ),
             "type": "validation_error",
         }
 
     @parameterized.expand(
         [
+            ("seconds", "30s"),
             ("minutes", "30m"),
             ("hours", "2h"),
             ("days", "1d"),
@@ -635,6 +635,59 @@ class TestHogFlowAPI(APIBaseTest):
             f"/api/projects/{self.team.id}/hog_flows",
             self._make_delay_flow({"delay_duration": delay_duration}),
         )
+        assert response.status_code == 201, response.json()
+
+    def _make_wait_flow(self, max_wait_duration: Any) -> dict:
+        flow = self._make_delay_flow({"delay_duration": "5m"})
+        flow["actions"][1] = {
+            "id": "w1",
+            "name": "w1",
+            "type": "wait_until_condition",
+            "config": {
+                "condition": {"filters": None},
+                "events": [
+                    {"filters": {"events": [{"id": "$pageview", "name": "$pageview", "type": "events", "order": 0}]}}
+                ],
+                "max_wait_duration": max_wait_duration,
+            },
+        }
+        return flow
+
+    @parameterized.expand(
+        [
+            ("no_unit", "5"),
+            ("unsupported_unit", "10x"),
+            ("iso_8601", "P30D"),
+            ("numeric", 1800),
+        ]
+    )
+    def test_hog_flow_wait_validation_rejects_malformed_max_wait_duration(self, _name, max_wait_duration):
+        # conditional_branch.ts hands max_wait_duration to the same parser as delay_duration, so a
+        # value that only fails at execution time has to be rejected at write time too
+        response = self.client.post(f"/api/projects/{self.team.id}/hog_flows", self._make_wait_flow(max_wait_duration))
+        assert response.status_code == 400, response.json()
+        assert response.json() == {
+            "attr": "actions__1__config",
+            "code": "invalid_input",
+            "detail": (
+                "max_wait_duration must be a string matching ^\\d*\\.?\\d+[dhms]$ "
+                "(e.g. '30s', '30m', '2h', '1.5d'). ISO-8601 formats are not supported."
+            ),
+            "type": "validation_error",
+        }
+
+    @parameterized.expand(
+        [
+            ("seconds", "30s"),
+            ("minutes", "30m"),
+            ("fractional_days", "1.5d"),
+            # A falsy timeout is honoured as "wait indefinitely", so it stays valid to send
+            ("null", None),
+            ("empty_string", ""),
+        ]
+    )
+    def test_hog_flow_wait_validation_accepts_canonical_max_wait_duration(self, _name, max_wait_duration):
+        response = self.client.post(f"/api/projects/{self.team.id}/hog_flows", self._make_wait_flow(max_wait_duration))
         assert response.status_code == 201, response.json()
 
     @parameterized.expand(

@@ -35,6 +35,77 @@ const CONVERSION_EVENT = '$workflows_conversion'
 // early-exited runs too, and keeps "In progress" from treating those finished runs as still live.
 const RUN_LEVEL_INSTANCE_ID = ''
 
+// Per-link click counts ride on app_metrics2 under their own metric name, with the link identity
+// packed into `instance_id` as `<action id>|<link index>|<normalized url>`. The producer is
+// buildLinkInstanceId in the plugin server's SES webhook handler (helpers/ses.ts); this separator
+// and metric name must match it. A URL can itself contain the separator, so only the first two
+// occurrences delimit fields and the remainder is the URL.
+const EMAIL_LINK_METRIC_NAME = 'email_link_clicked_by_link'
+const LINK_INSTANCE_SEPARATOR = '|'
+
+// One group per (action, link), so a workflow with many email steps clears the executor's default
+// 100-row cap easily. The request orders by total so the cap keeps the most-clicked links rather
+// than an arbitrary slice; `parseEmailLinkTotals` then sorts within each action for display.
+const EMAIL_LINK_TOTALS_LIMIT = 1000
+
+// Mirrors MAX_LINK_URL_LENGTH in the plugin server's helpers/ses.ts. A stored URL at exactly this
+// length was cut to fit the metrics key, so it is not safe to navigate to.
+const EMAIL_LINK_URL_MAX_LENGTH = 200
+
+export type EmailLinkRow = {
+    /** Position of the anchor in the email body, blank for clicks recorded without a link tag. */
+    linkIndex: string
+    url: string
+    clicks: number
+    /** The stored URL was cut to fit the metrics key, so it may not resolve to the real page. */
+    truncated: boolean
+    /** Another link in the same step resolves to this same URL, so position is what tells them apart. */
+    duplicateUrl: boolean
+}
+
+export function parseEmailLinkTotals(totalsResponse: AppMetricsTotalsResponse): Record<string, EmailLinkRow[]> {
+    const byActionId: Record<string, EmailLinkRow[]> = {}
+
+    Object.values(totalsResponse).forEach(({ total, breakdowns }) => {
+        const instanceId = breakdowns[0]
+        if (!instanceId) {
+            return
+        }
+        const separatorIndex = instanceId.indexOf(LINK_INSTANCE_SEPARATOR)
+        const indexEnd = instanceId.indexOf(LINK_INSTANCE_SEPARATOR, separatorIndex + 1)
+        if (separatorIndex === -1 || indexEnd === -1) {
+            return
+        }
+        const actionId = instanceId.slice(0, separatorIndex)
+        const url = instanceId.slice(indexEnd + 1)
+        if (!actionId || !url) {
+            return
+        }
+        byActionId[actionId] = byActionId[actionId] || []
+        byActionId[actionId].push({
+            linkIndex: instanceId.slice(separatorIndex + 1, indexEnd),
+            url,
+            clicks: total,
+            truncated: url.length >= EMAIL_LINK_URL_MAX_LENGTH,
+            duplicateUrl: false,
+        })
+    })
+
+    Object.values(byActionId).forEach((rows) => {
+        // Two anchors pointing at the same URL are counted separately by design (a header logo and a
+        // footer link, say). Without flagging them the table shows two identical-looking rows with
+        // different counts, which reads as a double-count bug.
+        const urlCounts = new Map<string, number>()
+        rows.forEach((row) => urlCounts.set(row.url, (urlCounts.get(row.url) ?? 0) + 1))
+        rows.forEach((row) => {
+            row.duplicateUrl = (urlCounts.get(row.url) ?? 0) > 1
+        })
+        // Most-clicked first so the interesting links are visible without scrolling an expanded row.
+        rows.sort((a, b) => b.clicks - a.clicks)
+    })
+    return byActionId
+}
+
 export type WorkflowSummaryMetric = 'started' | 'in_progress' | 'persons_messaged' | 'completed' | 'converted'
 export type EmailMetric =
     | 'email_sent'
@@ -404,6 +475,8 @@ export interface workflowMetricsSummaryLogicValues {
         type: 'function_email'
         updated_at?: number | undefined
     } & Record<string, unknown>)[]
+    emailLinkTotalsByActionId: Record<string, EmailLinkRow[]>
+    emailLinkTotalsByActionIdLoading: boolean
     emailMetricsRows: EmailMetricRow[]
     emailTotalsByActionId: Record<string, Partial<Record<EmailMetric, number>>>
     emailTotalsByActionIdLoading: boolean
@@ -509,6 +582,21 @@ export interface workflowMetricsSummaryLogicActions {
             conversions: number
             started: number
         }
+        payload?: any
+    }
+    loadEmailLinkTotals: (_: any) => any
+    loadEmailLinkTotalsFailure: (
+        error: string,
+        errorObject?: any
+    ) => {
+        error: string
+        errorObject?: any
+    }
+    loadEmailLinkTotalsSuccess: (
+        emailLinkTotalsByActionId: Record<string, EmailLinkRow[]>,
+        payload?: any
+    ) => {
+        emailLinkTotalsByActionId: Record<string, EmailLinkRow[]>
         payload?: any
     }
     loadEmailTotals: (_: any) => any
@@ -865,6 +953,29 @@ export const workflowMetricsSummaryLogic = kea<workflowMetricsSummaryLogicType>(
                     await breakpoint(10)
 
                     return mapEmailMetricsToActions(totalsResponse)
+                },
+            },
+        ],
+        emailLinkTotalsByActionId: [
+            {} as Record<string, EmailLinkRow[]>,
+            {
+                loadEmailLinkTotals: async (_, breakpoint) => {
+                    await breakpoint(10)
+                    const dateRange = values.getDateRangeAbsolute()
+                    const request: AppMetricsTotalsRequest = {
+                        appSource: values.params.appSource,
+                        appSourceId: values.params.appSourceId,
+                        breakdownBy: ['instance_id'],
+                        metricName: [EMAIL_LINK_METRIC_NAME],
+                        limit: EMAIL_LINK_TOTALS_LIMIT,
+                        dateFrom: dateRange.dateFrom.toISOString(),
+                        dateTo: dateRange.dateTo.toISOString(),
+                    }
+
+                    const totalsResponse = await loadAppMetricsTotals(request, values.currentTeam?.timezone ?? 'UTC')
+                    await breakpoint(10)
+
+                    return parseEmailLinkTotals(totalsResponse)
                 },
             },
         ],
@@ -1246,6 +1357,7 @@ export const workflowMetricsSummaryLogic = kea<workflowMetricsSummaryLogicType>(
 
     afterMount(({ actions }) => {
         actions.loadEmailTotals({})
+        actions.loadEmailLinkTotals({})
         actions.loadPushTotals({})
         actions.loadInProgressTotal({})
         actions.loadConversionStats({})
@@ -1263,6 +1375,7 @@ export const workflowMetricsSummaryLogic = kea<workflowMetricsSummaryLogicType>(
                 dateTo: values.params.dateTo,
             })
             actions.loadEmailTotals({})
+            actions.loadEmailLinkTotals({})
             actions.loadPushTotals({})
             actions.loadConversionStats({})
         },

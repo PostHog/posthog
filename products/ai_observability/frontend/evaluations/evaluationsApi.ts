@@ -1,10 +1,11 @@
 import type { AnyPropertyFilter } from '~/types'
 
-import { evaluationsList, evaluationsPartialUpdate } from '../generated/api'
-import type { EvaluationApi, PatchedEvaluationApi } from '../generated/api.schemas'
+import { evaluationsList, evaluationsPartialUpdate, llmAnalyticsEvaluationReportsList } from '../generated/api'
+import type { EvaluationApi, EvaluationReportApi, PatchedEvaluationApi } from '../generated/api.schemas'
 import type { EvaluationConfig, ModelConfiguration } from './types'
 
 const EVALUATIONS_PAGE_SIZE = 100
+const EVALUATION_REPORTS_PAGE_SIZE = 100
 
 function isPropertyFilter(value: unknown): value is AnyPropertyFilter {
     return typeof value === 'object' && value !== null && !Array.isArray(value)
@@ -111,6 +112,24 @@ export async function listAllEvaluations(projectId: string): Promise<EvaluationC
 
         if (!response.next || response.results.length === 0) {
             return evaluations
+        }
+        offset += response.results.length
+    }
+}
+
+export async function listAllEvaluationReports(projectId: string): Promise<EvaluationReportApi[]> {
+    const reports: EvaluationReportApi[] = []
+    let offset = 0
+
+    while (true) {
+        const response = await llmAnalyticsEvaluationReportsList(projectId, {
+            limit: EVALUATION_REPORTS_PAGE_SIZE,
+            offset,
+        })
+        reports.push(...response.results)
+
+        if (!response.next || response.results.length === 0) {
+            return reports
         }
         offset += response.results.length
     }

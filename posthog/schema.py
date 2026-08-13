@@ -13,6 +13,11 @@ from pydantic import AwareDatetime, BaseModel, ConfigDict, Field, RootModel, con
 from posthog.schema_discriminators import property_filter_discriminator
 from posthog.schema_enums import (
     AccessControlLevel as AccessControlLevel,
+    AccountsTableAccountField as AccountsTableAccountField,
+    AccountsTableAggregation as AccountsTableAggregation,
+    AccountsTableCustomPropertyOperator as AccountsTableCustomPropertyOperator,
+    AccountsTableSortDirection as AccountsTableSortDirection,
+    AccountsTableThresholdOperator as AccountsTableThresholdOperator,
     Action as Action,
     AgentMode as AgentMode,
     AggregationAxisFormat as AggregationAxisFormat,
@@ -48,8 +53,6 @@ from posthog.schema_enums import (
     BillingSpendResponseBreakdownType as BillingSpendResponseBreakdownType,
     BillingUsageResponseBreakdownType as BillingUsageResponseBreakdownType,
     BingAdsDefaultSources as BingAdsDefaultSources,
-    BingAdsTableExclusions as BingAdsTableExclusions,
-    BingAdsTableKeywords as BingAdsTableKeywords,
     BounceRatePageViewMode as BounceRatePageViewMode,
     BreakdownAttributionType as BreakdownAttributionType,
     BreakdownType as BreakdownType,
@@ -119,9 +122,8 @@ from posthog.schema_enums import (
     FunnelVizType as FunnelVizType,
     Goal as Goal,
     GoogleAdsDefaultSources as GoogleAdsDefaultSources,
-    GoogleAdsTableExclusions as GoogleAdsTableExclusions,
-    GoogleAdsTableKeywords as GoogleAdsTableKeywords,
     GradientScaleMode as GradientScaleMode,
+    GroupMathType as GroupMathType,
     HeatmapSortOrder as HeatmapSortOrder,
     HedgehogActorAccessoryOption as HedgehogActorAccessoryOption,
     HedgehogActorColorOption as HedgehogActorColorOption,
@@ -147,8 +149,6 @@ from posthog.schema_enums import (
     LifecycleToggle as LifecycleToggle,
     LimitContext as LimitContext,
     LinkedinAdsDefaultSources as LinkedinAdsDefaultSources,
-    LinkedinAdsTableExclusions as LinkedinAdsTableExclusions,
-    LinkedinAdsTableKeywords as LinkedinAdsTableKeywords,
     LogPropertyFilterType as LogPropertyFilterType,
     LogSeverityLevel as LogSeverityLevel,
     LogsOrderBy as LogsOrderBy,
@@ -175,8 +175,6 @@ from posthog.schema_enums import (
     MetaAdsConversionOmniActionTypes as MetaAdsConversionOmniActionTypes,
     MetaAdsConversionSpecificActionTypes as MetaAdsConversionSpecificActionTypes,
     MetaAdsDefaultSources as MetaAdsDefaultSources,
-    MetaAdsTableExclusions as MetaAdsTableExclusions,
-    MetaAdsTableKeywords as MetaAdsTableKeywords,
     Method as Method,
     Metric as Metric,
     MetricsAggregation as MetricsAggregation,
@@ -205,8 +203,6 @@ from posthog.schema_enums import (
     PersonsJoinMode as PersonsJoinMode,
     PersonsOnEventsMode as PersonsOnEventsMode,
     PinterestAdsDefaultSources as PinterestAdsDefaultSources,
-    PinterestAdsTableExclusions as PinterestAdsTableExclusions,
-    PinterestAdsTableKeywords as PinterestAdsTableKeywords,
     PlanningStepStatus as PlanningStepStatus,
     Position as Position,
     PrecomputationMode as PrecomputationMode,
@@ -224,8 +220,6 @@ from posthog.schema_enums import (
     RecordingOrder as RecordingOrder,
     RecordingOrderDirection as RecordingOrderDirection,
     RedditAdsDefaultSources as RedditAdsDefaultSources,
-    RedditAdsTableExclusions as RedditAdsTableExclusions,
-    RedditAdsTableKeywords as RedditAdsTableKeywords,
     RefreshType as RefreshType,
     ReleaseStatus as ReleaseStatus,
     ResultCustomizationBy as ResultCustomizationBy,
@@ -245,8 +239,6 @@ from posthog.schema_enums import (
     SnapchatAdsConversionFields as SnapchatAdsConversionFields,
     SnapchatAdsConversionValueFields as SnapchatAdsConversionValueFields,
     SnapchatAdsDefaultSources as SnapchatAdsDefaultSources,
-    SnapchatAdsTableExclusions as SnapchatAdsTableExclusions,
-    SnapchatAdsTableKeywords as SnapchatAdsTableKeywords,
     SnapshotSource as SnapshotSource,
     SourceFieldInputConfigType as SourceFieldInputConfigType,
     SourceFieldSelectConfigConverter as SourceFieldSelectConfigConverter,
@@ -273,8 +265,6 @@ from posthog.schema_enums import (
     TextMatching as TextMatching,
     Theme as Theme,
     TikTokAdsDefaultSources as TikTokAdsDefaultSources,
-    TikTokAdsTableExclusions as TikTokAdsTableExclusions,
-    TikTokAdsTableKeywords as TikTokAdsTableKeywords,
     TimeWindowMode as TimeWindowMode,
     TraceOrderColumn as TraceOrderColumn,
     TraceSpanBreakdownOrderBy as TraceSpanBreakdownOrderBy,
@@ -294,6 +284,7 @@ from posthog.schema_enums import (
     WebVitalsMetric as WebVitalsMetric,
     WebVitalsMetricBand as WebVitalsMetricBand,
     WebVitalsPercentile as WebVitalsPercentile,
+    WindowDays as WindowDays,
     YAxisPosition as YAxisPosition,
     YAxisScaleType as YAxisScaleType,
 )
@@ -318,6 +309,111 @@ class AccessControlFilterWarning(BaseModel):
         default="access_control",
         description="Tells warning kinds apart in the shared `warnings` list",
     )
+
+
+class AccountsTableAccountFieldColumn(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    field: AccountsTableAccountField
+    kind: Literal["account_field"] = "account_field"
+
+
+class AccountsTableAccountIdFilter(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    accountId: str
+    kind: Literal["account_id"] = "account_id"
+
+
+class AccountsTableCountMetric(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    kind: Literal["count"] = "count"
+
+
+class AccountsTableCustomPropertyColumn(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    definitionId: str = Field(
+        ...,
+        description=("Team-scoped custom property definition to return for each account."),
+    )
+    kind: Literal["custom_property"] = "custom_property"
+
+
+class AccountsTableCustomPropertyHistoryColumn(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    definitionId: str = Field(
+        ...,
+        description=("Team-scoped numeric custom property definition whose write history should be returned."),
+    )
+    kind: Literal["custom_property_history"] = "custom_property_history"
+    windowDays: WindowDays = Field(
+        ...,
+        description=("Number of days of history to return. The current value is included even when it is older."),
+    )
+
+
+class AccountsTableCustomPropertyHistoryPoint(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    timestamp: AwareDatetime
+    value: float
+
+
+class AccountsTableNoteCountColumn(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    kind: Literal["note_count"] = "note_count"
+
+
+class AccountsTableRelationshipColumn(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    definitionId: str = Field(
+        ...,
+        description="Team-scoped relationship definition to return for each account.",
+    )
+    kind: Literal["relationship"] = "relationship"
+
+
+class AccountsTableSearchFilter(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    kind: Literal["search"] = "search"
+    query: str
+
+
+class AccountsTableTagsColumn(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    kind: Literal["tags"] = "tags"
+
+
+class AccountsTableTagsFilter(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    kind: Literal["tags"] = "tags"
+    tagNames: list[str] = Field(..., description="Match accounts carrying any of these tag names.")
+
+
+class AccountsTableUnassignedFilter(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    kind: Literal["unassigned"] = "unassigned"
 
 
 class AlertScheduleRestrictionWindow(BaseModel):
@@ -1705,8 +1801,6 @@ class MarketingIntegrationConfig1(BaseModel):
     primarySource: Literal["google"] = "google"
     sourceType: Literal["GoogleAds"] = "GoogleAds"
     statsTableName: Literal["campaign_overview_stats"] = "campaign_overview_stats"
-    tableExclusions: list[str] = Field(..., max_length=1, min_length=1)
-    tableKeywords: list[str] = Field(..., max_length=1, min_length=1)
 
 
 class MarketingIntegrationConfig2(BaseModel):
@@ -1724,8 +1818,6 @@ class MarketingIntegrationConfig2(BaseModel):
     primarySource: Literal["linkedin"] = "linkedin"
     sourceType: Literal["LinkedinAds"] = "LinkedinAds"
     statsTableName: Literal["campaign_group_stats"] = "campaign_group_stats"
-    tableExclusions: list[str] = Field(..., max_length=1, min_length=1)
-    tableKeywords: list[str] = Field(..., max_length=1, min_length=1)
 
 
 class ConversionActionTypes(BaseModel):
@@ -1753,8 +1845,6 @@ class MarketingIntegrationConfig3(BaseModel):
     primarySource: Literal["meta"] = "meta"
     sourceType: Literal["MetaAds"] = "MetaAds"
     statsTableName: Literal["campaign_stats"] = "campaign_stats"
-    tableExclusions: list[str] = Field(..., max_length=1, min_length=1)
-    tableKeywords: list[str] = Field(..., max_length=1, min_length=1)
 
 
 class MarketingIntegrationConfig4(BaseModel):
@@ -1772,8 +1862,6 @@ class MarketingIntegrationConfig4(BaseModel):
     primarySource: Literal["tiktok"] = "tiktok"
     sourceType: Literal["TikTokAds"] = "TikTokAds"
     statsTableName: Literal["campaign_report"] = "campaign_report"
-    tableExclusions: list[str] = Field(..., max_length=1, min_length=1)
-    tableKeywords: list[str] = Field(..., max_length=1, min_length=1)
 
 
 class MarketingIntegrationConfig5(BaseModel):
@@ -1791,8 +1879,6 @@ class MarketingIntegrationConfig5(BaseModel):
     primarySource: Literal["reddit"] = "reddit"
     sourceType: Literal["RedditAds"] = "RedditAds"
     statsTableName: Literal["campaign_report"] = "campaign_report"
-    tableExclusions: list[str] = Field(..., max_length=1, min_length=1)
-    tableKeywords: list[str] = Field(..., max_length=1, min_length=1)
 
 
 class MarketingIntegrationConfig6(BaseModel):
@@ -1810,8 +1896,6 @@ class MarketingIntegrationConfig6(BaseModel):
     primarySource: Literal["bing"] = "bing"
     sourceType: Literal["BingAds"] = "BingAds"
     statsTableName: Literal["campaign_performance_report"] = "campaign_performance_report"
-    tableExclusions: list[str] = Field(..., max_length=1, min_length=1)
-    tableKeywords: list[str] = Field(..., max_length=1, min_length=1)
 
 
 class MarketingIntegrationConfig7(BaseModel):
@@ -1831,8 +1915,6 @@ class MarketingIntegrationConfig7(BaseModel):
     primarySource: Literal["snapchat"] = "snapchat"
     sourceType: Literal["SnapchatAds"] = "SnapchatAds"
     statsTableName: Literal["campaign_stats_daily"] = "campaign_stats_daily"
-    tableExclusions: list[str] = Field(..., max_length=1, min_length=1)
-    tableKeywords: list[str] = Field(..., max_length=1, min_length=1)
 
 
 class MarketingIntegrationConfig8(BaseModel):
@@ -1850,8 +1932,6 @@ class MarketingIntegrationConfig8(BaseModel):
     primarySource: Literal["pinterest"] = "pinterest"
     sourceType: Literal["PinterestAds"] = "PinterestAds"
     statsTableName: Literal["campaign_analytics"] = "campaign_analytics"
-    tableExclusions: list[str] = Field(..., max_length=1, min_length=1)
-    tableKeywords: list[str] = Field(..., max_length=1, min_length=1)
 
 
 class MarketingIntegrationConfig(
@@ -2168,7 +2248,15 @@ class PathCleaningFilter(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
-    alias: str | None = None
+    alias: str | None = Field(
+        default=None,
+        description=(
+            "The replacement for the matched path. Use angle-bracket placeholders"
+            " (`<id>`, `<uuid>`, `<slug>`) by convention, or reuse a capture group from"
+            " the regex with ClickHouse `replaceRegexpAll` replacement syntax: `\\1` to"
+            " `\\9` for a group and `\\0` for the whole match."
+        ),
+    )
     order: float | None = None
     regex: str | None = None
 
@@ -2349,7 +2437,7 @@ class QueryResponseAlternative7(BaseModel):
     stdout: str | None = None
 
 
-class QueryResponseAlternative76(BaseModel):
+class QueryResponseAlternative77(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
@@ -2974,6 +3062,83 @@ class AccountCustomPropertyFilter(BaseModel):
         description=("Customer analytics account custom property — the key is the property definition id"),
     )
     value: list[str | float | bool] | str | float | bool | None = None
+
+
+class AccountsTableAggregateMetric(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    aggregation: AccountsTableAggregation
+    column: AccountsTableCustomPropertyColumn
+    kind: Literal["aggregate"] = "aggregate"
+    scale: float | None = None
+
+
+class AccountsTableAssignedToFilter(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    kind: Literal["assigned_to"] = "assigned_to"
+    userIds: list[int] = Field(
+        ...,
+        description=("Match accounts where any listed user actively holds any relationship."),
+    )
+
+
+class AccountsTableCountThresholdMetric(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    column: AccountsTableCustomPropertyColumn
+    kind: Literal["count_threshold"] = "count_threshold"
+    operator: AccountsTableThresholdOperator
+    value: float
+
+
+class AccountsTableCustomPropertyFilter(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    definitionId: str
+    kind: Literal["custom_property"] = "custom_property"
+    operator: AccountsTableCustomPropertyOperator
+    values: list[str | float | bool] | None = Field(
+        default=None,
+        description=("Values interpreted according to the custom property definition's display type."),
+    )
+
+
+class AccountsTableRow(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    accountFields: dict[str, str | None] = Field(
+        ...,
+        description=("Requested direct Account fields, keyed by their typed field reference."),
+    )
+    customProperties: dict[str, str | float | bool | None] = Field(
+        ...,
+        description="Current values keyed by requested custom property definition ID.",
+    )
+    customPropertyHistory: dict[str, list[AccountsTableCustomPropertyHistoryPoint]] = Field(
+        ...,
+        description=("Numeric write history keyed by requested custom property definition ID."),
+    )
+    externalId: str | None = None
+    id: str
+    name: str
+    noteCount: int | None = Field(
+        default=None,
+        description=("Number of linked internal notes. Omitted when the request does not select the note count."),
+    )
+    relationships: dict[str, list[int]] = Field(
+        ...,
+        description=("Active assignee user IDs keyed by requested relationship definition ID."),
+    )
+    tags: list[str] | None = Field(
+        default=None,
+        description="Sorted tag names. Omitted when the request does not select tags.",
+    )
 
 
 class ActionConversionGoal(BaseModel):
@@ -5638,8 +5803,6 @@ class MarketingIntegrationConfigType(BaseModel):
     primarySource: str
     sourceType: NativeMarketingSource
     statsTableName: str
-    tableExclusions: list[str]
-    tableKeywords: list[str]
 
 
 class MatchedRecording(BaseModel):
@@ -6159,7 +6322,7 @@ class QueryResponseAlternative28(BaseModel):
     status: ExternalQueryStatus
 
 
-class QueryResponseAlternative83(BaseModel):
+class QueryResponseAlternative84(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
@@ -7796,7 +7959,14 @@ class TrendsFilter(BaseModel):
     formulas: list[str] | None = None
     goalLines: list[GoalLine] | None = Field(default=None, description="Goal Lines")
     hiddenLegendIndexes: list[int] | None = None
-    hideWeekends: bool | None = False
+    hideWeekends: bool | None = Field(
+        default=False,
+        description=(
+            "Ignored. Superseded by `dateRange.daysOfWeek`, which excludes the days"
+            " from the query instead of only hiding their buckets. Still accepted so"
+            " existing API clients keep working."
+        ),
+    )
     legendPosition: LegendPosition | None = Field(
         default=LegendPosition.BOTTOM,
         description=("Where the in-chart legend sits relative to the plot. Only applies to the in-chart legend."),
@@ -8494,6 +8664,79 @@ class AccountsQueryResponse(BaseModel):
             " access."
         ),
     )
+
+
+class AccountsTableQueryResponse(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    error: str | None = Field(
+        default=None,
+        description=(
+            "Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise."
+        ),
+    )
+    hasMore: bool
+    hogql: str | None = Field(default=None, description="Generated HogQL query.")
+    kind: Literal["AccountsTableQuery"] = "AccountsTableQuery"
+    limit: int
+    metricsResults: list[float | None] | None = Field(
+        default=None,
+        description="Aggregated values in the same order as the requested metrics.",
+    )
+    modifiers: HogQLQueryModifiers | None = Field(default=None, description="Modifiers used when performing the query")
+    offset: int
+    query_status: QueryStatus | None = Field(
+        default=None,
+        description=("Query status indicates whether next to the provided data, a query is still running."),
+    )
+    resolved_compare_date_range: ResolvedDateRangeResponse | None = Field(
+        default=None,
+        description=("The resolved previous/comparison period date range, when comparing against another period"),
+    )
+    resolved_date_range: ResolvedDateRangeResponse | None = Field(
+        default=None, description="The date range used for the query"
+    )
+    results: list[AccountsTableRow]
+    timings: list[QueryTiming] | None = Field(
+        default=None,
+        description=("Measured timings for different parts of the query generation process"),
+    )
+    used_data_warehouse_sources: list[DataWarehouseSourceUsage] | None = Field(
+        default=None,
+        description=("Connector-synced data warehouse sources referenced by this query, if any."),
+    )
+    warnings: list[DataWarehouseSyncWarning | AccessControlFilterWarning] | None = Field(
+        default=None,
+        description=(
+            "Warnings about data warehouse sources referenced by the query whose"
+            " latest sync failed, is paused, hit a billing limit, or is otherwise"
+            " stale. Results may not reflect current source data. Accumulated"
+            " across every HogQL execution that contributes to this response — so"
+            " insights backed by warehouse tables (Trends, Funnels, etc.) receive"
+            " the same warnings as raw HogQL queries. Also carries access control"
+            " warnings when a system-table query filters out objects the user can't"
+            " access."
+        ),
+    )
+
+
+class AccountsTableSort(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    column: (
+        AccountsTableAccountFieldColumn
+        | AccountsTableTagsColumn
+        | AccountsTableNoteCountColumn
+        | AccountsTableRelationshipColumn
+        | AccountsTableCustomPropertyColumn
+    ) = Field(
+        ...,
+        description="A typed column that supports server-side sorting.",
+        discriminator="kind",
+    )
+    direction: AccountsTableSortDirection
 
 
 class ActorsPropertyTaxonomyQueryResponse(BaseModel):
@@ -9377,9 +9620,9 @@ class AssistantStickinessActionsNode(BaseModel):
         | FunnelMathType
         | PropertyMathType
         | CountPerActorMathType
+        | GroupMathType
         | ExperimentMetricMathType
         | CalendarHeatmapMathType
-        | Literal["unique_group"]
         | Literal["hogql"]
         | None
     ) = None
@@ -9438,9 +9681,9 @@ class AssistantStickinessEventsNode(BaseModel):
         | FunnelMathType
         | PropertyMathType
         | CountPerActorMathType
+        | GroupMathType
         | ExperimentMetricMathType
         | CalendarHeatmapMathType
-        | Literal["unique_group"]
         | Literal["hogql"]
         | None
     ) = None
@@ -9607,9 +9850,9 @@ class AssistantTrendsActionsNode(BaseModel):
         | FunnelMathType
         | PropertyMathType
         | CountPerActorMathType
+        | GroupMathType
         | ExperimentMetricMathType
         | CalendarHeatmapMathType
-        | Literal["unique_group"]
         | Literal["hogql"]
         | None
     ) = None
@@ -9670,9 +9913,9 @@ class AssistantTrendsEventsNode(BaseModel):
         | FunnelMathType
         | PropertyMathType
         | CountPerActorMathType
+        | GroupMathType
         | ExperimentMetricMathType
         | CalendarHeatmapMathType
-        | Literal["unique_group"]
         | Literal["hogql"]
         | None
     ) = None
@@ -9732,9 +9975,9 @@ class AssistantTrendsGroupNode(BaseModel):
         | FunnelMathType
         | PropertyMathType
         | CountPerActorMathType
+        | GroupMathType
         | ExperimentMetricMathType
         | CalendarHeatmapMathType
-        | Literal["unique_group"]
         | Literal["hogql"]
         | None
     ) = Field(
@@ -10163,6 +10406,72 @@ class CachedAccountsQueryResponse(BaseModel):
         description=("Measured timings for different parts of the query generation process"),
     )
     types: list[str]
+    used_data_warehouse_sources: list[DataWarehouseSourceUsage] | None = Field(
+        default=None,
+        description=("Connector-synced data warehouse sources referenced by this query, if any."),
+    )
+    warnings: list[DataWarehouseSyncWarning | AccessControlFilterWarning] | None = Field(
+        default=None,
+        description=(
+            "Warnings about data warehouse sources referenced by the query whose"
+            " latest sync failed, is paused, hit a billing limit, or is otherwise"
+            " stale. Results may not reflect current source data. Accumulated"
+            " across every HogQL execution that contributes to this response — so"
+            " insights backed by warehouse tables (Trends, Funnels, etc.) receive"
+            " the same warnings as raw HogQL queries. Also carries access control"
+            " warnings when a system-table query filters out objects the user can't"
+            " access."
+        ),
+    )
+
+
+class CachedAccountsTableQueryResponse(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    cache_key: str
+    cache_target_age: AwareDatetime | None = None
+    calculation_trigger: str | None = Field(
+        default=None,
+        description=("What triggered the calculation of the query, leave empty if user/immediate"),
+    )
+    error: str | None = Field(
+        default=None,
+        description=(
+            "Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise."
+        ),
+    )
+    hasMore: bool
+    hogql: str | None = Field(default=None, description="Generated HogQL query.")
+    is_cached: bool
+    kind: Literal["AccountsTableQuery"] = "AccountsTableQuery"
+    last_refresh: AwareDatetime
+    limit: int
+    metricsResults: list[float | None] | None = Field(
+        default=None,
+        description="Aggregated values in the same order as the requested metrics.",
+    )
+    modifiers: HogQLQueryModifiers | None = Field(default=None, description="Modifiers used when performing the query")
+    next_allowed_client_refresh: AwareDatetime
+    offset: int
+    query_metadata: dict[str, Any] | None = None
+    query_status: QueryStatus | None = Field(
+        default=None,
+        description=("Query status indicates whether next to the provided data, a query is still running."),
+    )
+    resolved_compare_date_range: ResolvedDateRangeResponse | None = Field(
+        default=None,
+        description=("The resolved previous/comparison period date range, when comparing against another period"),
+    )
+    resolved_date_range: ResolvedDateRangeResponse | None = Field(
+        default=None, description="The date range used for the query"
+    )
+    results: list[AccountsTableRow]
+    timezone: str
+    timings: list[QueryTiming] | None = Field(
+        default=None,
+        description=("Measured timings for different parts of the query generation process"),
+    )
     used_data_warehouse_sources: list[DataWarehouseSourceUsage] | None = Field(
         default=None,
         description=("Connector-synced data warehouse sources referenced by this query, if any."),
@@ -14456,9 +14765,9 @@ class ConversionGoalFilter1(BaseModel):
         | FunnelMathType
         | PropertyMathType
         | CountPerActorMathType
+        | GroupMathType
         | ExperimentMetricMathType
         | CalendarHeatmapMathType
-        | Literal["unique_group"]
         | Literal["hogql"]
         | None
     ) = None
@@ -14519,9 +14828,9 @@ class ConversionGoalFilter2(BaseModel):
         | FunnelMathType
         | PropertyMathType
         | CountPerActorMathType
+        | GroupMathType
         | ExperimentMetricMathType
         | CalendarHeatmapMathType
-        | Literal["unique_group"]
         | Literal["hogql"]
         | None
     ) = None
@@ -14584,9 +14893,9 @@ class ConversionGoalFilter3(BaseModel):
         | FunnelMathType
         | PropertyMathType
         | CountPerActorMathType
+        | GroupMathType
         | ExperimentMetricMathType
         | CalendarHeatmapMathType
-        | Literal["unique_group"]
         | Literal["hogql"]
         | None
     ) = None
@@ -15523,6 +15832,61 @@ class Response22(BaseModel):
     )
 
 
+class Response23(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    error: str | None = Field(
+        default=None,
+        description=(
+            "Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise."
+        ),
+    )
+    hasMore: bool
+    hogql: str | None = Field(default=None, description="Generated HogQL query.")
+    kind: Literal["AccountsTableQuery"] = "AccountsTableQuery"
+    limit: int
+    metricsResults: list[float | None] | None = Field(
+        default=None,
+        description="Aggregated values in the same order as the requested metrics.",
+    )
+    modifiers: HogQLQueryModifiers | None = Field(default=None, description="Modifiers used when performing the query")
+    offset: int
+    query_status: QueryStatus | None = Field(
+        default=None,
+        description=("Query status indicates whether next to the provided data, a query is still running."),
+    )
+    resolved_compare_date_range: ResolvedDateRangeResponse | None = Field(
+        default=None,
+        description=("The resolved previous/comparison period date range, when comparing against another period"),
+    )
+    resolved_date_range: ResolvedDateRangeResponse | None = Field(
+        default=None, description="The date range used for the query"
+    )
+    results: list[AccountsTableRow]
+    timings: list[QueryTiming] | None = Field(
+        default=None,
+        description=("Measured timings for different parts of the query generation process"),
+    )
+    used_data_warehouse_sources: list[DataWarehouseSourceUsage] | None = Field(
+        default=None,
+        description=("Connector-synced data warehouse sources referenced by this query, if any."),
+    )
+    warnings: list[DataWarehouseSyncWarning | AccessControlFilterWarning] | None = Field(
+        default=None,
+        description=(
+            "Warnings about data warehouse sources referenced by the query whose"
+            " latest sync failed, is paused, hit a billing limit, or is otherwise"
+            " stale. Results may not reflect current source data. Accumulated"
+            " across every HogQL execution that contributes to this response — so"
+            " insights backed by warehouse tables (Trends, Funnels, etc.) receive"
+            " the same warnings as raw HogQL queries. Also carries access control"
+            " warnings when a system-table query filters out objects the user can't"
+            " access."
+        ),
+    )
+
+
 class DataWarehouseNode(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
@@ -15542,9 +15906,9 @@ class DataWarehouseNode(BaseModel):
         | FunnelMathType
         | PropertyMathType
         | CountPerActorMathType
+        | GroupMathType
         | ExperimentMetricMathType
         | CalendarHeatmapMathType
-        | Literal["unique_group"]
         | Literal["hogql"]
         | None
     ) = None
@@ -15915,9 +16279,9 @@ class EntityNode(BaseModel):
         | FunnelMathType
         | PropertyMathType
         | CountPerActorMathType
+        | GroupMathType
         | ExperimentMetricMathType
         | CalendarHeatmapMathType
-        | Literal["unique_group"]
         | Literal["hogql"]
         | None
     ) = None
@@ -16216,9 +16580,9 @@ class EventsNode(BaseModel):
         | FunnelMathType
         | PropertyMathType
         | CountPerActorMathType
+        | GroupMathType
         | ExperimentMetricMathType
         | CalendarHeatmapMathType
-        | Literal["unique_group"]
         | Literal["hogql"]
         | None
     ) = None
@@ -16394,9 +16758,9 @@ class ExperimentDataWarehouseNode(BaseModel):
         | FunnelMathType
         | PropertyMathType
         | CountPerActorMathType
+        | GroupMathType
         | ExperimentMetricMathType
         | CalendarHeatmapMathType
-        | Literal["unique_group"]
         | Literal["hogql"]
         | None
     ) = None
@@ -16521,9 +16885,9 @@ class FunnelExclusionActionsNode(BaseModel):
         | FunnelMathType
         | PropertyMathType
         | CountPerActorMathType
+        | GroupMathType
         | ExperimentMetricMathType
         | CalendarHeatmapMathType
-        | Literal["unique_group"]
         | Literal["hogql"]
         | None
     ) = None
@@ -16561,9 +16925,9 @@ class FunnelExclusionEventsNode(BaseModel):
         | FunnelMathType
         | PropertyMathType
         | CountPerActorMathType
+        | GroupMathType
         | ExperimentMetricMathType
         | CalendarHeatmapMathType
-        | Literal["unique_group"]
         | Literal["hogql"]
         | None
     ) = None
@@ -16602,9 +16966,9 @@ class FunnelsDataWarehouseNode(BaseModel):
         | FunnelMathType
         | PropertyMathType
         | CountPerActorMathType
+        | GroupMathType
         | ExperimentMetricMathType
         | CalendarHeatmapMathType
-        | Literal["unique_group"]
         | Literal["hogql"]
         | None
     ) = None
@@ -16970,9 +17334,9 @@ class LifecycleDataWarehouseNode(BaseModel):
         | FunnelMathType
         | PropertyMathType
         | CountPerActorMathType
+        | GroupMathType
         | ExperimentMetricMathType
         | CalendarHeatmapMathType
-        | Literal["unique_group"]
         | Literal["hogql"]
         | None
     ) = None
@@ -20829,6 +21193,61 @@ class QueryResponseAlternative58(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
+    error: str | None = Field(
+        default=None,
+        description=(
+            "Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise."
+        ),
+    )
+    hasMore: bool
+    hogql: str | None = Field(default=None, description="Generated HogQL query.")
+    kind: Literal["AccountsTableQuery"] = "AccountsTableQuery"
+    limit: int
+    metricsResults: list[float | None] | None = Field(
+        default=None,
+        description="Aggregated values in the same order as the requested metrics.",
+    )
+    modifiers: HogQLQueryModifiers | None = Field(default=None, description="Modifiers used when performing the query")
+    offset: int
+    query_status: QueryStatus | None = Field(
+        default=None,
+        description=("Query status indicates whether next to the provided data, a query is still running."),
+    )
+    resolved_compare_date_range: ResolvedDateRangeResponse | None = Field(
+        default=None,
+        description=("The resolved previous/comparison period date range, when comparing against another period"),
+    )
+    resolved_date_range: ResolvedDateRangeResponse | None = Field(
+        default=None, description="The date range used for the query"
+    )
+    results: list[AccountsTableRow]
+    timings: list[QueryTiming] | None = Field(
+        default=None,
+        description=("Measured timings for different parts of the query generation process"),
+    )
+    used_data_warehouse_sources: list[DataWarehouseSourceUsage] | None = Field(
+        default=None,
+        description=("Connector-synced data warehouse sources referenced by this query, if any."),
+    )
+    warnings: list[DataWarehouseSyncWarning | AccessControlFilterWarning] | None = Field(
+        default=None,
+        description=(
+            "Warnings about data warehouse sources referenced by the query whose"
+            " latest sync failed, is paused, hit a billing limit, or is otherwise"
+            " stale. Results may not reflect current source data. Accumulated"
+            " across every HogQL execution that contributes to this response — so"
+            " insights backed by warehouse tables (Trends, Funnels, etc.) receive"
+            " the same warnings as raw HogQL queries. Also carries access control"
+            " warnings when a system-table query filters out objects the user can't"
+            " access."
+        ),
+    )
+
+
+class QueryResponseAlternative59(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
     boxplot_data: list[BoxPlotDatum] | None = None
     error: str | None = Field(
         default=None,
@@ -20874,7 +21293,7 @@ class QueryResponseAlternative58(BaseModel):
     )
 
 
-class QueryResponseAlternative59(BaseModel):
+class QueryResponseAlternative60(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
@@ -20928,7 +21347,7 @@ class QueryResponseAlternative59(BaseModel):
     )
 
 
-class QueryResponseAlternative60(BaseModel):
+class QueryResponseAlternative61(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
@@ -20975,7 +21394,7 @@ class QueryResponseAlternative60(BaseModel):
     )
 
 
-class QueryResponseAlternative61(BaseModel):
+class QueryResponseAlternative62(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
@@ -21022,7 +21441,7 @@ class QueryResponseAlternative61(BaseModel):
     )
 
 
-class QueryResponseAlternative62(BaseModel):
+class QueryResponseAlternative63(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
@@ -21069,7 +21488,7 @@ class QueryResponseAlternative62(BaseModel):
     )
 
 
-class QueryResponseAlternative63(BaseModel):
+class QueryResponseAlternative64(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
@@ -21116,7 +21535,7 @@ class QueryResponseAlternative63(BaseModel):
     )
 
 
-class QueryResponseAlternative65(BaseModel):
+class QueryResponseAlternative66(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
@@ -21168,7 +21587,7 @@ class QueryResponseAlternative65(BaseModel):
     )
 
 
-class QueryResponseAlternative67(BaseModel):
+class QueryResponseAlternative68(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
@@ -21220,7 +21639,7 @@ class QueryResponseAlternative67(BaseModel):
     )
 
 
-class QueryResponseAlternative68(BaseModel):
+class QueryResponseAlternative69(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
@@ -21272,7 +21691,7 @@ class QueryResponseAlternative68(BaseModel):
     )
 
 
-class QueryResponseAlternative69(BaseModel):
+class QueryResponseAlternative70(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
@@ -21320,7 +21739,7 @@ class QueryResponseAlternative69(BaseModel):
     )
 
 
-class QueryResponseAlternative70(BaseModel):
+class QueryResponseAlternative71(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
@@ -21367,7 +21786,7 @@ class QueryResponseAlternative70(BaseModel):
     )
 
 
-class QueryResponseAlternative71(BaseModel):
+class QueryResponseAlternative72(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
@@ -21414,7 +21833,7 @@ class QueryResponseAlternative71(BaseModel):
     )
 
 
-class QueryResponseAlternative72(BaseModel):
+class QueryResponseAlternative73(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
@@ -21465,7 +21884,7 @@ class QueryResponseAlternative72(BaseModel):
     )
 
 
-class QueryResponseAlternative73(BaseModel):
+class QueryResponseAlternative74(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
@@ -21516,7 +21935,7 @@ class QueryResponseAlternative73(BaseModel):
     )
 
 
-class QueryResponseAlternative74(BaseModel):
+class QueryResponseAlternative75(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
@@ -21567,7 +21986,7 @@ class QueryResponseAlternative74(BaseModel):
     )
 
 
-class QueryResponseAlternative75(BaseModel):
+class QueryResponseAlternative76(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
@@ -21618,7 +22037,7 @@ class QueryResponseAlternative75(BaseModel):
     )
 
 
-class QueryResponseAlternative77(BaseModel):
+class QueryResponseAlternative78(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
@@ -21668,7 +22087,7 @@ class QueryResponseAlternative77(BaseModel):
     )
 
 
-class QueryResponseAlternative78(BaseModel):
+class QueryResponseAlternative79(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
@@ -21718,7 +22137,7 @@ class QueryResponseAlternative78(BaseModel):
     )
 
 
-class QueryResponseAlternative79(BaseModel):
+class QueryResponseAlternative80(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
@@ -21765,7 +22184,7 @@ class QueryResponseAlternative79(BaseModel):
     )
 
 
-class QueryResponseAlternative80(BaseModel):
+class QueryResponseAlternative81(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
@@ -21816,7 +22235,7 @@ class QueryResponseAlternative80(BaseModel):
     )
 
 
-class QueryResponseAlternative84(BaseModel):
+class QueryResponseAlternative85(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
@@ -21863,7 +22282,7 @@ class QueryResponseAlternative84(BaseModel):
     )
 
 
-class QueryResponseAlternative85(BaseModel):
+class QueryResponseAlternative86(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
@@ -21910,7 +22329,7 @@ class QueryResponseAlternative85(BaseModel):
     )
 
 
-class QueryResponseAlternative86(BaseModel):
+class QueryResponseAlternative87(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
@@ -21967,7 +22386,62 @@ class QueryResponseAlternative86(BaseModel):
     )
 
 
-class QueryResponseAlternative87(BaseModel):
+class QueryResponseAlternative88(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    error: str | None = Field(
+        default=None,
+        description=(
+            "Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise."
+        ),
+    )
+    hasMore: bool
+    hogql: str | None = Field(default=None, description="Generated HogQL query.")
+    kind: Literal["AccountsTableQuery"] = "AccountsTableQuery"
+    limit: int
+    metricsResults: list[float | None] | None = Field(
+        default=None,
+        description="Aggregated values in the same order as the requested metrics.",
+    )
+    modifiers: HogQLQueryModifiers | None = Field(default=None, description="Modifiers used when performing the query")
+    offset: int
+    query_status: QueryStatus | None = Field(
+        default=None,
+        description=("Query status indicates whether next to the provided data, a query is still running."),
+    )
+    resolved_compare_date_range: ResolvedDateRangeResponse | None = Field(
+        default=None,
+        description=("The resolved previous/comparison period date range, when comparing against another period"),
+    )
+    resolved_date_range: ResolvedDateRangeResponse | None = Field(
+        default=None, description="The date range used for the query"
+    )
+    results: list[AccountsTableRow]
+    timings: list[QueryTiming] | None = Field(
+        default=None,
+        description=("Measured timings for different parts of the query generation process"),
+    )
+    used_data_warehouse_sources: list[DataWarehouseSourceUsage] | None = Field(
+        default=None,
+        description=("Connector-synced data warehouse sources referenced by this query, if any."),
+    )
+    warnings: list[DataWarehouseSyncWarning | AccessControlFilterWarning] | None = Field(
+        default=None,
+        description=(
+            "Warnings about data warehouse sources referenced by the query whose"
+            " latest sync failed, is paused, hit a billing limit, or is otherwise"
+            " stale. Results may not reflect current source data. Accumulated"
+            " across every HogQL execution that contributes to this response — so"
+            " insights backed by warehouse tables (Trends, Funnels, etc.) receive"
+            " the same warnings as raw HogQL queries. Also carries access control"
+            " warnings when a system-table query filters out objects the user can't"
+            " access."
+        ),
+    )
+
+
+class QueryResponseAlternative89(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
@@ -22014,7 +22488,7 @@ class QueryResponseAlternative87(BaseModel):
     )
 
 
-class QueryResponseAlternative88(BaseModel):
+class QueryResponseAlternative90(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
@@ -22066,7 +22540,7 @@ class QueryResponseAlternative88(BaseModel):
     )
 
 
-class QueryResponseAlternative89(BaseModel):
+class QueryResponseAlternative91(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
@@ -22113,7 +22587,7 @@ class QueryResponseAlternative89(BaseModel):
     )
 
 
-class QueryResponseAlternative90(BaseModel):
+class QueryResponseAlternative92(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
@@ -22160,7 +22634,7 @@ class QueryResponseAlternative90(BaseModel):
     )
 
 
-class QueryResponseAlternative91(BaseModel):
+class QueryResponseAlternative93(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
@@ -22207,7 +22681,7 @@ class QueryResponseAlternative91(BaseModel):
     )
 
 
-class QueryResponseAlternative92(BaseModel):
+class QueryResponseAlternative94(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
@@ -22254,7 +22728,7 @@ class QueryResponseAlternative92(BaseModel):
     )
 
 
-class QueryResponseAlternative93(BaseModel):
+class QueryResponseAlternative95(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
@@ -22301,7 +22775,7 @@ class QueryResponseAlternative93(BaseModel):
     )
 
 
-class QueryResponseAlternative94(BaseModel):
+class QueryResponseAlternative96(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
@@ -22348,7 +22822,7 @@ class QueryResponseAlternative94(BaseModel):
     )
 
 
-class QueryResponseAlternative95(BaseModel):
+class QueryResponseAlternative97(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
@@ -22395,7 +22869,7 @@ class QueryResponseAlternative95(BaseModel):
     )
 
 
-class QueryResponseAlternative96(BaseModel):
+class QueryResponseAlternative98(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
@@ -22445,7 +22919,7 @@ class QueryResponseAlternative96(BaseModel):
     )
 
 
-class QueryResponseAlternative97(BaseModel):
+class QueryResponseAlternative99(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
@@ -22492,7 +22966,7 @@ class QueryResponseAlternative97(BaseModel):
     )
 
 
-class QueryResponseAlternative98(BaseModel):
+class QueryResponseAlternative100(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
@@ -22539,7 +23013,7 @@ class QueryResponseAlternative98(BaseModel):
     )
 
 
-class QueryResponseAlternative99(BaseModel):
+class QueryResponseAlternative101(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
@@ -22586,7 +23060,7 @@ class QueryResponseAlternative99(BaseModel):
     )
 
 
-class QueryResponseAlternative100(BaseModel):
+class QueryResponseAlternative102(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
@@ -22633,7 +23107,7 @@ class QueryResponseAlternative100(BaseModel):
     )
 
 
-class QueryResponseAlternative101(BaseModel):
+class QueryResponseAlternative103(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
@@ -22680,7 +23154,7 @@ class QueryResponseAlternative101(BaseModel):
     )
 
 
-class QueryResponseAlternative102(BaseModel):
+class QueryResponseAlternative104(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
@@ -22727,7 +23201,7 @@ class QueryResponseAlternative102(BaseModel):
     )
 
 
-class QueryResponseAlternative103(BaseModel):
+class QueryResponseAlternative105(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
@@ -22774,7 +23248,7 @@ class QueryResponseAlternative103(BaseModel):
     )
 
 
-class QueryResponseAlternative104(BaseModel):
+class QueryResponseAlternative106(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
@@ -22821,7 +23295,7 @@ class QueryResponseAlternative104(BaseModel):
     )
 
 
-class QueryResponseAlternative105(BaseModel):
+class QueryResponseAlternative107(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
@@ -23870,6 +24344,54 @@ class AccountsQuery(BaseModel):
     version: float | None = Field(default=None, description="version of the node, used for schema migrations")
 
 
+class AccountsTableQuery(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    columns: list[
+        Annotated[
+            AccountsTableAccountFieldColumn
+            | AccountsTableTagsColumn
+            | AccountsTableNoteCountColumn
+            | AccountsTableRelationshipColumn
+            | AccountsTableCustomPropertyColumn
+            | AccountsTableCustomPropertyHistoryColumn,
+            Field(discriminator="kind"),
+        ]
+    ] = Field(
+        ...,
+        description=("Columns to load for each account. Account identity fields are always returned."),
+    )
+    filters: (
+        list[
+            AccountsTableSearchFilter
+            | AccountsTableTagsFilter
+            | AccountsTableAssignedToFilter
+            | AccountsTableUnassignedFilter
+            | AccountsTableAccountIdFilter
+            | AccountsTableCustomPropertyFilter
+        ]
+        | None
+    ) = Field(
+        default=None,
+        description=("Filters are combined with AND. Values within tag and assignment filters use OR."),
+    )
+    kind: Literal["AccountsTableQuery"] = "AccountsTableQuery"
+    limit: conint(ge=1) | None = None
+    metrics: (
+        list[AccountsTableCountMetric | AccountsTableAggregateMetric | AccountsTableCountThresholdMetric] | None
+    ) = Field(
+        default=None,
+        description=("Aggregates to evaluate against the filtered account set. A metrics query skips row loading."),
+    )
+    modifiers: HogQLQueryModifiers | None = Field(default=None, description="Modifiers used when performing the query")
+    offset: int | None = None
+    response: AccountsTableQueryResponse | None = None
+    sort: AccountsTableSort | None = None
+    tags: QueryLogTags | None = None
+    version: float | None = Field(default=None, description="version of the node, used for schema migrations")
+
+
 class ActionsNode(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
@@ -23886,9 +24408,9 @@ class ActionsNode(BaseModel):
         | FunnelMathType
         | PropertyMathType
         | CountPerActorMathType
+        | GroupMathType
         | ExperimentMetricMathType
         | CalendarHeatmapMathType
-        | Literal["unique_group"]
         | Literal["hogql"]
         | None
     ) = None
@@ -26579,9 +27101,9 @@ class GroupNode(BaseModel):
         | FunnelMathType
         | PropertyMathType
         | CountPerActorMathType
+        | GroupMathType
         | ExperimentMetricMathType
         | CalendarHeatmapMathType
-        | Literal["unique_group"]
         | Literal["hogql"]
         | None
     ) = None
@@ -27107,7 +27629,7 @@ class PathsV2ActorsQuery(BaseModel):
     version: float | None = Field(default=None, description="version of the node, used for schema migrations")
 
 
-class QueryResponseAlternative66(BaseModel):
+class QueryResponseAlternative67(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
@@ -27520,9 +28042,20 @@ class DatabaseSchemaQuery(BaseModel):
         default=None,
         description="Optional direct external data source id for schema introspection",
     )
+    includeFields: bool | None = Field(
+        default=None,
+        description=("When false, skip serializing each table's fields (`fields` comes back empty). Defaults to true."),
+    )
     kind: Literal["DatabaseSchemaQuery"] = "DatabaseSchemaQuery"
     modifiers: HogQLQueryModifiers | None = Field(default=None, description="Modifiers used when performing the query")
     response: DatabaseSchemaQueryResponse | None = None
+    tables: list[str] | None = Field(
+        default=None,
+        description=(
+            "Only serialize these tables (keys as returned in the response, e.g."
+            " `events` or `zendesk.groups`). Omit for all tables."
+        ),
+    )
     tags: QueryLogTags | None = None
     version: float | None = Field(default=None, description="version of the node, used for schema migrations")
 
@@ -27808,7 +28341,7 @@ class QueryResponseAlternative(
         | QueryResponseAlternative61
         | QueryResponseAlternative62
         | QueryResponseAlternative63
-        | QueryResponseAlternative65
+        | QueryResponseAlternative64
         | QueryResponseAlternative66
         | QueryResponseAlternative67
         | QueryResponseAlternative68
@@ -27824,7 +28357,7 @@ class QueryResponseAlternative(
         | QueryResponseAlternative78
         | QueryResponseAlternative79
         | QueryResponseAlternative80
-        | QueryResponseAlternative83
+        | QueryResponseAlternative81
         | QueryResponseAlternative84
         | QueryResponseAlternative85
         | QueryResponseAlternative86
@@ -27847,6 +28380,8 @@ class QueryResponseAlternative(
         | QueryResponseAlternative103
         | QueryResponseAlternative104
         | QueryResponseAlternative105
+        | QueryResponseAlternative106
+        | QueryResponseAlternative107
     ]
 ):
     root: (
@@ -27913,7 +28448,7 @@ class QueryResponseAlternative(
         | QueryResponseAlternative61
         | QueryResponseAlternative62
         | QueryResponseAlternative63
-        | QueryResponseAlternative65
+        | QueryResponseAlternative64
         | QueryResponseAlternative66
         | QueryResponseAlternative67
         | QueryResponseAlternative68
@@ -27929,7 +28464,7 @@ class QueryResponseAlternative(
         | QueryResponseAlternative78
         | QueryResponseAlternative79
         | QueryResponseAlternative80
-        | QueryResponseAlternative83
+        | QueryResponseAlternative81
         | QueryResponseAlternative84
         | QueryResponseAlternative85
         | QueryResponseAlternative86
@@ -27952,6 +28487,8 @@ class QueryResponseAlternative(
         | QueryResponseAlternative103
         | QueryResponseAlternative104
         | QueryResponseAlternative105
+        | QueryResponseAlternative106
+        | QueryResponseAlternative107
     )
 
 
@@ -28719,6 +29256,7 @@ class DataTableNode(BaseModel):
         | Response19
         | Response21
         | Response22
+        | Response23
         | None
     ) = None
     showAbsoluteTime: bool | None = Field(
@@ -28808,6 +29346,7 @@ class DataTableNode(BaseModel):
         | SessionQuery
         | EndpointsUsageTableQuery
         | AccountsQuery
+        | AccountsTableQuery
     ) = Field(..., description="Source of the events", discriminator="kind")
     tags: QueryLogTags | None = None
     version: float | None = Field(default=None, description="version of the node, used for schema migrations")
@@ -28902,6 +29441,7 @@ class HogQLAutocomplete(BaseModel):
         | VectorSearchQuery
         | UsageMetricsQuery
         | AccountsQuery
+        | AccountsTableQuery
         | EndpointsUsageOverviewQuery
         | EndpointsUsageTableQuery
         | EndpointsUsageTrendsQuery
@@ -29013,6 +29553,7 @@ class HogQLMetadata(BaseModel):
         | VectorSearchQuery
         | UsageMetricsQuery
         | AccountsQuery
+        | AccountsTableQuery
         | EndpointsUsageOverviewQuery
         | EndpointsUsageTableQuery
         | EndpointsUsageTrendsQuery
@@ -29152,6 +29693,7 @@ class MaxInsightContext(BaseModel):
         | VectorSearchQuery
         | UsageMetricsQuery
         | AccountsQuery
+        | AccountsTableQuery
         | EndpointsUsageOverviewQuery
         | EndpointsUsageTableQuery
         | EndpointsUsageTrendsQuery
@@ -29287,6 +29829,7 @@ class QueryRequest(BaseModel):
         | VectorSearchQuery
         | UsageMetricsQuery
         | AccountsQuery
+        | AccountsTableQuery
         | EndpointsUsageOverviewQuery
         | EndpointsUsageTableQuery
         | EndpointsUsageTrendsQuery
@@ -29414,6 +29957,7 @@ class QuerySchemaRoot(
         | VectorSearchQuery
         | UsageMetricsQuery
         | AccountsQuery
+        | AccountsTableQuery
         | EndpointsUsageOverviewQuery
         | EndpointsUsageTableQuery
         | EndpointsUsageTrendsQuery
@@ -29511,6 +30055,7 @@ class QuerySchemaRoot(
         | VectorSearchQuery
         | UsageMetricsQuery
         | AccountsQuery
+        | AccountsTableQuery
         | EndpointsUsageOverviewQuery
         | EndpointsUsageTableQuery
         | EndpointsUsageTrendsQuery
@@ -29613,6 +30158,7 @@ class QueryUpgradeRequest(BaseModel):
         | VectorSearchQuery
         | UsageMetricsQuery
         | AccountsQuery
+        | AccountsTableQuery
         | EndpointsUsageOverviewQuery
         | EndpointsUsageTableQuery
         | EndpointsUsageTrendsQuery
@@ -29715,6 +30261,7 @@ class QueryUpgradeResponse(BaseModel):
         | VectorSearchQuery
         | UsageMetricsQuery
         | AccountsQuery
+        | AccountsTableQuery
         | EndpointsUsageOverviewQuery
         | EndpointsUsageTableQuery
         | EndpointsUsageTrendsQuery
@@ -29858,6 +30405,10 @@ class SourceFieldSelectConfig(BaseModel):
     converter: SourceFieldSelectConfigConverter | None = None
     defaultValue: str
     label: str
+    multiple: bool | None = Field(
+        default=None,
+        description=("Allow selecting multiple values; the field's payload value becomes string[]."),
+    )
     name: str
     options: list[SourceFieldSelectConfigOption]
     required: bool
@@ -29999,6 +30550,7 @@ class VisualizationArtifactContent(BaseModel):
         | VectorSearchQuery
         | UsageMetricsQuery
         | AccountsQuery
+        | AccountsTableQuery
         | EndpointsUsageOverviewQuery
         | EndpointsUsageTableQuery
         | EndpointsUsageTrendsQuery

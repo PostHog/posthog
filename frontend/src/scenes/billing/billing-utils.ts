@@ -5,7 +5,6 @@ import Papa from 'papaparse'
 
 import { FEATURE_FLAGS, OrganizationMembershipLevel } from 'lib/constants'
 import { dayjs } from 'lib/dayjs'
-import type { FeatureFlagsSet } from 'lib/logic/featureFlagLogic'
 import { dateStringToDayJs } from 'lib/utils/dateFilters'
 import { compactNumber } from 'lib/utils/numbers'
 import { membershipLevelToName } from 'lib/utils/permissioning'
@@ -509,20 +508,14 @@ export function buildTrackingProperties(
 
 export const buildSpendTrackingProperties = (
     action: BillingUsageInteractionProps['action'],
-    values: Parameters<typeof buildTrackingProperties>[1],
-    featureFlags: FeatureFlagsSet
-): BillingUsageInteractionProps => buildTrackingProperties(action, values, getSpendTypeOptions(featureFlags).length)
+    values: Parameters<typeof buildTrackingProperties>[1]
+): BillingUsageInteractionProps => buildTrackingProperties(action, values, getSpendTypeOptions().length)
 
-// The Replay vision entry stays hidden until the replay-vision flag rolls out with the pricing launch
-export const getUsageTypeOptions = (featureFlags: FeatureFlagsSet): { key: string; label: string }[] =>
-    USAGE_TYPES.filter(
-        (opt) => opt.value !== 'replay_vision_credits_used_in_period' || featureFlags[FEATURE_FLAGS.REPLAY_VISION]
-    ).map((opt) => ({ key: opt.value, label: opt.label }))
+export const getUsageTypeOptions = (): { key: string; label: string }[] =>
+    USAGE_TYPES.map((opt) => ({ key: opt.value, label: opt.label }))
 
-export const getSpendTypeOptions = (featureFlags: FeatureFlagsSet): { key: string; label: string }[] =>
-    SPEND_TYPES.filter(
-        (opt) => opt.value !== 'replay_vision_credits_used_in_period' || featureFlags[FEATURE_FLAGS.REPLAY_VISION]
-    ).map((opt) => ({ key: opt.value, label: opt.label }))
+export const getSpendTypeOptions = (): { key: string; label: string }[] =>
+    SPEND_TYPES.map((opt) => ({ key: opt.value, label: opt.label }))
 
 const SPEND_TYPE_VALUES = new Set<string>(SPEND_TYPES.map((option) => option.value))
 
@@ -664,6 +657,9 @@ export function getUsageLimitConsequence(productName: string): string {
     }
     if (productName === 'PostHog AI') {
         return 'PostHog AI will be unavailable'
+    }
+    if (productName === 'Inbox') {
+        return 'Inbox agents will be paused'
     }
     return 'data loss may occur'
 }
