@@ -152,8 +152,10 @@ write, so an attacker chooses them, and the request leaves from inside our netwo
 
 32. The lane must never connect to an IP address that is not globally routable. That covers
     loopback, the RFC 1918 private ranges, link-local, carrier-grade NAT, multicast, and the
-    reserved ranges, in IPv4 and IPv6. Smokescreen, the egress proxy, enforces this in production.
-    `httpStaticLookup`, our DNS hook for undici, enforces it when no proxy is set.
+    reserved ranges, in IPv4 and IPv6. Smokescreen, the egress proxy, enforces this when a proxy is
+    set. `strictStaticLookup`, our DNS hook for undici, enforces it when none is. Neither asks the
+    environment. The lane reads URLs a customer's page named, so no environment makes a private
+    address safe, and `determineNodeEnv` answers Development whenever `DEBUG` is set.
 33. The check must use the same DNS answer as the connection, so that DNS rebinding cannot slip an
     IP address past it. An attacker who owns a name can return a different IP address on every
     lookup. Code that resolves a name, checks the IP address, then hands the name to something that
