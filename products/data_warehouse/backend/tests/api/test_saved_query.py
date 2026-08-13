@@ -1041,6 +1041,134 @@ class TestSavedQuery(APIBaseTest):
         field = DataWarehouseSavedQuerySerializer().fields["sync_frequency"]
         self.assertFalse(field.read_only)
 
+    def _create_view_with_a_consumer(self, consumer_target: timedelta) -> dict:
+        """An upstream view whose only downstream consumer declares `consumer_target`.
+
+        A consumer ceiling is the cheapest real bound to build here: it needs one extra saved
+        query, where a source floor would need a warehouse table plus a schema to hang an
+        interval off. The bound arithmetic itself is covered in test_freshness.
+        """
+        from products.data_modeling.backend.logic.node_frequency import set_declared_target
+
+        upstream = self._create_saved_query_for_frequency_tests(name="upstream_view")
+        consumer = self.client.post(
+            f"/api/environments/{self.team.id}/warehouse_saved_queries/",
+            {"name": "consumer_view", "query": {"kind": "HogQLQuery", "query": "select event from upstream_view"}},
+        )
+        self.assertEqual(consumer.status_code, 201, consumer.json())
+        set_declared_target(Node.objects.get(saved_query_id=consumer.json()["id"]), consumer_target)
+        return upstream
+
+    def _read_frequency_bounds(self, saved_query_id: str, *, tiered: bool = True, v2: bool = True) -> dict:
+        with (
+            patch(
+                "products.data_warehouse.backend.presentation.views.saved_query.posthoganalytics.feature_enabled",
+                side_effect=lambda key, *args, **kwargs: v2 and key == "data-modeling-backend-v2",
+            ),
+            patch(
+                "products.data_modeling.backend.logic.schedule_reconcile.tiered_schedules_enabled",
+                return_value=tiered,
+            ),
+        ):
+            response = self.client.get(
+                f"/api/environments/{self.team.id}/warehouse_saved_queries/{saved_query_id}",
+            )
+        self.assertEqual(response.status_code, 200, response.json())
+        return response.json()["sync_frequency_bounds"]
+
+    @parameterized.expand(
+        [
+            ("v1_team", False, False, "legacy"),
+            ("v2_single_schedule", True, False, "dag_schedule"),
+            ("v2_tiered", True, True, "tiered"),
+        ]
+    )
+    def test_bounds_are_offered_only_where_a_per_view_cadence_is_writable(
+        self, _name: str, v2: bool, tiered: bool, expected_mode: str
+    ):
+        # The picker renders from this payload. Offering options to a team whose writes the DAG
+        # owns puts a control on screen that can only 400, which is the bug this field exists
+        # to close; serving none to a tiered team hides a control that does work.
+        saved_query = self._create_saved_query_for_frequency_tests()
+
+        bounds = self._read_frequency_bounds(saved_query["id"], tiered=tiered, v2=v2)
+
+        self.assertEqual(bounds["frequency_mode"], expected_mode)
+        self.assertEqual(bool(bounds["options"]), expected_mode == "tiered")
+
+    def test_every_offered_cadence_is_accepted_and_every_withheld_one_is_refused(self):
+        # The whole point of serving bounds is that the picker and the write path cannot
+        # disagree. Walk every option the API offered and hold the PATCH to that promise.
+        upstream = self._create_view_with_a_consumer(consumer_target=timedelta(hours=6))
+        options = self._read_frequency_bounds(upstream["id"])["options"]
+        self.assertTrue(any(option["allowed"] for option in options))
+        self.assertTrue(any(not option["allowed"] for option in options))
+
+        for option in options:
+            with (
+                patch(
+                    "products.data_warehouse.backend.presentation.views.saved_query.posthoganalytics.feature_enabled",
+                    side_effect=self._v2_flag_only,
+                ),
+                patch(
+                    "products.data_modeling.backend.logic.schedule_reconcile.tiered_schedules_enabled",
+                    return_value=True,
+                ),
+                patch("products.data_modeling.backend.logic.schedule_reconcile.maybe_reconcile_dag"),
+            ):
+                response = self.client.patch(
+                    f"/api/environments/{self.team.id}/warehouse_saved_queries/{upstream['id']}",
+                    {"sync_frequency": option["cadence"]},
+                )
+            self.assertEqual(response.status_code, 200 if option["allowed"] else 400, (option, response.json()))
+
+    def test_a_withheld_cadence_names_the_view_that_withholds_it(self):
+        # A disabled option with no reason reads as a broken control. Every block carries the
+        # node someone would have to change, by name, not just an id.
+        upstream = self._create_view_with_a_consumer(consumer_target=timedelta(hours=6))
+
+        bounds = self._read_frequency_bounds(upstream["id"])
+
+        blocked = {option["cadence"]: option for option in bounds["options"] if not option["allowed"]}
+        self.assertEqual(sorted(blocked), ["12hour", "24hour", "30day", "7day"])
+        self.assertEqual(blocked["24hour"]["blocked_by"], "consumer")
+        self.assertEqual(blocked["24hour"]["blocker"]["name"], "consumer_view")
+        self.assertEqual(bounds["ceiling"], {"label": "6 hours", "blocker": blocked["24hour"]["blocker"]})
+        self.assertIsNone(bounds["floor"])
+
+    def test_the_refusal_names_the_same_view_the_bounds_blamed(self):
+        # Bounds and refusals are two views of one rule, so a caller that ignores the bounds and
+        # writes anyway must be told the same thing the picker would have shown.
+        upstream = self._create_view_with_a_consumer(consumer_target=timedelta(hours=6))
+
+        with (
+            patch(
+                "products.data_warehouse.backend.presentation.views.saved_query.posthoganalytics.feature_enabled",
+                side_effect=self._v2_flag_only,
+            ),
+            patch(
+                "products.data_modeling.backend.logic.schedule_reconcile.tiered_schedules_enabled",
+                return_value=True,
+            ),
+            patch("products.data_modeling.backend.logic.schedule_reconcile.maybe_reconcile_dag"),
+        ):
+            response = self.client.patch(
+                f"/api/environments/{self.team.id}/warehouse_saved_queries/{upstream['id']}",
+                {"sync_frequency": "24hour"},
+            )
+
+        self.assertEqual(response.status_code, 400, response.json())
+        self.assertIn("consumer_view", str(response.json()))
+
+    def test_bounds_stay_off_the_list_page(self):
+        # Bounds cost a graph walk per view, so serving them on a page of views is an N+1. The
+        # picker only ever renders on one view's panel, so retrieve is the only place they belong.
+        from products.data_warehouse.backend.presentation.views.saved_query import (
+            DataWarehouseSavedQueryMinimalSerializer,
+        )
+
+        self.assertNotIn("sync_frequency_bounds", DataWarehouseSavedQueryMinimalSerializer().fields)
+
     def _create_saved_query(self) -> dict:
         response = self.client.post(
             f"/api/environments/{self.team.id}/warehouse_saved_queries/",
