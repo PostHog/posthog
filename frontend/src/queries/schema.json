@@ -25651,7 +25651,13 @@
                 "Cloudinary",
                 "Uploadcare",
                 "WHMCS",
-                "MSG91"
+                "MSG91",
+                "Depot",
+                "Schematic",
+                "Dokploy",
+                "RakutenAdvertising",
+                "Zitadel",
+                "DeelFlows"
             ],
             "type": "string"
         },
