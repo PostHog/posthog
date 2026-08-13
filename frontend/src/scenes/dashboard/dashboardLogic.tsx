@@ -56,7 +56,9 @@ import {
     calculateDuplicateLayout,
     calculateInsertionLayout,
     calculateLayouts,
+    calculateLayoutsWithGroups,
     DEFAULT_INSERTED_TILE_SIZE,
+    stripGroupFooterLayouts,
 } from 'scenes/dashboard/tileLayouts'
 import {
     chunkTileIds,
@@ -199,12 +201,22 @@ export interface PendingInsertion {
     w: number | null
 }
 
+const groupHeaderSmLayout = (sm?: TileLayout): TileLayout => ({
+    x: 0,
+    y: sm?.y ?? 0,
+    w: BREAKPOINT_COLUMN_COUNTS.sm,
+    h: 1,
+})
+
 const tileLayoutsFromDashboard = (
     dashboard: DashboardType<QueryBasedInsightModel> | null | undefined
 ): Record<number, DashboardTile['layouts']> => {
     const tileIdToLayouts: Record<number, DashboardTile['layouts']> = {}
     dashboard?.tiles.forEach((tile: DashboardTile<QueryBasedInsightModel>) => {
         tileIdToLayouts[tile.id] = tile.layouts
+    })
+    dashboard?.groups?.forEach((group) => {
+        tileIdToLayouts[group.tile_id] = group.layouts
     })
     return tileIdToLayouts
 }
@@ -260,15 +272,18 @@ export interface dashboardLogicValues {
     breakdownValuesIncomplete: boolean
     buttonTileId: number | 'new' | null
     canAutoPreview: boolean
+    canCreateDashboardGroups: boolean
     canEditDashboard: boolean
     canRestrictDashboard: boolean
     canSaveProjectDashboardTemplate: boolean
     cancellingPreview: boolean
     columns: number | null
     containerWidth: number | null
+    createDashboardGroupLoading: boolean
     currentLayoutSize: 'sm' | 'xs'
     dashboard: DashboardType<QueryBasedInsightModel> | null
     dashboardFailedToLoad: boolean
+    dashboardGroupsEnabled: boolean
     dashboardLayouts: Record<DashboardTile['id'], DashboardTile['layouts']>
     dashboardLoadData: {
         action: DashboardLoadAction | undefined
@@ -459,8 +474,21 @@ export interface dashboardLogicActions {
             toDashboardName: string
         }
     }
+    createDashboardGroup: (name: string) => {
+        name: string
+    }
+    createDashboardGroupFinished: () => {
+        value: true
+    }
     dashboardNotFound: () => {
         value: true
+    }
+    deleteDashboardGroup: (
+        groupId: string,
+        memberHandling: 'delete_tiles' | 'move_to_ungrouped'
+    ) => {
+        groupId: string
+        memberHandling: 'delete_tiles' | 'move_to_ungrouped'
     }
     duplicateTile: (tile: DashboardTile<QueryBasedInsightModel>) => {
         tile: DashboardTile<QueryBasedInsightModel<Node<Record<string, any>>>>
@@ -576,6 +604,29 @@ export interface dashboardLogicActions {
             toDashboardName: string
         }
     }
+    moveDashboardTileToGroup: (payload: {
+        groupId: string | null
+        layouts: {
+            sm: {
+                h: number
+                w: number
+                x: number
+                y: number
+            }
+        }
+        tileId: number
+    }) => {
+        groupId: string | null
+        layouts: {
+            sm: {
+                h: number
+                w: number
+                x: number
+                y: number
+            }
+        }
+        tileId: number
+    }
     openAddInsightModal: () => {
         value: true
     }
@@ -629,6 +680,13 @@ export interface dashboardLogicActions {
     }
     reportDashboardViewed: () => {
         value: true
+    }
+    renameDashboardGroup: (
+        groupId: string,
+        name: string
+    ) => {
+        groupId: string
+        name: string
     }
     reportInsightsViewed: (insights: QueryBasedInsightModel[]) => {
         insights: QueryBasedInsightModel<Node<Record<string, any>>>[]
@@ -884,6 +942,27 @@ export interface dashboardLogicActions {
     updateDashboardLastRefresh: (lastDashboardRefresh: Dayjs) => {
         lastDashboardRefresh: Dayjs
     }
+    updateDashboardGroupLayout: (payload: {
+        groupId: string
+        layouts: {
+            sm: {
+                h: number
+                w: number
+                x: number
+                y: number
+            }
+        }
+    }) => {
+        groupId: string
+        layouts: {
+            sm: {
+                h: number
+                w: number
+                x: number
+                y: number
+            }
+        }
+    }
     updateDashboardTags: (tags: string[]) => {
         tags: string[]
     }
@@ -1046,6 +1125,12 @@ export interface dashboardLogicMeta {
             tiles: DashboardTile<QueryBasedInsightModel<Node<Record<string, any>>>>[],
             placement: DashboardPlacement
         ) => boolean
+        dashboardGroupsEnabled: (
+            featureFlags: FeatureFlagsSet,
+            dashboard: DashboardType<QueryBasedInsightModel<Node<Record<string, any>>>> | null,
+            placement: DashboardPlacement
+        ) => boolean
+        canCreateDashboardGroups: (featureFlags: FeatureFlagsSet) => boolean
         inlineTileInsertionEnabled: (featureFlags: FeatureFlagsSet) => boolean
         insightTiles: (
             tiles: DashboardTile<QueryBasedInsightModel<Node<Record<string, any>>>>[]
@@ -1085,7 +1170,8 @@ export interface dashboardLogicMeta {
         ) => boolean
         sizeKey: (columns: number | null) => DashboardLayoutSize | undefined
         layouts: (
-            tiles: DashboardTile<QueryBasedInsightModel<Node<Record<string, any>>>>[]
+            tiles: DashboardTile<QueryBasedInsightModel<Node<Record<string, any>>>>[],
+            dashboard: DashboardType<QueryBasedInsightModel<Node<Record<string, any>>>> | null
         ) => Partial<Record<DashboardLayoutSize, Layout>>
         layout: (
             layouts: Partial<Record<DashboardLayoutSize, Layout>>,
@@ -1356,6 +1442,22 @@ export const dashboardLogic = kea<dashboardLogicType>([
         setButtonTileId: (buttonTileId: number | 'new' | null) => ({ buttonTileId }),
         openAddInsightModal: true,
         setTileOverride: (tile: DashboardTile<QueryBasedInsightModel>) => ({ tile }),
+        createDashboardGroup: (name: string) => ({ name }),
+        createDashboardGroupFinished: true,
+        moveDashboardTileToGroup: (payload: {
+            tileId: number
+            groupId: string | null
+            layouts: { sm: { x: number; y: number; w: number; h: number } }
+        }) => payload,
+        updateDashboardGroupLayout: (payload: {
+            groupId: string
+            layouts: { sm: { x: number; y: number; w: number; h: number } }
+        }) => payload,
+        renameDashboardGroup: (groupId: string, name: string) => ({ groupId, name }),
+        deleteDashboardGroup: (groupId: string, memberHandling: 'delete_tiles' | 'move_to_ungrouped') => ({
+            groupId,
+            memberHandling,
+        }),
 
         /**
          * Usage tracking.
@@ -1460,10 +1562,16 @@ export const dashboardLogic = kea<dashboardLogicType>([
                     cache.dashboardChangesPersisted = false
                     try {
                         // Only persist sm layouts; xs layouts are derived on the fly
-                        const layoutsToUpdate = (values.dashboard?.tiles || []).map((tile) => ({
-                            id: tile.id,
-                            layouts: tile.layouts?.sm ? { sm: tile.layouts.sm } : {},
-                        }))
+                        const layoutsToUpdate = [
+                            ...(values.dashboard?.tiles || []).map((tile) => ({
+                                id: tile.id,
+                                layouts: tile.layouts?.sm ? { sm: tile.layouts.sm } : {},
+                            })),
+                            ...(values.dashboard?.groups || []).map((group) => ({
+                                id: group.tile_id,
+                                layouts: { sm: groupHeaderSmLayout(group.layouts?.sm) },
+                            })),
+                        ]
 
                         const currentDashboard = values.dashboard
                         if (!currentDashboard) {
@@ -1494,10 +1602,9 @@ export const dashboardLogic = kea<dashboardLogicType>([
                         const breakdownColorsChanged = !equal(persistedBreakdownColors, breakdownColorsToSave)
                         const themeChanged = (values.dataColorThemeId ?? null) !== persistedThemeId
 
-                        const layoutsChanged = (currentDashboard.tiles || []).some((tile) => {
+                        const layoutsChanged = layoutsToUpdate.some((tile) => {
                             const originalLayouts = values.dashboardLayouts?.[tile.id]?.sm
-                            const updatedLayouts = layoutsToUpdate.find((t) => t.id === tile.id)?.layouts?.sm
-                            return !equal(originalLayouts || {}, updatedLayouts || {})
+                            return !equal(originalLayouts || {}, tile.layouts?.sm || {})
                         })
 
                         if (
@@ -1884,15 +1991,18 @@ export const dashboardLogic = kea<dashboardLogicType>([
                 dashboardNotFound: () => null,
                 setAccessDeniedToDashboard: () => null,
                 updateLayouts: (state, { layouts }) => {
-                    const itemLayouts = layoutsByTile(layouts)
+                    const itemLayouts = layoutsByTile(stripGroupFooterLayouts(layouts))
 
-                    // Only persist sm layouts; xs layouts are derived on the fly
                     return {
                         ...state,
                         tiles: state?.tiles?.map((tile) => ({
                             ...tile,
-                            layouts: itemLayouts[tile.id]?.sm ? { sm: itemLayouts[tile.id].sm } : {},
+                            layouts: itemLayouts[tile.id]?.sm ? { sm: itemLayouts[tile.id].sm } : tile.layouts,
                         })),
+                        groups: state?.groups?.map((group) => {
+                            const sm = itemLayouts[group.tile_id]?.sm
+                            return sm ? { ...group, layouts: { sm: groupHeaderSmLayout(sm) } } : group
+                        }),
                     } as DashboardType<QueryBasedInsightModel>
                 },
                 setTileProperty: (state, { tileId, properties }) => {
@@ -1906,6 +2016,10 @@ export const dashboardLogic = kea<dashboardLogicType>([
                     return {
                         ...state,
                         tiles: state?.tiles?.filter((t) => t.id !== tile.id),
+                        groups: state?.groups?.map((group) => ({
+                            ...group,
+                            member_tile_ids: group.member_tile_ids.filter((id) => id !== tile.id),
+                        })),
                     } as DashboardType<QueryBasedInsightModel>
                 },
                 [dashboardsModel.actionTypes.tileMovedToDashboard]: (state, { tile, dashboardId }) => {
@@ -2389,6 +2503,13 @@ export const dashboardLogic = kea<dashboardLogicType>([
                 addWidgetTileFinished: () => false,
             },
         ],
+        createDashboardGroupLoading: [
+            false,
+            {
+                createDashboardGroup: () => true,
+                createDashboardGroupFinished: () => false,
+            },
+        ],
         // Incremented on each scroll-to-bottom request; the view effects on the change.
         scrollToBottomSignal: [
             0,
@@ -2521,11 +2642,17 @@ export const dashboardLogic = kea<dashboardLogicType>([
                 if (!dashboard) {
                     return false
                 }
-                return (dashboard.tiles || []).some((tile: DashboardTile<QueryBasedInsightModel>) => {
+                const tilesChanged = (dashboard.tiles || []).some((tile: DashboardTile<QueryBasedInsightModel>) => {
                     const originalSm = dashboardLayouts?.[tile.id]?.sm
                     const currentSm = tile.layouts?.sm
                     return !equal(originalSm || {}, currentSm || {})
                 })
+                const groupsChanged = (dashboard.groups || []).some((group) => {
+                    const originalSm = dashboardLayouts?.[group.tile_id]?.sm
+                    const currentSm = group.layouts?.sm
+                    return !equal(originalSm || {}, currentSm || {})
+                })
+                return tilesChanged || groupsChanged
             },
         ],
         effectiveVariablesAndAssociatedInsights: [
@@ -2702,6 +2829,24 @@ export const dashboardLogic = kea<dashboardLogicType>([
                 return !!featureFlags[FEATURE_FLAGS.DASHBOARD_WIDGETS]
             },
         ],
+        dashboardGroupsEnabled: [
+            (s) => [s.featureFlags, s.dashboard, s.placement],
+            (
+                featureFlags: import('lib/logic/featureFlagLogic').FeatureFlagsSet,
+                dashboard: DashboardType<QueryBasedInsightModel> | null,
+                placement: DashboardPlacement
+            ): boolean => {
+                if (placement === DashboardPlacement.Public && (dashboard?.groups?.length ?? 0) > 0) {
+                    return true
+                }
+                return !!featureFlags[FEATURE_FLAGS.DASHBOARD_GROUPS] || (dashboard?.groups?.length ?? 0) > 0
+            },
+        ],
+        canCreateDashboardGroups: [
+            (s) => [s.featureFlags],
+            (featureFlags: import('lib/logic/featureFlagLogic').FeatureFlagsSet): boolean =>
+                !!featureFlags[FEATURE_FLAGS.DASHBOARD_GROUPS],
+        ],
         inlineTileInsertionEnabled: [
             (s) => [s.featureFlags],
             (featureFlags: import('lib/logic/featureFlagLogic').FeatureFlagsSet): boolean =>
@@ -2852,12 +2997,16 @@ export const dashboardLogic = kea<dashboardLogicType>([
             },
         ],
         layouts: [
-            (s) => [s.tiles],
+            (s) => [s.tiles, s.dashboard],
             (
                 tiles: DashboardTile<
                     QueryBasedInsightModel<import('~/queries/schema/schema-general').Node<Record<string, any>>>
-                >[]
-            ) => calculateLayouts(tiles),
+                >[],
+                dashboard: DashboardType<QueryBasedInsightModel> | null
+            ) =>
+                dashboard?.groups?.length
+                    ? calculateLayoutsWithGroups(tiles, dashboard.groups)
+                    : calculateLayouts(tiles),
             // Tile refreshes replace `tiles` once per insight response without touching geometry;
             // keeping the result reference stable stops react-grid-layout re-laying-out every tile
             // N times per dashboard refresh cycle.
@@ -3140,6 +3289,73 @@ export const dashboardLogic = kea<dashboardLogicType>([
         },
     })),
     listeners(({ actions, values, cache, props, sharedListeners }) => ({
+        createDashboardGroup: async ({ name }) => {
+            if (cache.creatingDashboardGroup) {
+                return
+            }
+            cache.creatingDashboardGroup = true
+            actions.setPendingInsertion(null)
+            try {
+                await api.create(`api/environments/${values.currentTeamId}/dashboards/${props.id}/groups/`, { name })
+                actions.loadDashboard({ action: DashboardLoadAction.Update })
+                actions.requestScrollToBottom()
+                lemonToast.success('Group added')
+            } catch {
+                lemonToast.error('Could not add group. Try again.')
+            } finally {
+                cache.creatingDashboardGroup = false
+                actions.createDashboardGroupFinished()
+            }
+        },
+        moveDashboardTileToGroup: async ({ tileId, groupId, layouts }) => {
+            try {
+                await api.create(`api/environments/${values.currentTeamId}/dashboards/${props.id}/groups/move-tile/`, {
+                    tile_id: tileId,
+                    group_id: groupId,
+                    layouts,
+                })
+                actions.loadDashboard({ action: DashboardLoadAction.Update })
+            } catch {
+                actions.loadDashboard({ action: DashboardLoadAction.Update })
+                lemonToast.error('Could not move tile. Try again.')
+            }
+        },
+        updateDashboardGroupLayout: async ({ groupId, layouts }) => {
+            try {
+                await api.create(`api/environments/${values.currentTeamId}/dashboards/${props.id}/groups/update/`, {
+                    group_id: groupId,
+                    layouts,
+                })
+                actions.loadDashboard({ action: DashboardLoadAction.Update })
+            } catch {
+                actions.loadDashboard({ action: DashboardLoadAction.Update })
+                lemonToast.error('Could not update group. Try again.')
+            }
+        },
+        renameDashboardGroup: async ({ groupId, name }) => {
+            try {
+                await api.create(`api/environments/${values.currentTeamId}/dashboards/${props.id}/groups/update/`, {
+                    group_id: groupId,
+                    name,
+                })
+                actions.loadDashboard({ action: DashboardLoadAction.Update })
+            } catch {
+                actions.loadDashboard({ action: DashboardLoadAction.Update })
+                lemonToast.error('Could not rename group. Try again.')
+            }
+        },
+        deleteDashboardGroup: async ({ groupId, memberHandling }) => {
+            try {
+                await api.create(`api/environments/${values.currentTeamId}/dashboards/${props.id}/groups/delete/`, {
+                    group_id: groupId,
+                    member_handling: memberHandling,
+                })
+                actions.loadDashboard({ action: DashboardLoadAction.Update })
+            } catch {
+                actions.loadDashboard({ action: DashboardLoadAction.Update })
+                lemonToast.error('Could not delete group. Try again.')
+            }
+        },
         scheduleRefreshDashboardWidgets: ({ tileId }: { tileId: number }) => {
             if (!cache.widgetTileRefreshScheduler) {
                 cache.widgetTileRefreshScheduler = createDashboardWidgetTileRefreshScheduler((id) =>

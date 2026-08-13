@@ -10,7 +10,13 @@ import { BREAKPOINT_COLUMN_COUNTS } from 'scenes/dashboard/dashboardUtils'
 
 import { getQueryBasedInsightModel } from '~/queries/nodes/InsightViz/utils'
 import { isFunnelsQuery, isPathsQuery, isRetentionQuery, isTrendsQuery } from '~/queries/utils'
-import { ChartDisplayType, DashboardLayoutSize, DashboardTile, QueryBasedInsightModel } from '~/types'
+import {
+    ChartDisplayType,
+    DashboardGroupType,
+    DashboardLayoutSize,
+    DashboardTile,
+    QueryBasedInsightModel,
+} from '~/types'
 
 export interface TileLayout {
     x: number
@@ -360,4 +366,145 @@ export const calculateLayouts = (
     }
 
     return allLayouts
+}
+
+export const GROUP_FOOTER_PREFIX = 'group-end-'
+
+export function stripGroupFooterLayouts(
+    layouts: Partial<Record<DashboardLayoutSize, Layout>>
+): Partial<Record<DashboardLayoutSize, Layout>> {
+    const result: Partial<Record<DashboardLayoutSize, Layout>> = {}
+    for (const [breakpoint, source] of Object.entries(layouts) as [DashboardLayoutSize, Layout][]) {
+        result[breakpoint] = source?.filter((layout) => !layout.i.startsWith(GROUP_FOOTER_PREFIX))
+    }
+    return result
+}
+
+export function calculateLayoutsWithGroups(
+    tiles: DashboardTile<QueryBasedInsightModel>[],
+    groups: readonly DashboardGroupType[]
+): Partial<Record<DashboardLayoutSize, Layout>> {
+    const layouts = calculateLayouts(tiles)
+    const sm = [...(layouts.sm ?? [])]
+    const groupTileIds = new Set(groups.map((group) => String(group.tile_id)))
+
+    for (const group of groups) {
+        const groupLayout = group.layouts.sm
+        sm.push({
+            i: String(group.tile_id),
+            x: 0,
+            y: groupLayout?.y ?? 0,
+            w: BREAKPOINT_COLUMN_COUNTS.sm,
+            h: 1,
+            minW: BREAKPOINT_COLUMN_COUNTS.sm,
+            maxW: BREAKPOINT_COLUMN_COUNTS.sm,
+            minH: 1,
+            maxH: 1,
+            isResizable: false,
+        })
+    }
+
+    const orderedGroups = [...groups].sort(
+        (a, b) => (a.layouts.sm?.y ?? 0) - (b.layouts.sm?.y ?? 0) || a.tile_id - b.tile_id
+    )
+
+    for (const group of orderedGroups) {
+        const headerLayout = sm.find((layout) => layout.i === String(group.tile_id))
+        if (!headerLayout) {
+            continue
+        }
+
+        let nextMemberY = headerLayout.y + headerLayout.h
+        const memberLayouts = group.member_tile_ids
+            .map((memberTileId) => sm.find((layout) => layout.i === String(memberTileId)))
+            .filter((layout): layout is Layout[number] => !!layout)
+            .sort((a, b) => a.y - b.y || a.x - b.x)
+        const misplacedMemberLayouts = memberLayouts.filter((layout) => layout.y < headerLayout.y + headerLayout.h)
+        const misplacedMemberHeight = misplacedMemberLayouts.reduce((height, layout) => height + layout.h, 0)
+
+        if (misplacedMemberHeight > 0) {
+            for (const layout of sm) {
+                if (layout !== headerLayout && !misplacedMemberLayouts.includes(layout) && layout.y >= headerLayout.y) {
+                    layout.y += misplacedMemberHeight + (layout.y === headerLayout.y ? headerLayout.h : 0)
+                }
+            }
+        }
+
+        for (const memberLayout of memberLayouts) {
+            if (!misplacedMemberLayouts.includes(memberLayout)) {
+                nextMemberY = Math.max(nextMemberY, memberLayout.y + memberLayout.h)
+                continue
+            }
+            memberLayout.y = nextMemberY
+            nextMemberY += memberLayout.h
+        }
+    }
+
+    sm.sort((a, b) => a.y - b.y || a.x - b.x)
+    const existingXs = new Map((layouts.xs ?? []).map((layout) => [layout.i, layout]))
+    let xsY = 0
+    const xs = sm.map((layout) => {
+        const existing = existingXs.get(layout.i)
+        const isGroup = groupTileIds.has(layout.i)
+        const h = isGroup ? 1 : (existing?.h ?? layout.h)
+        const result = { ...existing, i: layout.i, x: 0, y: xsY, w: 1, h }
+        xsY += h
+        return result
+    })
+
+    return { sm, xs }
+}
+
+export function collapseDashboardGroupLayouts(
+    layouts: Partial<Record<DashboardLayoutSize, Layout>>,
+    groups: readonly DashboardGroupType[],
+    collapsedGroupIds: ReadonlySet<string>
+): Partial<Record<DashboardLayoutSize, Layout>> {
+    const collapsedGroups = groups.filter((group) => collapsedGroupIds.has(group.id))
+    const hiddenTileIds = new Set(collapsedGroups.flatMap((group) => group.member_tile_ids.map(String)))
+    const result: Partial<Record<DashboardLayoutSize, Layout>> = {}
+
+    for (const breakpoint of Object.keys(layouts) as DashboardLayoutSize[]) {
+        const source = layouts[breakpoint] ?? []
+        const groupByHeaderTileId = new Map(collapsedGroups.map((group) => [String(group.tile_id), group.id]))
+        const groupByMemberTileId = new Map(
+            collapsedGroups.flatMap((group) => group.member_tile_ids.map((tileId) => [String(tileId), group.id]))
+        )
+        const collapsedBandsByGroup = new Map<string, { y: number; bottom: number }>()
+
+        for (const layout of source) {
+            const headerGroupId = groupByHeaderTileId.get(layout.i)
+            if (headerGroupId) {
+                collapsedBandsByGroup.set(headerGroupId, { y: layout.y, bottom: layout.y + layout.h })
+            }
+        }
+        for (const layout of source) {
+            const memberGroupId = groupByMemberTileId.get(layout.i)
+            const band = memberGroupId ? collapsedBandsByGroup.get(memberGroupId) : null
+            if (band) {
+                band.bottom = Math.max(band.bottom, layout.y + layout.h)
+            }
+        }
+
+        const collapsedBands = [...collapsedBandsByGroup.values()]
+            .map(({ y, bottom }) => ({ y, hiddenHeight: Math.max(0, bottom - y - 1) }))
+            .sort((a, b) => a.y - b.y)
+        const displayYByTileId = new Map<string, number>()
+        let bandIndex = 0
+        let shift = 0
+
+        for (const layout of [...source].sort((a, b) => a.y - b.y || a.x - b.x)) {
+            while (bandIndex < collapsedBands.length && collapsedBands[bandIndex].y < layout.y) {
+                shift += collapsedBands[bandIndex].hiddenHeight
+                bandIndex += 1
+            }
+            displayYByTileId.set(layout.i, layout.y - shift)
+        }
+
+        result[breakpoint] = source
+            .filter((layout) => !hiddenTileIds.has(layout.i))
+            .map((layout) => ({ ...layout, y: displayYByTileId.get(layout.i) ?? layout.y }))
+    }
+
+    return result
 }

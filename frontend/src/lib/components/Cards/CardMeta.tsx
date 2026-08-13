@@ -36,6 +36,8 @@ export interface CardMetaProps extends Pick<React.HTMLAttributes<HTMLDivElement>
     /** Tooltip for the details button. */
     detailsTooltip?: string
     topHeading?: JSX.Element | null
+    /** When set, replaces the default insight-type heading. */
+    headerContent?: JSX.Element | null
     samplingFactor?: number | null
     /** Additional controls to show in the top controls area */
     extraControls?: JSX.Element | null
@@ -63,6 +65,7 @@ export function CardMeta({
     moreButtons,
     moreTooltip,
     topHeading,
+    headerContent,
     areDetailsShown,
     setAreDetailsShown,
     detailsTooltip,
@@ -132,7 +135,7 @@ export function CardMeta({
                     {compact ? (
                         <>
                             <div className="CardMeta__top">
-                                <div className="CardMeta__heading">{topHeading}</div>
+                                <div className="CardMeta__heading">{headerContent ?? topHeading}</div>
                                 <div className="CardMeta__controls">
                                     {refreshControl}
                                     {showEditingControls &&
@@ -150,20 +153,26 @@ export function CardMeta({
                     ) : (
                         <>
                             <div className="CardMeta__top" ref={topRef}>
-                                <h5 ref={headingRef}>
-                                    {topHeading}
-                                    {samplingFactor && samplingFactor < 1 && (
-                                        <Tooltip
-                                            title={`Results calculated from ${100 * samplingFactor}% of users`}
-                                            placement="right"
-                                        >
-                                            <IconPieChart
-                                                className="ml-1.5 text-base align-[-0.25em]"
-                                                style={{ color: 'var(--primary-3000-hover)' }}
-                                            />
-                                        </Tooltip>
-                                    )}
-                                </h5>
+                                {headerContent ? (
+                                    <div className="CardMeta__header-content min-w-0 flex-1" ref={headingRef}>
+                                        {headerContent}
+                                    </div>
+                                ) : (
+                                    <h5 ref={headingRef}>
+                                        {topHeading}
+                                        {samplingFactor && samplingFactor < 1 && (
+                                            <Tooltip
+                                                title={`Results calculated from ${100 * samplingFactor}% of users`}
+                                                placement="right"
+                                            >
+                                                <IconPieChart
+                                                    className="ml-1.5 text-base align-[-0.25em]"
+                                                    style={{ color: 'var(--primary-3000-hover)' }}
+                                                />
+                                            </Tooltip>
+                                        )}
+                                    </h5>
+                                )}
                                 <div className="CardMeta__controls">
                                     {refreshControl}
                                     {extraControlsWithLabel}

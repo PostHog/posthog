@@ -1,8 +1,14 @@
 import { Layout, LayoutItem } from 'react-grid-layout'
 
-import { calculateDuplicateLayout, calculateInsertionLayout, calculateLayouts } from 'scenes/dashboard/tileLayouts'
+import {
+    calculateDuplicateLayout,
+    calculateInsertionLayout,
+    calculateLayouts,
+    calculateLayoutsWithGroups,
+    collapseDashboardGroupLayouts,
+} from 'scenes/dashboard/tileLayouts'
 
-import { DashboardLayoutSize, DashboardTile, QueryBasedInsightModel, TileLayout } from '~/types'
+import { DashboardGroupType, DashboardLayoutSize, DashboardTile, QueryBasedInsightModel, TileLayout } from '~/types'
 
 function textTileWithLayout(
     layouts: Record<DashboardLayoutSize, TileLayout>,
@@ -16,6 +22,87 @@ function textTileWithLayout(
 }
 
 describe('calculating tile layouts', () => {
+    it('adds group rows and hides collapsed members without changing later section order', () => {
+        const tiles = [
+            textTileWithLayout({ sm: { x: 0, y: 1, w: 6, h: 3 } } as Record<DashboardLayoutSize, TileLayout>, 1),
+            textTileWithLayout({ sm: { x: 0, y: 5, w: 6, h: 2 } } as Record<DashboardLayoutSize, TileLayout>, 2),
+        ]
+        const groups: DashboardGroupType[] = [
+            {
+                id: 'group-1',
+                tile_id: 10,
+                name: 'Acquisition',
+                layouts: { sm: { x: 0, y: 0, w: 12, h: 1 } },
+                member_tile_ids: [1],
+            },
+            {
+                id: 'group-2',
+                tile_id: 11,
+                name: 'Retention',
+                layouts: { sm: { x: 0, y: 4, w: 12, h: 1 } },
+                member_tile_ids: [2],
+            },
+        ]
+
+        const layouts = calculateLayoutsWithGroups(tiles, groups)
+        const collapsed = collapseDashboardGroupLayouts(layouts, groups, new Set(['group-1']))
+
+        expect(collapsed.sm?.map(({ i, y }) => ({ i, y }))).toEqual([
+            { i: '10', y: 0 },
+            { i: '11', y: 1 },
+            { i: '2', y: 2 },
+        ])
+    })
+
+    it('places a group member below its group header', () => {
+        const groups: DashboardGroupType[] = [
+            {
+                id: 'group-1',
+                tile_id: 10,
+                name: 'Acquisition',
+                layouts: { sm: { x: 0, y: 5, w: 12, h: 1 } },
+                member_tile_ids: [1],
+            },
+            {
+                id: 'group-2',
+                tile_id: 11,
+                name: 'Retention',
+                layouts: { sm: { x: 0, y: 5, w: 12, h: 1 } },
+                member_tile_ids: [],
+            },
+        ]
+
+        const layouts = calculateLayoutsWithGroups(
+            [textTileWithLayout({ sm: { x: 0, y: 0, w: 6, h: 2 } } as Record<DashboardLayoutSize, TileLayout>)],
+            groups
+        )
+
+        expect(layouts.sm?.find((layout) => layout.i === '1')?.y).toBe(6)
+        expect(layouts.sm?.find((layout) => layout.i === '11')?.y).toBe(8)
+    })
+
+    it('leaves ungrouped tiles in place while packing misplaced group members', () => {
+        const tiles = [
+            textTileWithLayout({ sm: { x: 0, y: 0, w: 6, h: 2 } } as Record<DashboardLayoutSize, TileLayout>, 1),
+            textTileWithLayout({ sm: { x: 0, y: 0, w: 6, h: 2 } } as Record<DashboardLayoutSize, TileLayout>, 2),
+        ]
+        const groups: DashboardGroupType[] = [
+            {
+                id: 'group-1',
+                tile_id: 10,
+                name: 'Acquisition',
+                layouts: { sm: { x: 0, y: 3, w: 12, h: 1 } },
+                member_tile_ids: [2],
+            },
+        ]
+
+        const layouts = calculateLayoutsWithGroups(tiles, groups)
+
+        expect(layouts.sm?.find((layout) => layout.i === '1')?.y).toBe(0)
+        expect(layouts.sm?.find((layout) => layout.i === '10')?.y).toBe(3)
+        expect(layouts.sm?.find((layout) => layout.i === '2')?.y).toBe(4)
+    })
+
     it('minimum width and height are added if missing', () => {
         const tiles: DashboardTile<QueryBasedInsightModel>[] = [
             textTileWithLayout({

@@ -359,6 +359,23 @@ describe('dashboardLogic', () => {
             expect(api.update).not.toHaveBeenCalled()
         })
 
+        it('preserves layouts for tiles omitted from a grid update', async () => {
+            await expectLogic(logic).toFinishAllListeners()
+
+            const hiddenTile = logic.values.dashboard!.tiles[1]
+            const hiddenTileLayouts = hiddenTile.layouts
+            const visibleLayouts = {
+                ...logic.values.layouts,
+                sm: logic.values.layouts.sm?.filter((layout) => layout.i !== String(hiddenTile.id)),
+            }
+
+            await expectLogic(logic, () => {
+                logic.actions.updateLayouts(visibleLayouts)
+            }).toFinishAllListeners()
+
+            expect(logic.values.dashboard!.tiles[1].layouts).toEqual(hiddenTileLayouts)
+        })
+
         it('saving after layout change calls api', async () => {
             await expectLogic(logic).toFinishAllListeners()
 
@@ -1294,6 +1311,121 @@ describe('dashboardLogic', () => {
                     expect.objectContaining({ breakdownValue: 'x', colorToken: 'preset-1' }),
                 ])
             })
+        })
+    })
+
+    describe('dashboard groups', () => {
+        beforeEach(() => {
+            useMocks({
+                get: {
+                    '/api/environments/:team_id/dashboards/5/': {
+                        ...dashboards[5],
+                        groups: [
+                            {
+                                id: 'group-1',
+                                name: 'Acquisition',
+                                tile_id: 99,
+                                layouts: { sm: { x: 0, y: 8, w: 12, h: 1 } },
+                                member_tile_ids: [],
+                            },
+                        ],
+                    },
+                },
+            })
+            logic = dashboardLogic({ id: 5 })
+            logic.mount()
+        })
+
+        it('persists a moved group header when saving layout changes', async () => {
+            await expectLogic(logic).toFinishAllListeners()
+
+            const modifiedLayouts = {
+                ...logic.values.layouts,
+                sm: logic.values.layouts.sm?.map((layout) => (layout.i === '99' ? { ...layout, y: 12 } : layout)),
+            }
+
+            await expectLogic(logic, () => {
+                logic.actions.updateLayouts(modifiedLayouts)
+            }).toFinishAllListeners()
+
+            expect(logic.values.hasUnsavedLayoutChanges).toBe(true)
+
+            const updateSpy = jest.spyOn(api, 'update')
+
+            await expectLogic(logic, () => {
+                logic.actions.saveEditModeChanges()
+            }).toFinishAllListeners()
+
+            expect(updateSpy).toHaveBeenCalledWith(
+                `api/environments/${MOCK_TEAM_ID}/dashboards/5`,
+                expect.objectContaining({
+                    tiles: expect.arrayContaining([
+                        expect.objectContaining({
+                            id: 99,
+                            layouts: { sm: { x: 0, y: 12, w: 12, h: 1 } },
+                        }),
+                    ]),
+                })
+            )
+        })
+
+        it('createDashboardGroup posts then reloads the dashboard', async () => {
+            await expectLogic(logic).toFinishAllListeners()
+
+            const createSpy = jest.spyOn(api, 'create').mockResolvedValueOnce({
+                id: 'group-2',
+                name: 'New group',
+                tile_id: 100,
+                layouts: { sm: { x: 0, y: 0, w: 12, h: 1 } },
+                member_tile_ids: [],
+            })
+
+            await expectLogic(logic, () => {
+                logic.actions.createDashboardGroup('New group')
+            })
+                .toDispatchActions(['createDashboardGroup', 'loadDashboard', 'createDashboardGroupFinished'])
+                .toFinishAllListeners()
+
+            expect(createSpy).toHaveBeenCalledWith(`api/environments/${MOCK_TEAM_ID}/dashboards/5/groups/`, {
+                name: 'New group',
+            })
+        })
+
+        it.each([
+            {
+                name: 'renames a group',
+                act: (): void => logic.actions.renameDashboardGroup('group-1', 'Activation'),
+                path: `api/environments/${MOCK_TEAM_ID}/dashboards/5/groups/update/`,
+                body: { group_id: 'group-1', name: 'Activation' },
+            },
+            {
+                name: 'moves a tile into a group',
+                act: (): void =>
+                    logic.actions.moveDashboardTileToGroup({
+                        tileId: 4,
+                        groupId: 'group-1',
+                        layouts: { sm: { x: 0, y: 9, w: 12, h: 2 } },
+                    }),
+                path: `api/environments/${MOCK_TEAM_ID}/dashboards/5/groups/move-tile/`,
+                body: {
+                    tile_id: 4,
+                    group_id: 'group-1',
+                    layouts: { sm: { x: 0, y: 9, w: 12, h: 2 } },
+                },
+            },
+            {
+                name: 'deletes a group and its tiles',
+                act: (): void => logic.actions.deleteDashboardGroup('group-1', 'delete_tiles'),
+                path: `api/environments/${MOCK_TEAM_ID}/dashboards/5/groups/delete/`,
+                body: { group_id: 'group-1', member_handling: 'delete_tiles' },
+            },
+        ])('$name', async ({ act, path, body }) => {
+            await expectLogic(logic).toFinishAllListeners()
+            const createSpy = jest.spyOn(api, 'create').mockResolvedValueOnce({})
+
+            await expectLogic(logic, act).toFinishAllListeners()
+
+            expect(createSpy).toHaveBeenCalledWith(path, body)
         })
     })
 

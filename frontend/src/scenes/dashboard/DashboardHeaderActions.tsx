@@ -27,14 +27,18 @@ export function getAddTileMenuItems({
     onAddInsight,
     push,
     setAddWidgetModalOpen,
+    onAddGroup,
     onBeforeSelect,
+    groupDisabledReason,
 }: {
     dashboardId: number
     dashboardWidgetsEnabled: boolean
     onAddInsight: () => void
     push: (url: string) => void
     setAddWidgetModalOpen: (open: boolean) => void
+    onAddGroup?: () => void
     onBeforeSelect?: () => void
+    groupDisabledReason?: string
 }): LemonMenuItem[] {
     const withBeforeSelect =
         (onClick: () => void): (() => void) =>
@@ -43,7 +47,7 @@ export function getAddTileMenuItems({
             onClick()
         }
 
-    return [
+    const items: LemonMenuItem[] = [
         {
             label: 'Insight',
             onClick: withBeforeSelect(onAddInsight),
@@ -59,26 +63,42 @@ export function getAddTileMenuItems({
             onClick: withBeforeSelect(() => push(urls.dashboardButtonTile(dashboardId, 'new'))),
             'data-attr': 'dashboard-add-button-tile',
         },
-        dashboardWidgetsEnabled
-            ? {
-                  label: 'Widget',
-                  tag: 'new' as const,
-                  onClick: withBeforeSelect(() => setAddWidgetModalOpen(true)),
-                  'data-attr': 'dashboard-add-widget',
-              }
-            : {
-                  label: 'Widget',
-                  tag: 'beta' as const,
-                  tooltip: 'Opens settings to enable the Dashboard widgets beta',
-                  onClick: withBeforeSelect(() => push(urls.featurePreview(FEATURE_FLAGS.DASHBOARD_WIDGETS))),
-                  'data-attr': 'dashboard-add-widget-preview',
-              },
     ]
+
+    if (onAddGroup) {
+        items.push({
+            label: 'Group',
+            tag: 'new',
+            onClick: withBeforeSelect(onAddGroup),
+            'data-attr': 'dashboard-add-group',
+            disabledReason: groupDisabledReason,
+        })
+    }
+
+    if (dashboardWidgetsEnabled) {
+        items.push({
+            label: 'Widget',
+            tag: 'new',
+            onClick: withBeforeSelect(() => setAddWidgetModalOpen(true)),
+            'data-attr': 'dashboard-add-widget',
+        })
+    } else {
+        items.push({
+            label: 'Widget',
+            tag: 'beta',
+            tooltip: 'Opens settings to enable the Dashboard widgets beta',
+            onClick: withBeforeSelect(() => push(urls.featurePreview(FEATURE_FLAGS.DASHBOARD_WIDGETS))),
+            'data-attr': 'dashboard-add-widget-preview',
+        })
+    }
+
+    return items
 }
 
 export function DashboardAddTileButton(): JSX.Element | null {
-    const { dashboard, dashboardWidgetsEnabled } = useValues(dashboardLogic)
-    const { loadDashboard, setAddWidgetModalOpen, setPendingInsertion, openAddInsightModal } =
+    const { dashboard, dashboardWidgetsEnabled, canCreateDashboardGroups, createDashboardGroupLoading } =
+        useValues(dashboardLogic)
+    const { loadDashboard, setAddWidgetModalOpen, setPendingInsertion, openAddInsightModal, createDashboardGroup } =
         useActions(dashboardLogic)
     const { push } = useActions(router)
 
@@ -118,6 +138,8 @@ export function DashboardAddTileButton(): JSX.Element | null {
                         onAddInsight: openAddInsightModal,
                         push,
                         setAddWidgetModalOpen,
+                        onAddGroup: canCreateDashboardGroups ? () => createDashboardGroup('New group') : undefined,
+                        groupDisabledReason: createDashboardGroupLoading ? 'Adding group' : undefined,
                         // Adding from the header appends at the bottom; drop any stale inline-insertion target.
                         onBeforeSelect: () => setPendingInsertion(null),
                     })}

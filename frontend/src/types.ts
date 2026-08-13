@@ -2489,6 +2489,7 @@ export interface DashboardTile<T = InsightModel> extends Tileable {
     text?: TextModel
     button_tile?: ButtonTileModel
     widget?: DashboardWidgetModel
+    parent_group_id?: string | null
     deleted?: boolean
     is_cached?: boolean
     order?: number
@@ -2682,8 +2683,17 @@ export interface DashboardTemplateListParams {
 
 export type DashboardTemplateScope = 'team' | 'global' | 'feature_flag' | 'organization'
 
+export interface DashboardGroupType {
+    id: string
+    name: string
+    tile_id: number
+    layouts: Partial<Record<DashboardLayoutSize, TileLayout>>
+    member_tile_ids: number[]
+}
+
 export interface DashboardType<T = InsightModel> extends DashboardBasicType {
     tiles: DashboardTile<T>[]
+    groups?: DashboardGroupType[]
     filters: DashboardFilter
     variables?: Record<string, HogQLVariable>
     persisted_filters?: DashboardFilter | null

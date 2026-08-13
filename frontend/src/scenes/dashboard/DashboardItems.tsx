@@ -6,6 +6,7 @@ import { router } from 'kea-router'
 import { RefObject, memo, useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { Layout, Responsive as ReactGridLayout, useContainerWidth } from 'react-grid-layout'
 import { GridBackground } from 'react-grid-layout/extras'
+import { z } from 'zod'
 
 import { DashboardWidgetItem } from '@posthog/products-dashboards/frontend/components/DashboardWidgetItem/DashboardWidgetItem'
 import { getDashboardWidgetFetchDisplayError } from '@posthog/products-dashboards/frontend/widgets/constants'
@@ -14,8 +15,10 @@ import { ApiError } from 'lib/api'
 import { InsightCard } from 'lib/components/Cards/InsightCard'
 import { EditModeEdge, useResizeHandleScrollbarPassThrough } from 'lib/components/Cards/InsightCard/EditModeEdgeOverlay'
 import { LemonBanner } from 'lib/lemon-ui/LemonBanner'
+import { LemonDialog } from 'lib/lemon-ui/LemonDialog'
 import { LemonMenuItem } from 'lib/lemon-ui/LemonMenu'
 import { DashboardEventSource, eventUsageLogic } from 'lib/utils/eventUsageLogic'
+import { localStorageSlot } from 'lib/utils/localStorageSlot'
 import { objectsEqual } from 'lib/utils/objects'
 import { addInsightToDashboardLogic } from 'scenes/dashboard/addInsightToDashboardModalLogic'
 import { getAddTileMenuItems } from 'scenes/dashboard/DashboardHeaderActions'
@@ -38,7 +41,9 @@ import { DashboardLayoutSize, DashboardMode, DashboardPlacement, DashboardType }
 
 import { DashboardButtonTileItem } from './items/DashboardButtonTileItem'
 import { DashboardErrorTileItem } from './items/DashboardErrorTileItem'
+import { DashboardGroupItem } from './items/DashboardGroupItem'
 import { DashboardTextItem } from './items/DashboardTextItem'
+import { GROUP_FOOTER_PREFIX, collapseDashboardGroupLayouts, stripGroupFooterLayouts } from './tileLayouts'
 
 const DRAG_AUTO_SCROLL_THRESHOLD = 100
 const DRAG_AUTO_SCROLL_SPEED = 50
@@ -46,6 +51,7 @@ const DRAG_AUTO_SCROLL_SPEED = 50
 const BASE_ROW_HEIGHT = 80
 const BASE_MARGIN: [number, number] = [16, 16]
 const CONTAINER_PADDING: [number, number] = [0, 0]
+const collapsedGroupsSchema = z.array(z.string())
 
 interface DashboardItemsProps {
     showCreateAnomalyAlertButton?: boolean
@@ -117,9 +123,22 @@ export function DashboardItems({ showCreateAnomalyAlertButton }: DashboardItemsP
         setDashboardMode,
         setAddWidgetModalOpen,
         setPendingInsertion,
+        moveDashboardTileToGroup,
+        updateDashboardGroupLayout,
+        deleteDashboardGroup,
     } = useActions(dashboardLogic)
+    const [collapsedGroupIds, setCollapsedGroupIds] = useState<Set<string>>(() => new Set())
+    const [groupLayoutTransitioning, setGroupLayoutTransitioning] = useState(false)
+    const [interactionLayouts, setInteractionLayouts] = useState<Partial<Record<DashboardLayoutSize, Layout>> | null>(
+        null
+    )
+    const [pendingGroupDrop, setPendingGroupDrop] = useState<{
+        tileId: number
+        groupId: string | null
+        layout: Layout[number]
+    } | null>(null)
     const { showAddInsightToDashboardModal } = useActions(addInsightToDashboardLogic)
-    const { updateWidgetTile } = useAsyncActions(dashboardLogic)
+    const { updateWidgetTile, renameDashboardGroup } = useAsyncActions(dashboardLogic)
     const { renameInsight } = useActions(insightsModel)
     const { reportDashboardTileRepositioned } = useActions(eventUsageLogic)
     const { push } = useActions(router)
@@ -141,11 +160,115 @@ export function DashboardItems({ showCreateAnomalyAlertButton }: DashboardItemsP
     // (every InsightCard) that make the dragged tile lag the cursor. Stash the latest layout and commit once on stop.
     const interactionInProgress = useRef(false)
     const pendingLayouts = useRef<Partial<Record<DashboardLayoutSize, Layout>> | null>(null)
+    const pendingInteractionLayouts = useRef<Partial<Record<DashboardLayoutSize, Layout>> | null>(null)
+    const interactionLayoutFrame = useRef<number | null>(null)
     const dragEndTimeout = useRef<number | null>(null)
+    const dragTargetGroupId = useRef<string | null | undefined>(undefined)
+    const groupSectionElements = useRef<Array<{ id: string; element: HTMLElement; collapsed: boolean }>>([])
+    const groupHeaderTileIds = useRef<Set<string>>(new Set())
+    const groupLayoutTransitionTimeout = useRef<number | null>(null)
+    const pendingGroupDropTimeout = useRef<number | null>(null)
     const scrollAnimationRef = useRef<number | null>(null)
     const scrollContainerRef = useRef<HTMLElement | null>(null)
     const scrollContainerRectRef = useRef<DOMRect | null>(null)
     const lastScrollSignalRef = useRef(scrollToBottomSignal)
+
+    const queueInteractionLayouts = useCallback((nextLayouts: Partial<Record<DashboardLayoutSize, Layout>>) => {
+        pendingInteractionLayouts.current = nextLayouts
+        if (interactionLayoutFrame.current === null) {
+            interactionLayoutFrame.current = requestAnimationFrame(() => {
+                setInteractionLayouts(pendingInteractionLayouts.current)
+                interactionLayoutFrame.current = null
+            })
+        }
+    }, [])
+
+    useEffect(() => {
+        if (!dashboard?.id || placement === DashboardPlacement.Export) {
+            setCollapsedGroupIds(new Set())
+            return
+        }
+        const stored = localStorageSlot(`dashboard-groups-collapsed-v1-${dashboard.id}`, collapsedGroupsSchema).get()
+        setCollapsedGroupIds(new Set(stored ?? []))
+    }, [dashboard?.id, placement])
+
+    const toggleGroupCollapsed = useCallback(
+        (groupId: string) => {
+            if (!dashboard?.id || placement === DashboardPlacement.Export) {
+                return
+            }
+            setCollapsedGroupIds((current) => {
+                const next = new Set(current)
+                if (next.has(groupId)) {
+                    next.delete(groupId)
+                } else {
+                    next.add(groupId)
+                }
+                localStorageSlot(`dashboard-groups-collapsed-v1-${dashboard.id}`, collapsedGroupsSchema).set([...next])
+                return next
+            })
+            setGroupLayoutTransitioning(true)
+            if (groupLayoutTransitionTimeout.current) {
+                window.clearTimeout(groupLayoutTransitionTimeout.current)
+            }
+            groupLayoutTransitionTimeout.current = window.setTimeout(() => setGroupLayoutTransitioning(false), 240)
+        },
+        [dashboard?.id, placement]
+    )
+
+    const displayLayouts = useMemo(() => {
+        const activeLayouts = interactionLayouts ?? layouts
+        const collapsed = collapseDashboardGroupLayouts(
+            pendingGroupDrop
+                ? {
+                      ...activeLayouts,
+                      sm: activeLayouts.sm?.map((layout) =>
+                          layout.i === String(pendingGroupDrop.tileId) ? pendingGroupDrop.layout : layout
+                      ),
+                  }
+                : activeLayouts,
+            dashboard?.groups ?? [],
+            collapsedGroupIds
+        )
+        if (!layoutEditMode || !dashboard?.groups?.length) {
+            return collapsed
+        }
+        const withFooters: Partial<Record<DashboardLayoutSize, Layout>> = {}
+        for (const [breakpoint, source] of Object.entries(collapsed) as [DashboardLayoutSize, Layout][]) {
+            const items = [...(source ?? [])]
+            for (const group of dashboard.groups) {
+                if (collapsedGroupIds.has(group.id)) {
+                    continue
+                }
+                const header = items.find((layout) => layout.i === String(group.tile_id))
+                if (!header) {
+                    continue
+                }
+                const memberTileIds = new Set(group.member_tile_ids.map(String))
+                let bottom = header.y + header.h
+                for (const layout of items) {
+                    if (memberTileIds.has(layout.i)) {
+                        bottom = Math.max(bottom, layout.y + layout.h)
+                    }
+                }
+                items.push({
+                    i: `${GROUP_FOOTER_PREFIX}${group.id}`,
+                    x: 0,
+                    y: bottom,
+                    w: BREAKPOINT_COLUMN_COUNTS[breakpoint] ?? BREAKPOINT_COLUMN_COUNTS.sm,
+                    h: 1,
+                    static: true,
+                })
+            }
+            withFooters[breakpoint] = items
+        }
+        return withFooters
+    }, [interactionLayouts, layouts, dashboard?.groups, collapsedGroupIds, pendingGroupDrop, layoutEditMode])
+
+    const visibleTiles = useMemo(
+        () => tiles.filter((tile) => !tile.parent_group_id || !collapsedGroupIds.has(tile.parent_group_id)),
+        [tiles, collapsedGroupIds]
+    )
 
     useEffect(() => {
         return () => {
@@ -155,10 +278,39 @@ export function DashboardItems({ showCreateAnomalyAlertButton }: DashboardItemsP
             if (dragEndTimeout.current) {
                 window.clearTimeout(dragEndTimeout.current)
             }
+            if (groupLayoutTransitionTimeout.current) {
+                window.clearTimeout(groupLayoutTransitionTimeout.current)
+            }
+            if (interactionLayoutFrame.current) {
+                cancelAnimationFrame(interactionLayoutFrame.current)
+            }
+            if (pendingGroupDropTimeout.current) {
+                window.clearTimeout(pendingGroupDropTimeout.current)
+            }
             scrollContainerRef.current = null
             scrollContainerRectRef.current = null
         }
     }, [])
+
+    useEffect(() => {
+        if (!pendingGroupDrop) {
+            return
+        }
+        const tile = tiles.find((candidate) => candidate.id === pendingGroupDrop.tileId)
+        const tileLayout = layouts.sm?.find((layout) => layout.i === String(pendingGroupDrop.tileId))
+        const layoutMatches =
+            tileLayout?.x === pendingGroupDrop.layout.x &&
+            tileLayout.y === pendingGroupDrop.layout.y &&
+            tileLayout.w === pendingGroupDrop.layout.w &&
+            tileLayout.h === pendingGroupDrop.layout.h
+        if ((tile?.parent_group_id ?? null) === pendingGroupDrop.groupId && layoutMatches) {
+            setPendingGroupDrop(null)
+            if (pendingGroupDropTimeout.current) {
+                window.clearTimeout(pendingGroupDropTimeout.current)
+                pendingGroupDropTimeout.current = null
+            }
+        }
+    }, [layouts.sm, pendingGroupDrop, tiles])
 
     // Scroll the dashboard to the bottom when the logic requests it (e.g. after adding tiles).
     // Two animation frames let React commit and react-grid-layout grow the container before we measure.
@@ -182,11 +334,7 @@ export function DashboardItems({ showCreateAnomalyAlertButton }: DashboardItemsP
     }, [scrollToBottomSignal])
     const className = clsx({
         'dashboard-view-mode mb-8': !layoutEditMode,
-        // In edit mode, dragging is bounded to the grid's own clientHeight, which is exactly the
-        // content height — so there's nowhere to drag a tile into to create a new bottom row.
-        // box-content + padding-bottom grows clientHeight (padding only counts under content-box,
-        // since preflight defaults everything to border-box), opening up draggable space below the
-        // last tile that scales with content. A margin wouldn't work — it sits outside clientHeight.
+        'dashboard-group-transition': groupLayoutTransitioning,
         'dashboard-edit-mode box-content pb-[40vh]': layoutEditMode,
     })
 
@@ -243,6 +391,43 @@ export function DashboardItems({ showCreateAnomalyAlertButton }: DashboardItemsP
     const rowHeight = BASE_ROW_HEIGHT * effectiveZoom
     const spacingFactor = effectiveZoom < 1 ? 0.9 : 1
     const margin = useMemo(() => BASE_MARGIN.map((m) => m * spacingFactor) as [number, number], [spacingFactor])
+    const groupSections = useMemo(() => {
+        const smLayouts = displayLayouts.sm ?? []
+        const groupLayouts = (dashboard?.groups ?? [])
+            .flatMap((group) => {
+                const layout = smLayouts.find((candidate) => String(group.tile_id) === candidate.i)
+                return layout ? [{ group, layout }] : []
+            })
+            .sort((a, b) => a.layout.y - b.layout.y)
+
+        return groupLayouts.map(({ group, layout }) => {
+            const collapsed = collapsedGroupIds.has(group.id)
+            const sectionTop = layout.y
+            let sectionBottom = layout.y + layout.h
+
+            if (!collapsed) {
+                const memberTileIds = new Set(group.member_tile_ids.map(String))
+                const memberLayouts = smLayouts.filter((candidate) => memberTileIds.has(candidate.i))
+                sectionBottom = memberLayouts.reduce(
+                    (bottom, candidate) => Math.max(bottom, candidate.y + candidate.h),
+                    sectionBottom
+                )
+                if (layoutEditMode) {
+                    sectionBottom += 1
+                }
+            }
+
+            const rowSpan = Math.max(1, sectionBottom - sectionTop)
+            return {
+                id: group.id,
+                collapsed,
+                startY: sectionTop,
+                endY: sectionBottom,
+                top: sectionTop * (rowHeight + margin[1]),
+                height: rowSpan * rowHeight + (rowSpan - 1) * margin[1],
+            }
+        })
+    }, [dashboard?.groups, displayLayouts.sm, collapsedGroupIds, margin, rowHeight, layoutEditMode])
 
     const getInsertMenuItems = useCallback(
         (targetX: number, targetY: number, targetW?: number): LemonMenuItem[] =>
@@ -277,7 +462,7 @@ export function DashboardItems({ showCreateAnomalyAlertButton }: DashboardItemsP
         () => ({
             enabled: layoutEditMode && !isMobileView,
             handle: '.CardMeta,.TextCard__body,.ButtonTileCard__body,.WidgetCard__header,.drag-handle',
-            cancel: 'a,table,button,input,.Popover',
+            cancel: 'a,table,button:not(.drag-handle),input,.Popover',
             bounded: true,
         }),
         [layoutEditMode, isMobileView]
@@ -352,23 +537,28 @@ export function DashboardItems({ showCreateAnomalyAlertButton }: DashboardItemsP
             if (!layoutEditMode) {
                 return
             }
-            // Defer commits while dragging/resizing — the final layout is flushed on gesture stop.
             if (interactionInProgress.current) {
                 pendingLayouts.current = newLayouts
+                queueInteractionLayouts(newLayouts)
                 return
             }
-            updateLayouts(newLayouts)
+            updateLayouts(stripGroupFooterLayouts(newLayouts))
         },
-        [layoutEditMode, updateLayouts]
+        [layoutEditMode, queueInteractionLayouts, updateLayouts]
     )
 
     const flushPendingLayouts = useCallback(() => {
         interactionInProgress.current = false
+        if (interactionLayoutFrame.current) {
+            cancelAnimationFrame(interactionLayoutFrame.current)
+            interactionLayoutFrame.current = null
+        }
+        pendingInteractionLayouts.current = null
+        setInteractionLayouts(null)
         if (pendingLayouts.current) {
-            updateLayouts(pendingLayouts.current)
+            updateLayouts(stripGroupFooterLayouts(pendingLayouts.current))
             pendingLayouts.current = null
         }
-        // Remeasure once the gesture settles, since height updates were suppressed during it.
         requestAnimationFrame(() => {
             if (containerRef.current) {
                 setContainerHeight(containerRef.current.clientHeight)
@@ -388,10 +578,16 @@ export function DashboardItems({ showCreateAnomalyAlertButton }: DashboardItemsP
         interactionInProgress.current = true
     }, [])
 
-    const handleResize = useCallback((_layout: any, _oldItem: any, newItem: any) => {
-        // Setting state to the same id bails out of re-rendering, so this only re-renders once per gesture.
-        setResizingTileId(newItem.i)
-    }, [])
+    const handleResize = useCallback(
+        (liveLayout: Layout, _oldItem: Layout[number] | null, newItem: Layout[number] | null) => {
+            if (!newItem) {
+                return
+            }
+            setResizingTileId(newItem.i)
+            queueInteractionLayouts({ ...layouts, sm: liveLayout })
+        },
+        [layouts, queueInteractionLayouts]
+    )
 
     const handleResizeStop = useCallback(() => {
         setResizingTileId(null)
@@ -403,13 +599,41 @@ export function DashboardItems({ showCreateAnomalyAlertButton }: DashboardItemsP
 
     const handleDragStart = useCallback(() => {
         interactionInProgress.current = true
+        dragTargetGroupId.current = undefined
+        groupHeaderTileIds.current = new Set((dashboard?.groups ?? []).map((group) => String(group.tile_id)))
+        groupSectionElements.current = Array.from(
+            document.querySelectorAll<HTMLElement>('[data-attr="dashboard-group-section"][data-group-id]')
+        ).flatMap((element) => {
+            const id = element.getAttribute('data-group-id')
+            return id ? [{ id, element, collapsed: element.getAttribute('data-collapsed') === 'true' }] : []
+        })
         scrollContainerRef.current = document.getElementById('main-content')
         scrollContainerRectRef.current = scrollContainerRef.current?.getBoundingClientRect() ?? null
-    }, [])
+    }, [dashboard?.groups])
 
     const handleDrag = useCallback(
-        (_layout: unknown, _oldItem: unknown, _newItem: unknown, _placeholder: unknown, e: unknown) => {
+        (_layout: unknown, _oldItem: unknown, newItem: unknown, _placeholder: unknown, e: unknown) => {
             isDragging.current = true
+            const mouseY = (e as MouseEvent).clientY
+            const draggedTileId = (newItem as { i?: string } | null)?.i
+            const draggingGroupHeader = !!draggedTileId && groupHeaderTileIds.current.has(draggedTileId)
+            let destinationId: string | null = null
+            if (!draggingGroupHeader) {
+                for (const { id, element } of groupSectionElements.current) {
+                    const rect = element.getBoundingClientRect()
+                    if (mouseY >= rect.top && mouseY <= rect.bottom) {
+                        destinationId = id
+                        break
+                    }
+                }
+            }
+            dragTargetGroupId.current = destinationId
+            for (const { id, element } of groupSectionElements.current) {
+                element.classList.toggle(
+                    'DashboardGroupSection--drop-target',
+                    !draggingGroupHeader && id === destinationId
+                )
+            }
             if (dragEndTimeout.current) {
                 window.clearTimeout(dragEndTimeout.current)
             }
@@ -423,8 +647,6 @@ export function DashboardItems({ showCreateAnomalyAlertButton }: DashboardItemsP
             if (!scrollContainer || !containerRect) {
                 return
             }
-
-            const mouseY = (e as MouseEvent).clientY
 
             let scrollSpeed = 0
             if (mouseY < containerRect.top + DRAG_AUTO_SCROLL_THRESHOLD) {
@@ -451,24 +673,94 @@ export function DashboardItems({ showCreateAnomalyAlertButton }: DashboardItemsP
         []
     )
 
-    const handleDragStop = useCallback(() => {
-        if (scrollAnimationRef.current) {
-            cancelAnimationFrame(scrollAnimationRef.current)
-            scrollAnimationRef.current = null
-        }
-        scrollContainerRef.current = null
-        scrollContainerRectRef.current = null
-        if (dragEndTimeout.current) {
-            window.clearTimeout(dragEndTimeout.current)
-        }
-        dragEndTimeout.current = window.setTimeout(() => {
-            isDragging.current = false
-        }, 250)
-        flushPendingLayouts()
-        if (dashboard?.id) {
-            reportDashboardTileRepositioned(dashboard.id, 'moved', effectiveZoom)
-        }
-    }, [dashboard?.id, reportDashboardTileRepositioned, effectiveZoom, flushPendingLayouts])
+    const handleDragStop = useCallback(
+        (
+            _layout: unknown,
+            _oldItem: unknown,
+            newItem: { i: string; x: number; y: number; w: number; h: number } | null
+        ) => {
+            if (!newItem) {
+                return
+            }
+            if (scrollAnimationRef.current) {
+                cancelAnimationFrame(scrollAnimationRef.current)
+                scrollAnimationRef.current = null
+            }
+            scrollContainerRef.current = null
+            scrollContainerRectRef.current = null
+            if (dragEndTimeout.current) {
+                window.clearTimeout(dragEndTimeout.current)
+            }
+            dragEndTimeout.current = window.setTimeout(() => {
+                isDragging.current = false
+            }, 250)
+            const pointerDestinationGroupId = dragTargetGroupId.current
+            dragTargetGroupId.current = undefined
+            for (const { element } of groupSectionElements.current) {
+                element.classList.remove('DashboardGroupSection--drop-target')
+            }
+            groupSectionElements.current = []
+            const droppedLayouts = pendingLayouts.current ?? displayLayouts
+            flushPendingLayouts()
+            const group = dashboard?.groups?.find((candidate) => String(candidate.tile_id) === newItem.i)
+            if (group) {
+                updateDashboardGroupLayout({
+                    groupId: group.id,
+                    layouts: { sm: { x: 0, y: newItem.y, w: BREAKPOINT_COLUMN_COUNTS.sm, h: 1 } },
+                })
+            } else {
+                const tile = tiles.find((candidate) => String(candidate.id) === newItem.i)
+                if (tile) {
+                    const orderedGroups = (dashboard?.groups ?? [])
+                        .flatMap((candidate) => {
+                            const layout = droppedLayouts.sm?.find((item) => item.i === String(candidate.tile_id))
+                            return layout ? [{ group: candidate, layout }] : []
+                        })
+                        .sort((a, b) => a.layout.y - b.layout.y)
+                    const destination = orderedGroups.filter((candidate) => candidate.layout.y < newItem.y).at(-1)
+                    const section = groupSections.find(
+                        (candidate) =>
+                            !candidate.collapsed && newItem.y >= candidate.startY && newItem.y < candidate.endY
+                    )
+                    let destinationGroupId = section?.id ?? destination?.group.id ?? null
+                    if (pointerDestinationGroupId !== undefined) {
+                        destinationGroupId = pointerDestinationGroupId
+                    }
+                    if ((tile.parent_group_id ?? null) !== destinationGroupId) {
+                        const droppedTileLayout = {
+                            ...newItem,
+                            i: String(tile.id),
+                        }
+                        setPendingGroupDrop({ tileId: tile.id, groupId: destinationGroupId, layout: droppedTileLayout })
+                        if (pendingGroupDropTimeout.current) {
+                            window.clearTimeout(pendingGroupDropTimeout.current)
+                        }
+                        pendingGroupDropTimeout.current = window.setTimeout(() => setPendingGroupDrop(null), 5000)
+                        moveDashboardTileToGroup({
+                            tileId: tile.id,
+                            groupId: destinationGroupId,
+                            layouts: { sm: { x: newItem.x, y: newItem.y, w: newItem.w, h: newItem.h } },
+                        })
+                    }
+                }
+            }
+            if (dashboard?.id) {
+                reportDashboardTileRepositioned(dashboard.id, 'moved', effectiveZoom)
+            }
+        },
+        [
+            dashboard?.id,
+            dashboard?.groups,
+            displayLayouts,
+            groupSections,
+            reportDashboardTileRepositioned,
+            effectiveZoom,
+            flushPendingLayouts,
+            moveDashboardTileToGroup,
+            updateDashboardGroupLayout,
+            tiles,
+        ]
+    )
 
     return (
         <div className="dashboard-items-wrapper" ref={containerRef as RefObject<HTMLDivElement>}>
@@ -492,13 +784,30 @@ export function DashboardItems({ showCreateAnomalyAlertButton }: DashboardItemsP
                             color="var(--color-bg-surface-secondary)"
                         />
                     )}
-
+                    {groupSections.map((section) => (
+                        <div
+                            key={section.id}
+                            data-attr="dashboard-group-section"
+                            data-group-id={section.id}
+                            data-collapsed={section.collapsed}
+                            className={clsx(
+                                'DashboardGroupSection',
+                                groupLayoutTransitioning && 'DashboardGroupSection--transitioning'
+                            )}
+                            style={{
+                                top: section.top - margin[1] / 2,
+                                height: section.height + margin[1],
+                                left: -margin[0] / 2,
+                                right: -margin[0] / 2,
+                            }}
+                        />
+                    ))}
                     <ReactGridLayout
                         width={gridWidth}
                         className={className}
                         dragConfig={dragConfig}
                         resizeConfig={resizeConfig}
-                        layouts={layouts as Partial<Record<DashboardLayoutSize, Layout>>}
+                        layouts={displayLayouts as Partial<Record<DashboardLayoutSize, Layout>>}
                         rowHeight={rowHeight}
                         margin={margin}
                         containerPadding={CONTAINER_PADDING}
@@ -513,9 +822,46 @@ export function DashboardItems({ showCreateAnomalyAlertButton }: DashboardItemsP
                         onDrag={handleDrag}
                         onDragStop={handleDragStop}
                     >
-                        {tiles?.map((tile) => {
+                        {dashboard?.groups?.map((group) => (
+                            <DashboardGroupItem
+                                key={group.tile_id}
+                                group={group}
+                                collapsed={collapsedGroupIds.has(group.id)}
+                                onToggle={() => toggleGroupCollapsed(group.id)}
+                                showActions={canEditDashboard && isEditablePlacement}
+                                compact={isLayoutZoomToggled}
+                                onDragHandleMouseDown={onDragHandleMouseDown}
+                                onRename={(name) => renameDashboardGroup(group.id, name)}
+                                onDelete={() =>
+                                    LemonDialog.open({
+                                        title: 'Delete this group?',
+                                        description: `${group.member_tile_ids.length} tiles are in this group. You can delete them or move them out of the group.`,
+                                        primaryButton: {
+                                            children: 'Delete group and tiles',
+                                            status: 'danger',
+                                            onClick: () => deleteDashboardGroup(group.id, 'delete_tiles'),
+                                        },
+                                        secondaryButton: {
+                                            children: 'Move tiles to ungrouped',
+                                            onClick: () => deleteDashboardGroup(group.id, 'move_to_ungrouped'),
+                                        },
+                                        tertiaryButton: { children: 'Cancel' },
+                                    })
+                                }
+                            />
+                        ))}
+                        {layoutEditMode &&
+                            dashboard?.groups
+                                ?.filter((group) => !collapsedGroupIds.has(group.id))
+                                .map((group) => (
+                                    <div
+                                        key={`${GROUP_FOOTER_PREFIX}${group.id}`}
+                                        className="DashboardGroupSectionFooter"
+                                    />
+                                ))}
+                        {visibleTiles.map((tile) => {
                             const { insight, text, button_tile, widget } = tile
-                            const smLayout = layouts['sm']?.find((l) => {
+                            const smLayout = displayLayouts['sm']?.find((l) => {
                                 return l.i == tile.id.toString()
                             })
 
