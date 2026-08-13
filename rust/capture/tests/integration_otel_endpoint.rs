@@ -131,10 +131,11 @@ struct TestClientOptions {
     event_restriction_service: Option<EventRestrictionService>,
     quota_limiter: Option<CaptureQuotaLimiter>,
     ai_gateway_signing_secret: Option<String>,
-    // Opt-in OverflowLimiter wiring. `None` (default) matches production
-    // configs without `OVERFLOW_ENABLED=true` and exercises the no-op branch
-    // of `stamp_overflow_reason`.
-    overflow_limiter: Option<Arc<OverflowLimiter>>,
+    // Opt-in OverflowLimiter wiring, on the AI lane where OTEL spans land.
+    // `None` (default) matches production configs without
+    // `OVERFLOW_ENABLED=true` and exercises the no-op branch of
+    // `stamp_overflow_reason`.
+    ai_events_overflow_limiter: Option<Arc<OverflowLimiter>>,
     // Opt-in warnings emitter. `None` (default) matches deploys without
     // `CAPTURE_INGESTION_WARNINGS_ENABLED` and exercises the no-op branch of
     // every emit site.
@@ -177,25 +178,25 @@ fn make_test_client_with_options(sink: &CapturingSink, options: TestClientOption
         options.event_restriction_service,
         None, // recorder_handle
         CaptureMode::Events,
-        None,                     // concurrency_limit
-        25 * 1024 * 1024,         // event_payload_size_limit
-        false,                    // enable_historical_rerouting
-        1_i64,                    // historical_rerouting_threshold_days
-        false,                    // is_mirror_deploy
-        0.0_f32,                  // verbose_sample_percent
-        26_214_400,               // ai_max_sum_of_parts_bytes
-        None,                     // body_chunk_read_timeout_ms
-        256,                      // body_read_chunk_size_kb
-        10 * 1024 * 1024,         // capture_v1_max_compressed_body_bytes
-        50 * 1024 * 1024,         // capture_v1_max_decompressed_body_bytes
-        options.overflow_limiter, // overflow_limiter
-        None,                     // ai_events_overflow_limiter
-        None,                     // ai_byte_rate_limiter
-        None,                     // replay_overflow_limiter
-        None,                     // v1_sink_router
-        8,                        // capture_v1_scatter_gather_min_batch
+        None,             // concurrency_limit
+        25 * 1024 * 1024, // event_payload_size_limit
+        false,            // enable_historical_rerouting
+        1_i64,            // historical_rerouting_threshold_days
+        false,            // is_mirror_deploy
+        0.0_f32,          // verbose_sample_percent
+        26_214_400,       // ai_max_sum_of_parts_bytes
+        None,             // body_chunk_read_timeout_ms
+        256,              // body_read_chunk_size_kb
+        10 * 1024 * 1024, // capture_v1_max_compressed_body_bytes
+        50 * 1024 * 1024, // capture_v1_max_decompressed_body_bytes
+        None,             // overflow_limiter
+        options.ai_events_overflow_limiter,
+        None, // ai_byte_rate_limiter
+        None, // replay_overflow_limiter
+        None, // v1_sink_router
+        8,    // capture_v1_scatter_gather_min_batch
         options.ai_gateway_signing_secret,
-        false,                             // ai_events_overflow_enabled
+        true,                              // ai_events_overflow_enabled
         options.ingestion_warning_emitter, // ingestion_warning_emitter
     );
 
@@ -413,7 +414,7 @@ async fn test_single_span_produces_one_event() {
     assert_eq!(event.event.token, TOKEN);
     assert_eq!(event.event.event, "$ai_generation");
     assert_eq!(event.event.distinct_id, "user-1");
-    assert_eq!(event.metadata.data_type, DataType::AnalyticsMain);
+    assert_eq!(event.metadata.data_type, DataType::AiEvents);
     assert_eq!(event.metadata.event_name, "$ai_generation");
 
     let data = parse_event_data(event);
@@ -1577,10 +1578,9 @@ async fn test_filtered_drop_restriction_rejects_otel_batch() {
 // ============================================================================
 //
 // `otel_handler` bypasses `events::analytics::process_events` and produces
-// `DataType::AnalyticsMain` spans directly, so the shared
-// `stamp_overflow_reason` helper is what preserves OverflowLimiter parity for
-// `capture-ai-prod-us`. These tests exercise the helper end-to-end across the
-// OTEL batch path.
+// `DataType::AiEvents` spans directly, so the shared `stamp_overflow_reason`
+// helper is what preserves OverflowLimiter parity for `capture-ai-prod-us`.
+// These tests exercise the helper end-to-end across the OTEL batch path.
 //
 // Note on OTEL batching semantics: `otel::identity::extract_distinct_id`
 // returns a single distinct_id for the entire request (derived from
@@ -1656,7 +1656,7 @@ async fn test_otel_batch_with_hot_token_stamps_force_limited_on_every_span() {
     let client = make_test_client_with_options(
         &sink,
         TestClientOptions {
-            overflow_limiter: Some(overflow_limiter),
+            ai_events_overflow_limiter: Some(overflow_limiter),
             ..Default::default()
         },
     );
@@ -1678,7 +1678,7 @@ async fn test_otel_batch_with_hot_token_stamps_force_limited_on_every_span() {
             event.metadata.skip_person_processing,
             "span[{i}] ForceLimited implies skip_person_processing"
         );
-        assert_eq!(event.metadata.data_type, DataType::AnalyticsMain);
+        assert_eq!(event.metadata.data_type, DataType::AiEvents);
     }
 }
 
@@ -1699,7 +1699,7 @@ async fn test_otel_batch_rate_limited_key_stamps_overbudget_spans() {
     let client = make_test_client_with_options(
         &sink,
         TestClientOptions {
-            overflow_limiter: Some(overflow_limiter),
+            ai_events_overflow_limiter: Some(overflow_limiter),
             ..Default::default()
         },
     );
