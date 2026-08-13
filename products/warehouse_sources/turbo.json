@@ -8,6 +8,7 @@
                 "backend/routes.py",
                 "backend/models/**",
                 "backend/migrations/**",
+                "backend/tasks/**",
                 "backend/temporal/data_imports/naming_convention.py",
                 "backend/temporal/data_imports/pipelines/core/consts.py",
                 "backend/temporal/data_imports/sources/generated_configs/**",
