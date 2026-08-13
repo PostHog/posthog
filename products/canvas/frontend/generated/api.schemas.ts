@@ -314,102 +314,6 @@ export interface CanvasBuildActionApi {
 }
 
 /**
- * One per-file edit: set a file's content, or delete it.
- */
-export interface CanvasSourceEditOperationApi {
-    /** Project-relative path of the file to write or delete (e.g. "src/canvas.tsx"). */
-    path: string
-    /**
-     * The file's complete new content. Null (or omitted) deletes the file.
-     * @nullable
-     */
-    content?: string | null
-}
-
-/**
- * Payload for publishing per-file edits against the canvas's current source.
- */
-export interface CanvasSourceEditApi {
-    /** Edits applied in order to the canvas's current source project. */
-    operations: CanvasSourceEditOperationApi[]
-    /** Short description of the change, stored on the appended version history entry. */
-    prompt?: string
-    /**
-     * Optional new display name for the canvas.
-     * @maxLength 400
-     */
-    name?: string
-    /**
-     * Required optimistic-concurrency guard: the current_version_id the edits are based on (null when the canvas has never been published). Diff edits against a moved head are rejected with 409 version_conflict — they cannot be published unguarded.
-     * @nullable
-     */
-    expected_current_version_id: string | null
-}
-
-/**
- * Identity and version pointers for one canvas.
- */
-export interface CanvasSummaryApi {
-    /** The canvas's id. */
-    id: string
-    /** Display name of the canvas. */
-    name: string
-    /** Id of the channel the canvas belongs to. */
-    channel_id: string
-    /**
-     * Id of the live source version — pass as expected_current_version_id on publish. Null before the first publish.
-     * @nullable
-     */
-    current_version_id: string | null
-    /**
-     * Id of the canvas's live (last successful, still-eligible) build. Null until a build completes.
-     * @nullable
-     */
-    published_build_id: string | null
-    /** When the canvas was created. */
-    created_at: string
-}
-
-/**
- * Result of a successful source-project publish.
- */
-export interface CanvasSourcePublishResponseApi {
-    /** The canvas after the publish, including the new version pointer. */
-    canvas: CanvasSummaryApi
-    /** Id of the source version this publish created. */
-    current_version_id: string
-    /** Advisory (warning-severity) diagnostics recorded for the published project. */
-    diagnostics: CanvasDiagnosticApi[]
-}
-
-/**
- * 400 body for a publish whose source project failed validation.
- */
-export interface CanvasSourceInvalidApi {
-    /** Human-readable summary of why the project was rejected. */
-    detail: string
-    /** Always "invalid_source_project". */
-    code: string
-    /** The validation diagnostics, including at least one error. */
-    diagnostics: CanvasDiagnosticApi[]
-}
-
-/**
- * 409 body for a guarded canvas publish based on a stale version.
- */
-export interface CanvasPublishConflictApi {
-    /** Human-readable description of the conflict and how to recover. */
-    detail: string
-    /** Always "version_conflict". */
-    code: string
-    /**
-     * The canvas's live current_version_id at rejection time (null when the canvas has no versions).
-     * @nullable
-     */
-    current_version_id: string | null
-}
-
-/**
  * * `base64` - base64
  */
 export type EncodingEnumApi = (typeof EncodingEnumApi)[keyof typeof EncodingEnumApi]
@@ -516,6 +420,195 @@ export interface CanvasSourceProjectApi {
 }
 
 /**
+ * Payload for staging a complete source project as a draft build.
+ */
+export interface CanvasSourceDraftApi {
+    /** The complete source project to stage as a draft. */
+    project: CanvasSourceProjectApi
+    /** Short description of the change, stored on the draft's version history entry. */
+    prompt?: string
+}
+
+/**
+ * How a draft's declared capabilities grow the current head's. A head that
+ * predates the capabilities snapshot reports every declaration as an addition.
+ */
+export interface CanvasCapabilityWideningApi {
+    /** True when the draft declares any capability the current head does not. */
+    widens: boolean
+    /** Insight short ids the draft newly declares access to. */
+    insights_added: string[]
+    /** Event names the draft newly declares it may capture. */
+    capture_events_added: string[]
+    /** True when the draft enables inline queries and the current head does not. */
+    inline_queries_enabled: boolean
+    /** Network origins the draft newly declares it may reach. */
+    network_origins_added: string[]
+}
+
+/**
+ * Result of staging a draft build.
+ */
+export interface CanvasSourceDraftResponseApi {
+    /** Id of the draft source version this request created. */
+    version_id: string
+    /** The queued draft build; poll `builds` until it is terminal. */
+    build: CanvasBuildApi
+    /** Advisory (warning-severity) diagnostics recorded for the drafted project. */
+    diagnostics: CanvasDiagnosticApi[]
+    /** What the draft's declared capabilities grant beyond the current head's. Review before promoting. */
+    capability_widening: CanvasCapabilityWideningApi
+}
+
+/**
+ * 400 body for a publish whose source project failed validation.
+ */
+export interface CanvasSourceInvalidApi {
+    /** Human-readable summary of why the project was rejected. */
+    detail: string
+    /** Always "invalid_source_project". */
+    code: string
+    /** The validation diagnostics, including at least one error. */
+    diagnostics: CanvasDiagnosticApi[]
+}
+
+/**
+ * A staged draft version and the status of its latest build. Preview a
+ * draft's files with `source?version_id=`, then make it live with `promote`.
+ */
+export interface CanvasDraftApi {
+    /** Id of the draft source version. */
+    version_id: string
+    /**
+     * Short description recorded when the draft was staged.
+     * @nullable
+     */
+    prompt: string | null
+    /** Who staged the draft. */
+    readonly created_by: UserBasicApi | null
+    /** When the draft was staged. */
+    created_at: string
+    /** Status of the draft's latest build; null when no build has been recorded yet.
+     *
+     * * `queued` - queued
+     * * `building` - building
+     * * `ready` - ready
+     * * `failed` - failed */
+    build_status: BuildStatusEnumApi | null
+    /**
+     * Id of the draft's latest build, when one exists.
+     * @nullable
+     */
+    build_id: string | null
+}
+
+export interface PaginatedCanvasDraftListApi {
+    count: number
+    /** @nullable */
+    next?: string | null
+    /** @nullable */
+    previous?: string | null
+    results: CanvasDraftApi[]
+}
+
+/**
+ * One per-file edit: set a file's content, or delete it.
+ */
+export interface CanvasSourceEditOperationApi {
+    /** Project-relative path of the file to write or delete (e.g. "src/canvas.tsx"). */
+    path: string
+    /**
+     * The file's complete new content. Null (or omitted) deletes the file.
+     * @nullable
+     */
+    content?: string | null
+}
+
+/**
+ * Payload for publishing per-file edits against the canvas's current source.
+ */
+export interface CanvasSourceEditApi {
+    /** Edits applied in order to the canvas's current source project. */
+    operations: CanvasSourceEditOperationApi[]
+    /** Short description of the change, stored on the appended version history entry. */
+    prompt?: string
+    /**
+     * Optional new display name for the canvas.
+     * @maxLength 400
+     */
+    name?: string
+    /**
+     * Required optimistic-concurrency guard: the current_version_id the edits are based on (null when the canvas has never been published). Diff edits against a moved head are rejected with 409 version_conflict — they cannot be published unguarded.
+     * @nullable
+     */
+    expected_current_version_id: string | null
+}
+
+/**
+ * Identity and version pointers for one canvas.
+ */
+export interface CanvasSummaryApi {
+    /** The canvas's id. */
+    id: string
+    /** Display name of the canvas. */
+    name: string
+    /** Id of the channel the canvas belongs to. */
+    channel_id: string
+    /**
+     * Id of the live source version — pass as expected_current_version_id on publish. Null before the first publish.
+     * @nullable
+     */
+    current_version_id: string | null
+    /**
+     * Id of the canvas's live (last successful, still-eligible) build. Null until a build completes.
+     * @nullable
+     */
+    published_build_id: string | null
+    /** When the canvas was created. */
+    created_at: string
+}
+
+/**
+ * Result of a successful source-project publish.
+ */
+export interface CanvasSourcePublishResponseApi {
+    /** The canvas after the publish, including the new version pointer. */
+    canvas: CanvasSummaryApi
+    /** Id of the source version this publish created. */
+    current_version_id: string
+    /** Advisory (warning-severity) diagnostics recorded for the published project. */
+    diagnostics: CanvasDiagnosticApi[]
+}
+
+/**
+ * 409 body for a guarded canvas publish based on a stale version.
+ */
+export interface CanvasPublishConflictApi {
+    /** Human-readable description of the conflict and how to recover. */
+    detail: string
+    /** Always "version_conflict". */
+    code: string
+    /**
+     * The canvas's live current_version_id at rejection time (null when the canvas has no versions).
+     * @nullable
+     */
+    current_version_id: string | null
+}
+
+/**
+ * Payload for promoting a draft version to the canvas's live head.
+ */
+export interface CanvasPromoteApi {
+    /** Id of the draft source version to make live. */
+    version_id: string
+    /**
+     * Current source version observed before requesting the promote (null when the canvas has never been published). A moved head is rejected with 409 version_conflict.
+     * @nullable
+     */
+    expected_current_version_id: string | null
+}
+
+/**
  * Payload for publishing a complete canvas source project.
  */
 export interface CanvasSourcePublishApi {
@@ -533,6 +626,11 @@ export interface CanvasSourcePublishApi {
      * @nullable
      */
     expected_current_version_id?: string | null
+}
+
+export interface CanvasPublishCurrentVersionApi {
+    /** Current source version to publish. A changed head returns a 409 version_conflict. */
+    expected_current_version_id: string
 }
 
 /**
@@ -603,6 +701,8 @@ export interface CanvasVersionApi {
      * @nullable
      */
     task_id: string | null
+    /** True for a staged draft version that has never been the canvas head; promote it to make it live. */
+    draft: boolean
     readonly created_by: UserBasicApi | null
     /** When the version was published. */
     created_at: string
@@ -637,6 +737,17 @@ export type CanvasesBuildsRetrieveParams = {
      * Include the retained ready build for this historical source version.
      */
     version_id?: string
+}
+
+export type CanvasesDraftsRetrieveParams = {
+    /**
+     * Number of results to return per page.
+     */
+    limit?: number
+    /**
+     * The initial index from which to return the results.
+     */
+    offset?: number
 }
 
 export type CanvasesSourceRetrieveParams = {

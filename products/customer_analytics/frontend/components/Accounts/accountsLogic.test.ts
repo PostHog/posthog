@@ -9,7 +9,11 @@ import { urls } from 'scenes/urls'
 import { userLogic } from 'scenes/userLogic'
 
 import type { DataTableRow } from '~/queries/nodes/DataTable/dataTableLogic'
-import type { AccountsQuery, AccountsTableQuery } from '~/queries/schema/schema-general'
+import {
+    AccountsTableCustomPropertyOperator,
+    type AccountsQuery,
+    type AccountsTableQuery,
+} from '~/queries/schema/schema-general'
 import { initKeaTests } from '~/test/init'
 import type { UserBasicType, UserType } from '~/types'
 
@@ -72,6 +76,16 @@ const mockPartialUpdate = accountsPartialUpdate as jest.MockedFunction<typeof ac
 const CSM_DEFINITION_ID = '11111111-2222-3333-4444-555555555555'
 const AE_DEFINITION_ID = '66666666-7777-8888-9999-aaaaaaaaaaaa'
 const OWNER_DEFINITION_ID = 'bbbbbbbb-cccc-dddd-eeee-ffffffffffff'
+const TILE_FILTER = {
+    tileId: 'tile-1',
+    expression: 'count() > 5',
+    filter: {
+        kind: 'custom_property' as const,
+        definitionId: CSM_DEFINITION_ID,
+        operator: AccountsTableCustomPropertyOperator.GreaterThan,
+        values: [5],
+    },
+}
 
 const DEFINITIONS: AccountRelationshipDefinitionApi[] = [
     { id: CSM_DEFINITION_ID, name: 'CSM', description: null, is_single_holder: true },
@@ -163,7 +177,7 @@ describe('accountsLogic', () => {
             { kind: 'relationship', definitionId: AE_DEFINITION_ID },
             { kind: 'relationship', definitionId: OWNER_DEFINITION_ID },
         ])
-        expect(logic.values.metricsQuery?.kind).toBe('AccountsQuery')
+        expect(logic.values.metricsQuery?.kind).toBe('AccountsTableQuery')
     })
 
     it('keeps the DataTable data node on the active Postgres source for refreshes', () => {
@@ -206,7 +220,7 @@ describe('accountsLogic', () => {
             },
         ] as DataTableRow[]
 
-        logic.actions.setTileFilter({ tileId: 'tile', expression: 'count() > 1' })
+        logic.actions.setTileFilter({ ...TILE_FILTER, tileId: 'tile', expression: 'count() > 1' })
 
         expect(logic.values.accountsQuerySource?.kind).toBe('AccountsQuery')
         expect(logic.values.tableRowsTransformer?.(keyedRows)[0].result).toEqual([
@@ -248,7 +262,7 @@ describe('accountsLogic', () => {
         featureFlagLogic.actions.setFeatureFlags([FEATURE_FLAGS.CUSTOMER_ANALYTICS_ACCOUNTS_POSTGRES], {
             [FEATURE_FLAGS.CUSTOMER_ANALYTICS_ACCOUNTS_POSTGRES]: true,
         })
-        logic.actions.setTileFilter({ tileId: 'tile', expression: 'count() > 1' })
+        logic.actions.setTileFilter({ ...TILE_FILTER, tileId: 'tile', expression: 'count() > 1' })
 
         expect(logic.values.accountsQuerySource?.kind).toBe('AccountsQuery')
     })
@@ -292,10 +306,10 @@ describe('accountsLogic', () => {
         expect(source.metrics).toBeUndefined()
     })
 
-    it('exposes the overview tile metrics on a separate metrics-only query (no select)', () => {
-        const metricsQuery = logic.values.metricsQuery as AccountsQuery
-        expect(metricsQuery.metrics).toEqual(['count()'])
-        expect(metricsQuery.select).toBeUndefined()
+    it('exposes the overview tile metrics on a separate Postgres metrics query', () => {
+        const metricsQuery = logic.values.metricsQuery as AccountsTableQuery
+        expect(metricsQuery.metrics).toEqual([{ kind: 'count' }])
+        expect(metricsQuery.columns).toEqual([])
     })
 
     it('setAllRolesUnassigned toggles the flag', () => {
@@ -659,7 +673,7 @@ describe('accountsLogic', () => {
                 logic.actions.setTagsFilter(['enterprise'])
                 logic.actions.setAssignedToFilter([7])
                 logic.actions.setSortOrder({ column: 'name', direction: 'desc' })
-                logic.actions.setTileFilter({ tileId: 'tile-1', expression: 'count() > 5' })
+                logic.actions.setTileFilter(TILE_FILTER)
             }).toFinishAllListeners()
 
             expect(router.values.hashParams.view).toEqual({
@@ -667,7 +681,7 @@ describe('accountsLogic', () => {
                 tags: ['enterprise'],
                 assignedTo: [7],
                 sort: { column: 'name', direction: 'desc' },
-                tileFilter: { tileId: 'tile-1', expression: 'count() > 5' },
+                tileFilter: TILE_FILTER,
             })
         })
 
@@ -681,7 +695,7 @@ describe('accountsLogic', () => {
         })
 
         it('restores filters, sort, and tile filter from the view hash param', async () => {
-            const tileFilter = { tileId: 'tile-1', expression: 'count() > 5' }
+            const tileFilter = TILE_FILTER
             router.actions.push(
                 urls.customerAnalyticsAccounts(),
                 {},

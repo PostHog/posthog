@@ -91,6 +91,7 @@ import { TEMPLATE_NAMES } from 'products/feature_flags/frontend/featureFlagTempl
 import {
     featureFlagsCopyFlagsCreate,
     featureFlagsCopyFlagsDependencyRequirementsCreate,
+    featureFlagsList,
 } from 'products/feature_flags/frontend/generated/api'
 import type { CopyFlagsDependencyRequirementsResponseApi } from 'products/feature_flags/frontend/generated/api.schemas'
 
@@ -384,7 +385,6 @@ export const NEW_FLAG: FeatureFlagType = {
     last_modified_by: null,
     evaluation_runtime: FeatureFlagEvaluationRuntime.ALL,
     bucketing_identifier: null,
-    _should_create_usage_dashboard: true,
 }
 const NEW_VARIANT = {
     key: '',
@@ -474,6 +474,10 @@ function validatePayloadRequired(is_remote_configuration: boolean, payload?: Jso
 
 export interface FeatureFlagLogicProps {
     id: number | 'new' | 'link'
+}
+
+function isOnFeatureFlagPage(id: FeatureFlagLogicProps['id']): boolean {
+    return removeProjectIdIfPresent(router.values.location.pathname) === urls.featureFlag(id)
 }
 
 // KLUDGE: Payloads are returned in a <variant-key>: <payload> mapping.
@@ -745,7 +749,6 @@ export interface featureFlagLogicValues {
     featureFlagErrors: DeepPartialMap<
         {
             _create_in_folder?: string | null | undefined
-            _should_create_usage_dashboard?: boolean | undefined
             active: boolean
             archived: boolean
             bucketing_identifier?: FeatureFlagBucketingIdentifier | null | undefined
@@ -779,7 +782,7 @@ export interface featureFlagLogicValues {
             surveys: Survey[] | null
             tags: string[]
             updated_at: string | null
-            usage_dashboard?: number | undefined
+            usage_dashboard?: number | null | undefined
             user_access_level: AccessControlLevel
             version: number | null
         },
@@ -797,7 +800,6 @@ export interface featureFlagLogicValues {
     featureFlagValidationErrors: DeepPartialMap<
         {
             _create_in_folder?: string | null | undefined
-            _should_create_usage_dashboard?: boolean | undefined
             active: boolean
             archived: boolean
             bucketing_identifier?: FeatureFlagBucketingIdentifier | null | undefined
@@ -831,7 +833,7 @@ export interface featureFlagLogicValues {
             surveys: Survey[] | null
             tags: string[]
             updated_at: string | null
-            usage_dashboard?: number | undefined
+            usage_dashboard?: number | null | undefined
             user_access_level: AccessControlLevel
             version: number | null
         },
@@ -1071,9 +1073,6 @@ export interface featureFlagLogicActions {
     enrichUsageDashboard: () => {
         value: true
     }
-    generateUsageDashboard: () => {
-        value: true
-    }
     loadCopyDependencyRequirements: () => {
         value: true
     }
@@ -1244,7 +1243,6 @@ export interface featureFlagLogicActions {
     resetEncryptedPayload: () => {}
     resetFeatureFlag: (values?: {
         _create_in_folder?: string | null | undefined
-        _should_create_usage_dashboard?: boolean | undefined
         active: boolean
         archived: boolean
         bucketing_identifier?: FeatureFlagBucketingIdentifier | null | undefined
@@ -1278,13 +1276,12 @@ export interface featureFlagLogicActions {
         surveys: Survey[] | null
         tags: string[]
         updated_at: string | null
-        usage_dashboard?: number | undefined
+        usage_dashboard?: number | null | undefined
         user_access_level: AccessControlLevel
         version: number | null
     }) => {
         values?: {
             _create_in_folder?: string | null | undefined
-            _should_create_usage_dashboard?: boolean | undefined
             active: boolean
             archived: boolean
             bucketing_identifier?: FeatureFlagBucketingIdentifier | null | undefined
@@ -1318,7 +1315,7 @@ export interface featureFlagLogicActions {
             surveys: Survey[] | null
             tags: string[]
             updated_at: string | null
-            usage_dashboard?: number | undefined
+            usage_dashboard?: number | null | undefined
             user_access_level: AccessControlLevel
             version: number | null
         }
@@ -1422,7 +1419,6 @@ export interface featureFlagLogicActions {
     setFeatureFlagValues: (
         values: DeepPartial<{
             _create_in_folder?: string | null | undefined
-            _should_create_usage_dashboard?: boolean | undefined
             active: boolean
             archived: boolean
             bucketing_identifier?: FeatureFlagBucketingIdentifier | null | undefined
@@ -1456,14 +1452,13 @@ export interface featureFlagLogicActions {
             surveys: Survey[] | null
             tags: string[]
             updated_at: string | null
-            usage_dashboard?: number | undefined
+            usage_dashboard?: number | null | undefined
             user_access_level: AccessControlLevel
             version: number | null
         }>
     ) => {
         values: DeepPartial<{
             _create_in_folder?: string | null | undefined
-            _should_create_usage_dashboard?: boolean | undefined
             active: boolean
             archived: boolean
             bucketing_identifier?: FeatureFlagBucketingIdentifier | null | undefined
@@ -1497,7 +1492,7 @@ export interface featureFlagLogicActions {
             surveys: Survey[] | null
             tags: string[]
             updated_at: string | null
-            usage_dashboard?: number | undefined
+            usage_dashboard?: number | null | undefined
             user_access_level: AccessControlLevel
             version: number | null
         }>
@@ -1592,7 +1587,6 @@ export interface featureFlagLogicActions {
     }
     submitFeatureFlagRequest: (featureFlag: {
         _create_in_folder?: string | null | undefined
-        _should_create_usage_dashboard?: boolean | undefined
         active: boolean
         archived: boolean
         bucketing_identifier?: FeatureFlagBucketingIdentifier | null | undefined
@@ -1626,13 +1620,12 @@ export interface featureFlagLogicActions {
         surveys: Survey[] | null
         tags: string[]
         updated_at: string | null
-        usage_dashboard?: number | undefined
+        usage_dashboard?: number | null | undefined
         user_access_level: AccessControlLevel
         version: number | null
     }) => {
         featureFlag: {
             _create_in_folder?: string | null | undefined
-            _should_create_usage_dashboard?: boolean | undefined
             active: boolean
             archived: boolean
             bucketing_identifier?: FeatureFlagBucketingIdentifier | null | undefined
@@ -1666,14 +1659,13 @@ export interface featureFlagLogicActions {
             surveys: Survey[] | null
             tags: string[]
             updated_at: string | null
-            usage_dashboard?: number | undefined
+            usage_dashboard?: number | null | undefined
             user_access_level: AccessControlLevel
             version: number | null
         }
     }
     submitFeatureFlagSuccess: (featureFlag: {
         _create_in_folder?: string | null | undefined
-        _should_create_usage_dashboard?: boolean | undefined
         active: boolean
         archived: boolean
         bucketing_identifier?: FeatureFlagBucketingIdentifier | null | undefined
@@ -1707,13 +1699,12 @@ export interface featureFlagLogicActions {
         surveys: Survey[] | null
         tags: string[]
         updated_at: string | null
-        usage_dashboard?: number | undefined
+        usage_dashboard?: number | null | undefined
         user_access_level: AccessControlLevel
         version: number | null
     }) => {
         featureFlag: {
             _create_in_folder?: string | null | undefined
-            _should_create_usage_dashboard?: boolean | undefined
             active: boolean
             archived: boolean
             bucketing_identifier?: FeatureFlagBucketingIdentifier | null | undefined
@@ -1747,7 +1738,7 @@ export interface featureFlagLogicActions {
             surveys: Survey[] | null
             tags: string[]
             updated_at: string | null
-            usage_dashboard?: number | undefined
+            usage_dashboard?: number | null | undefined
             user_access_level: AccessControlLevel
             version: number | null
         }
@@ -2011,7 +2002,6 @@ export const featureFlagLogic = kea<featureFlagLogicType>([
             expandAdvanced: options?.expandAdvanced ?? false,
         }),
         distributeVariantsEqually: true,
-        generateUsageDashboard: true,
         enrichUsageDashboard: true,
         setCopyDestinationProject: (id: number | null) => ({ id }),
         setCopySchedule: (copySchedule: boolean) => ({ copySchedule }),
@@ -2783,7 +2773,6 @@ export const featureFlagLogic = kea<featureFlagLogicType>([
                     let baseFlagConfig: typeof NEW_FLAG = {
                         ...NEW_FLAG,
                         ensure_experience_continuity: values.currentTeam?.flags_persistence_default ?? false,
-                        _should_create_usage_dashboard: true,
                     }
 
                     if (flagType !== 'remote_config') {
@@ -2856,7 +2845,6 @@ export const featureFlagLogic = kea<featureFlagLogicType>([
                 return {
                     ...NEW_FLAG,
                     ensure_experience_continuity: values.currentTeam?.flags_persistence_default ?? false,
-                    _should_create_usage_dashboard: true,
                 }
             },
             saveFeatureFlag: async (updatedFlag: Partial<FeatureFlagType>) => {
@@ -2911,6 +2899,8 @@ export const featureFlagLogic = kea<featureFlagLogicType>([
                                 "You don't have permission to edit this feature flag. Contact your administrator to request editing rights."
                         )
                     }
+                    // Duplicate-key (`unique`/`key`) is toasted in the saveFeatureFlagFailure listener so
+                    // the throw runs immediately and the form doesn't stay skeletoned during the lookup.
                     throw error
                 }
             },
@@ -3444,12 +3434,6 @@ export const featureFlagLogic = kea<featureFlagLogicType>([
             eventUsageLogic.actions.reportFeatureFlagScheduleSuccess()
         },
         showDependentFlagsConfirmation: sharedListeners.showDependentFlagsConfirmation,
-        generateUsageDashboard: async () => {
-            if (props.id) {
-                await api.create(`api/projects/${values.currentProjectId}/feature_flags/${props.id}/dashboard`)
-                actions.loadFeatureFlag()
-            }
-        },
         enrichUsageDashboard: async (_, breakpoint) => {
             if (props.id) {
                 await breakpoint(1000) // in ms
@@ -3496,7 +3480,9 @@ export const featureFlagLogic = kea<featureFlagLogicType>([
             lemonToast.success('Feature flag saved')
             actions.setFeatureFlag(featureFlag)
             actions.updateFlag(featureFlag)
-            featureFlag.id && router.actions.replace(urls.featureFlag(featureFlag.id))
+            if (featureFlag.id && isOnFeatureFlagPage(props.id)) {
+                router.actions.replace(urls.featureFlag(featureFlag.id))
+            }
             actions.editFeatureFlag(false)
 
             const isCreate = props.id === 'new'
@@ -3529,12 +3515,40 @@ export const featureFlagLogic = kea<featureFlagLogicType>([
             // Set all completed tasks at once to avoid conflicts
             globalSetupLogic.findMounted()?.actions.markTaskAsCompleted(completedTasks)
         },
-        saveFeatureFlagFailure: ({ errorObject }) => {
+        saveFeatureFlagFailure: async ({ errorObject }) => {
             if (values.featureFlag.id && handleApprovalRequired(errorObject, 'feature_flag', values.featureFlag.id)) {
-                // Redirect to detail page so user can see the CR banner
-                router.actions.replace(urls.featureFlag(values.featureFlag.id))
-                actions.editFeatureFlag(false)
+                if (isOnFeatureFlagPage(props.id)) {
+                    // Redirect to detail page so user can see the CR banner
+                    router.actions.replace(urls.featureFlag(values.featureFlag.id))
+                    actions.editFeatureFlag(false)
+                }
                 return
+            }
+
+            if (errorObject?.code !== 'unique' || errorObject?.attr !== 'key') {
+                return
+            }
+            const message = `Save feature flag failed: ${errorObject.detail}`
+            const key = values.featureFlag.key
+            if (!key) {
+                lemonToast.error(message)
+                return
+            }
+            // The backend rejects on an exact key match, so pick the exact match out of the
+            // case-insensitive list rather than trusting its newest-first ordering.
+            const existing = await featureFlagsList(String(values.currentProjectId), { key }).catch(() => null)
+            const existingFlagId = existing?.results?.find((flag) => flag.key === key)?.id ?? null
+            if (existingFlagId) {
+                lemonToast.error(message, {
+                    button: {
+                        label: 'View existing flag',
+                        action: () => {
+                            window.open(urls.featureFlag(existingFlagId), '_blank')
+                        },
+                    },
+                })
+            } else {
+                lemonToast.error(message)
             }
         },
         updateFeatureFlagActiveSuccess: ({ featureFlagActiveUpdate }) => {
@@ -4490,7 +4504,7 @@ export const featureFlagLogic = kea<featureFlagLogicType>([
         setSelectedTab: () => {
             // The logic outlives the scene in places (e.g. the flag is embedded elsewhere),
             // so only rewrite the URL while we're actually on this flag's page
-            if (removeProjectIdIfPresent(router.values.location.pathname) !== urls.featureFlag(props.id ?? 'new')) {
+            if (!isOnFeatureFlagPage(props.id)) {
                 return
             }
 

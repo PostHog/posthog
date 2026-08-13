@@ -147,7 +147,7 @@ class TestPlanDeterministicChunks:
 
     def test_single_chunk_holds_all_files_with_neutral_metadata(self) -> None:
         # The deterministic chunk gathers every reviewable file under chunk_id 1 with no LLM-derived
-        # type/key_changes, so the downstream body renderer falls back to its generic heading.
+        # type/key_changes, so perspective selection reads it from the file list alone.
         planned = plan_deterministic_chunks([_file("a.py", 10), _file("b.py", 20)])
 
         assert planned is not None

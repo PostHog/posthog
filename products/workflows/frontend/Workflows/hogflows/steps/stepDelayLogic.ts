@@ -3,9 +3,16 @@ import { MakeLogicType, actions, connect, kea, key, listeners, path, props } fro
 import { WorkflowLogicProps, workflowLogic } from '../../workflowLogic'
 import type { HogFlow, HogFlowAction } from '../types'
 
-const DURATION_REGEX = /^(\d*\.?\d*)([dhm])$/
-const AUTO_DESCRIPTION_REGEX = /^Wait for \d*\.?\d+ (minute|hour|day)s?\.$/
+const DURATION_REGEX = /^(\d*\.?\d*)([dhms])$/
+const AUTO_DESCRIPTION_REGEX = /^Wait for \d*\.?\d+ (second|minute|hour|day)s?\.$/
 const LEGACY_DEFAULT_DESCRIPTION = 'Wait for a specified duration.'
+
+const UNIT_LABELS: Record<string, string> = {
+    s: 'second',
+    m: 'minute',
+    h: 'hour',
+    d: 'day',
+}
 
 export function getDelayDescription(duration: string): string {
     const parts = duration.match(DURATION_REGEX)
@@ -15,7 +22,7 @@ export function getDelayDescription(duration: string): string {
     if (!Number.isFinite(number)) {
         return LEGACY_DEFAULT_DESCRIPTION
     }
-    const unitLabel = unit === 'm' ? 'minute' : unit === 'h' ? 'hour' : 'day'
+    const unitLabel = UNIT_LABELS[unit] ?? 'minute'
     const durationText = `${number} ${unitLabel}${number !== 1 ? 's' : ''}`
     return `Wait for ${durationText}.`
 }

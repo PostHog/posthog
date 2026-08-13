@@ -223,6 +223,7 @@ export const productRoutes: Record<string, [string, string]> = {
     '/skills': ['Skills', 'skills'],
     '/skills/scouts': ['Skills', 'skillsScouts'],
     '/skills/review-hog': ['Skills', 'skillsReviewHog'],
+    '/community-skills': ['CommunitySkills', 'communitySkills'],
     '/skills/:name': ['Skill', 'skill'],
     '/stamphog': ['Stamphog', 'stamphog'],
     '/stamphog/install/callback': ['Stamphog', 'stamphogCallback'],
@@ -874,6 +875,13 @@ export const productConfiguration: Record<string, any> = {
         iconType: 'llm_prompts',
     },
     Skill: { projectBased: true, name: 'Skill', layout: 'app-container', iconType: 'llm_prompts' },
+    CommunitySkills: {
+        projectBased: true,
+        name: 'Community skills',
+        description: 'Discover and install agent skills shared by the PostHog community.',
+        layout: 'app-container',
+        iconType: 'llm_prompts',
+    },
     Stamphog: { projectBased: true, name: 'Stamphog', iconType: 'stamphog' },
     StreamlitApps: { name: 'Streamlit apps', projectBased: true },
     StreamlitApp: { name: 'Streamlit app', projectBased: true },
@@ -1214,10 +1222,12 @@ export const productUrls = {
         options?: {
             metric?: ExperimentMetric
             name?: string
+            tab?: string
         }
     ): string => {
         const baseUrl = formMode ? `/experiments/${id}/${formMode}` : `/experiments/${id}`
-        return `${baseUrl}${options ? `?${toParams(options)}` : ''}`
+        const params = options ? toParams(options) : ''
+        return params ? `${baseUrl}?${params}` : baseUrl
     },
     experiments: (): string => '/experiments',
     experimentsSharedMetrics: (): string => '/experiments/shared-metrics',
@@ -1426,6 +1436,7 @@ export const productUrls = {
             version?: number
         }
     ): string => combineUrl(`/skills/${name}`, params).url,
+    communitySkills: (): string => '/community-skills',
     stamphog: (): string => '/stamphog',
     stamphogCallback: (): string => '/stamphog/install/callback',
     streamlitApps: (): string => '/streamlit-apps',
@@ -2101,6 +2112,16 @@ export const getTreeItemsProducts = (): FileSystemImport[] => [
         sceneKeys: ['IdentityMatching', 'AIEnrichment'],
     },
     {
+        path: 'Inbox',
+        intents: [],
+        category: ProductItemCategory.TOOLS,
+        iconType: 'inbox' as FileSystemIconType,
+        href: urls.inbox(),
+        flag: FEATURE_FLAGS.PRODUCT_AUTONOMY,
+        sceneKey: 'Inbox',
+        sceneKeys: ['Inbox'],
+    },
+    {
         path: 'LLM analytics',
         displayLabel: 'AI observability',
         intents: [
@@ -2375,7 +2396,7 @@ export const getTreeItemsProducts = (): FileSystemImport[] => [
         iconColor: ['var(--color-product-llm-analytics-light)'] as FileSystemIconColor,
         href: urls.skills(),
         sceneKey: 'Skills',
-        sceneKeys: ['Skills', 'Skill'],
+        sceneKeys: ['Skills', 'Skill', 'CommunitySkills'],
     },
     {
         path: 'Support',

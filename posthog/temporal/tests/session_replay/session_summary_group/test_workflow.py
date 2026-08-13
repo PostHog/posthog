@@ -132,7 +132,7 @@ async def test_get_llm_single_session_summary_activity_standalone(
     compressed_llm_input_data = _compress_redis_data(json.dumps(dataclasses.asdict(llm_input)))
     input_data = mock_single_session_summary_inputs(mock_session_id, ateam.id, auser.id)
     # Generate Redis keys manually
-    _, redis_input_key, redis_output_key = get_redis_state_client(
+    redis_state = get_redis_state_client(
         key_base=input_data.redis_key_base,
         input_label=StateActivitiesEnum.SESSION_DB_DATA,
         output_label=StateActivitiesEnum.SESSION_SUMMARY,
@@ -142,12 +142,12 @@ async def test_get_llm_single_session_summary_activity_standalone(
     spy_get = mocker.spy(redis_test_setup.redis_client, "get")
     spy_setex = mocker.spy(redis_test_setup.redis_client, "setex")
     # Store initial input data
-    assert redis_input_key
-    assert redis_output_key
+    assert redis_state.input_key
+    assert redis_state.output_key
     await redis_test_setup.setup_input_data(
         compressed_llm_input_data,
-        redis_input_key,
-        redis_output_key,
+        redis_state.input_key,
+        redis_state.output_key,
     )
     # Verify summary doesn't exist in DB before the activity
     summary_before = await database_sync_to_async(SingleSessionSummary.objects.get_summary, thread_sensitive=False)(
@@ -636,15 +636,15 @@ async def test_assign_events_to_patterns_filters_non_blocking_exceptions(
             },
         ]
     )
-    _, redis_input_key, _ = get_redis_state_client(
+    redis_state = get_redis_state_client(
         key_base=activity_input.redis_key_base,
         input_label=StateActivitiesEnum.SESSION_GROUP_EXTRACTED_PATTERNS,
         state_id=generate_state_id_from_session_ids(session_ids),
     )
-    assert redis_input_key is not None
+    assert redis_state.input_key is not None
     await redis_test_setup.setup_input_data(
         _compress_redis_data(patterns_data.model_dump_json()),
-        redis_input_key,
+        redis_state.input_key,
     )
     # Create a mock LLM response for pattern assignment
     patterns_assignment_yaml = """patterns:
@@ -806,15 +806,15 @@ async def test_non_blocking_exceptions_dont_fail_enrichment_ratio(
             },
         ]
     )
-    _, redis_input_key, _ = get_redis_state_client(
+    redis_state = get_redis_state_client(
         key_base=activity_input.redis_key_base,
         input_label=StateActivitiesEnum.SESSION_GROUP_EXTRACTED_PATTERNS,
         state_id=generate_state_id_from_session_ids(session_ids),
     )
-    assert redis_input_key is not None
+    assert redis_state.input_key is not None
     await redis_test_setup.setup_input_data(
         _compress_redis_data(patterns_data.model_dump_json()),
-        redis_input_key,
+        redis_state.input_key,
     )
     # Mock LLM response that assigns events to patterns
     # Note: With deduplication logic, only ONE event per session per pattern is kept (first occurrence wins)

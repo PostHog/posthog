@@ -53,6 +53,8 @@ export type CommandMenuAction =
   | "go-back"
   | "go-forward"
   | "open-task"
+  | "open-task-from-pull-request"
+  | "open-artifact"
   | "open-channel"
   | "open-command-center"
   | "open-inbox"
@@ -149,6 +151,21 @@ export interface PromptSentProperties {
   is_initial: boolean;
   execution_type: ExecutionType;
   prompt_length_chars: number;
+}
+
+/** Sentiment captured by the thumbs under an agent turn. */
+export type AgentTurnFeedbackSentiment = "positive" | "negative";
+
+/**
+ * A reader's verdict on one agent turn, from the thumbs in the turn footer.
+ * Feedback is analytics-only: it never changes the session. `turn_id` is
+ * stable for the life of the thread, so switching thumbs re-fires the event
+ * and the last one wins.
+ */
+export interface AgentTurnFeedbackProperties {
+  task_id: string | null;
+  turn_id: string;
+  sentiment: AgentTurnFeedbackSentiment;
 }
 
 // Git operations
@@ -1328,6 +1345,7 @@ export const ANALYTICS_EVENTS = {
   TASK_RUN_CANCELLED: "Task run cancelled",
   TASK_RUN_STOPPED: "Task run stopped",
   PROMPT_SENT: "Prompt sent",
+  AGENT_TURN_FEEDBACK: "Agent turn feedback",
 
   // Claude Code session import
   CLAUDE_SESSIONS_SHOWN: "Claude Code sessions shown",
@@ -1512,6 +1530,7 @@ export type EventPropertyMap = {
   [ANALYTICS_EVENTS.TASK_RUN_CANCELLED]: TaskRunCancelledProperties;
   [ANALYTICS_EVENTS.TASK_RUN_STOPPED]: TaskRunStoppedProperties;
   [ANALYTICS_EVENTS.PROMPT_SENT]: PromptSentProperties;
+  [ANALYTICS_EVENTS.AGENT_TURN_FEEDBACK]: AgentTurnFeedbackProperties;
 
   // Claude Code session import
   [ANALYTICS_EVENTS.CLAUDE_SESSIONS_SHOWN]: ClaudeSessionsShownProperties;

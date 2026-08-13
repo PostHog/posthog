@@ -131,6 +131,17 @@ class MetaAdsSource(ResumableSource[MetaAdsSourceConfig, MetaAdsResumeConfig], O
                 "required to read your ads data. Please reconnect the Meta Ads integration and grant "
                 "all requested permissions."
             ),
+            # Graph API code 200: "Requires business_management permission to manage the object."
+            # Distinct from the generic re-authorize message above — re-authorizing can never grant
+            # this scope, since the Meta OAuth consent only requests `ads_read` (see
+            # `AD_ACCOUNT_FIELDS` in meta_ads.py). Only the account owner granting
+            # `business_management`, or PostHog dropping the field that needs it, fixes this.
+            "Requires business_management permission": (
+                "Meta rejected part of this request because it needs the business_management "
+                "permission, which this integration does not request and cannot request without "
+                "widening OAuth consent for every customer. Re-authorizing will not fix this — "
+                "contact PostHog support if this table keeps failing."
+            ),
             # Meta returns this 500 when the requested query is too large for their backend to
             # service. Both pagination paths adapt to it (stats chunks shrink 30 → 7 → 1 day, and
             # both paths shrink the per-page limit 500 → 100 → 50); if it still escapes after those
