@@ -59,12 +59,20 @@ SUSPENSION_ENFORCEMENT_FLAG = "data-modeling-suspend-failing-nodes"
 
 
 def get_previous_jobs(
-    saved_query_id: UUID, current_job_id: UUID, count: int, ignore_inconclusive: bool = False
+    saved_query_id: UUID, current_job: DataModelingJob, count: int, ignore_inconclusive: bool = False
 ) -> "QuerySet[DataModelingJob]":
-    """Get the most recent jobs for a saved query, excluding the current job."""
+    """Get the runs of a saved query that came before this one.
+
+    Bounded by the current job's own timestamp rather than just excluding its id: a DAG run judges
+    a failure once every sibling has finished, so a "Sync now" of the same view can land in between
+    and would otherwise be read as what came before it.
+    """
     jobs = (
-        DataModelingJob.objects.filter(saved_query_id=saved_query_id, engine=DataModelingJobEngine.CLICKHOUSE)
-        .exclude(id=current_job_id)
+        DataModelingJob.objects.filter(
+            saved_query_id=saved_query_id,
+            engine=DataModelingJobEngine.CLICKHOUSE,
+            created_at__lt=current_job.created_at,
+        )
         # a skipped run never executed, so it is evidence of neither health nor failure. Leaving it
         # in lets one upstream outage clear a timeout streak that is about to pause the schedule.
         .exclude(status=DataModelingJobStatus.SKIPPED)
@@ -77,9 +85,9 @@ def get_previous_jobs(
     return jobs.order_by("-created_at")[:count]
 
 
-def starts_a_failure_streak(saved_query_id: UUID, current_job_id: UUID) -> bool:
+def starts_a_failure_streak(saved_query_id: UUID, current_job: DataModelingJob) -> bool:
     """True when this failure is the edge into a streak, so repeats of an ongoing one stay quiet."""
-    previous_job = get_previous_jobs(saved_query_id, current_job_id, 1, ignore_inconclusive=True).first()
+    previous_job = get_previous_jobs(saved_query_id, current_job, 1, ignore_inconclusive=True).first()
     return previous_job is None or previous_job.status != DataModelingJobStatus.FAILED
 
 

@@ -36,14 +36,14 @@ LOGGER = get_logger(__name__)
 CONSECUTIVE_TIMEOUTS_TO_PAUSE = 5
 
 
-def should_pause_schedule_for_timeout(saved_query_id: UUID, current_job_id: UUID) -> tuple[bool, int]:
+def should_pause_schedule_for_timeout(saved_query_id: UUID, current_job: DataModelingJob) -> tuple[bool, int]:
     """Check if the schedule should be paused based on consecutive timeout failures.
 
     Returns True only if all of the previous CONSECUTIVE_TIMEOUTS_TO_PAUSE jobs
     failed due to query timeouts. This prevents pausing schedules for transient
     timeouts that can occur due to temporary ClickHouse load.
     """
-    previous_jobs = list(get_previous_jobs(saved_query_id, current_job_id, CONSECUTIVE_TIMEOUTS_TO_PAUSE))
+    previous_jobs = list(get_previous_jobs(saved_query_id, current_job, CONSECUTIVE_TIMEOUTS_TO_PAUSE))
     count = 0
     for job in previous_jobs:
         if job.status != DataModelingJobStatus.FAILED:
@@ -112,7 +112,7 @@ def _maybe_pause_schedule_on_timeout(job: DataModelingJob, saved_query: DataWare
     Returns True if the schedule was paused, False otherwise. This prevents pausing
     schedules for transient timeouts that can occur due to temporary ClickHouse load.
     """
-    should_pause, _ = should_pause_schedule_for_timeout(saved_query.id, job.id)
+    should_pause, _ = should_pause_schedule_for_timeout(saved_query.id, job)
     if not should_pause:
         return False
 

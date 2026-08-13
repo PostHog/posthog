@@ -5,13 +5,14 @@ Two shapes, because a failure arrives two ways:
 - A view materialized on its own ("Sync now", a single-node schedule) notifies from its own
   failure path, in `maybe_notify_materialization_failure`.
 - A view materialized inside a DAG run leaves the in-app notification to the run, which ends by
-  posting one notification per audience covering every view it broke. A tier run that breaks 42
-  views is 42 pings a few seconds apart otherwise.
+  posting one notification per audience covering every view it broke. A tier run that breaks many
+  views is otherwise that many pings, a few seconds apart.
 
 Email keeps the per-view shape in both cases: it dedupes per (recipient, job) in MessagingRecord,
 and the digest already coalesces a day's worth.
 """
 
+import hashlib
 import dataclasses
 
 from structlog import get_logger
@@ -37,7 +38,6 @@ from products.notifications.backend.facade.api import (
     RecipientsResolver,
     TargetType,
     create_notification,
-    has_been_dispatched,
 )
 
 from .utils import starts_a_failure_streak, strip_hostname_from_error
@@ -48,7 +48,7 @@ LOGGER = get_logger(__name__)
 MAX_NAMED_VIEWS = 5
 
 
-@dataclasses.dataclass
+@dataclasses.dataclass(frozen=True, kw_only=True)
 class NotifyDAGMaterializationFailuresInputs:
     team_id: int
     dag_id: str
@@ -132,7 +132,7 @@ def maybe_notify_materialization_failure(
     # An idempotent retry can land here with a job another path already completed or cancelled.
     if job.status != DataModelingJobStatus.FAILED:
         return False
-    if not starts_a_failure_streak(saved_query.id, job.id):
+    if not starts_a_failure_streak(saved_query.id, job):
         return False
 
     # The email task dedupes per (recipient, job) via MessagingRecord, so an activity
@@ -143,14 +143,6 @@ def maybe_notify_materialization_failure(
         # The DAG run this belongs to notifies for every view it broke, once, at the end.
         return False
 
-    if has_been_dispatched(
-        notification_type=NotificationType.MATERIALIZATION_FAILURE,
-        target_type=TargetType.TEAM,
-        target_id=str(team_id),
-        resource_id=str(saved_query.id),
-        source_id=str(job.id),
-    ):
-        return False
     create_notification(
         _failure_notification(
             team_id=team_id,
@@ -175,6 +167,18 @@ def _failure_copy(views: list[_FailedView]) -> tuple[str, str]:
     return f"{len(names)} views failed to materialize", body
 
 
+def _dedupe_key(views: list[_FailedView]) -> str:
+    """Identity of one notification: this set of failed runs.
+
+    Keyed on the runs rather than the views, so the same views breaking again in a later run notify
+    again while a retry of this activity does not. Hashed to fit `idempotency_key`, which a unique
+    constraint enforces — the check-then-create it replaces cannot, and this activity does run twice
+    when a slow one hits its timeout.
+    """
+    runs = "|".join(sorted(str(view.job.id) for view in views))
+    return f"matview-failure-{hashlib.sha256(runs.encode()).hexdigest()}"
+
+
 def _failure_notification(
     *, team_id: int, views: list[_FailedView], resolver: RecipientsResolver, source_id: str
 ) -> NotificationData:
@@ -196,24 +200,36 @@ def _failure_notification(
         resource_id=str(views[0].saved_query.id),
         source_url=source_url,
         source_id=source_id,
+        idempotency_key=_dedupe_key(views),
         resolver=resolver,
     )
 
 
 def _group_by_audience(
     team: Team, views: list[_FailedView], team_user_ids: list[int]
-) -> dict[frozenset[int], list[_FailedView]]:
-    """Views a member cannot open must not be named to them, so group by who may see them.
+) -> list[tuple[frozenset[int], list[_FailedView]]]:
+    """One notification per set of members who can see exactly the same failures.
 
-    A team that denies nobody lands in a single group, which is the point of coalescing.
+    Views a member cannot open must not be named to them, so this groups by what each member sees
+    rather than by who sees each view. Those are not the same: per-view viewer sets overlap wherever
+    one view is denied and another is not — and every org admin sits in all of them — so a member in
+    two would get two notifications for one run, each naming part of what broke. Grouping this way,
+    every member appears in exactly one group. A team that denies nobody lands in a single group,
+    which is the point of coalescing.
     """
     accesses = _access_of(team, team_user_ids)
-    by_audience: dict[frozenset[int], list[_FailedView]] = {}
+    visible: dict[int, list[_FailedView]] = {}
     for view in views:
-        viewers = frozenset(_viewers_of(accesses, view.saved_query))
-        if viewers:
-            by_audience.setdefault(viewers, []).append(view)
-    return by_audience
+        for user_id in _viewers_of(accesses, view.saved_query):
+            visible.setdefault(user_id, []).append(view)
+
+    by_audience: dict[tuple[str, ...], tuple[list[int], list[_FailedView]]] = {}
+    for user_id, seen in visible.items():
+        # `views` is sorted and iterated in order above, so members seeing the same failures build
+        # the same list, and the same key.
+        audience, _ = by_audience.setdefault(tuple(str(view.job.id) for view in seen), ([], seen))
+        audience.append(user_id)
+    return [(frozenset(audience), seen) for audience, seen in by_audience.values()]
 
 
 @database_sync_to_async_pool
@@ -225,7 +241,10 @@ def _notify_dag_materialization_failures(inputs: NotifyDAGMaterializationFailure
     # A manually triggered run can reuse its workflow id, so matching the parent alone would sweep
     # in an earlier run's failures. Every child of this run ends its id with this run's start time,
     # which the run itself generated — no clock comparison, so no skew to get wrong.
+    # `team_id` leads because neither workflow column is indexed, and the suffix match can only ever
+    # be a post-filter; it puts the `(team, status)` index in front of a table that only grows.
     failed_jobs = DataModelingJob.objects.filter(
+        team_id=inputs.team_id,
         parent_workflow_id=inputs.parent_workflow_id,
         workflow_id__endswith=f"-{inputs.run_started_at}",
         status=DataModelingJobStatus.FAILED,
@@ -236,27 +255,18 @@ def _notify_dag_materialization_failures(inputs: NotifyDAGMaterializationFailure
     newly_failed = [
         _FailedView(job=job, saved_query=job.saved_query)
         for job in failed_jobs
-        if job.saved_query is not None and starts_a_failure_streak(job.saved_query.id, job.id)
+        if job.saved_query is not None and starts_a_failure_streak(job.saved_query.id, job)
     ]
     if not newly_failed:
         return 0
+    # The query above has no order of its own, and a retry has to rebuild the same groups under the
+    # same keys to be recognised as one it already sent.
+    newly_failed.sort(key=lambda view: str(view.job.id))
 
     team_user_ids = RecipientsResolver().resolve(TargetType.TEAM, str(inputs.team_id), inputs.team_id)
 
     sent = 0
-    for viewers, views in _group_by_audience(team, newly_failed, team_user_ids).items():
-        # Sorted, so a retry of this activity rebuilds the same key and skips what it already sent.
-        # The key is the group's first job rather than the run, both to stay inside `source_id`'s 64
-        # characters and so a view that recovers and breaks again under one workflow id notifies twice.
-        views.sort(key=lambda view: str(view.saved_query.id))
-        if has_been_dispatched(
-            notification_type=NotificationType.MATERIALIZATION_FAILURE,
-            target_type=TargetType.TEAM,
-            target_id=str(inputs.team_id),
-            resource_id=str(views[0].saved_query.id),
-            source_id=str(views[0].job.id),
-        ):
-            continue
+    for viewers, views in _group_by_audience(team, newly_failed, team_user_ids):
         create_notification(
             _failure_notification(
                 team_id=inputs.team_id,

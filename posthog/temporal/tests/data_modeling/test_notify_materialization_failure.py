@@ -22,6 +22,7 @@ PARENT_WORKFLOW_ID = f"execute-dag-{uuid4()}:86400-{RUN_STARTED_AT}"
 # posthog_notificationevent columns the notification is written into.
 SOURCE_ID_MAX_LENGTH = 64
 RESOURCE_ID_MAX_LENGTH = 64
+IDEMPOTENCY_KEY_MAX_LENGTH = 128
 
 
 async def _saved_query(ateam, auser, name):
@@ -169,8 +170,37 @@ class TestNotifyDAGMaterializationFailures:
         assert len(PARENT_WORKFLOW_ID) > SOURCE_ID_MAX_LENGTH, "the id under test has to be one that would overflow"
         assert len(data.source_id) <= SOURCE_ID_MAX_LENGTH
         assert len(data.resource_id) <= RESOURCE_ID_MAX_LENGTH
+        assert len(data.idempotency_key) <= IDEMPOTENCY_KEY_MAX_LENGTH
 
-    async def test_views_are_grouped_by_who_can_see_them(self, activity_environment, ateam, adag, auser, aorganization):
+    async def test_a_retry_asks_for_the_same_notification_rather_than_a_second_one(
+        self, activity_environment, ateam, adag, auser, aorganization
+    ):
+        member = await database_sync_to_async(User.objects.create_and_join)(
+            aorganization, f"member-{uuid4()}@posthog.com", None
+        )
+        for name in ("alpha", "beta", "gamma"):
+            await _failed_job(ateam, await _saved_query(ateam, auser, name))
+
+        with (
+            unittest.mock.patch(
+                "posthog.temporal.data_modeling.activities.notify_materialization_failure.UserAccessControl",
+                _access_allowing({name: {member.id} for name in ("alpha", "beta", "gamma")}),
+            ),
+            unittest.mock.patch(
+                "posthog.temporal.data_modeling.activities.notify_materialization_failure.create_notification"
+            ) as mock_create,
+        ):
+            await activity_environment.run(notify_dag_materialization_failures_activity, _inputs(ateam, adag))
+            await activity_environment.run(notify_dag_materialization_failures_activity, _inputs(ateam, adag))
+
+        # Equal keys are what lets the unique constraint recognise the retry; the activity cannot
+        # tell it is one, since a timeout can hand it the same work with nothing written yet.
+        first, second = (call.args[0].idempotency_key for call in mock_create.call_args_list)
+        assert first == second
+
+    async def test_each_member_hears_once_about_everything_they_can_see(
+        self, activity_environment, ateam, adag, auser, aorganization
+    ):
         finance = await database_sync_to_async(User.objects.create_and_join)(
             aorganization, f"finance-{uuid4()}@posthog.com", None
         )
@@ -194,14 +224,20 @@ class TestNotifyDAGMaterializationFailures:
             sent = await activity_environment.run(notify_dag_materialization_failures_activity, _inputs(ateam, adag))
 
         assert sent == 2
-        by_title = {call.args[0].title: call.args[0].resolver for call in mock_create.call_args_list}
-        assert set(by_title) == {"salaries failed to materialize", "pageviews failed to materialize"}
-        # The restricted view is named only to the audience allowed to open it.
-        recipients = await database_sync_to_async(by_title["salaries failed to materialize"].resolve)(
-            TargetType.TEAM, str(ateam.pk), ateam.pk
-        )
-        assert finance.id in recipients
-        assert everyone_else.id not in recipients
+        told: dict[int, str] = {}
+        for call in mock_create.call_args_list:
+            data = call.args[0]
+            recipients = await database_sync_to_async(data.resolver.resolve)(TargetType.TEAM, str(ateam.pk), ateam.pk)
+            for user_id in recipients:
+                assert user_id not in told, "one run must not produce two notifications for one member"
+                told[user_id] = f"{data.title} :: {data.body}"
+
+        # The member allowed both hears about both, in one notification.
+        assert told[finance.id].startswith("2 views failed to materialize")
+        assert "salaries" in told[finance.id] and "pageviews" in told[finance.id]
+        # The restricted view is never named to the member who cannot open it.
+        assert told[everyone_else.id].startswith("pageviews failed to materialize")
+        assert "salaries" not in told[everyone_else.id]
 
 
 class TestFailureCopy:
