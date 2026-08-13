@@ -4,7 +4,6 @@ import { router } from 'kea-router'
 import { expectLogic, truth } from 'kea-test-utils'
 
 import { moveToLogic } from 'lib/components/FileSystem/MoveTo/moveToLogic'
-import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
 import { DashboardsFilters, DashboardsTab, dashboardsLogic } from 'scenes/dashboard/dashboards/dashboardsLogic'
 import { sceneLogic } from 'scenes/sceneLogic'
 import { Scene } from 'scenes/sceneTypes'

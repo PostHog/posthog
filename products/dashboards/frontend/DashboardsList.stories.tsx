@@ -1,10 +1,9 @@
 import type { Meta, StoryObj } from '@storybook/react'
 
 import __dashboards from 'scenes/dashboard/__mocks__/dashboards.json'
+import { DashboardsTableContainer } from 'scenes/dashboard/dashboards/DashboardsTable'
 
 import { mswDecorator } from '~/mocks/browser'
-
-import { DashboardsTableContainer } from 'scenes/dashboard/dashboards/DashboardsTable'
 
 const meta: Meta<typeof DashboardsTableContainer> = {
     component: DashboardsTableContainer,
