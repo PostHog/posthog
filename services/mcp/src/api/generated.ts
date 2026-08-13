@@ -33722,7 +33722,7 @@ export namespace Schemas {
     }
 
     /**
-     * Connection credentials and a 'schemas' array. Keys depend on source_type.
+     * Connection credentials. Keys depend on source_type. Add a 'schemas' array to pick which tables sync; omit it and every discovered table syncs with default settings.
      */
     export type ExternalDataSourceCreatePayload = { [key: string]: unknown };
 
@@ -35039,7 +35039,7 @@ export namespace Schemas {
        * * `Schematic` - Schematic
        * * `Dokploy` - Dokploy */
       source_type: ExternalDataSourceTypeEnum;
-      /** Connection credentials and a 'schemas' array. Keys depend on source_type. */
+      /** Connection credentials. Keys depend on source_type. Add a 'schemas' array to pick which tables sync; omit it and every discovered table syncs with default settings. */
       payload: ExternalDataSourceCreatePayload;
       /**
          * Prefix added to the table names PostHog creates in HogQL. Does not filter which tables are imported.

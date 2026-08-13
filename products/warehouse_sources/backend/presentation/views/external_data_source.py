@@ -1319,7 +1319,10 @@ class ExternalDataSourceCreateSerializer(serializers.Serializer):
         help_text="The source type (e.g. 'Postgres', 'Stripe').",
     )
     payload = serializers.DictField(
-        help_text="Connection credentials and a 'schemas' array. Keys depend on source_type.",
+        help_text=(
+            "Connection credentials. Keys depend on source_type. Add a 'schemas' array to pick "
+            "which tables sync; omit it and every discovered table syncs with default settings."
+        ),
     )
     prefix = serializers.CharField(
         max_length=100,
@@ -2267,13 +2270,19 @@ class ExternalDataSourceViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixi
         default_source_catalog = source_config_dict.get("database")
         schema_label_by_name = {s.name: s.label for s in source_schemas}
 
-        payload_schemas = payload.get("schemas", None)
-        if not payload_schemas or not isinstance(payload_schemas, list):
+        # Omitting `schemas` means "sync what you found", the same defaults `setup` builds. A
+        # caller that wants to hand-pick tables still sends the array; one that just has
+        # credentials no longer has to run schema discovery itself to write back what we already
+        # know. Discovery ran above, so the defaults cost nothing extra here.
+        payload_schemas = payload.get("schemas")
+        if payload_schemas is not None and not isinstance(payload_schemas, list):
             new_source_model.delete()
             return Response(
                 status=status.HTTP_400_BAD_REQUEST,
-                data={"message": "Schemas not given"},
+                data={"message": "The 'schemas' field must be a list of the tables to sync."},
             )
+        if not payload_schemas:
+            payload_schemas = build_default_schemas(source_schemas)
 
         # Return 400 if we get any schema names that don't exist in our source
         if any(schema.get("name") not in schema_names for schema in payload_schemas):

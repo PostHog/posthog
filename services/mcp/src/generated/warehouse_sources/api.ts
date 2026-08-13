@@ -1831,7 +1831,9 @@ export const ExternalDataSourcesCreateBody = /* @__PURE__ */ zod.object({
         ),
     payload: zod
         .record(zod.string(), zod.unknown())
-        .describe("Connection credentials and a 'schemas' array. Keys depend on source_type."),
+        .describe(
+            "Connection credentials. Keys depend on source_type. Add a 'schemas' array to pick which tables sync; omit it and every discovered table syncs with default settings."
+        ),
     prefix: zod
         .string()
         .max(externalDataSourcesCreateBodyPrefixMax)
