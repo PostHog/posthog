@@ -87,7 +87,9 @@ _PLACEHOLDER_PATTERNS = {
     "<uuid>": r"[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}",
     "<ip>": r"\d{1,3}\.\d{1,3}\.\d{1,3}\.\d{1,3}",
     "<version>": r"\d+(?:\.\d+)+",
-    "<host>": r"(?:[a-zA-Z0-9-]+\.)+[a-zA-Z]{2,}",
+    # Reuses the masking pattern so the pivot cannot claim dotted code paths the mask
+    # deliberately left literal. \b is RE2-safe; only lookaround is not.
+    "<host>": _HOST_PATTERN,
     "<hex>": r"(?:0x[0-9a-fA-F]+|[0-9a-fA-F]{16,})",
 }
 _PLACEHOLDER_RE = re.compile("|".join(re.escape(p) for p in _PLACEHOLDER_PATTERNS))
