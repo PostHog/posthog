@@ -83,6 +83,32 @@ class TestOrganizationAPI(APIBaseTest):
             self.assertEqual(Organization.objects.count(), 2)
             self.assertEqual(response.json()["plugins_access_level"], 3)
 
+    @parameterized.expand(
+        [
+            ("posthog_staff", "hedgehog@posthog.com", True),
+            ("customer", "owner@example.com", False),
+        ]
+    )
+    @patch("posthog.event_usage.posthoganalytics.group_identify")
+    def test_organizations_created_by_posthog_staff_are_excluded_from_crm(
+        self, _name, email, expect_flagged, mock_group_identify
+    ):
+        user = self._create_user(email)
+        self.client.force_login(user)
+
+        with self.is_cloud(True):
+            response = self.client.post("/api/organizations/", {"name": "New org"})
+
+        self.assertEqual(response.status_code, status.HTTP_201_CREATED)
+        if expect_flagged:
+            mock_group_identify.assert_called_once_with(
+                "organization",
+                response.json()["id"],
+                properties={"exclude_from_crm": True},
+            )
+        else:
+            mock_group_identify.assert_not_called()
+
     # Updating organizations
 
     def test_update_organization_if_admin(self):
