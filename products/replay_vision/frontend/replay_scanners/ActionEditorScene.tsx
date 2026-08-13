@@ -2,6 +2,7 @@ import { useActions, useValues } from 'kea'
 import { Form } from 'kea-forms'
 import { useMemo } from 'react'
 
+import { IconInfo } from '@posthog/icons'
 import {
     LemonButton,
     LemonCheckbox,
@@ -9,6 +10,7 @@ import {
     LemonInputSelect,
     LemonSegmentedButton,
     LemonSelect,
+    Tooltip,
 } from '@posthog/lemon-ui'
 
 import { IntegrationChoice } from 'lib/components/CyclotronJob/integrations/IntegrationChoice'
@@ -536,7 +538,14 @@ function ConditionSection({ scannerId }: { scannerId: string }): JSX.Element {
                 <LemonCheckbox
                     checked={actionForm.alert_include_reasoning}
                     onChange={(checked) => setActionFormValue('alert_include_reasoning', checked)}
-                    label="Include the observation's reasoning in the message"
+                    label={
+                        <span className="flex items-center gap-1">
+                            Send each observation's reasoning as part of the message
+                            <Tooltip title="This makes each message a lot longer, which is useful if an agent parses your alerts. Every alert links back to the observation, where you can read the reasoning too.">
+                                <IconInfo className="text-lg text-secondary" />
+                            </Tooltip>
+                        </span>
+                    }
                     data-attr="vision-action-alert-include-reasoning"
                 />
             ) : null}
