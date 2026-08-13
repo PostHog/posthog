@@ -105,10 +105,12 @@ export const WordArt: Story = {
 export const WithMoreButton: Story = {
     render: () => {
         return (
-            <div>
+            <div className="rounded-lg bg-primary/5 p-4">
                 <TextCard
                     textTile={makeTextTile('basic text')}
-                    moreButtonOverlay={<div>more button</div>}
+                    moreButtonOverlay={
+                        <div className="rounded bg-primary px-2 py-1 text-xs font-semibold text-white">more button</div>
+                    }
                     placement={DashboardPlacement.Dashboard}
                 />
             </div>
@@ -119,10 +121,12 @@ export const WithMoreButton: Story = {
 export const WithMoreButtonPlacedInPublic: Story = {
     render: () => {
         return (
-            <div>
+            <div className="rounded-lg bg-primary/5 p-4">
                 <TextCard
                     textTile={makeTextTile('basic text, more button should be hidden')}
-                    moreButtonOverlay={<div>more button</div>}
+                    moreButtonOverlay={
+                        <div className="rounded bg-primary px-2 py-1 text-xs font-semibold text-white">more button</div>
+                    }
                     placement={DashboardPlacement.Public}
                 />
             </div>
