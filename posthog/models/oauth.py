@@ -1,6 +1,6 @@
 import enum
 from typing import TYPE_CHECKING, cast
-from urllib.parse import parse_qsl, urlparse
+from urllib.parse import urlparse
 
 from django.conf import settings
 from django.contrib.auth.signals import user_logged_out
@@ -437,7 +437,6 @@ class OAuthApplication(ModelActivityMixin, AbstractApplication):  # type: ignore
     def redirect_uri_allowed(self, uri: str) -> bool:
         """Match a redirect URI, allowing wildcard hosts only for opted-in applications."""
         parsed_uri = urlparse(uri)
-        requested_query = set(parse_qsl(parsed_uri.query))
         for allowed_uri in self.redirect_uris.split():
             parsed_allowed_uri = urlparse(allowed_uri)
             if parsed_allowed_uri.scheme != parsed_uri.scheme:
@@ -452,11 +451,15 @@ class OAuthApplication(ModelActivityMixin, AbstractApplication):  # type: ignore
                 continue
 
             allowed_is_loopback = parsed_allowed_uri.scheme == "http" and allowed_host in {"127.0.0.1", "::1"}
-            if not allowed_is_loopback and parsed_allowed_uri.port != parsed_uri.port:
+            try:
+                ports_match = parsed_allowed_uri.port == parsed_uri.port
+            except ValueError:
+                return False
+            if not allowed_is_loopback and not ports_match:
                 continue
             if parsed_allowed_uri.path != parsed_uri.path:
                 continue
-            if not set(parse_qsl(parsed_allowed_uri.query)).issubset(requested_query):
+            if parsed_allowed_uri.query != parsed_uri.query:
                 continue
             return True
         return False

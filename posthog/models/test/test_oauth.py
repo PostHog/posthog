@@ -155,6 +155,8 @@ class TestOAuthModels(TestCase):
         self.assertFalse(app.redirect_uri_allowed("https://hosthog.dev/callback"))
         self.assertFalse(app.redirect_uri_allowed("https://preview.hosthog.dev/other"))
         self.assertFalse(app.redirect_uri_allowed("https://preview.hosthog.dev.evil.example/callback"))
+        self.assertFalse(app.redirect_uri_allowed("https://preview.hosthog.dev/callback?extra=value"))
+        self.assertFalse(app.redirect_uri_allowed("https://preview.hosthog.dev:invalid/callback"))
 
     @override_settings(DEBUG=True)
     def test_can_create_application_with_http_redirect_url_when_debug_is_true(self):
