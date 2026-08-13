@@ -394,7 +394,12 @@ export type ValueDomain =
  *  user-facing "y-axis min/max" control. Ignored under a percent layout and when a fixed
  *  `ValueDomain` is set (both already pin the domain), and on a log scale any non-positive bound is
  *  dropped. The clamped bound is used verbatim rather than re-`nice()`d, since rounding it would
- *  defeat the point of typing it. */
+ *  defeat the point of typing it.
+ *
+ *  Deliberately a separate option rather than a third {@link ValueDomain} variant: the two compose.
+ *  Goal lines already occupy `valueDomain` as `{ include }`, so folding min/max in there would make
+ *  "stretch to reach a goal line" and "cap the axis at 60" mutually exclusive — a chart routinely
+ *  needs both at once, and the two are applied on opposite sides of `nice()` besides. */
 export interface ValueBounds {
     min?: number
     max?: number
@@ -446,7 +451,8 @@ export interface BarsConfig {
     fitToHeight?: boolean
     /** Value-axis domain control — omit for data-derived auto-scaling. See {@link ValueDomain}. */
     valueDomain?: ValueDomain
-    /** Partial clamp on the value axis, composed with auto-scaling. See {@link ValueBounds}. */
+    /** Partial clamp applied *after* the domain above, so either end may be left automatic and a
+     *  goal-line stretch still applies. See {@link ValueBounds} for why this is separate. */
     valueBounds?: ValueBounds
     /** Px of headroom reserved past the bars at the value-axis data end(s), so overlays have room
      *  beyond the bar tip — e.g. a `ValueLabels` overlay can float beside/above each bar instead of
@@ -480,7 +486,8 @@ export interface LineChartConfig extends ChartConfig {
     percentStackView?: boolean
     /** Value-axis domain control — omit for data-derived auto-scaling. See {@link ValueDomain}. */
     valueDomain?: ValueDomain
-    /** Partial clamp on the value axis, composed with auto-scaling. See {@link ValueBounds}. */
+    /** Partial clamp applied *after* the domain above, so either end may be left automatic and a
+     *  goal-line stretch still applies. See {@link ValueBounds} for why this is separate. */
     valueBounds?: ValueBounds
     /** Float the value axis to its data range instead of clamping the baseline to 0 (a y-axis "start
      *  at zero = off"). Applied to the primary axis only; ignored on a log scale. Defaults to false. */
@@ -506,7 +513,8 @@ export interface ComboChartConfig extends Omit<ChartConfig, 'axisOrientation'> {
     /** Value-axis domain control for the primary axis — omit for data-derived auto-scaling. Used
      *  to keep off-scale goal lines on-plot (`{ include }`). See {@link ValueDomain}. */
     valueDomain?: ValueDomain
-    /** Partial clamp on the primary value axis, composed with auto-scaling. See {@link ValueBounds}. */
+    /** Partial clamp on the primary value axis, applied *after* the domain above, so either end may
+     *  be left automatic. See {@link ValueBounds} for why this is separate. */
     valueBounds?: ValueBounds
 }
 
