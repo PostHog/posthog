@@ -122,6 +122,18 @@ class TestMinePatterns(TestCase):
                 "<timestamp>",
                 "12T08",
             ),
+            (
+                "hostname",
+                ["upstream ingest.example.com refused", "upstream ingest.example.net refused"],
+                "<host>",
+                "example",
+            ),
+            (
+                "subdomains",
+                ["proxied to eu.i.example.com ok", "proxied to us.i.example.com ok"],
+                "<host>",
+                "example",
+            ),
         ]
     )
     def test_masking_collapses_variable_tokens(
@@ -162,6 +174,20 @@ class TestMinePatterns(TestCase):
         patterns = mine_patterns([_sample(line)])
 
         assert "<version>" not in patterns[0].pattern
+
+    @parameterized.expand(
+        [
+            ("module_path", "handler resolved in products.logs.backend module"),
+            ("logger_name", "logger django_structlog.celery.receivers ready"),
+            ("source_file", "raised from MergeFromLogEntryTask.cpp while merging"),
+        ]
+    )
+    def test_dotted_code_paths_are_not_masked_as_hosts(self, _name: str, line: str) -> None:
+        # A hostname mask keyed on "any trailing alphabetic label" swallows module paths,
+        # logger names, and source files, which is the literal content the template is for.
+        patterns = mine_patterns([_sample(line)])
+
+        assert "<host>" not in patterns[0].pattern
 
     def test_error_count_includes_only_error_and_fatal(self) -> None:
         samples = [
@@ -278,6 +304,7 @@ class TestCompileMatchRegex(TestCase):
             ("took <num> ms", "took 12345 ms"),
             ("request <uuid> failed", "request 93fce79d-6926-4b08-8fa5-00ffd8e65f4e failed"),
             ("peer <ip> disconnected", "peer 10.32.243.94 disconnected"),
+            ("upstream <host> refused", "upstream eu.i.example.com refused"),
             ("token <hex> rejected", "token 0xdeadbeef rejected"),
             ("agent Chrome/<version> connected", "agent Chrome/139.0.0.0 connected"),
             ("path /api/v1/users?id=<num> hit", "path /api/v1/users?id=42 hit"),
