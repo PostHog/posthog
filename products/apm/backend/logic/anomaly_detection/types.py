@@ -71,6 +71,22 @@ class BucketVerdict:
     tier: TrafficTier
 
 
+@dataclass(frozen=True, slots=True)
+class BucketEvaluation:
+    """Full evaluation of one bucket, verdict or not.
+
+    ``band`` and ``tier`` are None when the bucket was gated out or the
+    baseline was unscorable — consumers that chart observed-vs-band use the
+    band wherever it exists, independent of whether a verdict fired.
+    """
+
+    observed: float
+    band: Band | None
+    stage: BaselineStage | None
+    tier: TrafficTier | None
+    verdict: BucketVerdict | None
+
+
 @dataclass(slots=True)
 class SeriesHistory:
     """Dense per-series counts on the 5-minute grid.

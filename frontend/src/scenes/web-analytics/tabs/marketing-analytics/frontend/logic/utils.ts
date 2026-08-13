@@ -107,6 +107,16 @@ export const NATIVE_SOURCE_HIERARCHY_SCHEMA_NAMES: Partial<
     }).filter((entry): entry is [NativeMarketingSource, NativeSourceHierarchySchemaNames] => entry !== null)
 )
 
+/** Mirrors the backend `_extract_schema_name` (factory.py). Warehouse tables are named
+ * `{user_prefix}{source_type}_{schema_name}`, and the prefix is free text, so it can
+ * repeat the marker — take the last occurrence, which is always the real boundary. */
+export function extractSchemaName(tableName: string, sourceType: string): string {
+    const suffix = tableName.split('.').pop()?.toLowerCase() || ''
+    const marker = `${sourceType.toLowerCase()}_`
+    const index = suffix.lastIndexOf(marker)
+    return index === -1 ? suffix : suffix.slice(index + marker.length)
+}
+
 // Old syncs may still use a stats table's pre-rename name — mirrors the backend
 // fallback in factory.py.
 const LEGACY_TABLE_NAME_FALLBACKS: Partial<Record<NativeMarketingSource, Record<string, string[]>>> = {

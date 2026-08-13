@@ -1,4 +1,5 @@
 import pytest
+from freezegun import freeze_time
 
 from products.tasks.backend.exceptions import SandboxMissingRepositoryError
 from products.tasks.backend.logic.services.sandbox import ExecutionResult, sandbox_repo_path
@@ -7,9 +8,34 @@ from products.tasks.backend.temporal.process_task.activities.start_agent_server 
     StartAgentServerInput,
     _ensure_repository_on_disk,
     _include_personal_mcp_for_task,
+    _record_boot_total,
     _resolve_protected_base_branch,
     start_agent_server,
 )
+
+
+@freeze_time("2026-08-06T12:01:30Z")
+def test_record_boot_total_excludes_wizard_time_and_labels_runtime(mocker) -> None:
+    record_metric = mocker.patch(
+        "products.tasks.backend.temporal.process_task.activities.start_agent_server.record_boot_total_ms"
+    )
+    input = StartAgentServerInput(
+        context=_context(),
+        sandbox_id="sandbox-id",
+        sandbox_url="https://sandbox.example",
+        workflow_start_at="2026-08-06T12:00:00+00:00",
+        boot_excluded_ms=60_000,
+    )
+
+    assert _record_boot_total(input) == 30_000
+    record_metric.assert_called_once_with(
+        30_000,
+        boot_path="classic",
+        used_snapshot=None,
+        has_repo=False,
+        origin_product=None,
+        runtime="gvisor",
+    )
 
 
 def _context(
@@ -170,6 +196,7 @@ async def test_start_agent_server_uses_captured_sandbox_event_ingest_flag(mocker
         internal=True,
         origin_product="support_reply",
         mcp_builtin_agent_key="support",
+        mcp_credential_owner_id=17,
     )
     task_queryset = mocker.patch(
         "products.tasks.backend.temporal.process_task.activities.start_agent_server.Task.objects.select_related"
@@ -218,6 +245,7 @@ async def test_start_agent_server_uses_captured_sandbox_event_ingest_flag(mocker
         allowed_installation_ids=None,
         origin_product="support_reply",
         task_agent_key="support",
+        credential_owner_id=17,
     )
     sandbox.start_agent_server.assert_called_once()
     assert sandbox.start_agent_server.call_args.kwargs["event_ingest_token"] == "event-ingest-token"
@@ -241,6 +269,7 @@ async def test_start_agent_server_forwards_imported_and_relayed_mcp_servers(mock
         internal=False,
         origin_product="user_created",
         mcp_builtin_agent_key=None,
+        mcp_credential_owner_id=None,
     )
     mocker.patch(
         "products.tasks.backend.temporal.process_task.activities.start_agent_server.create_oauth_access_token_for_run",
@@ -297,6 +326,7 @@ async def test_start_agent_server_passes_initial_permission_mode(mocker) -> None
         internal=False,
         origin_product="user_created",
         mcp_builtin_agent_key=None,
+        mcp_credential_owner_id=None,
     )
     mocker.patch(
         "products.tasks.backend.temporal.process_task.activities.start_agent_server.create_oauth_access_token_for_run",

@@ -76,7 +76,9 @@ describe('HogFunctionInvocationPipeline', () => {
         } as unknown as jest.Mocked<HogWatcherService>
 
         hogMasker = {
-            filterByMasking: jest.fn((invocations) => Promise.resolve({ masked: [], notMasked: invocations })),
+            filterByMasking: jest.fn((invocations) =>
+                Promise.resolve({ masked: [], notMasked: invocations, release: async () => {} })
+            ),
         } as unknown as jest.Mocked<HogMaskerService>
 
         hogFunctionMonitoringService = {
@@ -93,16 +95,19 @@ describe('HogFunctionInvocationPipeline', () => {
             hogFunctionManager,
             hogInputsService: {} as any,
             hogWatcher,
-            hogWatcherMirror: null,
+            hogWatcherMirror: hogWatcher,
             hogMasker,
             hogFunctionMonitoringService,
             quotaLimiting,
             redis: {} as any,
-            valkeyShadow: null,
+            valkeyShadow: { writer: {} as any, reader: {} as any },
         })
 
         rateLimitGroupedMock = (pipeline as any).hogRateLimiter.rateLimitGrouped as jest.Mock
         rateLimitGroupedMock.mockResolvedValue([])
+        // Both pools return the same result while reads still come from the primary, so the
+        // mirror shares the primary's mock rather than drifting to a stale default.
+        ;(pipeline as any).hogRateLimiterMirror.rateLimitGrouped = rateLimitGroupedMock
     })
 
     it('returns empty when no hog functions match', async () => {
@@ -199,7 +204,7 @@ describe('HogFunctionInvocationPipeline', () => {
         jest.mocked(buildHogFunctionInvocations).mockResolvedValue({ invocations: [inv], metrics: [], logs: [] })
         hogWatcher.getEffectiveStates.mockResolvedValue({ [fn.id]: { state: HogWatcherState.healthy } } as any)
         rateLimitGroupedMock.mockResolvedValue([[null, { isRateLimited: false }]])
-        hogMasker.filterByMasking.mockResolvedValue({ masked: [inv], notMasked: [] })
+        hogMasker.filterByMasking.mockResolvedValue({ masked: [inv], notMasked: [], release: async () => {} })
 
         const result = await pipeline.buildInvocations([makeGlobals()], {
             hogTypes: ['destination'],

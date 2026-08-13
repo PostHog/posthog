@@ -58,7 +58,7 @@ from posthog.models.user import User
 from posthog.models.utils import IntegrityError, generate_random_oauth_access_token, generate_random_oauth_refresh_token
 from posthog.plugins.plugin_server_api import reload_integrations_on_workers
 from posthog.rbac.decorators import field_access_control
-from posthog.schema_enums import SlackIntegrationScope, SlackIntegrationScopeInReview
+from posthog.schema_enums import SlackIntegrationScope
 from posthog.scopes import get_oauth_scopes_supported
 from posthog.security.url_validation import is_url_allowed
 from posthog.sync import database_sync_to_async
@@ -503,6 +503,17 @@ def _raise_oauth_validation_error(kind: str, res: requests.Response) -> NoReturn
 
 ERROR_TOKEN_REFRESH_FAILED = "TOKEN_REFRESH_FAILED"
 
+# Graph API version the Instagram OAuth dialog, token exchange and refresh are pinned to. Kept in
+# step with the warehouse Instagram source's `default_version`, which calls the same Graph version.
+INSTAGRAM_GRAPH_API_VERSION = "v23.0"
+
+# Instagram API with Facebook Login: the professional account is reached through the Facebook Page
+# it is linked to, so the grant needs the page permissions as well as the Instagram ones.
+# https://developers.facebook.com/docs/instagram-platform/instagram-api-with-facebook-login
+INSTAGRAM_OAUTH_SCOPE = (
+    "instagram_basic instagram_manage_insights instagram_manage_comments pages_show_list pages_read_engagement"
+)
+
 
 class IntegrationQuerySet(models.QuerySet["Integration"]):
     def for_github_installation_id(self, installation_id: str | int) -> Self:
@@ -555,12 +566,14 @@ class Integration(models.Model):
         GITLAB = "gitlab"
         GOOGLE_ADS = "google-ads"
         GOOGLE_ANALYTICS = "google-analytics"
+        GOOGLE_CALENDAR = "google-calendar"
         GOOGLE_CLOUD_SERVICE_ACCOUNT = "google-cloud-service-account"
         GOOGLE_CLOUD_STORAGE = "google-cloud-storage"
         GOOGLE_PUBSUB = "google-pubsub"
         GOOGLE_SEARCH_CONSOLE = "google-search-console"
         GOOGLE_SHEETS = "google-sheets"
         HUBSPOT = "hubspot"
+        INSTAGRAM = "instagram"
         INTERCOM = "intercom"
         JIRA = "jira"
         LINEAR = "linear"
@@ -713,19 +726,10 @@ class OauthConfig:
 # StrEnum declared in posthog/schema.py (generated from the SlackIntegrationScope enum in
 # frontend/src/types.ts via `hogli build:schema`), so widening it on either side stays in sync.
 #
-# On the internal DEV instance (CLOUD_DEPLOYMENT="DEV") and local development (settings.DEBUG)
-# we also request the in-review scopes — the Slack app manifest in those setups can list them.
-# US/EU/self-hosted would fail with `invalid_scope` until Slack approves the public Cloud app.
-# Evaluated at module import; tests that need a different value should
-# `@override_settings(...)` *before* importing this module (or `importlib.reload` it after).
-def _build_posthog_slack_scope() -> str:
-    scopes = [scope.value for scope in SlackIntegrationScope]
-    if settings.DEBUG or get_instance_region() == "DEV":
-        scopes.extend(scope.value for scope in SlackIntegrationScopeInReview)
-    return ",".join(scopes)
-
-
-POSTHOG_SLACK_SCOPE = _build_posthog_slack_scope()
+# Every scope here is approved for the public Cloud app, so the same list is requested on every
+# instance. Staging a scope Slack hasn't approved needs a DEV/local-only branch again — see the
+# note by SlackIntegrationScope in frontend/src/types.ts.
+POSTHOG_SLACK_SCOPE = ",".join(scope.value for scope in SlackIntegrationScope)
 
 
 def _salesforce_instance_host(instance_url: str | None) -> str | None:
@@ -839,6 +843,7 @@ class OauthIntegration:
         "hubspot",
         "google-ads",
         "google-analytics",
+        "google-calendar",
         "google-search-console",
         "google-sheets",
         "snapchat",
@@ -847,6 +852,7 @@ class OauthIntegration:
         "tiktok-ads",
         "bing-ads",
         "meta-ads",
+        "instagram",
         "intercom",
         "linear",
         "clickup",
@@ -1030,6 +1036,23 @@ class OauthIntegration:
                 id_path="sub",
                 name_path="email",
             )
+        elif kind == "google-calendar":
+            if not settings.GOOGLE_CALENDAR_APP_CLIENT_ID or not settings.GOOGLE_CALENDAR_APP_CLIENT_SECRET:
+                raise NotImplementedError("Google Calendar app not configured")
+
+            return OauthConfig(
+                authorize_url="https://accounts.google.com/o/oauth2/v2/auth",
+                # forces the consent screen, otherwise we won't receive a refresh token
+                additional_authorize_params={"access_type": "offline", "prompt": "consent"},
+                token_info_url="https://openidconnect.googleapis.com/v1/userinfo",
+                token_info_config_fields=["sub", "email"],
+                token_url="https://oauth2.googleapis.com/token",
+                client_id=settings.GOOGLE_CALENDAR_APP_CLIENT_ID,
+                client_secret=settings.GOOGLE_CALENDAR_APP_CLIENT_SECRET,
+                scope="https://www.googleapis.com/auth/calendar.readonly https://www.googleapis.com/auth/userinfo.email",
+                id_path="sub",
+                name_path="email",
+            )
         elif kind == "google-search-console":
             if not settings.GOOGLE_SEARCH_CONSOLE_APP_CLIENT_ID or not settings.GOOGLE_SEARCH_CONSOLE_APP_CLIENT_SECRET:
                 raise NotImplementedError("Google Search Console app not configured")
@@ -1155,6 +1178,24 @@ class OauthIntegration:
                 client_id=settings.META_ADS_APP_CLIENT_ID,
                 client_secret=settings.META_ADS_APP_CLIENT_SECRET,
                 scope="ads_read",
+                id_path="id",
+                name_path="name",
+            )
+        elif kind == "instagram":
+            if not settings.INSTAGRAM_APP_CLIENT_ID or not settings.INSTAGRAM_APP_CLIENT_SECRET:
+                raise NotImplementedError("Instagram app not configured")
+
+            # Same Facebook Login endpoints as Meta Ads, and the credentials may even be the same
+            # Meta app, but the two grants request different scopes so they stay separate kinds.
+            # The token response carries no account identifier, so id/name come from `/me`.
+            return OauthConfig(
+                authorize_url=f"https://www.facebook.com/{INSTAGRAM_GRAPH_API_VERSION}/dialog/oauth",
+                token_url=f"https://graph.facebook.com/{INSTAGRAM_GRAPH_API_VERSION}/oauth/access_token",
+                token_info_url=f"https://graph.facebook.com/{INSTAGRAM_GRAPH_API_VERSION}/me",
+                token_info_config_fields=["id", "name"],
+                client_id=settings.INSTAGRAM_APP_CLIENT_ID,
+                client_secret=settings.INSTAGRAM_APP_CLIENT_SECRET,
+                scope=INSTAGRAM_OAUTH_SCOPE,
                 id_path="id",
                 name_path="name",
             )
@@ -1845,15 +1886,19 @@ class OauthIntegration:
                 timeout=10,
             )
         elif kind == "tiktok-ads":
+            # Refresh against the Business API app we authorized against, using its app_id/secret and
+            # JSON body (mirroring the token exchange). The open.tiktokapis.com/v2 endpoint with
+            # client_key belongs to Login Kit — a different TikTok app family whose credentials this
+            # integration never holds.
             return requests.post(
-                "https://open.tiktokapis.com/v2/oauth/token/",
-                data={
-                    "client_key": client_id,  # TikTok uses client_key instead of client_id
-                    "client_secret": client_secret,
+                "https://business-api.tiktok.com/open_api/v1.3/oauth2/refresh_token/",
+                json={
+                    "app_id": client_id,
+                    "secret": client_secret,
                     "refresh_token": refresh_token,
                     "grant_type": "refresh_token",
                 },
-                headers={"Content-Type": "application/x-www-form-urlencoded"},
+                headers={"Content-Type": "application/json"},
                 timeout=10,
             )
         elif kind == "bing-ads":
@@ -1902,13 +1947,17 @@ class OauthIntegration:
                 allow_redirects=False,
             )
 
-    @staticmethod
-    def _parse_token_refresh_response(res: requests.Response) -> dict:
+    def _parse_token_refresh_response(self, res: requests.Response) -> dict:
         try:
-            return res.json()
+            config = res.json()
         except ValueError:
             # e.g. an HTML error page from a proxy/5xx - still a failed refresh, not an exception
             return {}
+        # TikTok Business API nests the refreshed tokens under `data`, same as the token exchange.
+        # Lift them to the top level so the generic access_token/refresh_token/expires_in handling reads them.
+        if self.integration.kind == "tiktok-ads" and isinstance(config.get("data"), dict):
+            config = {**config, **config["data"]}
+        return config
 
     def _record_terminal_unreadable_secret(self) -> None:
         logger.error(
@@ -3210,6 +3259,25 @@ class JiraIntegration:
         except Exception:
             logger.warning("JiraIntegration: token refresh pre-check failed", exc_info=True)
 
+    def _raise_create_issue_error(self, response: requests.Response, response_body: Any) -> NoReturn:
+        properties: dict[str, Any] = {
+            "jira_status_code": response.status_code,
+            "jira_response_content_type": response.headers.get("Content-Type"),
+            "integration_id": self.integration.id,
+            "team_id": self.integration.team_id,
+        }
+        if isinstance(response_body, dict):
+            properties.update(
+                {
+                    "jira_error_messages": response_body.get("errorMessages"),
+                    "jira_field_errors": response_body.get("errors"),
+                    "jira_response_keys": list(response_body.keys()),
+                }
+            )
+
+        capture_exception(Exception("Jira issue creation failed"), additional_properties=properties)
+        raise ValidationError("Could not create the Jira issue. Check the project's issue settings and try again.")
+
     def list_projects(self) -> list[dict]:
         """List all Jira projects accessible to the user"""
         cloud_id = self.cloud_id()
@@ -3272,8 +3340,18 @@ class JiraIntegration:
             timeout=10,
         )
 
-        issue = response.json()
-        return {"key": issue.get("key", ""), "id": issue.get("id", "")}
+        try:
+            issue = response.json()
+        except ValueError:
+            issue = None
+
+        if response.status_code != 201:
+            self._raise_create_issue_error(response, issue)
+
+        if not isinstance(issue, dict) or not issue.get("key"):
+            self._raise_create_issue_error(response, issue)
+
+        return {"key": issue["key"], "id": issue.get("id", "")}
 
 
 # Default branches change rarely; a multi-hour TTL is plenty to avoid hitting
@@ -3326,6 +3404,15 @@ def invalidate_github_repository_caches_for_installation(installation_id: str | 
     ).update(repository_cache_updated_at=None)
 
 
+def github_account_type(owner_type: str | None) -> str | None:
+    """Normalize GitHub's account ``type`` ("Organization" / "User") to org vs personal."""
+    if owner_type == "Organization":
+        return "organization"
+    if owner_type == "User":
+        return "personal"
+    return None
+
+
 class GitHubIntegration(GitHubIntegrationBase):
     integration: Integration
 
@@ -3370,6 +3457,10 @@ class GitHubIntegration(GitHubIntegrationBase):
                 "name": dot_get(installation_access.installation_info, "account.login", installation_id),
             },
         }
+        # See GitHubIntegrationBase.refresh_access_token for why permissions are persisted.
+        permissions = installation_access.installation_info.get("permissions")
+        if isinstance(permissions, dict):
+            config["permissions"] = permissions
 
         sensitive_config = {"access_token": installation_access.access_token}
 
@@ -3387,6 +3478,34 @@ class GitHubIntegration(GitHubIntegrationBase):
         if integration.errors:
             integration.errors = ""
             integration.save()
+
+        # Every other kind reports this from IntegrationSerializer.create(). GitHub also gets created
+        # through its App installation callback and through agentic provisioning, which never reach
+        # that serializer, so this is the one place every GitHub connect passes through.
+        # IntegrationSerializer.create() skips github for the same reason: its own github branch ends
+        # up here, and reporting in both would count one connection twice.
+        if created and created_by is not None:
+            from posthog.event_usage import (  # noqa: PLC0415 — posthog.event_usage imports posthog.models
+                report_user_action,
+            )
+
+            owner_type = dot_get(installation_access.installation_info, "account.type", None)
+            try:
+                report_user_action(
+                    created_by,
+                    "integration created",
+                    {
+                        "integration_kind": "github",
+                        "is_overwrite": False,
+                        "repo_owner_type": owner_type,
+                        "account_type": github_account_type(owner_type),
+                    },
+                    team=integration.team,
+                )
+            except Exception:
+                # The integration row is already committed. Raising here would report a connection
+                # that actually succeeded as a failure.
+                logger.exception("github_integration: failed to report integration created")
 
         invalidate_github_repository_caches_for_installation(installation_id)
 
@@ -3940,13 +4059,21 @@ class GitLabIntegration:
         return {"issue_id": issue["iid"]}
 
 
-class MetaAdsIntegration:
+class MetaGraphIntegration:
+    """Token handling shared by the Meta Graph OAuth kinds (Meta Ads, Instagram).
+
+    Meta issues no refresh token: a long-lived user access token is swapped for a fresh one
+    through the `fb_exchange_token` grant, which is why these kinds sit outside the generic
+    `OauthIntegration` refresh sweep and refresh on use instead.
+    """
+
     integration: Integration
+    kind: str = ""
     api_version: str = "v25.0"
 
     def __init__(self, integration: Integration) -> None:
-        if integration.kind != "meta-ads":
-            raise Exception("MetaAdsIntegration init called with Integration with wrong 'kind'")
+        if integration.kind != self.kind:
+            raise Exception(f"{type(self).__name__} init called with Integration with wrong 'kind'")
         self.integration = integration
 
     def refresh_access_token(self):
@@ -3996,6 +4123,15 @@ class MetaAdsIntegration:
             # reload_integrations_on_workers(self.integration.team_id, [self.integration.id])
             oauth_refresh_counter.labels(kind=self.integration.kind, result="success", reason="", attempt="").inc()
         self.integration.save()
+
+
+class MetaAdsIntegration(MetaGraphIntegration):
+    kind = "meta-ads"
+
+
+class InstagramIntegration(MetaGraphIntegration):
+    kind = "instagram"
+    api_version = INSTAGRAM_GRAPH_API_VERSION
 
 
 class TwilioIntegration:

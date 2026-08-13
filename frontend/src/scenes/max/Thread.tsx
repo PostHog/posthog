@@ -98,7 +98,6 @@ import { SIDE_PANEL_PANEL_ID, ThreadMessage, maxLogic } from './maxLogic'
 import { maxThreadLogic } from './maxThreadLogic'
 import { MultiQuestionFormRecap } from './messages/MultiQuestionForm'
 import { NotebookArtifactAnswer } from './messages/NotebookArtifactAnswer'
-import { SessionSummarizationProgress } from './messages/SessionSummarizationProgress'
 import { isRenderableUIPayloadTool } from './messages/UIPayloadAnswer'
 import { VisualizationArtifact } from './messages/VisualizationArtifact'
 import { MAX_SLASH_COMMANDS, SlashCommandName } from './slash-commands'
@@ -328,7 +327,6 @@ function LegacyThread({ showTrailers }: { showTrailers: boolean }): JSX.Element 
                                         conversationId={conversationId}
                                         traceId={traceId}
                                         summary={ticketSummaryData.summary}
-                                        targetArea={ticketSummaryData.targetArea}
                                     />
                                 ))}
                         </React.Fragment>
@@ -1468,8 +1466,6 @@ function renderToolCallWidget(
                     onAcceptFilters={onAcceptSessionFilters}
                 />
             )
-        case 'session_summarization':
-            return <SessionSummarizationProgress updates={widgetDef.args.updates} />
         default:
             return null
     }

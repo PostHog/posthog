@@ -14,6 +14,7 @@ from pydantic import BaseModel, ConfigDict
 
 from posthog.schema import (
     AccountsQuery,
+    AccountsTableQuery,
     ActorsPropertyTaxonomyQuery,
     ActorsQuery,
     BreakdownType,
@@ -62,6 +63,7 @@ from posthog.schema import (
     MetricsQuery,
     NodeKind,
     PathsQuery,
+    PathsV2Query,
     PropertyGroupFilter,
     PropertyGroupFilterValue,
     QueryStatus,
@@ -341,6 +343,7 @@ RunnableQueryNode = Union[
     FunnelsQuery,
     RetentionQuery,
     PathsQuery,
+    PathsV2Query,
     StickinessQuery,
     LifecycleQuery,
     ActorsQuery,
@@ -364,6 +367,7 @@ RunnableQueryNode = Union[
     ActorsPropertyTaxonomyQuery,
     UsageMetricsQuery,
     AccountsQuery,
+    AccountsTableQuery,
     EndpointsUsageOverviewQuery,
     EndpointsUsageTableQuery,
     EndpointsUsageTrendsQuery,
@@ -452,6 +456,32 @@ def get_query_runner(
                 user=user,
             )
 
+        # Queries originating from the web analytics product take a WA-owned
+        # subclass that can serve eligible shapes from precompute buckets and
+        # falls back to the standard trends path internally. Tags-only check:
+        # all real gating (rollout flag, shape, team enrollment) lives in the
+        # runner so dispatch stays free of I/O.
+        query_tags = get_from_dict_or_attr(query_obj, "tags")
+        if query_tags and get_from_dict_or_attr(query_tags, "productKey") == "web_analytics":
+            from products.web_analytics.backend.hogql_queries.web_trends_lazy_precompute import (
+                is_trends_precompute_enabled_for_team,
+            )
+
+            # Flag-gated at dispatch: with the rollout flag off, WA queries take
+            # the vanilla trends path with zero new code in the way. Local flag
+            # evaluation only — no network I/O here.
+            if is_trends_precompute_enabled_for_team(team):
+                from products.web_analytics.backend.hogql_queries.web_trends import WebTrendsQueryRunner
+
+                return WebTrendsQueryRunner(
+                    query=query_obj,
+                    team=team,
+                    timings=timings,
+                    limit_context=limit_context,
+                    modifiers=modifiers,
+                    user=user,
+                )
+
         from .insights.trends.trends_query_runner import TrendsQueryRunner
 
         return TrendsQueryRunner(
@@ -496,6 +526,17 @@ def get_query_runner(
             user=user,
         )
 
+    if kind == "PathsV2Query":
+        from products.product_analytics.backend.hogql_queries.paths_v2.paths_v2_query_runner import PathsV2QueryRunner
+
+        return PathsV2QueryRunner(
+            query=cast(PathsV2Query | dict[str, Any], query),
+            team=team,
+            timings=timings,
+            limit_context=limit_context,
+            modifiers=modifiers,
+            user=user,
+        )
     if kind == "CalendarHeatmapQuery":
         from .insights.trends.calendar_heatmap_query_runner import CalendarHeatmapQueryRunner
 
@@ -605,6 +646,7 @@ def get_query_runner(
         "FunnelCorrelationActorsQuery",
         "ExperimentActorsQuery",
         "StickinessActorsQuery",
+        "PathsV2ActorsQuery",
     ):
         from .insights.insight_actors_query_runner import InsightActorsQueryRunner
 
@@ -1222,6 +1264,18 @@ def get_query_runner(
         from products.customer_analytics.backend.facade.queries import AccountsQueryRunner
 
         return AccountsQueryRunner(
+            query=query,
+            team=team,
+            timings=timings,
+            modifiers=modifiers,
+            limit_context=limit_context,
+            user=user,
+        )
+
+    if kind == "AccountsTableQuery":
+        from products.customer_analytics.backend.facade.queries import AccountsTableQueryRunner
+
+        return AccountsTableQueryRunner(
             query=query,
             team=team,
             timings=timings,
@@ -2026,7 +2080,7 @@ class QueryRunner(ABC, Generic[Q, R, CR]):
                         capture_exception(exc)
                     if self._query_failure_caching_enabled:
                         # Transient error classes classify to None and are never recorded.
-                        failure_kind = classify_failure(exc)
+                        failure_kind = classify_failure(exc, self.team.pk)
                         if failure_kind is not None:
                             QueryCache(team_id=self.team.pk, cache_key=cache_key).record_failure(
                                 failure_kind, str(exc), budget=budget_for_limit_context(self.limit_context)
@@ -2640,10 +2694,22 @@ class AnalyticsQueryRunner(QueryRunner, Generic[AR]):
         if queried_resources == set():
             return payload
 
-        if restricted_objects := self._get_object_access_restrictions(queried_resources):
+        restricted_objects = self._get_object_access_restrictions(queried_resources)
+        allowlisted_objects = self._get_object_access_allowlist(queried_resources)
+        restricted_resources = self._get_resource_access_restrictions(queried_resources)
+        if restricted_objects:
             payload["restricted_objects"] = restricted_objects
-        if restricted_resources := self._get_resource_access_restrictions(queried_resources):
+        if allowlisted_objects:
+            payload["allowlisted_objects"] = allowlisted_objects
+        if restricted_resources:
             payload["restricted_resources"] = restricted_resources
+        if (restricted_objects or allowlisted_objects or restricted_resources) and (
+            user_access_control := self.user_access_control
+        ):
+            # Access-control filtering exempts objects the user created (see build_access_control_guard),
+            # including when the resource is denied without any object-level rules. Partition by principal
+            # whenever access control narrows the query.
+            payload["restricted_for_user"] = user_access_control.user.pk
 
         return payload
 
@@ -2659,6 +2725,20 @@ class AnalyticsQueryRunner(QueryRunner, Generic[AR]):
         if not blocked:
             return None
         return {resource: sorted(ids) for resource, ids in sorted(blocked.items())}
+
+    def _get_object_access_allowlist(self, queried_resources: Optional[set[str]]) -> dict[str, list[str]] | None:
+        """Per-resource object IDs that are the only ones readable, scoped to the resources this query
+        reads. Distinct from the deny set: two users can be denied nothing yet be narrowed to
+        different grants, which would otherwise collide on one cache entry."""
+        user_access_control = self.user_access_control
+        if user_access_control is None:
+            return None
+        allowlisted = user_access_control.allowlisted_resource_ids_by_scope
+        if queried_resources is not None:
+            allowlisted = {resource: ids for resource, ids in allowlisted.items() if resource in queried_resources}
+        if not allowlisted:
+            return None
+        return {resource: sorted(ids) for resource, ids in sorted(allowlisted.items())}
 
     def _get_resource_access_restrictions(self, queried_resources: Optional[set[str]]) -> list[str] | None:
         """Resources the user has no resource-level access to, scoped to the resources this query reads."""

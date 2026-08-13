@@ -1,4 +1,13 @@
-import { CaretRightIcon } from "@phosphor-icons/react";
+import {
+  ArchiveIcon,
+  CaretRightIcon,
+  FolderSimpleIcon,
+  PencilSimpleIcon,
+  PushPinIcon,
+  PushPinSlashIcon,
+  SquaresFourIcon,
+  TrashIcon,
+} from "@phosphor-icons/react";
 import {
   Button,
   ContextMenu,
@@ -95,23 +104,40 @@ function TaskRowMenuItems({
     id: channel.id,
     label: channel.name,
     current: channel.id === menu.channelId,
+    starred: channel.starred,
   }));
 
   return (
     <>
-      <Item onClick={menu.onTogglePin}>{menu.isPinned ? "Unpin" : "Pin"}</Item>
-      {menu.onRename && <Item onClick={menu.onRename}>Rename</Item>}
+      <Item onClick={menu.onTogglePin}>
+        {menu.isPinned ? (
+          <PushPinSlashIcon size={14} />
+        ) : (
+          <PushPinIcon size={14} />
+        )}
+        {menu.isPinned ? "Unpin" : "Pin"}
+      </Item>
+      {menu.onRename && (
+        <Item onClick={menu.onRename}>
+          <PencilSimpleIcon size={14} />
+          Rename
+        </Item>
+      )}
       {isTask && (
         <Item
           disabled={!menu.onAddToCommandCenter}
           onClick={menu.onAddToCommandCenter}
         >
+          <SquaresFourIcon size={14} />
           Add to Command Center
         </Item>
       )}
       {isTask && channelItems.length > 0 && (
         <Sub>
-          <SubTrigger>File to…</SubTrigger>
+          <SubTrigger>
+            <FolderSimpleIcon size={14} />
+            File to…
+          </SubTrigger>
           <MenuSubFlyout className="w-64 p-0">
             <SearchableMenuFlyout
               items={channelItems}
@@ -124,11 +150,17 @@ function TaskRowMenuItems({
           </MenuSubFlyout>
         </Sub>
       )}
-      {menu.onArchive && <Item onClick={menu.onArchive}>Archive</Item>}
+      {menu.onArchive && (
+        <Item onClick={menu.onArchive}>
+          <ArchiveIcon size={14} />
+          Archive
+        </Item>
+      )}
       {/* The ellipsis is the promise that a confirm follows — deleting a canvas
           takes it away from everyone in the space. */}
       {menu.onDelete && (
         <Item variant="destructive" onClick={menu.onDelete}>
+          <TrashIcon size={14} />
           Delete…
         </Item>
       )}
@@ -161,7 +193,6 @@ export function TaskRowMenuList({
       Item: ({ children, disabled, variant, onClick }) => (
         <Button
           variant={variant === "destructive" ? "destructive" : "default"}
-          size="sm"
           left
           disabled={disabled}
           className="w-full"
@@ -187,8 +218,10 @@ export function TaskRowMenuList({
           delay={150}
           closeDelay={100}
           render={
-            <Button variant="default" size="sm" left className="w-full">
-              <span className="flex-1 text-left">{children}</span>
+            <Button variant="default" left className="w-full">
+              <span className="flex flex-1 items-center gap-2 text-left">
+                {children}
+              </span>
               <CaretRightIcon size={12} />
             </Button>
           }

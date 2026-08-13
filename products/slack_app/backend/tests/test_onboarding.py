@@ -318,7 +318,7 @@ class TestOnboarding:
 
         blocked = onboarding.apply_sources_selection(self.integration, "U1", ["session_replay"])
 
-        assert blocked == ["Session replay analysis"]  # surfaced so the handler can nudge the user
+        assert blocked == ["Session replay analysis (legacy)"]  # surfaced so the handler can nudge the user
         assert has_enabled_source(self.team.id) is False
 
     @patch("products.slack_app.backend.services.inbox_interactivity._post_ephemeral_via_response_url")
@@ -362,7 +362,7 @@ class TestOnboarding:
         self.organization.is_ai_data_processing_approved = False
         self.organization.save(update_fields=["is_ai_data_processing_approved"])
 
-        assert set_sources(self.team.id, None, ["session_replay"]) == ["Session replay analysis"]
+        assert set_sources(self.team.id, None, ["session_replay"]) == ["Session replay analysis (legacy)"]
         assert has_enabled_source(self.team.id) is False
 
     def test_set_sources_keeps_enabled_source_when_ai_later_revoked(self):
@@ -376,7 +376,7 @@ class TestOnboarding:
         # AI revoked: re-submitting the still-ticked selection must leave it enabled, not disable it.
         self.organization.is_ai_data_processing_approved = False
         self.organization.save(update_fields=["is_ai_data_processing_approved"])
-        assert set_sources(self.team.id, None, ["session_replay"]) == ["Session replay analysis"]
+        assert set_sources(self.team.id, None, ["session_replay"]) == ["Session replay analysis (legacy)"]
         assert has_enabled_source(self.team.id) is True
 
     @patch("posthog.models.integration.WebClient")

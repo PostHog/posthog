@@ -142,7 +142,9 @@ function DashboardScene({
 
     return (
         <SceneContent className={cn('dashboard')}>
-            {placement == DashboardPlacement.Dashboard && <DashboardHeader />}
+            {placement == DashboardPlacement.Dashboard && (
+                <DashboardHeader loading={!dashboard && !dashboardFailedToLoad} />
+            )}
             {placement == DashboardPlacement.Dashboard && !!dashboard?.id && (
                 <DashboardSubscribeNudgeTrigger dashboardId={dashboard.id} />
             )}

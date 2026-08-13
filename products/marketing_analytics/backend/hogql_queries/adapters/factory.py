@@ -57,10 +57,14 @@ def _extract_schema_name(table_suffix: str, source_type: str) -> str:
     Table names follow the format: {user_prefix}{source_type}_{schema_name}
     Exclusions should only match against the schema part, not user prefixes.
     For example: 'analytics_pinterestads_campaigns' -> 'campaigns'
+
+    The user prefix is free text, so it can contain the marker itself
+    ('googleads_googleads_campaign'). Take the last occurrence: no schema name
+    contains the marker, so the last one is always the real boundary.
     """
     source_type_lower = source_type.lower()
     marker = f"{source_type_lower}_"
-    idx = table_suffix.find(marker)
+    idx = table_suffix.rfind(marker)
     if idx != -1:
         return table_suffix[idx + len(marker) :]
     return table_suffix
@@ -251,24 +255,21 @@ class MarketingSourceFactory:
         ad_table_name = hierarchy_names.get("ad_table")
         ad_unified = ad_table_name is not None and ad_table_name == hierarchy_names.get("ad_stats_table")
 
-        # First match wins for every slot below — table names are matched by keyword
-        # or schema-name substring, so a project with more than one candidate table
-        # (e.g. a legacy sync left alongside a re-synced one) must resolve to the same
-        # table on every run rather than whichever happens to sort last in `tables`.
+        # First match wins for every slot below, because `tables` has no ordering and a
+        # project can hold more than one table that matches a slot, such as a legacy sync
+        # left alongside a re-synced one under a different prefix. Without these guards a
+        # later match overwrites an earlier one and the chosen table varies between runs.
         for table in tables:
             table_suffix = table.name.split(".")[-1].lower()
             schema_name = _extract_schema_name(table_suffix, source.source_type)
 
-            if (
-                campaign_table is None
-                and any(kw in table_suffix for kw in patterns["campaign_table_keywords"])
-                and not any(ex in schema_name for ex in patterns["campaign_table_exclusions"])
-            ):
+            # Exact schema-name match: a keyword match also claims unrelated schemas that
+            # merely contain it, such as Google Ads `campaign_budget`, which has none of
+            # the campaign columns the adapter goes on to reference.
+            if campaign_table is None and schema_name == patterns["campaign_table_name"]:
                 campaign_table = table
             elif campaign_stats_table is None and any(kw in table_suffix for kw in patterns["stats_table_keywords"]):
                 campaign_stats_table = table
-            # Exact schema-name match (not keyword) so ad-group / ad tables don't
-            # collide with the campaign keyword.
             elif adset_table is None and schema_name == hierarchy_names.get("adset_table"):
                 adset_table = table
                 if adset_unified:

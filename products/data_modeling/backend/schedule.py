@@ -17,7 +17,13 @@ from collections.abc import Collection
 from datetime import timedelta
 
 from asgiref.sync import async_to_sync
-from temporalio.client import ScheduleCalendarSpec, ScheduleListActionStartWorkflow, ScheduleRange, ScheduleSpec
+from temporalio.client import (
+    ScheduleCalendarSpec,
+    ScheduleIntervalSpec,
+    ScheduleListActionStartWorkflow,
+    ScheduleRange,
+    ScheduleSpec,
+)
 from temporalio.common import SearchAttributePair, TypedSearchAttributes
 
 from posthog.temporal.common.client import async_connect
@@ -256,10 +262,68 @@ def _monthly_spec(entity_id: uuid.UUID, timezone: str) -> ScheduleSpec:
     )
 
 
+def _anchored_spec(interval: timedelta, anchor_minutes: int) -> ScheduleSpec:
+    """Pinned-phase spec: fires at times t ≡ anchor (mod interval), t counted from Monday 00:00 UTC.
+
+    Always UTC (a fixed instant that does not shift with DST) and 1min jitter — an operator
+    pinning 00:00 means 00:00, not the hash paths' up-to-1hr spread. Every sub-weekly bucket
+    divides the day, so only the time-of-day part of the anchor matters there; weekly reads the
+    full value for its day. Monthly reads only the time of day too, and fires on the 30-day
+    epoch grid rather than a day of the month.
+
+    Nothing here depends on the entity: an anchored cohort shares one phase by definition.
+    """
+    time_of_day = anchor_minutes % (24 * 60)
+    anchor_hour, anchor_min = divmod(time_of_day, 60)
+    total_hours = interval.total_seconds() / 3600
+
+    if total_hours <= 1:
+        interval_mins = int(interval.total_seconds() // 60)
+        base_min = time_of_day % interval_mins
+        mins = sorted((base_min + i * interval_mins) % 60 for i in range(60 // interval_mins))
+        calendar = ScheduleCalendarSpec(
+            comment=f"Anchored: every {interval_mins}min at minute phase {base_min}",
+            hour=[ScheduleRange(start=0, end=23)],
+            minute=[ScheduleRange(start=m, end=m) for m in mins],
+        )
+    elif total_hours <= 24:
+        interval_hours = int(total_hours)
+        base_hour = anchor_hour % interval_hours
+        hours = sorted((base_hour + i * interval_hours) % 24 for i in range(24 // interval_hours))
+        calendar = ScheduleCalendarSpec(
+            comment=f"Anchored: every {interval_hours}hr at {base_hour:02d}:{anchor_min:02d}",
+            hour=[ScheduleRange(start=h, end=h) for h in hours],
+            minute=[ScheduleRange(start=anchor_min, end=anchor_min)],
+        )
+    elif total_hours <= 168:
+        # The anchor counts days from Monday (ISO); Temporal's day_of_week counts 0 = Sunday.
+        day_of_week = (anchor_minutes // (24 * 60) + 1) % 7
+        calendar = ScheduleCalendarSpec(
+            comment=f"Anchored: weekly at day {day_of_week} {anchor_hour:02d}:{anchor_min:02d}",
+            day_of_week=[ScheduleRange(start=day_of_week, end=day_of_week)],
+            hour=[ScheduleRange(start=anchor_hour, end=anchor_hour)],
+            minute=[ScheduleRange(start=anchor_min, end=anchor_min)],
+        )
+    else:
+        # Calendar months are 28-31 days, so no day_of_month holds a 30-day cycle. Warehouse
+        # sources run epoch-anchored interval schedules whose offset is a time of day, so a
+        # 30-day source always syncs on a day where days_since_epoch % 30 == 0. Sharing that
+        # grid is what lets an anchored model read the sync it was meant to read; a calendar
+        # day drifts against the grid and leaves the model a whole cycle in arrears.
+        return ScheduleSpec(
+            intervals=[ScheduleIntervalSpec(every=interval, offset=timedelta(minutes=time_of_day))],
+            jitter=timedelta(minutes=1),
+            time_zone_name="UTC",
+        )
+
+    return ScheduleSpec(calendars=[calendar], jitter=timedelta(minutes=1), time_zone_name="UTC")
+
+
 def build_schedule_spec(
     entity_id: uuid.UUID,
     interval: timedelta,
     team_timezone: str = "UTC",
+    anchor_minutes: int | None = None,
 ) -> ScheduleSpec:
     """Build a Temporal ScheduleSpec for a saved query based on its sync frequency.
 
@@ -267,10 +331,15 @@ def build_schedule_spec(
         entity_id: The saved query UUID (used for deterministic bucketing).
         interval: The sync frequency interval (e.g. timedelta(hours=24)).
         team_timezone: The team's timezone (e.g. "America/New_York"). Used for 6hr+ schedules.
+        anchor_minutes: When set, pin the fire phase instead of hash-spreading it — minutes
+            past Monday 00:00 UTC; the spec fires at t ≡ anchor (mod interval), always UTC.
 
     Returns:
         A ScheduleSpec ready to be used with Temporal's Schedule API.
     """
+    if anchor_minutes is not None:
+        return _anchored_spec(interval, anchor_minutes)
+
     total_hours = interval.total_seconds() / 3600
 
     if total_hours <= 1:
