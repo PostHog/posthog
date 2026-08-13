@@ -14,6 +14,7 @@ import { useMocks } from '~/mocks/jest'
 import { initKeaTests } from '~/test/init'
 import { AccessControlLevel, DashboardType, QueryBasedInsightModel } from '~/types'
 
+import { addInsightToDashboardLogic } from './addInsightToDashboardModalLogic'
 import { dashboardLogic } from './dashboardLogic'
 import { EmptyDashboardComponent } from './EmptyDashboardComponent'
 
@@ -95,12 +96,22 @@ describe('EmptyDashboardComponent', () => {
         expect(document.querySelector('[data-attr="dashboard-loading-controls"]')).toBeInTheDocument()
     })
 
-    it('routes Add widget preview to feature previews when flag is disabled', async () => {
+    it('opens the insight picker when Get started is clicked', async () => {
+        const { logic } = renderEmptyState()
+
+        await userEvent.click(document.querySelector('[data-attr="dashboard-add-graph-header"]')!)
+
+        expect(addInsightToDashboardLogic.values.addInsightToDashboardModalVisible).toBe(true)
+
+        logic.unmount()
+    })
+
+    it('routes Widget preview to feature previews when flag is disabled', async () => {
         const pushSpy = jest.spyOn(router.actions, 'push')
         const { logic } = renderEmptyState()
 
         await openGetStartedDropdown()
-        await userEvent.click(screen.getByText('Add widget'))
+        await userEvent.click(screen.getByText('Widget'))
 
         expect(pushSpy).toHaveBeenCalledWith(urls.featurePreview(FEATURE_FLAGS.DASHBOARD_WIDGETS))
         expect(logic.values.addWidgetModalOpen).toBe(false)
@@ -109,34 +120,37 @@ describe('EmptyDashboardComponent', () => {
         logic.unmount()
     })
 
-    it('shows Add text card in Get started dropdown', async () => {
+    it('shows the shared dashboard add options in the Get started dropdown', async () => {
         const { logic } = renderEmptyState()
 
         await openGetStartedDropdown()
 
-        expect(screen.getByText('Add text card')).toBeInTheDocument()
-        expect(screen.getByText('Add widget')).toBeInTheDocument()
+        expect(screen.getByText('Content')).toBeInTheDocument()
+        expect(screen.getByText('Charts')).toBeInTheDocument()
+        expect(screen.getByText('Add text')).toBeInTheDocument()
+        expect(screen.getByText('Button')).toBeInTheDocument()
+        expect(screen.getByText('Widget')).toBeInTheDocument()
         expect(screen.getByText('BETA')).toBeInTheDocument()
 
         logic.unmount()
     })
 
-    it('shows Add widget in Get started dropdown when dashboard widgets flag is enabled', async () => {
+    it('shows Widget in the Get started dropdown when dashboard widgets flag is enabled', async () => {
         const { logic } = renderEmptyState({ widgetsEnabled: true })
 
         await openGetStartedDropdown()
 
-        expect(screen.getByText('Add widget')).toBeInTheDocument()
+        expect(screen.getByText('Widget')).toBeInTheDocument()
         expect(screen.getByText('NEW')).toBeInTheDocument()
 
         logic.unmount()
     })
 
-    it('opens add widget modal when Add widget is clicked', async () => {
+    it('opens the add widget modal when Widget is clicked', async () => {
         const { logic } = renderEmptyState({ widgetsEnabled: true })
 
         await openGetStartedDropdown()
-        await userEvent.click(screen.getByText('Add widget'))
+        await userEvent.click(screen.getByText('Widget'))
 
         expect(logic.values.addWidgetModalOpen).toBe(true)
 
