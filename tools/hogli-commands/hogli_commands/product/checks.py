@@ -701,6 +701,18 @@ class IsolationChainCheck(ProductCheck):
         def format_facade_imports(imports) -> str:
             return "; ".join(f"{v.class_name} (from {v.source_path}, via facade/{v.facade_module})" for v in imports)
 
+        def format_crossings_by_class(imports) -> str:
+            # the allowance is keyed per class, so report one entry per class even when several
+            # facade modules re-export it — otherwise the count reads higher than the sanctioned list
+            by_class: dict[str, tuple[str, list[str]]] = {}
+            for v in imports:
+                _, modules = by_class.setdefault(v.class_name, (v.source_path, []))
+                modules.append(f"facade/{v.facade_module}")
+            return "; ".join(
+                f"{name} (from {source_path}, via {', '.join(sorted(modules))})"
+                for name, (source_path, modules) in sorted(by_class.items())
+            )
+
         if facade_violations:
             detail = format_facade_imports(facade_violations)
             remedies = (
@@ -718,12 +730,12 @@ class IsolationChainCheck(ProductCheck):
                     f"inert while un-narrowed, but narrowing is blocked until this is fixed — {remedies}"
                 )
 
-        # The watched-models allowance (MODEL_CROSSING_PRODUCTS). Crossing model classes are
+        # The watched-models allowance (MODEL_CROSSINGS). Crossing model classes are
         # sanctioned interim debt, so they never block narrowing — but the debt stays visible as a
         # standing warning, and a narrowed product must keep the whole model surface watched or the
         # skip is unsound (a model or migration change core observes would run no Django suite).
         if status.model_crossings:
-            crossing_detail = format_facade_imports(status.model_crossings)
+            crossing_detail = format_crossings_by_class(status.model_crossings)
             result.warnings.append(
                 f"facade hands out Django model class(es) under the watched-models allowance: {crossing_detail}. "
                 "Sanctioned interim debt (products/architecture.md § Wiring couplings) — the model surface stays "

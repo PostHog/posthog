@@ -473,14 +473,24 @@ CARVE_OUTS: frozenset[tuple[str, str]] = frozenset(
 )
 
 
-# The watched-models allowance, keyed by product. These products' facades may hand out Django
-# model classes defined under backend/models/, provided the whole model surface (models +
-# migrations) stays in the narrowed contract-check inputs — the same soundness contract garages
-# have. Sanctioned interim debt, surfaced as a standing lint warning; the full rationale and the
-# bar for adding an entry live in products/architecture.md § Wiring couplings.
-MODEL_CROSSING_PRODUCTS: frozenset[str] = frozenset(
+# The watched-models allowance, keyed (product, class) like CARVE_OUTS above. These facades may
+# hand out the named Django model class defined under backend/models/, provided the whole model
+# surface (models + migrations) stays in the narrowed contract-check inputs — the same soundness
+# contract garages have. Sanctioned interim debt, surfaced as a standing lint warning.
+#
+# Keyed per class, not per product, so a product on the list can't quietly grow a new crossing: an
+# unlisted class is a leak again, and sanctioning it costs a doctrine amendment. The list only
+# shrinks. The bar for an entry, and why these five are load-bearing, live in
+# products/architecture.md § Wiring couplings.
+MODEL_CROSSINGS: frozenset[tuple[str, str]] = frozenset(
     {
-        "warehouse_sources",
+        ("warehouse_sources", "DataWarehouseCredential"),
+        ("warehouse_sources", "DataWarehouseTable"),
+        ("warehouse_sources", "ExternalDataJob"),
+        ("warehouse_sources", "ExternalDataSchema"),
+        ("warehouse_sources", "ExternalDataSource"),
+        ("warehouse_sources", "WarehouseColumnAnnotation"),
+        ("warehouse_sources", "WarehouseColumnStatistics"),
     }
 )
 
@@ -696,7 +706,7 @@ def _split_facade_reexports(backend_dir: Path, name: str) -> FacadeReexports:
     for f in _iter_facade_class_reexports(backend_dir):
         if (name, f.class_name) in CARVE_OUTS:
             carveout_modules.add(f.source_path)
-        elif name in MODEL_CROSSING_PRODUCTS and f.source_path.startswith(_MODEL_SOURCE_PREFIXES):
+        elif (name, f.class_name) in MODEL_CROSSINGS and f.source_path.startswith(_MODEL_SOURCE_PREFIXES):
             model_crossings.append(f)
         else:
             leaks.append(f)
@@ -824,7 +834,7 @@ class IsolationStatus:
     unwatched_garages: tuple[str, ...] = ()
     uncovered_carveout_modules: tuple[str, ...] = ()
     # Model classes the facade hands out under the watched-models allowance (see
-    # MODEL_CROSSING_PRODUCTS); uncovered_model_surface lists the surface locations a narrowed
+    # MODEL_CROSSINGS); uncovered_model_surface lists the surface locations a narrowed
     # product fails to keep in its contract-check inputs.
     model_crossings: tuple[FacadeClassImport, ...] = ()
     uncovered_model_surface: tuple[str, ...] = ()

@@ -17,7 +17,7 @@ this product is isolated.
   product's wiring locations (`backend/hogql_queries/`, `backend/max_tools.py`,
   `backend/temporal/`, `backend/tasks/`); data and error types belong in
   `facade/contracts.py`; Django models never cross the boundary, except for the few
-  products on the frozen watched-models allowance list (`MODEL_CROSSING_PRODUCTS`),
+  `(product, class)` pairs on the frozen watched-models allowance (`MODEL_CROSSINGS`),
   whose `backend/models/` + `backend/migrations/` must stay in the contract-check inputs
   (see `products/architecture.md` § Wiring couplings).
 - **Not isolated:** boundaries are not yet enforced by CI, but prefer using existing
