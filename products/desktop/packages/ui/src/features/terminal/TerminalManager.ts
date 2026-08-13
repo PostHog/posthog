@@ -192,6 +192,8 @@ class TerminalManagerImpl {
       return existing;
     }
 
+    const shellClient = resolveService<ShellClient>(SHELL_CLIENT);
+
     const term = new XTerm({
       cursorBlink: true,
       fontSize: 12,
@@ -231,21 +233,18 @@ class TerminalManagerImpl {
     }
 
     // Setup user input handler
-    const disposable = term.onData((data: string) => {
-      resolveService<ShellClient>(SHELL_CLIENT)
-        .write({ sessionId, data })
-        .catch((error: Error) => {
-          this.handleMissingSessionError(sessionId, instance, error, {
-            reason: "write",
-            retryData: data,
-          });
+    const inputDisposable = term.onData((data: string) => {
+      shellClient.write({ sessionId, data }).catch((error: Error) => {
+        this.handleMissingSessionError(sessionId, instance, error, {
+          reason: "write",
+          retryData: data,
         });
+      });
       this.scheduleSave(sessionId, instance);
     });
-    instance.cleanups.push(() => disposable.dispose());
+    instance.cleanups.push(() => inputDisposable.dispose());
 
     // Instance-lifetime, not component-lifetime: pty output while the tab is unmounted would otherwise be dropped
-    const shellClient = resolveService<ShellClient>(SHELL_CLIENT);
     const dataSub = shellClient.onData(sessionId, (event) => {
       this.writeData(event.sessionId, event.data);
     });
