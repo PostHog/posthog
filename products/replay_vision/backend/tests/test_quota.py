@@ -650,6 +650,8 @@ class TestBillingSyncedQuota(_VisionQuotaTestCase):
             ("not_an_object", "[1, 2]", {}),
             ("non_int_value", '{"01234567-89ab-cdef-0123-456789abcdef": "lots"}', {}),
             ("non_uuid_key", '{"not-an-org": 500000}', {}),
+            # int(True) is 1, which would cap the org at a single credit rather than not at all.
+            ("boolean_value", '{"01234567-89ab-cdef-0123-456789abcdef": true}', {}),
             ("invalid_json", "{nope", {}),
         ]
     )

@@ -54,6 +54,10 @@ def _parse_org_credit_limit_overrides(raw: str) -> dict[str, int]:
     for org_id, limit in parsed.items():
         try:
             key = str(UUID(str(org_id)))
+            # `int(True)` is 1, which would cap an org at a single credit. Billing's own limit parser
+            # rejects bools for the same reason.
+            if isinstance(limit, bool):
+                raise ValueError(f"credit limit must be a number, got {limit!r}")
             # A negative cap would read as "already over", so the worst a typo can do is block the org.
             overrides[key] = max(0, int(limit))
         except (ValueError, TypeError):
