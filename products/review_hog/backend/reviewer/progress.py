@@ -21,6 +21,8 @@ from django.utils import timezone
 
 from pydantic import ValidationError
 
+from posthog.dataclasses import frozen
+
 from products.review_hog.backend.models import ReviewReport, ReviewReportArtefact, ReviewSkillConfig
 from products.review_hog.backend.reviewer.artefact_content import (
     PerspectiveSelectionArtefact,
@@ -220,7 +222,7 @@ def turn_stats(team_id: int, heads: dict[str, str | None]) -> dict[str, TurnStat
     return stats
 
 
-@dataclass
+@frozen
 class ResolutionRunState:
     """The report's latest resolution run, as the list row and the drawer render it."""
 
