@@ -106,6 +106,7 @@ def apply_ses_tenant_state(
             team_id=team_id,
             now_iso=now.isoformat(),
             findings=_findings_for_email(findings),
+            staff_suspended=config.email_sending_suspended_at is not None,
         )
         if notify is not None:
             # Dispatch after commit so a rollback can't leave an email claiming a state
@@ -140,6 +141,7 @@ def _pick_notification(
     team_id: int,
     now_iso: str,
     findings: list[dict[str, str]],
+    staff_suspended: bool,
 ) -> Callable[[], None] | None:
     pause_reason = PROVIDER_PAUSE_REASON if impact == "HIGH" else PROVIDER_PAUSE_REASON_UNSPECIFIED
 
@@ -156,6 +158,11 @@ def _pick_notification(
     if sending_status == "DISABLED" and previous_status != "DISABLED":
         return lambda: send_email_sending_suspended.delay(team_id, pause_reason, now_iso)
     if previous_status == "DISABLED" and sending_status in ("ENABLED", "REINSTATED"):
+        if staff_suspended:
+            # The staff kill switch (email_sending_suspended_at) still blocks delivery, so
+            # sending is not actually restored — a "re-enabled" email would contradict it. The
+            # admin unsuspend action sends its own re-enabled email when that switch clears.
+            return None
         return lambda: send_email_sending_unsuspended.delay(team_id, now_iso)
     if sending_status != "DISABLED" and _IMPACT_SEVERITY.get(impact, 0) > _IMPACT_SEVERITY.get(previous_impact, 0):
         # Escalation only, and only while still sending — a paused tenant already got the

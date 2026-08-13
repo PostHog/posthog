@@ -1,6 +1,8 @@
 from posthog.test.base import BaseTest
 from unittest.mock import MagicMock, patch
 
+from django.utils import timezone
+
 from parameterized import parameterized
 
 from products.workflows.backend.models.team_workflows_config import TeamWorkflowsConfig
@@ -98,6 +100,19 @@ class TestApplySesTenantState(BaseTest):
 
         for kind, mock in emails.items():
             assert mock.called == (kind == expected_email), f"{kind} called={mock.called}"
+
+    def test_restore_is_silent_while_staff_kill_switch_still_blocks_sending(self):
+        # AWS reinstating the tenant does not restore delivery while the staff kill switch is set,
+        # so a "re-enabled" email would tell admins something false. The admin unsuspend action
+        # sends that email when the switch clears.
+        TeamWorkflowsConfig.objects.update_or_create(
+            team=self.team,
+            defaults={"ses_tenant_sending_status": "DISABLED", "email_sending_suspended_at": timezone.now()},
+        )
+
+        emails = self._apply("ENABLED", None)
+
+        assert not emails["unsuspended"].called
 
     def test_provider_pause_email_carries_the_provider_reason(self):
         self._seed("ENABLED")
