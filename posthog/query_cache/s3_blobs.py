@@ -15,11 +15,9 @@ from posthog.storage.object_storage import object_storage_client
 
 logger = structlog.get_logger(__name__)
 
-# Entries at least QUERY_CACHE_S3_MIN_SIZE_BYTES large can be stored as an S3 object with a
-# pointer record left in Redis under the same cache key. The pointer starts with this magic so
-# readers can tell it apart from the two blob formats (split-format magic and legacy raw JSON).
-# Pods that predate the pointer format fail to parse it and treat the entry as a cache miss,
-# which is the same rolling-deploy behavior the split format shipped with.
+# Marks a Redis value as an S3 pointer record rather than a blob (split-format magic or legacy
+# raw JSON). Pods that predate this format read a pointer as a cache miss, the same
+# rolling-deploy behavior the split format shipped with.
 S3_POINTER_MAGIC = b"PHQCS3\x00"
 
 QueryCacheS3Mode = Literal["off", "shadow", "on"]
@@ -133,8 +131,8 @@ def s3_write_mode(team_id: int) -> QueryCacheS3Mode:
 def write_blob(*, team_id: int, cache_key: str, serialized: bytes, mode: QueryCacheS3Mode) -> Optional[bytes]:
     """Compress and upload a cache entry's blob, returning encoded pointer bytes, or None on failure.
 
-    Never raises: the caller stores the blob inline in Redis when this fails, so S3 problems
-    degrade to today's behavior instead of failing the query response.
+    Never raises: on failure the caller stores the blob inline in Redis, so S3 problems degrade
+    to inline caching instead of failing the query response.
     """
     bucket = settings.QUERY_CACHE_S3_BUCKET
     object_key = f"{settings.OBJECT_STORAGE_S3_QUERY_CACHE_FOLDER}/{team_id}/{cache_key}"
