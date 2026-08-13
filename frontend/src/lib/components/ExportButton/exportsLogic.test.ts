@@ -307,10 +307,9 @@ describe('exportsLogic', () => {
             await flush()
 
             // The nudge has to survive the pending → settled transition, and count as one claim
-            // even though it rendered into both frames.
-            expect(lemonToast.updateToSuccess).toHaveBeenCalledWith(exportToastId, 'nudge:Export complete!', {
-                autoClose: false,
-            })
+            // even though it rendered into both frames. The file downloaded itself, so nothing is
+            // owed and the offer alone does not hold the toast open.
+            expect(lemonToast.updateToSuccess).toHaveBeenCalledWith(exportToastId, 'nudge:Export complete!', {})
             expect(claimExportNudgeMessage).toHaveBeenCalledTimes(1)
         })
 
@@ -350,7 +349,7 @@ describe('exportsLogic', () => {
             expect(lemonToast.updateToSuccess).toHaveBeenCalledWith(
                 jest.mocked(lemonToast.promise).mock.calls[0][2]?.toastId,
                 'nudge:Export complete!',
-                { autoClose: false }
+                {}
             )
         })
 

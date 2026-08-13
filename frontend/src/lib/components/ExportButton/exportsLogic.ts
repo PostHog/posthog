@@ -147,8 +147,12 @@ const startExportNudge = (dashboardId: number | undefined, toastId: string): Exp
 
 /**
  * Folds the nudge into an export toast that has already settled, so a slow eligibility check never
- * delays the export's own feedback. A nudge asks for a decision, so it keeps the toast up until
- * dismissed and renders the toast's secondary action itself rather than showing it twice.
+ * delays the export's own feedback. The nudge renders the toast's secondary action itself rather
+ * than showing it twice.
+ *
+ * Only an undelivered file holds the toast open. A secondary action is how the export still reaches
+ * the user, so while one is present the toast waits to be clicked instead of closing on a timer;
+ * with nothing left owed it closes on the container's usual schedule, offer or no offer.
  */
 const foldNudgeIntoToast = async (
     nudge: ExportNudge,
@@ -160,18 +164,14 @@ const foldNudgeIntoToast = async (
     if (!renderer) {
         return
     }
+    const holdOpen = secondaryAction ? { autoClose: false as const } : {}
     if (nudge.accepted()) {
         // Followed from the pending frame, so the export settles into its own message rather than
-        // asking a second time. A download still waiting to be taken holds the toast open; anything
-        // else has already been delivered and can close on the container's schedule.
-        lemonToast.updateToSuccess(
-            toastId,
-            headline,
-            secondaryAction ? { button: secondaryAction, autoClose: false } : {}
-        )
+        // asking a second time.
+        lemonToast.updateToSuccess(toastId, headline, { ...holdOpen, button: secondaryAction })
         return
     }
-    lemonToast.updateToSuccess(toastId, renderer(headline, secondaryAction), { autoClose: false })
+    lemonToast.updateToSuccess(toastId, renderer(headline, secondaryAction), holdOpen)
 }
 
 const showExportCompleteToast = async (dashboardId: number | undefined, onDownload: () => void): Promise<void> => {

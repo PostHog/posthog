@@ -214,16 +214,16 @@ describe('dashboardExportNudgeLogic', () => {
             expect(dismiss).not.toHaveBeenCalled()
         })
 
-        it('keeps the toast up when the secondary action fires', () => {
+        it('closes the toast once the secondary action hands the file over', () => {
             const action = jest.fn()
             const renderer = claimExportNudgeMessage(CANDIDATE, TOAST_ID)
-            render(renderer!('Preparing export…', { label: 'View exports', action }))
+            render(renderer!('Export complete!', { label: 'Download', action }))
 
-            fireEvent.click(screen.getByText('View exports'))
+            fireEvent.click(screen.getByText('Download'))
 
             expect(action).toHaveBeenCalled()
-            // A side trip to the exports panel must not silently take the nudge with it.
-            expect(dismiss).not.toHaveBeenCalled()
+            // Nothing is owed after the download, so an unanswered offer is not reason to stay up.
+            expect(dismiss).toHaveBeenCalledWith(TOAST_ID)
         })
     })
 })

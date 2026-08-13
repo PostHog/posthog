@@ -1,5 +1,5 @@
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
-import { ToastButton } from 'lib/lemon-ui/LemonToast/LemonToast'
+import { ToastButton, lemonToast } from 'lib/lemon-ui/LemonToast/LemonToast'
 import { ExportNudgeCandidate, claimExportNudge } from 'scenes/dashboard/dashboardExportNudgeLogic'
 
 import {
@@ -53,9 +53,13 @@ export function claimExportNudgeMessage(
                         size="small"
                         data-attr={secondaryAction.dataAttr}
                         className={secondaryAction.className}
-                        // Deliberately leaves the toast up, unlike ToastContent's own button slot: a
-                        // side trip to the exports panel must not silently take the nudge with it.
-                        onClick={() => void secondaryAction.action()}
+                        // Matches ToastContent's own button slot. This is the export handing its
+                        // file over, so once it is clicked the toast has delivered everything it
+                        // was holding open for and the unanswered offer is not reason enough to stay.
+                        onClick={() => {
+                            void secondaryAction.action()
+                            lemonToast.dismiss(toastId)
+                        }}
                     >
                         {secondaryAction.label}
                     </LemonButton>
