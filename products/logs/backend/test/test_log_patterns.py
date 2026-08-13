@@ -368,7 +368,14 @@ _product_st = st.text("abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ", mi
 _scheme_st = st.sampled_from(["http", "https"])
 
 
-_variable_token_st = st.one_of(_uuid_st, _hex_0x_st, _hex_bare_st, _num_st, _timestamp_st(), _ipv4_st)
+_version_st = st.lists(st.integers(min_value=0, max_value=9999), min_size=2, max_size=4).map(
+    lambda parts: ".".join(map(str, parts))
+)
+_decimal_context_st = st.sampled_from(["duration_ms=", "ratio=", "load ", "p95="])
+_slash_version_st = st.tuples(_product_st, _version_st).map(lambda t: f"{t[0]}/{t[1]}")
+_variable_token_st = st.one_of(
+    _uuid_st, _hex_0x_st, _hex_bare_st, _num_st, _timestamp_st(), _ipv4_st, _slash_version_st
+)
 
 
 class TestMaskingProperties(TestCase):
@@ -448,6 +455,9 @@ _five_octet_st = st.tuples(*[st.integers(min_value=0, max_value=255)] * 5).map(
     lambda octets: ".".join(map(str, octets))
 )
 _versioned_quad_st = st.tuples(_product_st, _ipv4_st).map(lambda t: f"{t[0]}/{t[1]}")
+_plain_decimal_st = st.tuples(st.integers(min_value=0, max_value=9999), st.integers(min_value=0, max_value=999)).map(
+    lambda t: f"{t[0]}.{t[1]}"
+)
 # One row per (masked kind, confusable neighbor). Both halves of the row matter: the mask
 # has to tell the pair apart, and so does the pivot regex the mask produces. A single
 # union-of-everything property dilutes each pair to a fraction of the example budget, so
@@ -461,6 +471,7 @@ _CONFUSABLE_PAIRS = [
     ("hex_vs_letter_only_hex", st.one_of(_hex_0x_st, _hex_bare_st), _letter_hex_st),
     ("ip_vs_five_octets", _ipv4_st, _five_octet_st),
     ("ip_vs_versioned_quad", _ipv4_st, _versioned_quad_st),
+    ("version_vs_plain_decimal", _slash_version_st, _plain_decimal_st),
 ]
 
 
@@ -538,3 +549,40 @@ class TestIpMaskProperties(TestCase):
 
         assert "<ip>" in patterns[0].pattern
         assert address not in patterns[0].pattern
+
+
+class TestVersionMaskProperties(TestCase):
+    """The cases above pin browser and protocol versions; these hold the rule over all parts.
+
+    The mask trades on one character. Everything after a slash is a version, everything else
+    keeps its number, so both properties test that line rather than a handful of versions.
+    """
+
+    @given(product=_product_st, version=_version_st)
+    @settings(max_examples=400, deadline=None)
+    def test_any_version_after_a_product_name_collapses_to_one_placeholder(self, product: str, version: str) -> None:
+        patterns = mine_patterns([_sample(f"agent {product}/{version} connected")])
+
+        # exact template: two to four parts become one placeholder, not one <num> per part
+        assert patterns[0].pattern == f"agent {product}/<version> connected"
+
+    @given(context=_decimal_context_st, whole=st.integers(min_value=0, max_value=9999), frac=st.integers(0, 999))
+    @settings(max_examples=400, deadline=None)
+    def test_decimals_outside_a_path_keep_their_number(self, context: str, whole: int, frac: int) -> None:
+        # Latencies, ratios, and load averages are decimals too. Reading one as a version
+        # would hide the measurement the person opened the pattern for.
+        patterns = mine_patterns([_sample(f"request {context}{whole}.{frac} done")])
+
+        assert "<version>" not in patterns[0].pattern
+
+    @given(product=_product_st, version_a=_version_st, version_b=_version_st)
+    @settings(max_examples=300, deadline=None)
+    def test_lines_differing_only_by_version_share_a_fingerprint(
+        self, product: str, version_a: str, version_b: str
+    ) -> None:
+        # This is what the mask is for: one template per client, not one per release.
+        line = f"agent {product}/{{}} connected"
+        first = mine_patterns([_sample(line.format(version_a))])
+        second = mine_patterns([_sample(line.format(version_b))])
+
+        assert pattern_fingerprint(first[0].pattern) == pattern_fingerprint(second[0].pattern)
