@@ -15,6 +15,9 @@ describe("declared origins", () => {
     "https://*.cloudflare.com",
     "wss://api.example.com",
     "http://localhost:8787",
+    // A fully qualified name keeps its root dot under the host-source grammar.
+    "cdn.example.com.",
+    "https://cdn.example.com.",
   ])("reaches the policy intact: %j", (source) => {
     expect(buildCspString({ resourceDomains: [source] })).toContain(
       `script-src 'self' 'unsafe-inline' ${source}`,
@@ -27,6 +30,8 @@ describe("declared origins", () => {
     "example .com",
     "'self'",
     "https:",
+    // One root dot is allowed, so guard against loosening that to any number.
+    "example.com..",
   ])("is dropped rather than edited to fit: %j", (source) => {
     // Editing it down to fit would grant an origin nobody declared.
     expect(buildCspString({ resourceDomains: [source] })).toContain(

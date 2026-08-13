@@ -20,9 +20,14 @@ const DEFAULT_CSP =
 // The `ui.csp` fields are named `*Domains`, but what a server puts in them is a
 // CSP source expression: an origin carrying a scheme, like
 // `https://cdn.jsdelivr.net` or `wss://api.example.com`, optionally with a
-// wildcard subdomain, a port, or a path.
+// wildcard subdomain, a port, or a path. The `\.?` after the host labels is the
+// root dot of a fully qualified name, which the grammar permits. The path stops
+// at `;` and `,` because the grammar excludes both, and they are what a source
+// would need to escape its directive.
+//
+// @see https://www.w3.org/TR/CSP3/#grammardef-host-source
 const CSP_SOURCE =
-  /^(?:[a-zA-Z][a-zA-Z0-9+.-]*:\/\/)?(?:\*|(?:\*\.)?[a-zA-Z0-9-]+(?:\.[a-zA-Z0-9-]+)*)(?::(?:\d+|\*))?(?:\/[^\s"';,]*)?$/;
+  /^(?:[a-zA-Z][a-zA-Z0-9+.-]*:\/\/)?(?:\*|(?:\*\.)?[a-zA-Z0-9-]+(?:\.[a-zA-Z0-9-]+)*\.?)(?::(?:\d+|\*))?(?:\/[^\s"';,]*)?$/;
 
 // A declaration that is not a source expression is dropped whole, rather than
 // having its offending characters removed so that it fits. Editing it down can
