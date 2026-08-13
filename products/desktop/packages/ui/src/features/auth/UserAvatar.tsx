@@ -1,4 +1,5 @@
 import { avatarColor } from "@posthog/core/auth/avatarColor";
+import type { UserLike } from "@posthog/core/auth/userInitials";
 import { Avatar, AvatarFallback, AvatarImage } from "@posthog/quill";
 import { useGravatarUrl } from "@posthog/ui/features/auth/useGravatarUrl";
 import { getUserInitials } from "@posthog/ui/features/auth/userInitials";
@@ -8,11 +9,8 @@ type AvatarSize = "lg" | "default" | "sm" | "xs";
 
 // The minimum a surface needs to know about a person to draw them. `UserBasic`
 // satisfies it, and so do leaner shapes like inbox teammates.
-export interface AvatarPerson {
+export interface AvatarPerson extends UserLike {
   uuid?: string | null;
-  email?: string | null;
-  first_name?: string | null;
-  last_name?: string | null;
 }
 
 interface UserAvatarProps {
