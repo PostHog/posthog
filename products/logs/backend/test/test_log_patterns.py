@@ -29,12 +29,14 @@ def _sample(
     severity: str = "info",
     service: str = "api",
     ts: dt.datetime | None = None,
+    truncated: bool = False,
 ) -> LogSample:
     return LogSample(
         body=body,
         severity_text=severity,
         service_name=service,
         timestamp=ts or dt.datetime(2026, 6, 23, 12, 0, 0, tzinfo=dt.UTC),
+        truncated=truncated,
     )
 
 
@@ -263,9 +265,33 @@ class TestMinePatterns(TestCase):
         assert patterns[0].examples[0].severity_text == "info"
 
     def test_long_bodies_are_truncated_before_mining(self) -> None:
+        # one token with no space inside the cap: there is no boundary to cut back to
         patterns = mine_patterns([_sample("x" * 1000)])
 
         assert len(patterns[0].examples[0].body) == 512
+
+    def test_truncation_cuts_back_to_a_word_boundary(self) -> None:
+        # A hard character cut leaves a partial token, which Drain treats as a literal. Bodies
+        # that differ only past the cap then fragment into one cluster per cut point instead
+        # of merging, and the partial word shows up in the template a person reads.
+        body = "prefix " + " ".join(["Macintosh"] * 200)
+
+        patterns = mine_patterns([_sample(body)])
+
+        example = patterns[0].examples[0]
+        assert len(example.body) <= 512
+        assert set(example.body.split(" ")) == {"prefix", "Macintosh"}
+
+    def test_word_boundary_truncation_still_drops_the_end_anchor(self) -> None:
+        # Cutting back to a boundary puts the prepared body under the cap, so a length check
+        # can no longer tell truncation apart from a short line. Getting that wrong anchors
+        # the predicate at the end, and it matches none of the real, longer lines.
+        body = "prefix " + " ".join(["Macintosh"] * 200)
+
+        patterns = mine_patterns([_sample(body)])
+
+        assert patterns[0].match_regex is not None
+        assert re.search(patterns[0].match_regex, body)
 
     def test_first_and_last_seen_span_the_cluster(self) -> None:
         earliest = dt.datetime(2026, 6, 23, 12, 0, 0, tzinfo=dt.UTC)
@@ -359,7 +385,7 @@ class TestCompileMatchRegex(TestCase):
         ]
     )
     def test_compiled_regex_matches_raw_bodies(self, template: str, raw_body: str) -> None:
-        regex = compile_match_regex(template, [_sample(raw_body.strip())], truncate=512)
+        regex = compile_match_regex(template, [_sample(raw_body.strip())])
 
         assert regex is not None
         assert re.search(regex, raw_body)
@@ -372,7 +398,7 @@ class TestCompileMatchRegex(TestCase):
         ]
     )
     def test_compiled_regex_is_anchored(self, template: str, non_matching_body: str) -> None:
-        regex = compile_match_regex(template, [_sample("User dave not found")], truncate=512)
+        regex = compile_match_regex(template, [_sample("User dave not found")])
 
         assert regex is not None
         assert not re.search(regex, non_matching_body)
@@ -381,7 +407,7 @@ class TestCompileMatchRegex(TestCase):
         # A body that hit the mining truncation cap means the template only covers a prefix
         # of the raw line — the predicate must still match the full-length original.
         truncated_body = "prefix " + "x" * 505
-        regex = compile_match_regex("prefix <*>", [_sample(truncated_body)], truncate=512)
+        regex = compile_match_regex("prefix <*>", [_sample(truncated_body, truncated=True)])
 
         assert regex is not None
         assert re.search(regex, truncated_body + " continues beyond the cap")
@@ -393,7 +419,7 @@ class TestCompileMatchRegex(TestCase):
         ]
     )
     def test_templates_without_literal_content_get_no_regex(self, _name: str, template: str) -> None:
-        assert compile_match_regex(template, [_sample("anything at all")], truncate=512) is None
+        assert compile_match_regex(template, [_sample("anything at all")]) is None
 
     def test_diverged_example_fails_validation(self) -> None:
         # Drain refines templates as rows merge, so a stored example can stop matching the
@@ -401,10 +427,10 @@ class TestCompileMatchRegex(TestCase):
         # withheld instead.
         examples = [_sample("User dave not found"), _sample("something entirely different")]
 
-        assert compile_match_regex("User <*> not found", examples, truncate=512) is None
+        assert compile_match_regex("User <*> not found", examples) is None
 
     def test_no_examples_means_no_regex(self) -> None:
-        assert compile_match_regex("User <*> not found", [], truncate=512) is None
+        assert compile_match_regex("User <*> not found", []) is None
 
     @parameterized.expand(
         [
