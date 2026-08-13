@@ -15,7 +15,6 @@ from products.managed_warehouse.backend.facade.contracts import ManagedWarehouse
 from products.managed_warehouse.backend.temporal import ducklake_register_data_imports_workflow as registration_module
 from products.managed_warehouse.backend.temporal.ducklake_register_data_imports_workflow import (
     DUCKLAKE_DATA_IMPORTS_REGISTRATION_WORKFLOW_FLAG,
-    DUCKLAKE_REGISTRATION_BATCH_SIZE,
     S3_COPY_BATCH_SIZE,
     DuckLakeRegisterDataImportsActivityInputs,
     DuckLakeRegisterDataImportsGateInputs,
@@ -274,16 +273,14 @@ def test_copy_activity_uses_s3_copy_and_local_duckgres_postgres_connection(monke
         "s3://ducklake/posthog_data_imports_team_1/postgres_customers/_imports/schema/job/"
         "1234567890_abcdef12/_ph_partition_key=2026-08/b.parquet"
     )
-    assert first_path in registration_query
-    assert second_path in registration_query
-    assert sum(first_path in query for query in executed) == 1
-    assert sum(second_path in query for query in executed) == 1
     parquet_glob = (
         "s3://ducklake/posthog_data_imports_team_1/postgres_customers/_imports/schema/job/"
         "1234567890_abcdef12/**/*.[pP][aA][rR][qQ][uU][eE][tT]"
     )
-    assert sum(parquet_glob in query for query in executed) == 2
-    assert all(parquet_glob not in executed[index] for index in registration_indexes)
+    assert parquet_glob in registration_query
+    assert sum(parquet_glob in query for query in executed) == 3
+    assert not any(first_path in query for query in executed)
+    assert not any(second_path in query for query in executed)
     assert len(verification_indexes) == 2
     assert len(rename_indexes) == 2
     assert max(registration_indexes) < min(verification_indexes)
@@ -316,39 +313,6 @@ def test_copy_activity_uses_s3_copy_and_local_duckgres_postgres_connection(monke
     workload_metrics.files.record.assert_called_once_with(2.0)
     workload_metrics.rows.record.assert_called_once_with(2.0)
     workload_metrics.bytes.record.assert_called_once_with(300.0)
-
-
-def test_registration_batches_exact_paths_and_keeps_the_remainder(monkeypatch):
-    monkeypatch.setattr(registration_module, "_prepared_generation_is_current", lambda inputs: True)
-    monkeypatch.setattr(registration_module, "setup_duckgres_session", MagicMock())
-    landing_uri = registration_module._generation_scoped_landing_uri(
-        _activity_inputs().metadata.landing_uri,
-        job_id=_activity_inputs().job_id,
-        prepared_queryable_folder=_activity_inputs().metadata.prepared_queryable_folder,
-    )
-    landing_paths = [f"{landing_uri}/file-{index:02}.parquet" for index in range(DUCKLAKE_REGISTRATION_BATCH_SIZE + 1)]
-    conn = MagicMock()
-
-    def execute(query: object) -> MagicMock:
-        if "SELECT count(*) FROM" in str(query):
-            return MagicMock(fetchone=MagicMock(return_value=(len(landing_paths),)))
-        return MagicMock()
-
-    conn.execute.side_effect = execute
-
-    assert registration_module._register_prepared_parquet_files(_activity_inputs(), conn, landing_paths) == len(
-        landing_paths
-    )
-
-    registration_queries = [
-        str(call.args[0]) for call in conn.execute.call_args_list if "ducklake_add_data_files" in str(call.args[0])
-    ]
-    assert len(registration_queries) == 2
-    assert all(path in registration_queries[0] for path in landing_paths[:DUCKLAKE_REGISTRATION_BATCH_SIZE])
-    assert landing_paths[-1] not in registration_queries[0]
-    assert landing_paths[-1] in registration_queries[1]
-    assert all(path not in registration_queries[1] for path in landing_paths[:DUCKLAKE_REGISTRATION_BATCH_SIZE])
-    assert all(sum(path in query for query in registration_queries) == 1 for path in landing_paths)
 
 
 def test_duckgres_cancel_watchdog_cancels_the_active_query(monkeypatch):
@@ -447,8 +411,7 @@ def test_duckgres_cancel_watchdog_rejects_an_exhausted_activity_budget(monkeypat
     timer_factory.assert_not_called()
 
 
-def test_registration_stops_between_batches_after_query_cancellation(monkeypatch):
-    monkeypatch.setattr(registration_module, "DUCKLAKE_REGISTRATION_BATCH_SIZE", 2)
+def test_registration_stops_after_glob_query_cancellation(monkeypatch):
     monkeypatch.setattr(registration_module, "setup_duckgres_session", MagicMock())
     conn = MagicMock()
     cancel_requested = registration_module.threading.Event()
@@ -465,7 +428,7 @@ def test_registration_stops_between_batches_after_query_cancellation(monkeypatch
         prepared_queryable_folder=_activity_inputs().metadata.prepared_queryable_folder,
     )
 
-    landing_paths = [f"{landing_uri}/{name}.parquet" for name in ("first", "second", "third")]
+    landing_paths = [f"{landing_uri}/{name}.parquet" for name in ("first", "second")]
 
     with pytest.raises(TimeoutError, match="activity deadline"):
         registration_module._register_prepared_parquet_files(
@@ -478,8 +441,7 @@ def test_registration_stops_between_batches_after_query_cancellation(monkeypatch
     executed = [str(call.args[0]) for call in conn.execute.call_args_list]
     registration_queries = [query for query in executed if "ducklake_add_data_files" in query]
     assert len(registration_queries) == 1
-    assert all(path in registration_queries[0] for path in landing_paths[:2])
-    assert landing_paths[2] not in registration_queries[0]
+    assert f"{landing_uri}/{registration_module._PARQUET_FILE_GLOB}" in registration_queries[0]
     assert not any("SELECT count(*)" in query for query in executed)
     assert sum("DROP TABLE" in query and "__ph_register_" in query for query in executed) == 1
     assert not any("RENAME TO" in query for query in executed)
