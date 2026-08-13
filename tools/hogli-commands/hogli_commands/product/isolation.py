@@ -759,10 +759,27 @@ def uncovered_carveout_modules(product_dir: Path, carveout_modules: frozenset[st
 
 
 def unwatched_model_surface(product_dir: Path) -> set[str]:
-    """Model-surface locations present in the product but missing from its (narrowed) contract-check
-    inputs. Only meaningful for a product whose facade hands out model classes under the
-    watched-models allowance — callers gate on that."""
-    return _unwatched_present_locations(product_dir, MODEL_SURFACE_PREFIXES)
+    """Model-surface locations present in the product but not wholly watched by its (narrowed)
+    contract-check inputs. Only meaningful for a product whose facade hands out model classes under
+    the watched-models allowance — callers gate on that.
+
+    Stricter than the garage check on purpose: the allowance requires the WHOLE surface watched, so
+    a directory location needs its full glob (backend/models/**) — an input inside it, or a negation
+    carving files out of it, does not count. A garage may be watched piecemeal; the model surface
+    may not, because any unwatched model file is a class core can observe without re-running the
+    suite."""
+    inputs = [i.removeprefix("./") for i in contract_check_inputs(product_dir)]
+    if not inputs:
+        return set()
+    uncovered = set()
+    for p in MODEL_SURFACE_PREFIXES:
+        if not (product_dir / p.rstrip("/")).exists():
+            continue
+        whole = location_input_glob(p)
+        negated_inside = any(i.startswith("!") and i.removeprefix("!").startswith(p) for i in inputs)
+        if whole not in inputs or negated_inside:
+            uncovered.add(p)
+    return uncovered
 
 
 # ---------------------------------------------------------------------------
