@@ -321,28 +321,20 @@ export const aiObservabilitySharedLogic = kea<aiObservabilitySharedLogicType>([
     }),
 
     reducers(({ props }) => ({
-        dateFilter: props.logicKey
-            ? [
-                  {
-                      dateFrom: INITIAL_EVENTS_DATE_FROM,
-                      dateTo: INITIAL_DATE_TO,
-                  },
-                  {
-                      setDates: (_, { dateFrom, dateTo }) => ({ dateFrom, dateTo }),
-                      applyUrlState: (_, { dateFrom, dateTo }) => ({ dateFrom, dateTo }),
-                  },
-              ]
-            : [
-                  {
-                      dateFrom: INITIAL_EVENTS_DATE_FROM,
-                      dateTo: INITIAL_DATE_TO,
-                  },
-                  buildAiObservabilityStorageConfig('events.dateFilter'),
-                  {
-                      setDates: (_, { dateFrom, dateTo }) => ({ dateFrom, dateTo }),
-                      applyUrlState: (_, { dateFrom, dateTo }) => ({ dateFrom, dateTo }),
-                  },
-              ],
+        dateFilter: [
+            {
+                dateFrom: INITIAL_EVENTS_DATE_FROM,
+                dateTo: INITIAL_DATE_TO,
+            },
+            {
+                ...buildAiObservabilityStorageConfig('events.dateFilter'),
+                persist: !props.logicKey,
+            },
+            {
+                setDates: (_, { dateFrom, dateTo }) => ({ dateFrom, dateTo }),
+                applyUrlState: (_, { dateFrom, dateTo }) => ({ dateFrom, dateTo }),
+            },
+        ],
 
         dashboardDateFilter: [
             {
