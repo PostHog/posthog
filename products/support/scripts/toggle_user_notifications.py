@@ -12,32 +12,34 @@ credential (`UserViewSet.get_queryset` filters everyone else down to themselves)
 user's existing settings - top level for scalars, one level deep for the per-project/per-org maps -
 so a partial body never clobbers unrelated preferences.
 
-Requires a **staff, non-impersonating** credential, and checks all three preconditions up front
-because they surface as indistinguishable 403s at PATCH time:
+Authentication is a **staff personal API key created with the All access (`*`) preset**, and
+nothing else. Two constraints leave no alternative:
+
+- `user:write` cannot be granted to a key. The scope picker sets `disabledActions: ['write']` on
+  the `user` entry (`frontend/src/lib/scopes.tsx`), because that scope exists for reading your own
+  user object, not for staff writing someone else's. `*` short-circuits the scope check in
+  `APIScopePermission`, so All access is the only key that reaches this endpoint. Revoke it once the
+  run is done - it can do everything in every organization you belong to.
+- A browser session cookie cannot perform this write, which is why this script takes no session
+  argument. Writing notification settings isn't in `time_sensitive_allow_if_only_fields`, so
+  `TimeSensitiveActionPermission` demands a session inside its sensitive-action window. That window
+  is unreachable from a script: session-risk detection compares each request's User-Agent against
+  the baseline the browser established (`posthog/session/risk.py`), so a non-browser client scores
+  `UA_CHANGE` -> `RiskTier.MEDIUM` -> step-up required on its very first request, which nulls the
+  window. Re-authenticating clears the flag but rotates the session key, so any replacement cookie
+  trips the same check on first use. Matching the browser's User-Agent to get past it would be
+  evading the control rather than satisfying it.
+
+The other two preconditions are checked up front, since both surface as indistinguishable 403s at
+PATCH time:
 
 - Non-staff credentials get HTTP 403 on any UUID other than `@me`.
 - Impersonated sessions are blocked even for their own user: `/api/users/` is in
   `IMPERSONATION_BLOCKED_PATHS`, so every non-idempotent request during impersonation is rejected
-  with `impersonation_path_blocked`. Log out of impersonation and use your own staff session or key.
-- With `--session-id`, the session must be inside its sensitive-action window. Writing notification
-  settings isn't in `time_sensitive_allow_if_only_fields`, so `TimeSensitiveActionPermission`
-  requires a session younger than `SESSION_SENSITIVE_ACTIONS_AGE` (2h) and otherwise 403s with
-  `sensitive_action_required_reauth` - the re-auth modal the UI shows.
+  with `impersonation_path_blocked`. Log out of impersonation before running this.
 
-**Use a personal API key with the All access (`*`) preset.** Two separate mechanisms make a copied
-session cookie a dead end for writes, and neither is a freshness problem:
-
-- Session-risk detection scores each request's User-Agent against the baseline the browser
-  established (`posthog/session/risk.py`). A non-browser client scores `UA_CHANGE` ->
-  `RiskTier.MEDIUM` -> step-up required, on its first request, which nulls the sensitive-action
-  window. Re-authenticating clears the flag but rotates the session key, so the replacement cookie
-  trips the same check. Replaying the browser's User-Agent would be evading the control rather than
-  satisfying it. Where the `session-risk-step-up` flag is off (e.g. self-hosted) session auth still
-  works, which is why `--session-id` remains supported.
-- `user:write` cannot be granted to a personal API key at all: the scope picker disables it
-  (`disabledActions` on the `user` entry in `frontend/src/lib/scopes.tsx`), because the scope was
-  designed for reading your own user object. `*` short-circuits the scope check in
-  `APIScopePermission`, so All access is the only key that can do this. Revoke it after the run.
+This is a deliberate departure from the sibling scripts in this directory, which offer a session
+cookie as a second credential. Offering one here would only produce confusing failures.
 
 Writing to someone's account while they aren't present is a support action, not a routine one -
 have the user's explicit request on record first. Every write therefore needs --reason, which is
@@ -80,10 +82,6 @@ Usage:
       --emails-file ./users.txt --setting data_pipeline_error_threshold --value 0.25 --dry-run
 
 --host accepts a full instance URL or the PostHog Cloud region shorthands us/eu.
-
---session-id (env POSTHOG_SESSION_ID) takes the `sessionid` cookie from devtools. It must be your
-own staff session - an impersonated one cannot write to /api/users/ at all - and on PostHog Cloud
-expect it to work for --dry-run but not for writes, per the session-risk note above.
 """
 
 import os
@@ -100,7 +98,7 @@ from urllib.parse import urlencode
 import requests
 from lib.console import confirm, format_status_counts, log, printable
 from lib.errors import PostHogScriptError
-from lib.posthog_api import request_with_retries, resolve_host, setup_session_auth
+from lib.posthog_api import request_with_retries, resolve_host
 
 # Scope kinds. A setting with scope=None stores a plain boolean; the others store a map keyed by
 # the scope value, so --scope identifies which entry to write.
@@ -144,9 +142,6 @@ AUTO_SELECT_KEYS = frozenset(
 )
 
 MIN_REASON_LENGTH = 10
-
-# Warn rather than refuse this close to the window closing - a short list may still finish.
-SENSITIVE_WINDOW_WARN_SECONDS = 300
 
 
 # Setting kinds. Booleans are driven by --enable/--disable; numbers take a --value (or fall back
@@ -447,7 +442,7 @@ def read_emails(positional: list[str], emails_file: Optional[str]) -> list[str]:
     return emails
 
 
-def verify_staff_credential(session: requests.Session, host: str, *, session_auth: bool) -> str:
+def verify_staff_credential(session: requests.Session, host: str) -> str:
     """Fail fast unless the credential is staff, not impersonating, and able to act.
 
     All three restrictions live in front of /api/users/ and surface as indistinguishable 403s, so
@@ -471,60 +466,8 @@ def verify_staff_credential(session: requests.Session, host: str, *, session_aut
             "own settings (/api/users/@me/). Editing other users needs a staff credential."
         )
     email = str(me.get("email") or "unknown")
-    if session_auth:
-        check_sensitive_window(me, email)
     log(f"Authenticated as staff user {printable(email)}")
     return email
-
-
-def check_sensitive_window(me: dict[str, Any], email: str) -> None:
-    """Refuse a session that can't perform a sensitive action, before any PATCH goes out.
-
-    Writing notification settings is a sensitive action, so TimeSensitiveActionPermission requires
-    a session younger than SESSION_SENSITIVE_ACTIONS_AGE and 403s with
-    `sensitive_action_required_reauth` otherwise - the same re-auth modal the UI shows. Personal API
-    keys skip the check entirely (the permission returns early for non-session auth), which is why
-    this only applies to --session-id. The window is reported by the API as
-    `sensitive_session_expires_at`, and is null when a step-up re-auth is pending.
-
-    Expect null wherever the session-risk step-up is enabled, because this script trips it: the
-    device axis in posthog/session/risk.py compares the request's User-Agent against the baseline
-    the browser established, so a non-browser client scores UA_CHANGE -> RiskTier.MEDIUM -> step-up,
-    on its very first request. Re-authenticating doesn't help - it clears the flag but rotates the
-    session key, and the replacement cookie trips the same check again. Replaying the browser's
-    User-Agent to look like the browser would be evading a control, not configuring one; use an
-    All access key instead.
-    """
-    raw_expiry = me.get("sensitive_session_expires_at")
-    key_advice = (
-        "Use --personal-api-key with the All access (*) preset: keys aren't subject to this window "
-        "or to session-risk scoring. Note user:write can't be granted to a key - the scope picker "
-        "disables it (disabledActions in frontend/src/lib/scopes.tsx) - so All access is the only "
-        "key that works here. Revoke it once you're done."
-    )
-    if not raw_expiry:
-        raise PostHogScriptError(
-            f"{printable(email)}'s session has no sensitive-action window, so every write would 403 "
-            f"with sensitive_action_required_reauth. A step-up re-auth is pending, most likely "
-            f"tripped by this script's own User-Agent (see session-risk detection). Re-authenticating "
-            f"and copying the new cookie will not fix it. {key_advice}"
-        )
-    try:
-        expires_at = datetime.datetime.fromisoformat(str(raw_expiry))
-    except ValueError as err:
-        raise PostHogScriptError(f"Could not parse sensitive_session_expires_at {printable(str(raw_expiry))}") from err
-
-    remaining = (expires_at - datetime.datetime.now(datetime.UTC)).total_seconds()
-    if remaining <= 0:
-        raise PostHogScriptError(
-            f"{printable(email)}'s sensitive-action window closed at {expires_at.isoformat()}, so "
-            f"every write would 403 with sensitive_action_required_reauth. {key_advice}"
-        )
-    if remaining < SENSITIVE_WINDOW_WARN_SECONDS:
-        log(
-            f"WARNING: sensitive-action window closes in {int(remaining // 60)}m "
-            f"({expires_at.isoformat()}). Long runs will start 403ing partway through."
-        )
 
 
 def resolve_user(session: requests.Session, host: str, email: str) -> dict[str, Any]:
@@ -729,12 +672,6 @@ def parse_args() -> argparse.Namespace:
         help="Staff personal API key (phx_...) created with the All access (*) preset; user:write "
         "cannot be granted to a key (env: POSTHOG_PERSONAL_API_KEY)",
     )
-    parser.add_argument(
-        "--session-id",
-        default=None,
-        help="Your own staff browser `sessionid` cookie, as an alternative to --personal-api-key "
-        "(an impersonated session cannot write here; env: POSTHOG_SESSION_ID)",
-    )
     parser.add_argument("--dry-run", action="store_true", help="Only report what would change; write nothing")
     parser.add_argument(
         "--batch-size", type=int, default=25, help="How many updates to group per reported status-code batch"
@@ -748,19 +685,7 @@ def parse_args() -> argparse.Namespace:
 
     args.host = resolve_host(args.host or os.environ.get("POSTHOG_HOST") or "https://us.posthog.com")
 
-    # An explicit flag beats the ambient environment. Falling back to `flag or env` would let a
-    # POSTHOG_PERSONAL_API_KEY that happens to be exported (CI, a dev sandbox) silently take over a
-    # run where the operator deliberately passed --session-id, so the credential actually used
-    # wouldn't be the one they chose. main() logs which one wins.
-    explicit_key = args.personal_api_key is not None
-    explicit_session = args.session_id is not None
-    if explicit_key and explicit_session:
-        parser.error("pass either --personal-api-key or --session-id, not both")
-    if explicit_session:
-        args.personal_api_key = None
-    elif not explicit_key:
-        args.personal_api_key = os.environ.get("POSTHOG_PERSONAL_API_KEY")
-        args.session_id = os.environ.get("POSTHOG_SESSION_ID")
+    args.personal_api_key = args.personal_api_key or os.environ.get("POSTHOG_PERSONAL_API_KEY")
 
     if not args.emails and not args.emails_file:
         parser.error("provide at least one email positionally or via --emails-file")
@@ -788,7 +713,11 @@ def parse_args() -> argparse.Namespace:
     if setting.kind == KIND_NUMBER:
         if args.enable or args.disable:
             parser.error(f"{setting.key} takes --value, not --enable/--disable ({setting.summary})")
-        if args.value is None:
+        # Record whether the value was defaulted rather than inferring it later by comparing
+        # against setting.default - an operator who explicitly passes the default value is not the
+        # same as one who omitted --value, and the plan line says which happened.
+        args.value_defaulted = args.value is None
+        if args.value_defaulted:
             # Not an error: resetting to PostHog's default is the common support ask, and main()
             # logs the value it fell back to so the run is never ambiguous.
             args.value = setting.default
@@ -803,10 +732,8 @@ def parse_args() -> argparse.Namespace:
 
     if args.batch_size <= 0:
         parser.error("--batch-size must be greater than zero")
-    if not args.personal_api_key and not args.session_id:
-        parser.error(
-            "either --personal-api-key (POSTHOG_PERSONAL_API_KEY) or --session-id (POSTHOG_SESSION_ID) is required"
-        )
+    if not args.personal_api_key:
+        parser.error("--personal-api-key (or POSTHOG_PERSONAL_API_KEY) is required")
 
     validate_scope(parser, SETTINGS_BY_KEY[args.setting], args.scope)
     return args
@@ -821,7 +748,7 @@ def main() -> int:
     setting = SETTINGS_BY_KEY[args.setting]
     if setting.kind == KIND_NUMBER:
         desired: Any = args.value
-        defaulted = " (PostHog default, no --value given)" if args.value == setting.default else ""
+        defaulted = " (PostHog default, no --value given)" if args.value_defaulted else ""
         intent = f"SET to {json.dumps(desired)}{defaulted}"
     else:
         receives = bool(args.enable)
@@ -834,13 +761,8 @@ def main() -> int:
     payload = build_payload(setting, args.scope, desired)
 
     session = requests.Session()
-    if args.personal_api_key:
-        log("Credential: personal API key (not subject to the sensitive-action re-auth window)")
-        session.headers["Authorization"] = f"Bearer {args.personal_api_key}"
-    else:
-        log("Credential: browser session cookie (subject to the sensitive-action re-auth window)")
-        setup_session_auth(session, args.host, args.session_id)
-    acting_email = verify_staff_credential(session, args.host, session_auth=not args.personal_api_key)
+    session.headers["Authorization"] = f"Bearer {args.personal_api_key}"
+    acting_email = verify_staff_credential(session, args.host)
     started_at = datetime.datetime.now(datetime.UTC).isoformat()
 
     scope_desc = f" scope={args.scope}" if args.scope else ""
@@ -951,10 +873,8 @@ def main() -> int:
     forbidden = status_counts.get("403", 0)
     if forbidden:
         log(
-            f"  {forbidden} forbidden (HTTP 403): most likely sensitive_action_required_reauth - a "
-            "session's sensitive-action window closing mid-run, or session-risk step-up tripping "
-            "(use an All access personal API key to avoid both). Otherwise the credential lost staff "
-            "access, or an impersonation session was started - /api/users/ rejects writes then."
+            f"  {forbidden} forbidden (HTTP 403): the key is missing All access (*), or the acting "
+            "user lost staff access mid-run."
         )
     for failure in failures[:20]:
         log(f"  FAILED: {printable(failure)}")
