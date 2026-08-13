@@ -7,6 +7,7 @@ from unittest.mock import patch
 from django.test import override_settings
 
 from parameterized import parameterized
+from rest_framework.exceptions import ErrorDetail, ValidationError
 
 from posthog.schema import (
     ActionsNode,
@@ -30,6 +31,7 @@ from posthog.test.test_utils import create_group_type_mapping_without_created_at
 from products.actions.backend.models.action import Action
 from products.cohorts.backend.models.cohort import Cohort
 from products.cohorts.backend.models.util import count_cohort_members
+from products.experiments.backend.hogql_queries import FLAG_WITHOUT_VARIANTS_ERROR_CODE
 from products.experiments.backend.hogql_queries.experiment_query_runner import ExperimentQueryRunner
 from products.experiments.backend.hogql_queries.test.experiment_query_runner.base import ExperimentQueryRunnerBaseTest
 from products.experiments.backend.hogql_queries.test.experiment_query_runner.utils import (
@@ -39,6 +41,37 @@ from products.experiments.backend.hogql_queries.test.experiment_query_runner.uti
 
 @override_settings(IN_UNIT_TESTING=True)
 class TestExperimentQueryRunner(ExperimentQueryRunnerBaseTest):
+    @parameterized.expand(
+        [
+            ("multivariate_null", None),
+            ("empty_variants", {"variants": []}),
+        ]
+    )
+    def test_flag_without_variants_raises_descriptive_error(self, _name, multivariate_value):
+        # A flag converted from multivariate to boolean/rollout leaves the experiment with nothing
+        # to split metrics across. The runner must fail fast with a descriptive 4xx rather than a
+        # confusing downstream error once it tries to score empty variants.
+        feature_flag = self.create_feature_flag(key=f"metric-lost-variants-{_name.replace('_', '-')}")
+        feature_flag.filters = {
+            "groups": [{"properties": [], "rollout_percentage": 100}],
+            "multivariate": multivariate_value,
+        }
+        feature_flag.save(update_fields=["filters"])
+        experiment = self.create_experiment(feature_flag=feature_flag)
+
+        metric = ExperimentMeanMetric(source=EventsNode(event="$pageview"))
+        experiment_query = ExperimentQuery(experiment_id=experiment.id, kind="ExperimentQuery", metric=metric)
+
+        with self.assertRaises(ValidationError) as cm:
+            ExperimentQueryRunner(query=experiment_query, team=self.team)
+
+        detail = cm.exception.detail
+        assert isinstance(detail, list)
+        error_detail = detail[0]
+        assert isinstance(error_detail, ErrorDetail)
+        self.assertEqual(error_detail.code, FLAG_WITHOUT_VARIANTS_ERROR_CODE)
+        self.assertIn("no longer defines any variants", str(error_detail))
+
     def test_deleted_feature_flag_tombstone_uses_original_key_for_query_builder(self):
         feature_flag = self.create_feature_flag(key="deleted-experiment-flag")
         experiment = self.create_experiment(feature_flag=feature_flag)

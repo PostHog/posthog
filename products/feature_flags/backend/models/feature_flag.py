@@ -112,6 +112,21 @@ EXPERIMENT_MIN_VARIANTS = 2
 EXPERIMENT_MAX_VARIANTS = 20
 
 
+def variants_from_filters(filters: dict[str, Any] | None) -> list[dict[str, Any]]:
+    """The multivariate variants declared in a flag's filters, or [] when absent or null.
+
+    :TRICKY: filters["multivariate"] can be explicitly null (the flag was converted from
+    multivariate to a plain boolean/rollout flag), so a bare .get("multivariate", {}) returns
+    None rather than {}. Callers that then do .get("variants") on it would raise AttributeError.
+    """
+    multivariate = (filters or {}).get("multivariate", None)
+    if isinstance(multivariate, dict):
+        variants = multivariate.get("variants", None)
+        if isinstance(variants, list):
+            return variants
+    return []
+
+
 def experiment_eligibility_error(variants: list[dict[str, Any]] | None) -> str | None:
     """Why these flag variants can't back an experiment, or None when they can."""
     if not variants or len(variants) < EXPERIMENT_MIN_VARIANTS:
@@ -343,13 +358,7 @@ class FeatureFlag(FileSystemSyncMixin, ModelActivityMixin, RootTeamMixin, models
 
     @property
     def variants(self):
-        # :TRICKY: .get("multivariate", {}) returns "None" if the key is explicitly set to "null" inside json filters
-        multivariate = self.get_filters().get("multivariate", None)
-        if isinstance(multivariate, dict):
-            variants = multivariate.get("variants", None)
-            if isinstance(variants, list):
-                return variants
-        return []
+        return variants_from_filters(self.get_filters())
 
     @property
     def is_eligible_for_experiment(self) -> bool:

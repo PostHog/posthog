@@ -2469,4 +2469,75 @@ describe('experimentLogic', () => {
             })
         })
     })
+
+    describe('flag variants removed', () => {
+        const CHANGED_AT = '2024-06-01T10:30:00Z'
+
+        beforeEach(() => {
+            logic.actions.setExperiment(experiment)
+            useMocks({
+                get: {
+                    '/api/projects/:team/feature_flags/:flag_id/activity': {
+                        count: 1,
+                        next: null,
+                        previous: null,
+                        results: [
+                            {
+                                created_at: CHANGED_AT,
+                                detail: {
+                                    changes: [
+                                        {
+                                            field: 'filters',
+                                            before: {
+                                                multivariate: { variants: [{ key: 'control' }, { key: 'test' }] },
+                                            },
+                                            after: { multivariate: null },
+                                        },
+                                    ],
+                                },
+                            },
+                        ],
+                    },
+                },
+            })
+        })
+
+        it('flags the error and records the change time when exposures fail with the removed-variants code', async () => {
+            await expectLogic(logic, () => {
+                logic.actions.loadExposuresFailure('no variants', { code: 'feature_flag_variants_removed' } as any)
+            })
+                .toDispatchActions(['stopAutoRefreshInterval', 'setFlagVariantsRemoved'])
+                .toMatchValues({
+                    flagVariantsRemoved: true,
+                    flagVariantsRemovedAt: CHANGED_AT,
+                })
+        })
+
+        it('ignores exposure failures with an unrelated error code', async () => {
+            await expectLogic(logic, () => {
+                logic.actions.loadExposuresFailure('boom', { code: 'server_error' } as any)
+            })
+                .toFinishAllListeners()
+                .toNotHaveDispatchedActions(['setFlagVariantsRemoved'])
+                .toMatchValues({ flagVariantsRemoved: false })
+        })
+
+        it('stops auto-refreshing results once the flag has lost its variants', async () => {
+            logic.actions.setFlagVariantsRemoved(CHANGED_AT)
+            await expectLogic(logic, () => {
+                logic.actions.refreshExperimentResults(true, 'auto_refresh')
+            })
+                .toFinishAllListeners()
+                .toNotHaveDispatchedActions(['loadExposures', 'markRefreshStarted'])
+        })
+
+        it('reloads the experiment to recover on a user-initiated refresh', async () => {
+            logic.actions.setFlagVariantsRemoved(CHANGED_AT)
+            await expectLogic(logic, () => {
+                logic.actions.refreshExperimentResults(true, 'manual')
+            })
+                .toDispatchActions(['loadExperiment'])
+                .toMatchValues({ flagVariantsRemoved: false })
+        })
+    })
 })
