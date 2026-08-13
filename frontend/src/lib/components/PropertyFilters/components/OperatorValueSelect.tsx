@@ -149,7 +149,7 @@ export interface OperatorValueSelectProps {
      * **/
     forceSingleSelect?: boolean
     /** Statically known value suggestions, replacing API-fetched ones. See `PropertyValueProps.staticValues`. */
-    staticValues?: PropValue[]
+    staticValues?: PropValue[] | null
 }
 
 interface OperatorSelectProps extends Omit<LemonSelectProps<any>, 'options'> {

@@ -217,7 +217,7 @@ export function TaxonomicPropertyFilter({
                       })}`
                     : filter?.key && activeTaxonomicGroup?.valuesEndpoint?.(filter.key)
             }
-            staticValues={typeof filter?.key === 'string' ? staticValueOptions?.(filter.key) : undefined}
+            staticValues={typeof filter?.key === 'string' ? (staticValueOptions?.(filter.key) ?? null) : null}
             eventNames={eventNames}
             addRelativeDateTimeOptions={allowRelativeDateOptions}
             onChange={(newOperator, newValue) => {

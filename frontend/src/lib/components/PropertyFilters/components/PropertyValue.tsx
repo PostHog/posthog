@@ -67,7 +67,7 @@ export interface PropertyValueProps {
      * which matters for properties whose values can't be sourced from the events table
      * (e.g. internal events, which are never ingested into ClickHouse).
      */
-    staticValues?: PropValue[]
+    staticValues?: PropValue[] | null
 }
 
 export function PropertyValue({
@@ -90,7 +90,7 @@ export function PropertyValue({
     forceSingleSelect = false,
     validationError = null,
     showInlineValidationErrors = false,
-    staticValues = undefined,
+    staticValues = null,
 }: PropertyValueProps): JSX.Element {
     const { formatPropertyValueForDisplay, describeProperty, options } = useValues(propertyDefinitionsModel)
     const { loadPropertyValues } = useActions(propertyDefinitionsModel)

@@ -10,7 +10,9 @@ import { Link } from 'lib/lemon-ui/Link'
 import { urls } from 'scenes/urls'
 
 import { PropValue } from '~/models/propertyDefinitionsModel'
-import { ActivityScope, AnyPropertyFilter, CyclotronJobFiltersType, HogFunctionConfigurationContextId } from '~/types'
+import { AnyPropertyFilter, CyclotronJobFiltersType, HogFunctionConfigurationContextId } from '~/types'
+
+import { ActivityLogListScope } from 'products/platform_features/frontend/generated/api.schemas'
 
 import { hogFunctionConfigurationLogic } from '../configuration/hogFunctionConfigurationLogic'
 
@@ -136,13 +138,15 @@ export const getProductEventPropertyFilterOptions = (contextId: HogFunctionConfi
 export const getProductEventPropertyValues = (
     contextId: HogFunctionConfigurationContextId,
     propertyKey: string
-): PropValue[] | undefined => {
+): PropValue[] | null => {
     if (contextId !== 'activity-log') {
-        return undefined
+        return null
     }
     switch (propertyKey) {
         case 'scope':
-            return Object.values(ActivityScope)
+            // The generated enum mirrors the backend ActivityScope literal, unlike the
+            // handwritten frontend ActivityScope enum, which lags behind it
+            return Object.values(ActivityLogListScope)
                 .sort()
                 .map((name) => ({ name }))
         case 'activity':
@@ -188,7 +192,7 @@ export function HogFunctionFiltersInternal(): JSX.Element {
 
     const staticValueOptions = useMemo(
         () =>
-            (propertyKey: string): PropValue[] | undefined =>
+            (propertyKey: string): PropValue[] | null =>
                 getProductEventPropertyValues(contextId, propertyKey),
         [contextId]
     )

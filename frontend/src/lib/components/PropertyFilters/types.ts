@@ -77,8 +77,8 @@ export interface PropertyFilterInternalProps {
     triggerVariant?: 'button' | 'input'
     /**
      * Statically known value suggestions per property key, replacing API-fetched ones.
-     * Return an empty array to disable suggestions for a key, or undefined to fall back
+     * Return an empty array to disable suggestions for a key, or null to fall back
      * to the default behavior. See `PropertyValueProps.staticValues`.
      */
-    staticValueOptions?: (propertyKey: string) => PropValue[] | undefined
+    staticValueOptions?: (propertyKey: string) => PropValue[] | null
 }
