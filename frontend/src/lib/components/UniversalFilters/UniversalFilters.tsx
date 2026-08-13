@@ -2,7 +2,14 @@ import { BindLogic, useActions, useValues } from 'kea'
 import { useState } from 'react'
 
 import { IconPlusSmall } from '@posthog/icons'
-import { LemonButton, LemonButtonProps, LemonDivider, LemonDropdown, Popover } from '@posthog/lemon-ui'
+import {
+    LemonButton,
+    LemonButtonProps,
+    LemonDivider,
+    LemonDropdown,
+    LemonSegmentedButton,
+    Popover,
+} from '@posthog/lemon-ui'
 
 import { OperatorValueSelectProps } from 'lib/components/PropertyFilters/components/OperatorValueSelect'
 import { taxonomicFilterGroupTypeToEntityType } from 'scenes/insights/filters/ActionFilter/ActionFilterRow/ActionFilterRow'
@@ -22,7 +29,7 @@ import {
 } from '../TaxonomicFilter/types'
 import { UniversalFilterButton } from './UniversalFilterButton'
 import { universalFiltersLogic } from './universalFiltersLogic'
-import { isEditableFilter, isEventFilter } from './utils'
+import { isActionFilter, isEditableFilter, isEntityFilter, isEventFilter } from './utils'
 
 export type UniversalFiltersProps = {
     rootKey: string
@@ -92,6 +99,7 @@ const Value = ({
     metadataSource,
     className,
     operatorAllowlist,
+    allowEntityNegation = false,
 }: {
     index: number
     filter: UniversalFilterValue
@@ -101,14 +109,43 @@ const Value = ({
     metadataSource?: AnyDataNode
     className?: string
     operatorAllowlist?: OperatorValueSelectProps['operatorAllowlist']
+    allowEntityNegation?: boolean
 }): JSX.Element => {
     const { rootKey, taxonomicPropertyFilterGroupTypes, endpointFilters } = useValues(universalFiltersLogic)
 
     const isEvent = isEventFilter(filter)
+    const isAction = isActionFilter(filter)
     const isEditable = isEditableFilter(filter)
 
     const [open, setOpen] = useState<boolean>(isEditable && initiallyOpen)
     const [changingEvent, setChangingEvent] = useState<boolean>(false)
+
+    // allowEntityNegation gates only the creation of new negations. Existing negation values
+    // keep rendering (in UniversalFilterButton) and keep evaluating (backend applies them
+    // unconditionally), so a feature flag rollback never silently flips "did not perform X"
+    // back to "performed X" on saved filters.
+    const negationSelect =
+        allowEntityNegation && isEntityFilter(filter) ? (
+            <div className="px-2 py-1" data-attr="universal-filters-entity-negation">
+                <LemonSegmentedButton
+                    size="xsmall"
+                    value={filter.negation ? 'exclude' : 'include'}
+                    onChange={(value) => onChange({ ...filter, negation: value === 'exclude' })}
+                    options={[
+                        {
+                            value: 'include',
+                            label: 'Performed',
+                            'data-attr': 'universal-filters-entity-negation-include',
+                        },
+                        {
+                            value: 'exclude',
+                            label: 'Did not perform',
+                            'data-attr': 'universal-filters-entity-negation-exclude',
+                        },
+                    ]}
+                />
+            </div>
+        ) : null
 
     const pageKey = `${rootKey}.filter_${index}`
 
@@ -117,6 +154,9 @@ const Value = ({
         value: TaxonomicFilterValue,
         item: any
     ): void => {
+        // changing the event intentionally resets properties, but negation belongs to the
+        // chip rather than the event, so an exclusion must stay an exclusion
+        const negation = isEntityFilter(filter) ? filter.negation : undefined
         // Keyword shortcut (e.g. "Click (autocapture)"): set the event AND attach its
         // $event_type property filter, replacing any properties the previous event had.
         if (isQuickFilterItem(item) && item.eventName) {
@@ -125,13 +165,14 @@ const Value = ({
                 name: item.eventName,
                 type: EntityTypes.EVENTS,
                 properties: quickFilterToPropertyFilters(item),
+                negation,
             })
             setChangingEvent(false)
             return
         }
         const entityType = taxonomicFilterGroupTypeToEntityType(taxonomicGroup.type)
         if (entityType) {
-            onChange({ id: value, name: item?.name ?? String(value), type: entityType, properties: [] })
+            onChange({ id: value, name: item?.name ?? String(value), type: entityType, properties: [], negation })
         }
         setChangingEvent(false)
     }
@@ -157,6 +198,7 @@ const Value = ({
                             />
                         ) : (
                             <>
+                                {negationSelect}
                                 <div className="px-2 py-1">
                                     <LemonButton size="xsmall" type="secondary" onClick={() => setChangingEvent(true)}>
                                         Change event
@@ -190,6 +232,8 @@ const Value = ({
                         operatorAllowlist={operatorAllowlist}
                         endpointFilters={endpointFilters}
                     />
+                ) : isAction && negationSelect ? (
+                    <div>{negationSelect}</div>
                 ) : null
             }
         >
@@ -198,6 +242,7 @@ const Value = ({
                 onClose={onRemove}
                 filter={filter}
                 className={className}
+                clickable={isAction && !!negationSelect}
             />
         </Popover>
     )

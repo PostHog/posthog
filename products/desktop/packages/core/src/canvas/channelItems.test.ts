@@ -2,8 +2,14 @@ import type { Task, UserBasic } from "@posthog/shared/domain-types";
 import { describe, expect, it } from "vitest";
 import {
   buildChannelItems,
+  type ChannelItemFilters,
   type ChannelItemModel,
+  type ChannelItemSort,
+  channelItemSources,
+  DEFAULT_CHANNEL_ITEM_FILTERS,
   filterChannelItems,
+  groupChannelItems,
+  sortChannelItems,
 } from "./channelItems";
 import type { DashboardRecord } from "./dashboardSchemas";
 
@@ -104,6 +110,86 @@ describe("buildChannelItems", () => {
     expect(item.ts).toBe(0);
   });
 
+  // The filters ask about facts that only exist once the renderer's state is
+  // folded in, so each has to survive the build rather than being read off the
+  // task alone.
+  it.each([
+    {
+      what: "a worktree, which is a local checkout",
+      mode: "worktree" as const,
+      runEnvironment: null,
+      expected: "local",
+    },
+    {
+      what: "a workspace we can see, over the run's own claim",
+      mode: "local" as const,
+      runEnvironment: "cloud" as const,
+      expected: "local",
+    },
+    {
+      what: "the run, when there is no workspace",
+      mode: undefined,
+      runEnvironment: "cloud" as const,
+      expected: "cloud",
+    },
+    {
+      what: "neither, which leaves the session unplaced",
+      mode: undefined,
+      runEnvironment: null,
+      expected: null,
+    },
+  ])("places a session by $what", ({ mode, runEnvironment, expected }) => {
+    const [item] = build({
+      feedTasks: [
+        task({
+          latest_run: runEnvironment
+            ? ({ environment: runEnvironment } as Task["latest_run"])
+            : undefined,
+        }),
+      ],
+      sessionFacts: {
+        needsInputTaskIds: NONE,
+        viewedTimestamps: {},
+        workspaceModeByTaskId: new Map(mode ? [["t1", mode]] : []),
+      },
+    });
+    expect(item.environment).toBe(expected);
+  });
+
+  it("reads a filed session's source, and none for one started here", () => {
+    const items = build({
+      feedTasks: [
+        task({ id: "filed", origin_product: "slack" }),
+        task({ id: "own", origin_product: "user_created" }),
+      ],
+    });
+    expect(items.map((i) => i.source)).toEqual(["slack", null]);
+  });
+
+  it("marks the sessions asking for input and the ones you haven't read", () => {
+    const items = build({
+      feedTasks: [
+        task({ id: "asking" }),
+        task({ id: "unread" }),
+        task({ id: "quiet" }),
+      ],
+      sessionFacts: {
+        needsInputTaskIds: new Set(["asking"]),
+        // Read before it last moved, so only this one counts as unread. A task
+        // never opened has no timestamp and is not unread.
+        viewedTimestamps: {
+          unread: { lastViewedAt: 1_000, lastActivityAt: null },
+        },
+        workspaceModeByTaskId: new Map(),
+      },
+    });
+    expect(items.map((i) => [i.id, i.needsInput, i.unread])).toEqual([
+      ["asking", true, false],
+      ["unread", false, true],
+      ["quiet", false, false],
+    ]);
+  });
+
   it("returns everything when the owner is unknown", () => {
     const items = build({
       dashboards: [canvas({ createdBy: "Grace Hopper" })],
@@ -152,8 +238,13 @@ function model(over: Partial<ChannelItemModel> = {}): ChannelItemModel {
     id: "t1",
     title: "Ship the thing",
     ts: 0,
+    createdAt: 0,
     pinned: false,
     rawStatus: null,
+    environment: null,
+    source: null,
+    needsInput: false,
+    unread: false,
     authorUser: ME,
     authorName: null,
     authorUuid: ME.uuid,
@@ -163,6 +254,10 @@ function model(over: Partial<ChannelItemModel> = {}): ChannelItemModel {
   };
 }
 
+function filters(over: Partial<ChannelItemFilters> = {}): ChannelItemFilters {
+  return { ...DEFAULT_CHANNEL_ITEM_FILTERS, ...over };
+}
+
 describe("filterChannelItems", () => {
   const me = { uuid: ME.uuid };
 
@@ -170,8 +265,7 @@ describe("filterChannelItems", () => {
     const items = [model({ title: "Ship IT" }), model({ title: "Other" })];
     const result = filterChannelItems(items, {
       query: "  ship ",
-      createdBy: "anyone",
-      status: null,
+      filters: filters(),
       me,
     });
     expect(result.map((i) => i.title)).toEqual(["Ship IT"]);
@@ -188,8 +282,7 @@ describe("filterChannelItems", () => {
     ];
     const result = filterChannelItems(items, {
       query: "",
-      createdBy,
-      status: null,
+      filters: filters({ createdBy }),
       me,
     });
     expect(result.map((i) => i.id)).toEqual(expected);
@@ -205,36 +298,173 @@ describe("filterChannelItems", () => {
       ];
       const result = filterChannelItems(items, {
         query: "",
-        createdBy,
-        status: null,
+        filters: filters({ createdBy }),
         me,
       });
       expect(result).toEqual([]);
     },
   );
 
-  it("filters by run status, including not_started", () => {
+  const CANDIDATES = [
+    model({ id: "asking", needsInput: true }),
+    model({ id: "unread", unread: true }),
+    model({ id: "pinned", pinned: true }),
+    model({ id: "local", environment: "local" }),
+    model({ id: "cloud", environment: "cloud" }),
+    model({ id: "from-slack", source: "slack" }),
+    model({ id: "quiet" }),
+  ];
+
+  it.each([
+    { filter: { attention: "needs_input" }, kept: ["asking"] },
+    { filter: { attention: "unread" }, kept: ["unread"] },
+    { filter: { pinned: "pinned" }, kept: ["pinned"] },
+    { filter: { environment: "local" }, kept: ["local"] },
+    { filter: { environment: "cloud" }, kept: ["cloud"] },
+    { filter: { source: "slack" }, kept: ["from-slack"] },
+  ] as const)("keeps only $kept for $filter", ({ filter, kept }) => {
+    const result = filterChannelItems(CANDIDATES, {
+      query: "",
+      filters: filters(filter),
+      me,
+    });
+    expect(result.map((i) => i.id)).toEqual(kept);
+  });
+
+  it("narrows on every filter at once", () => {
     const items = [
-      model({ id: "fresh", rawStatus: "not_started" }),
-      model({ id: "done", rawStatus: "completed" }),
+      model({ id: "match", unread: true, environment: "cloud", pinned: true }),
+      model({ id: "not-pinned", unread: true, environment: "cloud" }),
+      model({ id: "wrong-place", unread: true, environment: "local" }),
     ];
     const result = filterChannelItems(items, {
       query: "",
-      createdBy: "anyone",
-      status: "not_started",
+      filters: filters({
+        attention: "unread",
+        environment: "cloud",
+        pinned: "pinned",
+      }),
       me,
     });
-    expect(result.map((i) => i.id)).toEqual(["fresh"]);
+    expect(result.map((i) => i.id)).toEqual(["match"]);
+  });
+});
+
+describe("channelItemSources", () => {
+  it("offers each source once, and nothing for sessions started here", () => {
+    const items = [
+      model({ id: "a", source: "slack" }),
+      model({ id: "b", source: "slack" }),
+      model({ id: "c", source: "error_tracking" }),
+      model({ id: "d", source: null }),
+    ];
+    expect(channelItemSources(items)).toEqual(["error_tracking", "slack"]);
+  });
+});
+
+describe("sortChannelItems", () => {
+  const items = [
+    model({ id: "middle", title: "B", ts: 2, createdAt: 3 }),
+    model({ id: "newest", title: "C", ts: 3, createdAt: 1 }),
+    model({ id: "oldest", title: "A", ts: 1, createdAt: 2 }),
+  ];
+
+  it.each([
+    { sort: "recent", order: ["newest", "middle", "oldest"] },
+    { sort: "created", order: ["middle", "oldest", "newest"] },
+    { sort: "alpha", order: ["oldest", "middle", "newest"] },
+  ] as const)("orders by $sort", ({ sort, order }) => {
+    expect(sortChannelItems(items, sort).map((i) => i.id)).toEqual(order);
   });
 
-  it("excludes canvases when a run status is selected", () => {
-    const items = [model({ kind: "canvas", rawStatus: null })];
-    const result = filterChannelItems(items, {
-      query: "",
-      createdBy: "anyone",
-      status: "completed",
-      me,
-    });
-    expect(result).toEqual([]);
+  // A pin is a request not to lose the thing, and the list is capped — under any
+  // sort a pinned session that fell in with the rest could drop off the end.
+  it("leads with pins whatever the sort", () => {
+    const pinnedLast = [
+      ...items,
+      model({ id: "pin", title: "Z", ts: 0, createdAt: 0, pinned: true }),
+    ];
+    for (const sort of ["recent", "created", "alpha"] as const) {
+      expect(sortChannelItems(pinnedLast, sort)[0]?.id).toBe("pin");
+    }
+  });
+});
+
+describe("groupChannelItems", () => {
+  const NOW = new Date(2026, 6, 29, 12);
+  const at = (day: number, hour: number) =>
+    new Date(2026, 6, day, hour).getTime();
+
+  function group(items: ChannelItemModel[], sort: ChannelItemSort = "recent") {
+    return groupChannelItems(sortChannelItems(items, sort), sort, NOW).map(
+      (section) => [section.label, ...section.items.map((i) => i.id)],
+    );
+  }
+
+  it("runs a day's items under one header", () => {
+    expect(
+      group([
+        model({ id: "morning", ts: at(29, 9) }),
+        model({ id: "earlier", ts: at(29, 8) }),
+        model({ id: "last-night", ts: at(28, 22) }),
+      ]),
+    ).toEqual([
+      ["Today", "morning", "earlier"],
+      ["Yesterday", "last-night"],
+    ]);
+  });
+
+  // The pin is what lifted it out of its day; leaving it in both places would
+  // list one session twice.
+  it("lists a pin under the pins and nowhere else", () => {
+    expect(
+      group([
+        model({ id: "today", ts: at(29, 9) }),
+        model({ id: "kept", ts: at(20, 9), pinned: true }),
+      ]),
+    ).toEqual([
+      ["Pinned", "kept"],
+      ["Today", "today"],
+    ]);
+  });
+
+  // Dating a created-first list by last activity would reopen a day the list
+  // had already passed, splitting one day across two headers.
+  it("dates a created-first list by when each session started", () => {
+    expect(
+      group(
+        [
+          model({ id: "started-today", createdAt: at(29, 9), ts: at(20, 9) }),
+          model({ id: "started-friday", createdAt: at(24, 9), ts: at(29, 11) }),
+        ],
+        "created",
+      ),
+    ).toEqual([
+      ["Today", "started-today"],
+      ["Friday", "started-friday"],
+    ]);
+  });
+
+  // A row can be stamped ahead of this client's clock (skew between whoever
+  // wrote it and whoever reads it). Dated on its own it opens a second "Today".
+  it("keeps a row stamped in the future under today", () => {
+    expect(
+      group([
+        model({ id: "ahead", ts: at(29, 14) }),
+        model({ id: "earlier", ts: at(29, 9) }),
+      ]),
+    ).toEqual([["Today", "ahead", "earlier"]]);
+  });
+
+  it("leaves an alphabetical list undated", () => {
+    expect(
+      group(
+        [
+          model({ id: "a", title: "A", ts: at(29, 9) }),
+          model({ id: "b", title: "B", ts: at(20, 9) }),
+        ],
+        "alpha",
+      ),
+    ).toEqual([[null, "a", "b"]]);
   });
 });

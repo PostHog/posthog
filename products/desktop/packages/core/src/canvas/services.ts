@@ -5,6 +5,7 @@ import type {
 } from "./canvasBuildSchemas";
 import type { ChannelTaskRecord } from "./channelTaskSchemas";
 import type {
+  CanvasDraft,
   CanvasSource,
   CanvasVersion,
   DashboardRecord,
@@ -51,6 +52,14 @@ export interface IDashboardsService {
   getSource(input: { id: string; versionId?: string }): Promise<CanvasSource>;
   // The canvas's source-version history, newest first (metadata only).
   listVersions(id: string): Promise<CanvasVersion[]>;
+  // The canvas's staged drafts, newest first, each with its latest build status.
+  listDrafts(id: string): Promise<CanvasDraft[]>;
+  // Make a draft version the canvas's live head (and build it if needed).
+  promoteDraft(input: {
+    id: string;
+    versionId: string;
+    expectedCurrentVersionId: string | null;
+  }): Promise<CanvasBuildRecord>;
   // Move the canvas's head back to an existing version and rebuild it.
   revertToVersion(input: {
     id: string;

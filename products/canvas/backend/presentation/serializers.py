@@ -1,5 +1,7 @@
 from typing import Any
 
+from django.conf import settings
+
 from rest_framework import serializers
 
 from posthog.api.shared import UserBasicSerializer
@@ -10,6 +12,17 @@ from products.canvas.backend.models import Canvas
 # Base64 expands 3 source bytes into 4 characters (padded); size the asset field
 # from the contract's total-source cap rather than restating the number.
 _MAX_ASSET_BASE64_LENGTH = (contract_limits()["maxSourceTotalBytes"] + 2) // 3 * 4
+
+_CANVAS_URL_HELP_TEXT = (
+    "Canonical link to the canvas in the PostHog app. The only valid way to link to a canvas — "
+    "share this when pointing a user at it; never construct a canvas URL."
+)
+
+
+def canvas_url(canvas: Canvas) -> str:
+    # The same shape the thread-message announcements use; the route deep-links
+    # into the desktop app and renders in the web app.
+    return f"{settings.SITE_URL}/code/canvas/{canvas.channel_id}/{canvas.id}"
 
 
 class CanvasSerializer(serializers.ModelSerializer):
@@ -29,6 +42,7 @@ class CanvasSerializer(serializers.ModelSerializer):
     )
     created_by = UserBasicSerializer(read_only=True)
     pinned = serializers.SerializerMethodField(help_text="Whether the canvas is pinned to its channel.")
+    url = serializers.SerializerMethodField(help_text=_CANVAS_URL_HELP_TEXT)
 
     class Meta:
         model = Canvas
@@ -46,11 +60,15 @@ class CanvasSerializer(serializers.ModelSerializer):
             "created_by",
             "created_at",
             "updated_at",
+            "url",
         ]
         read_only_fields = fields
 
     def get_pinned(self, canvas: Canvas) -> bool:
         return canvas.pinned_at is not None
+
+    def get_url(self, canvas: Canvas) -> str:
+        return canvas_url(canvas)
 
 
 class CanvasCreateSerializer(serializers.Serializer):
@@ -209,6 +227,10 @@ class CanvasSummarySerializer(serializers.Serializer):
         help_text="Id of the canvas's live (last successful, still-eligible) build. Null until a build completes.",
     )
     created_at = serializers.DateTimeField(help_text="When the canvas was created.")
+    url = serializers.SerializerMethodField(help_text=_CANVAS_URL_HELP_TEXT)
+
+    def get_url(self, canvas: Canvas) -> str:
+        return canvas_url(canvas)
 
 
 class CanvasVersionSerializer(serializers.Serializer):
@@ -221,8 +243,27 @@ class CanvasVersionSerializer(serializers.Serializer):
     )
     prompt = serializers.CharField(allow_null=True, help_text="Short description recorded with the publish.")
     task_id = serializers.UUIDField(allow_null=True, help_text="Task that published the version, when one did.")
+    draft = serializers.BooleanField(
+        help_text="True for a staged draft version that has never been the canvas head; promote it to make it live."
+    )
     created_by = UserBasicSerializer(read_only=True, allow_null=True)
     created_at = serializers.DateTimeField(help_text="When the version was published.")
+
+
+class CanvasDraftSerializer(serializers.Serializer):
+    """A staged draft version and the status of its latest build. Preview a
+    draft's files with `source?version_id=`, then make it live with `promote`."""
+
+    version_id = serializers.CharField(help_text="Id of the draft source version.")
+    prompt = serializers.CharField(allow_null=True, help_text="Short description recorded when the draft was staged.")
+    created_by = UserBasicSerializer(read_only=True, allow_null=True, help_text="Who staged the draft.")
+    created_at = serializers.DateTimeField(help_text="When the draft was staged.")
+    build_status = serializers.ChoiceField(
+        choices=["queued", "building", "ready", "failed"],
+        allow_null=True,
+        help_text="Status of the draft's latest build; null when no build has been recorded yet.",
+    )
+    build_id = serializers.CharField(allow_null=True, help_text="Id of the draft's latest build, when one exists.")
 
 
 class CanvasSourceResponseSerializer(serializers.Serializer):
@@ -327,6 +368,12 @@ class CanvasSourceEditSerializer(serializers.Serializer):
             "canvas has never been published). Diff edits against a moved head are rejected with 409 "
             "version_conflict — they cannot be published unguarded."
         ),
+    )
+
+
+class CanvasPublishCurrentVersionSerializer(serializers.Serializer):
+    expected_current_version_id = serializers.UUIDField(
+        help_text="Current source version to publish. A changed head returns a 409 version_conflict."
     )
 
 
@@ -474,4 +521,67 @@ class CanvasRevertSerializer(serializers.Serializer):
     version_id = serializers.UUIDField(help_text="Id of the source version to make the head again.")
     expected_current_version_id = serializers.UUIDField(
         allow_null=True, help_text="Current source version observed before requesting the revert."
+    )
+
+
+class CanvasSourceDraftSerializer(serializers.Serializer):
+    """Payload for staging a complete source project as a draft build."""
+
+    project = CanvasSourceProjectSerializer(help_text="The complete source project to stage as a draft.")
+    prompt = serializers.CharField(
+        required=False,
+        allow_blank=True,
+        trim_whitespace=False,
+        help_text="Short description of the change, stored on the draft's version history entry.",
+    )
+
+
+class CanvasCapabilityWideningSerializer(serializers.Serializer):
+    """How a draft's declared capabilities grow the current head's. A head that
+    predates the capabilities snapshot reports every declaration as an addition."""
+
+    widens = serializers.BooleanField(
+        help_text="True when the draft declares any capability the current head does not."
+    )
+    insights_added = serializers.ListField(
+        child=serializers.CharField(),
+        help_text="Insight short ids the draft newly declares access to.",
+    )
+    capture_events_added = serializers.ListField(
+        child=serializers.CharField(),
+        help_text="Event names the draft newly declares it may capture.",
+    )
+    inline_queries_enabled = serializers.BooleanField(
+        help_text="True when the draft enables inline queries and the current head does not."
+    )
+    network_origins_added = serializers.ListField(
+        child=serializers.CharField(),
+        help_text="Network origins the draft newly declares it may reach.",
+    )
+
+
+class CanvasSourceDraftResponseSerializer(serializers.Serializer):
+    """Result of staging a draft build."""
+
+    version_id = serializers.CharField(help_text="Id of the draft source version this request created.")
+    build = CanvasBuildSerializer(help_text="The queued draft build; poll `builds` until it is terminal.")
+    diagnostics = CanvasDiagnosticSerializer(
+        many=True,
+        help_text="Advisory (warning-severity) diagnostics recorded for the drafted project.",
+    )
+    capability_widening = CanvasCapabilityWideningSerializer(
+        help_text="What the draft's declared capabilities grant beyond the current head's. Review before promoting."
+    )
+
+
+class CanvasPromoteSerializer(serializers.Serializer):
+    """Payload for promoting a draft version to the canvas's live head."""
+
+    version_id = serializers.UUIDField(help_text="Id of the draft source version to make live.")
+    expected_current_version_id = serializers.UUIDField(
+        allow_null=True,
+        help_text=(
+            "Current source version observed before requesting the promote (null when the canvas has never "
+            "been published). A moved head is rejected with 409 version_conflict."
+        ),
     )

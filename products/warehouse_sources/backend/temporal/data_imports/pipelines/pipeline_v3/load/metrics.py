@@ -47,6 +47,16 @@ DELTA_REPARTITION_SKIP_TOTAL = Counter(
     labelnames=["team_id", "reason"],
 )
 
+# Deliberately unlabelled by team: this fires on every sync of every over-fragmented table fleet-wide,
+# which is the whole population the coarsening rollout is aimed at, so a team label would explode
+# cardinality. `reason` is a bounded set of gate names, which is what "why isn't coarsening firing"
+# actually needs; per-table detail stays in the operator-facing INFO log on a nominated table.
+DELTA_COARSEN_DECLINE_TOTAL = Counter(
+    "warehouse_load_delta_coarsen_decline_total",
+    "Over-fragmented tables the controller declined to coarsen, by gate",
+    labelnames=["reason"],
+)
+
 # deltalite real-write path (phase 2). `outcome` is one of:
 #   written    - deltalite performed the incremental merge and committed
 #   fallback   - deltalite was enabled but failed (or refused), so the delta-rs MERGE ran instead
