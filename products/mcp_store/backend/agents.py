@@ -10,9 +10,10 @@ from django.utils import timezone
 import structlog
 import posthoganalytics
 
-from posthog.models import Team
+from posthog.models import Team, User
 from posthog.models.scoping.manager import TeamScopeError
 from posthog.models.utils import hash_key_value
+from posthog.user_permissions import UserPermissions
 
 from .models import MCPServiceAccount
 
@@ -167,6 +168,28 @@ class GatewayAgentPrincipal:
     credential_owner_id: int
 
 
+def credential_owner_eligible(credential_owner_id: int, team_id: int) -> bool:
+    """Fresh check that the person whose MCP grants an agent run borrows is
+    still an active user with effective access to the team (org membership
+    plus any project access control).
+
+    Grant rows and the owner's User row both outlive offboarding, so
+    eligibility is re-read wherever grants are resolved instead of being
+    trusted from when the grant was created. No row locks are taken, unlike
+    the loop-run token mint in products/tasks: gateway agent tokens are
+    stateless and re-validated on every proxied call, so a revocation takes
+    effect on the next request rather than racing a persisted credential.
+    """
+    owner = User.objects.filter(id=credential_owner_id, is_active=True).first()
+    if owner is None:
+        return False
+    try:
+        team = Team.objects.get(id=team_id)
+    except Team.DoesNotExist:
+        return False
+    return UserPermissions(user=owner, team=team).current_team.effective_membership_level is not None
+
+
 def create_gateway_agent_token(account: MCPServiceAccount, *, credential_owner_id: int) -> str:
     payload = {
         "service_account_id": str(account.id),
@@ -206,5 +229,9 @@ def resolve_gateway_agent_token(token: str) -> GatewayAgentPrincipal | None:
             handle__in=built_in_agent_handles(),
         )
     except (MCPServiceAccount.DoesNotExist, TeamScopeError, ValueError):
+        return None
+    # A token outlives offboarding (its max age is hours), so the owner's
+    # eligibility is re-checked on every resolution, not just at mint time.
+    if not credential_owner_eligible(credential_owner_id, team_id):
         return None
     return GatewayAgentPrincipal(account=account, credential_owner_id=credential_owner_id)

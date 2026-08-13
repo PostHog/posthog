@@ -15,6 +15,7 @@ from posthog.models.team import Team
 from posthog.rbac.user_access_control import UserAccessControl
 
 import products.replay_vision.backend.max_tools as max_tools_module
+from products.replay_vision.backend.billing import observation_credits_for_model
 from products.replay_vision.backend.max_tools import (
     AnalyzeReplayVisionImpactTool,
     CreateReplayVisionActionTool,
@@ -49,6 +50,7 @@ from products.replay_vision.backend.models.vision_action import (
 from products.replay_vision.backend.scanner_config import MAX_PROMPT_LENGTH
 from products.replay_vision.backend.scanning import MAX_SESSIONS_PER_SCAN
 from products.replay_vision.backend.tags import slugify_tag
+from products.replay_vision.backend.tests.helpers import seed_scanner_spend
 
 from ee.hogai.tool import ApprovalResumePayload, MaxTool
 
@@ -557,6 +559,64 @@ class TestReplayVisionChargeConfirmation(BaseTest):
 
         assert artifact["error"] == "no_ai_consent"
         assert "AI analysis" in content
+
+
+class TestScanReplayVisionSessionsScannerLimit(BaseTest):
+    """A capped scanner's skips have to be explained to the user and counted, like bulk_observe does."""
+
+    def _tool(self) -> ScanReplayVisionSessionsTool:
+        config: RunnableConfig = {"configurable": {"team": self.team, "user": self.user}}
+        return ScanReplayVisionSessionsTool(team=self.team, user=self.user, config=config)
+
+    def _capped_scanner(self) -> ReplayScanner:
+        scanner = ReplayScanner.objects.create(
+            team=self.team,
+            name="capped",
+            scanner_type=ScannerType.MONITOR,
+            scanner_config={"prompt": "p"},
+            model=ScannerModel.GEMINI_3_6_FLASH,
+        )
+        cost = observation_credits_for_model(scanner.model)
+        seed_scanner_spend(scanner, cost)
+        ReplayScanner.objects.filter(pk=scanner.pk).update(credit_limit=cost)
+        scanner.refresh_from_db()
+        return scanner
+
+    @pytest.mark.django_db
+    @pytest.mark.asyncio
+    async def test_scanner_limit_skips_are_explained_and_counted(self):
+        # Without the sentence and the metric, the user just sees fewer scans started and nothing
+        # records that the scanner's own limit was the reason.
+        scanner = await sync_to_async(self._capped_scanner)()
+        with patch("products.replay_vision.backend.max_tools.record_scanner_limit_reached") as record:
+            content, artifact = await self._tool()._arun_impl(session_ids=["s1", "s2"], scanner_id=str(scanner.id))
+
+        assert {r["scan_outcome"] for r in artifact["results"]} == {"skipped_scanner_limit"}
+        assert "2 were skipped: this scanner reached its own credit limit." in content
+        assert "billing period resets" in content
+        record.assert_called_once_with("max_tool")
+
+    @pytest.mark.django_db
+    @pytest.mark.asyncio
+    async def test_uncapped_scanner_records_no_scanner_limit_block(self):
+        scanner = await sync_to_async(ReplayScanner.objects.create)(
+            team=self.team,
+            name="uncapped",
+            scanner_type=ScannerType.MONITOR,
+            scanner_config={"prompt": "p"},
+            model=ScannerModel.GEMINI_3_6_FLASH,
+        )
+        start = MagicMock(return_value=MagicMock())
+        with (
+            patch("products.replay_vision.backend.api.trigger.sync_connect", MagicMock()),
+            patch("products.replay_vision.backend.api.trigger.async_to_sync", return_value=start),
+            patch("products.replay_vision.backend.max_tools.record_scanner_limit_reached") as record,
+        ):
+            content, artifact = await self._tool()._arun_impl(session_ids=["s1"], scanner_id=str(scanner.id))
+
+        assert [r["scan_outcome"] for r in artifact["results"]] == ["started"]
+        assert "credit limit" not in content
+        record.assert_not_called()
 
 
 class TestCreateReplayVisionScannerTool(BaseTest):
