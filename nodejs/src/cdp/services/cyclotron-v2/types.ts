@@ -79,6 +79,10 @@ export interface CyclotronV2DequeuedJob {
     readonly distinctId: string | null
     readonly personId: string | null
     readonly actionId: string | null
+    // Set by CyclotronV2Manager.cancelJobs. The consumer that dequeued this job is
+    // responsible for terminating it (cancel() plus its own telemetry) instead of
+    // executing it.
+    readonly cancelRequestedAt: DateTime | null
 
     ack(): Promise<void>
     fail(): Promise<void>
@@ -125,6 +129,37 @@ export type CyclotronV2RescheduleParkedResult = {
     sweepUntil: Date
 }
 
+export type CyclotronV2CancelJobsOptions = {
+    teamId: number
+    functionId: string
+    // Exactly one selector must be provided.
+    // Specific jobs (deduplicated; unknown ids are reported, not errors):
+    jobIds?: string[]
+    // Every child of one batch run:
+    parentRunId?: string
+    // Every in-flight job of the function:
+    all?: boolean
+}
+
+// 'requested': the flag is set (by this call or an earlier one) and the worker will
+// terminate the job when it next observes it. 'unmarked': the row is in flight but a
+// concurrent transition raced this call — retry. 'already_finished' covers every
+// terminal status, including previously cancelled.
+export type CyclotronV2CancelJobOutcome = 'requested' | 'already_finished' | 'not_found' | 'unmarked'
+
+export type CyclotronV2CancelJobsResult = {
+    // In-flight rows newly flagged by this call. Parked rows also had their wake
+    // time pulled forward; rows held by a worker were flagged only and terminate
+    // at their next release.
+    marked: number
+    // In-flight rows matching the selector still unflagged — non-zero when the
+    // per-call chunk budget ran out or a row transitioned mid-call. Call again.
+    remaining: number
+    done: boolean
+    // jobIds mode only: outcome per requested id, evaluated after this call's writes.
+    ids?: { id: string; outcome: CyclotronV2CancelJobOutcome }[]
+}
+
 /**
  * Producer-side surface of `CyclotronV2Manager`. Lets API entrypoints depend
  * on the interface (testable, mockable) without pulling the full manager
@@ -144,6 +179,7 @@ export interface CyclotronV2JobProducer {
     createJob(input: CyclotronV2JobInit): Promise<string>
     countInFlightJobs(teamId: number, functionId: string): Promise<CyclotronV2InFlightCounts>
     rescheduleParkedJobs(options: CyclotronV2RescheduleParkedOptions): Promise<CyclotronV2RescheduleParkedResult>
+    cancelJobs(options: CyclotronV2CancelJobsOptions): Promise<CyclotronV2CancelJobsResult>
     disconnect(): Promise<void>
 }
 

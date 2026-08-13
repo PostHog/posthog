@@ -15,4 +15,7 @@ export type {
     CyclotronV2BatchLimit,
     CyclotronV2BulkCreateAndCheckInInput,
     CyclotronV2JobProducer,
+    CyclotronV2CancelJobsOptions,
+    CyclotronV2CancelJobsResult,
+    CyclotronV2CancelJobOutcome,
 } from './types'

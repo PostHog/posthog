@@ -1080,6 +1080,7 @@ describe('CDP API', () => {
                 createJob: createJobMock,
                 countInFlightJobs: jest.fn().mockResolvedValue({ count: 0, byAction: {}, positionUnknown: 0 }),
                 rescheduleParkedJobs: jest.fn(),
+                cancelJobs: jest.fn(),
                 disconnect: jest.fn().mockResolvedValue(undefined),
             }
 
@@ -1138,6 +1139,7 @@ describe('CDP API', () => {
                 createJob: createJobMock,
                 countInFlightJobs: jest.fn().mockResolvedValue({ count: 0, byAction: {}, positionUnknown: 0 }),
                 rescheduleParkedJobs: jest.fn(),
+                cancelJobs: jest.fn(),
                 disconnect: jest.fn().mockResolvedValue(undefined),
             }
 
@@ -1198,6 +1200,7 @@ describe('CDP API', () => {
                 createJob: createJobMock,
                 countInFlightJobs: jest.fn().mockResolvedValue({ count: 0, byAction: {}, positionUnknown: 0 }),
                 rescheduleParkedJobs: jest.fn(),
+                cancelJobs: jest.fn(),
                 disconnect: jest.fn().mockResolvedValue(undefined),
             }
 
@@ -1260,6 +1263,7 @@ describe('CDP API', () => {
                 createJob: createJobMock,
                 countInFlightJobs: jest.fn().mockResolvedValue({ count: 0, byAction: {}, positionUnknown: 0 }),
                 rescheduleParkedJobs: jest.fn(),
+                cancelJobs: jest.fn(),
                 disconnect: jest.fn().mockResolvedValue(undefined),
             }
 
@@ -1381,6 +1385,7 @@ describe('CDP API', () => {
                 disconnect: jest.fn(),
                 countInFlightJobs: mockCountInFlightJobs,
                 rescheduleParkedJobs: jest.fn(),
+                cancelJobs: jest.fn(),
             }
 
             countHogFlow = await insertHogFlow({
@@ -1473,6 +1478,7 @@ describe('CDP API', () => {
                 disconnect: jest.fn(),
                 countInFlightJobs: jest.fn(),
                 rescheduleParkedJobs: mockRescheduleParkedJobs,
+                cancelJobs: jest.fn(),
             }
 
             rescheduleHogFlow = await insertHogFlow({

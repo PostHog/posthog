@@ -7,6 +7,8 @@ import { logger } from '~/common/utils/logger'
 import { sleep } from '~/common/utils/utils'
 
 import {
+    CyclotronV2CancelJobsOptions,
+    CyclotronV2CancelJobsResult,
     CyclotronV2InFlightCounts,
     CyclotronV2JobInit,
     CyclotronV2JobInitSchema,
@@ -87,6 +89,18 @@ const rescheduleWindowHistogram = new Histogram({
 const rescheduleFailureCounter = new Counter({
     name: 'cdp_cyclotron_v2_reschedule_parked_failures',
     help: 'Failed reschedule sweep slices, split by kind=logical|transient.',
+    labelNames: ['kind'] as const,
+})
+
+const cancelMarkedCounter = new Counter({
+    name: 'cdp_cyclotron_v2_cancel_marked',
+    help: 'In-flight cyclotron jobs flagged for cancellation, split by the job status at marking time.',
+    labelNames: ['status'] as const,
+})
+
+const cancelFailureCounter = new Counter({
+    name: 'cdp_cyclotron_v2_cancel_failures',
+    help: 'Failed cancelJobs calls, split by kind=logical|transient.',
     labelNames: ['kind'] as const,
 })
 
@@ -175,7 +189,8 @@ export class CyclotronV2Manager {
                  state = EXCLUDED.state,
                  distinct_id = EXCLUDED.distinct_id,
                  person_id = EXCLUDED.person_id,
-                 action_id = EXCLUDED.action_id
+                 action_id = EXCLUDED.action_id,
+                 cancel_requested_at = NULL
                WHERE cyclotron_jobs.status IN ('completed', 'failed', 'canceled')
                RETURNING id`
             : 'RETURNING id'
@@ -283,7 +298,8 @@ export class CyclotronV2Manager {
                  distinct_id = EXCLUDED.distinct_id,
                  person_id = EXCLUDED.person_id,
                  action_id = EXCLUDED.action_id,
-                 dequeue_seq = EXCLUDED.dequeue_seq
+                 dequeue_seq = EXCLUDED.dequeue_seq,
+                 cancel_requested_at = NULL
                WHERE cyclotron_jobs.status IN ('completed', 'failed', 'canceled')
                RETURNING id`
             : 'RETURNING id'
@@ -579,6 +595,137 @@ export class CyclotronV2Manager {
             return { swept, remaining, done: remaining === 0, sweepFloor, sweepUntil }
         } catch (err) {
             rescheduleFailureCounter.labels({ kind: isTransientPgError(err) ? 'transient' : 'logical' }).inc()
+            throw err
+        }
+    }
+
+    /**
+     * Flag in-flight jobs for cancellation. This never writes a terminal status
+     * itself: the manager has no path to the lifecycle/metric sinks, so the
+     * owning worker performs the actual cancellation when it next observes the
+     * job. Parked rows get their wake pulled forward so that happens promptly;
+     * rows a worker currently holds are flagged only (never fight `lock_id` —
+     * the worker's release pulls the wake forward via reschedule()'s
+     * cancel-aware CASE, so they terminate one step later).
+     *
+     * Chunked like `rescheduleParkedJobs` so one call never updates an
+     * unbounded row count; callers loop while `done` is false. Selection
+     * deliberately ignores `queue_name`: a run's job can sit on another queue
+     * (e.g. 'email') mid-step and still needs to be cancellable.
+     */
+    async cancelJobs(options: CyclotronV2CancelJobsOptions): Promise<CyclotronV2CancelJobsResult> {
+        const { teamId, functionId } = options
+        const selectorCount = [
+            options.jobIds !== undefined,
+            options.parentRunId !== undefined,
+            options.all === true,
+        ].filter(Boolean).length
+        if (selectorCount !== 1) {
+            throw new Error('cancelJobs requires exactly one selector: jobIds, parentRunId, or all')
+        }
+
+        const jobIds = options.jobIds ? [...new Set(options.jobIds)] : undefined
+        if (jobIds && jobIds.length === 0) {
+            return { marked: 0, remaining: 0, done: true, ids: [] }
+        }
+
+        const params: (number | string | string[])[] = [teamId, functionId]
+        let selectorClause = ''
+        if (jobIds) {
+            params.push(jobIds)
+            selectorClause = `AND id = ANY($${params.length}::uuid[])`
+        } else if (options.parentRunId) {
+            params.push(options.parentRunId)
+            selectorClause = `AND parent_run_id = $${params.length}`
+        }
+
+        try {
+            let marked = 0
+
+            // Parked rows: flag + wake. SKIP LOCKED skips rows a concurrent dequeue
+            // is claiming — those turn 'running' and the second UPDATE catches them.
+            const chunkLimitParam = params.length + 1
+            for (let chunk = 0; chunk < this.reschedule.maxChunksPerCall; chunk++) {
+                if (chunk > 0) {
+                    await sleep(this.reschedule.chunkSleepMs)
+                }
+                const result = await this.pool.query(
+                    `WITH candidates AS (
+                        SELECT id FROM cyclotron_jobs
+                        WHERE team_id = $1 AND function_id = $2 AND status = 'available'
+                          AND cancel_requested_at IS NULL
+                          ${selectorClause}
+                        LIMIT $${chunkLimitParam}
+                        FOR UPDATE SKIP LOCKED
+                    )
+                    UPDATE cyclotron_jobs j
+                    SET cancel_requested_at = NOW(), scheduled = LEAST(j.scheduled, NOW())
+                    FROM candidates c
+                    WHERE j.id = c.id`,
+                    [...params, this.reschedule.chunkSize]
+                )
+                const n = result.rowCount ?? 0
+                marked += n
+                cancelMarkedCounter.labels({ status: 'available' }).inc(n)
+                if (n < this.reschedule.chunkSize) {
+                    break
+                }
+            }
+
+            // Rows held by a worker right now — bounded by worker concurrency, so
+            // no chunking or wake write needed.
+            const runningResult = await this.pool.query(
+                `UPDATE cyclotron_jobs
+                 SET cancel_requested_at = NOW()
+                 WHERE team_id = $1 AND function_id = $2 AND status = 'running'
+                   AND cancel_requested_at IS NULL
+                   ${selectorClause}`,
+                params
+            )
+            const runningMarked = runningResult.rowCount ?? 0
+            marked += runningMarked
+            cancelMarkedCounter.labels({ status: 'running' }).inc(runningMarked)
+
+            let idOutcomes: CyclotronV2CancelJobsResult['ids']
+            if (jobIds) {
+                const found = await this.pool.query<{ id: string; status: string; cancel_requested_at: string | null }>(
+                    `SELECT id, status, cancel_requested_at FROM cyclotron_jobs
+                     WHERE team_id = $1 AND function_id = $2 AND id = ANY($3::uuid[])`,
+                    [teamId, functionId, jobIds]
+                )
+                const byId = new Map(found.rows.map((r) => [r.id, r]))
+                idOutcomes = jobIds.map((id) => {
+                    const row = byId.get(id)
+                    if (!row) {
+                        return { id, outcome: 'not_found' as const }
+                    }
+                    if (['completed', 'failed', 'canceled'].includes(row.status)) {
+                        return { id, outcome: 'already_finished' as const }
+                    }
+                    return { id, outcome: row.cancel_requested_at ? ('requested' as const) : ('unmarked' as const) }
+                })
+            }
+
+            const remainingResult = await this.pool.query<{ count: number }>(
+                `SELECT COUNT(*)::int AS count FROM cyclotron_jobs
+                 WHERE team_id = $1 AND function_id = $2 AND status IN ('available', 'running')
+                   AND cancel_requested_at IS NULL
+                   ${selectorClause}`,
+                params
+            )
+            const remaining = remainingResult.rows[0].count
+
+            logger.info('Cancel sweep completed', {
+                teamId,
+                functionId,
+                mode: jobIds ? 'jobIds' : options.parentRunId ? 'parentRunId' : 'all',
+                marked,
+                remaining,
+            })
+
+            return { marked, remaining, done: remaining === 0, ids: idOutcomes }
+        } catch (err) {
+            cancelFailureCounter.labels({ kind: isTransientPgError(err) ? 'transient' : 'logical' }).inc()
             throw err
         }
     }
