@@ -310,7 +310,9 @@ fn every_refusal_is_counted_with_a_reason() {
     let mut bytes = payload_tagged(
         "img",
         json!({
-            "src": "http://169.254.169.254/meta.png",
+            // https, so this refusal counts as an address refusal. The scheme check runs first, so
+            // over http it would count as a scheme refusal instead.
+            "src": "https://169.254.169.254/meta.png",
             "rr_src": "ftp://files.example.com/a.png",
             "poster": "/relative/a.png"
         }),

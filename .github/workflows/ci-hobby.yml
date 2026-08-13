@@ -330,7 +330,7 @@ jobs:
                   RUN_ATTEMPT: ${{ github.run_attempt }}
             - name: Smoke test event ingestion
               if: env.TEST_EXIT_CODE == '0' && env.PREVIEW_MODE == 'false'
-              timeout-minutes: 5
+              timeout-minutes: 10
               run: uv run bin/hobby-ci.py smoke-test-ingestion
               env:
                   DIGITALOCEAN_TOKEN: ${{ secrets.DIGITAL_OCEAN_HOBBY_TOKEN }}

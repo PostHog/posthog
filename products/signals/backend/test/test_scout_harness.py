@@ -34,7 +34,13 @@ from products.signals.backend.scout_harness.derived_metadata import DERIVED_META
 from products.signals.backend.scout_harness.lazy_seed import HARNESS_SEEDED_BY, _compute_row_hash
 from products.signals.backend.scout_harness.limits import STALE_RUN_CUTOFF_S, failure_streak_pause_threshold
 from products.signals.backend.scout_harness.model_selection import ScoutModel
-from products.signals.backend.scout_harness.prompt import _REPORT_CHARTS, HARNESS_PROMPT_VERSION, build_run_prompt
+from products.signals.backend.scout_harness.prompt import (
+    _GOVERNED_METRIC_LISTING_CAP,
+    _METRICS_CATALOG_SUPERSEDES_CACHE as _SUPERSEDES_CACHED_ENTRIES,
+    _REPORT_CHARTS,
+    HARNESS_PROMPT_VERSION,
+    build_run_prompt,
+)
 from products.signals.backend.scout_harness.runner import (
     SIGNALS_SCOUT_FULL_NETWORK_ENV_NAME,
     SIGNALS_SCOUT_SANDBOX_ENV_NAME,
@@ -559,6 +565,45 @@ class TestPromptBuilder(BaseTest):
         assert "information_schema.metrics" not in disabled
         assert "data-catalog-metric-run" not in disabled
 
+    def test_prefetched_catalog_listing_replaces_the_probe_instruction(self) -> None:
+        LLMSkill.objects.create(team=self.team, name="signals-scout-catalog-listing", description="s", body="watch")
+        loaded = load_skill_for_run(self.team, "signals-scout-catalog-listing")
+        kwargs: dict = {
+            "run_id": "00000000-0000-0000-0000-000000000abc",
+            "team_id": self.team.id,
+            "started_at": datetime(2026, 5, 1, 12, 34, 56, tzinfo=UTC),
+        }
+        names = ["scout_cost_per_run", "scout_run_fail_pct"]
+
+        listed = build_run_prompt(loaded, **kwargs, data_catalog_enabled=True, governed_metric_names=names)
+        assert "`scout_run_fail_pct`" in listed
+        assert "`scout_cost_per_run`" in listed
+        assert "data-catalog-metric-run" in listed
+        assert "Cache the lookup outcome" not in listed
+        assert _SUPERSEDES_CACHED_ENTRIES in listed
+
+        empty = build_run_prompt(loaded, **kwargs, data_catalog_enabled=True, governed_metric_names=[])
+        assert "no approved metrics" in empty
+        assert "Cache the lookup outcome" not in empty
+        assert _SUPERSEDES_CACHED_ENTRIES in empty
+
+        fallback = build_run_prompt(loaded, **kwargs, data_catalog_enabled=True, governed_metric_names=None)
+        assert "Cache the lookup outcome" in fallback
+        assert _SUPERSEDES_CACHED_ENTRIES not in fallback
+
+        # The cap is what keeps this injection to a handful of tokens in every catalog-enabled run,
+        # and past it the listing stops being the whole catalog, so it has to say a lookup is still
+        # warranted for an unlisted measure.
+        overflowing = [f"metric_{index:03d}" for index in range(_GOVERNED_METRIC_LISTING_CAP + 3)]
+        capped = build_run_prompt(loaded, **kwargs, data_catalog_enabled=True, governed_metric_names=overflowing)
+        assert "`metric_000`" in capped
+        assert f"`metric_{_GOVERNED_METRIC_LISTING_CAP:03d}`" not in capped
+        assert "and 3 more this listing omits" in capped
+
+        flag_off = build_run_prompt(loaded, **kwargs, governed_metric_names=names)
+        assert "scout_run_fail_pct" not in flag_off
+        assert "data-catalog-metric-run" not in flag_off
+
     def test_report_channel_renders_report_persona_and_guidance(self) -> None:
         LLMSkill.objects.create(
             team=self.team,
@@ -991,6 +1036,50 @@ async def test_run_tags_session_with_scout_ai_stage(ateam, aerrors_skill):
 
 @pytest.mark.asyncio
 @pytest.mark.django_db
+async def test_run_passes_the_per_scout_server_selection_and_no_credential_owner(ateam, aerrors_skill):
+    # A scout is a team resource: its runs mount only team-scoped grants, gated by the
+    # config's per-scout server selection, and never delegate anyone's personal grants.
+    # Passing a credential owner here would silently re-open the personal lane.
+    session, result = await database_sync_to_async(_make_fake_session, thread_sensitive=False)(ateam)
+    captured: dict = {}
+
+    def _seed_config() -> None:
+        creator = User.objects.create(email=f"scout-owner-{random.randint(1, 99999)}@example.com")
+        SignalScoutConfig.objects.unscoped().create(
+            team_id=ateam.id,
+            skill_name="signals-scout-errors",
+            created_by=creator,
+            mcp_gateway_server_ids=["11111111-1111-1111-1111-111111111111"],
+        )
+
+    await database_sync_to_async(_seed_config, thread_sensitive=False)()
+
+    async def _capture_start(*args, on_task_run_created=None, **kwargs):
+        captured.update(kwargs)
+        if on_task_run_created is not None:
+            await on_task_run_created(session.task_run)
+        return session, result
+
+    with (
+        patch("products.signals.backend.scout_harness.runner.MultiTurnSession.start", new=_capture_start),
+        patch(
+            "products.signals.backend.scout_harness.runner.get_or_create_signals_sandbox_env",
+            return_value="env-id",
+        ),
+        patch(
+            "products.signals.backend.scout_harness.runner.resolve_acting_user_id_for_team",
+            return_value=42,
+        ),
+    ):
+        await arun_signals_scout(team_id=ateam.id, skill_name="signals-scout-errors")
+
+    assert captured["mcp_builtin_agent_key"] == "scout"
+    assert captured.get("mcp_credential_owner_id") is None
+    assert captured["mcp_gateway_server_ids"] == ["11111111-1111-1111-1111-111111111111"]
+
+
+@pytest.mark.asyncio
+@pytest.mark.django_db
 @pytest.mark.parametrize(
     "flag,expect_rule",
     [
@@ -1031,6 +1120,54 @@ async def test_catalog_steering_reaches_the_prompt_from_the_team_flag(ateam, aer
 
     assert run_result.status == apps.get_model("tasks", "TaskRun").Status.COMPLETED.value
     assert ("information_schema.metrics" in captured["prompt"]) is expect_rule
+
+
+@pytest.mark.asyncio
+@pytest.mark.django_db
+@pytest.mark.parametrize(
+    "names,expected_marker",
+    [
+        pytest.param(["scout_run_fail_pct"], "scout_run_fail_pct", id="listing_injected"),
+        pytest.param(RuntimeError("catalog read down"), "Cache the lookup outcome", id="lookup_error_falls_back"),
+    ],
+)
+async def test_governed_listing_reaches_the_prompt_from_the_catalog(ateam, aerrors_skill, names, expected_marker):
+    session, result = await database_sync_to_async(_make_fake_session, thread_sensitive=False)(ateam)
+    acting_user = await sync_to_async(User.objects.create_and_join)(
+        organization=ateam.organization,
+        email=f"scout-catalog-{random.randint(1, 99999)}@posthog.com",
+        password=None,
+    )
+    captured: dict = {}
+
+    async def _capture_start(*args, on_task_run_created=None, **kwargs):
+        captured.update(kwargs)
+        if on_task_run_created is not None:
+            await on_task_run_created(session.task_run)
+        return session, result
+
+    names_mock = MagicMock(side_effect=names) if isinstance(names, Exception) else MagicMock(return_value=names)
+    with (
+        patch("products.signals.backend.scout_harness.runner.MultiTurnSession.start", new=_capture_start),
+        patch("products.signals.backend.scout_harness.runner.is_data_catalog_enabled", return_value=True),
+        patch("products.signals.backend.scout_harness.runner.approved_metric_names_for_team", names_mock),
+        patch(
+            "products.signals.backend.scout_harness.runner.get_or_create_signals_sandbox_env",
+            return_value="env-id",
+        ),
+        patch(
+            "products.signals.backend.scout_harness.runner.resolve_acting_user_id_for_team",
+            return_value=acting_user.id,
+        ),
+    ):
+        run_result = await arun_signals_scout(team_id=ateam.id, skill_name="signals-scout-errors")
+
+    assert run_result.status == apps.get_model("tasks", "TaskRun").Status.COMPLETED.value
+    assert expected_marker in captured["prompt"]
+    # The listing must be resolved as the run's acting user, or it could be wider than what the run
+    # could have queried for itself; the access check lives behind the facade call, so passing the
+    # user is the only part of that the runner owns.
+    assert names_mock.call_args.args == (ateam, acting_user)
 
 
 @pytest.mark.asyncio

@@ -103,7 +103,6 @@ import type {
   TaskActivityPage,
   TaskActivityReadMarker,
   TaskChannel,
-  TaskCommentThreadSummary,
   TaskMention,
   TaskRun,
   TaskRunArtefact,
@@ -2907,33 +2906,6 @@ export class PostHogAPIClient {
       );
     }
     return (await response.json()) as TaskThreadMessage[];
-  }
-
-  /** One request for the whole task, so the panel never fans out per artifact the way the
-   *  Comments tab has to.
-   *
-   *  A backend predating the read layer has no such route, so a 404 means "no comment rows
-   *  yet" rather than a failure and the timeline comes alive once the endpoint exists. */
-  async getTaskCommentActivity(
-    taskId: string,
-  ): Promise<TaskCommentThreadSummary[]> {
-    const teamId = await this.getTeamId();
-    const urlPath = `/api/projects/${teamId}/tasks/${taskId}/thread_messages/comment_activity/`;
-    const response = await this.api.fetcher.fetch({
-      method: "get",
-      url: new URL(`${this.api.baseUrl}${urlPath}`),
-      path: urlPath,
-    });
-    if (response.status === 404) return [];
-    if (!response.ok) {
-      throw new Error(
-        `Failed to fetch comment activity: ${response.statusText}`,
-      );
-    }
-    const body = (await response.json()) as {
-      comments?: TaskCommentThreadSummary[];
-    };
-    return body.comments ?? [];
   }
 
   async createTaskThreadMessage(
