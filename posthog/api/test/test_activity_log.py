@@ -1,5 +1,5 @@
 from datetime import timedelta
-from typing import Any, Optional
+from typing import TYPE_CHECKING, Any, Optional
 from uuid import uuid4
 
 from freezegun import freeze_time
@@ -11,7 +11,9 @@ from django.utils import timezone
 
 from parameterized import parameterized
 from rest_framework import status
-from rest_framework.response import Response
+
+if TYPE_CHECKING:
+    from rest_framework.response import _MonkeyPatchedResponse
 
 from posthog.api.advanced_activity_logs.fields_cache import cache_fields, delete_cached_fields, get_cached_fields
 from posthog.constants import AvailableFeature
@@ -479,7 +481,7 @@ class TestAdvancedActivityLogsAvailableFiltersScoping(APIBaseTest):
             detail=detail,
         )
 
-    def _available_filters(self) -> Response:
+    def _available_filters(self) -> "_MonkeyPatchedResponse":
         return self.client.get(f"/api/projects/{self.team.id}/advanced_activity_logs/available_filters/")
 
     @staticmethod
