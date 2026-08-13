@@ -1312,9 +1312,14 @@ export function ChatThread({ events, ...props }: ChatThreadProps) {
 
 export function AcpChatThread({ events, ...props }: AcpChatThreadProps) {
   const showDebugLogs = useSettingsStore((state) => state.debugLogsCloudRuns);
-  const { items } = useConversationItems(events, props.isPromptPending, {
-    showDebugLogs,
-  });
+  const { items } = useConversationItems(
+    props.taskId ?? "",
+    events,
+    props.isPromptPending,
+    {
+      showDebugLogs,
+    },
+  );
 
   return (
     <ChatThreadRenderer

@@ -40,9 +40,14 @@ export function ChatThreadFooter({
   hasPendingPermission,
 }: ChatThreadFooterProps) {
   const showDebugLogs = useSettingsStore((s) => s.debugLogsCloudRuns);
-  const eventFooterState = useConversationItems(events, isPromptPending, {
-    showDebugLogs,
-  });
+  const eventFooterState = useConversationItems(
+    taskId ?? "",
+    events,
+    isPromptPending,
+    {
+      showDebugLogs,
+    },
+  );
   const lastTurnInfo =
     footerState?.lastTurnInfo ?? eventFooterState.lastTurnInfo;
   const isCompacting =
