@@ -6402,7 +6402,9 @@ class RecordingsQueryExperimentExposureFilter(BaseModel):
     )
     experiment_id: int = Field(
         ...,
-        description=("Experiment whose exposed persons' sessions to show. Must belong to the query's project."),
+        description=(
+            "Experiment whose exposed persons' sessions to show. Must belong to the environment the query runs in."
+        ),
     )
     variant: str | None = Field(
         default=None,
@@ -26401,7 +26403,9 @@ class RecordingsQuery(BaseModel):
             " after the person's first exposure as the experiment's exposure criteria"
             " count it. Resolved server-side from the experiment, so it links sessions"
             " even when the exposure events themselves carry no session id (e.g."
-            " server-side SDKs)."
+            " server-side SDKs). Composes with the query's date range like any other"
+            " filter, so set date_from to the experiment's start (or earlier) to cover"
+            " the full run: the default window only reaches back a few days."
         ),
     )
     filter_test_accounts: bool | None = None

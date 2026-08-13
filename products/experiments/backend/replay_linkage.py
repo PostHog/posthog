@@ -16,7 +16,7 @@ from datetime import UTC, datetime
 
 from rest_framework.exceptions import ValidationError
 
-from posthog.schema import DateRange, IntervalType
+from posthog.schema import IntervalType
 
 from posthog.hogql import ast
 from posthog.hogql.parser import parse_select
@@ -24,6 +24,7 @@ from posthog.hogql.parser import parse_select
 from posthog.hogql_queries.utils.query_date_range import QueryDateRange
 from posthog.models.team.team import Team
 
+from products.experiments.backend.hogql_queries.base_query_utils import experiment_window
 from products.experiments.backend.hogql_queries.cuped_config import CupedQueryConfig
 from products.experiments.backend.hogql_queries.experiment_exposure_query_builder import ExposureQueryBuilder
 from products.experiments.backend.hogql_queries.experiment_query_builder import get_exposure_config_params_for_builder
@@ -42,7 +43,7 @@ def exposed_distinct_ids_select(team: Team, *, experiment_id: int, variant: str 
     try:
         experiment = Experiment.objects.get(id=experiment_id, team=team, deleted=False)
     except Experiment.DoesNotExist:
-        raise ValidationError(f"Experiment {experiment_id} doesn't exist in this project.")
+        raise ValidationError(f"Experiment {experiment_id} doesn't exist in this environment.")
 
     flag = getattr(experiment, "feature_flag", None)
     if flag is None:
@@ -71,11 +72,7 @@ def exposed_distinct_ids_select(team: Team, *, experiment_id: int, variant: str 
 
     exposure_params = get_exposure_config_params_for_builder(experiment.exposure_criteria, team, experiment.start_date)
     date_range_query = QueryDateRange(
-        date_range=DateRange(
-            date_from=experiment.start_date.isoformat(),
-            date_to=experiment.end_date.isoformat() if experiment.end_date else None,
-            explicitDate=True,
-        ),
+        date_range=experiment_window(experiment, team, as_of=experiment.end_date or datetime.now(UTC)),
         team=team,
         interval=IntervalType.DAY,
         now=datetime.now(UTC),
@@ -100,8 +97,8 @@ def exposed_distinct_ids_select(team: Team, *, experiment_id: int, variant: str 
     exposure_select = ExposureQueryBuilder(context=context).select_query()
 
     # The WHERE on variant also drops entities attributed MULTIPLE_VARIANT_KEY under "exclude"
-    # handling, matching who the analysis counts. min() collapses the rare distinct id that maps
-    # to more than one person row mid-merge.
+    # handling, matching who the analysis counts. Both join sides are pre-grouped, so each
+    # distinct id carries exactly one exposure row and min() merely satisfies the GROUP BY.
     query = parse_select(
         """
         SELECT

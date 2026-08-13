@@ -37,8 +37,6 @@ from posthog.session_recordings.queries.utils import (
 )
 from posthog.types import AnyPropertyFilter
 
-from products.experiments.backend.replay_linkage import exposed_distinct_ids_select
-
 logger = structlog.get_logger(__name__)
 tracer = trace.get_tracer(__name__)
 
@@ -286,13 +284,19 @@ class SessionRecordingListFromQuery(SessionRecordingsListingBaseQuery):
     def _join_experiment_exposure(self, parsed_query: ast.SelectQuery) -> None:
         """Restrict the list to sessions of persons exposed to the queried experiment.
 
-        The joined subquery carries at most one row per distinct id, so the per-session
-        aggregates are unchanged; the INNER JOIN drops sessions of unexposed persons at the
-        row level. The companion "session ended at or after first exposure" bound lives in
-        `_having_predicates`, because end_time only exists after GROUP BY and a row-level
-        bound would drop a qualifying session's pre-exposure rows, skewing start_time and
-        the activity aggregates.
+        The joined subquery carries at most one row per distinct id, so the join never
+        duplicates a session's rows; the INNER JOIN drops sessions of unexposed persons at
+        the row level. A session recorded under several persons' distinct ids keeps only the
+        exposed persons' rows, so its aggregates can shrink slightly; the session itself
+        still correctly matches. The companion "session ended at or after first exposure"
+        bound lives in `_having_predicates`, because end_time only exists after GROUP BY
+        and a row-level bound would drop a qualifying session's pre-exposure rows, skewing
+        start_time and the activity aggregates.
         """
+        # Deferred: the experiments facade package imports posthog.api on init, which
+        # circles back into this module through the replay-deletion temporal activities.
+        from products.experiments.backend.facade.replay import exposed_distinct_ids_select  # noqa: PLC0415
+
         assert self._query.experiment_exposure is not None
         join = parsed_query.select_from
         assert join is not None
