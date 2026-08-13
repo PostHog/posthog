@@ -488,6 +488,27 @@ export default meta
 
 export const ScannersList: StoryObj = {}
 
+// Zero scanners: snapshot-covers the table empty state and its docs link, which no other story renders.
+export const ScannersListEmpty: StoryObj = {
+    decorators: [
+        mswDecorator({
+            get: {
+                '/api/projects/:team_id/vision/scanners/': { count: 0, next: null, previous: null, results: [] },
+                '/api/projects/:team_id/vision/scanners/stats/': {
+                    total: 0,
+                    enabled: 0,
+                    by_type: {
+                        monitor: { enabled: 0, total: 0 },
+                        classifier: { enabled: 0, total: 0 },
+                        scorer: { enabled: 0, total: 0 },
+                        summarizer: { enabled: 0, total: 0 },
+                    },
+                } satisfies ScannerStatsResponseApi,
+            },
+        }),
+    ],
+}
+
 export const UsageTab: StoryObj = {
     parameters: { pageUrl: `${urls.replayVision()}?tab=usage` },
 }
@@ -540,6 +561,14 @@ export const ScannerDigests: StoryObj = {
 
 export const ScannerTemplates: StoryObj = {
     parameters: { pageUrl: urls.replayVisionTemplates() },
+}
+
+// The flag-gated "tell PostHog AI what you want to accomplish" box below the template grid.
+export const ScannerTemplatesWithGoalDraft: StoryObj = {
+    parameters: {
+        pageUrl: urls.replayVisionTemplates(),
+        featureFlags: [FEATURE_FLAGS.REPLAY_VISION_GOAL_DRAFT],
+    },
 }
 
 export const ScannerEditorConfigure: StoryObj = {
