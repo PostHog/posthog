@@ -2,10 +2,13 @@ import { MakeLogicType, actions, afterMount, connect, kea, key, listeners, path,
 import { forms } from 'kea-forms'
 import type { DeepPartial, DeepPartialMap, FieldName, ValidationErrorType } from 'kea-forms'
 import { loaders } from 'kea-loaders'
+import { router } from 'kea-router'
 
 import { lemonToast } from '@posthog/lemon-ui'
 
+import { ApiError } from 'lib/api'
 import { teamLogic } from 'scenes/teamLogic'
+import { urls } from 'scenes/urls'
 
 import { LogMessage } from '~/queries/schema/schema-general'
 import { FilterLogicalOperator, UniversalFiltersGroup } from '~/types'
@@ -32,6 +35,8 @@ const EMPTY_FILTER_GROUP: UniversalFiltersGroup = {
     values: [],
 }
 
+const DEFAULT_SEVERITY_LEVELS: LogMessage['severity_text'][] = ['trace', 'debug', 'info', 'warn', 'error', 'fatal']
+
 export interface LogsAlertFormType {
     name: string
     severityLevels: LogMessage['severity_text'][]
@@ -47,6 +52,7 @@ export interface LogsAlertFormType {
 
 export interface LogsAlertFormLogicProps {
     alert: LogsAlertConfigurationApi | null
+    onCreateSuccess?: () => void
 }
 
 function extractFilterGroup(alert: LogsAlertConfigurationApi | null): UniversalFiltersGroup {
@@ -61,12 +67,19 @@ function extractFilterGroup(alert: LogsAlertConfigurationApi | null): UniversalF
     return EMPTY_FILTER_GROUP
 }
 
+function saveErrorMessage(error: ApiError): string {
+    return error.detail ?? error.message ?? 'Failed to save alert'
+}
+
 export function buildFormDefaults(alert: LogsAlertConfigurationApi | null): LogsAlertFormType {
+    const filters = (alert?.filters ?? {}) as Record<string, unknown>
+
     return {
         name: alert?.name ?? '',
-        severityLevels:
-            ((alert?.filters as Record<string, unknown>)?.severityLevels as LogMessage['severity_text'][]) ?? [],
-        serviceNames: ((alert?.filters as Record<string, unknown>)?.serviceNames as string[]) ?? [],
+        severityLevels: alert
+            ? ((filters.severityLevels as LogMessage['severity_text'][]) ?? [])
+            : DEFAULT_SEVERITY_LEVELS,
+        serviceNames: (filters.serviceNames as string[]) ?? [],
         filterGroup: extractFilterGroup(alert),
         thresholdOperator: alert?.threshold_operator ?? LogsAlertThresholdOperatorEnumApi.Above,
         thresholdCount: alert?.threshold_count ?? 100,
@@ -106,12 +119,6 @@ export interface logsAlertFormLogicActions {
         alertId: string
     } // logsAlertNotificationLogic
     loadAlerts: (_?: any) => any // logsAlertingLogic
-    setEditingAlert: (alert: LogsAlertConfigurationApi | null) => {
-        alert: LogsAlertConfigurationApi | null
-    } // logsAlertingLogic
-    setIsCreating: (isCreating: boolean) => {
-        isCreating: boolean
-    } // logsAlertingLogic
     clearSimulation: () => {
         value: true
     }
@@ -229,7 +236,7 @@ export const logsAlertFormLogic = kea<logsAlertFormLogicType>([
         ],
         actions: [
             logsAlertingLogic,
-            ['loadAlerts', 'setEditingAlert', 'setIsCreating'],
+            ['loadAlerts'],
             logsAlertNotificationLogic({ alertId: alert?.id }),
             ['createPendingHogFunctions'],
         ],
@@ -333,8 +340,8 @@ export const logsAlertFormLogic = kea<logsAlertFormLogicType>([
                     cooldown_minutes: form.cooldownMinutes,
                 }
 
+                let savedAlertId: string
                 try {
-                    let savedAlertId: string
                     if (props.alert) {
                         const patch: PatchedLogsAlertConfigurationApi = { ...payload }
                         await logsAlertsPartialUpdate(projectId, props.alert.id, patch)
@@ -345,24 +352,33 @@ export const logsAlertFormLogic = kea<logsAlertFormLogicType>([
                         savedAlertId = created.id
                         lemonToast.success('Alert created')
                     }
+                } catch (error: unknown) {
+                    lemonToast.error(saveErrorMessage(error as ApiError))
+                    throw error
+                }
 
+                let notificationsConfigured = true
+                try {
                     if (values.pendingNotifications.length > 0) {
                         const notifLogic = logsAlertNotificationLogic({ alertId: props.alert?.id })
                         await notifLogic.asyncActions.createPendingHogFunctions(savedAlertId)
+                        notificationsConfigured = notifLogic.values.pendingNotifications.length === 0
                     }
+                } catch {
+                    notificationsConfigured = false
+                    if (props.alert) {
+                        lemonToast.error('Alert updated, but notifications could not be configured.')
+                    } else {
+                        lemonToast.error('Alert created, but notifications could not be configured.')
+                    }
+                }
 
-                    actions.setEditingAlert(null)
-                    actions.setIsCreating(false)
-                    actions.loadAlerts()
-                } catch (e: any) {
-                    const message =
-                        typeof e?.detail === 'string'
-                            ? e.detail
-                            : typeof e?.message === 'string'
-                              ? e.message
-                              : 'Failed to save alert'
-                    lemonToast.error(message)
-                    throw e
+                actions.loadAlerts()
+                if (!props.alert) {
+                    props.onCreateSuccess?.()
+                    if (!notificationsConfigured) {
+                        router.actions.push(urls.logsAlertDetail(savedAlertId, 'notifications'))
+                    }
                 }
                 return form
             },

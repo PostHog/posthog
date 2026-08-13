@@ -18,6 +18,8 @@ from enum import StrEnum
 from typing import Any
 from uuid import UUID
 
+from posthog.dataclasses import frozen
+
 __all__ = [
     "CPUnavailableError",
     "DuckgresQueryServerConfig",
@@ -35,12 +37,31 @@ __all__ = [
     "ManagedWarehouseTableNames",
     "ManagedWarehouseTeamMembership",
     "ServiceCredential",
+    "ServiceCredentialConnect",
     "ServiceCredentialUnavailable",
 ]
 
 
 class CPUnavailableError(RuntimeError):
     pass
+
+
+@frozen
+class ServiceCredentialConnect:
+    """Where to dial for a minted service credential, returned by the CP on
+    every successful mint (see duckgres/CLAUDE.md "Service Credentials").
+
+    The host is the TLS-pinned per-org ingress (``<org-id>.dw.us.postwh.com``);
+    the caller's network resolves it (AWS PrivateLink for dagster) — duckgres
+    is never in the resolution path. Carrying these on the credential is what
+    lets service-credential connections stop reading host/port/database from
+    the stored ``DuckgresServer`` row.
+    """
+
+    host: str
+    port: int
+    database: str
+    sslmode: str
 
 
 @dataclass(frozen=True)
@@ -52,6 +73,10 @@ class ServiceCredential:
     ``password`` is empty when the CP REUSED a still-valid grant (`rotated`
     is False): callers that already hold the credential keep using it;
     callers that don't must re-mint with ``force_rotate=True``.
+
+    ``connect`` carries the CP-issued dial target for the credential and is
+    REQUIRED on every successful mint — a mint response without it is an
+    older CP than the contract and must be rejected at mint time.
     """
 
     username: str
@@ -60,6 +85,7 @@ class ServiceCredential:
     password: str = field(repr=False)
     expires_at: datetime
     rotated: bool
+    connect: ServiceCredentialConnect
 
 
 class ServiceCredentialUnavailable(RuntimeError):

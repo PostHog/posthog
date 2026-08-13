@@ -37,6 +37,10 @@ class RunSignalsScoutInput:
     skill_name: str
     skill_version: int | None = None
     repository: str | None = None
+    # "schedule" (coordinator dispatch, including breaker probes) or "manual" (the `run`
+    # endpoint). Only scheduled failures feed the failure-streak breaker; the default keeps
+    # in-flight workflow histories decoding to today's behavior.
+    triggered_by: str = "schedule"
 
 
 @dataclass
@@ -114,6 +118,7 @@ async def run_signals_scout_activity(input: RunSignalsScoutInput) -> RunSignalsS
                 skill_name=input.skill_name,
                 skill_version=input.skill_version,
                 repository=input.repository,
+                triggered_by=input.triggered_by,
             )
     except (OperationalError, InterfaceError):
         # Transient DB connection drop (pgbouncer pool recycle / failover / deploy). Stay
@@ -196,7 +201,9 @@ async def start_manual_signals_scout_run(client: Client, *, team_id: int, skill_
     path has — the activity's Signals-credits quota check, and the runner's withheld-skill
     denylist, stale-run self-heal, and single-flight. It does NOT honor the per-scout
     schedule or `last_run_at`: a manual run is off-schedule and deliberately leaves the
-    cadence untouched.
+    cadence untouched — which is also why its failures don't feed the failure-streak
+    breaker (the threshold is sized on the schedule), while a manual success still clears
+    the streak and can resume a breaker-paused lane.
 
     Single-flight is enforced at the Temporal server, so the trigger can't be gamed into
     stacking concurrent runs of the same scout: `ALLOW_DUPLICATE` lets the stable id be
@@ -207,7 +214,7 @@ async def start_manual_signals_scout_run(client: Client, *, team_id: int, skill_
     workflow_id = manual_run_workflow_id(team_id, skill_name)
     await client.start_workflow(
         RunSignalsScoutWorkflow.run,
-        RunSignalsScoutInput(team_id=team_id, skill_name=skill_name),
+        RunSignalsScoutInput(team_id=team_id, skill_name=skill_name, triggered_by="manual"),
         id=workflow_id,
         task_queue=settings.VIDEO_EXPORT_TASK_QUEUE,
         id_reuse_policy=WorkflowIDReusePolicy.ALLOW_DUPLICATE,
