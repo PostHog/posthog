@@ -423,16 +423,14 @@ RESOURCE_SCHEMAS: dict[MetaAdsResource, dict[str, Any]] = {
             "created_time",
             "business_country_code",
             "business_name",
-            # No `business`: reading it needs the `business_management` scope, which the Meta
-            # OAuth consent doesn't request (`ads_read` only) — see `AD_ACCOUNT_FIELDS` in
-            # meta_ads.py, which excludes it from the account-listing request for the same reason.
-            # Meta 400s the whole request when it's asked for, failing this table's sync outright.
-            "funding_source_details",
             "disable_reason",
-            "is_prepay_account",
-            "tos_accepted",
             "capabilities",
-            "owner",
+            # No `business`, `owner`, `funding_source_details`, `is_prepay_account`, or
+            # `tos_accepted`: each needs the `business_management` scope, which the Meta OAuth
+            # consent doesn't request (`ads_read` only) — see `AD_ACCOUNT_FIELDS` in meta_ads.py,
+            # which excludes `business` from the account-listing request for the same reason.
+            # Meta rejects the whole field set when any one of them is asked for without that
+            # scope, so a single one of these sneaking back in fails this table's sync outright.
         ],
         "single_object": True,
     },

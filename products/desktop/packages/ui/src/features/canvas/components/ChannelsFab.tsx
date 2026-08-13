@@ -38,8 +38,8 @@ import { useState } from "react";
  * of whichever sidebar pane is showing.
  *
  * The same button on both panes, so "create" is always the same corner: given a
- * channel it creates inside it (task, canvas), and either way it can create a
- * channel — the list has no other entry point for that.
+ * channel it creates inside it (task, canvas); from the list it creates a
+ * channel, which has no other entry point.
  */
 export function ChannelsFab({ channelId }: { channelId?: string }) {
   const channelsLayout = useChannelsLayout();
@@ -81,7 +81,7 @@ export function ChannelsFab({ channelId }: { channelId?: string }) {
       variant="primary"
       size="icon-lg"
       aria-label="Create"
-      className="absolute right-3 bottom-3 z-10"
+      className="absolute right-3 bottom-3 z-10 rounded-full"
     >
       <PlusIcon size={20} weight="bold" />
       {channelsLayout && hasDraft && (
@@ -140,7 +140,9 @@ export function ChannelsFab({ channelId }: { channelId?: string }) {
               New canvas
             </DropdownMenuItem>
           )}
-          {channelsLayout && (
+          {/* Inside a space the menu is about filling that space; making
+              another one belongs to the list this button also serves. */}
+          {channelsLayout && !channelId && (
             <>
               <DropdownMenuSeparator />
               {newChannelItem}

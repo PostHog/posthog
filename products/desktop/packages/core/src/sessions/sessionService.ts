@@ -3604,18 +3604,18 @@ export class SessionService {
     // Steer: the user sent a message mid-turn and asked to fold it into the
     // running turn rather than queue it. Adapters that negotiated
     // `steering: "native"` (Claude, codex) inject at the next tool boundary;
-    // unknown local adapters cancel and resend. Cloud sessions only enter this
-    // path after the sandbox advertises native steering; compaction still queues.
+    // unknown local adapters cancel and resend. Cloud runs negotiate steering
+    // in the task workflow, so always forward the user's intent and let that
+    // authoritative layer choose the compatible signal. Compaction still queues.
     if (options?.steer && session.isPromptPending && !session.isCompacting) {
+      if (session.isCloud && session.status === "connected") {
+        return this.sendCloudPrompt(session, prompt, {
+          skipQueueGuard: true,
+          steer: true,
+        });
+      }
       if (sessionSupportsNativeSteer(session)) {
-        if (session.isCloud) {
-          if (session.status === "connected") {
-            return this.sendCloudPrompt(session, prompt, {
-              skipQueueGuard: true,
-              steer: true,
-            });
-          }
-        } else {
+        if (!session.isCloud) {
           return this.sendSteerPrompt(session, prompt);
         }
       }

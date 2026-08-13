@@ -135,8 +135,65 @@ describe('accountsTableQuery', () => {
         expect(plan?.query.filters).toEqual([{ kind: 'account_id', accountId: RELATIONSHIP_ID }])
     })
 
+    it('translates a threshold tile into a typed list filter', () => {
+        const plan = buildAccountsTableQueryPlan(
+            queryInput({
+                tileFilter: {
+                    tileId: 'tile',
+                    expression: `toFloatOrNull(accounts.custom_properties.values.\`${CUSTOM_PROPERTY_ID}\`) > 1`,
+                    filter: {
+                        kind: 'custom_property',
+                        definitionId: CUSTOM_PROPERTY_ID,
+                        operator: AccountsTableCustomPropertyOperator.GreaterThan,
+                        values: [1],
+                    },
+                },
+            })
+        )
+
+        expect(plan?.query.filters).toEqual([
+            {
+                kind: 'custom_property',
+                definitionId: CUSTOM_PROPERTY_ID,
+                operator: AccountsTableCustomPropertyOperator.GreaterThan,
+                values: [1],
+            },
+        ])
+    })
+
+    it('excludes unset accounts from a not-equal threshold tile', () => {
+        const plan = buildAccountsTableQueryPlan(
+            queryInput({
+                tileFilter: {
+                    tileId: 'tile',
+                    expression: `toFloatOrNull(accounts.custom_properties.values.\`${CUSTOM_PROPERTY_ID}\`) != 1`,
+                    filter: {
+                        kind: 'custom_property',
+                        definitionId: CUSTOM_PROPERTY_ID,
+                        operator: AccountsTableCustomPropertyOperator.IsNot,
+                        values: [1],
+                    },
+                },
+            })
+        )
+
+        expect(plan?.query.filters).toEqual([
+            {
+                kind: 'custom_property',
+                definitionId: CUSTOM_PROPERTY_ID,
+                operator: AccountsTableCustomPropertyOperator.IsSet,
+                values: [],
+            },
+            {
+                kind: 'custom_property',
+                definitionId: CUSTOM_PROPERTY_ID,
+                operator: AccountsTableCustomPropertyOperator.IsNot,
+                values: [1],
+            },
+        ])
+    })
+
     it.each([
-        ['tile filter', { tileFilter: { tileId: 'tile', expression: 'count > 1' } }],
         [
             'unsupported column',
             { querySelectColumns: ['name', 'arbitrary_hogql()'], visibleColumnNames: ['name', 'x'] },

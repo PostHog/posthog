@@ -17,6 +17,14 @@
             "description": "When true, return only observations that have a shared label (thumbs up or down); when false, only unlabeled observations.",
             "type": "string"
         },
+        "max_score": {
+            "description": "Filter scorer observations to those scoring at or below this value. Rows with no numeric score (other scanner types, failed or in-flight runs) are excluded.",
+            "type": "number"
+        },
+        "min_score": {
+            "description": "Filter scorer observations to those scoring at or above this value. Rows with no numeric score (other scanner types, failed or in-flight runs) are excluded.",
+            "type": "number"
+        },
         "recent_days": {
             "description": "Window size in days for the coverage `recent_sessions` count. Clamped to [1, 365]. Defaults to 14 when omitted.",
             "type": "number"

@@ -14,6 +14,11 @@ from __future__ import annotations
 from typing import TYPE_CHECKING
 
 from products.managed_warehouse.backend import client
+from products.managed_warehouse.backend.service_credentials import (
+    ServiceCredential,
+    ServiceCredentialUnavailable,
+    mint_service_credential,
+)
 
 if TYPE_CHECKING:
     from posthog.schema import HogQLQuery
@@ -22,17 +27,30 @@ if TYPE_CHECKING:
     from posthog.models.user import User
 
     from products.managed_warehouse.backend.facade.contracts import DuckLakeQueryResult, DuckLakeTableResult
+    from products.managed_warehouse.backend.service_credentials import ServiceCredential
 
 __all__ = [
+    "ServiceCredential",
+    "ServiceCredentialUnavailable",
     "compile_hogql_to_ducklake_sql",
     "execute_ducklake_create_table",
     "execute_ducklake_query",
     "make_duckgres_conninfo",
+    "mint_service_credential",
 ]
 
 
-def make_duckgres_conninfo(team_id: int, *, organization_id: str | None = None) -> str:
-    return client.make_duckgres_conninfo(team_id, organization_id=organization_id)
+def make_duckgres_conninfo(
+    team_id: int,
+    *,
+    organization_id: str | None = None,
+    service_credential: ServiceCredential | None = None,
+) -> str:
+    return client.make_duckgres_conninfo(
+        team_id,
+        organization_id=organization_id,
+        service_credential=service_credential,
+    )
 
 
 def compile_hogql_to_ducklake_sql(
