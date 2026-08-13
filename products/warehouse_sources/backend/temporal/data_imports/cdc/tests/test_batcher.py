@@ -9,6 +9,7 @@ from parameterized import parameterized
 from products.warehouse_sources.backend.temporal.data_imports.cdc.batcher import (
     CDC_OP_COLUMN,
     CDC_SEQ_COLUMN,
+    CDC_SEQ_PROVENANCE,
     CDC_TIMESTAMP_COLUMN,
     DELETED_AT_COLUMN,
     DELETED_COLUMN,
@@ -683,6 +684,28 @@ class TestSeqColumn:
         assert table.column(CDC_SEQ_COLUMN).to_pylist() == [42]
         # Not last: the caller's strip-by-last-field rule must not remove it.
         assert table.schema.field(table.num_columns - 1).name != CDC_SEQ_COLUMN
+        # Unstamped, so the load side cannot mistake these user values for engine positions.
+        assert table.schema.field(CDC_SEQ_COLUMN).metadata is None
+
+    def test_engine_seq_is_stamped_and_survives_a_parquet_round_trip(self):
+        # The load side tells our column from a same-named source column by this stamp, and it
+        # reads batches back from parquet — so the metadata has to survive the file, not just
+        # the in-memory table.
+        import io
+
+        import pyarrow.parquet as pq
+
+        batcher = ChangeEventBatcher(position_to_seq=_pg_position_to_seq)
+        batcher.add(_make_event(op="I", position="0/100"))
+        table = batcher.flush()["users"]
+
+        assert table.schema.field(CDC_SEQ_COLUMN).metadata == CDC_SEQ_PROVENANCE
+
+        buf = io.BytesIO()
+        pq.write_table(table, buf)
+        restored = pq.read_table(io.BytesIO(buf.getvalue()))
+
+        assert restored.schema.field(CDC_SEQ_COLUMN).metadata == CDC_SEQ_PROVENANCE
 
     def test_seq_survives_enrichment_untouched(self):
         # Seq is CDC metadata: DELETE/TOAST enrichment must never fill or copy it.

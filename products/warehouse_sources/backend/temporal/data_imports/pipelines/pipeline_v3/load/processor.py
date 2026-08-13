@@ -27,7 +27,6 @@ from products.warehouse_sources.backend.models.external_data_schema import Exter
 from products.warehouse_sources.backend.models.table import DataWarehouseTable
 from products.warehouse_sources.backend.temporal.data_imports.cdc.batcher import (
     CDC_OP_COLUMN,
-    CDC_SEQ_COLUMN,
     SCD2_VALID_FROM_COLUMN,
     SCD2_VALID_TO_COLUMN,
     TOAST_OMITTED_COLUMN,
@@ -37,6 +36,7 @@ from products.warehouse_sources.backend.temporal.data_imports.cdc.batcher import
 from products.warehouse_sources.backend.temporal.data_imports.cdc.load_resolution import (
     SEQ_WATERMARK_METADATA_KEY,
     batch_max_seq,
+    has_engine_seq,
     is_cdc_write_resolution_enabled,
     resolve_batch,
     verify_delete_enrichment,
@@ -856,7 +856,7 @@ def _process_message_reported(
 
         # Position resolution. Dormant until batches carry CDC_SEQ_COLUMN — the legacy lane strips
         # it — so this costs nothing (not even the history read) on today's traffic.
-        if resolution_enabled and CDC_SEQ_COLUMN in pa_table.column_names:
+        if resolution_enabled and has_engine_seq(pa_table):
             raw_watermark = async_to_sync(DeltaWriter(delta_table_ref).latest_commit_metadata_value)(
                 SEQ_WATERMARK_METADATA_KEY
             )

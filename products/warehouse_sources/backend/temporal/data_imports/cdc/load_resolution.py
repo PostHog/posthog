@@ -22,14 +22,15 @@ lane strips it), so these helpers no-op on today's traffic.
 
 from __future__ import annotations
 
-from dataclasses import dataclass
-
 import pyarrow as pa
+
+from posthog.dataclasses import frozen
 
 from products.warehouse_sources.backend.temporal.data_imports.cdc.batcher import (
     _CDC_METADATA_COLUMNS,
     CDC_OP_COLUMN,
     CDC_SEQ_COLUMN,
+    CDC_SEQ_PROVENANCE,
 )
 
 WRITE_RESOLUTION_FLAG = "dwh-cdc-write-resolution"
@@ -50,7 +51,7 @@ MAX_REPORTED_COLUMNS = 10
 SCD2_APPEND_MODE = "scd2_append"
 
 
-@dataclass(frozen=True)
+@frozen
 class ResolutionStats:
     """Rows the resolution step removed, by why."""
 
@@ -61,7 +62,7 @@ class ResolutionStats:
         return (("superseded", self.superseded), ("duplicate_key", self.duplicate_key))
 
 
-@dataclass(frozen=True)
+@frozen
 class DeleteEnrichmentReport:
     """Outcome of checking that enrichment left DELETE rows with their data values."""
 
@@ -84,25 +85,46 @@ def _pk_tuples(table: pa.Table, primary_keys: list[str]) -> list[tuple]:
     return [tuple(a[i] for a in arrays) for i in range(table.num_rows)]
 
 
+def has_engine_seq(table: pa.Table) -> bool:
+    """True only when CDC_SEQ_COLUMN was stamped by the batcher, not supplied by the source.
+
+    A source table may have its own column named `_ph_cdc_seq`; the batcher deliberately passes it
+    through untouched rather than overwriting it (collision skip in `_events_to_table`). Name
+    presence alone therefore proves nothing, and treating a user value as an engine position would
+    let a source set a high number, poison the watermark, and have its own later rows dropped.
+    """
+    if CDC_SEQ_COLUMN not in table.column_names:
+        return False
+    field = table.schema.field(CDC_SEQ_COLUMN)
+    return (field.metadata or {}).get(b"posthog_cdc") == CDC_SEQ_PROVENANCE[b"posthog_cdc"]
+
+
 def batch_max_seq(table: pa.Table) -> int | None:
-    """Highest position in the batch, or None when it carries no position column."""
-    if CDC_SEQ_COLUMN not in table.column_names or table.num_rows == 0:
+    """Highest engine position in the batch, or None when it carries none."""
+    if not has_engine_seq(table) or table.num_rows == 0:
         return None
     values = [v for v in table.column(CDC_SEQ_COLUMN).to_pylist() if v is not None]
     return max(values) if values else None
 
 
 def drop_superseded_rows(table: pa.Table, watermark: int | None) -> tuple[pa.Table, int]:
-    """Drop rows at or below `watermark` — they are already in the table.
+    """Drop rows strictly below `watermark` — those are already in the table.
 
-    Rows with a null position are kept: an unknown position cannot be proven stale, and dropping it
-    would lose data. No position column (today's traffic) or no watermark means no filtering.
+    Rows exactly AT the watermark are kept, which looks redundant but is not: every event in one
+    Postgres transaction shares its commit LSN, and a transaction larger than the flush budget is
+    split across micro-batches. Dropping `seq == watermark` would silently discard every later
+    chunk of a split transaction — real data loss, and invisible. Re-applying rows at the watermark
+    is harmless by comparison: the write is an upsert keyed on the primary key, so replaying an
+    identical row is a no-op.
+
+    Rows with a null position are kept too: an unknown position cannot be proven stale. No position
+    column (today's traffic) or no watermark means no filtering at all.
     """
-    if watermark is None or CDC_SEQ_COLUMN not in table.column_names or table.num_rows == 0:
+    if watermark is None or not has_engine_seq(table) or table.num_rows == 0:
         return table, 0
 
     seqs = table.column(CDC_SEQ_COLUMN).to_pylist()
-    keep = [i for i, s in enumerate(seqs) if s is None or s > watermark]
+    keep = [i for i, s in enumerate(seqs) if s is None or s >= watermark]
     if len(keep) == table.num_rows:
         return table, 0
     return table.take(pa.array(keep, type=pa.int64())), table.num_rows - len(keep)
@@ -116,7 +138,7 @@ def dedupe_keep_highest_seq(table: pa.Table, primary_keys: list[str]) -> tuple[p
     stops being true, and deltalite hard-errors on duplicate keys rather than picking one.
     """
     present_pks = [c for c in primary_keys if c in table.column_names]
-    if CDC_SEQ_COLUMN not in table.column_names or not present_pks or table.num_rows == 0:
+    if not has_engine_seq(table) or not present_pks or table.num_rows == 0:
         return table, 0
 
     seqs = table.column(CDC_SEQ_COLUMN).to_pylist()
@@ -172,7 +194,7 @@ def verify_delete_enrichment(
     more pass over rows already materialized. A non-empty report means a delete is about to erase
     data — under deltalite the upsert replaces the row wholesale, so nothing downstream will catch it.
     """
-    empty = DeleteEnrichmentReport(0, 0, ())
+    empty = DeleteEnrichmentReport(delete_rows_checked=0, rows_with_nulled_columns=0, columns=())
     if existing_rows is None or existing_rows.num_rows == 0 or table.num_rows == 0:
         return empty
     if CDC_OP_COLUMN not in table.column_names:
@@ -213,7 +235,11 @@ def verify_delete_enrichment(
             rows_with_nulls += 1
             columns.update(nulled)
 
-    return DeleteEnrichmentReport(checked, rows_with_nulls, tuple(sorted(columns)[:MAX_REPORTED_COLUMNS]))
+    return DeleteEnrichmentReport(
+        delete_rows_checked=checked,
+        rows_with_nulled_columns=rows_with_nulls,
+        columns=tuple(sorted(columns)[:MAX_REPORTED_COLUMNS]),
+    )
 
 
 def is_cdc_write_resolution_enabled(team_id: int, schema_id: str) -> bool:

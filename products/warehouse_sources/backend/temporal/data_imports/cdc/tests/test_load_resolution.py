@@ -6,6 +6,7 @@ from parameterized import parameterized
 from products.warehouse_sources.backend.temporal.data_imports.cdc.batcher import (
     CDC_OP_COLUMN,
     CDC_SEQ_COLUMN,
+    CDC_SEQ_PROVENANCE,
     DELETED_COLUMN,
 )
 from products.warehouse_sources.backend.temporal.data_imports.cdc.load_resolution import (
@@ -14,22 +15,29 @@ from products.warehouse_sources.backend.temporal.data_imports.cdc.load_resolutio
     batch_max_seq,
     dedupe_keep_highest_seq,
     drop_superseded_rows,
+    has_engine_seq,
     is_cdc_write_resolution_enabled,
     resolve_batch,
     verify_delete_enrichment,
 )
 
 
-def _batch(ids, names, ops, seqs=None):
+def _batch(ids, names, ops, seqs=None, engine_seq=True):
+    """A CDC batch. `engine_seq=False` builds the seq column WITHOUT the batcher's provenance
+    stamp — i.e. a source table that happens to have its own `_ph_cdc_seq` column."""
     columns = {
         "id": pa.array(ids, pa.int64()),
         "name": pa.array(names, pa.string()),
         CDC_OP_COLUMN: pa.array(ops, pa.string()),
         DELETED_COLUMN: pa.array([op == "D" for op in ops], pa.bool_()),
     }
-    if seqs is not None:
-        columns[CDC_SEQ_COLUMN] = pa.array(seqs, pa.int64())
-    return pa.table(columns)
+    table = pa.table(columns)
+    if seqs is None:
+        return table
+
+    metadata = CDC_SEQ_PROVENANCE if engine_seq else None
+    field = pa.field(CDC_SEQ_COLUMN, pa.int64(), metadata=metadata)
+    return table.append_column(field, pa.array(seqs, pa.int64()))
 
 
 def _existing(ids, names):
@@ -61,12 +69,22 @@ class TestDropSupersededRows:
         assert dropped == 0
         assert result is table
 
-    def test_drops_at_or_below_watermark(self):
+    def test_drops_only_rows_strictly_below_watermark(self):
         table = _batch([1, 2, 3], ["a", "b", "c"], ["I", "I", "I"], seqs=[10, 20, 30])
         result, dropped = drop_superseded_rows(table, 20)
 
-        assert dropped == 2
-        assert result.column("id").to_pylist() == [3]
+        assert dropped == 1
+        assert result.column("id").to_pylist() == [2, 3]
+
+    def test_keeps_later_chunks_of_a_split_transaction(self):
+        # Every event in one Postgres transaction shares its commit LSN, and a transaction bigger
+        # than the flush budget spans micro-batches. Dropping seq == watermark would discard the
+        # rest of the transaction outright.
+        table = _batch([3, 4], ["c", "d"], ["I", "I"], seqs=[20, 20])
+        result, dropped = drop_superseded_rows(table, 20)
+
+        assert dropped == 0
+        assert result.column("id").to_pylist() == [3, 4]
 
     def test_keeps_null_positions(self):
         # An unknown position cannot be proven stale; dropping it would lose data.
@@ -76,12 +94,24 @@ class TestDropSupersededRows:
         assert dropped == 1
         assert result.column("id").to_pylist() == [1]
 
-    def test_drops_whole_batch_on_full_replay(self):
+    def test_drops_replayed_rows_below_the_watermark(self):
         table = _batch([1, 2], ["a", "b"], ["I", "I"], seqs=[10, 20])
-        result, dropped = drop_superseded_rows(table, 20)
+        result, dropped = drop_superseded_rows(table, 30)
 
         assert dropped == 2
         assert result.num_rows == 0
+
+    def test_ignores_a_source_owned_seq_column(self):
+        # The batcher passes through a source column named _ph_cdc_seq untouched, so its values
+        # are user data. Trusting them would let a source set a high value, poison the watermark,
+        # and have its own later rows dropped.
+        table = _batch([1, 2], ["a", "b"], ["I", "I"], seqs=[10, 20], engine_seq=False)
+        result, dropped = drop_superseded_rows(table, 15)
+
+        assert dropped == 0
+        assert result is table
+        assert not has_engine_seq(table)
+        assert batch_max_seq(table) is None
 
 
 class TestDedupeKeepHighestSeq:
@@ -117,8 +147,10 @@ class TestDedupeKeepHighestSeq:
                 "a": pa.array([1, 1, 1], pa.int64()),
                 "b": pa.array(["x", "x", "y"], pa.string()),
                 CDC_OP_COLUMN: pa.array(["I", "U", "I"], pa.string()),
-                CDC_SEQ_COLUMN: pa.array([10, 20, 30], pa.int64()),
             }
+        ).append_column(
+            pa.field(CDC_SEQ_COLUMN, pa.int64(), metadata=CDC_SEQ_PROVENANCE),
+            pa.array([10, 20, 30], pa.int64()),
         )
         result, dropped = dedupe_keep_highest_seq(table, ["a", "b"])
 
@@ -153,10 +185,17 @@ class TestResolveBatch:
     def test_history_lane_still_drops_already_applied_rows(self):
         # Replaying a buffer file into the companion is how duplicate history rows arise.
         table = _batch([1, 1], ["v1", "v2"], ["I", "U"], seqs=[10, 20])
-        result, stats = resolve_batch(table, ["id"], watermark=10, cdc_write_mode=SCD2_APPEND_MODE)
+        result, stats = resolve_batch(table, ["id"], watermark=15, cdc_write_mode=SCD2_APPEND_MODE)
 
         assert stats.superseded == 1
         assert result.column("name").to_pylist() == ["v2"]
+
+    def test_source_owned_seq_column_disables_resolution_entirely(self):
+        table = _batch([1, 1], ["old", "new"], ["I", "U"], seqs=[99, 1], engine_seq=False)
+        result, stats = resolve_batch(table, ["id"], watermark=50, cdc_write_mode="incremental_merge")
+
+        assert (stats.superseded, stats.duplicate_key) == (0, 0)
+        assert result is table
 
     def test_noop_on_batches_without_positions(self):
         table = _batch([1, 2], ["a", "b"], ["I", "I"])
