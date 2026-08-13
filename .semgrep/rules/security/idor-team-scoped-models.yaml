@@ -137,6 +137,9 @@ rules:
                               |DeploymentProject
                               |EarlyAccessFeature
                               |EmailMessageMapping
+                              |EmailThread
+                              |EmailThreadMessage
+                              |EmailThreadParticipant
                               |EmailReputationSnapshot
                               |EvaluationContext
                               |Edge
@@ -495,6 +498,9 @@ rules:
                         |DeploymentProject
                         |EarlyAccessFeature
                         |EmailMessageMapping
+                        |EmailThread
+                        |EmailThreadMessage
+                        |EmailThreadParticipant
                         |EmailReputationSnapshot
                         |EvaluationContext
                         |Edge

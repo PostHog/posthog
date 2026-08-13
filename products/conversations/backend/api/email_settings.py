@@ -8,6 +8,7 @@ from django.core import mail
 from django.db import IntegrityError, transaction
 
 import structlog
+from drf_spectacular.utils import OpenApiResponse, extend_schema
 from rest_framework import serializers
 from rest_framework.permissions import IsAuthenticated
 from rest_framework.request import Request
@@ -15,6 +16,7 @@ from rest_framework.response import Response
 from rest_framework.views import APIView
 
 from posthog.models.instance_setting import get_instance_setting
+from posthog.models.organization import OrganizationMembership
 from posthog.models.team import Team
 from posthog.models.user import User
 from posthog.rate_limit import EmailSendTestThrottle, EmailVerifyDomainThrottle
@@ -30,8 +32,11 @@ from products.conversations.backend.mailgun import (
     send_mime,
     verify_domain as mailgun_verify_domain,
 )
-from products.conversations.backend.models import EmailChannel
-from products.conversations.backend.models.team_conversations_email_config import MAX_EMAIL_CONFIGS_PER_TEAM
+from products.conversations.backend.models import EmailChannel, EmailChannelKind
+from products.conversations.backend.models.team_conversations_email_config import (
+    MAX_CUSTOMER_COMMUNICATION_CHANNELS_PER_TEAM,
+    MAX_EMAIL_CONFIGS_PER_TEAM,
+)
 from products.conversations.backend.permissions import IsConversationsAdmin
 
 logger = structlog.get_logger(__name__)
@@ -59,6 +64,14 @@ def _get_config_for_team(config_id: uuid.UUID, team: Team) -> EmailChannel | Non
     return EmailChannel.objects.filter(id=config_id, team=team).first()
 
 
+def _is_organization_admin(user: User, team: Team) -> bool:
+    return OrganizationMembership.objects.filter(
+        organization_id=team.organization_id,
+        user=user,
+        level__gte=OrganizationMembership.Level.ADMIN,
+    ).exists()
+
+
 def _resolve_config_from_request(request: Request) -> tuple[User, Team, EmailChannel] | Response:
     """Parse config_id from request body, look up config scoped to team.
 
@@ -83,6 +96,8 @@ def _config_to_dict(config: EmailChannel, inbound_domain: str | None = None) -> 
     forwarding_address = f"team-{config.inbound_token}@{inbound_domain}" if inbound_domain else None
     return {
         "id": config.id,
+        "kind": config.kind,
+        "owner_id": config.owner_id,
         "from_email": config.from_email,
         "from_name": config.from_name,
         "forwarding_address": forwarding_address,
@@ -171,9 +186,29 @@ def _try_reclaim_stranded_domain(team: Team, domain: str) -> dict | None:
     return dns_records
 
 
+class EmailChannelKindQuerySerializer(serializers.Serializer):
+    kind = serializers.ChoiceField(
+        choices=EmailChannelKind.choices,
+        default=EmailChannelKind.SUPPORT,
+        required=False,
+        help_text="Email channel kind to return. Defaults to support channels.",
+    )
+
+
 class EmailConnectSerializer(serializers.Serializer):
-    from_email = serializers.EmailField()
-    from_name = serializers.CharField(max_length=255)
+    from_email = serializers.EmailField(help_text="Email address that receives forwarded mail and sends replies.")
+    from_name = serializers.CharField(max_length=255, help_text="Display name used for outbound email.")
+    kind = serializers.ChoiceField(
+        choices=EmailChannelKind.choices,
+        default=EmailChannelKind.SUPPORT,
+        required=False,
+        help_text="Whether the address handles support or customer communication.",
+    )
+    owner_id = serializers.IntegerField(
+        required=False,
+        allow_null=True,
+        help_text="Organization member who owns a customer communication channel. Must be omitted for support.",
+    )
 
     def validate_from_email(self, value: str) -> str:
         return value.lower()
@@ -184,23 +219,113 @@ class EmailConnectSerializer(serializers.Serializer):
             raise serializers.ValidationError("Display name cannot be blank.")
         return value
 
+    def validate(self, attrs: dict) -> dict:
+        kind = attrs.get("kind", EmailChannelKind.SUPPORT)
+        owner_id = attrs.get("owner_id")
+        if kind == EmailChannelKind.CUSTOMER_COMMUNICATION and owner_id is None:
+            raise serializers.ValidationError({"owner_id": "Owner is required for customer communication channels."})
+        if kind == EmailChannelKind.SUPPORT and owner_id is not None:
+            raise serializers.ValidationError({"owner_id": "Support channels cannot have an owner."})
+        return attrs
+
 
 class ConfigIdSerializer(serializers.Serializer):
-    config_id = serializers.UUIDField()
+    config_id = serializers.UUIDField(help_text="Email channel ID.")
+
+
+class EmailDnsRecordSerializer(serializers.Serializer):
+    record_type = serializers.CharField(required=False, allow_blank=True, help_text="DNS record type.")
+    name = serializers.CharField(required=False, allow_blank=True, help_text="DNS record hostname.")
+    value = serializers.CharField(required=False, allow_blank=True, help_text="DNS record value.")
+    valid = serializers.CharField(required=False, allow_blank=True, help_text="Mailgun verification status.")
+
+
+class EmailDnsRecordsSerializer(serializers.Serializer):
+    sending_dns_records = EmailDnsRecordSerializer(
+        many=True,
+        required=False,
+        help_text="DNS records required for outbound sending.",
+    )
+
+
+class EmailChannelConfigSerializer(serializers.Serializer):
+    id = serializers.UUIDField(read_only=True, help_text="Email channel ID.")
+    kind = serializers.ChoiceField(
+        choices=EmailChannelKind.choices,
+        read_only=True,
+        help_text="Whether the channel handles support or customer communication.",
+    )
+    owner_id = serializers.IntegerField(
+        read_only=True,
+        allow_null=True,
+        help_text="User who owns a customer communication channel, or null for support.",
+    )
+    from_email = serializers.EmailField(read_only=True, help_text="Sender and forwarding source email address.")
+    from_name = serializers.CharField(read_only=True, help_text="Outbound sender display name.")
+    forwarding_address = serializers.EmailField(
+        read_only=True,
+        allow_null=True,
+        help_text="PostHog address to configure as a forwarding destination.",
+    )
+    domain = serializers.CharField(read_only=True, help_text="Sending domain registered with Mailgun.")
+    domain_verified = serializers.BooleanField(read_only=True, help_text="Whether Mailgun verified the domain.")
+    dns_records = EmailDnsRecordsSerializer(
+        read_only=True,
+        allow_null=True,
+        help_text="DNS records required to verify the sending domain.",
+    )
+    is_default = serializers.BooleanField(
+        read_only=True,
+        help_text="Whether this support channel is the team's fallback sender.",
+    )
+
+
+class EmailStatusResponseSerializer(serializers.Serializer):
+    configs = EmailChannelConfigSerializer(many=True, read_only=True, help_text="Connected email channels.")
+
+
+class EmailConnectResponseSerializer(serializers.Serializer):
+    ok = serializers.BooleanField(read_only=True, help_text="Whether the channel was connected.")
+    config = EmailChannelConfigSerializer(read_only=True, help_text="Connected email channel.")
+
+
+class EmailChannelErrorSerializer(serializers.Serializer):
+    error = serializers.CharField(read_only=True, help_text="Reason the request failed.")
+
+
+class EmailChannelOperationResponseSerializer(serializers.Serializer):
+    ok = serializers.BooleanField(read_only=True, help_text="Whether the operation succeeded.")
+
+
+class EmailSendTestResponseSerializer(EmailChannelOperationResponseSerializer):
+    sent_to = serializers.EmailField(read_only=True, help_text="Address that received the test email.")
 
 
 class EmailStatusView(APIView):
-    """Return all email configs for the current team."""
+    """Return connected email channels for the current team."""
 
     permission_classes = [IsAuthenticated]
 
+    @extend_schema(
+        parameters=[EmailChannelKindQuerySerializer],
+        responses={
+            200: EmailStatusResponseSerializer,
+            400: OpenApiResponse(response=EmailChannelErrorSerializer),
+        },
+    )
     def get(self, request: Request, *args, **kwargs) -> Response:
         result = _get_team_from_request(request)
         if isinstance(result, Response):
             return result
-        _, team = result
+        user, team = result
 
-        configs = EmailChannel.objects.filter(team=team).order_by("created_at")
+        query_serializer = EmailChannelKindQuerySerializer(data=request.query_params)
+        query_serializer.is_valid(raise_exception=True)
+        kind = query_serializer.validated_data["kind"]
+        configs = EmailChannel.objects.filter(team=team, kind=kind)
+        if kind == EmailChannelKind.CUSTOMER_COMMUNICATION and not _is_organization_admin(user, team):
+            configs = configs.filter(owner=user)
+        configs = configs.order_by("created_at")
         inbound_domain = get_instance_setting("CONVERSATIONS_EMAIL_INBOUND_DOMAIN")
 
         return Response({"configs": [_config_to_dict(c, inbound_domain) for c in configs]})
@@ -209,6 +334,15 @@ class EmailStatusView(APIView):
 class EmailConnectView(APIView):
     permission_classes = [IsAuthenticated, IsConversationsAdmin]
 
+    @extend_schema(
+        request=EmailConnectSerializer,
+        responses={
+            200: EmailConnectResponseSerializer,
+            400: OpenApiResponse(response=EmailChannelErrorSerializer),
+            409: OpenApiResponse(response=EmailChannelErrorSerializer),
+            502: OpenApiResponse(response=EmailChannelErrorSerializer),
+        },
+    )
     def post(self, request: Request, *args, **kwargs) -> Response:
         result = _get_team_from_request(request)
         if isinstance(result, Response):
@@ -220,8 +354,23 @@ class EmailConnectView(APIView):
 
         from_email: str = serializer.validated_data["from_email"]
         from_name: str = serializer.validated_data["from_name"]
-        domain = from_email.split("@")[1]
+        kind: str = serializer.validated_data["kind"]
+        owner: User | None = None
+        if kind == EmailChannelKind.CUSTOMER_COMMUNICATION:
+            membership = (
+                OrganizationMembership.objects.filter(
+                    organization_id=team.organization_id,
+                    user_id=serializer.validated_data["owner_id"],
+                    user__is_active=True,
+                )
+                .select_related("user")
+                .first()
+            )
+            if membership is None:
+                return Response({"error": "Owner must be an active member of this organization."}, status=400)
+            owner = membership.user
 
+        domain = from_email.split("@")[1]
         inbound_domain = get_instance_setting("CONVERSATIONS_EMAIL_INBOUND_DOMAIN")
         if not inbound_domain:
             return Response(
@@ -233,8 +382,12 @@ class EmailConnectView(APIView):
         if EmailChannel.objects.filter(domain=domain).exclude(team__organization_id=team.organization_id).exists():
             return Response({"error": "This domain is already in use by another organization."}, status=409)
 
-        # Check if org already has a config on this domain (reuse Mailgun registration + DNS records)
-        sibling = EmailChannel.objects.filter(team__organization_id=team.organization_id, domain=domain).first()
+        # A verified sibling proves the organization already controls the sending domain.
+        sibling = (
+            EmailChannel.objects.filter(team__organization_id=team.organization_id, domain=domain)
+            .order_by("-domain_verified", "created_at")
+            .first()
+        )
 
         dns_records: dict = {}
         if sibling:
@@ -271,25 +424,33 @@ class EmailConnectView(APIView):
                 # Lock team row to serialize concurrent connects and enforce the config limit
                 Team.objects.select_for_update().get(id=team.id)
 
-                current_count = EmailChannel.objects.filter(team=team).count()
-                if current_count >= MAX_EMAIL_CONFIGS_PER_TEAM:
+                current_count = EmailChannel.objects.filter(team=team, kind=kind).count()
+                max_channels = (
+                    MAX_EMAIL_CONFIGS_PER_TEAM
+                    if kind == EmailChannelKind.SUPPORT
+                    else MAX_CUSTOMER_COMMUNICATION_CHANNELS_PER_TEAM
+                )
+                if current_count >= max_channels:
+                    channel_name = "support" if kind == EmailChannelKind.SUPPORT else "customer communication"
                     failure = Response(
-                        {"error": f"Maximum of {MAX_EMAIL_CONFIGS_PER_TEAM} email addresses per team."},
+                        {"error": f"Maximum of {max_channels} {channel_name} email addresses per team."},
                         status=400,
                     )
                 else:
                     config = EmailChannel.objects.create(
                         team=team,
+                        kind=kind,
+                        owner=owner,
                         inbound_token=secrets.token_hex(16),
                         from_email=from_email,
                         from_name=from_name,
                         domain=domain,
                         dns_records=dns_records,
                         domain_verified=sibling.domain_verified if sibling else False,
-                        # First channel becomes the team default so there's always one to send from
-                        is_default=current_count == 0,
+                        is_default=kind == EmailChannelKind.SUPPORT and current_count == 0,
                     )
-                    _set_email_enabled(team, enabled=True)
+                    if kind == EmailChannelKind.SUPPORT:
+                        _set_email_enabled(team, enabled=True)
         except IntegrityError:
             failure = Response({"error": "This email address is already connected."}, status=409)
 
@@ -307,6 +468,8 @@ class EmailConnectView(APIView):
             domain=domain,
             from_email=from_email,
             config_id=config.id,
+            kind=config.kind,
+            owner_id=config.owner_id,
             user_id=user.id,
         )
 
@@ -360,12 +523,28 @@ class EmailSendTestView(APIView):
     permission_classes = [IsAuthenticated]
     throttle_classes = [EmailSendTestThrottle]
 
+    @extend_schema(
+        request=ConfigIdSerializer,
+        responses={
+            200: EmailSendTestResponseSerializer,
+            400: OpenApiResponse(response=EmailChannelErrorSerializer),
+            404: OpenApiResponse(response=EmailChannelErrorSerializer),
+            500: OpenApiResponse(response=EmailChannelErrorSerializer),
+            502: OpenApiResponse(response=EmailChannelErrorSerializer),
+        },
+    )
     def post(self, request: Request, *args, **kwargs) -> Response:
         result = _resolve_config_from_request(request)
         if isinstance(result, Response):
             return result
         user, team, config = result
 
+        if (
+            config.kind == EmailChannelKind.CUSTOMER_COMMUNICATION
+            and config.owner_id != user.id
+            and not _is_organization_admin(user, team)
+        ):
+            return Response({"error": "Email config not found"}, status=404)
         if not config.domain_verified:
             return Response({"error": "Domain not yet verified. Please verify DNS records first."}, status=400)
 
@@ -418,10 +597,18 @@ class EmailSendTestView(APIView):
 
 
 class EmailSetDefaultView(APIView):
-    """Make a channel the team's default send-from identity (one default per team)."""
+    """Make a support channel the team's default send-from identity."""
 
     permission_classes = [IsAuthenticated, IsConversationsAdmin]
 
+    @extend_schema(
+        request=ConfigIdSerializer,
+        responses={
+            200: EmailChannelOperationResponseSerializer,
+            400: OpenApiResponse(response=EmailChannelErrorSerializer),
+            404: OpenApiResponse(response=EmailChannelErrorSerializer),
+        },
+    )
     def post(self, request: Request, *args, **kwargs) -> Response:
         result = _get_team_from_request(request)
         if isinstance(result, Response):
@@ -440,9 +627,15 @@ class EmailSetDefaultView(APIView):
             config = EmailChannel.objects.filter(id=config_id, team=team).first()
             if not config:
                 return Response({"error": "Email config not found"}, status=404)
+            if config.kind != EmailChannelKind.SUPPORT:
+                return Response({"error": "Only support email channels can be primary."}, status=400)
 
-            # Clear the current default first so the partial unique constraint is never violated
-            EmailChannel.objects.filter(team=team, is_default=True).exclude(id=config.id).update(is_default=False)
+            # Clear the current default first so the partial unique constraint is never violated.
+            EmailChannel.objects.filter(
+                team=team,
+                kind=EmailChannelKind.SUPPORT,
+                is_default=True,
+            ).exclude(id=config.id).update(is_default=False)
             if not config.is_default:
                 config.is_default = True
                 config.save(update_fields=["is_default"])
@@ -454,6 +647,13 @@ class EmailSetDefaultView(APIView):
 class EmailDisconnectView(APIView):
     permission_classes = [IsAuthenticated, IsConversationsAdmin]
 
+    @extend_schema(
+        request=ConfigIdSerializer,
+        responses={
+            200: EmailChannelOperationResponseSerializer,
+            404: OpenApiResponse(response=EmailChannelErrorSerializer),
+        },
+    )
     def post(self, request: Request, *args, **kwargs) -> Response:
         result = _get_team_from_request(request)
         if isinstance(result, Response):
@@ -479,10 +679,13 @@ class EmailDisconnectView(APIView):
             was_default = config.is_default
             config.delete()
 
-            # If the team default was removed, promote another channel (prefer verified, then oldest)
-            # so the team keeps a channel to send from
+            # Keep a support fallback sender after its previous default is removed.
             if was_default:
-                replacement = EmailChannel.objects.filter(team=team).order_by("-domain_verified", "created_at").first()
+                replacement = (
+                    EmailChannel.objects.filter(team=team, kind=EmailChannelKind.SUPPORT)
+                    .order_by("-domain_verified", "created_at")
+                    .first()
+                )
                 if replacement:
                     replacement.is_default = True
                     replacement.save(update_fields=["is_default"])
@@ -491,8 +694,8 @@ class EmailDisconnectView(APIView):
             if not EmailChannel.objects.filter(domain=domain_to_delete).exists():
                 should_delete_from_mailgun = True
 
-            # Only disable email on team if this was the last config
-            if not EmailChannel.objects.filter(team=team).exists():
+            # The legacy setting controls support email, not customer communication capture.
+            if not EmailChannel.objects.filter(team=team, kind=EmailChannelKind.SUPPORT).exists():
                 _set_email_enabled(team, enabled=False)
 
         if should_delete_from_mailgun:
