@@ -3,6 +3,7 @@ import { expectLogic } from 'kea-test-utils'
 import api from 'lib/api'
 import { ApiError } from 'lib/api-error'
 
+import { resumeKeaLoadersErrors, silenceKeaLoadersErrors } from '~/initKea'
 import type { LLMTrace } from '~/queries/schema/schema-general'
 import { initKeaTests } from '~/test/init'
 
@@ -49,6 +50,7 @@ describe('summaryViewLogic', () => {
     }
 
     beforeEach(() => {
+        silenceKeaLoadersErrors()
         initKeaTests()
         createSpy = jest.spyOn(api, 'create')
         mockSummarization(
@@ -62,6 +64,7 @@ describe('summaryViewLogic', () => {
     afterEach(() => {
         logic?.unmount()
         jest.restoreAllMocks()
+        resumeKeaLoadersErrors()
     })
 
     it('asks for the trace by ID instead of sending its contents', async () => {
@@ -82,5 +85,18 @@ describe('summaryViewLogic', () => {
         await generateSummary()
 
         expect(logic.values.summaryError).toBe('Generating this summary took too long. Try again in a moment.')
+    })
+
+    it('clears a stale summary when regeneration fails', async () => {
+        await generateSummary()
+        expect(logic.values.summaryData?.summary.title).toBe('Summary')
+        mockSummarization(Promise.reject(new Error('Regeneration failed')))
+
+        await expectLogic(logic, () => {
+            logic.actions.regenerateSummary()
+        }).toFinishAllListeners()
+
+        expect(logic.values.summaryData).toBeNull()
+        expect(logic.values.summaryError).toBe('Regeneration failed')
     })
 })

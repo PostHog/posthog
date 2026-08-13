@@ -10,6 +10,7 @@ Endpoints:
 """
 
 import time
+from datetime import datetime
 
 from django.core.cache import cache
 
@@ -302,8 +303,6 @@ class AIObservabilitySummarizationViewSet(TeamAndOrgViewSetMixin, viewsets.Gener
 
         Covers every event type the trace view offers a summary for, not just generations.
         """
-        from datetime import datetime
-
         qdr = QueryDateRange(
             DateRange(date_from=date_from or "-30d", date_to=date_to),
             self.team,
@@ -519,10 +518,11 @@ The response includes the structured summary, the text representation, and metad
             date_from = serializer.validated_data.get("date_from")
             date_to = serializer.validated_data.get("date_to")
 
+            entity_data: dict | None = None
             if trace_id:
-                entity_id, entity_data = self._fetch_trace_data(trace_id, date_from, date_to)
+                entity_id = trace_id
             elif generation_id:
-                entity_id, entity_data = self._fetch_generation_data(generation_id, date_from, date_to)
+                entity_id = generation_id
             else:
                 data = serializer.validated_data["data"]
                 entity_id, entity_data = self._extract_entity_id(summarize_type, data)
@@ -539,6 +539,14 @@ The response includes the structured summary, the text representation, and metad
                         team_id=self.team_id,
                     )
                     return Response(cached_result, status=status.HTTP_200_OK)
+
+            if trace_id:
+                _, entity_data = self._fetch_trace_data(trace_id, date_from, date_to)
+            elif generation_id:
+                _, entity_data = self._fetch_generation_data(generation_id, date_from, date_to)
+
+            if entity_data is None:
+                raise exceptions.ValidationError("No trace or event data was provided for summarization.")
 
             text_repr = self._generate_text_repr(summarize_type, entity_data)
 

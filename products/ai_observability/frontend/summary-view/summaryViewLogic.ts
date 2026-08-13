@@ -10,26 +10,11 @@ import { LLMTrace, LLMTraceEvent } from '~/queries/schema/schema-general'
 
 import { EnrichedTraceTreeNode } from '../aiObservabilityTraceDataLogic'
 import { llmAnalyticsSummarizationCreate } from '../generated/api'
-import type { SummarizeRequestApi } from '../generated/api.schemas'
+import type { StructuredSummaryApi, SummarizeRequestApi, SummarizeResponseApi } from '../generated/api.schemas'
 
-export type SummaryMode = 'minimal' | 'detailed'
+export type SummaryMode = NonNullable<SummarizeRequestApi['mode']>
 
-export interface SummaryBullet {
-    text: string
-    line_refs: string
-}
-
-export interface InterestingNote {
-    text: string
-    line_refs: string // Can be empty string if no line refs
-}
-
-export interface StructuredSummary {
-    title: string
-    flow_diagram: string
-    summary_bullets: SummaryBullet[]
-    interesting_notes: InterestingNote[] // Empty array if none
-}
+type SummaryData = Pick<SummarizeResponseApi, 'summary' | 'text_repr'>
 
 export interface SummaryViewLogicProps {
     trace?: LLMTrace
@@ -46,10 +31,7 @@ export interface summaryViewLogicValues {
     isFlowExpanded: boolean
     isNotesExpanded: boolean
     isSummaryExpanded: boolean
-    summaryData: {
-        summary: StructuredSummary
-        text_repr: string
-    } | null
+    summaryData: SummaryData | null
     summaryDataLoading: boolean
     summaryError: string | null
     summaryMode: SummaryMode
@@ -70,8 +52,8 @@ export interface summaryViewLogicActions {
     }
     generateSummarySuccess: (
         summaryData: {
-            summary: any
-            text_repr: any
+            summary: StructuredSummaryApi
+            text_repr: string
         },
         payload?: {
             mode: SummaryMode
@@ -79,8 +61,8 @@ export interface summaryViewLogicActions {
         }
     ) => {
         summaryData: {
-            summary: any
-            text_repr: any
+            summary: StructuredSummaryApi
+            text_repr: string
         }
         payload?: {
             mode: SummaryMode
@@ -202,6 +184,12 @@ export const summaryViewLogic = kea<summaryViewLogicType>([
                 toggleNotesExpanded: (state) => !state,
             },
         ],
+        summaryData: [
+            null as SummaryData | null,
+            {
+                generateSummary: () => null,
+            },
+        ],
         // kea-loaders dispatches `generateSummaryFailure` but keeps no value, so the failure has to
         // be held here for the view to show it.
         summaryError: [
@@ -230,7 +218,6 @@ export const summaryViewLogic = kea<summaryViewLogicType>([
     }),
     loaders(({ props, values }) => ({
         summaryData: {
-            __default: null as { summary: StructuredSummary; text_repr: string } | null,
             generateSummary: async ({ mode, forceRefresh }: { mode: SummaryMode; forceRefresh?: boolean }) => {
                 // Initialize here rather than in the function signature to avoid TS2371
                 // Kea should be fixed to avoid including the default value in the function signature

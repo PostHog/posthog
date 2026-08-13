@@ -419,3 +419,37 @@ class TestSummarizationByID(ClickhouseTestMixin, APIBaseTest):
 
         self.assertEqual(response.status_code, status.HTTP_404_NOT_FOUND)
         self.assertIn("not found", response.data["detail"])
+
+    @patch("products.ai_observability.backend.api.summarization.summarize")
+    def test_returns_cached_trace_when_source_trace_is_unavailable(self, mock_summarize):
+        self._approve_ai_processing()
+        mock_summarize.return_value = SummarizationResponse(
+            title="Cached Trace Summary",
+            flow_diagram="Start\n    |\nComplete",
+            summary_bullets=[SummaryBullet(text="Trace completed", line_refs="L1")],
+            interesting_notes=[],
+        )
+        trace_id = f"cached-trace-{uuid.uuid4()}"
+
+        initial_response = self.client.post(
+            f"/api/environments/{self.team.id}/llm_analytics/summarization/",
+            {
+                "summarize_type": "trace",
+                "mode": "minimal",
+                "data": {
+                    "trace": {"id": trace_id, "properties": {"$ai_span_name": "cached-trace"}},
+                    "hierarchy": [],
+                },
+            },
+            format="json",
+        )
+        cached_response = self.client.post(
+            f"/api/environments/{self.team.id}/llm_analytics/summarization/",
+            {"trace_id": trace_id, "mode": "minimal", "date_from": "-7d"},
+            format="json",
+        )
+
+        self.assertEqual(initial_response.status_code, status.HTTP_200_OK, initial_response.data)
+        self.assertEqual(cached_response.status_code, status.HTTP_200_OK, cached_response.data)
+        self.assertEqual(cached_response.data["summary"]["title"], "Cached Trace Summary")
+        self.assertEqual(mock_summarize.call_count, 1)
