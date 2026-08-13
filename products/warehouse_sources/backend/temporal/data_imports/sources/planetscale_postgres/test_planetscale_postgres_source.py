@@ -128,7 +128,9 @@ def test_validate_credentials_handles_a_config_without_an_ssh_tunnel_field():
     assert not hasattr(planetscale_config, "ssh_tunnel")
 
     with mock.patch.object(PostgresSource, "is_database_host_valid", return_value=(False, "host error")) as host_valid:
-        success, error = PlanetScalePostgresSource().validate_credentials(planetscale_config, team_id=1)
+        # The signature annotates PostgresSourceConfig, but the pipeline hands this source its own
+        # generated config at runtime — the exact mismatch that surfaced the missing attribute.
+        success, error = PlanetScalePostgresSource().validate_credentials(planetscale_config, team_id=1)  # type: ignore[arg-type]
 
     assert success is False
     assert error == "host error"
