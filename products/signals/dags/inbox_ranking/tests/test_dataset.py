@@ -4,6 +4,8 @@ from typing import Any
 import pytest
 from posthog.test.base import BaseTest
 
+import pyarrow as pa
+
 from products.signals.backend.models import SignalReport
 from products.signals.dags.inbox_ranking import common
 from products.signals.dags.inbox_ranking.dataset.dag import (
@@ -86,6 +88,45 @@ def test_incremental_partitions_never_shrink_on_a_re_run(existing, row_count, ex
     # partition returns fewer rows than it first captured — and those rows no longer exist anywhere
     # else. Overwriting is unrecoverable data loss, so a shrink must fail rather than proceed.
     assert common.partition_write_allowed(existing, row_count) is expected
+
+
+def _emission(signal_id: str, inserted_at: datetime.datetime, embedding: list[float] | None):
+    return {"team_id": 2, "signal_id": signal_id, "embedding_inserted_at": inserted_at, "embedding_small": embedding}
+
+
+_EMISSION_FIELDS: list[tuple[str, pa.DataType]] = [
+    ("team_id", pa.int64()),
+    ("signal_id", pa.string()),
+    ("embedding_inserted_at", pa.timestamp("us", tz="UTC")),
+    ("embedding_small", pa.list_(pa.float32())),
+]
+_EMISSION_SCHEMA = pa.schema(_EMISSION_FIELDS)
+
+
+def test_re_running_a_partition_keeps_rows_the_source_no_longer_returns():
+    # The source drops rows a partition already archived (a ReplacingMergeTree merge collapses a
+    # retracted signal onto its live row, or the TTL expires it), and those rows exist nowhere else.
+    # A re-run that wrote only its own scan would delete them permanently. Row counts alone cannot
+    # police it: here the scan loses signal a and gains signal c, so the total never changes.
+    existing = pa.Table.from_pylist([_emission("a", T1, [0.25]), _emission("b", T1, [0.5])], schema=_EMISSION_SCHEMA)
+    fresh = pa.Table.from_pylist([_emission("b", T1, [0.5]), _emission("c", T2, [0.75])], schema=_EMISSION_SCHEMA)
+
+    merged = common.merge_emission_rows(existing, fresh, ("team_id", "signal_id", "embedding_inserted_at"))
+
+    assert merged.column("signal_id").to_pylist() == ["a", "b", "c"]
+    # The archived vector survives intact, and b is carried once rather than duplicated.
+    assert merged.column("embedding_small").to_pylist() == [[0.25], [0.5], [0.75]]
+
+
+def test_a_re_emitted_signal_keeps_both_versions():
+    # Versions of one signal are separate emissions, so a later vector must not displace the earlier
+    # one the partition archived — that is the history this table exists to hold.
+    existing = pa.Table.from_pylist([_emission("a", T1, [0.25])], schema=_EMISSION_SCHEMA)
+    fresh = pa.Table.from_pylist([_emission("a", T2, [0.5])], schema=_EMISSION_SCHEMA)
+
+    merged = common.merge_emission_rows(existing, fresh, ("team_id", "signal_id", "embedding_inserted_at"))
+
+    assert merged.column("embedding_inserted_at").to_pylist() == [T1, T2]
 
 
 def test_snapshot_bounds_cover_the_partition_day():

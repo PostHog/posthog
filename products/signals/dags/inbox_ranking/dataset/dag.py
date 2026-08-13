@@ -62,6 +62,7 @@ from products.signals.dags.inbox_ranking.common import (
     ensure_utc,
     latest_is_stale,
     latest_object_key,
+    merge_emission_rows,
     object_row_count,
     object_snapshot_date,
     owner_tags,
@@ -69,6 +70,7 @@ from products.signals.dags.inbox_ranking.common import (
     partition_object_key,
     partition_write_allowed,
     read_parquet,
+    read_parquet_if_exists,
     s3_client,
     skip_unconfigured,
     snapshot_bounds,
@@ -185,6 +187,11 @@ _SIGNAL_EMBEDDING_FIELDS: list[tuple[str, pa.DataType]] = [
     ("rejected_signal_count", pa.int32()),
 ]
 SIGNAL_EMBEDDINGS_SCHEMA = pa.schema(_SIGNAL_EMBEDDING_FIELDS)
+
+# What makes one emission distinct from another, so a re-run can tell a row it already archived from
+# a genuinely new one. embedding_inserted_at is the version: the source keys a signal by
+# (team_id, document_id) and distinguishes its versions by inserted_at.
+SIGNAL_EMISSION_KEY = ("team_id", "signal_id", "embedding_inserted_at")
 
 LABEL_FIELDS: list[tuple[str, pa.DataType]] = [
     ("first_impressed_at", _TIMESTAMP),
@@ -557,7 +564,9 @@ def inbox_signal_embeddings(context: dagster.AssetExecutionContext) -> None:
 
     Writing the day's emissions down also outlives the source table's 3-month TTL, which is measured
     from signal event time. That makes this dag the durable store for signal vectors: whatever is not
-    captured before a signal ages out is unrecoverable.
+    captured before a signal ages out is unrecoverable. A re-run is therefore additive rather than a
+    replacement — it unions the fresh scan into what the partition already holds, so a row the source
+    can no longer supply survives.
 
     The log is best-effort, and deliberately so. The source is a ReplacingMergeTree versioned by
     inserted_at, and a retraction re-emits the signal under the same sort key, so a merge between the
@@ -645,17 +654,26 @@ def inbox_signal_embeddings(context: dagster.AssetExecutionContext) -> None:
     bucket = dataset_bucket()
     key = partition_object_key(settings.INBOX_RANKING_DATASET_S3_PREFIX, SIGNAL_EMBEDDINGS_TABLE, partition_key)
     client = s3_client()
+    # A re-run is additive. The source can no longer supply a row this partition already archived —
+    # a merge or the TTL removed it — so overwriting with the fresh scan alone would delete history
+    # that exists nowhere else. Row counts cannot police that on their own: a scan can lose one
+    # emission and gain another and land on the same total.
+    existing = read_parquet_if_exists(client, bucket, key)
+    if existing is not None:
+        table = merge_emission_rows(existing, table, SIGNAL_EMISSION_KEY)
     existing_row_count = object_row_count(client, bucket, key)
-    if not partition_write_allowed(existing_row_count, row_count):
+    if not partition_write_allowed(existing_row_count, table.num_rows):
         raise dagster.Failure(
-            f"{SIGNAL_EMBEDDINGS_TABLE} dt={partition_key} already holds {existing_row_count} rows and this run "
-            f"produced {row_count}: the source table's TTL has dropped rows this partition captured, so writing "
-            "would destroy history that cannot be rebuilt. Delete the object by hand if the shrink is intended."
+            f"{SIGNAL_EMBEDDINGS_TABLE} dt={partition_key} already holds {existing_row_count} rows and the union "
+            f"with this run produced {table.num_rows}: a union can only grow, so this is a bug in the merge rather "
+            "than a source change. Refusing the write to keep archived rows the source may no longer hold."
         )
     write_parquet(client, bucket, key, table)
     context.add_output_metadata(
         {
-            "rows": dagster.MetadataValue.int(row_count),
+            "rows": dagster.MetadataValue.int(table.num_rows),
+            "scanned": dagster.MetadataValue.int(row_count),
+            "carried_over": dagster.MetadataValue.int(table.num_rows - row_count),
             "retracted": dagster.MetadataValue.int(deleted_count),
             "reports": dagster.MetadataValue.int(len({report_id for report_id in columns["report_id"] if report_id})),
             "s3_key": dagster.MetadataValue.text(f"s3://{bucket}/{key}"),

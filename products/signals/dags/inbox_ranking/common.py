@@ -149,17 +149,44 @@ def object_row_count(client, bucket: str, key: str) -> int | None:
 def partition_write_allowed(existing_row_count: int | None, row_count: int) -> bool:
     """Whether a re-run may overwrite a partition it has already written.
 
-    Incremental partitions are read back out of a source table with a TTL, so a late re-run can
-    legitimately produce fewer rows than the object it would replace — and those rows are gone from
-    the source, which makes the overwrite unrecoverable. A partition may only be rewritten with at
-    least as many rows as it already holds; anything smaller needs a human to delete the object
-    deliberately. An unknown count (no object, or one written before the stamp) is not a veto."""
+    A backstop, not the primary defense: an incremental partition is rewritten from the union of
+    what it already holds and what the source still returns (`merge_emission_rows`), so a re-run can
+    only ever grow. A smaller count therefore means the union itself is broken, and refusing the
+    write keeps a bug from destroying rows the source can no longer supply. An unknown count (no
+    object, or one written before the stamp) is not a veto."""
     return existing_row_count is None or row_count >= existing_row_count
+
+
+def merge_emission_rows(existing: pa.Table, fresh: pa.Table, key_columns: tuple[str, ...]) -> pa.Table:
+    """Union an already-written emission partition with a fresh scan, keeping every archived row.
+
+    A re-run cannot simply overwrite: the source drops rows (a ReplacingMergeTree merge, the TTL),
+    so a later scan can be missing an emission this partition already captured, and that emission
+    exists nowhere else. Comparing row counts alone would not catch it either, since a scan can lose
+    one row and gain another and land on the same total. Keeping the existing rows and appending only
+    unseen ones makes a re-run additive, so no re-run can remove archived history.
+
+    Only the key columns are pulled into Python; the wide embedding column stays in Arrow.
+    """
+    seen = set(zip(*(existing.column(name).to_pylist() for name in key_columns), strict=True))
+    fresh_keys = zip(*(fresh.column(name).to_pylist() for name in key_columns), strict=True)
+    mask = pa.array([key not in seen for key in fresh_keys], type=pa.bool_())
+    return pa.concat_tables([existing, fresh.filter(mask)])
 
 
 def read_parquet(client, bucket: str, key: str) -> pa.Table:
     body = client.get_object(Bucket=bucket, Key=key)["Body"].read()
     return pq.read_table(pa.BufferReader(body))
+
+
+def read_parquet_if_exists(client, bucket: str, key: str) -> pa.Table | None:
+    """The object's rows, or None when it was never written."""
+    try:
+        return read_parquet(client, bucket, key)
+    except ClientError as error:
+        if error.response.get("Error", {}).get("Code") in ("404", "NoSuchKey", "NotFound"):
+            return None
+        raise
 
 
 def ensure_utc(value: datetime.datetime | None) -> datetime.datetime | None:
