@@ -24,9 +24,11 @@ S3_POINTER_MAGIC = b"PHQCS3\x00"
 
 QueryCacheS3Mode = Literal["off", "shadow", "on"]
 
-# Multivariate flag on the organization group: disabled means off, the "shadow" variant uploads
-# blobs while Redis stays authoritative, and the "on" variant stores pointers. Writes only; the
-# read path never evaluates flags.
+# Multivariate flag on the organization group; it gates writes only, the read path never
+# evaluates flags. Disabled: every result is stored inline in Redis. "shadow": the blob is also
+# uploaded to S3, but nothing reads it, because Redis still stores and serves the full result;
+# this proves the upload path before any read depends on S3. "on": Redis stores only a pointer
+# and reads fetch the blob from S3.
 QUERY_CACHE_S3_FLAG = "query-cache-s3-writes"
 
 S3_WRITE_COUNTER = Counter(

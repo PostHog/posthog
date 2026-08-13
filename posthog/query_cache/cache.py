@@ -75,9 +75,10 @@ class QueryCache:
         if data_size >= settings.QUERY_CACHE_S3_MIN_SIZE_BYTES:
             mode = s3_write_mode(self.team_id)
             if mode != "off":
-                # "shadow" uploads the blob while the inline Redis entry stays authoritative;
-                # "on" stores the pointer instead, so the blob stops counting against the team's
-                # Redis cache budget. Upload failures fall back to the inline blob.
+                # "shadow" uploads the blob to S3 as a rehearsal while Redis still stores and
+                # serves the full entry; "on" stores the pointer instead, so the blob stops
+                # counting against the team's Redis cache budget. Upload failures fall back to
+                # the inline blob.
                 pointer = write_blob(
                     team_id=self.team_id, cache_key=self.cache_key, serialized=fresh_response_serialized, mode=mode
                 )
