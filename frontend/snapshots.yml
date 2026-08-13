@@ -1072,6 +1072,10 @@ snapshots:
         hash: v1.k794b7964.43f6eb1474d256161abbb5a6a9fb4fcdc9106b3a2929c8b3a16b6ff76ba1fad9.FBPe_INNlLA1E-419fyRDywJsBSgXBgInE2a1Jg17vA
     components-hogcharts-timeserieslinechart--y-axis-formats--light:
         hash: v1.k794b7964.f069019d468fdbe30e6dadec5747c4103ef9d696404463c433c5c6d333f786b3.5--sMNDuGxAUTA_gdKqQbE8KKnkjsOGubKKrg59-0s0
+    components-hogcharts-timeserieslinechart--y-axis-range--dark:
+        hash: v1.k794b7964.74fa4998f18f347555b68b7d5b70cbcbd58d362d405c48cb4efd4eb14df2c0d6.aoLPhLRwS1e43mJx-spfRqtspjEVrIGfwqWby9cY18Y
+    components-hogcharts-timeserieslinechart--y-axis-range--light:
+        hash: v1.k794b7964.625e033c4e33d90b83a2226ac1a7cb4a21001ad1ea9e0f1bb1a92b65c9b82fc9.PN7p1HkN-58lB8tal-t-_Xnuogrm20kdQ11-S_5L8gI
     components-hogcharts-trendlineoverlay--single-series-with-trend--dark:
         hash: v1.k794b7964.516a16ffe07ab9611351c87621a551c2be271b06e36362c9451dea8dc4b5eacb.5Sxpr5u-k77d0oS64FGemW7JP-NlFmNqVrK6_frmZNk
     components-hogcharts-trendlineoverlay--single-series-with-trend--light:
@@ -4758,10 +4762,10 @@ snapshots:
         hash: v1.k794b7964.ea754a4783f7653247f127337c407a8cdd4a9c6bc3f1b908d8d00dd1a090b966.KQ3yKnRzi4l3ZeYVThZdmo4L6mAbxtNa2uQh7y-kGWA
     products-dashboards-dashboard-widgets-widget-types-error-tracking-top-issues--tile-filters-read-only--light:
         hash: v1.k794b7964.b2ca2efc52a9ccf56953159c66d3c8766acd1d3a17379d5faec45a4715ae24a9.fK76p7ZVcgvFJNcKJ5Ixy3YnBm_BcBSFnoytLS2jZdU
-    products-dashboards-dashboard-widgets-widget-types-error-tracking-top-issues-widget-settings--before-exception-ingestion--dark:
-        hash: v1.k794b7964.ee9bd78f705c05a89b8dffa7ce394b1af07b75a9597fd220c94d177b49def5bd.Ii4is9m845vi1gNJRW-Pdw93hMfdAEL_0UIj6lAOTvw
-    products-dashboards-dashboard-widgets-widget-types-error-tracking-top-issues-widget-settings--before-exception-ingestion--light:
-        hash: v1.k794b7964.b71412d69902241f7ec02efa87c138362522d5c7227c36a71e7f0dc0627d2a38.xiUrsbrXCMYmKv85SCzax7k6HNDzZsfKE5ZBhZBFPsI
+    ? products-dashboards-dashboard-widgets-widget-types-error-tracking-top-issues-widget-settings--before-exception-ingestion--dark
+    :   hash: v1.k794b7964.ee9bd78f705c05a89b8dffa7ce394b1af07b75a9597fd220c94d177b49def5bd.Ii4is9m845vi1gNJRW-Pdw93hMfdAEL_0UIj6lAOTvw
+    ? products-dashboards-dashboard-widgets-widget-types-error-tracking-top-issues-widget-settings--before-exception-ingestion--light
+    :   hash: v1.k794b7964.b71412d69902241f7ec02efa87c138362522d5c7227c36a71e7f0dc0627d2a38.xiUrsbrXCMYmKv85SCzax7k6HNDzZsfKE5ZBhZBFPsI
     products-dashboards-dashboard-widgets-widget-types-error-tracking-top-issues-widget-settings--default--dark:
         hash: v1.k794b7964.b1e0f5f542426e34dec73826f3135902a392c0c13dade4fec14037c615186b13.kbxxijyDI1SdvgdKwkRnIRLLgmsine5AYvOcD79DYsY
     products-dashboards-dashboard-widgets-widget-types-error-tracking-top-issues-widget-settings--default--light:
