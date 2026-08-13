@@ -40,7 +40,13 @@ from posthog.hogql.direct_connection import (
     get_direct_connection_source_none_or_raise,
     raw_query_denied_by_table_access,
 )
-from posthog.hogql.direct_sql import DirectQueryRequest, ensure_single_direct_statement, get_adapter
+from posthog.hogql.direct_sql import (
+    DirectQueryRequest,
+    DirectSQLAdapter,
+    ensure_single_direct_statement,
+    get_adapter,
+    get_raw_adapter_for_source,
+)
 from posthog.hogql.errors import ExposedHogQLError, InternalHogQLError, QueryError, ResolutionError
 from posthog.hogql.feature_extractor import extract_hogql_features
 from posthog.hogql.filters import replace_filters
@@ -457,7 +463,7 @@ class HogQLQueryExecutor:
         return sources
 
     @tracer.start_as_current_span("HogQLQueryExecutor._execute_direct_sql_query")
-    def _execute_direct_sql_query(self) -> None:
+    def _execute_direct_sql_query(self, adapter: DirectSQLAdapter | None = None) -> None:
         assert self.direct_sql is not None
         assert self.direct_source_id is not None
 
@@ -465,7 +471,7 @@ class HogQLQueryExecutor:
         if source is None:
             raise ExposedHogQLError("Connection not found or has been deleted")
 
-        adapter = get_adapter(source.direct_engine)
+        adapter = adapter or get_adapter(source.direct_engine)
         if adapter is None:
             raise InternalHogQLError(f"No direct SQL adapter registered for engine: {source.direct_engine}")
 
@@ -582,7 +588,7 @@ class HogQLQueryExecutor:
             engine="clickhouse",
         )
 
-    def _execute_raw_direct_query(self) -> None:
+    def _execute_raw_direct_query(self) -> bool:
         if not isinstance(self.query, str):
             raise ExposedHogQLError("Sending a raw query requires a raw query string.")
 
@@ -605,12 +611,13 @@ class HogQLQueryExecutor:
             raise ExposedHogQLError(RAW_QUERY_TABLE_DENIED_ERROR)
         self.connection_id = str(source.id)
         self.direct_source_id = self.connection_id
-        adapter = get_adapter(source.direct_engine)
+        adapter = get_raw_adapter_for_source(source)
         if adapter is None:
             raise ExposedHogQLError(INVALID_CONNECTION_ID_ERROR)
         self.direct_dialect = adapter.dialect
         self.direct_sql = adapter.prepare_raw_sql(str(self.query))
-        self._execute_direct_sql_query()
+        self._execute_direct_sql_query(adapter)
+        return adapter.dialect is None
 
     def _capture_send_raw_query_translation_error(self) -> None:
         """Try a post-success HogQL translation for raw queries.
@@ -754,8 +761,9 @@ class HogQLQueryExecutor:
         trace.get_current_span().set_attribute("team_id", self.team.pk)
         try:
             if self.send_raw_query and self.connection_id is not None:
-                self._execute_raw_direct_query()
-                self._capture_send_raw_query_translation_error()
+                native_raw_query = self._execute_raw_direct_query()
+                if not native_raw_query:
+                    self._capture_send_raw_query_translation_error()
             else:
                 prepared_execution = self._prepare_execution()
 
