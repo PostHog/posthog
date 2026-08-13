@@ -36,6 +36,11 @@
     border-radius: var(--radius-lg);
     box-shadow: var(--shadow-elevation-3000);
     opacity: 0;
+
+    // The box mounts one frame before the `open` class lands, while floating-ui is still
+    // sizing and positioning it. Block pointer events until it has settled, so a click cannot
+    // land on an invisible, still-moving target and get swallowed.
+    pointer-events: none;
     transition:
         opacity 50ms ease,
         transform 50ms ease;
@@ -91,6 +96,7 @@
     .Popover.Popover--enter-active &,
     .Popover.Popover--enter-done & {
         opacity: 1;
+        pointer-events: auto;
         transform: none;
     }
 
