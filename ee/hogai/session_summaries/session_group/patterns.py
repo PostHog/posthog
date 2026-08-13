@@ -502,6 +502,7 @@ def combine_patterns_with_events_context(
             f"Input: {len(patterns.patterns)}"
         )
         logger.exception(exception_message, user_id=user_id, signals_type="session-summaries")
+        # Retryable: the assignment step regenerates a fresh LLM response each attempt, so a bad one can recover
         raise ApplicationError(exception_message)
     if failed_patterns_count:
         logger.warning(

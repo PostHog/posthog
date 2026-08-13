@@ -85,11 +85,29 @@ def list_advertisers(access_token: str) -> list[dict]:
     return (body.get("data") or {}).get("list") or []
 
 
-# Prefix for the ValueError raised when TikTok returns a client error code that
-# is not in the retryable set (e.g. 40001 "advertiser doesn't exist or has been
-# deleted"). Retrying these never succeeds, so `TikTokAdsSource.get_non_retryable_errors`
-# matches on this exact prefix to fail the job fast instead of looping forever.
+# Prefix for the ValueError the paginator raises on client error codes outside the retryable set.
+# 40001 is a generic bucket covering both a deleted advertiser and per-endpoint permission denials,
+# so callers have to discriminate on wording rather than on the code. Retrying never succeeds, so
+# `TikTokAdsSource.get_non_retryable_errors` matches this prefix to fail the job fast.
 TIKTOK_NON_RETRYABLE_ERROR_PREFIX = "TikTok API client error (non-retryable):"
+
+# Keep the denied path in each fragment: every endpoint here shares one paginator, so a denial on
+# `/report/integrated/get/` carries the same "does not grant you" wording and would otherwise be
+# answered with creative-library advice. TikTok templates the path into the message.
+TIKTOK_CREATIVE_PERMISSION_DENIED_FRAGMENTS = (
+    "does not grant you /file/video/ad/search/",
+    "does not grant you /file/image/ad/search/",
+)
+
+# Reconnecting is the only fix, because our authorize URL sends no `scope`: the creative asset
+# permission is granted per-advertiser on TikTok's side and we can't widen it after the fact.
+TIKTOK_CREATIVE_PERMISSION_DENIED_MESSAGE = (
+    "TikTok denied access to your creative library: the authorized advertiser account has not granted "
+    "PostHog permission to read creative assets. This only affects the creative_videos and creative_images "
+    "tables, which have been disabled. Your campaign, ad and report tables keep syncing. If your TikTok "
+    "admin can grant creative asset access, reconnect the TikTok Ads integration and grant it when TikTok "
+    "asks. Otherwise leave these two tables unselected."
+)
 
 
 class TikTokAdsAPIError(Exception):
@@ -478,6 +496,7 @@ class TikTokAdsPaginator(BasePaginator):
                     50000,  # System error
                     50002,  # Error processing request on TikTok side. Please see error message for details.
                     51001,  # Internal service timeout. Transient TikTok-side error; safe to retry.
+                    51002,  # Internal service error. Transient TikTok-side error; TikTok's own message asks to retry later.
                     51039,  # Internal service timeout. Transient TikTok-side error; safe to retry.
                     51305,  # Satellite service error
                     60001,  # The system is in maintenance.

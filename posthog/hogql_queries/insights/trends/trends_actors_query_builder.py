@@ -21,6 +21,7 @@ from posthog.schema import (
 
 from posthog.hogql import ast
 from posthog.hogql.constants import LimitContext
+from posthog.hogql.errors import QueryError
 from posthog.hogql.parser import parse_expr
 from posthog.hogql.property import action_to_expr, property_to_expr
 from posthog.hogql.timings import HogQLTimings
@@ -419,25 +420,26 @@ class TrendsActorsQueryBuilder:
         actors_to_op: ast.CompareOperationOp = ast.CompareOperationOp.Lt
 
         if self.is_total_value:
-            assert self.time_frame is None, (
-                "A `day` is forbidden for trends actors queries with total value aggregation"
-            )
+            if self.time_frame is not None:
+                raise QueryError("A `day` is forbidden for trends actors queries with total value aggregation")
 
             actors_from = query_from
             actors_to = query_to
             actors_to_op = ast.CompareOperationOp.LtEq
         else:
-            assert self.time_frame is not None, (
-                "A `day` is required for trends actors queries without total value aggregation"
-            )
+            if self.time_frame is None:
+                raise QueryError("A `day` is required for trends actors queries without total value aggregation")
 
             # use previous day/week/... for time_frame
             if self.is_compare_previous:
-                if self.is_compare_to:
+                delta_mappings = None if self.is_compare_to else date_range.date_from_delta_mappings()  # type: ignore
+                if delta_mappings is None:
+                    # Either an explicit compare_to offset, or an "all time" range, which starts at the
+                    # earliest event and so has no relative delta to step back by. Both shift the frame
+                    # by the gap between the two periods' starts instead.
                     self.time_frame = query_from + (self.time_frame - self.trends_date_range.date_from())
                 else:
-                    relative_delta = relativedelta(**date_range.date_from_delta_mappings())  # type: ignore
-                    previous_time_frame = self.time_frame - relative_delta
+                    previous_time_frame = self.time_frame - relativedelta(**delta_mappings)
                     if self.is_hourly:
                         self.time_frame = previous_time_frame
                     else:

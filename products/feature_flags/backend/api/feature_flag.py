@@ -3097,6 +3097,20 @@ class FeatureFlagViewSet(
 
         return response
 
+    @staticmethod
+    def _deleted_flag_rejection(feature_flag: FeatureFlag, restore_hint: str) -> Response | None:
+        """Dashboard-generating actions refuse soft-deleted flags: they would recreate the
+        auto-generated insights that the delete_feature_flag_usage_insights sweep deletes."""
+        if not feature_flag.deleted:
+            return None
+        return Response(
+            {
+                "success": False,
+                "error": f"This feature flag has been deleted. Restore it before {restore_hint}.",
+            },
+            status=400,
+        )
+
     # No UI surface calls this, since the Usage tab renders its charts inline. It exists for API
     # users who want a saved usage dashboard.
     @extend_schema(request=None)
@@ -3105,6 +3119,9 @@ class FeatureFlagViewSet(
         from products.dashboards.backend.models.dashboard import Dashboard
 
         feature_flag: FeatureFlag = self.get_object()
+        rejection = self._deleted_flag_rejection(feature_flag, "generating a usage dashboard")
+        if rejection is not None:
+            return rejection
         try:
             # The FK on the flag isn't cleared by a dashboard soft-delete, so look the id up
             # through the manager that excludes deleted rows rather than via the FK accessor,
@@ -3138,6 +3155,9 @@ class FeatureFlagViewSet(
     @action(methods=["POST"], detail=True)
     def enrich_usage_dashboard(self, request: request.Request, **kwargs):
         feature_flag: FeatureFlag = self.get_object()
+        rejection = self._deleted_flag_rejection(feature_flag, "enriching its usage dashboard")
+        if rejection is not None:
+            return rejection
         usage_dashboard = feature_flag.usage_dashboard
 
         if not usage_dashboard:

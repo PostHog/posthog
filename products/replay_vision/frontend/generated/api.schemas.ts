@@ -164,6 +164,8 @@ export interface AlertConfigApi {
      * * `14` - 14 days
      * * `30` - 30 days */
     window_days?: WindowDaysEnumApi
+    /** When true, each example line in the alert message includes the scanner's full reasoning for that observation, not just its verdict/score/tags. Useful when piping the message somewhere else to read or act on. Defaults to false. */
+    include_reasoning?: boolean
 }
 
 /**
@@ -1254,6 +1256,38 @@ export interface ObservationVersionMarkerApi {
     prompt: string
     /** The full type-specific config this version ran with (prompt plus, depending on scanner type, allow_inconclusive, tags, scale, or length), taken from the observation run snapshots. */
     scanner_config: unknown
+    /**
+     * The scanner type this version ran as.
+     * @nullable
+     */
+    scanner_type: string | null
+    /**
+     * The model this version ran on.
+     * @nullable
+     */
+    model: string | null
+    /**
+     * The provider this version ran on.
+     * @nullable
+     */
+    provider: string | null
+    /**
+     * Whether this version emitted signals.
+     * @nullable
+     */
+    emits_signals: boolean | null
+    /** The `RecordingsQuery` recording filters this version ran with. */
+    query: unknown
+    /**
+     * The 0..1 downsample this version ran with.
+     * @nullable
+     */
+    sampling_rate: number | null
+    /**
+     * The session-coverage pre-filter this version ran with.
+     * @nullable
+     */
+    sampling_mode: string | null
     /** Thumbs-up ratings on this version's observations. */
     up: number
     /** Thumbs-down ratings on this version's observations. */
@@ -1271,7 +1305,7 @@ export interface ObservationLabelStatsApi {
     by_day: ObservationLabelDayCountApi[]
     /** Daily label counts over the last `recent_days` days, bucketed by the day the rating was last set or changed: the team's rating activity. Days without rating changes are omitted. */
     by_rating_day: ObservationLabelDayCountApi[]
-    /** Each scanner (prompt) version that produced observations (all-time), with its first day, prompt, and rating counts, for chart markers and the prompt version history. */
+    /** Each scanner version that produced observations (all-time), with its first day, the config it ran with, and rating counts, for chart markers and the config version history. */
     version_markers: ObservationVersionMarkerApi[]
 }
 
