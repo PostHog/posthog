@@ -25651,7 +25651,10 @@
                 "Cloudinary",
                 "Uploadcare",
                 "WHMCS",
-                "MSG91"
+                "MSG91",
+                "Depot",
+                "Schematic",
+                "Dokploy"
             ],
             "type": "string"
         },
