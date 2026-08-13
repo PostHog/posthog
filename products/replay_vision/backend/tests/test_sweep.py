@@ -10,6 +10,7 @@ from temporalio.exceptions import ApplicationError, WorkflowAlreadyStartedError
 
 from posthog.models import Organization, Team
 
+from products.replay_vision.backend.billing import observation_credits_for_model
 from products.replay_vision.backend.models.replay_observation import (
     ObservationStatus,
     ObservationTrigger,
@@ -25,6 +26,7 @@ from products.replay_vision.backend.temporal import SweepScannerWorkflow
 from products.replay_vision.backend.temporal.activities.advance_scanner_watermark import (
     advance_scanner_watermark_activity,
 )
+from products.replay_vision.backend.temporal.activities.check_scanner_budget import check_scanner_budget_activity
 from products.replay_vision.backend.temporal.activities.count_in_flight_applies import (
     count_in_flight_applies_activity,
     count_in_flight_by_team_activity,
@@ -36,11 +38,14 @@ from products.replay_vision.backend.temporal.activities.refresh_prompt_suggestio
 from products.replay_vision.backend.temporal.constants import (
     MAX_IN_FLIGHT_APPLIES_PER_SCANNER,
     MAX_IN_FLIGHT_APPLIES_PER_TEAM,
+    SWEEP_READ_BUDGET_BYTES_24H,
     build_process_vision_action_workflow_id,
 )
 from products.replay_vision.backend.temporal.sweep_types import (
     AdvanceScannerWatermarkInputs,
     CandidateSessionPayload,
+    CheckScannerBudgetInputs,
+    CheckScannerBudgetOutput,
     FindScannerCandidatesInputs,
     FindScannerCandidatesOutput,
     InFlightApplyCounts,
@@ -48,6 +53,10 @@ from products.replay_vision.backend.temporal.sweep_types import (
 )
 from products.replay_vision.backend.temporal.vision_actions.activities import evaluate_due_vision_actions_activity
 from products.replay_vision.backend.temporal.vision_actions.types import DueVisionAction
+from products.replay_vision.backend.tests.helpers import seed_scanner_spend, snapshot_for
+
+# Every scanner built below runs on this model, so its price sets what one observation draws.
+_OBSERVATION_CREDITS = observation_credits_for_model(ScannerModel.GEMINI_3_6_FLASH)
 
 
 def _make_scanner(**overrides) -> ReplayScanner:
@@ -62,6 +71,22 @@ def _make_scanner(**overrides) -> ReplayScanner:
     }
     defaults.update(overrides)
     return ReplayScanner.objects.create(**defaults)
+
+
+def _seed_in_flight_observations(scanner: ReplayScanner, *, count: int) -> None:
+    # Pending rows reserve credits live from their snapshot model. They settle no receipt until success.
+    snapshot = snapshot_for(scanner)
+    ReplayObservation.objects.bulk_create(
+        ReplayObservation(
+            scanner=scanner,
+            team=scanner.team,
+            session_id=f"in-flight-{i}",
+            status=ObservationStatus.PENDING,
+            scanner_snapshot=snapshot,
+            triggered_by=ObservationTrigger.SCHEDULE,
+        )
+        for i in range(count)
+    )
 
 
 # find_scanner_candidates_activity
@@ -378,6 +403,41 @@ class TestFindScannerCandidatesActivity:
         # The walk is newest-first, so advancing on a truncated batch would drop the oldest for good.
         assert result.deep_swept_through is None
 
+    @parameterized.expand(
+        [
+            # Default watermark sits one settle-interval back, i.e. the last sweep just ran.
+            ("over_budget_recent_sweep_skips", None, dt.timedelta(0), False),
+            # Enough watermark lag accumulated (>= 12 x 5 min at the factor cap): the sweep runs and batches it.
+            ("over_budget_stale_watermark_runs", None, dt.timedelta(minutes=61), True),
+            ("override_disables_throttle", 1, dt.timedelta(0), True),
+        ]
+    )
+    def test_read_budget_throttle(
+        self, _name: str, override: int | None, extra_watermark_lag: dt.timedelta, expect_query: bool
+    ) -> None:
+        hour = dt.datetime.now(dt.UTC).replace(minute=0, second=0, microsecond=0)
+        scanner = _make_scanner(
+            sweep_read_bytes_by_hour={hour.isoformat(): 100 * SWEEP_READ_BUDGET_BYTES_24H},
+            sweep_throttle_factor_override=override,
+        )
+        if extra_watermark_lag:
+            scanner.last_swept_at = scanner.last_swept_at - extra_watermark_lag
+            scanner.save(update_fields=["last_swept_at"])
+
+        with patch(
+            "products.replay_vision.backend.temporal.activities.find_scanner_candidates.ScannerCandidateQuery"
+        ) as MockQuery:
+            MockQuery.return_value.run.return_value = []
+            result = find_scanner_candidates_activity(
+                FindScannerCandidatesInputs(scanner_id=scanner.id, team_id=scanner.team_id)
+            )
+
+        assert MockQuery.called is expect_query
+        if not expect_query:
+            # No horizon means the workflow can't advance the watermark, so the skipped range stays covered.
+            assert result.swept_through is None
+            assert result.candidates == []
+
     def test_raises_non_retryable_on_malformed_query(self) -> None:
         scanner = _make_scanner()
         scanner.query = {"kind": "TrendsQuery"}
@@ -477,6 +537,74 @@ class TestAdvanceScannerWatermarkActivity:
         assert scanner.scanner_version == original_version
 
 
+# check_scanner_budget_activity
+
+
+@pytest.mark.parametrize(
+    "limit, spent_observations, expect_capped",
+    [
+        (None, 0, False),
+        # No limit set, and heavy spend: never capped, watermark never touched.
+        (None, 100, False),
+        (20 * _OBSERVATION_CREDITS, 0, False),
+        (20 * _OBSERVATION_CREDITS, 10, False),
+        # Exactly one observation's worth of room left.
+        (20 * _OBSERVATION_CREDITS, 19, False),
+        # Credits left, but not enough for one more observation.
+        (20 * _OBSERVATION_CREDITS - 1, 19, True),
+        (20 * _OBSERVATION_CREDITS, 20, True),
+    ],
+)
+@pytest.mark.django_db(transaction=True)
+def test_check_scanner_budget_activity_caps_and_advances_the_watermark(
+    limit: int | None, spent_observations: int, expect_capped: bool
+) -> None:
+    scanner = _make_scanner(credit_limit=limit)
+    stale = dt.datetime(2026, 1, 1, tzinfo=dt.UTC)
+    ReplayScanner.objects.filter(pk=scanner.pk).update(
+        last_swept_at=stale, last_seen_session_id="sess-old", last_deep_swept_at=stale
+    )
+    seed_scanner_spend(scanner, _OBSERVATION_CREDITS, observations=spent_observations)
+
+    output = check_scanner_budget_activity(CheckScannerBudgetInputs(scanner_id=scanner.id, team_id=scanner.team_id))
+
+    scanner.refresh_from_db()
+    assert output.capped is expect_capped
+    if expect_capped:
+        # Skip the capped window rather than backfilling (and billing) it when the limit frees up.
+        assert scanner.last_swept_at > stale
+        assert scanner.last_seen_session_id == ""
+        # The deep pass walks [last_deep_swept_at, last_swept_at), so a stale value would hand the
+        # first uncapped deep sweep exactly the window this reset skips.
+        assert scanner.last_deep_swept_at == scanner.last_swept_at
+    else:
+        assert scanner.last_swept_at == stale
+        assert scanner.last_seen_session_id == "sess-old"
+        assert scanner.last_deep_swept_at == stale
+
+
+@pytest.mark.django_db(transaction=True)
+def test_check_scanner_budget_activity_capped_by_in_flight_alone_does_not_advance_the_watermark() -> None:
+    # Only adding in-flight reservations pushes this over the limit: a transient spike must skip
+    # the tick without burning the permanent watermark advance.
+    limit = 20 * _OBSERVATION_CREDITS
+    scanner = _make_scanner(credit_limit=limit)
+    stale = dt.datetime(2026, 1, 1, tzinfo=dt.UTC)
+    ReplayScanner.objects.filter(pk=scanner.pk).update(
+        last_swept_at=stale, last_seen_session_id="sess-old", last_deep_swept_at=stale
+    )
+    seed_scanner_spend(scanner, _OBSERVATION_CREDITS, observations=10)
+    _seed_in_flight_observations(scanner, count=10)
+
+    output = check_scanner_budget_activity(CheckScannerBudgetInputs(scanner_id=scanner.id, team_id=scanner.team_id))
+
+    scanner.refresh_from_db()
+    assert output.capped is True
+    assert scanner.last_swept_at == stale
+    assert scanner.last_seen_session_id == "sess-old"
+    assert scanner.last_deep_swept_at == stale
+
+
 # SweepScannerWorkflow (mocked-Temporal)
 
 
@@ -500,7 +628,13 @@ class _SweepMocks:
         # Default to no due vision actions unless a test overrides it.
         if activity_fn is evaluate_due_vision_actions_activity and activity_fn not in self.activity_results:
             return []
-        return self.activity_results.get(activity_fn)
+        # Default to not-capped so the budget gate leaves every other sweep test unaffected.
+        if activity_fn is check_scanner_budget_activity and activity_fn not in self.activity_results:
+            return CheckScannerBudgetOutput(capped=False)
+        result = self.activity_results.get(activity_fn)
+        if isinstance(result, Exception):
+            raise result
+        return result
 
     async def start_child_workflow(self, *args: Any, **kwargs: Any) -> Any:
         wid = kwargs.get("id")
@@ -535,6 +669,7 @@ async def _run_sweep(mocks: _SweepMocks, inputs: SweepScannerInputs | None = Non
         patch("temporalio.workflow.logger", fake_logger),
         # `workflow.patched` also needs the runtime; new executions take the patched branch.
         patch("temporalio.workflow.patched", return_value=patched),
+        patch("temporalio.workflow.unsafe.is_replaying", return_value=False),
     ):
         await SweepScannerWorkflow().run(inputs or _sweep_inputs())
 
@@ -552,6 +687,7 @@ async def test_empty_batch_skips_dispatch_and_advance() -> None:
     assert [fn for fn, _ in mocks.activity_calls] == [
         evaluate_due_vision_actions_activity,
         refresh_prompt_suggestion_activity,
+        check_scanner_budget_activity,
         count_in_flight_by_team_activity,
         find_scanner_candidates_activity,
     ]
@@ -746,11 +882,49 @@ async def test_inflight_cap_gates_the_sweep(
         assert [fn for fn, _ in mocks.activity_calls] == [
             evaluate_due_vision_actions_activity,
             refresh_prompt_suggestion_activity,
+            check_scanner_budget_activity,
             count_in_flight_by_team_activity,
         ]
         assert mocks.child_calls == []
     else:
         assert find_calls[0].candidate_limit == expected_candidate_limit
+
+
+@pytest.mark.asyncio
+async def test_capped_scanner_skips_the_sweep_entirely() -> None:
+    mocks = _SweepMocks(
+        activity_results={
+            check_scanner_budget_activity: CheckScannerBudgetOutput(capped=True),
+            find_scanner_candidates_activity: FindScannerCandidatesOutput(candidates=[], saturated=False),
+        },
+    )
+
+    await _run_sweep(mocks)
+
+    called = [fn for fn, _ in mocks.activity_calls]
+    # Capped means no session scans; the heartbeats spend no scanner credits, so they still run.
+    assert evaluate_due_vision_actions_activity in called
+    assert refresh_prompt_suggestion_activity in called
+    assert find_scanner_candidates_activity not in called
+    assert count_in_flight_by_team_activity not in called
+    assert mocks.child_calls == []
+
+
+@pytest.mark.asyncio
+async def test_budget_check_failure_does_not_fail_the_sweep() -> None:
+    # A rolling deploy can land the activity on a worker without it registered; the gate fails
+    # open rather than erroring the whole sweep.
+    mocks = _SweepMocks(
+        activity_results={
+            check_scanner_budget_activity: RuntimeError("activity type not registered"),
+            find_scanner_candidates_activity: FindScannerCandidatesOutput(candidates=[], saturated=False),
+        },
+    )
+
+    await _run_sweep(mocks)
+
+    called = [fn for fn, _ in mocks.activity_calls]
+    assert find_scanner_candidates_activity in called
 
 
 @pytest.mark.asyncio
@@ -770,6 +944,8 @@ async def test_unpatched_sweep_replays_legacy_scanner_counter() -> None:
     called = [fn for fn, _ in mocks.activity_calls]
     assert count_in_flight_applies_activity in called
     assert count_in_flight_by_team_activity not in called
+    # The budget gate is patched too, so a pre-deploy sweep replays its history without it.
+    assert check_scanner_budget_activity not in called
     find_calls = [inp for fn, inp in mocks.activity_calls if fn == find_scanner_candidates_activity]
     assert find_calls[0].candidate_limit == MAX_IN_FLIGHT_APPLIES_PER_SCANNER - 3
 
@@ -791,7 +967,8 @@ async def test_sweep_dispatches_a_child_per_due_vision_action() -> None:
 
     started = {call["id"] for call in mocks.child_calls}
     assert started == {build_process_vision_action_workflow_id(d.vision_action_id) for d in due}
-    # Dispatch happens before the session scan, so the children start even with no candidates.
+    # Dispatch happens first, before the budget gate and the session scan, so the children
+    # start even with no candidates.
     assert evaluate_due_vision_actions_activity == mocks.activity_calls[0][0]
 
 

@@ -34,6 +34,7 @@ __all__ = [
     "bind_data_modeling_log_context",
     "clear_node_suspension",
     "clear_node_suspension_for_engine",
+    "count_leading_failures",
     "is_externally_aborted",
     "is_node_suspended",
     "is_suspension_enforced",
@@ -143,7 +144,7 @@ def update_node_system_properties(
     node.properties = properties
 
 
-def _count_leading_failures(saved_query_id: UUID, engine: str, *, since: str | None = None) -> int:
+def count_leading_failures(saved_query_id: UUID, engine: str, *, since: str | None = None) -> int:
     jobs = DataModelingJob.objects.filter(saved_query_id=saved_query_id, engine=str(engine)).exclude(
         # a skipped node never ran, so it is evidence of neither health nor failure. Counting it
         # either way lets an upstream outage decide whether a broken node ever gets suspended.
@@ -179,7 +180,7 @@ def maybe_suspend_node_for_engine(
         if is_node_suspended(node, engine):
             return False
         since = suspension_reset_at(node, engine)
-        if _count_leading_failures(saved_query_id, engine, since=since) < CONSECUTIVE_FAILURES_TO_SUSPEND:
+        if count_leading_failures(saved_query_id, engine, since=since) < CONSECUTIVE_FAILURES_TO_SUSPEND:
             return False
         fingerprint = query_fingerprint(
             DataWarehouseSavedQuery.objects.filter(id=saved_query_id).values_list("query", flat=True).first()

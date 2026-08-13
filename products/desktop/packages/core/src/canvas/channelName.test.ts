@@ -51,4 +51,13 @@ describe("validateChannelName", () => {
       );
     },
   );
+
+  // A space taking either of the private space's names wears its lock and sits
+  // in its place in the list, which is a space impersonating yours.
+  it.each(["personal", "me", "  personal  "])(
+    "reserves %j for the private space",
+    (name) => {
+      expect(validateChannelName(name)).toContain("reserved");
+    },
+  );
 });

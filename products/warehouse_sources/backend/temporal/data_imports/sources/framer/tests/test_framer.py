@@ -1,5 +1,8 @@
+import os
 import json
 import math
+import socket
+import threading
 from collections import deque
 from collections.abc import Iterable
 from datetime import UTC, datetime
@@ -72,6 +75,51 @@ class FakeFramerServer:
 
     def close(self) -> None:
         self.closed = True
+
+
+class FakeConnectProxy:
+    """In-memory CONNECT proxy with a configurable status line, so tests can speak the
+    `HTTP/1.0 200 OK` that goproxy-based egress proxies (Smokescreen) answer with."""
+
+    def __init__(self, status_line: str) -> None:
+        self.status_line = status_line
+        self.connect_request = ""
+        self.tunneled = b""
+        self._server = socket.socket()
+        self._server.settimeout(10)
+        self._server.bind(("127.0.0.1", 0))
+        self._server.listen(1)
+        self.port = self._server.getsockname()[1]
+        self._thread = threading.Thread(target=self._serve, daemon=True)
+        self._thread.start()
+
+    def _serve(self) -> None:
+        connection, _ = self._server.accept()
+        connection.settimeout(10)
+        try:
+            request = b""
+            while b"\r\n\r\n" not in request:
+                request += connection.recv(4096)
+            self.connect_request = request.decode()
+            connection.sendall(f"{self.status_line}\r\n\r\n".encode())
+            while data := connection.recv(4096):
+                self.tunneled += data
+        except OSError:
+            pass
+        finally:
+            connection.close()
+
+    def join(self) -> None:
+        self._thread.join(timeout=10)
+        self._server.close()
+
+
+@pytest.fixture(autouse=True)
+def no_ambient_proxy(monkeypatch: pytest.MonkeyPatch) -> None:
+    # The client resolves proxies from process env, so an ambient HTTP(S)_PROXY on the
+    # host would reroute every connect in this file through a real proxy.
+    for name in [key for key in os.environ if key.lower().endswith("_proxy")]:
+        monkeypatch.delenv(name)
 
 
 def make_client(server: FakeFramerServer) -> FramerClient:
@@ -255,6 +303,45 @@ class TestFramer:
         server.enqueue_raw(json.dumps({"$chunk": 1, "id": "c1", "seq": 0, "data": full[:middle]}))
         server.enqueue_raw(json.dumps({"$chunk": 1, "id": "c1", "seq": -1, "data": full[middle:]}))
         assert client.call("getCollections") == [{"id": "big"}]
+
+    @parameterized.expand(
+        [
+            ("HTTP/1.0 200 OK",),  # goproxy/Smokescreen success line, rejected by websockets < 17
+            ("HTTP/1.1 200 Connection established",),
+        ]
+    )
+    def test_client_tunnels_through_env_configured_proxy(self, status_line: str) -> None:
+        proxy = FakeConnectProxy(status_line)
+        server = FakeFramerServer()
+        with pytest.MonkeyPatch.context() as patcher:
+            patcher.setenv("HTTPS_PROXY", f"http://pod:x@127.0.0.1:{proxy.port}")
+            client = FramerClient(PROJECT_ID, "test-key", protocol_version="0.1.29", connect_fn=server)
+            client.connect()
+        client.close()
+        assert proxy.connect_request.startswith("CONNECT api.framer.com:443 ")
+        assert "Proxy-Authorization: Basic" in proxy.connect_request
+        sock = server.connect_kwargs["sock"]
+        sock.sendall(b"tunneled")
+        sock.close()
+        proxy.join()
+        assert proxy.tunneled == b"tunneled"
+
+    def test_client_wraps_proxy_denial_as_retryable(self) -> None:
+        proxy = FakeConnectProxy("HTTP/1.0 407 Request rejected by proxy")
+        server = FakeFramerServer()
+        with pytest.MonkeyPatch.context() as patcher:
+            patcher.setenv("HTTPS_PROXY", f"http://127.0.0.1:{proxy.port}")
+            client = FramerClient(PROJECT_ID, "test-key", protocol_version="0.1.29", connect_fn=server)
+            with pytest.raises(FramerAPIError) as exc_info:
+                client.connect()
+        proxy.join()
+        assert exc_info.value.code == "PROXY"
+        assert exc_info.value.retryable
+
+    def test_client_connects_directly_without_proxy(self) -> None:
+        server = FakeFramerServer()
+        make_client(server)
+        assert "sock" not in server.connect_kwargs
 
     def test_validate_credentials_success(self) -> None:
         server = FakeFramerServer(methods={"getProjectInfo2": {"id": PROJECT_ID, "name": "Site"}})

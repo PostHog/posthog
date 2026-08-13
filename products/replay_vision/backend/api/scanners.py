@@ -1,3 +1,4 @@
+import json
 from typing import Any, NoReturn, cast
 
 from django.db import IntegrityError
@@ -44,6 +45,7 @@ from products.replay_vision.backend.api.filters import (
 from products.replay_vision.backend.api.trigger import (
     WorkflowStartOutcome,
     check_observation_quota,
+    check_scanner_quota,
     check_team_in_flight_capacity,
     start_apply_scanner_workflow,
 )
@@ -91,12 +93,14 @@ from products.replay_vision.backend.scanner_config import (
 from products.replay_vision.backend.scanning import MAX_SESSIONS_PER_SCAN, run_inline_scan, scan_existing_scanner
 from products.replay_vision.backend.session_limits import MAX_SESSION_ID_LENGTH
 from products.replay_vision.backend.tag_suggestions import SuggestionError, suggest_classifier_tags
+from products.replay_vision.backend.temporal.metrics import record_scanner_limit_reached
 
 # Date is set by the schedule at trigger time, not by the user — strip on save.
 _QUERY_FIELDS_TO_STRIP = ("date_from", "date_to")
 
-# Size caps enforced at the write boundary; scanner_config is copied into every observation's snapshot.
+# Size caps enforced at the write boundary; scanner_config and query are copied into every observation's snapshot.
 _MAX_DESCRIPTION_LENGTH = 1_000
+_MAX_QUERY_BYTES = 50_000
 
 logger = structlog.get_logger(__name__)
 
@@ -482,6 +486,10 @@ class ReplayScannerSerializer(UserAccessControlSerializerMixin, serializers.Mode
             raise serializers.ValidationError({"query": "Recording filter is invalid."})
         # Persist exactly what the user sent (validated), minus the date keys the schedule controls.
         attrs["query"] = {k: v for k, v in attrs["query"].items() if k not in _QUERY_FIELDS_TO_STRIP}
+        if len(json.dumps(attrs["query"], separators=(",", ":")).encode()) > _MAX_QUERY_BYTES:
+            raise serializers.ValidationError(
+                {"query": f"Recording filter is too large. Keep it under {_MAX_QUERY_BYTES // 1000} KB."}
+            )
 
     def to_representation(self, instance: ReplayScanner) -> dict[str, Any]:
         data = super().to_representation(instance)
@@ -694,13 +702,37 @@ class ReplayScannerFilter(django_filters.FilterSet):
             raise ValidationError({"created_by": f"Non-numeric value(s) {invalid}; user IDs must be integers."})
         return queryset.filter(created_by_id__in=tokens)
 
-    @staticmethod
-    def _filter_experiment_id(queryset: QuerySet[ReplayScanner], _name: str, value: str) -> QuerySet[ReplayScanner]:
+    def _filter_experiment_id(
+        self, queryset: QuerySet[ReplayScanner], _name: str, value: str
+    ) -> QuerySet[ReplayScanner]:
         # An int, not NumberFilter's Decimal, which the JSONField lookup can't serialize to JSON.
         # isdecimal, not isdigit: isdigit accepts characters like superscripts that int() rejects.
-        if not value.strip().isdecimal() or int(value) < 1:
+        # Cap at the Postgres bigint max the id column can hold: a larger value can't be a real PK,
+        # and feeding it to the id lookup below raises NumericValueOutOfRange (a 500) instead of a 400.
+        stripped = value.strip()
+        if not stripped.isdecimal() or not 1 <= int(stripped) <= 9223372036854775807:
             raise ValidationError({"experiment_id": "Must be a positive integer."})
-        return queryset.filter(experiment_targeting__experiment_id=int(value))
+        experiment_id = int(stripped)
+        # Gate on the caller's experiment access, mirroring validate_experiment_targeting and
+        # _can_view_targeted_experiment: without it, a scanner-viewer could pass ?experiment_id= to
+        # confirm (by match count and returned scanner names) that a scanner targets an experiment
+        # they can't otherwise see. An inaccessible or nonexistent id reads as no matches.
+        if not self._caller_accessible_experiments().filter(id=experiment_id).exists():
+            return queryset.none()
+        return queryset.filter(experiment_targeting__experiment_id=experiment_id)
+
+    def _caller_accessible_experiments(self) -> QuerySet[Experiment]:
+        # Reuse the viewset's resolved team and access control rather than reparsing the URL:
+        # view.team_id handles @current and token-derived teams, and user_access_control is already
+        # built. The scanner queryset is already scoped to this same team.
+        view = self.request.parser_context.get("view") if self.request else None
+        if view is None:
+            return Experiment.objects.none()
+        team_experiments = Experiment.objects.filter(team_id=view.team_id)
+        access = view.user_access_control
+        if access is None:
+            return team_experiments
+        return access.filter_queryset_by_access_level(team_experiments)
 
     @staticmethod
     def _filter_search(queryset: QuerySet[ReplayScanner], _name: str, value: str) -> QuerySet[ReplayScanner]:
@@ -763,8 +795,9 @@ class BulkObserveResultSerializer(serializers.Serializer):
             ("started", "Started"),
             ("already_running", "Already running"),
             ("already_scanned", "Already scanned"),
-            ("skipped_limit", "Skipped - in-flight limit reached"),
-            ("skipped_quota", "Skipped - monthly credit quota reached"),
+            ("skipped_limit", "Skipped, in-flight limit reached"),
+            ("skipped_quota", "Skipped, the org's credit quota for this period was reached"),
+            ("skipped_scanner_limit", "Skipped, scanner's own credit limit reached"),
             ("failed", "Failed to start"),
         ],
         help_text=(
@@ -772,7 +805,8 @@ class BulkObserveResultSerializer(serializers.Serializer):
             "already in flight (no-op, not recharged); 'already_scanned' - this scanner already has a "
             "finished observation for this session, so nothing was started and nothing was charged (read "
             "it back, or use the retry action to run it again); 'skipped_limit' - the in-flight cap was "
-            "reached before this session; 'skipped_quota' - the monthly credit quota would be exceeded; "
+            "reached before this session; 'skipped_quota' - the org's credit quota for this period would "
+            "be exceeded; 'skipped_scanner_limit' - this scanner's own credit limit would be exceeded; "
             "'failed' - the workflow failed to start."
         ),
     )
@@ -1310,6 +1344,9 @@ class ReplayScannerViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, vi
         except QuotaLimitExceeded:
             self._report_quota_exhausted(scanner, "on_demand")
             raise
+        # Deliberately outside the analytics wrapper above: that event means "the org ran out of
+        # credits", and firing it for a self-imposed per-scanner cap would corrupt that metric.
+        check_scanner_quota(scanner)
         check_team_in_flight_capacity(self.team.id)
 
         body = ObserveRequestSerializer(data=request.data)
@@ -1388,6 +1425,8 @@ class ReplayScannerViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, vi
         user = cast(User, request.user)
 
         started, results = scan_existing_scanner(scanner=scanner, session_ids=session_ids, user=user)
+        if any(r["scan_outcome"] == "skipped_scanner_limit" for r in results):
+            record_scanner_limit_reached("bulk")
 
         report_user_action(
             user,

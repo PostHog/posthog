@@ -92,6 +92,7 @@ from products.feature_flags.backend.encrypted_flag_payloads import (
     get_decrypted_flag_payloads_protected,
 )
 from products.feature_flags.backend.flag_analytics import increment_request_count
+from products.feature_flags.backend.flag_limits import get_max_feature_flags_for_team
 from products.feature_flags.backend.flag_status import (
     FeatureFlagStatusChecker,
     exclude_archived_unless_requested,
@@ -590,7 +591,7 @@ def check_flag_limits_for_team(
     if not is_create:
         return
 
-    count_limit = settings.MAX_FEATURE_FLAGS_PER_TEAM
+    count_limit = get_max_feature_flags_for_team(team_id)
     flag_count = FeatureFlag.objects.filter(team_id=team_id).count()
 
     if flag_count >= count_limit:
