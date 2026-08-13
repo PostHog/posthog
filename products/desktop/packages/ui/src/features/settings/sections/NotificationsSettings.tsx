@@ -36,7 +36,6 @@ import {
   SettingsSection,
 } from "@posthog/ui/features/settings/components/SettingsCard";
 import { SettingsSelect } from "@posthog/ui/features/settings/components/SettingsSelect";
-import { openSettings } from "@posthog/ui/features/settings/hooks/useOpenSettings";
 import { AddCustomSoundDialog } from "@posthog/ui/features/settings/sections/AddCustomSoundDialog";
 import {
   type CompletionSound,
@@ -430,25 +429,6 @@ export function NotificationsSettings() {
       />
 
       {spokenNarrationEnabled && <VoiceSection />}
-
-      {/* Slack config lives in the dedicated Slack section; link out rather than duplicate the controls. */}
-      <SettingsSection label="Slack">
-        <SettingsCard>
-          <SettingsCardRow
-            label="Slack DMs for comments"
-            description="Get a direct message when someone mentions you, replies to your comment, or comments on something you own"
-          >
-            <Button
-              type="button"
-              variant="outline"
-              size="sm"
-              onClick={() => openSettings("slack")}
-            >
-              Manage in Slack settings
-            </Button>
-          </SettingsCardRow>
-        </SettingsCard>
-      </SettingsSection>
 
       <TestSection
         bus={bus}
