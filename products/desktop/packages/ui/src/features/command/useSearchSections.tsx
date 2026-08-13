@@ -1,4 +1,5 @@
 import { GitDiffIcon } from "@phosphor-icons/react";
+import { channelDisplayName } from "@posthog/core/canvas/channelName";
 import type { CommandMenuAction } from "@posthog/shared/analytics-events";
 import type { Task, TaskSearchResult } from "@posthog/shared/domain-types";
 import { channelGlyph } from "@posthog/ui/features/canvas/components/channelGlyph";
@@ -79,9 +80,15 @@ export function useSearchSections({
       }
 
       const task = result.task_id ? tasksById.get(result.task_id) : undefined;
+      // Remote search answers with the backend's own name, so a channel row is
+      // the one result that has not been through the channel list.
+      const title =
+        result.kind === "channel"
+          ? channelDisplayName(result.title)
+          : result.title;
       items.push({
         id: `search-${result.id}`,
-        label: result.title,
+        label: title,
         detail: result.subtitle || undefined,
         detailPrefix: "",
         keywords: `${remoteQuery} ${result.subtitle} ${Object.values(result.metadata).join(" ")}`,
@@ -89,7 +96,7 @@ export function useSearchSections({
           result.kind === "pull_request" ? (
             <GitDiffIcon size={12} className="text-gray-11" />
           ) : result.kind === "channel" ? (
-            channelGlyph(result.title, {
+            channelGlyph(title, {
               size: 12,
               space: spacesLayout,
               className: "text-muted-foreground",
