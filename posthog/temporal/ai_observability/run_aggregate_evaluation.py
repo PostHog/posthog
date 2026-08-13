@@ -29,6 +29,7 @@ from posthog.hogql.parser import parse_select
 
 from posthog.clickhouse.client.connection import Workload
 from posthog.clickhouse.query_tagging import Product, tags_context
+from posthog.dataclasses import frozen
 from posthog.hogql_queries.ai.ai_table_resolver import query_ai_events
 from posthog.models.team import Team
 from posthog.temporal.ai_observability.evaluation_errors import is_terminal_user_error_result
@@ -299,7 +300,7 @@ def resolve_poll_interval(primary_seconds: int, poll_budget_seconds: int) -> int
     return max(primary_seconds // 4, budget_floor, 10)
 
 
-@dataclass(frozen=True, kw_only=True, slots=True)
+@frozen
 class SettlePlan:
     strategy: Literal["inactivity", "fixed_window"]
     # The quiet period under inactivity, the window under fixed_window.

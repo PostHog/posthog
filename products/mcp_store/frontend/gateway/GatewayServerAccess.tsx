@@ -16,7 +16,7 @@ import { dayjs } from 'lib/dayjs'
 
 import { defaultAgentGrantPolicy, isPolicyStateAllowedByCeiling } from './gatewayPolicyUtils'
 import { AgentToolPolicyState, gatewayServerLogic } from './gatewayServerLogic'
-import { toProfileUser } from './gatewayUtils'
+import { AgentGrantScopeControl, RemoveAllSharesButton, toProfileUser } from './gatewayUtils'
 import { agentServerAccessKey, mcpGatewayLogic, memberServerAccessKey } from './mcpGatewayLogic'
 
 const AGENT_POLICY_OPTIONS = [
@@ -31,6 +31,7 @@ export function GatewayAccessSection(): JSX.Element | null {
         agentServerAccessLoadingKeys,
         allServersEnabledLoading,
         canManageAgentAccess,
+        currentUserId,
         isAdmin,
         memberServerAccessLoadingKeys,
         serverEnabledLoadingIds,
@@ -151,6 +152,11 @@ export function GatewayAccessSection(): JSX.Element | null {
                     Share access with an agent
                 </LemonButton>
             </div>
+            <div className="text-sm text-secondary">
+                You share your own {server.name} connection, and each teammate shares theirs. Pick whether an agent uses
+                it only for your runs or for every agent run in this project. Teammates can't use the connection
+                directly, but agents can act through it on their runs.
+            </div>
 
             {server.agents.length === 0 ? (
                 <div className="border border-dashed rounded p-3 text-sm text-secondary">
@@ -158,41 +164,67 @@ export function GatewayAccessSection(): JSX.Element | null {
                 </div>
             ) : (
                 <div className="border rounded divide-y">
-                    {server.agents.map((agent) => (
-                        <div key={agent.service_account_id} className="flex items-center gap-3 p-2">
-                            <div className="flex size-8 shrink-0 items-center justify-center rounded-full bg-surface-secondary">
-                                <IconSparkles />
-                            </div>
-                            <div className="flex-1 min-w-0">
-                                <div className="font-semibold truncate">{agent.name}</div>
-                                <div className="text-xs text-secondary truncate">
-                                    <span className="font-mono">{agent.handle}</span>
-                                    {agent.granted_by
-                                        ? ` · shared by ${agent.granted_by.first_name || agent.granted_by.email}`
-                                        : ' · shared with this agent'}
-                                </div>
-                            </div>
-                            <LemonButton
-                                size="xsmall"
-                                type="tertiary"
-                                status="danger"
-                                icon={<IconX />}
-                                loading={agentServerAccessLoadingKeys.has(
-                                    agentServerAccessKey(agent.service_account_id, server.id)
-                                )}
-                                onClick={() => setAgentServerAccess(agent.service_account_id, server.id, false)}
+                    {server.agents.map((agent) => {
+                        const sharedByYou = agent.user.id === currentUserId
+                        const agentShareCount = server.agents.filter(
+                            (candidate) => candidate.service_account_id === agent.service_account_id
+                        ).length
+                        return (
+                            <div
+                                key={`${agent.service_account_id}:${agent.user.id}`}
+                                className="flex items-center gap-3 p-2"
                             >
-                                Revoke
-                            </LemonButton>
-                            <LemonTag type={agent.status === 'active' ? 'success' : 'muted'} size="small">
-                                {agent.status === 'active'
-                                    ? agent.last_active_at
-                                        ? `Active ${dayjs(agent.last_active_at).fromNow()}`
-                                        : 'Active'
-                                    : 'Paused'}
-                            </LemonTag>
-                        </div>
-                    ))}
+                                <div className="flex size-8 shrink-0 items-center justify-center rounded-full bg-surface-secondary">
+                                    <IconSparkles />
+                                </div>
+                                <div className="flex-1 min-w-0">
+                                    <div className="font-semibold truncate">{agent.name}</div>
+                                    <div className="text-xs text-secondary truncate">
+                                        <span className="font-mono">{agent.handle}</span>
+                                        {sharedByYou
+                                            ? ' · shared by you'
+                                            : ` · shared ${agent.scope === 'team' ? 'to the team ' : ''}by ${agent.user.first_name || agent.user.email}`}
+                                    </div>
+                                </div>
+                                {sharedByYou && (
+                                    <AgentGrantScopeControl
+                                        accountId={agent.service_account_id}
+                                        serverId={server.id}
+                                        scope={agent.scope}
+                                    />
+                                )}
+                                {sharedByYou ? (
+                                    <LemonButton
+                                        size="xsmall"
+                                        type="tertiary"
+                                        status="danger"
+                                        icon={<IconX />}
+                                        loading={agentServerAccessLoadingKeys.has(
+                                            agentServerAccessKey(agent.service_account_id, server.id)
+                                        )}
+                                        onClick={() => setAgentServerAccess(agent.service_account_id, server.id, false)}
+                                    >
+                                        Revoke
+                                    </LemonButton>
+                                ) : (
+                                    <RemoveAllSharesButton
+                                        accountId={agent.service_account_id}
+                                        accountName={agent.name}
+                                        serverId={server.id}
+                                        serverName={server.name}
+                                        shareCount={agentShareCount}
+                                    />
+                                )}
+                                <LemonTag type={agent.status === 'active' ? 'success' : 'muted'} size="small">
+                                    {agent.status === 'active'
+                                        ? agent.last_active_at
+                                            ? `Active ${dayjs(agent.last_active_at).fromNow()}`
+                                            : 'Active'
+                                        : 'Paused'}
+                                </LemonTag>
+                            </div>
+                        )
+                    })}
                 </div>
             )}
         </div>
@@ -285,7 +317,7 @@ function GatewayAgentAccessModal(): JSX.Element | null {
                                       : undefined
                                 : availableAgentAccounts.length
                                   ? 'Choose an agent'
-                                  : 'Every available agent already has access')
+                                  : 'You already share this server with every available agent')
                         }
                     >
                         Share access
