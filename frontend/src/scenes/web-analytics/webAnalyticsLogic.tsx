@@ -3034,6 +3034,10 @@ export const webAnalyticsLogic = kea<webAnalyticsLogicType>([
                     return []
                 }
 
+                if (productTab === ProductTab.PAGE_PERFORMANCE) {
+                    return []
+                }
+
                 return allTiles
                     .filter(isNotNil)
                     .filter((tile) =>
@@ -3093,6 +3097,33 @@ export const webAnalyticsLogic = kea<webAnalyticsLogicType>([
                     urlParams.set('interval', interval ?? '')
                 }
                 return `/web/bots${urlParams.toString() ? '?' + urlParams.toString() : ''}`
+            } else if (productTab === ProductTab.PAGE_PERFORMANCE) {
+                urlParams.delete('filters')
+                if (conversionGoal) {
+                    if ('actionId' in conversionGoal) {
+                        urlParams.set('conversionGoal.actionId', conversionGoal.actionId.toString())
+                        urlParams.delete('conversionGoal.customEventName')
+                    } else {
+                        urlParams.set('conversionGoal.customEventName', conversionGoal.customEventName)
+                        urlParams.delete('conversionGoal.actionId')
+                    }
+                } else {
+                    urlParams.delete('conversionGoal.actionId')
+                    urlParams.delete('conversionGoal.customEventName')
+                }
+                if (dateFrom !== INITIAL_DATE_FROM || dateTo !== INITIAL_DATE_TO || interval !== INITIAL_INTERVAL) {
+                    urlParams.set('date_from', dateFrom ?? '')
+                    urlParams.set('date_to', dateTo ?? '')
+                    urlParams.set('interval', interval ?? '')
+                } else {
+                    urlParams.delete('date_from')
+                    urlParams.delete('date_to')
+                    urlParams.delete('interval')
+                }
+                urlParams.set('path_cleaning', isPathCleaningEnabled.toString())
+                urlParams.set('filter_test_accounts', shouldFilterTestAccounts.toString())
+                urlParams.set('compare_filter', JSON.stringify(compareFilter))
+                return `/web/page-performance${urlParams.toString() ? '?' + urlParams.toString() : ''}`
             }
 
             // Make sure we're storing the raw filters only, or else we'll have issues with the domain/device type filters
@@ -3206,6 +3237,7 @@ export const webAnalyticsLogic = kea<webAnalyticsLogicType>([
             setProductTab: stateToUrl,
             setWebVitalsPercentile: stateToUrl,
             setIsPathCleaningEnabled: stateToUrl,
+            setShouldFilterTestAccounts: stateToUrl,
             setDomainFilter: stateToUrl,
             setDeviceTypeFilter: stateToUrl,
             setTileVisualization: stateToUrl,
@@ -3247,6 +3279,7 @@ export const webAnalyticsLogic = kea<webAnalyticsLogicType>([
                     ProductTab.HEALTH,
                     ProductTab.LIVE,
                     ProductTab.BOT_ANALYTICS,
+                    ProductTab.PAGE_PERFORMANCE,
                 ].includes(productTab)
             ) {
                 return
@@ -3256,6 +3289,14 @@ export const webAnalyticsLogic = kea<webAnalyticsLogicType>([
             if (
                 productTab === ProductTab.BOT_ANALYTICS &&
                 !values.featureFlags[FEATURE_FLAGS.WEB_ANALYTICS_BOT_ANALYSIS]
+            ) {
+                router.actions.replace(urls.webAnalytics())
+                return
+            }
+
+            if (
+                productTab === ProductTab.PAGE_PERFORMANCE &&
+                !values.featureFlags[FEATURE_FLAGS.WEB_ANALYTICS_PAGE_PERFORMANCE]
             ) {
                 router.actions.replace(urls.webAnalytics())
                 return
@@ -3277,7 +3318,10 @@ export const webAnalyticsLogic = kea<webAnalyticsLogicType>([
                     if (botLogic && !objectsEqual(parsedFilters, botLogic.values.rawBotAnalyticsFilters)) {
                         botLogic.actions.setBotAnalyticsFilters(parsedFilters)
                     }
-                } else if (!objectsEqual(parsedFilters, values.rawWebAnalyticsFilters)) {
+                } else if (
+                    productTab !== ProductTab.PAGE_PERFORMANCE &&
+                    !objectsEqual(parsedFilters, values.rawWebAnalyticsFilters)
+                ) {
                     actions.setWebAnalyticsFilters(parsedFilters)
                 }
             }
