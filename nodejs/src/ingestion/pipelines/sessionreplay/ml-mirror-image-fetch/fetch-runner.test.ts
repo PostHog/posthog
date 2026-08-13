@@ -1,4 +1,4 @@
-import { FetchCandidate } from './collected-urls-record'
+import { FetchCandidate, MAX_HOPS } from './collected-urls-record'
 import { FetchRunner, FetchRunnerOptions, isTerminal } from './fetch-runner'
 import { HostBudget } from './host-budget'
 import { FetchOutcome, ImageFetchResult, ImageFetcher } from './image-fetcher'
@@ -22,6 +22,8 @@ function candidate(domain: string, index: number): FetchCandidate {
         domain,
         pseudoTeam: 'team',
         capturedAtMs: 1000,
+        hopsRemaining: MAX_HOPS,
+        notBeforeMs: 0,
     }
 }
 
@@ -41,6 +43,8 @@ class FakeFetcher implements ImageFetcher {
         return { outcome: 'ok', redirects: 0, ...this.answer(url) }
     }
 }
+
+const FAR_FUTURE = 10 ** 12
 
 function runner(
     fetcher: ImageFetcher,
@@ -214,6 +218,50 @@ describe('FetchRunner', () => {
         )
 
         expect(attempts.some((a) => a.outcome === 'rate_limited')).toBe(expectHeld)
+    })
+
+    it('does not send a request whose domain was blocked while it waited (requirement 5)', async () => {
+        // The grant is made before the wait. A Retry-After arriving during the wait must stop the
+        // request, because the site asked to be left alone after we decided to send.
+        const budget = new HostBudget({
+            requestsPerSecond: 1,
+            burst: 1,
+            maxConcurrent: 6,
+            breakerFailures: 100,
+            breakerCooldownMs: 60_000,
+            breakerMaxCooldownMs: 600_000,
+            maxTrackedDomains: 100,
+        })
+        const fetcher = new FakeFetcher(() => ({ outcome: 'ok' }))
+        // The burst token carries the first URL. The second waits a second for its token, and the
+        // site says stop while it is waiting.
+        setTimeout(() => budget.recordRetryAfter('slow.com', Date.now(), 60_000), 5)
+
+        const attempts = await runner(fetcher, { maxConcurrentPerDomain: 1 }, budget).run(
+            [0, 1].map((index) => candidate('slow.com', index))
+        )
+
+        expect(fetcher.calls).toHaveLength(1)
+        expect(attempts.filter((a) => a.outcome === 'rate_limited')).toHaveLength(1)
+    })
+
+    it('returns the token of a request it did not send (requirement 5)', () => {
+        const budget = new HostBudget({
+            requestsPerSecond: 1,
+            burst: 2,
+            maxConcurrent: 6,
+            breakerFailures: 100,
+            breakerCooldownMs: 60_000,
+            breakerMaxCooldownMs: 600_000,
+            maxTrackedDomains: 100,
+        })
+        budget.take('example.com', 1000, FAR_FUTURE)
+        budget.take('example.com', 1000, FAR_FUTURE)
+
+        budget.returnGrant('example.com', 1000)
+
+        // A request that never went out did not use the rate, so the token comes back.
+        expect(budget.take('example.com', 1000, FAR_FUTURE)).toEqual({ granted: true, waitMs: 0 })
     })
 
     it.each([

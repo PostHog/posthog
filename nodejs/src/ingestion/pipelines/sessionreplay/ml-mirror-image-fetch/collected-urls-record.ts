@@ -23,7 +23,19 @@ export interface FetchCandidate {
     domain: string
     pseudoTeam: string
     capturedAtMs: number
+    /** Moves this URL may still make. A redirect, a republish, and a retry each spend one. Requirement 11. */
+    hopsRemaining: number
+    /** Epoch ms before which this URL must not be fetched. Zero means now. Requirement 15. */
+    notBeforeMs: number
 }
+
+/**
+ * A URL may move this many times before the lane gives up on it.
+ *
+ * One budget rather than one counter for redirects and another for retries, because a chain that
+ * alternates between the two would otherwise never end. Requirement 11.
+ */
+export const MAX_HOPS = 10
 
 export type RecordParse =
     | { ok: true; candidates: FetchCandidate[]; urlCount: number; rejected: { reason: UrlDropReason }[] }
@@ -60,7 +72,7 @@ export function parseCollectedUrlsRecord(value: Buffer | null, key: string | nul
     if (parsed.v !== 1) {
         return { ok: false, reason: 'unsupported_version' }
     }
-    const { pseudoTeam, capturedAtMs, urls } = parsed
+    const { pseudoTeam, capturedAtMs, urls, hopsRemaining, notBeforeMs } = parsed
     if (typeof pseudoTeam !== 'string' || !pseudoTeam || typeof capturedAtMs !== 'number' || !Array.isArray(urls)) {
         return { ok: false, reason: 'malformed' }
     }
@@ -73,6 +85,12 @@ export function parseCollectedUrlsRecord(value: Buffer | null, key: string | nul
     if (urls.length > MAX_URLS_PER_RECORD) {
         return { ok: false, reason: 'oversized_record' }
     }
+
+    // Absent means a record straight from the mirror, which has made no moves and may go now. Both
+    // fields are optional additions rather than a new version, so a consumer that predates them
+    // reads such a record as it always did: full budget, fetch immediately.
+    const hops = clampHops(hopsRemaining)
+    const notBefore = typeof notBeforeMs === 'number' && Number.isFinite(notBeforeMs) ? notBeforeMs : 0
 
     const candidates: FetchCandidate[] = []
     const rejected: { reason: UrlDropReason }[] = []
@@ -105,9 +123,19 @@ export function parseCollectedUrlsRecord(value: Buffer | null, key: string | nul
             domain: key,
             pseudoTeam,
             capturedAtMs,
+            hopsRemaining: hops,
+            notBeforeMs: notBefore,
         })
     }
     return { ok: true, candidates, urlCount: urls.length, rejected }
+}
+
+/** A record naming more hops than the budget allows is treated as a full budget, so a bad producer cannot buy itself extra trips. */
+function clampHops(value: unknown): number {
+    if (typeof value !== 'number' || !Number.isFinite(value)) {
+        return MAX_HOPS
+    }
+    return Math.max(0, Math.min(MAX_HOPS, Math.floor(value)))
 }
 
 function hostBelongsToDomain(host: string, domain: string): boolean {

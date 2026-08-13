@@ -227,6 +227,15 @@ export class FetchRunner implements FetchPass {
                 ImageFetchRequestMetrics.observeBudgetWait(grant.waitMs / 1000)
                 if (grant.waitMs > 0) {
                     await delay(grant.waitMs)
+                    // The grant was made before the wait. A Retry-After or an open breaker can
+                    // arrive during it, and the deadline can pass. Requirement 5.
+                    const stale = this.staleAfterWait(domain, deadlineMs)
+                    if (stale) {
+                        this.budget.returnGrant(domain, Date.now())
+                        attempts.push({ candidate, outcome: stale })
+                        ImageFetchRequestMetrics.incOutcome(stale)
+                        continue
+                    }
                 }
                 attempts.push(await this.fetchOne(candidate, deadlineMs))
             }
@@ -234,6 +243,16 @@ export class FetchRunner implements FetchPass {
 
         const workers = Math.min(this.options.maxConcurrentPerDomain, backQueue.length)
         await Promise.all(Array.from({ length: workers }, () => worker()))
+    }
+
+    /** Why a granted request must not go out after its wait, or null when it still may. Requirement 5. */
+    private staleAfterWait(domain: string, deadlineMs: number): ShedReason | null {
+        const nowMs = Date.now()
+        const blocked = this.budget.blockedReason(domain, nowMs)
+        if (blocked) {
+            return blocked
+        }
+        return nowMs > deadlineMs ? 'deadline' : null
     }
 
     /**

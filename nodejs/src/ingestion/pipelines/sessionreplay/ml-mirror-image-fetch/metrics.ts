@@ -196,6 +196,44 @@ export class ImageFetchRequestMetrics {
         help: 'Domains dropped from the rate-limit map while they were still blocked. Each one resumes traffic to a site that asked us to wait, so a rising value means the tracked-domain limit is too low',
     })
 
+    /**
+     * URLs put back into the frontier rather than finished with.
+     *
+     * Read against `ml_image_fetch_requests_total` this is the amplification factor: every republish
+     * is a message the lane will read again. A rate approaching the request rate means most work is
+     * going around rather than completing. Requirement 27.
+     */
+    private static readonly republished = new Counter({
+        name: 'ml_image_fetch_republished_total',
+        help: 'URLs published back to Kafka, by why and to which topic. "redirect" left the registrable domain, so another consumer owns its budget. "retry" hit a transient failure and waits in a delay topic',
+        labelNames: ['reason', 'topic'],
+    })
+    private static readonly republishFailed = new Counter({
+        name: 'ml_image_fetch_republish_failed_total',
+        help: 'URLs that could not be put back. Each one is dropped without a crawl history entry, so it returns only when a session refers to it again',
+        labelNames: ['reason'],
+    })
+    /**
+     * Moves a URL made before it finished.
+     *
+     * Zero is the common case: fetched on first sight. The tail shows redirect chains and retries,
+     * and anything at the budget is a URL the lane gave up on. Requirement 26.
+     */
+    private static readonly hopsUsed = new Histogram({
+        name: 'ml_image_fetch_hops_used',
+        help: 'Moves one URL made before the lane finished with it. A redirect, a republish, and a retry each count one',
+        buckets: [0, 1, 2, 3, 5, 10],
+    })
+
+    public static incRepublished(reason: string, topic: string): void {
+        this.republished.labels(reason, topic).inc()
+    }
+    public static incRepublishFailed(reason: string): void {
+        this.republishFailed.labels(reason).inc()
+    }
+    public static observeHops(hops: number): void {
+        this.hopsUsed.observe(hops)
+    }
     public static observeBudget(tracked: number, blocked: number, evictedWhileBlocked: number): void {
         this.trackedDomains.set(tracked)
         this.blockedDomains.set(blocked)

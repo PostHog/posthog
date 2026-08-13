@@ -81,6 +81,29 @@ export class HostBudget {
     }
 
     /**
+     * Why the domain cannot be sent to, or null when it can.
+     *
+     * A caller that waited for a token asks again before it sends. A `Retry-After` or an open
+     * breaker can arrive during a wait, and a request that went out anyway would reach a site that
+     * had just asked to be left alone. Requirement 5.
+     */
+    public blockedReason(domain: string, nowMs: number): 'breaker_open' | 'rate_limited' | null {
+        const state = this.stateFor(domain, nowMs)
+        return state.blockedUntilMs > nowMs ? state.blockedReason : null
+    }
+
+    /**
+     * Give back a token for a request that was never sent.
+     *
+     * The rate limits what leaves this pod, so a grant that went stale during its wait must not
+     * count against the domain. Capped at the burst, so a return cannot create capacity.
+     */
+    public returnGrant(domain: string, nowMs: number): void {
+        const state = this.stateFor(domain, nowMs)
+        state.tokens = Math.min(this.options.burst, state.tokens + 1)
+    }
+
+    /**
      * Take one of the domain's connection slots, or report that they are all taken.
      *
      * The rate limit and the connection limit answer different questions: how often we may start,
