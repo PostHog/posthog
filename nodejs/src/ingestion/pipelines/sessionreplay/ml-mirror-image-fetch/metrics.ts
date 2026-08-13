@@ -21,6 +21,7 @@ export type UrlDropReason =
     | 'bad_ref'
     | 'bad_url'
     | 'foreign_domain'
+    | 'private_host'
     | 'oversized_record'
 
 export type DedupScope = 'batch' | 'pod' | 'store'
@@ -47,7 +48,7 @@ export class ImageFetchConsumerMetrics {
      */
     private static readonly dropped = new Counter({
         name: 'ml_image_fetch_consumer_dropped_total',
-        help: 'URLs refused before dedup, by reason: "stale" (older than the age limit), "malformed" / "unsupported_version" / "oversized_record" (the record did not parse), "bad_ref" / "bad_url" (an entry inside a record did not parse), "foreign_domain" (the host sits outside the domain the record is keyed by)',
+        help: 'URLs refused before dedup, by reason: "stale" (older than the age limit), "malformed" / "unsupported_version" / "oversized_record" (the record did not parse), "bad_ref" / "bad_url" (an entry inside a record did not parse), "foreign_domain" (the key is not the registrable domain of the host), "private_host" (the host is a private address or a name that only resolves inside a network)',
         labelNames: ['reason'],
     })
     /**
@@ -126,7 +127,7 @@ export class ImageFetchRequestMetrics {
      */
     private static readonly outcomes = new Counter({
         name: 'ml_image_fetch_requests_total',
-        help: 'URLs that reached the request stage, by outcome. "deadline" and "breaker_open" were never sent, so they are the lane asking for more pods or a slower site, not a failure of the fetch itself',
+        help: 'URLs that reached the request stage, by outcome. "deadline", "breaker_open", "connection_limit" and "rate_limited" cover URLs the lane never sent, so they say the lane wants more pods or the site wants less traffic, rather than that a fetch failed',
         labelNames: ['outcome'],
     })
     private static readonly duration = new Histogram({

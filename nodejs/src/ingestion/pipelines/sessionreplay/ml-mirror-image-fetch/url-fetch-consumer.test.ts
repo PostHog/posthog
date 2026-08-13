@@ -182,6 +182,25 @@ describe('UrlFetchConsumer', () => {
         }
     )
 
+    it('records a URL that is not ready and has no hops left (requirements 12 and 24)', async () => {
+        // It cannot go round again, and nothing else holds it. Without an entry it comes back on
+        // every session that refers to the image and is dropped again each time.
+        const body = {
+            v: 1,
+            pseudoTeam: TEAM,
+            capturedAtMs: NOW,
+            notBeforeMs: NOW + 60_000,
+            hopsRemaining: 1,
+            urls: [url('a')],
+        }
+        const spent = message(Buffer.from(JSON.stringify(body)), 'example.com')
+
+        await consumer.handleBatch([spent], NOW)
+
+        expect([...crawlHistory.stored.keys()].map(hashOf)).toEqual([hash('a')])
+        expect(republished).toEqual([])
+    })
+
     it('fails the batch when a URL that is not ready cannot be sent back (requirement 21)', async () => {
         publisher = { republish: () => Promise.resolve(false) } as unknown as FrontierPublisher
         const body = { v: 1, pseudoTeam: TEAM, capturedAtMs: NOW, notBeforeMs: NOW + 60_000, urls: [url('a')] }

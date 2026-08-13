@@ -278,8 +278,14 @@ export class HostBudget {
         let oldest: string | undefined
         let scanned = 0
         for (const [domain, state] of this.domains) {
+            if (state.inFlight > 0) {
+                // Never evicted. A slot is released by domain name, so a lost entry leaks every
+                // slot it held and the domain can then hold more than its limit. The map cannot
+                // grow without a bound this way, because the pod caps its requests in flight.
+                continue
+            }
             oldest = oldest ?? domain
-            if (state.blockedUntilMs <= nowMs && state.inFlight === 0) {
+            if (state.blockedUntilMs <= nowMs) {
                 this.domains.delete(domain)
                 return
             }
@@ -288,9 +294,7 @@ export class HostBudget {
             }
         }
         if (oldest) {
-            // Counted only when the entry really was blocked. The scan above also skips a domain
-            // with connections open, and evicting one of those loses a count rather than a hold.
-            // That is a different fault, so it must not read as this one.
+            // Counted only when the entry really was blocked.
             const evicted = this.domains.get(oldest)
             this.domains.delete(oldest)
             if (evicted && evicted.blockedUntilMs > nowMs) {

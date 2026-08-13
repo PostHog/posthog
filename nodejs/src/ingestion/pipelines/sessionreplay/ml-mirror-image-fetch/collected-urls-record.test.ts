@@ -74,6 +74,23 @@ describe('parseCollectedUrlsRecord', () => {
         expect(parsed.ok && parsed.rejected).toEqual([{ reason: 'bad_url' }])
     })
 
+    it.each([
+        ['a name that only resolves inside a network', 'wiki.corp'],
+        ['a link-local address', '169.254.169.254'],
+        ['a loopback address', '127.0.0.1'],
+    ])('drops %s (requirement 35)', (_name, host) => {
+        // The connect-time address check cannot refuse a name like wiki.corp whose DNS answer is
+        // public, so this is the only place that does.
+        const value = Buffer.from(
+            `{"v":1,"pseudoTeam":"${TEAM}","capturedAtMs":1700000000000,` +
+                `"urls":[{"ref":"imageurl:${TEAM}:${HASH}","url":"https://${host}/a.png","host":"${host}"}]}`
+        )
+
+        const parsed = parseCollectedUrlsRecord(value, host)
+
+        expect(parsed.ok && parsed.rejected).toEqual([{ reason: 'private_host' }])
+    })
+
     it('accepts an ordinary timestamp', () => {
         const parsed = parseCollectedUrlsRecord(body('"capturedAtMs":1700000000000'), 'example.com')
 

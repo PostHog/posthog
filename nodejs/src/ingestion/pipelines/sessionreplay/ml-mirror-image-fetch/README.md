@@ -33,6 +33,7 @@ domain's partition.
 | Response bytes                          | one response                                      | 2 MB       |
 | Request timeout                         | one URL, redirects included                       | 10 seconds |
 | Pass deadline                           | one batch                                         | 20 seconds |
+| Pass wall time, worst case              | one batch                                         | 30 seconds |
 | Domains tracked                         | pod                                               | 20000      |
 
 Every back queue runs at the same time. This is how the pod reaches its limit rather than a
@@ -103,6 +104,12 @@ so a throw out of the pass is a defect in our own code rather than an answer abo
 consumer counts that throw, drops the batch, and commits it. A replay would meet the same defect on
 every read and stop the partition rather than recover it.
 
+**Holding a batch costs the pod.** There is no way to refuse one offset and commit the rest, so the
+fetch consumer throws, and a throw out of the poll loop shuts the pod down. Kubernetes restarts it
+and the batch replays. One failed Kafka produce, or one crawl history read the store could not
+answer, therefore restarts a pod. That is the price of not losing the URLs, and both causes are
+already conditions that stop the lane working.
+
 ### What we must be able to see
 
 25. Requests by outcome, and refusals by reason. No team label on these.
@@ -141,11 +148,15 @@ opens the connection. Both of ours work that way:
 - `httpStaticLookup` looks up the name, checks what it got, and hands those addresses to undici,
   which connects to them.
 
-**The lane repeats the collector's checks because they are cheap and because nothing below them
-does.** The host check runs again at connection time, so repeating it in the collector only keeps
-work off the topic. The scheme and port checks are different. Smokescreen never sees them, so the
-only places they happen are the collector and the lane, and both must agree. Both allow HTTPS on the
-scheme's own port and nothing else.
+**The lane repeats the collector's checks because nothing below the lane performs them.**
+Smokescreen sees an address, not a scheme, a port, or a name. So the collector and the lane are the
+only two places these run, and the two must agree. Both allow HTTPS on the scheme's own port and
+nothing else.
+
+The host check is the one worth stating plainly. An address check at connect time refuses a private
+address, so it covers `169.254.169.254`. It cannot refuse `wiki.corp`, because the name looks
+ordinary and its DNS answer can be a public address. Only a check on the name itself refuses that,
+and the collector and the lane both perform one.
 
 **A name the attacker owns can still reach any public address on port 443.** We connect, and the
 outcome metric shows whether something answered. Any port scanner learns the same thing for less
@@ -212,9 +223,12 @@ An earlier version of this lane treated an absent crawl history entry as a retry
 
 ## Dry run
 
-The lane runs every decision, and sends no request. It parses the records, applies the age limit and
-all three layers of dedup, and writes the crawl history. What it would have fetched is counted as
-`fetchable`, which is the offered request rate.
+The lane runs every decision that needs no request, and sends none. It parses the records, applies
+the age limit and all three layers of dedup, and writes the crawl history. What it would have
+fetched is counted as `fetchable`, which is the offered request rate.
+
+The host budget belongs to the fetch pass, which dry run does not build. So the gauges of rule 28
+report zero, which is what a lane holding no request and blocking no domain should report.
 
 This is the mode phase 0 measures in. The server refuses to clear the flag, and names the two things
 that must land before it can: reading robots.txt, and producing the image to the scrub topic.

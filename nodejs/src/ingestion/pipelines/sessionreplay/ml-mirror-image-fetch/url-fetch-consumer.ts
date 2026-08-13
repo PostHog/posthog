@@ -3,11 +3,11 @@ import { Message } from 'node-rdkafka'
 import { logger } from '~/common/utils/logger'
 import { RefDedupCache } from '~/ingestion/pipelines/sessionreplay/shared/ref-dedup-cache'
 
-import { FetchCandidate, parseCollectedUrlsRecord } from './collected-urls-record'
+import { FetchCandidate, MAX_HOPS, parseCollectedUrlsRecord } from './collected-urls-record'
 import { CRAWL_HISTORY_TTL_SECONDS, CrawlHistoryStore, crawlHistoryKey } from './crawl-history'
-import { FetchPass } from './fetch-runner'
+import { FetchPass, HOPS_EXHAUSTED } from './fetch-runner'
 import { FrontierPublisher } from './frontier-publisher'
-import { ImageFetchConsumerMetrics, ImageFetchTeamMetrics, UrlDropReason } from './metrics'
+import { ImageFetchConsumerMetrics, ImageFetchRequestMetrics, ImageFetchTeamMetrics, UrlDropReason } from './metrics'
 import { TeamVolume } from './team-volume'
 
 export interface UrlFetchConsumerOptions {
@@ -114,10 +114,12 @@ export class UrlFetchConsumer {
         const pass = this.runner
             ? await this.fetchAll(this.runner, known.fetchable)
             : { finished: known.fetchable, lost: 0 }
-        if (pass.finished.length > 0) {
-            await this.recordFetched(pass.finished, nowMs)
+        const held = await this.rescheduleNotReady(notReady, nowMs)
+        const finished = [...pass.finished, ...held.exhausted]
+        if (finished.length > 0) {
+            await this.recordFetched(finished, nowMs)
         }
-        const lost = pass.lost + known.unaccounted + (await this.rescheduleNotReady(notReady, nowMs))
+        const lost = pass.lost + known.unaccounted + held.lost
 
         if (dedupedInBatch > 0) {
             ImageFetchConsumerMetrics.incDeduped('batch', dedupedInBatch)
@@ -206,17 +208,29 @@ export class UrlFetchConsumer {
     /**
      * A URL waiting out a delay has no crawl history entry and no other copy in Kafka, so a drop
      * here loses it until a session refers to the same image again. Requirements 15 and 21.
+     *
+     * One with no hops left cannot go round again. The lane records it and stops, exactly as the
+     * fetch pass does with a URL that runs out mid-chain. Requirements 12 and 24.
      */
-    private async rescheduleNotReady(candidates: FetchCandidate[], nowMs: number): Promise<number> {
+    private async rescheduleNotReady(
+        candidates: FetchCandidate[],
+        nowMs: number
+    ): Promise<{ lost: number; exhausted: FetchCandidate[] }> {
         let lost = 0
+        const exhausted: FetchCandidate[] = []
         for (const candidate of candidates) {
+            if (candidate.hopsRemaining <= 1) {
+                ImageFetchRequestMetrics.incOutcome(HOPS_EXHAUSTED)
+                ImageFetchRequestMetrics.observeHops(MAX_HOPS)
+                exhausted.push(candidate)
+                continue
+            }
             const target = { url: candidate.url, host: candidate.host, domain: candidate.domain }
-            const sent = await this.publisher.republish(candidate, target, 'not_ready', candidate.notBeforeMs - nowMs)
-            if (!sent && candidate.hopsRemaining > 1) {
+            if (!(await this.publisher.republish(candidate, target, 'not_ready', candidate.notBeforeMs - nowMs))) {
                 lost++
             }
         }
-        return lost
+        return { lost, exhausted }
     }
 
     /**

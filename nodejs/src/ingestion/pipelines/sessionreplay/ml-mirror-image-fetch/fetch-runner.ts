@@ -265,9 +265,9 @@ export class FetchRunner implements FetchPass {
      * request timeout, which is still far inside Kafka's max.poll.interval.ms.
      */
     private async fetchOne(candidate: FetchCandidate, deadlineMs: number): Promise<FetchAttempt> {
-        // The chain holds one connection slot of every domain it touches until the chain ends. It
-        // holds a slot once even if it takes it twice, so a redirect back to a domain already in
-        // the chain does not deadlock against itself.
+        // One slot, held until the chain ends. A chain reaches only its own domain, because
+        // `isOffsite` refuses every other target, and the set makes a second take of the same
+        // domain free so a redirect back to it cannot deadlock against itself.
         const held = new Set<string>()
         const acquire = (domain: string): boolean => {
             if (held.has(domain)) {

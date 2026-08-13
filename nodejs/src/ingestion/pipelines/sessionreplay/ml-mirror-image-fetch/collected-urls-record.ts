@@ -2,7 +2,7 @@ import { parseJSON } from '~/common/utils/json-parse'
 import { parseImageRef } from '~/ingestion/pipelines/sessionreplay/ml-mirror-image-scrub/content-ref'
 
 import { UrlDropReason } from './metrics'
-import { politenessKey } from './politeness-key'
+import { isPublicHost, politenessKey } from './politeness-key'
 
 /** Beyond this the URL is not something the mirror produced, so it is a format disagreement. */
 const MAX_URL_LENGTH = 2048
@@ -102,6 +102,13 @@ export function parseCollectedUrlsRecord(value: Buffer | null, key: string | nul
         const host = typeof entry.host === 'string' ? entry.host : ''
         if (!isFetchableUrl(entry.url, host)) {
             rejected.push({ reason: 'bad_url' })
+            continue
+        }
+        // The connection layer refuses a private address, so this is not the only guard against
+        // one. It is the only guard against a name that looks internal and resolves to a public
+        // address, because no address check can refuse that. Requirement 35.
+        if (!isPublicHost(withoutTrailingDot(host))) {
+            rejected.push({ reason: 'private_host' })
             continue
         }
         if (!hostIsKeyedByItsOperator(host, key)) {

@@ -195,6 +195,20 @@ describe('HostBudget', () => {
         expect(host.evictedWhileBlocked).toBe(0)
     })
 
+    it('never evicts a domain holding connections, so its slots are not leaked', () => {
+        // A slot is released by domain name. A lost entry leaks every slot it held, and the domain
+        // can then hold more than its limit for the rest of the pod's life.
+        const host = budget({ maxTrackedDomains: 2, maxConcurrent: 1 })
+        expect(host.acquireConnection('busy.com', 1000)).toBe(true)
+
+        host.take('a.com', 1000, FAR_FUTURE)
+        host.take('b.com', 1000, FAR_FUTURE)
+
+        // Its entry survived the eviction, so it is still at its limit. A dropped entry would come
+        // back with no connections counted and let this domain hold a second one.
+        expect(host.acquireConnection('busy.com', 1000)).toBe(false)
+    })
+
     it('evicts an idle domain in preference to one it is still holding back', () => {
         const host = budget({ maxTrackedDomains: 2 })
         host.recordRetryAfter('blocked.com', 1000, 60_000)
