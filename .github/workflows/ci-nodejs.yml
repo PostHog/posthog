@@ -416,6 +416,7 @@ jobs:
                   SECRET_KEY: 'abcdef' # unsafe - for testing only
                   DATABASE_URL: 'postgres://posthog:posthog@localhost:5432/posthog'
                   BEHAVIORAL_COHORTS_DATABASE_URL: 'postgres://posthog:posthog@localhost:5432/test_behavioral_cohorts'
+                  # Downloading an artifact requires the Actions permission, which the setup-actions app does not hold
                   GH_TOKEN: ${{ github.token }}
               run: |
                   # Download pre-migrated schema from CI
@@ -688,6 +689,7 @@ jobs:
                   SECRET_KEY: 'abcdef' # unsafe - for testing only
                   DATABASE_URL: 'postgres://posthog:posthog@localhost:5432/posthog'
                   BEHAVIORAL_COHORTS_DATABASE_URL: 'postgres://posthog:posthog@localhost:5432/test_behavioral_cohorts'
+                  # Downloading an artifact requires the Actions permission, which the setup-actions app does not hold
                   GH_TOKEN: ${{ github.token }}
               run: |
                   # Download pre-migrated schema from CI

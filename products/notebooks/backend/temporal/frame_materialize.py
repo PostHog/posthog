@@ -900,7 +900,7 @@ def materialize_frame(inputs: FrameMaterializeInputs) -> str:
             # Post-write verification failed: the object is missing or predates this write
             # (see stat_frame). Retryable — a transient object-store blip should re-run — but
             # log it, because a deterministic cause (CH wrote to a store the app can't read,
-            # endpoint/bucket skew) would otherwise re-scan the whale silently up to 10 times.
+            # endpoint/bucket skew) would otherwise re-scan the whale silently on every attempt.
             logger.warning(
                 "notebook_frame_materialize_object_unverified",
                 team_id=inputs.team_id,
@@ -1004,14 +1004,18 @@ class NotebookFrameMaterializeWorkflow(PostHogWorkflow):
                 # the job fails with a clear error instead of piling onto ClickHouse.
                 schedule_to_close_timeout=dt.timedelta(minutes=10),
                 retry_policy=common.RetryPolicy(
-                    initial_interval=dt.timedelta(seconds=1),
+                    # Slot exhaustion raises before the activity touches ClickHouse, so this
+                    # backoff is the only queue a blocked job gets. The intervals are wide
+                    # enough that a job blocked behind a short frame still gets a turn inside
+                    # the small attempt budget below.
+                    initial_interval=dt.timedelta(seconds=5),
                     backoff_coefficient=2.0,
-                    maximum_interval=dt.timedelta(seconds=10),
-                    # Bound the storm: a deterministically-failing heavy query (e.g. a
-                    # mid-stream resource overrun that can't be caught up front) must not
-                    # re-execute for the full schedule_to_close window. Matches the Celery
-                    # async path's max_retries=10.
-                    maximum_attempts=10,
+                    maximum_interval=dt.timedelta(seconds=30),
+                    # Bound the storm. A transient failure re-runs the entire scan on either
+                    # transport, and schedule_to_close only caps that for queries slow enough to
+                    # fill the window, so a fast query could otherwise repeat its scan on every
+                    # attempt. The deterministic failures are already non-retryable in the activity.
+                    maximum_attempts=3,
                 ),
             )
         except Exception:

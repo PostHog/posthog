@@ -8951,6 +8951,12 @@ export const externalDataSources = [
     'Uploadcare',
     'WHMCS',
     'MSG91',
+    'Depot',
+    'Schematic',
+    'Dokploy',
+    'RakutenAdvertising',
+    'Zitadel',
+    'DeelFlows',
 ] as const
 
 export type ExternalDataSourceType = (typeof externalDataSources)[number]

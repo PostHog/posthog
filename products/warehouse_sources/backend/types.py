@@ -1322,6 +1322,9 @@ class ExternalDataSourceType(models.TextChoices):
     SNOVIO = "Snovio", "Snovio"
     GOOGLEMERCHANTCENTER = "GoogleMerchantCenter", "GoogleMerchantCenter"
     RAISELY = "Raisely", "Raisely"
+    RAKUTENADVERTISING = "RakutenAdvertising", "RakutenAdvertising"
+    ZITADEL = "Zitadel", "Zitadel"
+    DEELFLOWS = "DeelFlows", "DeelFlows"
     WINDSORAI = "WindsorAi", "WindsorAi"
     WIX = "Wix", "Wix"
     SEVALLA = "Sevalla", "Sevalla"
@@ -1331,6 +1334,9 @@ class ExternalDataSourceType(models.TextChoices):
     UPLOADCARE = "Uploadcare", "Uploadcare"
     WHMCS = "WHMCS", "WHMCS"
     MSG91 = "MSG91", "MSG91"
+    DEPOT = "Depot", "Depot"
+    SCHEMATIC = "Schematic", "Schematic"
+    DOKPLOY = "Dokploy", "Dokploy"
 
 
 # Maps a source type to the direct-SQL engine that can query it live. A source type is only
