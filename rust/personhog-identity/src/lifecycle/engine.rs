@@ -20,6 +20,7 @@ use std::time::Duration;
 
 use async_trait::async_trait;
 use chrono::{DateTime, Utc};
+use rand::Rng;
 use serde_json::Value;
 use sqlx::postgres::PgPool;
 use tonic::Status;
@@ -31,6 +32,7 @@ pub const STEP_COMPLETED: &str = "completed";
 pub const STEP_ABORTED: &str = "aborted";
 
 const OPS_COMPLETED_TOTAL: &str = "personhog_lifecycle_ops_completed_total";
+const OP_DURATION_MS: &str = "personhog_lifecycle_op_duration_ms";
 const SWEEPER_RESUMED_TOTAL: &str = "personhog_lifecycle_sweeper_resumed_total";
 const STEP_FAILURES_TOTAL: &str = "personhog_lifecycle_step_failures_total";
 const OPS_PARKED_TOTAL: &str = "personhog_lifecycle_ops_parked_total";
@@ -139,7 +141,11 @@ pub struct OpRow {
     pub attempt: i32,
     pub request: Value,
     pub outcome: Option<Value>,
+    pub created_at: DateTime<Utc>,
     pub completed_at: Option<DateTime<Utc>>,
+    /// Whether another driver's lease was live when this row was read — a
+    /// read-time fact for the claim precheck, not part of the checkpoint.
+    pub lease_live: bool,
 }
 
 /// Step handlers for one op type. The engine calls [`run_step`] with the
@@ -303,7 +309,7 @@ impl Engine {
                     "op {op_id} vanished while being driven"
                 )));
             };
-            if row.completed_at.is_some() {
+            if let Some(completed_at) = row.completed_at {
                 if claim_attempt.is_some() {
                     // We drove it over the line (vs attaching to an op that
                     // was already done).
@@ -314,6 +320,13 @@ impl Engine {
                             ("final_step".to_string(), row.step.clone()),
                         ],
                         1,
+                    );
+                    // Creation to terminal commit, so a sweeper-resumed op
+                    // reports its full lifetime, not the last drive's.
+                    common_metrics::histogram(
+                        OP_DURATION_MS,
+                        &[("op_type".to_string(), row.op_type.clone())],
+                        (completed_at - row.created_at).num_milliseconds() as f64,
                     );
                 }
                 return Ok(row);
@@ -334,29 +347,42 @@ impl Engine {
                         continue;
                     }
                 }
-                None => match self.try_claim(op_id, wait_for_lease).await? {
-                    Some(attempt) => {
-                        claim_attempt = Some(attempt);
-                        if attempt >= self.config.attempt_alert_threshold {
-                            tracing::warn!(
-                                op_id = %op_id,
-                                op_type = %row.op_type,
-                                step = %row.step,
-                                attempt,
-                                "lifecycle op has been claimed unusually often; it may be stuck"
-                            );
-                        }
-                    }
-                    None => {
+                None => {
+                    // A live lease means the claim below cannot succeed, so
+                    // don't issue it: claim attempts are writes, and a herd
+                    // of pollers writing to a row its owner keeps renewing
+                    // and advancing serializes on the row's tuple lock.
+                    if row.lease_live {
                         if !wait_for_lease {
                             return Err(SagaError::Busy);
                         }
-                        // Someone else holds the lease; wait for them to
-                        // finish or for the lease to lapse.
-                        tokio::time::sleep(self.config.poll_interval).await;
+                        self.poll_pause().await;
                         continue;
                     }
-                },
+                    match self.try_claim(op_id, wait_for_lease).await? {
+                        Some(attempt) => {
+                            claim_attempt = Some(attempt);
+                            if attempt >= self.config.attempt_alert_threshold {
+                                tracing::warn!(
+                                    op_id = %op_id,
+                                    op_type = %row.op_type,
+                                    step = %row.step,
+                                    attempt,
+                                    "lifecycle op has been claimed unusually often; it may be stuck"
+                                );
+                            }
+                        }
+                        None => {
+                            if !wait_for_lease {
+                                return Err(SagaError::Busy);
+                            }
+                            // Someone else holds the lease; wait for them to
+                            // finish or for the lease to lapse.
+                            self.poll_pause().await;
+                            continue;
+                        }
+                    }
+                }
             }
 
             if let Err(err) = driver.run_step(&self.pool, &row).await {
@@ -438,7 +464,10 @@ impl Engine {
             OpRow,
             r#"
             SELECT op_id, op_type, team_id::bigint as "team_id!", step, attempt,
-                   request as "request: Value", outcome as "outcome: Value", completed_at
+                   request as "request: Value", outcome as "outcome: Value",
+                   created_at, completed_at,
+                   (lease_expires_at IS NOT NULL AND lease_expires_at >= now())
+                       as "lease_live!"
             FROM lifecycle_op
             WHERE op_id = $1
             "#,
@@ -448,11 +477,24 @@ impl Engine {
         .await
     }
 
+    /// Sleep one poll interval, jittered to 0.5–1.5× so waiters released by
+    /// the same lease event spread out instead of re-claiming in lockstep.
+    async fn poll_pause(&self) {
+        let jitter = rand::thread_rng().gen_range(0.5..1.5);
+        tokio::time::sleep(self.config.poll_interval.mul_f64(jitter)).await;
+    }
+
     /// Claim the op if its lease is free or lapsed. Returns the new attempt
     /// count on success, None when another instance holds a live lease.
     /// Only an explicit retry (`unpark`, the execute path) may claim a
     /// parked op; the sweeper cannot, even when a park lands after its
     /// scan.
+    ///
+    /// `SKIP LOCKED` keeps a claim from queueing behind whoever is writing
+    /// the row right now (a renew, a step advance, a rival claim): the row
+    /// being locked means the lease answer is about to change, so polling
+    /// again beats joining a tuple-lock queue. A skipped row reads as None,
+    /// the same as losing the claim outright.
     async fn try_claim(&self, op_id: Uuid, unpark: bool) -> Result<Option<i32>, sqlx::Error> {
         sqlx::query_scalar!(
             r#"
@@ -461,9 +503,13 @@ impl Engine {
                 attempt = attempt + 1,
                 parked_at = NULL,
                 parked_reason = NULL
-            WHERE op_id = $1 AND completed_at IS NULL
-              AND (lease_expires_at IS NULL OR lease_expires_at < now())
-              AND (parked_at IS NULL OR $3)
+            WHERE op_id IN (
+                SELECT op_id FROM lifecycle_op
+                WHERE op_id = $1 AND completed_at IS NULL
+                  AND (lease_expires_at IS NULL OR lease_expires_at < now())
+                  AND (parked_at IS NULL OR $3)
+                FOR UPDATE SKIP LOCKED
+            )
             RETURNING attempt
             "#,
             op_id,
