@@ -226,6 +226,24 @@ export class InsightPage {
         // #side-panel, confirming the switch is complete. Scoping to #side-panel
         // avoids matching the hidden inline panel.
         await this.page.locator('#side-panel .scene-panel-actions-section').first().waitFor({ state: 'visible' })
+        await this.dismissToasts()
+    }
+
+    // Toasts render in the bottom-right corner, which overlaps the bottom of the
+    // side panel. A sticky error toast (the support widget is unavailable in E2E,
+    // so it opens with autoClose:false) or a lingering success/hint toast there
+    // permanently intercepts clicks on the panel's lowest actions — View source
+    // and Delete insight. Close every open toast so those actions are reachable.
+    private async dismissToasts(): Promise<void> {
+        const closeButtons = this.page.locator(
+            '.Toastify__toast [data-attr="toast-close-button"], .Toastify__toast [data-attr="mcp-hint-close"]'
+        )
+        for (let attempt = 0; attempt < 10 && (await closeButtons.count()) > 0; attempt++) {
+            await closeButtons
+                .first()
+                .click({ timeout: 2000 })
+                .catch(() => undefined)
+        }
     }
 
     async clickDeleteInsight(): Promise<void> {
