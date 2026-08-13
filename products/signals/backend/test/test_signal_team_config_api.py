@@ -173,6 +173,18 @@ class TestSignalTeamConfigAPI(APIBaseTest):
         assert response.status_code == status.HTTP_400_BAD_REQUEST, response.json()
         assert response.json()["attr"] == "max_reports_per_day"
 
+    def test_reports_generated_today_is_zero_without_a_limit(self):
+        # No limit set: the count is never shown, so the serializer reports 0 without counting even
+        # when visible reports exist today.
+        SignalReport.objects.create(
+            team=self.team, status=SignalReport.Status.READY, first_visible_at=datetime.now(UTC)
+        )
+        response = self.client.get(self._url())
+        data = response.json()
+        assert response.status_code == status.HTTP_200_OK, data
+        assert data["max_reports_per_day"] is None
+        assert data["reports_generated_today"] == 0
+
     def test_daily_report_limit_reached_reflects_todays_visible_reports(self):
         self.config.max_reports_per_day = 1
         self.config.save(update_fields=["max_reports_per_day"])

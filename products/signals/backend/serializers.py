@@ -210,6 +210,10 @@ class SignalTeamConfigSerializer(serializers.ModelSerializer):
 
     @extend_schema_field(serializers.IntegerField(min_value=0))
     def get_reports_generated_today(self, obj: SignalTeamConfig) -> int:
+        # No limit means the count is never shown, so skip the query — mirroring the sibling field
+        # and daily_report_limit_gate, which both short-circuit unlimited teams.
+        if obj.max_reports_per_day is None:
+            return 0
         return self._reports_today_count(obj)
 
     @extend_schema_field(serializers.BooleanField())
