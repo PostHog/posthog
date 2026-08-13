@@ -37,11 +37,17 @@ from posthog.exceptions import Conflict
 from posthog.helpers.impersonation import is_impersonated
 from posthog.models import OrganizationMembership
 from posthog.models.user import User
-from posthog.permissions import TeamMemberStrictManagementPermission, get_authenticator_scopes, is_service_auth
+from posthog.permissions import (
+    PostHogFeatureFlagPermission,
+    TeamMemberStrictManagementPermission,
+    get_authenticator_scopes,
+    is_service_auth,
+)
 from posthog.rbac.access_control_api_mixin import AccessControlViewSetMixin
 from posthog.rbac.user_access_control import UserAccessControl, model_to_resource
 
 from products.customer_analytics.backend.facade import api, contracts
+from products.customer_analytics.backend.facade.constants import CUSTOMER_ANALYTICS_FEATURE_REQUESTS_FLAG
 from products.customer_analytics.backend.presentation.views.serializers import (
     AccountChannelSummarySerializer,
     AccountNotebookSerializer,
@@ -66,6 +72,10 @@ from products.customer_analytics.backend.presentation.views.serializers import (
     EventStreamMemberWriteSerializer,
     EventStreamSerializer,
     EventStreamTestMessageSerializer,
+    FeatureRequestCreateSerializer,
+    FeatureRequestProductAreaListQuerySerializer,
+    FeatureRequestProductAreaSerializer,
+    FeatureRequestSerializer,
     MeetingSerializer,
     SupportTicketSerializer,
 )
@@ -183,6 +193,147 @@ def _has_group_scope(request: Request, *, write: bool) -> bool:
 def _assert_group_scope(request: Request, *, write: bool) -> None:
     if not _has_group_scope(request, write=write):
         raise PermissionDenied(f"This action requires the `group:{'write' if write else 'read'}` API scope.")
+
+
+class FeatureRequestProductAreaViewSet(
+    TeamAndOrgViewSetMixin,
+    AccessControlViewSetMixin,
+    mixins.ListModelMixin,
+    mixins.CreateModelMixin,
+    mixins.UpdateModelMixin,
+    viewsets.GenericViewSet,
+):
+    scope_object = "customer_analytics"
+    serializer_class = FeatureRequestProductAreaSerializer
+    queryset = None
+    permission_classes = [PostHogFeatureFlagPermission]
+    posthog_feature_flag = CUSTOMER_ANALYTICS_FEATURE_REQUESTS_FLAG
+    pagination_class = None
+
+    def _require_manager(self) -> None:
+        if not self.user_access_control.check_access_level_for_resource("customer_analytics", "manager"):
+            raise PermissionDenied("Manager access to Customer Analytics is required to manage product areas.")
+
+    @validated_request(
+        query_serializer=FeatureRequestProductAreaListQuerySerializer,
+        responses={200: OpenApiResponse(response=FeatureRequestProductAreaSerializer(many=True))},
+    )
+    def list(self, request: ValidatedRequest, *args, **kwargs) -> Response:
+        include_inactive = request.validated_query_data["include_inactive"]
+        product_areas = api.list_feature_request_product_areas(
+            self.team_id,
+            include_inactive=include_inactive,
+        )
+        return Response(FeatureRequestProductAreaSerializer(instance=product_areas, many=True).data)
+
+    def create(self, request: Request, *args, **kwargs) -> Response:
+        self._require_manager()
+        serializer = FeatureRequestProductAreaSerializer(data=request.data)
+        serializer.is_valid(raise_exception=True)
+        data = serializer.validated_data
+        try:
+            product_area = api.create_feature_request_product_area(
+                team_id=self.team_id,
+                name=data.name,
+                display_order=data.display_order,
+                actor_id=cast(User, request.user).id,
+            )
+        except api.FeatureRequestValidationError as error:
+            raise ValidationError({error.field: error.message})
+        except api.FeatureRequestProductAreaConflictError as error:
+            raise Conflict(str(error))
+        return Response(FeatureRequestProductAreaSerializer(instance=product_area).data, status=status.HTTP_201_CREATED)
+
+    def update(self, request: Request, *args, **kwargs) -> Response:
+        self._require_manager()
+        partial = kwargs.pop("partial", False)
+        serializer = FeatureRequestProductAreaSerializer(data=request.data, partial=partial)
+        serializer.is_valid(raise_exception=True)
+        data = serializer.validated_data
+        try:
+            product_area = api.update_feature_request_product_area(
+                team_id=self.team_id,
+                product_area_id=self.kwargs["pk"],
+                name=data.name if "name" in request.data else None,
+                display_order=data.display_order if "display_order" in request.data else None,
+                is_active=data.is_active if "is_active" in request.data else None,
+                actor_id=cast(User, request.user).id,
+            )
+        except api.FeatureRequestValidationError as error:
+            raise ValidationError({error.field: error.message})
+        except api.FeatureRequestProductAreaConflictError as error:
+            raise Conflict(str(error))
+        if product_area is None:
+            return Response({"detail": "Not found."}, status=status.HTTP_404_NOT_FOUND)
+        return Response(FeatureRequestProductAreaSerializer(instance=product_area).data)
+
+    def partial_update(self, request: Request, *args, **kwargs) -> Response:
+        kwargs["partial"] = True
+        return self.update(request, *args, **kwargs)
+
+
+class FeatureRequestViewSet(
+    TeamAndOrgViewSetMixin,
+    AccessControlViewSetMixin,
+    _FacadePaginationMixin,
+    mixins.ListModelMixin,
+    mixins.RetrieveModelMixin,
+    mixins.CreateModelMixin,
+    viewsets.GenericViewSet,
+):
+    scope_object = "customer_analytics"
+    serializer_class = FeatureRequestSerializer
+    queryset = None
+    permission_classes = [PostHogFeatureFlagPermission]
+    posthog_feature_flag = CUSTOMER_ANALYTICS_FEATURE_REQUESTS_FLAG
+
+    def list(self, request: Request, *args, **kwargs) -> Response:
+        return self._paginate_via_facade(
+            request,
+            lambda offset, limit: api.list_feature_requests(
+                team_id=self.team_id,
+                user_access_control=self.user_access_control,
+                offset=offset,
+                limit=limit,
+            ),
+            FeatureRequestSerializer,
+        )
+
+    def retrieve(self, request: Request, *args, **kwargs) -> Response:
+        feature_request = api.get_feature_request(
+            team_id=self.team_id,
+            feature_request_id=self.kwargs["pk"],
+            user_access_control=self.user_access_control,
+        )
+        if feature_request is None:
+            return Response({"detail": "Not found."}, status=status.HTTP_404_NOT_FOUND)
+        return Response(FeatureRequestSerializer(instance=feature_request).data)
+
+    @extend_schema(
+        request=FeatureRequestCreateSerializer,
+        responses={200: FeatureRequestSerializer, 201: FeatureRequestSerializer},
+    )
+    def create(self, request: Request, *args, **kwargs) -> Response:
+        serializer = FeatureRequestCreateSerializer(data=request.data)
+        serializer.is_valid(raise_exception=True)
+        data = serializer.validated_data
+        try:
+            outcome = api.create_feature_request(
+                team_id=self.team_id,
+                input=contracts.CreateFeatureRequestInput(
+                    title=data["title"],
+                    description=data["description"],
+                    account_id=data["account_id"],
+                    product_area_ids=tuple(data["product_area_ids"]),
+                    idempotency_key=data["idempotency_key"],
+                ),
+                actor_id=cast(User, request.user).id,
+                user_access_control=self.user_access_control,
+            )
+        except api.FeatureRequestValidationError as error:
+            raise ValidationError({error.field: error.message})
+        response_status = status.HTTP_201_CREATED if outcome.created else status.HTTP_200_OK
+        return Response(FeatureRequestSerializer(instance=outcome.request).data, status=response_status)
 
 
 class CustomerProfileConfigViewSet(

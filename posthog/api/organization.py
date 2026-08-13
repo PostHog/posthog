@@ -26,6 +26,7 @@ from posthog.cloud_utils import get_cached_instance_license, is_cloud
 from posthog.constants import INTERNAL_BOT_EMAIL_SUFFIX, AvailableFeature
 from posthog.data_freshness import LOOKBACK_DAYS, QUIET_AFTER_DAYS, Freshness, get_organization_data_freshness
 from posthog.event_usage import (
+    exclude_internal_organization_from_crm,
     groups,
     report_organization_action,
     report_organization_deleted,
@@ -242,6 +243,7 @@ class OrganizationSerializer(
         serializers.raise_errors_on_nested_writes("create", self, validated_data)
         user = self.context["request"].user
         organization, _, _ = Organization.objects.bootstrap(user, **validated_data)
+        exclude_internal_organization_from_crm(organization, user)
         return organization
 
     @tracer.start_as_current_span("organization_serializer.membership_level")
