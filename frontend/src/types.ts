@@ -2074,7 +2074,6 @@ export interface SessionRecordingType {
     /** Number of whole days left until the recording expires. */
     recording_ttl?: number
     has_summary?: boolean
-    summary_outcome?: { success?: boolean | null; description?: string | null } | null
     /** External references to third party issues. */
     external_references?: SessionRecordingExternalReference[]
     /** False when the recording was included in list results via a direct link despite not matching the filters. */
@@ -7901,55 +7900,6 @@ export interface DataWarehouseManagedViewsetSavedQuery {
     created_at: string
     created_by_id: string | null
     name: string
-}
-
-// Session Summaries
-export interface SessionSummaryResponse {
-    patterns: EnrichedSessionGroupSummaryPattern[]
-}
-
-export interface EnrichedSessionGroupSummaryPattern {
-    pattern_id: number
-    pattern_name: string
-    pattern_description: string
-    severity: 'low' | 'medium' | 'high' | 'critical'
-    indicators: string[]
-    events: PatternAssignedEventSegmentContext[]
-    stats: EnrichedSessionGroupSummaryPatternStats
-}
-
-export interface EnrichedSessionGroupSummaryPatternStats {
-    occurences: number
-    sessions_affected: number
-    sessions_affected_ratio: number
-    segments_success_ratio: number
-}
-
-export interface PatternAssignedEventSegmentContext {
-    segment_name: string
-    segment_outcome: string
-    segment_success: boolean
-    segment_index: number
-    previous_events_in_segment: EnrichedPatternAssignedEvent[]
-    target_event: EnrichedPatternAssignedEvent
-    next_events_in_segment: EnrichedPatternAssignedEvent[]
-}
-
-export interface EnrichedPatternAssignedEvent {
-    event_id: string
-    event_uuid: string
-    session_id: string
-    description: string
-    abandonment: boolean
-    confusion: boolean
-    exception: string | null
-    timestamp: string
-    milliseconds_since_start: number
-    window_id: string | null
-    current_url: string | null
-    event: string
-    event_type: string | null
-    event_index: number
 }
 
 export interface QuickFilterOption {
