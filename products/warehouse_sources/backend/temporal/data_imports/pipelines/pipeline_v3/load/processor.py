@@ -381,6 +381,7 @@ def _run_post_load_for_already_processed_batch(export_signal: ExportSignalMessag
             table_schema_dict=table_schema_dict,
             resource_name=export_signal.resource_name,
             logger=logger,
+            cdc_write_mode=export_signal.cdc_write_mode,
         )
 
         logger.debug("post_load_operations_complete_for_already_processed_batch")
