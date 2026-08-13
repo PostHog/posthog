@@ -368,7 +368,9 @@ _product_st = st.text("abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ", mi
 _scheme_st = st.sampled_from(["http", "https"])
 
 
-_version_st = st.lists(st.integers(min_value=0, max_value=9999), min_size=2, max_size=4).map(
+# Up to six parts, past the four a browser build uses: a bounded mask consumes the first four
+# of a longer release and leaves the rest as <num>, which is a template of its own again.
+_version_st = st.lists(st.integers(min_value=0, max_value=9999), min_size=2, max_size=6).map(
     lambda parts: ".".join(map(str, parts))
 )
 _decimal_context_st = st.sampled_from(["duration_ms=", "ratio=", "load ", "p95="])
@@ -563,7 +565,7 @@ class TestVersionMaskProperties(TestCase):
     def test_any_version_after_a_product_name_collapses_to_one_placeholder(self, product: str, version: str) -> None:
         patterns = mine_patterns([_sample(f"agent {product}/{version} connected")])
 
-        # exact template: two to four parts become one placeholder, not one <num> per part
+        # exact template: however many parts, one placeholder, not one <num> per part
         assert patterns[0].pattern == f"agent {product}/<version> connected"
 
     @given(context=_decimal_context_st, whole=st.integers(min_value=0, max_value=9999), frac=st.integers(0, 999))
