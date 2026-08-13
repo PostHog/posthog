@@ -9,7 +9,10 @@ import { LemonField } from 'lib/lemon-ui/LemonField'
 import { Link } from 'lib/lemon-ui/Link'
 import { urls } from 'scenes/urls'
 
+import { PropValue } from '~/models/propertyDefinitionsModel'
 import { AnyPropertyFilter, CyclotronJobFiltersType, HogFunctionConfigurationContextId } from '~/types'
+
+import { ActivityLogListScope } from 'products/platform_features/frontend/generated/api.schemas'
 
 import { hogFunctionConfigurationLogic } from '../configuration/hogFunctionConfigurationLogic'
 
@@ -126,6 +129,40 @@ export const getProductEventPropertyFilterOptions = (contextId: HogFunctionConfi
     return []
 }
 
+// Hoisted so repeated calls return stable references, keeping downstream memos idle.
+// The generated enum mirrors the backend ActivityScope literal, unlike the handwritten
+// frontend ActivityScope enum, which lags behind it.
+const ACTIVITY_LOG_SCOPE_VALUES: PropValue[] = Object.values(ActivityLogListScope)
+    .sort()
+    .map((name) => ({ name }))
+// The standard lifecycle activities. Scopes also log custom activities (e.g. 'exported'),
+// which can still be entered as custom values.
+const ACTIVITY_LOG_ACTIVITY_VALUES: PropValue[] = ['created', 'updated', 'deleted'].map((name) => ({ name }))
+const NO_SUGGESTED_VALUES: PropValue[] = []
+
+/**
+ * Value suggestions for the property filters on the 'Trigger' field. Internal events are
+ * never ingested into ClickHouse, so the default events-table suggestions would surface
+ * values of same-named properties from unrelated analytics events. Instead, offer the
+ * statically known values, and no suggestions (free text) for keys without a known value set.
+ */
+export const getProductEventPropertyValues = (
+    contextId: HogFunctionConfigurationContextId,
+    propertyKey: string
+): PropValue[] | null => {
+    if (contextId !== 'activity-log') {
+        return null
+    }
+    switch (propertyKey) {
+        case 'scope':
+            return ACTIVITY_LOG_SCOPE_VALUES
+        case 'activity':
+            return ACTIVITY_LOG_ACTIVITY_VALUES
+        default:
+            return NO_SUGGESTED_VALUES
+    }
+}
+
 const getSimpleFilterValue = (value?: CyclotronJobFiltersType): string | undefined => {
     return value?.events?.[0]?.id
 }
@@ -157,6 +194,13 @@ export function HogFunctionFiltersInternal(): JSX.Element {
     const { contextId } = useValues(hogFunctionConfigurationLogic)
 
     const options = useMemo(() => getProductEventFilterOptions(contextId), [contextId])
+
+    const staticValueOptions = useMemo(
+        () =>
+            (propertyKey: string): PropValue[] | null =>
+                getProductEventPropertyValues(contextId, propertyKey),
+        [contextId]
+    )
 
     const taxonomicGroupTypes = useMemo(() => {
         if (contextId === 'error-tracking') {
@@ -204,6 +248,7 @@ export function HogFunctionFiltersInternal(): JSX.Element {
                                 pageKey={`hog-function-internal-property-filters-${contextId}`}
                                 buttonSize="small"
                                 disablePopover
+                                staticValueOptions={staticValueOptions}
                             />
                         ) : null}
                     </>

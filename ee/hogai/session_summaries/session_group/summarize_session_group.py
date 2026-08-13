@@ -123,7 +123,8 @@ def partition_sessions_by_recording_existence(session_ids: list[str], team: Team
     """Split session_ids into found/missing based on whether a replay row exists for the team.
 
     Used by flows that want to surface per-session "no recording" errors instead of failing the
-    whole batch — see ``find_sessions_timestamps`` for the strict variant used by the group flow.
+    whole batch. See ``find_sessions_timestamps`` for the strict variant (group API flow) and
+    ``find_sessions_timestamps_dropping_missing`` for the lenient one with timestamps (chat group flow).
     """
     replay_events = SessionReplayEvents()
     sessions_found = replay_events.sessions_found_with_timestamps(session_ids, team).session_ids
@@ -136,6 +137,53 @@ def partition_sessions_by_recording_existence(session_ids: list[str], team: Team
 class SessionsTimestampRange:
     min_timestamp: datetime
     max_timestamp: datetime
+
+
+@dataclass(frozen=True, kw_only=True, slots=True)
+class FoundSessionsWithTimestamps:
+    """Result of the lenient session lookup: the recordings we kept, the ones we dropped, and the batch timestamps."""
+
+    found_session_ids: list[str]
+    missing_session_ids: list[str]
+    min_timestamp: datetime
+    max_timestamp: datetime
+
+
+def find_sessions_timestamps_dropping_missing(session_ids: list[str], team: Team) -> FoundSessionsWithTimestamps:
+    """Lenient variant of ``find_sessions_timestamps``: drops session IDs without a replay row instead of
+    failing the whole batch. Raises ValidationError only when no session in the batch has a recording."""
+    replay_events = SessionReplayEvents()
+    result = replay_events.sessions_found_with_timestamps(session_ids, team)
+    # Dedupe while preserving order: duplicate IDs would otherwise spawn duplicate summarization tasks
+    found = list(dict.fromkeys(sid for sid in session_ids if sid in result.session_ids))
+    missing = list(dict.fromkeys(sid for sid in session_ids if sid not in result.session_ids))
+    if not found:
+        msg = (
+            "Session recordings not found for the following IDs (the recording may not have been captured, "
+            f"may have expired, or may belong to a different team): {', '.join(missing)}"
+        )
+        logger.error(msg, team_id=team.id, signals_type="session-summaries")
+        raise exceptions.ValidationError(msg)
+    if result.min_timestamp is None or result.max_timestamp is None:
+        msg = (
+            f"Failed to get min ({result.min_timestamp}) or max ({result.max_timestamp}) "
+            f"timestamps for sessions: {', '.join(found)}"
+        )
+        logger.error(msg, team_id=team.id, signals_type="session-summaries")
+        raise exceptions.ValidationError(msg)
+    if missing:
+        logger.warning(
+            f"Dropping {len(missing)} of {len(session_ids)} sessions without a replay row "
+            f"from group summarization: {', '.join(missing)}",
+            team_id=team.id,
+            signals_type="session-summaries",
+        )
+    return FoundSessionsWithTimestamps(
+        found_session_ids=found,
+        missing_session_ids=missing,
+        min_timestamp=result.min_timestamp,
+        max_timestamp=result.max_timestamp,
+    )
 
 
 def find_sessions_timestamps(session_ids: list[str], team: Team) -> SessionsTimestampRange:

@@ -174,6 +174,37 @@ describe("ChannelSidebar", () => {
     expect(screen.queryByText("No sessions yet")).not.toBeInTheDocument();
   });
 
+  it("gives up a source filter the space you moved to has none of", async () => {
+    const user = userEvent.setup({ pointerEventsCheck: 0 });
+    mocks.items = [
+      item({
+        key: "task:slack",
+        id: "slack",
+        title: "Filed from Slack",
+        source: "slack",
+      }),
+      item({ key: "task:local", id: "local", title: "Started here" }),
+    ];
+    const { rerender } = renderSidebar();
+
+    await user.click(screen.getByRole("button", { name: "Filter" }));
+    await user.click(await screen.findByRole("menuitem", { name: /Source/ }));
+    fireEvent.click(
+      await screen.findByRole("menuitemradio", { name: "Slack" }),
+    );
+    expect(screen.queryByText("Started here")).not.toBeInTheDocument();
+
+    // A space with no Slack sessions: the option that narrowed the list is no
+    // longer in the menu, so the filter must not be what empties it.
+    mocks.items = [
+      item({ key: "task:other", id: "other", title: "Somewhere else" }),
+    ];
+    rerender(sidebar());
+
+    expect(screen.getByText("Somewhere else")).toBeInTheDocument();
+    expect(screen.queryByText("No matches")).not.toBeInTheDocument();
+  });
+
   it("shows a single empty state when the last item goes away under a search", async () => {
     const user = userEvent.setup();
     mocks.items = [item()];

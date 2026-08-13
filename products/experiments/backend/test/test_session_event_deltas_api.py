@@ -43,6 +43,13 @@ SERVER_SIDE_METRIC = {
     "name": "Server charges",
     "source": {"kind": "EventsNode", "event": "server charge"},
 }
+SIGNUP_METRIC = {
+    "kind": "ExperimentMetric",
+    "metric_type": "mean",
+    "uuid": "44444444-4444-4444-4444-444444444444",
+    "name": "Signups",
+    "source": {"kind": "EventsNode", "event": "signup"},
+}
 
 
 def rank_anything(test: Any) -> Any:
@@ -305,7 +312,7 @@ class TestExperimentSessionEventDeltas(ClickhouseTestMixin, APILicensedTest):
         assert [(card["event"], card["variant"]) for card in cards] == [("tree_opened", "other")]
 
     @rank_anything
-    def test_metric_events_get_shortcut_cards_and_never_comparisons(self) -> None:
+    def test_a_metric_event_that_separates_the_arms_gets_a_card_naming_its_metric(self) -> None:
         experiment = self._create_experiment(metrics=[PURCHASE_METRIC, SERVER_SIDE_METRIC])
         self._arm("control", [["purchase", "pricing_faq"]] * 2)
         self._arm("test", [["pricing_faq"], []])
@@ -313,17 +320,89 @@ class TestExperimentSessionEventDeltas(ClickhouseTestMixin, APILicensedTest):
 
         data = self._post_deltas(experiment).json()
 
-        # `purchase` is this experiment's primary metric: the results tab states what happened to
-        # it, so here it only links to recordings of it happening, with no band and no claim.
-        assert all(card["event"] != "purchase" for card in self._cards(data, "behavior"))
+        # On a UI experiment the events closest to the change are usually ones a metric counts, so
+        # holding them out leaves the shelf ranking incidental events. The card names the metric,
+        # which is what sends a reader to the results rather than reading as a second answer.
+        purchase_cards = [card for card in self._cards(data, "behavior") if card["event"] == "purchase"]
+        assert [(card["variant"], card["metric_name"], card["strength"] is not None) for card in purchase_cards] == [
+            ("control", "Purchases", True)
+        ]
+        # ...and the same recordings are not offered twice, once ranked and once as a shortcut.
+        assert self._cards(data, "metric") == []
+        assert data["metric_events"] == ["purchase", "server charge"]
+
+    @rank_anything
+    def test_a_metric_event_the_arms_share_falls_back_to_a_shortcut_card(self) -> None:
+        experiment = self._create_experiment(metrics=[PURCHASE_METRIC, SERVER_SIDE_METRIC])
+        self._arm("control", [["purchase"], ["purchase"]])
+        self._arm("test", [["purchase"], ["purchase"]])
+        flush_persons_and_events()
+
+        data = self._post_deltas(experiment).json()
+
+        assert self._cards(data, "behavior") == []
         metric_cards = self._cards(data, "metric")
         assert [(card["event"], card["variant"], card["strength"]) for card in metric_cards] == [
-            ("purchase", "control", None)
+            ("purchase", "control", None),
+            ("purchase", "test", None),
         ]
         assert metric_cards[0]["metric_name"] == "Purchases"
         # The server-side metric can never back a recording, so it gets no card rather than an
         # empty one; it is still named for the caption.
         assert data["metric_events"] == ["purchase", "server charge"]
+
+    @rank_anything
+    def test_a_metric_event_whose_comparison_card_has_no_recordings_falls_back_to_shortcuts(self) -> None:
+        experiment = self._create_experiment(metrics=[PURCHASE_METRIC])
+        self._arm("control", [["purchase"], ["purchase"], [], []])
+        # `purchase` over-fires in test, so the comparison candidate lands there — but none of
+        # test's sessions were recorded, so that card dies on the replay existence check. The
+        # shortcut route must come back for the other arms' playable recordings, or the
+        # experiment's own metric vanishes from the shelf entirely.
+        for _ in range(4):
+            self._session(variants=["test"], events=["purchase"], recorded=False)
+        flush_persons_and_events()
+
+        data = self._post_deltas(experiment).json()
+
+        assert self._cards(data, "behavior") == []
+        metric_cards = self._cards(data, "metric")
+        assert [(card["event"], card["variant"], card["metric_name"]) for card in metric_cards] == [
+            ("purchase", "control", "Purchases")
+        ]
+
+    @rank_anything
+    @patch.object(session_event_deltas, "MAX_METRIC_CARD_EVENTS", 1)
+    def test_a_recovered_metric_event_takes_its_display_order_slot_back(self) -> None:
+        experiment = self._create_experiment(metrics=[PURCHASE_METRIC, SIGNUP_METRIC])
+        # `purchase` outranks `signup` on the metrics page, and wins a comparison candidate, so
+        # `signup` takes the one shortcut slot at first. When purchase's comparison card then dies
+        # on the replay existence check, purchase must reclaim the slot rather than land after
+        # signup or beside it over budget.
+        self._arm("control", [["purchase", "signup"], ["purchase", "signup"], ["signup"], ["signup"]])
+        for _ in range(4):
+            self._session(variants=["test"], events=["purchase", "signup"], recorded=False)
+        flush_persons_and_events()
+
+        data = self._post_deltas(experiment).json()
+
+        assert [(card["event"], card["variant"]) for card in self._cards(data, "metric")] == [("purchase", "control")]
+
+    @rank_anything
+    @patch.object(session_event_deltas, "MAX_METRIC_CARD_EVENTS", 1)
+    def test_metric_shortcut_cards_follow_the_experiments_own_metric_order(self) -> None:
+        experiment = self._create_experiment(metrics=[PURCHASE_METRIC, SIGNUP_METRIC])
+        # The metrics page lists the signup metric first, while the stored order still has purchase
+        # first. Reading storage order instead puts the shelf on a metric nobody prioritized.
+        experiment.primary_metrics_ordered_uuids = [SIGNUP_METRIC["uuid"], PURCHASE_METRIC["uuid"]]
+        experiment.save()
+        self._arm("control", [["purchase", "signup"]] * 2)
+        self._arm("test", [["purchase", "signup"]] * 2)
+        flush_persons_and_events()
+
+        data = self._post_deltas(experiment).json()
+
+        assert {card["event"] for card in self._cards(data, "metric")} == {"signup"}
 
     @rank_anything
     def test_metric_cards_respect_the_metrics_property_filters(self) -> None:
@@ -342,7 +421,9 @@ class TestExperimentSessionEventDeltas(ClickhouseTestMixin, APILicensedTest):
                 }
             ]
         )
-        self._session(variants=["control"], events=[])
+        # Both arms purchase at the same rate, so the event earns no comparison card and the
+        # shortcut card this test is about is the one that survives.
+        self._arm("control", [["purchase"], ["purchase"]])
         matching = self._session(variants=["test"], events=["purchase"], properties={"plan": "enterprise"})
         self._session(variants=["test"], events=["purchase"], properties={"plan": "free"})
         flush_persons_and_events()
@@ -357,16 +438,63 @@ class TestExperimentSessionEventDeltas(ClickhouseTestMixin, APILicensedTest):
         assert metric_cards[0]["recording_count"] == 1
 
     @rank_anything
+    def test_an_event_the_other_arms_could_never_fire_is_split_off_from_the_findings(self) -> None:
+        experiment = self._create_experiment(metrics=[PURCHASE_METRIC])
+        # A variant instruments whatever it renders, so `callout_shown` separates the arms
+        # perfectly and outranks everything a person actually chose to do. `pricing_faq` is the
+        # real difference underneath it, and the control occurrences are what mark it as one.
+        self._arm("control", [["pricing_faq"]] * 2 + [[]] * 10)
+        self._arm("test", [["callout_shown", "pricing_faq"]] * 12)
+        flush_persons_and_events()
+
+        data = self._post_deltas(experiment).json()
+
+        assert [(card["event"], card["variant"]) for card in self._cards(data, "variant_only")] == [
+            ("callout_shown", "test")
+        ]
+        assert [(card["event"], card["variant"]) for card in self._cards(data, "behavior")] == [("pricing_faq", "test")]
+
+    @rank_anything
+    def test_a_cards_highlights_name_which_of_its_recordings_to_open_first(self) -> None:
+        experiment = self._create_experiment(metrics=[PURCHASE_METRIC])
+        self._arm("control", [[]] * 2)
+        # Leads on neither signal alone, and carries both, which is the session a per-signal pick
+        # would drop in favor of the two single-axis leaders below it.
+        both = self._session(variants=["test"], events=["pricing_faq", "$rageclick", "$exception"])
+        most_rage = self._session(variants=["test"], events=["pricing_faq", "$rageclick", "$rageclick"])
+        # No friction at all, but the card's own event three times over — the session where the
+        # difference the card claims is most on screen, which without the repetition signal would
+        # be indistinguishable from the single-occurrence session below it.
+        repeated = self._session(variants=["test"], events=["pricing_faq", "pricing_faq", "pricing_faq"])
+        self._session(variants=["test"], events=["pricing_faq"])
+        flush_persons_and_events()
+
+        data = self._post_deltas(experiment).json()
+
+        # Twenty recordings that share an event are indistinguishable in the recordings list, which
+        # sorts them its own way, so the card has to say which ones differ and how. Each reason
+        # lists everything its recording carries rather than the one signal that ranked it.
+        card = next(card for card in self._cards(data, "behavior") if card["event"] == "pricing_faq")
+        assert [(highlight["session_id"], highlight["reason"]) for highlight in card["highlights"]] == [
+            (both, "1 rage click, 1 error"),
+            (repeated, "did this 3 times"),
+            (most_rage, "2 rage clicks"),
+        ]
+
+    @rank_anything
     def test_friction_events_land_on_their_own_shelf(self) -> None:
         experiment = self._create_experiment(metrics=[PURCHASE_METRIC])
         self._arm("control", [["pricing_faq"]] * 2)
-        self._arm("test", [["$exception"], ["$exception", "pricing_faq"]])
+        self._arm("test", [["$exception", "$exception"], ["$exception", "pricing_faq"]])
         flush_persons_and_events()
 
         data = self._post_deltas(experiment).json()
 
         friction = self._cards(data, "friction")
         assert [(card["event"], card["variant"]) for card in friction] == [("$exception", "test")]
+        # On a card whose own event is a friction signal, the signal count is the repetition — a
+        # reason of "2 errors, did this 2 times" would say one fact twice.
+        assert [highlight["reason"] for highlight in friction[0]["highlights"]] == ["2 errors", "1 error"]
 
     def test_too_early_is_reported_rather_than_an_empty_shelf(self) -> None:
         experiment = self._create_experiment(metrics=[PURCHASE_METRIC])
