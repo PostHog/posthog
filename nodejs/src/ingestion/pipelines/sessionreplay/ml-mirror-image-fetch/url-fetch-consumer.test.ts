@@ -3,6 +3,7 @@ import { Message } from 'node-rdkafka'
 import { FetchCandidate } from './collected-urls-record'
 import { CrawlHistoryReadResult, CrawlHistoryStore, crawlHistoryKey } from './crawl-history'
 import { AttemptOutcome, FetchPass, isTerminal } from './fetch-runner'
+import { FrontierPublisher } from './frontier-publisher'
 import { UrlFetchConsumer } from './url-fetch-consumer'
 
 const TEAM = '0123456789abcdef0123456789abcdef'
@@ -91,9 +92,11 @@ function url(name: string, host = 'cdn.example.com'): { ref: string; url: string
 describe('UrlFetchConsumer', () => {
     let crawlHistory: FakeCrawlHistory
     let consumer: UrlFetchConsumer
+    let republished: { reason: string; waitMs: number }[]
+    let publisher: FrontierPublisher
 
     const build = (dedupMaxRefs = 1000): UrlFetchConsumer =>
-        new UrlFetchConsumer(crawlHistory, {
+        new UrlFetchConsumer(crawlHistory, publisher, {
             maxAgeMs: 6 * 60 * 60 * 1000,
             dedupMaxRefs,
             dryRun: true,
@@ -101,6 +104,13 @@ describe('UrlFetchConsumer', () => {
 
     beforeEach(() => {
         crawlHistory = new FakeCrawlHistory()
+        republished = []
+        publisher = {
+            republish: (_c: unknown, _t: unknown, reason: string, waitMs: number) => {
+                republished.push({ reason, waitMs })
+                return Promise.resolve(true)
+            },
+        } as unknown as FrontierPublisher
         consumer = build()
     })
 
@@ -109,9 +119,9 @@ describe('UrlFetchConsumer', () => {
     it.each([NaN, 0, -1])('refuses to start with an age limit of %p', (maxAgeMs) => {
         // The knob arrives from env, where a typo parses to NaN. A NaN limit makes every comparison
         // false, so the lane silently stops shedding a backlog instead of failing.
-        expect(() => new UrlFetchConsumer(crawlHistory, { maxAgeMs, dedupMaxRefs: 10, dryRun: true })).toThrow(
-            'SESSION_RECORDING_ML_IMAGE_FETCH_MAX_AGE_MS'
-        )
+        expect(
+            () => new UrlFetchConsumer(crawlHistory, publisher, { maxAgeMs, dedupMaxRefs: 10, dryRun: true })
+        ).toThrow('SESSION_RECORDING_ML_IMAGE_FETCH_MAX_AGE_MS')
     })
 
     it('writes one ledger entry per URL it would fetch', async () => {
@@ -147,24 +157,38 @@ describe('UrlFetchConsumer', () => {
     })
 
     it.each([
-        ['still waiting out its delay', NOW + 60_000, 0],
-        ['past its delay', NOW - 1, 1],
-    ])('handles a retry that is %s (requirement 15)', async (_name, notBeforeMs, expectedWrites) => {
-        // A record can come back before its wait is over, because a wait longer than the longest
-        // delay topic goes round that topic again. Fetching it early would reach a site that asked
-        // to be left alone, and recording it would stop the trip it is still making.
-        const body = {
-            v: 1,
-            pseudoTeam: TEAM,
-            capturedAtMs: NOW,
-            notBeforeMs,
-            urls: [url('a')],
+        ['still waiting out its delay', NOW + 60_000, 0, [{ reason: 'not_ready', waitMs: 60_000 }]],
+        ['past its delay', NOW - 1, 1, []],
+    ])(
+        'handles a retry that is %s (requirement 15)',
+        async (_name, notBeforeMs, expectedWrites, expectedRepublishes) => {
+            // A record can come back before its wait is over, because a wait longer than the longest
+            // delay topic goes round that topic again. Fetching it early would reach a site that
+            // asked to be left alone, and recording it would stop the trip it is still making. It
+            // goes back for the rest of the wait, because nothing else is holding it.
+            const body = {
+                v: 1,
+                pseudoTeam: TEAM,
+                capturedAtMs: NOW,
+                notBeforeMs,
+                urls: [url('a')],
+            }
+            const early = message(Buffer.from(JSON.stringify(body)), 'example.com')
+
+            await consumer.handleBatch([early], NOW)
+
+            expect(crawlHistory.stored.size).toBe(expectedWrites)
+            expect(republished).toEqual(expectedRepublishes)
         }
+    )
+
+    it('fails the batch when a URL that is not ready cannot be sent back (requirement 21)', async () => {
+        publisher = { republish: () => Promise.resolve(false) } as unknown as FrontierPublisher
+        const body = { v: 1, pseudoTeam: TEAM, capturedAtMs: NOW, notBeforeMs: NOW + 60_000, urls: [url('a')] }
         const early = message(Buffer.from(JSON.stringify(body)), 'example.com')
 
-        await consumer.handleBatch([early], NOW)
-
-        expect(crawlHistory.stored.size).toBe(expectedWrites)
+        await expect(build().handleBatch([early], NOW)).rejects.toThrow('account for 1')
+        expect(crawlHistory.stored.size).toBe(0)
     })
 
     it('drops a URL older than the age limit without recording it', async () => {
@@ -249,19 +273,24 @@ describe('UrlFetchConsumer', () => {
         // full un-deduped volume at customer sites, because our own store is down.
         crawlHistory.partialReadFailures.add(crawlHistoryKey(TEAM, hash('a')))
 
-        await consumer.handleBatch([record([url('a'), url('b')])], NOW)
-
+        // The batch fails, because 'a' was neither fetched, nor recorded, nor put back. Its offset
+        // must not commit past it. Requirement 21.
+        await expect(consumer.handleBatch([record([url('a'), url('b')])], NOW)).rejects.toThrow('account for 1')
+        // 'b' was read cleanly, so it is recorded and the replay skips it.
         expect([...crawlHistory.stored.keys()].map(hashOf)).toEqual([hash('b')])
     })
 
-    it('survives a store read failure without stalling the partition', async () => {
+    it('replays the batch when the store cannot be read at all', async () => {
+        // Requirement 21. Every URL in the batch is unanswered, so committing would lose all of them.
         crawlHistory.readFailure = new Error('redis down')
 
-        await expect(consumer.handleBatch([record([url('a')])], NOW)).resolves.toBeUndefined()
+        await expect(consumer.handleBatch([record([url('a')])], NOW)).rejects.toThrow('account for 1')
         expect(crawlHistory.stored.size).toBe(0)
     })
 
-    it('survives a store write failure', async () => {
+    it('commits a batch whose store write failed, because the URL was fetched', async () => {
+        // A missing crawl history entry costs one duplicate fetch later, which requirement 22
+        // allows. Replaying the batch would cost the same duplicate and stall the partition too.
         crawlHistory.writeFailure = new Error('redis down')
 
         await expect(consumer.handleBatch([record([url('a')])], NOW)).resolves.toBeUndefined()
@@ -283,19 +312,20 @@ describe('UrlFetchConsumer', () => {
         }
         const fetching = new UrlFetchConsumer(
             crawlHistory,
+            publisher,
             { maxAgeMs: 6 * 60 * 60 * 1000, dedupMaxRefs: 1000, dryRun: false },
             runner
         )
 
-        await expect(fetching.handleBatch([record([url('lost')])], NOW)).rejects.toThrow('could not republish 1')
+        await expect(fetching.handleBatch([record([url('lost')])], NOW)).rejects.toThrow('account for 1')
         // Left out of the crawl history, so the replay fetches it rather than skipping it.
         expect(crawlHistory.stored.size).toBe(0)
     })
 
     it('refuses to leave dry run without a way to send the requests', () => {
-        expect(() => new UrlFetchConsumer(crawlHistory, { maxAgeMs: 1000, dedupMaxRefs: 10, dryRun: false })).toThrow(
-            'fetch runner'
-        )
+        expect(
+            () => new UrlFetchConsumer(crawlHistory, publisher, { maxAgeMs: 1000, dedupMaxRefs: 10, dryRun: false })
+        ).toThrow('fetch runner')
     })
 
     it('records only the URLs the fetch pass finished with', async () => {
@@ -318,6 +348,7 @@ describe('UrlFetchConsumer', () => {
         }
         const fetching = new UrlFetchConsumer(
             crawlHistory,
+            publisher,
             { maxAgeMs: 6 * 60 * 60 * 1000, dedupMaxRefs: 1000, dryRun: false },
             runner
         )

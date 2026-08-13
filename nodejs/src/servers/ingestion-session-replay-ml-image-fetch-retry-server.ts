@@ -82,10 +82,10 @@ export class IngestionSessionReplayMlImageFetchRetryServer implements NodeServer
         // topic inside one batch, and the shared default of 300s would evict the 10m and 1h tiers
         // mid-sleep, then replay the partition into a consumer that sleeps just as long.
         //
-        // One record per batch is what makes this bound exact. Records ripen in the order they were
+        // One record per batch is what makes this bound exact. Records become ready in the order they were
         // written, so a full batch usually waits once and then publishes the rest at speed, but a
         // sparse topic can hold records written hours apart and that batch would wait once per
-        // record. Throughput does not matter here: the work is one publish, and a ripe record waits
+        // record. Throughput does not matter here: the work is one publish, and a ready record waits
         // for nothing.
         const pollIntervalMs = delayMs + POLL_INTERVAL_MARGIN_MS
         const consumer = new KafkaConsumer(consumerConfig, { 'max.poll.interval.ms': pollIntervalMs })
@@ -94,11 +94,22 @@ export class IngestionSessionReplayMlImageFetchRetryServer implements NodeServer
         let stopping = false
         const delayConsumer = new RetryDelayConsumer(producer, {
             isStopping: () => stopping,
-            storeOffset: (message) =>
-                consumer.offsetsStore([
+            storeOffset: (message) => {
+                try {
                     // The next offset to read, which is what librdkafka stores.
-                    { topic: message.topic, partition: message.partition, offset: message.offset + 1 },
-                ]),
+                    consumer.offsetsStore([
+                        { topic: message.topic, partition: message.partition, offset: message.offset + 1 },
+                    ])
+                } catch (error) {
+                    // Thrown when the partition was revoked while this batch ran. Another pod owns
+                    // the record now, so it is not lost. Letting the throw out would stop this pod.
+                    logger.warn('🌐', 'ml_image_fetch_retry_offset_store_failed', {
+                        topic: message.topic,
+                        partition: message.partition,
+                        error: error instanceof Error ? error.name : 'unknown',
+                    })
+                }
+            },
             frontierTopic: KAFKA_SESSION_REPLAY_IMAGE_FETCH,
             delayMs,
             heartbeat: () => consumer.reportDeliberateWait(),

@@ -47,8 +47,7 @@ export interface ImageFetchOptions {
     timeoutMs: number
     maxRedirects: number
     /**
-     * Consulted for every redirect target, because a redirect can leave the domain whose budget paid
-     * for the request, and the new domain has its own budget and its own breaker.
+     * Consulted for every redirect target this fetch will follow, so each hop spends a token.
      *
      * `defer` says the target is fine but cannot be reached now. It has to be told apart from
      * `refuse`, because the caller records a refusal in the crawl history and none for a deferral.
@@ -56,16 +55,23 @@ export interface ImageFetchOptions {
      * `remainingMs` is what is left of this request. A wait longer than that has to `defer`.
      */
     authorizeRedirect: (url: URL, remainingMs: number) => Promise<RedirectDecision>
+    /**
+     * True when the target belongs to another operator, so this fetch must not follow it.
+     *
+     * Asked before the redirect limit is applied, and it spends nothing. The limit bounds the hops
+     * this request follows itself. A target for another operator is followed by nobody here: it goes
+     * back to Kafka and costs one hop instead. Requirement 7.
+     */
+    isOffsite: (url: URL) => boolean
 }
 
 /**
  * What to do with a redirect target.
  *
- * `allow` follows it here. `elsewhere` means another registrable domain owns it, so it goes back
- * through the frontier for whichever consumer holds that domain's budget. `defer` is that budget
- * being spent or its breaker being open. `refuse` is a target this lane will never follow.
+ * `allow` follows it here. `defer` is the budget being spent or the breaker being open. `refuse` is
+ * a target this lane will never follow.
  */
-export type RedirectDecision = 'allow' | 'elsewhere' | 'refuse' | 'defer'
+export type RedirectDecision = 'allow' | 'refuse' | 'defer'
 
 export interface ImageFetcher {
     fetch(url: string, options: ImageFetchOptions): Promise<ImageFetchResult>
@@ -112,14 +118,24 @@ export class HttpImageFetcher implements ImageFetcher {
             if (hop.kind !== 'redirect') {
                 return { ...hop.result, redirects }
             }
-            // Before the target is authorized, so the hop this lane will not follow never spends a
-            // token from the budget of the site it would have landed on.
-            if (redirects >= options.maxRedirects) {
-                return { outcome: 'too_many_redirects', redirects, status: hop.status }
-            }
             const next = resolveRedirect(target, hop.location, this.policy)
             if (!next) {
                 return { outcome: 'bad_redirect', redirects, status: hop.status }
+            }
+            if (options.isOffsite(next)) {
+                // Not followed here. The budget, the breaker, and the connection count for that
+                // domain belong to whichever consumer owns its partition.
+                return {
+                    outcome: 'redirect_offsite',
+                    redirects,
+                    status: hop.status,
+                    redirectTarget: { url: next.toString(), host: next.hostname },
+                }
+            }
+            // After the offsite test, and before the target is authorized, so a hop this lane will
+            // not follow spends no token from the budget of the site it would have landed on.
+            if (redirects >= options.maxRedirects) {
+                return { outcome: 'too_many_redirects', redirects, status: hop.status }
             }
             let decision: RedirectDecision
             try {
@@ -129,16 +145,6 @@ export class HttpImageFetcher implements ImageFetcher {
                 decision = await options.authorizeRedirect(next, deadlineMs - Date.now())
             } catch (error) {
                 return { outcome: classifyError(error), redirects }
-            }
-            if (decision === 'elsewhere') {
-                // Not followed here. The budget, the breaker, and the connection count for that
-                // domain belong to whichever consumer owns its partition.
-                return {
-                    outcome: 'redirect_offsite',
-                    redirects,
-                    status: hop.status,
-                    redirectTarget: { url: next.toString(), host: next.hostname },
-                }
             }
             if (decision !== 'allow') {
                 const outcome = decision === 'defer' ? 'redirect_deferred' : 'bad_redirect'
@@ -261,13 +267,10 @@ function resolveRedirect(from: string, location: string, policy: RedirectPolicy)
     } catch {
         return null
     }
-    if (next.protocol !== 'http:' && next.protocol !== 'https:') {
-        return null
-    }
-    // A redirect may move up to HTTPS but never down from it. A downgrade puts the rest of the
-    // exchange on the wire in clear text, and the site that served the first hop over TLS gave no
-    // reason to accept that.
-    if (from.startsWith('https:') && next.protocol === 'http:') {
+    // HTTPS only, so a downgrade to plain HTTP is refused whatever the first hop used.
+    // `URL.protocol` is already lower case, which a comparison against the raw string is not.
+    // Requirement 9.
+    if (next.protocol !== 'https:') {
         return null
     }
     // This lane sends no credentials, and a userinfo part would put some back on the next hop.

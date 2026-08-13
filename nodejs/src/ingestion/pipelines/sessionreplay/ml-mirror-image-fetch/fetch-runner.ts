@@ -7,6 +7,7 @@ import { FrontierPublisher } from './frontier-publisher'
 import { HostBudget } from './host-budget'
 import { FetchOutcome, ImageFetchResult, ImageFetcher, RedirectDecision } from './image-fetcher'
 import { ImageFetchRequestMetrics } from './metrics'
+import { politenessKey } from './politeness-key'
 
 /** Why a URL never reached a request. Shares `rate_limited` with the response of the same name, because both mean the site asked us to wait. */
 export type ShedReason = 'breaker_open' | 'rate_limited' | 'deadline' | 'connection_limit'
@@ -76,24 +77,10 @@ const TERMINAL_OUTCOMES: ReadonlySet<AttemptOutcome> = new Set<AttemptOutcome>([
     'bad_redirect',
     'too_many_redirects',
     'unexpected_status',
+    // A property of the origin rather than of the moment. It compresses whatever we ask for, so a
+    // retry meets the same response and spends a hop for nothing.
+    'unsupported_encoding',
 ])
-
-/**
- * The addon holds a 15 MB native library, and `index.ts` imports every server whatever mode the pod
- * runs. Loaded on first use rather than at import, so only a pod that follows a redirect pays for
- * it. The mirror server defers it the same way.
- */
-let politenessKey: ((host: string) => string) | undefined
-function getPolitenessKey(): (host: string) => string {
-    if (!politenessKey) {
-        const addon = require('@posthog/replay-anonymizer') as typeof import('@posthog/replay-anonymizer')
-        if (typeof addon.politenessKey !== 'function') {
-            throw new Error('the replay-anonymizer addon has no politenessKey: rebuild index.node')
-        }
-        politenessKey = addon.politenessKey
-    }
-    return politenessKey
-}
 
 /** Hosts named in one batch-level log line. Enough to find the site, bounded so one bad batch cannot write a host list of its own size. */
 const MAX_LOGGED_HOSTS = 5
@@ -139,6 +126,7 @@ export class FetchRunner implements FetchPass {
         requirePositive('SESSION_RECORDING_ML_IMAGE_FETCH_MAX_CONCURRENT_PER_DOMAIN', options.maxConcurrentPerDomain)
         requirePositive('SESSION_RECORDING_ML_IMAGE_FETCH_MAX_IN_FLIGHT_REQUESTS', options.maxInFlightRequests)
         this.inFlight = new ConcurrencyController(options.maxInFlightRequests)
+        ImageFetchRequestMetrics.trackBudget(budget)
         requirePositive('SESSION_RECORDING_ML_IMAGE_FETCH_MAX_IMAGE_BYTES', options.maxBytes)
         requirePositive('SESSION_RECORDING_ML_IMAGE_FETCH_REQUEST_TIMEOUT_MS', options.requestTimeoutMs)
         requirePositive('SESSION_RECORDING_ML_IMAGE_FETCH_DEFAULT_RETRY_AFTER_MS', options.defaultRetryAfterMs)
@@ -164,11 +152,6 @@ export class FetchRunner implements FetchPass {
         }
 
         const attempts = await this.runDomains([...byDomain], deadlineMs)
-        ImageFetchRequestMetrics.observeBudget(
-            this.budget.trackedDomains,
-            this.budget.blockedDomains(Date.now()),
-            this.budget.evictedWhileBlocked
-        )
         this.logFailures(attempts)
         return attempts
     }
@@ -304,37 +287,48 @@ export class FetchRunner implements FetchPass {
         }
         const releaseAll = (): void => {
             for (const domain of held) {
-                this.budget.releaseConnection(domain, Date.now())
+                this.budget.releaseConnection(domain)
             }
         }
 
         if (!acquire(candidate.domain)) {
-            // Reachable because redirects into this domain take slots the worker pool does not know
-            // about. It says the domain is busy now, so nothing is written to the crawl history for it.
+            // The worker count and the connection limit are separate settings, so this refuses only
+            // when an operator sets them apart. It says the domain is busy now, so nothing is
+            // written to the crawl history for it.
+            this.budget.returnGrant(candidate.domain, Date.now())
             ImageFetchRequestMetrics.incOutcome('connection_limit')
             return await this.reschedule(candidate, 'connection_limit', 0)
         }
 
         const startedAt = process.hrtime.bigint()
-        let result: ImageFetchResult
+        let outcome: ImageFetchResult | { shed: ShedReason }
         try {
-            result = await this.inFlight.run({
+            outcome = await this.inFlight.run<ImageFetchResult | { shed: ShedReason }>({
                 debugTag: candidate.domain,
-                fn: () =>
-                    this.fetcher.fetch(candidate.url, {
+                fn: () => {
+                    // The pod queue is the third place a request waits, after the token bucket and
+                    // the connection limit, and it is the one that can hold a request longest: 300
+                    // slots serve every domain this pod owns. A sibling request can meet a
+                    // `Retry-After` while this one queues. Requirement 5.
+                    const stale = this.staleAfterWait(candidate.domain, deadlineMs)
+                    if (stale) {
+                        return Promise.resolve({ shed: stale })
+                    }
+                    return this.fetcher.fetch(candidate.url, {
                         maxBytes: this.options.maxBytes,
                         timeoutMs: this.options.requestTimeoutMs,
                         maxRedirects: this.options.maxRedirects,
+                        isOffsite: (url) => politenessKey(url.hostname) !== candidate.domain,
                         // The earlier of the two clocks. A wait that outlives the request would be
                         // spent and then reported as the site timing out.
                         authorizeRedirect: (url, remainingMs) =>
                             this.authorizeRedirect(
-                                url,
                                 Math.min(deadlineMs, Date.now() + remainingMs),
                                 acquire,
                                 candidate.domain
                             ),
-                    }),
+                    })
+                },
             })
         } catch (error) {
             // The fetcher answers with an outcome rather than a throw, so reaching here means a
@@ -351,6 +345,16 @@ export class FetchRunner implements FetchPass {
         } finally {
             releaseAll()
         }
+        if ('shed' in outcome) {
+            this.budget.returnGrant(candidate.domain, Date.now())
+            ImageFetchRequestMetrics.incOutcome(outcome.shed)
+            return await this.reschedule(
+                candidate,
+                outcome.shed,
+                this.budget.blockedForMs(candidate.domain, Date.now())
+            )
+        }
+        const result = outcome
         const durationSeconds = Number(process.hrtime.bigint() - startedAt) / 1e9
 
         this.applyToBudget(candidate.domain, result.outcome, result.retryAfterMs)
@@ -445,26 +449,20 @@ export class FetchRunner implements FetchPass {
     private async handOff(candidate: FetchCandidate, target: { url: string; host: string }): Promise<FetchAttempt> {
         if (candidate.hopsRemaining <= 1) {
             ImageFetchRequestMetrics.incOutcome(HOPS_EXHAUSTED)
+            ImageFetchRequestMetrics.observeHops(MAX_HOPS)
             return { candidate, outcome: HOPS_EXHAUSTED, finished: true, lost: false }
         }
-        const domain = getPolitenessKey()(target.host)
+        const domain = politenessKey(target.host)
         const republished = await this.publisher.republish(candidate, { ...target, domain }, 'redirect')
         return { candidate, outcome: 'redirect_offsite', finished: false, lost: !republished }
     }
 
+    /** The target belongs to `sourceDomain`, because `isOffsite` already refused every other one. */
     private async authorizeRedirect(
-        url: URL,
         deadlineMs: number,
         acquire: (domain: string) => boolean,
-        sourceDomain: string
+        domain: string
     ): Promise<RedirectDecision> {
-        // The same function the producer keys the topic with, called through the addon rather than
-        // reimplemented here. One public suffix list answers for both, so the two cannot drift.
-        const domain = getPolitenessKey()(url.hostname)
-        // Another operator owns this target, so this pod must not fetch it. Requirement 7.
-        if (domain !== sourceDomain) {
-            return 'elsewhere'
-        }
         if (!acquire(domain)) {
             return 'defer'
         }

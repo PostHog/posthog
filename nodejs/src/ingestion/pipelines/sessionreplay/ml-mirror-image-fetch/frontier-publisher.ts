@@ -20,7 +20,7 @@ export interface FrontierPublisherOptions {
 }
 
 /** Why a URL is going back to Kafka rather than being finished with. */
-export type RepublishReason = 'redirect' | 'retry'
+export type RepublishReason = 'redirect' | 'retry' | 'not_ready'
 
 /**
  * Puts a URL back into the frontier, either at once or after a wait.
@@ -61,11 +61,12 @@ export class FrontierPublisher {
         // A retry always waits, even when nothing asked it to. A timeout, a connection error, and a
         // batch that ran out of time all report no period, and publishing those straight back to
         // the frontier is a loop: the consumer reads the record, meets the same condition, and
-        // publishes it again, spending a hop each lap until the URL is written off unfetched.
+        // publishes it again, spending a hop each lap until the URL is written off unfetched. A URL
+        // that arrived before its time waits for the same reason, and for a period it already knows.
         //
         // A redirect is the opposite. Its target is a different domain with its own budget, so it
         // is ready to be fetched by whichever consumer owns that partition.
-        const tier = reason === 'retry' ? this.tierFor(Math.max(waitMs, 1)) : undefined
+        const tier = reason === 'redirect' ? undefined : this.tierFor(Math.max(waitMs, 1))
         const topic = tier?.topic ?? this.options.frontierTopic
         const value = Buffer.from(
             JSON.stringify({

@@ -16,6 +16,7 @@ const OPTIONS: ImageFetchOptions = {
     maxBytes: 1000,
     timeoutMs: 5000,
     maxRedirects: 3,
+    isOffsite: () => false,
     authorizeRedirect: () => Promise.resolve('allow' as const),
 }
 
@@ -133,6 +134,8 @@ describe('HttpImageFetcher', () => {
         ['it leaves HTTP for another scheme', 'javascript:alert(1)', 'allow' as const],
         ['it carries credentials for the next hop', 'https://user:pw@other.example/a.png', 'allow' as const],
         ['it downgrades from HTTPS to plain HTTP', 'http://other.example/a.png', 'allow' as const],
+        // The guard compares the parsed protocol, which is lower case whatever the request used.
+        ['the first hop named its scheme in capitals', 'http://cdn.example.com/a.png', 'allow' as const],
     ])('refuses a redirect when %s', async (_name, location, decision) => {
         fetchStreamedMock.mockResolvedValue(respond(302, { location }))
 
@@ -159,6 +162,32 @@ describe('HttpImageFetcher', () => {
 
         expect(result).toMatchObject({ outcome: 'bad_redirect' })
         expect(fetchStreamedMock).toHaveBeenCalledTimes(1)
+    })
+
+    it('hands off an offsite target that arrives at the redirect limit (requirement 7)', async () => {
+        // The limit bounds the hops this request follows itself. A target for another operator is
+        // followed by nobody here, so it goes back to Kafka and costs one hop rather than being
+        // written off with 9 hops left.
+        fetchStreamedMock.mockResolvedValue(respond(302, { location: 'https://img.other.net/a.png' }))
+
+        const result = await fetcher().fetch('https://cdn.example.com/a.png', {
+            ...OPTIONS,
+            maxRedirects: 0,
+            isOffsite: () => true,
+        })
+
+        expect(result).toMatchObject({
+            outcome: 'redirect_offsite',
+            redirectTarget: { url: 'https://img.other.net/a.png', host: 'img.other.net' },
+        })
+    })
+
+    it('stops at the redirect limit for a target on the same domain', async () => {
+        fetchStreamedMock.mockResolvedValue(respond(302, { location: 'https://cdn.example.com/b.png' }))
+
+        const result = await fetcher().fetch('https://cdn.example.com/a.png', { ...OPTIONS, maxRedirects: 0 })
+
+        expect(result).toMatchObject({ outcome: 'too_many_redirects' })
     })
 
     it('defers a redirect whose target has no budget left, so nothing is written to the crawl history for it', async () => {

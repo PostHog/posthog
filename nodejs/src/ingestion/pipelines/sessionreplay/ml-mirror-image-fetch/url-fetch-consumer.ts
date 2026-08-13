@@ -6,6 +6,7 @@ import { RefDedupCache } from '~/ingestion/pipelines/sessionreplay/shared/ref-de
 import { FetchCandidate, parseCollectedUrlsRecord } from './collected-urls-record'
 import { CRAWL_HISTORY_TTL_SECONDS, CrawlHistoryStore, crawlHistoryKey } from './crawl-history'
 import { FetchPass } from './fetch-runner'
+import { FrontierPublisher } from './frontier-publisher'
 import { ImageFetchConsumerMetrics, ImageFetchTeamMetrics, UrlDropReason } from './metrics'
 import { TeamVolume } from './team-volume'
 
@@ -35,6 +36,7 @@ export class UrlFetchConsumer {
 
     constructor(
         private readonly crawlHistory: CrawlHistoryStore,
+        private readonly publisher: FrontierPublisher,
         private readonly options: UrlFetchConsumerOptions,
         /** Absent in dry run, which is why the dry run sends nothing. No flag is read per URL. */
         private readonly runner?: FetchPass
@@ -66,6 +68,7 @@ export class UrlFetchConsumer {
         const domains = new Set<string>()
         const seenInBatch = new Set<string>()
         const candidates: FetchCandidate[] = []
+        const notReady: FetchCandidate[] = []
         let dedupedInBatch = 0
         let dedupedInPod = 0
 
@@ -86,10 +89,9 @@ export class UrlFetchConsumer {
                     continue
                 }
                 if (candidate.notBeforeMs > nowMs) {
-                    // Requirement 15. It arrived before its delay tier's period elapsed, which
-                    // happens when a wait was longer than the longest tier. Left unrecorded, so the
-                    // tier it is still travelling through brings it back.
-                    countDrop('too_early')
+                    // A wait longer than the longest tier, so the tier it came out of covered only
+                    // part of it. It goes back for the rest and spends a hop. Requirement 15.
+                    notReady.push(candidate)
                     continue
                 }
                 if (seenInBatch.has(candidate.ref)) {
@@ -109,14 +111,17 @@ export class UrlFetchConsumer {
             }
         }
 
-        const fetchable = await this.removeAlreadySeen(candidates)
-        if (fetchable.length > 0) {
-            ImageFetchConsumerMetrics.incFetchable(fetchable.length)
+        const known = await this.removeAlreadySeen(candidates)
+        if (known.fetchable.length > 0) {
+            ImageFetchConsumerMetrics.incFetchable(known.fetchable.length)
         }
-        const pass = this.runner ? await this.fetchAll(this.runner, fetchable) : { finished: fetchable, lost: 0 }
+        const pass = this.runner
+            ? await this.fetchAll(this.runner, known.fetchable)
+            : { finished: known.fetchable, lost: 0 }
         if (pass.finished.length > 0) {
             await this.recordFetched(pass.finished, nowMs)
         }
+        const lost = pass.lost + known.unaccounted + (await this.rescheduleNotReady(notReady, nowMs))
 
         if (dedupedInBatch > 0) {
             ImageFetchConsumerMetrics.incDeduped('batch', dedupedInBatch)
@@ -129,7 +134,7 @@ export class UrlFetchConsumer {
         }
         ImageFetchConsumerMetrics.observeBatch(domains.size, Number(process.hrtime.bigint() - startedAt) / 1e9)
 
-        if (pass.lost > 0) {
+        if (lost > 0) {
             // Thrown last, so the counts above are published first. The consumer stores offsets only
             // after this returns, so throwing replays the batch on the pod that takes the partition
             // next. Requirement 21.
@@ -137,7 +142,7 @@ export class UrlFetchConsumer {
             // The replay costs little: the URLs already fetched carry a crawl history entry now, and
             // the read at the top of the batch removes them. A URL is a duplicate at worst, which
             // requirement 22 allows, and the alternative is losing it.
-            throw new Error(`the image fetch lane could not republish ${pass.lost} URLs`)
+            throw new Error(`the image fetch lane could not account for ${lost} URLs`)
         }
     }
 
@@ -173,17 +178,18 @@ export class UrlFetchConsumer {
     }
 
     /**
-     * The URLs this lane knows nothing about yet.
+     * Sort the candidates into the ones this lane knows nothing about, and the ones it could not ask about.
      *
-     * A URL whose read failed is left out rather than treated as new.
-     *
-     * Treating it as new would fetch it. A store outage would then send the full un-deduped volume
-     * at customer sites, in every batch, because our own store is down. Leaving it out costs one
-     * delay: the next session that refers to the URL offers it again.
+     * A URL whose read failed is neither fetched nor counted as new. Treating it as new would fetch
+     * it, and a store outage would then send the full un-deduped volume at customer sites, in every
+     * batch, because our own store is down. It is reported as unaccounted instead, which holds the
+     * batch rather than losing it. Requirement 21.
      */
-    private async removeAlreadySeen(candidates: FetchCandidate[]): Promise<FetchCandidate[]> {
+    private async removeAlreadySeen(
+        candidates: FetchCandidate[]
+    ): Promise<{ fetchable: FetchCandidate[]; unaccounted: number }> {
         if (candidates.length === 0) {
-            return []
+            return { fetchable: [], unaccounted: 0 }
         }
         const keys = candidates.map((candidate) => crawlHistoryKey(candidate.pseudoTeam, candidate.urlHash))
         let result
@@ -192,7 +198,7 @@ export class UrlFetchConsumer {
         } catch (error) {
             ImageFetchConsumerMetrics.incStoreError('read', keys.length)
             logger.warn('🌐', 'ml_image_fetch_crawl_history_read_failed', { count: keys.length, error: String(error) })
-            return []
+            return { fetchable: [], unaccounted: keys.length }
         }
         if (result.failed.size > 0) {
             ImageFetchConsumerMetrics.incStoreError('read', result.failed.size)
@@ -200,7 +206,28 @@ export class UrlFetchConsumer {
         if (result.known.size > 0) {
             ImageFetchConsumerMetrics.incDeduped('store', result.known.size)
         }
-        return candidates.filter((_candidate, index) => !result.known.has(index) && !result.failed.has(index))
+        return {
+            fetchable: candidates.filter((_candidate, index) => !result.known.has(index) && !result.failed.has(index)),
+            unaccounted: result.failed.size,
+        }
+    }
+
+    /**
+     * Send a URL back for the rest of its wait, and report how many could not be sent.
+     *
+     * It has no crawl history entry and no other copy in Kafka, so dropping it here loses it until a
+     * session refers to the same image again. Requirements 15 and 21.
+     */
+    private async rescheduleNotReady(candidates: FetchCandidate[], nowMs: number): Promise<number> {
+        let lost = 0
+        for (const candidate of candidates) {
+            const target = { url: candidate.url, host: candidate.host, domain: candidate.domain }
+            const sent = await this.publisher.republish(candidate, target, 'not_ready', candidate.notBeforeMs - nowMs)
+            if (!sent && candidate.hopsRemaining > 1) {
+                lost++
+            }
+        }
+        return lost
     }
 
     /**

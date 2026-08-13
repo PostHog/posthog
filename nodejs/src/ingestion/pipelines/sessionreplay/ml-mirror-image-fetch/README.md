@@ -195,7 +195,7 @@ means the consumer stopped. Do not alert on lag.
 Each delay consumer runs `minPods: 0` and `maxPods: 1`. The maximum of one matters: a lag trigger
 assumes more consumers drain a topic faster, and that is false here. These messages are waiting on
 purpose. A tier holding thousands of them would otherwise scale to dozens of pods, none of which
-can make a message ripen sooner.
+can make a message become ready sooner.
 
 ## Why a retry is necessary at all
 

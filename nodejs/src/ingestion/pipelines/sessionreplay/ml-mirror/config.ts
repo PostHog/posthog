@@ -101,6 +101,7 @@ export type MlMirrorConfig = {
     SESSION_RECORDING_ML_IMAGE_FETCH_REQUESTS_PER_SECOND: number
     /** Tokens a domain holds while idle, so a site seen once an hour gets a short run rather than one request. */
     SESSION_RECORDING_ML_IMAGE_FETCH_BURST: number
+    /** Also the worker count of one back queue, so the two cannot disagree unless an operator sets them apart. */
     SESSION_RECORDING_ML_IMAGE_FETCH_MAX_CONCURRENT_PER_DOMAIN: number
     /**
      * Requests this pod holds open across every domain at once.
@@ -118,9 +119,8 @@ export type MlMirrorConfig = {
      * Wall time the fetch pass of one poll batch may take.
      *
      * A batch can hold more URLs for one domain than a polite rate carries in this time. What the
-     * pass does not reach is left unrecorded, so the next session that refers to it offers it again.
-     * The value sits well inside Kafka's max.poll.interval.ms of 300s, which the crawl history round
-     * trips share.
+     * pass does not reach goes to a delay topic and spends a hop. The value sits well inside Kafka's
+     * max.poll.interval.ms of 300s, which the crawl history round trips share.
      */
     SESSION_RECORDING_ML_IMAGE_FETCH_REQUEST_BUDGET_MS: number
     /** Refused before the body when the response declares more, and abandoned mid-body when it declares nothing. */
@@ -239,7 +239,7 @@ export function getDefaultMlMirrorConfig(): MlMirrorConfig {
         SESSION_RECORDING_ML_IMAGE_FETCH_REDIS_TIMEOUT_MS: 5_000,
         SESSION_RECORDING_ML_IMAGE_FETCH_REQUESTS_PER_SECOND: 1,
         SESSION_RECORDING_ML_IMAGE_FETCH_BURST: 5,
-        SESSION_RECORDING_ML_IMAGE_FETCH_MAX_CONCURRENT_PER_DOMAIN: 2,
+        SESSION_RECORDING_ML_IMAGE_FETCH_MAX_CONCURRENT_PER_DOMAIN: 6,
         SESSION_RECORDING_ML_IMAGE_FETCH_MAX_IN_FLIGHT_REQUESTS: 300,
         SESSION_RECORDING_ML_IMAGE_FETCH_REQUEST_BUDGET_MS: 20_000,
         SESSION_RECORDING_ML_IMAGE_FETCH_MAX_IMAGE_BYTES: 2 * 1024 * 1024,

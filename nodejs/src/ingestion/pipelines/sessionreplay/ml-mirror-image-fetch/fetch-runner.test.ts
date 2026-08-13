@@ -1,3 +1,5 @@
+import { delay } from '~/common/utils/utils'
+
 import { FetchCandidate, MAX_HOPS } from './collected-urls-record'
 import { FetchRunner, FetchRunnerOptions, isTerminal } from './fetch-runner'
 import { FrontierPublisher } from './frontier-publisher'
@@ -185,21 +187,21 @@ describe('FetchRunner', () => {
                 return Promise.resolve(true)
             },
         } as unknown as FrontierPublisher
-        let decision: RedirectDecision | undefined
+        let offsite: boolean | undefined
         const fetcher: ImageFetcher = {
-            fetch: async (_url, options) => {
-                decision = await options.authorizeRedirect(new URL('https://img.other-site.net/a.png'), 5000)
-                return {
+            fetch: (_url, options) => {
+                offsite = options.isOffsite(new URL('https://img.other-site.net/a.png'))
+                return Promise.resolve({
                     outcome: 'redirect_offsite',
                     redirects: 1,
                     redirectTarget: { url: 'https://img.other-site.net/a.png', host: 'img.other-site.net' },
-                }
+                })
             },
         }
 
         const attempts = await runner(fetcher, {}, defaultBudget(), publisher).run([candidate('example.com', 0)])
 
-        expect(decision).toBe('elsewhere')
+        expect(offsite).toBe(true)
         expect(published).toEqual([
             { domain: 'other-site.net', url: 'https://img.other-site.net/a.png', reason: 'redirect' },
         ])
@@ -293,6 +295,40 @@ describe('FetchRunner', () => {
         const attempts = await runner(fetcher, {}, defaultBudget(), publisher).run([candidate('example.com', 0)])
 
         expect(attempts[0]).toMatchObject({ finished: false, lost: false })
+    })
+
+    it('checks again when a request reaches the front of the pod queue (requirement 5)', async () => {
+        // The pod queue is the longest wait a request takes: 300 slots serve every domain the pod
+        // owns. A sibling request can meet a Retry-After while this one waits for a slot, and
+        // sending it anyway would reach a site that had just asked to be left alone.
+        const budget = defaultBudget()
+        const published: string[] = []
+        const publisher = {
+            republish: (_c: FetchCandidate, _t: unknown, reason: string) => {
+                published.push(reason)
+                return Promise.resolve(true)
+            },
+        } as unknown as FrontierPublisher
+        const fetcher: ImageFetcher = {
+            fetch: async (url: string) => {
+                if (url.endsWith('/0.png')) {
+                    // Yielded first, so the second request passes the token bucket and reaches the
+                    // pod queue before this hold exists. Without the yield the token bucket refuses
+                    // it, and this test would pass whatever the queue does.
+                    await delay(1)
+                    budget.recordRetryAfter('example.com', Date.now(), 60_000)
+                }
+                return { outcome: 'ok' as const, redirects: 0 }
+            },
+        }
+
+        const attempts = await runner(fetcher, { maxInFlightRequests: 1 }, budget, publisher).run([
+            candidate('example.com', 0),
+            candidate('example.com', 1),
+        ])
+
+        expect(attempts.map((attempt) => attempt.outcome).sort()).toEqual(['ok', 'rate_limited'])
+        expect(published).toEqual(['retry'])
     })
 
     it('gives up and records a URL with no hops left (requirement 12)', async () => {

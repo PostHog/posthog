@@ -132,7 +132,7 @@ describe('HostBudget', () => {
         expect(host.acquireConnection('example.com', 1000)).toBe(true)
         expect(host.acquireConnection('example.com', 1000)).toBe(false)
 
-        host.releaseConnection('example.com', 1000)
+        host.releaseConnection('example.com')
 
         expect(host.acquireConnection('example.com', 1000)).toBe(true)
     })

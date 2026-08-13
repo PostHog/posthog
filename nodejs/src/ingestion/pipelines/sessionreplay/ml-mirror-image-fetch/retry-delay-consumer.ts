@@ -7,7 +7,7 @@ import { delay } from '~/common/utils/utils'
 import { RetryDelayMetrics } from './metrics'
 
 export interface RetryDelayConsumerOptions {
-    /** Where a ripe record goes. Always the frontier. */
+    /** Where a record goes once its wait ends. Always the frontier. */
     frontierTopic: string
     /** How long every record in this topic waits. It is a property of the topic, not of the record. */
     delayMs: number
@@ -42,8 +42,8 @@ const DEFAULT_HEARTBEAT_INTERVAL_MS = 10_000
  *
  * Two properties of this lane come from its deployment rather than from this file, and both are in
  * the README. Its `max.poll.interval.ms` must exceed the period of its topic, or the broker evicts
- * it mid-sleep. It runs one pod and no more, because adding consumers cannot make a record ripen
- * sooner.
+ * it mid-sleep. It runs one pod and no more, because adding consumers cannot make a record become
+ * ready sooner.
  */
 export class RetryDelayConsumer {
     constructor(
@@ -72,9 +72,12 @@ export class RetryDelayConsumer {
                     return
                 }
             }
-            if (await this.release(message)) {
-                this.options.storeOffset(message)
+            if (!(await this.release(message))) {
+                // The rest of the batch stays where it is. An offset is a high water mark, so
+                // storing a later one would commit this record as well. Requirement 21.
+                return
             }
+            this.options.storeOffset(message)
         }
     }
 
@@ -112,8 +115,8 @@ export class RetryDelayConsumer {
     /**
      * True when this consumer is finished with the record, whether it went out or can never go out.
      *
-     * A produce that failed returns false and stores no offset, so the record is read again. That is
-     * the only way it comes back: the URL has no crawl history entry, and nothing else is holding it.
+     * A produce that failed returns false, and the caller stops the batch there. Reading the record
+     * again is the only way it comes back, because nothing else holds it.
      */
     private async release(message: Message): Promise<boolean> {
         if (!message.value || !message.key) {

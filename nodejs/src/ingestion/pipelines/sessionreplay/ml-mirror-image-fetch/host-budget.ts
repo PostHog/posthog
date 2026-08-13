@@ -88,14 +88,19 @@ export class HostBudget {
      * had just asked to be left alone. Requirement 5.
      */
     public blockedReason(domain: string, nowMs: number): 'breaker_open' | 'rate_limited' | null {
-        const state = this.stateFor(domain, nowMs)
-        return state.blockedUntilMs > nowMs ? state.blockedReason : null
+        const state = this.domains.get(domain)
+        return state && state.blockedUntilMs > nowMs ? state.blockedReason : null
     }
 
-    /** How long the domain stays blocked, so a retry can wait that long rather than guess. */
+    /**
+     * How long the domain stays blocked, so a retry can wait that long rather than guess.
+     *
+     * An unknown domain reads as not blocked, and no entry is created for it. Creating one would
+     * let a question about a domain evict the hold on another. Requirement 19.
+     */
     public blockedForMs(domain: string, nowMs: number): number {
-        const state = this.stateFor(domain, nowMs)
-        return Math.max(0, state.blockedUntilMs - nowMs)
+        const state = this.domains.get(domain)
+        return state ? Math.max(0, state.blockedUntilMs - nowMs) : 0
     }
 
     /**
@@ -125,9 +130,11 @@ export class HostBudget {
         return true
     }
 
-    public releaseConnection(domain: string, nowMs: number): void {
-        const state = this.stateFor(domain, nowMs)
-        state.inFlight = Math.max(0, state.inFlight - 1)
+    public releaseConnection(domain: string): void {
+        const state = this.domains.get(domain)
+        if (state) {
+            state.inFlight = Math.max(0, state.inFlight - 1)
+        }
     }
 
     public recordSuccess(domain: string, nowMs: number): void {

@@ -185,6 +185,7 @@ export class IngestionSessionReplayMlImageFetchServer implements NodeServer {
 
         const fetchConsumer = new UrlFetchConsumer(
             crawlHistory,
+            publisher,
             {
                 maxAgeMs: this.config.SESSION_RECORDING_ML_IMAGE_FETCH_MAX_AGE_MS,
                 dedupMaxRefs: this.config.SESSION_RECORDING_ML_IMAGE_FETCH_DEDUP_MAX_REFS,

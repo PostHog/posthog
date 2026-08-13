@@ -2,6 +2,13 @@ import { Counter, Gauge, Histogram } from 'prom-client'
 
 import type { TeamVolume } from './team-volume'
 
+/** What the budget gauges read. Narrower than `HostBudget`, so the metrics do not depend on the whole of it. */
+export interface BudgetCounts {
+    readonly trackedDomains: number
+    readonly evictedWhileBlocked: number
+    blockedDomains(nowMs: number): number
+}
+
 export type UrlDropReason =
     | 'malformed'
     | 'unsupported_version'
@@ -10,7 +17,6 @@ export type UrlDropReason =
     | 'bad_url'
     | 'foreign_domain'
     | 'oversized_record'
-    | 'too_early'
 
 export type DedupScope = 'batch' | 'pod' | 'store'
 
@@ -48,7 +54,7 @@ export class ImageFetchConsumerMetrics {
      */
     private static readonly dropped = new Counter({
         name: 'ml_image_fetch_consumer_dropped_total',
-        help: 'URLs refused before dedup, by reason: "stale" (older than the age limit), "malformed" / "unsupported_version" / "oversized_record" (the record did not parse), "bad_ref" / "bad_url" (an entry inside a record did not parse), "foreign_domain" (the host sits outside the domain the record is keyed by), "too_early" (it is still waiting out a retry delay)',
+        help: 'URLs refused before dedup, by reason: "stale" (older than the age limit), "malformed" / "unsupported_version" / "oversized_record" (the record did not parse), "bad_ref" / "bad_url" (an entry inside a record did not parse), "foreign_domain" (the host sits outside the domain the record is keyed by)',
         labelNames: ['reason'],
     })
     /**
@@ -170,14 +176,23 @@ export class ImageFetchRequestMetrics {
      * The tracked count against the configured maximum says whether the map is evicting, and an
      * eviction forgets that a domain is blocked. The blocked count is how many sites this lane is
      * currently leaving alone.
+     *
+     * Both read the budget at scrape time. A hold expires by the clock, so a count taken at the end
+     * of a batch reports blocked domains for as long as the next batch takes to arrive.
      */
     private static readonly trackedDomains = new Gauge({
         name: 'ml_image_fetch_tracked_domains',
         help: 'Registrable domains this pod holds rate-limit state for',
+        collect() {
+            this.set(ImageFetchRequestMetrics.budget?.trackedDomains ?? 0)
+        },
     })
     private static readonly blockedDomains = new Gauge({
         name: 'ml_image_fetch_blocked_domains',
         help: 'Domains this pod is currently sending nothing to, because a breaker opened or a Retry-After header is still in force',
+        collect() {
+            this.set(ImageFetchRequestMetrics.budget?.blockedDomains(Date.now()) ?? 0)
+        },
     })
 
     public static incOutcome(outcome: string): void {
@@ -197,7 +212,17 @@ export class ImageFetchRequestMetrics {
     private static readonly evictedWhileBlocked = new Gauge({
         name: 'ml_image_fetch_domains_evicted_while_blocked',
         help: 'Domains dropped from the rate-limit map while they were still blocked. Each one resumes traffic to a site that asked us to wait, so a rising value means the tracked-domain limit is too low',
+        collect() {
+            this.set(ImageFetchRequestMetrics.budget?.evictedWhileBlocked ?? 0)
+        },
     })
+
+    private static budget: BudgetCounts | undefined
+
+    /** The runner owns the budget. These gauges read it at scrape time. Requirement 28. */
+    public static trackBudget(budget: BudgetCounts): void {
+        this.budget = budget
+    }
 
     /**
      * URLs put back into the frontier rather than finished with.
@@ -208,7 +233,7 @@ export class ImageFetchRequestMetrics {
      */
     private static readonly republished = new Counter({
         name: 'ml_image_fetch_republished_total',
-        help: 'URLs published back to Kafka, by why and to which topic. "redirect" left the registrable domain, so another consumer owns its budget. "retry" hit a transient failure and waits in a delay topic',
+        help: 'URLs published back to Kafka, by why and to which topic. "redirect" left the registrable domain, so another consumer owns its budget. "retry" hit a transient failure and waits in a delay topic. "not_ready" arrived before the period it was waiting out had passed',
         labelNames: ['reason', 'topic'],
     })
     private static readonly republishFailed = new Counter({
@@ -224,7 +249,7 @@ export class ImageFetchRequestMetrics {
      */
     private static readonly hopsUsed = new Histogram({
         name: 'ml_image_fetch_hops_used',
-        help: 'Moves one URL made before the lane finished with it. A redirect, a republish, and a retry each count one',
+        help: 'Moves one URL made before the lane finished with it. A republish and a retry each count one. A redirect that stays on the same domain is bounded separately and counts none',
         buckets: [0, 1, 2, 3, 5, 10],
     })
 
@@ -237,11 +262,6 @@ export class ImageFetchRequestMetrics {
     public static observeHops(hops: number): void {
         this.hopsUsed.observe(hops)
     }
-    public static observeBudget(tracked: number, blocked: number, evictedWhileBlocked: number): void {
-        this.trackedDomains.set(tracked)
-        this.blockedDomains.set(blocked)
-        this.evictedWhileBlocked.set(evictedWhileBlocked)
-    }
 }
 
 /**
@@ -249,7 +269,7 @@ export class ImageFetchRequestMetrics {
  *
  * Lag on these topics is the design working rather than a fault: a record waiting out its period is
  * lag. Read `ml_image_fetch_retry_wait_seconds` against the period of the topic instead. A wait far
- * short of the period means records are arriving already ripe, which means the tier below is too
+ * short of the period means records arrive with their wait already spent, which means the tier below is too
  * small.
  */
 export class RetryDelayMetrics {

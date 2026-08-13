@@ -2,11 +2,10 @@ import { parseJSON } from '~/common/utils/json-parse'
 import { parseImageRef } from '~/ingestion/pipelines/sessionreplay/ml-mirror-image-scrub/content-ref'
 
 import { UrlDropReason } from './metrics'
+import { politenessKey } from './politeness-key'
 
 /** Beyond this the URL is not something the mirror produced, so it is a format disagreement. */
 const MAX_URL_LENGTH = 2048
-
-const FETCHABLE_SCHEMES = new Set(['http:', 'https:'])
 
 /**
  * A record holds one domain from one message, and the collector caps a message at 512, so a
@@ -53,8 +52,8 @@ function isStringRecord(value: unknown): value is Record<string, unknown> {
  * record that does not parse is counted and dropped instead of throwing: one bad record must not
  * stall the partition it shares with every other site.
  *
- * `domain` comes from the Kafka key rather than the record body, because the key is what routed the
- * record to this partition and so is what the politeness budget must be scoped to.
+ * `domain` comes from the Kafka key, because the key is what routed the record to this partition and
+ * so is what the politeness budget must be scoped to.
  */
 export function parseCollectedUrlsRecord(value: Buffer | null, key: string | null): RecordParse {
     if (!value || !key) {
@@ -109,9 +108,7 @@ export function parseCollectedUrlsRecord(value: Buffer | null, key: string | nul
             rejected.push({ reason: 'bad_url' })
             continue
         }
-        // The key is what the per-site budget is scoped to, so a host outside it would be rate
-        // limited against another site's allowance.
-        if (!hostBelongsToDomain(host, key)) {
+        if (!hostIsKeyedByItsOperator(host, key)) {
             rejected.push({ reason: 'foreign_domain' })
             continue
         }
@@ -139,16 +136,18 @@ function clampHops(value: unknown): number {
 }
 
 /**
- * The trailing dot is dropped from both sides first.
+ * The key must be the registrable domain of the host, not merely a domain the host sits under.
  *
- * `example.com.` and `example.com` name the same host, and the key is built from a function that
- * strips the dot. A record written before the producer stripped it carries the dotted form, and
- * comparing the two as strings would drop every one of those as foreign.
+ * A key of `cdn.example.com` would give that subdomain a rate budget of its own, and a producer
+ * writing one key per subdomain would hand one operator a multiple of the rate we promise it. The
+ * key also decides the partition, so a record failing this test is on the wrong partition as well.
+ * Requirement 3.
+ *
+ * The trailing dot is dropped from the key first. `example.com.` and `example.com` name the same
+ * host, and a record written before the producer stripped it carries the dotted form.
  */
-function hostBelongsToDomain(host: string, domain: string): boolean {
-    const bare = withoutTrailingDot(host)
-    const key = withoutTrailingDot(domain)
-    return bare === key || bare.endsWith(`.${key}`)
+function hostIsKeyedByItsOperator(host: string, key: string): boolean {
+    return politenessKey(withoutTrailingDot(host)) === withoutTrailingDot(key)
 }
 
 function withoutTrailingDot(value: string): string {
@@ -166,7 +165,9 @@ function isFetchableUrl(url: string, host: string): boolean {
     }
     try {
         const parsed = new URL(url)
-        if (!FETCHABLE_SCHEMES.has(parsed.protocol) || parsed.hostname !== host) {
+        // HTTPS only, which is what the collector produces. A plain HTTP URL would put an image on
+        // the wire in clear text, and requirement 9 then has nothing to allow a redirect down to.
+        if (parsed.protocol !== 'https:' || parsed.hostname !== host) {
             return false
         }
         // Both of these are refused on a redirect target, so the first hop is held to the same rule.

@@ -41,6 +41,39 @@ describe('parseCollectedUrlsRecord', () => {
         expect(parsed.ok && parsed.candidates).toHaveLength(1)
     })
 
+    it.each([
+        ['a key that is a subdomain rather than the operator', 'cdn.example.com', 'cdn.example.com'],
+        ['a key belonging to another operator', 'cdn.example.com', 'other.net'],
+    ])('drops %s (requirement 3)', (_name, host, key) => {
+        // The key scopes the rate budget. One key per subdomain would give one operator a multiple
+        // of the rate we promise it, and the record would be on the wrong partition as well.
+        const value = Buffer.from(
+            `{"v":1,"pseudoTeam":"${TEAM}","capturedAtMs":1700000000000,` +
+                `"urls":[{"ref":"imageurl:${TEAM}:${HASH}","url":"https://${host}/a.png","host":"${host}"}]}`
+        )
+
+        const parsed = parseCollectedUrlsRecord(value, key)
+
+        expect(parsed.ok && parsed.candidates).toHaveLength(0)
+        expect(parsed.ok && parsed.rejected).toEqual([{ reason: 'foreign_domain' }])
+    })
+
+    it.each([
+        ['plain HTTP', 'http://cdn.example.com/a.png'],
+        ['a scheme this lane never fetches', 'ftp://cdn.example.com/a.png'],
+    ])('drops %s (requirements 34 and 35)', (_name, url) => {
+        // The collector produces HTTPS only. Anything else means a wrong or stale producer, and
+        // fetching it would put an image on the wire in clear text.
+        const value = Buffer.from(
+            `{"v":1,"pseudoTeam":"${TEAM}","capturedAtMs":1700000000000,` +
+                `"urls":[{"ref":"imageurl:${TEAM}:${HASH}","url":"${url}","host":"cdn.example.com"}]}`
+        )
+
+        const parsed = parseCollectedUrlsRecord(value, 'example.com')
+
+        expect(parsed.ok && parsed.rejected).toEqual([{ reason: 'bad_url' }])
+    })
+
     it('accepts an ordinary timestamp', () => {
         const parsed = parseCollectedUrlsRecord(body('"capturedAtMs":1700000000000'), 'example.com')
 
