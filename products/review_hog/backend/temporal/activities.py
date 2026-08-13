@@ -52,6 +52,7 @@ from products.review_hog.backend.reviewer.lazy_seed import (
     sync_canonical_authoring,
     sync_canonical_blind_spots,
     sync_canonical_perspectives,
+    sync_canonical_resolution,
     sync_canonical_validation,
 )
 from products.review_hog.backend.reviewer.models import generate_all_schemas
@@ -225,6 +226,10 @@ class ResolveActingUserResult:
     review_inbox_prs: bool = False
     # Which chain link resolved: "author" | "default" | "override" (observability + tests).
     resolved_from: str = "author"
+    # Whether a published review of this user's PRs chains into the resolution stage. Defaults False
+    # — the SKIP value — so pre-field histories replay deterministically (the chained dispatch is a
+    # new workflow command; old runs must never reach it on replay). The model default is True.
+    resolve_comments: bool = False
 
 
 @dataclass
@@ -344,6 +349,10 @@ class BuildBodyInput:
     # The acting user's threshold, snapshotted at resolve time. Defaulted so pre-field payloads
     # still deserialize — a missing field takes the current default, not the run's original gate.
     urgency_threshold: str = IssuePriority.CONSIDER.value
+    # Whether this run dispatches the publish stage after finalizing. Publishing runs defer the
+    # idle write to publish so the report never reads at-rest with the post still in flight.
+    # Defaulted False so pre-field payloads keep the finalize-goes-idle behavior.
+    will_publish: bool = False
 
 
 @dataclass
@@ -458,13 +467,25 @@ def _installation_auth(team_id: int, repository: str) -> tuple[str, str | None]:
     the blip); the genuinely-missing-integration case is already caught non-retryably up front by
     `validate_github_integration_activity`, so a real misconfig still fails fast there.
     """
+    github = _installation_for(team_id, repository)
+    return github.get_access_token(), github.github_installation_id
+
+
+def _installation_for(team_id: int, repository: str) -> GitHubIntegration:
+    """The team's GitHub App installation that can access `repository` — a live API probe.
+
+    Callers that make many writes in one run should select once and re-mint tokens from the
+    returned integration row (`GitHubIntegration(Integration.objects.get(...)).get_access_token()`)
+    instead of re-probing per write: the probe answers *which* installation, not *may we write* —
+    GitHub enforces access server-side on every call anyway.
+    """
     github = GitHubIntegration.first_for_team_repository(team_id, repository)
     if github is None:
         raise ApplicationError(
             f"Could not resolve a GitHub App installation for team {team_id} that can access {repository} "
             "(no installation, or a transient GitHub API failure)."
         )
-    return github.get_access_token(), github.github_installation_id
+    return github
 
 
 @activity.defn
@@ -645,6 +666,9 @@ def _resolve_acting_user(
         ),
         review_inbox_prs=settings.review_inbox_prs,
         resolved_from=resolved_from,
+        # Same author-protection shape as `review_labeled_prs`: the borrowed default user's personal
+        # switch never governs someone else's PR — an unmapped author gets the default posture (on).
+        resolve_comments=settings.resolve_comments if resolved_from in ("author", "override") else True,
     )
 
 
@@ -676,6 +700,7 @@ def _sync_review_skills(team_id: int) -> None:
     sync_canonical_perspectives(team, prune=True)
     sync_canonical_validation(team, prune=True)
     sync_canonical_blind_spots(team, prune=True)
+    sync_canonical_resolution(team, prune=True)
     sync_canonical_authoring(team, prune=True)
 
 
@@ -1176,7 +1201,13 @@ async def validate_chunk_activity(input: ValidateChunkInput) -> ValidateChunkRes
 
 
 def _build_and_finalize(
-    team_id: int, report_id: str, head_sha: str, run_index: int, issue_ids: list[str], urgency_threshold: str
+    team_id: int,
+    report_id: str,
+    head_sha: str,
+    run_index: int,
+    issue_ids: list[str],
+    urgency_threshold: str,
+    will_publish: bool,
 ) -> None:
     issues = load_run_issues(team_id=team_id, report_id=report_id, run_index=run_index, issue_ids=issue_ids)
     # Verdicts come from the DB (the same rows publish reads), so a partially-failed chunk shows the
@@ -1201,6 +1232,7 @@ def _build_and_finalize(
         # The same snapshot the body above and the publish gate consume — stamped so the detail view
         # buckets this turn's findings by the gate that actually ran.
         urgency_threshold=urgency_threshold,
+        will_publish=will_publish,
     )
 
 
@@ -1210,7 +1242,13 @@ def _build_and_finalize(
 async def build_body_activity(input: BuildBodyInput) -> None:
     """Render the review body and finalize the turn (store the body, bump the run watermark)."""
     await database_sync_to_async(_build_and_finalize, thread_sensitive=False)(
-        input.team_id, input.report_id, input.head_sha, input.run_index, input.issue_ids, input.urgency_threshold
+        input.team_id,
+        input.report_id,
+        input.head_sha,
+        input.run_index,
+        input.issue_ids,
+        input.urgency_threshold,
+        input.will_publish,
     )
 
 
@@ -1447,12 +1485,24 @@ async def finalize_status_comment_activity(input: FinalizeStatusCommentInput) ->
     )
 
 
+def _fail_run(team_id: int, report_id: str) -> None:
+    # The idle write comes first so a GitHub failure below can't skip it: on publishing runs
+    # finalize defers going idle to the publish stage, so a run dying between finalize and publish
+    # would otherwise sit ACTIVE (reading as in-progress in the UI) until the staleness cutoff.
+    ReviewReport.objects.for_team(team_id).filter(id=report_id).update(status=ReviewReport.Status.IDLE)
+    fail_status_comment(team_id, report_id)
+
+
 @activity.defn
 @scoped_temporal()
 @close_db_connections
 async def fail_status_comment_activity(input: StatusCommentInput) -> None:
-    """Rewrite the status comment as failed, so a dead run never reads as forever in progress."""
-    await database_sync_to_async(fail_status_comment, thread_sensitive=False)(input.team_id, input.report_id)
+    """Return the dead run's report to rest and rewrite the status comment as failed.
+
+    The idle write lives in this activity rather than as its own workflow command so in-flight
+    histories replay unchanged (new unconditional commands break replay determinism).
+    """
+    await database_sync_to_async(_fail_run, thread_sensitive=False)(input.team_id, input.report_id)
 
 
 # --- The signals report's code_review receipt --------------------------------------------------------

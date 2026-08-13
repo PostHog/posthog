@@ -10,6 +10,7 @@ import UniversalFilters from 'lib/components/UniversalFilters/UniversalFilters'
 import { universalFiltersLogic } from 'lib/components/UniversalFilters/universalFiltersLogic'
 import { isUniversalGroupFilterLike } from 'lib/components/UniversalFilters/utils'
 import { FEATURE_FLAGS } from 'lib/constants'
+import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
 import { LemonField } from 'lib/lemon-ui/LemonField'
 import { LemonLabel } from 'lib/lemon-ui/LemonLabel'
 import { LemonSlider } from 'lib/lemon-ui/LemonSlider'
@@ -32,6 +33,7 @@ import { PropertyFilterType, RecordingUniversalFilters, UniversalFiltersGroup } 
 import { clampDurationFilter, durationFilterError, MAX_ACTIVE_LABEL } from '../durationBounds'
 import { replayScannerLogic } from '../replayScannerLogic'
 import { SAMPLING_MODE_OPTIONS, SamplingMode } from '../types'
+import { ScannerCreditLimit } from './ScannerCreditLimit'
 import { ScannerQuotaForecast } from './ScannerQuotaForecast'
 
 // Mirrors the recordings list taxonomy, including suggested filters so the search bar surfaces them.
@@ -69,6 +71,7 @@ export function groupHasNoFilters(group: UniversalFiltersGroup): boolean {
 function ScannerFilterGroup(): JSX.Element {
     const { filterGroup } = useValues(universalFiltersLogic)
     const { replaceGroupValue, removeGroupValue } = useActions(universalFiltersLogic)
+    const allowEntityNegation = useFeatureFlag('REPLAY_NEGATIVE_EVENT_FILTERS')
 
     return (
         <div className="flex flex-wrap items-center gap-2">
@@ -84,6 +87,7 @@ function ScannerFilterGroup(): JSX.Element {
                         filter={filterOrGroup}
                         onRemove={() => removeGroupValue(index)}
                         onChange={(value) => replaceGroupValue(index, value)}
+                        allowEntityNegation={allowEntityNegation}
                     />
                 )
             )}
@@ -336,6 +340,8 @@ export function ScannerTriggers({ scannerId }: { scannerId: string }): JSX.Eleme
                     )
                 }}
             </LemonField>
+
+            <ScannerCreditLimit scannerId={scannerId} />
 
             <ScannerQuotaForecast scannerId={scannerId} />
         </div>

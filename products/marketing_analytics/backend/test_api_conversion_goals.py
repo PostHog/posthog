@@ -1,4 +1,5 @@
 from posthog.test.base import APIBaseTest
+from unittest.mock import AsyncMock, patch
 
 from parameterized import parameterized
 
@@ -8,9 +9,38 @@ from posthog.models.organization import OrganizationMembership
 from posthog.models.team.team import Team
 from posthog.models.team.team_marketing_analytics_config import TeamMarketingAnalyticsConfig
 
+from products.marketing_analytics.backend.services.conversion_goals_inspector import (
+    ConversionGoalsListResponse,
+    ConversionGoalSummary,
+)
+
 from ee.models.rbac.access_control import AccessControl
 
 SCHEMA_MAP = {"utm_campaign_name": "utm_campaign", "utm_source_name": "utm_source"}
+
+_LIST_TARGET = "products.marketing_analytics.backend.api.list_conversion_goals"
+
+
+def _summary_for(conversion_goal_id: str) -> ConversionGoalsListResponse:
+    return ConversionGoalsListResponse(
+        goals=[
+            ConversionGoalSummary(
+                conversion_goal_id=conversion_goal_id,
+                name="Sign ups",
+                kind="EventsNode",
+                target_label="sign_up",
+                last_30d_count=10,
+                integrated_count=10,
+                events_without_utm_source=0,
+                events_with_unmatched_utm_source=0,
+                non_integrated_count=0,
+                integrated_pct=100.0,
+                is_misconfigured=False,
+                misconfig_reason=None,
+            )
+        ],
+        attribution_window_days=90,
+    )
 
 
 def goal_payload(name: str, event: str = "sign_up", **extra) -> dict:
@@ -356,3 +386,48 @@ class TestConversionGoalWrites(APIBaseTest):
         entries = ActivityLog.objects.filter(team_id=self.team.pk, scope="Team", activity="updated")
         assert entries.count() == 3
         assert {entry.user_id for entry in entries} == {self.user.pk}
+
+
+class TestConversionGoalIdIsOneName(APIBaseTest):
+    def setUp(self):
+        super().setUp()
+        self.base_url = f"/api/projects/{self.team.pk}/marketing_analytics/conversion_goals"
+        self.explain_url = f"/api/projects/{self.team.pk}/marketing_analytics/explain_conversion_goal"
+        self.organization_membership.level = OrganizationMembership.Level.ADMIN
+        self.organization_membership.save()
+
+    def test_the_list_calls_the_id_conversion_goal_id(self):
+        goal = self.client.post(f"{self.base_url}/create", {"goal": goal_payload("Sign ups")}, format="json")
+        created = goal.json()["goal"]
+
+        listed = _summary_for(created["conversion_goal_id"])
+        with patch(_LIST_TARGET, new=AsyncMock(return_value=listed)):
+            response = self.client.get(self.base_url)
+
+        assert response.status_code == 200, response.json()
+        # The name every downstream endpoint asks for, so a caller can chain them.
+        assert response.json()["goals"][0]["conversion_goal_id"] == created["conversion_goal_id"]
+
+    def test_explain_takes_conversion_goal_id(self):
+        response = self.client.get(self.explain_url, {"conversion_goal_id": "does-not-exist"})
+
+        # 404 means the parameter was read and the lookup ran; 400 would mean it was never accepted.
+        assert response.status_code == 404, response.status_code
+
+    def test_explain_no_longer_answers_to_goal_id(self):
+        response = self.client.get(self.explain_url, {"goal_id": "does-not-exist"})
+
+        assert response.status_code == 400
+
+    def test_update_and_delete_take_the_same_name(self):
+        created = self.client.post(f"{self.base_url}/create", {"goal": goal_payload("Sign ups")}, format="json").json()[
+            "goal"
+        ]
+        goal_id = created["conversion_goal_id"]
+
+        update = self.client.patch(
+            f"{self.base_url}/{goal_id}/update", {"goal": {"counts_as_customer": True}}, format="json"
+        )
+        delete = self.client.delete(f"{self.base_url}/{goal_id}/delete")
+
+        assert (update.status_code, delete.status_code) == (200, 200), (update.json(), delete.json())

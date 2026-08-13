@@ -2,9 +2,15 @@ import datetime as dt
 
 import pytest
 from freezegun import freeze_time
-from posthog.test.base import ClickhouseTestMixin
+from posthog.test.base import ClickhouseTestMixin, _create_event
 
-from posthog.schema import EventPropertyFilter, PropertyOperator, RecordingPropertyFilter, RecordingsQuery
+from posthog.schema import (
+    EventPropertyFilter,
+    FilterLogicalOperator,
+    PropertyOperator,
+    RecordingPropertyFilter,
+    RecordingsQuery,
+)
 
 from posthog.hogql import ast
 
@@ -18,12 +24,14 @@ from products.replay_vision.backend.queries.scanner_candidate_query import (
     DEFAULT_CANDIDATE_LIMIT,
     FOCUSED_SURFACING_THRESHOLD,
     SETTLE_INTERVAL,
+    SWEEP_EVENTS_LOOKBACK,
     BackfillCandidateQuery,
     ScannerCandidateQuery,
     surfacing_score_predicate,
 )
 from products.replay_vision.backend.queries.scanner_volume_estimate import (
-    _ESTIMATE_SCAN_WINDOW_DAYS,
+    BATCH_ESTIMATE_BUDGET,
+    PREVIEW_ESTIMATE_BUDGET,
     estimate_scanner_session_volume,
     project_monthly_observations,
 )
@@ -434,7 +442,7 @@ class TestScannerCandidateQueryAgainstClickHouse(ClickhouseTestMixin):
     @pytest.mark.django_db
     def test_volume_estimate_window_is_exactly_the_scan_window(self, team) -> None:
         # An exact-timestamp date_from keeps the boundary sharp: a relative form would truncate to start-of-day.
-        bound = _NOW - dt.timedelta(days=_ESTIMATE_SCAN_WINDOW_DAYS)
+        bound = _NOW - dt.timedelta(days=BATCH_ESTIMATE_BUDGET.scan_window_days)
         self._produce(
             team.id,
             "same-day-but-outside",
@@ -455,6 +463,31 @@ class TestScannerCandidateQueryAgainstClickHouse(ClickhouseTestMixin):
         assert estimate.matched_sessions == 1
 
     @pytest.mark.django_db
+    def test_unsampled_estimate_window_narrows_only_for_previews(self, team) -> None:
+        # An OR operand rules out the events SAMPLE, so a preview scans a shorter window instead of
+        # paying full price. A persisted estimate keeps the whole week, because a partial week
+        # inherits whichever weekdays it covered and biases the monthly projection.
+        first = _NOW - dt.timedelta(days=3)
+        self._produce(team.id, "older-match", first, first + dt.timedelta(minutes=10))
+        _create_event(
+            team=team,
+            event="$pageview",
+            distinct_id="d1",
+            timestamp=first,
+            properties={"$session_id": "older-match"},
+        )
+        query = RecordingsQuery(
+            operand=FilterLogicalOperator.OR_,
+            events=[{"id": "$pageview", "type": "events", "order": 0, "name": "$pageview"}],
+        )
+
+        preview = estimate_scanner_session_volume(team=team, query=query, budget=PREVIEW_ESTIMATE_BUDGET)
+        batch = estimate_scanner_session_volume(team=team, query=query, budget=BATCH_ESTIMATE_BUDGET)
+
+        assert preview.matched_sessions == 0
+        assert batch.matched_sessions == 1
+
+    @pytest.mark.django_db
     def test_volume_estimate_projects_zero_for_old_but_quiet_teams(self, team) -> None:
         # Recordings older than the probe fall back to the full scan-window divisor, which is inert: matched is 0.
         old = _NOW - dt.timedelta(days=40)
@@ -463,7 +496,7 @@ class TestScannerCandidateQueryAgainstClickHouse(ClickhouseTestMixin):
         estimate = estimate_scanner_session_volume(team=team, query=RecordingsQuery())
 
         assert estimate.matched_sessions == 0
-        assert estimate.effective_window_days == _ESTIMATE_SCAN_WINDOW_DAYS
+        assert estimate.effective_window_days == BATCH_ESTIMATE_BUDGET.scan_window_days
         assert project_monthly_observations(estimate, 1.0) == 0
 
     @pytest.mark.django_db
@@ -633,6 +666,56 @@ class TestScannerCandidateQueryAgainstClickHouse(ClickhouseTestMixin):
         results = self._run(team=team, last_swept_at=_NOW - dt.timedelta(hours=2))
         assert results == []
 
+    @pytest.mark.django_db
+    def test_events_lookback_bounds_positive_event_matching(self, team) -> None:
+        last_swept_at = _NOW - dt.timedelta(hours=1)
+        floor = last_swept_at - SWEEP_EVENTS_LOOKBACK
+        for session_id, event_ts in (
+            ("recent-event", floor + dt.timedelta(hours=1)),
+            ("old-event", floor - dt.timedelta(hours=1)),
+        ):
+            self._produce(team.id, session_id, _NOW - dt.timedelta(hours=8), _NOW - dt.timedelta(minutes=50))
+            _create_event(
+                team=team,
+                event="$pageview",
+                distinct_id="d1",
+                timestamp=event_ts,
+                properties={"$session_id": session_id},
+            )
+
+        query = RecordingsQuery(events=[{"id": "$pageview", "type": "events", "order": 0, "name": "$pageview"}])
+
+        narrow = self._run(team=team, query=query, last_swept_at=last_swept_at, events_lookback=SWEEP_EVENTS_LOOKBACK)
+        assert [r.session_id for r in narrow] == ["recent-event"]
+
+        full_width = self._run(team=team, query=query, last_swept_at=last_swept_at)
+        assert sorted(r.session_id for r in full_width) == ["old-event", "recent-event"]
+
+    @pytest.mark.django_db
+    def test_events_lookback_keeps_negative_filters_full_width(self, team) -> None:
+        last_swept_at = _NOW - dt.timedelta(hours=1)
+        old_ts = last_swept_at - SWEEP_EVENTS_LOOKBACK - dt.timedelta(hours=1)
+        for session_id, host in (("blocked", "internal.example.com"), ("kept", "app.example.com")):
+            self._produce(team.id, session_id, _NOW - dt.timedelta(hours=8), _NOW - dt.timedelta(minutes=50))
+            _create_event(
+                team=team,
+                event="$pageview",
+                distinct_id="d1",
+                timestamp=old_ts,
+                properties={"$session_id": session_id, "$host": host},
+            )
+
+        query = RecordingsQuery(
+            properties=[
+                EventPropertyFilter(
+                    key="$host", value=["internal.example.com"], operator=PropertyOperator.IS_NOT, type="event"
+                )
+            ]
+        )
+
+        results = self._run(team=team, query=query, last_swept_at=last_swept_at, events_lookback=SWEEP_EVENTS_LOOKBACK)
+        assert [r.session_id for r in results] == ["kept"]
+
     @staticmethod
     def _run(
         *,
@@ -643,6 +726,7 @@ class TestScannerCandidateQueryAgainstClickHouse(ClickhouseTestMixin):
         sampling_salt: str = "scanner-1",
         candidate_limit: int = DEFAULT_CANDIDATE_LIMIT,
         last_seen_session_id: str | None = None,
+        events_lookback: dt.timedelta | None = None,
     ):
         return ScannerCandidateQuery(
             team=team,
@@ -652,6 +736,7 @@ class TestScannerCandidateQueryAgainstClickHouse(ClickhouseTestMixin):
             sampling_salt=sampling_salt,
             candidate_limit=candidate_limit,
             last_seen_session_id=last_seen_session_id,
+            events_lookback=events_lookback,
         ).run()
 
 
