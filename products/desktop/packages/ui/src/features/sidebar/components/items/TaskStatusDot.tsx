@@ -58,51 +58,73 @@ function RowTooltip({
 }
 
 /**
+ * The dot itself, as a plain element. A function rather than a component so the
+ * result is a DOM element a tooltip trigger can clone — and so the mark can be
+ * drawn on its own where the state is already named in words beside it.
+ *
+ * `decorative` is for that second case: where the label is on screen already,
+ * naming the dot as well says it twice.
+ */
+function dotMark(dot: TaskDot, decorative = false): ReactElement {
+  const color = DOT_TONE_VAR[dot.tone];
+  const naming = decorative
+    ? { "aria-hidden": true }
+    : { "aria-label": dot.label, role: "img" };
+  if (dot.spinner) {
+    return (
+      <span
+        {...naming}
+        className="flex shrink-0 items-center justify-center"
+        // The spinner draws its dots in `currentColor`, so the tone is set
+        // here rather than passed down.
+        style={{ color: TONE_ICON_VAR[dot.tone], width: SPINNER_SIZE }}
+      >
+        <DotRingSpinner size={SPINNER_SIZE} />
+      </span>
+    );
+  }
+  return (
+    <span
+      {...naming}
+      className={cn(
+        "block shrink-0 rounded-full",
+        // ph-pulse is the app's existing flash, but it has no reduced-motion
+        // rule of its own — hold a static dot rather than blinking at someone
+        // who asked us not to.
+        dot.pulse && "ph-pulse motion-reduce:animate-none",
+      )}
+      style={{
+        width: DOT_SIZE,
+        height: DOT_SIZE,
+        backgroundColor: dot.style === "solid" ? color : "transparent",
+        boxShadow:
+          dot.style === "hollow" ? `inset 0 0 0 1.5px ${color}` : undefined,
+        opacity: dot.faint ? FAINT_OPACITY : undefined,
+      }}
+    />
+  );
+}
+
+/**
  * A task's state as a single dot: blue wants a decision, the brand yellow is
  * working or unread, grey is quiet. The trigger renders as a span because rows are
  * `<button>`s — a nested button would be invalid HTML.
  */
 export function TaskStatusDot({ dot }: { dot: TaskDot }) {
-  const color = DOT_TONE_VAR[dot.tone];
-  if (dot.spinner) {
-    return (
-      <RowTooltip label={dot.label} side="right">
-        <span
-          aria-label={dot.label}
-          role="img"
-          className="flex shrink-0 items-center justify-center"
-          // The spinner draws its dots in `currentColor`, so the tone is set
-          // here rather than passed down.
-          style={{ color: TONE_ICON_VAR[dot.tone], width: SPINNER_SIZE }}
-        >
-          <DotRingSpinner size={SPINNER_SIZE} />
-        </span>
-      </RowTooltip>
-    );
-  }
   return (
     <RowTooltip label={dot.label} side="right">
-      <span
-        aria-label={dot.label}
-        role="img"
-        className={cn(
-          "block shrink-0 rounded-full",
-          // ph-pulse is the app's existing flash, but it has no reduced-motion
-          // rule of its own — hold a static dot rather than blinking at someone
-          // who asked us not to.
-          dot.pulse && "ph-pulse motion-reduce:animate-none",
-        )}
-        style={{
-          width: DOT_SIZE,
-          height: DOT_SIZE,
-          backgroundColor: dot.style === "solid" ? color : "transparent",
-          boxShadow:
-            dot.style === "hollow" ? `inset 0 0 0 1.5px ${color}` : undefined,
-          opacity: dot.faint ? FAINT_OPACITY : undefined,
-        }}
-      />
+      {dotMark(dot)}
     </RowTooltip>
   );
+}
+
+/**
+ * The same dot without the tooltip, for surfaces that already say what it means
+ * — the hover card names the state in words right beside it, and a tooltip over
+ * a label is a second answer to a question nobody asked twice.
+ */
+export function TaskDotMark({ dot }: { dot: TaskDot }) {
+  return dotMark(dot, true);
 }
 
 /**
