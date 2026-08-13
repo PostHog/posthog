@@ -164,6 +164,10 @@
                             description: None,
                             hidden: False
                           },
+                          inserted_at: {
+                            description: "When the event row was written to the database; unlike `created_at` it is monotone with arrival, so it suits incremental scans. Null on very old rows.",
+                            hidden: False
+                          },
                           issue_assigned_role_id: {
                             description: None,
                             hidden: False
@@ -367,6 +371,13 @@
                   alias: "event_person_id"
                   type: {
                     name: "event_person_id"
+                    table_type: <recursion ...>
+                  }
+                },
+                inserted_at: {
+                  alias: "inserted_at"
+                  type: {
+                    name: "inserted_at"
                     table_type: <recursion ...>
                   }
                 },
@@ -1129,6 +1140,25 @@
         }
       },
       {
+        alias: "inserted_at"
+        expr: {
+          chain: [
+            "inserted_at"
+          ]
+          from_asterisk: True
+          type: {
+            name: "inserted_at"
+            table_type: <recursion ...>
+          }
+        }
+        from_asterisk: False
+        hidden: True
+        type: {
+          alias: "inserted_at"
+          type: <recursion ...>
+        }
+      },
+      {
         alias: "$session_id"
         expr: {
           chain: [
@@ -1652,6 +1682,19 @@
             expr: {
               chain: [
                 "created_at"
+              ]
+              from_asterisk: True
+              type: <recursion ...>
+            }
+            from_asterisk: False
+            hidden: True
+            type: <recursion ...>
+          },
+          {
+            alias: "inserted_at"
+            expr: {
+              chain: [
+                "inserted_at"
               ]
               from_asterisk: True
               type: <recursion ...>
@@ -2249,6 +2292,7 @@
         event: <recursion ...>,
         event_issue_id: <recursion ...>,
         event_person_id: <recursion ...>,
+        inserted_at: <recursion ...>,
         issue_assigned_role_id: <recursion ...>,
         issue_assigned_user_id: <recursion ...>,
         issue_description: <recursion ...>,
@@ -2430,6 +2474,10 @@
                   hidden_field: {
                     description: None,
                     hidden: True
+                  },
+                  inserted_at: {
+                    description: "When the event row was written to the database; unlike `created_at` it is monotone with arrival, so it suits incremental scans. Null on very old rows.",
+                    hidden: False
                   },
                   issue_assigned_role_id: {
                     description: None,
@@ -2634,6 +2682,25 @@
         hidden: True
         type: {
           alias: "created_at"
+          type: <recursion ...>
+        }
+      },
+      {
+        alias: "inserted_at"
+        expr: {
+          chain: [
+            "inserted_at"
+          ]
+          from_asterisk: True
+          type: {
+            name: "inserted_at"
+            table_type: <recursion ...>
+          }
+        }
+        from_asterisk: False
+        hidden: True
+        type: {
+          alias: "inserted_at"
           type: <recursion ...>
         }
       },
@@ -3904,6 +3971,7 @@
         event: <recursion ...>,
         event_issue_id: <recursion ...>,
         event_person_id: <recursion ...>,
+        inserted_at: <recursion ...>,
         issue_assigned_role_id: <recursion ...>,
         issue_assigned_user_id: <recursion ...>,
         issue_description: <recursion ...>,
@@ -5196,6 +5264,10 @@
                   data_type: "uuid"
                   nullable: False
                 },
+                inserted_at: {
+                  data_type: "datetime"
+                  nullable: True
+                },
                 issue_assigned_role_id: {
                   data_type: "uuid"
                   nullable: True
@@ -5402,6 +5474,10 @@
                                 description: None,
                                 hidden: False
                               },
+                              inserted_at: {
+                                description: "When the event row was written to the database; unlike `created_at` it is monotone with arrival, so it suits incremental scans. Null on very old rows.",
+                                hidden: False
+                              },
                               issue_assigned_role_id: {
                                 description: None,
                                 hidden: False
@@ -5605,6 +5681,13 @@
                       alias: "event_person_id"
                       type: {
                         name: "event_person_id"
+                        table_type: <recursion ...>
+                      }
+                    },
+                    inserted_at: {
+                      alias: "inserted_at"
+                      type: {
+                        name: "inserted_at"
                         table_type: <recursion ...>
                       }
                     },
@@ -6395,6 +6478,10 @@
                                 description: None,
                                 hidden: False
                               },
+                              inserted_at: {
+                                description: "When the event row was written to the database; unlike `created_at` it is monotone with arrival, so it suits incremental scans. Null on very old rows.",
+                                hidden: False
+                              },
                               issue_assigned_role_id: {
                                 description: None,
                                 hidden: False
@@ -6598,6 +6685,13 @@
                       alias: "event_person_id"
                       type: {
                         name: "event_person_id"
+                        table_type: <recursion ...>
+                      }
+                    },
+                    inserted_at: {
+                      alias: "inserted_at"
+                      type: {
+                        name: "inserted_at"
                         table_type: <recursion ...>
                       }
                     },
@@ -7362,6 +7456,25 @@
         }
       },
       {
+        alias: "inserted_at"
+        expr: {
+          chain: [
+            "inserted_at"
+          ]
+          from_asterisk: True
+          type: {
+            name: "inserted_at"
+            table_type: <recursion ...>
+          }
+        }
+        from_asterisk: False
+        hidden: True
+        type: {
+          alias: "inserted_at"
+          type: <recursion ...>
+        }
+      },
+      {
         alias: "$session_id"
         expr: {
           chain: [
@@ -7886,6 +7999,19 @@
               expr: {
                 chain: [
                   "created_at"
+                ]
+                from_asterisk: True
+                type: <recursion ...>
+              }
+              from_asterisk: False
+              hidden: True
+              type: <recursion ...>
+            },
+            {
+              alias: "inserted_at"
+              expr: {
+                chain: [
+                  "inserted_at"
                 ]
                 from_asterisk: True
                 type: <recursion ...>
@@ -8554,6 +8680,19 @@
                   type: <recursion ...>
                 },
                 {
+                  alias: "inserted_at"
+                  expr: {
+                    chain: [
+                      "inserted_at"
+                    ]
+                    from_asterisk: True
+                    type: <recursion ...>
+                  }
+                  from_asterisk: False
+                  hidden: True
+                  type: <recursion ...>
+                },
+                {
                   alias: "$session_id"
                   expr: {
                     chain: [
@@ -9147,6 +9286,7 @@
         event: <recursion ...>,
         event_issue_id: <recursion ...>,
         event_person_id: <recursion ...>,
+        inserted_at: <recursion ...>,
         issue_assigned_role_id: <recursion ...>,
         issue_assigned_user_id: <recursion ...>,
         issue_description: <recursion ...>,
@@ -9555,6 +9695,10 @@
                     description: None,
                     hidden: False
                   },
+                  inserted_at: {
+                    description: "When the event row was written to the database; unlike `created_at` it is monotone with arrival, so it suits incremental scans. Null on very old rows.",
+                    hidden: False
+                  },
                   issue_assigned_role_id: {
                     description: None,
                     hidden: False
@@ -9758,6 +9902,25 @@
         hidden: True
         type: {
           alias: "created_at"
+          type: <recursion ...>
+        }
+      },
+      {
+        alias: "inserted_at"
+        expr: {
+          chain: [
+            "inserted_at"
+          ]
+          from_asterisk: True
+          type: {
+            name: "inserted_at"
+            table_type: <recursion ...>
+          }
+        }
+        from_asterisk: False
+        hidden: True
+        type: {
+          alias: "inserted_at"
           type: <recursion ...>
         }
       },
@@ -11028,6 +11191,7 @@
         event: <recursion ...>,
         event_issue_id: <recursion ...>,
         event_person_id: <recursion ...>,
+        inserted_at: <recursion ...>,
         issue_assigned_role_id: <recursion ...>,
         issue_assigned_user_id: <recursion ...>,
         issue_description: <recursion ...>,
@@ -11208,6 +11372,10 @@
                     },
                     group_4: {
                       description: None,
+                      hidden: False
+                    },
+                    inserted_at: {
+                      description: "When the event row was written to the database; unlike `created_at` it is monotone with arrival, so it suits incremental scans. Null on very old rows.",
                       hidden: False
                     },
                     issue_assigned_role_id: {
@@ -11414,6 +11582,25 @@
         hidden: True
         type: {
           alias: "created_at"
+          type: <recursion ...>
+        }
+      },
+      {
+        alias: "inserted_at"
+        expr: {
+          chain: [
+            "inserted_at"
+          ]
+          from_asterisk: True
+          type: {
+            name: "inserted_at"
+            table_type: <recursion ...>
+          }
+        }
+        from_asterisk: False
+        hidden: True
+        type: {
+          alias: "inserted_at"
           type: <recursion ...>
         }
       },
@@ -12685,6 +12872,7 @@
         event: <recursion ...>,
         event_issue_id: <recursion ...>,
         event_person_id: <recursion ...>,
+        inserted_at: <recursion ...>,
         issue_assigned_role_id: <recursion ...>,
         issue_assigned_user_id: <recursion ...>,
         issue_description: <recursion ...>,
@@ -12865,6 +13053,10 @@
                       },
                       group_4: {
                         description: None,
+                        hidden: False
+                      },
+                      inserted_at: {
+                        description: "When the event row was written to the database; unlike `created_at` it is monotone with arrival, so it suits incremental scans. Null on very old rows.",
                         hidden: False
                       },
                       issue_assigned_role_id: {
@@ -13161,6 +13353,10 @@
                       },
                       group_4: {
                         description: None,
+                        hidden: False
+                      },
+                      inserted_at: {
+                        description: "When the event row was written to the database; unlike `created_at` it is monotone with arrival, so it suits incremental scans. Null on very old rows.",
                         hidden: False
                       },
                       issue_assigned_role_id: {
@@ -13806,6 +14002,10 @@
                     description: None,
                     hidden: False
                   },
+                  inserted_at: {
+                    description: "When the event row was written to the database; unlike `created_at` it is monotone with arrival, so it suits incremental scans. Null on very old rows.",
+                    hidden: False
+                  },
                   issue_assigned_role_id: {
                     description: None,
                     hidden: False
@@ -14136,6 +14336,10 @@
                     },
                     group_4: {
                       description: None,
+                      hidden: False
+                    },
+                    inserted_at: {
+                      description: "When the event row was written to the database; unlike `created_at` it is monotone with arrival, so it suits incremental scans. Null on very old rows.",
                       hidden: False
                     },
                     issue_assigned_role_id: {
@@ -14472,6 +14676,10 @@
                       },
                       group_4: {
                         description: None,
+                        hidden: False
+                      },
+                      inserted_at: {
+                        description: "When the event row was written to the database; unlike `created_at` it is monotone with arrival, so it suits incremental scans. Null on very old rows.",
                         hidden: False
                       },
                       issue_assigned_role_id: {
@@ -14848,6 +15056,10 @@
                               },
                               group_4: {
                                 description: None,
+                                hidden: False
+                              },
+                              inserted_at: {
+                                description: "When the event row was written to the database; unlike `created_at` it is monotone with arrival, so it suits incremental scans. Null on very old rows.",
                                 hidden: False
                               },
                               issue_assigned_role_id: {
@@ -15232,6 +15444,10 @@
                     description: None,
                     hidden: False
                   },
+                  inserted_at: {
+                    description: "When the event row was written to the database; unlike `created_at` it is monotone with arrival, so it suits incremental scans. Null on very old rows.",
+                    hidden: False
+                  },
                   issue_assigned_role_id: {
                     description: None,
                     hidden: False
@@ -15581,6 +15797,10 @@
                     },
                     group_4: {
                       description: None,
+                      hidden: False
+                    },
+                    inserted_at: {
+                      description: "When the event row was written to the database; unlike `created_at` it is monotone with arrival, so it suits incremental scans. Null on very old rows.",
                       hidden: False
                     },
                     issue_assigned_role_id: {
@@ -15935,6 +16155,10 @@
                     description: None,
                     hidden: False
                   },
+                  inserted_at: {
+                    description: "When the event row was written to the database; unlike `created_at` it is monotone with arrival, so it suits incremental scans. Null on very old rows.",
+                    hidden: False
+                  },
                   issue_assigned_role_id: {
                     description: None,
                     hidden: False
@@ -16269,6 +16493,10 @@
                     },
                     group_4: {
                       description: None,
+                      hidden: False
+                    },
+                    inserted_at: {
+                      description: "When the event row was written to the database; unlike `created_at` it is monotone with arrival, so it suits incremental scans. Null on very old rows.",
                       hidden: False
                     },
                     issue_assigned_role_id: {
@@ -16719,6 +16947,10 @@
                       description: None,
                       hidden: False
                     },
+                    inserted_at: {
+                      description: "When the event row was written to the database; unlike `created_at` it is monotone with arrival, so it suits incremental scans. Null on very old rows.",
+                      hidden: False
+                    },
                     issue_assigned_role_id: {
                       description: None,
                       hidden: False
@@ -17010,6 +17242,10 @@
                         },
                         group_4: {
                           description: None,
+                          hidden: False
+                        },
+                        inserted_at: {
+                          description: "When the event row was written to the database; unlike `created_at` it is monotone with arrival, so it suits incremental scans. Null on very old rows.",
                           hidden: False
                         },
                         issue_assigned_role_id: {
@@ -17325,6 +17561,10 @@
                   },
                   group_4: {
                     description: None,
+                    hidden: False
+                  },
+                  inserted_at: {
+                    description: "When the event row was written to the database; unlike `created_at` it is monotone with arrival, so it suits incremental scans. Null on very old rows.",
                     hidden: False
                   },
                   issue_assigned_role_id: {
