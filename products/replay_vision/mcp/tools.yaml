@@ -326,14 +326,16 @@ tools:
             scanner (a permissive `query`, loose `sampling_mode`, and/or high `sampling_rate`), first call
             `vision-scanners-estimate-create` to project its monthly credit spend and `vision-quota-retrieve` to check
             the org's remaining budget — an enabled scanner sweeps matching recordings every 5 minutes, and creation
-            itself does not check quota, so a too-broad scanner can exhaust the budget on its first sweeps. Creating a
-            scanner also creates its built-in daily digest: an enabled vision action with no delivery targets that
-            synthesizes the scanner's observations once a day and spends credits of its own, on top of the observations.
-            Disable or delete it with `vision-actions-update` / `vision-actions-delete` if you don't want it. To get
-            notified about what the scanner finds (a Slack alert or a summary on another schedule), create a further
-            vision action bound to it with `vision-actions-create`. For a scanner scoped to one experiment's exposed
-            sessions, load the `scanning-experiments-with-replay-vision` skill first — it derives the query from the
-            experiment's exposure criteria.
+            itself does not check quota, so a too-broad scanner can exhaust the budget on its first sweeps. Set
+            `credit_limit` to cap what this one scanner can spend per billing period, so it cannot starve the org's
+            other scanners. The scanner stops scanning once the credits left cannot cover another observation, and
+            resumes when the period resets. Creating a scanner also creates its built-in daily digest: an enabled vision
+            action with no delivery targets that synthesizes the scanner's observations once a day and spends credits of
+            its own, on top of the observations. Disable or delete it with `vision-actions-update` /
+            `vision-actions-delete` if you don't want it. To get notified about what the scanner finds (a Slack alert or
+            a summary on another schedule), create a further vision action bound to it with `vision-actions-create`. For
+            a scanner scoped to one experiment's exposed sessions, load the `scanning-experiments-with-replay-vision`
+            skill first — it derives the query from the experiment's exposure criteria.
         exclude_params:
             - id
             - scanner_version
