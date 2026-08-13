@@ -4382,7 +4382,7 @@ ${commonInstructions}
 
         // Tools on relayed MCP servers execute on the user's machine with
         // their local privileges: always ask, regardless of permission mode
-        // (docs/cloud-mcp-relay.md). Without a reachable client, deny rather
+        // (docs/CLOUD-MCP-RELAY.md). Without a reachable client, deny rather
         // than auto-approve.
         {
           // Read the MCP server through the adapter-neutral `_meta.posthog`

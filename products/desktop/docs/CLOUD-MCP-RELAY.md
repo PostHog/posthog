@@ -3,7 +3,7 @@
 Status: **implemented** (same PR as the import work), behind the same
 `posthog-code-local-mcp-import` flag as the import (one feature, one flag).
 Follows
-[cloud-mcp-import.md](./cloud-mcp-import.md) (which handles the easy case:
+[CLOUD-MCP-IMPORT.md](./CLOUD-MCP-IMPORT.md) (which handles the easy case:
 url-based servers on public hosts). Sandbox side: `McpRelayServer`
 (`packages/agent/src/server/mcp-relay-server.ts`). Desktop execution:
 `McpRelayService` (`packages/workspace-server/src/services/mcp-relay/`).

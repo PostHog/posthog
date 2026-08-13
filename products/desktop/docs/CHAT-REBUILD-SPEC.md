@@ -25,7 +25,7 @@ The primitives are vendored from the shadcn `base-mira` registry:
   (+ colocated `chat-*.css`, `chat-*.stories.tsx`), exported from `index.ts`.
   Conventions: `useRender` / `mergeProps` / `cva` / `data-quill` / `cn` from `./lib/utils`,
   4-space indent, single quotes.
-- **App thread**: code repo `packages/ui` — new `<ChatThread>` replacing `ConversationView`.
+- **App thread**: `products/desktop/packages/ui` — new `<ChatThread>` replacing `ConversationView`.
 - Flow: build in quill → local-link → integrate → publish beta → bump catalog.
 
 ## Primitives (v1 = four)

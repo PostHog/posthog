@@ -224,5 +224,5 @@ The core service manages MCP server connections, caches resources, and proxies U
 ## References
 
 - [AGENTS.md](../AGENTS.md)
-- [conventions.md](./conventions.md)
-- [testing.md](./testing.md)
+- [CONVENTIONS.md](./CONVENTIONS.md)
+- [TESTING.md](./TESTING.md)

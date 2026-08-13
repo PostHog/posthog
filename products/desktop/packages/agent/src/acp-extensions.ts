@@ -96,7 +96,7 @@ export const POSTHOG_NOTIFICATIONS = {
 
   /** Latest native Codex goal state, persisted so cold cloud resumes can restore it. */
   CODEX_GOAL: "_posthog/codex_goal",
-  /** Desktop → sandbox reply to an MCP relay request (docs/cloud-mcp-relay.md). */
+  /** Desktop → sandbox reply to an MCP relay request (docs/CLOUD-MCP-RELAY.md). */
   MCP_RESPONSE: "_posthog/mcp_response",
 } as const;
 
