@@ -1,11 +1,11 @@
-import { SightingRedis, SightingRedisPool, UrlSightings } from './url-sightings'
+import { CrawlHistory, CrawlHistoryRedis, CrawlHistoryRedisPool } from './crawl-history'
 
 /** Above one round trip's key limit, so every test crosses a chunk boundary. */
 const KEYS = Array.from({ length: 600 }, (_value, index) => `k${index}`)
 
 type ExecResult = [Error | null, unknown][] | null
 
-class FakeClient implements SightingRedis {
+class FakeClient implements CrawlHistoryRedis {
     public readonly pipelined: string[] = []
     constructor(
         private readonly behavior: {
@@ -33,7 +33,7 @@ class FakeClient implements SightingRedis {
     }
 }
 
-function poolOf(client: FakeClient): SightingRedisPool {
+function poolOf(client: FakeClient): CrawlHistoryRedisPool {
     return {
         acquire: () => Promise.resolve(client),
         release: () => Promise.resolve(),
@@ -41,23 +41,23 @@ function poolOf(client: FakeClient): SightingRedisPool {
     }
 }
 
-describe('UrlSightings', () => {
-    const build = (client: FakeClient, budgetMs = 60_000): UrlSightings =>
-        new UrlSightings(poolOf(client), 1_000, budgetMs)
+describe('CrawlHistory', () => {
+    const build = (client: FakeClient, budgetMs = 60_000): CrawlHistory =>
+        new CrawlHistory(poolOf(client), 1_000, budgetMs)
 
     it('reports the index of every key that exists, across chunk boundaries', async () => {
-        // The one place a silent mistake is possible: the caller maps these indexes back onto its
-        // own candidate list, so an off-by-one skips the wrong URL and nothing surfaces it.
+        // The caller maps these indexes back onto its own candidate list, so an off-by-one skips the
+        // wrong URL and nothing reports it.
         const present = new Set(['k0', 'k255', 'k256', 'k599'])
         const client = new FakeClient({ mget: (keys) => keys.map((key) => (present.has(key) ? '{}' : null)) })
 
         const result = await build(client).read(KEYS)
 
         expect([...result.known].sort((a, b) => a - b)).toEqual([0, 255, 256, 599])
-        expect(result.failed).toBe(0)
+        expect(result.failed.size).toBe(0)
     })
 
-    it('counts a chunk that throws as failed rather than as absent', async () => {
+    it('reports the index of every key in a chunk that threw, rather than calling them absent', async () => {
         const client = new FakeClient({
             mget: (keys) => {
                 if (keys.includes('k256')) {
@@ -69,7 +69,10 @@ describe('UrlSightings', () => {
 
         const result = await build(client).read(KEYS)
 
-        expect(result.failed).toBe(256)
+        // The caller drops these rather than fetches them, so it needs which keys, not how many.
+        expect(result.failed.size).toBe(256)
+        expect(result.failed.has(256)).toBe(true)
+        expect(result.failed.has(255)).toBe(false)
         expect(result.known.size).toBe(0)
     })
 
@@ -92,8 +95,8 @@ describe('UrlSightings', () => {
     })
 
     it('stops issuing round trips once the batch budget is spent', async () => {
-        // A batch that outruns the heartbeat gets the pod restarted onto the same offsets, so the
-        // lane sheds the rest of the work instead.
+        // A batch that runs past the heartbeat restarts the pod onto the same offsets, so the lane
+        // sheds the rest of the work instead.
         const client = new FakeClient({
             mget: async (keys) => {
                 await new Promise((resolve) => setTimeout(resolve, 20))
@@ -103,7 +106,7 @@ describe('UrlSightings', () => {
 
         const result = await build(client, 30).read(KEYS)
 
-        expect(result.failed).toBeGreaterThan(0)
+        expect(result.failed.size).toBeGreaterThan(0)
     })
 
     it('writes every key exactly once', async () => {
