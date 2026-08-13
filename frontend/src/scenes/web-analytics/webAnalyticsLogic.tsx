@@ -28,11 +28,11 @@ import { IconOpenInNew } from 'lib/lemon-ui/icons'
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { Link } from 'lib/lemon-ui/Link/Link'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
+import { buildTeamScopedPersistenceConfig } from 'lib/logic/persistence'
 import { trackedActionToUrl } from 'lib/logic/scenes/trackedActionToUrl'
 import { getDefaultInterval, isValidRelativeOrAbsoluteDate } from 'lib/utils/dateFilters'
 import { isDefinitionStale } from 'lib/utils/definitions'
 import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
-import { getCurrentTeamId } from 'lib/utils/getAppContext'
 import { UnexpectedNeverError, isNotNil } from 'lib/utils/guards'
 import { objectsEqual } from 'lib/utils/objects'
 import { addProductIntentForCrossSell } from 'lib/utils/product-intents'
@@ -851,12 +851,12 @@ export const webAnalyticsLogic = kea<webAnalyticsLogicType>([
         },
     })),
     reducers(() => {
-        const persistConfig = { persist: true, prefix: `${getCurrentTeamId()}__` }
+        const persistConfig = buildTeamScopedPersistenceConfig()
         // The precompute toggle changed from opt-in (default `false`) to a tri-state where
         // `null` means "use the team default". Legacy users persisted the old `false`, which
         // would now read as an explicit opt-out. A versioned prefix orphans that stale value so
         // they rehydrate `null` and the backend's per-team default applies.
-        const precomputePersistConfig = { persist: true, prefix: `${getCurrentTeamId()}__precompute_optout_v2__` }
+        const precomputePersistConfig = buildTeamScopedPersistenceConfig('precompute_optout_v2__')
         return {
             surveyModalPath: [
                 null as string | null,
