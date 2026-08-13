@@ -173,11 +173,7 @@ export function SearchableMenuFlyout({
                     {showStars && (
                       <span className="flex w-4 shrink-0 items-center justify-center">
                         {item.starred && (
-                          <Star
-                            size={12}
-                            weight="fill"
-                            className="text-gray-9"
-                          />
+                          <Star size={13} className="text-gray-9" />
                         )}
                       </span>
                     )}
