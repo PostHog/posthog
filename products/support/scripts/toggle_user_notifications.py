@@ -230,12 +230,29 @@ SETTINGS: tuple[NotificationSetting, ...] = (
         scope=None,
         summary="The user is @mentioned in a comment or discussion.",
     ),
+    # The one key whose name lies about its polarity: it reads like the `*_disabled` suppression
+    # keys but means "notify me when a pipeline breaks", so True sends
+    # (should_send_notification -> `settings.get("plugin_disabled", True)`).
+    #
+    # It gates the family, not one email: get_members_to_notify_for_pipeline_error filters on it
+    # first, then narrows by data_pipeline_error_threshold and pipeline_notifications_disabled.
+    #
+    # Scope is narrower than the model's own "plugins, hog functions, batch exports" comment
+    # claims. Only legacy plugins (send_fatal_plugin_error) and batch exports
+    # (send_batch_export_run_failure) have live callers; send_hog_function_disabled exists but its
+    # caller is commented out in posthog/tasks/plugin_server.py, so modern destinations email
+    # nothing through here today. Don't promise a customer this silences destination alerts.
     NotificationSetting(
         key="plugin_disabled",
         receives_when_true=True,
         default=True,
         scope=None,
-        summary="Data pipeline failures: a plugin auto-disabled, or a batch export run failed.",
+        summary=(
+            "Master switch for pipeline failure emails - a legacy plugin auto-disabled, or a batch "
+            "export run failed. Positive despite the name: enabling it means notify. Narrowed by "
+            "data_pipeline_error_threshold and pipeline_notifications_disabled. Does not currently "
+            "cover hog function destinations."
+        ),
     ),
     NotificationSetting(
         key="pipeline_notifications_disabled",
