@@ -201,7 +201,6 @@ tools:
     vision-observations-list:
         operation: vision_observations_list
         enabled: true
-        ui_app: vision-observation-list
         scopes:
             - replay_scanner:read
             - session_recording:read
@@ -226,6 +225,7 @@ tools:
             `timestamp_ms` is the recording-relative offset of the moment being cited — append `?t=<seconds>`
             (`timestamp_ms` / 1000, rounded down) to that URL to seek straight to it. When you report a finding to
             someone, deep-link the one or two moments it turns on rather than only describing them.
+        ui_app: vision-observation-list
         url_prefix: /replay
     vision-observations-retrieve:
         operation: vision_observations_retrieve
@@ -425,7 +425,6 @@ tools:
     vision-scanners-inline-scan-create:
         operation: vision_scanners_inline_scan_create
         enabled: true
-        ui_app: inline-scan
         scopes:
             - replay_scanner:write
             - session_recording:read
@@ -448,6 +447,7 @@ tools:
             than being charged twice. Scans cost credits per session at the same rate a scanner does; check
             `vision-quota-retrieve` first if the batch is large, since sessions past the monthly limit come back as
             `skipped_quota` instead of failing the call.
+        ui_app: inline-scan
         requires_ai_consent: true
     vision-scanners-list:
         operation: vision_scanners_list
@@ -504,7 +504,6 @@ tools:
     vision-scanners-observations-list:
         operation: vision_scanners_observations_list
         enabled: true
-        ui_app: vision-observation-list
         scopes:
             - replay_scanner:read
             - session_recording:read
@@ -529,6 +528,7 @@ tools:
             `timestamp_ms` is the recording-relative offset of the moment being cited — append `?t=<seconds>`
             (`timestamp_ms` / 1000, rounded down) to that URL to seek straight to it. When you report a finding to
             someone, deep-link the one or two moments it turns on rather than only describing them.
+        ui_app: vision-observation-list
         url_prefix: /replay
     vision-scanners-observations-retry-create:
         operation: vision_scanners_observations_retry_create
