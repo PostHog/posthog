@@ -22,9 +22,17 @@ from uuid import UUID
 from pydantic.dataclasses import dataclass
 
 
+class InvalidCustomPropertyOptions(ValueError):
+    """Raised when a select property's options fail validation; the viewset maps it to a 400."""
+
+
+class EventStreamTestMessageError(Exception):
+    """The test message could not be sent — unconfigured stream or a Slack API failure."""
+
+
 @dataclass(frozen=True)
 class AccountAssignment:
-    """A user assigned to an account role (CSM, account executive, account owner)."""
+    """A user assigned to an account relationship (CSM, account executive, ...)."""
 
     id: int
     email: str
@@ -57,14 +65,11 @@ class AccountRelationship:
 
 @dataclass(frozen=True)
 class AccountProperties:
-    """Typed account properties — assignment roles and external-system identifiers.
+    """Typed account properties — external-system identifiers.
 
     Mirrors ``models.account.AccountProperties`` as a stable, framework-free shape.
     """
 
-    csm: AccountAssignment | None = None
-    account_executive: AccountAssignment | None = None
-    account_owner: AccountAssignment | None = None
     stripe_customer_id: str | None = None
     hubspot_deal_id: str | None = None
     billing_id: str | None = None
@@ -72,6 +77,7 @@ class AccountProperties:
     zendesk_id: str | None = None
     slack_channel_id: str | None = None
     usage_dashboard_link: str | None = None
+    metabase_link: str | None = None
 
 
 @dataclass(frozen=True)
@@ -87,6 +93,80 @@ class Account:
 
 
 @dataclass(frozen=True)
+class AccountDueForSlackSummary:
+    """An account whose bound Slack channel is due a periodic summary.
+
+    ``period_start``/``period_end`` are the UTC instants of the last closed calendar
+    window (yesterday, last ISO week, last month) in the account team's timezone.
+    """
+
+    team_id: int
+    account_id: str
+    account_name: str
+    slack_channel_id: str
+    cadence: str
+    period_start: datetime
+    period_end: datetime
+
+
+@dataclass(frozen=True)
+class AccountSlackSummaryBinding:
+    """An account's current summary opt-in: its cadence and bound Slack channel."""
+
+    cadence: str
+    slack_channel_id: str
+
+
+@dataclass(frozen=True)
+class AccountChannelSummaryView:
+    """A stored channel summary as returned by the account summaries endpoint."""
+
+    id: UUID
+    slack_channel_id: str
+    cadence: str
+    period_start: datetime
+    period_end: datetime
+    content: str
+    message_count: int
+    # [{author, sent_at, permalink}] per covered message — metadata only, never text.
+    messages: list[dict]
+    generated_at: datetime
+
+
+@dataclass(frozen=True)
+class CalendarSyncStatus:
+    """Sync state of one connected calendar, as shown in settings."""
+
+    integration_id: int
+    last_synced_at: datetime | None
+    is_syncing: bool
+
+
+@dataclass(frozen=True)
+class MeetingParticipantView:
+    """One attendee of a synced calendar meeting."""
+
+    email: str
+    display_name: str
+    response_status: str
+    is_organizer: bool
+    person_id: UUID | None
+
+
+@dataclass(frozen=True)
+class MeetingView:
+    """A synced calendar meeting as returned by the account meetings endpoint."""
+
+    id: UUID
+    title: str
+    start_time: datetime
+    end_time: datetime | None
+    organizer_email: str
+    status: str
+    participants: list[MeetingParticipantView]
+
+
+@dataclass(frozen=True)
 class AccountRef:
     """Lightweight account reference for search/list result rows.
 
@@ -97,6 +177,175 @@ class AccountRef:
     id: str
     name: str
     external_id: str | None
+
+
+class AccountTableField(str, Enum):
+    NAME = "name"
+    EXTERNAL_ID = "external_id"
+    CREATED_AT = "created_at"
+    UPDATED_AT = "updated_at"
+    STRIPE_CUSTOMER_ID = "stripe_customer_id"
+    HUBSPOT_DEAL_ID = "hubspot_deal_id"
+    BILLING_ID = "billing_id"
+    SFDC_ID = "sfdc_id"
+    ZENDESK_ID = "zendesk_id"
+
+
+@dataclass(frozen=True, kw_only=True)
+class AccountTableColumnSelection:
+    account_fields: frozenset[AccountTableField] = frozenset()
+    include_tags: bool = False
+    include_note_count: bool = False
+    relationship_definition_ids: frozenset[UUID] = frozenset()
+    custom_property_definition_ids: frozenset[UUID] = frozenset()
+    custom_property_history_windows: dict[UUID, int] = field(default_factory=dict)
+
+
+@dataclass(frozen=True, kw_only=True)
+class AccountTableSearchFilter:
+    query: str
+
+
+@dataclass(frozen=True, kw_only=True)
+class AccountTableTagsFilter:
+    tag_names: tuple[str, ...]
+
+
+@dataclass(frozen=True, kw_only=True)
+class AccountTableAssignedToFilter:
+    user_ids: tuple[int, ...]
+
+
+@dataclass(frozen=True, kw_only=True)
+class AccountTableUnassignedFilter:
+    pass
+
+
+@dataclass(frozen=True, kw_only=True)
+class AccountTableAccountIdFilter:
+    account_id: UUID
+
+
+class AccountTableCustomPropertyOperator(str, Enum):
+    EXACT = "exact"
+    IS_NOT = "is_not"
+    CONTAINS = "icontains"
+    DOES_NOT_CONTAIN = "not_icontains"
+    REGEX = "regex"
+    NOT_REGEX = "not_regex"
+    GREATER_THAN = "gt"
+    GREATER_THAN_OR_EQUAL = "gte"
+    LESS_THAN = "lt"
+    LESS_THAN_OR_EQUAL = "lte"
+    IS_SET = "is_set"
+    IS_NOT_SET = "is_not_set"
+    DATE_EXACT = "is_date_exact"
+    DATE_BEFORE = "is_date_before"
+    DATE_AFTER = "is_date_after"
+
+
+@dataclass(frozen=True, kw_only=True)
+class AccountTableCustomPropertyFilter:
+    definition_id: UUID
+    operator: AccountTableCustomPropertyOperator
+    values: tuple[float | bool | str, ...] = ()
+
+
+AccountTableFilter = (
+    AccountTableSearchFilter
+    | AccountTableTagsFilter
+    | AccountTableAssignedToFilter
+    | AccountTableUnassignedFilter
+    | AccountTableAccountIdFilter
+    | AccountTableCustomPropertyFilter
+)
+
+
+class AccountTableSortKind(str, Enum):
+    ACCOUNT_FIELD = "account_field"
+    TAGS = "tags"
+    NOTE_COUNT = "note_count"
+    RELATIONSHIP = "relationship"
+    CUSTOM_PROPERTY = "custom_property"
+
+
+class AccountTableSortDirection(str, Enum):
+    ASCENDING = "asc"
+    DESCENDING = "desc"
+
+
+@dataclass(frozen=True, kw_only=True)
+class AccountTableSort:
+    kind: AccountTableSortKind
+    direction: AccountTableSortDirection
+    account_field: AccountTableField | None = None
+    definition_id: UUID | None = None
+
+
+class AccountTableAggregation(str, Enum):
+    SUM = "sum"
+    AVERAGE = "avg"
+    MINIMUM = "min"
+    MAXIMUM = "max"
+    MEDIAN = "median"
+
+
+class AccountTableThresholdOperator(str, Enum):
+    GREATER_THAN = "gt"
+    GREATER_THAN_OR_EQUAL = "gte"
+    LESS_THAN = "lt"
+    LESS_THAN_OR_EQUAL = "lte"
+    EQUAL = "exact"
+    NOT_EQUAL = "is_not"
+
+
+@dataclass(frozen=True, kw_only=True)
+class AccountTableCountMetric:
+    pass
+
+
+@dataclass(frozen=True, kw_only=True)
+class AccountTableAggregateMetric:
+    aggregation: AccountTableAggregation
+    definition_id: UUID
+    scale: float | None = None
+
+
+@dataclass(frozen=True, kw_only=True)
+class AccountTableCountThresholdMetric:
+    definition_id: UUID
+    operator: AccountTableThresholdOperator
+    value: float
+
+
+AccountTableMetric = AccountTableCountMetric | AccountTableAggregateMetric | AccountTableCountThresholdMetric
+
+
+@dataclass(frozen=True, kw_only=True)
+class AccountTableCustomPropertyHistoryPoint:
+    timestamp: datetime
+    value: float
+
+
+@dataclass(frozen=True, kw_only=True)
+class AccountTableRow:
+    id: UUID
+    name: str
+    external_id: str | None
+    account_fields: dict[AccountTableField, str | None] = field(default_factory=dict)
+    tags: list[str] | None = None
+    note_count: int | None = None
+    relationships: dict[UUID, list[int]] = field(default_factory=dict)
+    custom_properties: dict[UUID, float | bool | str | None] = field(default_factory=dict)
+    custom_property_history: dict[UUID, list[AccountTableCustomPropertyHistoryPoint]] = field(default_factory=dict)
+
+
+@dataclass(frozen=True, kw_only=True)
+class AccountTablePage:
+    rows: list[AccountTableRow]
+    has_more: bool
+    limit: int
+    offset: int
 
 
 @dataclass(frozen=True)
@@ -149,6 +398,39 @@ class ExternalAccount:
     tags: list[str] = field(default_factory=list)
     relationships: dict[str, list[dict]] = field(default_factory=dict)
     custom_properties: dict[str, float | bool | str | None] = field(default_factory=dict)
+
+
+@dataclass(frozen=True)
+class ExternalAccountAssignment:
+    """An active relationship assignment on the external list wire shape.
+
+    Carries the assigned user's id and current email plus their display name so
+    external consumers (the billing service's ownership sync) don't need a
+    second lookup. ``name`` is None when the user has no name set.
+    """
+
+    user_id: int
+    email: str
+    name: str | None = None
+
+
+@dataclass(frozen=True)
+class ExternalAccountListItem:
+    """One account row on the external list wire shape, with active relationship
+    assignments to current organization members keyed by definition name."""
+
+    external_id: str
+    name: str
+    relationships: dict[str, list[ExternalAccountAssignment]] = field(default_factory=dict)
+
+
+@dataclass(frozen=True)
+class ExternalAccountListPage:
+    """A page of external account rows. ``next_cursor`` is the last account id
+    of a full page, or None when the listing is exhausted."""
+
+    results: list[ExternalAccountListItem] = field(default_factory=list)
+    next_cursor: str | None = None
 
 
 class ExternalAccountUpdateError(Enum):
@@ -234,6 +516,7 @@ class AccountView:
     properties: dict = field(default_factory=dict)
     tags: list[str] = field(default_factory=list)
     notebooks: list[str] = field(default_factory=list)
+    slack_summary_cadence: str | None = None
     created_at: datetime | None = None
     created_by: int | None = None
     updated_at: datetime | None = None
@@ -309,7 +592,11 @@ class CustomPropertyDefinitionView:
     name: str = ""
     description: str | None = None
     display_type: str = "text"
+    target_type: str = "account"
+    # Only set for group targets: which group type (0-4) the property attaches to. Null otherwise.
+    group_type_index: int | None = None
     is_big_number: bool = False
+    is_canonical: bool = False
     created_at: datetime | None = None
     created_by: int | None = None
     updated_at: datetime | None = None
@@ -325,15 +612,19 @@ class CustomPropertySourceView:
 
     ``definition`` / ``saved_query`` are ids (the definition this feeds, and the data-warehouse
     saved query read from). ``last_sync_error`` is null when the last run succeeded or hasn't run.
-    Defaults exist so the wrapping serializer can parse partial request bodies (see
-    :class:`AccountView`).
+    Account-target sources set ``saved_query`` + ``source_column``; person-target sources set
+    ``external_data_schema`` + ``column_property_map`` instead. Defaults exist so the wrapping
+    serializer can parse partial request bodies (see :class:`AccountView`).
     """
 
     id: UUID | None = None
     definition: UUID | None = None
     saved_query: UUID | None = None
-    source_column: str = ""
+    external_data_schema: UUID | None = None
+    source_column: str | None = ""
     key_column: str = ""
+    column_property_map: dict | None = None
+    column_descriptions: dict | None = None
     is_enabled: bool = True
     consecutive_failures: int = 0
     last_synced_at: datetime | None = None
@@ -341,6 +632,37 @@ class CustomPropertySourceView:
     created_at: datetime | None = None
     created_by: int | None = None
     updated_at: datetime | None = None
+    # Person-target schedule visibility (None for account sources). ``sync_frequency_interval`` is
+    # in seconds; ``next_sync_at`` is approximate (last synced + interval), it drifts if the
+    # underlying schedule was paused. ``latest_run`` is the most recent sync/backfill run.
+    sync_frequency_interval_seconds: float | None = None
+    next_sync_at: datetime | None = None
+    latest_run: "CustomPropertySyncRunView | None" = None
+    # Person-target warehouse binding, for naming and linking to the table this source reads.
+    # ``external_data_source`` is the warehouse source owning the schema; ``table_name`` is the
+    # table as it is named in HogQL. Both None for account sources.
+    external_data_source: UUID | None = None
+    table_name: str | None = None
+
+
+@stdlib_dataclass(frozen=True)
+class CustomPropertySyncRunView:
+    """One person-property sync/backfill run, as returned by the source ``runs`` endpoint and nested
+    on a source as ``latest_run``. The counts are the sync funnel (read -> changed -> existing (=
+    persons affected) -> produced; skipped_missing_person is changed rows with no matching person)."""
+
+    id: UUID | None = None
+    trigger: str = ""
+    status: str = ""
+    started_at: datetime | None = None
+    finished_at: datetime | None = None
+    rows_read: int = 0
+    changed: int = 0
+    existing: int = 0
+    produced: int = 0
+    skipped_missing_person: int = 0
+    error: str | None = None
+    created_at: datetime | None = None
 
 
 @stdlib_dataclass(frozen=True)
@@ -393,6 +715,7 @@ class CreateAccountInput:
     external_id: str | None = None
     properties: dict = field(default_factory=dict)
     tags: list[str] | None = None
+    slack_summary_cadence: str | None = None
 
 
 @dataclass(frozen=True)
@@ -408,9 +731,11 @@ class UpdateAccountInput:
     external_id: str | None = None
     properties: dict | None = None
     tags: list[str] | None = None
+    slack_summary_cadence: str | None = None
     # Distinguishes "external_id omitted" from "external_id explicitly set to null".
     external_id_provided: bool = False
     properties_provided: bool = False
+    slack_summary_cadence_provided: bool = False
 
 
 @dataclass(frozen=True)
@@ -466,3 +791,69 @@ class ExternalAccountCustomPropertiesResult:
     values: list[CustomPropertyValue] | None = None
     error: ExternalAccountCustomPropertiesError | None = None
     error_field: str | None = None
+
+
+@stdlib_dataclass(frozen=True)
+class EventStreamView:
+    """A user's event stream as returned by the event-stream endpoints.
+
+    One stream per user per team (``created_by`` is the owner): the events to watch
+    (``event_names``), the owner's Slack delivery target, and the member accounts
+    (``account_ids``) whose users' events are streamed.
+    Defaults exist so the wrapping serializer can parse partial request bodies (see
+    :class:`AccountView`).
+    """
+
+    id: UUID | None = None
+    enabled: bool = False
+    event_names: list[str] = field(default_factory=list)
+    slack_integration: int | None = None
+    slack_channel_id: str = ""
+    slack_channel_name: str = ""
+    account_ids: list[UUID] = field(default_factory=list)
+    created_at: datetime | None = None
+    created_by: int | None = None
+    updated_at: datetime | None = None
+
+
+class AnnouncementValidationError(ValueError):
+    def __init__(self, detail: str | dict[str, str]) -> None:
+        super().__init__(str(detail))
+        self.detail = detail
+
+
+@stdlib_dataclass(frozen=True)
+class AnnouncementChannelView:
+    id: str
+    name: str
+    is_member: bool
+    customer_name: str | None
+
+
+@stdlib_dataclass(frozen=True)
+class AnnouncementDeliveryView:
+    id: UUID | None = None
+    slack_channel_id: str = ""
+    slack_channel_name: str = ""
+    status: str = ""
+    error: str = ""
+    slack_message_ts: str = ""
+    sent_at: datetime | None = None
+
+
+@stdlib_dataclass(frozen=True)
+class AnnouncementView:
+    # Defaults let the wrapping DataclassSerializer parse create requests, which carry only
+    # message + channels; channels is write-only and always returned empty.
+    id: UUID | None = None
+    short_id: str = ""
+    message: str = ""
+    status: str = ""
+    total_channels: int = 0
+    sent_count: int = 0
+    failed_count: int = 0
+    sent_at: datetime | None = None
+    created_at: datetime | None = None
+    created_by: UserBasicInfo | None = None
+    deliveries: list[AnnouncementDeliveryView] = field(default_factory=list)
+    channels: list[str] = field(default_factory=list)

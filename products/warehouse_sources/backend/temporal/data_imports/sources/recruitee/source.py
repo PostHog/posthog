@@ -9,18 +9,20 @@ from posthog.schema import (
     SourceFieldInputConfigType,
 )
 
-from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline.typings import (
-    SourceInputs,
-    SourceResponse,
-)
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.base import FieldType, ResumableSource
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.canonical_descriptions import (
     CanonicalDescriptions,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.registry import SourceRegistry
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.schema import SourceSchema
-from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs import RecruiteeSourceConfig
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.schema import (
+    SourceSchema,
+    build_endpoint_schemas,
+)
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.typings import SourceInputs, SourceResponse
+from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.recruitee import (
+    RecruiteeSourceConfig,
+)
 from products.warehouse_sources.backend.temporal.data_imports.sources.recruitee.recruitee import (
     RecruiteeResumeConfig,
     recruitee_source,
@@ -28,6 +30,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.recruitee.
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.recruitee.settings import (
     ENDPOINTS,
+    INCREMENTAL_FIELDS,
     RECRUITEE_ENDPOINTS,
 )
 from products.warehouse_sources.backend.types import ExternalDataSourceType
@@ -36,6 +39,7 @@ from products.warehouse_sources.backend.types import ExternalDataSourceType
 @SourceRegistry.register
 class RecruiteeSource(ResumableSource[RecruiteeSourceConfig, RecruiteeResumeConfig]):
     lists_tables_without_credentials = True  # static endpoint catalog — safe for public docs
+    api_docs_url = "https://docs.recruitee.com/"
 
     @property
     def source_type(self) -> ExternalDataSourceType:
@@ -103,25 +107,18 @@ Find your company ID and create a personal API token under **Settings → Apps a
         with_counts: bool = False,
         names: list[str] | None = None,
         force_refresh: bool = False,
+        api_version: str | None = None,
     ) -> list[SourceSchema]:
         # Every endpoint is full refresh only — Recruitee's list endpoints expose no documented,
         # reliably ordered server-side timestamp filter, so there is no incremental cursor to advance.
-        schemas = [
-            SourceSchema(
-                name=endpoint,
-                supports_incremental=False,
-                supports_append=False,
-                incremental_fields=[],
-            )
-            for endpoint in ENDPOINTS
-        ]
-        if names is not None:
-            names_set = set(names)
-            schemas = [s for s in schemas if s.name in names_set]
-        return schemas
+        return build_endpoint_schemas(ENDPOINTS, INCREMENTAL_FIELDS, names)
 
     def validate_credentials(
-        self, config: RecruiteeSourceConfig, team_id: int, schema_name: Optional[str] = None
+        self,
+        config: RecruiteeSourceConfig,
+        team_id: int,
+        schema_name: Optional[str] = None,
+        api_version: str | None = None,
     ) -> tuple[bool, str | None]:
         # The token is company-wide, so a single probe validates access to every schema.
         return validate_credentials(config.company_id, config.api_token)
@@ -142,6 +139,8 @@ Find your company ID and create a personal API token under **Settings → Apps a
             company_id=config.company_id,
             api_token=config.api_token,
             endpoint=inputs.schema_name,
-            logger=inputs.logger,
+            team_id=inputs.team_id,
+            job_id=inputs.job_id,
             resumable_source_manager=resumable_source_manager,
+            db_incremental_field_last_value=None,  # every Recruitee endpoint is full refresh
         )

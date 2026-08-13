@@ -5,14 +5,16 @@ from unittest import mock
 
 from posthog.schema import ReleaseStatus, SourceFieldInputConfig, SourceFieldInputConfigType
 
-from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline.typings import SourceInputs
 from products.warehouse_sources.backend.temporal.data_imports.sources.coinmarketcap.coinmarketcap import (
     CoinMarketCapResumeConfig,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.coinmarketcap.settings import ENDPOINTS
 from products.warehouse_sources.backend.temporal.data_imports.sources.coinmarketcap.source import CoinMarketCapSource
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
-from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs import CoinMarketCapSourceConfig
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.typings import SourceInputs
+from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.coinmarketcap import (
+    CoinMarketCapSourceConfig,
+)
 from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 
@@ -49,8 +51,6 @@ class TestCoinMarketCapSource:
 
         assert config.name.value == "CoinMarketCap"
         assert config.label == "CoinMarketCap"
-        # Shipped hidden behind unreleasedSource for now, labelled alpha.
-        assert config.unreleasedSource is True
         assert config.releaseStatus == ReleaseStatus.ALPHA
         assert config.iconPath == "/static/services/coinmarketcap.png"
 

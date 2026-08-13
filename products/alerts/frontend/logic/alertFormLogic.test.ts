@@ -115,6 +115,7 @@ describe('alertFormLogic', () => {
     let errorToastSpy: jest.SpyInstance
     let successToastSpy: jest.SpyInstance
     let captureExceptionSpy: jest.SpyInstance
+    let captureSpy: jest.SpyInstance
 
     beforeEach(() => {
         initKeaTests()
@@ -126,6 +127,7 @@ describe('alertFormLogic', () => {
         errorToastSpy = jest.spyOn(lemonToast, 'error').mockImplementation(jest.fn())
         successToastSpy = jest.spyOn(lemonToast, 'success').mockImplementation(jest.fn())
         captureExceptionSpy = jest.spyOn(posthog, 'captureException').mockImplementation(jest.fn())
+        captureSpy = jest.spyOn(posthog, 'capture').mockImplementation(jest.fn())
 
         insightLogic(insightLogicProps).mount()
         insightDataLogic(insightLogicProps).mount()
@@ -157,6 +159,13 @@ describe('alertFormLogic', () => {
 
     it.each([
         ['ordinary', { insightInterval: 'day' as const }, '', AlertCalculationInterval.DAILY, null],
+        [
+            'ordinary with an insight name',
+            { insightInterval: 'day' as const, insightName: 'Weekly signups' },
+            'Weekly signups alert',
+            AlertCalculationInterval.DAILY,
+            null,
+        ],
         [
             'anomaly',
             {
@@ -206,11 +215,14 @@ describe('alertFormLogic', () => {
                 action: expect.any(Function),
             },
         })
+        expect(captureSpy).toHaveBeenCalledWith('alert creation completed', {
+            ui_version: 'redesigned',
+        })
 
         const toastOptions = successToastSpy.mock.calls[0][1] as { button: { action: () => void } }
         toastOptions.button.action()
-        expect(router.values.location.pathname).toMatch(/\/insights$/)
-        expect(router.values.searchParams.tab).toBe('alerts')
+        expect(router.values.location.pathname).toMatch(/\/alerts$/)
+        expect(router.values.searchParams).toEqual({})
     })
 
     // Funnels hide the #/% unit toggle and always compare a relative change as a percentage of the
@@ -325,6 +337,10 @@ describe('alertFormLogic', () => {
         })
 
         expect(thresholdAlertHasBounds(logic.values.alertForm)).toBe(false)
+        expect(logic.values.alertFormValidationErrors.threshold).toBe(
+            'Enter at least one threshold (less than or more than)'
+        )
+        expect(logic.values.thresholdBoundsFormError).toBeUndefined()
 
         logic.actions.setAlertFormSubmitAttempted()
 
@@ -334,7 +350,35 @@ describe('alertFormLogic', () => {
 
         expect(createSpy).not.toHaveBeenCalled()
         expect(successToastSpy).not.toHaveBeenCalled()
+        expect(errorToastSpy).toHaveBeenCalledWith(
+            "Couldn't save alert: Enter at least one threshold (less than or more than)"
+        )
         expect(logic.values.thresholdBoundsFormError).toBe('Enter at least one threshold (less than or more than)')
+    })
+
+    it('shows multiple validation errors without duplicate punctuation', async () => {
+        const logic = mountForm()
+        logic.actions.setAlertFormValues({
+            ...makeFormDefaults({
+                name: '',
+                threshold: {
+                    configuration: {
+                        type: InsightThresholdType.ABSOLUTE,
+                        bounds: {},
+                    },
+                },
+                schedule_restriction: { blocked_windows: [{ start: '09:00', end: '09:00' }] },
+            }),
+            checks: undefined,
+        })
+
+        await expectLogic(logic, () => {
+            logic.actions.submitAlertForm()
+        }).toFinishAllListeners()
+
+        expect(errorToastSpy).toHaveBeenCalledWith(
+            "Couldn't save alert: You need to give your alert a name. Start and end must differ. Enter at least one threshold (less than or more than)"
+        )
     })
 
     it('treats cleared threshold inputs as missing bounds', () => {

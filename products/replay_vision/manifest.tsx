@@ -1,4 +1,3 @@
-import { FEATURE_FLAGS } from 'lib/constants'
 import { urls } from 'scenes/urls'
 
 import { FileSystemIconType, ProductItemCategory, ProductKey } from '~/queries/schema/schema-general'
@@ -89,7 +88,10 @@ export const manifest: ProductManifest = {
         replayVisionAction: (actionId: string): string => `/replay-vision/actions/${actionId}`,
         replayVisionActionRun: (actionId: string, runId: string): string =>
             `/replay-vision/actions/${actionId}/runs/${runId}`,
-        replayVisionActionNew: (scannerId: string): string => `/replay-vision/${scannerId}/actions/new`,
+        replayVisionActionNew: (scannerId: string, mode?: 'group_summary' | 'alert'): string =>
+            // The mode is chosen before opening the editor (summary vs alert), carried as a query param so
+            // the editor renders one focused form instead of a type toggle that rewrites half the fields.
+            `/replay-vision/${scannerId}/actions/new${mode === 'alert' ? '?mode=alert' : ''}`,
         replayVisionActionEdit: (actionId: string): string => `/replay-vision/actions/${actionId}/edit`,
     },
     fileSystemTypes: {},
@@ -106,9 +108,6 @@ export const manifest: ProductManifest = {
                 'var(--color-product-session-replay-dark)',
             ] as FileSystemIconColor,
             href: urls.replayVision(),
-            tags: ['beta'],
-            flag: FEATURE_FLAGS.REPLAY_VISION,
-            pinnedByDefault: true,
             sceneKey: 'ReplayVision',
             sceneKeys: ['ReplayVision', 'ReplayVisionScanner'],
         },

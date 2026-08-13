@@ -12,7 +12,7 @@ from botocore.config import Config
 from parameterized import parameterized
 from rest_framework import status
 
-from posthog.models import User
+from posthog.models import Team, User
 from posthog.models.integration import Integration
 from posthog.models.utils import uuid7
 from posthog.settings import (
@@ -128,6 +128,7 @@ class TestErrorTracking(APIBaseTest):
             "cohort": None,
             "description": None,
             "status": "active",
+            "severity": None,
             "assignee": None,
             "first_seen": "2025-01-01T00:00:00Z",
             "external_issues": [],
@@ -161,7 +162,8 @@ class TestErrorTracking(APIBaseTest):
         issue = self.create_issue(["fingerprint"])
 
         response = self.client.patch(
-            f"/api/environments/{self.team.id}/error_tracking/issues/{issue.id}", data={"status": "resolved"}
+            f"/api/environments/{self.team.id}/error_tracking/issues/{issue.id}",
+            data={"status": "resolved", "severity": "high"},
         )
         issue.refresh_from_db()
 
@@ -172,11 +174,13 @@ class TestErrorTracking(APIBaseTest):
             "cohort": None,
             "description": None,
             "status": "resolved",
+            "severity": "high",
             "assignee": None,
             "first_seen": "2025-01-01T00:00:00Z",
             "external_issues": [],
         }
         assert issue.status == ErrorTrackingIssue.Status.RESOLVED
+        assert issue.severity == ErrorTrackingIssue.Severity.HIGH
 
         self._assert_logs_the_activity(
             issue.id,
@@ -192,7 +196,14 @@ class TestErrorTracking(APIBaseTest):
                                 "before": "active",
                                 "field": "status",
                                 "type": "ErrorTrackingIssue",
-                            }
+                            },
+                            {
+                                "action": "changed",
+                                "after": "high",
+                                "before": None,
+                                "field": "severity",
+                                "type": "ErrorTrackingIssue",
+                            },
                         ],
                         "name": issue.name,
                         "short_id": None,
@@ -262,19 +273,35 @@ class TestErrorTracking(APIBaseTest):
         assert ErrorTrackingIssueFingerprintV2.objects.filter(fingerprint="fingerprint_two", version=1).exists()
         assert ErrorTrackingIssue.objects.count() == 1
 
-    def test_issue_merge_returns_not_found_when_source_issue_is_stale(self):
-        issue_one = self.create_issue(fingerprints=["fingerprint_one"])
-        issue_two = self.create_issue(fingerprints=["fingerprint_two"])
-        ErrorTrackingIssue.objects.filter(id=issue_two.id).delete()
+    def test_issue_merge_drops_stale_source_and_merges_the_rest(self):
+        target = self.create_issue(fingerprints=["fingerprint_target"])
+        live_source = self.create_issue(fingerprints=["fingerprint_live"])
+        stale_source = self.create_issue(fingerprints=["fingerprint_stale"])
+        ErrorTrackingIssue.objects.filter(id=stale_source.id).delete()
 
         response = self.client.post(
-            f"/api/environments/{self.team.id}/error_tracking/issues/{issue_one.id}/merge",
-            data={"ids": [issue_two.id]},
+            f"/api/environments/{self.team.id}/error_tracking/issues/{target.id}/merge",
+            data={"ids": [live_source.id, stale_source.id]},
+        )
+
+        # A single stale issue in the selection no longer rejects the whole merge with a 404
+        assert response.status_code == 200
+        assert not ErrorTrackingIssue.objects.filter(id=live_source.id).exists()
+        assert ErrorTrackingIssueFingerprintV2.objects.get(fingerprint="fingerprint_live").issue_id == target.id
+
+    def test_issue_merge_returns_not_found_when_target_issue_is_stale(self):
+        target = self.create_issue(fingerprints=["fingerprint_target"])
+        source = self.create_issue(fingerprints=["fingerprint_source"])
+        ErrorTrackingIssue.objects.filter(id=target.id).delete()
+
+        response = self.client.post(
+            f"/api/environments/{self.team.id}/error_tracking/issues/{target.id}/merge",
+            data={"ids": [source.id]},
         )
 
         assert response.status_code == 404
-        assert ErrorTrackingIssue.objects.filter(id=issue_one.id).exists()
-        assert ErrorTrackingIssueFingerprintV2.objects.get(fingerprint="fingerprint_one").issue_id == issue_one.id
+        assert ErrorTrackingIssue.objects.filter(id=source.id).exists()
+        assert ErrorTrackingIssueFingerprintV2.objects.get(fingerprint="fingerprint_source").issue_id == source.id
 
     def test_issue_merge_requires_ids(self):
         issue = self.create_issue(fingerprints=["fingerprint_one"])
@@ -323,6 +350,49 @@ class TestErrorTracking(APIBaseTest):
         assert response.status_code == 400
         assert response.json()["type"] == "validation_error"
         assert response.json()["code"] == "required"
+
+    def test_fingerprint_resolve_returns_issue(self):
+        fingerprint = "$uper/strange#fingerprint"
+        issue = self.create_issue(fingerprints=[fingerprint])
+
+        response = self.client.get(
+            f"/api/environments/{self.team.id}/error_tracking/fingerprints/resolve",
+            data={"fingerprint": fingerprint},
+        )
+
+        assert response.status_code == 200, response.json()
+        assert response.json()["issue_id"] == str(issue.id)
+        assert response.json()["fingerprint"] == fingerprint
+
+    @parameterized.expand(
+        [
+            ("missing_param", {}, 400),
+            ("unknown_fingerprint", {"fingerprint": "does_not_exist"}, 404),
+        ]
+    )
+    def test_fingerprint_resolve_error_cases(self, _name, params, expected_status):
+        self.create_issue(fingerprints=["fingerprint_one"])
+
+        response = self.client.get(
+            f"/api/environments/{self.team.id}/error_tracking/fingerprints/resolve",
+            data=params,
+        )
+
+        assert response.status_code == expected_status
+
+    def test_fingerprint_resolve_is_scoped_to_team(self):
+        other_team = Team.objects.create(organization=self.organization)
+        other_issue = ErrorTrackingIssue.objects.create(team=other_team)
+        ErrorTrackingIssueFingerprintV2.objects.create(
+            team=other_team, issue=other_issue, fingerprint="other_team_fingerprint"
+        )
+
+        response = self.client.get(
+            f"/api/environments/{self.team.id}/error_tracking/fingerprints/resolve",
+            data={"fingerprint": "other_team_fingerprint"},
+        )
+
+        assert response.status_code == 404
 
     def test_can_start_symbol_set_upload(self) -> None:
         chunk_id = uuid7()
@@ -748,7 +818,8 @@ class TestErrorTracking(APIBaseTest):
         assert symbol_set_upload_response["presigned_url"]["fields"]["key"] == symbol_set.storage_ptr
         assert symbol_set.last_used is None
 
-    def test_bulk_start_upload_skips_uploaded_symbol_sets(self) -> None:
+    @patch("products.error_tracking.backend.presentation.views.symbol_sets.posthoganalytics.capture")
+    def test_bulk_start_upload_skips_uploaded_symbol_sets(self, patched_capture: Mock) -> None:
         release = ErrorTrackingRelease.objects.create(
             team=self.team,
             hash_id="test-release",
@@ -799,6 +870,16 @@ class TestErrorTracking(APIBaseTest):
         assert new_symbol_set.release_id == release.id
         assert new_symbol_set.last_used is None
         assert id_map[str(new_chunk_id)]["symbol_set_id"] == str(new_symbol_set.id)
+
+        assert patched_capture.call_args.args[0] == "error_tracking_symbol_set_upload_started"
+        assert patched_capture.call_args.kwargs["properties"] == {
+            "team_id": self.team.id,
+            "endpoint": "bulk_start_upload",
+            "force": False,
+            "skip_on_conflict": False,
+            "total_chunks": 2,
+            "chunks_skipped": 1,
+        }
 
     @parameterized.expand(
         [
@@ -1161,6 +1242,8 @@ class TestErrorTracking(APIBaseTest):
         activity: list[dict] = activity_response["results"]
         for item in activity:
             item.pop("id", None)
+            for envelope_key in ("is_system", "was_impersonated", "client"):
+                item.pop(envelope_key, None)
         self.maxDiff = None
         self.assertEqual(activity, expected)
 
@@ -1229,7 +1312,7 @@ class TestIssueStateSync(ClickhouseTestMixin, APIBaseTest):
 
         return sync_execute(
             """
-            SELECT fingerprint, issue_id, issue_name, issue_status, assigned_user_id, assigned_role_id
+            SELECT fingerprint, issue_id, issue_name, issue_status, assigned_user_id, assigned_role_id, issue_severity
             FROM error_tracking_fingerprint_issue_state FINAL
             WHERE team_id = %(team_id)s AND is_deleted = 0
             ORDER BY fingerprint
@@ -1315,6 +1398,18 @@ class TestIssueStateSync(ClickhouseTestMixin, APIBaseTest):
         rows = self._get_issue_state_rows()
         assert len(rows) == 1
         assert rows[0][3] == "resolved"  # issue_status
+
+    def test_severity_change_syncs(self):
+        issue = self._create_issue(fingerprints=["fp_1"])
+
+        self.client.patch(
+            f"/api/environments/{self.team.id}/error_tracking/issues/{issue.id}",
+            data={"severity": "high"},
+        )
+
+        rows = self._get_issue_state_rows()
+        assert len(rows) == 1
+        assert rows[0][6] == "high"
 
     def test_bulk_status_change_syncs(self):
         issue_one = self._create_issue(fingerprints=["fp_one"])

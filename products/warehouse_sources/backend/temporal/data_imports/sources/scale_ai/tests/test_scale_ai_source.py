@@ -23,8 +23,6 @@ class TestScaleAISourceConfig:
         config = ScaleAISource().get_source_config
         assert config.name == SchemaExternalDataSourceType.SCALE_AI
         assert config.category == DataWarehouseSourceCategory.ENGINEERING___MONITORING
-        # Ships hidden and alpha per the batch rollout plan.
-        assert config.unreleasedSource is True
         assert config.releaseStatus == ReleaseStatus.ALPHA
 
     def test_config_requires_a_secret_api_key_field(self) -> None:

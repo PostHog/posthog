@@ -12,7 +12,8 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.notion.not
     MAX_BLOCK_DEPTH,
     MAX_CHILD_PAGES_PER_PARENT,
     MAX_RETRY_AFTER_SECONDS,
-    NOTION_VERSION,
+    NOTION_VERSION_2025_09_03,
+    NOTION_VERSION_2026_03_11,
     NotionBadRequestError,
     NotionNotFoundError,
     NotionResumeConfig,
@@ -25,6 +26,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.notion.not
     _request,
     _search_body,
     _search_stream,
+    _users_stream,
     _wait_strategy,
     validate_credentials,
 )
@@ -34,14 +36,23 @@ MODULE = "products.warehouse_sources.backend.temporal.data_imports.sources.notio
 
 
 class FakeResponse:
-    def __init__(self, json_data: Any, status_code: int = 200, headers: Optional[dict[str, str]] = None) -> None:
+    def __init__(
+        self,
+        json_data: Any,
+        status_code: int = 200,
+        headers: Optional[dict[str, str]] = None,
+        json_exc: Optional[Exception] = None,
+    ) -> None:
         self._json = json_data
+        self._json_exc = json_exc
         self.status_code = status_code
         self.headers = headers or {}
         self.ok = 200 <= status_code < 400
         self.text = ""
 
     def json(self) -> Any:
+        if self._json_exc is not None:
+            raise self._json_exc
         return self._json
 
     def raise_for_status(self) -> None:
@@ -89,10 +100,11 @@ class _FakeRetryState:
 
 
 class TestNotion:
-    def test_headers_include_bearer_token_and_version(self) -> None:
-        headers = _get_headers("ntn_secret")
+    @parameterized.expand([(NOTION_VERSION_2025_09_03,), (NOTION_VERSION_2026_03_11,)])
+    def test_headers_carry_requested_version(self, api_version: str) -> None:
+        headers = _get_headers("ntn_secret", api_version)
         assert headers["Authorization"] == "Bearer ntn_secret"
-        assert headers["Notion-Version"] == NOTION_VERSION
+        assert headers["Notion-Version"] == api_version
         assert headers["Content-Type"] == "application/json"
 
     @parameterized.expand([("page",), ("data_source",)])
@@ -136,6 +148,70 @@ class TestNotion:
 
         # The first request must start from the persisted cursor.
         assert session.calls[0]["json"]["start_cursor"] == "resume-cursor"
+
+    @staticmethod
+    def _invalid_cursor_response() -> FakeResponse:
+        response = FakeResponse({}, status_code=400)
+        response.text = (
+            '{"object":"error","status":400,"code":"validation_error",'
+            '"message":"The start_cursor provided is invalid: dead-cursor"}'
+        )
+        return response
+
+    def test_search_stream_restarts_when_resumed_cursor_invalid(self) -> None:
+        # A resumed search cursor can expire before the retry runs; Notion then rejects it with a 400
+        # validation_error. The stream must drop the stale cursor and restart from the beginning
+        # rather than crashing the whole sync.
+        session = FakeSession(
+            [
+                self._invalid_cursor_response(),
+                _list_response([{"id": "p1"}], has_more=False, next_cursor=None),
+            ]
+        )
+        manager = mock.MagicMock()
+        manager.can_resume.return_value = True
+        manager.load_state.return_value = NotionResumeConfig(next_cursor="stale-cursor")
+
+        tables = list(
+            _search_stream(cast(requests.Session, session), NOTION_ENDPOINTS["pages"], mock.MagicMock(), manager)
+        )
+
+        assert sum(t.num_rows for t in tables) == 1
+        # First request replays the stale cursor (rejected); the restart carries no cursor.
+        assert session.calls[0]["json"]["start_cursor"] == "stale-cursor"
+        assert "start_cursor" not in session.calls[1]["json"]
+
+    def test_search_stream_propagates_non_cursor_bad_request(self) -> None:
+        # A 400 that is not the invalid-cursor case is a genuine bad request and must still fail the
+        # sync rather than being silently restarted.
+        other_400 = FakeResponse({}, status_code=400)
+        other_400.text = '{"code":"validation_error","message":"something else"}'
+        session = FakeSession([other_400])
+        manager = mock.MagicMock()
+        manager.can_resume.return_value = True
+        manager.load_state.return_value = NotionResumeConfig(next_cursor="stale-cursor")
+
+        with pytest.raises(NotionBadRequestError):
+            list(_search_stream(cast(requests.Session, session), NOTION_ENDPOINTS["pages"], mock.MagicMock(), manager))
+
+    def test_users_stream_restarts_when_resumed_cursor_invalid(self) -> None:
+        # The users stream persists the same kind of resume cursor as search, so a stale cursor must
+        # trigger the same restart-from-the-beginning recovery rather than crashing the sync.
+        session = FakeSession(
+            [
+                self._invalid_cursor_response(),
+                _list_response([{"id": "u1"}], has_more=False, next_cursor=None),
+            ]
+        )
+        manager = mock.MagicMock()
+        manager.can_resume.return_value = True
+        manager.load_state.return_value = NotionResumeConfig(next_cursor="stale-cursor")
+
+        tables = list(_users_stream(cast(requests.Session, session), mock.MagicMock(), manager))
+
+        assert sum(t.num_rows for t in tables) == 1
+        assert session.calls[0]["params"]["start_cursor"] == "stale-cursor"
+        assert "start_cursor" not in session.calls[1]["params"]
 
     def test_block_children_inject_page_id(self) -> None:
         session = FakeSession([_list_response([{"id": "b1", "has_children": False}], has_more=False, next_cursor=None)])
@@ -241,6 +317,49 @@ class TestNotion:
 
         with mock.patch(f"{MODULE}._wait_strategy", return_value=0):
             result = _request(cast(requests.Session, session), "GET", "/v1/comments", mock.MagicMock(), params={})
+
+        assert result == {"results": []}
+        assert attempts["count"] == 2
+
+    def test_request_non_json_2xx_raises_retryable(self) -> None:
+        # A 2xx whose body is empty or non-JSON makes response.json() raise JSONDecodeError. That is a
+        # truncated/garbled response, not real Notion output, so it must surface as the retryable type
+        # carrying the stable phrase get_retryable_errors matches — not crash the sync.
+        session = FakeSession(
+            [
+                FakeResponse(
+                    None,
+                    status_code=200,
+                    json_exc=requests.exceptions.JSONDecodeError("Expecting value: line 1 column 1 (char 0)", "", 0),
+                )
+            ]
+        )
+        with pytest.raises(NotionRetryableError) as exc_info:
+            cast(Any, _request).__wrapped__(
+                cast(requests.Session, session), "GET", "/v1/users", mock.MagicMock(), params={}
+            )
+        assert "Notion returned a non-JSON response" in str(exc_info.value)
+
+    def test_request_retries_non_json_response(self) -> None:
+        # An empty/non-JSON 2xx body is transient like a broken connection: the retry must recover
+        # rather than propagate JSONDecodeError as a fatal sync error.
+        attempts = {"count": 0}
+
+        def request(*_args: Any, **_kwargs: Any) -> FakeResponse:
+            attempts["count"] += 1
+            if attempts["count"] == 1:
+                return FakeResponse(
+                    None,
+                    status_code=200,
+                    json_exc=requests.exceptions.JSONDecodeError("Expecting value: line 1 column 1 (char 0)", "", 0),
+                )
+            return FakeResponse({"results": []})
+
+        session = mock.MagicMock()
+        session.request.side_effect = request
+
+        with mock.patch(f"{MODULE}._wait_strategy", return_value=0):
+            result = _request(cast(requests.Session, session), "GET", "/v1/users", mock.MagicMock(), params={})
 
         assert result == {"results": []}
         assert attempts["count"] == 2
@@ -398,7 +517,7 @@ class TestNotion:
     def test_validate_credentials_status_mapping(self, status_code: int, expected_valid: bool) -> None:
         session = FakeSession([FakeResponse({}, status_code=status_code)])
         with mock.patch(f"{MODULE}.make_tracked_session", return_value=session):
-            valid, message = validate_credentials("tok")
+            valid, message = validate_credentials("tok", NOTION_VERSION_2026_03_11)
 
         assert valid is expected_valid
         if expected_valid:
@@ -408,7 +527,7 @@ class TestNotion:
 
     def test_validate_credentials_handles_exception(self) -> None:
         with mock.patch(f"{MODULE}.make_tracked_session", side_effect=requests.ConnectionError("boom")):
-            valid, message = validate_credentials("tok")
+            valid, message = validate_credentials("tok", NOTION_VERSION_2026_03_11)
 
         assert valid is False
         assert message == "boom"

@@ -2,7 +2,7 @@ import './FeatureFlag.scss'
 
 import { useActions, useValues } from 'kea'
 import { router } from 'kea-router'
-import { Suspense, lazy, useEffect, useState } from 'react'
+import { Suspense, lazy, useEffect, useMemo, useState } from 'react'
 
 import { IconArchive, IconCopy, IconPlusSmall, IconRewind, IconTrash } from '@posthog/icons'
 import { LemonSkeleton } from '@posthog/lemon-ui'
@@ -35,7 +35,6 @@ import { PendingChangeRequestBanner } from 'scenes/approvals/PendingChangeReques
 import { ChunkLoadErrorBoundary } from 'scenes/ChunkLoadErrorBoundary'
 import { Dashboard } from 'scenes/dashboard/Dashboard'
 import { dashboardLogic } from 'scenes/dashboard/dashboardLogic'
-import { EmptyDashboardComponent } from 'scenes/dashboard/EmptyDashboardComponent'
 import { FeatureFlagPermissions } from 'scenes/FeatureFlagPermissions'
 import { NotebookNodeType } from 'scenes/notebooks/types'
 import { SceneExport } from 'scenes/sceneTypes'
@@ -80,6 +79,9 @@ import {
     QueryBasedInsightModel,
 } from '~/types'
 
+import { useAttachedContext } from 'products/posthog_ai/frontend/api/logics'
+
+import { featureFlagContextItems } from './featureFlagAiContext'
 import { openFeatureFlagArchiveDialog } from './featureFlagArchiveDialog'
 import { openFeatureFlagDeleteDialog } from './featureFlagDeleteDialog'
 import { FeatureFlagEvaluationContexts } from './FeatureFlagEvaluationContexts'
@@ -91,6 +93,7 @@ import FeatureFlagProjects from './FeatureFlagProjects'
 import FeatureFlagSchedule from './FeatureFlagSchedule'
 import { FeatureFlagsTab, featureFlagsLogic } from './featureFlagsLogic'
 import { FeatureFlagTestingTab } from './FeatureFlagTestingTab'
+import { FeatureFlagUsageMetrics } from './FeatureFlagUsageMetrics'
 
 const RESOURCE_TYPE = 'feature_flag'
 
@@ -128,6 +131,7 @@ export function FeatureFlag({ id }: FeatureFlagLogicProps): JSX.Element {
         featureFlagMissing,
         isEditingFlag,
         activeTab,
+        availableTabs,
         accessDeniedToFeatureFlag,
         earlyAccessFeaturesList,
         featureFlagActiveUpdateLoading,
@@ -139,7 +143,7 @@ export function FeatureFlag({ id }: FeatureFlagLogicProps): JSX.Element {
         restoreFeatureFlag,
         editFeatureFlag,
         createStaticCohort,
-        setActiveTab,
+        setSelectedTab,
         updateFlag,
         saveFeatureFlag,
         saveDescriptionInline,
@@ -170,7 +174,7 @@ export function FeatureFlag({ id }: FeatureFlagLogicProps): JSX.Element {
         })
 
         if (hasVariantSurvey) {
-            setActiveTab(FeatureFlagsTab.FEEDBACK)
+            setSelectedTab(FeatureFlagsTab.FEEDBACK)
         } else {
             setIsQuickSurveyModalOpen(true)
             setQuickSurveyVariantKey(variantKey ?? null)
@@ -178,6 +182,15 @@ export function FeatureFlag({ id }: FeatureFlagLogicProps): JSX.Element {
     }
 
     const isNewFeatureFlag = id === 'new' || id === undefined
+
+    // Expose the flag's release conditions to PostHog AI so it can answer "who does this match?"
+    // and build an equivalent insight. The blast-radius endpoint only returns counts, so without
+    // this the agent on a flag page has no visibility into the targeting.
+    const featureFlagContext = useMemo(
+        () => (isNewFeatureFlag || !featureFlag?.key ? null : featureFlagContextItems(featureFlag)),
+        [isNewFeatureFlag, featureFlag]
+    )
+    useAttachedContext(featureFlagContext)
 
     // Mounting the edit form is a multi-second render (Monaco editors + dnd-kit sortables). Mount it
     // immediately when the scene first renders already in form mode (deep-link/new flag), but when the
@@ -239,80 +252,70 @@ export function FeatureFlag({ id }: FeatureFlagLogicProps): JSX.Element {
 
     const earlyAccessFeature = earlyAccessFeaturesList?.find((f) => f.flagKey === featureFlag.key)
 
-    const tabs = [
-        {
-            label: 'Overview',
-            key: FeatureFlagsTab.OVERVIEW,
-            content: <FeatureFlagOverview featureFlag={featureFlag} />,
-        },
-    ] as LemonTab<FeatureFlagsTab>[]
-
-    if (id) {
-        tabs.push({
-            label: 'Usage',
-            key: FeatureFlagsTab.USAGE,
-            content: <UsageTab featureFlag={featureFlag} />,
-        })
-
-        tabs.push({
-            label: 'Projects',
-            key: FeatureFlagsTab.PROJECTS,
-            content: <FeatureFlagProjects />,
-        })
-
-        tabs.push({
-            label: 'Schedule',
-            key: FeatureFlagsTab.SCHEDULE,
-            content: <FeatureFlagSchedule />,
-        })
-    }
-
-    if (featureFlag.id) {
-        tabs.push({
-            label: 'History',
-            key: FeatureFlagsTab.HISTORY,
-            content: <ActivityLog scope={ActivityScope.FEATURE_FLAG} id={featureFlag.id} />,
-        })
-    }
-
-    if (featureFlag.can_edit) {
-        tabs.push({
-            label: 'Permissions',
-            key: FeatureFlagsTab.PERMISSIONS,
-            content: <FeatureFlagPermissions featureFlag={featureFlag} />,
-        })
-    }
-
-    tabs.push({
-        label: 'User feedback',
-        key: FeatureFlagsTab.FEEDBACK,
-        content: <FeedbackTab featureFlag={featureFlag} />,
-    })
-
-    tabs.push({
-        label: (
-            <div className="flex flex-row">
-                <div>Experiments</div>
-            </div>
-        ),
-        key: FeatureFlagsTab.EXPERIMENTS,
-        content: <ExperimentsTab featureFlag={featureFlag} />,
-    })
-
-    if (id) {
-        tabs.push({
-            label: (
-                <div className="flex flex-row">
-                    <div>Testing</div>
-                    <LemonTag className="ml-2 float-right uppercase" type="primary">
-                        New
-                    </LemonTag>
-                </div>
-            ),
-            key: FeatureFlagsTab.TESTING,
-            content: <FeatureFlagTestingTab featureFlag={featureFlag} />,
-        })
-    }
+    // Labels and content live here; which tabs exist is the logic's `availableTabs`, so the
+    // tab list, the active tab, and the URL can't disagree
+    const tabs = (
+        [
+            {
+                label: 'Overview',
+                key: FeatureFlagsTab.OVERVIEW,
+                content: <FeatureFlagOverview featureFlag={featureFlag} />,
+            },
+            {
+                label: 'Usage',
+                key: FeatureFlagsTab.USAGE,
+                content: <UsageTab featureFlag={featureFlag} />,
+            },
+            {
+                label: 'Projects',
+                key: FeatureFlagsTab.PROJECTS,
+                content: <FeatureFlagProjects />,
+            },
+            {
+                label: 'Schedule',
+                key: FeatureFlagsTab.SCHEDULE,
+                content: <FeatureFlagSchedule />,
+            },
+            {
+                label: 'History',
+                key: FeatureFlagsTab.HISTORY,
+                content: (
+                    <>{featureFlag.id && <ActivityLog scope={ActivityScope.FEATURE_FLAG} id={featureFlag.id} />}</>
+                ),
+            },
+            {
+                label: 'Permissions',
+                key: FeatureFlagsTab.PERMISSIONS,
+                content: <FeatureFlagPermissions featureFlag={featureFlag} />,
+            },
+            {
+                label: 'User feedback',
+                key: FeatureFlagsTab.FEEDBACK,
+                content: <FeedbackTab featureFlag={featureFlag} />,
+            },
+            {
+                label: (
+                    <div className="flex flex-row">
+                        <div>Experiments</div>
+                    </div>
+                ),
+                key: FeatureFlagsTab.EXPERIMENTS,
+                content: <ExperimentsTab featureFlag={featureFlag} />,
+            },
+            {
+                label: (
+                    <div className="flex flex-row">
+                        <div>Testing</div>
+                        <LemonTag className="ml-2 float-right uppercase" type="primary">
+                            New
+                        </LemonTag>
+                    </div>
+                ),
+                key: FeatureFlagsTab.TESTING,
+                content: <FeatureFlagTestingTab featureFlag={featureFlag} />,
+            },
+        ] as LemonTab<FeatureFlagsTab>[]
+    ).filter((tab) => availableTabs.includes(tab.key))
 
     return (
         <>
@@ -401,10 +404,10 @@ export function FeatureFlag({ id }: FeatureFlagLogicProps): JSX.Element {
                                         }
                                         onClick={() => {
                                             if (featureFlag.archived) {
-                                                updateFeatureFlagArchived(false)
+                                                updateFeatureFlagArchived({ archived: false })
                                             } else {
                                                 openFeatureFlagArchiveDialog(featureFlag, () =>
-                                                    updateFeatureFlagArchived(true)
+                                                    updateFeatureFlagArchived({ archived: true, via: 'archive-dialog' })
                                                 )
                                             }
                                         }}
@@ -465,7 +468,7 @@ export function FeatureFlag({ id }: FeatureFlagLogicProps): JSX.Element {
                                 featureFlag.can_edit
                                     ? {
                                           children: 'Unarchive',
-                                          onClick: () => updateFeatureFlagArchived(false),
+                                          onClick: () => updateFeatureFlagArchived({ archived: false }),
                                           disabledReason: featureFlagActiveUpdateLoading ? 'Updating…' : undefined,
                                       }
                                     : undefined
@@ -614,7 +617,9 @@ export function FeatureFlag({ id }: FeatureFlagLogicProps): JSX.Element {
                     />
                     <LemonTabs
                         activeKey={activeTab}
-                        onChange={(tab) => tab !== activeTab && setActiveTab(tab)}
+                        // Re-clicking the active tab must stay a no-op: the setSelectedTab listener
+                        // resets the schedule form, which would wipe in-progress edits
+                        onChange={(tab) => tab !== activeTab && setSelectedTab(tab)}
                         tabs={tabs}
                         sceneInset
                     />
@@ -646,11 +651,12 @@ function ConnectedUsageDashboard({
     dashboardId: number
     hasEnrichedAnalytics: boolean | undefined
 }): JSX.Element | null {
-    const { dashboard } = useValues(dashboardLogic({ id: dashboardId, placement: DashboardPlacement.FeatureFlag })) as {
+    const { dashboard, error404 } = useValues(
+        dashboardLogic({ id: dashboardId, placement: DashboardPlacement.FeatureFlag })
+    ) as {
         dashboard: DashboardType<QueryBasedInsightModel> | null
+        error404: boolean
     }
-    const { enrichAnalyticsNoticeAcknowledged } = useValues(featureFlagsLogic)
-    const { closeEnrichAnalyticsNotice } = useActions(featureFlagsLogic)
     const { enrichUsageDashboard } = useActions(featureFlagLogic)
 
     useEffect(() => {
@@ -663,26 +669,23 @@ function ConnectedUsageDashboard({
         }
     }, [dashboard, hasEnrichedAnalytics, enrichUsageDashboard])
 
+    // The dashboard FK survives a soft delete (SET_NULL only fires on a hard delete), so a
+    // deleted dashboard still looks linked here. Fall back to the same inline charts a
+    // dashboardless flag gets instead of an unrecoverable skeleton.
+    if (error404) {
+        return <FeatureFlagUsageMetrics id={featureFlag.id!} />
+    }
+
     if (!dashboard) {
         return <LemonSkeleton className="h-60" />
     }
 
     return (
-        <>
-            {!hasEnrichedAnalytics && !enrichAnalyticsNoticeAcknowledged && (
-                <LemonBanner type="info" className="mb-3" onClose={() => closeEnrichAnalyticsNotice()}>
-                    Get richer insights automatically by{' '}
-                    <Link to="https://posthog.com/docs/libraries/js/features#enriched-flag-analytics" target="_blank">
-                        enabling enriched analytics for flags{' '}
-                    </Link>
-                </LemonBanner>
-            )}
-            <Dashboard
-                id={dashboardId.toString()}
-                placement={DashboardPlacement.FeatureFlag}
-                backTo={{ url: urls.featureFlag(featureFlag.id!), name: featureFlag.key }}
-            />
-        </>
+        <Dashboard
+            id={dashboardId.toString()}
+            placement={DashboardPlacement.FeatureFlag}
+            backTo={{ url: urls.featureFlag(featureFlag.id!), name: featureFlag.key }}
+        />
     )
 }
 
@@ -692,8 +695,8 @@ function UsageTab({ featureFlag }: { featureFlag: FeatureFlagType }): JSX.Elemen
         usage_dashboard: dashboardId,
         has_enriched_analytics: hasEnrichedAnalytics,
     } = featureFlag
-    const { generateUsageDashboard } = useActions(featureFlagLogic)
-    const { featureFlagLoading } = useValues(featureFlagLogic)
+    const { enrichAnalyticsNoticeAcknowledged } = useValues(featureFlagsLogic)
+    const { closeEnrichAnalyticsNotice } = useActions(featureFlagsLogic)
 
     const propertyFilter: AnyPropertyFilter[] = [
         {
@@ -714,28 +717,23 @@ function UsageTab({ featureFlag }: { featureFlag: FeatureFlagType }): JSX.Elemen
 
     return (
         <div data-attr="feature-flag-usage-container">
+            {!hasEnrichedAnalytics && !enrichAnalyticsNoticeAcknowledged && (
+                <LemonBanner type="info" className="mb-3" onClose={() => closeEnrichAnalyticsNotice()}>
+                    Get richer insights automatically by{' '}
+                    <Link to="https://posthog.com/docs/libraries/js/features#enriched-flag-analytics" target="_blank">
+                        enabling enriched analytics for flags
+                    </Link>
+                </LemonBanner>
+            )}
             {dashboardId ? (
                 <ConnectedUsageDashboard
                     featureFlag={featureFlag}
                     dashboardId={dashboardId}
                     hasEnrichedAnalytics={hasEnrichedAnalytics}
                 />
-            ) : (
-                <div>
-                    <b>Dashboard</b>
-                    <div className="text-secondary mb-2">
-                        There is currently no connected dashboard to this feature flag. If there was previously a
-                        connected dashboard, it may have been deleted.
-                    </div>
-                    {featureFlagLoading ? (
-                        <EmptyDashboardComponent loading={true} canEdit={false} />
-                    ) : (
-                        <LemonButton type="primary" onClick={() => generateUsageDashboard()}>
-                            Generate Usage Dashboard
-                        </LemonButton>
-                    )}
-                </div>
-            )}
+            ) : featureFlag.id ? (
+                <FeatureFlagUsageMetrics id={featureFlag.id} />
+            ) : null}
             <div className="mt-4 mb-4">
                 <b>Log</b>
                 <div className="text-secondary">{`Feature flag calls for "${featureFlagKey}" will appear here`}</div>

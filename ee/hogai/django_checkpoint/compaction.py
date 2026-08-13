@@ -181,9 +181,11 @@ def compact_conversation(thread_id: str) -> CompactionResult:
     own `checkpoint_ns`. `compact_thread` collapses a single namespace, so compacting only the root
     ("") leaves every subgraph namespace untouched — most of a real conversation's checkpoints."""
     # nosemgrep: idor-lookup-without-team (internal LangGraph checkpoint maintenance)
-    namespaces = list(
-        ConversationCheckpoint.objects.filter(thread_id=thread_id).values_list("checkpoint_ns", flat=True).distinct()
+    namespaces = sorted(
+        ConversationCheckpoint.objects.filter(thread_id=thread_id).values_list("checkpoint_ns", flat=True).distinct(),
+        key=lambda checkpoint_ns: checkpoint_ns == "",
     )
+    # Compact the root last so a partial failure leaves the conversation eligible for a later sweep.
     # Seed the namespace count here so callers (e.g. the admin audit log) don't re-query it.
     result = CompactionResult(compacted=False, namespaces=len(namespaces))
     for checkpoint_ns in namespaces:

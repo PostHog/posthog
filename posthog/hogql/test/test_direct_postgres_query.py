@@ -9,8 +9,11 @@ from django.test import override_settings
 
 import psycopg
 from parameterized import parameterized
+from sshtunnel import BaseSSHTunnelForwarderError
 
+from posthog.hogql import ast
 from posthog.hogql.constants import HogQLGlobalSettings
+from posthog.hogql.context import HogQLContext
 from posthog.hogql.database.schema.duckdb_table_functions import is_dangerous_table_function
 from posthog.hogql.direct_sql.postgres_adapter import (
     LenientDirectPostgresDateLoader,
@@ -23,6 +26,7 @@ from posthog.hogql.direct_sql.postgres_adapter import (
 from posthog.hogql.direct_sql.raw_sql import ensure_single_direct_statement
 from posthog.hogql.errors import ExposedHogQLError, QueryError
 from posthog.hogql.escape_sql import escape_postgres_identifier
+from posthog.hogql.printer.postgres import PostgresPrinter
 from posthog.hogql.query import HogQLQueryExecutor
 
 from posthog.models import Team
@@ -56,6 +60,19 @@ class TestDirectPostgresQuery(APIBaseTest):
     )
     def test_parse_lenient_direct_postgres_date(self, _name: str, value: str, expected: date):
         self.assertEqual(parse_lenient_direct_postgres_date(value), expected)
+
+    @parameterized.expand(
+        [
+            ("global_in", ast.CompareOperationOp.GlobalIn, "(x IN (SELECT session_id FROM sessions))"),
+            ("global_not_in", ast.CompareOperationOp.GlobalNotIn, "(x NOT IN (SELECT session_id FROM sessions))"),
+        ]
+    )
+    def test_postgres_printer_maps_global_in_operators(self, _name: str, op: ast.CompareOperationOp, expected_sql: str):
+        # The resolver rewrites sessions/events IN subqueries to GlobalIn/GlobalNotIn; Postgres has no
+        # distributed GLOBAL concept, so the printer must emit a plain IN/NOT IN rather than crashing.
+        printer = PostgresPrinter(context=HogQLContext(team_id=self.team.pk))
+
+        self.assertEqual(printer._get_compare_op(op, "x", "(SELECT session_id FROM sessions)"), expected_sql)
 
     def test_direct_postgres_session_setup_sql_uses_search_path_for_postgres(self):
         self.assertEqual(
@@ -259,6 +276,49 @@ class TestDirectPostgresQuery(APIBaseTest):
         self.assertIn("ph3.posthog_activitylog", sql)
         self.assertIn("activitylog", sql)
         self.assertEqual(executor.direct_source_id, str(source.id))
+
+    def test_modulo_renders_as_mod_function(self):
+        # A bare `%` in the printed SQL is read by psycopg as a client-side parameter
+        # placeholder and blows up before the query runs, so modulo must render as MOD(a, b).
+        source = ExternalDataSource.objects.create(
+            team=self.team,
+            source_id="source_id",
+            connection_id="connection_id",
+            status=ExternalDataSource.Status.COMPLETED,
+            source_type="Postgres",
+            access_method=ExternalDataSource.AccessMethod.DIRECT,
+            prefix="ph3",
+            job_inputs={
+                "host": "localhost",
+                "port": 5432,
+                "database": "postgres",
+                "user": "postgres",
+                "password": "postgres",
+                "schema": "ph3",
+            },
+        )
+
+        DataWarehouseTable.objects.create(
+            name="orders",
+            format="Parquet",
+            team=self.team,
+            external_data_source=source,
+            url_pattern="",
+            columns={"id": {"hogql": "IntegerDatabaseField", "clickhouse": "Int64", "valid": True}},
+        )
+
+        executor = HogQLQueryExecutor(
+            query="SELECT id % 2 FROM orders",
+            team=self.team,
+            connection_id=str(source.id),
+        )
+
+        sql, _context = executor.generate_clickhouse_sql()
+
+        self.assertIn("MOD(", sql)
+        # Assert the modulo *operator* isn't rendered as a bare `%`; a plain `assertNotIn("%", sql)`
+        # would be too broad since bound values legitimately use `%(hogql_val_*)s` placeholders.
+        self.assertNotIn(" % ", sql)
 
     def test_generate_sql_for_direct_postgres_table_inside_cte(self):
         source = ExternalDataSource.objects.create(
@@ -1391,7 +1451,12 @@ class TestDirectPostgresQuery(APIBaseTest):
         with self.assertRaises(ExposedHogQLError) as error:
             executor.execute()
 
-        self.assertEqual(str(error.exception), "Hosts with internal IP addresses are not allowed")
+        self.assertEqual(
+            str(error.exception),
+            "This host points to an internal or private IP address, which PostHog can't reach. "
+            "Use a host that's reachable from the public internet. "
+            "If your database isn't publicly reachable, connect through an SSH tunnel.",
+        )
         mock_connect.assert_not_called()
 
     @patch("posthog.hogql.direct_sql.postgres_adapter.psycopg.connect")
@@ -1703,6 +1768,54 @@ class TestDirectPostgresQuery(APIBaseTest):
         executor.execute()
 
         self.assertEqual(mock_connect.call_args.kwargs["sslmode"], expected_sslmode)
+
+    @override_settings(DEBUG=False, TEST=False)
+    @patch("products.warehouse_sources.backend.models.ssh_tunnel.SSHTunnelForwarder")
+    @patch("posthog.hogql.direct_sql.postgres_adapter.psycopg.connect")
+    def test_direct_postgres_ssh_tunnel_failure_raises_exposed_error(self, mock_connect, mock_tunnel_cls):
+        mock_tunnel_cls.return_value.__enter__.side_effect = BaseSSHTunnelForwarderError(
+            "Could not establish session to SSH gateway"
+        )
+
+        source = ExternalDataSource.objects.create(
+            team=self.team,
+            source_id="source_id",
+            connection_id="connection_id",
+            status=ExternalDataSource.Status.COMPLETED,
+            source_type="Postgres",
+            access_method=ExternalDataSource.AccessMethod.DIRECT,
+            prefix="ph3",
+            job_inputs={
+                "host": "localhost",
+                "port": 5432,
+                "database": "postgres",
+                "user": "postgres",
+                "password": "postgres",
+                "schema": "ph3",
+                **self._SSH_TUNNEL_CONFIG,
+            },
+        )
+
+        DataWarehouseTable.objects.create(
+            name="posthog_dashboard",
+            format="Parquet",
+            team=self.team,
+            external_data_source=source,
+            url_pattern="direct://postgres",
+            columns={"id": {"hogql": "IntegerDatabaseField", "clickhouse": "Int64", "valid": True}},
+        )
+
+        executor = HogQLQueryExecutor(
+            query="SELECT id FROM posthog_dashboard LIMIT 1",
+            team=self.team,
+            connection_id=str(source.id),
+        )
+
+        with self.assertRaises(ExposedHogQLError) as error:
+            executor.execute()
+
+        self.assertEqual(str(error.exception), "Could not establish session to SSH gateway")
+        mock_connect.assert_not_called()
 
     @override_settings(DEBUG=False, TEST=False, E2E_TESTING=True)
     @patch("posthog.hogql.direct_sql.postgres_adapter.psycopg.connect")

@@ -9,17 +9,14 @@ from posthog.schema import (
     SourceFieldInputConfigType,
 )
 
-from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline.typings import (
-    SourceInputs,
-    SourceResponse,
-)
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.base import FieldType, SimpleSource
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.canonical_descriptions import (
     CanonicalDescriptions,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.registry import SourceRegistry
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.schema import SourceSchema
-from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs import HeightSourceConfig
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.typings import SourceInputs, SourceResponse
+from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.height import HeightSourceConfig
 from products.warehouse_sources.backend.temporal.data_imports.sources.height.height import (
     height_source,
     validate_credentials as _height_validate_credentials,
@@ -30,6 +27,8 @@ from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 @SourceRegistry.register
 class HeightSource(SimpleSource[HeightSourceConfig]):
+    api_docs_url = "https://height.notion.site/API-documentation-643aea5bf01742de9232ed5b8b23a91b"
+
     lists_tables_without_credentials = True  # static endpoint catalog — safe for public docs
 
     @property
@@ -84,6 +83,7 @@ You can create an API key on the **Settings → API** page in [Height](https://h
         with_counts: bool = False,
         names: list[str] | None = None,
         force_refresh: bool = False,
+        api_version: str | None = None,
     ) -> list[SourceSchema]:
         # Every endpoint is full refresh only — Height's list endpoints expose no server-side
         # timestamp filter without search params, so there is no incremental cursor to advance.
@@ -102,7 +102,11 @@ You can create an API key on the **Settings → API** page in [Height](https://h
         return schemas
 
     def validate_credentials(
-        self, config: HeightSourceConfig, team_id: int, schema_name: Optional[str] = None
+        self,
+        config: HeightSourceConfig,
+        team_id: int,
+        schema_name: Optional[str] = None,
+        api_version: str | None = None,
     ) -> tuple[bool, str | None]:
         # The API key is workspace-wide, so a single probe validates access to every schema.
         return _height_validate_credentials(config.api_key)
@@ -114,5 +118,6 @@ You can create an API key on the **Settings → API** page in [Height](https://h
         return height_source(
             api_key=config.api_key,
             endpoint=inputs.schema_name,
-            logger=inputs.logger,
+            team_id=inputs.team_id,
+            job_id=inputs.job_id,
         )

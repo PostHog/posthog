@@ -9,10 +9,6 @@ from posthog.schema import (
     SourceFieldInputConfigType,
 )
 
-from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline.typings import (
-    SourceInputs,
-    SourceResponse,
-)
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.base import FieldType, ResumableSource
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.canonical_descriptions import (
     CanonicalDescriptions,
@@ -20,7 +16,10 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common.can
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.registry import SourceRegistry
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.schema import SourceSchema
-from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs import MistralAISourceConfig
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.typings import SourceInputs, SourceResponse
+from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.mistralai import (
+    MistralAISourceConfig,
+)
 from products.warehouse_sources.backend.temporal.data_imports.sources.mistral_ai.mistral_ai import (
     MistralAIResumeConfig,
     mistral_ai_source,
@@ -36,6 +35,9 @@ from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 @SourceRegistry.register
 class MistralAISource(ResumableSource[MistralAISourceConfig, MistralAIResumeConfig]):
+    supported_versions = ("v1",)
+    default_version = "v1"
+    api_docs_url = "https://docs.mistral.ai/api/"
     lists_tables_without_credentials = True  # static endpoint catalog — safe for public docs
 
     @property
@@ -49,7 +51,6 @@ class MistralAISource(ResumableSource[MistralAISourceConfig, MistralAIResumeConf
             category=DataWarehouseSourceCategory.ENGINEERING___MONITORING,
             label="Mistral AI",
             releaseStatus=ReleaseStatus.ALPHA,
-            unreleasedSource=True,
             caption="""Enter your Mistral AI API key to sync your Mistral AI platform data into the PostHog Data warehouse.
 
 You can create an API key in [La Plateforme](https://console.mistral.ai/api-keys).""",
@@ -85,6 +86,10 @@ You can create an API key in [La Plateforme](https://console.mistral.ai/api-keys
             # stable status text and base host, not the per-request path/query.
             "401 Client Error: Unauthorized for url: https://api.mistral.ai": "Your Mistral AI API key is invalid or has been revoked. Create a new key in La Plateforme, then reconnect.",
             "403 Client Error: Forbidden for url: https://api.mistral.ai": "Your Mistral AI API key is missing the permissions needed to sync this data. Check the key's permissions in La Plateforme, then reconnect.",
+            # Mistral returns 410 (permanently gone, not a transient 404/5xx) when fine-tuning is not
+            # available for the workspace — retrying can never make a gone resource reappear. Match the
+            # base path, not the page/page_size query, so it catches the error on every page.
+            "410 Client Error: Gone for url: https://api.mistral.ai/v1/fine_tuning/jobs": "Fine-tuning is not available for your Mistral AI workspace, so the Fine tuning jobs table can't sync. Disable that table, or check your workspace's fine-tuning access in La Plateforme.",
         }
 
     def get_schemas(
@@ -94,6 +99,7 @@ You can create an API key in [La Plateforme](https://console.mistral.ai/api-keys
         with_counts: bool = False,
         names: list[str] | None = None,
         force_refresh: bool = False,
+        api_version: str | None = None,
     ) -> list[SourceSchema]:
         schemas = [
             SourceSchema(
@@ -113,7 +119,11 @@ You can create an API key in [La Plateforme](https://console.mistral.ai/api-keys
         return schemas
 
     def validate_credentials(
-        self, config: MistralAISourceConfig, team_id: int, schema_name: Optional[str] = None
+        self,
+        config: MistralAISourceConfig,
+        team_id: int,
+        schema_name: Optional[str] = None,
+        api_version: str | None = None,
     ) -> tuple[bool, str | None]:
         if validate_mistral_ai_credentials(config.api_key):
             return True, None

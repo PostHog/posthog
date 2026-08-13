@@ -18,7 +18,7 @@ from posthog.clickhouse.client import sync_execute
 from posthog.clickhouse.client.connection import ClickHouseUser
 from posthog.clickhouse.cluster import ClickhouseCluster, FuturesMap, HostInfo, get_cluster
 from posthog.clickhouse.kafka_engine import trim_quotes_expr
-from posthog.clickhouse.materialized_columns import (
+from posthog.clickhouse.materialized_column_types import (
     MATERIALIZATION_VALID_TABLES,
     ColumnName,
     TablesWithMaterializedColumns,
@@ -253,7 +253,7 @@ def get_enabled_materialized_columns(
 
 
 @dataclass
-class TableInfo:
+class TableLayout:
     data_table: str
 
     @property
@@ -266,7 +266,7 @@ class TableInfo:
 
 
 @dataclass
-class ShardedTableInfo(TableInfo):
+class ShardedTable(TableLayout):
     dist_table: str
 
     @property
@@ -277,9 +277,9 @@ class ShardedTableInfo(TableInfo):
         return cluster.map_one_host_per_shard(fn)
 
 
-tables: dict[str, TableInfo | ShardedTableInfo] = {
-    PERSONS_TABLE: TableInfo(PERSONS_TABLE),
-    "events": ShardedTableInfo(EVENTS_DATA_TABLE(), "events"),
+tables: dict[str, TableLayout | ShardedTable] = {
+    PERSONS_TABLE: TableLayout(PERSONS_TABLE),
+    "events": ShardedTable(EVENTS_DATA_TABLE(), "events"),
 }
 
 
@@ -485,7 +485,7 @@ def materialize(
         ).execute,
     ).result()
 
-    if isinstance(table_info, ShardedTableInfo):
+    if isinstance(table_info, ShardedTable):
         cluster.map_all_hosts(
             CreateColumnOnQueryNodesTask(
                 table_info.dist_table,
@@ -607,7 +607,7 @@ def drop_column(table: TablesWithMaterializedColumns, column_names: Iterable[str
     table_info = tables[table]
     column_names = [*column_names]
 
-    if isinstance(table_info, ShardedTableInfo):
+    if isinstance(table_info, ShardedTable):
         cluster.map_all_hosts(
             DropColumnTask(
                 table_info.dist_table,

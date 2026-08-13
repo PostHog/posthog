@@ -5,11 +5,17 @@ from typing import TYPE_CHECKING, Any
 from prometheus_client import Counter, Histogram
 
 from posthog.hogql import ast
+from posthog.hogql.context import HogQLContext
 from posthog.hogql.query import execute_hogql_query
 
 from posthog.clickhouse.query_tagging import Product, tag_queries, tags_context
-from posthog.hogql_queries.ai.ai_column_rewriter import rewrite_expr_for_events_table, rewrite_query_for_events_table
+from posthog.hogql_queries.ai.ai_column_rewriter import (
+    EVENTS_FALLBACK_PROPERTY_TYPE_OVERRIDES,
+    rewrite_expr_for_events_table,
+    rewrite_query_for_events_table,
+)
 from posthog.hogql_queries.ai.ai_property_rewriter import rewrite_expr_for_ai_events_table
+from posthog.models.event.new_events_schema import use_new_events_schema
 from posthog.ph_client import feature_enabled_or_false
 
 AI_EVENTS_QUERY_TOTAL = Counter(
@@ -70,6 +76,7 @@ def query_ai_events(
     query_type: str,
     *,
     fall_back_to_events: bool = False,
+    fallback_placeholders: dict[str, ast.Expr] | None = None,
     timings: HogQLTimings | None = None,
     modifiers: HogQLQueryModifiers | None = None,
     limit_context: LimitContext | None = None,
@@ -91,6 +98,9 @@ def query_ai_events(
     - ``fall_back_to_events=False`` (default): an events row would be useless to the caller,
       so events is probed only to classify the miss — raising :class:`AIEventsExpiredError`
       (the data aged past the TTL) or :class:`AIEventsNotFoundError` (it never existed).
+
+    ``fallback_placeholders`` lets callers keep predicates required by shared events out of
+    the dedicated table query. They use the ai_events schema and are rewritten before execution.
 
     `workload` should be specified explicitly for batch / scheduled callers (e.g. usage
     reports). Inside a Celery task the `task_prerun` signal sets `Workload.OFFLINE` on
@@ -119,19 +129,31 @@ def query_ai_events(
             AI_EVENTS_QUERY_TOTAL.labels(source="dedicated_table").inc()
             return result
 
+        events_schema = use_new_events_schema(team.pk)
         events_query = rewrite_query_for_events_table(query)
-        events_placeholders = {k: rewrite_expr_for_events_table(v) for k, v in placeholders.items()}
+        fallback_source_placeholders = fallback_placeholders if fallback_placeholders is not None else placeholders
+        events_placeholders = {
+            key: rewrite_expr_for_events_table(value) for key, value in fallback_source_placeholders.items()
+        }
+        events_kwargs = {
+            **kwargs,
+            "context": HogQLContext(
+                team_id=team.pk,
+                use_new_events_schema=events_schema,
+                property_type_overrides=EVENTS_FALLBACK_PROPERTY_TYPE_OVERRIDES,
+            ),
+        }
 
         if fall_back_to_events:
             tag_queries(ai_query_source="shared_table_fallback")
             AI_EVENTS_QUERY_TOTAL.labels(source="shared_table_fallback").inc()
             with AI_EVENTS_QUERY_DURATION_SECONDS.labels(source="shared_table_fallback").time():
-                return execute_hogql_query(query=events_query, placeholders=events_placeholders, **kwargs)
+                return execute_hogql_query(query=events_query, placeholders=events_placeholders, **events_kwargs)
 
         # The caller can't use heavy-column-stripped events rows, so probe events solely to
         # tell "aged past the TTL" apart from "never existed" and raise the matching error.
         with AI_EVENTS_QUERY_DURATION_SECONDS.labels(source="retention_probe").time():
-            probe = execute_hogql_query(query=events_query, placeholders=events_placeholders, **kwargs)
+            probe = execute_hogql_query(query=events_query, placeholders=events_placeholders, **events_kwargs)
         if probe.results:
             tag_queries(ai_query_source="expired")
             AI_EVENTS_QUERY_TOTAL.labels(source="expired").inc()
@@ -141,7 +163,11 @@ def query_ai_events(
         raise AIEventsNotFoundError(f"AI events for {query_type} were not found")
 
 
-# Canonical Python list. Node.js mirror: nodejs/src/ingestion/ai/process-ai-event.ts
+# Query-routing list: event types whose full history lives in the dedicated ai_events table.
+# The ingestion list (nodejs/src/ingestion/pipelines/ai/ai-event-types.ts) additionally
+# contains the AI meta-events ($ai_tag, summaries, eval reports); they are excluded here
+# because ai_events lacks their full history, so their queries must stay on the shared
+# events table to avoid misreading the missing rows as expired data.
 AI_EVENT_NAMES = frozenset(
     {
         "$ai_generation",

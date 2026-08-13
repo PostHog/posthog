@@ -152,7 +152,14 @@ describe('query', () => {
 
         const queryFailedCalls = captureSpy.mock.calls.filter((call) => call[0] === 'query failed')
         expect(queryFailedCalls).toHaveLength(1)
-        expect(queryFailedCalls[0][1]).toMatchObject({ query: q, duration: expect.any(Number) })
+        expect(queryFailedCalls[0][1]).toMatchObject({
+            query: q,
+            duration: expect.any(Number),
+            error_status: 500,
+            error_code: null,
+        })
+        // Raw error text must stay out of telemetry
+        expect(queryFailedCalls[0][1]).not.toHaveProperty('error_message')
     })
 
     describe('waitForPageVisible', () => {
@@ -223,6 +230,41 @@ describe('query', () => {
             } finally {
                 globalThis.document = originalDocument
             }
+        })
+    })
+
+    describe('pollForResults and backgrounded tabs', () => {
+        const originalVisibilityState = document.visibilityState
+
+        afterEach(() => {
+            Object.defineProperty(document, 'visibilityState', { value: originalVisibilityState, configurable: true })
+            jest.restoreAllMocks()
+        })
+
+        it('does not count time spent hidden against the poll deadline', async () => {
+            Object.defineProperty(document, 'visibilityState', { value: 'visible', configurable: true })
+
+            let now = 0
+            jest.spyOn(performance, 'now').mockImplementation(() => now)
+
+            jest.spyOn(api.queryStatus, 'get')
+                .mockResolvedValueOnce({ query_status: { complete: false } } as any)
+                .mockResolvedValueOnce({ query_status: { complete: true, results: ['ok'] } } as any)
+
+            const promise = pollForResults('test-query-id', undefined, () => {
+                // Fires right after the first (incomplete) poll, before the loop rechecks its
+                // deadline for the next one. Simulate the tab backgrounding for longer than the
+                // whole poll deadline (10m6s) right here: a wall-clock deadline would time out on
+                // the very next check, even though no polling actually happened during that time.
+                Object.defineProperty(document, 'visibilityState', { value: 'hidden', configurable: true })
+                now += 11 * 60 * 1000
+                setTimeout(() => {
+                    Object.defineProperty(document, 'visibilityState', { value: 'visible', configurable: true })
+                    document.dispatchEvent(new Event('visibilitychange'))
+                }, 0)
+            })
+
+            await expect(promise).resolves.toMatchObject({ complete: true, results: ['ok'] })
         })
     })
 

@@ -16,6 +16,8 @@ const esmModules = [
     '@shadcn/react',
     '@react-hook',
     '@medv',
+    // @toon-format/toon ships ESM-only; the posthog_ai widget extractors decode TOON tool output.
+    '@toon-format',
     'monaco-editor',
     '@posthog/hedgehog-mode',
     // @marsidev/react-turnstile ships ESM-only; the auth flow variant registry pulls it
@@ -181,6 +183,10 @@ const config: Config = {
         // `new URL("./x.png", import.meta.url)` — import.meta is unavailable under Sucrase/CJS,
         // so mock them to the styleMock string instead of executing them.
         '^@posthog/brand/.*/png/.*$': '<rootDir>/src/test/mocks/styleMock.js',
+        // devHmrStreamAbort subscribes to Vite HMR events via import.meta, which Sucrase passes
+        // through into CJS and Jest then cannot compile ("Cannot use 'import.meta' outside a module").
+        // It is dev-server-only behavior, so stub it out rather than transform it.
+        devHmrStreamAbort$: '<rootDir>/src/test/mocks/emptyMock.js',
         '^.+\\.sql\\?raw$': '<rootDir>/src/test/mocks/rawFileMock.js',
         '^(.+)\\.yaml\\?raw$': '$1.yaml',
         '^~/(.*)$': '<rootDir>/src/$1',
@@ -269,7 +275,12 @@ const config: Config = {
     setupFiles: ['<rootDir>/jest.polyfills.js', '<rootDir>/jest.setup.ts', 'fake-indexeddb/auto'],
 
     // A list of paths to modules that run some code to configure or set up the testing framework before each test
-    setupFilesAfterEnv: ['<rootDir>/jest.setupAfterEnv.ts', '<rootDir>/src/mocks/jest.ts'],
+    // jest.quarantine.ts first so it wraps the describe/it/test globals before any test file declares tests.
+    setupFilesAfterEnv: [
+        '<rootDir>/jest.quarantine.ts',
+        '<rootDir>/jest.setupAfterEnv.ts',
+        '<rootDir>/src/mocks/jest.ts',
+    ],
 
     // The number of seconds after which a test is considered as slow and reported as such in the results.
     // slowTestThreshold: 5,
@@ -298,8 +309,7 @@ const config: Config = {
         '/services/mcp/',
         '/products/[^/]+/frontend/e2e/',
         '/products/visual_review/cli/',
-        '/products/agent_platform/services/',
-        '/products/agent_platform/packages/',
+        '/products/desktop/',
     ],
 
     // The regexp pattern or array of patterns that Jest uses to detect test files

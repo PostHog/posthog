@@ -16,6 +16,8 @@ import type {
     BulkKeysResponseApi,
     BulkUpdateTagsRequestApi,
     BulkUpdateTagsResponseApi,
+    CopyFlagsDependencyRequirementsRequestApi,
+    CopyFlagsDependencyRequirementsResponseApi,
     CopyFlagsRequestApi,
     CopyFlagsResponseApi,
     DependentFlagApi,
@@ -368,6 +370,26 @@ export const featureFlagsCopyFlagsCreate = async (
         headers: { 'Content-Type': 'application/json', ...options?.headers },
         body: JSON.stringify(copyFlagsRequestApi),
     })
+}
+
+export const getFeatureFlagsCopyFlagsDependencyRequirementsCreateUrl = (organizationId: string) => {
+    return `/api/organizations/${organizationId}/feature_flags/copy_flags/dependency_requirements/`
+}
+
+export const featureFlagsCopyFlagsDependencyRequirementsCreate = async (
+    organizationId: string,
+    copyFlagsDependencyRequirementsRequestApi: CopyFlagsDependencyRequirementsRequestApi,
+    options?: RequestInit
+): Promise<CopyFlagsDependencyRequirementsResponseApi> => {
+    return apiMutator<CopyFlagsDependencyRequirementsResponseApi>(
+        getFeatureFlagsCopyFlagsDependencyRequirementsCreateUrl(organizationId),
+        {
+            ...options,
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json', ...options?.headers },
+            body: JSON.stringify(copyFlagsDependencyRequirementsRequestApi),
+        }
+    )
 }
 
 export const getOrgFeatureFlagsKeysUrl = (organizationId: string, params?: OrgFeatureFlagsKeysParams) => {
@@ -745,14 +767,11 @@ export const getFeatureFlagsDashboardCreateUrl = (projectId: string, id: number)
 export const featureFlagsDashboardCreate = async (
     projectId: string,
     id: number,
-    featureFlagApi: NonReadonly<FeatureFlagApi>,
     options?: RequestInit
 ): Promise<void> => {
     return apiMutator<void>(getFeatureFlagsDashboardCreateUrl(projectId, id), {
         ...options,
         method: 'POST',
-        headers: { 'Content-Type': 'application/json', ...options?.headers },
-        body: JSON.stringify(featureFlagApi),
     })
 }
 
@@ -786,14 +805,11 @@ export const getFeatureFlagsEnrichUsageDashboardCreateUrl = (projectId: string, 
 export const featureFlagsEnrichUsageDashboardCreate = async (
     projectId: string,
     id: number,
-    featureFlagApi: NonReadonly<FeatureFlagApi>,
     options?: RequestInit
 ): Promise<void> => {
     return apiMutator<void>(getFeatureFlagsEnrichUsageDashboardCreateUrl(projectId, id), {
         ...options,
         method: 'POST',
-        headers: { 'Content-Type': 'application/json', ...options?.headers },
-        body: JSON.stringify(featureFlagApi),
     })
 }
 

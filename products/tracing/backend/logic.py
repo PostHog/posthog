@@ -18,7 +18,6 @@ from posthog.schema import (
     CachedTraceSpansTreeQueryResponse,
     CompareFilter,
     DateRange,
-    HogQLFilters,
     HogQLQueryModifiers,
     IntervalType,
     PropertyGroupFilter,
@@ -58,6 +57,18 @@ TIME_BUCKET_DATE_RANGE_WHERE = (
     "toStartOfDay(time_bucket, 'UTC') >= toStartOfDay({date_from}, 'UTC') "
     "and toStartOfDay(time_bucket, 'UTC') <= toStartOfDay({date_to}, 'UTC')"
 )
+
+# Hard cap on number of rows returned per period by the span aggregation runners. Keeps
+# payloads bounded when name cardinality blows up (e.g. untemplated URL paths). The flame
+# graph collapses long tails anyway so the lower-ranked rows aren't visible.
+_ROW_LIMIT = 5000
+
+# Default row cap for the flat aggregation when a caller does not pass an explicit `limit`.
+# Kept small because this endpoint feeds agent/MCP callers, where the full 5000-row tail can
+# push a single response past a million tokens once name cardinality blows up. Rows are
+# ordered by total_duration_nano DESC, so the default still surfaces the heaviest operations;
+# callers that need the long tail opt into a higher `limit` (up to _ROW_LIMIT) or paginate.
+DEFAULT_AGGREGATION_ROW_LIMIT = 100
 
 # Value-search probes attribute_value with ILIKE %search%, which scans far more rows than
 # the key-only path. Require a meaningfully specific term so short prefixes (e.g. "id")
@@ -413,7 +424,7 @@ class TraceSpansQueryRunner(TraceSpansQueryRunnerMixin, AnalyticsQueryRunner[Tra
             team=self.team,
             workload=Workload.LOGS,
             timings=self.timings,
-            filters=HogQLFilters(dateRange=self.query.dateRange),
+            filters=self.query_date_range.to_hogql_filters(),
             settings=self.settings,
         )
         results = []
@@ -781,7 +792,7 @@ def run_service_names_query(
         query=query,
         team=team,
         workload=Workload.LOGS,
-        filters=HogQLFilters(dateRange=date_range),
+        filters=query_date_range.to_hogql_filters(),
         modifiers=HogQLQueryModifiers(convertToProjectTimezone=False),
         settings=HogQLGlobalSettings(
             allow_experimental_object_type=False,
@@ -865,7 +876,7 @@ def run_attribute_names_query(
         query=query,
         team=team,
         workload=Workload.LOGS,
-        filters=HogQLFilters(dateRange=date_range),
+        filters=query_date_range.to_hogql_filters(),
         modifiers=HogQLQueryModifiers(convertToProjectTimezone=False),
         settings=HogQLGlobalSettings(
             read_overflow_mode="break",
@@ -965,7 +976,7 @@ def _run_attribute_names_value_search(
         query=query,
         team=team,
         workload=Workload.LOGS,
-        filters=HogQLFilters(dateRange=date_range),
+        filters=query_date_range.to_hogql_filters(),
         modifiers=HogQLQueryModifiers(convertToProjectTimezone=False),
         settings=HogQLGlobalSettings(
             read_overflow_mode="break",
@@ -1046,7 +1057,7 @@ def run_attribute_values_query(
         query=query,
         team=team,
         workload=Workload.LOGS,
-        filters=HogQLFilters(dateRange=date_range),
+        filters=query_date_range.to_hogql_filters(),
         modifiers=HogQLQueryModifiers(convertToProjectTimezone=False),
         settings=HogQLGlobalSettings(
             read_overflow_mode="break",
@@ -1069,6 +1080,8 @@ def run_aggregation_query(
     compare_filter: CompareFilter | None = None,
     filter_group: PropertyGroupFilter | None = None,
     service_names: list[str] | None = None,
+    limit: int | None = None,
+    offset: int = 0,
 ) -> TraceSpansAggregationQueryResponse | CachedTraceSpansAggregationQueryResponse:
     """Facade-friendly entry point for running a flat span aggregation query."""
     # The runners import `translate_span_filter` from this module, so a module-level import here is circular.
@@ -1080,7 +1093,7 @@ def run_aggregation_query(
         filterGroup=filter_group,
         serviceNames=service_names,
     )
-    runner = TraceSpansAggregationQueryRunner(query, team)
+    runner = TraceSpansAggregationQueryRunner(query, team, limit=limit, offset=offset)
     response = runner.run(ExecutionMode.CALCULATE_BLOCKING_ALWAYS)
     assert isinstance(response, TraceSpansAggregationQueryResponse | CachedTraceSpansAggregationQueryResponse)
     return response

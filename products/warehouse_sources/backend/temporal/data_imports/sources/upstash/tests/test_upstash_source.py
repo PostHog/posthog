@@ -7,8 +7,10 @@ from parameterized import parameterized
 
 from posthog.schema import DataWarehouseSourceCategory, ReleaseStatus, SourceFieldInputConfig
 
-from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline.typings import SourceInputs
-from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs import UpstashSourceConfig
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.typings import SourceInputs
+from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.upstash import (
+    UpstashSourceConfig,
+)
 from products.warehouse_sources.backend.temporal.data_imports.sources.upstash import source as upstash_source_module
 from products.warehouse_sources.backend.temporal.data_imports.sources.upstash.source import UpstashSource
 from products.warehouse_sources.backend.types import ExternalDataSourceType
@@ -46,8 +48,6 @@ class TestUpstashSource:
         assert config.label == "Upstash"
         assert config.category == DataWarehouseSourceCategory.ENGINEERING___MONITORING
         assert config.releaseStatus == ReleaseStatus.ALPHA
-        # Hidden until exercised against the live API.
-        assert config.unreleasedSource is True
         assert config.docsUrl == "https://posthog.com/docs/cdp/sources/upstash"
 
     def test_source_config_fields(self) -> None:

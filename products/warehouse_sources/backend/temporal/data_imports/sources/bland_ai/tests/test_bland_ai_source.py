@@ -16,7 +16,9 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.bland_ai.s
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.bland_ai.source import BlandAISource
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
-from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs import BlandAISourceConfig
+from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.blandai import (
+    BlandAISourceConfig,
+)
 from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 
@@ -36,7 +38,6 @@ class TestBlandAISource:
         assert config.label == "Bland AI"
         assert config.category == DataWarehouseSourceCategory.COMMUNICATION
         assert config.releaseStatus == ReleaseStatus.ALPHA
-        assert config.unreleasedSource is True
         assert config.iconPath == "/static/services/bland_ai.svg"
         assert config.docsUrl == "https://posthog.com/docs/cdp/sources/bland-ai"
 

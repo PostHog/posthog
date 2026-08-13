@@ -19,6 +19,7 @@ from posthog.test.base import (
 )
 from unittest.mock import ANY, patch
 
+from django.conf import settings
 from django.utils.timezone import now
 
 from dateutil.relativedelta import relativedelta
@@ -2705,6 +2706,39 @@ class TestSessionRecordingsListFromQuery(ClickhouseTestMixin, APIBaseTest):
         )
 
     @snapshot_clickhouse_queries
+    def test_filter_for_recordings_with_console_logs_and_explicit_date_range(self):
+        """The console logs subquery is clamped to the query's date range (with a ±1 day
+        buffer), including an explicit `date_to` — sessions inside the range still match."""
+        create_person(team=self.team, distinct_ids=["user"], properties={"email": "bla"})
+
+        with_logs_session_id = f"with-logs-session-{str(uuid4())}"
+
+        produce_replay_summary(
+            distinct_id="user",
+            session_id=with_logs_session_id,
+            first_timestamp=self.an_hour_ago,
+            team_id=self.team.id,
+            console_log_count=4,
+            log_messages={
+                "info": [
+                    "info",
+                    "info",
+                    "info",
+                ],
+            },
+        )
+
+        self._assert_query_matches_session_ids(
+            {
+                "console_log_filters": '[{"key": "level", "value": ["info"], "operator": "exact", "type": "log_entry"}]',
+                "operand": "AND",
+                "date_from": "-3d",
+                "date_to": "2021-01-01",
+            },
+            [with_logs_session_id],
+        )
+
+    @snapshot_clickhouse_queries
     @freeze_time("2021-01-21T20:00:00.000Z")
     def test_filter_for_recordings_with_console_warns(self):
         create_person(team=self.team, distinct_ids=["user"], properties={"email": "bla"})
@@ -4693,7 +4727,10 @@ class TestClickhouseSessionRecordingsListFromQuery(ClickhouseTestMixin, APIBaseT
             printed_query = self._print_query(hogql_parsed_select)
 
             if poe_v1 or poe_v2:
-                assert re.search(r"equals\(events\.mat_pp_rgInternal, %\(hogql_val_\d+\)s\)", printed_query)
+                if settings.CLICKHOUSE_HOGQL_USE_NEW_EVENTS_SCHEMA:
+                    assert "events.person_properties.rgInternal" in printed_query
+                else:
+                    assert re.search(r"equals\(events\.mat_pp_rgInternal, %\(hogql_val_\d+\)s\)", printed_query)
             else:
                 assert re.search(
                     r"tupleElement\(argMax\(tuple\(replaceRegexpAll\(nullIf\(nullIf\(JSONExtractRaw\(person\.properties, %\(hogql_val_\d+\)s\), ''\), 'null'\), '^\"|\"\$', ''\)\), person\.version\), 1\) AS properties___rgInternal",

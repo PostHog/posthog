@@ -1,14 +1,13 @@
+import './components/ScannerSummary.scss'
+
 import { useValues } from 'kea'
 
 import { LemonCard, LemonTable, LemonTableColumns, Link, Tooltip } from '@posthog/lemon-ui'
 
-import { NotFound } from 'lib/components/NotFound'
 import { TZLabel } from 'lib/components/TZLabel'
-import { FEATURE_FLAGS } from 'lib/constants'
 import { LemonBanner } from 'lib/lemon-ui/LemonBanner'
 import { LemonMarkdown } from 'lib/lemon-ui/LemonMarkdown'
 import { Spinner } from 'lib/lemon-ui/Spinner'
-import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { SceneExport } from 'scenes/sceneTypes'
 import { urls } from 'scenes/urls'
 
@@ -80,11 +79,6 @@ function RecordingsIncluded({ observations }: { observations: readonly RunObserv
 
 function VisionActionRunScene(): JSX.Element {
     const { run, runLoading, summaryMarkdown } = useValues(visionActionRunSceneLogic)
-    const { featureFlags } = useValues(featureFlagLogic)
-
-    if (!featureFlags[FEATURE_FLAGS.REPLAY_VISION] || !featureFlags[FEATURE_FLAGS.REPLAY_VISION_ACTIONS]) {
-        return <NotFound object="page" />
-    }
 
     if (runLoading) {
         return (
@@ -124,7 +118,7 @@ function VisionActionRunScene(): JSX.Element {
             {run.synthesized_markdown ? (
                 <LemonCard hoverEffect={false} className="p-4">
                     {/* Same untrusted-content guard as the scanner-page digest card. */}
-                    <LemonMarkdown className="text-base" disableImages>
+                    <LemonMarkdown className="ScannerSummaryMarkdown text-base" disableImages>
                         {summaryMarkdown}
                     </LemonMarkdown>
                 </LemonCard>

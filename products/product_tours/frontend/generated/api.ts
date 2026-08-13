@@ -52,6 +52,9 @@ export const getProductToursListUrl = (projectId: string, params?: ProductToursL
         : `/api/projects/${projectId}/product_tours/`
 }
 
+/**
+ * Create, read, update, and manage product tours and their targeting.
+ */
 export const productToursList = async (
     projectId: string,
     params?: ProductToursListParams,
@@ -67,6 +70,9 @@ export const getProductToursCreateUrl = (projectId: string) => {
     return `/api/projects/${projectId}/product_tours/`
 }
 
+/**
+ * Create, read, update, and manage product tours and their targeting.
+ */
 export const productToursCreate = async (
     projectId: string,
     productTourSerializerCreateUpdateOnlyApi: NonReadonly<ProductTourSerializerCreateUpdateOnlyApi>,
@@ -84,6 +90,9 @@ export const getProductToursRetrieveUrl = (projectId: string, id: string) => {
     return `/api/projects/${projectId}/product_tours/${id}/`
 }
 
+/**
+ * Create, read, update, and manage product tours and their targeting.
+ */
 export const productToursRetrieve = async (
     projectId: string,
     id: string,
@@ -99,6 +108,9 @@ export const getProductToursUpdateUrl = (projectId: string, id: string) => {
     return `/api/projects/${projectId}/product_tours/${id}/`
 }
 
+/**
+ * Create, read, update, and manage product tours and their targeting.
+ */
 export const productToursUpdate = async (
     projectId: string,
     id: string,
@@ -117,6 +129,9 @@ export const getProductToursPartialUpdateUrl = (projectId: string, id: string) =
     return `/api/projects/${projectId}/product_tours/${id}/`
 }
 
+/**
+ * Create, read, update, and manage product tours and their targeting.
+ */
 export const productToursPartialUpdate = async (
     projectId: string,
     id: string,
@@ -135,6 +150,9 @@ export const getProductToursDestroyUrl = (projectId: string, id: string) => {
     return `/api/projects/${projectId}/product_tours/${id}/`
 }
 
+/**
+ * Create, read, update, and manage product tours and their targeting.
+ */
 export const productToursDestroy = async (projectId: string, id: string, options?: RequestInit): Promise<void> => {
     return apiMutator<void>(getProductToursDestroyUrl(projectId, id), {
         ...options,

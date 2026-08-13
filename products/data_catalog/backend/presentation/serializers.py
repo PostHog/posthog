@@ -14,7 +14,8 @@ from posthog.schema_enums import IntervalType
 
 from ..facade import api
 from ..facade.enums import CreatedSource
-from ..facade.models import Metric
+from ..facade.models import Metric, RelationshipProposal, TableCertification
+from ..logic.validation import MAX_DESCRIPTION_LENGTH
 
 
 @extend_schema_field(OpenApiTypes.OBJECT)
@@ -158,10 +159,19 @@ class MetricSerializer(serializers.ModelSerializer):
                 "Set to null to unlink. Mutually exclusive with definition.",
             },
             "display_name": {"help_text": "Human-friendly label. Mutable, unlike name."},
-            "description": {"help_text": "What the metric means and how to interpret it."},
+            "description": {
+                "help_text": "What the metric means and what it serves, in 1-3 short sentences: the business "
+                "meaning plus any load-bearing inclusions/exclusions or grain. Never narrate or restate the "
+                "query - the definition carries the mechanics; put rationale for query choices in 'reasoning'.",
+                "max_length": MAX_DESCRIPTION_LENGTH,
+            },
             "unit": {"help_text": "Unit of the result, e.g. usd, percent, cents."},
             "ai_model": {"help_text": "Model that generated the metric, if AI-authored."},
-            "confidence": {"help_text": "AI author's confidence in the proposal, 0-1."},
+            "confidence": {
+                "help_text": "AI author's confidence in the proposal, 0-1.",
+                "min_value": 0.0,
+                "max_value": 1.0,
+            },
             "reasoning": {"help_text": "AI author's reasoning, surfaced as review context."},
         }
 
@@ -177,3 +187,137 @@ class MetricSerializer(serializers.ModelSerializer):
         if drift_map is not None and obj.id in drift_map:
             return drift_map[obj.id]
         return api.compute_drift([obj])[obj.id]
+
+
+@extend_schema_serializer(component_name="DataCatalogCertification")
+class CertificationSerializer(serializers.ModelSerializer):
+    status = serializers.CharField(
+        read_only=True, help_text="proposed, certified (prefer this source), or deprecated (avoid this source)."
+    )
+    proposed_status = serializers.CharField(
+        read_only=True,
+        help_text="The mark the proposal asks for: 'certified' (trust this source) or 'deprecated' "
+        "(avoid this source). Informational once the mark is settled.",
+    )
+    target_type = serializers.SerializerMethodField(help_text="Whether the marked target is a 'table' or a 'view'.")
+    target_name = serializers.SerializerMethodField(help_text="Name of the marked table or view.")
+    certified_by = UserBasicSerializer(
+        read_only=True, allow_null=True, help_text="User who last set certified/deprecated, or null."
+    )
+
+    class Meta:
+        model = TableCertification
+        fields = [
+            "id",
+            "table",
+            "saved_query",
+            "target_type",
+            "target_name",
+            "status",
+            "proposed_status",
+            "notes",
+            "certified_by",
+            "certified_at",
+            "created_by",
+            "created_at",
+        ]
+        read_only_fields = [
+            "id",
+            "table",
+            "saved_query",
+            "status",
+            "proposed_status",
+            "certified_by",
+            "certified_at",
+            "created_by",
+            "created_at",
+        ]
+        extra_kwargs = {"notes": {"help_text": "Why this mark exists, e.g. 'canonical MRR source'."}}
+
+    @extend_schema_field(OpenApiTypes.STR)
+    def get_target_type(self, obj: TableCertification) -> str:
+        return "table" if obj.table_id else "view"
+
+    @extend_schema_field(OpenApiTypes.STR)
+    def get_target_name(self, obj: TableCertification) -> str:
+        if obj.table_id:
+            return obj.table.name if obj.table else ""
+        return obj.saved_query.name if obj.saved_query else ""
+
+
+class CertificationCreateSerializer(serializers.Serializer):
+    """Input for proposing a certification: address the target by id or (convenience) by name."""
+
+    table_id = serializers.UUIDField(required=False, help_text="Warehouse table id to certify (XOR the other targets).")
+    saved_query_id = serializers.UUIDField(required=False, help_text="Warehouse view (saved query) id to certify.")
+    table_name = serializers.CharField(required=False, help_text="Table name; 409 with candidates if ambiguous.")
+    view_name = serializers.CharField(required=False, help_text="View name; 409 with candidates if ambiguous.")
+    notes = serializers.CharField(required=False, allow_blank=True, help_text="Why this mark exists.")
+    proposed_status = serializers.ChoiceField(
+        choices=["certified", "deprecated"],
+        required=False,
+        default="certified",
+        help_text="Intent of the proposal: 'certified' to propose trusting this source, "
+        "'deprecated' to propose avoiding it (e.g. a stale or wrong source).",
+    )
+
+
+@extend_schema_serializer(component_name="DataCatalogRelationshipProposal")
+class RelationshipProposalSerializer(serializers.ModelSerializer):
+    status = serializers.CharField(
+        read_only=True, help_text="proposed, accepted (promoted to a real join), or rejected (never re-proposed)."
+    )
+    configuration = _FreeJSONField(required=False, help_text="Extra join configuration, e.g. a field mapping.")
+    evidence = _FreeJSONField(required=False, help_text="Sampling evidence: match rates, sample values.")
+    reviewed_by = UserBasicSerializer(
+        read_only=True, allow_null=True, help_text="User who accepted or rejected the proposal."
+    )
+
+    class Meta:
+        model = RelationshipProposal
+        fields = [
+            "id",
+            "source_table_name",
+            "source_table_key",
+            "joining_table_name",
+            "joining_table_key",
+            "field_name",
+            "configuration",
+            "confidence",
+            "reasoning",
+            "evidence",
+            "status",
+            "reviewed_by",
+            "reviewed_at",
+            "rejection_reason",
+            "created_join",
+            "created_by",
+            "created_at",
+        ]
+        read_only_fields = [
+            "id",
+            "status",
+            "reviewed_by",
+            "reviewed_at",
+            "rejection_reason",
+            "created_join",
+            "created_by",
+            "created_at",
+        ]
+        extra_kwargs = {
+            "source_table_name": {"help_text": "Name of the table the join starts from."},
+            "source_table_key": {"help_text": "HogQL key expression on the source table (casts allowed)."},
+            "joining_table_name": {"help_text": "Name of the table being joined in."},
+            "joining_table_key": {"help_text": "HogQL key expression on the joining table (casts allowed)."},
+            "field_name": {"help_text": "Accessor the join adds to the source table."},
+            "confidence": {"help_text": "Discovery confidence in this join, 0-1."},
+            "reasoning": {"help_text": "Why this join is proposed."},
+        }
+
+
+class RelationshipRejectSerializer(serializers.Serializer):
+    rejection_reason = serializers.CharField(
+        required=False,
+        allow_blank=True,
+        help_text="Why the proposal is rejected. Persisted so it is never re-proposed.",
+    )

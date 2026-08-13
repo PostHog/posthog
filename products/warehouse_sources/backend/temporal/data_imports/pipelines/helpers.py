@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from dataclasses import dataclass
 from datetime import date, datetime
 from typing import TYPE_CHECKING
 from zoneinfo import ZoneInfo
@@ -68,12 +69,20 @@ def build_table_name(source: ExternalDataSource, schema_name: str):
     # Dots in `schema_name` would parse as `<table>.<column>` in HogQL, so any source that ever
     # produces a dotted schema name (today: Postgres multi-schema like `public.auth_group`) needs
     # them rewritten. No-op for pre-existing single-schema sources whose names never contained dots.
-    safe_schema_name = schema_name.replace(".", "__")
+    # Slashes appear in GitHub's repo-qualified names (`owner/repo.issues`) and aren't a valid
+    # identifier character at all, so they flatten to a single underscore.
+    safe_schema_name = schema_name.replace("/", "_").replace(".", "__")
     return f"{source.prefix or ''}{source.source_type}_{safe_schema_name}".lower()
 
 
-def resolve_table_and_folder_names(schema_name: str, resolved_s3_folder_name: str | None) -> tuple[str, str]:
-    """Return `(table_storage_name, folder_name)` for a schema row.
+@dataclass(frozen=True, kw_only=True, slots=True)
+class ResolvedSchemaNames:
+    table_storage_name: str
+    folder_name: str
+
+
+def resolve_table_and_folder_names(schema_name: str, resolved_s3_folder_name: str | None) -> ResolvedSchemaNames:
+    """Return the `table_storage_name` and `folder_name` for a schema row.
 
     These are intentionally different normalizations:
     - The S3 folder is the *snake_cased* identifier (`BalanceTransaction` -> `balance_transaction`).
@@ -90,7 +99,7 @@ def resolve_table_and_folder_names(schema_name: str, resolved_s3_folder_name: st
     folder_name = NamingConvention.normalize_identifier(resolved_s3_folder_name or schema_name)
     is_folder_pinned = folder_name != NamingConvention.normalize_identifier(schema_name)
     table_storage_name = folder_name if is_folder_pinned else schema_name
-    return table_storage_name, folder_name
+    return ResolvedSchemaNames(table_storage_name=table_storage_name, folder_name=folder_name)
 
 
 def sync_revenue_analytics_views(schema: ExternalDataSchema, source: ExternalDataSource) -> None:

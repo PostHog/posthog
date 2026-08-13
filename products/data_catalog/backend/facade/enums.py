@@ -32,3 +32,19 @@ class CreatedSource(StrEnum):
 
     USER = "user"
     AI_GENERATED = "ai_generated"
+
+
+class CertificationStatus(StrEnum):
+    """Human-vouched trust mark on a warehouse table or view."""
+
+    PROPOSED = "proposed"
+    CERTIFIED = "certified"
+    DEPRECATED = "deprecated"
+
+
+class RelationshipStatus(StrEnum):
+    """Review state of a proposed join between two warehouse tables."""
+
+    PROPOSED = "proposed"
+    ACCEPTED = "accepted"
+    REJECTED = "rejected"

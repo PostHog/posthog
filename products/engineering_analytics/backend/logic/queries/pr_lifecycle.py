@@ -22,20 +22,19 @@ from products.engineering_analytics.backend.facade.contracts import (
     RepoRef,
 )
 from products.engineering_analytics.backend.logic.queries._curated import CuratedGitHubSource
+from products.engineering_analytics.backend.logic.queries._pr_header import pr_header_placeholders, pr_header_query
+from products.engineering_analytics.backend.logic.views import issue_events
 
 # The curated subqueries and the repo filter are filled with str.replace (trusted
 # constants), leaving the HogQL {value} placeholders untouched for parse_select.
-_HEADER = """
-    SELECT
+_HEADER = pr_header_query(
+    """
         id, number, title, state, is_draft,
         created_at, merged_at, closed_at,
         author_handle, author_avatar_url, is_bot,
         repo_owner, repo_name, head_sha
-    FROM __PR_SOURCE__ AS pr
-    WHERE number = {pr_number} AND repo_owner = {repo_owner} AND repo_name = {repo_name}
-    ORDER BY created_at DESC
-    LIMIT 1
-"""
+    """
+)
 
 _RUNS = """
     SELECT id, workflow_name, status, conclusion, run_started_at, updated_at
@@ -43,6 +42,20 @@ _RUNS = """
     WHERE head_sha = {head_sha}
     ORDER BY run_started_at ASC
 """
+
+# pr_number alone is the key: a resolved table set is a single repo's, the same repo the
+# PR header was resolved from.
+_STATE_EVENTS = """
+    SELECT event, created_at, actor_login
+    FROM __STATE_EVENTS_SOURCE__ AS se
+    WHERE pr_number = {pr_number}
+    ORDER BY created_at ASC, id ASC
+"""
+
+_STATE_EVENT_KINDS = {
+    issue_events.READY_FOR_REVIEW_EVENT: PRLifecycleEventKind.READY_FOR_REVIEW,
+    issue_events.CONVERT_TO_DRAFT_EVENT: PRLifecycleEventKind.CONVERTED_TO_DRAFT,
+}
 
 
 def query_pr_lifecycle(
@@ -52,11 +65,7 @@ def query_pr_lifecycle(
     repo_owner: str,
     repo_name: str,
 ) -> PRLifecycle | None:
-    placeholders: dict[str, ast.Expr] = {
-        "pr_number": ast.Constant(value=pr_number),
-        "repo_owner": ast.Constant(value=repo_owner),
-        "repo_name": ast.Constant(value=repo_name),
-    }
+    placeholders = pr_header_placeholders(pr_number=pr_number, repo_owner=repo_owner, repo_name=repo_name)
     header_sql = _HEADER.replace("__PR_SOURCE__", curated.pr_source())
     header = curated.run(
         header_sql,
@@ -115,6 +124,19 @@ def query_pr_lifecycle(
             events.append(PRLifecycleEvent(kind=kind, at=at, detail=detail, run_id=run_id))
 
     add(PRLifecycleEventKind.OPENED, created_at)
+
+    state_events_source = curated.issue_events_source()
+    if state_events_source is not None:
+        transitions = curated.run(
+            _STATE_EVENTS.replace("__STATE_EVENTS_SOURCE__", state_events_source),
+            query_type="engineering_analytics.pr_lifecycle.state_events",
+            placeholders={"pr_number": ast.Constant(value=pr_number)},
+        )
+        for event, at, actor_login in transitions.results:
+            kind = _STATE_EVENT_KINDS.get(event)
+            if kind is not None:
+                add(kind, at, detail=actor_login or None)
+
     runs = (
         curated.run(
             _RUNS.replace("__RUNS_SOURCE__", curated.run_source()),

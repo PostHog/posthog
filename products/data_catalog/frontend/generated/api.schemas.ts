@@ -15,6 +15,7 @@
  * * `leadership` - Leadership
  * * `marketing` - Marketing
  * * `sales` - Sales / Success
+ * * `student` - Student
  * * `other` - Other
  */
 export type RoleAtOrganizationEnumApi = (typeof RoleAtOrganizationEnumApi)[keyof typeof RoleAtOrganizationEnumApi]
@@ -27,6 +28,7 @@ export const RoleAtOrganizationEnumApi = {
     Leadership: 'leadership',
     Marketing: 'marketing',
     Sales: 'sales',
+    Student: 'student',
     Other: 'other',
 } as const
 
@@ -62,6 +64,78 @@ export interface UserBasicApi {
     role_at_organization?: RoleAtOrganizationEnumApi | BlankEnumApi | null
 }
 
+export interface DataCatalogCertificationApi {
+    readonly id: string
+    /**
+     * The warehouse table this mark applies to (XOR saved_query).
+     * @nullable
+     */
+    readonly table: string | null
+    /**
+     * The warehouse view this mark applies to (XOR table).
+     * @nullable
+     */
+    readonly saved_query: string | null
+    /** Whether the marked target is a 'table' or a 'view'. */
+    readonly target_type: string
+    /** Name of the marked table or view. */
+    readonly target_name: string
+    /** proposed, certified (prefer this source), or deprecated (avoid this source). */
+    readonly status: string
+    /** The mark the proposal asks for: 'certified' (trust this source) or 'deprecated' (avoid this source). Informational once the mark is settled. */
+    readonly proposed_status: string
+    /** Why this mark exists, e.g. 'canonical MRR source'. */
+    notes?: string
+    /** User who last set certified/deprecated, or null. */
+    readonly certified_by: UserBasicApi | null
+    /** @nullable */
+    readonly certified_at: string | null
+    /** @nullable */
+    readonly created_by: number | null
+    readonly created_at: string
+}
+
+export interface PaginatedDataCatalogCertificationListApi {
+    count: number
+    /** @nullable */
+    next?: string | null
+    /** @nullable */
+    previous?: string | null
+    results: DataCatalogCertificationApi[]
+}
+
+/**
+ * * `certified` - certified
+ * * `deprecated` - deprecated
+ */
+export type ProposedStatusEnumApi = (typeof ProposedStatusEnumApi)[keyof typeof ProposedStatusEnumApi]
+
+export const ProposedStatusEnumApi = {
+    Certified: 'certified',
+    Deprecated: 'deprecated',
+} as const
+
+/**
+ * Input for proposing a certification: address the target by id or (convenience) by name.
+ */
+export interface CertificationCreateApi {
+    /** Warehouse table id to certify (XOR the other targets). */
+    table_id?: string
+    /** Warehouse view (saved query) id to certify. */
+    saved_query_id?: string
+    /** Table name; 409 with candidates if ambiguous. */
+    table_name?: string
+    /** View name; 409 with candidates if ambiguous. */
+    view_name?: string
+    /** Why this mark exists. */
+    notes?: string
+    /** Intent of the proposal: 'certified' to propose trusting this source, 'deprecated' to propose avoiding it (e.g. a stale or wrong source).
+     *
+     * * `certified` - certified
+     * * `deprecated` - deprecated */
+    proposed_status?: ProposedStatusEnumApi
+}
+
 /**
  * * `user` - user
  * * `ai_generated` - ai_generated
@@ -92,7 +166,10 @@ export interface DataCatalogMetricApi {
      * @maxLength 255
      */
     display_name?: string
-    /** What the metric means and how to interpret it. */
+    /**
+     * What the metric means and what it serves, in 1-3 short sentences: the business meaning plus any load-bearing inclusions/exclusions or grain. Never narrate or restate the query - the definition carries the mechanics; put rationale for query choices in 'reasoning'.
+     * @maxLength 1000
+     */
     description: string
     /**
      * Unit of the result, e.g. usd, percent, cents.
@@ -147,6 +224,8 @@ export interface DataCatalogMetricApi {
     ai_model?: string
     /**
      * AI author's confidence in the proposal, 0-1.
+     * @minimum 0
+     * @maximum 1
      * @nullable
      */
     confidence?: number | null
@@ -187,7 +266,10 @@ export interface PatchedDataCatalogMetricApi {
      * @maxLength 255
      */
     display_name?: string
-    /** What the metric means and how to interpret it. */
+    /**
+     * What the metric means and what it serves, in 1-3 short sentences: the business meaning plus any load-bearing inclusions/exclusions or grain. Never narrate or restate the query - the definition carries the mechanics; put rationale for query choices in 'reasoning'.
+     * @maxLength 1000
+     */
     description?: string
     /**
      * Unit of the result, e.g. usd, percent, cents.
@@ -242,6 +324,8 @@ export interface PatchedDataCatalogMetricApi {
     ai_model?: string
     /**
      * AI author's confidence in the proposal, 0-1.
+     * @minimum 0
+     * @maximum 1
      * @nullable
      */
     confidence?: number | null
@@ -340,6 +424,89 @@ export interface DataCatalogMetricRunApi {
     instructions: string | null
 }
 
+export interface DataCatalogRelationshipProposalApi {
+    readonly id: string
+    /**
+     * Name of the table the join starts from.
+     * @maxLength 400
+     */
+    source_table_name: string
+    /**
+     * HogQL key expression on the source table (casts allowed).
+     * @maxLength 400
+     */
+    source_table_key: string
+    /**
+     * Name of the table being joined in.
+     * @maxLength 400
+     */
+    joining_table_name: string
+    /**
+     * HogQL key expression on the joining table (casts allowed).
+     * @maxLength 400
+     */
+    joining_table_key: string
+    /**
+     * Accessor the join adds to the source table.
+     * @maxLength 400
+     */
+    field_name: string
+    /** Extra join configuration, e.g. a field mapping. */
+    configuration?: unknown
+    /**
+     * Discovery confidence in this join, 0-1.
+     * @minimum 0
+     * @maximum 1
+     * @nullable
+     */
+    confidence?: number | null
+    /** Why this join is proposed. */
+    reasoning?: string
+    /** Sampling evidence: match rates, sample values. */
+    evidence?: unknown
+    /** proposed, accepted (promoted to a real join), or rejected (never re-proposed). */
+    readonly status: string
+    /** User who accepted or rejected the proposal. */
+    readonly reviewed_by: UserBasicApi | null
+    /** @nullable */
+    readonly reviewed_at: string | null
+    /** Why the proposal was rejected. */
+    readonly rejection_reason: string
+    /**
+     * The join created when this proposal was accepted (promotion provenance).
+     * @nullable
+     */
+    readonly created_join: string | null
+    /** @nullable */
+    readonly created_by: number | null
+    readonly created_at: string
+}
+
+export interface PaginatedDataCatalogRelationshipProposalListApi {
+    count: number
+    /** @nullable */
+    next?: string | null
+    /** @nullable */
+    previous?: string | null
+    results: DataCatalogRelationshipProposalApi[]
+}
+
+export interface RelationshipRejectApi {
+    /** Why the proposal is rejected. Persisted so it is never re-proposed. */
+    rejection_reason?: string
+}
+
+export type DataCatalogCertificationsListParams = {
+    /**
+     * Number of results to return per page.
+     */
+    limit?: number
+    /**
+     * The initial index from which to return the results.
+     */
+    offset?: number
+}
+
 export type DataCatalogMetricsListParams = {
     /**
      * Number of results to return per page.
@@ -377,3 +544,18 @@ export const DataCatalogMetricsRunCreateRefresh = {
     ForceAsync: 'force_async',
     ForceCache: 'force_cache',
 } as const
+
+export type DataCatalogRelationshipProposalsListParams = {
+    /**
+     * Number of results to return per page.
+     */
+    limit?: number
+    /**
+     * The initial index from which to return the results.
+     */
+    offset?: number
+    /**
+     * Filter by proposed/accepted/rejected.
+     */
+    status?: string
+}

@@ -15,12 +15,13 @@ from posthog.egress.github.transport import GitHubRateLimitError
 
 from products.warehouse_sources.backend.facade.types import ExternalDataSourceType
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.base import WebhookSyncResult
-from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs import (
+from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.github import (
     GithubAuthMethodConfig,
     GithubSourceConfig,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.github.github import (
     GITHUB_MAX_RETRY_AFTER_SECONDS,
+    GithubAccessDeniedError,
     GithubEgressIdentity,
     GithubResumeConfig,
     GithubRetryableError,
@@ -197,6 +198,22 @@ class TestBuildInitialParams:
         # no `since`, and crucially no `created` filter (the filter caps results
         # at 1,000). Incremental bounding happens client-side via desc
         # early-stop in get_rows, so the request never changes shape.
+        assert params == {"per_page": 100}
+
+    def test_deployments_uses_minimal_params_with_cutoff(self) -> None:
+        # deployments shares workflow_runs' param surface: the list endpoint ignores
+        # sort/direction and returns newest-first, so even with a cutoff it must stay a plain paged
+        # read (incremental bounding is the client-side desc early-stop). Regressing it into the
+        # generic branch would send sort=created&direction=desc, which the endpoint silently ignores
+        # while the desc early-stop still relies on the natural newest-first order.
+        params = _build_initial_params(
+            GITHUB_ENDPOINTS["deployments"],
+            "deployments",
+            should_use_incremental_field=True,
+            db_incremental_field_last_value=datetime(2026, 1, 15, 10, 0, 0, tzinfo=UTC),
+            incremental_field="created_at",
+        )
+
         assert params == {"per_page": 100}
 
 
@@ -534,6 +551,14 @@ class TestGithubSourceSortMode:
                 datetime(2026, 1, 15, tzinfo=UTC),
                 "desc",
             ),
+            # deployments is the same category as workflow_runs (minimal params, API ignores
+            # sort/direction, always newest-first), so it must report desc even on the first sync /
+            # full refresh — never the asc default. Guards the _build_initial_params /
+            # _resolve_sort_mode parity.
+            ("deployments_full_refresh", "deployments", False, None, "desc"),
+            ("deployments_first_sync_no_cutoff", "deployments", True, None, "desc"),
+            # deployment_statuses fans out over deployments newest-first, desc on every sync.
+            ("deployment_statuses_first_sync_no_cutoff", "deployment_statuses", True, None, "desc"),
         ]
     )
     def test_sort_mode(
@@ -548,22 +573,23 @@ class TestGithubSourceSortMode:
         assert response.sort_mode == expected_sort_mode
 
 
-# A fresh webhook schema must not deadlock: workflow_jobs does no poll backfill
-# (initial_lookback_days == 0), so webhook mode has to activate before the zero-row
-# poll could mark initial_sync_complete — otherwise the gate never opens and queued
-# webhook files never drain. workflow_runs (and the non-webhook endpoints) keep their
-# historical poll backfill, so they must NOT skip that gate.
+# A fresh webhook schema must not deadlock: the webhook-only endpoints (workflow_jobs,
+# workflow_runs, reviews) do no poll backfill (initial_lookback_days == 0), so webhook mode
+# has to activate before the zero-row poll could mark initial_sync_complete — otherwise the
+# gate never opens and queued webhook files never drain. The non-webhook endpoints (issues,
+# commits, ...) keep their historical poll backfill, so they must NOT skip that gate.
 class TestGithubWebhookActivationGate:
     def _make_webhook_manager(self, enabled: bool) -> mock.Mock:
         manager = mock.Mock()
         manager.webhook_enabled = mock.AsyncMock(return_value=enabled)
+        manager.schema_is_webhook = mock.AsyncMock(return_value=True)
         manager.get_items = mock.Mock(return_value=iter([{"id": 1}]))
         return manager
 
     @parameterized.expand(
         [
             ("workflow_jobs_skips_gate", "workflow_jobs", True),
-            ("workflow_runs_keeps_gate", "workflow_runs", False),
+            ("workflow_runs_skips_gate", "workflow_runs", True),
             ("issues_keeps_gate", "issues", False),
         ]
     )
@@ -579,7 +605,7 @@ class TestGithubWebhookActivationGate:
             db_incremental_field_last_value=None,
             webhook_source_manager=manager,
         )
-        manager.webhook_enabled.assert_called_once_with(expected_skip)
+        manager.webhook_enabled.assert_called_once_with(webhook_only=expected_skip)
 
     def test_webhook_path_drains_manager_when_enabled(self) -> None:
         # Gate skipped + webhook_enabled True: items() reads the webhook manager (S3
@@ -1399,6 +1425,33 @@ def _pat_config() -> GithubSourceConfig:
     )
 
 
+class TestGithubWebhookCreationBlocked:
+    # An app installation only ever holds what the GitHub app itself requests, so an installation
+    # without repository_hooks write can never create a repo webhook. Offering the button anyway
+    # sent users through a 403 whose suggested fix (edit your token scopes) they couldn't apply.
+    @parameterized.expand(
+        [
+            ("write_permission_allows_creation", {"repository_hooks": "write", "contents": "read"}, False),
+            ("read_permission_blocks_creation", {"repository_hooks": "read"}, True),
+            ("absent_permission_blocks_creation", {"contents": "read"}, True),
+            # Unknown grants (token connections, rows predating persistence) fail open: the create
+            # attempt is the only way to find out, and a real denial still surfaces from GitHub.
+            ("unknown_permissions_fail_open", None, False),
+        ]
+    )
+    def test_blocked_reason_tracks_installation_permissions(
+        self, _name: str, held: dict[str, str] | None, expect_blocked: bool
+    ) -> None:
+        source = GithubSource()
+        config = _pat_config()
+        with mock.patch.object(GithubSource, "_installation_permissions", return_value=held):
+            reason = source.webhook_creation_blocked_reason(config, team_id=1)
+
+        assert (reason is not None) is expect_blocked
+        if expect_blocked:
+            assert "cannot manage repository webhooks" in (reason or "")
+
+
 class TestGithubWebhookSource:
     """The WebhookSource surface: event mapping, schema flags, and the create/
     delete/info round-trips that mint and reconcile the repo webhook."""
@@ -1411,6 +1464,9 @@ class TestGithubWebhookSource:
             "workflow_jobs": "workflow_job",
             "workflow_runs": "workflow_run",
             "reviews": "pull_request_review",
+            "deployments": "deployment",
+            "deployment_statuses": "deployment_status",
+            "check_runs": "check_run",
         }
 
     def test_webhook_template_identity(self) -> None:
@@ -1422,12 +1478,18 @@ class TestGithubWebhookSource:
     def test_get_schemas_marks_only_mapped_schemas_webhook_capable(self) -> None:
         schemas = self.source.get_schemas(_pat_config(), team_id=1)
         webhook_capable = {s.name for s in schemas if s.supports_webhooks}
-        assert webhook_capable == {"workflow_jobs", "workflow_runs", "reviews"}
+        assert webhook_capable == {
+            "workflow_jobs",
+            "workflow_runs",
+            "reviews",
+            "deployments",
+            "deployment_statuses",
+            "check_runs",
+        }
 
-    def test_workflow_jobs_is_webhook_only_but_workflow_runs_keeps_poll(self) -> None:
-        # workflow_jobs does no poll backfill (zero floor), so it must not be offered as a
-        # poll mode that would sync an empty table forever — it's webhook-only. workflow_runs
-        # still has a real poll backfill and stays incremental/append-capable.
+    def test_workflow_runs_and_jobs_are_webhook_only(self) -> None:
+        # workflow_jobs and workflow_runs both do no poll backfill (zero floor), so neither is
+        # offered as a poll mode that would sync an empty table forever — both are webhook-only.
         by_name = {s.name: s for s in self.source.get_schemas(_pat_config(), team_id=1)}
 
         jobs = by_name["workflow_jobs"]
@@ -1437,8 +1499,9 @@ class TestGithubWebhookSource:
         assert jobs.supports_webhooks is True
 
         runs = by_name["workflow_runs"]
-        assert runs.webhook_only is False
-        assert runs.supports_incremental is True
+        assert runs.webhook_only is True
+        assert runs.supports_incremental is False
+        assert runs.supports_append is False
         assert runs.supports_webhooks is True
 
     @parameterized.expand(
@@ -1609,7 +1672,14 @@ class TestGithubWebhookSource:
         _token, repo, url, events = update.call_args.args
         assert repo == "owner/repo"
         assert url == "https://app.posthog.com/webhook"
-        assert sorted(events) == ["pull_request_review", "workflow_job", "workflow_run"]
+        assert sorted(events) == [
+            "check_run",
+            "deployment",
+            "deployment_status",
+            "pull_request_review",
+            "workflow_job",
+            "workflow_run",
+        ]
         # A PAT config resolves to the empty record-only identity; the point pinned here is that
         # the identity is resolved and passed at all.
         assert update.call_args.kwargs["egress_identity"] == GithubEgressIdentity()
@@ -1836,7 +1906,7 @@ class TestFetchPageRateLimit:
             "products.warehouse_sources.backend.temporal.data_imports.sources.github.github.make_tracked_session"
         ) as mock_get:
             mock_get.return_value.request.return_value = resp
-            with pytest.raises(requests.HTTPError):
+            with pytest.raises(GithubAccessDeniedError):
                 _fetch_page("https://api.github.com/x", {}, mock.Mock())
 
         assert mock_get.return_value.request.call_count == 1

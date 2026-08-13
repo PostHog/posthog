@@ -11,7 +11,7 @@ import { UniversalFiltersGroup } from '~/types'
 import { LogsGroupByResults } from 'products/logs/frontend/components/LogsGroupBy/LogsGroupByResults'
 import { LogsPatterns } from 'products/logs/frontend/components/LogsPatterns/LogsPatterns'
 import { logsViewerConfigLogic } from 'products/logs/frontend/components/LogsViewer/config/logsViewerConfigLogic'
-import { LogsViewerFilters } from 'products/logs/frontend/components/LogsViewer/config/types'
+import { LogsViewerFilters, LogsViewerScope } from 'products/logs/frontend/components/LogsViewer/config/types'
 import { logsViewerDataLogic } from 'products/logs/frontend/components/LogsViewer/data/logsViewerDataLogic'
 import { FacetRail } from 'products/logs/frontend/components/LogsViewer/FacetRail/FacetRail'
 import { LogsQueryBar } from 'products/logs/frontend/components/LogsViewer/Filters/LogsFilterBar/LogsQueryBar'
@@ -38,6 +38,14 @@ export interface LogsViewerProps {
     // Filters enforced by the embedding scene. Merged into the user-editable filterGroup
     // and rendered without an X so users can't accidentally drop the scope.
     pinnedFilters?: UniversalFiltersGroup
+    // Scope all logs and sparkline queries to this person (uuid or numeric id). Expanded
+    // server-side to the person's distinct ids and matched against the team's configured
+    // distinct-id log attributes — unlike a pinned distinct-ids filter, not capped by how
+    // many ids the person page happened to load.
+    personId?: string
+    // Seed the facet/filter rail as collapsed on first mount for this id. Persisted per id,
+    // so a user who expands it keeps that choice; the "Show filters" toggle still re-expands.
+    defaultFacetRailCollapsed?: boolean
 }
 
 export function LogsViewer({
@@ -46,10 +54,12 @@ export function LogsViewer({
     showSavedViewsButton = false,
     initialFilters,
     pinnedFilters,
+    personId,
+    defaultFacetRailCollapsed,
 }: LogsViewerProps): JSX.Element {
     return (
-        <BindLogic logic={logsViewerFiltersLogic} props={{ id, initialFilters, pinnedFilters }}>
-            <BindLogic logic={logsViewerConfigLogic} props={{ id }}>
+        <BindLogic logic={logsViewerFiltersLogic} props={{ id, initialFilters, pinnedFilters, personId }}>
+            <BindLogic logic={logsViewerConfigLogic} props={{ id, defaultFacetRailCollapsed }}>
                 <BindLogic logic={logsViewerDataLogic} props={{ id }}>
                     <BindLogic logic={logDetailsModalLogic} props={{ id }}>
                         <BindLogic logic={logsViewerLogic} props={{ id }}>
@@ -58,6 +68,7 @@ export function LogsViewer({
                                     <LogsViewerContent
                                         showFullScreenButton={showFullScreenButton}
                                         showSavedViewsButton={showSavedViewsButton}
+                                        scope={{ initialFilters, pinnedFilters, personId }}
                                     />
                                 </BindLogic>
                             </BindLogic>
@@ -72,9 +83,11 @@ export function LogsViewer({
 function LogsViewerContent({
     showFullScreenButton,
     showSavedViewsButton,
+    scope,
 }: {
     showFullScreenButton: boolean
     showSavedViewsButton: boolean
+    scope: LogsViewerScope
 }): JSX.Element {
     const {
         id,
@@ -367,7 +380,11 @@ function LogsViewerContent({
     // row of [facet rail | display bar (operate on the data) + the log lists].
     return (
         <div className="flex flex-col gap-2 h-full" data-attr="logs-viewer">
-            <LogsQueryBar showSavedViewsButton={showSavedViewsButton} showFullScreenButton={showFullScreenButton} />
+            <LogsQueryBar
+                showSavedViewsButton={showSavedViewsButton}
+                showFullScreenButton={showFullScreenButton}
+                scope={scope}
+            />
             {sparklineSection}
             <div className="flex flex-row gap-2 flex-1 min-h-0">
                 {!facetRailCollapsed && <FacetRail id={id} />}

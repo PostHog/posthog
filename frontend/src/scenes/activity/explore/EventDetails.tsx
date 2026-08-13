@@ -84,6 +84,7 @@ export function EventDetails({ event, tableProps }: EventDetailsProps): JSX.Elem
                                 <ConversationDisplay
                                     eventProperties={properties}
                                     eventId={getEventId(event)}
+                                    eventName={event.event}
                                     eventTimestamp={event.timestamp}
                                 />
                             </div>
@@ -103,7 +104,11 @@ export function EventDetails({ event, tableProps }: EventDetailsProps): JSX.Elem
                     case 'error_display':
                         return (
                             <div className="mx-3">
-                                <ErrorDisplay eventProperties={properties} eventId={idFrom(event as ErrorEventType)} />
+                                <ErrorDisplay
+                                    eventProperties={properties}
+                                    eventId={idFrom(event as ErrorEventType)}
+                                    eventTimestamp={event.timestamp}
+                                />
                             </div>
                         )
                     case 'survey_response':

@@ -5,8 +5,8 @@ from unittest import mock
 
 from posthog.schema import ReleaseStatus, SourceFieldInputConfig, SourceFieldInputConfigType
 
-from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline.typings import SourceInputs
-from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs import (
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.typings import SourceInputs
+from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.zapiersupportedstorage import (
     ZapierSupportedStorageSourceConfig,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.zapier_supported_storage.settings import ENDPOINTS
@@ -50,7 +50,6 @@ class TestZapierSupportedStorageSource:
         config = self.source.get_source_config
 
         assert config.releaseStatus == ReleaseStatus.ALPHA
-        assert config.unreleasedSource is True
         # docsUrl must match the doc filename so the posthog.com page resolves.
         assert config.docsUrl == "https://posthog.com/docs/cdp/sources/zapier-supported-storage"
 

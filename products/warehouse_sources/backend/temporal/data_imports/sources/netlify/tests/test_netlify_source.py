@@ -23,7 +23,6 @@ class TestNetlifySourceConfig:
         config = NetlifySource().get_source_config
         assert config.category == DataWarehouseSourceCategory.ENGINEERING___MONITORING
         assert config.releaseStatus == ReleaseStatus.ALPHA
-        assert config.unreleasedSource is True
         assert config.docsUrl == "https://posthog.com/docs/cdp/sources/netlify"
 
     def test_single_password_token_field(self) -> None:
@@ -85,8 +84,7 @@ class TestNetlifyResumableWiring:
 
     def test_source_for_pipeline_plumbs_arguments(self) -> None:
         config = mock.Mock(api_token="nfp_secret")
-        inputs = mock.Mock(schema_name="deploys")
-        inputs.logger = mock.Mock()
+        inputs = mock.Mock(schema_name="deploys", team_id=7, job_id="job-1")
         manager = mock.Mock()
 
         with mock.patch.object(source_module, "netlify_source") as netlify_source_mock:
@@ -95,6 +93,8 @@ class TestNetlifyResumableWiring:
         netlify_source_mock.assert_called_once_with(
             api_token="nfp_secret",
             endpoint="deploys",
-            logger=inputs.logger,
+            team_id=7,
+            job_id="job-1",
             resumable_source_manager=manager,
+            db_incremental_field_last_value=None,
         )

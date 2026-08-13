@@ -217,13 +217,27 @@ pub async fn serve(
     let cohort_membership_provider: Arc<dyn CohortMembershipProvider> =
         if config.realtime_cohort_evaluation_team_ids != TeamIdCollection::None {
             if let Some(pool) = database_pools.behavioral_cohorts_reader.clone() {
-                let realtime = RealtimeCohortMembershipProvider::new(pool);
+                tracing::info!(
+                    cache_ttl_seconds = config.cohort_membership_cache_ttl_seconds,
+                    cache_max_entries = config.cohort_membership_cache_max_entries,
+                    lookup_timeout_ms = config.realtime_cohort_lookup_timeout_ms,
+                    "Realtime cohort evaluation enabled with behavioral cohorts DB"
+                );
+                let realtime = RealtimeCohortMembershipProvider::with_lookup_timeout(
+                    pool,
+                    Duration::from_millis(config.realtime_cohort_lookup_timeout_ms),
+                );
                 Arc::new(CachedCohortMembershipProvider::new(
                     realtime,
                     Some(config.cohort_membership_cache_ttl_seconds),
                     Some(config.cohort_membership_cache_max_entries),
                 ))
             } else {
+                tracing::warn!(
+                    "REALTIME_COHORT_EVALUATION_TEAM_IDS is set but \
+                     BEHAVIORAL_COHORTS_READ_DATABASE_URL is not configured; realtime \
+                     cohort lookups will treat everyone as a non-member"
+                );
                 Arc::new(NoOpCohortMembershipProvider)
             }
         } else {
@@ -289,6 +303,8 @@ pub async fn serve(
         config.object_storage_region.clone(),
         config.object_storage_bucket.clone(),
     );
+    // Etag-paired on the Django writer side, which makes HyperCacheReader refuse read repair.
+    flags_hypercache_config.enable_etag = true;
 
     if !config.object_storage_endpoint.is_empty() {
         flags_hypercache_config.s3_endpoint = Some(config.object_storage_endpoint.clone());
@@ -307,6 +323,18 @@ pub async fn serve(
             }
         };
 
+    // Read repair for the hypercaches that are read straight through to Redis on every
+    // request. Both feature_flags readers are left out: each carries a companion `:etag` key
+    // that a payload-only repair would leave stale, and FlagDefinitionsCache already absorbs
+    // repeat reads of a cold flags.json in process. team_metadata is left out too, below,
+    // for a different reason: it gates token authentication.
+    let read_repair_ttl_seconds =
+        if config.hypercache_read_repair_ttl_seconds == 0 || *config.skip_writes {
+            None
+        } else {
+            Some(config.hypercache_read_repair_ttl_seconds)
+        };
+
     // Create HyperCacheReader for team metadata at startup
     // Uses token-based lookup instead of team_id
     let team_redis_client = dedicated_redis_client
@@ -320,6 +348,12 @@ pub async fn serve(
         config.object_storage_bucket.clone(),
     );
     team_hypercache_config.token_based = true;
+    // Left out of read repair: a hit here is trusted as proof of a valid token (see
+    // get_team_from_cache_or_pg), with no Postgres re-check. Team deletion clears Redis
+    // before S3, so a request landing in that gap reads the deleted team from S3; repairing
+    // it would resurrect that team in Redis for up to the repair TTL, instead of the single
+    // stale response an unrepaired hit gives the one caller that landed in the gap.
+    team_hypercache_config.read_repair_ttl_seconds = None;
 
     if !config.object_storage_endpoint.is_empty() {
         team_hypercache_config.s3_endpoint = Some(config.object_storage_endpoint.clone());
@@ -348,6 +382,8 @@ pub async fn serve(
         config.object_storage_region.clone(),
         config.object_storage_bucket.clone(),
     );
+    // Etag-paired, same as flags.json above.
+    flags_with_cohorts_config.enable_etag = true;
 
     if !config.object_storage_endpoint.is_empty() {
         flags_with_cohorts_config.s3_endpoint = Some(config.object_storage_endpoint.clone());
@@ -393,6 +429,7 @@ pub async fn serve(
         config.object_storage_bucket.clone(),
     );
     config_hypercache_config.token_based = true;
+    config_hypercache_config.read_repair_ttl_seconds = read_repair_ttl_seconds;
 
     if !config.object_storage_endpoint.is_empty() {
         config_hypercache_config.s3_endpoint = Some(config.object_storage_endpoint.clone());

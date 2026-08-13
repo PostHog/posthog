@@ -1,15 +1,20 @@
 import { useActions, useMountedLogic, useValues } from 'kea'
-import { useMemo, useRef } from 'react'
+import { useEffect, useMemo, useRef } from 'react'
 
 import { IconCornerDownRight, IconPlayFilled } from '@posthog/icons'
 
+import { IconCancel } from 'lib/lemon-ui/icons'
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { CodeEditorResizeable } from 'lib/monaco/CodeEditorResizable'
 import { createPostHogWidgetNode } from 'scenes/notebooks/Nodes/NodeWrapper'
+import type { NotebookNodeRunTerminalStatus } from 'scenes/notebooks/Notebook/notebookNodeStalenessLogic'
 
 import { NotebookNodeAttributeProperties, NotebookNodeProps, NotebookNodeType } from '../types'
 import { NotebookDataframeTable } from './components/NotebookDataframeTable'
+import { NotebookRunDownstreamBanner } from './components/NotebookRunDownstreamBanner'
+import { NotebookStaleCellBanner } from './components/NotebookStaleCellBanner'
 import { notebookNodeLogic } from './notebookNodeLogic'
+import { countTextLines, initialSizedRunId, outputHeightForShape } from './notebookNodeOutputHeight'
 import type { NotebookNodeSQLV2Result } from './NotebookNodeSQLV2'
 import { SQL_V2_DEFAULT_PAGE_SIZE, collectSqlV2Refs, notebookNodeSQLV2Logic } from './notebookNodeSQLV2Logic'
 import { NotebookDataframeResult } from './pythonExecution'
@@ -24,7 +29,16 @@ export type NotebookNodePythonV2Attributes = {
     returnVariable: string
     runId?: string | null
     result?: NotebookNodeSQLV2Result | null
+    // How the run that produced `result` ended. An interrupt persists whatever the cell printed
+    // before the stop landed, so the result alone can't tell the two apart on a reload.
+    runStatus?: NotebookNodeRunTerminalStatus | null
 }
+
+const PYTHON_EDITOR_MIN_HEIGHT = 160
+// About 20 lines at Monaco's 18px line height. An MCP-written cell is often far longer than that,
+// and an editor that grows with the code pushes the output and the next cell off the screen.
+// Past the cap the editor scrolls, and the drag handle expands it.
+const PYTHON_EDITOR_MAX_HEIGHT = 360
 
 const toDataframeResult = (result: NotebookNodeSQLV2Result): NotebookDataframeResult => {
     const columns = result.columns ?? []
@@ -41,7 +55,7 @@ const Component = ({
     updateAttributes,
 }: NotebookNodeProps<NotebookNodePythonV2Attributes>): JSX.Element | null => {
     const nodeLogic = useMountedLogic(notebookNodeLogic)
-    const { nodeId, notebookLogic, expanded } = useValues(nodeLogic)
+    const { nodeId, notebookLogic, expanded, isEditable } = useValues(nodeLogic)
     const notebookShortId = notebookLogic.props.shortId
 
     const dataLogic = notebookNodeSQLV2Logic({
@@ -50,9 +64,22 @@ const Component = ({
         updateAttributes,
         runId: attributes.runId ?? null,
         hasResult: !!attributes.result,
+        getContent: () => notebookLogic.values.content ?? null,
     })
-    const { isRunning, runError, page, pageSize, pageResult, pageLoading, operationBlockReason } = useValues(dataLogic)
-    const { setPage, setPageSize } = useActions(dataLogic)
+    const {
+        isRunning,
+        runError,
+        page,
+        pageSize,
+        pageResult,
+        pageLoading,
+        operationBlockReason,
+        isStale,
+        isChainRunning,
+        staleDownstreamCount,
+        pendingKernelStart,
+    } = useValues(dataLogic)
+    const { setPage, setPageSize, runStaleChain } = useActions(dataLogic)
 
     const result = attributes.result ?? null
     const dataframeResult = useMemo(() => {
@@ -69,11 +96,37 @@ const Component = ({
         ? pageResult.has_more
         : (result?.has_more ?? (result?.first_page ?? []).length >= SQL_V2_DEFAULT_PAGE_SIZE)
 
+    const hasStreamOutput = !!(result?.stdout || result?.stderr || result?.media?.length)
+
+    // Grow a still-too-short node to fit the output each run lands, so it's readable without a
+    // manual resize. Sized to what came back — a printed value stays compact, a table or figure
+    // grows up to a cap. Only grows, and only for a run we haven't sized yet, so a deliberate
+    // resize is left untouched.
+    const sizedRunIdRef = useRef<string | null | undefined>(
+        initialSizedRunId({ hasResult: !!result, height: attributes.height, runId: attributes.runId ?? null })
+    )
+    useEffect(() => {
+        const runId = attributes.runId ?? null
+        // A read-only notebook lays the node out from its content, so there is no fixed height to
+        // outgrow — and no editor to persist one into.
+        if (!result || !isEditable || runId === sizedRunIdRef.current) {
+            return
+        }
+        sizedRunIdRef.current = runId
+        const target = outputHeightForShape({
+            rowCount: result.columns?.length ? (result.first_page ?? []).length : 0,
+            textLines: countTextLines(result.stdout, result.stderr),
+            hasMedia: !!result.media?.length,
+        })
+        if (target !== null && (typeof attributes.height !== 'number' || attributes.height < target)) {
+            updateAttributes({ height: target })
+        }
+        // oxlint-disable-next-line exhaustive-deps
+    }, [result, attributes.runId, isEditable])
+
     if (!expanded) {
         return null
     }
-
-    const hasStreamOutput = !!(result?.stdout || result?.stderr || result?.media?.length)
 
     return (
         <div data-attr="notebook-node-python-v2" className="flex h-full min-h-0 flex-col">
@@ -82,6 +135,22 @@ const Component = ({
                 onMouseDown={(event) => event.stopPropagation()}
                 onDragStart={(event) => event.stopPropagation()}
             >
+                {isStale ? (
+                    <div className="shrink-0" onClick={(event) => event.stopPropagation()}>
+                        <NotebookStaleCellBanner />
+                    </div>
+                ) : staleDownstreamCount > 0 && !isChainRunning ? (
+                    <div className="shrink-0" onClick={(event) => event.stopPropagation()}>
+                        <NotebookRunDownstreamBanner
+                            count={staleDownstreamCount}
+                            onRun={() => runStaleChain(notebookLogic.values.content ?? null, nodeId)}
+                            disabledReason={isRunning ? 'This cell is running' : (operationBlockReason ?? undefined)}
+                        />
+                    </div>
+                ) : null}
+                {isRunning && pendingKernelStart ? (
+                    <div className="shrink-0 px-2 pt-1 text-xs text-muted">Starting compute sandbox…</div>
+                ) : null}
                 {hasStreamOutput ? (
                     <div className="shrink-0 space-y-2 px-2 pt-1" onClick={(event) => event.stopPropagation()}>
                         {result?.stdout ? (
@@ -112,6 +181,9 @@ const Component = ({
                             page={page}
                             pageSize={pageSize}
                             hasMore={hasMorePages}
+                            // Wide text columns (long strings, JSON blobs) shouldn't make every
+                            // row tall; clamp to one line here and let the user open a cell.
+                            truncateCells
                             paginationDisabledReason={
                                 pageLoading
                                     ? 'Fetching page…'
@@ -127,14 +199,11 @@ const Component = ({
                 ) : hasStreamOutput ? null : (
                     <div className="text-xs text-muted font-mono p-2">Run the cell to see execution results.</div>
                 )}
-                {attributes.runId ? (
-                    <div className="shrink-0 px-2 pb-2 text-[10px] uppercase tracking-wide text-muted select-text">
-                        run_id: {attributes.runId}
-                    </div>
-                ) : null}
             </div>
             <div
-                className="flex shrink-0 items-center gap-2 text-xs text-muted border-t p-2"
+                // Translucent overlay, not a surface token: the shell is surface-primary in light
+                // mode but surface-tertiary in dark, so a fixed surface vanishes against one of them.
+                className="flex shrink-0 items-center gap-2 text-xs text-muted border-t border-primary bg-fill-highlight-50 p-2"
                 onClick={(event) => event.stopPropagation()}
                 onMouseDown={(event) => event.stopPropagation()}
             >
@@ -144,9 +213,14 @@ const Component = ({
                 <input
                     type="text"
                     // The dataframe name this cell's result is exposed as to later cells.
-                    className="rounded border border-border px-1.5 py-0.5 text-xs font-mono bg-bg-light text-default focus:outline-none focus:ring-1 focus:ring-primary"
+                    // Optional: left empty, the cell binds nothing and later cells can't read it.
+                    // Wide enough for the placeholder to sit on one line without clipping. The name
+                    // carries weight through size and a faintly warm near-black rather than a hue —
+                    // a saturated color here competes with the accent the app spends on links.
+                    className="w-56 rounded border border-primary px-1.5 py-0.5 text-sm font-medium font-mono bg-surface-primary text-[oklch(0.27_0.022_345deg)] dark:text-[oklch(0.93_0.014_345deg)] focus:outline-none focus:ring-1 focus:ring-primary"
                     value={attributes.returnVariable ?? ''}
                     onChange={(event) => updateAttributes({ returnVariable: event.target.value })}
+                    placeholder="Output dataframe name"
                     spellCheck={false}
                 />
             </div>
@@ -168,9 +242,10 @@ const Settings = ({
         updateAttributes,
         runId: attributes.runId ?? null,
         hasResult: !!attributes.result,
+        getContent: () => notebookLogic.values.content ?? null,
     })
-    const { isRunning, operationBlockReason } = useValues(dataLogic)
-    const { runQuery } = useActions(dataLogic)
+    const { isRunning, isInterrupting, operationBlockReason } = useValues(dataLogic)
+    const { runQuery, interruptRun } = useActions(dataLogic)
 
     const run = (): void => {
         // Guard here (not just on the button) so Cmd+Enter can't fire a second run mid-flight —
@@ -197,27 +272,42 @@ const Settings = ({
                 className="flex w-full shrink-0 flex-row items-center gap-2 border-t border-b bg-white py-1 pl-2 pr-2 dark:bg-black"
                 onClick={(event) => event.stopPropagation()}
             >
+                {/* Run flips to Cancel while the cell runs, mirroring the SQL editor's affordance. */}
                 <LemonButton
                     data-attr="notebook-python-v2-run-button"
                     size="small"
                     type="primary"
-                    icon={<IconPlayFilled color="var(--success)" />}
-                    onClick={() => run()}
-                    loading={isRunning}
+                    icon={isRunning ? <IconCancel /> : <IconPlayFilled color="var(--success)" />}
+                    onClick={() => {
+                        if (isRunning) {
+                            if (!isInterrupting) {
+                                interruptRun()
+                            }
+                        } else {
+                            run()
+                        }
+                    }}
+                    loading={isInterrupting}
                     disabledReason={operationBlockReason ?? undefined}
-                    tooltip="Run Python (⌘⏎)"
+                    tooltip={isRunning ? 'Stop the running cell' : 'Run Python (⌘⏎)'}
                 >
-                    Run
+                    {isRunning ? 'Cancel' : 'Run'}
                 </LemonButton>
             </div>
-            <div className="min-h-0 flex-1">
+            <div
+                className="min-h-0 flex-1"
+                // The editor owns pointer drags in here. Without this the resize handle drags the
+                // node around the markdown notebook instead of resizing the editor.
+                onMouseDown={(event) => event.stopPropagation()}
+                onDragStart={(event) => event.stopPropagation()}
+            >
                 <CodeEditorResizeable
                     language="python"
                     value={typeof attributes.code === 'string' ? attributes.code : ''}
                     onChange={(value) => updateAttributes({ code: value ?? '' })}
                     onPressCmdEnter={() => runRef.current()}
-                    allowManualResize={false}
-                    minHeight={160}
+                    minHeight={PYTHON_EDITOR_MIN_HEIGHT}
+                    maxHeight={PYTHON_EDITOR_MAX_HEIGHT}
                     embedded
                 />
             </div>
@@ -237,13 +327,18 @@ export const NotebookNodePythonV2 = createPostHogWidgetNode<NotebookNodePythonV2
         code: {
             default: '',
         },
+        // Optional: empty means the cell binds no dataframe, so nothing downstream can read it.
+        // A cell that predates the optional name carries its persisted name and keeps exporting it.
         returnVariable: {
-            default: 'df',
+            default: '',
         },
         runId: {
             default: null,
         },
         result: {
+            default: null,
+        },
+        runStatus: {
             default: null,
         },
     },

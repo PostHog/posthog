@@ -1,10 +1,14 @@
 import { useActions, useValues } from 'kea'
 
-import { IconRefresh, IconSparkles, IconWarning } from '@posthog/icons'
+import { IconRefresh, IconSearch, IconSparkles, IconWarning } from '@posthog/icons'
 import { Tooltip } from '@posthog/lemon-ui'
 import {
     Badge,
     Button,
+    InputGroup,
+    InputGroupAddon,
+    InputGroupInput,
+    InputGroupText,
     Progress,
     Skeleton,
     Spinner,
@@ -20,8 +24,14 @@ import { TZLabel } from 'lib/components/TZLabel'
 import { LemonBanner } from 'lib/lemon-ui/LemonBanner'
 
 import type { MCPIntentClusterApi, MCPIntentClusterToolEntryApi } from '../generated/api.schemas'
+import { ClusteringCoverageBanner } from './ClusteringCoverageBanner'
 import { ClusterJourneySankey } from './ClusterJourneySankey'
-import { ClusterSortKey, mcpClusteringLogic } from './mcpClusteringLogic'
+import { DiscoveryScatter } from './DiscoveryScatter'
+import { EntropyBadge } from './EntropyBadge'
+import { ClusterSortKey, ClusteringViewMode, mcpClusteringLogic } from './mcpClusteringLogic'
+import { ToolIntentDetail } from './ToolIntentDetail'
+import { ToolOverlapTable } from './ToolOverlapTable'
+import { ToolPivotTable } from './ToolPivotTable'
 
 const SORT_LABELS: Record<ClusterSortKey, string> = {
     calls: 'Calls',
@@ -30,34 +40,9 @@ const SORT_LABELS: Record<ClusterSortKey, string> = {
     concentration: 'Top-tool %',
 }
 
-function EntropyBadge({ entropy }: { entropy: number }): JSX.Element {
-    if (entropy < 0.3) {
-        return (
-            <Tooltip title={`Routing entropy ${entropy.toFixed(2)} — one tool dominates this cluster's calls.`}>
-                <span>
-                    <Badge variant="success">Concentrated · {entropy.toFixed(2)}</Badge>
-                </span>
-            </Tooltip>
-        )
-    }
-    if (entropy < 0.6) {
-        return (
-            <Tooltip title={`Routing entropy ${entropy.toFixed(2)} — calls split between a few tools.`}>
-                <span>
-                    <Badge variant="warning">Mixed · {entropy.toFixed(2)}</Badge>
-                </span>
-            </Tooltip>
-        )
-    }
-    return (
-        <Tooltip
-            title={`Routing entropy ${entropy.toFixed(2)} — calls spread across many tools. Either a real multi-step workflow or the agent is improvising; the aggregate alone can't tell.`}
-        >
-            <span>
-                <Badge variant="destructive">Spread · {entropy.toFixed(2)}</Badge>
-            </span>
-        </Tooltip>
-    )
+const VIEW_LABELS: Record<ClusteringViewMode, string> = {
+    intents: 'By intent',
+    tools: 'By tool',
 }
 
 function HeatmapCell({
@@ -111,58 +96,105 @@ function HeatmapCell({
 }
 
 function Scorecards(): JSX.Element {
-    const { concentratedRoutes, spreadRoutes, topErrorRoute, clusters } = useValues(mcpClusteringLogic)
+    const { concentratedRoutes, spreadRoutes, topErrorRoute, clusters, totalClusterCount } =
+        useValues(mcpClusteringLogic)
 
     const concentratedShare =
         concentratedRoutes.total > 0 ? Math.round((100 * concentratedRoutes.focused) / concentratedRoutes.total) : 0
 
     return (
-        <div className="grid grid-cols-1 lg:grid-cols-3 gap-4">
-            <div className="bg-surface-primary border rounded p-3 min-h-[88px] flex flex-col">
-                <span className="text-muted text-xs font-medium uppercase">Concentrated routes</span>
-                <div className="flex items-baseline gap-2 mt-1">
-                    <span className="text-2xl font-semibold">
-                        {concentratedRoutes.focused}
-                        <span className="text-muted text-base"> / {concentratedRoutes.total}</span>
-                    </span>
-                    <span className="text-xs text-muted">({concentratedShare}%)</span>
+        <div className="flex flex-col gap-1">
+            {totalClusterCount > clusters.length ? (
+                <div className="text-xs text-muted">
+                    Scorecards cover the top {clusters.length} of {totalClusterCount} clusters by call volume.
                 </div>
-                <span className="text-xs text-muted mt-1">Intent groups where one tool handles ≥80% of calls.</span>
-            </div>
-            <div className="bg-surface-primary border rounded p-3 min-h-[88px] flex flex-col">
-                <span className="text-muted text-xs font-medium uppercase">Spread routes</span>
-                <div className="flex items-baseline gap-2 mt-1">
-                    <span className="text-2xl font-semibold">{spreadRoutes}</span>
-                    <span className="text-xs text-muted">of {clusters.length}</span>
-                </div>
-                <span className="text-xs text-muted mt-1">
-                    Intent groups where no single tool covers half the calls — possible drift.
-                </span>
-            </div>
-            <div className="bg-surface-primary border rounded p-3 min-h-[88px] flex flex-col">
-                <span className="text-muted text-xs font-medium uppercase">Top error route</span>
-                {topErrorRoute && topErrorRoute.error_rate_pct > 0 ? (
-                    <>
-                        <div className="flex items-baseline gap-2 mt-1">
-                            <span className="text-2xl font-semibold text-danger">
-                                {topErrorRoute.error_rate_pct.toFixed(1)}%
-                            </span>
-                            <span className="text-xs text-muted">over {topErrorRoute.call_count} calls</span>
-                        </div>
-                        <span className="text-xs text-muted mt-1 truncate" title={topErrorRoute.label}>
-                            {topErrorRoute.label}
+            ) : null}
+            <div className="grid grid-cols-1 lg:grid-cols-3 gap-4">
+                <div className="bg-surface-primary border rounded p-3 min-h-[88px] flex flex-col">
+                    <span className="text-muted text-xs font-medium uppercase">Concentrated routes</span>
+                    <div className="flex items-baseline gap-2 mt-1">
+                        <span className="text-2xl font-semibold">
+                            {concentratedRoutes.focused}
+                            <span className="text-muted text-base"> / {concentratedRoutes.total}</span>
                         </span>
-                    </>
-                ) : (
-                    <>
-                        <div className="flex items-baseline gap-2 mt-1">
-                            <span className="text-2xl font-semibold text-success">0%</span>
-                        </div>
-                        <span className="text-xs text-muted mt-1">No errors observed across clusters.</span>
-                    </>
-                )}
+                        <span className="text-xs text-muted">({concentratedShare}%)</span>
+                    </div>
+                    <span className="text-xs text-muted mt-1">Intent groups where one tool handles ≥80% of calls.</span>
+                </div>
+                <div className="bg-surface-primary border rounded p-3 min-h-[88px] flex flex-col">
+                    <span className="text-muted text-xs font-medium uppercase">Spread routes</span>
+                    <div className="flex items-baseline gap-2 mt-1">
+                        <span className="text-2xl font-semibold">{spreadRoutes}</span>
+                        <span className="text-xs text-muted">of {clusters.length}</span>
+                    </div>
+                    <span className="text-xs text-muted mt-1">
+                        Intent groups where no single tool covers half the calls — possible drift.
+                    </span>
+                </div>
+                <div className="bg-surface-primary border rounded p-3 min-h-[88px] flex flex-col">
+                    <span className="text-muted text-xs font-medium uppercase">Top error route</span>
+                    {topErrorRoute && topErrorRoute.error_rate_pct > 0 ? (
+                        <>
+                            <div className="flex items-baseline gap-2 mt-1">
+                                <span className="text-2xl font-semibold text-danger">
+                                    {topErrorRoute.error_rate_pct.toFixed(1)}%
+                                </span>
+                                <span className="text-xs text-muted">over {topErrorRoute.call_count} calls</span>
+                            </div>
+                            <span className="text-xs text-muted mt-1 truncate" title={topErrorRoute.label}>
+                                {topErrorRoute.label}
+                            </span>
+                        </>
+                    ) : (
+                        <>
+                            <div className="flex items-baseline gap-2 mt-1">
+                                <span className="text-2xl font-semibold text-success">0%</span>
+                            </div>
+                            <span className="text-xs text-muted mt-1">No errors observed across clusters.</span>
+                        </>
+                    )}
+                </div>
             </div>
         </div>
+    )
+}
+
+function ViewToggle(): JSX.Element {
+    const { viewMode } = useValues(mcpClusteringLogic)
+    const { setViewMode } = useActions(mcpClusteringLogic)
+    return (
+        <div className="flex items-center gap-2">
+            {(Object.keys(VIEW_LABELS) as ClusteringViewMode[]).map((key) => (
+                <Button
+                    key={key}
+                    size="sm"
+                    variant={viewMode === key ? 'default' : 'outline'}
+                    onClick={() => setViewMode(key)}
+                    data-attr={`mcp-analytics-clustering-view-${key}`}
+                >
+                    {VIEW_LABELS[key]}
+                </Button>
+            ))}
+        </div>
+    )
+}
+
+function ToolSearchInput(): JSX.Element {
+    const { toolSearch } = useValues(mcpClusteringLogic)
+    const { setToolSearch } = useActions(mcpClusteringLogic)
+    return (
+        <InputGroup className="w-[220px]">
+            <InputGroupAddon align="inline-start">
+                <InputGroupText>
+                    <IconSearch />
+                </InputGroupText>
+            </InputGroupAddon>
+            <InputGroupInput
+                placeholder="Filter by tool name"
+                value={toolSearch}
+                onChange={(e) => setToolSearch(e.target.value)}
+            />
+        </InputGroup>
     )
 }
 
@@ -170,30 +202,37 @@ function SortHeader(): JSX.Element {
     const { sortKey } = useValues(mcpClusteringLogic)
     const { setSortKey } = useActions(mcpClusteringLogic)
     return (
-        <div className="flex items-center gap-2 flex-wrap">
-            <span className="text-xs text-muted">Sort clusters by</span>
-            {(Object.keys(SORT_LABELS) as ClusterSortKey[]).map((key) => (
-                <Button
-                    key={key}
-                    size="sm"
-                    variant={sortKey === key ? 'default' : 'outline'}
-                    onClick={() => setSortKey(key)}
-                >
-                    {SORT_LABELS[key]}
-                </Button>
-            ))}
+        <div className="flex items-center justify-between gap-2 flex-wrap">
+            <div className="flex items-center gap-2 flex-wrap">
+                <span className="text-xs text-muted">Sort clusters by</span>
+                {(Object.keys(SORT_LABELS) as ClusterSortKey[]).map((key) => (
+                    <Button
+                        key={key}
+                        size="sm"
+                        variant={sortKey === key ? 'default' : 'outline'}
+                        onClick={() => setSortKey(key)}
+                    >
+                        {SORT_LABELS[key]}
+                    </Button>
+                ))}
+            </div>
+            <ToolSearchInput />
         </div>
     )
 }
 
 function Heatmap(): JSX.Element {
-    const { sortedClusters, toolColumns, selectedClusterId } = useValues(mcpClusteringLogic)
-    const { selectCluster } = useActions(mcpClusteringLogic)
+    const { visibleClusters, hiddenClusterCount, toolColumns, totalToolCount, selectedClusterId } =
+        useValues(mcpClusteringLogic)
+    const { selectCluster, showAllClusters } = useActions(mcpClusteringLogic)
+    const { toolSearch } = useValues(mcpClusteringLogic)
 
     if (toolColumns.length === 0) {
         return (
             <div className="bg-surface-primary border rounded p-4 text-center text-muted text-sm">
-                No tool calls observed in any cluster yet.
+                {toolSearch.trim()
+                    ? `No clusters call a tool matching "${toolSearch.trim()}". Clear the search to see all clusters.`
+                    : 'No tool calls observed in any cluster yet.'}
             </div>
         )
     }
@@ -206,124 +245,153 @@ function Heatmap(): JSX.Element {
     const cellSize = isSpacious ? 22 : 14
     const columnWidth = isSpacious ? 0 : 18 // 0 = let CSS auto-size to label width
 
+    const hiddenToolCount = totalToolCount - toolColumns.length
+
     return (
-        <div className="bg-surface-primary border rounded overflow-x-auto">
-            <table className="text-sm border-collapse" style={{ borderSpacing: 0 }}>
-                <thead>
-                    <tr className="bg-surface-secondary text-[10px] text-muted">
-                        <th className="text-left px-3 py-2 sticky left-0 bg-surface-secondary z-10 min-w-[220px] align-bottom text-xs">
-                            Intent cluster
-                        </th>
-                        {toolColumns.map((tool) =>
-                            isSpacious ? (
-                                <th
-                                    key={tool}
-                                    className="px-2 pb-1 pt-2 font-medium font-mono text-[11px] text-center align-bottom whitespace-nowrap"
-                                    title={tool}
-                                >
-                                    {tool}
-                                </th>
-                            ) : (
-                                <th
-                                    key={tool}
-                                    className="px-0 pb-1 pt-2 font-medium align-bottom"
-                                    // eslint-disable-next-line react/forbid-dom-props
-                                    style={{ width: columnWidth, minWidth: columnWidth, maxWidth: columnWidth }}
-                                >
-                                    <div
-                                        className="font-mono text-[10px] mx-auto whitespace-nowrap overflow-hidden text-ellipsis"
-                                        // eslint-disable-next-line react/forbid-dom-props
-                                        style={{
-                                            writingMode: 'vertical-rl',
-                                            transform: 'rotate(180deg)',
-                                            height: 96,
-                                            lineHeight: '18px',
-                                        }}
+        <div className="bg-surface-primary border rounded">
+            <div className="overflow-x-auto">
+                <table className="text-sm border-collapse" style={{ borderSpacing: 0 }}>
+                    <thead>
+                        <tr className="bg-surface-secondary text-[10px] text-muted">
+                            <th className="text-left px-3 py-2 sticky left-0 bg-surface-secondary z-10 min-w-[220px] align-bottom text-xs">
+                                Intent cluster
+                            </th>
+                            {toolColumns.map((tool) =>
+                                isSpacious ? (
+                                    <th
+                                        key={tool}
+                                        className="px-2 pb-1 pt-2 font-medium font-mono text-[11px] text-center align-bottom whitespace-nowrap"
                                         title={tool}
                                     >
                                         {tool}
-                                    </div>
-                                </th>
-                            )
-                        )}
-                        <th className="px-3 py-2 text-right text-xs align-bottom">Calls</th>
-                        <th className="px-3 py-2 text-right text-xs align-bottom">Errors</th>
-                        <th className="px-3 py-2 text-left text-xs align-bottom">Routing</th>
-                    </tr>
-                </thead>
-                <tbody>
-                    {sortedClusters.map((cluster) => {
-                        const isSelected = cluster.id === selectedClusterId
-                        const byTool = new Map(cluster.tool_distribution.map((e) => [e.tool, e]))
-                        const rowMaxCount = cluster.tool_distribution.reduce(
-                            (max, entry) => Math.max(max, entry.count),
-                            0
-                        )
-                        // Sticky cells need their own background — `tr` backgrounds don't paint
-                        // through to sticky-positioned children when scrolled horizontally.
-                        const rowBg = isSelected
-                            ? 'bg-accent/10'
-                            : 'bg-surface-primary group-hover:bg-surface-secondary/60'
-                        return (
-                            <tr
-                                key={cluster.id}
-                                onClick={() => selectCluster(cluster.id)}
-                                className={`group border-t border-primary cursor-pointer transition-colors ${
-                                    isSelected ? 'bg-accent/10' : 'hover:bg-surface-secondary/60'
-                                }`}
-                            >
-                                <td
-                                    className={`px-3 py-1.5 sticky left-0 z-10 min-w-[220px] max-w-[280px] transition-colors ${rowBg}`}
-                                >
-                                    <div className="flex flex-col">
-                                        <span className="font-medium truncate" title={cluster.label}>
-                                            {cluster.label}
-                                        </span>
-                                        <span className="text-[10px] text-muted">
-                                            {cluster.session_count} session
-                                            {cluster.session_count === 1 ? '' : 's'} · {cluster.intent_count} intent
-                                            {cluster.intent_count === 1 ? '' : 's'}
-                                        </span>
-                                    </div>
-                                </td>
-                                {toolColumns.map((tool) => (
-                                    <td
+                                    </th>
+                                ) : (
+                                    <th
                                         key={tool}
-                                        className="p-0 align-middle"
+                                        className="px-0 pb-1 pt-2 font-medium align-bottom"
                                         // eslint-disable-next-line react/forbid-dom-props
-                                        style={
-                                            isSpacious
-                                                ? undefined
-                                                : { width: columnWidth, minWidth: columnWidth, maxWidth: columnWidth }
-                                        }
+                                        style={{ width: columnWidth, minWidth: columnWidth, maxWidth: columnWidth }}
                                     >
-                                        <div className="flex justify-center items-center py-[2px]">
-                                            <HeatmapCell
-                                                entry={byTool.get(tool)}
-                                                size={cellSize}
-                                                rowMaxCount={rowMaxCount}
-                                            />
+                                        <div
+                                            className="font-mono text-[10px] mx-auto whitespace-nowrap overflow-hidden text-ellipsis"
+                                            // eslint-disable-next-line react/forbid-dom-props
+                                            style={{
+                                                writingMode: 'vertical-rl',
+                                                transform: 'rotate(180deg)',
+                                                height: 96,
+                                                lineHeight: '18px',
+                                            }}
+                                            title={tool}
+                                        >
+                                            {tool}
                                         </div>
-                                    </td>
-                                ))}
-                                <td className="px-3 py-1.5 text-right tabular-nums text-xs">
-                                    {cluster.call_count.toLocaleString()}
-                                </td>
-                                <td
-                                    className={`px-3 py-1.5 text-right tabular-nums text-xs ${
-                                        cluster.error_rate_pct > 5 ? 'text-danger font-semibold' : ''
+                                    </th>
+                                )
+                            )}
+                            <th className="px-3 py-2 text-right text-xs align-bottom">Calls</th>
+                            <th className="px-3 py-2 text-right text-xs align-bottom">Errors</th>
+                            <th className="px-3 py-2 text-left text-xs align-bottom">Routing</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        {visibleClusters.map((cluster) => {
+                            const isSelected = cluster.id === selectedClusterId
+                            const byTool = new Map(cluster.tool_distribution.map((e) => [e.tool, e]))
+                            const rowMaxCount = cluster.tool_distribution.reduce(
+                                (max, entry) => Math.max(max, entry.count),
+                                0
+                            )
+                            // Sticky cells need their own background — `tr` backgrounds don't paint
+                            // through to sticky-positioned children when scrolled horizontally.
+                            const rowBg = isSelected
+                                ? 'bg-accent/10'
+                                : 'bg-surface-primary group-hover:bg-surface-secondary/60'
+                            return (
+                                <tr
+                                    key={cluster.id}
+                                    onClick={() => selectCluster(cluster.id)}
+                                    className={`group border-t border-primary cursor-pointer transition-colors ${
+                                        isSelected ? 'bg-accent/10' : 'hover:bg-surface-secondary/60'
                                     }`}
                                 >
-                                    {cluster.error_rate_pct.toFixed(1)}%
-                                </td>
-                                <td className="px-3 py-1.5">
-                                    <EntropyBadge entropy={cluster.routing_entropy} />
-                                </td>
-                            </tr>
-                        )
-                    })}
-                </tbody>
-            </table>
+                                    <td
+                                        className={`px-3 py-1.5 sticky left-0 z-10 min-w-[220px] max-w-[280px] transition-colors ${rowBg}`}
+                                    >
+                                        <div className="flex flex-col">
+                                            <span className="font-medium truncate" title={cluster.label}>
+                                                {cluster.label}
+                                            </span>
+                                            <span className="text-[10px] text-muted">
+                                                {cluster.session_count} session
+                                                {cluster.session_count === 1 ? '' : 's'} · {cluster.intent_count} intent
+                                                {cluster.intent_count === 1 ? '' : 's'}
+                                            </span>
+                                        </div>
+                                    </td>
+                                    {toolColumns.map((tool) => (
+                                        <td
+                                            key={tool}
+                                            className="p-0 align-middle"
+                                            // eslint-disable-next-line react/forbid-dom-props
+                                            style={
+                                                isSpacious
+                                                    ? undefined
+                                                    : {
+                                                          width: columnWidth,
+                                                          minWidth: columnWidth,
+                                                          maxWidth: columnWidth,
+                                                      }
+                                            }
+                                        >
+                                            <div className="flex justify-center items-center py-[2px]">
+                                                <HeatmapCell
+                                                    entry={byTool.get(tool)}
+                                                    size={cellSize}
+                                                    rowMaxCount={rowMaxCount}
+                                                />
+                                            </div>
+                                        </td>
+                                    ))}
+                                    <td className="px-3 py-1.5 text-right tabular-nums text-xs">
+                                        {cluster.call_count.toLocaleString()}
+                                    </td>
+                                    <td
+                                        className={`px-3 py-1.5 text-right tabular-nums text-xs ${
+                                            cluster.error_rate_pct > 5 ? 'text-danger font-semibold' : ''
+                                        }`}
+                                    >
+                                        {cluster.error_rate_pct.toFixed(1)}%
+                                    </td>
+                                    <td className="px-3 py-1.5">
+                                        <EntropyBadge entropy={cluster.routing_entropy} />
+                                    </td>
+                                </tr>
+                            )
+                        })}
+                    </tbody>
+                </table>
+            </div>
+            {(hiddenClusterCount > 0 || hiddenToolCount > 0) && (
+                <div className="flex flex-wrap items-center gap-x-3 gap-y-1 border-t border-primary px-3 py-2 text-xs text-muted">
+                    {hiddenClusterCount > 0 ? (
+                        <>
+                            <span>
+                                Showing the top {visibleClusters.length} of{' '}
+                                {visibleClusters.length + hiddenClusterCount} clusters.
+                            </span>
+                            <Button size="sm" variant="outline" onClick={showAllClusters}>
+                                Show all
+                            </Button>
+                        </>
+                    ) : null}
+                    {hiddenToolCount > 0 ? (
+                        <span>
+                            Columns show the top {toolColumns.length} of {totalToolCount} tools by call volume. Select a
+                            cluster to see its full tool breakdown.
+                        </span>
+                    ) : null}
+                </div>
+            )}
         </div>
     )
 }
@@ -434,7 +502,7 @@ function ClusterDetail({ cluster }: { cluster: MCPIntentClusterApi }): JSX.Eleme
 }
 
 function StatusRow(): JSX.Element | null {
-    const { snapshot, isComputing } = useValues(mcpClusteringLogic)
+    const { snapshot, isComputing, clusters, totalClusterCount } = useValues(mcpClusteringLogic)
     const { recompute } = useActions(mcpClusteringLogic)
     if (snapshot.status === 'error') {
         return null
@@ -457,7 +525,11 @@ function StatusRow(): JSX.Element | null {
                     {meta ? (
                         <>
                             <span>·</span>
-                            <span>{meta.n_clusters} clusters</span>
+                            <span>
+                                {totalClusterCount > clusters.length
+                                    ? `top ${clusters.length} of ${totalClusterCount} clusters`
+                                    : `${totalClusterCount} clusters`}
+                            </span>
                             <span>·</span>
                             <span>{meta.n_intents} intents</span>
                             <span>·</span>
@@ -520,8 +592,54 @@ function ComputingSkeleton(): JSX.Element {
     )
 }
 
+function ToolsViewEmptyState(): JSX.Element {
+    const { recompute } = useActions(mcpClusteringLogic)
+    const { snapshotLoading } = useValues(mcpClusteringLogic)
+    return (
+        <div className="bg-surface-primary border rounded p-8 flex flex-col items-center text-center gap-3 max-w-2xl mx-auto">
+            <IconSparkles className="text-4xl text-accent" />
+            <h3 className="text-lg font-semibold">No tool-level data in this snapshot</h3>
+            <p className="text-sm text-muted max-w-md">
+                This snapshot was computed before tool-level analytics existed. Recompute to see which intents each tool
+                serves, how often agents discover it, and which tools compete for the same intents.
+            </p>
+            <Button variant="default" onClick={recompute} disabled={snapshotLoading}>
+                {snapshotLoading ? <Spinner /> : <IconRefresh />}
+                Recompute clusters
+            </Button>
+        </div>
+    )
+}
+
+function ToolsView(): JSX.Element {
+    const { hasToolPivot, selectedTool, clusters } = useValues(mcpClusteringLogic)
+
+    if (!hasToolPivot) {
+        return <ToolsViewEmptyState />
+    }
+
+    return (
+        <div className="flex flex-col gap-4">
+            <div className="flex items-center justify-end">
+                <ToolSearchInput />
+            </div>
+            <ToolPivotTable />
+            {selectedTool ? (
+                <ToolIntentDetail tool={selectedTool} clusters={clusters} />
+            ) : (
+                <div className="bg-surface-primary border rounded p-6 text-center text-muted text-sm">
+                    Click a tool row above to see the intents it serves and who it competes with.
+                </div>
+            )}
+            <DiscoveryScatter />
+            <ToolOverlapTable />
+        </div>
+    )
+}
+
 export function MCPAnalyticsClustering(): JSX.Element {
-    const { snapshot, selectedCluster, hasSnapshot, isComputing, snapshotLoading } = useValues(mcpClusteringLogic)
+    const { snapshot, selectedCluster, hasSnapshot, isComputing, snapshotLoading, viewMode } =
+        useValues(mcpClusteringLogic)
     const { recompute } = useActions(mcpClusteringLogic)
 
     if (snapshot.status === 'error') {
@@ -550,15 +668,25 @@ export function MCPAnalyticsClustering(): JSX.Element {
     return (
         <div className="flex flex-col gap-4" data-quill>
             <StatusRow />
-            <Scorecards />
-            <SortHeader />
-            <Heatmap />
-            {selectedCluster ? (
-                <ClusterDetail cluster={selectedCluster} />
+            <div className="flex items-center justify-between gap-2 flex-wrap">
+                <ViewToggle />
+                <ClusteringCoverageBanner />
+            </div>
+            {viewMode === 'tools' ? (
+                <ToolsView />
             ) : (
-                <div className="bg-surface-primary border rounded p-6 text-center text-muted text-sm">
-                    Click a cluster row above to see its sample intents and tool breakdown.
-                </div>
+                <>
+                    <Scorecards />
+                    <SortHeader />
+                    <Heatmap />
+                    {selectedCluster ? (
+                        <ClusterDetail cluster={selectedCluster} />
+                    ) : (
+                        <div className="bg-surface-primary border rounded p-6 text-center text-muted text-sm">
+                            Click a cluster row above to see its sample intents and tool breakdown.
+                        </div>
+                    )}
+                </>
             )}
         </div>
     )

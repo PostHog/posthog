@@ -49,7 +49,7 @@ async def analyze_video_segment_activity(
             )
             # No need to retry, if the input is missing critical data, so it failed way before
             raise ApplicationError(msg, non_retryable=True)
-        redis_client, _, _ = get_redis_state_client(key_base=inputs.redis_key_base)
+        redis_state = get_redis_state_client(key_base=inputs.redis_key_base)
         segment_state_id = f"{inputs.session_id}:{segment.segment_index}"
         segment_key = generate_state_key(
             key_base=inputs.redis_key_base,
@@ -57,7 +57,7 @@ async def analyze_video_segment_activity(
             state_id=segment_state_id,
         )
         segment_context_raw = await get_data_class_from_redis(
-            redis_client=redis_client,
+            redis_client=redis_state.client,
             redis_key=segment_key,
             label=StateActivitiesEnum.SEGMENT_LLM_CONTEXT,
             target_class=SegmentLlmContext,

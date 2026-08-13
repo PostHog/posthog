@@ -71,6 +71,7 @@ const SKIP_REASON_LABELS: Record<string, string> = {
     team_disabled: 'precompute off for team',
     min_runtime: 'experiment <12h old',
     data_warehouse: 'data warehouse metric',
+    group_aggregation: 'group-aggregated experiment',
 }
 
 function reasonForDirect(item: SlowestQuery, table: 'exposures' | 'metric_events'): string {

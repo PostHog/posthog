@@ -1,5 +1,6 @@
 """Resolve implementation PR URLs linked to signal reports."""
 
+from dataclasses import dataclass
 from typing import Literal, cast
 
 import structlog
@@ -14,13 +15,26 @@ from products.tasks.backend.facade import api as tasks_facade
 logger = structlog.get_logger(__name__)
 
 
-def fetch_implementation_pr_urls_for_reports(report_ids: list[str]) -> dict[str, str]:
-    """PR URL from the latest implementation task run for each report, when available.
+@dataclass(frozen=True)
+class ImplementationPr:
+    """The one implementation PR surfaced for a report, and whether the webhook saw it merge."""
+
+    url: str
+    merged: bool
+
+
+def fetch_implementation_pr_state_for_reports(report_ids: list[str]) -> dict[str, ImplementationPr]:
+    """The implementation PR surfaced for each report, with its merge state, when one exists.
 
     The task↔report association comes from `SignalReport.associated_task_runs_for_reports` (the
     unified view of the `task_run` artefact log + legacy gate rows, batched over the whole page);
     the facade then resolves the latest PR-bearing run for each task, so multiple runs of a task
     collapse to the newest PR.
+
+    A report can be associated with several implementation tasks (retries), but only one PR is
+    surfaced — the first associated task that has one. The merge flag is read from *that* task, so
+    the URL and its state always describe the same PR. Reading them independently would let a
+    retry's merged PR vouch for a different PR's URL.
     """
     if not report_ids:
         return {}
@@ -38,14 +52,21 @@ def fetch_implementation_pr_urls_for_reports(report_ids: list[str]) -> dict[str,
     if not pairs:
         return {}
 
-    pr_url_by_task = tasks_facade.get_latest_pr_url_by_task([task_id for _, task_id in pairs])
+    task_ids = [task_id for _, task_id in pairs]
+    pr_url_by_task = tasks_facade.get_latest_pr_url_by_task(task_ids)
+    merged_task_ids = tasks_facade.get_merged_pr_task_ids(task_ids)
 
-    result: dict[str, str] = {}
+    result: dict[str, ImplementationPr] = {}
     for report_id, task_id in pairs:
         pr_url = pr_url_by_task.get(task_id)
         if pr_url and report_id not in result:
-            result[report_id] = pr_url
+            result[report_id] = ImplementationPr(url=pr_url, merged=task_id in merged_task_ids)
     return result
+
+
+def fetch_implementation_pr_urls_for_reports(report_ids: list[str]) -> dict[str, str]:
+    """PR URL from the latest implementation task run for each report, when available."""
+    return {report_id: pr.url for report_id, pr in fetch_implementation_pr_state_for_reports(report_ids).items()}
 
 
 PrCloseReason = Literal["suppressed", "snoozed"]
@@ -85,19 +106,19 @@ def close_implementation_pr_for_report(
         if parsed is None:
             logger.warning("close_implementation_pr_unparseable_url", report_id=str(report_id), pr_url=pr_url)
             return False
-        owner, repo, pr_number = parsed
-        repository = f"{owner}/{repo}"
 
-        github = GitHubIntegration.first_for_team_repository(team_id, repository)
+        github = GitHubIntegration.first_for_team_repository(team_id, parsed.repository)
         if github is None:
-            logger.info("close_implementation_pr_no_integration", report_id=str(report_id), repository=repository)
+            logger.info(
+                "close_implementation_pr_no_integration", report_id=str(report_id), repository=parsed.repository
+            )
             return False
 
         # Only comment on and close a PR that's still open. A merged PR reports state "closed" with
         # merged=True, and an already-closed PR reports state "closed" — in either case there's
         # nothing to close, and leaving a comment would just be noise. If the state can't be
         # confirmed, skip rather than risk commenting on a PR that already shipped.
-        pr_status = github.get_pull_request(repository, pr_number)
+        pr_status = github.get_pull_request(parsed.repository, parsed.number)
         if not pr_status.get("success"):
             logger.warning(
                 "close_implementation_pr_status_fetch_failed",
@@ -118,7 +139,7 @@ def close_implementation_pr_for_report(
             return False
 
         # Explain first, close second — a failed comment shouldn't stop the close.
-        comment_outcome = github.comment_on_pull_request(repository, pr_number, _PR_CLOSE_COMMENTS[reason])
+        comment_outcome = github.comment_on_pull_request(parsed.repository, parsed.number, _PR_CLOSE_COMMENTS[reason])
         if not comment_outcome.get("success"):
             logger.warning(
                 "close_implementation_pr_comment_failed",
@@ -128,7 +149,7 @@ def close_implementation_pr_for_report(
                 status_code=comment_outcome.get("status_code"),
             )
 
-        outcome = github.close_pull_request(repository, pr_number)
+        outcome = github.close_pull_request(parsed.repository, parsed.number)
         if not outcome.get("success"):
             logger.warning(
                 "close_implementation_pr_failed",

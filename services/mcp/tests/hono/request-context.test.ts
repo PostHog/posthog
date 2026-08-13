@@ -104,6 +104,22 @@ describe('RequestContext', () => {
             expect(config.baseUrl).toBe('https://us.posthog.com')
             expect(config.publicBaseUrl).toBe('https://us.posthog.com')
         })
+
+        it.each([
+            { label: 'cached OAuth client name', cached: 'Claude', expected: 'Claude' },
+            { label: 'no cached OAuth client name', cached: undefined, expected: undefined },
+        ])('passes $label through as oauthClientName', async ({ cached, expected }) => {
+            const redis = fakeRedis()
+            if (cached) {
+                await redis.set('mcp:token:test-user:clientName', JSON.stringify(cached))
+            }
+            mockMe.mockResolvedValue({ success: true, data: { distinct_id: 'user-1' } })
+
+            const ctx = new RequestContext(redis, env, makeProps())
+            await ctx.getDistinctId()
+
+            expect(mockApiClientCtor.mock.calls[0]![0].oauthClientName).toBe(expected)
+        })
     })
 
     describe('getDistinctId', () => {
@@ -236,6 +252,7 @@ describe('RequestContext', () => {
             )
             ctx.setMcpContexts(
                 {
+                    authMethod: 'personal_api_key',
                     sessionId: 'sess-1',
                     mcpClientName: 'Claude Desktop',
                     mcpClientVersion: '2.0',
@@ -303,20 +320,6 @@ describe('RequestContext', () => {
         it('returns the same cache instance on repeated access', () => {
             const ctx = new RequestContext(fakeRedis(), env, makeProps())
             expect(ctx.cache).toBe(ctx.cache)
-        })
-
-        it('keeps MCP session cache entries on the default 7 day TTL', async () => {
-            const redis = spyRedis()
-            const ctx = new RequestContext(redis, env, makeProps({ mcpSessionId: 'mcp-session-1' }))
-
-            await ctx.sessionCache.set('mcpClientName', 'claude-code')
-
-            expect(redis.set).toHaveBeenCalledWith(
-                expect.stringMatching(/^mcp:session:/),
-                JSON.stringify('claude-code'),
-                'EX',
-                7 * 24 * 60 * 60
-            )
         })
 
         it('keeps token cache entries on the default 7 day TTL', async () => {

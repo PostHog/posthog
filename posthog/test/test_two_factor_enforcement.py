@@ -107,6 +107,11 @@ class TestSessionAuthenticationTwoFactor(TestCase):
     def setUp(self):
         self.factory = APIRequestFactory()
         self.auth = SessionAuthentication()
+        # These are 2FA unit tests on mock users; domain enforcement runs next to 2FA in
+        # SessionAuthentication and has its own coverage with real users.
+        domain_enforcement_patcher = patch("posthog.auth.enforce_verified_domain")
+        domain_enforcement_patcher.start()
+        self.addCleanup(domain_enforcement_patcher.stop)
 
         self.user = Mock(spec=User)
         self.user.is_authenticated = True
@@ -343,6 +348,11 @@ class TestTwoFactorImpersonationIntegration(TestCase):
     def setUp(self):
         self.factory = APIRequestFactory()
         self.auth = SessionAuthentication()
+        # These are 2FA unit tests on mock users; domain enforcement runs next to 2FA in
+        # SessionAuthentication and has its own coverage with real users.
+        domain_enforcement_patcher = patch("posthog.auth.enforce_verified_domain")
+        domain_enforcement_patcher.start()
+        self.addCleanup(domain_enforcement_patcher.stop)
 
     def _create_drf_request(self, path="/test/", user=None):
         request_factory = RequestFactory()
@@ -404,6 +414,11 @@ class TestTwoFactorImpersonationIntegration(TestCase):
 class TestAPIAuthenticationTwoFactorBypass(TestCase):
     def setUp(self):
         self.factory = APIRequestFactory()
+        # These are 2FA unit tests on mock users; domain enforcement runs next to 2FA in
+        # SessionAuthentication and has its own coverage with real users.
+        domain_enforcement_patcher = patch("posthog.auth.enforce_verified_domain")
+        domain_enforcement_patcher.start()
+        self.addCleanup(domain_enforcement_patcher.stop)
 
     def _set_session_after_enforcement_date(self, http_request):
         after_date = time.mktime((TWO_FACTOR_ENFORCEMENT_FROM_DATE + datetime.timedelta(days=1)).timetuple())

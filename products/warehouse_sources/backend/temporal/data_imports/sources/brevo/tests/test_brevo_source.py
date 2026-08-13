@@ -5,14 +5,11 @@ from unittest.mock import MagicMock, patch
 
 from posthog.schema import SourceFieldInputConfig, SourceFieldInputConfigType
 
-from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline.typings import (
-    SourceInputs,
-    SourceResponse,
-)
 from products.warehouse_sources.backend.temporal.data_imports.sources.brevo.brevo import BrevoResumeConfig
 from products.warehouse_sources.backend.temporal.data_imports.sources.brevo.source import BrevoSource
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
-from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs import BrevoSourceConfig
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.typings import SourceInputs, SourceResponse
+from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.brevo import BrevoSourceConfig
 from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 
@@ -47,7 +44,7 @@ class TestBrevoSource:
         config = BrevoSource().get_source_config
         assert config.label == "Brevo"
         assert config.unreleasedSource is None
-        assert config.releaseStatus == "alpha"
+        assert config.releaseStatus == "beta"
         assert config.iconPath == "/static/services/brevo.png"
 
     def test_source_config_has_api_key_password_field(self) -> None:
@@ -126,6 +123,8 @@ class TestBrevoSource:
         _, kwargs = mock_brevo_source.call_args
         assert kwargs["api_key"] == "test-key"
         assert kwargs["endpoint"] == "contacts"
+        assert kwargs["team_id"] == 1
+        assert kwargs["job_id"] == "job-1"
         assert kwargs["resumable_source_manager"] is manager
         assert kwargs["should_use_incremental_field"] is True
         assert kwargs["db_incremental_field_last_value"] == "2026-01-01T00:00:00.000Z"

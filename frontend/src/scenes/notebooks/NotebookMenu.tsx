@@ -11,18 +11,23 @@ import {
     DropdownMenuItem,
     DropdownMenuTrigger,
 } from 'lib/ui/DropdownMenu/DropdownMenu'
+import { getAccessControlDisabledReason } from 'lib/utils/accessControlUtils'
 import { urls } from 'scenes/urls'
 
 import { notebooksModel } from '~/models/notebooksModel'
+import { AccessControlLevel, AccessControlResourceType } from '~/types'
 
-import { isMarkdownNotebookContent } from './Notebook/markdownNotebookV2'
 import { NotebookLogicProps, notebookLogic } from './Notebook/notebookLogic'
 
 export function NotebookMenu({ shortId, inPanel }: NotebookLogicProps & { inPanel?: boolean }): JSX.Element {
-    const { notebook, showHistory, isLocalOnly, content } = useValues(notebookLogic({ shortId }))
-    const { openShareModal, duplicateNotebook, exportJSON, downloadMarkdown, copyMarkdown, setShowHistory } =
-        useActions(notebookLogic({ shortId }))
-    const isMarkdownNotebook = isMarkdownNotebookContent(content)
+    const { notebook, showHistory, isLocalOnly } = useValues(notebookLogic({ shortId }))
+    const { openShareModal, duplicateNotebook, downloadMarkdown, copyMarkdown, setShowHistory } = useActions(
+        notebookLogic({ shortId })
+    )
+    const sharingDisabledReason = getAccessControlDisabledReason(
+        AccessControlResourceType.SharingConfiguration,
+        AccessControlLevel.Viewer
+    )
 
     return (
         <DropdownMenu>
@@ -40,26 +45,17 @@ export function NotebookMenu({ shortId, inPanel }: NotebookLogicProps & { inPane
                         </ButtonPrimitive>
                     </DropdownMenuItem>
                     <DropdownMenuItem asChild>
-                        {isMarkdownNotebook ? (
-                            <ButtonPrimitive onClick={() => downloadMarkdown()} menuItem>
-                                <IconDownload />
-                                Download .md
-                            </ButtonPrimitive>
-                        ) : (
-                            <ButtonPrimitive onClick={() => exportJSON()} menuItem>
-                                <IconDownload />
-                                Export JSON
-                            </ButtonPrimitive>
-                        )}
+                        <ButtonPrimitive onClick={() => downloadMarkdown()} menuItem>
+                            <IconDownload />
+                            Download .md
+                        </ButtonPrimitive>
                     </DropdownMenuItem>
-                    {isMarkdownNotebook ? (
-                        <DropdownMenuItem asChild>
-                            <ButtonPrimitive onClick={() => copyMarkdown()} menuItem>
-                                <IconCopy />
-                                Copy markdown
-                            </ButtonPrimitive>
-                        </DropdownMenuItem>
-                    ) : null}
+                    <DropdownMenuItem asChild>
+                        <ButtonPrimitive onClick={() => copyMarkdown()} menuItem>
+                            <IconCopy />
+                            Copy markdown
+                        </ButtonPrimitive>
+                    </DropdownMenuItem>
                     <DropdownMenuItem asChild>
                         <ButtonPrimitive onClick={() => setShowHistory(!showHistory)} menuItem>
                             <IconClock />
@@ -67,7 +63,11 @@ export function NotebookMenu({ shortId, inPanel }: NotebookLogicProps & { inPane
                         </ButtonPrimitive>
                     </DropdownMenuItem>
                     <DropdownMenuItem asChild>
-                        <ButtonPrimitive onClick={() => openShareModal()} menuItem>
+                        <ButtonPrimitive
+                            onClick={() => openShareModal()}
+                            menuItem
+                            disabledReasons={sharingDisabledReason ? { [sharingDisabledReason]: true } : undefined}
+                        >
                             <IconShare />
                             Share
                         </ButtonPrimitive>
