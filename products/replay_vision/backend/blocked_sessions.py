@@ -22,6 +22,8 @@ import structlog
 
 from posthog.schema import RecordingsQuery
 
+from posthog.hogql.constants import MAX_SELECT_RETURNED_ROWS
+
 from posthog.dataclasses import frozen
 from posthog.models import Team
 from posthog.redis import get_client
@@ -59,8 +61,11 @@ _MAX_DELTA_GAP = dt.timedelta(hours=6)
 # Above this the set stops being cheap to hold and check; the scanner falls back to the legacy
 # in-query blocklist, whose cost the read guardrail then prices.
 _MAX_ENTRIES = 1_000_000
-# Mirrors the legacy blocklist subquery LIMIT: a scan that fills it can't be trusted as complete.
-_SCAN_LIMIT = 1_000_000
+# What a scan can actually return, not what its SQL asks for. In the legacy path this query is a
+# subquery and keeps its own large LIMIT, but run standalone it is a top-level select, so the HogQL
+# limit context clamps it. The guard has to compare against the clamp: matching the SQL's LIMIT
+# instead would never fire, and a blocklist past the clamp would truncate into under-exclusion.
+_SCAN_LIMIT = MAX_SELECT_RETURNED_ROWS
 
 _SESSIONS_KEY = "@posthog/replay-vision/blocked-sessions/{scanner_id}"
 _META_KEY = "@posthog/replay-vision/blocked-sessions/{scanner_id}/meta"

@@ -6,6 +6,8 @@ from unittest.mock import patch
 
 from posthog.schema import EventPropertyFilter, PropertyOperator, RecordingsQuery
 
+from posthog.hogql.constants import MAX_SELECT_RETURNED_ROWS
+
 from posthog.redis import get_client
 
 from products.replay_vision.backend import blocked_sessions
@@ -142,6 +144,9 @@ class TestRefreshBlockedSessions:
         assert blocked_subset("scanner-1", ["sess-a", "sess-b"]) == {"sess-b"}
 
     def test_saturated_scan_marks_overflow_and_stays_legacy(self, team) -> None:
+        # The guard has to sit at what the query layer actually returns. Sized at the SQL's own LIMIT
+        # it could never fire, and a truncated blocklist silently under-excludes.
+        assert _SCAN_LIMIT == MAX_SELECT_RETURNED_ROWS
         saturated = [[f"sess-{i}"] for i in range(_SCAN_LIMIT)]
         outcomes = self._refresh(team, _negative_query(), [saturated])
         assert outcomes == [False]
