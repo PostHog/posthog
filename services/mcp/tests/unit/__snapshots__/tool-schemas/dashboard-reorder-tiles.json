@@ -7,7 +7,7 @@
         },
         "layout": {
             "default": "preserve",
-            "description": "How to size tiles when reordering. 'preserve' (default) keeps each tile's existing width and height and only repacks positions in the new order. 'two_column' forces a 6-wide × 5-tall grid (two tiles per row). 'full_width' forces each tile to span the full 12-column row at height 5.\n\n* `preserve` - preserve\n* `two_column` - two_column\n* `full_width` - full_width",
+            "description": "How to size tiles when reordering. 'preserve' (default) keeps each tile's existing width and height and only repacks positions in the new order. 'two_column' forces a 6-wide × 5-tall grid (two tiles per row). 'full_width' forces each tile to span the full 12-column row at height 5. On a grouped dashboard the submitted order is partitioned by section and each section is packed independently, so a tile cannot be reordered into a different section here.\n\n* `preserve` - preserve\n* `two_column` - two_column\n* `full_width` - full_width",
             "enum": ["preserve", "two_column", "full_width"],
             "type": "string"
         },

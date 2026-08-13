@@ -9,39 +9,22 @@
             "description": "A unique integer value identifying this dashboard.",
             "type": "number"
         },
-        "layouts": {
-            "description": "New grid layout for the group row. Omit to keep its current layout.",
-            "properties": {
-                "sm": {
-                    "description": "Layout for the standard (desktop) breakpoint. The grid is 12 columns wide.",
-                    "properties": {
-                        "h": {
-                            "description": "Height in grid rows.",
-                            "type": "number"
-                        },
-                        "w": {
-                            "description": "Width in grid columns. The desktop grid is 12 columns wide.",
-                            "type": "number"
-                        },
-                        "x": {
-                            "description": "Column position in the dashboard grid (0-indexed).",
-                            "type": "number"
-                        },
-                        "y": {
-                            "description": "Row position in the dashboard grid (0-indexed).",
-                            "type": "number"
-                        }
-                    },
-                    "type": "object"
-                }
-            },
-            "type": "object"
-        },
         "name": {
-            "description": "New group name. Omit to keep the existing name.",
-            "maxLength": 400,
-            "minLength": 1,
-            "type": "string"
+            "anyOf": [
+                {
+                    "maxLength": 400,
+                    "type": "string"
+                },
+                {
+                    "type": "null"
+                }
+            ],
+            "description": "New section name. Null converts the section to anonymous. Omit to keep the current name."
+        },
+        "position": {
+            "description": "New 0-indexed section position. Omit to keep the current position.",
+            "minimum": 0,
+            "type": "number"
         }
     },
     "required": ["id"],

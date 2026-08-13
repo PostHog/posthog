@@ -1080,13 +1080,19 @@ export const DashboardsCreateTextTileCreateBody = /* @__PURE__ */ zod.object({
         })
         .optional()
         .describe(
-            'Optional grid layout per breakpoint. If omitted, the tile is placed at the bottom of the dashboard using the default size. Text tiles typically use a thin full-width banner (e.g. w=12, h=1).'
+            'Optional grid layout per breakpoint. If omitted, the tile is placed at the bottom of the destination section using the default size. Text tiles typically use a thin full-width banner (e.g. w=12, h=1).'
         ),
     color: zod
         .string()
         .max(dashboardsCreateTextTileCreateBodyColorMax)
         .nullish()
         .describe("Optional accent color name (e.g. 'blue', 'green', 'purple', 'black')."),
+    group_id: zod
+        .uuid()
+        .optional()
+        .describe(
+            'Section to add the tile to. On a grouped dashboard, omit to append to the trailing anonymous section (created if needed).'
+        ),
 })
 
 /**
@@ -1102,50 +1108,45 @@ export const DashboardsDeleteTileBody = /* @__PURE__ */ zod.object({
 
 export const dashboardsGroupsCreateBodyNameMax = 400
 
+export const dashboardsGroupsCreateBodyPositionMin = 0
+
 export const DashboardsGroupsCreateBody = /* @__PURE__ */ zod.object({
     name: zod
         .string()
-        .min(1)
         .max(dashboardsGroupsCreateBodyNameMax)
-        .describe('Name displayed in the dashboard group row.'),
-    layouts: zod
-        .object({
-            sm: zod
-                .object({
-                    x: zod.number().optional().describe('Column position in the dashboard grid (0-indexed).'),
-                    y: zod.number().optional().describe('Row position in the dashboard grid (0-indexed).'),
-                    w: zod.number().optional().describe('Width in grid columns. The desktop grid is 12 columns wide.'),
-                    h: zod.number().optional().describe('Height in grid rows.'),
-                })
-                .optional()
-                .describe('Layout for the standard (desktop) breakpoint. The grid is 12 columns wide.'),
-        })
+        .nullish()
+        .describe(
+            'Section name. Null or empty creates an anonymous section (a bare grid with no header). Omit to create an anonymous section.'
+        ),
+    position: zod
+        .number()
+        .min(dashboardsGroupsCreateBodyPositionMin)
         .optional()
-        .describe('Optional grid layout for the group row. Group rows always span the desktop grid.'),
+        .describe('0-indexed section position. Omit to append after existing sections.'),
 })
 
 export const DashboardsGroupsDeleteCreateBody = /* @__PURE__ */ zod.object({
     group_id: zod.uuid().describe('Dashboard group ID to delete.'),
     member_handling: zod
-        .enum(['delete_tiles', 'move_to_ungrouped'])
-        .describe('\* `delete_tiles` - delete_tiles\n\* `move_to_ungrouped` - move_to_ungrouped')
+        .enum(['delete_tiles', 'ungroup'])
+        .describe('\* `delete_tiles` - delete_tiles\n\* `ungroup` - ungroup')
         .describe(
-            'How to handle content tiles currently assigned to the group.\n\n\* `delete_tiles` - delete_tiles\n\* `move_to_ungrouped` - move_to_ungrouped'
+            "How to handle tiles in the section. 'delete_tiles' soft-deletes the tiles and removes the section. 'ungroup' clears the section name in place so it becomes anonymous; tiles stay put.\n\n\* `delete_tiles` - delete_tiles\n\* `ungroup` - ungroup"
         ),
-    xs: zod
-        .object({
-            x: zod.number().optional().describe('Column position in the dashboard grid (0-indexed).'),
-            y: zod.number().optional().describe('Row position in the dashboard grid (0-indexed).'),
-            w: zod.number().optional().describe('Width in grid columns. The desktop grid is 12 columns wide.'),
-            h: zod.number().optional().describe('Height in grid rows.'),
-        })
-        .optional()
-        .describe('Layout for the small (mobile) breakpoint. The grid is 1 column wide.'),
 })
+
+export const dashboardsGroupsMoveTileCreateBodyCreateAtPositionMin = 0
 
 export const DashboardsGroupsMoveTileCreateBody = /* @__PURE__ */ zod.object({
     tile_id: zod.number().describe('Content tile ID to move.'),
-    group_id: zod.uuid().nullish().describe('Destination group ID, or null to move the tile to the ungrouped section.'),
+    group_id: zod.uuid().optional().describe('Destination section ID. Provide this or create_at_position, not both.'),
+    create_at_position: zod
+        .number()
+        .min(dashboardsGroupsMoveTileCreateBodyCreateAtPositionMin)
+        .optional()
+        .describe(
+            'Create an anonymous section at this 0-indexed position and move the tile into it. Provide this or group_id, not both.'
+        ),
     layouts: zod
         .object({
             sm: zod
@@ -1159,33 +1160,25 @@ export const DashboardsGroupsMoveTileCreateBody = /* @__PURE__ */ zod.object({
                 .describe('Layout for the standard (desktop) breakpoint. The grid is 12 columns wide.'),
         })
         .optional()
-        .describe('Optional new layout for the moved tile.'),
+        .describe('Optional new layout for the moved tile, relative to the destination section.'),
 })
 
 export const dashboardsGroupsUpdatePartialUpdateBodyNameMax = 400
+
+export const dashboardsGroupsUpdatePartialUpdateBodyPositionMin = 0
 
 export const DashboardsGroupsUpdatePartialUpdateBody = /* @__PURE__ */ zod.object({
     group_id: zod.uuid().optional().describe('Dashboard group ID to update.'),
     name: zod
         .string()
-        .min(1)
         .max(dashboardsGroupsUpdatePartialUpdateBodyNameMax)
+        .nullish()
+        .describe('New section name. Null converts the section to anonymous. Omit to keep the current name.'),
+    position: zod
+        .number()
+        .min(dashboardsGroupsUpdatePartialUpdateBodyPositionMin)
         .optional()
-        .describe('New group name. Omit to keep the existing name.'),
-    layouts: zod
-        .object({
-            sm: zod
-                .object({
-                    x: zod.number().optional().describe('Column position in the dashboard grid (0-indexed).'),
-                    y: zod.number().optional().describe('Row position in the dashboard grid (0-indexed).'),
-                    w: zod.number().optional().describe('Width in grid columns. The desktop grid is 12 columns wide.'),
-                    h: zod.number().optional().describe('Height in grid rows.'),
-                })
-                .optional()
-                .describe('Layout for the standard (desktop) breakpoint. The grid is 12 columns wide.'),
-        })
-        .optional()
-        .describe('New grid layout for the group row. Omit to keep its current layout.'),
+        .describe('New 0-indexed section position. Omit to keep the current position.'),
 })
 
 export const DashboardsMoveTileCreateBody = /* @__PURE__ */ zod.object({
@@ -1219,7 +1212,7 @@ export const DashboardsReorderTilesCreateBody = /* @__PURE__ */ zod.object({
         .describe('\* `preserve` - preserve\n\* `two_column` - two_column\n\* `full_width` - full_width')
         .default(dashboardsReorderTilesCreateBodyLayoutDefault)
         .describe(
-            "How to size tiles when reordering. 'preserve' (default) keeps each tile's existing width and height and only repacks positions in the new order. 'two_column' forces a 6-wide × 5-tall grid (two tiles per row). 'full_width' forces each tile to span the full 12-column row at height 5.\n\n\* `preserve` - preserve\n\* `two_column` - two_column\n\* `full_width` - full_width"
+            "How to size tiles when reordering. 'preserve' (default) keeps each tile's existing width and height and only repacks positions in the new order. 'two_column' forces a 6-wide × 5-tall grid (two tiles per row). 'full_width' forces each tile to span the full 12-column row at height 5. On a grouped dashboard the submitted order is partitioned by section and each section is packed independently, so a tile cannot be reordered into a different section here.\n\n\* `preserve` - preserve\n\* `two_column` - two_column\n\* `full_width` - full_width"
         ),
 })
 

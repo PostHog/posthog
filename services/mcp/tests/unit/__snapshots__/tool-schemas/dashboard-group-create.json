@@ -5,41 +5,24 @@
             "description": "A unique integer value identifying this dashboard.",
             "type": "number"
         },
-        "layouts": {
-            "description": "Optional grid layout for the group row. Group rows always span the desktop grid.",
-            "properties": {
-                "sm": {
-                    "description": "Layout for the standard (desktop) breakpoint. The grid is 12 columns wide.",
-                    "properties": {
-                        "h": {
-                            "description": "Height in grid rows.",
-                            "type": "number"
-                        },
-                        "w": {
-                            "description": "Width in grid columns. The desktop grid is 12 columns wide.",
-                            "type": "number"
-                        },
-                        "x": {
-                            "description": "Column position in the dashboard grid (0-indexed).",
-                            "type": "number"
-                        },
-                        "y": {
-                            "description": "Row position in the dashboard grid (0-indexed).",
-                            "type": "number"
-                        }
-                    },
-                    "type": "object"
-                }
-            },
-            "type": "object"
-        },
         "name": {
-            "description": "Name displayed in the dashboard group row.",
-            "maxLength": 400,
-            "minLength": 1,
-            "type": "string"
+            "anyOf": [
+                {
+                    "maxLength": 400,
+                    "type": "string"
+                },
+                {
+                    "type": "null"
+                }
+            ],
+            "description": "Section name. Null or empty creates an anonymous section (a bare grid with no header). Omit to create an anonymous section."
+        },
+        "position": {
+            "description": "0-indexed section position. Omit to append after existing sections.",
+            "minimum": 0,
+            "type": "number"
         }
     },
-    "required": ["id", "name"],
+    "required": ["id"],
     "type": "object"
 }

@@ -16,6 +16,7 @@ from products.dashboards.backend.models.dashboard_group import DashboardGroup
 from products.dashboards.backend.models.dashboard_templates import DashboardTemplate
 from products.dashboards.backend.models.dashboard_tile import ButtonTile, DashboardTile, Text
 from products.dashboards.backend.models.dashboard_widget import DashboardWidget
+from products.dashboards.backend.section_ops import partition_tiles_into_sections
 from products.product_analytics.backend.models.insight import Insight
 
 if TYPE_CHECKING:
@@ -513,34 +514,38 @@ def create_from_template(
         dashboard.tagged_items.create(tag_id=tag.id)
     dashboard.save()
 
-    groups_by_key: dict[str, DashboardGroup] = {}
-    for template_tile in template.tiles or []:
-        if template_tile.get("type") != "GROUP":
-            continue
-        group_key = template_tile.get("group_key")
-        if not group_key:
+    template_tiles = list(template.tiles or [])
+    header_tiles = [tile for tile in template_tiles if tile.get("type") == "GROUP"]
+    content_tiles = [tile for tile in template_tiles if tile.get("type") != "GROUP"]
+    for header in header_tiles:
+        if not header.get("group_key"):
             logger.error("dashboard_templates.creation.group_missing_key", template=template)
-            continue
-        group = DashboardGroup.all_teams.create(
-            dashboard=dashboard,
-            team=dashboard.team,
-            name=template_tile.get("name", "Group"),
-            created_by=user,
-            last_modified_by=user,
-        )
-        DashboardTile.objects.create(
-            dashboard=dashboard,
-            team=dashboard.team,
-            dashboard_group=group,
-            layouts=template_tile.get("layouts") or {},
-        )
-        groups_by_key[group_key] = group
 
-    for template_tile in template.tiles or []:
+    known_keys = {header.get("group_key") for header in header_tiles if header.get("group_key")}
+    for tile in content_tiles:
+        key = tile.get("group_key")
+        if key and key not in known_keys:
+            logger.error("dashboard_templates.creation.unknown_group_key", template=template, group_key=key)
+
+    sections = partition_tiles_into_sections(header_tiles, content_tiles)
+    tiles_with_parent: list[tuple[dict[str, Any], DashboardGroup | None]] = []
+    if sections:
+        for position, section in enumerate(sections):
+            group = DashboardGroup.all_teams.create(
+                dashboard=dashboard,
+                team=dashboard.team,
+                name=section.name,
+                position=position,
+                created_by=user,
+                last_modified_by=user,
+            )
+            for tile in section.tiles:
+                tiles_with_parent.append((tile, group))
+    else:
+        tiles_with_parent = [(tile, None) for tile in content_tiles]
+
+    for template_tile, parent_group in tiles_with_parent:
         tile_type = template_tile.get("type")
-        if tile_type == "GROUP":
-            continue
-        parent_group = groups_by_key.get(template_tile.get("group_key"))
         if tile_type == "INSIGHT":
             query = template_tile.get("query", None)
             _create_tile_for_insight(

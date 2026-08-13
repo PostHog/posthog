@@ -19,12 +19,16 @@
             ],
             "description": "Optional accent color name (e.g. 'blue', 'green', 'purple', 'black')."
         },
+        "group_id": {
+            "description": "Section to add the tile to. On a grouped dashboard, omit to append to the trailing anonymous section (created if needed).",
+            "type": "string"
+        },
         "id": {
             "description": "A unique integer value identifying this dashboard.",
             "type": "number"
         },
         "layouts": {
-            "description": "Optional grid layout per breakpoint. If omitted, the tile is placed at the bottom of the dashboard using the default size. Text tiles typically use a thin full-width banner (e.g. w=12, h=1).",
+            "description": "Optional grid layout per breakpoint. If omitted, the tile is placed at the bottom of the destination section using the default size. Text tiles typically use a thin full-width banner (e.g. w=12, h=1).",
             "properties": {
                 "sm": {
                     "description": "Layout for the standard (desktop) breakpoint. The grid is 12 columns wide.",

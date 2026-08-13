@@ -167,6 +167,9 @@ const dashboardCreateTextTile = (): ToolBase<
         if (params.color !== undefined) {
             body['color'] = params.color
         }
+        if (params.group_id !== undefined) {
+            body['group_id'] = params.group_id
+        }
         const result = await context.api.request<Schemas.DashboardTile>({
             method: 'POST',
             path: `/api/projects/${encodeURIComponent(String(projectId))}/dashboards/${encodeURIComponent(String(params.id))}/create_text_tile/`,
@@ -192,8 +195,8 @@ const dashboardGroupCreate = (): ToolBase<
         if (params.name !== undefined) {
             body['name'] = params.name
         }
-        if (params.layouts !== undefined) {
-            body['layouts'] = params.layouts
+        if (params.position !== undefined) {
+            body['position'] = params.position
         }
         const result = await context.api.request<Schemas.DashboardGroup>({
             method: 'POST',
@@ -223,8 +226,8 @@ const dashboardGroupUpdate = (): ToolBase<
         if (params.name !== undefined) {
             body['name'] = params.name
         }
-        if (params.layouts !== undefined) {
-            body['layouts'] = params.layouts
+        if (params.position !== undefined) {
+            body['position'] = params.position
         }
         const result = await context.api.request<Schemas.DashboardGroup>({
             method: 'PATCH',
@@ -241,7 +244,7 @@ const DashboardGroupMoveTileSchema = DashboardsGroupsMoveTileCreateParams.omit({
 
 const dashboardGroupMoveTile = (): ToolBase<
     typeof DashboardGroupMoveTileSchema,
-    WithPostHogUrl<Schemas.DashboardTile>
+    WithPostHogUrl<Schemas.MoveDashboardTileToGroupResponse>
 > => ({
     name: 'dashboard-group-move-tile',
     schema: DashboardGroupMoveTileSchema,
@@ -254,10 +257,13 @@ const dashboardGroupMoveTile = (): ToolBase<
         if (params.group_id !== undefined) {
             body['group_id'] = params.group_id
         }
+        if (params.create_at_position !== undefined) {
+            body['create_at_position'] = params.create_at_position
+        }
         if (params.layouts !== undefined) {
             body['layouts'] = params.layouts
         }
-        const result = await context.api.request<Schemas.DashboardTile>({
+        const result = await context.api.request<Schemas.MoveDashboardTileToGroupResponse>({
             method: 'POST',
             path: `/api/projects/${encodeURIComponent(String(projectId))}/dashboards/${encodeURIComponent(String(params.id))}/groups/move-tile/`,
             body,
@@ -281,9 +287,6 @@ const dashboardGroupDelete = (): ToolBase<typeof DashboardGroupDeleteSchema, unk
         }
         if (params.member_handling !== undefined) {
             body['member_handling'] = params.member_handling
-        }
-        if (params.xs !== undefined) {
-            body['xs'] = params.xs
         }
         const result = await context.api.request<unknown>({
             method: 'POST',
