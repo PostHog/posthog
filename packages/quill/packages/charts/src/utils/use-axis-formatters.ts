@@ -41,7 +41,7 @@ export interface YAxisConfig extends YFormatterConfig {
      *  for an automatic bound. Primary axis only, like `valueDomain`; ignored under a percent layout,
      *  and dropped when non-positive on a log scale. Read by the line charts only — this config is
      *  shared, but bar and combo charts ignore it, since a bar encodes magnitude as length from zero.
-     *  See `ValueBounds`. */
+     *  See `ValueDomain`. */
     min?: number
     /** Pins the high end of the axis. Omit for an automatic bound. See {@link YAxisConfig.min}. */
     max?: number

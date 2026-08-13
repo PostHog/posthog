@@ -144,7 +144,6 @@ export type {
     TooltipConfig,
     TooltipContext,
     ValueDomain,
-    ValueDomainAdjustments,
     YAxis,
     YAxisScale,
 } from './core/types'

@@ -1,4 +1,4 @@
-import type { Series, ValueDomain, ValueDomainAdjustments } from '../core/types'
+import type { Series, ValueDomain } from '../core/types'
 import type { ReferenceLineProps } from '../overlays/ReferenceLine'
 
 export interface GoalLineConfig {
@@ -57,29 +57,19 @@ export function goalLineValueDomain(referenceLines: readonly ReferenceLineProps[
     return values.length > 0 ? { include: values } : undefined
 }
 
-/** Combine a consumer-set {@link ValueDomain} with the goal-line stretch. A pinned tuple wins
- *  outright — the consumer fixed the axis, so nothing may stretch or clamp it — while two sets of
- *  adjustments merge field by field, so an off-scale goal line still widens an axis the user has
- *  also capped.
+/** Combine a consumer-set {@link ValueDomain} with the goal-line stretch, field by field, so a
+ *  capped axis still stretches to reach an off-scale goal line. `a` wins a contested bound.
  *
- *  Discriminates on `Array.isArray`, not on a key being present: every adjustment is optional, so
- *  `{ min: 40 }` would read as a pinned tuple under a key-presence check and drop the goal lines. */
+ *  A consumer pinning both ends still overrides the goal lines, but that falls out of the resolution
+ *  rather than being decided here: a domain with both bounds set drops `include` when it resolves. */
 export function mergeValueDomains(a: ValueDomain | undefined, b: ValueDomain | undefined): ValueDomain | undefined {
     if (!a || !b) {
         return a ?? b
     }
-    if (Array.isArray(a)) {
-        return a
-    }
-    if (Array.isArray(b)) {
-        return b
-    }
-    const left = a as ValueDomainAdjustments
-    const right = b as ValueDomainAdjustments
-    const include = [...(left.include ?? []), ...(right.include ?? [])]
+    const include = [...(a.include ?? []), ...(b.include ?? [])]
     return {
         include: include.length > 0 ? include : undefined,
-        min: left.min ?? right.min,
-        max: left.max ?? right.max,
+        min: a.min ?? b.min,
+        max: a.max ?? b.max,
     }
 }

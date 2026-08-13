@@ -376,37 +376,31 @@ export interface TooltipConfig {
 }
 
 /** How the value axis domain is determined (y for vertical/line/area charts, x for horizontal
- *  bars). Either pin both ends outright, or keep auto-scaling and adjust it. Omit the option
- *  entirely for the default: a data-derived range with `d3.nice()`. */
-export type ValueDomain =
-    /** Pin both ends — skips the data-derived range and `d3.nice()` so independent charts that
-     *  share this domain stay visually comparable (e.g. funnel steps). Takes precedence over
-     *  `barLayout: 'percent'` / `percentStackView`. */
-    readonly [number, number] | ValueDomainAdjustments
-
-/** Adjustments layered onto the data-derived domain, so an end left unset stays automatic. They
- *  apply on opposite sides of `d3.nice()` and compose: `include` widens the range before it, then
- *  {@link ValueBounds} clamps the result afterwards. */
-export interface ValueDomainAdjustments extends ValueBounds {
-    /** Stretch the domain to always cover these values (e.g. goal-line targets that sit outside
-     *  the data). Folded into the range before `d3.nice()`. */
-    include?: readonly number[]
-}
-
-/** A partial user clamp on the value axis, applied *after* the data-derived domain, `{ include }`
- *  folding, the zero-baseline clamp and `d3.nice()`. Either end may be omitted to keep the automatic
- *  bound, so unlike the pinned tuple form this composes with auto-scaling — it backs a user-facing
- *  "y-axis min/max" control. Ignored under a percent layout and when the domain is a pinned tuple
- *  (both already fix the domain), and on a log scale any non-positive bound is dropped. The clamped
- *  bound is used verbatim rather than re-`nice()`d, since rounding it would defeat the point of
- *  typing it.
+ *  bars). Omit it entirely for the default: a data-derived range with `d3.nice()`. Every field is
+ *  optional and they compose, so the shape says which ends the caller is fixing rather than leaving
+ *  it to a positional pair.
  *
- *  Validated differently from the pinned tuple, deliberately. A tuple is written by a component
- *  author, so an inverted pair is a bug worth silently normalizing (`sanitizeFixedDomain` swaps it).
- *  These arrive from a saved query, the API, or MCP, so an inverted pair falls back to the automatic
- *  domain rather than rendering an axis nobody asked for. */
-export interface ValueBounds {
+ *  Setting **both** `min` and `max` pins the domain: the data-derived range and `d3.nice()` are
+ *  skipped, `include` no longer stretches anything, and the pin beats `barLayout: 'percent'` /
+ *  `percentStackView` — use it to keep independent charts visually comparable (e.g. funnel steps).
+ *  Setting **one** clamps that end and leaves the other automatic, which is what a user-facing
+ *  "y-axis min/max" control wants.
+ *
+ *  A non-finite bound is treated as unset, so `{ min: 0, max: Math.max(...[]) }` floors the axis at
+ *  zero instead of collapsing it. An inverted pair (`min >= max`) falls back to the automatic domain
+ *  rather than being swapped: these values reach charts from saved queries, the API, and MCP as well
+ *  as from component source, and quietly reinterpreting one renders an axis nobody asked for. */
+export interface ValueDomain {
+    /** Stretch the domain to always cover these values (e.g. goal-line targets that sit outside the
+     *  data). Folded into the range before `d3.nice()`, so it widens rather than pins. Ignored once
+     *  both `min` and `max` are set. */
+    include?: readonly number[]
+    /** Floor of the value axis. Applied after `include` folding, the zero-baseline clamp and
+     *  `d3.nice()`, and used verbatim rather than re-`nice()`d — rounding a bound the caller typed
+     *  would defeat the point of typing it, and interior ticks still land on round numbers. Ignored
+     *  under a percent layout, and dropped when non-positive on a log scale. */
     min?: number
+    /** Ceiling of the value axis. See {@link ValueDomain.min}. */
     max?: number
 }
 

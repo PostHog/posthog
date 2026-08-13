@@ -11,16 +11,7 @@ import {
 import { stack as stackGen, stackOffsetDiverging, stackOffsetExpand, stackOffsetNone } from 'd3-shape'
 
 import { significantDecimalPlaces } from '../utils/format'
-import type {
-    BandSlot,
-    ChartDimensions,
-    ResolveValueFn,
-    Series,
-    ValueBounds,
-    ValueDomain,
-    ValueDomainAdjustments,
-    YAxisScale,
-} from './types'
+import type { BandSlot, ChartDimensions, ResolveValueFn, Series, ValueDomain, YAxisScale } from './types'
 import { DEFAULT_Y_AXIS_ID } from './types'
 
 /** Inner padding fraction applied to the band scale when `BarChartConfig.bars.bandPadding` is unset. */
@@ -82,24 +73,35 @@ export function seriesValueRange(series: Series[]): SeriesValueRange {
     return { min, max, minPositive, count }
 }
 
-/** Split a {@link ValueDomain} into the pinned tuple and the adjustments to an auto-scaled domain.
+/** Split a {@link ValueDomain} into a pinned `[min, max]` (both ends given) and the adjustments to
+ *  an auto-scaled domain (either end left open).
  *
- *  Discriminates on `Array.isArray`, not on a key being present: every adjustment is optional, so
- *  `{ min: 40 }` carries no key that tells it apart from a tuple, and a key-presence check would
- *  read it as one — silently pinning the domain to a garbage pair. */
+ *  A non-finite bound counts as unset, so `Math.max` over empty data degrades to a partial clamp
+ *  rather than a domain that maps everything to NaN. An inverted pair is dropped outright — see
+ *  {@link ValueDomain} for why it isn't swapped. */
 function resolveValueDomain(valueDomain: ValueDomain | undefined): {
     fixed?: readonly [number, number]
     include?: readonly number[]
-    bounds?: ValueBounds
+    bounds?: ValueDomain
 } {
     if (!valueDomain) {
         return {}
     }
-    if (Array.isArray(valueDomain)) {
-        return { fixed: valueDomain as readonly [number, number] }
+    const { include } = valueDomain
+    const min = usableBound(valueDomain.min)
+    const max = usableBound(valueDomain.max)
+
+    if (min !== undefined && max !== undefined) {
+        // `include` is deliberately dropped: both ends are pinned, so there's nothing left to stretch.
+        return min < max ? { fixed: [min, max] } : { include }
     }
-    const adjustments = valueDomain as ValueDomainAdjustments
-    return { include: adjustments.include, bounds: adjustments }
+    return { include, bounds: { min, max } }
+}
+
+/** A bound the scale can actually use. A non-finite value is treated as absent rather than honored,
+ *  since these arrive from stored queries and `Math.max`-style expressions, not just typed input. */
+function usableBound(value: number | undefined): number | undefined {
+    return typeof value === 'number' && isFinite(value) ? value : undefined
 }
 
 /** Fold extra values (e.g. goal-line targets) into a range so the axis covers them even when
@@ -171,7 +173,7 @@ export function sanitizeFixedDomain([min, max]: readonly [number, number]): [num
     return min < max ? [min, max] : [max, min]
 }
 
-/** Clamp an already-computed domain to the caller's {@link ValueBounds}. Runs last, so it composes
+/** Clamp an already-computed domain to the caller's {@link ValueDomain}. Runs last, so it composes
  *  with everything the domain went through to get here — `{ include }` folding, the zero-baseline
  *  clamp, and `nice()` — and either end may be left automatic.
  *
@@ -179,7 +181,7 @@ export function sanitizeFixedDomain([min, max]: readonly [number, number]): [num
  *  typing it. Interior ticks still land on round numbers; only the extreme label is the raw bound. */
 export function applyValueBounds(
     domain: readonly [number, number],
-    bounds: ValueBounds | undefined,
+    bounds: ValueDomain | undefined,
     options: { log?: boolean } = {}
 ): [number, number] {
     // A log domain containing 0 maps every value to ±Infinity, so a non-positive bound is dropped
@@ -216,8 +218,8 @@ export function applyValueBounds(
     return min !== undefined ? [lo, lo + span] : [hi - span, hi]
 }
 
-/** Apply {@link ValueBounds} to a built d3 scale in place. */
-function withValueBounds<S extends D3YScale>(scale: S, bounds: ValueBounds | undefined, log: boolean): S {
+/** Apply {@link ValueDomain} to a built d3 scale in place. */
+function withValueBounds<S extends D3YScale>(scale: S, bounds: ValueDomain | undefined, log: boolean): S {
     if (!bounds || (bounds.min === undefined && bounds.max === undefined)) {
         return scale
     }
@@ -303,7 +305,7 @@ export function buildValueScale(options: {
     floatBaseline?: boolean
     /** Partial user clamp applied to whichever domain this function ends up with. See
      *  {@link applyValueBounds}. */
-    bounds?: ValueBounds
+    bounds?: ValueDomain
 }): D3YScale {
     const {
         range,

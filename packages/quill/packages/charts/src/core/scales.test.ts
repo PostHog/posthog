@@ -236,26 +236,26 @@ describe('hog-charts scales', () => {
         })
     })
 
-    describe('createYScale — valueDomain [min, max] (fixed)', () => {
+    describe('createYScale — valueDomain with both ends pinned', () => {
         it('pins the domain regardless of data and skips nice()', () => {
             const series = [makeSeries({ key: 's1', data: [10, 20, 30] })]
-            const scale = createYScale(series, dimensions, { valueDomain: [0, 40] })
+            const scale = createYScale(series, dimensions, { valueDomain: { min: 0, max: 40 } })
             expect(scale.domain()).toEqual([0, 40])
         })
 
         it('takes precedence over percent stack mode', () => {
             const series = [makeSeries({ key: 's1', data: [10, 20, 30] })]
-            const scale = createYScale(series, dimensions, { percentStack: true, valueDomain: [0, 200] })
+            const scale = createYScale(series, dimensions, { percentStack: true, valueDomain: { min: 0, max: 200 } })
             expect(scale.domain()).toEqual([0, 200])
         })
 
         // A non-finite or collapsed fixed domain maps every value (and axis tick) to NaN, so the
         // chart paints nothing while x-only tooltips keep working. The domain must stay well-formed.
         it.each([
-            { name: 'NaN bounds', valueDomain: [NaN, NaN] as [number, number] },
-            { name: 'a NaN max (e.g. Math.max of empty data)', valueDomain: [0, NaN] as [number, number] },
-            { name: 'an infinite max', valueDomain: [0, Infinity] as [number, number] },
-            { name: 'collapsed bounds', valueDomain: [50, 50] as [number, number] },
+            { name: 'NaN bounds', valueDomain: { min: NaN, max: NaN } },
+            { name: 'a NaN max (e.g. Math.max of empty data)', valueDomain: { min: 0, max: NaN } },
+            { name: 'an infinite max', valueDomain: { min: 0, max: Infinity } },
+            { name: 'collapsed bounds', valueDomain: { min: 50, max: 50 } },
         ])('keeps a finite, non-degenerate domain for $name', ({ valueDomain }) => {
             const series = [makeSeries({ key: 's1', data: [10, 20, 30] })]
             const [min, max] = createYScale(series, dimensions, { valueDomain }).domain()
@@ -339,13 +339,15 @@ describe('hog-charts scales', () => {
             expect(scale.domain()).toEqual([-5, 1])
         })
 
-        // The pinned-tuple case has no equivalent here: a tuple and a bound are the same option now,
-        // so "a pinned domain ignores bounds" is unrepresentable rather than a rule to enforce. What
-        // remains of it — a tuple beating a bound when the two arrive from different callers — is
-        // covered on `mergeValueDomains`.
-        it('ignores bounds when percentStack pins the domain', () => {
-            const scale = createYScale(series, dimensions, { percentStack: true, valueDomain: { min: 5, max: 8 } })
-            expect(scale.domain()).toEqual([0, 1])
+        // How many ends are set decides which side of percent layout the domain lands on: a pin is a
+        // deliberate "show exactly this window" and wins, while a single clamp is an adjustment to a
+        // data-derived range that percent layout has already replaced with 0..1.
+        it.each([
+            ['a pin overrides percentStack', { min: 5, max: 8 }, [5, 8]],
+            ['a partial clamp is ignored under percentStack', { max: 8 }, [0, 1]],
+        ])('%s', (_name, valueDomain, expected) => {
+            const scale = createYScale(series, dimensions, { percentStack: true, valueDomain })
+            expect(scale.domain()).toEqual(expected)
         })
     })
 

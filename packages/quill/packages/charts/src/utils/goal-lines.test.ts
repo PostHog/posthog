@@ -88,17 +88,21 @@ describe('goal-lines', () => {
     })
 
     describe('mergeValueDomains', () => {
-        // Every adjustment is optional, so a `min`-only side carries no key marking it as one. Told
-        // apart from a pinned tuple by key presence rather than `Array.isArray`, it reads as pinned
-        // and the goal lines are dropped — the axis stops stretching to reach an off-scale target.
+        // A consumer pinning both ends still beats the goal lines, but that is settled when the
+        // domain resolves (both bounds set drops `include`), not here — so this merges every field
+        // and keeps the `include` a pin will later discard.
         it.each([
             ['returns the defined side when the other is undefined', undefined, { include: [5] }, { include: [5] }],
-            ['a pinned tuple wins over an include set', [0, 10] as const, { include: [50] }, [0, 10]],
-            ['a pinned tuple wins over a bound', [0, 10] as const, { max: 5 }, [0, 10]],
             ['two include sets merge', { include: [5] }, { include: [50] }, { include: [5, 50] }],
             ['a bound and an include set both survive', { min: 40 }, { include: [500] }, { min: 40, include: [500] }],
             ['bounds merge field by field', { min: 40 }, { max: 90 }, { min: 40, max: 90 }],
             ['the left side wins a contested bound', { max: 60 }, { max: 90 }, { max: 60 }],
+            [
+                'a pin keeps the include for the resolver to drop',
+                { min: 0, max: 10 },
+                { include: [50] },
+                { min: 0, max: 10, include: [50] },
+            ],
         ] as const)('%s', (_, a, b, expected) => {
             expect(mergeValueDomains(a, b)).toEqual(expected)
         })
