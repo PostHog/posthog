@@ -143,6 +143,9 @@ pub fn validate_merge_persons(request: &MergePersonsRequest) -> Result<(Uuid, i6
         Some(_) => return Err(Status::invalid_argument("move_limit must be positive")),
         None => return Err(Status::invalid_argument("move_limit is required")),
     };
+    if request.created_at < 0 {
+        return Err(Status::invalid_argument("created_at must not be negative"));
+    }
     let op_id = Uuid::parse_str(&request.op_id)
         .map_err(|_| Status::invalid_argument("op_id must be a valid UUID"))?;
     Ok((op_id, move_limit))

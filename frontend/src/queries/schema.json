@@ -25660,7 +25660,15 @@
                 "Motion",
                 "Framer",
                 "Cloudinary",
-                "Uploadcare"
+                "Uploadcare",
+                "WHMCS",
+                "MSG91",
+                "Depot",
+                "Schematic",
+                "Dokploy",
+                "RakutenAdvertising",
+                "Zitadel",
+                "DeelFlows"
             ],
             "type": "string"
         },
@@ -27253,7 +27261,7 @@
             "type": "string"
         },
         "GroupMathType": {
-            "const": "unique_group",
+            "enum": ["unique_group", "first_time_for_group", "first_matching_event_for_group"],
             "type": "string"
         },
         "GroupNode": {

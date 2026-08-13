@@ -7,6 +7,7 @@ packages:
     - common/replay-shared
     - common/replay-headless
     - common/tailwind
+    - packages/llm-normalizer
     - packages/quill
     - packages/quill/apps/*
     - packages/quill/packages/*
@@ -20,6 +21,7 @@ packages:
     - '!products/desktop'
     - docs/onboarding
     - services/agent-proxy
+    - services/integration-service
     - services/oauth-proxy
     - services/mcp
     - services/stripe-app
