@@ -1539,10 +1539,12 @@ export interface eventUsageLogicActions {
     reportIntegrationConnectClicked: (
         integration: string,
         kind: string,
-        surface: IntegrationConnectSurface
+        surface: IntegrationConnectSurface,
+        selfDriving?: boolean
     ) => {
         integration: string
         kind: string
+        selfDriving: boolean | undefined
         surface: IntegrationConnectSurface
     }
     reportInviteMembersButtonClicked: () => {
@@ -2110,10 +2112,16 @@ export const eventUsageLogic = kea<eventUsageLogicType>([
         // timing
         reportTimeToSeeData: (payload: TimeToSeeDataPayload) => ({ payload }),
         reportGroupTypeDetailDashboardCreated: () => ({}),
-        reportIntegrationConnectClicked: (integration: string, kind: string, surface: IntegrationConnectSurface) => ({
+        reportIntegrationConnectClicked: (
+            integration: string,
+            kind: string,
+            surface: IntegrationConnectSurface,
+            selfDriving?: boolean
+        ) => ({
             integration,
             kind,
             surface,
+            selfDriving,
         }),
         reportPersonalIntegrationConnectClicked: (kind: string) => ({ kind }),
         reportGroupPropertyUpdated: (
@@ -2999,8 +3007,16 @@ export const eventUsageLogic = kea<eventUsageLogicType>([
         reportInstanceSettingChange: ({ name, value }) => {
             posthog.capture('instance setting change', { name, value })
         },
-        reportIntegrationConnectClicked: ({ integration, kind, surface }) => {
-            posthog.capture('integration_connect_clicked', { integration, integration_kind: kind, surface })
+        reportIntegrationConnectClicked: ({ integration, kind, surface, selfDriving }) => {
+            posthog.capture('integration_connect_clicked', {
+                integration,
+                integration_kind: kind,
+                surface,
+                // Only set where the surface can actually tell. The OAuth landing page serves both
+                // self-driving runs and everyone else, so it resolves this; surfaces that are
+                // self-driving by construction leave it unset rather than assert a constant.
+                self_driving: selfDriving,
+            })
         },
         // Personal integrations are a separate table with their own connect surface, so they get
         // their own event: saved insights already count `integration_connect_clicked` unfiltered and
