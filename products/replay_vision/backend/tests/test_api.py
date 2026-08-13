@@ -433,6 +433,24 @@ class TestReplayScannerViewSet(_VisionAPITestCase):
         resp = self.client.patch(url, data={"credit_limit": 0}, format="json")
         self.assertEqual(resp.status_code, 400, resp.json())
 
+    def test_changing_the_credit_limit_rearms_the_limit_notification(self) -> None:
+        # The scanner already notified this period; raising the limit makes the next exhaustion news
+        # again, while an unrelated edit leaves the stamp alone.
+        scanner = self._create_scanner()
+        stamp = datetime(2026, 8, 1, tzinfo=UTC)
+        ReplayScanner.objects.filter(pk=scanner.pk).update(credit_limit=500, limit_notified_period_start=stamp)
+        url = f"{self.scanners_url}{scanner.id}/"
+
+        resp = self.client.patch(url, data={"name": "renamed, limit untouched"}, format="json")
+        self.assertEqual(resp.status_code, 200, resp.json())
+        scanner.refresh_from_db()
+        self.assertEqual(scanner.limit_notified_period_start, stamp)
+
+        resp = self.client.patch(url, data={"credit_limit": 1_000}, format="json")
+        self.assertEqual(resp.status_code, 200, resp.json())
+        scanner.refresh_from_db()
+        self.assertIsNone(scanner.limit_notified_period_start)
+
     def test_create_accepts_valid_query(self) -> None:
         resp = self.client.post(
             self.scanners_url,

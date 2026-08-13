@@ -1296,9 +1296,9 @@ export const SETTINGS_MAP: SettingSection[] = [
             },
             {
                 id: 'cookieless-server-hash-mode',
-                title: 'Cookieless server hash mode',
+                title: 'Cookieless tracking',
                 description:
-                    'Enable cookieless tracking using a privacy-preserving hash to count unique users without cookies. You must enable this here before enabling cookieless in posthog-js.',
+                    'Count unique users with a privacy-preserving hash instead of cookies. Enable this here, then enable cookieless mode in posthog-js.',
                 docsUrl: 'https://posthog.com/tutorials/cookieless-tracking',
                 component: <CookielessServerHashModeSetting />,
                 keywords: ['cookie', 'privacy', 'gdpr', 'tracking', 'consent'],
