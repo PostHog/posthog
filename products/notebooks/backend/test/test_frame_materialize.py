@@ -16,6 +16,7 @@ from temporalio.worker import UnsandboxedWorkflowRunner, Worker
 
 from posthog.schema import QueryStatus
 
+from posthog.clickhouse.client.execute import _KILL_SWITCH_SETTINGS, KillSwitchLevel
 from posthog.clickhouse.client.execute_async import QueryStatusManager
 from posthog.errors import ExposedCHQueryError, InternalCHQueryError
 from posthog.exceptions import ClickHouseQueryMemoryLimitExceeded, ClickHouseQuerySizeExceeded, ClickHouseQueryTimeOut
@@ -444,3 +445,26 @@ async def test_exhausted_retries_stop_at_three_scans_and_finalize_the_status():
 
     assert attempts == 3
     assert marked_failed
+
+
+class TestFrameMaterializeKillSwitchCaps(APIBaseTest):
+    @parameterized.expand(
+        [
+            ("off", {}),
+            ("light", dict(_KILL_SWITCH_SETTINGS[KillSwitchLevel.LIGHT])),
+            ("full", dict(_KILL_SWITCH_SETTINGS[KillSwitchLevel.FULL])),
+        ]
+    )
+    def test_printed_sql_carries_kill_switch_ceilings(self, _name: str, overrides: dict[str, int]):
+        with patch.object(frame_materialize, "kill_switch_overrides", return_value=overrides):
+            sql, _values = frame_materialize._generate_sql(self.team, self.user, "select 1", output_format=None)
+
+        memory_ceiling = overrides.get("max_memory_usage")
+        if memory_ceiling is None:
+            assert "max_memory_usage" not in sql
+        else:
+            assert f"max_memory_usage={memory_ceiling}" in sql
+        # The lane's own caps already sit under every ceiling, so the merge must keep them
+        # rather than widen them to the kill switch's looser numbers.
+        assert f"max_threads={frame_materialize._MAX_THREADS}" in sql
+        assert f"max_bytes_to_read={frame_materialize._MAX_BYTES_TO_READ}" in sql

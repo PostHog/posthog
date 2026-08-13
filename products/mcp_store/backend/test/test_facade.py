@@ -4,8 +4,13 @@ from unittest.mock import patch
 from parameterized import parameterized
 
 from posthog.models import User
+from posthog.models.organization import OrganizationMembership
 
-from products.mcp_store.backend.agents import get_built_in_agent
+from products.mcp_store.backend.agents import (
+    create_gateway_agent_token,
+    get_built_in_agent,
+    resolve_gateway_agent_token,
+)
 from products.mcp_store.backend.facade.api import get_active_installations, get_installations_for_sandbox
 from products.mcp_store.backend.facade.contracts import ActiveInstallationInfo
 from products.mcp_store.backend.models import (
@@ -358,9 +363,56 @@ class TestGetInstallationsForSandbox(BaseTest):
                 credential_owner_id=credential_owner_id,
             )
 
-        assert [result.id for result in resolve(self.user.id)] == [str(delegated.id)]
+        owned = resolve(self.user.id)
+        assert [result.id for result in owned] == [str(delegated.id)]
         assert resolve(other_user.id) == []
         assert resolve(None) == []
+
+        # The proxy token must name the same owner the grants were resolved under, or the
+        # gateway would serve the run under a different person's credentials.
+        principal = resolve_gateway_agent_token(owned[0].proxy_token or "")
+        assert principal is not None
+        assert principal.credential_owner_id == self.user.id
+
+    @parameterized.expand([("deactivated",), ("removed_from_org",)])
+    def test_built_in_agent_mounts_nothing_once_credential_owner_loses_eligibility(self, revocation: str) -> None:
+        account = self._support_agent()
+        server = self._create_gateway_server(name="Granted", url="https://granted.example.com/mcp")
+        delegated = self._create_installation(scope="personal", gateway_server=server, url=server.url)
+        MCPServiceAccountServerAccess.objects.for_team(self.team.id).create(
+            team_id=self.team.id,
+            user=self.user,
+            service_account=account,
+            gateway_server=server,
+            installation=delegated,
+            granted_by=self.user,
+        )
+
+        def resolve() -> list[ActiveInstallationInfo]:
+            return get_installations_for_sandbox(
+                self.team.id,
+                task_origin="support_reply",
+                task_agent_key="support",
+                credential_owner_id=self.user.id,
+            )
+
+        assert [result.id for result in resolve()] == [str(delegated.id)]
+
+        if revocation == "deactivated":
+            User.objects.filter(id=self.user.id).update(is_active=False)
+        else:
+            OrganizationMembership.objects.filter(user=self.user, organization=self.organization).delete()
+
+        assert resolve() == []
+
+    def test_agent_token_stops_resolving_once_credential_owner_loses_eligibility(self) -> None:
+        account = self._support_agent()
+        token = create_gateway_agent_token(account, credential_owner_id=self.user.id)
+        assert resolve_gateway_agent_token(token) is not None
+
+        User.objects.filter(id=self.user.id).update(is_active=False)
+
+        assert resolve_gateway_agent_token(token) is None
 
     def test_built_in_agent_does_not_fall_back_after_delegated_credential_is_deleted(self) -> None:
         account = self._support_agent()
