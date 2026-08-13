@@ -16746,9 +16746,12 @@ export const MarketingAnalyticsExplainConversionGoalRetrieveParams = /* @__PURE_
 })
 
 export const MarketingAnalyticsExplainConversionGoalRetrieveQueryParams = /* @__PURE__ */ zod.object({
+    conversion_goal_id: zod
+        .string()
+        .min(1)
+        .describe('conversion_goal_id of the goal to explain, as returned by the conversion_goals list endpoint.'),
     date_from: zod.string().nullish().describe('ISO start; defaults to 30 days ago'),
     date_to: zod.string().nullish().describe('ISO end; defaults to now'),
-    goal_id: zod.string().min(1).describe('Id of the conversion goal to explain (from list_conversion_goals).'),
 })
 
 /**

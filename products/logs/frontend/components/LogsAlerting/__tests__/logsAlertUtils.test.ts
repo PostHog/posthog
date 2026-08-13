@@ -26,6 +26,7 @@ const baseForm = (overrides: Partial<LogsAlertFormType> = {}): LogsAlertFormType
     evaluationPeriods: 1,
     datapointsToAlarm: 1,
     cooldownMinutes: 0,
+    scheduleRestriction: null,
     ...overrides,
 })
 

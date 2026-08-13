@@ -8,6 +8,7 @@ from typing import Any
 
 from django.conf import settings
 
+import httpx
 import posthoganalytics
 from google import genai
 from google.genai.errors import APIError
@@ -19,6 +20,7 @@ from products.ai_observability.backend.llm.errors import (
     AuthenticationError,
     ModelNotFoundError,
     ModelPermissionError,
+    ProviderConnectionError,
     QuotaExceededError,
     RateLimitError,
     StructuredOutputParseError,
@@ -152,6 +154,11 @@ class GeminiAdapter:
             if status_code == 404 or "no longer available" in error_message or "not found" in error_message:
                 raise ModelNotFoundError(request.model)
             raise
+        except httpx.TransportError as e:
+            # google-genai doesn't wrap httpx transport failures (connection reset, read timeout)
+            # in APIError, so without this they escape as an unmapped exception and spam error
+            # tracking. Map to a quiet retryable error so the caller retries silently.
+            raise ProviderConnectionError(str(e)) from e
 
     def stream(
         self,
