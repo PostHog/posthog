@@ -18,6 +18,7 @@ from products.tasks.backend.logic.services.sandbox import (
     SandboxConfig,
     SandboxTemplate,
     SandboxWorkload,
+    get_sandbox_class_for_backend,
     workload_for_origin_product,
 )
 from products.tasks.backend.models import Task
@@ -124,6 +125,15 @@ class TestModalSandboxDirectorySnapshotMount:
 
 
 class TestModalSandboxAppRouting:
+    PRODUCTION_APP_NAMES = frozenset(
+        {
+            DEFAULT_MODAL_APP_NAME,
+            NOTEBOOK_MODAL_APP_NAME,
+            STREAMLIT_MODAL_APP_NAME,
+            SELF_DRIVING_MODAL_APP_NAME,
+        }
+    )
+
     @pytest.fixture
     def app_lookup(self, mocker):
         return mocker.patch("modal.App.lookup", return_value=MagicMock())
@@ -156,6 +166,27 @@ class TestModalSandboxAppRouting:
 
         app_lookup.assert_any_call(SELF_DRIVING_MODAL_APP_NAME, create_if_missing=True)
         assert create.call_args.kwargs["app"] is app_lookup.return_value
+
+    @pytest.mark.parametrize("backend", ["modal_docker", "modal_evals"])
+    @pytest.mark.parametrize(
+        "template",
+        [
+            SandboxTemplate.DEFAULT_BASE,
+            SandboxTemplate.VM_BASE,
+            SandboxTemplate.NOTEBOOK_BASE,
+            SandboxTemplate.STREAMLIT_BASE,
+        ],
+    )
+    @pytest.mark.parametrize("workload", [SandboxWorkload.DEFAULT, SandboxWorkload.SELF_DRIVING])
+    def test_local_and_eval_providers_never_resolve_a_production_app(self, app_lookup, backend, template, workload):
+        # Every app name has to be a class attribute for the provider subclasses to shadow it.
+        # A module constant read directly would leak local and eval boxes into a production app.
+        sandbox_cls = get_sandbox_class_for_backend(backend)
+        assert issubclass(sandbox_cls, ModalSandbox)
+
+        sandbox_cls._get_app_for_config(SandboxConfig(name="test", template=template, workload=workload))
+
+        assert app_lookup.call_args.args[0] not in self.PRODUCTION_APP_NAMES
 
 
 class TestSelfDrivingWorkloadMapping:
