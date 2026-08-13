@@ -194,25 +194,31 @@ export function Navigation({
                             )}
                         >
                             <SceneLayout sceneConfig={sceneConfig}>
-                                {!sceneMenuBarEnabled && !sceneConfig?.hideProjectNotice && (
-                                    <div
-                                        className={cn({
-                                            'px-4 empty:hidden': sceneConfig?.layout === 'app-raw-no-header',
-                                            // Settings scene's nav is viewport-fixed on desktop, so the
-                                            // banner needs to clear it (nav width + column gap) to align
-                                            // with the settings content column.
-                                            'md:ml-[calc(var(--settings-nav-width)+2rem)]':
-                                                activeSceneId === Scene.Settings,
-                                        })}
-                                    >
-                                        <ProjectNotice
-                                            className={cn('my-0 mb-4', {
-                                                'mt-4': noPaddingScene,
+                                {/* While a takeover covers the scene its controls must leave the tab
+                                    order and the accessibility tree, or keyboard and screen-reader
+                                    users can operate them invisibly. The side panel stays outside the
+                                    wrapper: it renders beside the takeover and must stay usable. */}
+                                <div className="contents" inert={sceneTakeoverActive || undefined}>
+                                    {!sceneMenuBarEnabled && !sceneConfig?.hideProjectNotice && (
+                                        <div
+                                            className={cn({
+                                                'px-4 empty:hidden': sceneConfig?.layout === 'app-raw-no-header',
+                                                // Settings scene's nav is viewport-fixed on desktop, so the
+                                                // banner needs to clear it (nav width + column gap) to align
+                                                // with the settings content column.
+                                                'md:ml-[calc(var(--settings-nav-width)+2rem)]':
+                                                    activeSceneId === Scene.Settings,
                                             })}
-                                        />
-                                    </div>
-                                )}
-                                {children}
+                                        >
+                                            <ProjectNotice
+                                                className={cn('my-0 mb-4', {
+                                                    'mt-4': noPaddingScene,
+                                                })}
+                                            />
+                                        </div>
+                                    )}
+                                    {children}
+                                </div>
                                 <SidePanel />
                             </SceneLayout>
                         </main>
