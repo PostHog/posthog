@@ -15,8 +15,8 @@ import type { ConnectionStateEnumApi, MCPGatewayServerApi } from '../generated/a
 import { ServerIcon } from '../scene/icons'
 import { GatewayAgentLogicProps, gatewayAgentLogic } from './gatewayAgentLogic'
 import { GatewayRouteGuard } from './GatewayRouteGuard'
-import { DecisionTag } from './gatewayUtils'
-import { agentServerAccessKey } from './mcpGatewayLogic'
+import { DecisionTag, RemoveAllSharesButton, sharedByLabel } from './gatewayUtils'
+import { AgentServerShare, agentServerAccessKey } from './mcpGatewayLogic'
 
 export const scene: SceneExport<(typeof gatewayAgentLogic)['props']> = {
     component: GatewayAgentRouteScene,
@@ -51,9 +51,11 @@ export function GatewayAgentScene({
         agentServerAccessLoadingKeys,
         allServers,
         allServersLoading,
+        currentUserId,
         recentCalls,
         recentCallsLoading,
         sharedServers,
+        sharesByServerId,
         unsharedServers,
         visibleRecentCalls,
     } = useValues(gatewayAgentLogic)
@@ -82,6 +84,11 @@ export function GatewayAgentScene({
 
     const paused = account.status === 'paused'
     const statusLoading = accountStatusLoadingIds.has(account.id)
+
+    const yourConnectionState = (serverId: string): ConnectionStateEnumApi | undefined =>
+        account.servers.find(
+            (accountServer) => accountServer.id === serverId && accountServer.shared_by.id === currentUserId
+        )?.connection_state
 
     return (
         <SceneContent>
@@ -140,6 +147,9 @@ export function GatewayAgentScene({
                         {sharedServers.length} of {allServers.length}
                     </LemonTag>
                 </div>
+                <div className="text-sm text-secondary">
+                    Sharing is personal. {account.name} uses your connection only when it runs for you.
+                </div>
                 <div className="border rounded overflow-hidden divide-y">
                     {allServersLoading && allServers.length === 0 ? (
                         <div className="flex items-center justify-center gap-2 p-4 text-sm text-secondary">
@@ -158,10 +168,8 @@ export function GatewayAgentScene({
                                     accountId={account.id}
                                     accountName={account.name}
                                     shared
-                                    connectionState={
-                                        account.servers.find((accountServer) => accountServer.id === server.id)
-                                            ?.connection_state
-                                    }
+                                    share={sharesByServerId[server.id]}
+                                    connectionState={yourConnectionState(server.id)}
                                     loading={agentServerAccessLoadingKeys.has(
                                         agentServerAccessKey(account.id, server.id)
                                     )}
@@ -181,6 +189,7 @@ export function GatewayAgentScene({
                                     accountId={account.id}
                                     accountName={account.name}
                                     shared={false}
+                                    share={sharesByServerId[server.id]}
                                     loading={agentServerAccessLoadingKeys.has(
                                         agentServerAccessKey(account.id, server.id)
                                     )}
@@ -261,6 +270,7 @@ function ServerAccessRow({
     accountId,
     accountName,
     shared,
+    share,
     connectionState,
     loading,
     onSetAccess,
@@ -270,12 +280,16 @@ function ServerAccessRow({
     accountId: string
     accountName: string
     shared: boolean
+    share?: AgentServerShare
     connectionState?: ConnectionStateEnumApi
     loading: boolean
     onSetAccess: (accountId: string, serverId: string, enabled: boolean) => void
     onOpenServer?: (serverId: string, scope: string) => void
 }): JSX.Element {
-    const connectionDisabledReason = shared ? undefined : agentShareDisabledReason(server)
+    const sharedByYou = Boolean(share?.sharedByYou)
+    const sharedByOthers = share?.sharedByOthers ?? []
+    const attribution = sharedByLabel(sharedByOthers)
+    const connectionDisabledReason = sharedByYou ? undefined : agentShareDisabledReason(server)
     const toolLabel = `${server.tool_count} ${server.tool_count === 1 ? 'tool' : 'tools'}`
     const connectionStatus = connectionState ? agentConnectionStatus(connectionState) : null
 
@@ -284,15 +298,14 @@ function ServerAccessRow({
             <ServerIcon iconDomain={server.icon_domain} serverUrl={server.url} size={28} />
             <div className="flex-1 min-w-0">
                 <div className="font-semibold truncate">{server.name}</div>
-                <div className="text-xs text-secondary">
-                    {toolLabel}
-                    {shared ? ' available to this agent' : ''}
+                <div className="text-xs text-secondary truncate">
+                    {sharedByYou ? `${toolLabel} available to this agent` : (attribution ?? toolLabel)}
                 </div>
-                {shared && connectionStatus && connectionState !== 'ready' && (
+                {sharedByYou && connectionStatus && connectionState !== 'ready' && (
                     <div className="text-xs text-warning">{connectionStatus.detail}</div>
                 )}
             </div>
-            {shared && connectionStatus && (
+            {sharedByYou && connectionStatus && (
                 <LemonTag type={connectionState === 'ready' ? 'success' : 'warning'} size="small">
                     {connectionStatus.label}
                 </LemonTag>
@@ -307,11 +320,20 @@ function ServerAccessRow({
                     Tool policies
                 </LemonButton>
             )}
+            {sharedByOthers.length > 0 && (
+                <RemoveAllSharesButton
+                    accountId={accountId}
+                    accountName={accountName}
+                    serverId={server.id}
+                    serverName={server.name}
+                    shareCount={sharedByOthers.length + (sharedByYou ? 1 : 0)}
+                />
+            )}
             <LemonSwitch
-                checked={shared}
+                checked={sharedByYou}
                 loading={loading}
                 disabledReason={connectionDisabledReason}
-                aria-label={`${shared ? 'Revoke' : 'Grant'} ${accountName} access to ${server.name}`}
+                aria-label={`${sharedByYou ? 'Stop sharing' : 'Share'} your ${server.name} connection with ${accountName}`}
                 onChange={(checked) => {
                     if (!loading && (!checked || !connectionDisabledReason)) {
                         onSetAccess(accountId, server.id, checked)
