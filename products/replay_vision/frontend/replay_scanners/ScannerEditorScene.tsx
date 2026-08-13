@@ -102,7 +102,10 @@ export function ScannerEditorSceneComponent(): JSX.Element {
         self_driving: false,
         configure: showScannerErrors && !!(scannerValidationErrors?.name || scannerValidationErrors?.scanner_config),
         triggers:
-            showScannerErrors && (scannerValidationErrors?.sampling_rate != null || durationValidationError != null),
+            showScannerErrors &&
+            (scannerValidationErrors?.sampling_rate != null ||
+                scannerValidationErrors?.credit_limit != null ||
+                durationValidationError != null),
     }
 
     // Validate the current step and move on: submit routes to the next visible step on success.

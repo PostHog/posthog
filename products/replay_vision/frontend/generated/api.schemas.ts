@@ -851,6 +851,13 @@ export interface ReplayScannerApi {
      * * `balanced` - Balanced
      * * `comprehensive` - Comprehensive */
     sampling_mode?: SamplingModeEnumApi
+    /**
+     * Optional cap on this scanner's own credit spend per billing period. Null means no scanner-level cap. When reached, this scanner stops scanning until the period resets. It stays enabled and does not scan the sessions it skipped.
+     * @minimum 1
+     * @maximum 2147483647
+     * @nullable
+     */
+    credit_limit?: number | null
     /** LLM provider. v1 is Google-only.
      *
      * * `google` - Google */
@@ -885,6 +892,10 @@ export interface ReplayScannerApi {
     readonly credits_this_month: number
     /** Succeeded observations this scanner produced in the current billing period. */
     readonly observations_this_month: number
+    /** Credits counted against `credit_limit` for the current billing period: settled receipts plus in-flight observations and running prompt tests, priced from their frozen snapshot model. This is what the limit gate measures, so it includes work still in progress. It is not the same as `credits_this_month`, which counts only succeeded observations. */
+    readonly credits_used_against_limit: number
+    /** Whether this scanner has stopped because of its own credit limit. True when `credit_limit` is set and the budget left cannot cover one more observation, which is the same test the scanner's enforcement gates apply. Always false when no limit is set. */
+    readonly limit_reached: boolean
     /** Watermark for the scanner's last scheduled fire. Mirrors Temporal schedule state for recovery. */
     readonly last_swept_at: string
     readonly created_at: string
@@ -953,6 +964,13 @@ export interface PatchedReplayScannerApi {
      * * `balanced` - Balanced
      * * `comprehensive` - Comprehensive */
     sampling_mode?: SamplingModeEnumApi
+    /**
+     * Optional cap on this scanner's own credit spend per billing period. Null means no scanner-level cap. When reached, this scanner stops scanning until the period resets. It stays enabled and does not scan the sessions it skipped.
+     * @minimum 1
+     * @maximum 2147483647
+     * @nullable
+     */
+    credit_limit?: number | null
     /** LLM provider. v1 is Google-only.
      *
      * * `google` - Google */
@@ -987,6 +1005,10 @@ export interface PatchedReplayScannerApi {
     readonly credits_this_month?: number
     /** Succeeded observations this scanner produced in the current billing period. */
     readonly observations_this_month?: number
+    /** Credits counted against `credit_limit` for the current billing period: settled receipts plus in-flight observations and running prompt tests, priced from their frozen snapshot model. This is what the limit gate measures, so it includes work still in progress. It is not the same as `credits_this_month`, which counts only succeeded observations. */
+    readonly credits_used_against_limit?: number
+    /** Whether this scanner has stopped because of its own credit limit. True when `credit_limit` is set and the budget left cannot cover one more observation, which is the same test the scanner's enforcement gates apply. Always false when no limit is set. */
+    readonly limit_reached?: boolean
     /** Watermark for the scanner's last scheduled fire. Mirrors Temporal schedule state for recovery. */
     readonly last_swept_at?: string
     readonly created_at?: string
@@ -1060,8 +1082,9 @@ export interface BulkObserveRequestApi {
  * * `started` - Started
  * * `already_running` - Already running
  * * `already_scanned` - Already scanned
- * * `skipped_limit` - Skipped - in-flight limit reached
- * * `skipped_quota` - Skipped - monthly credit quota reached
+ * * `skipped_limit` - Skipped, in-flight limit reached
+ * * `skipped_quota` - Skipped, the org's credit quota for this period was reached
+ * * `skipped_scanner_limit` - Skipped, scanner's own credit limit reached
  * * `failed` - Failed to start
  */
 export type ScanOutcomeEnumApi = (typeof ScanOutcomeEnumApi)[keyof typeof ScanOutcomeEnumApi]
@@ -1072,6 +1095,7 @@ export const ScanOutcomeEnumApi = {
     AlreadyScanned: 'already_scanned',
     SkippedLimit: 'skipped_limit',
     SkippedQuota: 'skipped_quota',
+    SkippedScannerLimit: 'skipped_scanner_limit',
     Failed: 'failed',
 } as const
 
@@ -1081,13 +1105,14 @@ export const ScanOutcomeEnumApi = {
 export interface BulkObserveResultApi {
     /** The session recording this outcome is for. */
     session_id: string
-    /** 'started' - a scan workflow was kicked off; 'already_running' - a scan for this session is already in flight (no-op, not recharged); 'already_scanned' - this scanner already has a finished observation for this session, so nothing was started and nothing was charged (read it back, or use the retry action to run it again); 'skipped_limit' - the in-flight cap was reached before this session; 'skipped_quota' - the monthly credit quota would be exceeded; 'failed' - the workflow failed to start.
+    /** 'started' - a scan workflow was kicked off; 'already_running' - a scan for this session is already in flight (no-op, not recharged); 'already_scanned' - this scanner already has a finished observation for this session, so nothing was started and nothing was charged (read it back, or use the retry action to run it again); 'skipped_limit' - the in-flight cap was reached before this session; 'skipped_quota' - the org's credit quota for this period would be exceeded; 'skipped_scanner_limit' - this scanner's own credit limit would be exceeded; 'failed' - the workflow failed to start.
      *
      * * `started` - Started
      * * `already_running` - Already running
      * * `already_scanned` - Already scanned
-     * * `skipped_limit` - Skipped - in-flight limit reached
-     * * `skipped_quota` - Skipped - monthly credit quota reached
+     * * `skipped_limit` - Skipped, in-flight limit reached
+     * * `skipped_quota` - Skipped, the org's credit quota for this period was reached
+     * * `skipped_scanner_limit` - Skipped, scanner's own credit limit reached
      * * `failed` - Failed to start */
     scan_outcome: ScanOutcomeEnumApi
 }
