@@ -21,7 +21,7 @@ permissions:
 
 env:
     # Manual cache-bust knob. Keep in sync with SCHEMA_CACHE_EPOCH in ci-backend.yml, which saves these caches on master pushes.
-    SCHEMA_CACHE_EPOCH: v1
+    SCHEMA_CACHE_EPOCH: v2
     RUNS_ON_INTERNAL_PR: ${{ github.event_name != 'pull_request' || github.event.pull_request.head.repo.fork == false }}
 
 jobs:
@@ -61,6 +61,8 @@ jobs:
                         # MCP service and per-product tool/UI-app configs
                         - 'services/mcp/**'
                         - 'products/*/mcp/**'
+                        # Bundled into the MCP server (parser recipe tools)
+                        - 'packages/llm-normalizer/**'
                         # MCP integration tests exercise the full PostHog backend
                         - 'posthog/**/*.py'
                         - 'ee/**/*.py'
@@ -295,7 +297,8 @@ jobs:
         name: Integration Tests (depot-ubuntu-24.04-4)
         runs-on: depot-ubuntu-24.04-4
         needs: changes
-        timeout-minutes: 30
+        # Sized for a schema-cache miss (full migrate from scratch), not just a hit.
+        timeout-minutes: 45
         # Skipped on drafts: these boot the full PostHog backend and trigger on any
         # non-pytest Python change, so they're the expensive half of this workflow.
         # Build and unit tests still run on drafts; the `MCP Tests Pass` aggregator
@@ -424,7 +427,7 @@ jobs:
             - name: Build Rust flags service
               working-directory: rust
               env:
-                  # Debug builds compile much faster than release (~4 min vs ~9 min).
+                  # Debug builds compile much faster than release.
                   # We disable debug assertions because the codebase contains
                   # debug_assert! checks that intentionally panic on data invariant
                   # violations, which would crash the service mid-test-run.
@@ -477,6 +480,18 @@ jobs:
                       echo "::notice::merge-base not found (branch too stale?) — schema cache will be skipped"
                       exit 0
                   fi
+                  # Routing decides which app labels reach the dump, and the prime step below
+                  # replays them from the checked-out copy, so these inputs belong in the key. A PR
+                  # that edits any of them matches no master dump, the merge-base one included:
+                  # drop both keys and let migrations run from scratch.
+                  DB_ROUTING=$(git ls-tree -r --format='%(objectname) %(path)' "$MERGE_BASE" -- products/db_routing.yaml posthog/product_db_config.py posthog/product_db_router.py)
+                  DB_ROUTING_HEAD=$(git ls-tree -r --format='%(objectname) %(path)' HEAD -- products/db_routing.yaml posthog/product_db_config.py posthog/product_db_router.py)
+                  if [ "$DB_ROUTING" != "$DB_ROUTING_HEAD" ]; then
+                      echo "key=" >> $GITHUB_OUTPUT
+                      echo "migrations_key=" >> $GITHUB_OUTPUT
+                      echo "::notice::db routing config or router differs from the merge base, so the schema cache is skipped"
+                      exit 0
+                  fi
                   echo "key=posthog-schema-master-${MERGE_BASE}" >> $GITHUB_OUTPUT
                   # Shared migration-set key. Must match ci-backend.yml's save-side computation byte for byte or it never hits.
                   MIG_FILES=$(git ls-tree -r --format='%(objectname) %(path)' "$MERGE_BASE" \
@@ -489,7 +504,7 @@ jobs:
                       echo "migrations_key=" >> $GITHUB_OUTPUT
                       echo "::notice::no migration files matched — restore will fall back to the SHA schema key"
                   else
-                      MIG_HASH=$(printf '%s\n%s' "$MIG_FILES" "$PG_IMAGE" | sha256sum | cut -c1-40)
+                      MIG_HASH=$(printf '%s\n%s\n%s' "$MIG_FILES" "$PG_IMAGE" "$DB_ROUTING" | sha256sum | cut -c1-40)
                       echo "migrations_key=posthog-schema-mig-${SCHEMA_CACHE_EPOCH}-${MIG_HASH}" >> $GITHUB_OUTPUT
                   fi
 

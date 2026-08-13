@@ -1,7 +1,7 @@
 import json
 from copy import deepcopy
 from datetime import UTC, datetime, timedelta
-from typing import Optional
+from typing import Any, Optional
 
 from posthog.test.base import APIBaseTest, ClickhouseTestMixin
 from unittest.mock import MagicMock, PropertyMock, patch
@@ -50,6 +50,38 @@ class _StubAccountAudienceProvider:
 
     def get_account_group_type_name(self, team) -> str | None:
         return self.group_type
+
+
+def _email_function_template() -> dict:
+    template = deepcopy(webhook_template)
+    template["id"] = "template-email"
+    template["name"] = "Email"
+    template["inputs_schema"] = [
+        {
+            "key": "email",
+            "type": "native_email",
+            "label": "Email",
+            "secret": False,
+            "hidden": False,
+            "required": True,
+            "templating": "liquid",
+        }
+    ]
+    return template
+
+
+def _valid_email_inputs() -> dict:
+    return {
+        "email": {
+            "value": {
+                "to": "{{ person.properties.email }}",
+                "from": "noreply@example.com",
+                "subject": "Hello",
+                "html": "<p>Hello</p>",
+            },
+            "templating": "liquid",
+        }
+    }
 
 
 _SECRET_TEMPLATE_ID = "template-secret-webhook"
@@ -253,24 +285,23 @@ class TestHogFlowAPI(APIBaseTest):
     @parameterized.expand(
         [
             (
-                "uuid_in_email_template_id",
-                "function_email",
-                "0199aabb-ccdd-0000-1122-334455667788",
-                ["template-email", "template_uuid"],
-            ),
-            (
                 "uuid_in_generic_function",
                 "function",
                 "0199aabb-ccdd-0000-1122-334455667788",
                 ["template-webhook", "not a UUID"],
             ),
+            (
+                "wrong_literal_on_fixed_step",
+                "function_email",
+                "template-does-not-exist",
+                ["must be the literal 'template-email'"],
+            ),
         ]
     )
     def test_unknown_template_id_error_names_the_expected_form(self, _name, action_type, template_id, fragments):
-        # Agents keep putting saved-email-template UUIDs (from the template library) into
-        # config.template_id, where only the fixed literal is valid - the bare "Template not
-        # found" left them retrying formats blind. The error must name the literal and point
-        # UUID-holders at config.template_uuid.
+        # A bare "Template not found" left agents retrying formats blind. The error must name
+        # the expected form: the fixed literal for fixed-template steps, and the non-UUID
+        # template-id shape for generic function steps.
         hog_flow, action = self._create_hog_flow_with_action({"template_id": template_id, "inputs": {}})
         action["type"] = action_type
 
@@ -280,6 +311,159 @@ class TestHogFlowAPI(APIBaseTest):
         detail = response.json()["detail"]
         for fragment in fragments:
             assert fragment in detail, (fragment, detail)
+
+    def test_fixed_template_id_is_inferred_from_step_type(self):
+        # template_id on fixed-template steps is a constant of the step type; omitting the
+        # constant used to bounce the create with "Template not found".
+        sync_template_to_db(_email_function_template())
+        hog_flow, action = self._create_hog_flow_with_action({"inputs": _valid_email_inputs()})
+        action["type"] = "function_email"
+
+        response = self.client.post(f"/api/projects/{self.team.id}/hog_flows", hog_flow, HTTP_X_POSTHOG_CLIENT="mcp")
+
+        assert response.status_code == 201, response.json()
+        stored = HogFlow.objects.get(pk=response.json()["id"])
+        email_action = next(a for a in stored.actions if a["type"] == "function_email")
+        assert email_action["config"]["template_id"] == "template-email"
+
+    def test_uuid_template_id_is_coerced_into_template_uuid(self):
+        # The dominant authoring mistake: a saved library template's UUID in template_id.
+        # It belongs in config.template_uuid, so move it there instead of bouncing the request.
+        sync_template_to_db(_email_function_template())
+        library_uuid = "0199aabb-ccdd-0000-1122-334455667788"
+        hog_flow, action = self._create_hog_flow_with_action(
+            {"template_id": library_uuid, "inputs": _valid_email_inputs()}
+        )
+        action["type"] = "function_email"
+
+        response = self.client.post(f"/api/projects/{self.team.id}/hog_flows", hog_flow, HTTP_X_POSTHOG_CLIENT="mcp")
+
+        assert response.status_code == 201, response.json()
+        stored = HogFlow.objects.get(pk=response.json()["id"])
+        config = next(a for a in stored.actions if a["type"] == "function_email")["config"]
+        assert config["template_id"] == "template-email"
+        assert config["template_uuid"] == library_uuid
+
+    @parameterized.expand(
+        [
+            # uuid.UUID also accepts these, but the CDP worker validates function_push's
+            # template_uuid with a strict hyphenated-form schema - persisting the raw string
+            # would save a workflow the worker then rejects at parse time.
+            ("hex_without_hyphens", "0199aabbccdd00001122334455667788"),
+            ("urn_form", "urn:uuid:0199aabb-ccdd-0000-1122-334455667788"),
+        ]
+    )
+    def test_non_canonical_uuid_template_id_is_canonicalized(self, _name, template_id):
+        sync_template_to_db(_email_function_template())
+        hog_flow, action = self._create_hog_flow_with_action(
+            {"template_id": template_id, "inputs": _valid_email_inputs()}
+        )
+        action["type"] = "function_email"
+
+        response = self.client.post(f"/api/projects/{self.team.id}/hog_flows", hog_flow, HTTP_X_POSTHOG_CLIENT="mcp")
+
+        assert response.status_code == 201, response.json()
+        stored = HogFlow.objects.get(pk=response.json()["id"])
+        config = next(a for a in stored.actions if a["type"] == "function_email")["config"]
+        assert config["template_uuid"] == "0199aabb-ccdd-0000-1122-334455667788"
+
+    def test_equivalent_uuid_representations_do_not_conflict(self):
+        # The same saved template referenced in two spellings is one reference, not a conflict.
+        sync_template_to_db(_email_function_template())
+        hog_flow, action = self._create_hog_flow_with_action(
+            {
+                "template_id": "0199aabbccdd00001122334455667788",
+                "template_uuid": "0199aabb-ccdd-0000-1122-334455667788",
+                "inputs": _valid_email_inputs(),
+            }
+        )
+        action["type"] = "function_email"
+
+        response = self.client.post(f"/api/projects/{self.team.id}/hog_flows", hog_flow, HTTP_X_POSTHOG_CLIENT="mcp")
+
+        assert response.status_code == 201, response.json()
+        stored = HogFlow.objects.get(pk=response.json()["id"])
+        config = next(a for a in stored.actions if a["type"] == "function_email")["config"]
+        assert config["template_uuid"] == "0199aabb-ccdd-0000-1122-334455667788"
+
+    def test_uuid_template_id_conflicting_with_template_uuid_is_rejected(self):
+        # Coercion would silently overwrite one of two different saved-template references;
+        # that ambiguity is the caller's to resolve.
+        sync_template_to_db(_email_function_template())
+        hog_flow, action = self._create_hog_flow_with_action(
+            {
+                "template_id": "0199aabb-ccdd-0000-1122-334455667788",
+                "template_uuid": "11112222-3333-4444-5555-666677778888",
+                "inputs": _valid_email_inputs(),
+            }
+        )
+        action["type"] = "function_email"
+
+        response = self.client.post(f"/api/projects/{self.team.id}/hog_flows", hog_flow, HTTP_X_POSTHOG_CLIENT="mcp")
+
+        assert response.status_code == 400, response.json()
+        assert "Ambiguous" in response.json()["detail"], response.json()
+
+    @parameterized.expand(
+        [
+            (
+                "webhook",
+                "template-source-webhook",
+                "{request.body.event}",
+                "{request.body.distinct_id}",
+                ["$workflow_triggered", "request.query"],
+            ),
+            (
+                "manual",
+                "template-source-webhook",
+                "$workflow_triggered",
+                "{request.body.user_id}",
+                ["{request.body.event}", "request.query"],
+            ),
+            (
+                "tracking_pixel",
+                "template-source-webhook-pixel",
+                "{request.query.ph_event}",
+                "{request.query.ph_distinct_id}",
+                ["request.body"],
+            ),
+        ]
+    )
+    def test_unknown_trigger_template_id_names_the_source_template(
+        self, trigger_type, expected_literal, expected_event, expected_distinct_id, forbidden_fragments
+    ):
+        # webhook/manual/tracking_pixel triggers are each backed by a fixed built-in source template that
+        # isn't in the destination catalog agents search, so a wrong/guessed template_id left them looping
+        # on a bare "Template not found". The error must name the exact source literal and say it isn't in
+        # the destination catalog. The event/distinct_id hints have to be per-type too: the request that
+        # reaches the template differs, so a webhook-shaped mapping saves fine and then 400s on every
+        # manual run, or silently drops every pixel hit.
+        hog_flow = {
+            "name": "Test Flow",
+            "actions": [
+                {
+                    "id": "trigger_node",
+                    "name": "trigger_1",
+                    "type": "trigger",
+                    "config": {"type": trigger_type, "template_id": "not-a-real-template", "inputs": {}},
+                },
+                {"id": "exit_node", "name": "exit_1", "type": "exit", "config": {}},
+            ],
+            "edges": [{"from": "trigger_node", "to": "exit_node", "type": "continue"}],
+        }
+
+        response = self.client.post(f"/api/projects/{self.team.id}/hog_flows", hog_flow, HTTP_X_POSTHOG_CLIENT="mcp")
+
+        assert response.status_code == 400, response.json()
+        detail = response.json()["detail"]
+        assert expected_literal in detail, detail
+        assert "destination template catalog" in detail, detail
+        assert expected_event in detail, detail
+        assert expected_distinct_id in detail, detail
+        # Another trigger type's mapping leaking in is the actual regression: it saves fine and only
+        # fails once triggered, so the positive assertions alone would still pass a shared example.
+        for fragment in forbidden_fragments:
+            assert fragment not in detail, (fragment, detail)
 
     def test_stale_update_is_rejected_with_409(self):
         flow_id = self._create_simple_flow()
@@ -420,7 +604,7 @@ class TestHogFlowAPI(APIBaseTest):
             ("seconds_as_input_shape", {"inputs": {"duration": {"value": 1800}}}),
             ("iso_8601_duration", {"delay_duration": "P30D"}),
             ("unit_and_duration_shape", {"unit": "days", "duration": 3}),
-            ("unsupported_unit", {"delay_duration": "30s"}),
+            ("unsupported_unit", {"delay_duration": "30w"}),
             ("empty_string", {"delay_duration": ""}),
         ]
     )
@@ -431,15 +615,15 @@ class TestHogFlowAPI(APIBaseTest):
             "attr": "actions__1__config",
             "code": "invalid_input",
             "detail": (
-                "delay_duration must be a string matching ^\\d*\\.?\\d+[dhm]$ "
-                "(e.g. '30m', '2h', '1d'). ISO-8601 formats are not supported. "
-                "For seconds, use a fraction of a minute."
+                "delay_duration must be a string matching ^\\d*\\.?\\d+[dhms]$ "
+                "(e.g. '30s', '30m', '2h', '1.5d'). ISO-8601 formats are not supported."
             ),
             "type": "validation_error",
         }
 
     @parameterized.expand(
         [
+            ("seconds", "30s"),
             ("minutes", "30m"),
             ("hours", "2h"),
             ("days", "1d"),
@@ -451,6 +635,59 @@ class TestHogFlowAPI(APIBaseTest):
             f"/api/projects/{self.team.id}/hog_flows",
             self._make_delay_flow({"delay_duration": delay_duration}),
         )
+        assert response.status_code == 201, response.json()
+
+    def _make_wait_flow(self, max_wait_duration: Any) -> dict:
+        flow = self._make_delay_flow({"delay_duration": "5m"})
+        flow["actions"][1] = {
+            "id": "w1",
+            "name": "w1",
+            "type": "wait_until_condition",
+            "config": {
+                "condition": {"filters": None},
+                "events": [
+                    {"filters": {"events": [{"id": "$pageview", "name": "$pageview", "type": "events", "order": 0}]}}
+                ],
+                "max_wait_duration": max_wait_duration,
+            },
+        }
+        return flow
+
+    @parameterized.expand(
+        [
+            ("no_unit", "5"),
+            ("unsupported_unit", "10x"),
+            ("iso_8601", "P30D"),
+            ("numeric", 1800),
+        ]
+    )
+    def test_hog_flow_wait_validation_rejects_malformed_max_wait_duration(self, _name, max_wait_duration):
+        # conditional_branch.ts hands max_wait_duration to the same parser as delay_duration, so a
+        # value that only fails at execution time has to be rejected at write time too
+        response = self.client.post(f"/api/projects/{self.team.id}/hog_flows", self._make_wait_flow(max_wait_duration))
+        assert response.status_code == 400, response.json()
+        assert response.json() == {
+            "attr": "actions__1__config",
+            "code": "invalid_input",
+            "detail": (
+                "max_wait_duration must be a string matching ^\\d*\\.?\\d+[dhms]$ "
+                "(e.g. '30s', '30m', '2h', '1.5d'). ISO-8601 formats are not supported."
+            ),
+            "type": "validation_error",
+        }
+
+    @parameterized.expand(
+        [
+            ("seconds", "30s"),
+            ("minutes", "30m"),
+            ("fractional_days", "1.5d"),
+            # A falsy timeout is honoured as "wait indefinitely", so it stays valid to send
+            ("null", None),
+            ("empty_string", ""),
+        ]
+    )
+    def test_hog_flow_wait_validation_accepts_canonical_max_wait_duration(self, _name, max_wait_duration):
+        response = self.client.post(f"/api/projects/{self.team.id}/hog_flows", self._make_wait_flow(max_wait_duration))
         assert response.status_code == 201, response.json()
 
     @parameterized.expand(

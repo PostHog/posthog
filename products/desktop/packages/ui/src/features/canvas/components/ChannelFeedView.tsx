@@ -64,6 +64,7 @@ import { Text } from "@radix-ui/themes";
 import { Link } from "@tanstack/react-router";
 import {
   memo,
+  type ReactElement,
   type ReactNode,
   useCallback,
   useEffect,
@@ -305,7 +306,7 @@ export function TaskCard({
 //
 // The fetch/poll only runs for near-viewport rows (`inView`); off-screen rows
 // render the static affordance and idle, so a long feed isn't polling per row.
-function ReplyFooter({
+export function ReplyFooter({
   taskId,
   inView,
   onOpenThread,
@@ -319,13 +320,20 @@ function ReplyFooter({
     enabled: inView,
     markActivityRead: false,
   });
+  // Keyed by who authored the reply, not by author uuid: an agent reply carries no user, so
+  // every agent in the thread collapsed onto one "unknown" slot and wore a person's fallback
+  // initial. The whole message is kept, because drawing the agent needs its kind.
   const authors = useMemo(() => {
-    const seen = new Map<string, (typeof messages)[number]["author"]>();
+    const seen = new Map<string, (typeof messages)[number]>();
     for (const message of messages) {
-      const key = message.author?.uuid ?? "unknown";
-      if (!seen.has(key)) seen.set(key, message.author);
+      const authorKind = message.author_kind ?? "human";
+      const key =
+        authorKind === "human"
+          ? `human:${message.author?.uuid ?? "unknown"}`
+          : authorKind;
+      if (!seen.has(key)) seen.set(key, message);
     }
-    return [...seen.values()].slice(0, 4);
+    return [...seen.entries()].slice(0, 4);
   }, [messages]);
 
   if (messages.length === 0) {
@@ -349,9 +357,17 @@ function ReplyFooter({
   return (
     <ThreadItemReplies onClick={onOpenThread} className="mt-1">
       <AvatarGroup size="xs">
-        {authors.map((author, index) => (
-          <UserAvatar key={author?.uuid ?? index} user={author} size="xs" />
-        ))}
+        {authors.map(([key, message]) =>
+          message.author_kind === "agent" ? (
+            <Avatar key={key} size="xs">
+              <AvatarFallback>
+                <RobotIcon size={12} />
+              </AvatarFallback>
+            </Avatar>
+          ) : (
+            <UserAvatar key={key} user={message.author} size="xs" />
+          ),
+        )}
       </AvatarGroup>
       <ThreadItemRepliesLabel>
         {messages.length} {messages.length === 1 ? "reply" : "replies"}
@@ -758,7 +774,7 @@ export function ChannelFeedView({
   /** Rendered pinned above the first entry — the Slack-style channel intro
    * (name, creation line, onboarding card). When set, the feed renders even
    * with no entries instead of falling back to `emptyState`. */
-  intro?: ReactNode;
+  intro?: ReactElement;
   onOpenTask: (task: Task) => void;
   onOpenThread: (task: Task) => void;
 }) {
@@ -826,7 +842,7 @@ export function ChannelFeedView({
               bottom padding clears the composer's floating workspace-mode
               selector, which hangs over the end of the feed. */}
           <ChatMessageScrollerContent className="mx-auto w-full gap-0 pt-4 pb-10">
-            {intro}
+            {intro as never}
             {entries.map((entry) =>
               entry.kind === "task" ? (
                 <FeedRow

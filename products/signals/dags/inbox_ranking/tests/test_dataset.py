@@ -79,8 +79,10 @@ def test_snapshot_bounds_cover_the_partition_day():
 
 def test_valid_report_uuids_canonicalizes_and_drops_junk():
     # Case/hyphenation variants must collapse onto the canonical id, or a forged variant would
-    # survive as a separate label-only training row instead of joining its report.
-    assert valid_report_uuids({UUID_A, UUID_A.upper(), "not-a-uuid", ""}) == {UUID_A}
+    # survive as a separate label-only training row instead of joining its report. None reaches
+    # here when a label event lacks its report id property (uuid.UUID(None) raises TypeError,
+    # which must be swallowed like ValueError, not fail the asset).
+    assert valid_report_uuids({UUID_A, UUID_A.upper(), "not-a-uuid", "", None}) == {UUID_A}
 
 
 def test_utc_bound_carries_an_explicit_offset():
@@ -95,7 +97,12 @@ def test_merge_label_streams_fills_defaults_and_maps_columns():
     stream_rows: dict[str, list[tuple[Any, ...]]] = {
         "impressions": [(UUID_A, T1.replace(tzinfo=None), 5, 2, 3, 1, ["error_tracking"])],
         "opens": [(UUID_A.upper(), T2, 4, 2), (UUID_B, T2, 1, 1)],
-        "actions": [("bogus-id", 1, T1, 1, T1, 1, 1)],
+        "actions": [
+            ("bogus-id", 1, T1, 1, T1, 1, 1, 1, T1, 1, T1),
+            # Distinct values per column, so a shifted or swapped ACTIONS_SQL/ACTIONS_COLUMNS
+            # position lands a wrong value in some asserted field below.
+            (UUID_B, 5, T1, 0, None, 0, 0, 2, T1, 3, T2),
+        ],
         "status_changes": [],
         "pr_events": [],
     }
@@ -115,6 +122,11 @@ def test_merge_label_streams_fills_defaults_and_maps_columns():
     assert r2["impression_unit_count"] == 0
     assert r2["first_impressed_at"] is None
     assert r2["pr_created_count"] == 0
+    assert r2["ui_dismiss_count"] == 5
+    assert r2["reviewer_add_count"] == 2
+    assert r2["first_reviewer_added_at"] == T1
+    assert r2["reviewer_remove_count"] == 3
+    assert r2["first_reviewer_removed_at"] == T2
 
 
 @pytest.mark.parametrize("alias_first", [True, False])

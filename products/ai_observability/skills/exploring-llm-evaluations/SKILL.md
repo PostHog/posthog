@@ -402,3 +402,8 @@ Always surface the relevant link so the user can verify in the UI.
 - LLM-judge evaluators are non-deterministic across reruns; expect 1-5% noise even with
   a fixed prompt and model. If you're chasing a small regression in fail rate, prefer
   Hog or pin a deterministic provider/seed in the `model_configuration`
+
+## Related skills
+
+- **`creating-online-evaluations`** — author a new evaluation from scratch
+- **`exploring-ai-failures`** — ground the next evaluation in observed failure modes

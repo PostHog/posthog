@@ -1,4 +1,5 @@
 import uuid
+import socket
 from collections.abc import Callable
 from typing import Any, Literal
 
@@ -37,8 +38,12 @@ from products.warehouse_sources.backend.temporal.data_imports.pipelines.common.l
     supports_partial_data_loading,
 )
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.core.arrow_utils import (
+    SchemaColumnTypeChangedException,
     evolve_pyarrow_schema,
     pyarrow_schema_from_arrow_exportable,
+)
+from products.warehouse_sources.backend.temporal.data_imports.pipelines.core.auto_widen_resync import (
+    maybe_schedule_auto_widen_resync,
 )
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.core.consts import PARTITION_KEY
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.core.delta.scd2 import Scd2DeltaWriter
@@ -54,10 +59,6 @@ from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline_v3.batch_consumer import (
     OwnershipLostError,
 )
-from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline_v3.kafka.common import (
-    ExportSignalMessage,
-    SyncTypeLiteral,
-)
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline_v3.load.idempotency import (
     is_batch_already_processed,
     mark_batch_as_processed,
@@ -68,12 +69,17 @@ from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline
     IDEMPOTENCY_HIT_TOTAL,
     PARQUET_READ_DURATION_SECONDS,
 )
+from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline_v3.messages import (
+    ExportSignalMessage,
+    SyncTypeLiteral,
+)
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline_v3.s3 import read_parquet
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline_v3.sync_lock import (
     release_v3_pipeline_lock,
 )
 from products.warehouse_sources.backend.temporal.data_imports.row_tracking import finish_row_tracking
 from products.warehouse_sources.backend.temporal.data_imports.util import prepare_s3_files_for_querying
+from products.warehouse_sources.backend.temporal.data_imports.workload_report import workload_reporting
 
 logger = structlog.get_logger(__name__)
 
@@ -379,6 +385,7 @@ def _run_post_load_for_already_processed_batch(export_signal: ExportSignalMessag
             table_schema_dict=table_schema_dict,
             resource_name=export_signal.resource_name,
             logger=logger,
+            cdc_write_mode=export_signal.cdc_write_mode,
         )
 
         logger.debug("post_load_operations_complete_for_already_processed_batch")
@@ -675,6 +682,26 @@ def process_message(
     re-checked before each lasting side effect since the heartbeat only detects loss between beats."""
     export_signal = ExportSignalMessage.from_dict(message)
 
+    # The consumer is where v3 merges — the memory-heavy phase — actually run, so it must self-report
+    # like the import activity does. Its own span key: extract (activity) and load (here) run
+    # concurrently for the same job and must not clobber each other's reports.
+    with workload_reporting(
+        team_id=export_signal.team_id,
+        schema_id=str(export_signal.schema_id),
+        run_id=f"{export_signal.job_id}:load",
+        host=socket.gethostname(),
+        initial_phase="load",
+    ):
+        _process_message_reported(message, export_signal, progress_callback, verify_ownership)
+
+
+def _process_message_reported(
+    message: Any,
+    export_signal: "ExportSignalMessage",
+    progress_callback: Callable[[], None] | None,
+    verify_ownership: Callable[[], None] | None,
+) -> None:
+
     # Reconnect stale app-DB connections up front so the ORM queries below don't burn all batch attempts.
     close_old_connections()
 
@@ -795,7 +822,17 @@ def process_message(
         )
 
         if existing_delta_table is not None:
-            pa_table = evolve_pyarrow_schema(pa_table, existing_delta_table.schema())
+            try:
+                pa_table = evolve_pyarrow_schema(pa_table, existing_delta_table.schema())
+            except SchemaColumnTypeChangedException as e:
+                # A safe numeric widening is mechanically recoverable: stamp reset_pipeline so the
+                # next scheduled sync resets and re-syncs the table, and reword the failure so
+                # latest_error stops telling the customer to reset manually. Unsafe transitions
+                # (and everything with the flag off) re-raise unchanged.
+                amended_message = maybe_schedule_auto_widen_resync(schema=schema, job=job, error=e)
+                if amended_message is not None:
+                    e.args = (amended_message,)
+                raise
 
         if verify_ownership is not None:
             verify_ownership()

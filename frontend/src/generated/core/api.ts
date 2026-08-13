@@ -12,11 +12,13 @@ import type {
     BulkUpdateTagsRequestApi,
     BulkUpdateTagsResponseApi,
     CIMDVerificationTokenApi,
+    CIMDVerificationTokenCreateApi,
     CIMDVerificationTokenWithValueApi,
     CimdVerificationTokensListParams,
     DomainsListParams,
     EnterprisePropertyDefinitionApi,
     ExportedAssetApi,
+    ExportedAssetCreateApi,
     ExportsListParams,
     FileSystemApi,
     FileSystemListParams,
@@ -29,6 +31,8 @@ import type {
     IdentityProviderConfigApi,
     IdentityProviderConfigsListParams,
     InvitesListParams,
+    LeakedKeyReportApi,
+    LeakedKeyReportResponseApi,
     OauthApplicationsListParams,
     OnboardingSkipRequestApi,
     OrganizationDomainApi,
@@ -48,6 +52,7 @@ import type {
     PaginatedProjectSecretAPIKeyListApi,
     PaginatedUserGitHubIntegrationListResponseListApi,
     PaginatedUserListApi,
+    PatchedCIMDVerificationTokenUpdateApi,
     PatchedEnterprisePropertyDefinitionApi,
     PatchedFileSystemApi,
     PatchedFileSystemShortcutApi,
@@ -125,6 +130,11 @@ export const getCimdVerificationTokensListUrl = (organizationId: string, params?
  * the metadata, matching the token links the partner app to this organization and
  * grants a higher default rate limit for account provisioning.
  *
+ * Each token is scoped at creation to the one `cimd_url` it will be published at,
+ * and verifies nowhere else. Two organizations may name the same URL; only the one
+ * whose token is actually served there verifies, so claiming a URL cannot be used
+ * to block a partner from verifying theirs.
+ *
  * The plaintext value is only available on creation; we store a hash.
  */
 export const cimdVerificationTokensList = async (
@@ -151,18 +161,23 @@ export const getCimdVerificationTokensCreateUrl = (organizationId: string) => {
  * the metadata, matching the token links the partner app to this organization and
  * grants a higher default rate limit for account provisioning.
  *
+ * Each token is scoped at creation to the one `cimd_url` it will be published at,
+ * and verifies nowhere else. Two organizations may name the same URL; only the one
+ * whose token is actually served there verifies, so claiming a URL cannot be used
+ * to block a partner from verifying theirs.
+ *
  * The plaintext value is only available on creation; we store a hash.
  */
 export const cimdVerificationTokensCreate = async (
     organizationId: string,
-    cIMDVerificationTokenApi: NonReadonly<CIMDVerificationTokenApi>,
+    cIMDVerificationTokenCreateApi: CIMDVerificationTokenCreateApi,
     options?: RequestInit
 ): Promise<CIMDVerificationTokenWithValueApi> => {
     return apiMutator<CIMDVerificationTokenWithValueApi>(getCimdVerificationTokensCreateUrl(organizationId), {
         ...options,
         method: 'POST',
         headers: { 'Content-Type': 'application/json', ...options?.headers },
-        body: JSON.stringify(cIMDVerificationTokenApi),
+        body: JSON.stringify(cIMDVerificationTokenCreateApi),
     })
 }
 
@@ -179,6 +194,11 @@ export const getCimdVerificationTokensRetrieveUrl = (organizationId: string, id:
  * the metadata, matching the token links the partner app to this organization and
  * grants a higher default rate limit for account provisioning.
  *
+ * Each token is scoped at creation to the one `cimd_url` it will be published at,
+ * and verifies nowhere else. Two organizations may name the same URL; only the one
+ * whose token is actually served there verifies, so claiming a URL cannot be used
+ * to block a partner from verifying theirs.
+ *
  * The plaintext value is only available on creation; we store a hash.
  */
 export const cimdVerificationTokensRetrieve = async (
@@ -189,6 +209,40 @@ export const cimdVerificationTokensRetrieve = async (
     return apiMutator<CIMDVerificationTokenApi>(getCimdVerificationTokensRetrieveUrl(organizationId, id), {
         ...options,
         method: 'GET',
+    })
+}
+
+export const getCimdVerificationTokensPartialUpdateUrl = (organizationId: string, id: string) => {
+    return `/api/organizations/${organizationId}/cimd_verification_tokens/${id}/`
+}
+
+/**
+ * Manage CIMD verification tokens for an organization.
+ *
+ * A partner embeds the plaintext token in their CIMD metadata document as
+ * `verification_token` inside the `com.posthog` object (the legacy top-level
+ * `posthog_verification_token` field still works as a fallback). When PostHog fetches
+ * the metadata, matching the token links the partner app to this organization and
+ * grants a higher default rate limit for account provisioning.
+ *
+ * Each token is scoped at creation to the one `cimd_url` it will be published at,
+ * and verifies nowhere else. Two organizations may name the same URL; only the one
+ * whose token is actually served there verifies, so claiming a URL cannot be used
+ * to block a partner from verifying theirs.
+ *
+ * The plaintext value is only available on creation; we store a hash.
+ */
+export const cimdVerificationTokensPartialUpdate = async (
+    organizationId: string,
+    id: string,
+    patchedCIMDVerificationTokenUpdateApi?: PatchedCIMDVerificationTokenUpdateApi,
+    options?: RequestInit
+): Promise<CIMDVerificationTokenApi> => {
+    return apiMutator<CIMDVerificationTokenApi>(getCimdVerificationTokensPartialUpdateUrl(organizationId, id), {
+        ...options,
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json', ...options?.headers },
+        body: JSON.stringify(patchedCIMDVerificationTokenUpdateApi),
     })
 }
 
@@ -204,6 +258,11 @@ export const getCimdVerificationTokensDestroyUrl = (organizationId: string, id: 
  * `posthog_verification_token` field still works as a fallback). When PostHog fetches
  * the metadata, matching the token links the partner app to this organization and
  * grants a higher default rate limit for account provisioning.
+ *
+ * Each token is scoped at creation to the one `cimd_url` it will be published at,
+ * and verifies nowhere else. Two organizations may name the same URL; only the one
+ * whose token is actually served there verifies, so claiming a URL cannot be used
+ * to block a partner from verifying theirs.
  *
  * The plaintext value is only available on creation; we store a hash.
  */
@@ -1315,14 +1374,14 @@ export const getExportsCreateUrl = (projectId: string) => {
 
 export const exportsCreate = async (
     projectId: string,
-    exportedAssetApi: NonReadonly<ExportedAssetApi>,
+    exportedAssetCreateApi: NonReadonly<ExportedAssetCreateApi>,
     options?: RequestInit
-): Promise<ExportedAssetApi> => {
-    return apiMutator<ExportedAssetApi>(getExportsCreateUrl(projectId), {
+): Promise<ExportedAssetCreateApi> => {
+    return apiMutator<ExportedAssetCreateApi>(getExportsCreateUrl(projectId), {
         ...options,
         method: 'POST',
         headers: { 'Content-Type': 'application/json', ...options?.headers },
-        body: JSON.stringify(exportedAssetApi),
+        body: JSON.stringify(exportedAssetCreateApi),
     })
 }
 
@@ -2233,6 +2292,28 @@ export const sessionRecordingsSharingRefreshCreate = async (
         method: 'POST',
         headers: { 'Content-Type': 'application/json', ...options?.headers },
         body: JSON.stringify(sharingConfigurationApi),
+    })
+}
+
+export const getRevokeLeakedKeyCreateUrl = () => {
+    return `/api/revoke_leaked_key/`
+}
+
+/**
+ * Public, unauthenticated endpoint for self-service revocation of a leaked PostHog personal API key, project secret API key, or OAuth access/refresh token. If the token matches a real credential, it is revoked immediately and the owner is notified by email. This includes an expired OAuth access token: the paired refresh token it protects may still be live.
+ *
+ * This endpoint only checks the region it is running on. `"found": false` does not guarantee the token is safe. If you're not sure which region issued it, check both: https://app.posthog.com/api/revoke_leaked_key and https://eu.posthog.com/api/revoke_leaked_key.
+ * @summary Report and revoke a leaked PostHog API key or token
+ */
+export const revokeLeakedKeyCreate = async (
+    leakedKeyReportApi: LeakedKeyReportApi,
+    options?: RequestInit
+): Promise<LeakedKeyReportResponseApi> => {
+    return apiMutator<LeakedKeyReportResponseApi>(getRevokeLeakedKeyCreateUrl(), {
+        ...options,
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', ...options?.headers },
+        body: JSON.stringify(leakedKeyReportApi),
     })
 }
 

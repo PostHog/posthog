@@ -63,33 +63,33 @@ const advancedActivityLogsFilters = (): ToolBase<
     },
 })
 
-const AdvancedActivityLogsListSchema = AdvancedActivityLogsListQueryParams.extend({
-    page_size: AdvancedActivityLogsListQueryParams.shape['page_size'].default(10).optional(),
-}).extend({
-    fields: z
-        .array(
-            z.enum([
-                'id',
-                'user.id',
-                'user.first_name',
-                'user.last_name',
-                'user.email',
-                'activity',
-                'scope',
-                'item_id',
-                'detail.name',
-                'detail.short_id',
-                'detail.type',
-                'detail.changes',
-                'created_at',
-            ])
-        )
-        .min(1)
-        .optional()
-        .describe(
-            'Optional subset of response fields to return, each a dot-path from the allowlist. Omit to return all fields. Request only the fields your task needs to keep responses small.'
-        ),
-})
+const AdvancedActivityLogsListSchema = AdvancedActivityLogsListQueryParams.omit({ include_values: true, schema: true })
+    .extend({ page_size: AdvancedActivityLogsListQueryParams.shape['page_size'].default(10).optional() })
+    .extend({
+        fields: z
+            .array(
+                z.enum([
+                    'id',
+                    'user.id',
+                    'user.first_name',
+                    'user.last_name',
+                    'user.email',
+                    'activity',
+                    'scope',
+                    'item_id',
+                    'detail.name',
+                    'detail.short_id',
+                    'detail.type',
+                    'detail.changes',
+                    'created_at',
+                ])
+            )
+            .min(1)
+            .optional()
+            .describe(
+                'Optional subset of response fields to return, each a dot-path from the allowlist. Omit to return all fields. Request only the fields your task needs to keep responses small.'
+            ),
+    })
 
 const advancedActivityLogsList = (): ToolBase<
     typeof AdvancedActivityLogsListSchema,
@@ -107,10 +107,12 @@ const advancedActivityLogsList = (): ToolBase<
                 clients: params.clients,
                 detail_filters: params.detail_filters,
                 end_date: params.end_date,
+                follow: params.follow,
                 hogql_filter: params.hogql_filter,
                 ip_addresses: params.ip_addresses,
                 is_system: params.is_system,
                 item_ids: params.item_ids,
+                ordering: params.ordering,
                 page: params.page,
                 page_size: params.page_size,
                 scopes: params.scopes,
@@ -488,6 +490,7 @@ const commentsList = (): ToolBase<typeof CommentsListSchema, Schemas.PaginatedCo
                 scope: params.scope,
                 search: params.search,
                 source_comment: params.source_comment,
+                task_id: params.task_id,
             },
         })
         return result

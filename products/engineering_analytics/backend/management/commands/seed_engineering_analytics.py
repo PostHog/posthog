@@ -105,7 +105,7 @@ def _synthetic_repo_id(full_name: str) -> int:
 
 
 def _flatten_run(run: dict[str, Any]) -> dict[str, Any]:
-    json_keys = ("repository", "pull_requests", "head_commit")
+    json_keys = ("repository", "pull_requests", "head_commit", "actor")
     scalar_keys = [key for key in WORKFLOW_RUNS_COLUMNS if key not in json_keys]
     # A run is attributed to a PR only when the PR's base repo id equals the run's own — that's what
     # keeps the fork network's PRs out (see logic/views/workflow_runs). Snapshots captured before
@@ -123,6 +123,9 @@ def _flatten_run(run: dict[str, Any]) -> dict[str, Any]:
         "repository": json.dumps(repository),
         "pull_requests": json.dumps(associations),
         "head_commit": json.dumps(run.get("head_commit", {})),
+        # Snapshots captured before actor was kept land '{}', which reads as "not the merge queue" —
+        # the safe answer, since the branch parse it gates only ever adds attribution.
+        "actor": json.dumps(run.get("actor") or {}),
     }
 
 
@@ -427,7 +430,7 @@ def _demo_multi_push(
         "closed_at": None,
         "user": {"login": "webjunkie", "avatar_url": ""},
         "head": {"sha": push_shas[3]},
-        "base": {"repo": {"full_name": "PostHog/posthog"}},
+        "base": {"repo": {"full_name": "PostHog/posthog", "default_branch": "master"}},
         "labels": ["demo"],
     }
     return demo_pr, demo_runs
@@ -717,7 +720,7 @@ def _demo_merged_prs(prs: list[dict[str, Any]]) -> list[dict[str, Any]]:
                 "closed_at": template_ts,
                 "user": {"login": authors[index % len(authors)], "avatar_url": ""},
                 "head": {"sha": f"seed{index:04d}" + "a" * 32, "ref": f"seed/pr-{number}"},
-                "base": {"ref": "master", "repo": {"full_name": SEED_REPOSITORY}},
+                "base": {"ref": "master", "repo": {"full_name": SEED_REPOSITORY, "default_branch": "master"}},
                 "labels": [],
             }
         )
@@ -1142,7 +1145,11 @@ class Command(BaseCommand):
             existing.options = {**(existing.options or {}), "csv_allow_double_quotes": True}
             existing.deleted = False
             existing.deleted_at = None
-            existing.save()
+            # url_pattern is computed above from team/table_name, not request input, and credential
+            # is a real value from get_or_create_datawarehouse_credential (never None) - but the
+            # guard reads the row's prior DB state, so a stale credential-less row would still trip
+            # it without this declared explicitly.
+            existing.save(internally_computed_url_pattern=True)
             table = existing
         else:
             table = DataWarehouseTable.objects.create(

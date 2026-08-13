@@ -9,6 +9,7 @@ import { useHostTRPC } from "@posthog/host-router/react";
 import { PROJECT_BLUEBIRD_FLAG } from "@posthog/shared";
 import type { Task } from "@posthog/shared/domain-types";
 import { useChannelsLayout } from "@posthog/ui/features/canvas/hooks/useChannelsLayout";
+import { toggleActivityPanel } from "@posthog/ui/features/canvas/toggleActivityPanel";
 import { getDefaultReviewMode } from "@posthog/ui/features/code-review/getDefaultReviewMode";
 import { useReviewNavigationStore } from "@posthog/ui/features/code-review/reviewNavigationStore";
 import { SHORTCUTS } from "@posthog/ui/features/command/keyboard-shortcuts";
@@ -203,6 +204,10 @@ export function GlobalEventHandlers({
   );
   useHotkeys(SHORTCUTS.TOGGLE_LEFT_SIDEBAR, toggleLeftSidebar, globalOptions);
   useHotkeys(SHORTCUTS.TOGGLE_REVIEW_PANEL, handleToggleReview, globalOptions);
+  useHotkeys(SHORTCUTS.TOGGLE_ACTIVITY_PANEL, toggleActivityPanel, {
+    ...globalOptions,
+    enabled: channelsLayout,
+  });
   useHotkeys(SHORTCUTS.SHORTCUTS_SHEET, onToggleShortcutsSheet, globalOptions);
   useHotkeys(SHORTCUTS.INBOX, navigateToInbox, globalOptions);
   useHotkeys(SHORTCUTS.PREV_TASK, handlePrevTask, globalOptions, [

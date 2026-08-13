@@ -12,7 +12,7 @@ from posthog.egress.github.transport import github_request, raise_if_github_rate
 from posthog.egress.limiter.policies import Priority
 from posthog.helpers.encrypted_fields import EncryptedJSONField
 from posthog.models.github_integration_base import GitHubIntegrationBase
-from posthog.models.integration import invalidate_github_repository_caches_for_installation
+from posthog.models.integration import github_account_type, invalidate_github_repository_caches_for_installation
 from posthog.models.utils import UUIDModel
 
 if TYPE_CHECKING:
@@ -41,7 +41,10 @@ class UserIntegration(UUIDModel):
 
     Contents for Slack (user identity link):
     - `integration_id` holds the Slack user id (e.g. "U123ABC"), workspace-scoped
-    - `config` holds {slack_team_id, slack_team_name, slack_email_at_link, linked_at}
+    - `config` holds {slack_team_id, slack_team_name, slack_email_at_link, scope,
+      linked_at}; `scope` is the user scopes Slack granted, space-delimited as OIDC
+      returns them (the workspace row's `Integration.config["scope"]` is Slack's
+      comma-separated bot list, so don't parse the two the same way)
     - `sensitive_config` holds {user_access_token, user_refresh_token?} — the
       Slack user-to-server token plus, when the Slack app has
       `token_rotation_enabled`, a refresh token used to rotate it. Today's
@@ -536,7 +539,7 @@ def user_github_integration_from_installation(
     }
 
     if create_only:
-        integration, _created = UserIntegration.objects.get_or_create(
+        integration, created = UserIntegration.objects.get_or_create(
             user=user,
             kind=UserIntegration.IntegrationKind.GITHUB,
             integration_id=installation.installation_id,
@@ -546,7 +549,7 @@ def user_github_integration_from_installation(
             },
         )
     else:
-        integration, _created = UserIntegration.objects.update_or_create(
+        integration, created = UserIntegration.objects.update_or_create(
             user=user,
             kind=UserIntegration.IntegrationKind.GITHUB,
             integration_id=installation.installation_id,
@@ -556,7 +559,39 @@ def user_github_integration_from_installation(
             },
         )
         invalidate_github_repository_caches_for_installation(installation.installation_id)
+
+    if created:
+        _report_personal_integration_created(user, config, auto_created=create_only)
+
     return integration
+
+
+def _report_personal_integration_created(user: "User", config: dict[str, Any], *, auto_created: bool) -> None:
+    """Personal integrations live in their own table and never pass through the team integration
+    path, so ``integration created`` cannot see them. They get their own event rather than a scope
+    property on the team one, because saved insights already count ``integration created`` unfiltered
+    and would silently start including personal links.
+    """
+    from posthog.event_usage import report_user_action  # noqa: PLC0415 — posthog.event_usage imports posthog.models
+
+    owner_type = (config.get("account") or {}).get("type")
+    try:
+        report_user_action(
+            user,
+            "personal integration created",
+            {
+                "integration_kind": "github",
+                "repo_owner_type": owner_type,
+                "account_type": github_account_type(owner_type),
+                # True when the row rode along with a team App install rather than the user
+                # deliberately linking their account under Personal integrations.
+                "auto_created": auto_created,
+            },
+        )
+    except Exception:
+        # The row is already committed. Raising here would report a link that actually succeeded as
+        # a failure, and on the team install path it would take the team connect down with it.
+        logger.exception("user_github_integration: failed to report personal integration created")
 
 
 def refresh_user_github_installation_access(
@@ -604,6 +639,7 @@ def user_slack_integration_from_identity(
     slack_email_at_link: str | None,
     user_access_token: str,
     user_refresh_token: str | None = None,
+    user_scopes: str = "",
 ) -> UserIntegration:
     """Create or refresh a Slack ``UserIntegration`` from a Sign-in-with-Slack
     identity.
@@ -615,11 +651,17 @@ def user_slack_integration_from_identity(
     Storing both fields now means flipping rotation on later requires no
     schema or callback-shape change. ``slack_email_at_link`` is stored for
     support diagnostics and is not consulted at resolve time.
+
+    ``user_scopes`` records what Slack granted this link. Nothing gates on it today
+    — the OIDC consent screen grants ``OIDC_SCOPES`` all-or-nothing, so the row
+    existing already implies them — but it's what tells you, after the fact, which
+    scopes an older link was created with.
     """
     config: dict[str, Any] = {
         "slack_team_id": slack_team_id,
         "slack_team_name": slack_team_name,
         "slack_email_at_link": slack_email_at_link,
+        "scope": user_scopes,
         "linked_at": int(time.time()),
     }
     sensitive_config: dict[str, Any] = {

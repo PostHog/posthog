@@ -1,13 +1,22 @@
 import {
   ArrowClockwiseIcon,
+  ChatCircleIcon,
   DotsThreeIcon,
   LinkIcon,
   PencilSimpleIcon,
   PushPinIcon,
+  TrashIcon,
   XIcon,
 } from "@phosphor-icons/react";
 import { useHostTRPC } from "@posthog/host-router/react";
 import {
+  AlertDialog,
+  AlertDialogClose,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
   Button,
   DropdownMenu,
   DropdownMenuContent,
@@ -18,21 +27,31 @@ import { ANALYTICS_EVENTS } from "@posthog/shared/analytics-events";
 import { ChannelBreadcrumb } from "@posthog/ui/features/canvas/components/ChannelBreadcrumb";
 import { iconForTemplate } from "@posthog/ui/features/canvas/components/canvasTemplateIcon";
 import { NewCanvasMenu } from "@posthog/ui/features/canvas/components/NewCanvasMenu";
+import { deleteCanvasWithUndo } from "@posthog/ui/features/canvas/deleteCanvasWithUndo";
 import { CanvasFrameHost } from "@posthog/ui/features/canvas/freeform/CanvasFrameHost";
+import { canvasCommentTaskId } from "@posthog/ui/features/canvas/freeform/canvasCommentTask";
 import { useCanvasFrameStore } from "@posthog/ui/features/canvas/freeform/canvasFrameStore";
 import { CANVAS_QUERY_KEY } from "@posthog/ui/features/canvas/freeform/freeformDataBridge";
 import { useChannels } from "@posthog/ui/features/canvas/hooks/useChannels";
 import { useChannelsLayout } from "@posthog/ui/features/canvas/hooks/useChannelsLayout";
 import { useChannelTasks } from "@posthog/ui/features/canvas/hooks/useChannelTasks";
 import {
+  useCanvasVersions,
   useDashboard,
   useDashboardMutations,
 } from "@posthog/ui/features/canvas/hooks/useDashboards";
+import { useCanvasChatPanelStore } from "@posthog/ui/features/canvas/stores/canvasChatPanelStore";
 import {
   useDashboardEditStore,
   useIsDashboardEditing,
 } from "@posthog/ui/features/canvas/stores/dashboardEditStore";
 import { copyCanvasLink } from "@posthog/ui/features/canvas/utils/copyCanvasLink";
+import { buildCommentThreads } from "@posthog/ui/features/sessions/components/commentViewTypes";
+import { useCommentsQuery } from "@posthog/ui/features/sessions/components/useComments";
+import {
+  MentionAvailabilityProvider,
+  PRIVATE_SPACE_MENTIONS_DISABLED,
+} from "@posthog/ui/features/sessions/mentionAvailability";
 import { TaskHeaderActions } from "@posthog/ui/features/task-detail/components/TaskHeaderActions";
 import { useTasks } from "@posthog/ui/features/tasks/useTasks";
 import { toast } from "@posthog/ui/primitives/toast";
@@ -40,8 +59,13 @@ import { track } from "@posthog/ui/shell/analytics";
 import { useHeaderStore } from "@posthog/ui/shell/headerStore";
 import { Box, Flex } from "@radix-ui/themes";
 import { useIsMutating, useQueryClient } from "@tanstack/react-query";
-import { Outlet, useParams, useRouterState } from "@tanstack/react-router";
-import type { ReactNode } from "react";
+import {
+  Outlet,
+  useNavigate,
+  useParams,
+  useRouterState,
+} from "@tanstack/react-router";
+import { type ReactNode, useState } from "react";
 
 // Edit toggle + autosave status for a canvas. Source is server-versioned now —
 // version browsing and revert live in the canvas view's own toolbar — so the
@@ -53,11 +77,38 @@ function FreeformEditControls({
   channelId: string;
   dashboardId: string;
 }) {
+  const navigate = useNavigate();
+  // Pinning is scoped to whatever holds the canvas; the new layout calls that a
+  // space, the old one a channel.
+  const spacesLayout = useChannelsLayout();
+  const containerNoun = spacesLayout ? "space" : "channel";
   const editing = useIsDashboardEditing(dashboardId);
   const setEditing = useDashboardEditStore((s) => s.setEditing);
+  const openChat = useCanvasChatPanelStore((state) => state.openChat);
   const { dashboard } = useDashboard(dashboardId);
-  const { setPinned } = useDashboardMutations();
+  const { setPinned, invalidateDashboards } = useDashboardMutations();
   const isPinned = dashboard?.pinnedAt != null;
+  // "Delete…" opens a confirmation rather than deleting inline — the canvas and
+  // its version history go away for everyone in the space.
+  const [confirmDeleteOpen, setConfirmDeleteOpen] = useState(false);
+
+  // Once confirmed the canvas vanishes from every list and we return to the
+  // space, but the delete isn't sent until the undo toast's
+  // timer runs out — Undo simply cancels it.
+  const confirmDelete = () => {
+    setConfirmDeleteOpen(false);
+    deleteCanvasWithUndo({
+      dashboardId,
+      channelId,
+      name: dashboard?.name ?? "Canvas",
+      surface: "canvas",
+      invalidate: invalidateDashboards,
+    });
+    void navigate({
+      to: "/website/$channelId",
+      params: { channelId },
+    });
+  };
 
   const onTogglePin = () => {
     void setPinned(dashboardId, !isPinned)
@@ -135,7 +186,14 @@ function FreeformEditControls({
             </Button>
           }
         />
-        <DropdownMenuContent align="end" side="bottom" sideOffset={4}>
+        {/* Sized to its longest item — the default width clipped "Unpin from
+            space". Same treatment as the channel-list menus. */}
+        <DropdownMenuContent
+          align="end"
+          side="bottom"
+          sideOffset={4}
+          className="w-auto min-w-fit"
+        >
           <DropdownMenuItem onClick={onRefresh}>
             <ArrowClockwiseIcon size={14} />
             Refresh
@@ -150,10 +208,46 @@ function FreeformEditControls({
           </DropdownMenuItem>
           <DropdownMenuItem onClick={onTogglePin}>
             <PushPinIcon size={14} weight={isPinned ? "fill" : "regular"} />
-            {isPinned ? "Unpin from channel" : "Pin to channel"}
+            {isPinned
+              ? `Unpin from ${containerNoun}`
+              : `Pin to ${containerNoun}`}
+          </DropdownMenuItem>
+          <DropdownMenuItem
+            variant="destructive"
+            onClick={() => setConfirmDeleteOpen(true)}
+          >
+            <TrashIcon size={14} />
+            Delete…
           </DropdownMenuItem>
         </DropdownMenuContent>
       </DropdownMenu>
+      {/* Destructive confirm for "Delete…" — the canvas goes for everyone. */}
+      <AlertDialog open={confirmDeleteOpen} onOpenChange={setConfirmDeleteOpen}>
+        <AlertDialogContent className="max-w-md">
+          <AlertDialogHeader>
+            <AlertDialogTitle>Delete canvas</AlertDialogTitle>
+            <AlertDialogDescription>
+              Delete{" "}
+              <span className="font-medium">{dashboard?.name ?? "Canvas"}</span>
+              ? Its code and version history go for everyone in the{" "}
+              {containerNoun}. You get a few seconds to undo, then it's
+              permanent.
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogClose
+              render={
+                <Button variant="outline" size="sm">
+                  Cancel
+                </Button>
+              }
+            />
+            <Button variant="destructive" size="sm" onClick={confirmDelete}>
+              Delete
+            </Button>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
       <Button
         variant="outline"
         size="sm"
@@ -167,6 +261,7 @@ function FreeformEditControls({
             kind: "freeform",
             editing: !editing,
           });
+          if (!editing) openChat();
           setEditing(dashboardId, !editing);
         }}
       >
@@ -195,8 +290,26 @@ function CanvasBreadcrumb({
   trailing?: ReactNode;
 }) {
   const { dashboard } = useDashboard(dashboardId);
+  const { versions } = useCanvasVersions(dashboardId);
   const { renameDashboard } = useDashboardMutations();
+  const openComments = useCanvasChatPanelStore((state) => state.openComments);
   const name = dashboard?.name ?? "Canvas";
+  const commentTarget = {
+    scope: "desktop_canvas" as const,
+    itemId: dashboardId,
+  };
+  const commentTaskId = canvasCommentTaskId(
+    dashboard?.generationTaskId,
+    versions,
+  );
+  const comments = useCommentsQuery(
+    commentTaskId ? commentTarget : null,
+    commentTaskId ?? "",
+    { live: true },
+  );
+  const openCommentCount = buildCommentThreads(comments.data ?? []).filter(
+    (thread) => !thread.resolved,
+  ).length;
 
   return (
     <ChannelBreadcrumb
@@ -211,7 +324,20 @@ function CanvasBreadcrumb({
       leafLabel={name}
       editScopeKey={dashboardId}
       onRename={(next) => void renameDashboard(dashboardId, next)}
-      trailing={trailing}
+      trailing={
+        <>
+          {commentTaskId && (
+            <Button size="sm" variant="outline" onClick={openComments}>
+              <ChatCircleIcon />
+              Comments
+              {openCommentCount > 0 && (
+                <span className="tabular-nums">{openCommentCount}</span>
+              )}
+            </Button>
+          )}
+          {trailing}
+        </>
+      }
     />
   );
 }
@@ -242,6 +368,11 @@ export function WebsiteLayout() {
     : undefined;
 
   const { channels } = useChannels();
+  const mentionsDisabledReason =
+    channels.find((channel) => channel.id === channelId)?.channelType ===
+    "personal"
+      ? PRIVATE_SPACE_MENTIONS_DISABLED
+      : null;
   const channelName = channelId
     ? (channels.find((c) => c.id === channelId)?.name ??
       (spacesLayout ? "Space" : "Channel"))
@@ -314,7 +445,9 @@ export function WebsiteLayout() {
         </Flex>
       )}
       <Box flexGrow="1" overflow="hidden">
-        <Outlet />
+        <MentionAvailabilityProvider disabledReason={mentionsDisabledReason}>
+          <Outlet />
+        </MentionAvailabilityProvider>
       </Box>
       {/* Warm-iframe pool for canvases. Mounted once here so it persists across
           every in-space navigation; overlays itself onto the active canvas's

@@ -240,6 +240,12 @@ KLAVIYO_ENDPOINTS: dict[str, KlaviyoEndpointConfig] = {
                 "field_type": IncrementalFieldType.DateTime,
             },
         ],
+        description=(
+            "Includes each profile's subscriptions object by default: consent status per channel "
+            "(email, sms, push), global email suppressions in "
+            "subscriptions.email.marketing.suppression, and per-list email suppressions in "
+            "subscriptions.email.marketing.list_suppressions"
+        ),
     ),
     # Klaviyo only exposes list membership through per-list endpoints (which can't be called from
     # HogQL), so the many-to-many can't be joined. This table fans out one paginated request per list
@@ -282,7 +288,8 @@ KLAVIYO_ENDPOINTS: dict[str, KlaviyoEndpointConfig] = {
             "Incremental syncs pick up new joins and re-joins; profiles removed from a list are only "
             "reflected on a full refresh. List membership is not the same as subscription: check the "
             "$consent array in the profiles table's properties column to see which channels (sms, "
-            "email, push) a profile is currently subscribed to"
+            "email, push) a profile is currently subscribed to. Per-list email suppressions are in "
+            "the profiles table's subscriptions column, under email.marketing.list_suppressions"
         ),
     ),
     # Segment membership has the same shape as list membership: Klaviyo only exposes it per segment,
@@ -633,6 +640,11 @@ KLAVIYO_ENDPOINTS: dict[str, KlaviyoEndpointConfig] = {
         path="/webhooks",
         page_size=0,
         incremental_fields=[],
+        # Klaviyo only offers the webhooks API to accounts with its paid Advanced KDP add-on and
+        # 403s for everyone else even with the webhooks read scope granted, so a default-on table
+        # would fail the first sync for most connections.
+        should_sync_default=False,
+        description="Requires Klaviyo's Advanced KDP add-on",
     ),
     "accounts": KlaviyoEndpointConfig(
         name="accounts",

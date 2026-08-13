@@ -62,7 +62,8 @@ Call `workflows-create-email-template` with:
 ```
 
 - `subject` is required for email templates.
-- Always provide `text` — it's the fallback for clients that block rich content and improves deliverability.
+- Always author the `design` and omit `html` - the server renders html from the design. Sending hand-written html without a design produces an email the visual editor can only show as one raw block.
+- Always provide `text` as a real plain-text rendering of the message - clients that block rich content show only `text`, so filler like "placeholder" reaches real inboxes, and a text part that doesn't match the html hurts deliverability.
 - The tool result returns an edit link into the PostHog library.
 - After creating (or updating), call `workflows-show-email-template` — it renders an inline preview so the user sees the result.
 
@@ -95,5 +96,5 @@ Edit it with `workflows-patch-action-email`: the same design operations as `work
 
 - List what exists with `workflows-list-email-templates` (metadata only; fetch one for its content).
 - When the user asks to see a template, call `workflows-show-email-template` — it renders an inline preview.
-- Reference a template from a workflow's `function_email` action, or start a broadcast from it in the PostHog UI.
+- Reference a template from a workflow's `function_email` action (its UUID in `config.template_uuid`), or start a broadcast from it in the PostHog UI. The step takes a snapshot of the template's body at save - editing the library template later does not change steps that already used it. To change a step's email, patch that step with `workflows-patch-action-email`.
 - Templates are soft-deleted by setting `deleted: true` via `workflows-update-email-template`.

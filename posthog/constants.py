@@ -5,6 +5,7 @@ from semantic_version import Version
 
 FROZEN_POSTHOG_VERSION = Version("1.43.0")  # Frozen at the last self-hosted version, just for backwards compat now
 INTERNAL_BOT_EMAIL_SUFFIX = "@posthogbot.user"
+POSTHOG_INTERNAL_EMAIL_SUFFIX = "@posthog.com"
 
 
 # N.B. Keep this in sync with frontend enum (types.ts)
@@ -330,6 +331,9 @@ PRODUCT_TOUR_TARGETING_FLAG_PREFIX = "product-tour-targeting-"
 SUBSCRIPTION_AI_SUMMARY_PROMPT_GUIDE_FEATURE_FLAG_KEY = "subscription-ai-summary-prompt-guide"
 SUBSCRIPTION_AI_PROMPT_FEATURE_FLAG_KEY = "ai-subscriptions"
 EXPERIMENTS_SYNC_QUERIES_FEATURE_FLAG_KEY = "experiments-sync-queries"
+EXPERIMENTS_RETENTION_METRIC_EVENTS_PREAGGREGATION_FEATURE_FLAG_KEY = (
+    "experiments-retention-metric-events-preaggregation"
+)
 GENERATED_DASHBOARD_PREFIX = "Generated Dashboard"
 
 ENRICHED_DASHBOARD_INSIGHT_IDENTIFIER = "Feature Viewed"
