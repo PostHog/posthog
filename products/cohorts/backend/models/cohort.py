@@ -152,26 +152,21 @@ COHORT_RECALCULATION_FIELDS = frozenset(
 
 
 class ImportResolution:
-    """Tally of how many IDs in a static cohort import resolved to a person.
-
-    A static cohort can only ever hold persons, so any supplied ID that resolves to none
-    is dropped. Counting the drops is what turns that from an unexplained shortfall in the
-    person count into something we can show the user.
-    """
-
     def __init__(self) -> None:
-        self.consumed = 0
-        self.unique_inputs = 0
-        self.matched = 0
+        self.inputs: set[str] = set()
+        self.matched_inputs: set[str] = set()
 
-    def record(self, *, unique_inputs: int, matched: int, consumed: int) -> None:
-        self.unique_inputs += unique_inputs
-        self.matched += matched
-        self.consumed += consumed
+    def record(self, inputs: list[str], matched_inputs: set[str]) -> None:
+        self.inputs.update(inputs)
+        self.matched_inputs.update(matched_inputs)
+
+    @property
+    def total(self) -> int:
+        return len(self.inputs)
 
     @property
     def unmatched(self) -> int:
-        return max(self.unique_inputs - self.matched, 0)
+        return len(self.inputs - self.matched_inputs)
 
 
 def _normalize_uuid(value: Any) -> str:
@@ -744,6 +739,7 @@ class Cohort(FileSystemSyncMixin, RootTeamMixin, models.Model):
         team_id: Optional[int] = None,
         batch_size: int = DEFAULT_COHORT_INSERT_BATCH_SIZE,
         raise_on_error: bool = False,
+        import_resolution: ImportResolution | None = None,
     ) -> int:
         """
         Insert a list of users identified by their distinct ID into the cohort, for the given team.
@@ -766,8 +762,6 @@ class Cohort(FileSystemSyncMixin, RootTeamMixin, models.Model):
             # Make sure persons are created in tests before running this
             flush_persons_and_events()
 
-        resolution = ImportResolution()
-
         def create_uuid_batch(batch_index: int, batch_size: int) -> list[str]:
             from posthog.models.person.util import get_person_uuids_and_matched_distinct_ids
 
@@ -776,16 +770,14 @@ class Cohort(FileSystemSyncMixin, RootTeamMixin, models.Model):
             batch_items = items[start_idx:end_idx]
             with personhog_caller_tag("cohorts/uuid-batch"):
                 uuids, matched = get_person_uuids_and_matched_distinct_ids(team_id, batch_items)
-            resolution.record(unique_inputs=len(set(batch_items)), matched=len(matched), consumed=len(batch_items))
+            if import_resolution is not None:
+                import_resolution.record(batch_items, matched)
             return uuids
 
         batch_iterator = FunctionBatchIterator(create_uuid_batch, batch_size=batch_size, max_items=len(items))
-        try:
-            return self._insert_users_list_with_batching(
-                batch_iterator, insert_in_clickhouse=True, team_id=team_id, raise_on_error=raise_on_error
-            )
-        finally:
-            self._record_import_resolution(resolution, expected_total=len(items), team_id=team_id)
+        return self._insert_users_list_with_batching(
+            batch_iterator, insert_in_clickhouse=True, team_id=team_id, raise_on_error=raise_on_error
+        )
 
     def insert_users_list_by_uuid(
         self,
@@ -794,6 +786,7 @@ class Cohort(FileSystemSyncMixin, RootTeamMixin, models.Model):
         *,
         team_id: int,
         raise_on_error: bool = False,
+        import_resolution: ImportResolution | None = None,
     ) -> int:
         """
         Insert a list of users identified by their UUID into the cohort, for the given team.
@@ -811,27 +804,19 @@ class Cohort(FileSystemSyncMixin, RootTeamMixin, models.Model):
             The number of batches processed.
         """
 
-        resolution = ImportResolution()
-
         def insert_batch(batch: list[str]) -> None:
             matched = self._insert_batch_via_personhog(batch, True, team_id=team_id)
-            resolution.record(
-                unique_inputs=len({_normalize_uuid(item) for item in batch}),
-                matched=matched,
-                consumed=len(batch),
-            )
+            if import_resolution is not None:
+                import_resolution.record([_normalize_uuid(item) for item in batch], matched)
 
         batch_iterator = ArrayBatchIterator(items, batch_size=batchsize)
-        try:
-            return self._insert_users_list_with_batching(
-                batch_iterator,
-                insert_in_clickhouse=True,
-                team_id=team_id,
-                raise_on_error=raise_on_error,
-                insert_batch=insert_batch,
-            )
-        finally:
-            self._record_import_resolution(resolution, expected_total=len(items), team_id=team_id)
+        return self._insert_users_list_with_batching(
+            batch_iterator,
+            insert_in_clickhouse=True,
+            team_id=team_id,
+            raise_on_error=raise_on_error,
+            insert_batch=insert_batch,
+        )
 
     def insert_users_list_by_id_uuid_pairs_skip_validation(
         self,
@@ -876,6 +861,8 @@ class Cohort(FileSystemSyncMixin, RootTeamMixin, models.Model):
         team_id: Optional[int] = None,
         batch_size: int = DEFAULT_COHORT_INSERT_BATCH_SIZE,
         email_property_key: str | None = None,
+        raise_on_error: bool = False,
+        import_resolution: ImportResolution | None = None,
     ) -> int:
         """
         Insert a list of users identified by their email address into the cohort, for the given team.
@@ -898,28 +885,38 @@ class Cohort(FileSystemSyncMixin, RootTeamMixin, models.Model):
         def create_uuid_batch(batch_index: int, batch_size: int) -> list[str]:
             start_idx = batch_index * batch_size
             end_idx = start_idx + batch_size
-            return self._get_uuids_for_emails_batch_ch(items[start_idx:end_idx], team_id)
+            batch_items = items[start_idx:end_idx]
+            uuids, matched = self._get_uuids_and_matched_emails_batch_ch(batch_items, team_id)
+            if import_resolution is not None:
+                import_resolution.record([email.strip().lower() for email in batch_items], matched)
+            return uuids
 
         batch_iterator = FunctionBatchIterator(create_uuid_batch, batch_size=batch_size, max_items=len(items))
-        return self._insert_users_list_with_batching(batch_iterator, insert_in_clickhouse=True, team_id=team_id)
+        return self._insert_users_list_with_batching(
+            batch_iterator, insert_in_clickhouse=True, team_id=team_id, raise_on_error=raise_on_error
+        )
 
     def _get_uuids_for_emails_batch_ch(self, emails: list[str], team_id: int) -> list[str]:
+        uuids, _ = self._get_uuids_and_matched_emails_batch_ch(emails, team_id)
+        return uuids
+
+    def _get_uuids_and_matched_emails_batch_ch(self, emails: list[str], team_id: int) -> tuple[list[str], set[str]]:
         if not emails:
-            return []
+            return [], set()
 
         query = """
-        SELECT person.id
+        SELECT person.pmat_email, person.id
         FROM person
         WHERE person.team_id = %(team_id)s
           AND person.pmat_email IN %(emails)s
-        GROUP BY person.id
+        GROUP BY person.pmat_email, person.id
         HAVING argMax(person.is_deleted, person.version) = 0
         SETTINGS optimize_aggregation_in_order = 1
         """
 
         tag_queries(product=ProductKey.COHORTS, feature=Feature.COHORT)
         result = sync_execute(query, {"team_id": team_id, "emails": emails})
-        return [str(row[0]) for row in result]
+        return [str(row[1]) for row in result], {str(row[0]).strip().lower() for row in result}
 
     def insert_users_list_by_uuid_into_pg_only(
         self,
@@ -1030,18 +1027,18 @@ class Cohort(FileSystemSyncMixin, RootTeamMixin, models.Model):
         insert_in_clickhouse: bool,
         *,
         team_id: int,
-    ) -> int:
+    ) -> set[str]:
         """Personhog path for inserting a single batch of cohort members.
 
         Resolves UUIDs → person IDs via personhog (field-masked — membership only needs
         id/uuid, not properties or distinct IDs), then writes the resolved batch.
 
-        Returns the number of distinct persons the batch resolved to.
+        Returns the UUIDs that resolved to people in the team.
         """
         with personhog_caller_tag("cohorts/static-insert"):
             id_uuid_pairs = get_person_ids_and_uuids_by_uuids(team_id, batch)
         self._insert_resolved_batch(id_uuid_pairs, insert_in_clickhouse=insert_in_clickhouse, team_id=team_id)
-        return len({_normalize_uuid(person_uuid) for _, person_uuid in id_uuid_pairs})
+        return {_normalize_uuid(person_uuid) for _, person_uuid in id_uuid_pairs}
 
     def _insert_resolved_batch(
         self,
@@ -1207,31 +1204,6 @@ class Cohort(FileSystemSyncMixin, RootTeamMixin, models.Model):
             "last_error_at": self.last_error_at.isoformat() if self.last_error_at else None,
         }
         return {k: v for k, v in base_dict.items() if k not in excluded_fields}
-
-    def _record_import_resolution(self, resolution: ImportResolution, *, expected_total: int, team_id: int) -> None:
-        """Persist how many of an import's IDs matched no person, so the UI can report the shortfall.
-
-        Skipped when the run didn't get through every ID — a partial tally would read as a
-        much bigger shortfall than actually happened.
-        """
-        if resolution.consumed != expected_total:
-            return
-
-        self.last_import_total_count = resolution.unique_inputs
-        self.last_import_unmatched_count = resolution.unmatched
-        if resolution.unmatched:
-            logger.warning(
-                "cohort_import_unmatched_ids",
-                cohort_id=self.id,
-                team_id=team_id,
-                total=resolution.unique_inputs,
-                unmatched=resolution.unmatched,
-            )
-        try:
-            self.save(update_fields=["last_import_total_count", "last_import_unmatched_count"])
-        except Exception as save_err:
-            logger.exception("Failed to save cohort import resolution", cohort_id=self.id, team_id=team_id)
-            capture_exception(save_err, additional_properties={"cohort_id": self.id, "team_id": team_id})
 
     def _safe_save_cohort_state(self, *, team_id: int, processing_error=None) -> None:
         """

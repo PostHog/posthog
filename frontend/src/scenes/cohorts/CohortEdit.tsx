@@ -129,9 +129,8 @@ function UnmatchedImportBanner({ cohort }: { cohort: CohortType }): JSX.Element 
         <LemonBanner type="warning">
             <h4 className="font-semibold mb-1">Some IDs in the last import didn't match a person</h4>
             <p className="mb-0">
-                {unmatched.toLocaleString()} of {total.toLocaleString()} IDs weren't added to this cohort. A static
-                cohort can only contain people PostHog has identified, so IDs seen only on anonymous or personless
-                activity are skipped. Check that the IDs come from this project and belong to identified people.
+                {unmatched.toLocaleString()} of {total.toLocaleString()} IDs weren't added to this cohort because they
+                don't match a person in this project. Check that the IDs are correct and come from this project.
             </p>
         </LemonBanner>
     )

@@ -25,7 +25,7 @@ from posthog.tasks.utils import CeleryQueue
 from products.cohorts.backend.backfill.finalize import finalize_backfill_runs
 from products.cohorts.backend.backfill.runs import create_backfill_run_for_cohort
 from products.cohorts.backend.models.calculation_history import CohortCalculationHistory
-from products.cohorts.backend.models.cohort import Cohort, CohortOrEmpty
+from products.cohorts.backend.models.cohort import Cohort, CohortOrEmpty, ImportResolution
 from products.cohorts.backend.models.util import (
     COHORT_STATS_COLLECTION_DELAY_SECONDS,
     get_all_cohort_dependencies,
@@ -509,14 +509,37 @@ def calculate_cohort_from_list(
     if team_id is None:
         team_id = cohort.team_id
 
+    import_resolution = ImportResolution()
     if id_type == "distinct_id":
-        batch_count = cohort.insert_users_by_list(items, team_id=team_id)
+        batch_count = cohort.insert_users_by_list(
+            items, team_id=team_id, raise_on_error=True, import_resolution=import_resolution
+        )
     elif id_type == "person_id":
-        batch_count = cohort.insert_users_list_by_uuid(items, team_id=team_id)
+        batch_count = cohort.insert_users_list_by_uuid(
+            items, team_id=team_id, raise_on_error=True, import_resolution=import_resolution
+        )
     elif id_type == "email":
-        batch_count = cohort.insert_users_by_email(items, team_id=team_id, email_property_key=email_property_key)
+        batch_count = cohort.insert_users_by_email(
+            items,
+            team_id=team_id,
+            email_property_key=email_property_key,
+            raise_on_error=True,
+            import_resolution=import_resolution,
+        )
     else:
         raise ValueError(f"Unsupported id_type: {id_type}")
+
+    cohort.last_import_total_count = import_resolution.total
+    cohort.last_import_unmatched_count = import_resolution.unmatched
+    cohort.save(update_fields=["last_import_total_count", "last_import_unmatched_count"])
+    if import_resolution.unmatched:
+        logger.warning(
+            "cohort_import_unmatched_ids",
+            cohort_id=cohort.id,
+            team_id=team_id,
+            total=import_resolution.total,
+            unmatched=import_resolution.unmatched,
+        )
     logger.warn(
         "Cohort {}: {:,} items in {} batches from CSV completed in {:.2f}s".format(
             cohort.pk, len(items), batch_count, (time.time() - start_time)
