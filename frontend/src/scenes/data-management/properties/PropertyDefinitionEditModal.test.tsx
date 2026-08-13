@@ -44,6 +44,6 @@ describe('PropertyDefinitionEditModal', () => {
         expect(within(dialog).getByText('Description')).toBeInTheDocument()
         expect(within(dialog).getByText('Status')).toBeInTheDocument()
         expect(within(dialog).getByText('Property type')).toBeInTheDocument()
-        expect(within(dialog).getByRole('button', { name: 'Save' })).toHaveAttribute('aria-disabled', 'true')
+        expect(dialog.querySelector('[data-attr="save-property-definition"]')).toHaveAttribute('aria-disabled', 'true')
     })
 })
