@@ -143,8 +143,8 @@ export type {
     SeriesType,
     TooltipConfig,
     TooltipContext,
-    ValueBounds,
     ValueDomain,
+    ValueDomainAdjustments,
     YAxis,
     YAxisScale,
 } from './core/types'

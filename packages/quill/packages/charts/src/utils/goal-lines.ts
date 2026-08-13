@@ -1,4 +1,4 @@
-import type { Series, ValueDomain } from '../core/types'
+import type { Series, ValueDomain, ValueDomainAdjustments } from '../core/types'
 import type { ReferenceLineProps } from '../overlays/ReferenceLine'
 
 export interface GoalLineConfig {
@@ -57,18 +57,29 @@ export function goalLineValueDomain(referenceLines: readonly ReferenceLineProps[
     return values.length > 0 ? { include: values } : undefined
 }
 
-/** Combine a consumer-set {@link ValueDomain} with the goal-line stretch. A fixed `[min, max]`
- *  wins outright — the consumer pinned the axis, so nothing may stretch it — while two `include`
- *  sets merge, so an explicit include and off-scale goal lines both widen the auto domain. */
+/** Combine a consumer-set {@link ValueDomain} with the goal-line stretch. A pinned tuple wins
+ *  outright — the consumer fixed the axis, so nothing may stretch or clamp it — while two sets of
+ *  adjustments merge field by field, so an off-scale goal line still widens an axis the user has
+ *  also capped.
+ *
+ *  Discriminates on `Array.isArray`, not on a key being present: every adjustment is optional, so
+ *  `{ min: 40 }` would read as a pinned tuple under a key-presence check and drop the goal lines. */
 export function mergeValueDomains(a: ValueDomain | undefined, b: ValueDomain | undefined): ValueDomain | undefined {
     if (!a || !b) {
         return a ?? b
     }
-    if (!('include' in a)) {
+    if (Array.isArray(a)) {
         return a
     }
-    if (!('include' in b)) {
+    if (Array.isArray(b)) {
         return b
     }
-    return { include: [...a.include, ...b.include] }
+    const left = a as ValueDomainAdjustments
+    const right = b as ValueDomainAdjustments
+    const include = [...(left.include ?? []), ...(right.include ?? [])]
+    return {
+        include: include.length > 0 ? include : undefined,
+        min: left.min ?? right.min,
+        max: left.max ?? right.max,
+    }
 }

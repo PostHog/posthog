@@ -11,7 +11,16 @@ import {
 import { stack as stackGen, stackOffsetDiverging, stackOffsetExpand, stackOffsetNone } from 'd3-shape'
 
 import { significantDecimalPlaces } from '../utils/format'
-import type { BandSlot, ChartDimensions, ResolveValueFn, Series, ValueBounds, ValueDomain, YAxisScale } from './types'
+import type {
+    BandSlot,
+    ChartDimensions,
+    ResolveValueFn,
+    Series,
+    ValueBounds,
+    ValueDomain,
+    ValueDomainAdjustments,
+    YAxisScale,
+} from './types'
 import { DEFAULT_Y_AXIS_ID } from './types'
 
 /** Inner padding fraction applied to the band scale when `BarChartConfig.bars.bandPadding` is unset. */
@@ -73,19 +82,24 @@ export function seriesValueRange(series: Series[]): SeriesValueRange {
     return { min, max, minPositive, count }
 }
 
-/** Split a {@link ValueDomain} into its two mutually-exclusive modes — a fixed `[min, max]`
- *  or the set of values an auto-scaled domain must `include`. */
+/** Split a {@link ValueDomain} into the pinned tuple and the adjustments to an auto-scaled domain.
+ *
+ *  Discriminates on `Array.isArray`, not on a key being present: every adjustment is optional, so
+ *  `{ min: 40 }` carries no key that tells it apart from a tuple, and a key-presence check would
+ *  read it as one — silently pinning the domain to a garbage pair. */
 function resolveValueDomain(valueDomain: ValueDomain | undefined): {
     fixed?: readonly [number, number]
     include?: readonly number[]
+    bounds?: ValueBounds
 } {
     if (!valueDomain) {
         return {}
     }
-    if ('include' in valueDomain) {
-        return { include: valueDomain.include }
+    if (Array.isArray(valueDomain)) {
+        return { fixed: valueDomain as readonly [number, number] }
     }
-    return { fixed: valueDomain }
+    const adjustments = valueDomain as ValueDomainAdjustments
+    return { include: adjustments.include, bounds: adjustments }
 }
 
 /** Fold extra values (e.g. goal-line targets) into a range so the axis covers them even when
@@ -225,16 +239,14 @@ export function createYScale(
     options: {
         scaleType?: 'linear' | 'log'
         percentStack?: boolean
-        /** Fixed `[min, max]` or `{ include }` extra values the domain must cover. */
+        /** A pinned `[min, max]`, or adjustments (`include` / `min` / `max`) to the auto domain. */
         valueDomain?: ValueDomain
         /** Float the axis to its data range instead of clamping the baseline to 0. See {@link buildValueScale}. */
         floatBaseline?: boolean
-        /** Partial clamp applied last, composing with auto-scaling. See {@link applyValueBounds}. */
-        bounds?: ValueBounds
     } = {}
 ): ScaleLinear<number, number> | ScaleLogarithmic<number, number> {
-    const { scaleType = 'linear', percentStack = false, valueDomain, floatBaseline = false, bounds } = options
-    const { fixed, include } = resolveValueDomain(valueDomain)
+    const { scaleType = 'linear', percentStack = false, valueDomain, floatBaseline = false } = options
+    const { fixed, include, bounds } = resolveValueDomain(valueDomain)
     const tickCount = yTickCountForHeight(dimensions.plotHeight)
 
     if (fixed) {
@@ -444,8 +456,6 @@ export function createScales(
         /** Float the primary axis to its data range instead of clamping the baseline to 0. Applied to
          *  the primary axis only, like `valueDomain`. See {@link buildValueScale}. */
         floatBaseline?: boolean
-        /** Partial clamp on the primary axis only, like `valueDomain`. See {@link applyValueBounds}. */
-        valueBounds?: ValueBounds
     } = {}
 ): ScaleSet {
     const x = createXScale(labels, dimensions)
@@ -465,7 +475,6 @@ export function createScales(
             percentStack: options.percentStack,
             valueDomain: options.valueDomain,
             floatBaseline: options.floatBaseline,
-            bounds: options.valueBounds,
         })
         return { x, y }
     }
@@ -484,7 +493,6 @@ export function createScales(
                     : axisIndex === 0
                       ? options.floatBaseline
                       : undefined,
-            bounds: axisIndex === 0 ? options.valueBounds : undefined,
         })
         yAxes[axisId] = { scale, position: override?.position ?? position }
     })

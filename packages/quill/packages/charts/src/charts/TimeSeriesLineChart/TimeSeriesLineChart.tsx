@@ -1,4 +1,4 @@
-import React from 'react'
+import React, { useMemo } from 'react'
 
 import { ChartLegend } from '../../components/Legend/ChartLegend'
 import type {
@@ -14,7 +14,7 @@ import type {
 } from '../../core/types'
 import { ReferenceLines } from '../../overlays/ReferenceLine'
 import { ValueLabels } from '../../overlays/ValueLabels'
-import type { GoalLineConfig } from '../../utils/goal-lines'
+import { mergeValueDomains, type GoalLineConfig } from '../../utils/goal-lines'
 import { useTimeSeriesTooltipConfig, type XAxisConfig, type YAxisConfig } from '../../utils/use-axis-formatters'
 import { LineChart } from '../LineChart/LineChart'
 import {
@@ -130,8 +130,10 @@ export function TimeSeriesLineChart<Meta = unknown>({
     })
 
     // Goal lines scale against the drawn (post-derived) series, unlike bar/combo.
-    const { referenceLines, valueDomain } = useGoalLines(goalLines, finalSeries)
-    const valueBounds = useValueBounds(primaryYAxis)
+    const { referenceLines, valueDomain: goalLineDomain } = useGoalLines(goalLines, finalSeries)
+    const boundsDomain = useValueBounds(primaryYAxis)
+    // Merged rather than picked between: a capped axis still has to stretch to reach a goal line.
+    const valueDomain = useMemo(() => mergeValueDomains(goalLineDomain, boundsDomain), [goalLineDomain, boundsDomain])
 
     // `startAtZero === false` floats the primary axis to its data range; the default (undefined/true)
     // keeps the baseline clamped to 0. A log scale has no zero baseline to clamp, so it's a no-op there.
@@ -155,7 +157,6 @@ export function TimeSeriesLineChart<Meta = unknown>({
         showCrosshair,
         tooltip: timeSeriesTooltipConfig,
         valueDomain,
-        valueBounds,
         floatBaseline,
         yAxes,
     }

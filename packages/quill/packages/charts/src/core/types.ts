@@ -376,30 +376,35 @@ export interface TooltipConfig {
 }
 
 /** How the value axis domain is determined (y for vertical/line/area charts, x for horizontal
- *  bars). The two modes are mutually exclusive by construction — pick one. Omit the option
+ *  bars). Either pin both ends outright, or keep auto-scaling and adjust it. Omit the option
  *  entirely for the default: a data-derived range with `d3.nice()`. */
 export type ValueDomain =
     /** Pin both ends — skips the data-derived range and `d3.nice()` so independent charts that
      *  share this domain stay visually comparable (e.g. funnel steps). Takes precedence over
      *  `barLayout: 'percent'` / `percentStackView`. */
-    | readonly [number, number]
-    /** Keep data-derived auto-scaling, but stretch the domain to always cover these values
-     *  (e.g. goal-line targets that sit outside the data). Folded into the range before
-     *  `d3.nice()`. */
-    | { include: readonly number[] }
+    readonly [number, number] | ValueDomainAdjustments
+
+/** Adjustments layered onto the data-derived domain, so an end left unset stays automatic. They
+ *  apply on opposite sides of `d3.nice()` and compose: `include` widens the range before it, then
+ *  {@link ValueBounds} clamps the result afterwards. */
+export interface ValueDomainAdjustments extends ValueBounds {
+    /** Stretch the domain to always cover these values (e.g. goal-line targets that sit outside
+     *  the data). Folded into the range before `d3.nice()`. */
+    include?: readonly number[]
+}
 
 /** A partial user clamp on the value axis, applied *after* the data-derived domain, `{ include }`
  *  folding, the zero-baseline clamp and `d3.nice()`. Either end may be omitted to keep the automatic
- *  bound, so unlike the fixed {@link ValueDomain} form this composes with auto-scaling — it backs a
- *  user-facing "y-axis min/max" control. Ignored under a percent layout and when a fixed
- *  `ValueDomain` is set (both already pin the domain), and on a log scale any non-positive bound is
- *  dropped. The clamped bound is used verbatim rather than re-`nice()`d, since rounding it would
- *  defeat the point of typing it.
+ *  bound, so unlike the pinned tuple form this composes with auto-scaling — it backs a user-facing
+ *  "y-axis min/max" control. Ignored under a percent layout and when the domain is a pinned tuple
+ *  (both already fix the domain), and on a log scale any non-positive bound is dropped. The clamped
+ *  bound is used verbatim rather than re-`nice()`d, since rounding it would defeat the point of
+ *  typing it.
  *
- *  Deliberately a separate option rather than a third {@link ValueDomain} variant: the two compose.
- *  Goal lines already occupy `valueDomain` as `{ include }`, so folding min/max in there would make
- *  "stretch to reach a goal line" and "cap the axis at 60" mutually exclusive — a chart routinely
- *  needs both at once, and the two are applied on opposite sides of `nice()` besides. */
+ *  Validated differently from the pinned tuple, deliberately. A tuple is written by a component
+ *  author, so an inverted pair is a bug worth silently normalizing (`sanitizeFixedDomain` swaps it).
+ *  These arrive from a saved query, the API, or MCP, so an inverted pair falls back to the automatic
+ *  domain rather than rendering an axis nobody asked for. */
 export interface ValueBounds {
     min?: number
     max?: number
@@ -483,9 +488,6 @@ export interface LineChartConfig extends ChartConfig {
     percentStackView?: boolean
     /** Value-axis domain control — omit for data-derived auto-scaling. See {@link ValueDomain}. */
     valueDomain?: ValueDomain
-    /** Partial clamp applied *after* the domain above, so either end may be left automatic and a
-     *  goal-line stretch still applies. See {@link ValueBounds} for why this is separate. */
-    valueBounds?: ValueBounds
     /** Float the value axis to its data range instead of clamping the baseline to 0 (a y-axis "start
      *  at zero = off"). Applied to the primary axis only; ignored on a log scale. Defaults to false. */
     floatBaseline?: boolean

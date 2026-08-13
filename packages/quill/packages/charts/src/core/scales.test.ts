@@ -319,8 +319,7 @@ describe('hog-charts scales', () => {
         // Bounds must clamp back over goal-line stretching, not be widened by it afterwards.
         it('applies bounds after goal-line { include } folding', () => {
             const scale = createYScale(series, dimensions, {
-                valueDomain: { include: [500] },
-                bounds: { max: 40 },
+                valueDomain: { include: [500], max: 40 },
             })
             expect(scale.domain()[1]).toBe(40)
         })
@@ -330,22 +329,23 @@ describe('hog-charts scales', () => {
         it('applies a min over the zero-baseline clamp', () => {
             const offset = [makeSeries({ key: 's1', data: [50, 60, 70] })]
             expect(createYScale(offset, dimensions).domain()[0]).toBe(0)
-            expect(createYScale(offset, dimensions, { bounds: { min: 40 } }).domain()[0]).toBe(40)
+            expect(createYScale(offset, dimensions, { valueDomain: { min: 40 } }).domain()[0]).toBe(40)
         })
 
         // The empty-data domain is linear whatever scale type was asked for, so a non-positive bound
         // is no longer a hazard and must not be dropped as though this were a log scale.
         it('honors a non-positive bound on a log scale with no data', () => {
-            const scale = createYScale([], dimensions, { scaleType: 'log', bounds: { min: -5 } })
+            const scale = createYScale([], dimensions, { scaleType: 'log', valueDomain: { min: -5 } })
             expect(scale.domain()).toEqual([-5, 1])
         })
 
-        it.each([
-            ['percentStack pins the domain', { percentStack: true }, [0, 1]],
-            ['a fixed valueDomain pins the domain', { valueDomain: [0, 200] as [number, number] }, [0, 200]],
-        ])('ignores bounds when %s', (_name, options, expected) => {
-            const scale = createYScale(series, dimensions, { ...options, bounds: { min: 5, max: 8 } })
-            expect(scale.domain()).toEqual(expected)
+        // The pinned-tuple case has no equivalent here: a tuple and a bound are the same option now,
+        // so "a pinned domain ignores bounds" is unrepresentable rather than a rule to enforce. What
+        // remains of it — a tuple beating a bound when the two arrive from different callers — is
+        // covered on `mergeValueDomains`.
+        it('ignores bounds when percentStack pins the domain', () => {
+            const scale = createYScale(series, dimensions, { percentStack: true, valueDomain: { min: 5, max: 8 } })
+            expect(scale.domain()).toEqual([0, 1])
         })
     })
 
@@ -463,7 +463,7 @@ describe('hog-charts scales', () => {
         it('applies valueBounds to the primary axis only', () => {
             const small = makeSeries({ key: 'small', data: [0, 10], yAxisId: DEFAULT_Y_AXIS_ID })
             const large = makeSeries({ key: 'large', data: [0, 1000], yAxisId: 'y1' })
-            const result = createScales([small, large], ['a', 'b'], dimensions, { valueBounds: { max: 5 } })
+            const result = createScales([small, large], ['a', 'b'], dimensions, { valueDomain: { max: 5 } })
             expect(result.yAxes![DEFAULT_Y_AXIS_ID].scale.domain()[1]).toBe(5)
             expect(result.yAxes!.y1.scale.domain()[1]).toBe(1000)
         })
