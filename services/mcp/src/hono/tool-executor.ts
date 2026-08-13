@@ -509,7 +509,7 @@ export class ToolExecutor {
         const execTool = createExecTool(
             execTools,
             state.context,
-            this.instructionsBuilder.buildExecToolDescription(),
+            this.instructionsBuilder.buildExecToolDescription(state),
             commandReference,
             clientContext.mcpConsumer,
             trackInnerCall,

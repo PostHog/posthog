@@ -424,6 +424,14 @@ export interface DataCatalogMetricRunApi {
     instructions: string | null
 }
 
+/**
+ * The team's canonical metric handles, small enough to prefetch into an agent's context.
+ */
+export interface DataCatalogApprovedMetricNamesApi {
+    /** Names of the team's approved, non-drifted metrics, sorted. Empty when the team has approved none. */
+    names: string[]
+}
+
 export interface DataCatalogRelationshipProposalApi {
     readonly id: string
     /**

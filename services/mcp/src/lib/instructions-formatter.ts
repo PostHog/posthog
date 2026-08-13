@@ -1,6 +1,7 @@
 import type { GroupType } from '@/api/client'
 import { MCP_INSTRUCTIONS_CHAR_BUDGET } from '@/lib/constants'
 import {
+    buildApprovedMetricsBlock,
     buildAvailableToolsBlock,
     buildDefinedGroupsBlock,
     buildQueryToolsBlock,
@@ -34,6 +35,12 @@ import TOOL_SEARCH from '@/templates/sections/tool-search.md'
 import URL_PATTERNS from '@/templates/sections/url-patterns.md'
 import { type ExecHelpEntry, LEARN_COMMAND_LINE } from '@/tools/exec-help'
 
+/** Carries its own leading separator, so a catalog-off render stays byte-identical. */
+const CATALOG_FIRST_LINE =
+    "\n\nFor a named business or operational measure, check this project's approved metrics before " +
+    'deriving the number: run an approved match with `data-catalog-metric-run`, and label anything ' +
+    'you derive yourself noncanonical.'
+
 export interface InstructionsContext {
     guidelines: string
     groupTypes?: GroupType[] | undefined
@@ -48,6 +55,10 @@ export interface InstructionsContext {
      *  for this org. Gates the metric-discovery section so flag-off renders never steer
      *  the model at a table it can't query — and stay byte-identical. */
     dataCatalogEnabled?: boolean | undefined
+    /** The project's approved canonical metric names, prefetched. Undefined when the catalog
+     *  is off or the read failed; an empty array is a project with none approved, which is
+     *  worth saying out loud so the agent doesn't go looking. */
+    approvedMetricNames?: string[] | undefined
 }
 
 /**
@@ -104,8 +115,10 @@ export class InstructionsFormatter {
     }
 
     /** Build the top-level description of the `posthog:exec` tool. */
-    buildExecToolDescription(): string {
-        return EXEC_TOOL_BLURB.trim()
+    buildExecToolDescription(ctx?: InstructionsContext): string {
+        return formatPrompt(EXEC_TOOL_BLURB, {
+            catalog_first: ctx?.dataCatalogEnabled ? CATALOG_FIRST_LINE : '',
+        })
     }
 
     /**
@@ -122,17 +135,18 @@ export class InstructionsFormatter {
                 description: ctx.dataCatalogEnabled
                     ? 'Query or analyze PostHog data; governed metrics, certified tables, and verified joins live in the catalog.'
                     : 'Query or analyze PostHog data, metrics, and events.',
-                content: this.compose(
-                    [
-                        ...(ctx.dataCatalogEnabled ? [METRIC_DISCOVERY] : []),
-                        RETRIEVING_DATA,
-                        SCHEMA_WORKFLOW,
-                        ...(ctx.dataCatalogEnabled ? [CATALOG_TRUST_DISCOVERY] : []),
-                        EXAMPLES,
-                    ],
-                    ctx,
-                    { compact: false }
-                ),
+                content:
+                    this.compose(
+                        [
+                            ...(ctx.dataCatalogEnabled ? [METRIC_DISCOVERY] : []),
+                            RETRIEVING_DATA,
+                            SCHEMA_WORKFLOW,
+                            ...(ctx.dataCatalogEnabled ? [CATALOG_TRUST_DISCOVERY] : []),
+                            EXAMPLES,
+                        ],
+                        ctx,
+                        { compact: false }
+                    ) + buildApprovedMetricsBlock(ctx.approvedMetricNames),
             },
         ]
 
@@ -168,6 +182,9 @@ export class InstructionsFormatter {
         const helpEntries = this.buildClaudeExecHelpEntries(ctx)
         const helpTopics = helpEntries.map((entry) => `- ${entry.id}: ${entry.description}`).join('\n')
         const helpSection = formatPrompt(EXEC_LEARN, { help_topics: helpTopics })
+        // The metric listing is deliberately absent here and rides the `analytics` learn topic
+        // instead: this reference counts against claude.ai's hard schema cap (see the budget test)
+        // and there is not enough headroom left for a listing that can run to hundreds of chars.
         const renderCtx: InstructionsContext = {
             guidelines: ctx.guidelines,
             metadata: ctx.metadata,
@@ -239,7 +256,13 @@ export class InstructionsFormatter {
             ? {
                   guidelines: ctx.guidelines,
                   queryTools: ctx.queryTools,
-                  ...(opts.keepEnvContext ? { metadata: ctx.metadata, groupTypes: ctx.groupTypes } : {}),
+                  ...(opts.keepEnvContext
+                      ? {
+                            metadata: ctx.metadata,
+                            groupTypes: ctx.groupTypes,
+                            approvedMetricNames: ctx.approvedMetricNames,
+                        }
+                      : {}),
               }
             : { ...ctx, tools: undefined }
         // Tool domains are temporarily omitted from the command reference while we
@@ -271,6 +294,8 @@ export class InstructionsFormatter {
             guidelines: ctx.guidelines.trim(),
             available_tools: buildAvailableToolsBlock(ctx.renderUiEnabled),
             defined_groups: buildDefinedGroupsBlock(ctx.groupTypes),
+            approved_metrics: buildApprovedMetricsBlock(ctx.approvedMetricNames),
+            catalog_first: ctx.dataCatalogEnabled ? CATALOG_FIRST_LINE : '',
             metadata: ctx.metadata?.trim() ?? '',
             tool_domains: ctx.tools ? renderToolDomains(ctx.tools) : '',
             query_tools: ctx.queryTools ? buildQueryToolsBlock(ctx.queryTools) : '',

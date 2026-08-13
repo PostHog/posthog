@@ -67,6 +67,7 @@ export class InstructionsBuilder {
             metadata: state.metadata,
             groupTypes: state.groupTypes,
             dataCatalogEnabled: state.toolFeatureFlags?.[PRODUCT_DATA_CATALOG_FLAG] === true,
+            approvedMetricNames: state.approvedMetricNames,
         }
     }
 
@@ -77,7 +78,7 @@ export class InstructionsBuilder {
         return {
             name: 'exec',
             title: 'Execute PostHog command',
-            description: this.formatter.buildExecToolDescription(),
+            description: this.formatter.buildExecToolDescription(this.buildContext(state)),
             inputSchema: { type: 'object', properties: ExecSchema, required: ['command'] },
         }
     }
@@ -133,8 +134,8 @@ export class InstructionsBuilder {
         return new ExecHelpCatalog(this.formatter.buildClaudeExecHelpEntries(this.buildContext(state)))
     }
 
-    buildExecToolDescription(): string {
-        return this.formatter.buildExecToolDescription()
+    buildExecToolDescription(state?: ResolvedState): string {
+        return this.formatter.buildExecToolDescription(state ? this.buildContext(state) : undefined)
     }
 
     getGuidelines(): string {

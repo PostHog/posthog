@@ -2,7 +2,7 @@
 
 PostHog makes your product self-driving: it reads your data and ships changes with you, never without you. Spans analytics, experiments, flags, replay, and more.
 
-Pass CLI-style commands in the `command` parameter for all PostHog interactions.
+Pass CLI-style commands in the `command` parameter for all PostHog interactions.{catalog_first}
 
 **Requirements**
 

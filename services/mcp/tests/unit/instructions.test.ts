@@ -3,6 +3,7 @@ import { describe, expect, it } from 'vitest'
 import type { GroupType } from '@/api/client'
 import {
     buildActiveEnvironmentContextPrompt,
+    buildApprovedMetricsBlock,
     buildDefinedGroupsBlock,
     buildQueryToolsBlock,
     buildToolDomainsBlock,
@@ -40,6 +41,33 @@ describe('buildDefinedGroupsBlock', () => {
 
     it('should return empty string for empty array', () => {
         expect(buildDefinedGroupsBlock([])).toBe('')
+    })
+})
+
+describe('buildApprovedMetricsBlock', () => {
+    it('renders nothing when the catalog was never read', () => {
+        expect(buildApprovedMetricsBlock(undefined)).toBe('')
+    })
+
+    it('says so when the project has approved none, so the agent does not go looking', () => {
+        const result = buildApprovedMetricsBlock([])
+        expect(result).toContain('approved no canonical metrics')
+        expect(result).toContain('noncanonical')
+    })
+
+    it('names the metrics and points at the run tool', () => {
+        const result = buildApprovedMetricsBlock(['arr', 'mrr'])
+        expect(result).toContain('`arr`, `mrr`')
+        expect(result).toContain('data-catalog-metric-run')
+    })
+
+    it('truncates a long catalog and counts what it dropped', () => {
+        const names = Array.from({ length: 40 }, (_, i) => `metric_with_a_long_name_${i}`)
+        const result = buildApprovedMetricsBlock(names)
+
+        expect(result).toContain('metric_with_a_long_name_0')
+        expect(result).toMatch(/\(\+\d+ more\)/)
+        expect(result.length).toBeLessThan(1000)
     })
 })
 

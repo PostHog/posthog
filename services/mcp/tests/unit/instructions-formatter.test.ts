@@ -165,6 +165,52 @@ describe('InstructionsFormatter', () => {
             expect(result).not.toContain('### Basic functionality')
             expect(result).not.toContain('### Examples')
         })
+
+        it.each([
+            ['on', true, true],
+            ['off', false, false],
+            ['unresolved', undefined, false],
+        ])('carries the catalog-first line only with the catalog %s', (_name, dataCatalogEnabled, expected) => {
+            const formatter = new InstructionsFormatter()
+            const result = formatter.buildExecToolDescription({ ...fullCtx, dataCatalogEnabled })
+            expect(result.includes('data-catalog-metric-run')).toBe(expected)
+        })
+    })
+
+    // The prefetched names are the whole point of the block: an agent that already has them
+    // doesn't have to remember to look the catalog up before deriving a number. They have to
+    // reach every render path, since the paths differ per client.
+    describe('approved metrics in env context', () => {
+        it.each([
+            ['tools-mode', (f: InstructionsFormatter, c: InstructionsContext) => f.buildToolsInstructions(c)],
+            [
+                'exec command reference',
+                (f: InstructionsFormatter, c: InstructionsContext) =>
+                    f.buildExecCommandReference(c, { stripEnvContext: true, keepEnvContext: true }),
+            ],
+            [
+                "claude.ai's analytics learn topic",
+                (f: InstructionsFormatter, c: InstructionsContext) =>
+                    f.buildClaudeExecHelpEntries(c).find((entry) => entry.id === 'analytics')?.content ?? '',
+            ],
+        ])('names the approved metrics in the %s render', (_name, render) => {
+            const formatter = new InstructionsFormatter()
+            const ctx = { ...fullCtx, dataCatalogEnabled: true, approvedMetricNames: ['mrr'] }
+
+            const result = render(formatter, ctx)
+
+            expect(result).toContain('Approved canonical metrics in this project: `mrr`')
+            expect(result).not.toContain('{approved_metrics}')
+        })
+
+        it('renders no metrics block at all when the catalog was never read', () => {
+            const formatter = new InstructionsFormatter()
+
+            const result = formatter.buildToolsInstructions({ ...fullCtx, dataCatalogEnabled: true })
+
+            expect(result).not.toContain('Approved canonical metrics')
+            expect(result).not.toContain('approved no canonical metrics')
+        })
     })
 
     describe('buildExecCommandReference', () => {

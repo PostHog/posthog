@@ -67,6 +67,7 @@ function makeState(overrides: Partial<ResolvedState> = {}): ResolvedState {
         renderUiEnabled: false,
         metadata: undefined,
         groupTypes: undefined,
+        approvedMetricNames: undefined,
         ...overrides,
     }
 }

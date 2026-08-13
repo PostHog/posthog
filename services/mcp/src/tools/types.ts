@@ -41,7 +41,9 @@ export type State = {
     Record<PrefixedString<'cachedProject'>, CachedProject | undefined> &
     Record<PrefixedString<'cachedProjectFetchedAt'>, number | undefined> &
     Record<PrefixedString<'gatewayTools'>, Schemas.AvailableToolsResponse | undefined> &
-    Record<PrefixedString<'gatewayToolsFetchedAt'>, number | undefined>
+    Record<PrefixedString<'gatewayToolsFetchedAt'>, number | undefined> &
+    Record<PrefixedString<'approvedMetricNames'>, string[] | undefined> &
+    Record<PrefixedString<'approvedMetricNamesFetchedAt'>, number | undefined>
 
 export type Env = {
     /**

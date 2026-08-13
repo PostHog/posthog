@@ -1464,6 +1464,17 @@ export class ApiClient {
         return result.data
     }
 
+    /** Names of the project's approved, non-drifted canonical metrics. */
+    async getApprovedMetricNames(projectId: string): Promise<string[]> {
+        const result = await this.fetchJson<Schemas.DataCatalogApprovedMetricNames>(
+            `${this.baseUrl}/api/projects/${projectId}/data_catalog/metrics/approved_names/`
+        )
+        if (!result.success) {
+            throw new Error(result.error.message)
+        }
+        return result.data.names
+    }
+
     /** Every third-party MCP tool the caller can reach, across all their gateway connections. */
     async getGatewayTools(projectId: string): Promise<Schemas.AvailableToolsResponse> {
         const result = await this.fetchJson<Schemas.AvailableToolsResponse>(

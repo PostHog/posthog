@@ -28,6 +28,16 @@ class _FreeJSONField(serializers.JSONField):
     """A free-form JSON value (query results / query status shapes)."""
 
 
+@extend_schema_serializer(component_name="DataCatalogApprovedMetricNames")
+class ApprovedMetricNamesSerializer(serializers.Serializer):
+    """The team's canonical metric handles, small enough to prefetch into an agent's context."""
+
+    names = serializers.ListField(
+        child=serializers.CharField(help_text="A metric's run handle, as `data-catalog-metric-run` takes it."),
+        help_text="Names of the team's approved, non-drifted metrics, sorted. Empty when the team has approved none.",
+    )
+
+
 @extend_schema_serializer(component_name="DataCatalogMetricRun")
 class MetricRunResponseSerializer(serializers.Serializer):
     """Normalized envelope returned by the metric-run endpoint."""

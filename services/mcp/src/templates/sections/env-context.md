@@ -1,3 +1,3 @@
 {defined_groups}
 
-{metadata}
+{metadata}{approved_metrics}

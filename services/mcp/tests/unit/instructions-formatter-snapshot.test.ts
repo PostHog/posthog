@@ -187,6 +187,10 @@ describe('InstructionsFormatter prompt snapshots', () => {
             name_singular: null,
             name_plural: null,
         })) as GroupType[]
+        // A catalog whose names alone overrun the listing budget. There is not enough headroom
+        // under the cap for that listing, which is why it rides the `analytics` learn topic
+        // instead; this pins that decision, since wiring it back here blows the budget.
+        const worstCaseApprovedMetricNames = Array.from({ length: 50 }, (_, i) => `${'m'.repeat(120)}_${i}`)
         const state = {
             allTools: Object.keys(getToolDefinitions()).map((name) => ({ name })),
             clientProfile: new MCPClientProfile({ vendorClient: 'ClaudeAI', userAgent: 'Claude-User' }),
@@ -196,6 +200,7 @@ describe('InstructionsFormatter prompt snapshots', () => {
             renderUiEnabled: true,
             metadata: worstCaseMetadata,
             groupTypes: worstCaseGroupTypes,
+            approvedMetricNames: worstCaseApprovedMetricNames,
         } as unknown as ResolvedState
         const entry = new InstructionsBuilder('').buildExecToolEntry(state)
         const posthog = new PostHogMCP('phc_test', { disabled: true })

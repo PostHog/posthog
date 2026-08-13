@@ -28,6 +28,7 @@ from ..facade import api
 from ..facade.enums import HOGQL_DEFINITION_KIND, INSIGHT_DEFINITION_KINDS, NODE_DEFINITION_KINDS
 from ..facade.models import Metric, RelationshipProposal, TableCertification
 from .serializers import (
+    ApprovedMetricNamesSerializer,
     CertificationCreateSerializer,
     CertificationSerializer,
     MetricRunQuerySerializer,
@@ -131,6 +132,24 @@ class MetricViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
 
     def perform_destroy(self, instance: Metric) -> None:
         api.soft_delete_metric(instance, cast(User, self.request.user), request=self.request)
+
+    @action(
+        detail=False,
+        methods=["GET"],
+        url_path="approved_names",
+        required_scopes=["data_catalog:read"],
+        pagination_class=None,
+        request=None,
+        responses={200: ApprovedMetricNamesSerializer},
+    )
+    def approved_names(self, request: Request, **kwargs) -> Response:
+        """List the names of this team's approved, non-drifted metrics.
+
+        Small and cheap on purpose: it is fetched to put the catalog in front of an agent before it
+        starts deriving a number, where the full metric list would not fit.
+        """
+        names = api.approved_metric_names_for_team(self.team, cast(User, request.user))
+        return Response(ApprovedMetricNamesSerializer({"names": names}).data)
 
     @action(
         detail=True,

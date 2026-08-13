@@ -10,6 +10,7 @@ import { apiMutator } from '../../../../frontend/src/lib/api-orval-mutator'
  */
 import type {
     CertificationCreateApi,
+    DataCatalogApprovedMetricNamesApi,
     DataCatalogCertificationApi,
     DataCatalogCertificationsListParams,
     DataCatalogMetricApi,
@@ -370,6 +371,26 @@ export const dataCatalogMetricsRunCreate = async (
         method: 'POST',
         headers: { 'Content-Type': 'application/json', ...options?.headers },
         body: JSON.stringify(dataCatalogMetricRunRequestApi),
+    })
+}
+
+export const getDataCatalogMetricsApprovedNamesRetrieveUrl = (projectId: string) => {
+    return `/api/projects/${projectId}/data_catalog/metrics/approved_names/`
+}
+
+/**
+ * List the names of this team's approved, non-drifted metrics.
+ *
+ * Small and cheap on purpose: it is fetched to put the catalog in front of an agent before it
+ * starts deriving a number, where the full metric list would not fit.
+ */
+export const dataCatalogMetricsApprovedNamesRetrieve = async (
+    projectId: string,
+    options?: RequestInit
+): Promise<DataCatalogApprovedMetricNamesApi> => {
+    return apiMutator<DataCatalogApprovedMetricNamesApi>(getDataCatalogMetricsApprovedNamesRetrieveUrl(projectId), {
+        ...options,
+        method: 'GET',
     })
 }
 

@@ -206,6 +206,16 @@ class TestMetricLifecycleAPI(APIBaseTest):
         assert self.client.post(f"{self.url}mrr/refresh_from_insight/").status_code == status.HTTP_200_OK
         assert self.client.post(f"{self.url}mrr/approve/").status_code == status.HTTP_200_OK
 
+    def test_approved_names_lists_only_approved_metrics(self) -> None:
+        upsert_metric(team=self.team, user=self.user, name="mrr", description="d", definition=_HOGQL)
+        upsert_metric(team=self.team, user=self.user, name="proposed_only", description="d", definition=_HOGQL)
+        self.client.post(f"{self.url}mrr/approve/")
+
+        response = self.client.get(f"{self.url}approved_names/")
+
+        assert response.status_code == status.HTTP_200_OK, response.json()
+        assert response.json() == {"names": ["mrr"]}
+
     def _bearer(self, scopes: list[str]) -> dict:
         raw = generate_random_token_personal()
         PersonalAPIKey.objects.create(label="k", user=self.user, secure_value=hash_key_value(raw), scopes=scopes)

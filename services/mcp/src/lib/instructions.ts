@@ -8,6 +8,48 @@ export function buildDefinedGroupsBlock(groupTypes?: GroupType[]): string {
     return `Defined group types: ${groupTypes.map((gt) => gt.group_type).join(', ')}`
 }
 
+const APPROVED_METRICS_MAX_CHARS = 600
+
+/**
+ * The project's canonical metric names, already fetched so the agent doesn't have to remember to look.
+ *
+ * Both branches carry their own leading separator, so a render with no catalog (the names are only
+ * fetched when the product flag is on) stays byte-identical to one from before this existed.
+ * Names are identifier-safe by validation, so the listing needs no escaping.
+ */
+export function buildApprovedMetricsBlock(approvedMetricNames?: string[]): string {
+    if (!approvedMetricNames) {
+        return ''
+    }
+    if (approvedMetricNames.length === 0) {
+        return (
+            '\n\nThis project has approved no canonical metrics, so there is nothing to look up: ' +
+            'derive numbers with the normal workflow and label them noncanonical.'
+        )
+    }
+    return (
+        `\n\nApproved canonical metrics in this project: ${listNamesWithinBudget(approvedMetricNames)}. ` +
+        'When one of them answers the question, run it with `data-catalog-metric-run` rather than ' +
+        'deriving the number yourself, and read its full definition from ' +
+        '`system.information_schema.metrics`. Label anything you derive yourself noncanonical.'
+    )
+}
+
+function listNamesWithinBudget(names: string[]): string {
+    const listed: string[] = []
+    let length = 0
+    for (const name of names) {
+        const cost = name.length + 4 // backticks plus a ", " separator
+        if (length + cost > APPROVED_METRICS_MAX_CHARS) {
+            break
+        }
+        listed.push(`\`${name}\``)
+        length += cost
+    }
+    const omitted = names.length - listed.length
+    return omitted > 0 ? `${listed.join(', ')} (+${omitted} more)` : listed.join(', ')
+}
+
 export function buildActiveEnvironmentContextPrompt(
     user?: CachedUser,
     org?: CachedOrg,

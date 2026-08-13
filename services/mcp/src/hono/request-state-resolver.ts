@@ -12,12 +12,12 @@ import {
 import type { RequestProperties } from '@/lib/request-properties'
 import { filterStaffOnlyTools } from '@/lib/staff-only-tools'
 import type { McpMode } from '@/lib/utils'
-import { getRequiredFeatureFlags, getScopeGatedTools, type ScopeGatedTool } from '@/tools/toolDefinitions'
 import { TASKS_CONTEXT_TOOL_NAMES } from '@/tools/tasksContext'
+import { getRequiredFeatureFlags, getScopeGatedTools, type ScopeGatedTool } from '@/tools/toolDefinitions'
 import type { Context, Tool, Env, ZodObjectAny } from '@/tools/types'
 
-import type { RedisLike } from './cache/RedisCache'
 import { McpSessionRedisStore } from './cache/McpSessionRedisStore'
+import type { RedisLike } from './cache/RedisCache'
 import {
     buildMCPRequestContext,
     getEffectiveMCPClientContext,
@@ -60,6 +60,10 @@ export interface ResolvedState {
     // reference. Resolved once here so every render path reads the same source.
     metadata: string | undefined
     groupTypes: GroupType[] | undefined
+    // The project's approved canonical metric names, prefetched so the instructions can name them
+    // instead of telling the agent to go look. Only read when the data catalog is on for this
+    // caller, so a catalog-off request pays nothing and renders exactly as it did before.
+    approvedMetricNames: string[] | undefined
 }
 
 // ─── Pure helpers ───
@@ -223,11 +227,14 @@ export class RequestStateResolver {
         // only exists in single-exec mode — skip the extra scan otherwise.
         const scopeGatedTools = useSingleExec ? getScopeGatedTools(apiKeyScopes, filterOptions) : []
 
-        const [groupTypes, metadata] = await Promise.all([
+        const [groupTypes, metadata, approvedMetricNames] = await Promise.all([
             cachedProjectId && hasScope(apiKeyScopes, 'group:read')
                 ? context.stateManager.getOrFetchGroupTypes(cachedProjectId).catch(() => undefined)
                 : undefined,
             context.stateManager.getEnvironmentPrompt(),
+            cachedProjectId && toolFeatureFlags[PRODUCT_DATA_CATALOG_FLAG] === true
+                ? context.stateManager.getOrFetchApprovedMetricNames(cachedProjectId).catch(() => undefined)
+                : undefined,
         ])
 
         return {
@@ -246,6 +253,7 @@ export class RequestStateResolver {
             renderUiEnabled,
             metadata,
             groupTypes,
+            approvedMetricNames,
         }
     }
 

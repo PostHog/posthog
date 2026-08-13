@@ -72,6 +72,7 @@ function makeState(tools: { name: string }[], overrides: Partial<ResolvedState> 
         renderUiEnabled: false,
         metadata: undefined,
         groupTypes: undefined,
+        approvedMetricNames: undefined,
         ...overrides,
     }
 }

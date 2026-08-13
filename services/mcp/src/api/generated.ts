@@ -18737,6 +18737,14 @@ export namespace Schemas {
       error: string | null;
     }
 
+    /**
+     * The team's canonical metric handles, small enough to prefetch into an agent's context.
+     */
+    export interface DataCatalogApprovedMetricNames {
+      /** Names of the team's approved, non-drifted metrics, sorted. Empty when the team has approved none. */
+      names: string[];
+    }
+
     export interface DataCatalogCertification {
       readonly id: string;
       /**

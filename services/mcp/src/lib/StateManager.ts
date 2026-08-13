@@ -1,4 +1,5 @@
 import type { ApiClient, GroupType } from '@/api/client'
+import type { Schemas } from '@/api/generated'
 import { hasScope } from '@/lib/api'
 import type { ScopedCache } from '@/lib/cache/ScopedCache'
 import {
@@ -11,7 +12,6 @@ import {
 import { buildActiveEnvironmentContextPrompt } from '@/lib/instructions'
 import { getPostHogClient } from '@/lib/posthog'
 import { sanitizeHeaderValue } from '@/lib/utils'
-import type { Schemas } from '@/api/generated'
 import type { ApiUser } from '@/schema/api'
 import type { CachedOrg, CachedProject, CachedUser, State } from '@/tools/types'
 
@@ -406,6 +406,16 @@ export class StateManager {
             fetchedAtKey: `gatewayToolsFetchedAt:${projectId}` as const,
             fetcher: () => this._api.getGatewayTools(projectId),
             ttlMs: GATEWAY_TOOLS_CACHE_TTL_MS,
+        })
+    }
+
+    /** The project's approved canonical metric names, for prefetching into the agent's context. */
+    async getOrFetchApprovedMetricNames(projectId: string): Promise<string[] | undefined> {
+        return this.getOrFetchCached({
+            name: 'approved_metric_names',
+            cacheKey: `approvedMetricNames:${projectId}` as const,
+            fetchedAtKey: `approvedMetricNamesFetchedAt:${projectId}` as const,
+            fetcher: () => this._api.getApprovedMetricNames(projectId),
         })
     }
 
