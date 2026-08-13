@@ -22,6 +22,7 @@ import { signalsReportsViewedCreate } from 'products/signals/frontend/generated/
 import {
     captureInboxReportClosed,
     captureInboxReportOpened,
+    captureInboxReportScrolled,
     InboxReportCloseMethod,
     InboxReportOpenMethod,
 } from './inboxAnalytics'
@@ -211,6 +212,8 @@ function inboxSurfaceUrl(values: {
 interface InboxOpenTracking {
     report: SignalReport
     openedAt: number
+    /** Set once the first detail-pane scroll has fired `Inbox report scrolled` for this open. */
+    scrolled: boolean
 }
 
 /**
@@ -293,6 +296,9 @@ export interface inboxSceneLogicActions {
         payload?: {
             id: string
         }
+    }
+    reportDetailScrolled: () => {
+        value: true
     }
     runSessionAnalysis: () => {
         value: true
@@ -393,6 +399,9 @@ export const inboxSceneLogic = kea<inboxSceneLogicType>([
         runSessionAnalysis: true,
         runSessionAnalysisSuccess: true,
         runSessionAnalysisFailure: (error: string) => ({ error }),
+        // The detail pane was scrolled. The logic fires `Inbox report scrolled` once per open; the
+        // component reports the raw scroll.
+        reportDetailScrolled: true,
         // A decoded `#createScout=` payload, prefilling the create modal. The user still submits it.
         setScoutTemplateDraft: (draft: ScoutCreateInitialValues | null) => ({ draft }),
     }),
@@ -627,12 +636,28 @@ export const inboxSceneLogic = kea<inboxSceneLogicType>([
                 rank,
                 listSize,
             })
-            cache.openTracking = { report, openedAt: Date.now() }
+            cache.openTracking = { report, openedAt: Date.now(), scrolled: false }
             cache.pendingOpenMethod = undefined
             // Best-effort server-side view record: consumption evidence that keeps the authoring
             // scout from being auto-paused as ignored. The analytics event above stays the rich
             // record (rank, open method, dwell), so a failure here is swallowed.
             void signalsReportsViewedCreate(String(teamLogic.values.currentTeamId), report.id).catch(() => {})
+        },
+        reportDetailScrolled: () => {
+            // Fire the dwell signal once per open, on the first scroll. The metric's dwell branch
+            // filters `time_since_open_ms >= 5000`, so an immediate scroll is carried but won't qualify.
+            const open: InboxOpenTracking | undefined = cache.openTracking
+            if (!open || open.scrolled) {
+                return
+            }
+            open.scrolled = true
+            const { rank, listSize } = findReportRank(open.report.id)
+            captureInboxReportScrolled({
+                report: open.report,
+                rank,
+                listSize,
+                timeSinceOpenMs: Date.now() - open.openedAt,
+            })
         },
         setSelectedScoutSkillName: ({ skillName }) => {
             if (skillName !== null) {

@@ -6,7 +6,7 @@ from zoneinfo import ZoneInfo
 
 from django.conf import settings
 from django.db import transaction
-from django.db.models import Case, CharField, FloatField, Func, IntegerField, Q, QuerySet, Value, When
+from django.db.models import Case, IntegerField, Q, QuerySet, Value, When
 from django.db.models.fields.json import KeyTextTransform, KeyTransform
 from django.db.models.functions import Cast
 from django.http.response import HttpResponseBase
@@ -48,6 +48,8 @@ from products.replay_vision.backend.models.replay_observation import (
     ObservationStatus,
     ObservationTrigger,
     ReplayObservation,
+    annotate_output_number,
+    jsonb_typeof,
 )
 from products.replay_vision.backend.models.replay_observation_label import ReplayObservationLabel
 from products.replay_vision.backend.models.replay_scanner import ReplayScanner, ScannerType
@@ -63,30 +65,6 @@ from products.tasks.backend.facade import api as tasks_facade
 from ee.hogai.utils.untrusted import as_untrusted_data
 
 logger = structlog.get_logger(__name__)
-
-
-def _jsonb_typeof(expr: Any) -> Func:
-    return Func(expr, function="JSONB_TYPEOF", output_field=CharField())
-
-
-def _annotate_output_number(qs: QuerySet[ReplayObservation], key: str, alias: str) -> QuerySet[ReplayObservation]:
-    """Annotate `alias` with `scanner_result.model_output.<key>` as a float, null when the value isn't numeric.
-
-    CASE-guard the cast so schema drift or a manual fixup (a `score` stored as a string) can't 500 the query.
-    """
-    type_alias = f"{alias}_type"
-    value_jsonb = KeyTransform(key, KeyTransform("model_output", "scanner_result"))
-    value_text = KeyTextTransform(key, KeyTextTransform("model_output", "scanner_result"))
-    return qs.annotate(
-        **{
-            type_alias: _jsonb_typeof(value_jsonb),
-            alias: Case(
-                When(**{type_alias: "number"}, then=Cast(value_text, FloatField())),
-                default=Value(None),
-                output_field=FloatField(),
-            ),
-        }
-    )
 
 
 class ScannerSnapshotSerializer(serializers.Serializer):
@@ -381,6 +359,21 @@ class ObservationVersionMarkerSerializer(serializers.Serializer):
             "allow_inconclusive, tags, scale, or length), taken from the observation run snapshots."
         ),
     )
+    # The remaining version-tracked fields, so the history can name which one bumped a version.
+    # Null means this version's run snapshots predate recording that field.
+    scanner_type = serializers.CharField(allow_null=True, help_text="The scanner type this version ran as.")
+    model = serializers.CharField(allow_null=True, help_text="The model this version ran on.")
+    provider = serializers.CharField(allow_null=True, help_text="The provider this version ran on.")
+    emits_signals = serializers.BooleanField(allow_null=True, help_text="Whether this version emitted signals.")
+    query = serializers.JSONField(
+        allow_null=True,
+        help_text="The `RecordingsQuery` recording filters this version ran with.",
+    )
+    sampling_rate = serializers.FloatField(allow_null=True, help_text="The 0..1 downsample this version ran with.")
+    sampling_mode = serializers.CharField(
+        allow_null=True,
+        help_text="The session-coverage pre-filter this version ran with.",
+    )
     up = serializers.IntegerField(help_text="Thumbs-up ratings on this version's observations.")
     down = serializers.IntegerField(help_text="Thumbs-down ratings on this version's observations.")
     total = serializers.IntegerField(help_text="Succeeded (ratable) observations this version produced, rated or not.")
@@ -406,8 +399,8 @@ class ObservationLabelStatsSerializer(serializers.Serializer):
     version_markers = ObservationVersionMarkerSerializer(
         many=True,
         help_text=(
-            "Each scanner (prompt) version that produced observations (all-time), with its first day, prompt, "
-            "and rating counts, for chart markers and the prompt version history."
+            "Each scanner version that produced observations (all-time), with its first day, the config it ran "
+            "with, and rating counts, for chart markers and the config version history."
         ),
     )
 
@@ -484,17 +477,17 @@ class _ObservationOrderByFilter(OrderByFilter):
             return self._order_nulls_last(qs, "label__is_correct", descending)
         if key == "result_score":
             return self._order_nulls_last(
-                _annotate_output_number(qs, "score", "_order_score"), "_order_score", descending
+                annotate_output_number(qs, "score", "_order_score"), "_order_score", descending
             )
         if key == "result_confidence":
             return self._order_nulls_last(
-                _annotate_output_number(qs, "confidence", "_order_confidence"), "_order_confidence", descending
+                annotate_output_number(qs, "confidence", "_order_confidence"), "_order_confidence", descending
             )
         if key == "scanner_version":
             version_jsonb = KeyTransform("scanner_version", "scanner_snapshot")
             version_text = KeyTextTransform("scanner_version", "scanner_snapshot")
             qs = qs.annotate(
-                _version_type=_jsonb_typeof(version_jsonb),
+                _version_type=jsonb_typeof(version_jsonb),
                 _order_version=Case(
                     When(_version_type="number", then=Cast(version_text, IntegerField())),
                     default=Value(None),
@@ -648,7 +641,7 @@ class ReplayObservationFilter(django_filters.FilterSet):
         # min_score and max_score can arrive together, and re-annotating the same alias raises.
         if _SCORE_FILTER_ALIAS in queryset.query.annotations:
             return queryset
-        return _annotate_output_number(queryset, "score", _SCORE_FILTER_ALIAS)
+        return annotate_output_number(queryset, "score", _SCORE_FILTER_ALIAS)
 
     # Both bounds look up the annotation `_scored` adds, via a literal key in a `**` dict: a plain
     # keyword can't be used because django-stubs resolves those against the model's real fields.
