@@ -310,7 +310,9 @@ fn every_refusal_is_counted_with_a_reason() {
     let mut bytes = payload_tagged(
         "img",
         json!({
-            "src": "http://169.254.169.254/meta.png",
+            // https, so this counts as the address refusal it is. The scheme is checked first, and
+            // over http it would count as a scheme refusal and the address signal would be lost.
+            "src": "https://169.254.169.254/meta.png",
             "rr_src": "ftp://files.example.com/a.png",
             "poster": "/relative/a.png"
         }),
@@ -338,4 +340,7 @@ fn every_refusal_is_counted_with_a_reason() {
     assert!(reasons.contains(&"non_public_host"), "{reasons:?}");
     assert!(reasons.contains(&"bad_scheme"), "{reasons:?}");
     assert!(reasons.contains(&"not_absolute"), "{reasons:?}");
+    // bad_port is covered by only_https_on_its_own_port_is_collected in url_policy.rs. This element
+    // carries three URL attributes, so a fourth reason needs a second element rather than a fourth
+    // attribute, and what this test is for is that a decline carries a reason at all.
 }

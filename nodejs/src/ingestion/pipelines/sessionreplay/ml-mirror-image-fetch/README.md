@@ -60,11 +60,19 @@ Each of these is numbered so a test can name the one it covers.
 6. The lane follows a redirect that stays on the same domain, up to the limit.
 7. The lane publishes a redirect that leaves the domain back to the frontier, keyed by the new
    domain.
-8. Every redirect target passes the URL policy again: public host, scheme, length, and the SSRF
-   checks in `common/utils/request.ts`.
-9. The lane never follows a redirect from HTTPS to plain HTTP.
-10. A republished message carries the original ref. The recording points at that ref, and a hash of
-    the redirect target matches nothing.
+8. Every redirect target passes the URL policy again: public host, HTTPS, the scheme's own port,
+   length, and the SSRF checks in `common/utils/request.ts`.
+
+The three controls do different jobs and none replaces another. HTTPS and the port limit which
+service on a host can be reached. `is_public_host` and the address check at request time limit which
+hosts can be reached, which is the half that matters when the attacker owns the DNS for a name and
+can point it anywhere. The address check runs against the addresses the resolver returned, and those
+same addresses are what the connection uses, so there is no window to rebind between the two.
+
+A name the attacker controls can still be pointed at any public address on 443. That is what any
+crawler does, and the traffic carries our egress addresses rather than any customer identity, so it
+is a reputation question rather than a disclosure one. 9. The lane never follows a redirect from HTTPS to plain HTTP. 10. A republished message carries the original ref. The recording points at that ref, and a hash of
+the redirect target matches nothing.
 
 ### Hops and retries share one budget
 

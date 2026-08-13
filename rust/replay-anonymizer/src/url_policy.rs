@@ -281,8 +281,10 @@ pub enum Decline {
     /// Not parseable as an absolute URL. A relative `src` lands here, because the recording does
     /// not carry the base it would need to resolve against.
     NotAbsolute,
-    /// A scheme we do not fetch, such as `data:`, `blob:` or `ftp:`.
+    /// A scheme we do not fetch. That is everything except `https`, including plain `http`.
     BadScheme,
+    /// A port the scheme does not own. See the port check in [`try_canonicalize`].
+    BadPort,
     /// No host at all.
     NoHost,
     /// Loopback, private, link-local or an internal-only name. See [`is_public_host`].
@@ -296,6 +298,7 @@ impl Decline {
             Decline::TooLong => "too_long",
             Decline::NotAbsolute => "not_absolute",
             Decline::BadScheme => "bad_scheme",
+            Decline::BadPort => "bad_port",
             Decline::NoHost => "no_host",
             Decline::NonPublicHost => "non_public_host",
         }
@@ -312,8 +315,21 @@ pub fn try_canonicalize(raw: &str) -> Result<CanonicalUrl, Decline> {
         return Err(Decline::TooLong);
     }
     let mut url = Url::parse(raw).map_err(|_| Decline::NotAbsolute)?;
-    if !matches!(url.scheme(), "http" | "https") {
+    // HTTPS only. A plain `http` image on an HTTPS page is blocked by the browser as mixed content,
+    // so it never rendered for the person being recorded, and fetching it would put the request on
+    // the wire in clear text from our egress addresses.
+    if url.scheme() != "https" {
         return Err(Decline::BadScheme);
+    }
+    // A port the scheme does not own turns the fetcher into a port prober: a page names any host
+    // and port, the connection leaves our egress addresses, and what answered is visible in the
+    // outcome metric. Images are not served on other ports often enough to be worth that.
+    //
+    // This is not the whole defence. It limits which service on a host can be reached. Which hosts
+    // can be reached is the job of `is_public_host` here and of the address check at request time,
+    // because DNS for a name the attacker owns can point anywhere.
+    if url.port().is_some() {
+        return Err(Decline::BadPort);
     }
     // The trailing dot goes here too, not only in `politeness_key`. The consumer checks that the
     // host sits inside the domain the record is keyed by, and `example.com.` is not inside
@@ -474,6 +490,22 @@ mod tests {
     }
 
     #[test]
+    fn only_https_on_its_own_port_is_collected() {
+        // A port the scheme does not own would let a page point the fetcher at any service. The
+        // address checks stop it reaching a private host; this stops it reaching an odd port on a
+        // public one, which is the part DNS the attacker controls cannot get around.
+        assert_eq!(canonicalize("https://cdn.example.com:11211/a.png"), None);
+        assert_eq!(canonicalize("https://cdn.example.com:8443/a.png"), None);
+        // Plain HTTP never rendered on an HTTPS page, and fetching it would be in clear text.
+        assert_eq!(canonicalize("http://cdn.example.com/a.png"), None);
+        assert_eq!(canonicalize("http://cdn.example.com:80/a.png"), None);
+        // Writing the default port out is not naming another one. The parser normalizes it away,
+        // so `url.port()` is None and the URL is collected.
+        assert!(canonicalize("https://cdn.example.com:443/a.png").is_some());
+        assert!(canonicalize("https://cdn.example.com/a.png").is_some());
+    }
+
+    #[test]
     fn the_politeness_key_is_the_operator_not_the_dns_label() {
         // A CDN that shards over numbered subdomains must share one budget.
         assert_eq!(politeness_key("img1.cdn.example.com"), "example.com");
@@ -571,8 +603,10 @@ mod tests {
         assert!(canonicalize("https://cdn.example.com/i.png").is_some());
         // A public name with a trailing dot is still public, so the fix must not over-reject.
         assert!(canonicalize("https://cdn.example.com./i.png").is_some());
-        assert!(canonicalize("http://[2606:4700::1111]/i.png").is_some());
-        assert!(canonicalize("http://8.8.8.8/i.png").is_some());
+        // These say the address rule accepts a public one. They use https because the scheme rule
+        // now refuses plain http on its own.
+        assert!(canonicalize("https://[2606:4700::1111]/i.png").is_some());
+        assert!(canonicalize("https://8.8.8.8/i.png").is_some());
     }
 
     #[test]
