@@ -4,6 +4,7 @@ from typing import Any, Literal, Union, cast
 
 from django.db.models import Model, QuerySet
 from django.shortcuts import get_object_or_404
+from django.utils import timezone
 
 import posthoganalytics
 from drf_spectacular.utils import extend_schema, extend_schema_field
@@ -147,6 +148,11 @@ class OrganizationSerializer(
     membership_level = serializers.SerializerMethodField()
     teams = serializers.SerializerMethodField()
     projects = serializers.SerializerMethodField()
+    acknowledge_ai_training_notice = serializers.BooleanField(
+        write_only=True,
+        required=False,
+        help_text="Set to true to record that a member saw the in-app notice that this organization is opted in to AI training. The acknowledgement time is stamped server-side and kept only on the first acknowledgement.",
+    )
     metadata = serializers.SerializerMethodField()
     member_count = serializers.SerializerMethodField()
     logo_media_id = OrgScopedPrimaryKeyRelatedField(
@@ -191,6 +197,8 @@ class OrganizationSerializer(
             "is_ai_training_opted_in",
             "is_ai_training_locked",
             "is_ai_training_cta_shown",
+            "ai_training_notice_acknowledged_at",
+            "acknowledge_ai_training_notice",
             "is_hipaa",
             "default_experiment_stats_method",
             "default_anonymize_ips",
@@ -218,6 +226,7 @@ class OrganizationSerializer(
             "is_pending_deletion",
             "is_ai_training_locked",
             "is_ai_training_cta_shown",
+            "ai_training_notice_acknowledged_at",
             "is_hipaa",
         ]
         extra_kwargs = {
@@ -239,7 +248,18 @@ class OrganizationSerializer(
             raise serializers.ValidationError("Cannot set logo media when creating an organization.")
         return value
 
+    def update(self, instance: Organization, validated_data: dict) -> Organization:
+        # Record the acknowledgement time server-side, keeping only the first so admin sees when the
+        # notice was first seen.
+        if (
+            validated_data.pop("acknowledge_ai_training_notice", False)
+            and instance.ai_training_notice_acknowledged_at is None
+        ):
+            validated_data["ai_training_notice_acknowledged_at"] = timezone.now()
+        return super().update(instance, validated_data)
+
     def create(self, validated_data: dict, *args: Any, **kwargs: Any) -> Organization:
+        validated_data.pop("acknowledge_ai_training_notice", None)
         serializers.raise_errors_on_nested_writes("create", self, validated_data)
         user = self.context["request"].user
         organization, _, _ = Organization.objects.bootstrap(user, **validated_data)

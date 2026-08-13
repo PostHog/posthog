@@ -152,6 +152,7 @@ class OrganizationAdmin(admin.ModelAdmin):
         "is_ai_training_opted_in",
         "is_ai_training_locked",
         "is_ai_training_cta_shown",
+        "ai_training_notice_acknowledged_at",
         "ai_training_opt_in_history_display",
         "trigger_deletion_display",
     ]
@@ -173,6 +174,7 @@ class OrganizationAdmin(admin.ModelAdmin):
         "customer_trust_scores",
         "bulk_delete_data_display",
         "sync_to_billing_display",
+        "ai_training_notice_acknowledged_at",
         "ai_training_opt_in_history_display",
         "trigger_deletion_display",
     ]

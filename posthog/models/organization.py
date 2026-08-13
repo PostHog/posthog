@@ -245,6 +245,11 @@ class Organization(ModelActivityMixin, UUIDTModel):
         blank=True,
         help_text="When True, in-app callouts inviting members to enable AI training are shown.",
     )
+    ai_training_notice_acknowledged_at = models.DateTimeField(
+        null=True,
+        blank=True,
+        help_text="When a member acknowledged the in-app notice that this organization is opted in to AI training.",
+    )
     enforce_2fa = models.BooleanField(null=True, blank=True)
     enforce_verified_domains = models.BooleanField(
         null=True,

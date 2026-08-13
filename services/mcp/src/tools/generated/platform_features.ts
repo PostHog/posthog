@@ -552,6 +552,7 @@ const OrganizationEnforce2faSchema = PartialUpdateParams.extend(
         allow_publicly_shared_resources: true,
         is_ai_data_processing_approved: true,
         is_ai_training_opted_in: true,
+        acknowledge_ai_training_notice: true,
         default_experiment_stats_method: true,
         default_anonymize_ips: true,
         default_role_id: true,

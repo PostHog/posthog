@@ -41,6 +41,12 @@ export const CreateBody = /* @__PURE__ */ zod.object({
         .boolean()
         .nullish()
         .describe('When True, this organization allows its data to be used to train PostHog AI models.'),
+    acknowledge_ai_training_notice: zod
+        .boolean()
+        .optional()
+        .describe(
+            'Set to true to record that a member saw the in-app notice that this organization is opted in to AI training. The acknowledgement time is stamped server-side and kept only on the first acknowledgement.'
+        ),
     default_experiment_stats_method: zod
         .union([
             zod.enum(['bayesian', 'frequentist']).describe('\* `bayesian` - Bayesian\n\* `frequentist` - Frequentist'),
@@ -93,6 +99,12 @@ export const UpdateBody = /* @__PURE__ */ zod.object({
         .boolean()
         .nullish()
         .describe('When True, this organization allows its data to be used to train PostHog AI models.'),
+    acknowledge_ai_training_notice: zod
+        .boolean()
+        .optional()
+        .describe(
+            'Set to true to record that a member saw the in-app notice that this organization is opted in to AI training. The acknowledgement time is stamped server-side and kept only on the first acknowledgement.'
+        ),
     default_experiment_stats_method: zod
         .union([
             zod.enum(['bayesian', 'frequentist']).describe('\* `bayesian` - Bayesian\n\* `frequentist` - Frequentist'),
@@ -145,6 +157,12 @@ export const PartialUpdateBody = /* @__PURE__ */ zod.object({
         .boolean()
         .nullish()
         .describe('When True, this organization allows its data to be used to train PostHog AI models.'),
+    acknowledge_ai_training_notice: zod
+        .boolean()
+        .optional()
+        .describe(
+            'Set to true to record that a member saw the in-app notice that this organization is opted in to AI training. The acknowledgement time is stamped server-side and kept only on the first acknowledgement.'
+        ),
     default_experiment_stats_method: zod
         .union([
             zod.enum(['bayesian', 'frequentist']).describe('\* `bayesian` - Bayesian\n\* `frequentist` - Frequentist'),

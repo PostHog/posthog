@@ -112,6 +112,13 @@ export interface OrganizationApi {
      * @nullable
      */
     readonly is_ai_training_cta_shown: boolean | null
+    /**
+     * When a member acknowledged the in-app notice that this organization is opted in to AI training.
+     * @nullable
+     */
+    readonly ai_training_notice_acknowledged_at: string | null
+    /** Set to true to record that a member saw the in-app notice that this organization is opted in to AI training. The acknowledgement time is stamped server-side and kept only on the first acknowledgement. */
+    acknowledge_ai_training_notice?: boolean
     /** @nullable */
     readonly is_hipaa: boolean | null
     /** Default statistical method for new experiments in this organization.
@@ -215,6 +222,13 @@ export interface PatchedOrganizationApi {
      * @nullable
      */
     readonly is_ai_training_cta_shown?: boolean | null
+    /**
+     * When a member acknowledged the in-app notice that this organization is opted in to AI training.
+     * @nullable
+     */
+    readonly ai_training_notice_acknowledged_at?: string | null
+    /** Set to true to record that a member saw the in-app notice that this organization is opted in to AI training. The acknowledgement time is stamped server-side and kept only on the first acknowledgement. */
+    acknowledge_ai_training_notice?: boolean
     /** @nullable */
     readonly is_hipaa?: boolean | null
     /** Default statistical method for new experiments in this organization.

@@ -658,6 +658,52 @@ class TestOrganizationAPI(APIBaseTest):
         self.assertIn("organization deletion initiated", event_names)
 
 
+class TestOrganizationAITrainingNoticeAck(APIBaseTest):
+    def setUp(self):
+        super().setUp()
+        self.organization_membership.level = OrganizationMembership.Level.ADMIN
+        self.organization_membership.save()
+
+    def test_acknowledging_notice_stamps_time_server_side(self):
+        self.assertIsNone(self.organization.ai_training_notice_acknowledged_at)
+
+        response = self.client.patch(
+            "/api/organizations/@current/", {"acknowledge_ai_training_notice": True}, content_type="application/json"
+        )
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+
+        self.organization.refresh_from_db()
+        self.assertIsNotNone(self.organization.ai_training_notice_acknowledged_at)
+        # The write-only trigger must not echo back in the response.
+        self.assertNotIn("acknowledge_ai_training_notice", response.json())
+
+    def test_first_acknowledgement_time_is_kept(self):
+        first = timezone.now() - timedelta(days=1)
+        self.organization.ai_training_notice_acknowledged_at = first
+        self.organization.save()
+
+        response = self.client.patch(
+            "/api/organizations/@current/", {"acknowledge_ai_training_notice": True}, content_type="application/json"
+        )
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+
+        self.organization.refresh_from_db()
+        self.assertEqual(self.organization.ai_training_notice_acknowledged_at, first)
+
+    def test_acknowledgement_time_cannot_be_set_by_client(self):
+        client_time = timezone.now() - timedelta(days=365)
+
+        response = self.client.patch(
+            "/api/organizations/@current/",
+            {"ai_training_notice_acknowledged_at": client_time.isoformat()},
+            content_type="application/json",
+        )
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+
+        self.organization.refresh_from_db()
+        self.assertIsNone(self.organization.ai_training_notice_acknowledged_at)
+
+
 def create_organization(name: str) -> Organization:
     """
     Helper that just creates an organization. It currently uses the orm, but we
