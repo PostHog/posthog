@@ -1315,6 +1315,43 @@ class BatchQueue:
         return float(row[0])
 
     @staticmethod
+    async def filter_still_claimable(
+        conn: psycopg.AsyncConnection[Any],
+        *,
+        batches: list[PendingBatch],
+    ) -> set[str]:
+        """Of ``batches``, the ids whose state is *currently* still claimable.
+
+        ``get_unprocessed_and_lock`` reads its candidates under the statement's snapshot
+        (taken when the poll begins), but resolves the lease ``ON CONFLICT DO UPDATE``
+        against the latest committed row — Postgres does not use the snapshot for
+        conflict handling. The two halves of the claim therefore disagree about time by
+        the whole duration of the poll. A batch another pod claimed, finished and
+        released the lease for during that window comes back as a candidate carrying its
+        pre-run ``latest_attempt``, and gets processed a second time.
+
+        Re-reading here closes that gap: this runs in its own statement after the claim,
+        so it sees committed state. The candidate query cannot do it itself — a
+        ``FOR UPDATE`` there would re-check each row against its latest version, but
+        Postgres rejects ``FOR UPDATE`` alongside the window function the per-team
+        fairness ordering needs.
+        """
+        if not batches:
+            return set()
+        ids = [b.id for b in batches]
+        async with conn.cursor() as cur:
+            await cur.execute(
+                f"""
+                SELECT id FROM {BATCH_TABLE}
+                WHERE id = ANY(%(ids)s::uuid[])
+                  AND created_at > now() - interval '{PARTITION_PRUNING_INTERVAL}'
+                  AND latest_state IN ('pending', 'waiting_retry')
+                """,
+                {"ids": ids},
+            )
+            return {str(row[0]) for row in await cur.fetchall()}
+
+    @staticmethod
     async def unlock_for_batches(
         conn: psycopg.AsyncConnection[Any],
         *,

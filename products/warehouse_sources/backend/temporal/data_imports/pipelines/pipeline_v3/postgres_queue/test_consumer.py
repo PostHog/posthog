@@ -101,6 +101,18 @@ def _make_healthy_conn(closed: bool = False, broken: bool = False) -> AsyncMock:
 
 
 @pytest.fixture(autouse=True)
+def _all_claims_still_fresh():
+    # Group dispatch re-validates the poll's candidates against committed state; the
+    # real SQL can't run against mock connections. The staleness test re-patches this.
+    with patch(
+        "products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline_v3.postgres_queue.consumer.BatchQueue.filter_still_claimable",
+        new_callable=AsyncMock,
+        side_effect=lambda _conn, *, batches: {b.id for b in batches},
+    ):
+        yield
+
+
+@pytest.fixture(autouse=True)
 def _lease_renewal_succeeds():
     # Group dispatch renews the lease before processing; the real SQL can't run
     # against mock connections. Tests exercising renewal failure re-patch this.
@@ -287,6 +299,50 @@ class TestProcessGroup:
 
         assert order == [0, 1, 2]
         mock_unlock.assert_called_once()
+
+    @pytest.mark.asyncio
+    async def test_drops_claims_that_went_terminal_during_the_poll(self):
+        # The claim reads candidates under the poll's snapshot but takes the group lease
+        # against current data, so a poll lasting tens of seconds hands back batches another
+        # pod has since finished and released. Reprocessing those repeats their side effects
+        # (for a final batch, the whole post-load pass) — in prod that was two thirds of all
+        # claims. The still-claimable set must gate what reaches _process_batch.
+        consumer = _make_consumer()
+        seen: list[int] = []
+
+        async def track_batch(batch):
+            seen.append(batch.batch_index)
+
+        consumer._process_batch = track_batch
+        batches = [_make_batch(batch_index=i, id=f"00000000-0000-0000-0000-{i + 1:012d}") for i in range(3)]
+
+        with (
+            patch(
+                "products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline_v3.postgres_queue.consumer.BatchQueue.filter_still_claimable",
+                new_callable=AsyncMock,
+                return_value={batches[0].id, batches[2].id},
+            ),
+            patch(
+                "products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline_v3.postgres_queue.consumer.BatchQueue.update_status_unless_failed",
+                new_callable=AsyncMock,
+            ),
+            patch(
+                "products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline_v3.postgres_queue.consumer.BatchQueue.unlock_for_batches",
+                new_callable=AsyncMock,
+            ) as mock_unlock,
+            patch(
+                "products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline_v3.postgres_queue.consumer.BatchQueue.verify_advisory_lock",
+                new_callable=AsyncMock,
+                return_value=True,
+            ),
+            patch.object(consumer, "_connect", new_callable=AsyncMock, return_value=_make_healthy_conn()),
+        ):
+            await consumer._process_group((1, "schema-1"), batches)
+
+        assert seen == [0, 2]
+        # The lease is derived from the batch list, so it must still be released off the
+        # full claim — filtering it down to the fresh ones strands the group for a full TTL.
+        assert mock_unlock.call_args.kwargs["batches"] == batches
 
     @pytest.mark.asyncio
     async def test_unlocks_even_on_error(self):

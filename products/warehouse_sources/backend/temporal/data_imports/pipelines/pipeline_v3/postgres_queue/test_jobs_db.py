@@ -1460,6 +1460,32 @@ class TestClaimGates:
         waiting = await _insert_batch(conn, team_id=7, schema_id="s-g", run_uuid="run-g", batch_index=0)
         await BatchQueue.update_status(conn, batch_id=waiting, job_state="waiting", attempt=0)
 
+    @pytest.mark.parametrize(
+        "job_state,still_claimable",
+        [
+            (None, True),
+            ("waiting_retry", True),
+            # Another pod holds it, or already finished it, between our poll and our dispatch.
+            ("executing", False),
+            ("succeeded", False),
+            ("failed", False),
+        ],
+    )
+    @pytest.mark.asyncio
+    async def test_filter_still_claimable_reads_state_written_after_the_claim(self, conn, job_state, still_claimable):
+        # The prod sequence: a slow poll claims this batch, another pod advances it while
+        # the poll is still running, and the re-validation before dispatch has to see that.
+        bid = await _insert_batch(conn)
+        claimed = await _claim(conn)
+        assert [str(b.id) for b in claimed] == [bid]
+
+        if job_state is not None:
+            await BatchQueue.update_status(conn, batch_id=bid, job_state=job_state, attempt=1)
+
+        fresh = await BatchQueue.filter_still_claimable(conn, batches=claimed)
+
+        assert (bid in fresh) is still_claimable
+
     @pytest.mark.asyncio
     async def test_claim_applies_every_gate_at_once(self, conn):
         await self._seed_rich_scenario(conn)

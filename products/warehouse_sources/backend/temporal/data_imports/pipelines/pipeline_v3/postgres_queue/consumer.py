@@ -534,6 +534,14 @@ class DeltaBatchConsumerAdapter:
             return
         OLDEST_UNCLAIMED_BATCH_SECONDS.set(age or 0.0)
 
+    async def filter_still_claimable(
+        self,
+        conn: psycopg.AsyncConnection[Any],
+        *,
+        batches: list[PendingBatch],
+    ) -> set[str]:
+        return await BatchQueue.filter_still_claimable(conn, batches=batches)
+
     async def should_process_batch(
         self,
         conn: psycopg.AsyncConnection[Any],

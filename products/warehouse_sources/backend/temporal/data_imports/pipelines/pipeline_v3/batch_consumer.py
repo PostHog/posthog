@@ -280,6 +280,19 @@ class BatchConsumerAdapter(Protocol):
         limit: int,
     ) -> None: ...
 
+    async def filter_still_claimable(
+        self,
+        conn: psycopg.AsyncConnection[Any],
+        *,
+        batches: list[PendingBatch],
+    ) -> set[str]:
+        """Of ``batches``, the ids still claimable according to committed state.
+
+        The poll's candidate list can be stale by however long the poll ran, so the
+        engine re-validates it once the group lease is held and before any work starts.
+        """
+        ...
+
     async def should_process_batch(
         self,
         conn: psycopg.AsyncConnection[Any],
@@ -625,13 +638,19 @@ class BatchConsumer:
                 )
                 return
 
-            for batch in batches:
+            # Never rebind `batches` — the finally below derives the lease to release from it,
+            # and an emptied list would strand this group until its TTL expires.
+            fresh_batches = await self._drop_stale_claims(group_conn, batches, team_id=team_id, schema_id=schema_id)
+            if not fresh_batches:
+                return
+
+            for batch in fresh_batches:
                 if self._shutdown.is_set():
                     logger.info(
                         self._event("shutdown_mid_group"),
                         team_id=team_id,
                         schema_id=schema_id,
-                        remaining=len(batches) - batches.index(batch),
+                        remaining=len(fresh_batches) - fresh_batches.index(batch),
                     )
                     break
                 try:
@@ -659,7 +678,7 @@ class BatchConsumer:
                         team_id=team_id,
                         schema_id=schema_id,
                         run_uuid=batch.run_uuid,
-                        remaining=len(batches) - batches.index(batch) - 1,
+                        remaining=len(fresh_batches) - fresh_batches.index(batch) - 1,
                     )
                     break
         finally:
@@ -669,6 +688,48 @@ class BatchConsumer:
                     await group_conn.close()
                 except Exception:
                     pass
+
+    async def _drop_stale_claims(
+        self,
+        group_conn: psycopg.AsyncConnection[Any],
+        batches: list[PendingBatch],
+        *,
+        team_id: int,
+        schema_id: str,
+    ) -> list[PendingBatch]:
+        """Drop batches that went terminal between the poll's snapshot and this dispatch.
+
+        The claim reads candidates as of the poll's start but takes the lease as of now,
+        so a poll lasting tens of seconds can hand back batches another pod has since
+        finished and released. Processing those repeats their side effects — for a final
+        batch, the whole post-load pass.
+
+        Fails open: an app-DB hiccup here must not wedge the group, and processing a
+        batch twice is what the loader's own idempotency check already absorbs.
+        """
+        try:
+            claimable = await self._adapter.filter_still_claimable(group_conn, batches=batches)
+        except Exception as e:
+            logger.exception(self._event("stale_claim_filter_failed"), team_id=team_id, schema_id=schema_id)
+            capture_exception(e)
+            return batches
+
+        # str() both sides: PendingBatch.id is annotated str but psycopg hands back UUID
+        # objects for the uuid column, and a UUID never matches a str in a set.
+        fresh = [b for b in batches if str(b.id) in claimable]
+        dropped = len(batches) - len(fresh)
+        if dropped:
+            logger.info(
+                self._event("dropped_stale_claims"),
+                team_id=team_id,
+                external_data_schema_id=schema_id,
+                dropped=dropped,
+                remaining=len(fresh),
+            )
+            self._metrics.batches_processed_total.labels(
+                team_id=str(team_id), schema_id=schema_id, status="stale_claim"
+            ).inc(dropped)
+        return fresh
 
     async def _unlock_group(
         self,
