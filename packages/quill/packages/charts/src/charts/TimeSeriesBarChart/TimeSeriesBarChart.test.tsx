@@ -273,24 +273,6 @@ describe('TimeSeriesBarChart', () => {
         })
     })
 
-    // The bar path carries bounds under `bars.valueBounds` rather than the line chart's top-level
-    // key, so the two wirings can drift independently.
-    describe('config.yAxis min/max', () => {
-        it('caps the value axis at yAxis.max and still draws the bars', () => {
-            const { chart } = renderHogChart(
-                <TimeSeriesBarChart
-                    series={[{ key: 'a', label: 'A', data: [10, 20, 100] }]}
-                    labels={LABELS}
-                    theme={THEME}
-                    config={{ yAxis: { max: 60 } }}
-                />
-            )
-            const ticks = chart.yTicks().map((t) => parseFloat(t.replace(/[^0-9.eE+-]/g, '')))
-            expect(Math.max(...ticks)).toBe(60)
-            expect(chart.seriesCount).toBe(1)
-        })
-    })
-
     describe('config.barLayout', () => {
         it.each(['stacked', 'grouped', 'percent'] as const)('renders ticks for %s layout', (barLayout) => {
             const series: Series[] = [
@@ -369,7 +351,9 @@ describe('TimeSeriesBarChart', () => {
             const { chart: widenedChart } = renderHogChart(
                 <TimeSeriesBarChart series={SERIES} labels={LABELS} theme={THEME} config={{ margins: { left: 200 } }} />
             )
-            const widenedTick = widenedChart.element.querySelector<HTMLElement>('[data-attr="hog-chart-axis-tick-y"]')
+            const widenedTick = widenedChart.element.querySelector<HTMLElement>(
+                '[data-attr="hog-chart-axis-tick-y"]'
+            )
             expect(defaultTick).not.toBeNull()
             expect(widenedTick).not.toBeNull()
             // Left-side tick position is `right: box.width - box.plotLeft + gap` — widening the left

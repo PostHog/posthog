@@ -21,7 +21,7 @@ import type { GoalLineConfig } from '../../utils/goal-lines'
 import { useTimeSeriesTooltipConfig, type XAxisConfig, type YAxisConfig } from '../../utils/use-axis-formatters'
 import { BarChart } from '../BarChart/BarChart'
 import { useTrendLineSeries, type TrendLineConfig } from '../utils/use-derived-series'
-import { useGoalLines, useTimeSeries, useValueBounds } from '../utils/use-time-series'
+import { useGoalLines, useTimeSeries } from '../utils/use-time-series'
 import type { ValueLabelsConfig } from '../utils/use-value-labels'
 
 export interface TimeSeriesBarChartConfig {
@@ -132,7 +132,6 @@ export function TimeSeriesBarChart<Meta = unknown>({
     // `axisOrientation` flows through `barChartConfig` into chart context, so `ReferenceLine`
     // reads it automatically — no need to stamp each line here.
     const { referenceLines, valueDomain } = useGoalLines(goalLines, chartSeries)
-    const valueBounds = useValueBounds(primaryYAxis)
 
     const trendSeries = useTrendLineSeries(visibleSeries, trendLines)
 
@@ -159,7 +158,6 @@ export function TimeSeriesBarChart<Meta = unknown>({
         bars: {
             divergingStack,
             valueDomain,
-            valueBounds,
             fillStyle,
             bandPadding,
             minBarSize,
