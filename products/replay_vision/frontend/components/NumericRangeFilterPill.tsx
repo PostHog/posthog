@@ -1,47 +1,51 @@
 import { LemonButton, LemonButtonWithDropdown, LemonInput } from '@posthog/lemon-ui'
 
 /** Compact summary for the pill face, so an active range is readable without opening the dropdown. */
-export function scoreRangeLabel(min: number | null, max: number | null): string {
+export function numericRangeLabel(label: string, min: number | null, max: number | null): string {
     if (min !== null && max !== null) {
-        return `Score ${min} to ${max}`
+        return `${label} ${min} to ${max}`
     }
     if (min !== null) {
-        return `Score ≥ ${min}`
+        return `${label} ≥ ${min}`
     }
     if (max !== null) {
-        return `Score ≤ ${max}`
+        return `${label} ≤ ${max}`
     }
-    return 'Score'
+    return label
 }
 
 /** LemonInput type="number" reports an empty field as NaN, so treat anything non-finite as unset. */
-export function toScoreBound(raw: number | undefined): number | null {
+export function toNumericBound(raw: number | undefined): number | null {
     return typeof raw === 'number' && Number.isFinite(raw) ? raw : null
 }
 
 /**
- * Bounds filter for a scorer's numeric result. Two open-ended inputs rather than an operator
+ * Bounds filter for a numeric observation field. Two open-ended inputs rather than an operator
  * dropdown, because that covers "at least", "at most", and a range without a mode to pick first.
  */
-export function ScoreRangeFilterPill({
+export function NumericRangeFilterPill({
+    label,
     min,
     max,
     scaleMin,
     scaleMax,
     onChange,
+    dataAttr,
 }: {
+    label: string
     min: number | null
     max: number | null
-    /** The scanner's configured scale, used as input bounds and as placeholder hints. */
+    /** The field's configured scale, used as input bounds and as placeholder hints. */
     scaleMin?: number
     scaleMax?: number
     onChange: (min: number | null, max: number | null) => void
+    dataAttr?: string
 }): JSX.Element {
     return (
         <LemonButtonWithDropdown
             type="secondary"
             size="small"
-            data-attr="vision-observations-score-filter"
+            data-attr={dataAttr}
             dropdown={{
                 closeOnClickInside: false,
                 overlay: (
@@ -54,8 +58,8 @@ export function ScoreRangeFilterPill({
                                 min={scaleMin}
                                 max={scaleMax}
                                 placeholder={scaleMin !== undefined ? String(scaleMin) : undefined}
-                                value={min ?? undefined}
-                                onChange={(value) => onChange(toScoreBound(value), max)}
+                                value={min ?? NaN}
+                                onChange={(value) => onChange(toNumericBound(value), max)}
                                 className="flex-1"
                             />
                         </div>
@@ -67,8 +71,8 @@ export function ScoreRangeFilterPill({
                                 min={scaleMin}
                                 max={scaleMax}
                                 placeholder={scaleMax !== undefined ? String(scaleMax) : undefined}
-                                value={max ?? undefined}
-                                onChange={(value) => onChange(min, toScoreBound(value))}
+                                value={max ?? NaN}
+                                onChange={(value) => onChange(min, toNumericBound(value))}
                                 className="flex-1"
                             />
                         </div>
@@ -77,7 +81,9 @@ export function ScoreRangeFilterPill({
                             fullWidth
                             center
                             onClick={() => onChange(null, null)}
-                            disabledReason={min === null && max === null ? 'No score filter set' : undefined}
+                            disabledReason={
+                                min === null && max === null ? `No ${label.toLowerCase()} filter set` : undefined
+                            }
                         >
                             Clear
                         </LemonButton>
@@ -85,7 +91,7 @@ export function ScoreRangeFilterPill({
                 ),
             }}
         >
-            {scoreRangeLabel(min, max)}
+            {numericRangeLabel(label, min, max)}
         </LemonButtonWithDropdown>
     )
 }
