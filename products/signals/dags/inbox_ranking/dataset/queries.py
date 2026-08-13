@@ -183,7 +183,8 @@ GROUP BY team_id, document_id
 #
 # Rows come back raw, with no argMax dedupe: this scan never builds the wide aggregation states the
 # report query needs, and a retraction stays its own row instead of collapsing into the vector it
-# supersedes. Readers take the latest row per signal at or before their cutoff.
+# supersedes. Readers take the latest row per (team_id, signal_id) at or before their cutoff, because
+# a caller-supplied document_id is only unique within a team.
 #
 # Index reality is the report query's, minus the GROUP BY: no team_id sort-key prefix and no
 # inserted_at in the sort key, so this full-scans the TTL-bounded table with PREWHERE filtering the

@@ -548,8 +548,10 @@ def inbox_signal_embeddings(context: dagster.AssetExecutionContext) -> None:
 
     This asset is an emission log, not a snapshot, and is the one table in this dag whose partitions
     do not each hold the full inventory: dt=D carries only what was inserted during D. Training
-    reads the union of partitions and takes the latest row per signal at or before its cutoff, the
-    same argMax the other assets do in SQL, moved to read time. Snapshotting instead would copy a
+    reads the union of partitions and takes the latest row per (team_id, signal_id) at or before its
+    cutoff, the same argMax the other assets do in SQL, moved to read time. The tenant key is part of
+    the identity because signal_id is a caller-supplied document_id that is only unique within a team.
+    Snapshotting instead would copy a
     1536-float vector per signal fleet-wide every day, which is several GB daily against tens of MB
     for a day's emissions.
 
