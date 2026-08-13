@@ -1040,10 +1040,14 @@ def start_implementation_pr_from_slack(*, team_id: int, report_id: str, user_id:
         logger.exception("signals report PR kickoff from Slack was rejected", report_id=report_id, team_id=team_id)
         return _capture_slack_pr_kickoff(PrKickoffResult(outcome="failed"), team_id, report_id, user_id)
     if task_id is None:
-        # Either a run already exists or the report closed under the lock. Re-read the status so the
-        # refusal names the one that happened.
-        report.refresh_from_db(fields=["status"])
-        blocked: PrKickoffOutcome = "report_closed" if report.status in _CLOSED_REPORT_STATUSES else "already_started"
+        # Either a run already exists, or the report closed or went away under the lock. Re-read the
+        # status so the refusal names the one that happened.
+        status = SignalReport.objects.filter(id=report_id, team_id=team_id).values_list("status", flat=True).first()
+        blocked: PrKickoffOutcome = "already_started"
+        if status is None:
+            blocked = "not_found"
+        elif status in _CLOSED_REPORT_STATUSES:
+            blocked = "report_closed"
         return _capture_slack_pr_kickoff(PrKickoffResult(outcome=blocked), team_id, report_id, user_id)
 
     task_url = f"{settings.SITE_URL.rstrip('/')}/project/{team_id}/tasks/{task_id}"
