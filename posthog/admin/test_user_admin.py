@@ -11,7 +11,7 @@ from django.contrib.messages.storage.fallback import FallbackStorage
 from django.test import RequestFactory
 from django.urls import reverse
 
-from posthog.admin.admins.user_admin import UserAdmin
+from posthog.admin.admins.user_admin import UserAdmin, UserChangeForm
 from posthog.models import User
 from posthog.session.models import Session
 
@@ -85,3 +85,17 @@ class TestUserAdminPasswordReset(BaseTest):
         # A usable reset token must be forwarded — an empty/None token would email a dead link.
         self.assertIsInstance(token, str)
         self.assertTrue(token)
+
+
+class TestUserChangeFormPasswordField(BaseTest):
+    def test_password_field_omits_salt_and_hash(self):
+        # Guards against the partial (masked) hash material Django's default widget shows reappearing.
+        user = User.objects.create(email=f"test-{uuid.uuid4()}@example.com", distinct_id=str(uuid.uuid4()))
+        user.set_password("a-strong-password-123")
+        user.save()
+
+        rendered = str(UserChangeForm(instance=user)["password"])
+
+        self.assertIn("algorithm", rendered)
+        self.assertNotIn("salt", rendered)
+        self.assertNotIn("hash", rendered)
