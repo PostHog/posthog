@@ -755,16 +755,12 @@ async fn warming_a_range_larger_than_the_budget_marks_every_person() {
 async fn a_cancelled_warm_leaves_no_build_and_no_marks() {
     let (cluster, producer) = create_test_kafka().await;
 
-    // A range big enough that consuming it spans many polls, so the
-    // drop below always lands mid-range.
-    for person_id in 1..=2_000i64 {
-        let mut person = make_person(1, person_id);
-        person.properties = serde_json::to_vec(&serde_json::json!({
-            "email": format!("p{person_id}@example.com"),
-            "padding": "x".repeat(2048),
-        }))
-        .unwrap();
-        produce_person_to_partition(&producer, 0, &person).await;
+    // Enough records that consuming the range spans several polls, so
+    // the drop below lands mid-range. Deliberately small documents: the
+    // test needs poll count, not bytes, and a heavy fixture here steals
+    // runner capacity from every test nextest schedules alongside it.
+    for person_id in 1..=500i64 {
+        produce_person_to_partition(&producer, 0, &make_person(1, person_id)).await;
     }
 
     let cache = PartitionedCache::new(1 << 20);
