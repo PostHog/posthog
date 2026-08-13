@@ -1,1 +1,1 @@
-0025_drop_old_agent_server_access
+0026_agent_grant_scope
