@@ -961,6 +961,8 @@ export function TaskSessionView({
               content={item.content}
               onOpenTask={onOpenTask}
               timestamp={item.ts}
+              turnId={item.id}
+              taskId={taskId}
             />
           );
         case "thought":
@@ -1014,6 +1016,7 @@ export function TaskSessionView({
       onSendPermissionResponse,
       pendingPermissions,
       renderAttachment,
+      taskId,
     ],
   );
 
