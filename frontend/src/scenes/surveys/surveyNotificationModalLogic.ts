@@ -18,8 +18,8 @@ import { NEW_SURVEY } from 'scenes/surveys/constants'
 import {
     SurveyResponseFilter,
     buildResponseFilterProperties,
+    isSurveyResponsePropertyKey,
     parseResponseFiltersFromProperties,
-    stripResponseFiltersFromProperties,
 } from 'scenes/surveys/responseFilters'
 import { surveyLogic } from 'scenes/surveys/surveyLogic'
 import {
@@ -34,6 +34,7 @@ import { EventsQuery, NodeKind } from '~/queries/schema/schema-general'
 import { hogql } from '~/queries/utils'
 import {
     AnyPropertyFilter,
+    CyclotronJobFilterEvents,
     CyclotronJobFiltersType,
     CyclotronJobInvocationGlobals,
     CyclotronJobTestInvocationResult,
@@ -449,6 +450,7 @@ async function buildSurveyNotificationPayload({
             template,
             destination: form.destination,
             surveyId: survey.id,
+            enablePartialResponses: survey.enable_partial_responses ?? false,
             form,
         })
     }
@@ -468,6 +470,7 @@ async function buildSurveyNotificationPayload({
         destination: form.destination,
         surveyName: survey.name,
         surveyId: survey.id,
+        enablePartialResponses: survey.enable_partial_responses ?? false,
         form,
     })
 }
@@ -701,12 +704,14 @@ function createSurveyNotificationPayload({
     destination,
     surveyName,
     surveyId,
+    enablePartialResponses,
     form,
 }: {
     template: HogFunctionTemplateType
     destination: DestinationKey
     surveyName?: string | null
     surveyId: string
+    enablePartialResponses: boolean
     form: SurveyNotificationForm
 }): Partial<HogFunctionType> {
     const destinationOption = DESTINATION_OPTIONS.find((option) => option.value === destination)
@@ -764,14 +769,49 @@ function createSurveyNotificationPayload({
         description: subTemplate?.description ?? `Survey notification for ${destinationOption.label}`,
         inputs,
         inputs_schema: template.inputs_schema,
-        filters: getSurveyNotificationFilters(surveyId, buildResponseFilterProperties(form.responseFilters)),
+        filters: getSurveyNotificationFilters(
+            surveyId,
+            enablePartialResponses,
+            buildResponseFilterProperties(form.responseFilters)
+        ),
         hog: template.code,
         icon_url: template.icon_url,
         enabled: true,
     }
 }
 
-function mergeResponseFiltersIntoExistingFilters(
+// Everything this modal writes onto a sent branch. Anything else was added elsewhere, so it has
+// to survive a rebuild: per-event properties are AND'd, and dropping a restriction widens which
+// responses reach the destination.
+const MODAL_MANAGED_SENT_PROPERTY_KEYS = new Set<string>([
+    SurveyEventProperties.SURVEY_ID,
+    SurveyEventProperties.SURVEY_COMPLETED,
+])
+
+function getCustomSentProperties(
+    filters: HogFunctionType['filters']
+): NonNullable<CyclotronJobFilterEvents['properties']> {
+    // Union across every sent branch rather than the first one: a restriction added through the full
+    // editor can sit on any single branch, and per-event properties are AND'd, so losing it widens
+    // delivery. Keyed by value because the same restriction normally exists on every branch, and
+    // object identity would let copies pile up on each re-save.
+    const byValue = new Map<string, NonNullable<CyclotronJobFilterEvents['properties']>[number]>()
+    for (const event of filters?.events ?? []) {
+        if (event.id !== SurveyEventName.SENT) {
+            continue
+        }
+        for (const property of event.properties ?? []) {
+            const key = 'key' in property && typeof property.key === 'string' ? property.key : null
+            if (key !== null && (MODAL_MANAGED_SENT_PROPERTY_KEYS.has(key) || isSurveyResponsePropertyKey(key))) {
+                continue
+            }
+            byValue.set(JSON.stringify(property), property)
+        }
+    }
+    return Array.from(byValue.values())
+}
+
+export function mergeResponseFiltersIntoExistingFilters(
     existingFilters: HogFunctionType['filters'],
     fallbackFilters: HogFunctionType['filters'],
     responseFilters: SurveyResponseFilter[]
@@ -781,25 +821,25 @@ function mergeResponseFiltersIntoExistingFilters(
         return fallbackFilters
     }
     const responseProperties = buildResponseFilterProperties(responseFilters)
-    const events = (base.events ?? []).map((event) => {
-        if (event.id !== SurveyEventName.SENT) {
-            return event
-        }
-        const preservedProperties = stripResponseFiltersFromProperties(
-            (event.properties ?? []).filter(
-                (property): property is EventPropertyFilter =>
-                    typeof property === 'object' &&
-                    property !== null &&
-                    'type' in property &&
-                    (property as { type?: unknown }).type === PropertyFilterType.Event
-            )
-        )
-        return {
-            ...event,
-            properties: [...preservedProperties, ...responseProperties],
-        }
-    })
-    return { ...base, events }
+    // Sent branches are rebuilt from the freshly built filters rather than preserved, so re-saving
+    // repairs a notification stored before the completion branches were corrected. Only when the
+    // saved config already had one: a notification whose sent branches were removed through the
+    // full editor is deliberately dismissal-only, and reinstating them would widen delivery. A
+    // notification needing the repair still has its sent branch, so gating on it costs nothing.
+    const hasSavedSentBranch = (base.events ?? []).some((event) => event.id === SurveyEventName.SENT)
+    const customProperties = getCustomSentProperties(base)
+    const rebuiltSentEvents = hasSavedSentBranch
+        ? (fallbackFilters?.events ?? [])
+              .filter((event) => event.id === SurveyEventName.SENT)
+              .map(
+                  (event): CyclotronJobFilterEvents => ({
+                      ...event,
+                      properties: [...(event.properties ?? []), ...customProperties, ...responseProperties],
+                  })
+              )
+        : []
+    const preservedEvents = (base.events ?? []).filter((event) => event.id !== SurveyEventName.SENT)
+    return { ...base, events: [...rebuiltSentEvents, ...preservedEvents] }
 }
 
 function updateSurveyNotificationPayload({
@@ -807,12 +847,14 @@ function updateSurveyNotificationPayload({
     template,
     destination,
     surveyId,
+    enablePartialResponses,
     form,
 }: {
     notification: HogFunctionType
     template: HogFunctionTemplateType
     destination: DestinationKey
     surveyId: string
+    enablePartialResponses: boolean
     form: SurveyNotificationForm
 }): Partial<HogFunctionType> {
     const payload = createSurveyNotificationPayload({
@@ -820,6 +862,7 @@ function updateSurveyNotificationPayload({
         destination,
         surveyName: null,
         surveyId,
+        enablePartialResponses,
         form,
     })
 
@@ -865,6 +908,7 @@ function createCopiedSurveyNotificationPayload({
         destination,
         surveyName: survey.name,
         surveyId: survey.id,
+        enablePartialResponses: survey.enable_partial_responses ?? false,
         form,
     })
 
@@ -885,7 +929,11 @@ function createCopiedSurveyNotificationPayload({
         },
         mappings: remapSurveyResponseProperties(notification.mappings, survey),
         masking: notification.masking,
-        filters: getSurveyNotificationFilters(survey.id, buildResponseFilterProperties(form.responseFilters)),
+        filters: getSurveyNotificationFilters(
+            survey.id,
+            survey.enable_partial_responses ?? false,
+            buildResponseFilterProperties(form.responseFilters)
+        ),
         hog: remapSurveyResponseProperties(notification.hog, survey) ?? template.code,
         icon_url: notification.icon_url ?? template.icon_url,
         enabled: true,
