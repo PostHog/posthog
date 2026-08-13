@@ -161,6 +161,107 @@ batch_exports: PostgresTable = PostgresTable(
     },
 )
 
+batch_export_on_demands: PostgresTable = PostgresTable(
+    name="batch_export_on_demands",
+    postgres_table_name="posthog_batchexportondemand",
+    access_scope="batch_export",
+    description="Batch exports triggered on demand rather than on a schedule; one row per on-demand export.",
+    fields={
+        "id": StringDatabaseField(name="id", description="On-demand batch export UUID."),
+        "team_id": IntegerDatabaseField(name="team_id"),
+        "destination_id": StringDatabaseField(
+            name="destination_id", description="Identifier of the destination config the export writes to."
+        ),
+        "source_id": StringDatabaseField(
+            name="source_id",
+            nullable=True,
+            description="Source of the data to export, if any; when set, takes precedence over model.",
+        ),
+        "model": StringDatabaseField(
+            name="model",
+            nullable=True,
+            description="Data model exported, e.g. 'events', 'persons', 'sessions' or 'hogql'.",
+        ),
+        "filters": StringJSONDatabaseField(
+            name="filters", nullable=True, description="Filters applied to the exported data."
+        ),
+        "_deleted": BooleanDatabaseField(name="deleted", hidden=True),
+        "deleted": ExpressionField(name="deleted", expr=ast.Call(name="toInt", args=[ast.Field(chain=["_deleted"])])),
+        "created_at": DateTimeDatabaseField(
+            name="created_at", description="When the on-demand batch export was created."
+        ),
+        "last_updated_at": DateTimeDatabaseField(
+            name="last_updated_at", description="When the on-demand batch export was last updated."
+        ),
+    },
+)
+
+
+class _BatchExportRunsTable(PostgresTable, DANGEROUS_NoTeamIdCheckTable):
+    predicates: list[Expr] = [
+        parse_expr(
+            "batch_export_id IN (SELECT id FROM system.batch_exports)"
+            " OR batch_export_on_demand_id IN (SELECT id FROM system.batch_export_on_demands)"
+        )
+    ]
+
+
+batch_export_runs: _BatchExportRunsTable = _BatchExportRunsTable(
+    name="batch_export_runs",
+    postgres_table_name="posthog_batchexportrun",
+    access_scope="batch_export",
+    description="Batch export run history; one row per run.",
+    fields={
+        "id": StringDatabaseField(name="id", description="Run UUID."),
+        "batch_export_id": StringDatabaseField(
+            name="batch_export_id",
+            nullable=True,
+            description="Batch export this run belongs to; joins to batch_exports.id. May be NULL if the run corresponds to an on-demand batch export.",
+        ),
+        "batch_export_on_demand_id": StringDatabaseField(
+            name="batch_export_on_demand_id",
+            nullable=True,
+            description="On-demand batch export this run belongs to; joins to batch_export_on_demands.id. May be NULL if the run corresponds to a regularly scheduled batch export.",
+        ),
+        "backfill_id": StringDatabaseField(
+            name="backfill_id",
+            nullable=True,
+            description="Backfill this run belongs to, if any; joins to batch_export_backfills.id.",
+        ),
+        "data_interval_start": DateTimeDatabaseField(
+            name="data_interval_start",
+            nullable=True,
+            description="Start of the time range covered by the run (NULL means no lower bound).",
+        ),
+        "data_interval_end": DateTimeDatabaseField(
+            name="data_interval_end",
+            nullable=False,
+            description="End of the time range covered by the run",
+        ),
+        "status": StringDatabaseField(
+            name="status", description="Run status, e.g. Running, Completed, Failed, Cancelled."
+        ),
+        "created_at": DateTimeDatabaseField(name="created_at", description="When the run was created."),
+        "finished_at": DateTimeDatabaseField(
+            name="finished_at", nullable=True, description="When the run finished; NULL while still running."
+        ),
+        "last_updated_at": DateTimeDatabaseField(
+            name="last_updated_at", description="When the run row was last updated."
+        ),
+        "records_completed": IntegerDatabaseField(
+            name="records_completed",
+            nullable=True,
+            description="Total number of records exported (NULL while still running or if the run failed).",
+        ),
+        "bytes_exported": IntegerDatabaseField(
+            name="bytes_exported",
+            nullable=True,
+            description="Total number of bytes exported (NULL while still running or if the run failed).",
+        ),
+    },
+)
+
+
 alerts: PostgresTable = PostgresTable(
     name="alerts",
     postgres_table_name="posthog_alertconfiguration",
@@ -2635,6 +2736,8 @@ class SystemTables(TableNode):
         "alerts": TableNode(name="alerts", table=alerts),
         "annotations": TableNode(name="annotations", table=annotations),
         "batch_export_backfills": TableNode(name="batch_export_backfills", table=batch_export_backfills),
+        "batch_export_on_demands": TableNode(name="batch_export_on_demands", table=batch_export_on_demands),
+        "batch_export_runs": TableNode(name="batch_export_runs", table=batch_export_runs),
         "batch_exports": TableNode(name="batch_exports", table=batch_exports),
         "business_knowledge_chunks": TableNode(name="business_knowledge_chunks", table=business_knowledge_chunks),
         "business_knowledge_documents": TableNode(

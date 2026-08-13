@@ -73,6 +73,10 @@ jobs:
               if: ${{ hashFiles('.github/scripts/weekly-flaky-report.test.mjs') != '' }}
               run: node --test .github/scripts/weekly-flaky-report.test.mjs
 
+            - name: CLI npm installer patch tests (Node)
+              if: ${{ hashFiles('.github/scripts/patch-cli-npm-installer.test.mjs') != '' }}
+              run: node --test .github/scripts/patch-cli-npm-installer.test.mjs
+
             - name: Turbo-discover dependent-cascade tests (Node)
               run: node --test .github/scripts/turbo-discover-cascade.test.js
 
