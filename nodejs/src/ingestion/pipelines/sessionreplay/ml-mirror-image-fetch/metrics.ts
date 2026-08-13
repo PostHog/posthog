@@ -178,8 +178,8 @@ export class ImageFetchRequestMetrics {
         },
     })
 
-    public static incOutcome(outcome: string): void {
-        this.outcomes.labels(outcome).inc()
+    public static incOutcome(outcome: string, count = 1): void {
+        this.outcomes.labels(outcome).inc(count)
     }
     public static observeRequest(outcome: string, durationSeconds: number, redirects: number): void {
         this.outcomes.labels(outcome).inc()
@@ -216,6 +216,22 @@ export class ImageFetchRequestMetrics {
 
     private static budget: BudgetCounts | undefined
     private static requests: InFlightCount | undefined
+
+    /**
+     * URLs a shed left in the back queue, which the lane will not put back.
+     *
+     * A pass sheds whatever it did not reach, and one back queue can hold far more than a delay
+     * tier can carry. Republishing all of them answers overload with more Kafka traffic, and the
+     * same URLs come round again a minute later, each having spent a hop.
+     */
+    private static readonly shedDropped = new Counter({
+        name: 'ml_image_fetch_shed_dropped_total',
+        help: 'URLs a shed did not put back, because one pass republishes at most a fixed number for one domain. They return when a session refers to the same image',
+    })
+
+    public static incShedDropped(count: number): void {
+        this.shedDropped.inc(count)
+    }
 
     /** The runner owns both. Requirement 28. */
     public static trackBudget(budget: BudgetCounts, requests: InFlightCount): void {

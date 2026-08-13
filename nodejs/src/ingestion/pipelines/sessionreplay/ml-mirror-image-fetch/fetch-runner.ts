@@ -79,6 +79,15 @@ const TERMINAL_OUTCOMES: ReadonlySet<AttemptOutcome> = new Set<AttemptOutcome>([
     'unsupported_encoding',
 ])
 
+/**
+ * URLs one pass puts back for one domain after a shed.
+ *
+ * A shed happens under overload, and one back queue can hold every URL of a batch. Republishing all
+ * of them answers overload with more Kafka traffic, and the same URLs arrive again a minute later
+ * having each spent a hop. Past this the rest are left unrecorded, so the mirror offers them again.
+ */
+const MAX_SHED_REPUBLISHED = 1000
+
 /** Hosts named in one batch-level log line, bounded so one bad batch cannot log a host list of its own size. */
 const MAX_LOGGED_HOSTS = 5
 
@@ -207,11 +216,28 @@ export class FetchRunner implements FetchPass {
     ): Promise<void> {
         let next = 0
         // A refusal is a property of the domain, so it applies to every URL still queued for it.
-        const shedRemaining = async (reason: ShedReason): Promise<void> => {
-            while (next < backQueue.length) {
-                const candidate = backQueue[next++]
-                ImageFetchRequestMetrics.incOutcome(reason)
-                attempts.push(await this.reschedule(candidate, reason, this.budget.blockedForMs(domain, Date.now())))
+        const shedRemaining = async (reason: ShedReason, first?: FetchCandidate): Promise<void> => {
+            const shed = first ? [first, ...backQueue.slice(next)] : backQueue.slice(next)
+            next = backQueue.length
+            if (shed.length === 0) {
+                return
+            }
+            ImageFetchRequestMetrics.incOutcome(reason, shed.length)
+            const waitMs = this.budget.blockedForMs(domain, Date.now())
+            // Together rather than one after another. A shed runs once the pass deadline has passed,
+            // and one awaited produce for each of tens of thousands of URLs would run past
+            // `max.poll.interval.ms` and lose the partition in the middle of the batch.
+            const republished = await Promise.all(
+                shed.slice(0, MAX_SHED_REPUBLISHED).map((candidate) => this.reschedule(candidate, reason, waitMs))
+            )
+            for (const attempt of republished) {
+                attempts.push(attempt)
+            }
+            for (const candidate of shed.slice(MAX_SHED_REPUBLISHED)) {
+                attempts.push({ candidate, outcome: reason, finished: false, lost: false })
+            }
+            if (shed.length > MAX_SHED_REPUBLISHED) {
+                ImageFetchRequestMetrics.incShedDropped(shed.length - MAX_SHED_REPUBLISHED)
             }
         }
 
@@ -231,11 +257,11 @@ export class FetchRunner implements FetchPass {
                     const stale = this.staleAfterWait(domain, deadlineMs)
                     if (stale) {
                         this.budget.returnGrant(domain, Date.now())
-                        ImageFetchRequestMetrics.incOutcome(stale)
-                        attempts.push(
-                            await this.reschedule(candidate, stale, this.budget.blockedForMs(domain, Date.now()))
-                        )
-                        continue
+                        // The whole back queue, not this URL alone. Whatever went stale during the
+                        // wait is a property of the domain, so it holds for every URL still queued
+                        // for it. Requirement 16.
+                        await shedRemaining(stale, candidate)
+                        return
                     }
                 }
                 attempts.push(await this.fetchOne(candidate, deadlineMs))

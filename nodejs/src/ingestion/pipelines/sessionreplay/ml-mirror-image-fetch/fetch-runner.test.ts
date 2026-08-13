@@ -324,6 +324,37 @@ describe('FetchRunner', () => {
         expect(published).toEqual(['retry'])
     })
 
+    it('puts back a bounded number of shed URLs, and does it in one go', async () => {
+        // A shed runs after the pass deadline has passed. One awaited produce for each URL of a
+        // large back queue would run past max.poll.interval.ms and lose the partition mid-batch,
+        // and putting every one of them back answers overload with more Kafka traffic.
+        let open = 0
+        let peak = 0
+        let published = 0
+        const publisher = {
+            republish: async () => {
+                open++
+                peak = Math.max(peak, open)
+                await Promise.resolve()
+                published++
+                open--
+                return true
+            },
+        } as unknown as FrontierPublisher
+        const fetcher = new FakeFetcher(() => ({ outcome: 'rate_limited', status: 429, retryAfterMs: 30_000 }))
+        const queue = Array.from({ length: 2500 }, () => candidate('busy.com', 0))
+
+        const attempts = await runner(fetcher, {}, defaultBudget(), publisher).run(queue)
+
+        expect(attempts).toHaveLength(2500)
+        // The cap, plus the few that held a burst token and were fetched before the 429 blocked the
+        // domain. Well under 2500, which is what one awaited produce for each would have cost.
+        expect(published).toBeGreaterThanOrEqual(1000)
+        expect(published).toBeLessThanOrEqual(1000 + OPTIONS.maxConcurrentPerDomain)
+        // More than one produce was open at a time, so the shed did not await them one by one.
+        expect(peak).toBeGreaterThan(1)
+    })
+
     it('gives up and records a URL with no hops left (requirement 12)', async () => {
         const publisher = { republish: () => Promise.resolve(true) } as unknown as FrontierPublisher
         const fetcher = new FakeFetcher(() => ({ outcome: 'timeout' }))
