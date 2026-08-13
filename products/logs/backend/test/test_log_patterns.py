@@ -106,6 +106,21 @@ class TestMinePatterns(TestCase):
         assert expected_token in patterns[0].pattern
         assert raw_token not in patterns[0].pattern
 
+    @parameterized.expand(
+        [
+            ("chrome_version", "agent Chrome/139.0.0.0 connected"),
+            ("four_part_release", "rolled out build/2.14.0.3 to canary"),
+            ("longer_dotted_run", "schema version 1.2.3.4.5 loaded"),
+        ]
+    )
+    def test_version_strings_are_not_masked_as_ips(self, _name: str, line: str) -> None:
+        # A dotted quad in a version is indistinguishable from an address by octet range, so
+        # the mask keys on the surrounding characters. Reading "Chrome/<ip>" in a template
+        # sends the reader looking for a network problem that is not there.
+        patterns = mine_patterns([_sample(line)])
+
+        assert "<ip>" not in patterns[0].pattern
+
     def test_error_count_includes_only_error_and_fatal(self) -> None:
         samples = [
             _sample("db connection dropped", severity="error"),
