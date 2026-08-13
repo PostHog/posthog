@@ -29,9 +29,10 @@ export const DataModelingJobStatusEnumApi = {
  * * `full_refresh` - Full refresh
  * * `incremental` - Incremental
  */
-export type RunModeEnumApi = (typeof RunModeEnumApi)[keyof typeof RunModeEnumApi]
+export type DataModelingJobRunModeEnumApi =
+    (typeof DataModelingJobRunModeEnumApi)[keyof typeof DataModelingJobRunModeEnumApi]
 
-export const RunModeEnumApi = {
+export const DataModelingJobRunModeEnumApi = {
     FullRefresh: 'full_refresh',
     Incremental: 'incremental',
 } as const
@@ -45,7 +46,7 @@ export interface DataModelingJobApi {
      *
      * * `full_refresh` - Full refresh
      * * `incremental` - Incremental */
-    readonly run_mode: RunModeEnumApi | null
+    readonly run_mode: DataModelingJobRunModeEnumApi | null
     readonly rows_materialized: number
     /** @nullable */
     readonly error: string | null

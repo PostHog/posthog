@@ -19102,10 +19102,10 @@ export namespace Schemas {
      * * `full_refresh` - Full refresh
      * * `incremental` - Incremental
      */
-    export type RunModeEnum = typeof RunModeEnum[keyof typeof RunModeEnum];
+    export type DataModelingJobRunModeEnum = typeof DataModelingJobRunModeEnum[keyof typeof DataModelingJobRunModeEnum];
 
 
-    export const RunModeEnum = {
+    export const DataModelingJobRunModeEnum = {
       FullRefresh: 'full_refresh',
       Incremental: 'incremental',
     } as const;
@@ -19119,7 +19119,7 @@ export namespace Schemas {
        *
        * * `full_refresh` - Full refresh
        * * `incremental` - Incremental */
-      readonly run_mode: RunModeEnum | null;
+      readonly run_mode: DataModelingJobRunModeEnum | null;
       readonly rows_materialized: number;
       /** @nullable */
       readonly error: string | null;
@@ -68280,10 +68280,10 @@ export namespace Schemas {
      * * `review_only` - review_only
      * * `resolve_only` - resolve_only
      */
-    export type RunModeEnum = typeof RunModeEnum[keyof typeof RunModeEnum];
+    export type ReviewTriggerRequestRunModeEnum = typeof ReviewTriggerRequestRunModeEnum[keyof typeof ReviewTriggerRequestRunModeEnum];
 
 
-    export const RunModeEnum = {
+    export const ReviewTriggerRequestRunModeEnum = {
       Review: 'review',
       ReviewOnly: 'review_only',
       ResolveOnly: 'resolve_only',
@@ -68297,7 +68297,7 @@ export namespace Schemas {
        * * `review` - review
        * * `review_only` - review_only
        * * `resolve_only` - resolve_only */
-      run_mode?: RunModeEnum;
+      run_mode?: ReviewTriggerRequestRunModeEnum;
     }
 
     export interface ReviewTriggerResponse {
