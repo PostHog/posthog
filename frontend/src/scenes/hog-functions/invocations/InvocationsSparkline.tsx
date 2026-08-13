@@ -1,20 +1,40 @@
-import { useValues } from 'kea'
 import { useCallback, useMemo, useState } from 'react'
 
 import { IconChevronDown } from '@posthog/icons'
 import { LemonButton, SpinnerOverlay } from '@posthog/lemon-ui'
+import {
+    type DateRangeZoomData,
+    DefaultTooltip,
+    type Series,
+    TimeSeriesBarChart,
+    type TimeSeriesBarChartConfig,
+    type TimeInterval,
+} from '@posthog/quill-charts'
 
-import { AnyScaleOptions, Sparkline } from 'lib/components/Sparkline'
+import { useChartConfig, useChartTheme } from 'lib/charts/hooks'
+import { getColorVar } from 'lib/colors'
 import { dayjs } from 'lib/dayjs'
 import { cn } from 'lib/utils/css-classes'
-import { teamLogic } from 'scenes/teamLogic'
+import { humanFriendlyNumber } from 'lib/utils/numbers'
 
-import { SparklineData, projectTimezoneOf } from './hogInvocationsLogic'
+import { SparklineData } from './hogInvocationsLogic'
 
 interface InvocationsSparklineProps {
     data: SparklineData | null
     loading: boolean
     onDateRangeChange: (dateFrom: string, dateTo: string | undefined) => void
+}
+
+/** The bucket width the logic picked, recovered from the span so ticks read as minutes, hours or days. */
+function inferInterval(dates: string[]): TimeInterval {
+    if (dates.length < 2) {
+        return 'hour'
+    }
+    const hoursDiff = dayjs(dates[dates.length - 1]).diff(dayjs(dates[0]), 'hour')
+    if (hoursDiff <= 6) {
+        return 'minute'
+    }
+    return hoursDiff <= 48 ? 'hour' : 'day'
 }
 
 export function InvocationsSparkline({
@@ -23,60 +43,45 @@ export function InvocationsSparkline({
     onDateRangeChange,
 }: InvocationsSparklineProps): JSX.Element | null {
     const [collapsed, setCollapsed] = useState(false)
-    const { currentTeam } = useValues(teamLogic)
-    // Buckets are cut in the project's timezone, so label them there too: in the viewer's zone a
-    // project-local day can read as the day before. Resolved the same way the buckets are, or the
-    // labels would fall back to UTC while the team is still loading and the bars would not.
-    const projectTimezone = projectTimezoneOf(currentTeam)
 
-    const { timeUnit, tickFormat } = useMemo(() => {
-        const dates = data?.dates ?? []
-        if (dates.length < 2) {
-            return { timeUnit: 'hour' as const, tickFormat: 'HH:mm' }
-        }
-        const hoursDiff = dayjs(dates[dates.length - 1]).diff(dayjs(dates[0]), 'hour')
-        if (hoursDiff <= 6) {
-            return { timeUnit: 'minute' as const, tickFormat: 'HH:mm' }
-        }
-        if (hoursDiff <= 48) {
-            return { timeUnit: 'hour' as const, tickFormat: 'HH:mm' }
-        }
-        return { timeUnit: 'day' as const, tickFormat: 'D MMM' }
-    }, [data?.dates])
+    const dates = useMemo(() => data?.dates ?? [], [data?.dates])
 
-    const withXScale = useCallback(
-        (scale: AnyScaleOptions): AnyScaleOptions =>
-            ({
-                ...scale,
-                type: 'timeseries',
-                ticks: {
-                    display: true,
-                    maxRotation: 0,
-                    maxTicksLimit: 6,
-                    font: { size: 10, lineHeight: 1 },
-                    callback: (value: string | number) => dayjs(value).tz(projectTimezone).format(tickFormat),
-                },
-                time: { unit: timeUnit },
-            }) as AnyScaleOptions,
-        [timeUnit, tickFormat, projectTimezone]
+    const series = useMemo<Series[]>(
+        () =>
+            (data?.series ?? []).map((timeseries) => ({
+                key: timeseries.name,
+                label: timeseries.name,
+                data: timeseries.values,
+                color: getColorVar(timeseries.color),
+            })),
+        [data?.series]
     )
 
-    const onSelectionChange = useCallback(
-        (sel: { startIndex: number; endIndex: number }): void => {
-            const dates = data?.dates ?? []
-            const from = dates[sel.startIndex]
+    const theme = useChartTheme()
+    const config = useChartConfig<TimeSeriesBarChartConfig>(
+        () => ({
+            // The runs table below renders timestamps in local time, so the axis should agree.
+            xAxis: { interval: inferInterval(dates), timezone: dayjs.tz.guess() },
+        }),
+        [dates]
+    )
+
+    // Wired directly rather than through `useDateRangeZoom`, which gates on the insight drag-to-zoom
+    // rollout flag: here the drag is the primary way to narrow the runs list, not an opt-in extra.
+    const onDateRangeZoom = useCallback(
+        ({ startIndex, endIndex }: DateRangeZoomData): void => {
+            const from = dates[startIndex]
             // `+1` so the selection end aligns with the *next* bucket boundary,
             // mirroring how the logs sparkline emits ranges. If we hit past
             // the end of the buckets, leave dateTo undefined (= "up to now").
-            const to = dates[sel.endIndex + 1]
+            const to = dates[endIndex + 1]
             if (from) {
                 onDateRangeChange(from, to)
             }
         },
-        [data?.dates, onDateRangeChange]
+        [dates, onDateRangeChange]
     )
 
-    const labels = useMemo(() => (data?.dates ?? []).map((d) => dayjs(d).toISOString()), [data?.dates])
     const hasAnyData = (data?.series ?? []).some((s) => s.values.some((v) => v > 0))
 
     return (
@@ -93,17 +98,24 @@ export function InvocationsSparkline({
                 </LemonButton>
             </div>
             {!collapsed && (
-                <div className="relative h-24">
+                // Quill charts fill a *flex* parent (their root is flex-1), so the sized container must be a flex column.
+                <div className="relative h-24 flex flex-col">
                     {hasAnyData ? (
-                        <Sparkline
-                            labels={labels}
-                            data={data!.series}
-                            className="w-full h-full"
-                            onSelectionChange={onSelectionChange}
-                            withXScale={withXScale}
-                            renderLabel={(label) => dayjs(label).tz(projectTimezone).format('D MMM YYYY HH:mm')}
-                            hideZerosInTooltip
-                            sortTooltipByCount
+                        <TimeSeriesBarChart
+                            series={series}
+                            labels={dates}
+                            theme={theme}
+                            config={config}
+                            onDateRangeZoom={onDateRangeZoom}
+                            tooltip={(ctx) => (
+                                <DefaultTooltip
+                                    {...ctx}
+                                    hideZeroRows
+                                    sortedByValue
+                                    valueFormatter={(value) => humanFriendlyNumber(value)}
+                                    labelFormatter={(label) => dayjs(label).format('D MMM YYYY HH:mm')}
+                                />
+                            )}
                         />
                     ) : !loading ? (
                         <div className="h-full text-muted text-xs flex items-center justify-center">
