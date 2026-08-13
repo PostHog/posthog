@@ -1,11 +1,11 @@
 import { InvalidRequestError, ResolutionError, SecureRequestError, fetchStreamed } from '~/common/utils/request'
 
 /**
- * The same raster set the anonymizer keeps on a collected ref, so a fetched image and an inline one
- * reach the scrub lane as the same kinds of thing.
+ * The raster set the anonymizer keeps on a collected ref, so a fetched image and an inline one reach
+ * the scrub lane as the same kind of thing.
  *
- * SVG is absent on purpose. It is a text format that can carry the page's own data, and its
- * redaction belongs on the inline path rather than on an image model.
+ * SVG is absent on purpose. It is a text format that can carry the page's own data, so its redaction
+ * belongs on the inline path rather than on an image model.
  */
 const ALLOWED_CONTENT_TYPES = ['image/png', 'image/jpeg', 'image/gif', 'image/webp', 'image/bmp', 'image/avif'] as const
 
@@ -35,9 +35,9 @@ export interface ImageFetchResult {
     status?: number
     bytes?: Buffer
     contentType?: ImageContentType
-    /** Set by a 429 or a 503 that named a period. The caller holds the whole domain for it. */
+    /** Set by a 429 or a 503 that named a period. The caller holds the whole domain for that period. */
     retryAfterMs?: number
-    /** Where an unfollowed redirect points. The caller republishes this rather than fetching it. */
+    /** Where a redirect this lane did not follow points. The caller republishes it rather than fetching it. */
     redirectTarget?: { url: string; host: string }
 }
 
@@ -47,29 +47,27 @@ export interface ImageFetchOptions {
     timeoutMs: number
     maxRedirects: number
     /**
-     * Consulted for every redirect target this fetch will follow, so each hop spends a token.
+     * The fetch asks this for every redirect target it will follow, so each hop spends a token.
      *
-     * `defer` says the target is fine but cannot be reached now. It has to be told apart from
-     * `refuse`, because the caller records a refusal in the crawl history and none for a deferral.
+     * `remainingMs` is what is left of this request, so a wait longer than that must `defer`.
      *
-     * `remainingMs` is what is left of this request. A wait longer than that has to `defer`.
+     * A `defer` must not read as a `refuse`, because the caller writes a refusal to the crawl
+     * history and writes nothing for a deferral.
      */
     authorizeRedirect: (url: URL, remainingMs: number) => Promise<RedirectDecision>
     /**
      * True when the target belongs to another operator, so this fetch must not follow it.
      *
-     * Asked before the redirect limit is applied, and it spends nothing. The limit bounds the hops
-     * this request follows itself. A target for another operator is followed by nobody here: it goes
-     * back to Kafka and costs one hop instead. Requirement 7.
+     * The fetch asks this before it applies the redirect limit, and the question spends nothing. The
+     * limit bounds the hops this request follows itself. Nobody here follows a target for another
+     * operator, so it goes back to Kafka and costs one hop instead. Requirement 7.
      */
     isOffsite: (url: URL) => boolean
 }
 
 /**
- * What to do with a redirect target.
- *
- * `allow` follows it here. `defer` is the budget being spent or the breaker being open. `refuse` is
- * a target this lane will never follow.
+ * `allow` follows the target here. `defer` means the budget is spent or the breaker is open.
+ * `refuse` means this lane will never follow the target.
  */
 export type RedirectDecision = 'allow' | 'refuse' | 'defer'
 
@@ -89,11 +87,9 @@ const REQUEST_HEADERS: Record<string, string> = {
 const REDIRECT_STATUSES = new Set([301, 302, 303, 307, 308])
 
 /**
- * Fetch one image.
- *
- * No credential of any kind is sent: no cookie, no `Authorization`, and no `Referer`. An image
- * behind a login is one this lane must not reach, and a `Referer` would tell the origin which page
- * of the customer's site the image sat on.
+ * This sends no credential of any kind: no cookie, no `Authorization`, and no `Referer`. This lane
+ * must not reach an image behind a login, and a `Referer` would tell the origin which page of the
+ * customer's site the image sat on.
  *
  * Every refusal is an outcome rather than a throw. This runs inside a Kafka batch, one URL at a
  * time, and a throw would abandon the URLs after it in the same batch.
@@ -123,8 +119,8 @@ export class HttpImageFetcher implements ImageFetcher {
                 return { outcome: 'bad_redirect', redirects, status: hop.status }
             }
             if (options.isOffsite(next)) {
-                // Not followed here. The budget, the breaker, and the connection count for that
-                // domain belong to whichever consumer owns its partition.
+                // The budget, the breaker, and the connection count for that domain belong to the
+                // consumer that owns its partition.
                 return {
                     outcome: 'redirect_offsite',
                     redirects,
@@ -132,16 +128,13 @@ export class HttpImageFetcher implements ImageFetcher {
                     redirectTarget: { url: next.toString(), host: next.hostname },
                 }
             }
-            // After the offsite test, and before the target is authorized, so a hop this lane will
-            // not follow spends no token from the budget of the site it would have landed on.
+            // After the offsite test and before authorization, so a hop this lane refuses spends no
+            // token from the budget of the site it would have landed on.
             if (redirects >= options.maxRedirects) {
                 return { outcome: 'too_many_redirects', redirects, status: hop.status }
             }
             let decision: RedirectDecision
             try {
-                // The remaining request budget, so a politeness wait that will not fit comes back
-                // as `defer`. Taking it and then running out would report the site as slow when
-                // what ran out was our own clock.
                 decision = await options.authorizeRedirect(next, deadlineMs - Date.now())
             } catch (error) {
                 return { outcome: classifyError(error), redirects }
@@ -175,10 +168,9 @@ export class HttpImageFetcher implements ImageFetcher {
             response.discard()
             return { kind: 'done', result: { outcome: 'not_image', status } }
         }
-        // The request asked for `identity`. An origin that compresses anyway would make the byte
-        // limit count compressed bytes, and the payload behind them can be far larger. This is a
-        // refusal by this lane rather than a fact about the image, so it gets its own outcome and
-        // does not write the URL off.
+        // An origin that compresses anyway makes the byte limit count compressed bytes, and the
+        // payload behind them can be far larger. This is a refusal by this lane rather than a fact
+        // about the image, so it gets its own outcome and does not write the URL off.
         const encoding = response.headers['content-encoding']?.trim().toLowerCase()
         if (encoding && encoding !== 'identity') {
             response.discard()
@@ -232,8 +224,8 @@ export function parseRetryAfterMs(value: string | undefined): number | undefined
     if (!value) {
         return undefined
     }
-    // A period that is absent, zero, or already past is reported as no period at all, so the
-    // caller applies its own default rather than reading zero as a site that wants no pause.
+    // An absent, zero, or past period returns undefined, so the caller applies its own default
+    // rather than reading zero as a site that wants no pause.
     const trimmed = value.trim()
     const seconds = trimmed === '' ? NaN : Number(trimmed)
     if (Number.isFinite(seconds)) {
@@ -250,8 +242,8 @@ export function parseRetryAfterMs(value: string | undefined): number | undefined
 /**
  * The rules a redirect target must pass, beyond the SSRF checks every hop re-enters.
  *
- * The first candidate passed all of these in the collector before it reached the topic. A redirect
- * target has passed none of them. A hop could otherwise reach a host the collector would have
+ * The collector applied all of these to the first candidate before it reached the topic. A redirect
+ * target has passed none of them, so a hop could otherwise reach a host the collector would have
  * refused, such as a single-label name, or a name under a suffix that resolves only inside a
  * network. Requirement 8.
  */
@@ -267,9 +259,8 @@ function resolveRedirect(from: string, location: string, policy: RedirectPolicy)
     } catch {
         return null
     }
-    // HTTPS only, so a downgrade to plain HTTP is refused whatever the first hop used.
-    // `URL.protocol` is already lower case, which a comparison against the raw string is not.
-    // Requirement 9.
+    // Requirement 9: no downgrade to plain HTTP. `URL.protocol` is lower case already, which a
+    // comparison against the raw location string is not.
     if (next.protocol !== 'https:') {
         return null
     }
@@ -277,9 +268,9 @@ function resolveRedirect(from: string, location: string, policy: RedirectPolicy)
     if (next.username || next.password) {
         return null
     }
-    // A port other than the scheme's own turns this lane into a port prober: a page can name any
-    // host and port, the connection goes out from our egress addresses, and the outcome metric
-    // reports what answered. Images are not served on other ports often enough to be worth that.
+    // A port other than the scheme's own would turn this lane into a port prober. A page names any
+    // host and port, the connection leaves from our egress addresses, and the outcome metric reports
+    // what answered. Few images are served on another port, so this refuses the whole case.
     if (next.port !== '') {
         return null
     }
@@ -317,10 +308,8 @@ function asciiAt(bytes: Buffer, offset: number, text: string): boolean {
 }
 
 /**
- * Does the payload start the way its declared type must start?
- *
- * This is a check on agreement rather than a format check. Anything that passes still reaches an
- * image decoder later, so this only has to catch a payload that is not the format it claims.
+ * This checks agreement rather than format. Anything that passes still reaches an image decoder
+ * later, so this only has to catch a payload that is not the format it claims.
  */
 export function magicBytesMatch(bytes: Buffer, contentType: ImageContentType): boolean {
     switch (contentType) {
@@ -349,8 +338,8 @@ export function magicBytesMatch(bytes: Buffer, contentType: ImageContentType): b
 
 export function classifyError(error: unknown): FetchOutcome {
     // `blocked` is terminal, so it must only cover a permanent property of the URL. A refused
-    // address and an unparsable URL are permanent. A name that did not resolve is not: the shared
-    // lookup raises the same error for a resolver timeout as for a name that does not exist.
+    // address and an unparsable URL are permanent. A name that did not resolve is not, because the
+    // shared lookup raises the same error for a resolver timeout as for a name that does not exist.
     if (error instanceof SecureRequestError || error instanceof InvalidRequestError) {
         return 'blocked'
     }

@@ -11,38 +11,34 @@ import { ImageFetchConsumerMetrics, ImageFetchTeamMetrics, UrlDropReason } from 
 import { TeamVolume } from './team-volume'
 
 export interface UrlFetchConsumerOptions {
-    /** A URL older than this is dropped rather than fetched, so a backlog sheds work instead of downloading stale work. */
+    /** The lane drops a URL older than this, so a backlog sheds work instead of fetching stale URLs. */
     maxAgeMs: number
     dedupMaxRefs: number
-    /** While true no request leaves this process. Everything else, including the crawl history write, still runs. */
+    /** While true, no request leaves this process. Everything else still runs, including the crawl history write. */
     dryRun: boolean
 }
 
 /**
  * The image fetch lane.
  *
- * It runs every decision up to the point of sending a request: age, dedup against three layers, and
- * the record checks. What survives is counted as `fetchable`, which is the offered request rate that
- * phase 0 measures, and is then either sent or, in dry run, only recorded.
- *
- * A bad record and an unreachable Redis are both handled rather than thrown. This lane shares a
+ * The consumer handles a bad record and an unreachable Redis instead of throwing. This lane shares a
  * partition with every site whose URLs key to it, and a throw here stops the consumer, replays the
  * same batch, and holds that partition against all of them.
  */
 export class UrlFetchConsumer {
     private readonly seenRefs: RefDedupCache
-    /** Bounded on purpose: one series per busy team, one for the rest, one estimate. Requirement 31. */
+    /** Bounded on purpose: one series for each busy team, one for the rest, one estimate. Requirement 31. */
     private readonly teamVolume = new TeamVolume()
 
     constructor(
         private readonly crawlHistory: CrawlHistoryStore,
         private readonly publisher: FrontierPublisher,
         private readonly options: UrlFetchConsumerOptions,
-        /** Absent in dry run, which is why the dry run sends nothing. No flag is read per URL. */
+        /** Absent in dry run, so the dry run sends nothing. The lane reads no flag for each URL. */
         private readonly runner?: FetchPass
     ) {
         // These arrive from env, where a typo parses to NaN. A NaN age limit makes every comparison
-        // false, which silently disables the shed that lets the lane drop a backlog.
+        // false, which disables the shed that lets the lane drop a backlog.
         if (!Number.isFinite(options.maxAgeMs) || options.maxAgeMs <= 0) {
             throw new Error(
                 `SESSION_RECORDING_ML_IMAGE_FETCH_MAX_AGE_MS must be a positive number, got ${options.maxAgeMs}`
@@ -57,8 +53,8 @@ export class UrlFetchConsumer {
     }
 
     public async handleBatch(messages: Message[], nowMs: number): Promise<void> {
-        // Wall clock, not the caller's nowMs: nowMs dates the URLs and a test is free to set it far
-        // from the present, which would make the duration meaningless.
+        // Wall clock, not the caller's nowMs: nowMs dates the URLs, and a test can set it far from
+        // the present, which would make the duration meaningless.
         const startedAt = process.hrtime.bigint()
         const drops = new Map<UrlDropReason, number>()
         const countDrop = (reason: UrlDropReason, count = 1): void => {
@@ -104,7 +100,7 @@ export class UrlFetchConsumer {
                     continue
                 }
                 // After dedup, so the distribution describes the URLs this lane acts on rather than
-                // being weighted by how often a popular image reappears.
+                // how often a popular image reappears.
                 ImageFetchConsumerMetrics.observeAge(Math.max(0, nowMs - candidate.capturedAtMs) / 1000)
                 this.teamVolume.record(candidate.pseudoTeam)
                 candidates.push(candidate)
@@ -135,20 +131,18 @@ export class UrlFetchConsumer {
         ImageFetchConsumerMetrics.observeBatch(domains.size, Number(process.hrtime.bigint() - startedAt) / 1e9)
 
         if (lost > 0) {
-            // Thrown last, so the counts above are published first. The consumer stores offsets only
-            // after this returns, so throwing replays the batch on the pod that takes the partition
-            // next. Requirement 21.
+            // Thrown last, so the counts above publish first. The consumer stores offsets only after
+            // this returns, so a throw replays the batch on the pod that takes the partition next.
+            // Requirement 21.
             //
             // The replay costs little: the URLs already fetched carry a crawl history entry now, and
             // the read at the top of the batch removes them. A URL is a duplicate at worst, which
-            // requirement 22 allows, and the alternative is losing it.
+            // requirement 22 allows, and the alternative is a lost URL.
             throw new Error(`the image fetch lane could not account for ${lost} URLs`)
         }
     }
 
     /**
-     * Send the requests. Report the URLs this lane is finished with, and how many it could not put back.
-     *
      * A URL left out of `finished` and not counted in `lost` is on its way back through Kafka, so
      * nothing here has to hold it.
      */
@@ -161,14 +155,13 @@ export class UrlFetchConsumer {
             attempts = await runner.run(candidates)
         } catch (error) {
             // The pass answers with outcomes rather than a throw, so reaching here means a defect.
-            // A throw would leave this partition replaying the same batch against the same defect.
-            // The name only. An error raised inside the pass can carry a URL in its message.
+            // The log holds the error name only, because an error from the pass can carry a URL.
             logger.error('🌐', 'ml_image_fetch_pass_failed', {
                 count: candidates.length,
                 error: error instanceof Error ? error.name : 'unknown',
             })
-            // Committed rather than replayed, unlike a failed republish. A defect here is the same
-            // on every read, so replaying it would stop the partition rather than recover it.
+            // The batch commits rather than replays, unlike a failed republish. A defect here is the
+            // same on every read, so a replay would stop the partition rather than recover it.
             return { finished: [], lost: 0 }
         }
         return {
@@ -178,12 +171,10 @@ export class UrlFetchConsumer {
     }
 
     /**
-     * Sort the candidates into the ones this lane knows nothing about, and the ones it could not ask about.
-     *
-     * A URL whose read failed is neither fetched nor counted as new. Treating it as new would fetch
+     * A URL whose read failed is neither fetched nor counted as new. To count it as new would fetch
      * it, and a store outage would then send the full un-deduped volume at customer sites, in every
-     * batch, because our own store is down. It is reported as unaccounted instead, which holds the
-     * batch rather than losing it. Requirement 21.
+     * batch, because our own store is down. It counts as unaccounted instead, which holds the batch
+     * rather than loses it. Requirement 21.
      */
     private async removeAlreadySeen(
         candidates: FetchCandidate[]
@@ -213,10 +204,8 @@ export class UrlFetchConsumer {
     }
 
     /**
-     * Send a URL back for the rest of its wait, and report how many could not be sent.
-     *
-     * It has no crawl history entry and no other copy in Kafka, so dropping it here loses it until a
-     * session refers to the same image again. Requirements 15 and 21.
+     * A URL waiting out a delay has no crawl history entry and no other copy in Kafka, so a drop
+     * here loses it until a session refers to the same image again. Requirements 15 and 21.
      */
     private async rescheduleNotReady(candidates: FetchCandidate[], nowMs: number): Promise<number> {
         let lost = 0
@@ -231,11 +220,11 @@ export class UrlFetchConsumer {
     }
 
     /**
-     * The pod cache is marked only for a URL whose crawl history entry was stored.
+     * This marks the pod cache only for a URL whose crawl history entry reached the store.
      *
      * A URL held only in this pod is invisible to every other pod, and to this one after a restart.
-     * Marking it before the write is confirmed would drop it from the measurement, and later from
-     * fetching.
+     * A mark before the store confirms the write would drop the URL from the measurement, and later
+     * from fetching.
      */
     private async recordFetched(candidates: FetchCandidate[], nowMs: number): Promise<void> {
         const keys = candidates.map((candidate) => crawlHistoryKey(candidate.pseudoTeam, candidate.urlHash))

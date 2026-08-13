@@ -235,14 +235,14 @@ export class KafkaConsumer {
     }
 
     /**
-     * Say that this consumer is waiting on purpose, not stalled.
+     * Say that this consumer waits on purpose, and does not stall.
      *
-     * Separate from `heartbeat()` because it relaxes the loop-stall detector, and most callers must
+     * Separate from `heartbeat()` because it relaxes the loop stall detector, and most callers must
      * not do that. Two lanes drive `heartbeat()` from a `setInterval`, which keeps firing while a
      * batch is wedged on a promise that never settles, so moving the loop clock there would leave
      * such a pod reporting healthy forever.
      *
-     * Call this only from a handler that is sleeping by design, and only from its own await chain.
+     * Call this only from a handler that sleeps by design, and only from its own await chain.
      */
     public reportDeliberateWait(): void {
         this.lastHeartbeatTime = Date.now()

@@ -1,11 +1,8 @@
 import { politenessKey } from '@posthog/replay-anonymizer'
 
 /**
- * The crate owns the rule and tests it, including the trailing-dot case in
- * `a_fully_qualified_host_keys_the_same_as_the_bare_one`. This file tests only that the fetch lane
- * reaches that function across the FFI boundary, so it asserts behaviour the crate already had.
- * Asserting a change made in the same commit would make this file depend on the addon being
- * rebuilt, which is a property of the build rather than of the code under test.
+ * The crate owns the rule and tests it. This file tests only that the fetch lane reaches that
+ * function across the FFI boundary, so every case here asserts behaviour the crate already had.
  */
 describe('politenessKey', () => {
     it.each([['d111.cloudfront.net'], ['bucket.s3.amazonaws.com'], ['user.github.io'], ['myapp.vercel.app']])(

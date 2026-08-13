@@ -21,24 +21,14 @@ export type UrlDropReason =
 export type DedupScope = 'batch' | 'pod' | 'store'
 
 export class ImageFetchConsumerMetrics {
-    /**
-     * URLs that reached the end of the dry run, meaning the lane would have sent a request for them.
-     *
-     * This is the phase 0 headline. Divided by the window it gives the request rate the fetcher would
-     * offer, which is the number that decides whether the politeness budget of section 4.5 can carry
-     * real traffic.
-     */
     private static readonly fetchable = new Counter({
         name: 'ml_image_fetch_consumer_fetchable_total',
         help: 'URLs that passed every check and would have been fetched. In dry run no request is sent, so this is the offered rate rather than the sent rate',
     })
     /**
-     * Duplicates split by which layer caught them.
-     *
-     * The split is the measurement, not the total. `batch` and `pod` are free and bounded by memory,
-     * `store` costs a Redis read, and anything the store catches that the pod cache did not is what
-     * the shared store is buying. A high `store` share against a full pod cache says the cache is
-     * undersized; a low one says it is already holding the working set.
+     * `batch` and `pod` cost only memory, and `store` costs a Redis read, so the split is the
+     * measurement rather than the total. A high `store` share against a full pod cache says the pod
+     * cache is too small. A low one says the pod cache already holds the working set.
      */
     private static readonly deduped = new Counter({
         name: 'ml_image_fetch_consumer_deduped_total',
@@ -46,11 +36,9 @@ export class ImageFetchConsumerMetrics {
         labelNames: ['scope'],
     })
     /**
-     * URLs the lane refused before any dedup decision.
-     *
-     * `stale` is the expected one under a backlog and is working as designed. The others mean the
-     * producer and this consumer disagree about the wire format, so a sustained rate on any of them
-     * zeroes the lane while looking healthy from the Kafka side.
+     * `stale` is the expected reason under a backlog. The others mean the producer and this consumer
+     * disagree about the wire format, so a sustained rate on any of them takes the lane to zero while
+     * the Kafka side still looks healthy.
      */
     private static readonly dropped = new Counter({
         name: 'ml_image_fetch_consumer_dropped_total',
@@ -58,12 +46,8 @@ export class ImageFetchConsumerMetrics {
         labelNames: ['reason'],
     })
     /**
-     * Distinct registrable domains seen per poll batch.
-     *
-     * The topic is keyed by domain, so one partition carries a small number of domains and one pod
-     * holds their whole request rate. A batch spanning many domains means the key is spreading work
-     * more finely than the partition count can express, which is what would let one pod exceed a
-     * single site's budget.
+     * A batch that spans many domains means the key spreads work more finely than the partition count
+     * can express, which is what would let one pod pass the budget of a single site.
      */
     private static readonly domainsPerBatch = new Histogram({
         name: 'ml_image_fetch_consumer_domains_per_batch',
@@ -126,16 +110,14 @@ export class ImageFetchConsumerMetrics {
  * The request path.
  *
  * No metric here carries a host or a URL. The host set is unbounded, so it lives in the structured
- * logs of the runner; a URL is page content and belongs in no metric, log, or trace.
+ * logs of the runner. A URL is page content and belongs in no metric, log, or trace.
  */
 export class ImageFetchRequestMetrics {
     /**
-     * Every URL that left the dedup stage, by what happened to it.
-     *
      * `ok` against the sum is the yield of the lane. The site answers `not_found`, `forbidden`,
      * `rate_limited`, and `server_error`. This lane refuses `too_large`, `not_image`, `blocked`,
-     * `bad_redirect`, and `too_many_redirects`. The budget never sends `breaker_open` or `deadline`,
-     * and those are the only ones a later batch offers again.
+     * `bad_redirect`, and `too_many_redirects`. Only `breaker_open` and `deadline` come back in a
+     * later batch.
      */
     private static readonly outcomes = new Counter({
         name: 'ml_image_fetch_requests_total',
@@ -149,11 +131,9 @@ export class ImageFetchRequestMetrics {
         buckets: [0.05, 0.1, 0.25, 0.5, 1, 2.5, 5, 10, 30],
     })
     /**
-     * What politeness costs in latency.
-     *
-     * A rising tail means one domain is offering more URLs than its rate carries. Past the batch
-     * budget the wait becomes a `deadline` shed, so read this against that outcome. A growing wait
-     * with no sheds is headroom. A growing wait with sheds is a domain the lane cannot keep up with.
+     * A rising tail means one domain offers more URLs than its rate carries. Past the batch budget
+     * the wait becomes a `deadline` shed, so read this against that outcome: a growing wait with no
+     * sheds is headroom, and a growing wait with sheds is a domain the lane cannot keep up with.
      */
     private static readonly budgetWait = new Histogram({
         name: 'ml_image_fetch_budget_wait_seconds',
@@ -171,14 +151,11 @@ export class ImageFetchRequestMetrics {
         buckets: [0, 1, 2, 3],
     })
     /**
-     * Domains this pod holds a budget for, and how many of those it may not send to.
+     * The tracked count against the configured maximum says whether the map evicts, and an eviction
+     * forgets that a domain is blocked.
      *
-     * The tracked count against the configured maximum says whether the map is evicting, and an
-     * eviction forgets that a domain is blocked. The blocked count is how many sites this lane is
-     * currently leaving alone.
-     *
-     * Both read the budget at scrape time. A hold expires by the clock, so a count taken at the end
-     * of a batch reports blocked domains for as long as the next batch takes to arrive.
+     * Both gauges read the budget at scrape time. A hold expires by the clock, so a count taken at
+     * the end of a batch would report blocked domains until the next batch arrives.
      */
     private static readonly trackedDomains = new Gauge({
         name: 'ml_image_fetch_tracked_domains',
@@ -219,17 +196,15 @@ export class ImageFetchRequestMetrics {
 
     private static budget: BudgetCounts | undefined
 
-    /** The runner owns the budget. These gauges read it at scrape time. Requirement 28. */
+    /** The runner owns the budget. Requirement 28. */
     public static trackBudget(budget: BudgetCounts): void {
         this.budget = budget
     }
 
     /**
-     * URLs put back into the frontier rather than finished with.
-     *
-     * Read against `ml_image_fetch_requests_total` this is the amplification factor: every republish
-     * is a message the lane will read again. A rate approaching the request rate means most work is
-     * going around rather than completing. Requirement 27.
+     * Read against `ml_image_fetch_requests_total` this is the amplification factor, because the lane
+     * reads every republished message again. A rate that approaches the request rate means most work
+     * goes around rather than completes. Requirement 27.
      */
     private static readonly republished = new Counter({
         name: 'ml_image_fetch_republished_total',
@@ -242,10 +217,8 @@ export class ImageFetchRequestMetrics {
         labelNames: ['reason'],
     })
     /**
-     * Moves a URL made before it finished.
-     *
-     * Zero is the common case: fetched on first sight. The tail shows redirect chains and retries,
-     * and anything at the budget is a URL the lane gave up on. Requirement 26.
+     * Zero is the common case, which is a URL fetched on first sight. The tail shows redirect chains
+     * and retries, and a value at the budget is a URL the lane gave up on. Requirement 26.
      */
     private static readonly hopsUsed = new Histogram({
         name: 'ml_image_fetch_hops_used',
@@ -267,10 +240,10 @@ export class ImageFetchRequestMetrics {
 /**
  * The consumer of one delay topic.
  *
- * Lag on these topics is the design working rather than a fault: a record waiting out its period is
- * lag. Read `ml_image_fetch_retry_wait_seconds` against the period of the topic instead. A wait far
- * short of the period means records arrive with their wait already spent, which means the tier below is too
- * small.
+ * Lag on these topics is the design at work rather than a fault, because a record that waits out its
+ * period counts as lag. Read `ml_image_fetch_retry_wait_seconds` against the period of the topic
+ * instead. A wait far short of the period means records arrive with their wait already spent, which
+ * means the tier below is too small.
  */
 export class RetryDelayMetrics {
     private static readonly released = new Counter({
@@ -295,12 +268,11 @@ export class RetryDelayMetrics {
 /**
  * How the lane's work divides between teams, without an unbounded label.
  *
- * The team ID space is in the low millions, so `pseudo_team` is bounded here rather than at the
- * database. The busiest teams are named. Everything else is one `other` row. The count of distinct
- * teams is an estimate in a single series. Requirements 29, 30, and 31.
+ * The team ID space is in the low millions, so this bounds `pseudo_team` here rather than at the
+ * database. The busiest teams keep their name, everything else is one `other` row, and the count of
+ * distinct teams is an estimate in a single series. Requirements 29, 30, and 31.
  *
- * The label is the pseudonym the topic carries, not the team ID. Nothing on this path has the team
- * ID, and putting one here would need the mirror to send it.
+ * Nothing on this path holds the team ID, so a team ID label here would need the mirror to send it.
  */
 export class ImageFetchTeamMetrics {
     private static source: TeamVolume | undefined
@@ -311,7 +283,7 @@ export class ImageFetchTeamMetrics {
         labelNames: ['pseudo_team'],
         collect() {
             // Rebuilt at scrape rather than kept in step with the counts, so a team that drops out
-            // of the top list loses its series instead of freezing at its last value.
+            // of the top list loses its series instead of holding its last value.
             this.reset()
             for (const { team, count } of ImageFetchTeamMetrics.source?.top() ?? []) {
                 this.labels(team).set(count)

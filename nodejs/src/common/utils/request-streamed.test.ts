@@ -56,8 +56,7 @@ describe('fetchStreamed', () => {
         ['more than it declared', 3],
     ])('ignores a Content-Length that is %s', async (_name, declared) => {
         // Content-Length is a claim, not a fact. Only the caller's limit binds, and it binds on the
-        // bytes that arrive. Sizing anything from the claim would let an origin pin memory by
-        // declaring a large body and sending almost none of it.
+        // bytes that arrive.
         respond([Buffer.from('abcde')], { 'content-length': String(declared) })
 
         const response = await fetchStreamed('https://example.com/a.png', { timeoutMs: 1000 })
@@ -78,8 +77,8 @@ describe('fetchStreamed', () => {
     })
 
     it('does not let a header named __proto__ reach the prototype', async () => {
-        // Every key here is chosen by the remote server. The key is computed, because a plain
-        // `__proto__:` in a literal is the setter this test is about rather than an own property.
+        // The remote server chooses every key here. The key is computed, because a plain `__proto__:`
+        // in a literal is the setter this test is about rather than an own property.
         respond([], { ['__proto__']: 'polluted', 'content-type': 'image/png' })
 
         const response = await fetchStreamed('https://example.com/a.png', { timeoutMs: 1000 })

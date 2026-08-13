@@ -238,26 +238,15 @@ fn anonymize_kafka_payload_ffi(mut cx: FunctionContext) -> JsResult<JsPromise> {
     Ok(promise)
 }
 
-/// The registrable domain of a host, for the fetch lane's rate limit.
-///
-/// Exported so the fetcher asks this crate rather than deriving the same value from a second public
-/// suffix list in Node. The value is a contract: it is the Kafka key of the fetch topic, and a host
-/// that arrives through a redirect has to land in the budget its key would have put it in. Two
-/// implementations of one contract disagree the moment either list is updated.
-///
-/// It needs no initialized state, so a lane that only fetches never calls `initAnonymizer`.
+/// The registrable domain of a host. It needs no initialized state, so a lane that only fetches
+/// never calls `initAnonymizer`.
 fn politeness_key_ffi(mut cx: FunctionContext) -> JsResult<JsString> {
     let host = cx.argument::<JsString>(0)?.value(&mut cx);
     Ok(cx.string(politeness_key(&host)))
 }
 
-/// Whether a host is one this lane may send a request to.
-///
-/// Exported for the same reason as `politeness_key`: the collector already applies this rule before
-/// a URL reaches the topic, and a redirect target has to pass the same one. Deriving it a second
-/// time in Node would be a second answer to a question that has one.
-///
-/// It needs no initialized state.
+/// Whether the fetch lane may send a request to a host. It needs no initialized state, so a lane
+/// that only fetches never calls `initAnonymizer`.
 fn is_public_host_ffi(mut cx: FunctionContext) -> JsResult<JsBoolean> {
     let host = cx.argument::<JsString>(0)?.value(&mut cx);
     Ok(cx.boolean(is_public_host(&host)))

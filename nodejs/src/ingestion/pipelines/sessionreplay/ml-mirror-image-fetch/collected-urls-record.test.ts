@@ -15,7 +15,7 @@ describe('parseCollectedUrlsRecord', () => {
         ['a magnitude no double can hold', '"capturedAtMs":-1e400'],
         ['a positive one', '"capturedAtMs":1e400'],
     ])('refuses %s rather than passing a non-finite timestamp on', (_name, fields) => {
-        // JSON.stringify cannot produce these, so the record is written by hand. They parse to
+        // JSON.stringify cannot produce these, so this writes the record by hand. They parse to
         // Infinity, which reaches a histogram as an infinite observation, and prom-client throws
         // there. A throw inside a batch stops the consumer and replays the same record forever.
         const parsed = parseCollectedUrlsRecord(body(fields), 'example.com')
@@ -28,9 +28,9 @@ describe('parseCollectedUrlsRecord', () => {
         ['a bare host against a fully qualified key', 'cdn.example.com', 'example.com.'],
         ['both fully qualified', 'cdn.example.com.', 'example.com.'],
     ])('keeps %s', (_name, host, key) => {
-        // politeness_key strips the trailing dot, so a record written before the canonicaliser did
-        // the same carries a dotted host against a bare key. Comparing them as plain strings drops
-        // every such URL as foreign, and those records are already in the topic.
+        // politenessKey strips the trailing dot, so a record written before the canonicalizer did
+        // the same carries a dotted host against a bare key. A plain string comparison drops every
+        // such URL as foreign, and those records are already in the topic.
         const value = Buffer.from(
             `{"v":1,"pseudoTeam":"${TEAM}","capturedAtMs":1700000000000,` +
                 `"urls":[{"ref":"imageurl:${TEAM}:${HASH}","url":"https://${host}/a.png","host":"${host}"}]}`
@@ -45,8 +45,8 @@ describe('parseCollectedUrlsRecord', () => {
         ['a key that is a subdomain rather than the operator', 'cdn.example.com', 'cdn.example.com'],
         ['a key belonging to another operator', 'cdn.example.com', 'other.net'],
     ])('drops %s (requirement 3)', (_name, host, key) => {
-        // The key scopes the rate budget. One key per subdomain would give one operator a multiple
-        // of the rate we promise it, and the record would be on the wrong partition as well.
+        // The key scopes the rate budget. One key for each subdomain would give one operator a
+        // multiple of the rate we promise it, and the record would be on the wrong partition too.
         const value = Buffer.from(
             `{"v":1,"pseudoTeam":"${TEAM}","capturedAtMs":1700000000000,` +
                 `"urls":[{"ref":"imageurl:${TEAM}:${HASH}","url":"https://${host}/a.png","host":"${host}"}]}`
@@ -62,8 +62,8 @@ describe('parseCollectedUrlsRecord', () => {
         ['plain HTTP', 'http://cdn.example.com/a.png'],
         ['a scheme this lane never fetches', 'ftp://cdn.example.com/a.png'],
     ])('drops %s (requirements 34 and 35)', (_name, url) => {
-        // The collector produces HTTPS only. Anything else means a wrong or stale producer, and
-        // fetching it would put an image on the wire in clear text.
+        // The collector produces HTTPS only. Anything else means a wrong or stale producer, and a
+        // fetch would put an image on the wire in clear text.
         const value = Buffer.from(
             `{"v":1,"pseudoTeam":"${TEAM}","capturedAtMs":1700000000000,` +
                 `"urls":[{"ref":"imageurl:${TEAM}:${HASH}","url":"${url}","host":"cdn.example.com"}]}`

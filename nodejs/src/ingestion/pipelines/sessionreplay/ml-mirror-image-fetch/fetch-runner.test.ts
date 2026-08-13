@@ -77,7 +77,6 @@ function runner(
     return new FetchRunner(fetcher, budget, { ...OPTIONS, ...options }, publisher)
 }
 
-/** For a test about something other than republishing. It reports success and records nothing. */
 function noopPublisher(): FrontierPublisher {
     return { republish: () => Promise.resolve(true) } as unknown as FrontierPublisher
 }
@@ -94,7 +93,6 @@ describe('FetchRunner', () => {
 
         const attempts = await runner(fetcher, { maxConcurrentPerDomain: 1 }).run(candidates)
 
-        // One request tells us the whole domain is rate limited, so the rest never go out.
         expect(fetcher.calls.filter((url) => url.includes('busy.com'))).toHaveLength(1)
         expect(attempts.filter((a) => a.outcome === 'rate_limited')).toHaveLength(3)
         expect(attempts.filter((a) => a.candidate.domain === 'calm.com' && a.outcome === 'ok')).toHaveLength(2)
@@ -132,15 +130,15 @@ describe('FetchRunner', () => {
         })
         const fetcher = new FakeFetcher(() => ({ outcome: 'ok' }))
 
-        // Long enough that the first URL is granted whatever the machine is doing, and far shorter
-        // than the second's wait. A budget of zero would make the first grant depend on less than a
+        // Long enough to grant the first URL whatever the machine is doing, and far shorter than
+        // the wait of the second. A budget of zero makes the first grant depend on less than a
         // millisecond passing between two clock reads, which is a race a loaded runner loses.
         const attempts = await runner(fetcher, { maxConcurrentPerDomain: 1, batchBudgetMs: 50 }, budget).run(
             [0, 1, 2].map((index) => candidate('slow.com', index))
         )
 
-        // The burst token carries the first. The rest would each need a second of waiting, which the
-        // batch does not have, so they are left for the next session that refers to them.
+        // The burst token carries the first URL. Each of the rest needs a second of waiting, which
+        // the batch does not have.
         expect(fetcher.calls).toHaveLength(1)
         expect(attempts.filter((a) => a.outcome === 'deadline')).toHaveLength(2)
     })
@@ -155,8 +153,8 @@ describe('FetchRunner', () => {
 
     it('handles a domain with more queued URLs than a spread can carry', async () => {
         // One batch offers up to BATCH_SIZE x MAX_URLS_PER_RECORD URLs, and the topic keys by
-        // domain, so a popular CDN can fill a single queue past the argument limit of Function.apply.
-        // A RangeError here escapes the pass, and the consumer then records nothing for the batch.
+        // domain, so a popular CDN can fill one queue past the argument limit of Function.apply. A
+        // RangeError escapes the pass, and the consumer then records nothing for the batch.
         const budget = new HostBudget({
             requestsPerSecond: 1,
             burst: 1,
@@ -170,16 +168,14 @@ describe('FetchRunner', () => {
         const many = Array.from({ length: 130_000 }, (_value, index) => candidate('big.com', index))
 
         // A zero budget is safe here because the count below is the same whether or not the first
-        // URL wins its grant. Do not copy it into a test that asserts how many requests went out:
-        // that turns on less than a millisecond passing between two clock reads.
+        // URL wins its grant. Do not copy it into a test that asserts how many requests went out,
+        // because that turns on less than a millisecond passing between two clock reads.
         const attempts = await runner(fetcher, { maxConcurrentPerDomain: 1, batchBudgetMs: 0 }, budget).run(many)
 
         expect(attempts).toHaveLength(many.length)
     })
 
     it('hands a redirect off rather than following it to another domain (requirement 7)', async () => {
-        // The target's rate, breaker, and connection count live in the pod holding its partition.
-        // Following the hop here would spend none of them.
         const published: { domain: string; url: string; reason: string }[] = []
         const publisher = {
             republish: (candidate: FetchCandidate, target: { url: string; domain: string }, reason: string) => {
@@ -205,13 +201,11 @@ describe('FetchRunner', () => {
         expect(published).toEqual([
             { domain: 'other-site.net', url: 'https://img.other-site.net/a.png', reason: 'redirect' },
         ])
-        // Not finished: it is coming back on another partition, so recording it would stop that.
+        // The URL comes back on another partition, so a crawl history entry would stop that.
         expect(attempts[0].finished).toBe(false)
     })
 
     it('stops a redirect whose domain was blocked while it waited (requirement 5)', async () => {
-        // The redirect path takes a token and waits, exactly as the worker loop does. A site that
-        // says stop during that wait must stop this hop too.
         const budget = new HostBudget({
             requestsPerSecond: 1,
             burst: 1,
@@ -298,9 +292,8 @@ describe('FetchRunner', () => {
     })
 
     it('checks again when a request reaches the front of the pod queue (requirement 5)', async () => {
-        // The pod queue is the longest wait a request takes: 300 slots serve every domain the pod
-        // owns. A sibling request can meet a Retry-After while this one waits for a slot, and
-        // sending it anyway would reach a site that had just asked to be left alone.
+        // A sibling request can meet a `Retry-After` while this one waits for a pod slot, and a
+        // request sent after that reaches a site which just asked to be left alone.
         const budget = defaultBudget()
         const published: string[] = []
         const publisher = {
@@ -312,9 +305,9 @@ describe('FetchRunner', () => {
         const fetcher: ImageFetcher = {
             fetch: async (url: string) => {
                 if (url.endsWith('/0.png')) {
-                    // Yielded first, so the second request passes the token bucket and reaches the
-                    // pod queue before this hold exists. Without the yield the token bucket refuses
-                    // it, and this test would pass whatever the queue does.
+                    // This yields first, so the second request passes the token bucket and reaches
+                    // the pod queue before the hold exists. Without the yield the token bucket
+                    // refuses it, and this test passes whatever the queue does.
                     await delay(1)
                     budget.recordRetryAfter('example.com', Date.now(), 60_000)
                 }
@@ -338,13 +331,10 @@ describe('FetchRunner', () => {
 
         const attempts = await runner(fetcher, {}, defaultBudget(), publisher).run([spent])
 
-        // Recorded, so it stops coming back and stops costing requests.
         expect(attempts[0]).toMatchObject({ outcome: 'hops_exhausted', finished: true })
     })
 
     it('runs every domain at once but holds the requests under them to the in-flight limit', async () => {
-        // The politeness limit is per domain, and one domain lands on one partition and one pod, so
-        // a pod owning many domains has to serve them all. What bounds the pod is the requests.
         let inFlight = 0
         let peak = 0
         const fetcher: ImageFetcher = {
@@ -368,8 +358,8 @@ describe('FetchRunner', () => {
         ['a 503 that named a period', 'server_error' as const, 30_000, true],
         ['a one-off 500', 'server_error' as const, undefined, false],
     ])('holds the whole domain after %s: %s', async (_name, outcome, retryAfterMs, expectHeld) => {
-        // A hold silences every URL of the domain. A site that only failed one request has not
-        // asked for that, so it gets the rate cut and the breaker count instead.
+        // A hold silences every URL of the domain. A site that failed one request did not ask for
+        // that, so it gets the rate cut and the breaker count instead.
         const fetcher = new FakeFetcher(() => ({ outcome, status: 500, retryAfterMs }))
 
         const attempts = await runner(fetcher, { maxConcurrentPerDomain: 1 }).run(
@@ -380,8 +370,6 @@ describe('FetchRunner', () => {
     })
 
     it('does not send a request whose domain was blocked while it waited (requirement 5)', async () => {
-        // The grant is made before the wait. A Retry-After arriving during the wait must stop the
-        // request, because the site asked to be left alone after we decided to send.
         const budget = new HostBudget({
             requestsPerSecond: 1,
             burst: 1,
@@ -393,7 +381,7 @@ describe('FetchRunner', () => {
         })
         const fetcher = new FakeFetcher(() => ({ outcome: 'ok' }))
         // The burst token carries the first URL. The second waits a second for its token, and the
-        // site says stop while it is waiting.
+        // site says stop during that wait.
         setTimeout(() => budget.recordRetryAfter('slow.com', Date.now(), 60_000), 5)
 
         const attempts = await runner(fetcher, { maxConcurrentPerDomain: 1 }, budget).run(
@@ -419,7 +407,6 @@ describe('FetchRunner', () => {
 
         budget.returnGrant('example.com', 1000)
 
-        // A request that never went out did not use the rate, so the token comes back.
         expect(budget.take('example.com', 1000, FAR_FUTURE)).toEqual({ granted: true, waitMs: 0 })
     })
 
@@ -434,8 +421,8 @@ describe('FetchRunner', () => {
         ['breaker_open', false],
         ['deadline', false],
     ])('treats %s as terminal: %s', (outcome, terminal) => {
-        // A terminal outcome writes a crawl history entry, which is the one thing that stops this lane from
-        // ever looking at the URL again. A transient one must not.
+        // A terminal outcome writes a crawl history entry, which is the one thing that stops this
+        // lane from looking at the URL again. A transient outcome must not write one.
         expect(isTerminal(outcome as FetchOutcome)).toBe(terminal)
     })
 })

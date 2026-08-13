@@ -106,9 +106,9 @@ pub const MAX_URL_LEN: usize = 2048;
 /// An IP literal has no registrable domain and returns unchanged, which is right: the address is
 /// the operator.
 pub fn politeness_key(host: &str) -> String {
-    // The trailing dot goes, as it does in `is_public_host`, because `example.com.` and
-    // `example.com` are one operator. Two spellings would otherwise take two budgets, two breakers,
-    // and two partitions. Brackets stay: an IPv6 literal is keyed in the form the URL carries.
+    // `example.com.` and `example.com` are one operator, so two spellings must not take two
+    // budgets, two breakers, and two partitions. Brackets stay, because an IPv6 literal keys in the
+    // form the URL carries.
     let host = host.strip_suffix('.').unwrap_or(host);
     if host.parse::<IpAddr>().is_ok() || host.starts_with('[') {
         return host.to_string();
@@ -281,7 +281,7 @@ pub enum Decline {
     /// Not parseable as an absolute URL. A relative `src` lands here, because the recording does
     /// not carry the base it would need to resolve against.
     NotAbsolute,
-    /// A scheme we do not fetch. That is everything except `https`, including plain `http`.
+    /// A scheme we do not fetch. Only `https` passes, so plain `http` lands here too.
     BadScheme,
     /// A port the scheme does not own. See the port check in [`try_canonicalize`].
     BadPort,
@@ -315,25 +315,25 @@ pub fn try_canonicalize(raw: &str) -> Result<CanonicalUrl, Decline> {
         return Err(Decline::TooLong);
     }
     let mut url = Url::parse(raw).map_err(|_| Decline::NotAbsolute)?;
-    // HTTPS only. A plain `http` image on an HTTPS page is blocked by the browser as mixed content,
-    // so it never rendered for the person being recorded, and fetching it would put the request on
-    // the wire in clear text from our egress addresses.
+    // The browser blocks a plain `http` image on an HTTPS page as mixed content, so it never
+    // rendered for the person we recorded, and a fetch puts the request on the wire in clear text
+    // from our egress addresses.
     if url.scheme() != "https" {
         return Err(Decline::BadScheme);
     }
-    // A port the scheme does not own turns the fetcher into a port prober: a page names any host
-    // and port, the connection leaves our egress addresses, and what answered is visible in the
-    // outcome metric. Images are not served on other ports often enough to be worth that.
+    // A port the scheme does not own makes the fetcher a port prober: a page names any host and
+    // port, the connection leaves our egress addresses, and the outcome metric shows what answered.
+    // Too few images are served on other ports to be worth that.
     //
-    // This is not the whole defence. It limits which service on a host can be reached. Which hosts
-    // can be reached is the job of `is_public_host` here and of the address check at request time,
-    // because DNS for a name the attacker owns can point anywhere.
+    // This check limits which service on a host we reach. `is_public_host` and the address check at
+    // request time limit which hosts we reach, because DNS for a name the attacker owns can point
+    // anywhere.
     if url.port().is_some() {
         return Err(Decline::BadPort);
     }
-    // The trailing dot goes here too, not only in `politeness_key`. The consumer checks that the
-    // host sits inside the domain the record is keyed by, and `example.com.` is not inside
-    // `example.com` by any string rule, so leaving it on drops the URL as foreign.
+    // The consumer checks that the host sits inside the domain the record is keyed by, and
+    // `example.com.` is not inside `example.com` by any string rule, so a trailing dot here makes
+    // the consumer drop the URL as foreign.
     let host_str = url.host_str().ok_or(Decline::NoHost)?;
     let host = host_str.strip_suffix('.').unwrap_or(host_str).to_string();
     if !is_public_host(&host) {
@@ -491,16 +491,11 @@ mod tests {
 
     #[test]
     fn only_https_on_its_own_port_is_collected() {
-        // A port the scheme does not own would let a page point the fetcher at any service. The
-        // address checks stop it reaching a private host; this stops it reaching an odd port on a
-        // public one, which is the part DNS the attacker controls cannot get around.
         assert_eq!(canonicalize("https://cdn.example.com:11211/a.png"), None);
         assert_eq!(canonicalize("https://cdn.example.com:8443/a.png"), None);
-        // Plain HTTP never rendered on an HTTPS page, and fetching it would be in clear text.
         assert_eq!(canonicalize("http://cdn.example.com/a.png"), None);
         assert_eq!(canonicalize("http://cdn.example.com:80/a.png"), None);
-        // Writing the default port out is not naming another one. The parser normalizes it away,
-        // so `url.port()` is None and the URL is collected.
+        // The parser normalizes the default port away, so `url.port()` is None and `:443` passes.
         assert!(canonicalize("https://cdn.example.com:443/a.png").is_some());
         assert!(canonicalize("https://cdn.example.com/a.png").is_some());
     }
@@ -531,8 +526,6 @@ mod tests {
 
     #[test]
     fn a_fully_qualified_host_keys_the_same_as_the_bare_one() {
-        // A trailing dot resolves identically, so leaving it on would give one operator a second
-        // budget, a second breaker, and a second partition.
         assert_eq!(politeness_key("example.com."), "example.com");
         assert_eq!(politeness_key("img1.cdn.example.com."), "example.com");
         assert_eq!(politeness_key("user.github.io."), "user.github.io");
@@ -564,47 +557,48 @@ mod tests {
 
     #[test]
     fn a_non_public_host_is_never_collected() {
-        // The URL set comes from page content, and the fetch lane runs inside our network.
+        // The URL set comes from page content, and the fetch lane runs inside our network. Every
+        // one is https, or the scheme rule would refuse it before the host rule was reached.
         for raw in [
-            "http://169.254.169.254/latest/meta-data/iam/security-credentials/",
-            "http://localhost:8000/admin/export.png",
-            "http://127.0.0.1/i.png",
-            "http://10.0.0.5/i.png",
-            "http://192.168.1.1/i.png",
-            "http://172.16.0.1/i.png",
-            "http://[::1]/i.png",
-            "http://[fd00::1]/i.png",
-            "http://metadata.internal/i.png",
-            "http://buildserver/i.png",
+            "https://169.254.169.254/latest/meta-data/iam/security-credentials/",
+            "https://localhost/admin/export.png",
+            "https://127.0.0.1/i.png",
+            "https://10.0.0.5/i.png",
+            "https://192.168.1.1/i.png",
+            "https://172.16.0.1/i.png",
+            "https://[::1]/i.png",
+            "https://[fd00::1]/i.png",
+            "https://metadata.internal/i.png",
+            "https://buildserver/i.png",
             // A trailing dot makes a name fully qualified and resolves the same way. It used to
             // walk past the name list, because the label after the final dot is empty.
-            "http://localhost./i.png",
-            "http://metadata.internal./i.png",
-            "http://LOCALHOST./i.png",
+            "https://localhost./i.png",
+            "https://metadata.internal./i.png",
+            "https://LOCALHOST./i.png",
             // IPv6 offers several ways to write an IPv4 address. Each one used to skip the IPv4
             // rules entirely.
-            "http://[::ffff:0.0.0.0]/i.png",
-            "http://[::ffff:127.0.0.1]/i.png",
-            "http://[::ffff:10.0.0.5]/i.png",
-            "http://[::ffff:100.64.0.1]/i.png",
-            "http://[::127.0.0.1]/i.png",
-            "http://[2002:7f00:1::]/i.png",
-            "http://[64:ff9b::7f00:1]/i.png",
-            "http://[ff02::1]/i.png",
+            "https://[::ffff:0.0.0.0]/i.png",
+            "https://[::ffff:127.0.0.1]/i.png",
+            "https://[::ffff:10.0.0.5]/i.png",
+            "https://[::ffff:100.64.0.1]/i.png",
+            "https://[::127.0.0.1]/i.png",
+            "https://[2002:7f00:1::]/i.png",
+            "https://[64:ff9b::7f00:1]/i.png",
+            "https://[ff02::1]/i.png",
             // Ranges we would never legitimately fetch from.
-            "http://224.0.0.1/i.png",
-            "http://240.0.0.1/i.png",
-            "http://198.18.0.1/i.png",
-            "http://192.0.0.1/i.png",
-            "http://0.0.0.0/i.png",
+            "https://224.0.0.1/i.png",
+            "https://240.0.0.1/i.png",
+            "https://198.18.0.1/i.png",
+            "https://192.0.0.1/i.png",
+            "https://0.0.0.0/i.png",
         ] {
             assert!(canonicalize(raw).is_none(), "{raw} must not be collected");
         }
         assert!(canonicalize("https://cdn.example.com/i.png").is_some());
         // A public name with a trailing dot is still public, so the fix must not over-reject.
         assert!(canonicalize("https://cdn.example.com./i.png").is_some());
-        // These say the address rule accepts a public one. They use https because the scheme rule
-        // now refuses plain http on its own.
+        // The address rule accepts a public address. Both use https, because the scheme rule
+        // refuses plain http on its own.
         assert!(canonicalize("https://[2606:4700::1111]/i.png").is_some());
         assert!(canonicalize("https://8.8.8.8/i.png").is_some());
     }

@@ -91,28 +91,28 @@ export type MlMirrorConfig = {
      * What one registrable domain receives from one pod.
      *
      * Every value below is a politeness control, so all of them are environment variables. An
-     * incident needs the number that limits load on a customer site changed in minutes. A deploy
+     * incident must change the load this lane puts on a customer site in minutes, and a deploy
      * takes longer than that.
      *
-     * One request per second is far below the rate a browser puts on the same site. This lane can
-     * work at that rate because one fetch serves every session that refers to the image, and
+     * One request each second is far below the rate a browser puts on the same site. This lane
+     * works at that rate because one fetch serves every session that refers to the image, and
      * because nothing waits on the result.
      */
     SESSION_RECORDING_ML_IMAGE_FETCH_REQUESTS_PER_SECOND: number
     /** Tokens a domain holds while idle, so a site seen once an hour gets a short run rather than one request. */
     SESSION_RECORDING_ML_IMAGE_FETCH_BURST: number
-    /** Also the worker count of one back queue, so the two cannot disagree unless an operator sets them apart. */
+    /** Also the worker count of one back queue, so the connection limit and the worker count cannot disagree. */
     SESSION_RECORDING_ML_IMAGE_FETCH_MAX_CONCURRENT_PER_DOMAIN: number
     /**
      * Requests this pod holds open across every domain at once.
      *
-     * Nothing caps the number of domains: the topic keys by registrable domain, so a domain lands on
-     * one partition and one pod, and its rate limit is held there. A pod owning many domains must be
-     * able to serve them all, because each has its own allowance and none is waiting on the others.
+     * Nothing caps the number of domains, because the topic keys by registrable domain, so a domain
+     * lands on one partition and one pod, and its rate limit lives there. A pod that owns many
+     * domains must serve them all, because each has its own allowance and none waits on the others.
      *
-     * This bounds the pod instead. A body is read into a buffer, so the resident peak is roughly
-     * this times SESSION_RECORDING_ML_IMAGE_FETCH_MAX_IMAGE_BYTES, and the sockets and the DNS
-     * lookups scale with it too. Raise the pod's memory before raising this.
+     * This bounds the pod instead. A body reads into a buffer, so the resident peak is roughly this
+     * times SESSION_RECORDING_ML_IMAGE_FETCH_MAX_IMAGE_BYTES, and the sockets and the DNS lookups
+     * scale with it too. Raise the pod's memory before you raise this.
      */
     SESSION_RECORDING_ML_IMAGE_FETCH_MAX_IN_FLIGHT_REQUESTS: number
     /**
@@ -135,7 +135,7 @@ export type MlMirrorConfig = {
     SESSION_RECORDING_ML_IMAGE_FETCH_BREAKER_MAX_COOLDOWN_MS: number
     /** Held after a 429 or a 503 that named no period. */
     SESSION_RECORDING_ML_IMAGE_FETCH_DEFAULT_RETRY_AFTER_MS: number
-    /** Domains one pod holds rate-limit state for. Past it the least recently used entry goes, which forgets that it was blocked. */
+    /** Domains one pod holds rate-limit state for. Past this the least recently used entry goes, and the pod forgets that the domain was blocked. */
     SESSION_RECORDING_ML_IMAGE_FETCH_MAX_TRACKED_DOMAINS: number
 
     /**
@@ -152,7 +152,7 @@ export type MlMirrorConfig = {
      *
      * A batch of many records can hold records written hours apart, and that batch waits once for
      * each of them. Sizing the poll interval for that case means multiplying the tier's period by
-     * the batch size, which passes what Kafka accepts at the 1 hour tier.
+     * the batch size, which soon passes what Kafka accepts at the 1 hour tier.
      */
     SESSION_RECORDING_ML_IMAGE_FETCH_RETRY_BATCH_SIZE: number
 

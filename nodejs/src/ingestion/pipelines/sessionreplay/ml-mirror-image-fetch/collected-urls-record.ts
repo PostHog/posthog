@@ -9,8 +9,8 @@ const MAX_URL_LENGTH = 2048
 
 /**
  * A record holds one domain from one message, and the collector caps a message at 512, so a
- * well-formed record stays under this. Headroom is deliberately small: the Redis round trips of a
- * batch scale with this value and run one after another inside one batch budget.
+ * well-formed record stays under this. The headroom is small on purpose, because the Redis round
+ * trips of a batch scale with this value and run one after another inside one batch budget.
  */
 const MAX_URLS_PER_RECORD = 640
 
@@ -22,15 +22,13 @@ export interface FetchCandidate {
     domain: string
     pseudoTeam: string
     capturedAtMs: number
-    /** Moves this URL may still make. A redirect, a republish, and a retry each spend one. Requirement 11. */
+    /** Moves this URL may still make. A republish and a retry each spend one. Requirement 11. */
     hopsRemaining: number
-    /** Epoch ms before which this URL must not be fetched. Zero means now. Requirement 15. */
+    /** The lane must not fetch this URL before this epoch ms. Zero means now. Requirement 15. */
     notBeforeMs: number
 }
 
 /**
- * A URL may move this many times before the lane gives up on it.
- *
  * One budget rather than one counter for redirects and another for retries, because a chain that
  * alternates between the two would otherwise never end. Requirement 11.
  */
@@ -45,15 +43,13 @@ function isStringRecord(value: unknown): value is Record<string, unknown> {
 }
 
 /**
- * Read one record off the fetch topic.
- *
  * The producer and this consumer ship from separate deployments, so a record can arrive from a
- * mirror older or newer than this code. Every field is therefore checked rather than trusted, and a
- * record that does not parse is counted and dropped instead of throwing: one bad record must not
- * stall the partition it shares with every other site.
+ * mirror older or newer than this code. This checks every field rather than trusts it, and it counts
+ * and drops a record that does not parse instead of throwing, because one bad record must not stall
+ * the partition it shares with every other site.
  *
- * `domain` comes from the Kafka key, because the key is what routed the record to this partition and
- * so is what the politeness budget must be scoped to.
+ * `domain` comes from the Kafka key, because the key routed the record to this partition, so the key
+ * is what the politeness budget must be scoped to.
  */
 export function parseCollectedUrlsRecord(value: Buffer | null, key: string | null): RecordParse {
     if (!value || !key) {
@@ -136,15 +132,14 @@ function clampHops(value: unknown): number {
 }
 
 /**
- * The key must be the registrable domain of the host, not merely a domain the host sits under.
+ * The key must be the registrable domain of the host, not merely a domain the host sits under. A key
+ * of `cdn.example.com` would give that subdomain a rate budget of its own, and a producer that
+ * writes one key for each subdomain would hand one operator a multiple of the rate we promise it.
+ * The key also decides the partition, so a record that fails this test is on the wrong partition as
+ * well. Requirement 3.
  *
- * A key of `cdn.example.com` would give that subdomain a rate budget of its own, and a producer
- * writing one key per subdomain would hand one operator a multiple of the rate we promise it. The
- * key also decides the partition, so a record failing this test is on the wrong partition as well.
- * Requirement 3.
- *
- * The trailing dot is dropped from the key first. `example.com.` and `example.com` name the same
- * host, and a record written before the producer stripped it carries the dotted form.
+ * This drops the trailing dot first. `example.com.` and `example.com` name the same host, and a
+ * record written before the producer stripped the dot carries the dotted form.
  */
 function hostIsKeyedByItsOperator(host: string, key: string): boolean {
     return politenessKey(withoutTrailingDot(host)) === withoutTrailingDot(key)
@@ -166,14 +161,15 @@ function isFetchableUrl(url: string, host: string): boolean {
     try {
         const parsed = new URL(url)
         // HTTPS only, which is what the collector produces. A plain HTTP URL would put an image on
-        // the wire in clear text, and requirement 9 then has nothing to allow a redirect down to.
+        // the wire in clear text, and requirement 9 keeps a redirect off HTTP only if the first URL
+        // is HTTPS.
         if (parsed.protocol !== 'https:' || parsed.hostname !== host) {
             return false
         }
-        // Both of these are refused on a redirect target, so the first hop is held to the same rule.
-        // A port other than the scheme's own would make this lane a port prober, and userinfo is a
-        // credential this lane never sends. The canonicalizer strips both, which is why this is a
-        // check against a wrong or stale producer rather than an expected case.
+        // The lane refuses both on a redirect target, so it holds the first hop to the same rule. A
+        // port other than the scheme's own would make this lane a port prober, and userinfo is a
+        // credential this lane never sends. The canonicalizer strips both, so this checks against a
+        // wrong or stale producer rather than an expected case.
         return parsed.port === '' && !parsed.username && !parsed.password
     } catch {
         return false

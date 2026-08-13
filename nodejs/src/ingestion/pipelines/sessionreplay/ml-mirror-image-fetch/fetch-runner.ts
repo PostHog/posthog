@@ -9,10 +9,10 @@ import { FetchOutcome, ImageFetchResult, ImageFetcher, RedirectDecision } from '
 import { ImageFetchRequestMetrics } from './metrics'
 import { politenessKey } from './politeness-key'
 
-/** Why a URL never reached a request. Shares `rate_limited` with the response of the same name, because both mean the site asked us to wait. */
+/** Why a URL never reached a request. It shares `rate_limited` with the response of the same name, because both mean the site asked us to wait. */
 export type ShedReason = 'breaker_open' | 'rate_limited' | 'deadline' | 'connection_limit'
 
-/** A URL that ran out of moves. It is recorded so it stops coming back. Requirement 12. */
+/** A URL that ran out of hops. The lane records it so it stops coming back. Requirement 12. */
 export const HOPS_EXHAUSTED = 'hops_exhausted'
 
 export type AttemptOutcome = FetchOutcome | ShedReason | typeof HOPS_EXHAUSTED
@@ -23,16 +23,16 @@ export interface FetchAttempt {
     /**
      * True when the lane is done with this URL and must write it to the crawl history.
      *
-     * False means the URL is coming back: it was republished to the frontier or to a delay topic,
-     * or the republish failed. Writing the crawl history for one of those would stop it ever being
-     * fetched. Requirements 12 and 24.
+     * False means the URL comes back, from a republish to the frontier or to a delay topic, or from
+     * a failed republish. A crawl history entry for one of those stops it ever being fetched.
+     * Requirements 12 and 24.
      */
     finished: boolean
     /**
      * True when the URL was meant to go back to Kafka and did not.
      *
-     * Nothing else holds it. Its offset must not commit, or the URL is gone until a session refers
-     * to the same image again. Requirement 21.
+     * Nothing else holds it, so its offset must not commit. The URL is otherwise gone until a
+     * session refers to the same image again. Requirement 21.
      */
     lost: boolean
 }
@@ -41,31 +41,28 @@ export interface FetchRunnerOptions {
     /** Workers per domain. The limit itself lives in the budget, because a redirect reaches a domain without passing through this pool. */
     maxConcurrentPerDomain: number
     /**
-     * Requests open across every domain at once.
+     * Requests open across every domain at once. This bounds the pod rather than politeness.
      *
-     * Politeness needs no cap here. The topic keys by registrable domain, so one domain lands on
-     * one partition and one pod. That pod holds its rate and connection limits in memory. A cap on
-     * domains would only make unrelated sites wait for each other.
-     *
-     * What this bounds is the pod. A body is read into a buffer, so the peak memory is roughly this
-     * number times the byte limit. The sockets and the DNS lookups come with it.
+     * The lane reads a body into a buffer, so the peak memory is about this number times the byte
+     * limit. The sockets and the DNS lookups come with it.
      */
     maxInFlightRequests: number
-    /** Wall time the whole pass may take. What it does not reach is shed and fetched again the next time a session refers to it. */
+    /** Wall time the whole pass may take. The lane sheds a URL it does not reach, and fetches it again when a session next refers to it. */
     batchBudgetMs: number
     maxBytes: number
     requestTimeoutMs: number
     maxRedirects: number
-    /** Held for a 429 or a 503 that named no period, so a site that only says "slow down" still gets a pause. */
+    /** Used for a 429 or a 503 that named no period, so a site that only says "slow down" still gets a pause. */
     defaultRetryAfterMs: number
 }
 
 /**
- * Outcomes that will not change if the same URL is tried again.
+ * Outcomes that will not change if the lane tries the same URL again.
  *
- * Only these write a crawl history entry. A URL shed by the budget, or lost to a timeout, is left unrecorded
- * so the next session that refers to it tries again. An entry written for one of those would
- * suppress the URL for the whole crawl history TTL because a site was busy for a moment.
+ * Only these write a crawl history entry. The lane leaves a URL shed by the budget, or lost to a
+ * timeout, unrecorded, because it goes back to a delay topic and comes round again. An entry for one
+ * of those would suppress the URL for the whole crawl history TTL because a site was busy for a
+ * moment.
  */
 const TERMINAL_OUTCOMES: ReadonlySet<AttemptOutcome> = new Set<AttemptOutcome>([
     'ok',
@@ -77,15 +74,15 @@ const TERMINAL_OUTCOMES: ReadonlySet<AttemptOutcome> = new Set<AttemptOutcome>([
     'bad_redirect',
     'too_many_redirects',
     'unexpected_status',
-    // A property of the origin rather than of the moment. It compresses whatever we ask for, so a
-    // retry meets the same response and spends a hop for nothing.
+    // A property of the origin rather than of the moment, so a retry meets the same response and
+    // spends a hop for nothing.
     'unsupported_encoding',
 ])
 
-/** Hosts named in one batch-level log line. Enough to find the site, bounded so one bad batch cannot write a host list of its own size. */
+/** Hosts named in one batch-level log line, bounded so one bad batch cannot log a host list of its own size. */
 const MAX_LOGGED_HOSTS = 5
 
-/** A number from the environment, where a typo parses to NaN. Every one of these is a politeness control that a NaN would switch off. */
+/** These values come from the environment, where a typo parses to NaN and switches a politeness control off. */
 function requirePositive(name: string, value: number): number {
     if (!Number.isFinite(value) || value <= 0) {
         throw new Error(`${name} must be a positive number, got ${value}`)
@@ -97,7 +94,7 @@ export function isTerminal(outcome: AttemptOutcome): boolean {
     return TERMINAL_OUTCOMES.has(outcome)
 }
 
-/** What the consumer needs of the fetch pass, so its tests exercise the real contract rather than a cast. */
+/** What the consumer needs of the fetch pass, so its tests use the real contract rather than a cast. */
 export interface FetchPass {
     run(candidates: FetchCandidate[]): Promise<FetchAttempt[]>
 }
@@ -109,9 +106,8 @@ export interface FetchPass {
  * count is the connection limit and the token bucket is the rate, so a domain receives from this
  * pod exactly what an operator configured for it.
  *
- * The pass is bounded by wall time rather than by work. A batch can hold more URLs for one domain
- * than a polite rate carries in the time a Kafka batch may take, and the lane answers that by
- * fetching fewer of them.
+ * Wall time bounds the pass rather than work. A batch can hold more URLs for one domain than a
+ * polite rate carries in the time a Kafka batch may take, and the lane then fetches fewer of them.
  */
 export class FetchRunner implements FetchPass {
     private readonly inFlight: ConcurrencyController
@@ -120,7 +116,7 @@ export class FetchRunner implements FetchPass {
         private readonly fetcher: ImageFetcher,
         private readonly budget: HostBudget,
         private readonly options: FetchRunnerOptions,
-        /** Required, because without it every transient outcome is a loss rather than a retry. */
+        /** Required, because without it every transient outcome becomes a loss rather than a retry. */
         private readonly publisher: FrontierPublisher
     ) {
         requirePositive('SESSION_RECORDING_ML_IMAGE_FETCH_MAX_CONCURRENT_PER_DOMAIN', options.maxConcurrentPerDomain)
@@ -130,7 +126,7 @@ export class FetchRunner implements FetchPass {
         requirePositive('SESSION_RECORDING_ML_IMAGE_FETCH_MAX_IMAGE_BYTES', options.maxBytes)
         requirePositive('SESSION_RECORDING_ML_IMAGE_FETCH_REQUEST_TIMEOUT_MS', options.requestTimeoutMs)
         requirePositive('SESSION_RECORDING_ML_IMAGE_FETCH_DEFAULT_RETRY_AFTER_MS', options.defaultRetryAfterMs)
-        // Zero is meaningful for both of these, meaning no fetch at all and no redirect at all.
+        // Zero is meaningful for both, and means no fetch at all and no redirect at all.
         if (!Number.isFinite(options.batchBudgetMs) || !Number.isFinite(options.maxRedirects)) {
             throw new Error('SESSION_RECORDING_ML_IMAGE_FETCH_REQUEST_BUDGET_MS and MAX_REDIRECTS must be numbers')
         }
@@ -157,11 +153,10 @@ export class FetchRunner implements FetchPass {
     }
 
     /**
-     * One line for the whole pass rather than one per URL.
+     * One line for each outcome of the whole pass, because a site that is down turns every URL of a
+     * batch into a log line. The counts answer the same question, and the hosts say where to look.
      *
-     * A batch can carry thousands of URLs, and a site that is down turns every one of them into a
-     * log line. The counts answer the same question, and the hosts say where to look. A URL is page
-     * content, so it appears in no log.
+     * A URL is page content, so it appears in no log.
      */
     private logFailures(attempts: FetchAttempt[]): void {
         const byOutcome = new Map<AttemptOutcome, { count: number; hosts: Set<string> }>()
@@ -187,14 +182,14 @@ export class FetchRunner implements FetchPass {
 
     /**
      * Every domain runs at once. A domain spends nearly all of its time waiting on its own rate
-     * limit, so holding thousands of them costs a queue and a closure each, and letting only a few
-     * run would make sites wait on each other for no reason of politeness.
+     * limit, so thousands of them cost a queue and a closure each, and a cap on domains would make
+     * unrelated sites wait for each other for no reason of politeness.
      *
-     * The requests underneath them are what is bounded, by `maxInFlightRequests`.
+     * `maxInFlightRequests` bounds the requests underneath them.
      */
     private async runDomains(entries: [string, FetchCandidate[]][], deadlineMs: number): Promise<FetchAttempt[]> {
-        // Written into by every domain rather than concatenated afterwards. One batch can offer
-        // hundreds of thousands of URLs to a single domain, and both `push(...array)` and
+        // Every domain writes into this array rather than concatenating afterwards. One batch can
+        // offer hundreds of thousands of URLs to a single domain, and both `push(...array)` and
         // `concat` of that size exceed the argument limit of `Function.apply`.
         const attempts: FetchAttempt[] = []
         await Promise.all(
@@ -203,7 +198,7 @@ export class FetchRunner implements FetchPass {
         return attempts
     }
 
-    /** One back queue: the crawler term for the per-host queue that a politeness limit is applied to. */
+    /** A back queue is the crawler term for the queue of one registrable domain, which a politeness limit applies to. */
     private async runBackQueue(
         domain: string,
         backQueue: FetchCandidate[],
@@ -211,8 +206,7 @@ export class FetchRunner implements FetchPass {
         attempts: FetchAttempt[]
     ): Promise<void> {
         let next = 0
-        // A refusal is a property of the domain, so it applies to every URL still queued for it
-        // rather than only to the one that asked.
+        // A refusal is a property of the domain, so it applies to every URL still queued for it.
         const shedRemaining = async (reason: ShedReason): Promise<void> => {
             while (next < backQueue.length) {
                 const candidate = backQueue[next++]
@@ -232,8 +226,8 @@ export class FetchRunner implements FetchPass {
                 ImageFetchRequestMetrics.observeBudgetWait(grant.waitMs / 1000)
                 if (grant.waitMs > 0) {
                     await delay(grant.waitMs)
-                    // The grant was made before the wait. A Retry-After or an open breaker can
-                    // arrive during it, and the deadline can pass. Requirement 5.
+                    // The budget granted this before the wait. A `Retry-After` or an open breaker
+                    // can arrive during the wait, and the deadline can pass. Requirement 5.
                     const stale = this.staleAfterWait(domain, deadlineMs)
                     if (stale) {
                         this.budget.returnGrant(domain, Date.now())
@@ -252,7 +246,7 @@ export class FetchRunner implements FetchPass {
         await Promise.all(Array.from({ length: workers }, () => worker()))
     }
 
-    /** Why a granted request must not go out after its wait, or null when it still may. Requirement 5. */
+    /** Why a granted request must not go out after its wait, or null when it may still go out. Requirement 5. */
     private staleAfterWait(domain: string, deadlineMs: number): ShedReason | null {
         const nowMs = Date.now()
         const blocked = this.budget.blockedReason(domain, nowMs)
@@ -263,17 +257,17 @@ export class FetchRunner implements FetchPass {
     }
 
     /**
-     * The request gets its whole configured timeout even when the batch deadline is closer.
+     * The request keeps its whole configured timeout even when the batch deadline is closer.
      *
-     * A request cut short by the batch clock would time out through no fault of the site, and the
+     * A request that the batch clock cut short would time out through no fault of the site, and the
      * budget would read that as the site failing. So the deadline decides whether a request starts,
      * and never how long it may take. One pass can therefore run to `batchBudgetMs` plus one
      * request timeout, which is still far inside Kafka's max.poll.interval.ms.
      */
     private async fetchOne(candidate: FetchCandidate, deadlineMs: number): Promise<FetchAttempt> {
-        // Every domain this chain touches holds one of that domain's connection slots until the
-        // chain ends. A slot taken twice by one chain is held once, so a redirect back to a domain
-        // already in the chain does not deadlock against itself.
+        // The chain holds one connection slot of every domain it touches until the chain ends. It
+        // holds a slot once even if it takes it twice, so a redirect back to a domain already in
+        // the chain does not deadlock against itself.
         const held = new Set<string>()
         const acquire = (domain: string): boolean => {
             if (held.has(domain)) {
@@ -292,9 +286,10 @@ export class FetchRunner implements FetchPass {
         }
 
         if (!acquire(candidate.domain)) {
-            // The worker count and the connection limit are separate settings, so this refuses only
-            // when an operator sets them apart. It says the domain is busy now, so nothing is
-            // written to the crawl history for it.
+            // One setting feeds both the worker count and this limit, so the pool already holds a
+            // domain to the same number and nothing gets here today. The budget is where the limit
+            // belongs, so the check stays. A refusal means the domain is busy now, which is not a
+            // fact about the URL, so the lane writes no crawl history entry for it.
             this.budget.returnGrant(candidate.domain, Date.now())
             ImageFetchRequestMetrics.incOutcome('connection_limit')
             return await this.reschedule(candidate, 'connection_limit', 0)
@@ -307,9 +302,9 @@ export class FetchRunner implements FetchPass {
                 debugTag: candidate.domain,
                 fn: () => {
                     // The pod queue is the third place a request waits, after the token bucket and
-                    // the connection limit, and it is the one that can hold a request longest: 300
-                    // slots serve every domain this pod owns. A sibling request can meet a
-                    // `Retry-After` while this one queues. Requirement 5.
+                    // the connection limit, and it can hold a request longest because its slots
+                    // serve every domain this pod owns. A sibling request can meet a `Retry-After`
+                    // while this one queues. Requirement 5.
                     const stale = this.staleAfterWait(candidate.domain, deadlineMs)
                     if (stale) {
                         return Promise.resolve({ shed: stale })
@@ -319,8 +314,8 @@ export class FetchRunner implements FetchPass {
                         timeoutMs: this.options.requestTimeoutMs,
                         maxRedirects: this.options.maxRedirects,
                         isOffsite: (url) => politenessKey(url.hostname) !== candidate.domain,
-                        // The earlier of the two clocks. A wait that outlives the request would be
-                        // spent and then reported as the site timing out.
+                        // The earlier of the two clocks, because a wait that outlives the request
+                        // reports the site as timing out.
                         authorizeRedirect: (url, remainingMs) =>
                             this.authorizeRedirect(
                                 Math.min(deadlineMs, Date.now() + remainingMs),
@@ -331,8 +326,8 @@ export class FetchRunner implements FetchPass {
                 },
             })
         } catch (error) {
-            // The fetcher answers with an outcome rather than a throw, so reaching here means a
-            // defect. It is caught anyway: a throw would leave the other domains of this batch
+            // The fetcher answers with an outcome rather than a throw, so a throw here means a
+            // defect. The catch stays because a throw would leave the other domains of this batch
             // running while the partition replays them.
             logger.error('🌐', 'ml_image_fetch_unhandled_error', {
                 host: candidate.host,
@@ -362,8 +357,6 @@ export class FetchRunner implements FetchPass {
         if (result.bytes) {
             ImageFetchRequestMetrics.observeBytes(result.bytes.length)
         }
-        // The bytes stop here. Nothing produces them yet, and holding a batch of them would be the
-        // largest memory this lane ever took.
         if (result.outcome === 'redirect_offsite' && result.redirectTarget) {
             return await this.handOff(candidate, result.redirectTarget)
         }
@@ -385,9 +378,9 @@ export class FetchRunner implements FetchPass {
             return
         }
         if (outcome === 'rate_limited' || outcome === 'server_error') {
-            // The whole domain is held when the site asked to be left alone, meaning a 429 or any
-            // response that named a period. A one-off 500 gets the rate cut and the breaker count
-            // instead: it says this request failed, not that the site wants silence for a minute.
+            // The lane holds the whole domain when the site asked to be left alone, which means a
+            // 429 or any response that named a period. A one-off 500 gets the rate cut and the
+            // breaker count instead, because it says this request failed and nothing more.
             if (outcome === 'rate_limited' || retryAfterMs !== undefined) {
                 this.budget.recordRetryAfter(domain, nowMs, retryAfterMs ?? this.options.defaultRetryAfterMs)
             }
@@ -404,25 +397,17 @@ export class FetchRunner implements FetchPass {
         }
         if (outcome === 'forbidden') {
             // One 403 is a missing image, which is no reason to slow down. A run of them is an
-            // anti-bot rule, which the breaker has to catch.
+            // anti-bot rule, which the breaker must catch.
             this.budget.recordRefusal(domain, nowMs)
         }
     }
 
     /**
-     * A redirect target spends a token from its own domain, so the rate a site receives counts the
-     * hops that land on it as well as the URLs keyed to it.
-     *
-     * The outcome of the whole chain is still recorded against the domain the URL was keyed by, so
-     * a site that redirects every image to a CDN opens its own breaker when that CDN fails. The CDN
-     * still gets the rate limit, which is the part that protects it.
-     */
-    /**
      * Put a URL back for another try, or give up on it.
      *
-     * A URL with no hops left is recorded, so it stops coming back and the lane stops spending
-     * requests on it. Requirement 12. Anything else goes to the delay topic whose period covers the
-     * wait, and is not recorded, because it has not been answered yet. Requirements 13 to 15.
+     * The lane records a URL with no hops left, so it stops coming back and stops costing requests.
+     * Requirement 12. Everything else goes to the delay topic whose period covers the wait, and the
+     * lane records nothing, because the URL has no answer yet. Requirements 13 to 15.
      */
     private async reschedule(
         candidate: FetchCandidate,
@@ -442,8 +427,8 @@ export class FetchRunner implements FetchPass {
     /**
      * Send a redirect target to the consumer that owns its domain.
      *
-     * The hop is not followed here. That domain's rate, breaker, and connection count live in the
-     * pod holding its partition, and following the hop from this pod would spend none of them.
+     * This pod does not follow the hop. That domain's rate, breaker, and connection count live in
+     * the pod holding its partition, and a hop followed from this pod spends none of them.
      * Requirement 7.
      */
     private async handOff(candidate: FetchCandidate, target: { url: string; host: string }): Promise<FetchAttempt> {
@@ -457,7 +442,7 @@ export class FetchRunner implements FetchPass {
         return { candidate, outcome: 'redirect_offsite', finished: false, lost: !republished }
     }
 
-    /** The target belongs to `sourceDomain`, because `isOffsite` already refused every other one. */
+    /** The target belongs to `domain`, because `isOffsite` already refused every other one. A hop spends a token like a first request. */
     private async authorizeRedirect(
         deadlineMs: number,
         acquire: (domain: string) => boolean,
@@ -468,18 +453,15 @@ export class FetchRunner implements FetchPass {
         }
         const grant = this.budget.take(domain, Date.now(), deadlineMs)
         if (!grant.granted) {
-            // Deferred rather than refused, so nothing is written to the crawl history. Every refusal reason here
-            // is about this moment rather than about the URL.
+            // Deferred rather than refused, so the lane writes no crawl history entry. Every
+            // refusal reason here is about this moment rather than about the URL.
             return 'defer'
         }
-        // Counted like the wait of a first request, so the histogram covers every politeness wait
-        // this lane takes rather than only the ones outside a redirect.
         ImageFetchRequestMetrics.observeBudgetWait(grant.waitMs / 1000)
         if (grant.waitMs > 0) {
             await delay(grant.waitMs)
-            // The same check the worker loop makes. A `Retry-After` or an open breaker can arrive
-            // while a redirect waits, exactly as it can while a first request waits, and this hop
-            // is a request to a site like any other. Requirement 5.
+            // A `Retry-After` or an open breaker can arrive while a redirect waits, exactly as it
+            // can while a first request waits. Requirement 5.
             if (this.staleAfterWait(domain, deadlineMs)) {
                 this.budget.returnGrant(domain, Date.now())
                 return 'defer'

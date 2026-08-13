@@ -79,7 +79,7 @@ describe('HttpImageFetcher', () => {
     })
 
     it('refuses a body that passes the limit while it is being read', async () => {
-        // The one an origin that declares no length reaches. Nothing before the body can catch it.
+        // The case an origin reaches when it declares no length. No check before the body catches it.
         fetchStreamedMock.mockResolvedValue(
             respond(200, { 'content-type': 'image/png' }, { bytes: Buffer.alloc(0), overLimit: true })
         )
@@ -113,7 +113,7 @@ describe('HttpImageFetcher', () => {
 
         const result = await fetcher().fetch('https://cdn.example.com/a.png', OPTIONS)
 
-        // A date is resolved against the clock, so the comparison allows for the test's own runtime.
+        // The parser resolves a date against the clock, so the range allows for the test's own runtime.
         expect(result.retryAfterMs).toBeGreaterThan(expectedMs - 2000)
         expect(result.retryAfterMs).toBeLessThanOrEqual(expectedMs)
     })
@@ -134,8 +134,6 @@ describe('HttpImageFetcher', () => {
         ['it leaves HTTP for another scheme', 'javascript:alert(1)', 'allow' as const],
         ['it carries credentials for the next hop', 'https://user:pw@other.example/a.png', 'allow' as const],
         ['it downgrades from HTTPS to plain HTTP', 'http://other.example/a.png', 'allow' as const],
-        // The guard compares the parsed protocol, which is lower case whatever the request used.
-        ['the first hop named its scheme in capitals', 'http://cdn.example.com/a.png', 'allow' as const],
     ])('refuses a redirect when %s', async (_name, location, decision) => {
         fetchStreamedMock.mockResolvedValue(respond(302, { location }))
 
@@ -148,14 +146,25 @@ describe('HttpImageFetcher', () => {
         expect(fetchStreamedMock).toHaveBeenCalledTimes(1)
     })
 
+    it('refuses a downgrade when the first hop named its scheme in capitals (requirement 9)', async () => {
+        // A record can carry `HTTPS://`, because the parser validates a parsed copy and stores the
+        // string it was given. A guard that reads the raw string misses the capitals and follows
+        // the hop in clear text. `URL.protocol` is lower case whatever the URL used.
+        fetchStreamedMock.mockResolvedValue(respond(302, { location: 'http://cdn.example.com/b.png' }))
+
+        const result = await fetcher().fetch('HTTPS://cdn.example.com/a.png', OPTIONS)
+
+        expect(result).toMatchObject({ outcome: 'bad_redirect' })
+        expect(fetchStreamedMock).toHaveBeenCalledTimes(1)
+    })
+
     it.each([
         ['a host the collector would have refused', 'https://internal.corp/a.png', { isPublicHost: () => false }],
         ['a target past the length limit', `https://cdn.example.com/${'a'.repeat(300)}.png`, { maxUrlLength: 100 }],
         ['a port the scheme does not own', 'https://cdn.example.com:11211/a.png', {}],
     ])('refuses a redirect to %s (requirement 8)', async (_name, location, policy) => {
-        // The first candidate passed both of these in the collector before it reached the topic. A
-        // redirect target has passed neither, so a hop could otherwise reach a name that resolves
-        // only inside a network.
+        // The collector applied these checks to the first candidate. A redirect target has passed
+        // none of them, so a hop could otherwise reach a name that resolves only inside a network.
         fetchStreamedMock.mockResolvedValue(respond(302, { location }))
 
         const result = await fetcher(policy).fetch('https://cdn.example.com/a.png', OPTIONS)
@@ -165,9 +174,9 @@ describe('HttpImageFetcher', () => {
     })
 
     it('hands off an offsite target that arrives at the redirect limit (requirement 7)', async () => {
-        // The limit bounds the hops this request follows itself. A target for another operator is
-        // followed by nobody here, so it goes back to Kafka and costs one hop rather than being
-        // written off with 9 hops left.
+        // The limit bounds the hops this request follows itself. Nobody here follows a target for
+        // another operator, so it goes back to Kafka and costs one hop rather than being written off
+        // with hops left.
         fetchStreamedMock.mockResolvedValue(respond(302, { location: 'https://img.other.net/a.png' }))
 
         const result = await fetcher().fetch('https://cdn.example.com/a.png', {
@@ -192,7 +201,8 @@ describe('HttpImageFetcher', () => {
 
     it('defers a redirect whose target has no budget left, so nothing is written to the crawl history for it', async () => {
         // `bad_redirect` is terminal. A CDN in cooldown would otherwise suppress every image behind
-        // it for the crawl history TTL, because the budget of a moment was read as a property of the URL.
+        // it for the crawl history TTL, because the lane read a momentary budget as a property of
+        // the URL.
         fetchStreamedMock.mockResolvedValue(respond(302, { location: 'https://cdn.example.net/a.png' }))
 
         const result = await fetcher().fetch('https://cdn.example.com/a.png', {
@@ -205,7 +215,7 @@ describe('HttpImageFetcher', () => {
 
     it('refuses a response that arrives compressed, under its own outcome', async () => {
         // The byte limit counts bytes on the wire, and a compressed body expands past it. The image
-        // may be perfectly good, so this must not be reported, or recorded, as "not an image".
+        // may be perfectly good, so the lane must not report it, or record it, as "not an image".
         fetchStreamedMock.mockResolvedValue(image(PNG, 'image/png', { 'content-encoding': 'gzip' }))
 
         const result = await fetcher().fetch('https://cdn.example.com/a.png', OPTIONS)
@@ -214,8 +224,8 @@ describe('HttpImageFetcher', () => {
     })
 
     it('defers a redirect whose politeness wait would outlive the request', async () => {
-        // The wait is spent from this request's clock. Taking one that cannot land would report the
-        // site as slow when what ran out was our own budget.
+        // The wait comes out of this request's clock. A wait that cannot land would report the site
+        // as slow when our own budget ran out.
         fetchStreamedMock.mockResolvedValue(respond(302, { location: '/moved.png' }))
         const authorizeRedirect = jest.fn().mockResolvedValue('allow')
 

@@ -4,10 +4,7 @@ import { logger } from '~/common/utils/logger'
 import { FetchCandidate } from './collected-urls-record'
 import { ImageFetchRequestMetrics } from './metrics'
 
-/**
- * One delay topic. Every message in it waits the same period, which is what keeps the messages in
- * the order they become ready and stops an hour-long wait sitting in front of a one minute wait.
- */
+/** One delay topic. Every record in it waits the same period, so the records leave in the order they become ready. */
 export interface DelayTier {
     topic: string
     delayMs: number
@@ -15,15 +12,14 @@ export interface DelayTier {
 
 export interface FrontierPublisherOptions {
     frontierTopic: string
-    /** Ordered by delay, shortest first. The scheduler picks the first tier that covers the wait. */
+    /** Ordered by delay, shortest first, because the publisher takes the first tier that covers the wait. */
     delayTiers: DelayTier[]
 }
 
-/** Why a URL is going back to Kafka rather than being finished with. */
 export type RepublishReason = 'redirect' | 'retry' | 'not_ready'
 
 /**
- * Puts a URL back into the frontier, either at once or after a wait.
+ * Sends a URL back to the frontier, at once or after a wait.
  *
  * Two things use this. A redirect that leaves the registrable domain cannot be followed here,
  * because the budget for the new domain belongs to whichever consumer owns its partition, so the
@@ -43,9 +39,7 @@ export class FrontierPublisher {
     }
 
     /**
-     * Send one URL back to the frontier, keyed by the domain given.
-     *
-     * The ref is the original one. The recording points at that ref, and a hash of a redirect
+     * The ref stays the original one. The recording points at that ref, and a hash of a redirect
      * target matches nothing, so a new ref would leave the image unreachable. Requirement 10.
      */
     public async republish(
@@ -58,14 +52,12 @@ export class FrontierPublisher {
         if (hopsRemaining <= 0) {
             return false
         }
-        // A retry always waits, even when nothing asked it to. A timeout, a connection error, and a
-        // batch that ran out of time all report no period, and publishing those straight back to
-        // the frontier is a loop: the consumer reads the record, meets the same condition, and
+        // A retry always waits, even when nothing named a period. A timeout, a connection error,
+        // and a batch that ran out of time name none, and publishing those straight back to the
+        // frontier is a loop: the consumer reads the record, meets the same condition, and
         // publishes it again, spending a hop each lap until the URL is written off unfetched. A URL
-        // that arrived before its time waits for the same reason, and for a period it already knows.
-        //
-        // A redirect is the opposite. Its target is a different domain with its own budget, so it
-        // is ready to be fetched by whichever consumer owns that partition.
+        // that arrived early waits for the same reason, for a period it already knows. A redirect
+        // goes back at once, because its target is a different domain with its own budget.
         const tier = reason === 'redirect' ? undefined : this.tierFor(Math.max(waitMs, 1))
         const topic = tier?.topic ?? this.options.frontierTopic
         const value = Buffer.from(
@@ -74,8 +66,9 @@ export class FrontierPublisher {
                 pseudoTeam: candidate.pseudoTeam,
                 capturedAtMs: candidate.capturedAtMs,
                 hopsRemaining,
-                // The wait that was asked for, not the period of the tier holding it. A wait longer
-                // than the longest tier arrives before it is due, and the consumer leaves it alone.
+                // The longer of the wait asked for and the period of the tier holding it. A wait
+                // past the longest tier arrives before it is due, and the consumer sends it back
+                // for the rest. Requirement 15.
                 notBeforeMs: tier ? Date.now() + Math.max(waitMs, tier.delayMs) : 0,
                 urls: [{ ref: candidate.ref, url: target.url, host: target.host }],
             })
@@ -84,8 +77,8 @@ export class FrontierPublisher {
         try {
             await this.producer.produce({ topic, key: Buffer.from(target.domain), value })
         } catch (error) {
-            // The URL is left unrecorded, so the next session that refers to it offers it again.
-            // Nothing is thrown: one failed produce must not abandon the rest of the batch.
+            // Nothing throws here, because one failed produce must not abandon the rest of the
+            // batch. The caller counts the false return and holds the batch instead. Requirement 21.
             logger.warn('🌐', 'ml_image_fetch_republish_failed', {
                 reason,
                 topic,
@@ -99,8 +92,6 @@ export class FrontierPublisher {
     }
 
     /**
-     * The first tier whose delay covers the wait, or the longest one.
-     *
      * A wait longer than every tier comes back early, spends another hop, and waits again. That is
      * cheaper than a tier long enough for the worst `Retry-After` a site can name, and the host
      * budget refuses an early arrival without sending anything.

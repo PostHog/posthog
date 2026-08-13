@@ -1,13 +1,12 @@
 import { Pool } from 'generic-pool'
 
 /**
- * The URL-seen test of this crawler: the record of which image URLs this lane has finished with.
+ * The keyspace of the URL-seen test, asked before every fetch. An entry means this lane finished
+ * with the URL, whatever the outcome, so a URL the site refused sits beside one it served.
  *
- * It answers one question, asked before every fetch. Has this lane handled this URL already? An
- * entry means yes, whatever the answer was, so a URL the site refused is recorded alongside one it
- * served. The entry says nothing about the bytes, which live under their own keys once a later lane
- * writes them. One keyspace for both would leave whoever enables fetching with a month of entries
- * that look like completed downloads, and every URL behind them would be skipped with no error.
+ * The entry says nothing about the bytes, which live under their own keys once a later lane writes
+ * them. One keyspace for both would leave whoever enables fetching with a month of entries that look
+ * like completed downloads, and the lane would skip every URL behind them with no error.
  */
 const CRAWL_HISTORY_PREFIX = 'imgfetch:seen'
 
@@ -34,15 +33,15 @@ function chunk<T>(items: T[], size: number): T[][] {
 }
 
 export interface CrawlHistoryReadResult {
-    /** Indexes of the keys that were already recorded. */
+    /** Indexes of the keys the store already holds. */
     known: Set<number>
     /** Indexes whose read did not complete. The caller knows nothing about these, which is not the same as knowing they are absent. */
     failed: Set<number>
 }
 
 /**
- * The two commands this store issues. Narrower than `Redis` so a test supplies exactly these, and a
- * command added here has to be added to the fake before it compiles.
+ * Narrower than `Redis`, so a test supplies exactly these commands, and a command added here must
+ * reach the fake before this compiles.
  */
 export interface CrawlHistoryRedis {
     mget(...keys: string[]): Promise<(string | null)[]>
@@ -52,7 +51,7 @@ export interface CrawlHistoryRedis {
     }
 }
 
-/** The three pool operations this store uses. Narrow so a test needs no cast to supply them. */
+/** Narrow, so a test supplies these operations without a cast. */
 export type CrawlHistoryRedisPool = Pick<Pool<CrawlHistoryRedis>, 'acquire' | 'release' | 'destroy'>
 
 /** What the consumer needs of the store, so its tests exercise the real contract rather than a cast. */
@@ -62,15 +61,14 @@ export interface CrawlHistoryStore {
 }
 
 /**
- * The record of which image URLs this lane has already reached, shared by every pod.
+ * Every pod shares this store. The in-memory cache in front of it holds only what one pod saw since
+ * it started, so a rebalance or a restart would otherwise count every URL again. A lost store costs
+ * an overstated measurement now, and outbound requests once fetching is on. It never costs
+ * correctness.
  *
- * The in-memory cache in front of it holds only what one pod saw since it started, so a rebalance
- * or a restart would otherwise count every URL again. Losing this store costs an overstated
- * measurement now, and outbound requests once fetching is on. It never costs correctness.
- *
- * Both methods stop early once the batch budget is spent and report the rest as failed. A batch that
- * runs past Kafka's max.poll.interval.ms gets the pod evicted mid-batch, and the partition is then
- * replayed by a pod that will take just as long, so offered load rises while throughput falls.
+ * Both methods stop early once the batch budget is spent and report the rest as failed. Kafka evicts
+ * a pod whose batch runs past max.poll.interval.ms, and the next pod replays that partition and
+ * takes just as long, so offered load rises while throughput falls.
  */
 export class CrawlHistory implements CrawlHistoryStore {
     constructor(
@@ -105,8 +103,8 @@ export class CrawlHistory implements CrawlHistoryStore {
             onChunk: async (client, batch, base) => {
                 const pipeline = client.pipeline()
                 for (const key of batch) {
-                    // One command, so a key can never be left without its expiry. A separate EXPIRE
-                    // can be the command that fails, and the key it leaves behind is never reclaimed.
+                    // One command, so a key can never sit without its expiry. A separate EXPIRE can
+                    // be the command that fails, and Redis never reclaims the key it leaves behind.
                     pipeline.set(key, value, 'EX', ttlSeconds)
                 }
                 const results = (await pipeline.exec()) as [Error | null, unknown][] | null
@@ -151,11 +149,11 @@ export class CrawlHistory implements CrawlHistoryStore {
 
     /**
      * The pool rejects rather than queues once its own acquire timeout passes, so this never races
-     * `acquire()`. generic-pool cannot cancel one, and a caller that walked away from a pending
-     * acquire is still handed the next free connection and still counted as borrowing it.
+     * `acquire()`. generic-pool cannot cancel an acquire, and it still hands the next free connection
+     * to a caller that walked away, and still counts that caller as a borrower.
      *
-     * A connection whose command was abandoned is destroyed rather than returned, because its reply
-     * is still in flight and would be read as the answer to whichever command borrowed it next.
+     * This destroys a connection whose command it abandoned rather than returns it, because the
+     * reply is still in flight and would read as the answer to whichever command borrows it next.
      */
     private async withClient(run: (client: CrawlHistoryRedis) => Promise<void>): Promise<void> {
         const client = await this.pool.acquire()

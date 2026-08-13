@@ -29,12 +29,9 @@ const MAX_POLL_INTERVAL_MS = 86_400_000
  * The same server runs every tier. The topic and the period come from the environment, so three
  * deployments of one image cover 1 minute, 10 minutes, and one hour. See the lane's README.
  *
- * Two settings belong to the deployment rather than to this file:
- *
- * - `max.poll.interval.ms` must exceed the period of the topic. A consumer that sleeps longer than
- *   that value is evicted, and its partition is replayed by a consumer that will sleep just as long.
- * - One pod, and no more. A lag trigger assumes more consumers drain a topic faster, which is false
- *   here, because these records are waiting on purpose.
+ * One setting belongs to the deployment rather than to this file: one pod, and no more. A lag
+ * trigger assumes more consumers drain a topic faster, which is false here, because these records
+ * are waiting on purpose.
  */
 export class IngestionSessionReplayMlImageFetchRetryServer implements NodeServer {
     readonly lifecycle: ServerLifecycle
@@ -82,15 +79,13 @@ export class IngestionSessionReplayMlImageFetchRetryServer implements NodeServer
         // topic inside one batch, and the shared default of 300s would evict the 10m and 1h tiers
         // mid-sleep, then replay the partition into a consumer that sleeps just as long.
         //
-        // One record per batch is what makes this bound exact. Records become ready in the order they were
-        // written, so a full batch usually waits once and then publishes the rest at speed, but a
-        // sparse topic can hold records written hours apart and that batch would wait once per
-        // record. Throughput does not matter here: the work is one publish, and a ready record waits
-        // for nothing.
+        // One record per batch keeps this bound exact. A sparse topic can hold records written hours
+        // apart, and such a batch waits once per record. Throughput does not matter here, because
+        // the work is one publish and a ready record waits for nothing.
         const pollIntervalMs = delayMs + POLL_INTERVAL_MARGIN_MS
         const consumer = new KafkaConsumer(consumerConfig, { 'max.poll.interval.ms': pollIntervalMs })
-        // Set before the consumer is told to disconnect, so a pod that is shutting down abandons the
-        // wait it is holding rather than making the rolling deploy wait out a whole tier period.
+        // The shutdown handler sets this before it disconnects the consumer, so a stopping pod
+        // abandons the wait it holds rather than making the rolling deploy wait out a tier period.
         let stopping = false
         const delayConsumer = new RetryDelayConsumer(producer, {
             isStopping: () => stopping,

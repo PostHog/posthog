@@ -89,8 +89,7 @@ describe('FrontierPublisher', () => {
     })
 
     it('never sends a retry straight back to the frontier (requirement 14)', async () => {
-        // A timeout, a connection error, and a batch that ran out of time all report no period.
-        // Publishing those to the frontier is a loop: the consumer reads the record, meets the same
+        // A retry sent to the frontier is a loop: the consumer reads the record, meets the same
         // condition, and publishes it again, spending a hop each lap until the URL is written off
         // without ever being fetched.
         const { publisher, sent } = build()

@@ -46,8 +46,8 @@ describe('CrawlHistory', () => {
         new CrawlHistory(poolOf(client), 1_000, budgetMs)
 
     it('reports the index of every key that exists, across chunk boundaries', async () => {
-        // The one place a silent mistake is possible: the caller maps these indexes back onto its
-        // own candidate list, so an off-by-one skips the wrong URL and nothing surfaces it.
+        // The caller maps these indexes back onto its own candidate list, so an off-by-one skips the
+        // wrong URL and nothing reports it.
         const present = new Set(['k0', 'k255', 'k256', 'k599'])
         const client = new FakeClient({ mget: (keys) => keys.map((key) => (present.has(key) ? '{}' : null)) })
 
@@ -69,7 +69,7 @@ describe('CrawlHistory', () => {
 
         const result = await build(client).read(KEYS)
 
-        // The caller drops these rather than fetching them, so it needs which keys, not how many.
+        // The caller drops these rather than fetches them, so it needs which keys, not how many.
         expect(result.failed.size).toBe(256)
         expect(result.failed.has(256)).toBe(true)
         expect(result.failed.has(255)).toBe(false)
@@ -95,8 +95,8 @@ describe('CrawlHistory', () => {
     })
 
     it('stops issuing round trips once the batch budget is spent', async () => {
-        // A batch that outruns the heartbeat gets the pod restarted onto the same offsets, so the
-        // lane sheds the rest of the work instead.
+        // A batch that runs past the heartbeat restarts the pod onto the same offsets, so the lane
+        // sheds the rest of the work instead.
         const client = new FakeClient({
             mget: async (keys) => {
                 await new Promise((resolve) => setTimeout(resolve, 20))

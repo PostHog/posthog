@@ -22,8 +22,6 @@ describe('HostBudget', () => {
 
         const grants = [0, 0, 0, 0].map(() => host.take('example.com', 1000, FAR_FUTURE))
 
-        // The two burst tokens go out together; each one after them waits a whole second, because
-        // the token that would carry it has not been earned yet.
         expect(grants).toEqual([
             { granted: true, waitMs: 0 },
             { granted: true, waitMs: 0 },
@@ -37,8 +35,8 @@ describe('HostBudget', () => {
         host.take('example.com', 1000, FAR_FUTURE)
         host.take('example.com', 1000, FAR_FUTURE)
 
-        // Granting here would spend a token for a request the caller cannot send, and the next
-        // batch would then wait that token out for nothing.
+        // A grant here spends a token for a request the caller cannot send, and the next batch then
+        // waits that token out for nothing.
         expect(host.take('example.com', 1000, 1500)).toEqual({ granted: false, reason: 'deadline' })
         expect(host.take('example.com', 1000, FAR_FUTURE)).toEqual({ granted: true, waitMs: 1000 })
     })
@@ -115,7 +113,7 @@ describe('HostBudget', () => {
             host.recordBackoff('example.com', 1000)
         }
 
-        // The breaker cooldown is one minute. Letting it replace the hold would send us back to a
+        // The breaker cooldown is one minute. A cooldown that replaces the hold sends us back to a
         // site that asked for an hour, 59 minutes early.
         expect(host.take('example.com', 1000 + OPTIONS.breakerCooldownMs + 1, FAR_FUTURE)).toEqual({
             granted: false,
@@ -124,8 +122,6 @@ describe('HostBudget', () => {
     })
 
     it('holds one domain to its connection limit however many callers ask', () => {
-        // The runner's worker pool bounds only the domain a URL was queued under. A redirect reaches
-        // a domain from another domain's worker, so the limit has to live here to bind at all.
         const host = budget({ maxConcurrent: 2 })
 
         expect(host.acquireConnection('example.com', 1000)).toBe(true)
@@ -138,8 +134,8 @@ describe('HostBudget', () => {
     })
 
     it('keeps a domain holding a connection out of the eviction scan', () => {
-        // Evicting it would drop the in-flight count, and the next caller would open one more
-        // connection than the limit allows.
+        // An eviction drops the in-flight count, and the next caller then opens one more connection
+        // than the limit allows.
         const host = budget({ maxTrackedDomains: 2, maxConcurrent: 1 })
         host.acquireConnection('busy.com', 1000)
         host.take('idle.com', 1000, FAR_FUTURE)
@@ -150,8 +146,8 @@ describe('HostBudget', () => {
     })
 
     it('opens the breaker on a domain that fails more often than it succeeds', () => {
-        // Two failures for every success never makes a run of failures, so a counter that cleared
-        // on success would leave a mostly-broken domain being retried forever.
+        // Two failures for every success never make a run of failures, so a counter that cleared on
+        // success leaves a mostly broken domain in retry forever.
         const host = budget()
 
         for (let round = 0; round < 5; round++) {
@@ -171,14 +167,14 @@ describe('HostBudget', () => {
 
         host.recordRetryAfter('example.com', 1000, 1_000)
 
-        // The reason is what the shed outcome and the metric carry. Letting the shorter hold rename
-        // it would hide the breaker from the one number that exists to show it.
+        // The shed outcome and the metric carry this reason. A rename by the shorter hold hides the
+        // breaker from the one number that exists to show it.
         expect(host.take('example.com', 2000, FAR_FUTURE)).toEqual({ granted: false, reason: 'breaker_open' })
     })
 
     it('does not report a busy but unblocked domain as one whose hold it forgot', () => {
         // The eviction scan skips a domain that is blocked or that has connections open. Only the
-        // first kind loses a hold, and the metric is named for that kind.
+        // first kind loses a hold, and the metric carries the name of that kind.
         const host = budget({ maxTrackedDomains: 1, maxConcurrent: 1 })
         host.acquireConnection('busy.com', 1000)
 
@@ -195,7 +191,6 @@ describe('HostBudget', () => {
         host.take('new.com', 1000, FAR_FUTURE)
 
         expect(host.trackedDomains).toBe(2)
-        // Evicting the blocked domain would forget that a site asked us to wait, so the idle one goes.
         expect(host.take('blocked.com', 1000, FAR_FUTURE)).toEqual({ granted: false, reason: 'rate_limited' })
     })
 })

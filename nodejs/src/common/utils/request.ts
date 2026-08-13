@@ -313,26 +313,18 @@ const sharedSecureH2Agent = new Agent({
 })
 const sharedInsecureAgent = new InsecureAgent()
 
-/**
- * Reads a response body stream and destroys it immediately after to release
- * the underlying socket and its off-heap buffers. Without explicit destruction,
- * undici holds onto these buffers until GC, and V8 never returns the ~64MB
- * ArrayBuffer arenas they live in to the OS.
- */
 function destroyBody(body: Dispatcher.ResponseData['body']): void {
     try {
         body.on('error', () => {})
         body.destroy()
     } catch {
-        // Already ended or destroyed
+        // The body already ended, or another caller destroyed it.
     }
 }
 
 /**
- * One value per header name, on a null prototype.
- *
- * Every key comes from the remote server, and `__proto__` on a plain object literal is a setter
- * rather than a key.
+ * The prototype is null because every key comes from the remote server, and `__proto__` on a plain
+ * object literal is a setter rather than a key.
  */
 function flattenHeaders(raw: Dispatcher.ResponseData['headers']): Record<string, string> {
     const headers: Record<string, string> = Object.create(null)
@@ -345,6 +337,12 @@ function flattenHeaders(raw: Dispatcher.ResponseData['headers']): Record<string,
     return headers
 }
 
+/**
+ * Reads a response body stream and destroys it immediately after to release
+ * the underlying socket and its off-heap buffers. Without explicit destruction,
+ * undici holds onto these buffers until GC, and V8 never returns the ~64MB
+ * ArrayBuffer arenas they live in to the OS.
+ */
 async function readAndDestroyBody(body: Dispatcher.ResponseData['body']): Promise<string> {
     const text = await body.text()
     // After text() fully consumes the stream, destroy to release socket buffers.
@@ -442,8 +440,8 @@ export type StreamedResponse = {
     status: number
     headers: Record<string, string>
     /**
-     * Read at most `maxBytes`, then abandon the rest. `overLimit` says the response had more, and
-     * `bytes` then holds only what arrived before the limit, which is not a usable payload.
+     * Reads at most `maxBytes`, then abandons the rest. `overLimit` says the response had more, and
+     * `bytes` is then empty, because a truncated payload is not usable.
      */
     read: (maxBytes: number) => Promise<{ bytes: Buffer; overLimit: boolean }>
     discard: () => void
@@ -452,11 +450,10 @@ export type StreamedResponse = {
 /**
  * Memory here follows the bytes that arrive, never the bytes a response claims.
  *
- * Sizing one buffer from `Content-Length` would halve the peak for an honest response, because
- * collecting chunks and concatenating them holds both copies for a moment. It would also let an
- * origin pin `maxBytes` of memory by declaring a large body and then sending almost nothing, for
- * the whole request timeout, once for every request in flight. Chunks cost an attacker exactly what
- * they cost us.
+ * One buffer sized from `Content-Length` would halve the peak for an honest response, because the
+ * chunks and the concatenated copy exist together for a moment. It would also let an origin hold
+ * `maxBytes` for the whole request timeout, once for every request in flight, by declaring a large
+ * body and then sending almost nothing.
  */
 async function readCappedBody(
     body: Dispatcher.ResponseData['body'],
@@ -482,16 +479,16 @@ async function readCappedBody(
 }
 
 /**
- * A third-party request whose body is read under a byte limit rather than buffered whole.
+ * A third-party request whose caller reads the body under a byte limit.
  *
- * `fetch` above reads the whole body before its caller sees the status. A response of unknown size
- * cannot be read that way, because an origin can answer a request for a small image with gigabytes.
- * Here the status and the headers arrive first, and the caller then sets a limit or abandons the body.
+ * `fetch` above gives the caller `text()`, which buffers a whole body of any size. An origin can
+ * answer a request for a small image with gigabytes. Here the caller reads the status and the
+ * headers first, then sets a byte limit or abandons the body.
  *
- * Redirects are not followed, as in `fetch`, so a response cannot bounce to a host that no check
- * has seen. A caller that follows one must call this again for the new URL.
+ * This does not follow redirects, as `fetch` does not, so a response cannot bounce to a host that no
+ * check has seen. A caller that follows one must call this again for the new URL.
  *
- * Exactly one of `read` and `discard` must be called. Until one is, the socket stays held.
+ * The caller must call `read` or `discard`, and only one of them. The socket stays held until then.
  */
 export async function fetchStreamed(url: string, options: StreamedFetchOptions): Promise<StreamedResponse> {
     const parsed = validateUrl(url)
@@ -511,8 +508,8 @@ export async function fetchStreamed(url: string, options: StreamedFetchOptions):
         throw error
     }
 
-    // The gauge is held until the body is done rather than until the headers arrive. The body is
-    // where nearly all the time of an image request goes.
+    // The gauge holds until the body is done, not until the headers arrive, because the body takes
+    // nearly all the time of an image request.
     let settled = false
     const settle = (): boolean => {
         if (settled) {

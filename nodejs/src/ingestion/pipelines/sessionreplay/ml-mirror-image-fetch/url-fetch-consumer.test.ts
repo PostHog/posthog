@@ -10,7 +10,7 @@ const TEAM = '0123456789abcdef0123456789abcdef'
 const OTHER_TEAM = 'fedcba9876543210fedcba9876543210'
 const NOW = 1_700_000_000_000
 
-/** The ref format fixes the hash at 22 base64url characters, so a short test name has to be padded. */
+/** The ref format fixes the hash at 22 base64url characters, so a short test name needs padding. */
 const hash = (name: string): string => name.padEnd(22, '0')
 
 function ref(name: string, team: string = TEAM): string {
@@ -60,7 +60,7 @@ class FakeCrawlHistory implements CrawlHistoryStore {
     }
 }
 
-/** A real Message, so a field the consumer starts reading cannot be missing without the type saying so. */
+/** A real Message, so the type fails if the consumer starts to read a field this omits. */
 function message(value: Buffer | null, key: string | null): Message {
     return {
         value,
@@ -117,8 +117,8 @@ describe('UrlFetchConsumer', () => {
     const hashOf = (key: string): string => key.split(':').pop() as string
 
     it.each([NaN, 0, -1])('refuses to start with an age limit of %p', (maxAgeMs) => {
-        // The knob arrives from env, where a typo parses to NaN. A NaN limit makes every comparison
-        // false, so the lane silently stops shedding a backlog instead of failing.
+        // The limit arrives from env, where a typo parses to NaN. A NaN limit makes every comparison
+        // false, so the lane stops shedding a backlog rather than fails.
         expect(
             () => new UrlFetchConsumer(crawlHistory, publisher, { maxAgeMs, dedupMaxRefs: 10, dryRun: true })
         ).toThrow('SESSION_RECORDING_ML_IMAGE_FETCH_MAX_AGE_MS')
@@ -135,8 +135,8 @@ describe('UrlFetchConsumer', () => {
 
         await consumer.handleBatch([record([url('a'), url('b')])], NOW)
 
-        // 'a' keeps the earlier entry rather than being counted and written again, which is what
-        // makes the ledger measure the hit rate instead of the rate of first arrivals.
+        // The earlier entry survives, so the store measures the hit rate rather than the rate of
+        // first arrivals.
         expect(crawlHistory.stored.get(crawlHistoryKey(TEAM, hash('a')))).toBe(NOW - 1000)
         expect(crawlHistory.stored.get(crawlHistoryKey(TEAM, hash('b')))).toBe(NOW)
     })
@@ -163,9 +163,9 @@ describe('UrlFetchConsumer', () => {
         'handles a retry that is %s (requirement 15)',
         async (_name, notBeforeMs, expectedWrites, expectedRepublishes) => {
             // A record can come back before its wait is over, because a wait longer than the longest
-            // delay topic goes round that topic again. Fetching it early would reach a site that
-            // asked to be left alone, and recording it would stop the trip it is still making. It
-            // goes back for the rest of the wait, because nothing else is holding it.
+            // delay topic goes round that topic again. An early fetch would reach a site that asked
+            // to be left alone, and a crawl history entry would stop the trip the URL still makes.
+            // It goes back for the rest of the wait, because nothing else holds it.
             const body = {
                 v: 1,
                 pseudoTeam: TEAM,
@@ -245,8 +245,8 @@ describe('UrlFetchConsumer', () => {
         const readsAfterFirst = crawlHistory.reads
         await consumer.handleBatch([record([url('a')])], NOW)
 
-        // The URL is in no durable store, so the next arrival has to reach the store again rather
-        // than be suppressed locally and vanish from the measurement.
+        // No durable store holds the URL, so the next arrival must reach the store again rather than
+        // stop in this pod and vanish from the measurement.
         expect(crawlHistory.reads).toBe(readsAfterFirst + 1)
     })
 
@@ -269,19 +269,17 @@ describe('UrlFetchConsumer', () => {
     })
 
     it('holds back a URL whose dedup read failed, rather than treating it as new', async () => {
-        // Treating it as new would fetch it. A store outage would then make every batch send the
+        // To count it as new would fetch it. A store outage would then make every batch send the
         // full un-deduped volume at customer sites, because our own store is down.
         crawlHistory.partialReadFailures.add(crawlHistoryKey(TEAM, hash('a')))
 
-        // The batch fails, because 'a' was neither fetched, nor recorded, nor put back. Its offset
-        // must not commit past it. Requirement 21.
+        // Nothing fetched, recorded, or put back 'a', so its offset must not commit. Requirement 21.
         await expect(consumer.handleBatch([record([url('a'), url('b')])], NOW)).rejects.toThrow('account for 1')
-        // 'b' was read cleanly, so it is recorded and the replay skips it.
         expect([...crawlHistory.stored.keys()].map(hashOf)).toEqual([hash('b')])
     })
 
     it('replays the batch when the store cannot be read at all', async () => {
-        // Requirement 21. Every URL in the batch is unanswered, so committing would lose all of them.
+        // Requirement 21. The store answers for no URL in the batch, so a commit would lose all of them.
         crawlHistory.readFailure = new Error('redis down')
 
         await expect(consumer.handleBatch([record([url('a')])], NOW)).rejects.toThrow('account for 1')
@@ -290,7 +288,7 @@ describe('UrlFetchConsumer', () => {
 
     it('commits a batch whose store write failed, because the URL was fetched', async () => {
         // A missing crawl history entry costs one duplicate fetch later, which requirement 22
-        // allows. Replaying the batch would cost the same duplicate and stall the partition too.
+        // allows. A replay would cost the same duplicate and stall the partition too.
         crawlHistory.writeFailure = new Error('redis down')
 
         await expect(consumer.handleBatch([record([url('a')])], NOW)).resolves.toBeUndefined()
@@ -298,7 +296,7 @@ describe('UrlFetchConsumer', () => {
 
     it('replays the batch when the pass could not put a URL back, rather than committing past it', async () => {
         // Requirement 21. Nothing else holds a URL whose republish failed, so its offset must not
-        // commit. The consumer stores offsets only after this resolves, so a throw replays the batch.
+        // commit.
         const runner: FetchPass = {
             run: (candidates: FetchCandidate[]) =>
                 Promise.resolve(
@@ -318,7 +316,7 @@ describe('UrlFetchConsumer', () => {
         )
 
         await expect(fetching.handleBatch([record([url('lost')])], NOW)).rejects.toThrow('account for 1')
-        // Left out of the crawl history, so the replay fetches it rather than skipping it.
+        // No crawl history entry, so the replay fetches the URL rather than skips it.
         expect(crawlHistory.stored.size).toBe(0)
     })
 
@@ -355,8 +353,8 @@ describe('UrlFetchConsumer', () => {
 
         await fetching.handleBatch([record([url('done'), url('gone'), url('later'), url('slow')])], NOW)
 
-        // A crawl history entry is what stops this lane from ever looking at a URL again, so one is written for
-        // a URL that was answered and withheld from a URL that only ran out of time.
+        // A crawl history entry stops this lane from ever reading a URL again, so an answered URL
+        // gets one and a URL that only ran out of time does not.
         expect([...crawlHistory.stored.keys()].map(hashOf).sort()).toEqual([hash('done'), hash('gone')])
     })
 })

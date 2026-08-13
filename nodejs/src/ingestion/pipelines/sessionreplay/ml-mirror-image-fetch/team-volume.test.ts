@@ -1,11 +1,10 @@
 import { TeamVolume } from './team-volume'
 
 /**
- * These pin the bound, the accounting, and the estimate.
- *
- * They do not pin the inheritance on eviction. That step is what gives Space-Saving its guarantee
- * that a team above total over capacity is always held. Dropping it turns the structure into a
- * random-eviction cache, which still finds a heavy team often enough that no small test fails.
+ * These tests pin the bound, the accounting, and the estimate. They do not pin the count inheritance
+ * on eviction, which is the step that guarantees the map always holds a team above total over
+ * capacity. A change that drops it makes this a random-eviction cache, which still finds a heavy team
+ * often enough that no small test fails.
  */
 describe('TeamVolume', () => {
     it('names the busiest teams and sums the rest into one bucket (requirement 29)', () => {
@@ -36,8 +35,8 @@ describe('TeamVolume', () => {
         [500, 500],
         [50_000, 50_000],
     ])('estimates %i distinct teams (requirement 30)', (teams, expected) => {
-        // The count is read as an order of magnitude, so a few percent of error costs nothing. A
-        // set would be exact and would cost hundreds of megabytes at the top of this range.
+        // A reader takes the order of magnitude, so a few percent of error costs nothing. A set would
+        // be exact and would cost hundreds of megabytes at the top of this range.
         const volume = new TeamVolume()
         for (let i = 0; i < teams; i++) {
             volume.record(`team-${i}`)
@@ -50,8 +49,8 @@ describe('TeamVolume', () => {
     })
 
     it('holds a bounded number of counters however many teams arrive', () => {
-        // Someone spreading traffic over many project tokens must not grow this map for the life of
-        // the pod. The map is what keeps the metric label bounded, so it has to be bounded itself.
+        // Someone who spreads traffic over many project tokens must not grow this map for the life
+        // of the pod. The map keeps the metric label bounded, so the map must stay bounded itself.
         const volume = new TeamVolume(20)
 
         for (let i = 0; i < 100_000; i++) {
@@ -64,7 +63,7 @@ describe('TeamVolume', () => {
     it('keeps a busy team named through a flood of teams seen once (requirement 29)', () => {
         // Space-Saving holds any team whose share is above total divided by the counters kept. Here
         // that is 15000 over 20, so 750, and a team at a third of all volume sits far above it.
-        // Someone spreading traffic over many tokens therefore cannot hide a heavy team.
+        // Someone who spreads traffic over many tokens therefore cannot hide a heavy team.
         const volume = new TeamVolume(2)
         volume.record('busy', 5_000)
 

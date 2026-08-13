@@ -35,10 +35,9 @@ const BATCH_HEARTBEAT_INTERVAL_MS = 10_000
 /**
  * How long the store may spend on one batch, well inside Kafka's max.poll.interval.ms of 300s.
  *
- * That is the bound that matters rather than the health check, because the heartbeat above keeps the
- * health check satisfied through a long batch. A batch that passes the poll interval gets the
- * partition revoked mid-batch and replayed by a pod that will be just as slow, so the lane sheds the
- * rest of a batch instead.
+ * The poll interval binds rather than the health check, because the heartbeat above keeps the health
+ * check satisfied through a long batch. A batch that passes the poll interval loses the partition
+ * mid-batch to a pod that will be just as slow, so the lane sheds the rest of the batch instead.
  */
 const STORE_BATCH_BUDGET_MS = 50_000
 
@@ -60,8 +59,6 @@ function getAnonymizer(): typeof import('@posthog/replay-anonymizer') {
 export function buildFrontierPublisher(producer: KafkaProducerWrapper): FrontierPublisher {
     return new FrontierPublisher(producer, {
         frontierTopic: KAFKA_SESSION_REPLAY_IMAGE_FETCH,
-        // Shortest first. The publisher takes the first tier that covers the wait, so the order is
-        // part of the contract rather than a presentation choice.
         delayTiers: [
             { topic: KAFKA_SESSION_REPLAY_IMAGE_FETCH_RETRY_1M, delayMs: 60_000 },
             { topic: KAFKA_SESSION_REPLAY_IMAGE_FETCH_RETRY_10M, delayMs: 600_000 },
@@ -86,7 +83,7 @@ export function buildFetchRunner(
     return new FetchRunner(
         new HttpImageFetcher({
             maxUrlLength: MAX_REDIRECT_URL_LENGTH,
-            // The crate's rule, so a redirect target passes the check the collector already applied
+            // The crate's rule, so a redirect target meets the check the collector already applied
             // to the first candidate rather than a second answer to the same question.
             isPublicHost: (host) => getAnonymizer().isPublicHost(host),
         }),
@@ -119,9 +116,6 @@ export function buildImageFetchConsumerConfig(config: IngestionSessionReplayMlMi
  *
  * It has its own deployment because it waits on network IO and wants many small pods, where the
  * scrub sidecar it feeds uses CPU and ML models and wants few large ones.
- *
- * The lane starts in dry run and sends no request. See
- * `SESSION_RECORDING_ML_IMAGE_FETCH_DRY_RUN`.
  */
 export class IngestionSessionReplayMlImageFetchServer implements NodeServer {
     readonly lifecycle: ServerLifecycle
@@ -148,9 +142,6 @@ export class IngestionSessionReplayMlImageFetchServer implements NodeServer {
     private async startServices(): Promise<void> {
         initializePrometheusLabels(this.config.INGESTION_PIPELINE, this.config.INGESTION_LANE)
 
-        // Before anything connects. The request path exists, but this lane reads no robots.txt and
-        // produces nothing to the scrub topic, so fetching now would be rude and would throw the
-        // images away.
         const dryRun = this.config.SESSION_RECORDING_ML_IMAGE_FETCH_DRY_RUN
         if (!dryRun) {
             throw new Error(
@@ -158,8 +149,8 @@ export class IngestionSessionReplayMlImageFetchServer implements NodeServer {
             )
         }
 
-        // The ml-mirror's instance, which is deliberately not the cluster that serves the primary
-        // replay lane: this store holds one key per distinct image URL, and its eviction pressure
+        // The ml-mirror's instance, and deliberately not the cluster that serves the primary replay
+        // lane, because this store holds one key per distinct image URL and its eviction pressure
         // must not be able to reach the lane that gates replay ingestion.
         const connection = resolveMlMirrorRedisConnection(this.config)
         if (!connection) {
@@ -167,8 +158,8 @@ export class IngestionSessionReplayMlImageFetchServer implements NodeServer {
         }
         const redisTimeoutMs = this.config.SESSION_RECORDING_ML_IMAGE_FETCH_REDIS_TIMEOUT_MS
         this.crawlHistoryPool = createRedisPoolFromConfig({
-            // The lane's own command timeout, not the mirror's 200ms: one round trip here carries a
-            // whole chunk of keys rather than a single per-session command.
+            // The lane's own command timeout rather than the mirror's 200ms, because one round trip
+            // here carries a whole chunk of keys rather than one per-session command.
             connection: { ...connection, options: { ...connection.options, commandTimeout: redisTimeoutMs } },
             poolMinSize: this.config.REDIS_POOL_MIN_SIZE,
             poolMaxSize: this.config.REDIS_POOL_MAX_SIZE,

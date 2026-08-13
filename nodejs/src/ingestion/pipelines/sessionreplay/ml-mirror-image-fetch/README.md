@@ -123,8 +123,9 @@ every read and stop the partition rather than recover it.
 34. The collector drops a URL that a later check would refuse, so it never reaches the topic. It
     drops four kinds: a host that is not public, a scheme that is not HTTPS, a port that the scheme
     does not own, and a URL that is too long.
-35. Nothing else checks the scheme or the port. Smokescreen limits which addresses we reach. It does
-    not limit which service we reach at those addresses.
+35. Every check in rule 34 runs again in the lane, on the first URL and on every redirect target.
+    The network layer performs none of them. Smokescreen limits which addresses we reach, not which
+    service we reach at those addresses.
 
 **Rule 33 is the one that is easy to get wrong.** One name can give a different address each time
 someone looks it up. The attacker owns the name, so the attacker chooses those addresses. Now
@@ -138,9 +139,11 @@ opens the connection. Both of ours work that way:
 - `httpStaticLookup` looks up the name, checks what it got, and hands those addresses to undici,
   which connects to them.
 
-**Rule 34 does two jobs, and only one of them is about safety.** The host part repeats a check that
-happens again later, at connection time. It is there to keep work off the topic. The scheme and port
-part is different: rule 35 says nothing else performs it.
+**The lane repeats the collector's checks because they are cheap and because nothing below them
+does.** The host check runs again at connection time, so repeating it in the collector only keeps
+work off the topic. The scheme and port checks are different. Smokescreen never sees them, so the
+only places they happen are the collector and the lane, and both must agree. Both allow HTTPS on the
+scheme's own port and nothing else.
 
 **A name the attacker owns can still reach any public address on port 443.** We connect, and the
 outcome metric shows whether something answered. Any port scanner learns the same thing for less
@@ -177,10 +180,10 @@ frontier. A message needing longer than an hour goes around the 1h topic again a
 
 Three things follow. Each one stops the design from working if it is missed.
 
-**The consumer of a long topic must outlive `max.poll.interval.ms`.** That value is 300 seconds. A
-consumer that sleeps for 10 minutes is evicted, and its partition is replayed by a consumer that
-will sleep just as long. Raise it per consumer group: 900000 for the 10m topic, 4200000 for the 1h
-topic.
+**The consumer of a long topic must outlive `max.poll.interval.ms`.** The shared default is 300
+seconds. A consumer that sleeps for 10 minutes is evicted, and its partition is replayed by a
+consumer that will sleep just as long. The retry server therefore sets the value itself, as the
+period of its topic plus one minute, rather than leaving it to the deployment.
 
 **A sleeping consumer must keep reporting itself healthy.** It calls
 `KafkaConsumer.reportDeliberateWait()`, which moves the loop clock as well as the heartbeat clock.

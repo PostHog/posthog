@@ -64,7 +64,6 @@ describe('RetryDelayConsumer', () => {
         await consumer.handleBatch([message(Date.now() - DELAY_MS + 20)])
 
         expect(published).toEqual([FRONTIER])
-        // It slept rather than publishing at once, and said it was alive while it did.
         expect(beats()).toBeGreaterThan(0)
     })
 
@@ -78,9 +77,9 @@ describe('RetryDelayConsumer', () => {
     })
 
     it('gives up a wait in progress rather than finishing it', async () => {
-        // The point is promptness. A record with a full period left would otherwise hold a rolling
-        // deploy for that period, until Kubernetes killed the pod. The offset is uncommitted, so
-        // the next pod reads it and waits out whatever remains.
+        // A record with a full period left would otherwise hold a rolling deploy for that period,
+        // until Kubernetes killed the pod. The offset stays uncommitted, so the next pod reads the
+        // record and waits out what remains.
         let stopping = false
         const { consumer, published, stored } = build({ isStopping: () => stopping })
         setTimeout(() => (stopping = true), 20)
