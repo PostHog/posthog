@@ -17,8 +17,25 @@ import type { McpUiResourceCsp } from "@modelcontextprotocol/ext-apps/app-bridge
 const DEFAULT_CSP =
   "default-src 'none'; script-src 'self' 'unsafe-inline'; style-src 'self' 'unsafe-inline'; img-src 'self' data:; media-src 'self' data:; connect-src 'none'; object-src 'none'; frame-src 'none'; form-action 'none'; base-uri 'none'";
 
-export function sanitizeDomain(domain: string): string {
-  return domain.replace(/[^a-zA-Z0-9.*:-]/g, "");
+// The `ui.csp` fields are named `*Domains`, but what a server puts in them is a
+// CSP source expression: an origin carrying a scheme, like
+// `https://cdn.jsdelivr.net` or `wss://api.example.com`, optionally with a
+// wildcard subdomain, a port, or a path. The `\.?` after the host labels is the
+// root dot of a fully qualified name, which the grammar permits. The path stops
+// at `;` and `,` because the grammar excludes both, and they are what a source
+// would need to escape its directive.
+//
+// @see https://www.w3.org/TR/CSP3/#grammardef-host-source
+const CSP_SOURCE =
+  /^(?:[a-zA-Z][a-zA-Z0-9+.-]*:\/\/)?(?:\*|(?:\*\.)?[a-zA-Z0-9-]+(?:\.[a-zA-Z0-9-]+)*\.?)(?::(?:\d+|\*))?(?:\/[^\s"';,]*)?$/;
+
+// A declaration that is not a source expression is dropped whole, rather than
+// having its offending characters removed so that it fits. Editing it down can
+// produce a valid origin the server never declared (`example .com` becomes
+// `example.com`), and the spec lets a host restrict what was declared but not
+// widen it. Dropping keeps that decision visible instead of guessing at intent.
+function cspSources(declared: string[] | undefined): string[] {
+  return declared?.filter((source) => CSP_SOURCE.test(source)) ?? [];
 }
 
 export function buildCspString(
@@ -27,8 +44,13 @@ export function buildCspString(
 ): string {
   if (!csp && scriptNonce === undefined) return DEFAULT_CSP;
 
-  const resourceDomainsSuffix = csp?.resourceDomains?.length
-    ? ` ${csp.resourceDomains.map(sanitizeDomain).join(" ")}`
+  const resourceSources = cspSources(csp?.resourceDomains);
+  const connectSources = cspSources(csp?.connectDomains);
+  const frameSources = cspSources(csp?.frameDomains);
+  const baseUriSources = cspSources(csp?.baseUriDomains);
+
+  const resourceDomainsSuffix = resourceSources.length
+    ? ` ${resourceSources.join(" ")}`
     : "";
 
   const directives: string[] = [
@@ -43,15 +65,14 @@ export function buildCspString(
     "form-action 'none'",
   ];
 
-  if (csp?.connectDomains?.length) {
-    const domains = csp.connectDomains.map(sanitizeDomain).join(" ");
-    directives.push(`connect-src ${domains}`);
+  if (connectSources.length) {
+    directives.push(`connect-src ${connectSources.join(" ")}`);
   } else {
     directives.push("connect-src 'none'");
   }
 
-  if (csp?.resourceDomains?.length) {
-    const domains = csp.resourceDomains.map(sanitizeDomain).join(" ");
+  if (resourceSources.length) {
+    const domains = resourceSources.join(" ");
     directives.push(`img-src 'self' data: ${domains}`);
     directives.push(`media-src 'self' data: ${domains}`);
     directives.push(`font-src ${domains}`);
@@ -60,16 +81,14 @@ export function buildCspString(
     directives.push("media-src 'self' data:");
   }
 
-  if (csp?.frameDomains?.length) {
-    const domains = csp.frameDomains.map(sanitizeDomain).join(" ");
-    directives.push(`frame-src ${domains}`);
+  if (frameSources.length) {
+    directives.push(`frame-src ${frameSources.join(" ")}`);
   } else {
     directives.push("frame-src 'none'");
   }
 
-  if (csp?.baseUriDomains?.length) {
-    const domains = csp.baseUriDomains.map(sanitizeDomain).join(" ");
-    directives.push(`base-uri ${domains}`);
+  if (baseUriSources.length) {
+    directives.push(`base-uri ${baseUriSources.join(" ")}`);
   } else {
     directives.push("base-uri 'none'");
   }
