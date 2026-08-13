@@ -131,18 +131,22 @@ class Command(BaseCommand):
         # doesn't declare a manager. unscoped() where it exists - a fix like this is deliberately
         # cross-team, so a fail-closed manager would otherwise raise TeamScopeError.
         manager = model._default_manager
-        queryset = manager.unscoped() if hasattr(manager, "unscoped") else manager.all()
+        base_queryset = manager.unscoped() if hasattr(manager, "unscoped") else manager.all()
         if options.get("team_id"):
-            queryset = queryset.filter(team_id__in=options["team_id"])
+            base_queryset = base_queryset.filter(team_id__in=options["team_id"])
         if options.get("row_id"):
-            queryset = queryset.filter(id=options["row_id"])
+            base_queryset = base_queryset.filter(id=options["row_id"])
 
+        # The text casts belong only on the id-matching query, where they stay in the WHERE clause.
+        # Loading rows off the un-annotated base queryset avoids the database returning a full text
+        # copy of every large JSON column alongside the value we actually rewrite.
+        matcher = base_queryset
         match = models.Q()
         for field in fields:
-            queryset = queryset.annotate(**{f"_text_{field}": Cast(field, models.TextField())})
+            matcher = matcher.annotate(**{f"_text_{field}": Cast(field, models.TextField())})
             match |= models.Q(**{f"_text_{field}__contains": from_url})
 
-        row_ids = list(queryset.filter(match).order_by("id").values_list("id", flat=True))
+        row_ids = list(matcher.filter(match).order_by("id").values_list("id", flat=True))
         self.stdout.write(f"{target}: {len(row_ids)} row(s) matched")
         if not row_ids:
             return counts
@@ -150,7 +154,7 @@ class Command(BaseCommand):
         batch_size: int = options["batch_size"]
         for start in range(0, len(row_ids), batch_size):
             batch = row_ids[start : start + batch_size]
-            for row in queryset.filter(id__in=batch).order_by("id"):
+            for row in base_queryset.filter(id__in=batch).order_by("id"):
                 counts.rows_scanned += 1
                 try:
                     occurrences = self._rewrite_row(row, field_timestamps, from_url, to_url, dry_run=options["dry_run"])
