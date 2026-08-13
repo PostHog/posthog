@@ -12,7 +12,7 @@ the Temporal schedule API.
 
 import uuid
 import dataclasses
-from collections.abc import Iterable
+from collections.abc import Iterable, Mapping
 from datetime import timedelta
 from typing import TYPE_CHECKING
 
@@ -206,7 +206,11 @@ def _warn_on_invalid_targets(dag: DAG, graph: FrequencyGraph | None = None) -> N
 
 
 def apply_saved_query_frequency_target(
-    saved_query: "DataWarehouseSavedQuery", target: timedelta | None, *, reconcile: bool = True
+    saved_query: "DataWarehouseSavedQuery",
+    target: timedelta | None,
+    *,
+    reconcile: bool = True,
+    visible_names: Mapping[str, str] | None = None,
 ) -> int:
     """Write a frequency target through to the DAG node(s) carrying this saved query.
 
@@ -218,6 +222,12 @@ def apply_saved_query_frequency_target(
     callers batching many writes into one reconcile).
 
     Returns the number of nodes written (0 = no DAG node, so a non-None target was stored nowhere).
+
+    `visible_names` is the set of node names a refusal is allowed to use. It defaults to naming
+    nothing, because a refusal travels: `schedule_materialization` re-raises it and the endpoints
+    API returns its text verbatim, so a default of "name everything" would hand a caller the name
+    of a node they may not read. Callers holding a per-user map (the saved-query surfaces) pass it
+    and get the better message; everything left out falls back to generic prose.
 
     Atomic because a saved query can still carry nodes in several DAGs while duplicates are being
     consolidated away: without it, a target rejected by the third node stays written on the first
@@ -243,12 +253,34 @@ def apply_saved_query_frequency_target(
                     edges=graph.edges,
                     declared_targets=graph.declared_targets,
                     source_intervals=graph.source_intervals,
+                    names=visible_names or {},
                 )
                 set_declared_target(node, target)
             written += 1
             if reconcile:
                 maybe_reconcile_dag(node.dag)
     return written
+
+
+def check_saved_query_frequency_target(
+    saved_query: "DataWarehouseSavedQuery", target: timedelta, *, visible_names: Mapping[str, str] | None = None
+) -> None:
+    """Raise if this target cannot be honored on any of the saved query's nodes, writing nothing.
+
+    The write path validates too, but only after its caller has committed state it then has to undo
+    by hand. Callers serving a user can ask first and refuse before touching anything. See
+    `apply_saved_query_frequency_target` for `visible_names`.
+    """
+    for node in Node.objects.filter(team=saved_query.team, saved_query=saved_query).select_related("dag", "dag__team"):
+        graph = build_frequency_graph(node.dag)
+        validate_declared_target(
+            node_id=str(node.id),
+            target=target,
+            edges=graph.edges,
+            declared_targets=graph.declared_targets,
+            source_intervals=graph.source_intervals,
+            names=visible_names or {},
+        )
 
 
 def apply_saved_query_frequency_anchor(

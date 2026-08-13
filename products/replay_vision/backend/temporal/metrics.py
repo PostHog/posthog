@@ -78,8 +78,22 @@ REPLAY_VISION_BACKFILL_TICK_OUTCOMES = Counter(
 
 REPLAY_VISION_SWEEP_OUTCOMES = Counter(
     "replay_vision_sweep_outcomes_total",
-    "Sweep tick outcomes: throttled at an in-flight cap, no candidates, or candidates found",
+    "Sweep tick outcomes: throttled at an in-flight cap, capped by the scanner's own credit limit "
+    "(settled spend, which skips the window for good, or in-flight reservations, which preserve the "
+    "watermark), no candidates, or candidates found",
     ["outcome"],
+)
+
+REPLAY_VISION_SCANNER_ADMISSION_LOCK_WAIT = Histogram(
+    "replay_vision_scanner_admission_lock_wait_seconds",
+    "Time spent acquiring the scanner row lock that serializes capped admissions",
+    buckets=(0.005, 0.025, 0.1, 0.5, 1.0, 2.5, 5.0, 10.0),
+)
+
+REPLAY_VISION_SCANNER_LIMIT_REACHED = Counter(
+    "replay_vision_scanner_limit_reached_total",
+    "Requests refused because a per-scanner credit limit left no room, by the API surface that refused",
+    ["surface"],
 )
 
 REPLAY_VISION_SWEEP_CANDIDATES = Counter(
@@ -169,6 +183,17 @@ def record_mission_pass(model: str, path: str) -> None:
 def record_quota_exhausted_skip(scanner_type: str) -> None:
     REPLAY_VISION_QUOTA_EXHAUSTED_SKIPS.labels(scanner_type=scanner_type).inc()
     _otel.record_counter_twin(REPLAY_VISION_QUOTA_EXHAUSTED_SKIPS, 1, {"scanner_type": scanner_type})
+
+
+def record_scanner_admission_lock_wait(seconds: float) -> None:
+    REPLAY_VISION_SCANNER_ADMISSION_LOCK_WAIT.observe(seconds)
+    _otel.record_histogram_twin(REPLAY_VISION_SCANNER_ADMISSION_LOCK_WAIT, seconds, {})
+
+
+def record_scanner_limit_reached(surface: str) -> None:
+    """`surface` is "on_demand", "bulk", "evaluation", "max_tool", or "admission": the path that refused the work."""
+    REPLAY_VISION_SCANNER_LIMIT_REACHED.labels(surface=surface).inc()
+    _otel.record_counter_twin(REPLAY_VISION_SCANNER_LIMIT_REACHED, 1, {"surface": surface})
 
 
 def record_credits_consumed(scanner_type: str, model: str, credits: int) -> None:

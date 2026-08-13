@@ -32,6 +32,7 @@ import { SIDE_PANEL_CONTEXT_KEY, SidePanelSceneContext } from '~/layout/navigati
 import {
     visionScannersAffectedCohortCreate,
     visionScannersCreate,
+    visionScannersDraftCreate,
     visionScannersEstimateCreate,
     visionScannersObservationsList,
     visionScannersObservationsStatsRetrieve,
@@ -42,6 +43,7 @@ import {
 } from '../generated/api'
 import { ObservationStatusEnumApi, ObservationTriggerEnumApi } from '../generated/api.schemas'
 import type {
+    DraftScannerResponseApi,
     EstimateResponseApi,
     ObservationStatsApi,
     ReplayObservationApi,
@@ -261,6 +263,9 @@ export interface replayScannerLogicValues {
     copyingAllObservations: boolean
     durationValidationError: string | null
     estimateRequestVersion: number
+    goalDraft: DraftScannerResponseApi | null
+    goalDraftInput: string
+    goalDraftLoading: boolean
     hasActiveObservationFilters: boolean
     hasObservationsInFlight: boolean
     hasUnsavedChanges: boolean
@@ -339,6 +344,27 @@ export interface replayScannerLogicActions {
     }
     dismissTagSuggestions: () => {
         value: true
+    }
+    draftScannerFromGoal: (goal: string) => {
+        goal: string
+    }
+    draftScannerFromGoalFailure: (
+        error: string,
+        errorObject?: any
+    ) => {
+        error: string
+        errorObject?: any
+    }
+    draftScannerFromGoalSuccess: (
+        goalDraft: DraftScannerResponseApi | null,
+        payload?: {
+            goal: string
+        }
+    ) => {
+        goalDraft: DraftScannerResponseApi | null
+        payload?: {
+            goal: string
+        }
     }
     loadObservationStats: () => {
         value: true
@@ -474,6 +500,9 @@ export interface replayScannerLogicActions {
     ) => {
         dateFrom: string | null
         dateTo: string | null
+    }
+    setGoalDraftInput: (goal: string) => {
+        goal: string
     }
     setObservationBackfillFilter: (value: string | null) => {
         value: string | null
@@ -649,6 +678,8 @@ export const replayScannerLogic = kea<replayScannerLogicType>([
         acceptTagSuggestion: (tag: string) => ({ tag }),
         acceptAllTagSuggestions: true,
         dismissTagSuggestions: true,
+        draftScannerFromGoal: (goal: string) => ({ goal }),
+        setGoalDraftInput: (goal: string) => ({ goal }),
         loadObservations: (background = false) => ({ background }),
         loadObservationsSuccess: (observations: ReplayObservationApi[], total: number) => ({ observations, total }),
         loadObservationsFailure: true,
@@ -817,6 +848,19 @@ export const replayScannerLogic = kea<replayScannerLogicType>([
                 },
             },
         ],
+        goalDraft: [
+            null as DraftScannerResponseApi | null,
+            {
+                // Errors surface through draftScannerFromGoalFailure; kea-loaders dispatches it for us.
+                draftScannerFromGoal: async ({ goal }) => {
+                    const teamId = teamLogic.values.currentTeamId
+                    if (!teamId || !goal.trim()) {
+                        return values.goalDraft
+                    }
+                    return await visionScannersDraftCreate(String(teamId), { goal: goal.trim() })
+                },
+            },
+        ],
         tagSuggestions: [
             [] as TagSuggestionApi[],
             {
@@ -850,6 +894,23 @@ export const replayScannerLogic = kea<replayScannerLogicType>([
             null as number | null,
             {
                 setScannerDraftSavedAt: (_, { savedAt }) => savedAt,
+            },
+        ],
+        // The "tell PostHog AI what you want to accomplish" textarea on the template step.
+        goalDraftInput: [
+            '',
+            {
+                setGoalDraftInput: (_, { goal }) => goal,
+                // Cleared once a draft or a template pick consumed it, so a stale goal doesn't linger.
+                draftScannerFromGoalSuccess: () => '',
+                startFromTemplate: () => '',
+            },
+        ],
+        // A template pick replaces the drafted form, so its rationale no longer describes the config.
+        goalDraft: [
+            null as DraftScannerResponseApi | null,
+            {
+                startFromTemplate: () => null,
             },
         ],
         // Which tag's cohort is being created, so tag rows can show a per-row spinner.
@@ -1360,6 +1421,32 @@ export const replayScannerLogic = kea<replayScannerLogicType>([
                     scanner_config: defaultConfigForType(scannerType),
                 } as ReplayScanner)
                 persistDraft()
+            },
+
+            // A successful AI draft seeds the wizard form, then the configure step opens for review.
+            draftScannerFromGoalSuccess: ({ goalDraft }) => {
+                if (!goalDraft) {
+                    return
+                }
+                // The model call can take a while; if the user picked a template or navigated away
+                // meanwhile, their newer state wins and the stale draft is dropped.
+                if (!router.values.location.pathname.endsWith(urls.replayVisionScannerTemplate('new'))) {
+                    return
+                }
+                actions.resetScanner(newScanner())
+                // Applied as form values (not baked into the reset) so the draft persists like hand-edited
+                // input and survives a reload of the configure step.
+                actions.setScannerValues({
+                    name: goalDraft.name,
+                    description: goalDraft.description,
+                    scanner_type: goalDraft.scanner_type as ScannerType,
+                    scanner_config: goalDraft.scanner_config as ScannerConfig,
+                })
+                router.actions.push(urls.replayVisionScannerConfigure('new'))
+            },
+
+            draftScannerFromGoalFailure: ({ errorObject }) => {
+                lemonToast.error(`Couldn't draft a scanner${errorObject?.detail ? `: ${errorObject.detail}` : ''}`)
             },
 
             // Merge AI-suggested tags into the vocabulary: keep existing tags, append new ones, dedupe case-insensitively.
