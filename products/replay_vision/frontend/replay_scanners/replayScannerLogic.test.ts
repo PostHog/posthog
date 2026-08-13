@@ -110,12 +110,14 @@ describe('replayScannerLogic', () => {
             }
             draftSpy.mockReturnValue([200, draft])
             router.actions.push(urls.replayVisionScannerTemplate('new'))
+            logic.actions.setGoalDraftInput('understand what users come here to do')
 
             await expectLogic(logic, () =>
                 logic.actions.draftScannerFromGoal('understand what users come here to do')
             ).toFinishAllListeners()
 
             expect(draftSpy).toHaveBeenCalled()
+            expect(logic.values.goalDraftInput).toEqual('')
             expect(logic.values.scanner).toMatchObject({
                 name: draft.name,
                 description: draft.description,
@@ -149,9 +151,9 @@ describe('replayScannerLogic', () => {
             draftSpy.mockReturnValue([503, { detail: 'model down' }])
             const pathBefore = router.values.location.pathname
 
-            await expectLogic(logic, () =>
-                logic.actions.draftScannerFromGoal('find rage clicks')
-            ).toFinishAllListeners()
+            await expectLogic(logic, () => logic.actions.draftScannerFromGoal('find rage clicks'))
+                .toDispatchActions(['draftScannerFromGoalFailure'])
+                .toFinishAllListeners()
 
             expect(logic.values.goalDraft).toBeNull()
             expect(logic.values.scanner).toMatchObject({ name: '', scanner_type: 'monitor' })

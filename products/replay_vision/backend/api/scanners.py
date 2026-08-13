@@ -1751,10 +1751,11 @@ class ReplayScannerViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, vi
             200: DraftScannerResponseSerializer,
             400: OpenApiResponse(
                 response=ReplayVisionErrorSerializer,
-                description="The goal is missing, the feature isn't enabled, or AI consent hasn't been granted.",
+                description="The goal is missing or AI consent hasn't been granted.",
             ),
             403: OpenApiResponse(
-                response=ReplayVisionErrorSerializer, description="The caller lacks the required access."
+                response=ReplayVisionErrorSerializer,
+                description="The caller lacks the required access, or the feature isn't enabled.",
             ),
             503: OpenApiResponse(response=ReplayVisionErrorSerializer, description="The draft couldn't be generated."),
         },
@@ -1777,7 +1778,7 @@ class ReplayScannerViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, vi
         if not self.user_access_control.check_access_level_for_resource("session_recording", required_level="viewer"):
             raise PermissionDenied("Drafting a Replay Vision scanner requires session_recording read access.")
         if not _is_goal_draft_enabled(cast(User, request.user), self.team):
-            raise ValidationError("Goal-based scanner drafting is not enabled for this project.")
+            raise PermissionDenied("This feature is not available.")
         # Same consent requirement as scanner creation: the goal and the team's taxonomy go to the model.
         if not self.team.organization.is_ai_data_processing_approved:
             raise ValidationError(

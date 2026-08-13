@@ -859,6 +859,9 @@ export const replayScannerLogic = kea<replayScannerLogicType>([
             '',
             {
                 setGoalDraftInput: (_, { goal }) => goal,
+                // Cleared once a draft or a template pick consumed it, so a stale goal doesn't linger.
+                draftScannerFromGoalSuccess: () => '',
+                startFromTemplate: () => '',
             },
         ],
         // Which tag's cohort is being created, so tag rows can show a per-row spinner.

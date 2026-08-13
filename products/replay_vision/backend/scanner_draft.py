@@ -21,16 +21,17 @@ from google.genai.types import GenerateContentConfig, GenerateContentResponse
 from posthoganalytics.ai.gemini import genai
 from pydantic import BaseModel, Field
 
+from posthog.llm.semantic_enrichment import get_team_business_context
 from posthog.models.team import Team
 from posthog.models.user import User
 from posthog.rbac.user_access_control import UserAccessControl
 
-from products.posthog_ai.backend.facade.api import core_memory_text
 from products.replay_vision.backend.models.replay_scanner import ReplayScanner, ScannerType
 from products.replay_vision.backend.scanner_config import scanner_config_error
 from products.replay_vision.backend.tag_suggestions import _product_taxonomy
 from products.replay_vision.backend.tags import slugify_tag
 
+from ee.hogai.utils.feature_flags import is_core_memory_disabled
 from ee.hogai.utils.untrusted import as_untrusted_data
 
 logger = structlog.get_logger(__name__)
@@ -47,6 +48,9 @@ _DEFAULT_SCALE = (0, 10)
 # rubric (0-10, 1-5, 0-100) is model noise, not intent, so it falls back to the default.
 _SCALE_MIN_ALLOWED = -100
 _SCALE_MAX_ALLOWED = 100
+_SCALE_SPAN_ALLOWED = 100
+# CoreMemory.text is model-capped at 10k chars; cap lower to keep the one-shot draft prompt lean.
+_MAX_BUSINESS_CONTEXT_CHARS = 5_000
 # Well above the largest plausible draft (a full config is a few hundred tokens); only caps runaway output.
 _MAX_OUTPUT_TOKENS = 4096
 # Bounds on assembled context so a scanner-heavy team can't blow up the prompt.
@@ -119,12 +123,13 @@ def _existing_scanners(team: Team, user_access_control: UserAccessControl) -> li
 
 
 def _business_context(team: Team, user: User) -> str:
-    """What the company does and is trying to learn: Max's core memory, falling back to the
-    project's product description. Empty string when neither exists."""
+    """What the company does and is trying to learn: Max's core memory (read through the shared
+    facade, honoring the kill switch), falling back to the project's product description.
+    Empty string when neither exists."""
     try:
-        memory_text = core_memory_text(team, user)
+        memory_text = "" if is_core_memory_disabled(team, user) else get_team_business_context(team)
         if memory_text:
-            return memory_text
+            return memory_text[:_MAX_BUSINESS_CONTEXT_CHARS]
         return (team.project.product_description or "").strip() if team.project else ""
     except Exception:
         logger.warning("replay_vision.scanner_draft.business_context_failed", team_id=team.id, exc_info=True)
@@ -305,7 +310,12 @@ def _finalize(parsed: _LlmDraft) -> ScannerDraft:
         scanner_config["multi_label"] = parsed.multi_label
     elif parsed.scanner_type == "scorer":
         scale_min, scale_max = parsed.scale_min, parsed.scale_max
-        if scale_min >= scale_max or scale_min < _SCALE_MIN_ALLOWED or scale_max > _SCALE_MAX_ALLOWED:
+        if (
+            scale_min >= scale_max
+            or scale_min < _SCALE_MIN_ALLOWED
+            or scale_max > _SCALE_MAX_ALLOWED
+            or scale_max - scale_min > _SCALE_SPAN_ALLOWED
+        ):
             scale_min, scale_max = _DEFAULT_SCALE
         scale: dict[str, Any] = {"min": scale_min, "max": scale_max}
         label = (parsed.scale_label or "").strip()

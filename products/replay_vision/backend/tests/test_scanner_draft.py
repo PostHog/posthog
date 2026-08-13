@@ -22,7 +22,7 @@ from products.replay_vision.backend.scanner_draft import (
 from products.replay_vision.backend.tests.test_api import _VisionAPITestCase
 
 _GENERATE_PATH = "products.replay_vision.backend.scanner_draft._generate"
-_CORE_MEMORY_FLAG_PATH = "products.posthog_ai.backend.facade.api.is_core_memory_disabled"
+_CORE_MEMORY_FLAG_PATH = "products.replay_vision.backend.scanner_draft.is_core_memory_disabled"
 _GOAL_DRAFT_FLAG_PATH = "products.replay_vision.backend.api.scanners.posthoganalytics.feature_enabled"
 
 
@@ -118,6 +118,7 @@ class TestFinalize:
             (10, 0),  # inverted
             (0, 100_000),  # absurdly wide
             (-5_000, 10),  # absurdly low floor
+            (-100, 100),  # endpoints in bounds but the span is no plausible rubric
         ],
     )
     def test_scorer_scale_falls_back_when_unusable(self, scale_min, scale_max):
@@ -378,15 +379,15 @@ class TestDraftScannerEndpoint(_VisionAPITestCase):
         mock_generate.assert_not_called()
 
     @patch(_GENERATE_PATH)
-    def test_flag_off_is_a_clean_400(self, mock_generate):
+    def test_flag_off_is_a_clean_403(self, mock_generate):
         # The frontend hides the box when the flag is off; the endpoint must not stay reachable regardless.
         mock_generate.return_value = _draft()
 
         with patch(_GOAL_DRAFT_FLAG_PATH, return_value=False):
             resp = self.client.post(self.draft_url, data={"goal": "find rage clicks"}, format="json")
 
-        assert resp.status_code == status.HTTP_400_BAD_REQUEST
-        assert "not enabled" in resp.content.decode()
+        assert resp.status_code == status.HTTP_403_FORBIDDEN
+        assert "not available" in resp.content.decode()
         mock_generate.assert_not_called()
 
     def test_is_gated_by_the_shared_ai_throttles(self):
