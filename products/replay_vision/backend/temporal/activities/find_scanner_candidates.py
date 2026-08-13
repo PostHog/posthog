@@ -12,6 +12,7 @@ from posthog.rbac.user_access_control import UserAccessControl
 
 from products.replay_vision.backend.models.replay_observation import ReplayObservation
 from products.replay_vision.backend.models.replay_scanner import ReplayScanner
+from products.replay_vision.backend.queries import excluded_sessions
 from products.replay_vision.backend.queries.scanner_candidate_query import (
     DEFAULT_CANDIDATE_LIMIT,
     SWEEP_EVENTS_LOOKBACK,
@@ -55,6 +56,9 @@ def find_scanner_candidates_activity(inputs: FindScannerCandidatesInputs) -> Fin
         ) from exc
 
     limit = inputs.candidate_limit if inputs.candidate_limit is not None else DEFAULT_CANDIDATE_LIMIT
+    # Building every blocked session in the lookback costs the same whether this tick has one
+    # candidate or none, so ask about the candidates instead, once they are known.
+    scoped_exclusion = excluded_sessions.has_negative_filters(scanner.team, query)
     candidate_query = ScannerCandidateQuery(
         team=scanner.team,
         query=query,
@@ -65,10 +69,19 @@ def find_scanner_candidates_activity(inputs: FindScannerCandidatesInputs) -> Fin
         last_seen_session_id=scanner.last_seen_session_id or None,
         candidate_limit=limit,
         events_lookback=SWEEP_EVENTS_LOOKBACK,
+        skip_negative_blocklists=scoped_exclusion,
     )
-    candidates = candidate_query.run()
-    # A full batch means there may be more past the keyset; the next sweep resumes from the last candidate.
-    saturated = len(candidates) == limit
+    fetched = candidate_query.run()
+    # A full batch means there may be more past the keyset; the next sweep resumes from the last row.
+    # Measured before exclusion, since the keyset walks what was fetched, not what survived.
+    saturated = len(fetched) == limit
+
+    candidates = fetched
+    if scoped_exclusion and fetched:
+        # Deliberately not wrapped: the in-query blocklists are off, so a swallowed failure here
+        # would dispatch the batch unfiltered.
+        excluded = excluded_sessions.excluded_session_ids(team=scanner.team, query=query, candidates=fetched)
+        candidates = [c for c in fetched if c.session_id not in excluded]
 
     # Deep candidates dispatch alongside fast ones, so the two share one in-flight budget: the deep
     # pass gets whatever headroom the fast pass left. At zero there is nothing left to dispatch, which
@@ -92,6 +105,8 @@ def find_scanner_candidates_activity(inputs: FindScannerCandidatesInputs) -> Fin
         candidates=[CandidateSessionPayload(session_id=c.session_id, session_end=c.session_end) for c in candidates],
         saturated=saturated,
         swept_through=candidate_query.settle_cutoff,
+        keyset_end=fetched[-1].session_end if fetched else None,
+        keyset_session_id=fetched[-1].session_id if fetched else "",
         deep_candidates=[
             CandidateSessionPayload(session_id=c.session_id, session_end=c.session_end) for c in deep_candidates
         ],

@@ -132,6 +132,8 @@ class SessionRecordingListFromQuery(SessionRecordingsListingBaseQuery):
         max_execution_time: int | None = None,
         extra_having_predicates: list[ast.Expr] | None = None,
         session_ids_to_exclude: list[str] | None = None,
+        # For callers that evaluate negative filters themselves against the fetched rows.
+        skip_negative_blocklists: bool = False,
         bypass_date_window_for_session_ids: bool = False,
         user: User | None = None,
         events_sample_factor: float | None = None,
@@ -209,6 +211,7 @@ class SessionRecordingListFromQuery(SessionRecordingsListingBaseQuery):
         self._max_execution_time = max_execution_time
         self._extra_having_predicates = extra_having_predicates or []
         self._session_ids_to_exclude = session_ids_to_exclude
+        self._skip_negative_blocklists = skip_negative_blocklists
 
     @tracer.start_as_current_span("SessionRecordingListFromQuery.run")
     def run(self) -> SessionRecordingQueryResult:
@@ -402,7 +405,9 @@ class SessionRecordingListFromQuery(SessionRecordingsListingBaseQuery):
         # Negative property filters (NOT_ICONTAINS, IS_NOT, etc.) are handled via a blocklist:
         # find the small set of sessions that MATCH the positive form, then exclude them.
         # This avoids scanning all event-sessions which can exceed the LIMIT on high-traffic teams.
-        negative_blocklist = events_sub_query_builder.get_negative_blocklist_query()
+        negative_blocklist = (
+            None if self._skip_negative_blocklists else events_sub_query_builder.get_negative_blocklist_query()
+        )
         self.events_subqueries_sampled |= events_sub_query_builder.emitted_sampled_subquery
         if negative_blocklist:
             exprs.append(
@@ -521,7 +526,9 @@ class SessionRecordingListFromQuery(SessionRecordingsListingBaseQuery):
                         op=ast.CompareOperationOp.GlobalIn, left=ast.Field(chain=["s", "session_id"]), right=sub_q
                     )
                 )
-            test_account_negative_blocklist = test_account_events_builder.get_negative_blocklist_query()
+            test_account_negative_blocklist = (
+                None if self._skip_negative_blocklists else test_account_events_builder.get_negative_blocklist_query()
+            )
             self.events_subqueries_sampled |= test_account_events_builder.emitted_sampled_subquery
             if test_account_negative_blocklist:
                 exprs.append(

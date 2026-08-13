@@ -534,6 +534,61 @@ class ReplayFiltersEventsSubQuery(SessionRecordingsListingBaseQuery):
     def get_negative_blocklist_query(self) -> ast.SelectQuery | None:
         return self._negative_blocklist_query()
 
+    def negative_properties(self) -> list[AnyPropertyFilter]:
+        """The filters that exclude sessions; empty means this query excludes nothing."""
+        if self._query.operand == "OR":
+            return []
+        return self._collect_negative_properties()
+
+    def get_excluded_sessions_query(self, session_ids: list[str]) -> ast.SelectQuery | None:
+        """Which of `session_ids` carry an event that a negative filter excludes.
+
+        Same predicates as the in-query blocklist, asked the other way round. That form builds every
+        blocked session in the lookback so it can be anti-joined during selection; this one starts
+        from candidates the caller already holds, so naming them lets the scan prune on session id
+        instead of sweeping the window. It returns nothing when the query has no negative filters.
+
+        The `timestamp <= now()` bound is dropped here. Senders choose the timestamp, and a
+        future-dated event would otherwise let its session through.
+        """
+        if not session_ids:
+            return None
+        where_expr = self._inverted_negative_expr()
+        if where_expr is None:
+            return None
+
+        where = self._where_predicates(where_expr, apply_timestamp_floor=False, apply_future_bound=False)
+        assert isinstance(where, ast.And)
+        where.exprs.append(
+            ast.CompareOperation(
+                op=ast.CompareOperationOp.In,
+                left=_event_session_id_field(),
+                right=ast.Constant(value=session_ids),
+            )
+        )
+        return ast.SelectQuery(
+            select=[ast.Alias(alias="session_id", expr=_event_session_id_field())],
+            select_from=self._events_join(sample=False),
+            where=where,
+            group_by=[_event_session_id_field()],
+            # A session id can only be returned once, so the input bounds the output.
+            limit=ast.Constant(value=len(session_ids)),
+        )
+
+    def _inverted_negative_expr(self) -> ast.Expr | None:
+        """The negative filters flipped positive: an event matching any of these disqualifies its session."""
+        if self._query.operand == "OR":
+            return None
+        negative_props = self._collect_negative_properties()
+        if not negative_props:
+            return None
+        inverted_exprs: list[ast.Expr] = []
+        for prop in negative_props:
+            operator = cast(PropertyOperator, prop.operator)  # type: ignore[union-attr]
+            inverted = prop.model_copy(update={"operator": INVERSE_OPERATOR_FOR[operator]})
+            inverted_exprs.append(property_to_expr(inverted, team=self._team, scope="event"))
+        return ast.Or(exprs=inverted_exprs) if len(inverted_exprs) > 1 else inverted_exprs[0]
+
     def get_query_for_event_id_matching(self) -> ast.SelectQuery | ast.SelectSetQuery:
         """
         The ids of a session's events that matched ANY ONE of the query's event/action filters,
@@ -602,19 +657,25 @@ class ReplayFiltersEventsSubQuery(SessionRecordingsListingBaseQuery):
         return max(bounds) if bounds else None
 
     def _where_predicates(
-        self, where_expr: ast.Expr | list[ast.Expr] | None, apply_timestamp_floor: bool = True
+        self,
+        where_expr: ast.Expr | list[ast.Expr] | None,
+        apply_timestamp_floor: bool = True,
+        apply_future_bound: bool = True,
     ) -> ast.Expr:
         exprs: list[ast.Expr] = [
             ast.Call(
                 name="notEmpty",
                 args=[_event_session_id_field()],
             ),
-            ast.CompareOperation(
-                op=ast.CompareOperationOp.LtEq,
-                left=ast.Field(chain=["timestamp"]),
-                right=ast.Call(name="now", args=[]),
-            ),
         ]
+        if apply_future_bound:
+            exprs.append(
+                ast.CompareOperation(
+                    op=ast.CompareOperationOp.LtEq,
+                    left=ast.Field(chain=["timestamp"]),
+                    right=ast.Call(name="now", args=[]),
+                )
+            )
 
         if isinstance(where_expr, ast.Expr):
             exprs.append(where_expr)
@@ -741,22 +802,9 @@ class ReplayFiltersEventsSubQuery(SessionRecordingsListingBaseQuery):
         (e.g. "host is not internal IP" → blocklist contains only internal IP sessions).
         This avoids hitting the LIMIT on high-traffic teams with millions of event-sessions.
         """
-        if self._query.operand == "OR":
+        where_expr = self._inverted_negative_expr()
+        if where_expr is None:
             return None
-
-        negative_props = self._collect_negative_properties()
-        if not negative_props:
-            return None
-
-        # Build inverted (positive) expressions for each negative property
-        inverted_exprs: list[ast.Expr] = []
-        for prop in negative_props:
-            operator = cast(PropertyOperator, prop.operator)  # type: ignore[union-attr]
-            inverted = prop.model_copy(update={"operator": INVERSE_OPERATOR_FOR[operator]})
-            inverted_exprs.append(property_to_expr(inverted, team=self._team, scope="event"))
-
-        # Any event matching any positive condition → session goes in blocklist
-        where_expr = ast.Or(exprs=inverted_exprs) if len(inverted_exprs) > 1 else inverted_exprs[0]
 
         return ast.SelectQuery(
             select=[ast.Alias(alias="session_id", expr=_event_session_id_field())],

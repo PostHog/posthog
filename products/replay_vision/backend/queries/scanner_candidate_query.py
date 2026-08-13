@@ -104,7 +104,7 @@ def eligibility_predicates() -> list[ast.Expr]:
     ]
 
 
-def _execute_candidate_query(
+def execute_candidate_query(
     query: ast.SelectQuery, *, team: Team, query_type: str, max_execution_time_seconds: int
 ) -> list[list]:
     """One home for the candidate queries' ClickHouse execution policy.
@@ -143,6 +143,9 @@ class ScannerCandidateQuery:
         candidate_limit: int = DEFAULT_CANDIDATE_LIMIT,
         max_execution_time_seconds: int = DEFAULT_MAX_EXECUTION_SECONDS,
         events_lookback: dt.timedelta | None = None,
+        # The sweep drops negative-filter matches after fetching, so it turns the in-query blocklists
+        # off and asks about its own candidates instead.
+        skip_negative_blocklists: bool = False,
     ) -> None:
         if not isinstance(last_swept_at, dt.datetime):
             raise TypeError(f"last_swept_at must be a datetime, got {type(last_swept_at).__name__}")
@@ -190,11 +193,12 @@ class ScannerCandidateQuery:
             query=inner_query,
             extra_having_predicates=extra_having,
             events_timestamp_floor=events_timestamp_floor,
+            skip_negative_blocklists=skip_negative_blocklists,
         )
 
     @tracer.start_as_current_span("ScannerCandidateQuery.run")
     def run(self) -> list[CandidateSession]:
-        rows = _execute_candidate_query(
+        rows = execute_candidate_query(
             self.get_query(),
             team=self._team,
             query_type="ReplayVisionScannerCandidateQuery",
@@ -357,7 +361,7 @@ class BackfillCandidateQuery:
 
     @tracer.start_as_current_span("BackfillCandidateQuery.run")
     def run(self) -> list[CandidateSession]:
-        rows = _execute_candidate_query(
+        rows = execute_candidate_query(
             self.get_query(),
             team=self._team,
             query_type="ReplayVisionBackfillCandidateQuery",
@@ -371,7 +375,7 @@ class BackfillCandidateQuery:
             select=[ast.Call(name="count", args=[])],
             select_from=ast.JoinExpr(table=self._windowed_candidates(), alias="candidates"),
         )
-        rows = _execute_candidate_query(
+        rows = execute_candidate_query(
             counted,
             team=self._team,
             query_type="ReplayVisionBackfillCountQuery",

@@ -16,6 +16,7 @@ from products.replay_vision.backend.models.replay_observation import (
     ReplayObservation,
 )
 from products.replay_vision.backend.models.replay_scanner import ReplayScanner, ScannerModel, ScannerType
+from products.replay_vision.backend.queries import excluded_sessions
 from products.replay_vision.backend.queries.scanner_candidate_query import (
     DEFAULT_CANDIDATE_LIMIT,
     SWEEP_EVENTS_LOOKBACK,
@@ -377,6 +378,74 @@ class TestFindScannerCandidatesActivity:
         assert [c.session_id for c in result.deep_candidates] == ["deep-0", "deep-1", "deep-2"]
         # The walk is newest-first, so advancing on a truncated batch would drop the oldest for good.
         assert result.deep_swept_through is None
+
+    _NEGATIVE_QUERY = {
+        "kind": "RecordingsQuery",
+        "properties": [{"key": "$host", "value": ["internal.example.com"], "operator": "is_not", "type": "event"}],
+    }
+
+    @parameterized.expand([("negative_filters", True), ("positive_only", False)])
+    def test_in_query_blocklists_are_skipped_exactly_when_the_sweep_checks_itself(
+        self, _name: str, has_negative: bool
+    ) -> None:
+        # These two must agree. Skipping the in-query blocklist without running the scoped check
+        # would dispatch every excluded session in the batch.
+        scanner = _make_scanner(query=self._NEGATIVE_QUERY if has_negative else {"kind": "RecordingsQuery"})
+
+        with (
+            patch(
+                "products.replay_vision.backend.temporal.activities.find_scanner_candidates.ScannerCandidateQuery"
+            ) as MockQuery,
+            patch.object(excluded_sessions, "excluded_session_ids", return_value=set()) as mock_excluded,
+        ):
+            MockQuery.return_value.run.return_value = [
+                CandidateSession(session_id="sess-a", session_end=dt.datetime(2026, 5, 1, 10, 0, tzinfo=dt.UTC))
+            ]
+            find_scanner_candidates_activity(
+                FindScannerCandidatesInputs(scanner_id=scanner.id, team_id=scanner.team_id)
+            )
+
+        assert MockQuery.call_args.kwargs["skip_negative_blocklists"] is has_negative
+        assert mock_excluded.called is has_negative
+
+    def test_fully_excluded_batch_still_advances_the_keyset(self) -> None:
+        # Falling back to the last surviving candidate would leave the keyset where it was and refetch
+        # the same excluded rows forever.
+        scanner = _make_scanner(query=self._NEGATIVE_QUERY)
+        fetched = [CandidateSession(session_id="blocked", session_end=dt.datetime(2026, 5, 1, 10, 0, tzinfo=dt.UTC))]
+
+        with (
+            patch(
+                "products.replay_vision.backend.temporal.activities.find_scanner_candidates.ScannerCandidateQuery"
+            ) as MockQuery,
+            patch.object(excluded_sessions, "excluded_session_ids", return_value={"blocked"}),
+        ):
+            MockQuery.return_value.run.return_value = fetched
+            result = find_scanner_candidates_activity(
+                FindScannerCandidatesInputs(scanner_id=scanner.id, team_id=scanner.team_id)
+            )
+
+        assert result.candidates == []
+        assert result.keyset_session_id == "blocked"
+        assert result.keyset_end == fetched[0].session_end
+
+    def test_exclusion_failure_fails_the_tick_rather_than_dispatching(self) -> None:
+        # The in-query blocklists are off by this point, so swallowing this would dispatch unfiltered.
+        scanner = _make_scanner(query=self._NEGATIVE_QUERY)
+
+        with (
+            patch(
+                "products.replay_vision.backend.temporal.activities.find_scanner_candidates.ScannerCandidateQuery"
+            ) as MockQuery,
+            patch.object(excluded_sessions, "excluded_session_ids", side_effect=RuntimeError("clickhouse down")),
+        ):
+            MockQuery.return_value.run.return_value = [
+                CandidateSession(session_id="sess-a", session_end=dt.datetime(2026, 5, 1, 10, 0, tzinfo=dt.UTC))
+            ]
+            with pytest.raises(RuntimeError):
+                find_scanner_candidates_activity(
+                    FindScannerCandidatesInputs(scanner_id=scanner.id, team_id=scanner.team_id)
+                )
 
     def test_raises_non_retryable_on_malformed_query(self) -> None:
         scanner = _make_scanner()
