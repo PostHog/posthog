@@ -227,21 +227,31 @@ export class UrlFetchConsumer {
         candidates: FetchCandidate[],
         nowMs: number
     ): Promise<{ lost: number; exhausted: FetchCandidate[] }> {
-        let lost = 0
         const exhausted: FetchCandidate[] = []
+        const held: FetchCandidate[] = []
         for (const candidate of candidates) {
             if (candidate.hopsRemaining <= 1) {
                 ImageFetchRequestMetrics.incOutcome(HOPS_EXHAUSTED)
                 ImageFetchRequestMetrics.observeHops(MAX_HOPS)
                 exhausted.push(candidate)
-                continue
-            }
-            const target = { url: candidate.url, host: candidate.host, domain: candidate.domain }
-            if (!(await this.publisher.republish(candidate, target, 'not_ready', candidate.notBeforeMs - nowMs))) {
-                lost++
+            } else {
+                held.push(candidate)
             }
         }
-        return { lost, exhausted }
+        // Together rather than one after another. A batch can carry a whole delay tier's worth of
+        // records that arrived early, and one awaited produce for each would run past
+        // `max.poll.interval.ms` and lose the partition in the middle of the batch.
+        const sent = await Promise.all(
+            held.map((candidate) =>
+                this.publisher.republish(
+                    candidate,
+                    { url: candidate.url, host: candidate.host, domain: candidate.domain },
+                    'not_ready',
+                    candidate.notBeforeMs - nowMs
+                )
+            )
+        )
+        return { lost: sent.filter((ok) => !ok).length, exhausted }
     }
 
     /**

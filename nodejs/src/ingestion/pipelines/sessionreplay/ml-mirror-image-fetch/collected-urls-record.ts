@@ -55,6 +55,10 @@ export function parseCollectedUrlsRecord(value: Buffer | null, key: string | nul
     if (!value || !key) {
         return { ok: false, reason: 'malformed' }
     }
+    // Normalized once here, because the budget, the metrics, and the republish key all read it. A
+    // record written before the producer stripped the trailing dot carries the dotted spelling, and
+    // two spellings of one domain would take two budgets on the same pod.
+    const domain = withoutTrailingDot(key)
     let parsed: unknown
     try {
         parsed = parseJSON(value.toString())
@@ -120,7 +124,7 @@ export function parseCollectedUrlsRecord(value: Buffer | null, key: string | nul
             urlHash: ref.hash,
             url: entry.url,
             host,
-            domain: key,
+            domain,
             pseudoTeam,
             capturedAtMs,
             hopsRemaining: hops,

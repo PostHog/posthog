@@ -91,6 +91,21 @@ describe('parseCollectedUrlsRecord', () => {
         expect(parsed.ok && parsed.rejected).toEqual([{ reason: 'private_host' }])
     })
 
+    it('keys one domain by one spelling, whatever the record key used', () => {
+        // The budget, the metrics, and the republish key all read this. Two spellings of one
+        // domain would take two budgets on the same pod, so each would get the full rate.
+        const value = Buffer.from(
+            `{"v":1,"pseudoTeam":"${TEAM}","capturedAtMs":1700000000000,` +
+                `"urls":[{"ref":"imageurl:${TEAM}:${HASH}","url":"https://cdn.example.com/a.png","host":"cdn.example.com"}]}`
+        )
+
+        const dotted = parseCollectedUrlsRecord(value, 'example.com.')
+        const bare = parseCollectedUrlsRecord(value, 'example.com')
+
+        expect(dotted.ok && dotted.candidates[0].domain).toBe('example.com')
+        expect(bare.ok && bare.candidates[0].domain).toBe('example.com')
+    })
+
     it('accepts an ordinary timestamp', () => {
         const parsed = parseCollectedUrlsRecord(body('"capturedAtMs":1700000000000'), 'example.com')
 
