@@ -5,7 +5,12 @@ import { LemonBanner, Link, Spinner } from '@posthog/lemon-ui'
 import { urls } from 'scenes/urls'
 
 import type { ReplayObservationApi } from 'products/replay_vision/frontend/generated/api.schemas'
-import { readReasoning, readSummary, readTitle } from 'products/replay_vision/frontend/utils/observation'
+import {
+    readErrorMessage,
+    readReasoning,
+    readSummary,
+    readTitle,
+} from 'products/replay_vision/frontend/utils/observation'
 
 import { replayVisionScanWidgetLogic } from './replayVisionScanWidgetLogic'
 
@@ -65,17 +70,16 @@ function ObservationRow({ observation }: { observation: ReplayObservationApi }):
         return (
             <div className="flex items-center gap-2 px-3 py-2 text-sm text-secondary">
                 <Spinner />
-                <span>Watching {observation.session_id}</span>
+                <span>Still watching</span>
             </div>
         )
     }
 
     if (observation.status !== 'succeeded') {
+        const reason = readErrorMessage(observation)
         return (
             <div className="px-3 py-2 text-sm">
-                <p className="m-0 text-secondary">
-                    Could not watch this recording{observation.error_reason ? `: ${observation.error_reason}` : '.'}
-                </p>
+                <p className="m-0 text-secondary">Could not watch this recording{reason ? `: ${reason}` : '.'}</p>
             </div>
         )
     }

@@ -32,14 +32,34 @@ function readString(output: Record<string, unknown> | null, key: string): string
     return typeof value === 'string' && value ? value : null
 }
 
+/**
+ * One line describing what the scanner found. A monitor's bare verdict ("yes") says nothing on its
+ * own, so its reasoning comes first; a row with no result yet says so rather than repeating the
+ * session id already shown in its own column.
+ */
 export function observationHeadline(observation: VisionObservationData): string {
     const output = readOutput(observation)
-    return (
+    const found =
         readString(output, 'title') ??
         readString(output, 'summary') ??
-        readString(output, 'verdict') ??
-        observation.session_id
-    )
+        readString(output, 'reasoning') ??
+        readString(output, 'verdict')
+    if (found) {
+        return found
+    }
+    if (observation.status === 'pending' || observation.status === 'running') {
+        return 'Still watching'
+    }
+    return humanReason(observation) ?? 'No result'
+}
+
+/** Error reasons are stored as `kind:message`; the message is the half worth showing. */
+export function humanReason(observation: VisionObservationData): string | null {
+    if (!observation.error_reason) {
+        return null
+    }
+    const separator = observation.error_reason.indexOf(':')
+    return separator === -1 ? observation.error_reason : observation.error_reason.slice(separator + 1)
 }
 
 export function VisionObservationView({ data }: { data: VisionObservationData }): ReactElement {
@@ -55,8 +75,9 @@ export function VisionObservationView({ data }: { data: VisionObservationData })
     if (data.recording_subject_email) {
         items.push({ label: 'Person', value: data.recording_subject_email })
     }
-    if (data.error_reason) {
-        items.push({ label: 'Reason', value: data.error_reason })
+    const reason = humanReason(data)
+    if (reason) {
+        items.push({ label: 'Reason', value: reason })
     }
 
     return (
