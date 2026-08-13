@@ -5200,8 +5200,8 @@ class TestSendUsage(LicensedTestMixin, ClickhouseDestroyTablesMixin, APIBaseTest
         return {
             "customer": {
                 "billing_period": {
-                    "current_period.start": "2021-10-01T00:00:00Z",
-                    "current_period.end": "2021-10-31T00:00:00Z",
+                    "current_period_start": "2021-10-01T00:00:00Z",
+                    "current_period_end": "2021-10-31T00:00:00Z",
                 },
                 "usage_summary": {
                     "events": {"usage": 10000, "limit": None},
