@@ -82,17 +82,18 @@ def _viewers_of(accesses: list[tuple[int, UserAccessControl]], saved_query: Data
     makes when the same member opens that view, so a notification never names a view they would
     be refused.
     """
-    try:
-        return [
-            user_id
-            for user_id, access in accesses
-            if access.is_organization_admin
-            or access.check_access_level_for_object(saved_query, required_level="viewer")
-        ]
-    except Exception:
-        # Not being able to check must not stop every failure notification.
-        capture_exception()
-        return [user_id for user_id, _ in accesses]
+    viewers = []
+    for user_id, access in accesses:
+        try:
+            if access.is_organization_admin or access.check_access_level_for_object(
+                saved_query, required_level="viewer"
+            ):
+                viewers.append(user_id)
+        except Exception:
+            # Dropping only the member whose check failed. Admitting them instead would name a view,
+            # its error and its link to someone the same check may be about to deny.
+            capture_exception()
+    return viewers
 
 
 class _SavedQueryViewers(RecipientsResolver):
@@ -106,11 +107,13 @@ class _SavedQueryViewers(RecipientsResolver):
 
     def resolve(self, target_type: TargetType, target_id: str, team_id: int | None) -> list[int]:
         user_ids = super().resolve(target_type, target_id, team_id)
-        if not user_ids or team_id is None:
+        if not user_ids:
             return user_ids
-        team = Team.objects.filter(id=team_id).first()
+        team = Team.objects.filter(id=team_id).first() if team_id is not None else None
         if team is None:
-            return user_ids
+            # No team is no way to run the per-view check, so nobody is told, for the same reason
+            # `_viewers_of` drops a member it could not check.
+            return []
         return _viewers_of(_access_of(team, user_ids), self._saved_query)
 
 

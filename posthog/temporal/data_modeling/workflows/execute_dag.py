@@ -465,7 +465,6 @@ class ExecuteDAGWorkflow(PostHogWorkflow):
         await self._run_data_quality_checks(inputs, node_results)
 
         if failed_nodes:
-            # One notification for the whole run, rather than one per view from each child.
             await temporalio.workflow.execute_activity(
                 notify_dag_materialization_failures_activity,
                 NotifyDAGMaterializationFailuresInputs(

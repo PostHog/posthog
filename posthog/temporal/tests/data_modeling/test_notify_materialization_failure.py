@@ -16,10 +16,8 @@ from products.data_modeling.backend.facade.models import DataModelingJob, DataMo
 from products.notifications.backend.facade.api import TargetType
 
 RUN_STARTED_AT = "2026-08-12T10:00:00+00:00"
-# The shape a tier schedule produces: `execute-dag-{dag_id}:{seconds}` plus the fire time Temporal
-# appends. Well past what a notification's source_id column holds, which is the point.
+# The shape a tier schedule produces, rather than an arbitrary long string.
 PARENT_WORKFLOW_ID = f"execute-dag-{uuid4()}:86400-{RUN_STARTED_AT}"
-# posthog_notificationevent columns the notification is written into.
 SOURCE_ID_MAX_LENGTH = 64
 RESOURCE_ID_MAX_LENGTH = 64
 IDEMPOTENCY_KEY_MAX_LENGTH = 128
@@ -43,9 +41,7 @@ async def _failed_job(ateam, saved_query, *, run_started_at=RUN_STARTED_AT, pare
     )
 
 
-def _access_allowing(allowed_by_view: dict[str, set[int]]):
-    """A UserAccessControl stand-in, so a test states outright who may open which view."""
-
+def _access_allowing(allowed_by_view: dict[str, set[int]], *, raising_for: frozenset[int] = frozenset()):
     class FakeAccess:
         def __init__(self, user, team):
             self._user_id = user.id
@@ -53,6 +49,8 @@ def _access_allowing(allowed_by_view: dict[str, set[int]]):
         is_organization_admin = False
 
         def check_access_level_for_object(self, obj, required_level):
+            if self._user_id in raising_for:
+                raise RuntimeError("access check unavailable")
             return self._user_id in allowed_by_view.get(obj.name, set())
 
     return FakeAccess
@@ -238,6 +236,38 @@ class TestNotifyDAGMaterializationFailures:
         # The restricted view is never named to the member who cannot open it.
         assert told[everyone_else.id].startswith("pageviews failed to materialize")
         assert "salaries" not in told[everyone_else.id]
+
+    async def test_a_member_whose_access_check_raises_is_not_told(
+        self, activity_environment, ateam, adag, auser, aorganization
+    ):
+        allowed = await database_sync_to_async(User.objects.create_and_join)(
+            aorganization, f"allowed-{uuid4()}@posthog.com", None
+        )
+        unchecked = await database_sync_to_async(User.objects.create_and_join)(
+            aorganization, f"unchecked-{uuid4()}@posthog.com", None
+        )
+        await _failed_job(ateam, await _saved_query(ateam, auser, "salaries"))
+
+        with (
+            unittest.mock.patch(
+                "posthog.temporal.data_modeling.activities.notify_materialization_failure.UserAccessControl",
+                _access_allowing({"salaries": {allowed.id, unchecked.id}}, raising_for=frozenset({unchecked.id})),
+            ),
+            unittest.mock.patch(
+                "posthog.temporal.data_modeling.activities.notify_materialization_failure.capture_exception"
+            ) as mock_capture,
+            unittest.mock.patch(
+                "posthog.temporal.data_modeling.activities.notify_materialization_failure.create_notification"
+            ) as mock_create,
+        ):
+            sent = await activity_environment.run(notify_dag_materialization_failures_activity, _inputs(ateam, adag))
+
+        assert sent == 1
+        data = mock_create.call_args.args[0]
+        recipients = await database_sync_to_async(data.resolver.resolve)(TargetType.TEAM, str(ateam.pk), ateam.pk)
+        assert allowed.id in recipients, "a member the check cleared still hears about it"
+        assert unchecked.id not in recipients, "a failed check must not admit the member it could not clear"
+        assert mock_capture.called
 
 
 class TestFailureCopy:
