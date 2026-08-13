@@ -282,7 +282,9 @@ impl MergeOpExecutor {
             r#"
             SELECT op_id, op_type, team_id::bigint as "team_id!", step, attempt,
                    request as "request: Value", outcome as "outcome: Value",
-                   created_at, completed_at
+                   created_at, completed_at,
+                   (lease_expires_at IS NOT NULL AND lease_expires_at >= now())
+                       as "lease_live!"
             FROM lifecycle_op
             WHERE op_id = $1
             "#,
