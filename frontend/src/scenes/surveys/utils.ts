@@ -1240,22 +1240,43 @@ export function getSurveyDisplayConditionsSummary(survey: Survey | NewSurvey): S
     return parts
 }
 
+/**
+ * With partial responses off, posthog-js has no partial submission to distinguish a complete one
+ * from, so it never sets `$survey_completed` and requiring `= true` matches nothing. Accept the
+ * property being absent as completed too, the same way the response summary counts them
+ * (`enable_partial_responses` branch in `ee/surveys/summaries/headline_summary.py`). An explicit
+ * `false` stays excluded: a survey switched from partial to non-partial keeps its old partials.
+ */
 export function getSurveyNotificationFilters(
     surveyId: string,
+    enablePartialResponses: boolean,
     extraSentEventProperties: EventPropertyFilter[] = []
 ): CyclotronJobFiltersType {
+    const surveyIdProperty: EventPropertyFilter = {
+        key: SurveyEventProperties.SURVEY_ID,
+        type: PropertyFilterType.Event,
+        value: surveyId,
+        operator: PropertyOperator.Exact,
+    }
     const sentEventProperties: EventPropertyFilter[] = [
-        {
-            key: SurveyEventProperties.SURVEY_ID,
-            type: PropertyFilterType.Event,
-            value: surveyId,
-            operator: PropertyOperator.Exact,
-        },
+        surveyIdProperty,
         {
             key: SurveyEventProperties.SURVEY_COMPLETED,
             type: PropertyFilterType.Event,
             value: true,
             operator: PropertyOperator.Exact,
+        },
+        ...extraSentEventProperties,
+    ]
+    // Event entries are OR'd, so a second branch is how "absent or true" is expressed with
+    // plain property filters rather than a hand-written HogQL predicate.
+    const completedUnsetEventProperties: EventPropertyFilter[] = [
+        surveyIdProperty,
+        {
+            key: SurveyEventProperties.SURVEY_COMPLETED,
+            type: PropertyFilterType.Event,
+            value: PropertyOperator.IsNotSet,
+            operator: PropertyOperator.IsNotSet,
         },
         ...extraSentEventProperties,
     ]
@@ -1267,6 +1288,15 @@ export function getSurveyNotificationFilters(
                 type: 'events',
                 properties: sentEventProperties,
             },
+            ...(enablePartialResponses
+                ? []
+                : [
+                      {
+                          id: SurveyEventName.SENT,
+                          type: 'events' as const,
+                          properties: completedUnsetEventProperties,
+                      },
+                  ]),
             {
                 id: SurveyEventName.DISMISSED,
                 type: 'events',

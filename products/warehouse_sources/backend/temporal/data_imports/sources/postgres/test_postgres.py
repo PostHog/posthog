@@ -425,6 +425,21 @@ class TestPostgresSourceNonRetryableErrors:
         is_non_retryable = any(pattern in error_msg for pattern in non_retryable.keys())
         assert is_non_retryable, f"Permanent error should be non-retryable: {error_msg}"
 
+    def test_connect_timeout_surfaces_actionable_message(self, source):
+        # A persistently timing-out connect stays non-retryable, but must surface firewall/reachability
+        # guidance rather than the bare "connection timeout expired" driver text. Mirror the finalizer's
+        # first-match selection (external_data_job.py) so a future reorder that shadows it with an
+        # earlier None-valued timeout key is caught.
+        error_msg = "connection timeout expired"
+        matches = [
+            friendly
+            for pattern, friendly in source.get_non_retryable_errors().items()
+            if error_message_matches(error_msg, [pattern])
+        ]
+        assert matches, "connect timeout must be classified non-retryable"
+        assert matches[0] is not None, "connect timeout must surface an actionable message, not raw driver text"
+        assert "firewall" in matches[0].lower()
+
     @pytest.mark.parametrize(
         "error_msg",
         [

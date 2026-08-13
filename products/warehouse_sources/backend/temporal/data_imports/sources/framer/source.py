@@ -54,12 +54,14 @@ class FramerSource(SimpleSource[FramerSourceConfig]):
 
     def get_retryable_errors(self) -> set[str]:
         # Transient channel conditions the next Temporal attempt recovers from: a busy
-        # headless pool, a concurrent-session collision, or a dropped connection.
+        # headless pool, a concurrent-session collision, a dropped connection, or an
+        # egress-proxy hiccup.
         return {
             "Framer API error POOL_EXHAUSTED",
             "Framer API error TOKEN_SESSION_LIMIT",
             "Framer API error TIMEOUT",
             "Framer API error CONNECTION_CLOSED",
+            "Framer API error PROXY",
         }
 
     def get_canonical_descriptions(self) -> CanonicalDescriptions:
