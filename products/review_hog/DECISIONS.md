@@ -198,6 +198,70 @@ read `FINAL_REPORT.md` there first (config glossary + coverage matrix + ranking)
    rate drops materially (toward ≤50%) on frozen-PR evals with the valid-finding set intact (item 5's
    coverage matrix as the guard); kill if valid findings drop with the noise.
 
+### ✅ BUILT 2026-08-12 — review body cut to a severity tally (the chunk summary is gone)
+
+The published body opened with a walk of the chunk tree: a `## <chunk type>` heading per chunk, an `Issues: N`
+line, a collapsed file list, and a collapsed "What were the main changes" block built from the chunker's
+`key_changes`. It was the longest part of a review and the least read — a machine-written summary of a diff the
+author had just written, in front of the findings they actually came for. Sentiment across the company on
+LLM-written PR prose is blunt: people skip it. Decisions:
+
+- **The body is one line: `Found **2 must fix**, **1 consider**.`** Only severities with a non-zero count
+  appear, most urgent first (`PRIORITIES_BY_URGENCY`), and the tally counts exactly what publishes — valid
+  findings at or above the acting user's threshold, bucketed by **effective** (validator-wins) priority. An
+  empty tally renders "No issues to report." (defensive: publish self-skips with nothing publishable, but the
+  body is also stored and shown in the UI for store-only runs).
+- **Labels are shared, not duplicated.** `PRIORITY_LABELS` + `PRIORITIES_BY_URGENCY` moved to `constants.py`,
+  so the body and the status comment's found-counts line can't drift into two vocabularies.
+- **What deliberately stayed:** the `# ReviewHog Report` title (the report's identity in the UI and in the
+  publish test's marker assertions) and the "Other findings (outside the changed lines)" section — that one
+  isn't a summary, it's the only place off-diff findings surface at all.
+- **The chunk tree left the renderer entirely.** `_assemble_report` and
+  `models/prepare_validation_markdown.py` (`ValidationMarkdownReport*`) are deleted, and `build_review_body`
+  no longer takes `chunks_data` — so `_build_and_finalize` drops its `load_chunk_set` call. The chunker's
+  `chunk_type` / `key_changes` are untouched: perspective selection still reads them, and the pipeline-trace UI
+  still shows the chunks. Only the PR-facing prose was the problem.
+- Rejected: keeping the summary behind a `<details>` (still the first thing in the review, still written for
+  nobody), and shortening it with another LLM call (paying per review to generate text we just established
+  people skip).
+
+### ✅ DECIDED 2026-08-12 — reviewer model: Codex GPT-5.6 Sol @ xhigh (production A/B vs Sonnet 5)
+
+The review-stage default moved from Claude Sonnet 5 @ xhigh to **OpenAI Codex `gpt-5.6-sol` @ `xhigh`**
+(`full-access`), settling the first production reviewer-model experiment. Mechanics: since early August every
+new report drew a sticky per-report arm from `REVIEW_EXPERIMENT_ARMS` (50/50 Sonnet 5 vs GPT-5.6 Sol, both
+@ xhigh), labeled on the `reviewhog_review_completed` / `_failed` events (`review_model`, `review_arm_fallback`)
+and tracked on the "ReviewHog — usage & health" dashboard (us.posthog.com/project/2/dashboard/1922705,
+auth-gated). About a week of dogfood traffic split roughly evenly; PR-size and trigger mixes balanced across
+arms; zero fallback turns; `$ai_model` on the review generations confirmed both arms ran their assigned model.
+
+What the split showed (experiment window only, per arm):
+
+- **Cost:** Sol reviews cost roughly a third of Sonnet's all-in per PR, and the gap is wider on the
+  arm-controlled review stage alone. Sonnet's ~2x candidate volume also roughly doubles the shared Opus
+  validation spend, so its junk flows straight into the pipeline's biggest cost line.
+- **Latency:** Sol turns finish in roughly a third of the wall-clock, at p50 and p90 alike.
+- **Precision (the item-9 lever above):** Sol emitted well under half the candidates per turn at a validator
+  keep rate near double Sonnet's (~41% vs ~24%) — the "stop spamming the validator" direction, achieved by the
+  finder model rather than by skill tuning.
+- **Quality:** Sonnet kept more valid findings per turn overall, but the surplus was should-fix/consider;
+  valid must-fix per turn leaned Sol (not significant). Author engagement with published findings (the
+  finding-outcome telemetry: addressed/reacted vs ignored) was level, directionally favoring Sol. Steady-state
+  completion was indistinguishable — the dashboard's lower Sol completion rate is rollout-day failures from
+  before its first successful turn.
+
+Decision notes:
+
+- The experiment ended the sanctioned way: `REVIEW_EXPERIMENT_ARMS` collapsed to the single default arm,
+  nothing deregistered in `products/tasks` — so reports that drew Sonnet keep finishing on Sonnet (persisted
+  assignments stay honored while registry-valid, for the report's life).
+- The outcome judge (`OUTCOME_JUDGE_MODEL`, claude-opus-5) stays cross-family from the reviewer, now from the
+  other side: Claude judges an OpenAI reviewer's findings. Validator, chunking, dedup, and one-shot pins stay
+  Claude.
+- What a week could NOT settle: whether Sol is strictly better at must-fix coverage — too few must-fix findings
+  for significance. Watch the dashboard's importance-mix and precision tiles; re-open with a weighted arm if
+  the must-fix trend inverts.
+
 ### ✅ BUILT 2026-07-27 — reviews surface exposed as MCP tools (grantable `review_hog` scope)
 
 Agents needed to drive ReviewHog over MCP — kick off a review, poll progress, pull the finished findings
