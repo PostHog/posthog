@@ -126,8 +126,8 @@ export class FetchRunner implements FetchPass {
         private readonly fetcher: ImageFetcher,
         private readonly budget: HostBudget,
         private readonly options: FetchRunnerOptions,
-        /** Absent leaves every transient outcome unrecorded, which is a loss rather than a retry. See the README. */
-        private readonly publisher?: FrontierPublisher
+        /** Required, because without it every transient outcome is a loss rather than a retry. */
+        private readonly publisher: FrontierPublisher
     ) {
         requirePositive('SESSION_RECORDING_ML_IMAGE_FETCH_MAX_CONCURRENT_PER_DOMAIN', options.maxConcurrentPerDomain)
         requirePositive('SESSION_RECORDING_ML_IMAGE_FETCH_MAX_IN_FLIGHT_REQUESTS', options.maxInFlightRequests)
@@ -426,9 +426,6 @@ export class FetchRunner implements FetchPass {
             ImageFetchRequestMetrics.observeHops(MAX_HOPS)
             return { candidate, outcome: HOPS_EXHAUSTED, finished: true }
         }
-        if (!this.publisher) {
-            return { candidate, outcome, finished: false }
-        }
         const target = { url: candidate.url, host: candidate.host, domain: candidate.domain }
         await this.publisher.republish(candidate, target, 'retry', waitMs)
         return { candidate, outcome, finished: false }
@@ -445,9 +442,6 @@ export class FetchRunner implements FetchPass {
         if (candidate.hopsRemaining <= 1) {
             ImageFetchRequestMetrics.incOutcome(HOPS_EXHAUSTED)
             return { candidate, outcome: HOPS_EXHAUSTED, finished: true }
-        }
-        if (!this.publisher) {
-            return { candidate, outcome: 'redirect_offsite', finished: false }
         }
         const domain = getPolitenessKey()(target.host)
         await this.publisher.republish(candidate, { ...target, domain }, 'redirect')
@@ -481,6 +475,13 @@ export class FetchRunner implements FetchPass {
         ImageFetchRequestMetrics.observeBudgetWait(grant.waitMs / 1000)
         if (grant.waitMs > 0) {
             await delay(grant.waitMs)
+            // The same check the worker loop makes. A `Retry-After` or an open breaker can arrive
+            // while a redirect waits, exactly as it can while a first request waits, and this hop
+            // is a request to a site like any other. Requirement 5.
+            if (this.staleAfterWait(domain, deadlineMs)) {
+                this.budget.returnGrant(domain, Date.now())
+                return 'defer'
+            }
         }
         return 'allow'
     }

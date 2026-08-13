@@ -50,8 +50,10 @@ export class RetryDelayConsumer {
     public async handleBatch(messages: Message[]): Promise<void> {
         for (const message of messages) {
             if (this.stopping()) {
-                // Left where it is. The offset is uncommitted, so the next pod reads it again and
-                // waits out whatever is left of its period, measured from when it was written.
+                // The consumer stores offsets for the whole batch once this returns, so a record
+                // left here is lost rather than held. That is the lesser cost: the alternative is
+                // making a rolling deploy wait out a whole tier period. Requirement 21 would fix
+                // it, and the README says it is not built.
                 RetryDelayMetrics.incReleased('abandoned')
                 return
             }
@@ -102,7 +104,7 @@ export class RetryDelayConsumer {
      * A record that cannot be published is dropped rather than retried here.
      *
      * Retrying inside this consumer would hold every record behind it for another period. The URL
-     * has no crawl history entry, so the next session that refers to it offers it again.
+     * has no crawl history entry, so the next session that refers to the image offers it again.
      */
     private async release(message: Message): Promise<void> {
         if (!message.value || !message.key) {

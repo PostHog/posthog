@@ -87,10 +87,14 @@ export class IngestionSessionReplayMlImageFetchRetryServer implements NodeServer
         // for nothing.
         const pollIntervalMs = delayMs + POLL_INTERVAL_MARGIN_MS
         const consumer = new KafkaConsumer(consumerConfig, { 'max.poll.interval.ms': pollIntervalMs })
+        // Set before the consumer is told to disconnect, so a pod that is shutting down abandons the
+        // wait it is holding rather than making the rolling deploy wait out a whole tier period.
+        let stopping = false
         const delayConsumer = new RetryDelayConsumer(producer, {
+            isStopping: () => stopping,
             frontierTopic: KAFKA_SESSION_REPLAY_IMAGE_FETCH,
             delayMs,
-            heartbeat: () => consumer.heartbeat(),
+            heartbeat: () => consumer.reportDeliberateWait(),
         })
         if (pollIntervalMs > MAX_POLL_INTERVAL_MS) {
             throw new Error(
@@ -103,7 +107,10 @@ export class IngestionSessionReplayMlImageFetchRetryServer implements NodeServer
 
         this.lifecycle.services.push({
             id: 'session-replay-ml-image-fetch-retry',
-            onShutdown: () => consumer.disconnect(),
+            onShutdown: () => {
+                stopping = true
+                return consumer.disconnect()
+            },
             healthcheck: () => consumer.isHealthy(),
         })
     }

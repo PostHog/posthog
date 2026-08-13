@@ -70,9 +70,14 @@ function runner(
         breakerMaxCooldownMs: 600_000,
         maxTrackedDomains: 100,
     }),
-    publisher?: FrontierPublisher
+    publisher: FrontierPublisher = noopPublisher()
 ): FetchRunner {
     return new FetchRunner(fetcher, budget, { ...OPTIONS, ...options }, publisher)
+}
+
+/** For a test about something other than republishing. It reports success and records nothing. */
+function noopPublisher(): FrontierPublisher {
+    return { republish: () => Promise.resolve(true) } as unknown as FrontierPublisher
 }
 
 describe('FetchRunner', () => {
@@ -194,6 +199,34 @@ describe('FetchRunner', () => {
         ])
         // Not finished: it is coming back on another partition, so recording it would stop that.
         expect(attempts[0].finished).toBe(false)
+    })
+
+    it('stops a redirect whose domain was blocked while it waited (requirement 5)', async () => {
+        // The redirect path takes a token and waits, exactly as the worker loop does. A site that
+        // says stop during that wait must stop this hop too.
+        const budget = new HostBudget({
+            requestsPerSecond: 1,
+            burst: 1,
+            maxConcurrent: 6,
+            breakerFailures: 100,
+            breakerCooldownMs: 60_000,
+            breakerMaxCooldownMs: 600_000,
+            maxTrackedDomains: 100,
+        })
+        // Spend the burst token, so the redirect below has to wait a second for the next one.
+        budget.take('example.com', Date.now(), Date.now() + 60_000)
+        let decision: RedirectDecision | undefined
+        const fetcher: ImageFetcher = {
+            fetch: async (_url, options) => {
+                setTimeout(() => budget.recordRetryAfter('example.com', Date.now(), 60_000), 5)
+                decision = await options.authorizeRedirect(new URL('https://img2.example.com/a.png'), 30_000)
+                return { outcome: 'ok', redirects: 1 }
+            },
+        }
+
+        await runner(fetcher, {}, budget).run([candidate('example.com', 0)])
+
+        expect(decision).toBe('defer')
     })
 
     it('follows a redirect that stays on the same domain (requirement 6)', async () => {

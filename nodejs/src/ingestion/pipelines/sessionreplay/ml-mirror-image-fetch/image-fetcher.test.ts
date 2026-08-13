@@ -148,6 +148,7 @@ describe('HttpImageFetcher', () => {
     it.each([
         ['a host the collector would have refused', 'https://internal.corp/a.png', { isPublicHost: () => false }],
         ['a target past the length limit', `https://cdn.example.com/${'a'.repeat(300)}.png`, { maxUrlLength: 100 }],
+        ['a port the scheme does not own', 'https://cdn.example.com:11211/a.png', {}],
     ])('refuses a redirect to %s (requirement 8)', async (_name, location, policy) => {
         // The first candidate passed both of these in the collector before it reached the topic. A
         // redirect target has passed neither, so a hop could otherwise reach a name that resolves

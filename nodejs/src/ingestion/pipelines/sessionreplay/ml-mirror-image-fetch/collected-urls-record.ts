@@ -166,7 +166,14 @@ function isFetchableUrl(url: string, host: string): boolean {
     }
     try {
         const parsed = new URL(url)
-        return FETCHABLE_SCHEMES.has(parsed.protocol) && parsed.hostname === host
+        if (!FETCHABLE_SCHEMES.has(parsed.protocol) || parsed.hostname !== host) {
+            return false
+        }
+        // Both of these are refused on a redirect target, so the first hop is held to the same rule.
+        // A port other than the scheme's own would make this lane a port prober, and userinfo is a
+        // credential this lane never sends. The canonicalizer strips both, which is why this is a
+        // check against a wrong or stale producer rather than an expected case.
+        return parsed.port === '' && !parsed.username && !parsed.password
     } catch {
         return false
     }

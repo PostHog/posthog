@@ -58,7 +58,14 @@ export class FrontierPublisher {
         if (hopsRemaining <= 0) {
             return false
         }
-        const tier = waitMs > 0 ? this.tierFor(waitMs) : undefined
+        // A retry always waits, even when nothing asked it to. A timeout, a connection error, and a
+        // batch that ran out of time all report no period, and publishing those straight back to
+        // the frontier is a loop: the consumer reads the record, meets the same condition, and
+        // publishes it again, spending a hop each lap until the URL is written off unfetched.
+        //
+        // A redirect is the opposite. Its target is a different domain with its own budget, so it
+        // is ready to be fetched by whichever consumer owns that partition.
+        const tier = reason === 'retry' ? this.tierFor(Math.max(waitMs, 1)) : undefined
         const topic = tier?.topic ?? this.options.frontierTopic
         const value = Buffer.from(
             JSON.stringify({
@@ -66,7 +73,9 @@ export class FrontierPublisher {
                 pseudoTeam: candidate.pseudoTeam,
                 capturedAtMs: candidate.capturedAtMs,
                 hopsRemaining,
-                notBeforeMs: tier ? Date.now() + tier.delayMs : 0,
+                // The wait that was asked for, not the period of the tier holding it. A wait longer
+                // than the longest tier arrives before it is due, and the consumer leaves it alone.
+                notBeforeMs: tier ? Date.now() + Math.max(waitMs, tier.delayMs) : 0,
                 urls: [{ ref: candidate.ref, url: target.url, host: target.host }],
             })
         )

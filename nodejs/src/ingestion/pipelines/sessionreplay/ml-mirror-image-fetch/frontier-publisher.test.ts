@@ -76,13 +76,11 @@ describe('FrontierPublisher', () => {
     })
 
     it.each([
-        ['no wait', 0, FRONTIER],
+        ['a retry with no period named', 0, 'retry_1m'],
         ['a wait inside the first tier', 30_000, 'retry_1m'],
         ['a wait between tiers', 120_000, 'retry_10m'],
         ['a wait past every tier', 24 * 3_600_000, 'retry_1h'],
-    ])('sends %s to the right topic', async (_name, waitMs, topic) => {
-        // A wait longer than the longest tier comes back early, spends another hop, and waits
-        // again. That is cheaper than a tier sized for the longest Retry-After a site can name.
+    ])('parks %s in the right topic', async (_name, waitMs, topic) => {
         const { publisher, sent } = build()
 
         await publisher.republish(candidate(), targetOf(), 'retry', waitMs)
@@ -90,7 +88,40 @@ describe('FrontierPublisher', () => {
         expect(sent[0].topic).toBe(topic)
     })
 
-    it('sets the earliest fetch time from the tier it chose (requirement 15)', async () => {
+    it('never sends a retry straight back to the frontier (requirement 14)', async () => {
+        // A timeout, a connection error, and a batch that ran out of time all report no period.
+        // Publishing those to the frontier is a loop: the consumer reads the record, meets the same
+        // condition, and publishes it again, spending a hop each lap until the URL is written off
+        // without ever being fetched.
+        const { publisher, sent } = build()
+
+        await publisher.republish(candidate(), targetOf(), 'retry', 0)
+
+        expect(sent[0].topic).not.toBe(FRONTIER)
+        expect(sent[0].body.notBeforeMs).toBeGreaterThan(Date.now())
+    })
+
+    it('sends a redirect to the frontier at once, because its target is ready', async () => {
+        const { publisher, sent } = build()
+
+        await publisher.republish(candidate(), targetOf(), 'redirect')
+
+        expect(sent[0].topic).toBe(FRONTIER)
+        expect(sent[0].body.notBeforeMs).toBe(0)
+    })
+
+    it('keeps the requested wait when it is longer than every tier (requirement 15)', async () => {
+        // A site that names a day comes back after an hour. The record says it is not due, so the
+        // consumer leaves it alone rather than fetching it 23 hours early.
+        const { publisher, sent } = build()
+        const before = Date.now()
+
+        await publisher.republish(candidate(), targetOf(), 'retry', 24 * 3_600_000)
+
+        expect(sent[0].body.notBeforeMs).toBeGreaterThanOrEqual(before + 24 * 3_600_000)
+    })
+
+    it('holds a short wait for the whole period of the tier it parks in', async () => {
         const { publisher, sent } = build()
         const before = Date.now()
 

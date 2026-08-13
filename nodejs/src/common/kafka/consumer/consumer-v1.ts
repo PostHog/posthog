@@ -229,13 +229,22 @@ export class KafkaConsumer {
     }
 
     public heartbeat(): void {
-        // Called by a lane whose batch runs longer than a health check interval, to say the work is
-        // progressing rather than stalled. Both clocks move, because either check may be the active
-        // one: the legacy check reads lastHeartbeatTime, and the loop-based check reads
-        // lastConsumerLoopTime and would otherwise fail a consumer that is deliberately waiting.
-        //
-        // A stalled loop cannot reach here. This runs from inside batch handling, so a call proves
-        // the batch is still running.
+        // Can be called externally to update the heartbeat time and keep the consumer alive
+        // This is maintained for backward compatibility with the legacy health check mechanism
+        this.lastHeartbeatTime = Date.now()
+    }
+
+    /**
+     * Say that this consumer is waiting on purpose, not stalled.
+     *
+     * Separate from `heartbeat()` because it relaxes the loop-stall detector, and most callers must
+     * not do that. Two lanes drive `heartbeat()` from a `setInterval`, which keeps firing while a
+     * batch is wedged on a promise that never settles, so moving the loop clock there would leave
+     * such a pod reporting healthy forever.
+     *
+     * Call this only from a handler that is sleeping by design, and only from its own await chain.
+     */
+    public reportDeliberateWait(): void {
         this.lastHeartbeatTime = Date.now()
         this.lastConsumerLoopTime = Date.now()
     }

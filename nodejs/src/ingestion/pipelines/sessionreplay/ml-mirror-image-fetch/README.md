@@ -130,10 +130,11 @@ consumer that sleeps for 10 minutes is evicted, and its partition is replayed by
 will sleep just as long. Raise it per consumer group: 900000 for the 10m topic, 4200000 for the 1h
 topic.
 
-**A sleeping consumer must keep reporting itself healthy.** `KafkaConsumer.heartbeat()` moves both
-health clocks, so either check is satisfied while a batch is deliberately waiting. That change is in
-shared consumer code and has no test: driving the health check needs a connected consumer, and the
-mocked one in `consumer-v1.test.ts` does not complete a poll loop.
+**A sleeping consumer must keep reporting itself healthy.** It calls
+`KafkaConsumer.reportDeliberateWait()`, which moves the loop clock as well as the heartbeat clock.
+That is separate from `heartbeat()` on purpose: two lanes drive `heartbeat()` from a timer, and a
+timer keeps firing while a batch is wedged, so relaxing the stall detector there would leave a stuck
+pod reporting healthy forever.
 
 **Lag on a delay topic is the design working.** A 1h topic reports an hour of lag whenever it holds
 anything. Alert on the age of the oldest message passing the topic's period by a wide margin, which

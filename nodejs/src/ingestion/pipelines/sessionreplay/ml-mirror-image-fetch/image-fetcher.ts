@@ -274,6 +274,12 @@ function resolveRedirect(from: string, location: string, policy: RedirectPolicy)
     if (next.username || next.password) {
         return null
     }
+    // A port other than the scheme's own turns this lane into a port prober: a page can name any
+    // host and port, the connection goes out from our egress addresses, and the outcome metric
+    // reports what answered. Images are not served on other ports often enough to be worth that.
+    if (next.port !== '') {
+        return null
+    }
     const target = next.toString()
     if (target.length > policy.maxUrlLength) {
         return null

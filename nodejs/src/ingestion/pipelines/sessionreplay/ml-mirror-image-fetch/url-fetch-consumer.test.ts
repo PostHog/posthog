@@ -200,6 +200,14 @@ describe('UrlFetchConsumer', () => {
             { ref: ref('a'), url: 'https://evil.example.net/a.png', host: 'cdn.example.com' },
         ],
         ['a scheme we never fetch', { ref: ref('a'), url: 'ftp://cdn.example.com/a.png', host: 'cdn.example.com' }],
+        [
+            'a port the scheme does not own',
+            { ref: ref('a'), url: 'https://cdn.example.com:11211/a.png', host: 'cdn.example.com' },
+        ],
+        [
+            'a url carrying credentials',
+            { ref: ref('a'), url: 'https://user:pw@cdn.example.com/a.png', host: 'cdn.example.com' },
+        ],
     ])('rejects %s while keeping the rest of the record', async (_name, bad) => {
         await consumer.handleBatch([record([bad as ReturnType<typeof url>, url('good')])], NOW)
 

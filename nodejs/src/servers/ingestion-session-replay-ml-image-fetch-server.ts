@@ -7,8 +7,10 @@ import {
 } from '~/common/config/kafka-topics'
 import { KafkaConsumer, KafkaConsumerConfig } from '~/common/kafka/consumer/consumer-v1'
 import { KafkaProducerWrapper } from '~/common/kafka/producer'
+import { KafkaProducerRegistry } from '~/common/outputs/kafka-producer-registry'
 import { createRedisPoolFromConfig } from '~/common/utils/db/redis'
 import { logger } from '~/common/utils/logger'
+import { SessionReplayProducerName } from '~/ingestion/pipelines/sessionreplay/config'
 import { CrawlHistory } from '~/ingestion/pipelines/sessionreplay/ml-mirror-image-fetch/crawl-history'
 import { FetchRunner } from '~/ingestion/pipelines/sessionreplay/ml-mirror-image-fetch/fetch-runner'
 import { FrontierPublisher } from '~/ingestion/pipelines/sessionreplay/ml-mirror-image-fetch/frontier-publisher'
@@ -16,6 +18,8 @@ import { HostBudget } from '~/ingestion/pipelines/sessionreplay/ml-mirror-image-
 import { HttpImageFetcher } from '~/ingestion/pipelines/sessionreplay/ml-mirror-image-fetch/image-fetcher'
 import { UrlFetchConsumer } from '~/ingestion/pipelines/sessionreplay/ml-mirror-image-fetch/url-fetch-consumer'
 import { resolveMlMirrorRedisConnection } from '~/ingestion/pipelines/sessionreplay/ml-mirror/config'
+import { createProducerRegistry } from '~/ingestion/pipelines/sessionreplay/outputs/producer-registry'
+import { INGESTION_SESSIONREPLAY_ML_IMAGE_FETCH_PRODUCER } from '~/ingestion/pipelines/sessionreplay/shared/outputs/producer-config'
 
 import { RedisPool } from '../types'
 import { CleanupResources, NodeServer, ServerLifecycle } from './base-server'
@@ -68,7 +72,7 @@ export function buildFrontierPublisher(producer: KafkaProducerWrapper): Frontier
 
 export function buildFetchRunner(
     config: IngestionSessionReplayMlMirrorServerConfig,
-    publisher?: FrontierPublisher
+    publisher: FrontierPublisher
 ): FetchRunner {
     const budget = new HostBudget({
         requestsPerSecond: config.SESSION_RECORDING_ML_IMAGE_FETCH_REQUESTS_PER_SECOND,
@@ -123,6 +127,7 @@ export class IngestionSessionReplayMlImageFetchServer implements NodeServer {
     readonly lifecycle: ServerLifecycle
     private config: IngestionSessionReplayMlMirrorServerConfig
     private crawlHistoryPool?: RedisPool
+    private producerRegistry?: KafkaProducerRegistry<SessionReplayProducerName>
 
     constructor(config: Partial<IngestionSessionReplayMlMirrorServerConfig> = {}) {
         this.config = buildMlMirrorServerConfig(config)
@@ -171,6 +176,13 @@ export class IngestionSessionReplayMlImageFetchServer implements NodeServer {
         })
         const crawlHistory = new CrawlHistory(this.crawlHistoryPool, redisTimeoutMs, STORE_BATCH_BUDGET_MS)
 
+        // Built even in dry run, so the wiring is exercised by every start rather than only by the
+        // one that clears the flag.
+        this.producerRegistry = await createProducerRegistry(this.config.KAFKA_CLIENT_RACK).build(this.config)
+        const publisher = buildFrontierPublisher(
+            this.producerRegistry.getProducer(INGESTION_SESSIONREPLAY_ML_IMAGE_FETCH_PRODUCER)
+        )
+
         const fetchConsumer = new UrlFetchConsumer(
             crawlHistory,
             {
@@ -178,7 +190,7 @@ export class IngestionSessionReplayMlImageFetchServer implements NodeServer {
                 dedupMaxRefs: this.config.SESSION_RECORDING_ML_IMAGE_FETCH_DEDUP_MAX_REFS,
                 dryRun,
             },
-            dryRun ? undefined : buildFetchRunner(this.config)
+            dryRun ? undefined : buildFetchRunner(this.config, publisher)
         )
         logger.info('🌐', 'ml_image_fetch_started', { dryRun })
 
@@ -199,6 +211,7 @@ export class IngestionSessionReplayMlImageFetchServer implements NodeServer {
         return {
             kafkaProducers: [],
             redisPools: this.crawlHistoryPool ? [this.crawlHistoryPool] : [],
+            additionalCleanup: () => this.producerRegistry?.disconnectAll(),
         }
     }
 }
