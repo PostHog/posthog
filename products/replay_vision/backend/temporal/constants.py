@@ -122,6 +122,8 @@ MAX_IN_FLIGHT_APPLIES_PER_SCANNER = 150
 MAX_IN_FLIGHT_APPLIES_PER_TEAM = 300
 COUNT_IN_FLIGHT_APPLIES_TIMEOUT = dt.timedelta(seconds=30)
 
+CHECK_SCANNER_BUDGET_TIMEOUT = dt.timedelta(seconds=30)
+
 
 def in_flight_headroom(scanner_in_flight: int, team_in_flight: int) -> int:
     """Dispatch headroom for a sweep tick: the tighter of the per-scanner and per-team caps.

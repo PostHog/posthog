@@ -555,7 +555,7 @@ A trends chart and a graph built from SQL, as they arrive in `charts`:
 # edit-only guidance name it exactly; the surface it describes is the section's first sentence.
 _WRITING_SUMMARY = f"""# Writing the summary
 
-Everything you write for a reader follows one rule: {_FRONT_LOAD_RULE}.
+Everything you write for a reader follows one rule: {_FRONT_LOAD_RULE}. Whatever you name by id, link it, per *Linking what you reference*.
 
 Your close-out `summary` renders in the scout's run history **collapsed to the first ~2 lines** until expanded, so applied here that means one or two sentences stating the outcome (what was found, with the key number, or that the run was quiet), a blank line, then two to five short bullets for what you checked, what you skipped and why, and what you wrote to memory.
 
@@ -693,6 +693,30 @@ You run this tooling end to end on a schedule, so your experience is how PostHog
 - **At most one submission per run, near close-out, mentioned in your summary.** This is a side report to the PostHog team, never a way to end your turn or skip work: finish the run (emit / remember / summary) exactly as you would otherwise.
 - Never put customer PII or sensitive query content in a feedback field."""
 
+_LINKING_HEAD = """# Linking what you reference
+
+A bare id leaves the reader copying a string and guessing which page it belongs to, so every PostHog entity you name in something a person reads (a finding `description`, a report `summary`, an evidence `description`, your close-out summary, a scratchpad entry) carries a markdown link, `[Checkout funnel](<url>)`, whose URL came from a tool rather than from your own assembly. Link an entity on first mention rather than every time, and link what a reader would open (an insight, dashboard, session recording, feature flag, experiment, error issue, survey, person, notebook), not every id that passed through a tool result.
+
+- **Take the link off the tool result when it has one.** A result carrying a `*url` field (`_posthogUrl` and friends) already holds the canonical link, so surface it verbatim rather than rewriting or stripping it.
+- **Otherwise call `generate-app-url`** and use the `url` it returns verbatim. Never assemble a path around an id you retyped: a wrong slug reads as a working link and drops the reader on a 404.
+- **When neither source reaches the entity itself, keep the bare id.** Some entities have no detail page in the URL catalog (an insight alert, for one: `alert-get` returns its url, the catalog has only the `/alerts` list). Don't substitute a link to the list page the entity sits on, which reads as a link to the thing and drops the reader somewhere they still have to search.
+- **Full URLs only** (origin plus path), because a bare path is not clickable in the inbox or in Slack. Take the origin from the link the tool returned rather than from memory, since this project may not sit on the host you assume, and never include `/-/`.
+- **The anchor text names the entity**, so the sentence still reads without the URL. Keep the id itself in the prose or a `code` span wherever a reader may need to paste it into a query."""
+
+# Both caveats are report-channel-only concerns. Charts render on the report channel alone, so the
+# collision the first warns about (writing a real URL where a `chart:` target belongs, or the
+# reverse) can only happen there, and *Attaching charts* is in that tail alone, so naming it from
+# the signal channel would dangle. The second names report fields (`title`, the report `summary`)
+# the signal channel never writes.
+_LINKING_REPORT_CLAUSES = """
+- **A `chart:` target is not a URL.** `[Daily signups](chart:signups-drop)` places a chart (see *Attaching charts*); swapping in a link draws nothing, and pointing a `chart:` target at a page the reader could open is a broken chart reference instead.
+- **A report `title` and the first line of its `summary` stay plain text.** The inbox renders the title as text and lifts the summary's first line out verbatim as the card headline, so a markdown link in either shows up as literal brackets beside a raw URL. Name the entity in words there, and link it where the body picks it up again."""
+
+
+def _linking_section(*, report_channel: bool) -> str:
+    return f"{_LINKING_HEAD}{_LINKING_REPORT_CLAUSES}" if report_channel else _LINKING_HEAD
+
+
 _WRITING_STYLE = """# Writing style
 
 - We use American English and the Oxford comma.
@@ -735,6 +759,7 @@ def _signal_tail_sections(
         _FINDING_SCHEMA,
         _TAGGING,
         _WRITING_DESCRIPTION_SIGNAL,
+        _linking_section(report_channel=False),
         _WRITING_STYLE,
         _WRITING_SUMMARY,
         _BUSINESS_KNOWLEDGE,
@@ -806,6 +831,7 @@ def _report_tail_sections(
         _RECENCY_LENS,
         *([structured_output_section] if structured_output_section else []),
         *channel_sections,
+        _linking_section(report_channel=True),
         _WRITING_STYLE,
         _WRITING_SUMMARY,
         _BUSINESS_KNOWLEDGE,
