@@ -65,9 +65,24 @@ def update_linked_flag_key(team: Team, expected_flag_id: int, new_key: str) -> N
 
 def relink_teams(feature_flag: FeatureFlag) -> None:
     """Point every team gating replay on this flag at its current key."""
+    # Reads the key fresh rather than trusting feature_flag.key from the signal: two renames of
+    # the same flag committed close together fire their on_commit callbacks with no ordering
+    # guarantee between them, and update_linked_flag_key's guard only checks the flag id and
+    # whether the key differs - not which rename is newer. A stale callback that reads its key
+    # from memory can overwrite a team a later rename's callback already brought up to date. This
+    # re-read makes every callback converge on whatever key is actually stored, regardless of
+    # which rename triggered it or the order the callbacks run in.
+    current_key = (
+        FeatureFlag.objects_including_soft_deleted.filter(pk=feature_flag.pk).values_list("key", flat=True).first()
+    )
+    if current_key is None:
+        # The row is gone entirely, not just soft-deleted; repair_replay_linked_flag_keys reports
+        # these teams as flag_missing on its next run.
+        return
+
     for team in teams_linking_flag(feature_flag):
         try:
-            update_linked_flag_key(team, feature_flag.id, feature_flag.key)
+            update_linked_flag_key(team, feature_flag.id, current_key)
         except Exception:
             # This runs after the rename has committed, so raising would fail a request that
             # already succeeded, and the retry would find the key unchanged and skip the relink

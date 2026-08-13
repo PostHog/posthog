@@ -3,7 +3,7 @@ from posthog.test.base import BaseTest
 from posthog.models import Team
 
 from products.feature_flags.backend.models.feature_flag import FeatureFlag
-from products.feature_flags.backend.session_recording_links import update_linked_flag_key
+from products.feature_flags.backend.session_recording_links import relink_teams, update_linked_flag_key
 
 
 class TestUpdateLinkedFlagKey(BaseTest):
@@ -41,3 +41,20 @@ class TestUpdateLinkedFlagKey(BaseTest):
 
         self.team.refresh_from_db()
         assert self.team.session_recording_linked_flag == {"id": other_flag.id, "key": "other-gate"}
+
+
+class TestRelinkTeams(BaseTest):
+    def test_converges_on_the_current_key_despite_a_stale_signal_snapshot(self) -> None:
+        flag = FeatureFlag.objects.create(team=self.team, created_by=self.user, key="gate-c")
+        # Stands in for an on_commit callback's captured snapshot from an earlier rename that
+        # committed first but is only now getting around to relinking teams: the DB has already
+        # moved on to a newer key by the time this callback runs.
+        stale_flag = FeatureFlag(pk=flag.pk, team=flag.team, key="gate-b")
+        # A faster, later rename's callback already brought this team up to date.
+        self.team.session_recording_linked_flag = {"id": flag.id, "key": "gate-c"}
+        self.team.save()
+
+        relink_teams(stale_flag)
+
+        self.team.refresh_from_db()
+        assert self.team.session_recording_linked_flag == {"id": flag.id, "key": "gate-c"}
