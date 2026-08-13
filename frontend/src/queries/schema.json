@@ -46640,6 +46640,10 @@
                     },
                     "type": "array"
                 },
+                "experiment_exposure": {
+                    "$ref": "#/definitions/RecordingsQueryExperimentExposureFilter",
+                    "description": "Only sessions of persons exposed to this experiment, each ending at or after the person's first exposure as the experiment's exposure criteria count it. Resolved server-side from the experiment, so it links sessions even when the exposure events themselves carry no session id (e.g. server-side SDKs)."
+                },
                 "filter_test_accounts": {
                     "type": "boolean"
                 },
@@ -46715,6 +46719,21 @@
                 }
             },
             "required": ["kind"],
+            "type": "object"
+        },
+        "RecordingsQueryExperimentExposureFilter": {
+            "additionalProperties": false,
+            "properties": {
+                "experiment_id": {
+                    "$ref": "#/definitions/integer",
+                    "description": "Experiment whose exposed persons' sessions to show. Must belong to the query's project."
+                },
+                "variant": {
+                    "description": "Narrow to persons exposed to this variant. Defaults to all of the experiment's variants.",
+                    "type": "string"
+                }
+            },
+            "required": ["experiment_id"],
             "type": "object"
         },
         "RecordingsQueryResponse": {

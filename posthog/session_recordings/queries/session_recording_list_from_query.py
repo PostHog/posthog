@@ -37,6 +37,8 @@ from posthog.session_recordings.queries.utils import (
 )
 from posthog.types import AnyPropertyFilter
 
+from products.experiments.backend.replay_linkage import exposed_distinct_ids_select
+
 logger = structlog.get_logger(__name__)
 tracer = trace.get_tracer(__name__)
 
@@ -268,6 +270,9 @@ class SessionRecordingListFromQuery(SessionRecordingsListingBaseQuery):
         if isinstance(parsed_query, ast.SelectSetQuery):
             raise Exception("replay does not support SelectSetQuery")
 
+        if self._query.experiment_exposure is not None:
+            self._join_experiment_exposure(parsed_query)
+
         # Include session_id as a tie-breaker for stable cursor-based pagination
         parsed_query.order_by = [
             self._order_by_clause(),
@@ -277,6 +282,39 @@ class SessionRecordingListFromQuery(SessionRecordingsListingBaseQuery):
             ),
         ]
         return parsed_query
+
+    def _join_experiment_exposure(self, parsed_query: ast.SelectQuery) -> None:
+        """Restrict the list to sessions of persons exposed to the queried experiment.
+
+        The joined subquery carries at most one row per distinct id, so the per-session
+        aggregates are unchanged; the INNER JOIN drops sessions of unexposed persons at the
+        row level. The companion "session ended at or after first exposure" bound lives in
+        `_having_predicates`, because end_time only exists after GROUP BY and a row-level
+        bound would drop a qualifying session's pre-exposure rows, skewing start_time and
+        the activity aggregates.
+        """
+        assert self._query.experiment_exposure is not None
+        join = parsed_query.select_from
+        assert join is not None
+        while join.next_join is not None:
+            join = join.next_join
+        join.next_join = ast.JoinExpr(
+            join_type="INNER JOIN",
+            table=exposed_distinct_ids_select(
+                self._team,
+                experiment_id=self._query.experiment_exposure.experiment_id,
+                variant=self._query.experiment_exposure.variant,
+            ),
+            alias="exposure",
+            constraint=ast.JoinConstraint(
+                expr=ast.CompareOperation(
+                    op=ast.CompareOperationOp.Eq,
+                    left=ast.Field(chain=["exposure", "distinct_id"]),
+                    right=ast.Field(chain=["s", "distinct_id"]),
+                ),
+                constraint_type="ON",
+            ),
+        )
 
     @tracer.start_as_current_span("SessionRecordingListFromQuery._order_by_clause")
     def _order_by_clause(self) -> ast.OrderExpr:
@@ -589,5 +627,16 @@ class SessionRecordingListFromQuery(SessionRecordingsListingBaseQuery):
             )
 
         exprs.extend(self._extra_having_predicates)
+
+        # See _join_experiment_exposure for why this bound lives in HAVING. min() is safe
+        # because the join carries at most one exposure row per distinct id.
+        if self._query.experiment_exposure is not None:
+            exprs.append(
+                ast.CompareOperation(
+                    op=ast.CompareOperationOp.GtEq,
+                    left=ast.Field(chain=["end_time"]),
+                    right=ast.Call(name="min", args=[ast.Field(chain=["exposure", "first_exposure_time"])]),
+                )
+            )
 
         return ast.And(exprs=exprs)
