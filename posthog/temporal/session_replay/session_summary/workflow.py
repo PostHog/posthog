@@ -1,7 +1,6 @@
 import json
 import asyncio
 from collections.abc import AsyncGenerator
-from dataclasses import dataclass
 from datetime import timedelta
 from typing import Any, cast
 
@@ -24,6 +23,7 @@ from temporalio.service import RPCError, RPCStatusCode
 
 from posthog.schema import ReplayInactivityPeriod
 
+from posthog.dataclasses import frozen
 from posthog.event_usage import groups
 from posthog.exceptions_capture import capture_exception
 from posthog.models.team.team import Team
@@ -178,7 +178,7 @@ class SummarizeSingleSessionWorkflow(PostHogWorkflow):
         return None
 
 
-@dataclass(frozen=True, kw_only=True, slots=True)
+@frozen
 class ValidatedPeriod:
     session_start_s: float
     session_end_s: float
@@ -672,7 +672,7 @@ async def _workflow_is_running(client: Any, workflow_id: str) -> bool:
     return desc.status == WorkflowExecutionStatus.RUNNING
 
 
-@dataclass(frozen=True, kw_only=True, slots=True)
+@frozen
 class PreparedSingleSessionExecution:
     redis_client: Redis
     redis_input_key: str
