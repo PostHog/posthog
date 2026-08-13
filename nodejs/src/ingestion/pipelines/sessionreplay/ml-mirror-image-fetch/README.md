@@ -96,13 +96,19 @@ Each of these is numbered so a test can name the one it covers.
     is fixed.
 24. A URL the lane gives up on goes into the crawl history, so it stops coming back.
 
+**Rule 21 covers the URLs the lane handled.** The fetch pass answers with an outcome for every URL,
+so a throw out of the pass is a defect in our own code rather than an answer about a URL. The
+consumer counts that throw, drops the batch, and commits it. A replay would meet the same defect on
+every read and stop the partition rather than recover it.
+
 ### What we must be able to see
 
 25. Requests by outcome, and refusals by reason. No team label on these.
 26. The hops a URL took, and the time it spent in the system.
 27. The rate of republishing, so amplification is visible.
 28. Requests in flight, and the domains that are blocked.
-29. The busiest teams, as a bounded top N with an `other` bucket.
+29. The busiest teams, as a bounded top N with an `other` bucket. Nothing on this path holds the
+    team ID, so a team here is the pseudonym the mirror sends.
 30. The number of distinct teams, as one gauge.
 31. No metric carries a URL, and no metric carries an unbounded team label. The team ID space is in
     the low millions, so a `team_id` label on a per-request metric is unbounded both in the time
@@ -205,15 +211,5 @@ The lane runs every decision, and sends no request. It parses the records, appli
 all three layers of dedup, and writes the crawl history. What it would have fetched is counted as
 `fetchable`, which is the offered request rate.
 
-This is the mode phase 0 measures in. The server refuses to start with the flag cleared until it can
-read robots.txt and produce the image to the scrub topic, and it names both.
-
-## Two things the requirements do not promise
-
-**A team on a dashboard is a pseudonym.** Nothing on this path holds the team ID. Requirements 29 and
-30 are written against the pseudonym for that reason.
-
-**A defect in the fetch pass costs a batch.** The pass answers with an outcome for every URL, so a
-throw out of it is a defect in our own code. The consumer counts that throw, drops the batch, and
-commits it. A replay would meet the same defect on every read and stop the partition rather than
-recover it. Requirement 21 covers the URLs the lane handled, not the ones a defect hid from it.
+This is the mode phase 0 measures in. The server refuses to clear the flag, and names the two things
+that must land before it can: reading robots.txt, and producing the image to the scrub topic.
