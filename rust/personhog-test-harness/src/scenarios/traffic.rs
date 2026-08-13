@@ -273,7 +273,11 @@ pub async fn run(args: TrafficArgs) -> Result<()> {
                 let collector = collector.clone();
                 let state = state.clone();
                 let (duration, concurrency) = (args.epoch, args.concurrency);
-                let prefix = format!("traffic_e{epoch}_");
+                let plan = blast::PropertyPlan::new(
+                    format!("traffic_e{epoch}_"),
+                    args.property_keys_per_person,
+                    concurrency,
+                );
                 let stop = shutdown.clone();
                 tokio::spawn(async move {
                     blast::run_traffic(
@@ -283,7 +287,7 @@ pub async fn run(args: TrafficArgs) -> Result<()> {
                         duration,
                         concurrency,
                         Some(lane_rate),
-                        &prefix,
+                        &plan,
                         &collector,
                         &state,
                         stop,
@@ -804,6 +808,7 @@ async fn shutdown_signal() {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::cli::DEFAULT_KEYS_PER_PERSON;
 
     /// Needs the CI gate's etcd; run explicitly with `--ignored`.
     #[tokio::test]
@@ -854,6 +859,7 @@ mod tests {
             persons_db_url: "postgres://unused".to_string(),
             pg_target_table: "personhog_person_tmp".to_string(),
             pool_size: 200,
+            property_keys_per_person: DEFAULT_KEYS_PER_PERSON,
             epoch: Duration::from_secs(300),
             rate_min: 50.0,
             rate_max: 500.0,
