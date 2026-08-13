@@ -4,7 +4,7 @@ from datetime import timedelta
 from posthog.test.base import BaseTest
 from unittest.mock import patch
 
-from django.test import Client
+from django.test import Client, SimpleTestCase
 from django.utils import timezone
 
 from parameterized import parameterized
@@ -13,6 +13,7 @@ from posthog.models.comment import Comment
 from posthog.models.organization import OrganizationMembership
 from posthog.models.user import User
 
+from products.conversations.backend.api.email_events import MAX_RECIPIENTS, _parse_addresses
 from products.conversations.backend.models import (
     EMAIL_THREAD_COMMENT_SCOPE,
     EmailChannel,
@@ -271,3 +272,12 @@ class TestCustomerEmailIngestion(BaseTest):
             Comment.objects.filter(team=self.team, scope=EMAIL_THREAD_COMMENT_SCOPE, item_id=str(thread.id)).count()
             == 1
         )
+
+
+class TestParseAddresses(SimpleTestCase):
+    def test_recipient_count_is_capped(self) -> None:
+        header = ", ".join(f"user{index}@example.com" for index in range(MAX_RECIPIENTS + 50))
+
+        parsed = _parse_addresses(header)
+
+        assert len(parsed) == MAX_RECIPIENTS

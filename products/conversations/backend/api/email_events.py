@@ -51,6 +51,10 @@ _MESSAGE_ID_RE = re.compile(r"<[^<>\s]+>")
 MAX_EMAIL_BODY_LENGTH = 50_000
 MAX_ATTACHMENT_SIZE = 10 * 1024 * 1024  # 10 MB per file
 MAX_ATTACHMENTS = 20
+# Sender-controlled To/Cc headers can list far more addresses than a real thread carries, and each
+# one becomes a per-recipient participant upsert. Cap the count so one message can't fan out into
+# an unbounded batch of queries under the held thread lock.
+MAX_RECIPIENTS = 100
 
 
 def _extract_inbound_token(recipient: str) -> str | None:
@@ -319,6 +323,8 @@ def _parse_addresses(value: str) -> tuple[EmailAddress, ...]:
             continue
         seen.add(normalized_email)
         addresses.append(EmailAddress(name=name.strip()[:400], email=normalized_email))
+        if len(addresses) >= MAX_RECIPIENTS:
+            break
     return tuple(addresses)
 
 
