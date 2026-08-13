@@ -136,6 +136,8 @@ from posthog.utils import (
     filters_override_requested_by_client,
     refresh_requested_by_client,
     relative_date_parse,
+    safe_cache_add,
+    safe_cache_delete,
     str_to_bool,
     tile_filters_override_requested_by_client,
     variables_override_requested_by_client,
@@ -150,6 +152,14 @@ from products.dashboards.backend.access import (
 )
 from products.dashboards.backend.models.dashboard import Dashboard
 from products.dashboards.backend.models.dashboard_tile import DashboardTile
+from products.notifications.backend.facade.api import (
+    NotificationData,
+    NotificationType,
+    Priority,
+    TargetType,
+    create_notification,
+    has_been_dispatched,
+)
 from products.product_analytics.backend.api.insight_metadata import (
     InsightMetadataTimeoutError,
     generate_insight_metadata,
@@ -166,6 +176,11 @@ tracer = trace.get_tracer(__name__)
 
 LEGACY_INSIGHT_ENDPOINTS_BLOCKED_FLAG = "legacy-insight-endpoints-disabled"
 LEGACY_INSIGHT_FILTERS_BLOCKED_FLAG = "legacy-insight-filters-disabled"
+SUBSCRIBE_NUDGE_DEDUPE_TTL_SECONDS = 30 * 24 * 60 * 60
+
+
+class InsightSubscribeNudgeResponseSerializer(serializers.Serializer):
+    created = serializers.BooleanField(help_text="Whether the subscription nudge notification was created.")
 
 
 EXPORT_QUERY_CACHE_MISS = Counter(
@@ -2564,6 +2579,53 @@ When set, the specified dashboard's filters and date range override will be appl
             )
 
         return Response(status=status.HTTP_201_CREATED)
+
+    @extend_schema(
+        request=None,
+        responses={201: InsightSubscribeNudgeResponseSerializer, 200: InsightSubscribeNudgeResponseSerializer},
+        description="Send the requesting user a subscription nudge for this insight. The notification is sent once per user and insight.",
+    )
+    @action(methods=["POST"], detail=True, url_path="subscribe_nudge", required_scopes=["insight:write"])
+    def subscribe_nudge(self, request: Request, *args: Any, **kwargs: Any) -> Response:
+        insight = self.get_object()
+        user = cast(User, request.user)
+        dedupe_key = f"insight_subscribe_nudge:{user.pk}:{insight.pk}"
+
+        if not safe_cache_add(dedupe_key, "1", timeout=SUBSCRIBE_NUDGE_DEDUPE_TTL_SECONDS):
+            return Response({"created": False}, status=status.HTTP_200_OK)
+
+        if has_been_dispatched(
+            notification_type=NotificationType.SUBSCRIPTION_NUDGE,
+            target_type=TargetType.USER,
+            target_id=str(user.pk),
+            resource_id=str(insight.pk),
+        ):
+            return Response({"created": False}, status=status.HTTP_200_OK)
+
+        try:
+            event = create_notification(
+                NotificationData(
+                    team_id=self.team_id,
+                    notification_type=NotificationType.SUBSCRIPTION_NUDGE,
+                    priority=Priority.NORMAL,
+                    title=f"You keep coming back to {insight.name or 'this insight'}",
+                    body="Get it delivered to your inbox every Monday instead of checking back.",
+                    target_type=TargetType.USER,
+                    target_id=str(user.pk),
+                    resource_type="insight",
+                    resource_id=str(insight.pk),
+                    source_url=f"/insights/{insight.short_id}/subscriptions/new?prefill=nudge&via=notification",
+                )
+            )
+        except Exception:
+            safe_cache_delete(dedupe_key)
+            raise
+
+        if event is None:
+            safe_cache_delete(dedupe_key)
+            return Response({"created": False}, status=status.HTTP_200_OK)
+
+        return Response({"created": True}, status=status.HTTP_201_CREATED)
 
     # `Sequence` rather than `list` here: this viewset defines a `list` method that shadows the builtin `list`
     # in the class namespace, so `list[...]` in this signature breaks both at class-definition time and for mypy.
