@@ -58,6 +58,11 @@ class PlausibleSource(ResumableSource[PlausibleSourceConfig, PlausibleResumeConf
             # missing-site cases are 401/403/404 and handled above). Retrying resends the same
             # request, so stop. Match the status text, not the self-hosted URL, which varies.
             "400 Client Error": "Plausible rejected the request for this site. Check that the site domain is correct and that your Plausible account can access its stats, then reconnect.",
+            # `is_database_host_valid` raises this when the self-hosted Host doesn't resolve via
+            # DNS — a hostname the customer typed wrong or one that's no longer publicly reachable.
+            # Deterministic and permanent until the Host is corrected, so stop retrying. Match the
+            # stable prefix, not the customer's hostname that follows it.
+            "Couldn't resolve the host": "The Plausible host could not be resolved via DNS. Check that it's spelled correctly and reachable from the public internet, then reconnect.",
         }
 
     @property
