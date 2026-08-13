@@ -397,39 +397,42 @@ describe('sidepanelTicketsLogic', () => {
     it.each([
         ['an entitled plan', 'paid', true],
         ['a free plan', 'free', false],
-    ])('records but never surfaces a widget that never loads, on %s', async (_case, subscriptionLevel, canCreate) => {
-        const errorToast = jest.spyOn(lemonToast, 'error').mockReturnValue('' as never)
-        logic = sidepanelTicketsLogic.build()
-        logic.mount()
-        await expectLogic(logic).toFinishAllListeners()
+    ])(
+        'records a widget that never loads without interrupting the page, on %s',
+        async (_case, subscriptionLevel, canCreate) => {
+            const errorToast = jest.spyOn(lemonToast, 'error').mockReturnValue('' as never)
+            logic = sidepanelTicketsLogic.build()
+            logic.mount()
+            await expectLogic(logic).toFinishAllListeners()
 
-        // After the mount, so the fixture loads don't put the paid plan back. canCreateTicket also
-        // passes for orgs under three months old, so age the org out to make "free" really unentitled.
-        setSubscriptionLevel(subscriptionLevel as 'paid' | 'free')
-        organizationLogic.actions.loadCurrentOrganizationSuccess({
-            ...organizationLogic.values.currentOrganization,
-            created_at: '2020-01-01T00:00:00Z',
-        } as never)
+            // After the mount, so the fixture loads don't put the paid plan back. canCreateTicket also
+            // passes for orgs under three months old, so age the org out to make "free" really unentitled.
+            setSubscriptionLevel(subscriptionLevel as 'paid' | 'free')
+            organizationLogic.actions.loadCurrentOrganizationSuccess({
+                ...organizationLogic.values.currentOrganization,
+                created_at: '2020-01-01T00:00:00Z',
+            } as never)
 
-        // Spending the retry budget is the only way into this branch, and burning it through 20 real
-        // timer cycles races the fixture loads
-        delete (posthog as any).conversations
-        logic.cache.conversationsRetries = 20
-        ;(posthog.capture as jest.Mock).mockClear()
+            // Spending the retry budget is the only way into this branch, and burning it through 20 real
+            // timer cycles races the fixture loads
+            delete (posthog as any).conversations
+            logic.cache.conversationsRetries = 20
+            ;(posthog.capture as jest.Mock).mockClear()
 
-        await expectLogic(logic, () => {
-            logic.actions.loadTickets()
-        }).toFinishAllListeners()
+            await expectLogic(logic, () => {
+                logic.actions.loadTickets()
+            }).toFinishAllListeners()
 
-        // Recorded either way, so the failure rate stays visible even though we never interrupt
-        const loadFailures = (posthog.capture as jest.Mock).mock.calls.filter(
-            ([event]) => event === 'support widget load failed'
-        )
-        expect(loadFailures).toHaveLength(1)
-        expect(loadFailures[0][1]).toMatchObject({ can_create_ticket: canCreate })
-        expect(errorToast).not.toHaveBeenCalled()
-        errorToast.mockRestore()
-    })
+            // Recorded either way, so the failure rate stays visible even though we never interrupt
+            const loadFailures = (posthog.capture as jest.Mock).mock.calls.filter(
+                ([event]) => event === 'support widget load failed'
+            )
+            expect(loadFailures).toHaveLength(1)
+            expect(loadFailures[0][1]).toMatchObject({ can_create_ticket: canCreate })
+            expect(errorToast).not.toHaveBeenCalled()
+            errorToast.mockRestore()
+        }
+    )
 
     it('reports a missing widget instead of silently dropping the composed message', async () => {
         logic = sidepanelTicketsLogic.build()
