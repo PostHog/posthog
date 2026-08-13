@@ -1,10 +1,10 @@
 import json
-from datetime import timedelta
+from datetime import UTC, datetime, timedelta
 
 from posthog.test.base import BaseTest
 from unittest.mock import patch
 
-from django.test import Client, SimpleTestCase
+from django.test import Client, RequestFactory, SimpleTestCase
 from django.utils import timezone
 
 from parameterized import parameterized
@@ -13,7 +13,7 @@ from posthog.models.comment import Comment
 from posthog.models.organization import OrganizationMembership
 from posthog.models.user import User
 
-from products.conversations.backend.api.email_events import MAX_RECIPIENTS, _parse_addresses
+from products.conversations.backend.api.email_events import MAX_RECIPIENTS, _parse_addresses, _parse_sent_at
 from products.conversations.backend.models import (
     EMAIL_THREAD_COMMENT_SCOPE,
     EmailChannel,
@@ -281,3 +281,20 @@ class TestParseAddresses(SimpleTestCase):
         parsed = _parse_addresses(header)
 
         assert len(parsed) == MAX_RECIPIENTS
+
+
+class TestParseSentAt(SimpleTestCase):
+    factory = RequestFactory()
+
+    @parameterized.expand(
+        [
+            # A far-future Date header is rejected and falls back to the authenticated timestamp.
+            ("future_date_rejected", "Mon, 1 Jan 2999 00:00:00 +0000", datetime(2025, 6, 10, 14, 30, tzinfo=UTC)),
+            # A plausible past Date header is kept as-is, not overridden by the timestamp.
+            ("valid_past_date_kept", "Wed, 1 Jan 2025 00:00:00 +0000", datetime(2025, 1, 1, 0, 0, tzinfo=UTC)),
+        ]
+    )
+    def test_parse_sent_at(self, _name: str, date_header: str, expected: datetime) -> None:
+        request = self.factory.post("/", {"Date": date_header, "timestamp": "1749565800"})
+
+        assert _parse_sent_at(request) == expected

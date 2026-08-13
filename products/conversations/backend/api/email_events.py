@@ -2,7 +2,7 @@
 
 import re
 import json
-from datetime import UTC, datetime
+from datetime import UTC, datetime, timedelta
 from email.utils import getaddresses, parseaddr, parsedate_to_datetime
 from typing import Any, cast
 
@@ -55,6 +55,10 @@ MAX_ATTACHMENTS = 20
 # one becomes a per-recipient participant upsert. Cap the count so one message can't fan out into
 # an unbounded batch of queries under the held thread lock.
 MAX_RECIPIENTS = 100
+# The sender controls the Date header, so a far-future value would latch a thread's last_message_at
+# and freeze its preview. Reject dates beyond a small clock-skew allowance and fall back to the
+# authenticated webhook timestamp (or now) instead.
+MAX_SENT_AT_CLOCK_SKEW = timedelta(minutes=5)
 
 
 def _extract_inbound_token(recipient: str) -> str | None:
@@ -329,13 +333,16 @@ def _parse_addresses(value: str) -> tuple[EmailAddress, ...]:
 
 
 def _parse_sent_at(request: HttpRequest) -> datetime:
+    now = timezone.now()
     date_header = request.POST.get("Date", "") or request.POST.get("date", "")
     if date_header:
         try:
             sent_at = parsedate_to_datetime(date_header)
             if sent_at.tzinfo is None:
                 sent_at = sent_at.replace(tzinfo=UTC)
-            return sent_at
+            if sent_at <= now + MAX_SENT_AT_CLOCK_SKEW:
+                return sent_at
+            logger.warning("email_inbound_future_date_header")
         except (TypeError, ValueError, OverflowError):
             logger.warning("email_inbound_invalid_date_header")
 
@@ -345,7 +352,7 @@ def _parse_sent_at(request: HttpRequest) -> datetime:
             return datetime.fromtimestamp(float(webhook_timestamp), tz=UTC)
         except (ValueError, OverflowError):
             logger.warning("email_inbound_invalid_timestamp")
-    return timezone.now()
+    return now
 
 
 def _parse_inbound_email(request: HttpRequest, config: EmailChannel) -> ParsedInboundEmail | None:
