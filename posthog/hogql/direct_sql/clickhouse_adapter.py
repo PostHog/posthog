@@ -1,4 +1,5 @@
 from collections.abc import Iterator
+from dataclasses import dataclass
 from time import perf_counter
 from typing import TYPE_CHECKING, Any, cast
 
@@ -198,9 +199,16 @@ def ensure_read_only_raw_clickhouse_statement(sql: str) -> str:
     return sql
 
 
+@dataclass(frozen=True, kw_only=True, slots=True)
+class CappedClickHouseRows:
+    rows: list
+    column_names: list[str]
+    column_types: list[str]
+
+
 def _fetch_capped_clickhouse_rows(
     client: "ClickHouseClient", sql: str, parameters: dict[str, Any] | None, deadline_seconds: float
-) -> tuple[list, list[str], list[str]]:
+) -> CappedClickHouseRows:
     """Stream rows up to the row cap, raising if the result would exceed it or the deadline passes.
 
     The shared client is configured with ``query_limit=0``, so ``client.query`` would buffer the
@@ -227,7 +235,7 @@ def _fetch_capped_clickhouse_rows(
             if len(rows) > DIRECT_CLICKHOUSE_MAX_ROWS:
                 DIRECT_QUERY_ROW_CAP_EXCEEDED_TOTAL.labels(dialect="clickhouse").inc()
                 raise ExposedHogQLError(DIRECT_CLICKHOUSE_ROW_CAP_ERROR)
-    return rows, column_names, column_types
+    return CappedClickHouseRows(rows=rows, column_names=column_names, column_types=column_types)
 
 
 class ClickHouseAdapter:
@@ -299,7 +307,7 @@ class ClickHouseAdapter:
                         "max_block_size": DIRECT_CLICKHOUSE_MAX_BLOCK_SIZE,
                     },
                 ) as client:
-                    rows, column_names, column_types = _fetch_capped_clickhouse_rows(
+                    fetch_result = _fetch_capped_clickhouse_rows(
                         client, request.sql, request.values or None, statement_timeout_seconds
                     )
         except (ClickHouseError, OSError, BaseSSHTunnelForwarderError, ExposedHogQLError) as error:
@@ -310,6 +318,8 @@ class ClickHouseAdapter:
                 )
             raise ExposedHogQLError(clickhouse_error_to_message(error)) from error
 
-        span.set_attribute("row_count", len(rows))
-        types: list[tuple[str, str]] = list(zip(column_names, column_types))
-        return DirectQueryResult(results=[list(row) for row in rows], types=types, print_columns=column_names)
+        span.set_attribute("row_count", len(fetch_result.rows))
+        types: list[tuple[str, str]] = list(zip(fetch_result.column_names, fetch_result.column_types))
+        return DirectQueryResult(
+            results=[list(row) for row in fetch_result.rows], types=types, print_columns=fetch_result.column_names
+        )

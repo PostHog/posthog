@@ -14,6 +14,7 @@ hardening swaps them for the RS256 sandbox event-ingest JWTs used by PostHog Des
 import hmac
 import time
 import hashlib
+from dataclasses import dataclass
 
 from django.conf import settings
 from django.core import signing
@@ -196,11 +197,22 @@ def mint_data_plane_token(notebook_short_id: str, team_id: int, user_id: int | N
     )
 
 
-def verify_data_plane_token(token: str) -> tuple[str, int, int | None]:
-    """Return (notebook_short_id, team_id, user_id) from a valid token, else raise signing.BadSignature."""
+@dataclass(frozen=True, kw_only=True, slots=True)
+class DataPlaneClaims:
+    notebook_short_id: str
+    team_id: int
+    user_id: int | None
+
+
+def verify_data_plane_token(token: str) -> DataPlaneClaims:
+    """Return the claims from a valid token, else raise signing.BadSignature."""
     data = signing.loads(token, salt=_DATA_PLANE_TOKEN_SALT, max_age=_DATA_PLANE_TOKEN_MAX_AGE_SECONDS)
     user_id = data.get("user_id")
-    return str(data["notebook_short_id"]), int(data["team_id"]), int(user_id) if user_id is not None else None
+    return DataPlaneClaims(
+        notebook_short_id=str(data["notebook_short_id"]),
+        team_id=int(data["team_id"]),
+        user_id=int(user_id) if user_id is not None else None,
+    )
 
 
 def _find_running_runtime(notebook: Notebook, user: User | None) -> KernelRuntime | None:
