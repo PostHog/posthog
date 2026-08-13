@@ -244,6 +244,13 @@ export class InsightPage {
                 .click({ timeout: 2000 })
                 .catch(() => undefined)
         }
+        // react-toastify removes a closed toast with a slide-out animation, so a toast
+        // can still intercept clicks for a moment after its close button is clicked. Wait
+        // for the stack to clear so the next action is reachable. Non-fatal: if a stray
+        // toast lingers, the caller's own click retry is the backstop.
+        await expect(this.page.locator('.Toastify__toast'))
+            .toHaveCount(0, { timeout: 5000 })
+            .catch(() => undefined)
     }
 
     async clickDeleteInsight(): Promise<void> {

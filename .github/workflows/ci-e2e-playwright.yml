@@ -1070,7 +1070,10 @@ jobs:
                   # deploy and leaves triagers with no report on a red run. Trace zips and videos
                   # can cross that, so drop them from the copy we publish; the full attachments
                   # stay in the uploaded playwright-test-results artifact. Prune at 24 MiB for margin.
-                  find playwright/playwright-report -type f -size +24M -printf 'Pruning oversized report file (%s bytes): %p\n' -delete
+                  # Guarded and non-fatal so a missing/partial report dir still reaches the deploy.
+                  if [ -d playwright/playwright-report ]; then
+                      find playwright/playwright-report -type f -size +24M -printf 'Pruning oversized report file (%s bytes): %p\n' -delete || true
+                  fi
                   npx --yes wrangler@3 pages deploy playwright/playwright-report \
                     --project-name=playwright-report \
                     --branch="$BRANCH" \
