@@ -67,6 +67,7 @@ import {
   GIT_INTERACTION_SERVICE,
   GIT_WRITE_CLIENT,
 } from "@posthog/core/git-interaction/identifiers";
+import { homeCoreModule } from "@posthog/core/home/home.module";
 import {
   REPORT_MODEL_RESOLVER,
   type ReportModelResolver,
@@ -493,6 +494,9 @@ container.bind(CLOUD_TASK_AUTH).toDynamicValue((ctx) => ({
 container.load(canvasCoreModule);
 container.load(canvasApplicationModule);
 container.load(taskThreadCoreModule);
+
+// Home reads its groups of work through the same ProjectApiClient.
+container.load(homeCoreModule);
 
 // SessionService is built from host-agnostic deps (host tRPC client + UI
 // stores) — same construction the desktop renderer uses.

@@ -45,6 +45,7 @@ import { gitPrModule } from "@posthog/core/git-pr/git-pr.module";
 import { GIT_DIFF_SOURCE } from "@posthog/core/git-pr/identifiers";
 import { handoffModule } from "@posthog/core/handoff/handoff.module";
 import { HANDOFF_HOST } from "@posthog/core/handoff/identifiers";
+import { homeCoreModule } from "@posthog/core/home/home.module";
 import { integrationsModule } from "@posthog/core/integrations/integrations.module";
 import { ApprovalLinkService } from "@posthog/core/links/approval-link";
 import { CanvasLinkService } from "@posthog/core/links/canvas-link";
@@ -816,6 +817,10 @@ container.bind(MAIN_MISSION_CONTROL_SERVICE).to(MissionControlService);
 // live in @posthog/core (bound via canvasCoreModule) and resolve through
 // ctx.container in the host-router routers.
 container.load(canvasCoreModule);
+
+// Home's prefetched groups of work — feature flags and experiments read back
+// through the same ProjectApiClient the canvas services use.
+container.load(homeCoreModule);
 
 // Browser tabs for the Channels canvas surface. Authoritative sqlite-backed
 // service in the main process; resolved by the host-router browserTabs router.

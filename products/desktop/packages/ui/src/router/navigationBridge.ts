@@ -111,6 +111,10 @@ export function openNotificationTarget(target: NotificationTarget): void {
   }
 }
 
+export function navigateToHome(): void {
+  void getRouterOrNull()?.navigate({ to: "/website/home" });
+}
+
 export function navigateToInbox(): void {
   void getRouterOrNull()?.navigate({ to: "/code/inbox" });
 }

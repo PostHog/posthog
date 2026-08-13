@@ -7,6 +7,7 @@ import { useMemo } from "react";
 import { getCurrentMatches } from "./navigationBridge";
 
 export type AppViewType =
+  | "home"
   | "task-detail"
   | "task-pending"
   | "task-input"
@@ -62,6 +63,8 @@ function deriveFromMatches(matches: Match[]): AppView {
       return { type: "task-input" };
     case "/folders/$folderId":
       return { type: "folder-settings", folderId: last.params.folderId };
+    case "/website/home":
+      return { type: "home" };
     case "/website/activity":
       return { type: "activity" };
     case "/code/inbox":

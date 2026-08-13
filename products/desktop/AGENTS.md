@@ -331,6 +331,7 @@ See [docs/testing.md](./docs/testing.md).
 - [docs/testing.md](./docs/testing.md)
 - [docs/ANNOUNCEMENTS.md](./docs/ANNOUNCEMENTS.md)
 - [docs/DEEP-LINKS.md](./docs/DEEP-LINKS.md)
+- [docs/HOME.md](./docs/HOME.md)
 - [docs/LOCAL-DEVELOPMENT.md](./docs/LOCAL-DEVELOPMENT.md)
 - [docs/UPDATES.md](./docs/UPDATES.md)
 - [docs/TROUBLESHOOTING.md](./docs/TROUBLESHOOTING.md)

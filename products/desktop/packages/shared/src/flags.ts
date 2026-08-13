@@ -17,6 +17,12 @@ export const PROJECT_BLUEBIRD_FLAG = "project-bluebird";
  * project-bluebird. The key predates the rename, matching the live flag.
  */
 export const CHANNELS_LAYOUT_FLAG = "code-spaces-layout";
+/**
+ * Gates Home: the rail's first destination, a stacked page of the work already
+ * waiting in PostHog. Requires project-bluebird — Home lives in the spaces
+ * chrome and links into spaces.
+ */
+export const HOME_FLAG = "posthog-desktop-home";
 // Gates the Loops feature: the sidebar Loops space and the per-channel Loops tab.
 export const LOOPS_FLAG = "loops";
 export const TASKS_PREWARM_SANDBOX_FLAG = "tasks-prewarm-sandbox";

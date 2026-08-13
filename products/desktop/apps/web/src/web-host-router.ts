@@ -12,6 +12,7 @@ import { canvasTemplatesRouter } from "@posthog/host-router/routers/canvas-templ
 import { channelTasksRouter } from "@posthog/host-router/routers/channel-tasks.router";
 import { cloudTaskRouter } from "@posthog/host-router/routers/cloud-task.router";
 import { dashboardsRouter } from "@posthog/host-router/routers/dashboards.router";
+import { homeRouter } from "@posthog/host-router/routers/home.router";
 import { publicProcedure, router } from "@posthog/host-trpc/trpc";
 import {
   type CloudRegion,
@@ -502,6 +503,9 @@ export const webHostRouter = router({
   folders: foldersStubRouter,
   fs: fsStubRouter,
   githubIntegration: githubIntegrationRouter,
+  // Home's groups of work: the same REST reads the canvas routers make, so the
+  // web host serves the real router too.
+  home: homeRouter,
   logs: logsStubRouter,
   os: osStubRouter,
   skills: skillsStubRouter,

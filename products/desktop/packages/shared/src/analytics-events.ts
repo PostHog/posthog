@@ -260,6 +260,7 @@ export interface CommandMenuActionProperties {
 export type SidebarNavItem =
   | "new_task"
   | "search"
+  | "home"
   | "inbox"
   | "agents"
   | "skills"
@@ -1090,6 +1091,29 @@ export interface ContextActionProperties {
   success?: boolean;
 }
 
+// Home events
+
+/** What Home was able to show when it opened, so an empty Home is legible. */
+export interface HomeViewedProperties {
+  feature_flag_count: number;
+  experiment_count: number;
+  /** Pinned canvases stacked below Home's own sections. */
+  canvas_count: number;
+  /** Groups the viewer's token could not read ("featureFlags", "experiments"). */
+  unavailable: string[];
+}
+
+export type HomeAction =
+  | "start_space_from_flag"
+  | "open_space_from_flag"
+  | "open_experiment"
+  | "open_canvas";
+
+export interface HomeActionProperties {
+  action_type: HomeAction;
+  success?: boolean;
+}
+
 export interface ChannelsSpaceViewedProperties {
   /** Total channels visible when the space mounts. */
   channel_count: number;
@@ -1476,6 +1500,10 @@ export const ANALYTICS_EVENTS = {
   UPGRADE_PROMPT_CLICKED: "Upgrade prompt clicked",
   CLOUD_TASK_USAGE_BLOCKED: "Cloud task usage blocked",
 
+  // Home events
+  HOME_VIEWED: "Home viewed",
+  HOME_ACTION: "Home action",
+
   // Project Bluebird (Channels) events
   CHANNELS_SPACE_VIEWED: "Channels space viewed",
   CHANNEL_ACTION: "Channel action",
@@ -1657,6 +1685,10 @@ export type EventPropertyMap = {
   [ANALYTICS_EVENTS.UPGRADE_PROMPT_SHOWN]: UpgradePromptShownProperties;
   [ANALYTICS_EVENTS.UPGRADE_PROMPT_CLICKED]: UpgradePromptClickedProperties;
   [ANALYTICS_EVENTS.CLOUD_TASK_USAGE_BLOCKED]: CloudTaskUsageBlockedProperties;
+
+  // Home events
+  [ANALYTICS_EVENTS.HOME_VIEWED]: HomeViewedProperties;
+  [ANALYTICS_EVENTS.HOME_ACTION]: HomeActionProperties;
 
   // Project Bluebird (Channels) events
   [ANALYTICS_EVENTS.CHANNELS_SPACE_VIEWED]: ChannelsSpaceViewedProperties;

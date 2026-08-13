@@ -2,6 +2,7 @@ import {
   BellIcon,
   EnvelopeSimple,
   GearSix,
+  HouseIcon,
   Lightning,
 } from "@phosphor-icons/react";
 import {
@@ -27,12 +28,15 @@ import {
 } from "@posthog/ui/features/command/keyboard-shortcuts";
 import { useCommandCenterActiveCount } from "@posthog/ui/features/command-center/useCommandCenterActiveCount";
 import { useFeatureFlag } from "@posthog/ui/features/feature-flags/useFeatureFlag";
+import { useHomeEnabled } from "@posthog/ui/features/home/useHomeEnabled";
+import { usePrefetchHomeWork } from "@posthog/ui/features/home/useHomeWork";
 import { useInboxAllReports } from "@posthog/ui/features/inbox/hooks/useInboxAllReports";
 import { openSettings } from "@posthog/ui/features/settings/hooks/useOpenSettings";
 import { CountBadge } from "@posthog/ui/primitives/CountBadge";
 import { LoopIcon } from "@posthog/ui/primitives/LoopIcon";
 import {
   navigateToActivity,
+  navigateToHome,
   navigateToInbox,
   navigateToLoops,
   navigateToWebsiteCommandCenter,
@@ -58,6 +62,7 @@ function NavIcon({
   shortcut,
   isActive,
   onClick,
+  onPointerEnter,
   badge,
 }: {
   icon: ReactNode;
@@ -65,6 +70,8 @@ function NavIcon({
   shortcut?: string;
   isActive: boolean;
   onClick: () => void;
+  /** Warm the destination's caches while the pointer is on the way. */
+  onPointerEnter?: () => void;
   badge?: ReactNode;
 }) {
   return (
@@ -81,6 +88,7 @@ function NavIcon({
             aria-label={label}
             data-selected={isActive || undefined}
             onClick={onClick}
+            onPointerEnter={onPointerEnter}
             className="group relative shrink-0 text-muted-foreground data-selected:bg-fill-selected data-selected:text-foreground"
           >
             {icon}
@@ -157,6 +165,30 @@ function ActivityHoverPopover({ trigger }: { trigger: ReactElement }) {
   );
 }
 
+/**
+ * Home's entry, which owns its own prefetch: warming the page's work cache
+ * needs the host tRPC context, and this item only mounts behind the flag, so
+ * the nav row stays usable where Home is off.
+ */
+function HomeNavItem({
+  isActive,
+  onNavigate,
+}: {
+  isActive: boolean;
+  onNavigate: () => void;
+}) {
+  const prefetchHomeWork = usePrefetchHomeWork();
+  return (
+    <NavIcon
+      icon={<HouseIcon size={16} weight={isActive ? "fill" : "regular"} />}
+      label="Home"
+      isActive={isActive}
+      onClick={onNavigate}
+      onPointerEnter={prefetchHomeWork}
+    />
+  );
+}
+
 function ActivityNavItem({
   isActive,
   unreadCount,
@@ -183,6 +215,7 @@ function ActivityNavItem({
 export function ChannelNav() {
   const view = useAppView();
   const loopsEnabled = useFeatureFlag(LOOPS_FLAG, import.meta.env.DEV);
+  const homeEnabled = useHomeEnabled();
 
   const { counts } = useInboxAllReports({
     ignoreFilters: true,
@@ -200,6 +233,7 @@ export function ChannelNav() {
     action();
   };
 
+  const isHome = view.type === "home";
   const isInbox = view.type === "inbox";
   const isActivity = view.type === "activity";
   const isCommandCenter = view.type === "command-center";
@@ -212,6 +246,12 @@ export function ChannelNav() {
     // providers never share it.
     <TooltipProvider delay={400}>
       <div className="flex shrink-0 gap-2 p-2">
+        {homeEnabled ? (
+          <HomeNavItem
+            isActive={isHome}
+            onNavigate={withTrack("home", navigateToHome)}
+          />
+        ) : null}
         <NavIcon
           icon={
             <EnvelopeSimple size={16} weight={isInbox ? "fill" : "regular"} />
