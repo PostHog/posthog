@@ -23,9 +23,16 @@ vi.mock("@posthog/di/react", () => ({
   useService: () => controller,
 }));
 
+const archiveSync = vi.hoisted(() => ({
+  forgetServerArchive: vi.fn(),
+  retryServerUnarchive: vi.fn(),
+}));
+
 vi.mock("@posthog/ui/features/auth/authClient", () => ({
   useOptionalAuthenticatedClient: () => apiClient,
 }));
+
+vi.mock("@posthog/ui/features/archive/useServerArchiveSync", () => archiveSync);
 
 vi.mock("@posthog/host-router/react", () => ({
   useHostTRPC: () => ({
@@ -145,6 +152,24 @@ describe("useUnarchiveTask", () => {
       }
     },
   );
+
+  it("hands a clear the server refused to the sync pass to retry", async () => {
+    // Nothing else can find it: the reconciler reads task lists, and a task
+    // the server has archived is in none of them.
+    controller.restore.mockResolvedValue({
+      kind: "restored",
+      navigateToTaskId: "t1",
+    } as RestoreOutcome);
+    apiClient.setTaskArchived.mockRejectedValueOnce(new Error("offline"));
+    const { result } = renderHook(() => useUnarchiveTask(), { wrapper });
+
+    await act(async () => {
+      await result.current.restore("t1", true);
+    });
+
+    expect(archiveSync.retryServerUnarchive).toHaveBeenCalledWith("t1");
+    expect(archiveSync.forgetServerArchive).not.toHaveBeenCalled();
+  });
 
   it.each<[string, ContextMenuOutcome, boolean]>([
     ["noop", { kind: "noop" }, false],

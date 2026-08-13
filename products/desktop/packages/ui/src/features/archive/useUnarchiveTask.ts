@@ -7,6 +7,10 @@ import {
 } from "@posthog/core/archive/archivedTasksController";
 import { useService } from "@posthog/di/react";
 import { useHostTRPC } from "@posthog/host-router/react";
+import {
+  forgetServerArchive,
+  retryServerUnarchive,
+} from "@posthog/ui/features/archive/useServerArchiveSync";
 import { useOptionalAuthenticatedClient } from "@posthog/ui/features/auth/authClient";
 import { WORKSPACE_QUERY_KEY } from "@posthog/ui/features/workspace/identifiers";
 import { logger } from "@posthog/ui/shell/logger";
@@ -40,13 +44,21 @@ export function useUnarchiveTask(): UseUnarchiveTask {
   // The archive is mirrored onto the task server-side, where it hides the task
   // from every list — so restoring locally has to clear it, or the row comes
   // back on this device and stays gone from the lists the counts are drawn from.
+  // A clear that doesn't land goes to the sync pass, which keeps trying: this
+  // is the one direction the reconciler can't discover on its own, because a
+  // task the server has archived is in none of the lists it reads.
   const clearServerArchived = useCallback(
     async (taskId: string) => {
-      if (!client) return;
+      if (!client) {
+        retryServerUnarchive(taskId);
+        return;
+      }
       try {
         await client.setTaskArchived(taskId, false);
+        forgetServerArchive(taskId);
       } catch (error) {
         log.warn(`Failed to unarchive task ${taskId} on the server`, error);
+        retryServerUnarchive(taskId);
       }
     },
     [client],
