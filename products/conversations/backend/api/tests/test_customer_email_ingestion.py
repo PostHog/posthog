@@ -156,6 +156,33 @@ class TestCustomerEmailIngestion(BaseTest):
                 {"DKIM-Signature": "v=1; d=google.com; h=from:to:date; b=signature"},
             ),
             (
+                "conflicting_mailgun_results",
+                {
+                    "X-Mailgun-Spf": "fail",
+                    "X-Mailgun-Dkim-Check-Result": "fail",
+                    "DKIM-Signature": "",
+                    "message-headers": json.dumps(
+                        [
+                            ["X-Mailgun-Spf", "pass"],
+                            ["X-Mailgun-Dkim-Check-Result", "pass"],
+                            ["DKIM-Signature", "v=1; d=google.com; h=from:subject; b=forged"],
+                        ]
+                    ),
+                },
+            ),
+            (
+                "mixed_dkim_domains",
+                {
+                    "DKIM-Signature": "",
+                    "message-headers": json.dumps(
+                        [
+                            ["DKIM-Signature", "v=1; d=google.com; h=from:subject; b=forged"],
+                            ["DKIM-Signature", "v=1; d=attacker.example; h=from:subject; b=valid"],
+                        ]
+                    ),
+                },
+            ),
+            (
                 "lookalike_action_host",
                 {
                     "body-plain": "https://mail-settings.google.com.attacker.example/mail/vf-token",

@@ -62,7 +62,7 @@ def _is_google_authenticated(email: ParsedInboundEmail) -> bool:
         email.sender.email == _GOOGLE_FORWARDING_SENDER
         and email.sender_authenticated
         and email.dkim_passed
-        and _GOOGLE_DKIM_DOMAIN in email.dkim_signing_domains
+        and set(email.dkim_signing_domains) == {_GOOGLE_DKIM_DOMAIN}
     )
 
 

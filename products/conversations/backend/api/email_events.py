@@ -262,7 +262,7 @@ def _sender_authenticated(request: HttpRequest, sender_email: str) -> bool:
     An attacker signing with evil.com's key but forging From: teammate@posthog.com
     would still get DKIM Pass.
     """
-    spf_passed = any(value.strip().lower() == "pass" for value in _message_header_values(request, "X-Mailgun-Spf"))
+    spf_passed = _mailgun_authentication_passed(request, "X-Mailgun-Spf")
     if not spf_passed:
         return False
     envelope_sender = request.POST.get("sender", "")
@@ -303,6 +303,13 @@ def _message_header_values(request: HttpRequest, header_name: str) -> tuple[str,
     return tuple(dict.fromkeys(values))
 
 
+def _mailgun_authentication_passed(request: HttpRequest, header_name: str) -> bool:
+    results = tuple(
+        dict.fromkeys(value.strip().lower() for value in _message_header_values(request, header_name) if value.strip())
+    )
+    return results == ("pass",)
+
+
 def _dkim_signing_domains(request: HttpRequest) -> tuple[str, ...]:
     domains: list[str] = []
     for signature in _message_header_values(request, "DKIM-Signature"):
@@ -313,8 +320,9 @@ def _dkim_signing_domains(request: HttpRequest) -> tuple[str, ...]:
                 tags[key.strip().lower()] = value.strip()
         signed_headers = {header.strip().lower() for header in tags.get("h", "").split(":")}
         domain = tags.get("d", "").rstrip(".").lower()
-        if domain and {"from", "subject"}.issubset(signed_headers) and "l" not in tags:
-            domains.append(domain)
+        if not domain or not {"from", "subject"}.issubset(signed_headers) or "l" in tags:
+            return ()
+        domains.append(domain)
     return tuple(dict.fromkeys(domains))
 
 
@@ -400,9 +408,7 @@ def _parse_inbound_email(request: HttpRequest, config: EmailChannel) -> ParsedIn
         body_plain=request.POST.get("body-plain", "")[:MAX_EMAIL_BODY_LENGTH],
         stripped_text=stripped_text[:MAX_EMAIL_BODY_LENGTH],
         sender_authenticated=_sender_authenticated(request, sender_email),
-        dkim_passed=any(
-            value.strip().lower() == "pass" for value in _message_header_values(request, "X-Mailgun-Dkim-Check-Result")
-        ),
+        dkim_passed=_mailgun_authentication_passed(request, "X-Mailgun-Dkim-Check-Result"),
         dkim_signing_domains=_dkim_signing_domains(request),
         capture_address=request.POST.get("recipient", "").strip().lower(),
         attachments=tuple(attachments),
