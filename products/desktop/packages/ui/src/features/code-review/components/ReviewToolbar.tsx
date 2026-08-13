@@ -7,6 +7,7 @@ import {
 } from "@phosphor-icons/react";
 import type { ResolvedDiffSource } from "@posthog/core/code-review/resolveDiffSource";
 import { Button } from "@posthog/quill";
+import { useChannelsLayout } from "@posthog/ui/features/canvas/hooks/useChannelsLayout";
 import { useDiffViewerStore } from "@posthog/ui/features/code-editor/diffViewerStore";
 import {
   type ReviewMode,
@@ -14,6 +15,7 @@ import {
 } from "@posthog/ui/features/code-review/reviewNavigationStore";
 import { Tooltip } from "@posthog/ui/primitives/Tooltip";
 import { Flex, Separator, Text } from "@radix-ui/themes";
+import { useParams } from "@tanstack/react-router";
 import { FoldVertical, Maximize, Minimize, UnfoldVertical } from "lucide-react";
 import { memo } from "react";
 import type { CommentFileFilter } from "../commentFileFilter";
@@ -114,6 +116,13 @@ export const ReviewToolbar = memo(function ReviewToolbar({
     setReviewMode(taskId, "closed");
   };
 
+  // On a space's route under the spaces chrome the review is one of the right
+  // panel's sides, and the panel's own switcher opens and closes it. Closing
+  // the review mode alone leaves that panel standing, so the toolbar drops its
+  // close there. The Code scene, which has no such switcher, keeps it.
+  const channelId = useParams({ strict: false }).channelId;
+  const inRightPanel = useChannelsLayout() && Boolean(channelId);
+
   const visibleFileSummary = getVisibleFileSummary(
     commentFilter,
     fileCount,
@@ -136,7 +145,7 @@ export const ReviewToolbar = memo(function ReviewToolbar({
       style={{
         zIndex: 2,
       }}
-      className="sticky top-0 h-[32px] shrink-0 border-b border-b-(--gray-6) bg-(--color-background)"
+      className="sticky top-0 h-[32px] shrink-0 border-b border-b-(--gray-6) bg-(--color-background) ps-3"
     >
       <Flex align="center" gap="2">
         <Text className="font-medium text-[13px]">{fileCountLabel}</Text>
@@ -231,11 +240,13 @@ export const ReviewToolbar = memo(function ReviewToolbar({
           onHideViewedFilesChange={onHideViewedFilesChange}
         />
 
-        <Tooltip content="Close review">
-          <Button size="icon-sm" onClick={handleClose} className="rounded-xs">
-            <X size={14} />
-          </Button>
-        </Tooltip>
+        {!inRightPanel && (
+          <Tooltip content="Close review">
+            <Button size="icon-sm" onClick={handleClose} className="rounded-xs">
+              <X size={14} />
+            </Button>
+          </Tooltip>
+        )}
       </Flex>
     </Flex>
   );

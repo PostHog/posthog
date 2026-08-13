@@ -127,7 +127,18 @@ function TaskDiffStatsBadge({ task }: { task: Task }) {
   );
 }
 
-export function TaskHeaderActions({ task }: { task: Task }) {
+export function TaskHeaderActions({
+  task,
+  showReviewToggle = true,
+}: {
+  task: Task;
+  /**
+   * The diff badge is this row's way into the review. Where a surface has its
+   * own — the spaces chrome opens it from the right panel's switcher — the row
+   * drops the badge rather than offering the same thing twice.
+   */
+  showReviewToggle?: boolean;
+}) {
   const workspace = useWorkspace(task.id);
   const workspaceLoaded = useWorkspaceLoaded();
   const isCloudTask = workspace?.mode === "cloud";
@@ -137,7 +148,6 @@ export function TaskHeaderActions({ task }: { task: Task }) {
       align="center"
       justify="end"
       gap="1"
-      pr="1"
       pl="1"
       className="h-full max-w-[50%] shrink-0 overflow-hidden"
     >
@@ -153,7 +163,7 @@ export function TaskHeaderActions({ task }: { task: Task }) {
           />
         </div>
       )}
-      <TaskDiffStatsBadge task={task} />
+      {showReviewToggle && <TaskDiffStatsBadge task={task} />}
 
       {workspaceLoaded && (
         <>

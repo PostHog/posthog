@@ -8,7 +8,7 @@ import { persist } from "zustand/middleware";
 export type RightPanelSide = "timeline" | "artifacts" | "comments" | "changes";
 
 /** What a session opens on before anyone touches its panel. */
-const DEFAULT_RIGHT_PANEL_SIDE: RightPanelSide = "timeline";
+export const DEFAULT_RIGHT_PANEL_SIDE: RightPanelSide = "timeline";
 
 export const RIGHT_PANEL_MIN_WIDTH = 280;
 const RIGHT_PANEL_DEFAULT_WIDTH = 340;

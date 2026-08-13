@@ -46,10 +46,7 @@ import {
   useIsDashboardEditing,
 } from "@posthog/ui/features/canvas/stores/dashboardEditStore";
 import { copyCanvasLink } from "@posthog/ui/features/canvas/utils/copyCanvasLink";
-import {
-  RightPanel,
-  RightPanelButtons,
-} from "@posthog/ui/features/navigation/components/RightPanel";
+import { RightPanel } from "@posthog/ui/features/navigation/components/RightPanel";
 import { buildCommentThreads } from "@posthog/ui/features/sessions/components/commentViewTypes";
 import { useCommentsQuery } from "@posthog/ui/features/sessions/components/useComments";
 import {
@@ -393,25 +390,25 @@ export function WebsiteLayout() {
   const showToolbar =
     Boolean(channelId) && (isDashboardsGrid || isDashboardDetail);
 
-  // Under the spaces layout the header band always carries the right-panel
-  // buttons, so a session's timeline, artifacts, comments and changes are one
-  // click away wherever you are in the space.
-  const rightControls = spacesLayout ? (
-    <div className="flex shrink-0 items-center gap-1">
-      {channelTask && <TaskHeaderActions task={channelTask} />}
-      <RightPanelButtons />
-    </div>
-  ) : null;
+  // Under the spaces layout the band ends on the session's own actions, flush
+  // with the right edge — the right panel's switcher rides the panel's header
+  // row a line below instead.
+  // No wrapper: the actions cap themselves at half the bar, and a wrapper that
+  // hugs their content resolves that percentage against itself, clipping them.
+  const rightControls =
+    spacesLayout && channelTask ? (
+      <TaskHeaderActions task={channelTask} showReviewToggle={false} />
+    ) : null;
 
   return (
     <Flex direction="column" height="100%" overflow="hidden">
       {/* Title bar for non-canvas views: every channel scene (task detail,
           new task, CONTEXT.md) pushes its "# channel / leaf" breadcrumb into
           the header store, as do channel-less mirrored pages (Home, Skills, …).
-          Hidden when the canvas toolbar is showing (grid / a single canvas).
-          Under the spaces layout the band renders even without header content
-          so the right-panel buttons are always there. */}
-      {!showToolbar && (headerContent || spacesLayout) && (
+          Hidden when the canvas toolbar is showing (grid / a single canvas),
+          and skipped entirely when there is neither a title nor a session's
+          actions to carry. */}
+      {!showToolbar && (headerContent || channelTask) && (
         <Flex
           align="center"
           gap="2"
@@ -462,7 +459,9 @@ export function WebsiteLayout() {
           {rightControls}
         </Flex>
       )}
-      <div className="flex min-h-0 flex-1 overflow-hidden">
+      {/* Relative: the right panel's switcher pins itself to this row's top
+          right, above whichever of the panel or the content sits under it. */}
+      <div className="relative flex min-h-0 flex-1 overflow-hidden">
         <div className="min-w-0 flex-1 overflow-hidden">
           <MentionAvailabilityProvider disabledReason={mentionsDisabledReason}>
             <Outlet />
