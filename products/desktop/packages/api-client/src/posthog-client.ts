@@ -103,6 +103,7 @@ import type {
   TaskActivityPage,
   TaskActivityReadMarker,
   TaskChannel,
+  TaskCommentThreadSummary,
   TaskMention,
   TaskRun,
   TaskRunArtefact,
@@ -190,6 +191,8 @@ export type UsageLimitType = "burst" | "sustained" | null;
 
 // Stable message so callers recognize this after a saga reduces the error to a string.
 export const CLOUD_USAGE_LIMIT_ERROR_MESSAGE = "Cloud usage limit reached";
+export const DESKTOP_BILLING_LIMIT_ERROR_CODE =
+  "posthog_code_billing_limit_exceeded";
 
 export const SESSION_LOGS_MAX_PAGE_SIZE = 5000;
 
@@ -2519,13 +2522,15 @@ export class PostHogAPIClient {
     const teamId = await this.getTeamId();
     const { origin_product: originProduct, ...taskOptions } = options;
 
-    const data = await this.api.post(`/api/projects/{project_id}/tasks/`, {
-      path: { project_id: teamId.toString() },
-      body: {
-        ...taskOptions,
-        origin_product: originProduct ?? "user_created",
-      } as unknown as Schemas.Task,
-    });
+    const data = await this.withCloudUsageLimitCheck(() =>
+      this.api.post(`/api/projects/{project_id}/tasks/`, {
+        path: { project_id: teamId.toString() },
+        body: {
+          ...taskOptions,
+          origin_product: originProduct ?? "user_created",
+        } as unknown as Schemas.Task,
+      }),
+    );
 
     return normalizeTaskResponse(data, { teamId });
   }
@@ -2904,6 +2909,33 @@ export class PostHogAPIClient {
     return (await response.json()) as TaskThreadMessage[];
   }
 
+  /** One request for the whole task, so the panel never fans out per artifact the way the
+   *  Comments tab has to.
+   *
+   *  A backend predating the read layer has no such route, so a 404 means "no comment rows
+   *  yet" rather than a failure and the timeline comes alive once the endpoint exists. */
+  async getTaskCommentActivity(
+    taskId: string,
+  ): Promise<TaskCommentThreadSummary[]> {
+    const teamId = await this.getTeamId();
+    const urlPath = `/api/projects/${teamId}/tasks/${taskId}/thread_messages/comment_activity/`;
+    const response = await this.api.fetcher.fetch({
+      method: "get",
+      url: new URL(`${this.api.baseUrl}${urlPath}`),
+      path: urlPath,
+    });
+    if (response.status === 404) return [];
+    if (!response.ok) {
+      throw new Error(
+        `Failed to fetch comment activity: ${response.statusText}`,
+      );
+    }
+    const body = (await response.json()) as {
+      comments?: TaskCommentThreadSummary[];
+    };
+    return body.comments ?? [];
+  }
+
   async createTaskThreadMessage(
     taskId: string,
     content: string,
@@ -3074,6 +3106,7 @@ export class PostHogAPIClient {
     } catch (error) {
       if (error instanceof CloudCommandError) throw error;
       if (error instanceof ApiRequestError) {
+        this.throwIfCloudUsageLimit(error);
         const backendError = cloudCommandBackendError(error.body);
         throw new CloudCommandError(
           method,
@@ -3146,34 +3179,36 @@ export class PostHogAPIClient {
     const teamId = await this.getTeamId();
     const urlPath = `/api/projects/${teamId}/tasks/warm/`;
     const url = new URL(`${this.api.baseUrl}${urlPath}`);
-    const response = await this.api.fetcher.fetch({
-      method: "post",
-      url,
-      path: urlPath,
-      overrides: {
-        body: JSON.stringify({
-          repository: options.repository,
-          repositories: options.repositories,
-          github_integration: options.github_integration,
-          branch: options.branch ?? null,
-          runtime_adapter: options.runtime_adapter ?? null,
-          model: options.model ?? null,
-          reasoning_effort: options.reasoning_effort ?? null,
-          ...(options.context_window
-            ? { context_window: options.context_window }
-            : {}),
-          ...(options.fast_mode != null
-            ? { fast_mode: options.fast_mode }
-            : {}),
-          ...(options.sandbox_environment_id
-            ? { sandbox_environment_id: options.sandbox_environment_id }
-            : {}),
-          ...(options.custom_image_id
-            ? { custom_image_id: options.custom_image_id }
-            : {}),
-        }),
-      },
-    });
+    const response = await this.withCloudUsageLimitCheck(() =>
+      this.api.fetcher.fetch({
+        method: "post",
+        url,
+        path: urlPath,
+        overrides: {
+          body: JSON.stringify({
+            repository: options.repository,
+            repositories: options.repositories,
+            github_integration: options.github_integration,
+            branch: options.branch ?? null,
+            runtime_adapter: options.runtime_adapter ?? null,
+            model: options.model ?? null,
+            reasoning_effort: options.reasoning_effort ?? null,
+            ...(options.context_window
+              ? { context_window: options.context_window }
+              : {}),
+            ...(options.fast_mode != null
+              ? { fast_mode: options.fast_mode }
+              : {}),
+            ...(options.sandbox_environment_id
+              ? { sandbox_environment_id: options.sandbox_environment_id }
+              : {}),
+            ...(options.custom_image_id
+              ? { custom_image_id: options.custom_image_id }
+              : {}),
+          }),
+        },
+      }),
+    );
     if (!response.ok) {
       throw new Error(`Failed to warm task: ${response.statusText}`);
     }
@@ -3466,11 +3501,13 @@ export class PostHogAPIClient {
     const url = new URL(
       `${this.api.baseUrl}/api/projects/${teamId}/tasks/${taskId}/runs/${runId}/resume_in_cloud/`,
     );
-    const response = await this.api.fetcher.fetch({
-      method: "post",
-      url,
-      path: `/api/projects/${teamId}/tasks/${taskId}/runs/${runId}/resume_in_cloud/`,
-    });
+    const response = await this.withCloudUsageLimitCheck(() =>
+      this.api.fetcher.fetch({
+        method: "post",
+        url,
+        path: `/api/projects/${teamId}/tasks/${taskId}/runs/${runId}/resume_in_cloud/`,
+      }),
+    );
 
     if (!response.ok) {
       throw new Error(`Failed to resume run in cloud: ${response.statusText}`);
@@ -5320,26 +5357,29 @@ export class PostHogAPIClient {
     try {
       return await fn();
     } catch (error) {
-      const parsed = this.parseFetcherError(error);
-      if (
-        parsed &&
-        parsed.status === 429 &&
-        parsed.body.code === "usage_limit_exceeded"
-      ) {
-        const limitType = parsed.body.limit_type;
-        throw new CloudUsageLimitError({
-          limitType:
-            limitType === "burst" || limitType === "sustained"
-              ? limitType
-              : null,
-          resetAt:
-            typeof parsed.body.reset_at === "string"
-              ? parsed.body.reset_at
-              : null,
-          isPro: parsed.body.is_pro === true,
-        });
-      }
+      this.throwIfCloudUsageLimit(error);
       throw error;
+    }
+  }
+
+  private throwIfCloudUsageLimit(error: unknown): void {
+    const parsed = this.parseFetcherError(error);
+    if (
+      parsed &&
+      parsed.status === 429 &&
+      (parsed.body.code === "usage_limit_exceeded" ||
+        parsed.body.code === DESKTOP_BILLING_LIMIT_ERROR_CODE)
+    ) {
+      const limitType = parsed.body.limit_type;
+      throw new CloudUsageLimitError({
+        limitType:
+          limitType === "burst" || limitType === "sustained" ? limitType : null,
+        resetAt:
+          typeof parsed.body.reset_at === "string"
+            ? parsed.body.reset_at
+            : null,
+        isPro: parsed.body.is_pro === true,
+      });
     }
   }
 
