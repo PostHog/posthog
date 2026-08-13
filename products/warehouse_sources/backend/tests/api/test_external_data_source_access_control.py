@@ -402,6 +402,25 @@ class TestExternalDataSourceAccessControl(APIBaseTest):
             [str(managed_source.id), str(external_source.id)],
         )
 
+    @parameterized.expand(
+        [
+            ("external_data_source_read", "external_data_source:read", status.HTTP_200_OK),
+            ("query_read", "query:read", status.HTTP_403_FORBIDDEN),
+        ]
+    )
+    def test_connections_preserves_external_data_source_api_scope(
+        self, _name: str, scope: str, expected_status: int
+    ) -> None:
+        api_key = self.create_personal_api_key_with_scopes([scope])
+        self.client.force_authenticate(None)
+
+        response = self.client.get(
+            f"/api/environments/{self.team.pk}/external_data_sources/connections/",
+            headers={"authorization": f"Bearer {api_key}"},
+        )
+
+        self.assertEqual(response.status_code, expected_status)
+
     def test_reserved_sources_are_not_external_source_resources(self) -> None:
         managed_source = self._create_managed_source()
         incomplete_source = self._create_managed_source(connection_metadata={})

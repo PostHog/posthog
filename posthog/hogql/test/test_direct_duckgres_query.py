@@ -223,6 +223,22 @@ class TestDirectDuckgresQuery(APIBaseTest):
         connection.execute.assert_called_once_with("USE ducklake")
         cursor.stream.assert_called_once_with("SELECT 1 AS value", None)
 
+    @patch("posthog.hogql.direct_sql.duckgres_adapter.make_duckgres_conninfo")
+    @patch("posthog.hogql.direct_sql.duckgres_adapter.psycopg.connect")
+    def test_rejects_multiple_statements_before_loading_credentials(self, connect, make_conninfo) -> None:
+        source = self._managed_source()
+
+        with self.assertRaisesMessage(ExposedHogQLError, "Raw queries must contain a single statement"):
+            HogQLQueryExecutor(
+                query="SELECT 1; SELECT 2",
+                team=self.team,
+                connection_id=str(source.id),
+                send_raw_query=True,
+            ).execute()
+
+        make_conninfo.assert_not_called()
+        connect.assert_not_called()
+
     @patch("posthog.hogql.direct_sql.duckgres_adapter.make_duckgres_conninfo", return_value="fresh-conninfo")
     @patch("posthog.hogql.direct_sql.duckgres_adapter.psycopg.connect")
     @patch("posthog.hogql.direct_sql.duckgres_adapter.threading.Timer")

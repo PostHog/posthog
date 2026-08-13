@@ -14,10 +14,12 @@ import structlog
 from products.mcp_store.backend.agents import (
     built_in_agent_key_for_task_origin,
     create_gateway_agent_token,
+    credential_owner_eligible,
     get_built_in_agent,
     is_builtin_agent_enforcement_enabled,
 )
 from products.mcp_store.backend.facade.contracts import ActiveInstallationInfo
+from products.mcp_store.backend.gateway import installation_for_agent_access
 from products.mcp_store.backend.models import (
     MCPServerInstallation,
     MCPServerInstallationTool,
@@ -177,15 +179,22 @@ def get_installations_for_sandbox(
     include_personal: bool = False,
     task_origin: str | None = None,
     task_agent_key: str | None = None,
+    credential_owner_id: int | None = None,
 ) -> list[ActiveInstallationInfo]:
     """Return MCP installations for sandbox agent use.
 
     Generic tasks retain the legacy team-shared installation behavior. A
     server-stamped built-in agent task gets only the credentials explicitly
-    delegated through its service-account grants, and only while the gateway
-    server stays enabled for the team. Origin alone is not trusted:
-    the persisted task agent key must match the origin mapping. A mapped origin
-    without that marker gets no MCP Store installations. Built-in agent
+    delegated through its service-account grants by ``credential_owner_id``,
+    the person whose credentials the run may borrow (not necessarily the user
+    it acts as), and only while the gateway server stays enabled for the team.
+    Grants are personal, so an agent task without a credential owner gets no
+    Store installations at all, and the owner's eligibility (active user with
+    current effective team access) is re-checked on every call, so an
+    offboarded owner's grants stop mounting even though the grant rows
+    persist. Origin alone is not
+    trusted: the persisted task agent key must match the origin mapping. A
+    mapped origin without that marker gets no MCP Store installations. Built-in agent
     handling is gated per team on the `mcp-gateway` rollout flag; teams
     without it resolve mapped origins like unmapped tasks. Unmapped origins
     retain the legacy member behavior and optionally include the user's
@@ -217,28 +226,39 @@ def get_installations_for_sandbox(
         if agent_key is not None and agent_account is not None and agent_account.status != "active":
             return []
 
+        installations: list[MCPServerInstallation]
         if agent_key is not None:
-            if agent_account is None:
+            if agent_account is None or credential_owner_id is None:
+                installations = []
+            elif not credential_owner_eligible(credential_owner_id, team_id):
+                # Grants survive offboarding, so an owner who was deactivated
+                # or lost team access since delegating mounts nothing.
+                logger.warning(
+                    "Refusing MCP installations for an ineligible credential owner",
+                    team_id=team_id,
+                    task_origin=task_origin,
+                )
                 installations = []
             else:
                 access_rows = list(
                     MCPServiceAccountServerAccess.objects.for_team(team_id)
-                    .filter(service_account=agent_account)
-                    .values_list("installation_id", "gateway_server_id")
+                    .filter(service_account=agent_account, user_id=credential_owner_id)
+                    .select_related("installation__template", "installation__gateway_server")
                 )
-                bound_servers = {
-                    installation_id: gateway_server_id
-                    for installation_id, gateway_server_id in access_rows
-                    if installation_id is not None
-                }
-                # The admin kill switch overrides grants: a server turned off
-                # for the team is withheld from agents too.
-                candidates = list(base_queryset.filter(id__in=bound_servers, gateway_server__is_team_enabled=True))
-                installations = [
-                    installation
-                    for installation in candidates
-                    if bound_servers.get(installation.id) == installation.gateway_server_id
-                ]
+                installations = []
+                for access in access_rows:
+                    # Same resolution the gateway proxy and the API serializers
+                    # use, so a grant whose credential drifted off its team,
+                    # server, or owner is dropped here too instead of being
+                    # mounted into the sandbox.
+                    installation = installation_for_agent_access(access)
+                    if installation is None or not installation.is_enabled:
+                        continue
+                    # The admin kill switch overrides grants: a server turned
+                    # off for the team is withheld from agents too.
+                    if installation.gateway_server is None or not installation.gateway_server.is_team_enabled:
+                        continue
+                    installations.append(installation)
         else:
             shared_queryset = base_queryset.filter(scope="shared")
             shared_queryset = shared_queryset.filter(
@@ -268,7 +288,11 @@ def get_installations_for_sandbox(
             if installation.scope == "personal" or installation.url not in personal_urls
         ]
 
-    agent_proxy_token = create_gateway_agent_token(agent_account) if agent_account is not None and ready else None
+    agent_proxy_token = (
+        create_gateway_agent_token(agent_account, credential_owner_id=credential_owner_id)
+        if agent_account is not None and credential_owner_id is not None and ready
+        else None
+    )
     results = [
         _to_info(
             installation,

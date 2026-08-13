@@ -2,6 +2,7 @@ from posthog.hogql.direct_sql.adapter import DirectQueryRequest, DirectQueryResu
 from posthog.hogql.direct_sql.capability import direct_capable_source_types, is_direct_capable
 from posthog.hogql.direct_sql.clickhouse_adapter import ClickHouseAdapter
 from posthog.hogql.direct_sql.duckgres_adapter import DuckgresRawAdapter
+from posthog.hogql.direct_sql.motherduck_adapter import MotherDuckAdapter
 from posthog.hogql.direct_sql.mysql_adapter import MySQLAdapter
 from posthog.hogql.direct_sql.postgres_adapter import PostgresAdapter
 from posthog.hogql.direct_sql.raw_sql import ensure_single_direct_statement
@@ -16,6 +17,7 @@ register_adapter(MySQLAdapter())
 register_adapter(SnowflakeAdapter())
 register_adapter(RedshiftAdapter())
 register_adapter(ClickHouseAdapter())
+register_adapter(MotherDuckAdapter())
 
 
 def get_raw_adapter_for_source(source: ExternalDataSource) -> DirectSQLAdapter | None:
@@ -30,6 +32,7 @@ __all__ = [
     "DirectSQLAdapter",
     "ClickHouseAdapter",
     "DuckgresRawAdapter",
+    "MotherDuckAdapter",
     "PostgresAdapter",
     "MySQLAdapter",
     "SnowflakeAdapter",
