@@ -1209,3 +1209,7 @@ environment:
         bin_script: verify-ai-ingestion-stack
         description: 'Check the multimodal AI ingestion path at the data layer: send an $ai_generation with an inline base64 image through capture-ai and assert ingestion offloaded it to a blob pointer in ClickHouse'
         hidden: true
+    worktree:stack:
+        bin_script: worktree-stack
+        description: 'Run app services from this worktree on its own port block against the shared dev infra, so parallel worktrees each serve their own app (see docs/internal/parallel-worktree-stacks.md)'
+        hidden: true
