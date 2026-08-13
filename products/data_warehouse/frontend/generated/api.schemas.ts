@@ -2754,6 +2754,9 @@ export interface CredentialApi {
  * * `Uploadcare` - Uploadcare
  * * `WHMCS` - WHMCS
  * * `MSG91` - MSG91
+ * * `Depot` - Depot
+ * * `Schematic` - Schematic
+ * * `Dokploy` - Dokploy
  */
 export type ExternalDataSourceTypeEnumApi =
     (typeof ExternalDataSourceTypeEnumApi)[keyof typeof ExternalDataSourceTypeEnumApi]
@@ -4048,6 +4051,9 @@ export const ExternalDataSourceTypeEnumApi = {
     Uploadcare: 'Uploadcare',
     Whmcs: 'WHMCS',
     Msg91: 'MSG91',
+    Depot: 'Depot',
+    Schematic: 'Schematic',
+    Dokploy: 'Dokploy',
 } as const
 
 export interface SimpleExternalDataSourceSerializersApi {
