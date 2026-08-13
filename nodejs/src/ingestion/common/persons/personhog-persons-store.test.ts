@@ -5,6 +5,7 @@ import { PersonhogPropertiesSizeError } from '~/common/personhog/persons'
 import { NoRowsUpdatedError } from '~/common/utils/utils'
 import { InternalPerson } from '~/types'
 
+import { createDefaultSyncMergeMode } from './person-merge-types'
 import { extractEventOps } from './person-update'
 import { PersonhogPendingRpcError, PersonhogPersonsStore } from './personhog-persons-store'
 
@@ -226,9 +227,121 @@ describe('PersonhogPersonsStore', () => {
         expect(fetched?.id).toBe('7')
     })
 
-    it('deletes have no personhog path and fail loudly', async () => {
-        const bound = store.forBatch(0)
-        await expect(bound.deletePerson(person, 'd1')).rejects.toThrow('no personhog RPC')
+    describe('mergePersons runs the saga and folds it into the batch view', () => {
+        const survivor = () => ({ ...person, id: '7', properties: { plan: 'merged' }, version: 5 })
+
+        beforeEach(() => {
+            repository.mergePersons = jest.fn().mockResolvedValue({
+                survivor: survivor(),
+                results: [{ sourceDistinctId: 'anon-1', outcome: 'merged' }],
+            })
+        })
+
+        it('later fetches of the touched ids read the survivor without re-resolving', async () => {
+            const bound = store.forBatch(0)
+            const result = await bound.mergePersons({
+                teamId: 1,
+                targetDistinctId: 'd1',
+                sources: [{ distinctId: 'anon-1', eventUuid: 'event-uuid' }],
+                eventOps: ops({ $set: { plan: 'pro' } }, '$identify'),
+                opId: 'event-uuid',
+                allowIdentifiedSources: false,
+                mergeMode: createDefaultSyncMergeMode(),
+                createdAtMs: 3_600_000,
+            })
+            expect(result.survivor?.properties).toEqual({ plan: 'merged' })
+            // The store owns the saga's move-limit policy: SYNC mode sends
+            // its configured guard, and the event ops carry the property sets.
+            expect(repository.mergePersons).toHaveBeenCalledWith(
+                expect.objectContaining({ moveLimit: 10_000, eventSet: { plan: 'pro' }, eventSetOnce: {} }),
+                expect.any(String)
+            )
+
+            const viaTarget = await bound.fetchForUpdate(1, 'd1')
+            const viaSource = await bound.fetchForUpdate(1, 'anon-1')
+            expect(viaTarget?.version).toBe(5)
+            expect(viaSource?.version).toBe(5)
+            expect(repository.resolvePersonsByDistinctIds).not.toHaveBeenCalled()
+        })
+
+        it.each([
+            [{ type: 'LIMIT' as const, limit: 123 }, 123],
+            [{ type: 'ASYNC' as const, limit: 456 }, 456],
+        ])('mode %o carries its own limit as the saga move limit', async (mergeMode, expectedMoveLimit) => {
+            const bound = store.forBatch(0)
+            await bound.mergePersons({
+                teamId: 1,
+                targetDistinctId: 'd1',
+                sources: [{ distinctId: 'anon-1', eventUuid: 'event-uuid' }],
+                eventOps: ops({}, '$identify'),
+                opId: 'event-uuid',
+                allowIdentifiedSources: false,
+                mergeMode,
+                createdAtMs: 3_600_000,
+            })
+            expect(repository.mergePersons).toHaveBeenCalledWith(
+                expect.objectContaining({ moveLimit: expectedMoveLimit }),
+                expect.any(String)
+            )
+        })
+
+        it('purges every resolution of a merged-away person, not just the named source', async () => {
+            repository.resolvePersonsByDistinctIds.mockResolvedValueOnce([
+                { teamId: 1, distinctId: 'anon-1', person: { ...person, id: '9' } },
+            ] as never)
+            repository.fetchPersonById.mockResolvedValue({ ...person, id: '9' } as never)
+            const bound = store.forBatch(0)
+            await bound.fetchForUpdate(1, 'anon-1')
+            repository.resolvePersonsByDistinctIds.mockResolvedValueOnce([
+                { teamId: 1, distinctId: 'anon-1-alias', person: { ...person, id: '9' } },
+            ] as never)
+            await bound.fetchForUpdate(1, 'anon-1-alias')
+            repository.resolvePersonsByDistinctIds.mockClear()
+
+            await bound.mergePersons({
+                teamId: 1,
+                targetDistinctId: 'd1',
+                sources: [{ distinctId: 'anon-1', eventUuid: 'event-uuid' }],
+                eventOps: ops({}, '$identify'),
+                opId: 'event-uuid',
+                allowIdentifiedSources: false,
+                mergeMode: createDefaultSyncMergeMode(),
+                createdAtMs: 3_600_000,
+            })
+
+            // The alias resolved to the merged-away person; it must re-resolve
+            // rather than read the dead person from the memo.
+            await bound.fetchForUpdate(1, 'anon-1-alias')
+            expect(repository.resolvePersonsByDistinctIds).toHaveBeenCalledTimes(1)
+        })
+
+        it('a skipped source keeps its existing resolution', async () => {
+            repository.resolvePersonsByDistinctIds.mockResolvedValue([
+                { teamId: 1, distinctId: 'anon-1', person: { ...person, id: '9' } },
+            ])
+            repository.fetchPersonById.mockResolvedValue({ ...person, id: '9' })
+            const bound = store.forBatch(0)
+            await bound.fetchForUpdate(1, 'anon-1')
+            repository.mergePersons = jest.fn().mockResolvedValue({
+                survivor: survivor(),
+                results: [{ sourceDistinctId: 'anon-1', outcome: 'skipped_conflict' }],
+            })
+
+            await bound.mergePersons({
+                teamId: 1,
+                targetDistinctId: 'd1',
+                sources: [{ distinctId: 'anon-1', eventUuid: 'event-uuid' }],
+                eventOps: ops({}, '$identify'),
+                opId: 'event-uuid',
+                allowIdentifiedSources: false,
+                mergeMode: createDefaultSyncMergeMode(),
+                createdAtMs: 3_600_000,
+            })
+
+            const viaSource = await bound.fetchForUpdate(1, 'anon-1')
+            expect(viaSource?.id).toBe('9')
+            expect(repository.resolvePersonsByDistinctIds).toHaveBeenCalledTimes(1)
+        })
     })
 
     it('creation resolves through identity and memoizes every distinct id it mapped', async () => {
@@ -271,6 +384,24 @@ describe('PersonhogPersonsStore', () => {
         await bound.applyEventOps(person, ops({ $set: { a: '1' } }), 'd1')
         const results = await bound.flush()
         expect(results).toEqual([])
+    })
+
+    it('reships a merged-away lane to the survivor at flush', async () => {
+        const bound = store.forBatch(0)
+        await bound.applyEventOps(person, ops({ $set: { a: '1' } }), 'd1')
+        repository.updatePersonProperties
+            .mockRejectedValueOnce(new NoRowsUpdatedError('merged away'))
+            .mockResolvedValue({ person: { ...person, id: '9', version: 3 }, updated: true } as never)
+        repository.resolvePersonsByDistinctIds.mockResolvedValue([
+            { teamId: 1, distinctId: 'd1', person: { ...person, id: '9' } },
+        ] as never)
+
+        await bound.flush()
+
+        expect(repository.updatePersonProperties).toHaveBeenLastCalledWith(
+            expect.objectContaining({ personId: '9', setProperties: { a: '1' } }),
+            expect.any(String)
+        )
     })
 
     it('fails the flush on unexpected errors so the batch retries whole', async () => {
@@ -432,36 +563,6 @@ describe('PersonhogPersonsStore', () => {
         const results = await bound.flush()
         expect(repository.updatePersonProperties).not.toHaveBeenCalled()
         expect(results).toEqual([])
-    })
-
-    it('has no transactions of its own; the routing store owns them', async () => {
-        const bound = store.forBatch(0)
-        await expect(bound.inTransaction('test', () => Promise.resolve('done'))).rejects.toThrow('no personhog RPC')
-    })
-
-    it.each([
-        [
-            'updatePersonForMerge',
-            (b: ReturnType<PersonhogPersonsStore['forBatch']>, p: InternalPerson) =>
-                b.updatePersonForMerge(p, {}, 'd1'),
-        ],
-        [
-            'addDistinctId',
-            (b: ReturnType<PersonhogPersonsStore['forBatch']>, p: InternalPerson) => b.addDistinctId(p, 'd2', 0),
-        ],
-        [
-            'moveDistinctIds',
-            (b: ReturnType<PersonhogPersonsStore['forBatch']>, p: InternalPerson) =>
-                b.moveDistinctIds(p, p, 'd1', undefined, undefined as any),
-        ],
-        [
-            'moveDistinctIdsFromPersons',
-            (b: ReturnType<PersonhogPersonsStore['forBatch']>, p: InternalPerson) =>
-                b.moveDistinctIdsFromPersons([p], p, 'd1', undefined as any),
-        ],
-    ])('%s fails loudly while the leader RPC is pending', async (_method, call) => {
-        const bound = store.forBatch(0)
-        await expect(call(bound, person)).rejects.toThrow(PersonhogPendingRpcError)
     })
 
     it('maps a direct diff update onto the folded RPC', async () => {

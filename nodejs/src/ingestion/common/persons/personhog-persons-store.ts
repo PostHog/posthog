@@ -5,23 +5,27 @@ import { Counter } from 'prom-client'
 import { PersonHogPersonWriteRepository } from '~/common/personhog/personhog-person-write-repository'
 import { PersonhogPropertiesSizeError } from '~/common/personhog/persons'
 import { PersonMessage } from '~/common/persons/person-message'
-import { InternalPersonWithDistinctId, LifecycleMarkPerson } from '~/common/persons/repositories/person-repository'
 import { PersonRepositoryTransaction } from '~/common/persons/repositories/person-repository-transaction'
-import { CreatePersonResult, MoveDistinctIdsResult } from '~/common/utils/db/db'
+import { CreatePersonResult } from '~/common/utils/db/db'
 import { logger } from '~/common/utils/logger'
 import { NoRowsUpdatedError } from '~/common/utils/utils'
 import { BatchWritingStoreFlushStats } from '~/ingestion/common/stores/batch-writing-store'
 import { Properties } from '~/plugin-scaffold'
-import { InternalPerson, PropertiesLastOperation, PropertiesLastUpdatedAt, Team } from '~/types'
+import { InternalPerson, PropertiesLastOperation, PropertiesLastUpdatedAt } from '~/types'
 
 import { EventOps, applyEventPropertyUpdates, computeOpsScalarUpdates, foldOps, refineEventOps } from './person-update'
-import { FlushResult, PersonsStore } from './persons-store'
+import { FlushResult, MergePersonsRequest, MergePersonsResult, PersonsStore } from './persons-store'
 import { BatchBoundPersonsStore, PersonsStoreForBatch } from './persons-store-for-batch'
-import { PersonsStoreTransaction } from './persons-store-transaction'
 
 export const personhogStoreFlushCounter = new Counter({
     name: 'personhog_store_flush_ops_total',
     help: 'Folded person updates flushed to the personhog leader, by outcome',
+    labelNames: ['outcome'],
+})
+
+export const personhogStoreMergeOutcomeCounter = new Counter({
+    name: 'personhog_store_merge_outcomes_total',
+    help: 'Merge saga per-source outcomes observed by the ingestion client, by outcome',
     labelNames: ['outcome'],
 })
 
@@ -40,11 +44,20 @@ export interface PersonhogPersonsStoreOptions {
      * projections diverge by construction.
      */
     updateAllProperties: boolean
+    /**
+     * The saga's required per-source move guard in SYNC merge mode,
+     * which has no client-side limit of its own. Sized so only
+     * pathological persons reach it; a source over the limit comes back
+     * skipped_move_limit and the merge-mode policy decides the event's
+     * fate.
+     */
+    syncMergeMoveLimit: number
 }
 
 const DEFAULT_OPTIONS: PersonhogPersonsStoreOptions = {
     maxConcurrentUpdates: 10,
     updateAllProperties: false,
+    syncMergeMoveLimit: 10_000,
 }
 
 const CALLER_TAG = 'ingestion/personhog-store'
@@ -172,38 +185,6 @@ export class PersonhogPersonsStore implements PersonsStore {
         // let the caller's create path re-resolve authoritatively.
         const person = await this.repository.fetchPersonById(teamId, resolved.person.id, CALLER_TAG)
         return this.recordFetch(teamId, distinctId, person, batchId)
-    }
-
-    async fetchPersonsForUpdateByDistinctIds(
-        teamId: number,
-        distinctIds: string[],
-        batchId: number
-    ): Promise<InternalPersonWithDistinctId[]> {
-        const resolved = await this.repository.resolvePersonsByDistinctIds(
-            distinctIds.map((distinctId) => ({ teamId, distinctId })),
-            CALLER_TAG
-        )
-        const limit = pLimit(this.options.maxConcurrentUpdates)
-        const fetched = await Promise.all(
-            resolved.map((entry) =>
-                limit(async () => {
-                    if (!entry.person) {
-                        this.recordFetch(teamId, entry.distinctId, null, batchId)
-                        return null
-                    }
-                    const person = await this.repository.fetchPersonById(teamId, entry.person.id, CALLER_TAG)
-                    // Pending projections win over fetched state here
-                    // too, so the merge planner reads the same pre-flush
-                    // view the update path does.
-                    const recorded = this.recordFetch(teamId, entry.distinctId, person, batchId)
-                    if (!recorded) {
-                        return null
-                    }
-                    return { ...recorded, distinct_id: entry.distinctId } as InternalPersonWithDistinctId
-                })
-            )
-        )
-        return fetched.filter((person): person is InternalPersonWithDistinctId => person !== null)
     }
 
     /** Resolves a distinct id through the batch memos, undefined on miss. */
@@ -349,108 +330,78 @@ export class PersonhogPersonsStore implements PersonsStore {
         return Promise.resolve([projected, []])
     }
 
-    // Deletes exist only to destroy the losing persons of a merge, and
-    // the shadow gates merge events off this store; once merges move to
-    // personhog, the merge saga owns those deletions end to end, so no
-    // store-level delete path will ever be needed here.
     /**
-     * The personhog world has no Postgres transactions; transaction
-     * semantics for routed deployments live in the routing store, which
-     * never delegates this member. Reaching it is a wiring bug.
+     * Runs the identity service's merge saga — which owns merge
+     * execution end to end: fencing, folding, repointing, tombstoning —
+     * and folds its outcome into this batch's view: distinct ids the
+     * saga touched re-resolve to the survivor, so later events in the
+     * batch read the merged world. Only outcomes that changed identity
+     * (merged, attached, noop) update the memos; skipped sources keep
+     * their existing state.
      */
-    inTransaction<T>(_description: string, _transaction: (tx: PersonsStoreTransaction) => Promise<T>): Promise<T> {
-        return Promise.reject(new PersonhogPendingRpcError('inTransaction', 'merge saga'))
-    }
-
-    // Merge execution is the merge saga's once it lands; until then every
-    // mutation in the family is a loud placeholder.
-
-    updatePersonForMerge(
-        _person: InternalPerson,
-        _update: Partial<InternalPerson>,
-        _distinctId: string,
-        _batchId: number,
-        _tx?: PersonRepositoryTransaction
-    ): Promise<[InternalPerson, PersonMessage[], boolean]> {
-        return Promise.reject(new PersonhogPendingRpcError('updatePersonForMerge', 'merge saga'))
-    }
-
-    claimLifecycleMarks(
-        _opId: string,
-        _teamId: number,
-        _persons: LifecycleMarkPerson[],
-        _distinctId: string,
-        _tx?: PersonRepositoryTransaction
-    ): Promise<void> {
-        return Promise.reject(new PersonhogPendingRpcError('claimLifecycleMarks', 'merge saga'))
-    }
-
-    releaseLifecycleMarks(
-        _opId: string,
-        _teamId: number,
-        _distinctId: string,
-        _tx?: PersonRepositoryTransaction
-    ): Promise<void> {
-        return Promise.reject(new PersonhogPendingRpcError('releaseLifecycleMarks', 'merge saga'))
-    }
-
-    isPersonLive(_person: InternalPerson, _distinctId: string, _tx?: PersonRepositoryTransaction): Promise<boolean> {
-        return Promise.reject(new PersonhogPendingRpcError('isPersonLive', 'merge saga'))
-    }
-
-    addDistinctId(
-        _person: InternalPerson,
-        _distinctId: string,
-        _version: number,
-        _tx: PersonRepositoryTransaction | undefined,
-        _batchId: number
-    ): Promise<PersonMessage[]> {
-        return Promise.reject(new PersonhogPendingRpcError('addDistinctId', 'merge saga'))
-    }
-
-    moveDistinctIds(
-        _source: InternalPerson,
-        _target: InternalPerson,
-        _distinctId: string,
-        _limit: number | undefined,
-        _tx: PersonRepositoryTransaction,
-        _batchId: number
-    ): Promise<MoveDistinctIdsResult> {
-        return Promise.reject(new PersonhogPendingRpcError('moveDistinctIds', 'merge saga'))
-    }
-
-    moveDistinctIdsFromPersons(
-        _sources: InternalPerson[],
-        _target: InternalPerson,
-        _distinctId: string,
-        _tx: PersonRepositoryTransaction,
-        _batchId: number
-    ): Promise<MoveDistinctIdsResult> {
-        return Promise.reject(new PersonhogPendingRpcError('moveDistinctIdsFromPersons', 'merge saga'))
-    }
-
-    // Postgres bookkeeping with nothing to answer in this world: shadow
-    // teams are fresh, so no cohort rows or hash-key overrides exist to
-    // fix up.
-
-    updateCohortsAndFeatureFlagsForMerge(
-        _teamID: Team['id'],
-        _sourcePersonID: InternalPerson['id'],
-        _targetPersonID: InternalPerson['id'],
-        _distinctId: string,
-        _tx?: PersonRepositoryTransaction
-    ): Promise<void> {
-        return Promise.resolve()
-    }
-
-    updateCohortsAndFeatureFlagsForMergeBatch(
-        _teamID: Team['id'],
-        _sourcePersonIDs: InternalPerson['id'][],
-        _targetPersonID: InternalPerson['id'],
-        _distinctId: string,
-        _tx?: PersonRepositoryTransaction
-    ): Promise<void> {
-        return Promise.resolve()
+    async mergePersons(request: MergePersonsRequest, batchId: number): Promise<MergePersonsResult> {
+        const result = await this.repository.mergePersons(
+            {
+                teamId: request.teamId,
+                targetDistinctId: request.targetDistinctId,
+                sources: request.sources,
+                eventSet: request.eventOps.set,
+                eventSetOnce: request.eventOps.setOnce,
+                opId: request.opId,
+                allowIdentifiedSources: request.allowIdentifiedSources,
+                moveLimit:
+                    request.mergeMode.type === 'SYNC' ? this.options.syncMergeMoveLimit : request.mergeMode.limit,
+                createdAtMs: request.createdAtMs,
+            },
+            CALLER_TAG
+        )
+        for (const source of result.results) {
+            personhogStoreMergeOutcomeCounter.inc({ outcome: source.outcome })
+        }
+        const touched = result.results
+            .filter((source) => ['merged', 'attached', 'noop_same_person'].includes(source.outcome))
+            .map((source) => source.sourceDistinctId)
+        if (result.survivor || touched.length > 0) {
+            // A merged source person is gone under every one of its distinct
+            // ids, not just the ones this request named; drop every
+            // resolution pointing at it so later fetches re-resolve.
+            const deadPersonKeys = new Set<string>()
+            const mergedSources = new Set(
+                result.results
+                    .filter((source) => source.outcome === 'merged')
+                    .map((source) => `${request.teamId}:${source.sourceDistinctId}`)
+            )
+            for (const memo of this.resolutions.values()) {
+                for (const [key, personKey] of memo) {
+                    if (personKey !== null && mergedSources.has(key)) {
+                        deadPersonKeys.add(personKey)
+                    }
+                }
+            }
+            for (const memo of this.resolutions.values()) {
+                for (const [key, personKey] of memo) {
+                    if (personKey !== null && deadPersonKeys.has(personKey)) {
+                        memo.delete(key)
+                    }
+                }
+            }
+            for (const memo of this.personState.values()) {
+                for (const personKey of deadPersonKeys) {
+                    memo.delete(personKey)
+                }
+            }
+            this.removeDistinctIdFromCache(request.teamId, request.targetDistinctId)
+            for (const distinctId of touched) {
+                this.removeDistinctIdFromCache(request.teamId, distinctId)
+            }
+        }
+        if (result.survivor) {
+            this.recordFetch(request.teamId, request.targetDistinctId, result.survivor, batchId)
+            for (const distinctId of touched) {
+                this.recordFetch(request.teamId, distinctId, result.survivor, batchId)
+            }
+        }
+        return { survivor: result.survivor, results: result.results }
     }
 
     /** The leader enforces the size ceiling at admission; there is nothing to measure here. */
@@ -468,22 +419,6 @@ export class PersonhogPersonsStore implements PersonsStore {
             cacheEntryCount += memo.size
         }
         return { dirtyEntryCount, referencedBatchCount: this.lanes.size, cacheEntryCount }
-    }
-
-    deletePersons(
-        _persons: InternalPerson[],
-        _distinctId: string,
-        _tx?: PersonRepositoryTransaction
-    ): Promise<PersonMessage[]> {
-        return Promise.reject(new PersonhogPendingRpcError('deletePersons', 'merge saga'))
-    }
-
-    deletePerson(
-        _person: InternalPerson,
-        _distinctId: string,
-        _tx?: PersonRepositoryTransaction
-    ): Promise<PersonMessage[]> {
-        return Promise.reject(new PersonhogPendingRpcError('deletePerson', 'merge saga'))
     }
 
     /**
@@ -529,32 +464,6 @@ export class PersonhogPersonsStore implements PersonsStore {
         // No ClickHouse message: the leader's changelog is this world's
         // person feed, so emitting here would double-publish.
         return [updated, [], false]
-    }
-
-    /**
-     * Counts by fetching: the RPC surface has no dedicated count, and the
-     * merge pre-check consuming this runs at shadow-team scale, where
-     * fetching the ids to count them is acceptable. Absent persons count
-     * zero, matching the SQL count.
-     */
-    async countDistinctIdsForPersons(
-        teamId: Team['id'],
-        personIds: InternalPerson['id'][],
-        _distinctId: string,
-        _tx: PersonRepositoryTransaction
-    ): Promise<Map<string, number>> {
-        const byPerson = await this.repository.getDistinctIdsForPersons(teamId, personIds, undefined, CALLER_TAG)
-        return new Map(personIds.map((id) => [id, byPerson[id]?.length ?? 0]))
-    }
-
-    async fetchPersonDistinctIds(
-        person: InternalPerson,
-        _distinctId: string,
-        limit: number | undefined,
-        _tx: PersonRepositoryTransaction
-    ): Promise<string[]> {
-        const byPerson = await this.repository.getDistinctIdsForPersons(person.team_id, [person.id], limit, CALLER_TAG)
-        return byPerson[person.id] ?? []
     }
 
     removeDistinctIdFromCache(teamId: number, distinctId: string): void {
@@ -697,30 +606,16 @@ export class PersonhogPersonsStore implements PersonsStore {
             return
         }
         try {
-            for (const ops of entry.segments) {
-                await this.repository.updatePersonProperties(
-                    {
-                        teamId: entry.teamId,
-                        personId: entry.personId,
-                        eventName: ops.eventName,
-                        setProperties: ops.set,
-                        setOnceProperties: ops.setOnce,
-                        unsetProperties: ops.unset,
-                        isIdentified: ops.isIdentified,
-                        lastSeenAtMs: ops.lastSeenAtMs,
-                    },
-                    CALLER_TAG
-                )
-            }
+            await this.shipSegments(entry, entry.personId)
             personhogStoreFlushCounter.inc({ outcome: 'success' })
         } catch (error) {
             if (error instanceof NoRowsUpdatedError) {
-                // The person was merged or deleted since the fold.
-                // In-batch that is fine: the merge carried the pending
-                // projection to its target. Merge events are gated off
-                // this store, so this counter firing means a bug, not a
-                // cross-batch race.
-                personhogStoreFlushCounter.inc({ outcome: 'not_found' })
+                // The person was merged or deleted since the fold. Re-resolve
+                // the lane's distinct id and re-ship to the survivor, as the
+                // Postgres flush does; a person deleted outright, or merged
+                // away again mid-reship, still counts not_found and drops.
+                const reshipped = await this.reshipToSurvivor(batchId, personKey, entry)
+                personhogStoreFlushCounter.inc({ outcome: reshipped ? 'reshipped' : 'not_found' })
             } else if (error instanceof PersonhogPropertiesSizeError) {
                 // Counted only: the store holds no outputs handle, so
                 // the size-violation ingestion warning the Postgres
@@ -736,6 +631,52 @@ export class PersonhogPersonsStore implements PersonsStore {
                 this.restoreEntry(batchId, personKey, entry)
                 throw error
             }
+        }
+    }
+
+    private async shipSegments(entry: OpsLaneEntry, personId: string): Promise<void> {
+        for (const ops of entry.segments) {
+            await this.repository.updatePersonProperties(
+                {
+                    teamId: entry.teamId,
+                    personId,
+                    eventName: ops.eventName,
+                    setProperties: ops.set,
+                    setOnceProperties: ops.setOnce,
+                    unsetProperties: ops.unset,
+                    isIdentified: ops.isIdentified,
+                    lastSeenAtMs: ops.lastSeenAtMs,
+                },
+                CALLER_TAG
+            )
+        }
+    }
+
+    /**
+     * Re-resolves a lane's distinct id after its person vanished and ships
+     * the segments to the survivor. Returns false when nothing resolves,
+     * when the id still maps to the vanished person, or when the survivor
+     * is also gone by ship time. Transient failures restore the entry and
+     * rethrow so the flush retries whole, matching the direct-ship path.
+     */
+    private async reshipToSurvivor(batchId: number, personKey: string, entry: OpsLaneEntry): Promise<boolean> {
+        const [resolved] = await this.repository.resolvePersonsByDistinctIds(
+            [{ teamId: entry.teamId, distinctId: entry.distinctId }],
+            CALLER_TAG
+        )
+        const survivorId = resolved?.person?.id
+        if (survivorId === undefined || survivorId === entry.personId) {
+            return false
+        }
+        try {
+            await this.shipSegments(entry, survivorId)
+            return true
+        } catch (error) {
+            if (error instanceof NoRowsUpdatedError || error instanceof PersonhogPropertiesSizeError) {
+                return false
+            }
+            this.restoreEntry(batchId, personKey, entry)
+            throw error
         }
     }
 

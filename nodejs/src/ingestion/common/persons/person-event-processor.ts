@@ -1,12 +1,12 @@
 import { ASYNC_OUTPUT, AsyncOutput } from '~/common/outputs'
 import { logger } from '~/common/utils/logger'
-import { PipelineResult, dlq, ok, redirect } from '~/ingestion/framework/results'
+import { PipelineResult, dlq, drop, ok, redirect } from '~/ingestion/framework/results'
 import { PluginEvent } from '~/plugin-scaffold'
 import { InternalPerson, Person } from '~/types'
 
 import { PersonContext } from './person-context'
 import { PersonMergeService } from './person-merge-service'
-import { PersonMergeLimitExceededError, PersonMergeRaceConditionError } from './person-merge-types'
+import { PersonMergeLimitExceededError } from './person-merge-types'
 import { PersonPropertyService } from './person-property-service'
 
 /**
@@ -96,21 +96,20 @@ export class PersonEventProcessor {
                     })
                     return dlq('Merge limit exceeded', error)
                 case 'SYNC':
-                    // SYNC mode should never hit limits - this indicates a bug
-                    logger.error('Unexpected limit exceeded in SYNC mode - this should not happen', {
+                    // The Postgres world cannot produce this error in SYNC mode
+                    // (its moves are unbounded), but the personhog saga enforces
+                    // a move limit in every mode. Temporary while personhog mode
+                    // is a testing path: drop the event loudly rather than fail
+                    // the batch into a redelivery loop. The permanent fix is
+                    // saga-side chunked moves, after which this branch becomes
+                    // unreachable again.
+                    logger.error('Merge limit exceeded in SYNC mode; dropping the event', {
                         team_id: event.team_id,
                         distinct_id: event.distinct_id,
                         mergeMode: mergeMode,
                     })
-                    throw error
+                    return drop('Merge limit exceeded in SYNC mode', [])
             }
-        } else if (error instanceof PersonMergeRaceConditionError) {
-            logger.warn('Race condition detected, ignoring merge', {
-                error: error.message,
-                team_id: this.context.team.id,
-                distinct_id: this.context.distinctId,
-            })
-            return null // Continue with normal processing
         } else {
             // Unknown errors should be thrown - they indicate bugs or unexpected conditions
             logger.error('Unknown merge error - throwing to surface the issue', {

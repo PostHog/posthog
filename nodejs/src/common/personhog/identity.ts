@@ -5,6 +5,8 @@ import {
     GetDistinctIdsForPersonsRequestSchema,
     GetOrCreatePersonByDistinctIdRequestSchema,
     GetPersonsByDistinctIdsRequestSchema,
+    MergePersonsRequestSchema,
+    MergeSourceOutcome,
     PersonHogIdentity,
 } from '~/common/generated/personhog/personhog/identity/v1/identity_pb'
 import { PersonPropertiesSizeViolationError } from '~/common/persons/repositories/person-repository'
@@ -41,6 +43,60 @@ const IDENTITY_BATCH_SIZE = 250
 export interface DistinctIdKey {
     teamId: number
     distinctId: string
+}
+
+/** One source pair of a merge saga call. */
+export interface MergeSagaSource {
+    distinctId: string
+    /** The $identify/$create_alias event that contributed this pair; for warning correlation only. */
+    eventUuid: string
+}
+
+export interface MergeSagaRequest {
+    teamId: number
+    targetDistinctId: string
+    /** Ordered; earlier pairs beat later pairs on property precedence, the target beats all. */
+    sources: MergeSagaSource[]
+    /** The merge event's $set: overrides on conflict, applied to the survivor. */
+    eventSet: Properties
+    /** The merge event's $set_once: fills only still-absent keys. */
+    eventSetOnce: Properties
+    /** Retry key: a repeated call with the same op id returns the recorded outcome. */
+    opId: string
+    /** $merge_dangerously legally merges already-identified sources; $identify does not. */
+    allowIdentifiedSources: boolean
+    /** Per-source distinct-id count guard; sources over it come back skipped_move_limit. */
+    moveLimit: number
+    /** Merge event created_at, epoch millis; becomes the survivor's when older. */
+    createdAtMs: number
+}
+
+export type MergeSagaSourceOutcome =
+    | 'merged'
+    | 'noop_same_person'
+    | 'attached'
+    | 'skipped_illegal'
+    | 'skipped_already_identified'
+    | 'skipped_conflict'
+    | 'skipped_move_limit'
+    | 'error'
+
+export interface MergeSagaResult {
+    /** The surviving person; null only when the target no longer resolves. */
+    survivor: InternalPerson | null
+    results: { sourceDistinctId: string; outcome: MergeSagaSourceOutcome }[]
+}
+
+const MERGE_OUTCOME_NAMES: Record<MergeSourceOutcome, MergeSagaSourceOutcome> = {
+    [MergeSourceOutcome.UNSPECIFIED]: 'error',
+    [MergeSourceOutcome.MERGED]: 'merged',
+    [MergeSourceOutcome.NOOP_SAME_PERSON]: 'noop_same_person',
+    [MergeSourceOutcome.ATTACHED]: 'attached',
+    [MergeSourceOutcome.SKIPPED_ILLEGAL]: 'skipped_illegal',
+    [MergeSourceOutcome.SKIPPED_ALREADY_IDENTIFIED]: 'skipped_already_identified',
+    [MergeSourceOutcome.SKIPPED_CONFLICT]: 'skipped_conflict',
+    [MergeSourceOutcome.SKIPPED_MOVE_LIMIT]: 'skipped_move_limit',
+    [MergeSourceOutcome.ERROR]: 'error',
 }
 
 /**
@@ -167,6 +223,41 @@ export class PersonhogIdentityOperations {
                 }
             }
             throw error
+        }
+    }
+
+    /**
+     * Merge every source distinct id's person into the target's person
+     * via the identity service's merge saga. The service classifies each
+     * pair: same-person pairs settle inline, personless sources attach,
+     * an unresolved target is established, and distinct-person pairs run
+     * the durable saga. Retries with the same op id return the recorded
+     * outcome, so callers reuse the op id across retries.
+     */
+    async mergePersons(request: MergeSagaRequest, callerTag?: string): Promise<MergeSagaResult> {
+        const response = await this.client.mergePersons(
+            create(MergePersonsRequestSchema, {
+                teamId: BigInt(request.teamId),
+                targetDistinctId: request.targetDistinctId,
+                sources: request.sources.map((source) => ({
+                    sourceDistinctId: source.distinctId,
+                    eventUuid: source.eventUuid,
+                })),
+                eventSet: encodeJsonBytes(request.eventSet),
+                eventSetOnce: encodeJsonBytes(request.eventSetOnce),
+                opId: request.opId,
+                allowIdentifiedSources: request.allowIdentifiedSources,
+                moveLimit: BigInt(request.moveLimit),
+                createdAt: BigInt(request.createdAtMs),
+            }),
+            callerTag ? { headers: { 'x-caller-tag': callerTag } } : undefined
+        )
+        return {
+            survivor: response.survivor ? protoPersonToDomain(response.survivor) : null,
+            results: response.results.map((result) => ({
+                sourceDistinctId: result.sourceDistinctId,
+                outcome: MERGE_OUTCOME_NAMES[result.outcome] ?? 'error',
+            })),
         }
     }
 }

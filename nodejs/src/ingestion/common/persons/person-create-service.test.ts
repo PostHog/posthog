@@ -57,7 +57,7 @@ describe('PersonCreateService', () => {
             false
         )
 
-        personCreateService = new PersonCreateService(personContext)
+        personCreateService = new PersonCreateService(personContext.personStore, personContext.outputs)
     })
 
     describe('createPerson', () => {
