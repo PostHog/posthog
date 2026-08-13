@@ -6565,6 +6565,7 @@ class TestSurveyBulkDuplication(APIBaseTest):
         duplicated = Survey.objects.get(team=self.team2)
         assert duplicated.base_language == "en-GB"
         assert duplicated.translations == survey_translations
+        assert duplicated.questions is not None
         # Per-question translations are restored onto the right question, and questions without any are untouched.
         assert duplicated.questions[0]["translations"] == question_translations
         assert "translations" not in duplicated.questions[1]
@@ -6597,6 +6598,7 @@ class TestSurveyBulkDuplication(APIBaseTest):
 
         duplicated = Survey.objects.get(team=self.team2)
         assert duplicated.base_language == "fr"
+        assert duplicated.questions is not None
         assert duplicated.questions[0]["translations"] == {"en": {"question": "What do you think?"}}
 
     def test_bulk_duplicate_transaction_rollback_on_error(self):
