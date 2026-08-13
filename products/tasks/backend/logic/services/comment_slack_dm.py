@@ -342,7 +342,9 @@ def _message(
     organization_id: str | UUID | None,
     slack_user_id_by_email: Callable[[str], str | None] | None = None,
 ) -> tuple[str, list[dict]]:
-    url = f"{settings.SITE_URL}/project/{task.team_id}/tasks/{task.id}"
+    # The /code/task bridge deep-links into the desktop app, where the comment thread lives —
+    # the web tasks page has no comments UI.
+    url = f"{settings.SITE_URL}/code/task/{task.id}"
     title = task.title or "a task"
     author = _author_name(comment)
     template = _HEADINGS.get(kind, _HEADINGS[TaskCommentActivity.Kind.MENTION])
