@@ -789,7 +789,9 @@ class ReplayFiltersEventsSubQuery(SessionRecordingsListingBaseQuery):
 
         where = self._where_predicates(where_expr, apply_timestamp_floor=False)
         if ingested_after is not None:
-            assert isinstance(where, ast.And)
+            if not isinstance(where, ast.And):
+                # Dropping this bound silently would turn a delta scan into an unbounded one.
+                raise TypeError(f"expected an And of predicates to bound, got {type(where).__name__}")
             where.exprs.append(
                 ast.CompareOperation(
                     op=ast.CompareOperationOp.GtEq,

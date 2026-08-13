@@ -69,7 +69,11 @@ def find_scanner_candidates_activity(inputs: FindScannerCandidatesInputs) -> Fin
     # blocklists; any store problem falls back to the legacy (always-correct) in-query path.
     fingerprint = blocked_sessions.blocklist_fingerprint(scanner.team, query)
     use_blocked_store = fingerprint is not None and blocked_sessions.refresh_blocked_sessions(
-        scanner_id=str(scanner.id), team=scanner.team, query=query, fingerprint=fingerprint
+        scanner_id=str(scanner.id),
+        team=scanner.team,
+        query=query,
+        fingerprint=fingerprint,
+        last_swept_at=scanner.last_swept_at,
     )
 
     limit = inputs.candidate_limit if inputs.candidate_limit is not None else DEFAULT_CANDIDATE_LIMIT
@@ -88,7 +92,7 @@ def find_scanner_candidates_activity(inputs: FindScannerCandidatesInputs) -> Fin
     )
     fetched = candidate_query.run()
     candidates = fetched
-    if use_blocked_store and fetched:
+    if use_blocked_store:
         blocked = blocked_sessions.blocked_subset(str(scanner.id), [c.session_id for c in fetched])
         candidates = [c for c in fetched if c.session_id not in blocked]
     # A full batch means there may be more past the keyset; the next sweep resumes from the last row.

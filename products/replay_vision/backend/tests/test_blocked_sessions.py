@@ -77,7 +77,11 @@ class TestRefreshBlockedSessions:
             for _ in scan_results:
                 outcomes.append(
                     refresh_blocked_sessions(
-                        scanner_id="scanner-1", team=team, query=query, fingerprint=_fingerprint(team, query)
+                        scanner_id="scanner-1",
+                        team=team,
+                        query=query,
+                        fingerprint=_fingerprint(team, query),
+                        last_swept_at=dt.datetime.now(dt.UTC),
                     )
                 )
         self.scan_calls = mock_scan.call_args_list
@@ -98,11 +102,16 @@ class TestRefreshBlockedSessions:
                 team=team,
                 query=_negative_query("a.example.com"),
                 fingerprint=_fingerprint(team, _negative_query("a.example.com")),
+                last_swept_at=dt.datetime.now(dt.UTC),
             )
         with patch.object(blocked_sessions, "_execute_candidate_query", return_value=[["sess-b"]]) as mock_scan:
             changed = _negative_query("b.example.com")
             assert refresh_blocked_sessions(
-                scanner_id="scanner-1", team=team, query=changed, fingerprint=_fingerprint(team, changed)
+                scanner_id="scanner-1",
+                team=team,
+                query=changed,
+                fingerprint=_fingerprint(team, changed),
+                last_swept_at=dt.datetime.now(dt.UTC),
             )
         assert mock_scan.call_args.kwargs["query_type"] == "ReplayVisionBlocklistRebuildQuery"
         # The rebuild replaced the old filter's entries instead of unioning with them.
@@ -121,6 +130,49 @@ class TestRefreshBlockedSessions:
                     team=team,
                     query=_negative_query(),
                     fingerprint=_fingerprint(team, _negative_query()),
+                    last_swept_at=dt.datetime.now(dt.UTC),
+                )
+                is False
+            )
+        mock_scan.assert_not_called()
+
+    def test_evicted_set_with_surviving_meta_rebuilds(self, team) -> None:
+        # The two keys can be evicted independently on a shared Redis. A fresh watermark over a lost
+        # set would report every session unblocked, which is the one failure this store must not have.
+        query = _negative_query()
+        with patch.object(blocked_sessions, "_execute_candidate_query", return_value=[["sess-a"]]):
+            refresh_blocked_sessions(
+                scanner_id="scanner-1",
+                team=team,
+                query=query,
+                fingerprint=_fingerprint(team, query),
+                last_swept_at=dt.datetime.now(dt.UTC),
+            )
+        get_client().delete("@posthog/replay-vision/blocked-sessions/scanner-1")
+
+        with patch.object(blocked_sessions, "_execute_candidate_query", return_value=[["sess-a"]]) as mock_scan:
+            assert refresh_blocked_sessions(
+                scanner_id="scanner-1",
+                team=team,
+                query=query,
+                fingerprint=_fingerprint(team, query),
+                last_swept_at=dt.datetime.now(dt.UTC),
+            )
+        assert mock_scan.call_args.kwargs["query_type"] == "ReplayVisionBlocklistRebuildQuery"
+        assert blocked_subset("scanner-1", ["sess-a"]) == {"sess-a"}
+
+    def test_lagged_scanner_keeps_the_in_query_blocklist(self, team) -> None:
+        # Its candidates reach back past what the store covers, so a miss would observe a session the
+        # filter excludes. Pay the old cost instead.
+        query = _negative_query()
+        with patch.object(blocked_sessions, "_execute_candidate_query") as mock_scan:
+            assert (
+                refresh_blocked_sessions(
+                    scanner_id="scanner-1",
+                    team=team,
+                    query=query,
+                    fingerprint=_fingerprint(team, query),
+                    last_swept_at=dt.datetime.now(dt.UTC) - dt.timedelta(hours=12),
                 )
                 is False
             )
@@ -134,6 +186,7 @@ class TestRefreshBlockedSessions:
                     team=team,
                     query=_negative_query(),
                     fingerprint=_fingerprint(team, _negative_query()),
+                    last_swept_at=dt.datetime.now(dt.UTC),
                 )
                 is False
             )
@@ -145,18 +198,30 @@ class TestBlockedSessionsAgainstClickHouse(ClickhouseTestMixin):
         query = _negative_query()
         fingerprint = _fingerprint(team, query)
 
-        assert refresh_blocked_sessions(scanner_id="scanner-1", team=team, query=query, fingerprint=fingerprint)
+        assert refresh_blocked_sessions(
+            scanner_id="scanner-1",
+            team=team,
+            query=query,
+            fingerprint=fingerprint,
+            last_swept_at=dt.datetime.now(dt.UTC),
+        )
         assert blocked_subset("scanner-1", ["late-sess"]) == set()
 
-        # Arrives now (fresh inserted_at) but claims to have happened days ago — before the delta
-        # watermark, so an event-timestamp scan would miss it; only an arrival-time scan catches it.
+        # Arrives now (fresh inserted_at) but carries a timestamp from well before the delta
+        # watermark, so a timestamp-based scan would miss it; only an arrival-time scan catches it.
         _create_event(
             team=team,
             event="$pageview",
             distinct_id="d1",
-            timestamp=dt.datetime.now(dt.UTC) - dt.timedelta(days=3),
+            timestamp=dt.datetime.now(dt.UTC) - dt.timedelta(hours=30),
             properties={"$session_id": "late-sess", "$host": "internal.example.com"},
         )
 
-        assert refresh_blocked_sessions(scanner_id="scanner-1", team=team, query=query, fingerprint=fingerprint)
+        assert refresh_blocked_sessions(
+            scanner_id="scanner-1",
+            team=team,
+            query=query,
+            fingerprint=fingerprint,
+            last_swept_at=dt.datetime.now(dt.UTC),
+        )
         assert blocked_subset("scanner-1", ["late-sess"]) == {"late-sess"}
