@@ -15,6 +15,7 @@ from posthog.models import User
 from posthog.models.personal_api_key import PersonalAPIKey
 from posthog.models.utils import generate_random_token_personal, hash_key_value
 from posthog.rbac.user_access_control import UserAccessControlError
+from posthog.session_recordings.models.session_recording_playlist import SessionRecordingPlaylist
 from posthog.session_recordings.queries.recordings_query_runner import RecordingsQueryRunner
 from posthog.session_recordings.queries.session_recording_list_from_query import SessionRecordingListFromQuery
 from posthog.session_recordings.queries.test.listing_recordings.test_utils import (
@@ -490,6 +491,36 @@ class TestSessionRecordingsListByExperimentExposure(ClickhouseTestMixin, APIBase
 
         response = self.client.get(
             f"/api/projects/{self.team.pk}/session_recordings/",
+            params,
+            HTTP_AUTHORIZATION=f"Bearer {value}",
+        )
+
+        assert response.status_code == expected_status, response.content
+
+    @parameterized.expand(
+        [
+            ("playlist_scope_only", ["session_recording_playlist:read"], True, 403),
+            ("with_experiment_scope", ["session_recording_playlist:read", "experiment:read"], True, 200),
+            ("no_filter_needs_no_experiment_scope", ["session_recording_playlist:read"], False, 200),
+        ]
+    )
+    def test_playlist_recordings_endpoint_scope_parity_for_api_keys(
+        self, _name: str, scopes: list[str], with_filter: bool, expected_status: int
+    ) -> None:
+        # A filters playlist's recordings action parses the same query params into a
+        # RecordingsQuery as the recordings list, so without the conditional scope a
+        # playlist-read token could read which recordings belong to an experiment's
+        # exposed population, per variant.
+        experiment = self._create_experiment()
+        playlist = SessionRecordingPlaylist.objects.create(
+            team=self.team, created_by=self.user, type=SessionRecordingPlaylist.PlaylistType.FILTERS
+        )
+        value = generate_random_token_personal()
+        PersonalAPIKey.objects.create(label="test", user=self.user, secure_value=hash_key_value(value), scopes=scopes)
+        params = {"experiment_exposure": json.dumps({"experiment_id": experiment.id})} if with_filter else {}
+
+        response = self.client.get(
+            f"/api/projects/{self.team.pk}/session_recording_playlists/{playlist.short_id}/recordings",
             params,
             HTTP_AUTHORIZATION=f"Bearer {value}",
         )
