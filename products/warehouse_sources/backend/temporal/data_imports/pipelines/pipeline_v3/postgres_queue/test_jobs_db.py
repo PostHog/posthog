@@ -75,6 +75,7 @@ def _ensure_tables(conn: psycopg.Connection[Any]) -> None:
             latest_state VARCHAR(32) NOT NULL DEFAULT 'pending',
             latest_attempt SMALLINT NOT NULL DEFAULT 0,
             state_changed_at TIMESTAMPTZ,
+            superseded BOOLEAN NOT NULL DEFAULT FALSE,
             created_at TIMESTAMPTZ NOT NULL DEFAULT now()
         )
     """)
@@ -83,7 +84,8 @@ def _ensure_tables(conn: psycopg.Connection[Any]) -> None:
         ALTER TABLE {BATCH_TABLE}
             ADD COLUMN IF NOT EXISTS latest_state VARCHAR(32) NOT NULL DEFAULT 'pending',
             ADD COLUMN IF NOT EXISTS latest_attempt SMALLINT NOT NULL DEFAULT 0,
-            ADD COLUMN IF NOT EXISTS state_changed_at TIMESTAMPTZ
+            ADD COLUMN IF NOT EXISTS state_changed_at TIMESTAMPTZ,
+            ADD COLUMN IF NOT EXISTS superseded BOOLEAN NOT NULL DEFAULT FALSE
     """)
     conn.execute(f"""
         CREATE INDEX IF NOT EXISTS sb_claimable_idx ON {BATCH_TABLE} (team_id, created_at, batch_index)
@@ -96,6 +98,10 @@ def _ensure_tables(conn: psycopg.Connection[Any]) -> None:
     conn.execute(f"""
         CREATE INDEX IF NOT EXISTS sb_schema_busy_idx ON {BATCH_TABLE} (team_id, schema_id)
             WHERE latest_state = 'executing'
+    """)
+    conn.execute(f"""
+        CREATE INDEX IF NOT EXISTS sb_failed_changed_idx ON {BATCH_TABLE} (state_changed_at)
+            WHERE latest_state = 'failed'
     """)
     conn.execute(f"""
         CREATE TABLE IF NOT EXISTS {STATUS_TABLE} (
@@ -1641,3 +1647,80 @@ class TestRecoverySweepVsLiveOwner:
         cur = await conn.execute(f"SELECT latest_state FROM {BATCH_TABLE} WHERE id = %s", (bid,))
         row = await cur.fetchone()
         assert row is not None and row[0] == "succeeded", "the sweep must not re-queue a batch its owner finished"
+
+
+@pytest.mark.django_db(transaction=True)
+class TestGetFailedRuns:
+    """The reconcile sweep judges candidacy from the denormalized batch columns
+    alone; these guard the candidacy rules and the dual-write derivation of the
+    superseded flag they depend on."""
+
+    async def _backdate_run_failure(self, conn: psycopg.AsyncConnection[Any], run_uuid: str, age_seconds: int) -> None:
+        await conn.execute(
+            f"UPDATE {STATUS_TABLE} SET created_at = created_at - make_interval(secs => %s) "
+            f"WHERE batch_id IN (SELECT id FROM {BATCH_TABLE} WHERE run_uuid = %s)",
+            [age_seconds, run_uuid],
+        )
+        await conn.execute(
+            f"UPDATE {BATCH_TABLE} SET state_changed_at = state_changed_at - make_interval(secs => %s) "
+            f"WHERE run_uuid = %s",
+            [age_seconds, run_uuid],
+        )
+
+    @pytest.mark.parametrize(
+        "grace_seconds,failure_age_seconds,expect_returned",
+        [
+            (0, 0, True),
+            (3600, 0, False),  # too fresh: a fail_run may still be in flight
+            (0, 90_000, False),  # older than the lookback window
+        ],
+    )
+    @pytest.mark.asyncio
+    async def test_failed_run_surfaces_between_grace_and_lookback(
+        self, conn, grace_seconds, failure_age_seconds, expect_returned
+    ):
+        await _insert_batch(conn, run_uuid="run-f", job_id="job-f", metadata={"workflow_run_id": "wf-1"})
+        await BatchQueue.fail_run(conn, run_uuid="run-f", team_id=1, schema_id="schema-1", reason="boom")
+        if failure_age_seconds:
+            await self._backdate_run_failure(conn, "run-f", failure_age_seconds)
+
+        refs = await BatchQueue.get_failed_runs(conn, grace_seconds=grace_seconds, lookback_seconds=86_400, limit=10)
+
+        if expect_returned:
+            assert [(r.run_uuid, r.job_id, r.team_id, r.schema_id, r.reason) for r in refs] == [
+                ("run-f", "job-f", 1, "schema-1", "boom")
+            ]
+            assert refs[0].workflow_run_id == "wf-1"
+        else:
+            assert refs == []
+
+    @pytest.mark.asyncio
+    async def test_superseded_runs_are_not_reconciled(self, conn, sync_conn):
+        await _insert_batch(conn, run_uuid="run-old", job_id="job-f")
+        await _insert_batch(conn, run_uuid="run-new", job_id="job-f")
+        BatchQueue.supersede_other_runs(sync_conn, job_id="job-f", current_run_uuid="run-new")
+        await _insert_batch(conn, run_uuid="run-failed", job_id="job-g", schema_id="schema-2")
+        await BatchQueue.fail_run(conn, run_uuid="run-failed", team_id=1, schema_id="schema-2", reason="boom")
+
+        refs = await BatchQueue.get_failed_runs(conn, grace_seconds=0, lookback_seconds=86_400, limit=10)
+
+        assert [r.run_uuid for r in refs] == ["run-failed"]
+        # The flag itself must be set: the post-LIMIT status re-check would also
+        # hide run-old from this query, silently masking a broken derivation.
+        cur = await conn.execute(f"SELECT bool_and(superseded) FROM {BATCH_TABLE} WHERE run_uuid = 'run-old'")
+        row = await cur.fetchone()
+        assert row is not None and row[0] is True
+
+    @pytest.mark.asyncio
+    async def test_pre_backfill_superseded_rows_stay_excluded(self, conn, sync_conn):
+        # A failed row written before the superseded column existed reads false
+        # until the backfill command runs; the status payload must still veto
+        # reconciling it, or a job with a live newer run gets failed.
+        await _insert_batch(conn, run_uuid="run-old", job_id="job-f")
+        await _insert_batch(conn, run_uuid="run-new", job_id="job-f")
+        BatchQueue.supersede_other_runs(sync_conn, job_id="job-f", current_run_uuid="run-new")
+        await conn.execute(f"UPDATE {BATCH_TABLE} SET superseded = false WHERE run_uuid = 'run-old'")
+
+        refs = await BatchQueue.get_failed_runs(conn, grace_seconds=0, lookback_seconds=86_400, limit=10)
+
+        assert refs == []

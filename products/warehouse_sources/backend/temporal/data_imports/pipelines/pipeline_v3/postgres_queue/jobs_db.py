@@ -173,10 +173,12 @@ def build_status_dual_write_sql(*, with_batch_created_at: bool) -> str:
         WITH ins AS (
             INSERT INTO {STATUS_TABLE} (batch_id, job_state, attempt, exec_time, error_response, created_at)
             VALUES (%(batch_id)s, %(job_state)s, %(attempt)s, now(), %(error_response)s, now())
-            RETURNING batch_id, job_state, attempt, created_at
+            RETURNING batch_id, job_state, attempt, created_at, error_response
         )
         UPDATE {BATCH_TABLE} b
-        SET latest_state = ins.job_state, latest_attempt = ins.attempt, state_changed_at = ins.created_at
+        SET latest_state = ins.job_state, latest_attempt = ins.attempt, state_changed_at = ins.created_at,
+            superseded = (ins.job_state = 'failed'
+                          AND COALESCE((ins.error_response->>'superseded')::boolean, false))
         FROM ins
         WHERE b.id = ins.batch_id
           AND {created_at_predicate}
@@ -231,11 +233,13 @@ def build_status_dual_write_unless_failed_sql(
             INSERT INTO {STATUS_TABLE} (batch_id, job_state, attempt, exec_time, error_response, created_at)
             SELECT t.id, %(job_state)s, %(attempt)s, now(), %(error_response)s, now()
             FROM target t
-            RETURNING batch_id, job_state, attempt, created_at
+            RETURNING batch_id, job_state, attempt, created_at, error_response
         ),
         upd AS (
             UPDATE {BATCH_TABLE} b
-            SET latest_state = ins.job_state, latest_attempt = ins.attempt, state_changed_at = ins.created_at
+            SET latest_state = ins.job_state, latest_attempt = ins.attempt, state_changed_at = ins.created_at,
+                superseded = (ins.job_state = 'failed'
+                              AND COALESCE((ins.error_response->>'superseded')::boolean, false))
             FROM ins
             WHERE b.id = ins.batch_id
               AND {created_at_predicate}
@@ -272,7 +276,8 @@ def _bulk_fail_dual_write_sql(where_sql: str) -> str:
             RETURNING batch_id, created_at
         )
         UPDATE {BATCH_TABLE} b
-        SET latest_state = 'failed', latest_attempt = 0, state_changed_at = ins.created_at
+        SET latest_state = 'failed', latest_attempt = 0, state_changed_at = ins.created_at,
+            superseded = COALESCE((%(error_response)s::jsonb->>'superseded')::boolean, false)
         FROM ins
         JOIN targets t ON t.id = ins.batch_id
         WHERE b.id = t.id
@@ -1102,45 +1107,62 @@ class BatchQueue:
         """Return one ref per run with a ``failed`` batch older than ``grace_seconds``, within ``lookback_seconds``.
 
         Ordered by latest failure first so fresh failures still land in the window when
-        already-reconciled runs outnumber ``limit`` within the lookback. The
-        denormalized-column pre-filter keeps the lateral (still needed for the
-        failure timestamp and error payload) probing only failed batches.
+        already-reconciled runs outnumber ``limit`` within the lookback.
+
+        Candidacy, the per-run pick, and the LIMIT run entirely off the
+        denormalized batch columns: ``state_changed_at`` equals the failed
+        status row's ``created_at`` (the dual-write CTEs guarantee it), and
+        ``superseded`` mirrors the status payload's flag. The per-batch
+        latest-status lateral this replaces was the sweep's melt-down under
+        failure storms: each probe is a Merge Append across every status
+        partition, and it ran once per failed batch in the window — 1.36M
+        during the 2026-08 storm, minutes per sweep. The lateral now runs only
+        for the ``LIMIT`` winners' error payloads.
+
+        The post-LIMIT superseded re-check is the deploy-transition fence:
+        failed rows written before the flag existed read ``superseded = false``
+        until ``backfill_warehouse_queue_state reconcile`` has run, and
+        reconciling such a run would fail an ExternalDataJob whose newer run is
+        live. Until the backfill lands, those rows can occupy winner slots (the
+        sweep returns fewer than ``limit`` refs), which only delays other
+        reconciles to a later sweep.
+
+        ``state_changed_at`` is nullable; NULL rows must stay visible or a
+        failed run could strand until the retention prune (the stranded sweep
+        skips runs that have a failed batch). Every writer of
+        ``latest_state = 'failed'`` also sets ``state_changed_at``, so the NULL
+        arm matches only legacy rows; their batch ``created_at`` stands in for
+        the failure time.
         """
         async with conn.cursor(row_factory=dict_row) as cur:
             await cur.execute(
                 f"""
-                SELECT run_uuid, job_id, team_id, schema_id, metadata, error_response
-                FROM (
-                    SELECT DISTINCT ON (b.run_uuid)
-                        b.run_uuid, b.job_id, b.team_id, b.schema_id, b.metadata, s.error_response,
-                        s.created_at AS failed_at
-                    FROM {BATCH_TABLE} b
-                    {latest_status_lateral("b", "s", join="INNER")}
-                    WHERE
-                        b.created_at > now() - interval '{PARTITION_PRUNING_INTERVAL}'
-                        AND b.latest_state = 'failed'
-                        -- Implied by the s.created_at lower bound (the denormalizing
-                        -- status CTEs set state_changed_at to exactly the terminal
-                        -- status row's created_at), so it changes no semantics: it
-                        -- exists purely to prune the outer scan BEFORE the DISTINCT ON
-                        -- sort and the per-row lateral probes. Without it the sort
-                        -- input is every failed batch in the pruning window — 1.36M
-                        -- rows during the 2026-08 failure storm, a minutes-long disk
-                        -- spill at work_mem=4MB that, run by every pod concurrently,
-                        -- starved the claim path (the 2026-08-09 loader stall).
-                        -- state_changed_at is nullable; NULL rows must stay visible or a
-                        -- failed run could strand until the retention prune (the stranded
-                        -- sweep skips runs that have a failed batch).
-                        AND (b.state_changed_at IS NULL
-                             OR b.state_changed_at >= now() - make_interval(secs => %(lookback)s))
-                        AND s.job_state = 'failed'
-                        AND s.created_at <= now() - make_interval(secs => %(grace)s)
-                        AND s.created_at >= now() - make_interval(secs => %(lookback)s)
-                        AND COALESCE((s.error_response->>'superseded')::boolean, false) = false
-                    ORDER BY b.run_uuid, s.created_at DESC
-                ) failed_runs
-                ORDER BY failed_at DESC
-                LIMIT %(limit)s
+                WITH winners AS MATERIALIZED (
+                    SELECT run_uuid, batch_id, batch_created_at, failed_at
+                    FROM (
+                        SELECT DISTINCT ON (b.run_uuid)
+                            b.run_uuid, b.id AS batch_id, b.created_at AS batch_created_at,
+                            COALESCE(b.state_changed_at, b.created_at) AS failed_at
+                        FROM {BATCH_TABLE} b
+                        WHERE
+                            b.created_at > now() - interval '{PARTITION_PRUNING_INTERVAL}'
+                            AND b.latest_state = 'failed'
+                            AND NOT b.superseded
+                            AND (b.state_changed_at IS NULL
+                                 OR (b.state_changed_at >= now() - make_interval(secs => %(lookback)s)
+                                     AND b.state_changed_at <= now() - make_interval(secs => %(grace)s)))
+                        ORDER BY b.run_uuid, COALESCE(b.state_changed_at, b.created_at) DESC
+                    ) ranked
+                    ORDER BY failed_at DESC
+                    LIMIT %(limit)s
+                )
+                SELECT b.run_uuid, b.job_id, b.team_id, b.schema_id, b.metadata, s.error_response
+                FROM winners w
+                JOIN {BATCH_TABLE} b ON b.id = w.batch_id AND b.created_at = w.batch_created_at
+                {latest_status_lateral("b", "s", join="INNER")}
+                WHERE s.job_state = 'failed'
+                  AND COALESCE((s.error_response->>'superseded')::boolean, false) = false
+                ORDER BY w.failed_at DESC
                 """,
                 {"grace": grace_seconds, "lookback": lookback_seconds, "limit": limit},
             )
