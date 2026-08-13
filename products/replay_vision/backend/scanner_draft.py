@@ -42,6 +42,7 @@ _MODEL_CALL_TIMEOUT_MS = 90_000
 _MAX_NAME_LENGTH = 255  # ReplayScanner.name column length
 _MAX_DESCRIPTION_LENGTH = 1_000
 _MAX_PROMPT_LENGTH = 20_000
+_MAX_RATIONALE_LENGTH = 500
 _MAX_DRAFT_TAGS = 12
 _DEFAULT_SCALE = (0, 10)
 # Draft-only sanity bounds. Create accepts any min < max, but a drafted scale outside every plausible
@@ -71,6 +72,11 @@ class _LlmDraft(BaseModel):
     name: str = Field(description="Short scanner name (under 8 words), e.g. 'Checkout abandonment'.")
     description: str = Field(description="One sentence describing what the scanner looks for and why.")
     prompt: str = Field(description="The instruction the scanner follows while watching a single session recording.")
+    rationale: str = Field(
+        default="",
+        description="One or two sentences, addressed to the user, explaining why this scanner type and "
+        "configuration fit their goal.",
+    )
     tags: list[str] = Field(
         default_factory=list,
         description="Classifier only: 4-8 lowercase snake_case tags forming the vocabulary; empty otherwise.",
@@ -94,6 +100,7 @@ class ScannerDraft:
     description: str
     scanner_type: str
     scanner_config: dict[str, Any]
+    rationale: str
 
 
 @dataclass(frozen=True, kw_only=True)
@@ -164,6 +171,9 @@ Pick the single type that best fits the goal, then draft the scanner:
 - Fill only the fields relevant to the chosen type; leave the rest at their defaults.
 - For classifiers: 4-8 lowercase snake_case tags that are distinct, non-overlapping categories along the
   dimension. No vague catch-alls ("other", "misc").
+- rationale: one or two sentences, addressed to the user, explaining why the chosen type and settings fit
+  their goal (e.g. why a classifier rather than a scorer, or what the scale's endpoints capture). It is
+  shown next to the draft in the creation wizard; plain language, and don't restate the config itself.
 
 The briefing may include the company's business context and the team's existing scanners:
 - Use the business context to make the name, description, and prompt specific to THIS company's product,
@@ -336,4 +346,5 @@ def _finalize(parsed: _LlmDraft) -> ScannerDraft:
         description=parsed.description.strip()[:_MAX_DESCRIPTION_LENGTH],
         scanner_type=parsed.scanner_type,
         scanner_config=scanner_config,
+        rationale=parsed.rationale.strip()[:_MAX_RATIONALE_LENGTH],
     )

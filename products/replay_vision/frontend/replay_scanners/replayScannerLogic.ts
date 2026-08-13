@@ -864,6 +864,13 @@ export const replayScannerLogic = kea<replayScannerLogicType>([
                 startFromTemplate: () => '',
             },
         ],
+        // A template pick replaces the drafted form, so its rationale no longer describes the config.
+        goalDraft: [
+            null as DraftScannerResponseApi | null,
+            {
+                startFromTemplate: () => null,
+            },
+        ],
         // Which tag's cohort is being created, so tag rows can show a per-row spinner.
         savingCohortTag: [
             null as string | null,

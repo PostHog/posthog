@@ -111,6 +111,7 @@ describe('replayScannerLogic', () => {
                 description: 'Tags each session by intent.',
                 scanner_type: 'classifier',
                 scanner_config: { prompt: 'Classify the session by intent.', tags: ['browsing'], multi_label: false },
+                rationale: 'A classifier fits because you want the mix of visit intents.',
             }
             draftSpy.mockReturnValue([200, draft])
             router.actions.push(path)
@@ -130,6 +131,11 @@ describe('replayScannerLogic', () => {
             })
             // The test router prefixes paths with /project/:id, so match on the suffix.
             expect(router.values.location.pathname).toContain(urls.replayVisionScannerConfigure('new'))
+
+            // The rationale stays available for the configure step, until a template pick replaces the draft.
+            expect(logic.values.goalDraft?.rationale).toEqual(draft.rationale)
+            logic.actions.startFromTemplate(null)
+            expect(logic.values.goalDraft).toBeNull()
         })
 
         it('drops a stale draft when the user has left the template step mid-request', async () => {

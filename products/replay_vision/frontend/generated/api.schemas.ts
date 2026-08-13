@@ -1556,6 +1556,8 @@ export interface DraftScannerResponseApi {
     scanner_type: ScannerTypeEnumApi
     /** Type-specific config for the drafted `scanner_type`; always includes `prompt`. */
     scanner_config: unknown
+    /** Why the draft picked this scanner type and configuration, addressed to the user. */
+    rationale: string
 }
 
 /**

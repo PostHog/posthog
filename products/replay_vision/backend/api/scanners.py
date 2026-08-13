@@ -1084,6 +1084,10 @@ class DraftScannerResponseSerializer(serializers.Serializer):
     scanner_config = serializers.JSONField(
         help_text="Type-specific config for the drafted `scanner_type`; always includes `prompt`."
     )
+    rationale = serializers.CharField(
+        allow_blank=True,
+        help_text="Why the draft picked this scanner type and configuration, addressed to the user.",
+    )
 
 
 class ScannerImpactSerializer(serializers.Serializer):
@@ -1811,6 +1815,7 @@ class ReplayScannerViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, vi
                     "description": drafted.description,
                     "scanner_type": drafted.scanner_type,
                     "scanner_config": drafted.scanner_config,
+                    "rationale": drafted.rationale,
                 }
             ).data
         )
