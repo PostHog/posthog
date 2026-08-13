@@ -51,8 +51,7 @@ export function deriveSessionViewState(
   const isNewSessionWithInitialPrompt =
     !task.latest_run?.id && !!task.description;
   const isResumingExistingSession = !!task.latest_run?.id;
-  // A terminal run being hydrated has a session but no events yet; without the
-  // hydration flag the thread renders empty until the transcript fetch lands.
+  // Keeps a terminal run on the loading view until its transcript fetch lands.
   const isHydrating = session?.isHydrating === true;
   const isInitializing = isCloud
     ? !hasError &&
