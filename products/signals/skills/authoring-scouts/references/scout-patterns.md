@@ -340,8 +340,10 @@ Reach for it when the job is a recurring measurement rather than an anomaly hunt
   Say it explicitly in the body, because the instinct built by every other pattern is to stay quiet when nothing is wrong.
 - **Two fields every schema wants:** a **small enum** for the verdict (breakdowns want few values) and a **free-text reason** carrying the concrete evidence — so the series is chartable _and_ each point is auditable when somebody asks why an entity was graded that way.
   A third worth adding is an evidence-quality field (`rich` / `thin`), so downstream analysis can discount verdicts the run reached from a shallow read instead of trusting every point equally.
+  List every field the series or a downstream action depends on in the schema's `required` array: JSON Schema validates only what it is told to, so a field named in `properties` alone lets `{}` through, and a run that omits the verdict still records a point nothing can chart or route.
 - **`subject` is the join key.** Stamp each record with the entity it judges (a report id, an account key, a URL) and keep it stable across runs, or a per-entity series can never be assembled later.
   Leave it null only for a genuinely run-level record.
+  It is capped at **200 characters** and validation is all-or-nothing per call, so a single unbounded subject (a full URL with its query string) rejects the whole batch and records none of the valid judgments alongside it — when the natural key can run long, say in the body which compact stable identifier to stamp instead (an id, a path, a hash).
 - **Reports become the exception.** A measurement scout still holds the report bar; it just files against its _own series_ rather than per entity — a material trend, usually as one rolling chart-backed report it edits, not one report per run.
   The per-entity verdicts live in the records; the report is the synthesis.
 - **A record can trigger an action, and that changes how the scout must be written.** `$scout_structured_output` is an ordinary event, so a **workflow** (event trigger filtered on `skill_name` plus an `output_<key>` value) or a CDP destination on the same filter turns a measuring scout into the front half of an automation — the scout decides, the workflow routes the decision to a channel, a task, or a CRM with no human in between.
@@ -349,12 +351,15 @@ Reach for it when the job is a recurring measurement rather than an anomaly hunt
   - **The grade is now a routing decision.** Once one enum value pages a channel and another stays silent, over-grading costs somebody's attention and under-grading is a miss nobody ever sees.
     A run that thinks it's writing to a spreadsheet calibrates like it.
   - **Populate every field the downstream action renders.** An omitted optional field renders blank in the message or the row, so name which fields are load-bearing for the escalating verdicts.
-  - **Decide where dedupe lives.** An event trigger fires on _every_ matching record, so an entity re-judged the same way each run alerts each run.
-    Either dedupe in the scout (only re-record a routed verdict when the picture materially changed) or throttle the workflow with `trigger_masking` — and note that every record from one scout shares a single person (`distinct_id = signals_scout:<skill-name>`), so a mask hashed on `{person.id}` collapses across all of them; hash on the subject instead.
+  - **Dedupe the action, not the measurement.** An event trigger fires on _every_ matching record, so an entity re-judged the same way each run alerts each run.
+    Fix that downstream, with `trigger_masking` on the workflow — never by having the scout skip re-recording an unchanged verdict, which punches holes in the series: a persistently bad entity drops out while freshly sampled good ones keep recording, and the bad-verdict rate falls with nothing having improved.
+    Mask on the subject (`"hash": "{event.properties.subject}"`), because every record from one scout shares a single person (`distinct_id = signals_scout:<skill-name>`) and a mask hashed on `{person.id}` collapses across all of them.
 - **Gotchas:**
   - **The channel requires `emit`.** A dry-run scout has nowhere to record to and `scout-record-output` fails closed, so this is one channel you cannot rehearse with `emit=false`.
   - **Records validate against the schema in force when the run was dispatched**, so an in-flight run keeps writing the old shape and a schema edit never retroactively invalidates history.
   - **Keep schema changes additive.** Renaming a field renames its `output_<key>` property, silently breaking every insight and workflow filter built on the old name — add a new field instead.
+  - **Records don't count as output to the inactivity sweep.** The sweep judges a scout by the findings and reports its runs emitted, so a scout that only ever records looks silent and picks up a `no_output` warning badge even while its measurements arrive every run.
+    It warns rather than pauses, but if the scout is deliberately report-free, set `auto_pause_exempt` on its config and the sweep leaves it alone.
   - **State the cardinality.** One record per run and one per judged entity are both valid; if the body doesn't say which, successive runs will each guess differently and the series becomes unreadable.
 - **Worked shape:** an hourly scout samples up to 100 recently created inbox reports, judges each one's grouping quality `good` / `bad` / `unsure` against a rubric that also names the failure direction and a one-to-three-sentence reason, records one record per report keyed on the report id, and files a single rolling report only when the bad-verdict _rate_ itself moves.
 
