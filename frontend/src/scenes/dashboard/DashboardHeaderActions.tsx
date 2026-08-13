@@ -2,14 +2,12 @@ import { useActions, useValues } from 'kea'
 import { router } from 'kea-router'
 
 import { IconGridMasonry, IconPlusSmall, IconShare } from '@posthog/icons'
-import { LemonDialog, LemonInput } from '@posthog/lemon-ui'
 
 import { AccessControlAction } from 'lib/components/AccessControlAction'
 import { Shortcut } from 'lib/components/Shortcuts/Shortcut'
 import { keyBinds } from 'lib/components/Shortcuts/shortcuts'
 import { FEATURE_FLAGS } from 'lib/constants'
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
-import { LemonField } from 'lib/lemon-ui/LemonField'
 import { LemonMenu, LemonMenuItem } from 'lib/lemon-ui/LemonMenu'
 import { getAccessControlDisabledReason } from 'lib/utils/accessControlUtils'
 import { DashboardEventSource } from 'lib/utils/eventUsageLogic'
@@ -29,6 +27,7 @@ export function getAddTileMenuItems({
     onAddInsight,
     push,
     setAddWidgetModalOpen,
+    onAddGroup,
     onBeforeSelect,
 }: {
     dashboardId: number
@@ -36,6 +35,7 @@ export function getAddTileMenuItems({
     onAddInsight: () => void
     push: (url: string) => void
     setAddWidgetModalOpen: (open: boolean) => void
+    onAddGroup?: () => void
     onBeforeSelect?: () => void
 }): LemonMenuItem[] {
     const withBeforeSelect =
@@ -45,7 +45,7 @@ export function getAddTileMenuItems({
             onClick()
         }
 
-    return [
+    const items: LemonMenuItem[] = [
         {
             label: 'Insight',
             onClick: withBeforeSelect(onAddInsight),
@@ -61,26 +61,40 @@ export function getAddTileMenuItems({
             onClick: withBeforeSelect(() => push(urls.dashboardButtonTile(dashboardId, 'new'))),
             'data-attr': 'dashboard-add-button-tile',
         },
-        dashboardWidgetsEnabled
-            ? {
-                  label: 'Widget',
-                  tag: 'new' as const,
-                  onClick: withBeforeSelect(() => setAddWidgetModalOpen(true)),
-                  'data-attr': 'dashboard-add-widget',
-              }
-            : {
-                  label: 'Widget',
-                  tag: 'beta' as const,
-                  tooltip: 'Opens settings to enable the Dashboard widgets beta',
-                  onClick: withBeforeSelect(() => push(urls.featurePreview(FEATURE_FLAGS.DASHBOARD_WIDGETS))),
-                  'data-attr': 'dashboard-add-widget-preview',
-              },
     ]
+
+    if (onAddGroup) {
+        items.push({
+            label: 'Group',
+            tag: 'new',
+            onClick: withBeforeSelect(onAddGroup),
+            'data-attr': 'dashboard-add-group',
+        })
+    }
+
+    if (dashboardWidgetsEnabled) {
+        items.push({
+            label: 'Widget',
+            tag: 'new',
+            onClick: withBeforeSelect(() => setAddWidgetModalOpen(true)),
+            'data-attr': 'dashboard-add-widget',
+        })
+    } else {
+        items.push({
+            label: 'Widget',
+            tag: 'beta',
+            tooltip: 'Opens settings to enable the Dashboard widgets beta',
+            onClick: withBeforeSelect(() => push(urls.featurePreview(FEATURE_FLAGS.DASHBOARD_WIDGETS))),
+            'data-attr': 'dashboard-add-widget-preview',
+        })
+    }
+
+    return items
 }
 
 export function DashboardAddTileButton(): JSX.Element | null {
     const { dashboard, dashboardWidgetsEnabled } = useValues(dashboardLogic)
-    const { loadDashboard, setAddWidgetModalOpen, setPendingInsertion, openAddInsightModal } =
+    const { loadDashboard, setAddWidgetModalOpen, setPendingInsertion, openAddInsightModal, createDashboardGroup } =
         useActions(dashboardLogic)
     const { push } = useActions(router)
 
@@ -120,6 +134,7 @@ export function DashboardAddTileButton(): JSX.Element | null {
                         onAddInsight: openAddInsightModal,
                         push,
                         setAddWidgetModalOpen,
+                        onAddGroup: () => createDashboardGroup('New group'),
                         // Adding from the header appends at the bottom; drop any stale inline-insertion target.
                         onBeforeSelect: () => setPendingInsertion(null),
                     })}
@@ -130,45 +145,6 @@ export function DashboardAddTileButton(): JSX.Element | null {
                 </LemonMenu>
             </AccessControlAction>
         </MaxTool>
-    )
-}
-
-export function DashboardAddGroupButton(): JSX.Element | null {
-    const { dashboard, dashboardGroupsEnabled, createDashboardGroupLoading } = useValues(dashboardLogic)
-    const { createDashboardGroup } = useActions(dashboardLogic)
-
-    if (!dashboard || !dashboardGroupsEnabled) {
-        return null
-    }
-
-    return (
-        <AccessControlAction
-            resourceType={AccessControlResourceType.Dashboard}
-            minAccessLevel={AccessControlLevel.Editor}
-            userAccessLevel={dashboard.user_access_level}
-        >
-            <LemonButton
-                type="secondary"
-                size="small"
-                data-attr="dashboard-add-group"
-                loading={createDashboardGroupLoading}
-                onClick={() =>
-                    LemonDialog.openForm({
-                        title: 'Add group',
-                        initialValues: { name: '' },
-                        content: (
-                            <LemonField name="name" label="Name">
-                                <LemonInput autoFocus placeholder="Group name" />
-                            </LemonField>
-                        ),
-                        errors: { name: (name) => (!name?.trim() ? 'Enter a group name' : undefined) },
-                        onSubmit: ({ name }) => createDashboardGroup(name.trim()),
-                    })
-                }
-            >
-                Add group
-            </LemonButton>
-        </AccessControlAction>
     )
 }
 
@@ -258,7 +234,6 @@ export function EditModeActions(): JSX.Element {
         <>
             <DashboardSubscribeButton />
             {layoutEditMode && <DashboardEditSaveCancelButtons />}
-            <DashboardAddGroupButton />
             <DashboardAddTileButton />
         </>
     )

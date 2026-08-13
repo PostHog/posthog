@@ -195,6 +195,11 @@
     }
 }
 
+.CardMeta__header-content {
+    min-width: 0;
+    max-width: 100%;
+}
+
 .CardMeta__controls {
     display: flex;
     gap: 0.25rem;

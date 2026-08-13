@@ -36,6 +36,7 @@ export interface CardMetaProps extends Pick<React.HTMLAttributes<HTMLDivElement>
     /** Tooltip for the details button. */
     detailsTooltip?: string
     topHeading?: JSX.Element | null
+    headerContent?: JSX.Element | null
     samplingFactor?: number | null
     /** Additional controls to show in the top controls area */
     extraControls?: JSX.Element | null
@@ -63,6 +64,7 @@ export function CardMeta({
     moreButtons,
     moreTooltip,
     topHeading,
+    headerContent,
     areDetailsShown,
     setAreDetailsShown,
     detailsTooltip,
@@ -150,20 +152,26 @@ export function CardMeta({
                     ) : (
                         <>
                             <div className="CardMeta__top" ref={topRef}>
-                                <h5 ref={headingRef}>
-                                    {topHeading}
-                                    {samplingFactor && samplingFactor < 1 && (
-                                        <Tooltip
-                                            title={`Results calculated from ${100 * samplingFactor}% of users`}
-                                            placement="right"
-                                        >
-                                            <IconPieChart
-                                                className="ml-1.5 text-base align-[-0.25em]"
-                                                style={{ color: 'var(--primary-3000-hover)' }}
-                                            />
-                                        </Tooltip>
-                                    )}
-                                </h5>
+                                {headerContent ? (
+                                    <div className="CardMeta__header-content" ref={headingRef}>
+                                        {headerContent}
+                                    </div>
+                                ) : (
+                                    <h5 ref={headingRef}>
+                                        {topHeading}
+                                        {samplingFactor && samplingFactor < 1 && (
+                                            <Tooltip
+                                                title={`Results calculated from ${100 * samplingFactor}% of users`}
+                                                placement="right"
+                                            >
+                                                <IconPieChart
+                                                    className="ml-1.5 text-base align-[-0.25em]"
+                                                    style={{ color: 'var(--primary-3000-hover)' }}
+                                                />
+                                            </Tooltip>
+                                        )}
+                                    </h5>
+                                )}
                                 <div className="CardMeta__controls">
                                     {refreshControl}
                                     {extraControlsWithLabel}

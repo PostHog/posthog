@@ -5,7 +5,7 @@ exports[`DashboardItems matches snapshot in edit mode with layout zoom enabled 1
   class="dashboard-items-wrapper"
 >
   <div
-    class="relative"
+    class="relative dashboard-layout-editing"
   >
     <div
       data-attr="grid-background"

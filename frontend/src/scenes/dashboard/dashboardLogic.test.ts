@@ -359,6 +359,23 @@ describe('dashboardLogic', () => {
             expect(api.update).not.toHaveBeenCalled()
         })
 
+        it('preserves layouts for tiles omitted from a grid update', async () => {
+            await expectLogic(logic).toFinishAllListeners()
+
+            const hiddenTile = logic.values.dashboard!.tiles[1]
+            const hiddenTileLayouts = hiddenTile.layouts
+            const visibleLayouts = {
+                ...logic.values.layouts,
+                sm: logic.values.layouts.sm?.filter((layout) => layout.i !== String(hiddenTile.id)),
+            }
+
+            await expectLogic(logic, () => {
+                logic.actions.updateLayouts(visibleLayouts)
+            }).toFinishAllListeners()
+
+            expect(logic.values.dashboard!.tiles[1].layouts).toEqual(hiddenTileLayouts)
+        })
+
         it('saving after layout change calls api', async () => {
             await expectLogic(logic).toFinishAllListeners()
 

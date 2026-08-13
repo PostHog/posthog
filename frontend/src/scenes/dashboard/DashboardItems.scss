@@ -34,6 +34,64 @@
     transition-property: transform;
 }
 
+.react-grid-layout.dashboard-group-transition {
+    transition: height 240ms cubic-bezier(0.22, 1, 0.36, 1);
+
+    .react-grid-item {
+        transition: transform 240ms cubic-bezier(0.22, 1, 0.36, 1);
+    }
+}
+
+.DashboardGroupSection {
+    position: absolute;
+    z-index: 0;
+    pointer-events: none;
+    background: var(--color-bg-surface-tertiary);
+    border: 1px solid var(--color-border-primary);
+    border-radius: var(--radius);
+    transition:
+        background-color 150ms ease,
+        border-color 150ms ease;
+
+    [theme='dark'] & {
+        background: var(--color-bg-surface-secondary);
+    }
+
+    &--transitioning {
+        transition:
+            background-color 150ms ease,
+            border-color 150ms ease,
+            top 240ms cubic-bezier(0.22, 1, 0.36, 1),
+            height 240ms cubic-bezier(0.22, 1, 0.36, 1);
+    }
+
+    &--drop-target {
+        background: var(--color-accent-highlight-secondary);
+        border-color: var(--color-accent);
+    }
+}
+
+.DashboardGroupSectionFooter {
+    pointer-events: none;
+}
+
+.DashboardGroupItem {
+    background: transparent;
+
+    .CardMeta {
+        justify-content: center;
+        height: 100%;
+        max-height: none;
+        background: transparent;
+    }
+}
+
+.DashboardGroupItem--compact {
+    .CardMeta__primary {
+        padding: 0.25rem 0.75rem;
+    }
+}
+
 .react-grid-item.resizing {
     z-index: 1;
 
@@ -43,6 +101,12 @@
 }
 
 .react-grid-item.react-draggable.DashboardTileCard {
+    &.drag-handle,
+    .drag-handle {
+        cursor: grab;
+        user-select: none;
+    }
+
     .CardMeta,
     .TextCard__body,
     .ButtonTileCard__body,

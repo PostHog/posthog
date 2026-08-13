@@ -27,6 +27,13 @@ class TestDashboardGroups(APIBaseTest):
         self.assertEqual(group["name"], "Acquisition")
         self.assertEqual(group["layouts"]["sm"], {"x": 0, "y": 0, "w": 12, "h": 1})
 
+        rename_response = self.client.post(
+            f"/api/projects/{self.team.id}/dashboards/{self.dashboard_id}/groups/update/",
+            {"group_id": group["id"], "name": "Activation"},
+        )
+        self.assertEqual(rename_response.status_code, status.HTTP_200_OK)
+        self.assertEqual(rename_response.json()["name"], "Activation")
+
         _, dashboard = self.dashboard_api.create_text_tile(self.dashboard_id, text="Signups")
         tile_id = dashboard["tiles"][0]["id"]
         move_response = self.client.post(

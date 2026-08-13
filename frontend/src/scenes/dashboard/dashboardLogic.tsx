@@ -276,7 +276,6 @@ export interface dashboardLogicValues {
     currentLayoutSize: 'sm' | 'xs'
     dashboard: DashboardType<QueryBasedInsightModel> | null
     dashboardFailedToLoad: boolean
-    dashboardGroupsEnabled: boolean
     dashboardLayouts: Record<DashboardTile['id'], DashboardTile['layouts']>
     dashboardLoadData: {
         action: DashboardLoadAction | undefined
@@ -1116,11 +1115,6 @@ export interface dashboardLogicMeta {
         dashboardWidgetsEnabled: (
             featureFlags: FeatureFlagsSet,
             tiles: DashboardTile<QueryBasedInsightModel<Node<Record<string, any>>>>[],
-            placement: DashboardPlacement
-        ) => boolean
-        dashboardGroupsEnabled: (
-            featureFlags: FeatureFlagsSet,
-            dashboard: DashboardType<QueryBasedInsightModel<Node<Record<string, any>>>> | null,
             placement: DashboardPlacement
         ) => boolean
         inlineTileInsertionEnabled: (featureFlags: FeatureFlagsSet) => boolean
@@ -1985,7 +1979,7 @@ export const dashboardLogic = kea<dashboardLogicType>([
                         ...state,
                         tiles: state?.tiles?.map((tile) => ({
                             ...tile,
-                            layouts: itemLayouts[tile.id]?.sm ? { sm: itemLayouts[tile.id].sm } : {},
+                            layouts: itemLayouts[tile.id]?.sm ? { sm: itemLayouts[tile.id].sm } : tile.layouts,
                         })),
                     } as DashboardType<QueryBasedInsightModel>
                 },
@@ -2801,18 +2795,6 @@ export const dashboardLogic = kea<dashboardLogicType>([
                     return true
                 }
                 return !!featureFlags[FEATURE_FLAGS.DASHBOARD_WIDGETS]
-            },
-        ],
-        dashboardGroupsEnabled: [
-            (s) => [s.featureFlags, s.dashboard],
-            (
-                featureFlags: import('lib/logic/featureFlagLogic').FeatureFlagsSet,
-                dashboard: DashboardType<QueryBasedInsightModel> | null
-            ): boolean => {
-                if ((dashboard?.groups?.length ?? 0) > 0) {
-                    return true
-                }
-                return !!featureFlags[FEATURE_FLAGS.DASHBOARD_GROUPS]
             },
         ],
         inlineTileInsertionEnabled: [

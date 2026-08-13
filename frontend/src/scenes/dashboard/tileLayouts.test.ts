@@ -64,6 +64,41 @@ describe('calculating tile layouts', () => {
         ])
     })
 
+    it('places a group member below its group header', () => {
+        const groups: DashboardGroupApi[] = [
+            {
+                id: 'group-1',
+                tile_id: 10,
+                name: 'Acquisition',
+                layouts: { sm: { x: 0, y: 5, w: 12, h: 1 } },
+                member_tile_ids: [1],
+                created_at: '',
+                created_by: null,
+                last_modified_at: '',
+                last_modified_by: null,
+            },
+            {
+                id: 'group-2',
+                tile_id: 11,
+                name: 'Retention',
+                layouts: { sm: { x: 0, y: 5, w: 12, h: 1 } },
+                member_tile_ids: [],
+                created_at: '',
+                created_by: null,
+                last_modified_at: '',
+                last_modified_by: null,
+            },
+        ]
+
+        const layouts = calculateLayoutsWithGroups(
+            [textTileWithLayout({ sm: { x: 0, y: 0, w: 6, h: 2 } } as Record<DashboardLayoutSize, TileLayout>)],
+            groups
+        )
+
+        expect(layouts.sm?.find((layout) => layout.i === '1')?.y).toBe(6)
+        expect(layouts.sm?.find((layout) => layout.i === '11')?.y).toBe(8)
+    })
+
     it('minimum width and height are added if missing', () => {
         const tiles: DashboardTile<QueryBasedInsightModel>[] = [
             textTileWithLayout({

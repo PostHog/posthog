@@ -387,6 +387,42 @@ export function calculateLayoutsWithGroups(
         })
     }
 
+    const orderedGroups = [...groups].sort(
+        (a, b) => (a.layouts.sm?.y ?? 0) - (b.layouts.sm?.y ?? 0) || a.tile_id - b.tile_id
+    )
+
+    for (const group of orderedGroups) {
+        const headerLayout = sm.find((layout) => layout.i === String(group.tile_id))
+        if (!headerLayout) {
+            continue
+        }
+
+        let nextMemberY = headerLayout.y + headerLayout.h
+        const memberLayouts = group.member_tile_ids
+            .map((memberTileId) => sm.find((layout) => layout.i === String(memberTileId)))
+            .filter((layout): layout is Layout => !!layout)
+            .sort((a, b) => a.y - b.y || a.x - b.x)
+        const misplacedMemberLayouts = memberLayouts.filter((layout) => layout.y < headerLayout.y + headerLayout.h)
+        const misplacedMemberHeight = misplacedMemberLayouts.reduce((height, layout) => height + layout.h, 0)
+
+        if (misplacedMemberHeight > 0) {
+            for (const layout of sm) {
+                if (layout !== headerLayout && !misplacedMemberLayouts.includes(layout) && layout.y >= headerLayout.y) {
+                    layout.y += misplacedMemberHeight + (layout.y === headerLayout.y ? headerLayout.h : 0)
+                }
+            }
+        }
+
+        for (const memberLayout of memberLayouts) {
+            if (!misplacedMemberLayouts.includes(memberLayout)) {
+                nextMemberY = Math.max(nextMemberY, memberLayout.y + memberLayout.h)
+                continue
+            }
+            memberLayout.y = nextMemberY
+            nextMemberY += memberLayout.h
+        }
+    }
+
     sm.sort((a, b) => a.y - b.y || a.x - b.x)
     const existingXs = new Map((layouts.xs ?? []).map((layout) => [layout.i, layout]))
     let xsY = 0
