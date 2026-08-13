@@ -690,10 +690,12 @@ export interface sqlEditorLogicActions {
         args_0?:
             | {
                   force?: boolean
+                  shallow?: boolean
               }
             | undefined
     ) => {
         force?: boolean
+        shallow?: boolean
     } // databaseTableListLogic
     resetConnectionScope: () => {
         value: true
@@ -733,8 +735,10 @@ export interface sqlEditorLogicActions {
     } // draftsLogic
     fixErrors: (
         query: string,
-        error?: string | undefined
+        error?: string | undefined,
+        connectionId?: string | undefined
     ) => {
+        connectionId: string | undefined
         error: string | undefined
         query: string
     } // fixSQLErrorsLogic
@@ -749,12 +753,14 @@ export interface sqlEditorLogicActions {
         response: Response,
         payload?:
             | {
+                  connectionId: string | undefined
                   error: string | undefined
                   query: string
               }
             | undefined
     ) => {
         payload?: {
+            connectionId: string | undefined
             error: string | undefined
             query: string
         }
@@ -1167,6 +1173,20 @@ function claimConnectionScope(tabId: string, connectionId: string | null | undef
 function releaseConnectionScope(tabId: string, scopedConnectionId: string | null): boolean {
     connectionScopeOwners.delete(tabId)
     return scopedConnectionId !== null && ![...connectionScopeOwners.values()].includes(scopedConnectionId)
+}
+
+// With the lazy schema flag on, the editor first loads only table names and metadata; the schema
+// tree hydrates each table's columns on expansion.
+function schemaLoadOptions(
+    featureFlags: FeatureFlagsSet,
+    force = false
+): { force?: boolean; shallow?: boolean } | undefined {
+    const shallow = !!featureFlags[FEATURE_FLAGS.SQL_EDITOR_LAZY_SCHEMA]
+    if (!shallow) {
+        // With the flag off, emit exactly the payloads this logic emitted before lazy loading.
+        return force ? { force } : undefined
+    }
+    return { force, shallow }
 }
 
 export const sqlEditorLogic = kea<sqlEditorLogicType>([
@@ -3044,7 +3064,7 @@ export const sqlEditorLogic = kea<sqlEditorLogicType>([
             cache.lastSelectedConnectionId = selectedConnectionId
             claimConnectionScope(props.tabId, selectedConnectionId)
             actions.setConnection(selectedConnectionId ?? null)
-            actions.loadDatabase()
+            actions.loadDatabase(schemaLoadOptions(values.featureFlags))
             if (selectedConnectionId) {
                 // Capability data must load wherever a connection is in play — including
                 // surfaces that never render the connection selector.
@@ -3312,7 +3332,7 @@ export const sqlEditorLogic = kea<sqlEditorLogicType>([
             ) {
                 if (shouldSyncDatabaseConnection && !values.databaseLoading) {
                     actions.setConnection(expectedDatabaseConnectionId)
-                    actions.loadDatabase()
+                    actions.loadDatabase(schemaLoadOptions(values.featureFlags))
                 }
                 return
             }
@@ -3654,7 +3674,7 @@ export const sqlEditorLogic = kea<sqlEditorLogicType>([
 
             if (connectionIdFromHash === undefined && shouldSyncDatabaseConnection && !values.databaseLoading) {
                 actions.setConnection(expectedDatabaseConnectionId)
-                actions.loadDatabase()
+                actions.loadDatabase(schemaLoadOptions(values.featureFlags))
             }
         },
     })),
@@ -3863,7 +3883,7 @@ export const sqlEditorLogic = kea<sqlEditorLogicType>([
             // stuck true (a load that never settled), the plain guard would skip the reload and the
             // editor would sit on "Loading..." forever. On remount we still need data, so force a
             // fresh request to bypass any hung in-flight load.
-            actions.loadDatabase(values.databaseLoading ? { force: true } : undefined)
+            actions.loadDatabase(schemaLoadOptions(values.featureFlags, values.databaseLoading))
         }
     }),
     beforeUnmount(({ actions, values, cache, props }) => {

@@ -177,10 +177,23 @@ const EXPANDED_ROW_TEST_OPTIONS = {
 
 function mockAccountsQuery(rows: AccountRow[]): (info: MockResolverInfo) => Promise<[number, unknown] | undefined> {
     return async ({ request }) => {
-        const body = (await request.json()) as { query?: { kind?: string } }
-        const kind = body?.query?.kind
-        if (kind === 'AccountsQuery') {
+        const body = (await request.json()) as { query?: { kind?: string; metrics?: unknown[] } }
+        const query = body?.query
+        if (query?.kind === 'AccountsQuery') {
             return [200, buildAccountsQueryResponse(rows)]
+        }
+        if (query?.kind === 'AccountsTableQuery' && query.metrics) {
+            return [
+                200,
+                {
+                    kind: 'AccountsTableQuery',
+                    results: [],
+                    hasMore: false,
+                    limit: 100,
+                    offset: 0,
+                    metricsResults: [rows.length],
+                },
+            ]
         }
         return undefined
     }

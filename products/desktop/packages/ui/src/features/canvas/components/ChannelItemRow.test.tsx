@@ -4,6 +4,7 @@ import type { TaskStatusInput } from "@posthog/ui/features/sidebar/components/it
 import { Theme } from "@radix-ui/themes";
 import { fireEvent, render, screen } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
+import type { ReactNode } from "react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
 // The row's status comes from live session/workspace state and a per-task tRPC
@@ -25,6 +26,7 @@ vi.mock("@posthog/ui/features/feature-flags/useFeatureFlag", () => ({
 }));
 
 import { usePendingCanvasDeleteStore } from "@posthog/ui/features/canvas/stores/pendingCanvasDeleteStore";
+import { ChannelItemPreviewCardProvider } from "./ChannelItemHoverCard";
 import { ChannelItemRow } from "./ChannelItemRow";
 
 const actions = {
@@ -41,8 +43,13 @@ function item(overrides: Partial<ChannelItemModel> = {}): ChannelItemModel {
     id: "task-1",
     title: "Investigate signup drop-off",
     ts: Date.parse("2026-07-17T12:00:00.000Z"),
+    createdAt: Date.parse("2026-07-16T12:00:00.000Z"),
     pinned: false,
     rawStatus: null,
+    environment: null,
+    source: null,
+    needsInput: false,
+    unread: false,
     authorUser: null,
     authorName: null,
     authorUuid: "user-uuid",
@@ -52,11 +59,21 @@ function item(overrides: Partial<ChannelItemModel> = {}): ChannelItemModel {
   };
 }
 
-function renderRow(model: ChannelItemModel) {
+/**
+ * The list's rows share one preview card, hung off a provider above them, so a
+ * row on its own has no card to open — every hover assertion here needs it.
+ */
+function renderInList(row: ReactNode) {
   return render(
     <Theme>
-      <ChannelItemRow actions={actions} isActive={false} item={model} />
+      <ChannelItemPreviewCardProvider>{row}</ChannelItemPreviewCardProvider>
     </Theme>,
+  );
+}
+
+function renderRow(model: ChannelItemModel) {
+  return renderInList(
+    <ChannelItemRow actions={actions} isActive={false} item={model} />,
   );
 }
 
@@ -278,16 +295,14 @@ describe("ChannelItemRow", () => {
     onRename?: () => void;
     onAddToCommandCenter?: () => void;
   }) {
-    return render(
-      <Theme>
-        <ChannelItemRow
-          actions={actions}
-          isActive={false}
-          item={item()}
-          onRename={overrides.onRename ?? (() => {})}
-          onAddToCommandCenter={overrides.onAddToCommandCenter}
-        />
-      </Theme>,
+    return renderInList(
+      <ChannelItemRow
+        actions={actions}
+        isActive={false}
+        item={item()}
+        onRename={overrides.onRename ?? (() => {})}
+        onAddToCommandCenter={overrides.onAddToCommandCenter}
+      />,
     );
   }
 
@@ -361,10 +376,8 @@ describe("ChannelItemRow", () => {
       id: "c1",
       title: "Web analytics overview",
     });
-    render(
-      <Theme>
-        <ChannelItemRow actions={actions} isActive={false} item={canvas} />
-      </Theme>,
+    renderInList(
+      <ChannelItemRow actions={actions} isActive={false} item={canvas} />,
     );
 
     await userEvent.hover(screen.getByText("Web analytics overview"));
@@ -388,14 +401,12 @@ describe("ChannelItemRow", () => {
       id: "c1",
       title: "Web analytics overview",
     });
-    render(
-      <Theme>
-        <ChannelItemRow
-          actions={{ ...actions, remove }}
-          isActive={false}
-          item={canvas}
-        />
-      </Theme>,
+    renderInList(
+      <ChannelItemRow
+        actions={{ ...actions, remove }}
+        isActive={false}
+        item={canvas}
+      />,
     );
 
     await userEvent.hover(screen.getByText("Web analytics overview"));

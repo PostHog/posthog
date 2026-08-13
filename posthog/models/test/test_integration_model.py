@@ -48,6 +48,7 @@ from posthog.models.integration import (
     GoogleAdsIntegration,
     GoogleCloudIntegration,
     GoogleCloudServiceAccountIntegration,
+    InstagramIntegration,
     Integration,
     JiraIntegration,
     LinearIntegration,
@@ -310,6 +311,8 @@ class TestOauthIntegrationModel(BaseTest):
         "GOOGLE_CALENDAR_APP_CLIENT_SECRET": "google-calendar-client-secret",
         "LINKEDIN_APP_CLIENT_ID": "linkedin-client-id",
         "LINKEDIN_APP_CLIENT_SECRET": "linkedin-client-secret",
+        "TIKTOK_ADS_CLIENT_ID": "tiktok-app-id",
+        "TIKTOK_ADS_CLIENT_SECRET": "tiktok-secret",
     }
 
     def create_integration(
@@ -713,6 +716,37 @@ class TestOauthIntegrationModel(BaseTest):
 
         assert integration.sensitive_config["access_token"] == "REFRESHED_ACCESS_TOKEN"
         assert integration.sensitive_config["refresh_token"] == expected_refresh_token
+
+    @patch("posthog.models.integration.reload_integrations_on_workers")
+    @patch("posthog.models.integration.requests.post")
+    def test_tiktok_ads_refresh_uses_business_api_and_unwraps_data(self, mock_post, mock_reload):
+        # TikTok Business API refreshes against its own endpoint with app_id/secret (JSON) and nests
+        # the refreshed tokens under `data` — not the Login Kit client_key/open.tiktokapis.com flow.
+        mock_post.return_value.status_code = 200
+        mock_post.return_value.json.return_value = {
+            "code": 0,
+            "data": {"access_token": "REFRESHED_ACCESS_TOKEN", "refresh_token": "ROTATED_REFRESH_TOKEN"},
+        }
+
+        integration = self.create_integration(kind="tiktok-ads", config={"expires_in": 1000})
+
+        with freeze_time("2024-01-01T14:00:00Z"):
+            with self.settings(**self.mock_settings):
+                OauthIntegration(integration).refresh_access_token()
+
+        mock_post.assert_called_with(
+            "https://business-api.tiktok.com/open_api/v1.3/oauth2/refresh_token/",
+            json={
+                "app_id": "tiktok-app-id",
+                "secret": "tiktok-secret",
+                "refresh_token": "REFRESH",
+                "grant_type": "refresh_token",
+            },
+            headers={"Content-Type": "application/json"},
+            timeout=10,
+        )
+        assert integration.sensitive_config["access_token"] == "REFRESHED_ACCESS_TOKEN"
+        assert integration.sensitive_config["refresh_token"] == "ROTATED_REFRESH_TOKEN"
 
     @patch("posthog.models.integration.reload_integrations_on_workers")
     @patch("posthog.models.integration.requests.post")
@@ -4632,3 +4666,62 @@ class TestPardotIntegrationModel(BaseTest):
 
         assert integration.integration_id == "https://acme.my.salesforce.com"
         assert integration.config["expires_in"] == 3600
+
+
+@override_settings(INSTAGRAM_APP_CLIENT_ID="instagram-client-id", INSTAGRAM_APP_CLIENT_SECRET="instagram-client-secret")
+class TestInstagramIntegrationModel(BaseTest):
+    def test_oauth_config(self):
+        config = OauthIntegration.oauth_config_for_kind("instagram")
+
+        assert config.authorize_url == "https://www.facebook.com/v23.0/dialog/oauth"
+        assert config.token_url == "https://graph.facebook.com/v23.0/oauth/access_token"
+        assert config.token_info_url == "https://graph.facebook.com/v23.0/me"
+        assert config.client_id == "instagram-client-id"
+        assert config.client_secret == "instagram-client-secret"
+        assert config.id_path == "id"
+        assert config.name_path == "name"
+        # Instagram is reached through the Facebook page it is linked to, so the page scopes
+        # are as load-bearing as the Instagram ones.
+        assert set(config.scope.split(" ")) == {
+            "instagram_basic",
+            "instagram_manage_insights",
+            "instagram_manage_comments",
+            "pages_show_list",
+            "pages_read_engagement",
+        }
+
+    @override_settings(INSTAGRAM_APP_CLIENT_ID="", INSTAGRAM_APP_CLIENT_SECRET="")
+    def test_oauth_config_unconfigured_raises(self):
+        with pytest.raises(NotImplementedError, match="Instagram app not configured"):
+            OauthIntegration.oauth_config_for_kind("instagram")
+
+    def test_the_instagram_grant_is_separate_from_the_meta_ads_one(self):
+        # Both ride the same Meta app, but an ads grant carries none of the Instagram scopes,
+        # so pointing the Instagram source at a meta-ads integration must not be possible.
+        integration = Integration.objects.create(team=self.team, kind="meta-ads", integration_id="1")
+
+        with pytest.raises(Exception, match="wrong 'kind'"):
+            InstagramIntegration(integration)
+
+    @patch("posthog.models.integration.requests.post")
+    def test_refresh_exchanges_the_long_lived_token_rather_than_a_refresh_token(self, mock_post):
+        # Meta issues no refresh token: the current access token is swapped for a fresh one.
+        integration = Integration.objects.create(
+            team=self.team,
+            kind="instagram",
+            integration_id="fb-user-1",
+            config={"expires_in": 100, "refreshed_at": int(time.time()) - 90},
+            sensitive_config={"access_token": "old-token"},
+        )
+        mock_post.return_value.status_code = 200
+        mock_post.return_value.json.return_value = {"access_token": "new-token", "expires_in": 5184000}
+
+        InstagramIntegration(integration).refresh_access_token()
+
+        sent = mock_post.call_args.kwargs["data"]
+        assert sent["grant_type"] == "fb_exchange_token"
+        assert sent["fb_exchange_token"] == "old-token"
+        assert sent["client_id"] == "instagram-client-id"
+        integration.refresh_from_db()
+        assert integration.sensitive_config["access_token"] == "new-token"
+        assert integration.errors == ""

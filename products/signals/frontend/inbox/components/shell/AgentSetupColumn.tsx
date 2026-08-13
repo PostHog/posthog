@@ -179,7 +179,7 @@ function SignalSourcesWidget(): JSX.Element {
             tone={hasAny ? 'done' : 'todo'}
             loading={sourceConfigs === null}
             status={hasAny ? `${enabledSourcesCount} watching` : 'None active yet'}
-            description="Each source watches a product and spins up work when something matters."
+            description="Each source watches for signals, and spins up an agent to look into them."
             onClick={() => openSetupModal('signal-sources')}
         />
     )
@@ -302,7 +302,12 @@ function NotificationsWidget(): JSX.Element {
  */
 function GithubSetupBody(): JSX.Element {
     const { location, searchParams } = useValues(router)
-    return <GithubIntegration next={combineUrl(location.pathname, { ...searchParams, setup: 'github' }).url} />
+    return (
+        <GithubIntegration
+            next={combineUrl(location.pathname, { ...searchParams, setup: 'github' }).url}
+            connectSurface="signals_agent_setup"
+        />
+    )
 }
 
 const SETUP_MODALS: Record<
@@ -311,7 +316,7 @@ const SETUP_MODALS: Record<
 > = {
     'signal-sources': {
         title: 'Signal sources',
-        description: 'Each source watches for signals and spins up work when something matters.',
+        description: 'Each source watches for signals, and spins up an agent to look into them.',
         width: 760,
         body: <SignalSourcesPanel />,
     },

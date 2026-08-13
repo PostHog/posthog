@@ -25,7 +25,7 @@ export function CodeVariablesInlineBanner(): JSX.Element | null {
     }
 
     return (
-        <div className="border-t border-border bg-fill-expanded px-3 py-2 text-xs text-muted-foreground">
+        <div className="border-t border-[color:var(--frame-border,var(--color-border-primary))] bg-fill-expanded px-3 py-2 text-xs text-muted-foreground">
             <div className="flex items-center justify-between gap-2">
                 <div className="flex-1">
                     <span className="italic">Code variables would appear here. </span>

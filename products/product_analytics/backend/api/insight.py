@@ -551,16 +551,25 @@ class QueryFieldSerializer(serializers.Serializer):
 # wrapper nodes and a few standalone kinds (e.g. WebOverviewQuery) to real renderers; the
 # kinds below have no bare renderer and fall through to a JSON-dump fallback that paints
 # ~0px inside a dashboard tile, so they are safe (and necessary) to auto-wrap on save.
+#
+# Keep this exhaustive over the InsightVizNode source union; BARE_RENDERED_INSIGHT_VIZ_SOURCE_KINDS
+# holds the exceptions. A test pins both sets against that union, so a new source kind fails
+# loudly — but it can't see Query.tsx, so a renderer added or dropped there still needs a human.
 AUTO_WRAPPED_INSIGHT_QUERY_KINDS = frozenset(
     {
         "TrendsQuery",
         "FunnelsQuery",
         "RetentionQuery",
         "PathsQuery",
+        "PathsV2Query",
         "StickinessQuery",
         "LifecycleQuery",
+        "WebStatsTableQuery",
     }
 )
+
+# InsightVizNode sources the UI also renders unwrapped, so saving them bare is legitimate.
+BARE_RENDERED_INSIGHT_VIZ_SOURCE_KINDS = frozenset({"WebOverviewQuery"})
 
 
 class InsightFilterOverrideContext(BaseModel):
@@ -1133,6 +1142,11 @@ class InsightSerializer(InsightBasicSerializer):
     @extend_schema_field(serializers.ListField())
     def get_alerts(self, insight: Insight):
         if insight.alertable_query_kind is None:
+            return []
+
+        # Alert configs carry their creator's and subscribers' names and emails, which anonymous
+        # viewers of a shared dashboard must never receive, so omit them when hiding authorship.
+        if self.context.get("hide_extra_details", False):
             return []
 
         # Use prefetched alerts data

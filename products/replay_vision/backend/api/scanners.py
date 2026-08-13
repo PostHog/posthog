@@ -49,7 +49,6 @@ from products.replay_vision.backend.api.trigger import (
 )
 from products.replay_vision.backend.billing import observation_credits_case, observation_credits_for_model
 from products.replay_vision.backend.digest import provision_scanner_digest
-from products.replay_vision.backend.feature_flag import ReplayVisionEnabledPermission, is_replay_vision_actions_enabled
 from products.replay_vision.backend.feedback_themes import cached_feedback_themes
 from products.replay_vision.backend.impact import (
     DEFAULT_IMPACT_WINDOW_DAYS,
@@ -69,9 +68,10 @@ from products.replay_vision.backend.models.replay_scanner import (
     ScannerType,
 )
 from products.replay_vision.backend.queries import (
-    ESTIMATE_INTERACTIVE_MAX_EXECUTION_SECONDS,
     ESTIMATE_STALE_AFTER,
     MIN_SAMPLING_RATE,
+    PREVIEW_ESTIMATE_BUDGET,
+    SAVE_ESTIMATE_BUDGET,
     estimate_scanner_session_volume,
     project_monthly_observations,
     refresh_scanner_estimate,
@@ -141,7 +141,7 @@ def _scanner_lifecycle_properties(scanner: ReplayScanner) -> dict[str, Any]:
 def _refresh_estimate_fail_soft(scanner: ReplayScanner) -> None:
     # The estimate is advisory — never fail a scanner save over it, and keep the save's latency tail short.
     try:
-        refresh_scanner_estimate(scanner, max_execution_seconds=ESTIMATE_INTERACTIVE_MAX_EXECUTION_SECONDS)
+        refresh_scanner_estimate(scanner, budget=SAVE_ESTIMATE_BUDGET)
     except Exception:
         logger.exception("replay_vision.estimate_refresh_failed", scanner_id=str(scanner.id))
 
@@ -528,9 +528,7 @@ class ReplayScannerSerializer(UserAccessControlSerializerMixin, serializers.Mode
             self._reraise_unique_name_violation(e)
         _refresh_estimate_fail_soft(scanner)
         # Every scanner starts with a built-in daily digest so the overview has a summary to show.
-        # Flag-gated so teams without the actions feature don't accrue synthesis runs they can't see.
-        if is_replay_vision_actions_enabled(user, team):
-            provision_scanner_digest(scanner, user)
+        provision_scanner_digest(scanner, user)
         report_user_action(
             user,
             "replay_vision_scanner_created",
@@ -613,13 +611,12 @@ class _ScannerOrderByFilter(OrderByFilter):
             if organization_id is None:
                 return qs.order_by(self._tiebreaker)
             period = current_period_bounds(organization_id)
-            period_start, period_end = period.start, period.end
             spend = (
                 ReplayObservation.objects.filter(
                     scanner_id=OuterRef("pk"),
                     status=ObservationStatus.SUCCEEDED,
-                    created_at__gte=period_start,
-                    created_at__lt=period_end,
+                    created_at__gte=period.start,
+                    created_at__lt=period.end,
                 )
                 .order_by()
                 .values("scanner_id")
@@ -1190,7 +1187,6 @@ class ReplayScannerViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, vi
         "bulk_observe",
         "inline_scan",
     ]
-    permission_classes = [ReplayVisionEnabledPermission]
     serializer_class = ReplayScannerSerializer
     queryset = ReplayScanner.objects.all()
     filter_backends = [DjangoFilterBackend]
@@ -1633,7 +1629,10 @@ class ReplayScannerViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, vi
         recordings_query = RecordingsQuery.model_validate(query_dict)
 
         estimate = estimate_scanner_session_volume(
-            team=self.team, query=recordings_query, sampling_mode=body.validated_data["sampling_mode"]
+            team=self.team,
+            query=recordings_query,
+            sampling_mode=body.validated_data["sampling_mode"],
+            budget=PREVIEW_ESTIMATE_BUDGET,
         )
         observations_per_month = project_monthly_observations(estimate, sampling_rate)
         credits_per_observation = observation_credits_for_model(body.validated_data["model"])

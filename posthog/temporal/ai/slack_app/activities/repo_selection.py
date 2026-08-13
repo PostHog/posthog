@@ -57,8 +57,8 @@ def cascade_posthog_code_repository_activity(
     if not all_repos:
         # No repos means no repo, whatever the team has installed. Deciding here that the user must
         # connect a personal install would gate the mention before anyone has asked whether it is
-        # even about code; `no_repo` routes through the repo-need classifier first, so analytics and
-        # configuration asks get answered and only genuine coding asks reach the Connect-GitHub prompt.
+        # even about code; `no_repo` becomes a repo-less task instead, and the agent tells the user
+        # to connect GitHub only once it can see that the ask needs code.
         return PostHogCodeRepoCascadeOutcome(mode="no_repo", repository=None, reason="no_repos")
 
     if len(all_repos) == 1:

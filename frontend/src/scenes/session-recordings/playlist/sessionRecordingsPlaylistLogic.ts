@@ -953,7 +953,11 @@ export const sessionRecordingsPlaylistLogic = kea<sessionRecordingsPlaylistLogic
             },
             {
                 loadSessionRecordings: async ({ direction, userModifiedFilters }, breakpoint) => {
-                    const convertedQuery = convertUniversalFiltersToRecordingsQuery(values.filters)
+                    // Captured before the awaits: `values` reads throw if this logic unmounts
+                    // mid-flight, and the fetch report must carry the filters the request was
+                    // built from, not whatever they are once the response lands.
+                    const filters = values.filters
+                    const convertedQuery = convertUniversalFiltersToRecordingsQuery(filters)
                     const params: RecordingsQuery & { add_events_to_property_queries?: '1' } = {
                         ...convertedQuery,
                         person_uuid: props.personUUID ?? '',
@@ -1005,11 +1009,14 @@ export const sessionRecordingsPlaylistLogic = kea<sessionRecordingsPlaylistLogic
 
                     actions.reportRecordingsListFetched(
                         loadTimeMs,
-                        values.filters,
+                        filters,
                         defaultRecordingDurationFilter,
                         props.analyticsSource
                     )
 
+                    // Must run after the fetch report (superseded and abandoned fetches still
+                    // count toward load-time metrics) and before the `values` reads below
+                    // (they throw once the logic is unmounted).
                     breakpoint()
 
                     return {
@@ -2073,6 +2080,14 @@ export const sessionRecordingsPlaylistLogic = kea<sessionRecordingsPlaylistLogic
     // NOTE: It is important this comes after urlToAction, as it will override the default behavior
     afterMount(({ actions, props, values }) => {
         if (props.onlyPinned) {
+            return
+        }
+
+        // The filters reducer persists to localStorage and rehydrates without validation, so a stale
+        // or malformed entry poisons state and makes every later filter change fall back to defaults.
+        // Drop a bad rehydrated value here, reusing the check that already guards the URL and setFilters paths.
+        if (!isValidRecordingFilters(values.filters)) {
+            actions.resetFilters()
             return
         }
 

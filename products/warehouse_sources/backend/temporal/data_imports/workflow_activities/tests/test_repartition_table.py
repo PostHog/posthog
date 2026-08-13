@@ -48,6 +48,7 @@ def _schema(
     s3_folder_name: str | None,
     pending: dict | None = PENDING_TARGET,
     swap: dict | None = None,
+    rewrite: dict | None = None,
 ) -> MagicMock:
     schema = MagicMock()
     schema.id = SCHEMA_ID
@@ -58,6 +59,7 @@ def _schema(
     schema.delta_revive_required = None
     schema.repartition_swap = swap
     schema.repartition_pending = pending
+    schema.repartition_rewrite = rewrite
     # The failure bookkeeping re-reads the claim to check it still owns the schema, so the mock has
     # to actually remember the token the activity just staked.
     schema.set_repartition_claim.side_effect = lambda claim: setattr(schema, "repartition_claim", claim)
@@ -201,7 +203,7 @@ class TestBudgetExhaustion:
     @patch(f"{MODULE}.is_auto_repartition_enabled", return_value=True)
     @patch(f"{MODULE}.ExternalDataJob")
     @patch(f"{MODULE}.ExternalDataSchema")
-    def test_budget_exhaustion_burns_an_attempt_and_gives_up_with_a_cooldown(
+    def test_stalled_rewrite_burns_an_attempt_and_gives_up_with_a_cooldown(
         self,
         _name: str,
         prior_attempts: int,
@@ -215,13 +217,16 @@ class TestBudgetExhaustion:
         _mock_capture_event: MagicMock,
         _mock_capture_exception: MagicMock,
     ) -> None:
+        # A rewrite that wrote no new rows since the last checkpoint (rows_written == high_water) is
+        # stuck, so budget exhaustion counts as a real failed attempt.
         schema = _schema(
             name="public.usages",
             s3_folder_name="usages",
-            pending={**PENDING_TARGET, "attempts": prior_attempts},
+            pending={**PENDING_TARGET, "attempts": prior_attempts, "rewrite_high_water": 12},
+            rewrite={"rows_written": 12},
         )
         mock_schema_model.objects.select_related.return_value.get.return_value = schema
-        mock_repartition.side_effect = RepartitionBudgetExceededError("out of budget after 12 rows")
+        mock_repartition.side_effect = RepartitionBudgetExceededError("out of budget")
 
         _maybe_repartition_table(
             RepartitionActivityInputs(team_id=TEAM_ID, schema_id=SCHEMA_ID, job_id=JOB_ID, source_id=SOURCE_ID),
@@ -240,6 +245,57 @@ class TestBudgetExhaustion:
             schema.clear_repartition_pending.assert_not_called()
             schema.stamp_last_repartition_at.assert_not_called()
             schema.clear_repartition_rewrite.assert_not_called()
+
+    @parameterized.expand([("first_attempt", 0, 0), ("last_attempt_before_give_up", 2, 100)])
+    @patch(f"{MODULE}.capture_exception")
+    @patch(f"{MODULE}.capture_repartition_event")
+    @patch(f"{MODULE}.HeartbeaterSync")
+    @patch(f"{MODULE}.repartition_table_in_place", new_callable=AsyncMock)
+    @patch(f"{MODULE}.DeltaTableRef")
+    @patch(f"{MODULE}.is_auto_repartition_enabled", return_value=True)
+    @patch(f"{MODULE}.ExternalDataJob")
+    @patch(f"{MODULE}.ExternalDataSchema")
+    def test_progressing_rewrite_resumes_without_burning_an_attempt(
+        self,
+        _name: str,
+        prior_attempts: int,
+        prior_high_water: int,
+        mock_schema_model: MagicMock,
+        _mock_job_model: MagicMock,
+        _mock_enabled: MagicMock,
+        _mock_helper_cls: MagicMock,
+        mock_repartition: AsyncMock,
+        _mock_heartbeater: MagicMock,
+        mock_capture_event: MagicMock,
+        _mock_capture_exception: MagicMock,
+    ) -> None:
+        # The checkpoint advanced (rows_written > high_water), so a table too large for one budget is
+        # converging across runs. It must never give up — even sitting at the last attempt before the
+        # cap — and must reset the failure counter and record the new high-water mark so the next run
+        # resumes rather than re-streaming from row 0.
+        schema = _schema(
+            name="public.usages",
+            s3_folder_name="usages",
+            pending={**PENDING_TARGET, "attempts": prior_attempts, "rewrite_high_water": prior_high_water},
+            rewrite={"rows_written": prior_high_water + 500},
+        )
+        mock_schema_model.objects.select_related.return_value.get.return_value = schema
+        mock_repartition.side_effect = RepartitionBudgetExceededError("out of budget")
+
+        _maybe_repartition_table(
+            RepartitionActivityInputs(team_id=TEAM_ID, schema_id=SCHEMA_ID, job_id=JOB_ID, source_id=SOURCE_ID),
+            MagicMock(),
+        )
+
+        schema.clear_repartition_pending.assert_not_called()
+        schema.clear_repartition_rewrite.assert_not_called()
+        schema.stamp_last_repartition_at.assert_not_called()
+        updated = schema.set_repartition_pending.call_args.args[0]
+        assert updated["attempts"] == 0
+        assert updated["rewrite_high_water"] == prior_high_water + 500
+        emitted = [c.args[0] for c in mock_capture_event.call_args_list]
+        assert "warehouse_repartition_failed" not in emitted
+        assert "warehouse_repartition_skipped" in emitted
 
 
 class TestFeatureFlagGate:

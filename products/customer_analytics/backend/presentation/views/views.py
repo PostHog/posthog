@@ -32,8 +32,10 @@ from rest_framework.throttling import UserRateThrottle
 from posthog.api.mixins import ValidatedRequest, validated_request
 from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.api.tagged_item import TaggedItemViewSetMixin
+from posthog.event_usage import report_user_action
 from posthog.exceptions import Conflict
 from posthog.helpers.impersonation import is_impersonated
+from posthog.models import OrganizationMembership
 from posthog.models.user import User
 from posthog.permissions import TeamMemberStrictManagementPermission, get_authenticator_scopes, is_service_auth
 from posthog.rbac.access_control_api_mixin import AccessControlViewSetMixin
@@ -574,13 +576,21 @@ class CustomPropertySourceViewSet(
             return Response({"detail": "Not found."}, status=status.HTTP_404_NOT_FOUND)
         return Response(CustomPropertySourceSerializer(instance=source).data)
 
-    def _definition_is_group(self, definition_id) -> bool:
+    def _definition_target_type(self, definition_id) -> str | None:
         if definition_id is None:
-            return False
+            return None
         definition = api.get_custom_property_definition(
             self.team_id, str(definition_id), user_access_control=self.user_access_control
         )
-        return definition is not None and definition.target_type == _GROUP_TARGET_TYPE
+        return definition.target_type if definition is not None else None
+
+    def _definition_is_group(self, definition_id) -> bool:
+        return self._definition_target_type(definition_id) == _GROUP_TARGET_TYPE
+
+    def _report_usage(self, request: Request, event: str, **properties: Any) -> None:
+        # The scene's $pageview says who looked at Warehouse properties; these say who actually
+        # mapped a table. Emitted here rather than in the frontend so API callers count too.
+        report_user_action(cast(User, request.user), event, properties, team=self.team)
 
     def _guard_group_source(self, request: Request, source_id, *, write: bool = True) -> None:
         # A source feeding a group definition reads/activates the group-writing pipeline, so touching
@@ -593,7 +603,8 @@ class CustomPropertySourceViewSet(
         serializer = CustomPropertySourceSerializer(data=request.data)
         serializer.is_valid(raise_exception=True)
         data = serializer.validated_data
-        if self._definition_is_group(data.definition):
+        target_type = self._definition_target_type(data.definition)
+        if target_type == _GROUP_TARGET_TYPE:
             _assert_group_scope(request, write=True)
         try:
             source = api.create_custom_property_source(
@@ -613,6 +624,14 @@ class CustomPropertySourceViewSet(
             raise ValidationError(str(e))
         except api.ResourceForbiddenError:
             raise PermissionDenied()
+        self._report_usage(
+            request,
+            "warehouse property mapping created",
+            target_type=target_type,
+            mapped_column_count=len(data.column_property_map or {}),
+            reads_warehouse_table=data.external_data_schema is not None,
+            is_enabled=data.is_enabled,
+        )
         return Response(CustomPropertySourceSerializer(instance=source).data, status=status.HTTP_201_CREATED)
 
     @extend_schema(request=CustomPropertySourceUpdateSerializer)
@@ -631,6 +650,12 @@ class CustomPropertySourceViewSet(
             raise PermissionDenied()
         if source is None:
             return Response({"detail": "Not found."}, status=status.HTTP_404_NOT_FOUND)
+        self._report_usage(
+            request,
+            "warehouse property mapping updated",
+            updated_fields=sorted(write.validated_data.keys()),
+            is_enabled=source.is_enabled,
+        )
         return Response(CustomPropertySourceSerializer(instance=source).data)
 
     @extend_schema(request=CustomPropertySourceUpdateSerializer)
@@ -650,6 +675,7 @@ class CustomPropertySourceViewSet(
             raise PermissionDenied()
         if not deleted:
             return Response({"detail": "Not found."}, status=status.HTTP_404_NOT_FOUND)
+        self._report_usage(request, "warehouse property mapping deleted")
         return Response(status=status.HTTP_204_NO_CONTENT)
 
     @extend_schema(
@@ -673,6 +699,7 @@ class CustomPropertySourceViewSet(
             return Response({"message": str(e)}, status=status.HTTP_400_BAD_REQUEST)
         if not triggered:
             raise ValidationError("This action is only available for enabled person- or group-property sources.")
+        self._report_usage(request, "warehouse property sync triggered")
         return Response({"status": "triggered"}, status=status.HTTP_202_ACCEPTED)
 
     @extend_schema(
@@ -697,6 +724,7 @@ class CustomPropertySourceViewSet(
             raise PermissionDenied()
         if started is None:
             raise ValidationError("This action is only available for enabled person- or group-property sources.")
+        self._report_usage(request, "warehouse property backfill triggered", already_running=not started)
         return Response(
             {"status": "started" if started else "already_running", "already_running": not started},
             status=status.HTTP_202_ACCEPTED,
@@ -1041,6 +1069,8 @@ class AccountViewSet(
         serializer = AccountSerializer(data=request.data, partial=partial)
         serializer.is_valid(raise_exception=True)
         data = serializer.validated_data
+        membership_level = self.user_permissions.current_team.effective_membership_level
+        allow_matching_updates = membership_level is not None and membership_level >= OrganizationMembership.Level.ADMIN
         try:
             account = api.update_account_for_view(
                 team_id=self.team_id,
@@ -1062,6 +1092,7 @@ class AccountViewSet(
                 organization_id=self.organization.id,
                 user=cast(User, request.user),
                 was_impersonated=is_impersonated(request),
+                allow_matching_updates=allow_matching_updates,
             )
         except api.Account_DoesNotExist:
             return Response({"detail": "Not found."}, status=status.HTTP_404_NOT_FOUND)

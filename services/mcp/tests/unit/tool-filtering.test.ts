@@ -841,8 +841,6 @@ describe('Tool Filtering - Feature Flags', () => {
                 'customer-analytics-csp',
                 'notebooks-collaboration',
                 'revamped-py-notebooks',
-                'replay-vision',
-                'replay-vision-actions',
                 'tasks',
                 'dashboard-widgets',
                 'heatmaps-mcp',
@@ -861,9 +859,10 @@ describe('Tool Filtering - Feature Flags', () => {
                 'warehouse-person-properties',
                 'streamlit-apps',
                 'posthog-connect',
+                'experiment-behavior-comparison',
             ])
         )
-        expect(flags).toHaveLength(31)
+        expect(flags).toHaveLength(30)
     })
 
     it('every loops tool is gated on the loops flag', () => {

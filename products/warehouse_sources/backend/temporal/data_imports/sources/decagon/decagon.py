@@ -38,6 +38,11 @@ TIMESTAMP_FILTER_BY_FIELD: dict[str, str] = {
     "last_message_at": "last_message_time",
 }
 
+# Fallback window value for endpoints whose incremental bound is mandatory. Used when a
+# walk has no natural window (a full refresh, or an incremental sync's first run), so it
+# fetches full history instead of omitting the param the endpoint requires.
+_EPOCH = datetime(1970, 1, 1, tzinfo=UTC)
+
 
 class DecagonRetryableError(Exception):
     pass
@@ -193,6 +198,12 @@ def get_rows(
                 # refresh trues the table up.
                 window_value += 1
 
+    if window_value is None and config.incremental_param and config.incremental_param_required:
+        # No prior state and no watermark left the window unset, but this endpoint 400s
+        # on a request that omits the bound entirely. The epoch keeps a full walk honest
+        # (every row is included) while still satisfying the requirement.
+        window_value = _incremental_window_value(config, _EPOCH)
+
     @retry(
         retry=retry_if_exception_type((DecagonRetryableError, requests.ReadTimeout, requests.ConnectionError)),
         stop=stop_after_attempt(5),
@@ -306,13 +317,17 @@ def get_rows(
         total = data.get(config.total_key) if config.total_key else None
 
         if config.pagination == "page":
-            # Terminate against the reported total using rows actually received, which
-            # stays exact even if the server caps the requested page size. A missing or
-            # malformed total falls back to short-page termination, the only end signal
-            # left besides an empty page.
-            rows_walked += len(items)
+            # Terminate against the reported total using rows actually kept: a row that
+            # shifted pages mid-walk arrives twice but counts once toward the server's
+            # unique total, so counting raw items could reach the total a page early and
+            # drop the final page. Counting kept rows also stays exact if the server caps
+            # the requested page size. A page that contributes nothing new cannot make
+            # progress against the total, so it ends the walk rather than spinning on a
+            # server that ignores the page param. A missing or malformed total falls back
+            # to short-page termination, the only end signal left besides an empty page.
+            rows_walked += len(fresh)
             if isinstance(total, int | float):
-                exhausted = not items or rows_walked >= total
+                exhausted = not fresh or rows_walked >= total
             else:
                 exhausted = not items or (config.page_size is not None and len(items) < config.page_size)
             if fresh:
@@ -375,4 +390,6 @@ def decagon_source(
         partition_format="month" if partitioned else None,
         partition_keys=[config.partition_key] if config.partition_key is not None else None,
         sort_mode=config.sort_mode,
+        chunk_size=config.chunk_size,
+        chunk_size_bytes=config.chunk_size_bytes,
     )
