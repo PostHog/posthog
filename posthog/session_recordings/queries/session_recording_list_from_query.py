@@ -135,11 +135,15 @@ class SessionRecordingListFromQuery(SessionRecordingsListingBaseQuery):
         bypass_date_window_for_session_ids: bool = False,
         user: User | None = None,
         events_sample_factor: float | None = None,
+        events_timestamp_floor: datetime | None = None,
         **_,
     ):
         self._user = user
         # Storage-level SAMPLE on any events subqueries; opt-in for estimates.
         self._events_sample_factor = events_sample_factor
+        # Extra lower bound on positive events subqueries, for callers that re-run often over a wide
+        # session window and do not need each run to re-scan the whole range.
+        self._events_timestamp_floor = events_timestamp_floor
         self.events_subqueries_sampled = False
         self._bypass_date_window_for_session_ids = bypass_date_window_for_session_ids
         # TRICKY: we need to make sure we init test account filters only once,
@@ -376,7 +380,11 @@ class SessionRecordingListFromQuery(SessionRecordingsListingBaseQuery):
 
         # if in PoE mode then we should be pushing person property queries into here
         events_sub_query_builder = ReplayFiltersEventsSubQuery(
-            self._team, self._query, self._allow_event_property_expansion, sample_factor=self._events_sample_factor
+            self._team,
+            self._query,
+            self._allow_event_property_expansion,
+            sample_factor=self._events_sample_factor,
+            events_timestamp_floor=self._events_timestamp_floor,
         )
         events_sub_queries = events_sub_query_builder.get_queries_for_session_id_matching()
         for events_sub_query in events_sub_queries:
@@ -505,6 +513,7 @@ class SessionRecordingListFromQuery(SessionRecordingsListingBaseQuery):
                 test_account_query,
                 self._allow_event_property_expansion,
                 sample_factor=self._events_sample_factor,
+                events_timestamp_floor=self._events_timestamp_floor,
             )
             for sub_q in test_account_events_builder.get_queries_for_session_id_matching():
                 exprs.append(

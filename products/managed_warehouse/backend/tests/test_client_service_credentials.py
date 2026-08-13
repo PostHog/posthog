@@ -15,21 +15,20 @@ _CONNECT = ServiceCredentialConnect(
 )
 
 
-def _credential(password: str) -> ServiceCredential:
+def _credential(secret: str, *, credential_id: str = "svc_test_a1b2c3d4e5") -> ServiceCredential:
     return ServiceCredential(
-        username="posthog_team_7_rw",
-        password=password,
+        credential_id=credential_id,
+        credential_secret=secret,
         expires_at=datetime(2026, 8, 11, 13, 0, tzinfo=UTC),
-        rotated=bool(password),
+        rotated=bool(secret),
         connect=_CONNECT,
     )
 
 
 class TestMakeDuckgresConninfoWithServiceCredential:
-    """client.make_duckgres_conninfo with a service_credential presents the
-    team's canonical project_user login (CP-issued, team-scoped), NOT the
-    org-root credential stored in the DuckgresServer row — and dials the
-    CP-issued `connect` target, never the row's host/port/database.
+    """client.make_duckgres_conninfo with a service_credential dials the
+    server-issued credential pair (svc_<id> + plaintext) and the CP-issued
+    `connect` target — never the DuckgresServer row stored in Django.
     """
 
     @mock.patch(
@@ -42,7 +41,7 @@ class TestMakeDuckgresConninfoWithServiceCredential:
             7, organization_id="org-1", service_credential=_credential("minted-plaintext")
         )
 
-        assert "user=posthog_team_7_rw" in conninfo
+        assert "user=svc_test_a1b2c3d4e5" in conninfo
         assert "password=minted-plaintext" in conninfo
         assert "host=019740a8-ac01-0000-cad1-4626cafbc273.dw.us.postwh.com" in conninfo
         assert "port=443" in conninfo
@@ -59,8 +58,8 @@ class TestMakeDuckgresConninfoWithServiceCredential:
             host="h.dw.us.postwh.com", port=443, database="ducklake", sslmode="verify-full"
         )
         credential = ServiceCredential(
-            username="posthog_team_7_rw",
-            password="minted-plaintext",
+            credential_id="svc_test_a1b2c3d4e5",
+            credential_secret="minted-plaintext",
             expires_at=datetime(2026, 8, 11, 13, 0, tzinfo=UTC),
             rotated=True,
             connect=connect,
@@ -71,7 +70,7 @@ class TestMakeDuckgresConninfoWithServiceCredential:
         assert "sslmode=verify-full" in conninfo
 
     @mock.patch("products.managed_warehouse.backend.client.is_dev_mode", return_value=False)
-    def test_empty_password_credential_is_rejected_loudly(self, _dev):
+    def test_empty_secret_credential_is_rejected_loudly(self, _dev):
         # A reuse-path credential (CP returned no plaintext) must fail HERE —
         # a fresh fetcher with nothing cached needs to mint with force_rotate,
         # not connect with a blank password and get a cryptic 28P01.
