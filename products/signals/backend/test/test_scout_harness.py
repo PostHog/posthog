@@ -1036,24 +1036,23 @@ async def test_run_tags_session_with_scout_ai_stage(ateam, aerrors_skill):
 
 @pytest.mark.asyncio
 @pytest.mark.django_db
-@pytest.mark.parametrize("with_creator", [True, False])
-async def test_run_delegates_the_scout_creator_as_mcp_credential_owner(ateam, aerrors_skill, with_creator):
-    # MCP Store grants are personal, so a scout run mounts the connections its creator delegated
-    # to the Scout agent — never the acting user's. A scout with no creator (coordinator
-    # auto-discovered) stays fail-closed and mounts nothing.
+async def test_run_passes_the_per_scout_server_selection_and_no_credential_owner(ateam, aerrors_skill):
+    # A scout is a team resource: its runs mount only team-scoped grants, gated by the
+    # config's per-scout server selection, and never delegate anyone's personal grants.
+    # Passing a credential owner here would silently re-open the personal lane.
     session, result = await database_sync_to_async(_make_fake_session, thread_sensitive=False)(ateam)
     captured: dict = {}
 
-    def _seed_config() -> int | None:
-        creator = (
-            User.objects.create(email=f"scout-owner-{random.randint(1, 99999)}@example.com") if with_creator else None
-        )
+    def _seed_config() -> None:
+        creator = User.objects.create(email=f"scout-owner-{random.randint(1, 99999)}@example.com")
         SignalScoutConfig.objects.unscoped().create(
-            team_id=ateam.id, skill_name="signals-scout-errors", created_by=creator
+            team_id=ateam.id,
+            skill_name="signals-scout-errors",
+            created_by=creator,
+            mcp_gateway_server_ids=["11111111-1111-1111-1111-111111111111"],
         )
-        return creator.id if creator is not None else None
 
-    owner_id = await database_sync_to_async(_seed_config, thread_sensitive=False)()
+    await database_sync_to_async(_seed_config, thread_sensitive=False)()
 
     async def _capture_start(*args, on_task_run_created=None, **kwargs):
         captured.update(kwargs)
@@ -1075,7 +1074,8 @@ async def test_run_delegates_the_scout_creator_as_mcp_credential_owner(ateam, ae
         await arun_signals_scout(team_id=ateam.id, skill_name="signals-scout-errors")
 
     assert captured["mcp_builtin_agent_key"] == "scout"
-    assert captured["mcp_credential_owner_id"] == owner_id
+    assert captured.get("mcp_credential_owner_id") is None
+    assert captured["mcp_gateway_server_ids"] == ["11111111-1111-1111-1111-111111111111"]
 
 
 @pytest.mark.asyncio
