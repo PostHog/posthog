@@ -39,7 +39,6 @@ Hosts:
 - `apps/code`: Electron desktop host.
 - `apps/web`: web host and portability smoke test.
 - `apps/mobile`: React Native host.
-- `apps/cli`: thin shell over `@posthog/cli`.
 
 ## Rules
 

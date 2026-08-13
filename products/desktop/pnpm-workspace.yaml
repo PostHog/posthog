@@ -108,8 +108,8 @@ overrides:
     # Swap vite for the rolldown-based fork for faster dev boot times (#3027).
     vite: npm:rolldown-vite@7.3.1
     # Security: force patched versions for advisory-flagged packages (each pin is over the
-    # 7-day minimumReleaseAge and clears the package's advisories). Local mirror of the
-    # PostHog/code hardening PR; drop once a resync pins to a commit that already has it.
+    # 7-day minimumReleaseAge and clears the package's advisories). Drop a pin once the
+    # dependents require a patched version on their own.
     protobufjs: 7.6.5
     axios: 1.18.1
     hono: 4.12.28
