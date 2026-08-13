@@ -33,6 +33,11 @@ FLAG_EVALUATIONS_MV_TABLE = f"{FLAG_EVALUATIONS_TABLE}_mv"
 
 FLAG_EVALUATIONS_TTL_DAYS = 90
 
+# The only event this table stores. posthog/models/deletion_targets.py uses it to skip this table
+# for deletion requests that name other events, so a producer writing a second event name here has
+# to update the target's stored_events.
+FLAG_EVALUATIONS_SOURCE_EVENT = "$feature_flag_called"
+
 # Sharding by a distinct_id hash rather than anything team-based: a handful of
 # teams carry most of the volume, and sharding by team would hotspot single
 # shards. sipHash64 matches the events table's Distributed sharding key, so a
@@ -186,6 +191,26 @@ ORDER BY {FLAG_EVALUATIONS_ORDER_BY}
 SETTINGS ttl_only_drop_parts = 1
 """
 )
+
+
+def DROP_FLAG_EVALUATIONS_PROXY_TABLES_SQL() -> list[str]:
+    """Drop the two Distributed fronts so a reset recreates them alongside the storage table.
+
+    Recreating the shard while leaving these on an older column list makes inserts silently drop
+    the new column and reads not see it, which fails as a puzzle rather than as a schema error.
+    """
+    return [
+        f"DROP TABLE IF EXISTS {FLAG_EVALUATIONS_TABLE}",
+        f"DROP TABLE IF EXISTS {FLAG_EVALUATIONS_WRITABLE_TABLE}",
+    ]
+
+
+def DROP_FLAG_EVALUATIONS_TABLE_SQL() -> str:
+    # reset_clickhouse_database drops rather than truncates because MutationRunner skips enqueueing
+    # a mutation whose command text already exists on the table, so mutation history left behind by
+    # one test turns a later test's identical delete into a no-op. SYNC so the replica's ZooKeeper
+    # metadata is gone before the table is recreated.
+    return f"DROP TABLE IF EXISTS {FLAG_EVALUATIONS_DATA_TABLE} SYNC"
 
 
 def _distributed_table_sql(table_name: str, *, materialized_columns: str = "") -> str:
