@@ -3,12 +3,12 @@ import { useCallback, useMemo, useState } from 'react'
 import { IconChevronDown } from '@posthog/icons'
 import { LemonButton, SpinnerOverlay } from '@posthog/lemon-ui'
 import {
+    createXAxisTickCallback,
     type DateRangeZoomData,
     DefaultTooltip,
     type Series,
     TimeSeriesBarChart,
     type TimeSeriesBarChartConfig,
-    type TimeInterval,
 } from '@posthog/quill-charts'
 
 import { useChartConfig, useChartTheme } from 'lib/charts/hooks'
@@ -23,18 +23,6 @@ interface InvocationsSparklineProps {
     data: SparklineData | null
     loading: boolean
     onDateRangeChange: (dateFrom: string, dateTo: string | undefined) => void
-}
-
-/** The bucket width the logic picked, recovered from the span so ticks read as minutes, hours or days. */
-function inferInterval(dates: string[]): TimeInterval {
-    if (dates.length < 2) {
-        return 'hour'
-    }
-    const hoursDiff = dayjs(dates[dates.length - 1]).diff(dayjs(dates[0]), 'hour')
-    if (hoursDiff <= 6) {
-        return 'minute'
-    }
-    return hoursDiff <= 48 ? 'hour' : 'day'
 }
 
 export function InvocationsSparkline({
@@ -60,8 +48,10 @@ export function InvocationsSparkline({
     const theme = useChartTheme()
     const config = useChartConfig<TimeSeriesBarChartConfig>(
         () => ({
-            // The runs table below renders timestamps in local time, so the axis should agree.
-            xAxis: { interval: inferInterval(dates), timezone: dayjs.tz.guess() },
+            // The runs table below renders timestamps in local time, so the axis should agree. The interval
+            // is left to quill, which reads it off consecutive labels — the span disagrees with the
+            // logic's bucket tier, and it is the interval that picks the tick mode.
+            xAxis: { tickFormatter: createXAxisTickCallback({ allDays: dates, timezone: dayjs.tz.guess() }) },
         }),
         [dates]
     )

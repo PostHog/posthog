@@ -1,5 +1,4 @@
 import { Meta, StoryObj } from '@storybook/react'
-import { ReactNode } from 'react'
 
 import { dayjs } from 'lib/dayjs'
 
@@ -13,6 +12,8 @@ const meta: Meta<typeof InvocationsSparkline> = {
         layout: 'centered',
         testOptions: { snapshotBrowsers: ['chromium'] },
     },
+    // The component sizes its own height (`h-24`), so the stories only need to pin a width.
+    decorators: [(Story) => <div className="w-[760px]">{Story()}</div>],
 }
 export default meta
 
@@ -34,18 +35,9 @@ function exampleData(bucketCount = 48): SparklineData {
     }
 }
 
-function Stage({ children }: { children: ReactNode }): JSX.Element {
-    // eslint-disable-next-line react/forbid-dom-props
-    return <div style={{ width: 760 }}>{children}</div>
-}
-
 /** Stacked succeeded/running/failed buckets — the default state above the runs table. */
 export const WithActivity: Story = {
-    render: () => (
-        <Stage>
-            <InvocationsSparkline data={exampleData()} loading={false} onDateRangeChange={() => {}} />
-        </Stage>
-    ),
+    render: () => <InvocationsSparkline data={exampleData()} loading={false} onDateRangeChange={() => {}} />,
 }
 
 /** Every bucket empty: the chart is replaced by copy rather than an axis with no bars. */
@@ -53,13 +45,11 @@ export const NoInvocations: Story = {
     render: () => {
         const { dates, series } = exampleData(12)
         return (
-            <Stage>
-                <InvocationsSparkline
-                    data={{ dates, series: series.map((s) => ({ ...s, values: s.values.map(() => 0) })) }}
-                    loading={false}
-                    onDateRangeChange={() => {}}
-                />
-            </Stage>
+            <InvocationsSparkline
+                data={{ dates, series: series.map((s) => ({ ...s, values: s.values.map(() => 0) })) }}
+                loading={false}
+                onDateRangeChange={() => {}}
+            />
         )
     },
 }
@@ -70,22 +60,25 @@ export const MinuteBuckets: Story = {
         const start = dayjs('2026-06-01T00:00:00Z')
         const dates = Array.from({ length: 60 }, (_, i) => start.add(i, 'minute').toISOString())
         return (
-            <Stage>
-                <InvocationsSparkline
-                    data={{
-                        dates,
-                        series: [
-                            {
-                                name: 'succeeded',
-                                color: 'success',
-                                values: dates.map((_, i) => Math.max(0, Math.round(12 * (1 + Math.sin(i / 4))))),
-                            },
-                        ],
-                    }}
-                    loading={false}
-                    onDateRangeChange={() => {}}
-                />
-            </Stage>
+            <InvocationsSparkline
+                data={{
+                    dates,
+                    series: [
+                        {
+                            name: 'succeeded',
+                            color: 'success',
+                            values: dates.map((_, i) => Math.max(0, Math.round(12 * (1 + Math.sin(i / 4))))),
+                        },
+                    ],
+                }}
+                loading={false}
+                onDateRangeChange={() => {}}
+            />
         )
     },
+}
+
+/** Hourly buckets across a week — the tier whose ticks must land on day boundaries, not repeat a date per bucket. */
+export const WeekOfHourlyBuckets: Story = {
+    render: () => <InvocationsSparkline data={exampleData(24 * 7)} loading={false} onDateRangeChange={() => {}} />,
 }
