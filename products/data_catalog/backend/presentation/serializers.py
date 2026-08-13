@@ -152,7 +152,11 @@ class MetricSerializer(serializers.ModelSerializer):
             "updated_at",
         ]
         extra_kwargs = {
-            "name": {"help_text": "Identifier-safe run handle, unique per team and reserved forever. Write-once."},
+            "name": {
+                "help_text": "Identifier-safe run handle, unique among the team's live metrics. Renaming or "
+                "deleting a metric frees its name for reuse, and anything referencing the old name (SQL over "
+                "information_schema.metrics, run URLs, links) stops resolving."
+            },
             "source_insight_short_id": {
                 "required": False,
                 "help_text": "Create the metric from this insight's query (snapshotted server-side). "

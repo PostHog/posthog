@@ -1617,6 +1617,8 @@ export interface ActionFilter extends EntityFilter {
     days?: string[] // TODO: why was this added here?
     operator?: FilterLogicalOperator | null
     nestedFilters?: EntityFilter[] | null
+    /** Replay-only. When true, matches sessions that do NOT contain any event matching this entity */
+    negation?: boolean
 }
 
 export const isGroupFilter = (filter: EntityFilter): filter is ActionFilter => filter.type === EntityTypes.GROUPS
@@ -2652,6 +2654,10 @@ export interface DashboardBasicType extends WithAccessControl {
     tags?: string[]
     /** Project-tree folder the dashboard is filed under, e.g. 'Unfiled/Dashboards'. Empty string is the project root; null means no file system entry. */
     folder?: string | null
+    /** Null when the dashboard was never filed, which is the case that cannot be moved. */
+    file_system_id?: string | null
+    /** Unlike `folder`, keeps the dashboard's own name as the last segment, which a move needs to compute the destination. */
+    file_system_path?: string | null
     /** Purely local value to determine whether the dashboard should be highlighted, e.g. as a fresh duplicate. */
     _highlight?: boolean
     /**
@@ -7289,6 +7295,7 @@ export type HogFunctionConfigurationContextId =
     | 'experiment-alerts'
     | 'logs-alerting'
     | 'health-alerts'
+    | 'batch-export-alerts'
 
 export type HogFunctionSubTemplateIdType =
     | 'early-access-feature-enrollment'
@@ -7309,6 +7316,7 @@ export type HogFunctionSubTemplateIdType =
     | 'logs-alert-errored'
     | 'health-check-firing'
     | 'health-check-resolved'
+    | 'batch-export-run-failed'
 
 export type HogFunctionConfigurationType = Omit<
     HogFunctionType,
