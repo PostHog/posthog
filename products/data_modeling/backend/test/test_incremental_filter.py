@@ -130,3 +130,23 @@ class TestInjectIncrementalFilter(BaseTest):
                 incremental_key="day",
                 since=SINCE,
             )
+
+    # Regression: `SELECT *` planned incremental (eligibility expands the star) but the filter
+    # raised on every run, so the retry silently rebuilt the whole table each time.
+    @parameterized.expand(
+        [
+            ("bare_star", "SELECT * FROM events"),
+            ("qualified_star", "SELECT e.* FROM events e"),
+            ("star_union_branch", "SELECT * FROM events UNION ALL SELECT * FROM events"),
+        ]
+    )
+    def test_a_star_select_filters_on_the_key_by_name(self, _name: str, query: str) -> None:
+        node = inject_incremental_filter(query, incremental_key="timestamp", since=SINCE)
+
+        for branch in _inner_selects(node):
+            terms = _where_terms(branch)
+            assert len(terms) == 1
+            predicate = terms[0]
+            assert isinstance(predicate, ast.CompareOperation)
+            assert clear_locations(predicate.left) == ast.Field(chain=["timestamp"])
+            assert predicate.right == ast.Constant(value=SINCE)
