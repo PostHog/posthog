@@ -91,6 +91,7 @@ class TestUserChangeFormPasswordField(BaseTest):
     def test_password_field_omits_salt_and_hash(self):
         # Guards against the partial (masked) hash material Django's default widget shows reappearing.
         user = User.objects.create(email=f"test-{uuid.uuid4()}@example.com", distinct_id=str(uuid.uuid4()))
+        # nosemgrep: python.django.security.audit.unvalidated-password.unvalidated-password (test fixture, not a user-facing password-set path)
         user.set_password("a-strong-password-123")
         user.save()
 
