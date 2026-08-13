@@ -11,6 +11,7 @@ result types live in ``facade.contracts``.
 
 from __future__ import annotations
 
+from collections.abc import Sequence
 from typing import TYPE_CHECKING
 
 from products.managed_warehouse.backend import client
@@ -27,7 +28,12 @@ if TYPE_CHECKING:
     from posthog.models.team.team import Team
     from posthog.models.user import User
 
-    from products.managed_warehouse.backend.facade.contracts import DuckLakeQueryResult, DuckLakeTableResult
+    from products.managed_warehouse.backend.facade.contracts import (
+        DuckLakeCompiledQuery,
+        DuckLakeQueryResult,
+        DuckLakeS3Secret,
+        DuckLakeTableResult,
+    )
     from products.managed_warehouse.backend.service_credentials import ServiceCredential
 
 __all__ = [
@@ -62,7 +68,7 @@ def compile_hogql_to_ducklake_sql(
     team: Team | None = None,
     user: User | None = None,
     bypass_warehouse_access_control: bool = False,
-) -> tuple[str, dict[str, object], str]:
+) -> DuckLakeCompiledQuery:
     return client.compile_hogql_to_ducklake_sql(
         team_id,
         query,
@@ -101,6 +107,7 @@ def execute_ducklake_create_table(
     values: dict[str, object] | None = None,
     *,
     organization_id: str | None = None,
+    s3_secrets: Sequence[DuckLakeS3Secret] = (),
 ) -> DuckLakeTableResult:
     return client.execute_ducklake_create_table(
         team_id,
@@ -109,4 +116,5 @@ def execute_ducklake_create_table(
         table_name,
         values,
         organization_id=organization_id,
+        s3_secrets=s3_secrets,
     )

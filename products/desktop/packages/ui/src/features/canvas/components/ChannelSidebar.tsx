@@ -49,7 +49,6 @@ import { useChannelItems } from "@posthog/ui/features/canvas/hooks/useChannelIte
 import { useChannels } from "@posthog/ui/features/canvas/hooks/useChannels";
 import { useChannelTasksRunState } from "@posthog/ui/features/canvas/hooks/useChannelTasksRunState";
 import { useLocalDayStart } from "@posthog/ui/features/canvas/hooks/useLocalDayStart";
-import { PERSONAL_CHANNEL_NAME } from "@posthog/ui/features/canvas/hooks/useTaskChannels";
 import { SHORTCUTS } from "@posthog/ui/features/command/keyboard-shortcuts";
 import { useCommandCenterStore } from "@posthog/ui/features/command-center/commandCenterStore";
 import { placeTaskInCommandCenter } from "@posthog/ui/features/command-center/placeTaskInCommandCenter";
@@ -305,8 +304,10 @@ export function ChannelSidebar({ channelId }: { channelId: string }) {
   // as hidden — otherwise "Other people" carried in from a shared space would
   // empty this list with no visible control to undo it.
   const { channels } = useChannels();
+  // By type, not by name: the list relabels the personal channel on the way in,
+  // so its name is no longer the backend's.
   const isPersonalChannel =
-    channels.find((c) => c.id === channelId)?.name === PERSONAL_CHANNEL_NAME;
+    channels.find((c) => c.id === channelId)?.channelType === "personal";
   // The tab is the list, so everything below it — the filters, the empty state,
   // the sections — is about one kind of thing at a time.
   const tabItems = useMemo(
@@ -501,7 +502,7 @@ export function ChannelSidebar({ channelId }: { channelId: string }) {
 
   // Label comes from the shared space-page table, so a sidebar row and the
   // header breadcrumb for the same page can never disagree. No icon: this is a
-  // four-row list of words, and glyphs here only compete with the status dots
+  // short list of words, and glyphs here only compete with the status dots
   // in the sessions list below for the eye's attention.
   const sectionRow = (
     page: ChannelPageKey,
@@ -562,15 +563,6 @@ export function ChannelSidebar({ channelId }: { channelId: string }) {
                 params: { channelId },
               }),
           )}
-        {sectionRow(
-          "artifacts",
-          `${base}/artifacts`,
-          () =>
-            void navigate({
-              to: "/website/$channelId/artifacts",
-              params: { channelId },
-            }),
-        )}
       </div>
 
       {/* Relative so the FAB and the drag-selection band can float over the

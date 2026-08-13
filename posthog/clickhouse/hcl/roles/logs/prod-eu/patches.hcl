@@ -30,9 +30,6 @@ database "posthog" {
       thread_per_consumer  = true
     }
   }
-  patch_materialized_view "kafka_logs34_avro_mv" {
-    query = file("sql/kafka_logs34_avro_mv.sql")
-  }
   patch_materialized_view "kafka_logs_avro_billing_metrics_mv" {
     query = file("sql/kafka_logs_avro_billing_metrics_mv.sql")
   }

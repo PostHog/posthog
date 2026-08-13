@@ -31,8 +31,6 @@ import {
 } from '~/queries/schema/schema-assistant-messages'
 import { RecordingUniversalFilters } from '~/types'
 
-import type { SessionSummarizationUpdate } from './messages/SessionSummarizationProgress'
-
 export interface EnhancedToolCall extends AssistantToolCall {
     status: TaskExecutionStatus
     isLastPlanningMessage?: boolean
@@ -65,7 +63,7 @@ export interface ToolDefinition<N extends string = string> {
     displayFormatter?: (
         toolCall: EnhancedToolCall,
         { registeredToolMap }: DisplayFormatterContext
-    ) => string | [text: string, widgetDef: RecordingsWidgetDef | SessionSummarizationWidgetDef | null]
+    ) => string | [text: string, widgetDef: RecordingsWidgetDef | null]
     /**
      * If only available in a specific product, specify it here.
      * We're using Scene instead of ProductKey, because that's more flexible (specifically for SQL editor there
@@ -134,11 +132,6 @@ export interface ToolRegistration extends Pick<ToolDefinition, 'name' | 'descrip
 export interface RecordingsWidgetDef {
     widget: 'recordings'
     args: RecordingUniversalFilters
-}
-
-export interface SessionSummarizationWidgetDef {
-    widget: 'session_summarization'
-    args: { updates: SessionSummarizationUpdate[] }
 }
 
 /** Static mode definition for display purposes. */
@@ -1330,33 +1323,13 @@ export const TOOL_DEFINITIONS: Record<AssistantTool, ToolDefinition> = {
         },
     },
     summarize_sessions: {
+        // The tool is retired; the entry stays so tool calls in old conversations still render.
         name: 'Summarize sessions',
-        description: 'Summarize sessions to analyze real user behavior',
+        description: 'Summarize sessions analyze real user behavior',
         icon: iconForType('session_replay'),
-        beta: true,
         modes: [AgentMode.SessionReplay],
-        displayFormatter: (toolCall) => {
-            const text = toolCall.status === 'completed' ? 'Summarized sessions' : 'Summarizing sessions...'
-            // Parse structured updates from the tool call updates
-            const updates = toolCall.updates
-            if (updates && updates.length > 0) {
-                const parsedUpdates: SessionSummarizationUpdate[] = []
-                for (const update of updates) {
-                    try {
-                        const parsed = JSON.parse(update)
-                        if (isObject(parsed) && (parsed.type === 'sessions_discovered' || parsed.type === 'progress')) {
-                            parsedUpdates.push(parsed as unknown as SessionSummarizationUpdate)
-                        }
-                    } catch {
-                        // Not a structured update, skip
-                    }
-                }
-                if (parsedUpdates.length > 0) {
-                    return [text, { widget: 'session_summarization', args: { updates: parsedUpdates } }]
-                }
-            }
-            return text
-        },
+        displayFormatter: (toolCall) =>
+            toolCall.status === 'completed' ? 'Summarized sessions' : 'Summarizing sessions...',
     },
     web_search: {
         name: 'Search the web', // Web search is a special case of a tool, as it's a built-in LLM provider one

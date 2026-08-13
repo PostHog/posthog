@@ -12,7 +12,6 @@ import {
 } from "@posthog/ui/features/canvas/components/ActivityPanelBody";
 import { TaskCard } from "@posthog/ui/features/canvas/components/ChannelFeedView";
 import { ThreadLoadingState } from "@posthog/ui/features/canvas/components/ThreadPanel";
-import { useTaskCommentActivity } from "@posthog/ui/features/canvas/hooks/useTaskCommentActivity";
 import { useTaskThread } from "@posthog/ui/features/canvas/hooks/useTaskThread";
 import { useCommentNavigationStore } from "@posthog/ui/features/sessions/commentNavigationStore";
 import { taskDetailQuery } from "@posthog/ui/features/tasks/queries";
@@ -222,10 +221,9 @@ export function ActivityPanel({
   });
   const task = taskProp ?? fetchedTask;
 
-  // Warmed from the id alone so they don't queue behind the task itself, which can take
-  // seconds to arrive. Same query keys as the panel's own hooks, so this shares one fetch.
+  // Warmed from the id alone so it doesn't queue behind the task itself, which can take
+  // seconds to arrive. Same query key as the panel's own hook, so this shares one fetch.
   useTaskThread(taskId, { enabled: !collapsed, markActivityRead: false });
-  useTaskCommentActivity(taskId, { enabled: !collapsed });
 
   if (collapsed) {
     return (

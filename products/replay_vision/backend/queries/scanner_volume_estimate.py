@@ -11,6 +11,11 @@ from posthog.hogql.query import execute_hogql_query
 
 from posthog.clickhouse.client.connection import ClickHouseUser
 from posthog.clickhouse.query_tagging import Feature, Product, tag_queries
+from posthog.exceptions import (
+    ClickHouseEstimatedQueryExecutionTimeTooLong,
+    ClickHouseQueryMemoryLimitExceeded,
+    ClickHouseQueryTimeOut,
+)
 from posthog.models import Team
 from posthog.session_recordings.queries.session_recording_list_from_query import SessionRecordingListFromQuery
 
@@ -22,8 +27,9 @@ from products.replay_vision.backend.queries.scanner_candidate_query import (
 
 # The estimate always projects to a calendar month.
 ESTIMATE_WINDOW_DAYS = 30
-# Events subqueries additionally SAMPLE users at 10%; matched counts are corrected back up.
+# Fallback sample rate for events subqueries; matched counts are corrected back up.
 _ESTIMATE_EVENTS_SAMPLE_FACTOR = 0.1
+_EXACT_ATTEMPT_BUDGET_FRACTION = 0.5
 
 
 @dataclass(frozen=True, kw_only=True)
@@ -67,6 +73,13 @@ class ScannerVolumeEstimate:
     matched_sessions: int
     # May be smaller than the scan window when the team has fewer days of recordings.
     effective_window_days: int
+    sampled: bool = False
+
+
+@dataclass(frozen=True)
+class _EstimateQueryPlan:
+    combined_query: ast.SelectQuery
+    sampled: bool
 
 
 def estimate_scanner_session_volume(
@@ -79,11 +92,10 @@ def estimate_scanner_session_volume(
 ) -> ScannerVolumeEstimate:
     """Count sessions matching `query` over a recent window, for the scanner cost preview.
 
-    Reuses `SessionRecordingListFromQuery`'s filter compilation (with events subqueries sampled
-    at 10% and corrected back up) wrapped in a COUNT, so the estimate and the real recordings
-    list agree on what "matches"; `project_monthly_observations` extrapolates to 30 days. The team's
-    earliest recent recording is fetched in the same round trip via a CROSS JOIN so the
-    cost-preview widget never pays for two sequential HogQL queries.
+    Reuses `SessionRecordingListFromQuery`'s filter compilation so the estimate and the real
+    recordings list agree on what "matches". The exact count runs first; when it times out, is
+    rejected as too slow, or hits a memory limit, it retries with sampled events subqueries and
+    corrects the count back up (`sampled=True` on the result).
     """
     # Sampling is only sound when every match must pass the sampled events leg; under OR, sessions
     # matched via unsampled branches (persons, cohorts, console logs) would be multiplied by the
@@ -99,13 +111,77 @@ def estimate_scanner_session_volume(
     windowed.date_from = window_start.isoformat()
     windowed.date_to = None
 
+    sampled_plan = _plan_estimate_query(
+        team=team,
+        query=windowed,
+        sampling_mode=sampling_mode,
+        sample_factor=sample_factor,
+        scan_window_days=scan_window_days,
+        now=now,
+    )
+
+    tag_queries(team_id=team.id, product=Product.REPLAY_VISION, feature=Feature.QUERY)
+    if not sampled_plan.sampled:
+        # Nothing was sampled, so a fallback would rerun the identical query.
+        return _execute_estimate_query(
+            sampled_plan,
+            team=team,
+            query_type="ReplayVisionScannerEstimateQuery",
+            max_execution_seconds=budget.max_execution_seconds,
+            scan_window_days=scan_window_days,
+            ch_user=ch_user,
+        )
+
+    exact_plan = _plan_estimate_query(
+        team=team,
+        query=windowed,
+        sampling_mode=sampling_mode,
+        sample_factor=None,
+        scan_window_days=scan_window_days,
+        now=now,
+    )
+    exact_budget = max(1, round(budget.max_execution_seconds * _EXACT_ATTEMPT_BUDGET_FRACTION))
+    try:
+        return _execute_estimate_query(
+            exact_plan,
+            team=team,
+            query_type="ReplayVisionScannerEstimateExactQuery",
+            max_execution_seconds=exact_budget,
+            scan_window_days=scan_window_days,
+            ch_user=ch_user,
+        )
+    except (
+        ClickHouseQueryTimeOut,
+        ClickHouseEstimatedQueryExecutionTimeTooLong,
+        ClickHouseQueryMemoryLimitExceeded,
+    ):
+        # Full budget: halving it fails teams whose sampled count needs more than half.
+        return _execute_estimate_query(
+            sampled_plan,
+            team=team,
+            query_type="ReplayVisionScannerEstimateSampledQuery",
+            max_execution_seconds=budget.max_execution_seconds,
+            scan_window_days=scan_window_days,
+            ch_user=ch_user,
+        )
+
+
+def _plan_estimate_query(
+    *,
+    team: Team,
+    query: RecordingsQuery,
+    sampling_mode: SamplingMode | str,
+    sample_factor: float | None,
+    scan_window_days: int,
+    now: dt.datetime,
+) -> _EstimateQueryPlan:
     # Count only sessions the sweep would actually observe, so the forecast matches the eligible set the candidate query selects.
     extra_having = eligibility_predicates()
     if (surfacing := surfacing_score_predicate(sampling_mode)) is not None:
         extra_having.append(surfacing)
     list_query = SessionRecordingListFromQuery(
         team=team,
-        query=windowed,
+        query=query,
         extra_having_predicates=extra_having,
         events_sample_factor=sample_factor,
     )
@@ -147,24 +223,36 @@ def estimate_scanner_session_volume(
             ),
         ),
     )
+    return _EstimateQueryPlan(combined_query=combined_query, sampled=list_query.events_subqueries_sampled)
 
-    tag_queries(team_id=team.id, product=Product.REPLAY_VISION, feature=Feature.QUERY)
+
+def _execute_estimate_query(
+    plan: _EstimateQueryPlan,
+    *,
+    team: Team,
+    query_type: str,
+    max_execution_seconds: int,
+    scan_window_days: int,
+    ch_user: ClickHouseUser,
+) -> ScannerVolumeEstimate:
     response = execute_hogql_query(
-        query=combined_query,
+        query=plan.combined_query,
         team=team,
-        query_type="ReplayVisionScannerEstimateQuery",
-        settings=HogQLGlobalSettings(max_execution_time=budget.max_execution_seconds),
+        query_type=query_type,
+        # "throw" so a timeout raises instead of returning a partial count as exact.
+        settings=HogQLGlobalSettings(max_execution_time=max_execution_seconds, timeout_overflow_mode="throw"),
         ch_user=ch_user,
     )
     results = response.results or []
     matched = int(results[0][0]) if results else 0
-    if list_query.events_subqueries_sampled:
+    if plan.sampled:
         matched = round(matched / _ESTIMATE_EVENTS_SAMPLE_FACTOR)
     earliest = results[0][1] if results else None
 
     return ScannerVolumeEstimate(
         matched_sessions=matched,
         effective_window_days=_clamp_window_days(earliest, scan_window_days),
+        sampled=plan.sampled,
     )
 
 

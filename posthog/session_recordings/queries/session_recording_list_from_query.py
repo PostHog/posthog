@@ -6,7 +6,6 @@ from dateutil.relativedelta import relativedelta
 from opentelemetry import trace
 
 from posthog.schema import (
-    FilterLogicalOperator,
     HogQLQueryModifiers,
     PropertyOperator,
     RecordingOrder,
@@ -34,6 +33,7 @@ from posthog.session_recordings.queries.utils import (
     _strip_person_and_event_and_cohort_properties,
     expand_test_account_filters,
     is_session_property,
+    test_account_scoped_query,
 )
 from posthog.types import AnyPropertyFilter
 
@@ -132,6 +132,8 @@ class SessionRecordingListFromQuery(SessionRecordingsListingBaseQuery):
         max_execution_time: int | None = None,
         extra_having_predicates: list[ast.Expr] | None = None,
         session_ids_to_exclude: list[str] | None = None,
+        # For callers that evaluate negative filters themselves against the fetched rows.
+        skip_negative_blocklists: bool = False,
         bypass_date_window_for_session_ids: bool = False,
         user: User | None = None,
         events_sample_factor: float | None = None,
@@ -209,6 +211,7 @@ class SessionRecordingListFromQuery(SessionRecordingsListingBaseQuery):
         self._max_execution_time = max_execution_time
         self._extra_having_predicates = extra_having_predicates or []
         self._session_ids_to_exclude = session_ids_to_exclude
+        self._skip_negative_blocklists = skip_negative_blocklists
 
     @tracer.start_as_current_span("SessionRecordingListFromQuery.run")
     def run(self) -> SessionRecordingQueryResult:
@@ -228,6 +231,18 @@ class SessionRecordingListFromQuery(SessionRecordingsListingBaseQuery):
                     ),
                 ),
             )
+
+        # After the results are in, check whether the exclusion blocklist hit its row cap,
+        # because past the cap the query silently under-excludes. No-op without negated entities, and
+        # nothing to probe when the caller excluded against its own rows instead, where the scoped
+        # query is bounded by the ids it was given rather than by the cap.
+        if not self._skip_negative_blocklists:
+            ReplayFiltersEventsSubQuery(
+                self._team,
+                self._query,
+                self._allow_event_property_expansion,
+                hogql_query_modifiers=self._hogql_query_modifiers,
+            ).check_negative_blocklist_truncation()
 
         with tracer.start_as_current_span("SessionRecordingListFromQuery._data_to_return"):
             next_cursor = None
@@ -287,6 +302,30 @@ class SessionRecordingListFromQuery(SessionRecordingsListingBaseQuery):
         return ast.OrderExpr(expr=ast.Field(chain=[order_by]), order=direction)
 
     @tracer.start_as_current_span("SessionRecordingListFromQuery._where_predicates")
+    def excluded_sessions_queries(self, session_ids: list[str]) -> list[ast.SelectQuery]:
+        """The scoped counterpart to `skip_negative_blocklists`: which of `session_ids` are excluded.
+
+        A caller that turns the in-query blocklists off must run these and drop what they return.
+        They are built from the same preprocessed query this class filters with, so the two forms
+        cannot answer for different windows or different property sets.
+
+        Empty when nothing is excluded, which is also how a caller can tell it has nothing to run.
+        """
+        return [q for b in self._negative_filter_builders() if (q := b.get_excluded_sessions_query(session_ids))]
+
+    def _negative_filter_builders(self) -> list[ReplayFiltersEventsSubQuery]:
+        """Every builder that can contribute a negative blocklist: the query's own, plus test accounts."""
+        builders = [ReplayFiltersEventsSubQuery(self._team, self._query, self._allow_event_property_expansion)]
+        if self._test_account_filters:
+            builders.append(
+                ReplayFiltersEventsSubQuery(
+                    self._team,
+                    test_account_scoped_query(self._query, self._test_account_filters),
+                    self._allow_event_property_expansion,
+                )
+            )
+        return builders
+
     def _where_predicates(self) -> Union[ast.And, ast.Or]:
         exprs: list[ast.Expr] = []
 
@@ -402,7 +441,9 @@ class SessionRecordingListFromQuery(SessionRecordingsListingBaseQuery):
         # Negative property filters (NOT_ICONTAINS, IS_NOT, etc.) are handled via a blocklist:
         # find the small set of sessions that MATCH the positive form, then exclude them.
         # This avoids scanning all event-sessions which can exceed the LIMIT on high-traffic teams.
-        negative_blocklist = events_sub_query_builder.get_negative_blocklist_query()
+        negative_blocklist = (
+            None if self._skip_negative_blocklists else events_sub_query_builder.get_negative_blocklist_query()
+        )
         self.events_subqueries_sampled |= events_sub_query_builder.emitted_sampled_subquery
         if negative_blocklist:
             exprs.append(
@@ -501,12 +542,7 @@ class SessionRecordingListFromQuery(SessionRecordingsListingBaseQuery):
         # a person sub-query, event props need an events sub-query, etc.), so we
         # build a minimal query with just the test account filters and AND operand.
         if self._test_account_filters:
-            test_account_query = self._query.model_copy(deep=True)
-            test_account_query.properties = list(self._test_account_filters)
-            test_account_query.operand = FilterLogicalOperator.AND_
-            test_account_query.events = None
-            test_account_query.actions = None
-            test_account_query.console_log_filters = None
+            test_account_query = test_account_scoped_query(self._query, self._test_account_filters)
 
             test_account_events_builder = ReplayFiltersEventsSubQuery(
                 self._team,
@@ -521,7 +557,9 @@ class SessionRecordingListFromQuery(SessionRecordingsListingBaseQuery):
                         op=ast.CompareOperationOp.GlobalIn, left=ast.Field(chain=["s", "session_id"]), right=sub_q
                     )
                 )
-            test_account_negative_blocklist = test_account_events_builder.get_negative_blocklist_query()
+            test_account_negative_blocklist = (
+                None if self._skip_negative_blocklists else test_account_events_builder.get_negative_blocklist_query()
+            )
             self.events_subqueries_sampled |= test_account_events_builder.emitted_sampled_subquery
             if test_account_negative_blocklist:
                 exprs.append(
