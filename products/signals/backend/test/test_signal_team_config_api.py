@@ -167,8 +167,8 @@ class TestSignalTeamConfigAPI(APIBaseTest):
         self.config.refresh_from_db()
         assert self.config.max_reports_per_day == expected
 
-    @parameterized.expand([("zero", 0), ("negative", -3)])
-    def test_update_max_reports_per_day_rejects_non_positive(self, _name, sent):
+    @parameterized.expand([("zero", 0), ("negative", -3), ("above_int4", 2147483648)])
+    def test_update_max_reports_per_day_rejects_out_of_range(self, _name, sent):
         response = self.client.post(self._url(), data={"max_reports_per_day": sent}, format="json")
         assert response.status_code == status.HTTP_400_BAD_REQUEST, response.json()
         assert response.json()["attr"] == "max_reports_per_day"

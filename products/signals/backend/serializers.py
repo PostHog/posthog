@@ -178,6 +178,8 @@ class SignalTeamConfigSerializer(serializers.ModelSerializer):
         required=False,
         allow_null=True,
         min_value=1,
+        # Ceiling at the int4 column max so an out-of-range value returns 400, not a DB write error.
+        max_value=2147483647,
         help_text=(
             "Daily cap on new reports surfacing to the inbox, counted per calendar day in the "
             "project's timezone. Once reached, signal ingestion, scout runs, and report research "
