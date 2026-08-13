@@ -8,8 +8,8 @@ Large cached query results (at least `QUERY_CACHE_S3_MIN_SIZE_BYTES` serialized 
 - **The S3 lifecycle rule is garbage collection only.** It deletes blobs once nothing can reference them (expired or evicted pointers, shadow-mode uploads, rolled-back teams).
 - Rollout is controlled by the `query-cache-s3-writes` multivariate feature flag on the organization group. It gates writes only; reads never evaluate the flag, they follow whatever the stored record says.
   - Disabled: every result is stored inline in Redis, as always.
-  - `shadow`: results are also uploaded to S3, but nothing reads them; Redis still stores and serves the full result. This proves the upload path at production volume before any read depends on S3.
-  - `on`: Redis stores only the pointer and reads fetch the blob from S3.
+  - `shadow`: write the cache entry to both S3 and Redis, testing the write path; nothing reads the S3 copy.
+  - `on`: write the pointer to Redis and the entry to S3; reads fetch the blob from S3.
 
 ## Object layout and tagging
 
