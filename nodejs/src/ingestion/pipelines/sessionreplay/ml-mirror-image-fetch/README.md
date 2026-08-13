@@ -10,14 +10,16 @@ code is written against. Where the code and this file disagree, one of them is a
 
 | Part               | What it is                                                                                                                                                                                                                        |
 | ------------------ | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Mirror             | The upstream lane. It replaces each image in a recording with a ref, and publishes the URLs it collected to the frontier.                                                                                                         |
+| Ref                | What the mirror writes into the recording in place of an image, built from a hash of the image URL. It is how a fetched image is later matched back to the recording that wanted it.                                              |
 | Frontier           | The topic `session_replay_image_fetch`. It holds the URLs waiting to be fetched.                                                                                                                                                  |
 | Back queue         | The URLs of one registrable domain. The topic key is the domain, so a partition holds whole back queues.                                                                                                                          |
 | Pass               | The fetching for one Kafka poll batch. Every back queue in the batch runs at the same time, and wall time bounds the pass rather than work.                                                                                       |
 | Crawl history      | The Redis record of the URLs this lane has finished with, whatever the outcome. It answers the URL-seen test.                                                                                                                     |
-| Host budget        | The rate limit, connection limit, and circuit breaker for one registrable domain.                                                                                                                                                 |
+| Host budget        | The token bucket, connection limit, and circuit breaker for one registrable domain. The rate moves by AIMD: a failure halves it, and success raises it slowly.                                                                    |
 | Hop                | One trip a URL makes back through Kafka. The lane spends a hop when it puts a URL back: a retry, a redirect that left the domain, or a URL that arrived before its wait ended. A redirect the lane follows in place costs no hop. |
 | Hop budget         | The number of hops one URL may make before the lane gives up.                                                                                                                                                                     |
-| Registrable domain | The operator boundary, from the public suffix list. `example.com` for `img1.cdn.example.com`, but `myapp.vercel.app` for itself.                                                                                                  |
+| Registrable domain | The operator boundary, from the Public Suffix List. Also called eTLD+1. `example.com` for `img1.cdn.example.com`, but `myapp.vercel.app` for itself.                                                                              |
 
 A redirect to another domain is a new candidate URL. It goes back through the frontier rather than
 being fetched in place, because the budget that governs it belongs to whichever consumer owns that
@@ -60,7 +62,7 @@ Each of these is numbered so a test can name the one it covers.
 
 1. Requests in flight never exceed the pod limit.
 2. Requests in flight to one domain never exceed the domain limit, redirects included.
-3. Requests to one domain never exceed its rate.
+3. Requests to one domain never exceed the rate its token bucket allows.
 4. A redirect is not a way around either limit.
 5. After any wait, a request checks again before it goes out. The domain must not be blocked, and
    the pass deadline must not have passed. A grant that went stale during the wait is returned,
@@ -74,8 +76,8 @@ Each of these is numbered so a test can name the one it covers.
 8. Every redirect target passes the same checks the first candidate passed. See "Security: what we
    never connect to".
 9. The lane never follows a redirect from HTTPS to plain HTTP.
-10. A republished message carries the original ref. The recording points at that ref, and a hash of
-    the redirect target matches nothing.
+10. A republished message carries the original ref. The ref is a hash of the original URL, so a ref
+    built from a redirect target matches nothing in the recording that wanted the image.
 
 ### Hops and retries share one budget
 
@@ -83,8 +85,8 @@ Each of these is numbered so a test can name the one it covers.
     stays on the same domain is bounded separately, by the redirect limit of one fetch, so a chain
     is bounded by the two limits together rather than by the budget alone.
 12. When the budget reaches zero, the lane writes the crawl history and stops.
-13. Only a transient failure spends a hop on a retry: a timeout, a connection error, a 429, a 503,
-    or a refusal by the budget. A 404 and a 403 are answers.
+13. Only a transient failure spends a hop on a retry: a timeout, a connection error, HTTP 429, HTTP
+    503, or a refusal by the host budget. HTTP 404 and HTTP 403 are answers.
 14. A retry is a publish to a delay topic. The lane does not sleep and try again in place.
 15. Every message carries the earliest time to try again.
 
@@ -135,44 +137,52 @@ clearing it.
 26. The hops a URL took, and the time it spent in the system.
 27. The rate of republishing, so amplification is visible.
 28. Requests in flight, and the domains that are blocked.
-29. The busiest teams, as a bounded top N with an `other` bucket. Nothing on this path holds the
-    team ID, so a team here is the pseudonym the mirror sends.
-30. The number of distinct teams, as one gauge.
+29. The busiest teams, as a bounded top N with an `other` bucket, using the Space-Saving algorithm
+    for heavy hitters. Nothing on this path holds the team ID, so a team here is the pseudonym the
+    mirror sends.
+30. The number of distinct teams, as one gauge, estimated with HyperLogLog.
 31. No metric carries a URL, and no metric carries an unbounded team label. The team ID space is in
     the low millions, so a `team_id` label on a per-request metric is unbounded both in the time
     series database and in the memory of the pod exporting it.
 
 ### Security: what we never connect to
 
-32. The lane must never connect to a private address. This covers loopback, link-local, and every
-    other range that is not public. Smokescreen does this in production. `httpStaticLookup` does it
-    when no proxy is set.
-33. The check must use the same DNS answer as the connection. An attacker who owns a name can give
-    a different address on every lookup. Code that resolves a name, checks the address, then hands
-    the name to something that resolves it again has checked one address and connected to another.
-34. The collector drops a URL that a later check would refuse, so it never reaches the topic. It
-    drops four kinds: a host that is not public, a scheme that is not HTTPS, a port that the scheme
-    does not own, and a URL that is too long.
+These rules exist to stop server-side request forgery. The URLs come from a page the lane did not
+write, so an attacker chooses them, and the request leaves from inside our network.
+
+32. The lane must never connect to an IP address that is not globally routable. That covers
+    loopback, the RFC 1918 private ranges, link-local, carrier-grade NAT, multicast, and the
+    reserved ranges, in IPv4 and IPv6. Smokescreen, the egress proxy, enforces this in production.
+    `httpStaticLookup`, our DNS hook for undici, enforces it when no proxy is set.
+33. The check must use the same DNS answer as the connection, so that DNS rebinding cannot slip an
+    IP address past it. An attacker who owns a name can return a different IP address on every
+    lookup. Code that resolves a name, checks the IP address, then hands the name to something that
+    resolves it again has checked one address and connected to another.
+34. The collector, which is the URL policy the mirror runs before it publishes, drops a URL that a
+    later check would refuse, so it never reaches the topic. It drops four kinds: a host that is not
+    public, a scheme that is not HTTPS, a port that the scheme does not own, and a URL that is too
+    long.
 35. Every check in rule 34 runs again in the lane, on the first URL and on every redirect target.
-    The network layer performs none of them. Smokescreen limits which addresses we reach, not which
-    service we reach at those addresses.
+    The network layer performs none of them. Smokescreen limits which IP addresses we reach, not
+    which service we reach at those addresses.
 
 Neither implementation passes a name onward, which is what satisfies rule 33. Smokescreen resolves
-the name, checks what it got, and connects to that. `httpStaticLookup` resolves the name, checks
-what it got, and hands those addresses to undici, which connects to them.
+the name, checks the IP addresses it got, and connects to one of those. `httpStaticLookup` resolves
+the name, checks the IP addresses it got, and hands that list to undici, which connects to them.
 
 The lane repeats the collector's checks because nothing below the lane performs them. Smokescreen
-sees an address, not a scheme, a port, or a name, so the collector and the lane are the only two
-places these run and the two must agree. Both allow HTTPS on the scheme's own port and nothing else.
+sees an IP address, not a scheme, a port, or a hostname, so the collector and the lane are the only
+two places these run, and the two must agree. Both allow HTTPS on port 443 and nothing else.
 
-The host check is the one that needs both layers. An address check at connect time refuses a private
-address, so it covers `169.254.169.254`. It cannot refuse `wiki.corp`, because that name looks
-ordinary and its DNS answer can be a public address. Only a check on the name itself refuses that.
+The host check is the one that needs both layers. An IP address check at connect time refuses a
+private address, so it covers `169.254.169.254`, the cloud instance metadata endpoint. It cannot
+refuse `wiki.corp`, because that hostname looks ordinary and its DNS answer can be a globally
+routable address. Only a check on the hostname itself refuses that.
 
-A name the attacker owns can still reach any public address on port 443, and the outcome metric
-shows whether something answered. Any port scanner learns the same thing for less effort, so the
-cost to us is our reputation rather than leaked data: the request leaves our egress addresses, not a
-customer's. The per-domain rate limit holds it to one request each second.
+A hostname the attacker owns can still reach any globally routable IP address on port 443, and the
+outcome metric shows whether something answered. Any port scanner learns the same thing for less
+effort, so the cost to us is our reputation rather than leaked data: the request leaves our egress
+IP addresses, not a customer's. The per-domain token bucket holds it to one request each second.
 
 ### Smokescreen
 
@@ -181,8 +191,8 @@ customer's. The per-domain rate limit holds it to one request each second.
 Its ACL is `action: open`, so it allows every domain. That is what this lane needs, because a
 customer's images can sit on any host.
 
-Its private-address blocking is on. The deployment passes no `--unsafe-allow-private-ranges`, and
-that flag is the only way to turn the blocking off.
+Its private IP address blocking is on. The deployment passes no `--unsafe-allow-private-ranges`,
+and that flag is the only way to turn the blocking off.
 
 The ACL says nothing about ports, which is why rule 35 exists.
 
@@ -209,8 +219,8 @@ consumer that will sleep just as long. The retry server therefore sets the value
 period of its topic plus one minute, rather than leaving it to the deployment.
 
 That figure holds only because a batch carries one record. A batch of several is held one record at
-a time, and a tier can hold records written hours apart, so each would wait its own period inside
-one batch. The server refuses to start with any other batch size, and refuses to start against any
+a time, and a delay topic can hold records written hours apart, so each would wait its own period
+inside one batch. The server refuses to start with any other batch size, and refuses to start against any
 topic other than the three the publisher writes to.
 
 **A sleeping consumer must keep reporting itself healthy.** It calls
@@ -225,12 +235,12 @@ means the consumer stopped. Do not alert on lag.
 
 Each delay consumer runs `minPods: 0` and `maxPods: 1`. The maximum of one matters: a lag trigger
 assumes more consumers drain a topic faster, and that is false here. These messages are waiting on
-purpose. A tier holding thousands of them would otherwise scale to dozens of pods, none of which
-can make a message become ready sooner.
+purpose. A delay topic holding thousands of them would otherwise scale to dozens of pods, none of
+which can make a message become ready sooner.
 
 ## Why a retry is necessary at all
 
-The mirror keeps a cache of the refs it has published, 500000 per pod, and does not produce a ref
+The mirror keeps a cache of the refs it has published, 500,000 per pod, and does not produce a ref
 twice while it is cached. So a URL that fails, and that this lane does not write to the crawl
 history, does not come back until that entry leaves the cache.
 
@@ -239,7 +249,8 @@ An earlier version of this lane treated an absent crawl history entry as a retry
 ## Dry run
 
 The lane runs every decision that needs no request, and sends none. It parses the records, applies
-the age limit and all three layers of dedup, and writes the crawl history. What it would have
+the age limit and all three layers of dedup (within the batch, within the pod, and against the
+crawl history), and writes the crawl history. What it would have
 fetched is counted as `fetchable`, which is the offered request rate.
 
 The host budget belongs to the fetch pass, which dry run does not build. So the gauges of rule 28
