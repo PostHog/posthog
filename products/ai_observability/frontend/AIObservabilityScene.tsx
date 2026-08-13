@@ -78,7 +78,8 @@ const SENTIMENT_DATE_OPTIONS = dateMapping.filter(({ values }) =>
 const Filters = ({ hidePropertyFilters = false }: { hidePropertyFilters?: boolean }): JSX.Element => {
     const { dashboardDateFilter, dateFilter, shouldFilterTestAccounts, propertyFilters, activeTab } =
         useValues(aiObservabilitySharedLogic)
-    const { setDates, setShouldFilterTestAccounts, setPropertyFilters } = useActions(aiObservabilitySharedLogic)
+    const { setDashboardDates, setDates, setShouldFilterTestAccounts, setPropertyFilters } =
+        useActions(aiObservabilitySharedLogic)
     const { generationsQuery } = useValues(aiObservabilityGenerationsLogic)
     const { selectedDashboardId } = useValues(aiObservabilityDashboardLogic)
 
@@ -90,7 +91,7 @@ const Filters = ({ hidePropertyFilters = false }: { hidePropertyFilters?: boolea
             <DateFilter
                 dateFrom={dateFrom}
                 dateTo={dateTo}
-                onChange={setDates}
+                onChange={activeTab === 'dashboard' ? setDashboardDates : setDates}
                 dateOptions={activeTab === 'sentiment' ? SENTIMENT_DATE_OPTIONS : undefined}
                 showRollingRangePicker={activeTab !== 'sentiment'}
                 showCustomRangeOptions={activeTab !== 'sentiment'}
@@ -121,7 +122,7 @@ const Filters = ({ hidePropertyFilters = false }: { hidePropertyFilters?: boolea
 }
 
 function AIObservabilityDashboard(): JSX.Element {
-    const { dashboardDateFilter, propertyFilters } = useValues(aiObservabilitySharedLogic)
+    const { dashboardExternalDateFilters, propertyFilters } = useValues(aiObservabilitySharedLogic)
     const { selectedDashboardId, availableDashboardsLoading } = useValues(aiObservabilityDashboardLogic)
 
     const dashboardLogicInstance = React.useMemo(
@@ -144,17 +145,16 @@ function AIObservabilityDashboard(): JSX.Element {
 
     const nextExternalFilters = React.useMemo(
         () => ({
-            date_from: dashboardDateFilter.dateFrom,
-            date_to: dashboardDateFilter.dateTo,
+            ...dashboardExternalDateFilters,
             properties: propertyFilters.length > 0 ? propertyFilters : null,
         }),
-        [dashboardDateFilter.dateFrom, dashboardDateFilter.dateTo, propertyFilters]
+        [dashboardExternalDateFilters, propertyFilters]
     )
 
     const currentExternalFilters = React.useMemo(
         () => ({
-            date_from: externalFilters?.date_from ?? null,
-            date_to: externalFilters?.date_to ?? null,
+            date_from: externalFilters?.date_from,
+            date_to: externalFilters?.date_to,
             properties: externalFilters?.properties ?? null,
         }),
         [externalFilters?.date_from, externalFilters?.date_to, externalFilters?.properties]

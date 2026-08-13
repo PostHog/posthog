@@ -123,6 +123,9 @@ class TestTikTokAdsSource:
             ("system_error", 50000, "System error"),
             ("rate_limited", 40100, "Requests made too frequently"),
             ("maintenance", 60001, "The system is in maintenance"),
+            # Internal service error TikTok itself asks callers to retry — must not raise the
+            # non-retryable ValueError the else-branch raises for unclassified codes.
+            ("internal_service_error", 51002, "Internal service error. Please retry later."),
         ]
     )
     def test_retryable_paginator_error_matches_get_retryable_errors(self, name, api_code, message):

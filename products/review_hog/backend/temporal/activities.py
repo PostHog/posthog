@@ -52,6 +52,7 @@ from products.review_hog.backend.reviewer.lazy_seed import (
     sync_canonical_authoring,
     sync_canonical_blind_spots,
     sync_canonical_perspectives,
+    sync_canonical_resolution,
     sync_canonical_validation,
 )
 from products.review_hog.backend.reviewer.models import generate_all_schemas
@@ -225,6 +226,10 @@ class ResolveActingUserResult:
     review_inbox_prs: bool = False
     # Which chain link resolved: "author" | "default" | "override" (observability + tests).
     resolved_from: str = "author"
+    # Whether a published review of this user's PRs chains into the resolution stage. Defaults False
+    # — the SKIP value — so pre-field histories replay deterministically (the chained dispatch is a
+    # new workflow command; old runs must never reach it on replay). The model default is True.
+    resolve_comments: bool = False
 
 
 @dataclass
@@ -458,13 +463,25 @@ def _installation_auth(team_id: int, repository: str) -> tuple[str, str | None]:
     the blip); the genuinely-missing-integration case is already caught non-retryably up front by
     `validate_github_integration_activity`, so a real misconfig still fails fast there.
     """
+    github = _installation_for(team_id, repository)
+    return github.get_access_token(), github.github_installation_id
+
+
+def _installation_for(team_id: int, repository: str) -> GitHubIntegration:
+    """The team's GitHub App installation that can access `repository` — a live API probe.
+
+    Callers that make many writes in one run should select once and re-mint tokens from the
+    returned integration row (`GitHubIntegration(Integration.objects.get(...)).get_access_token()`)
+    instead of re-probing per write: the probe answers *which* installation, not *may we write* —
+    GitHub enforces access server-side on every call anyway.
+    """
     github = GitHubIntegration.first_for_team_repository(team_id, repository)
     if github is None:
         raise ApplicationError(
             f"Could not resolve a GitHub App installation for team {team_id} that can access {repository} "
             "(no installation, or a transient GitHub API failure)."
         )
-    return github.get_access_token(), github.github_installation_id
+    return github
 
 
 @activity.defn
@@ -645,6 +662,9 @@ def _resolve_acting_user(
         ),
         review_inbox_prs=settings.review_inbox_prs,
         resolved_from=resolved_from,
+        # Same author-protection shape as `review_labeled_prs`: the borrowed default user's personal
+        # switch never governs someone else's PR — an unmapped author gets the default posture (on).
+        resolve_comments=settings.resolve_comments if resolved_from in ("author", "override") else True,
     )
 
 
@@ -676,6 +696,7 @@ def _sync_review_skills(team_id: int) -> None:
     sync_canonical_perspectives(team, prune=True)
     sync_canonical_validation(team, prune=True)
     sync_canonical_blind_spots(team, prune=True)
+    sync_canonical_resolution(team, prune=True)
     sync_canonical_authoring(team, prune=True)
 
 
@@ -1182,13 +1203,11 @@ def _build_and_finalize(
     # Verdicts come from the DB (the same rows publish reads), so a partially-failed chunk shows the
     # same findings in the body and the posted comments.
     validations = load_run_validations(team_id=team_id, report_id=report_id, run_index=run_index, issues=issues)
-    chunks_data = load_chunk_set(team_id=team_id, report_id=report_id, head_sha=head_sha) or ChunksList(chunks=[])
     # The reviewed diff decides which valid findings can't be anchored inline — the body surfaces those
     # in an "Other findings" section (the same snapshot publish positions inline comments against).
     snapshot = load_pr_snapshot(team_id=team_id, report_id=report_id, head_sha=head_sha)
     pr_files = snapshot.pr_files if snapshot is not None else []
     body = build_review_body(
-        chunks_data=chunks_data,
         issues=issues,
         validations=validations,
         pr_files=pr_files,

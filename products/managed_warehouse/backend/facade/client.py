@@ -18,6 +18,7 @@ from products.managed_warehouse.backend.service_credentials import (
     ServiceCredential,
     ServiceCredentialUnavailable,
     mint_service_credential,
+    refresh_service_credential,
 )
 
 if TYPE_CHECKING:
@@ -37,6 +38,7 @@ __all__ = [
     "execute_ducklake_query",
     "make_duckgres_conninfo",
     "mint_service_credential",
+    "refresh_service_credential",
 ]
 
 

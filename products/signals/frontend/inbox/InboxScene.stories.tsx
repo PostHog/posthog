@@ -1,6 +1,10 @@
 import type { Meta, StoryObj } from '@storybook/react'
+import { useMountedLogic } from 'kea'
+import { useEffect } from 'react'
 
 import { FEATURE_FLAGS } from 'lib/constants'
+import { wizardActiveSessionDetectorLogic } from 'scenes/onboarding/shared/wizard-sync/wizardActiveSessionDetectorLogic'
+import { SELF_DRIVING_WORKFLOW_ID } from 'scenes/onboarding/shared/wizard-sync/workflows'
 
 import { mswDecorator } from '~/mocks/browser'
 
@@ -13,6 +17,7 @@ import {
     mockTask,
     mockTeamConfig,
 } from './__mocks__/inboxMocks'
+import { mockLargeScoutFleet, mockScoutConfigs } from './__mocks__/scoutConfigs'
 import { InboxScene } from './InboxScene'
 import { INBOX_LAST_UI_STATE_STORAGE_KEY } from './logics/inboxOnboardingLogic'
 
@@ -53,7 +58,10 @@ const meta: Meta = {
         layout: 'fullscreen',
         viewMode: 'story',
         mockDate: '2026-06-11',
-        featureFlags: [FEATURE_FLAGS.PRODUCT_AUTONOMY],
+        featureFlags: {
+            [FEATURE_FLAGS.PRODUCT_AUTONOMY]: true,
+            [FEATURE_FLAGS.INBOX_SELF_DRIVING_EMPTY_STATE]: 'empty-state',
+        },
         // The scene shell keeps a loader element mounted past the VR wait window, so don't block on it.
         testOptions: { waitForLoadersToDisappear: false },
     },
@@ -72,6 +80,56 @@ export const Empty: Story = {
             get: {
                 '/api/projects/:id/signals/reports': () => [200, { results: [], count: 0, next: null, previous: null }],
                 '/api/projects/:id/signals/source_configs': () => [200, mockSourceConfigs],
+                '/api/projects/:id/signals/scout/configs': () => [200, mockScoutConfigs],
+            },
+        }),
+    ],
+}
+
+export const EmptyControl: Story = {
+    parameters: {
+        featureFlags: {
+            [FEATURE_FLAGS.PRODUCT_AUTONOMY]: true,
+            [FEATURE_FLAGS.INBOX_SELF_DRIVING_EMPTY_STATE]: 'control',
+        },
+    },
+    decorators: [
+        mswDecorator({
+            get: {
+                '/api/projects/:id/signals/reports': () => [200, { results: [], count: 0, next: null, previous: null }],
+                '/api/projects/:id/signals/source_configs': () => [200, mockSourceConfigs],
+                '/api/projects/:id/signals/scout/configs': () => [200, mockScoutConfigs],
+            },
+        }),
+    ],
+}
+
+export const EmptyWithManyScouts: Story = {
+    decorators: [
+        mswDecorator({
+            get: {
+                '/api/projects/:id/signals/reports': () => [200, { results: [], count: 0, next: null, previous: null }],
+                '/api/projects/:id/signals/source_configs': () => [200, mockSourceConfigs],
+                '/api/projects/:id/signals/scout/configs': () => [200, mockLargeScoutFleet],
+            },
+        }),
+    ],
+}
+
+export const InstallingSelfDriving: Story = {
+    decorators: [
+        (Story) => {
+            useMountedLogic(wizardActiveSessionDetectorLogic)
+            useEffect(() => {
+                wizardActiveSessionDetectorLogic.actions.markActive(SELF_DRIVING_WORKFLOW_ID)
+                return () => wizardActiveSessionDetectorLogic.actions.markInactive()
+            }, [])
+            return <Story />
+        },
+        mswDecorator({
+            get: {
+                '/api/projects/:id/signals/reports': () => [200, { results: [], count: 0, next: null, previous: null }],
+                '/api/projects/:id/signals/source_configs': () => [200, { results: [], count: 0 }],
                 '/api/projects/:id/signals/scout/configs': () => [200, []],
             },
         }),
