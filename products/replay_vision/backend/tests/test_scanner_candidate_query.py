@@ -4,7 +4,13 @@ import pytest
 from freezegun import freeze_time
 from posthog.test.base import ClickhouseTestMixin, _create_event
 
-from posthog.schema import EventPropertyFilter, PropertyOperator, RecordingPropertyFilter, RecordingsQuery
+from posthog.schema import (
+    EventPropertyFilter,
+    FilterLogicalOperator,
+    PropertyOperator,
+    RecordingPropertyFilter,
+    RecordingsQuery,
+)
 
 from posthog.hogql import ast
 
@@ -24,7 +30,8 @@ from products.replay_vision.backend.queries.scanner_candidate_query import (
     surfacing_score_predicate,
 )
 from products.replay_vision.backend.queries.scanner_volume_estimate import (
-    _ESTIMATE_SCAN_WINDOW_DAYS,
+    BATCH_ESTIMATE_BUDGET,
+    PREVIEW_ESTIMATE_BUDGET,
     estimate_scanner_session_volume,
     project_monthly_observations,
 )
@@ -435,7 +442,7 @@ class TestScannerCandidateQueryAgainstClickHouse(ClickhouseTestMixin):
     @pytest.mark.django_db
     def test_volume_estimate_window_is_exactly_the_scan_window(self, team) -> None:
         # An exact-timestamp date_from keeps the boundary sharp: a relative form would truncate to start-of-day.
-        bound = _NOW - dt.timedelta(days=_ESTIMATE_SCAN_WINDOW_DAYS)
+        bound = _NOW - dt.timedelta(days=BATCH_ESTIMATE_BUDGET.scan_window_days)
         self._produce(
             team.id,
             "same-day-but-outside",
@@ -456,6 +463,31 @@ class TestScannerCandidateQueryAgainstClickHouse(ClickhouseTestMixin):
         assert estimate.matched_sessions == 1
 
     @pytest.mark.django_db
+    def test_unsampled_estimate_window_narrows_only_for_previews(self, team) -> None:
+        # An OR operand rules out the events SAMPLE, so a preview scans a shorter window instead of
+        # paying full price. A persisted estimate keeps the whole week, because a partial week
+        # inherits whichever weekdays it covered and biases the monthly projection.
+        first = _NOW - dt.timedelta(days=3)
+        self._produce(team.id, "older-match", first, first + dt.timedelta(minutes=10))
+        _create_event(
+            team=team,
+            event="$pageview",
+            distinct_id="d1",
+            timestamp=first,
+            properties={"$session_id": "older-match"},
+        )
+        query = RecordingsQuery(
+            operand=FilterLogicalOperator.OR_,
+            events=[{"id": "$pageview", "type": "events", "order": 0, "name": "$pageview"}],
+        )
+
+        preview = estimate_scanner_session_volume(team=team, query=query, budget=PREVIEW_ESTIMATE_BUDGET)
+        batch = estimate_scanner_session_volume(team=team, query=query, budget=BATCH_ESTIMATE_BUDGET)
+
+        assert preview.matched_sessions == 0
+        assert batch.matched_sessions == 1
+
+    @pytest.mark.django_db
     def test_volume_estimate_projects_zero_for_old_but_quiet_teams(self, team) -> None:
         # Recordings older than the probe fall back to the full scan-window divisor, which is inert: matched is 0.
         old = _NOW - dt.timedelta(days=40)
@@ -464,7 +496,7 @@ class TestScannerCandidateQueryAgainstClickHouse(ClickhouseTestMixin):
         estimate = estimate_scanner_session_volume(team=team, query=RecordingsQuery())
 
         assert estimate.matched_sessions == 0
-        assert estimate.effective_window_days == _ESTIMATE_SCAN_WINDOW_DAYS
+        assert estimate.effective_window_days == BATCH_ESTIMATE_BUDGET.scan_window_days
         assert project_monthly_observations(estimate, 1.0) == 0
 
     @pytest.mark.django_db
