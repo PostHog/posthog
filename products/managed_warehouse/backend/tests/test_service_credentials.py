@@ -36,7 +36,6 @@ def _ok_response(data: dict) -> mock.MagicMock:
 
 
 def _mint_payload(**overrides: object) -> dict:
-    """A well-formed CP mint response for the per-credential-grant contract."""
     payload: dict = {
         "credential_id": "svc_a1b2c3d4e5f60718293a4b5c",
         "credential_secret": _FAKE_SECRET,

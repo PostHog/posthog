@@ -16,13 +16,6 @@ _CONNECT = ServiceCredentialConnect(
 
 
 def _credential(secret: str, *, credential_id: str = "svc_test_a1b2c3d4e5") -> ServiceCredential:
-    """A minted credential with the shape the new CP contract returns.
-
-    `credential_secret` carries the plaintext; `credential_id` is the public
-    svc_-prefixed id the client dials as the pgwire username. `None` models
-    the reuse path (the CP returned no plaintext because the caller already
-    holds the live secret).
-    """
     return ServiceCredential(
         credential_id=credential_id,
         credential_secret=secret,
