@@ -43,7 +43,7 @@ For local dev the defaults are:
 
 ## Self-managed object storage reads
 
-The DuckLake query path can read credentialed self-managed Parquet tables directly from S3-compatible object storage. HogQL compiles these tables to DuckDB's `read_parquet` function. Before each query, the Duckgres client creates a temporary secret from the table's `DataWarehouseCredential`. Each secret is scoped to the table's object path and disappears when the connection closes. Credentials use query parameters and never appear in the compiled SQL.
+The DuckLake query path can read credentialed self-managed Parquet tables directly from S3-compatible object storage. HogQL compiles these tables to DuckDB's `read_parquet` function. Before each query, the Duckgres client creates a temporary secret from the table's `DataWarehouseCredential`. Secrets cover only the tables the compiled query's schema still exposes after warehouse access control, so a query cannot borrow credentials from a table it may not read. Each secret is scoped to the table's object path and disappears when the connection closes. Credentials use query parameters and never appear in the compiled SQL.
 
 Supported URL forms include AWS S3, Google Cloud Storage with HMAC credentials, Cloudflare R2, and other path-style S3-compatible HTTPS endpoints. Local HTTP endpoints such as SeaweedFS are also supported. AWS regions are inferred from regional endpoints. Other providers use `us-east-1` for S3 request signing.
 
