@@ -177,6 +177,9 @@ function skillStatusFormatter(
     return `${pendingLabel}${suffix}...`
 }
 
+/** Only these produce a row to wait for. Anything else is reported rather than polled for. */
+const OUTCOMES_THAT_MINT_AN_OBSERVATION = ['started', 'already_running', 'already_scanned']
+
 /**
  * The scan tool reports what it started, per session, and the results land later on the scanner it
  * minted. Sessions it skipped never get a row, so they are carried separately rather than left to
@@ -195,10 +198,10 @@ function replayVisionScanWidgetDef(toolCall: EnhancedToolCall): ReplayVisionScan
         if (typeof result?.session_id !== 'string' || typeof result?.scan_outcome !== 'string') {
             continue
         }
-        if (result.scan_outcome.startsWith('skipped_') || result.scan_outcome === 'failed') {
-            skipped.push({ sessionId: result.session_id, reason: result.scan_outcome })
-        } else {
+        if (OUTCOMES_THAT_MINT_AN_OBSERVATION.includes(result.scan_outcome)) {
             sessionIds.push(result.session_id)
+        } else {
+            skipped.push({ sessionId: result.session_id, reason: result.scan_outcome })
         }
     }
     if (!sessionIds.length && !skipped.length) {

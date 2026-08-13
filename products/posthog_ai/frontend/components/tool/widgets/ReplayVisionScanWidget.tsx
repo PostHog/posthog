@@ -29,7 +29,13 @@ const SKIP_MESSAGES: Record<string, string> = {
 }
 
 export function ReplayVisionScanWidget({ scanId, sessionIds, skipped }: ReplayVisionScanWidgetProps): JSX.Element {
-    const { observations, pendingCount } = useValues(replayVisionScanWidgetLogic({ scanId, sessionIds }))
+    const { latestPerSession, pendingCount } = useValues(replayVisionScanWidgetLogic({ scanId, sessionIds }))
+    const skippedByReason = Object.entries(
+        skipped.reduce<Record<string, number>>((counts, entry) => {
+            counts[entry.reason] = (counts[entry.reason] ?? 0) + 1
+            return counts
+        }, {})
+    )
 
     return (
         <div className="overflow-hidden rounded border bg-surface-primary">
@@ -37,27 +43,25 @@ export function ReplayVisionScanWidget({ scanId, sessionIds, skipped }: ReplayVi
                 <span className="text-sm font-semibold">
                     {pendingCount > 0 ? `Watching ${pendingCount} of ${sessionIds.length} recordings` : 'Scan complete'}
                 </span>
-                {pendingCount > 0 ? (
-                    <Spinner />
-                ) : (
-                    <Link to={urls.replayVision(scanId)} className="text-xs whitespace-nowrap">
-                        Open in Replay Vision
-                    </Link>
-                )}
+                {pendingCount > 0 && <Spinner />}
             </div>
 
-            {skipped.length > 0 && (
+            {skippedByReason.length > 0 && (
                 <LemonBanner type="warning" className="m-3">
-                    {skipped.length} recording{skipped.length === 1 ? ' was' : 's were'} not scanned because{' '}
-                    {SKIP_MESSAGES[skipped[0].reason] ?? 'the scan could not be started'}.
+                    {skippedByReason.map(([reason, count]) => (
+                        <p key={reason} className="m-0">
+                            {count} recording{count === 1 ? ' was' : 's were'} not scanned because{' '}
+                            {SKIP_MESSAGES[reason] ?? 'the scan could not be started'}.
+                        </p>
+                    ))}
                 </LemonBanner>
             )}
 
             <div className="divide-y">
-                {observations.map((observation) => (
+                {latestPerSession.map((observation) => (
                     <ObservationRow key={observation.id} observation={observation} />
                 ))}
-                {observations.length === 0 && pendingCount > 0 && (
+                {latestPerSession.length === 0 && pendingCount > 0 && (
                     <p className="m-0 px-3 py-3 text-sm text-secondary">Starting the scans...</p>
                 )}
             </div>

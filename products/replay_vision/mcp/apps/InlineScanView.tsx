@@ -37,10 +37,10 @@ const outcomeVariant: Record<string, 'success' | 'destructive' | 'warning' | 'de
 
 export function InlineScanView({ data }: { data: InlineScanData }): ReactElement {
     const total = data.results.length
-    const readable = data.results.filter(
+    const readable = data.results.some(
         (r) =>
             r.scan_outcome === 'already_scanned' || r.scan_outcome === 'started' || r.scan_outcome === 'already_running'
-    ).length
+    )
 
     return (
         <div className="p-4">
@@ -51,7 +51,7 @@ export function InlineScanView({ data }: { data: InlineScanData }): ReactElement
                     </span>
                     <span className="text-sm text-muted-foreground">
                         {/* Results arrive per recording, so the answer is read back rather than returned here. */}
-                        {readable > 0
+                        {readable
                             ? 'Read the results with vision-observations-list once each recording finishes.'
                             : 'Nothing started, so there is nothing to read back.'}
                     </span>

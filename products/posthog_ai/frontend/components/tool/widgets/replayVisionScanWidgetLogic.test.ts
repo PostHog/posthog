@@ -52,14 +52,52 @@ describe('replayVisionScanWidgetLogic', () => {
         await expectLogic(logic).toFinishAllListeners().toMatchValues({ pendingCount: 0 })
     })
 
-    it('ignores rows for sessions outside this scan', async () => {
-        // The scanner is shared across everyone asking the same question, so it holds older rows too.
-        results = [observation('a', 'succeeded'), observation('someone-elses-session', 'succeeded')]
+    it('keeps polling after a failed read', async () => {
+        // The scanner is shared and the read can blip. Dropping the poll on the first failure leaves a
+        // spinner on screen forever even though the results landed.
+        let calls = 0
+        useMocks({
+            get: {
+                '/api/projects/:team_id/vision/scanners/:scanner_id/observations/': () => {
+                    calls += 1
+                    return calls === 1 ? [500, {}] : [200, { results: [observation('a', 'succeeded')] }]
+                },
+            },
+        })
         logic = replayVisionScanWidgetLogic({ scanId: SCAN_ID, sessionIds: ['a'] })
         logic.mount()
+        await expectLogic(logic).toFinishAllListeners()
 
-        await expectLogic(logic)
-            .toFinishAllListeners()
-            .toMatchValues({ observations: [expect.objectContaining({ session_id: 'a' })], pendingCount: 0 })
+        logic.actions.loadObservations()
+        await expectLogic(logic).toFinishAllListeners().toMatchValues({ pendingCount: 0 })
+    })
+
+    it('counts two rows for one session once', async () => {
+        // A retry adds a second row for the same session. Counting rows would call the scan complete
+        // while another session is still running.
+        results = [observation('a', 'succeeded'), observation('a', 'succeeded')]
+        logic = replayVisionScanWidgetLogic({ scanId: SCAN_ID, sessionIds: ['a', 'b'] })
+        logic.mount()
+
+        await expectLogic(logic).toFinishAllListeners().toMatchValues({ pendingCount: 1 })
+    })
+
+    it("asks the server for only this scan's sessions", async () => {
+        // The scanner is shared across everyone asking the same question. Filtering client-side after a
+        // page limit can return a page holding none of these sessions, so the filter has to be server-side.
+        let requestedSessionIds: string | null = null
+        useMocks({
+            get: {
+                '/api/projects/:team_id/vision/scanners/:scanner_id/observations/': ({ request }) => {
+                    requestedSessionIds = new URL(request.url).searchParams.get('session_id')
+                    return [200, { results: [observation('a', 'succeeded')] }]
+                },
+            },
+        })
+        logic = replayVisionScanWidgetLogic({ scanId: SCAN_ID, sessionIds: ['a', 'b'] })
+        logic.mount()
+        await expectLogic(logic).toFinishAllListeners()
+
+        expect(requestedSessionIds).toBe('a,b')
     })
 })
