@@ -92,6 +92,7 @@ from products.feature_flags.backend.encrypted_flag_payloads import (
     get_decrypted_flag_payloads_protected,
 )
 from products.feature_flags.backend.flag_analytics import increment_request_count
+from products.feature_flags.backend.flag_limits import get_max_feature_flags_for_team
 from products.feature_flags.backend.flag_status import (
     FeatureFlagStatusChecker,
     exclude_archived_unless_requested,
@@ -104,6 +105,7 @@ from products.feature_flags.backend.models.feature_flag import (
     FeatureFlagDashboards,
     set_feature_flags_for_team_in_cache,
 )
+from products.feature_flags.backend.session_recording_links import teams_linking_flag
 from products.feature_flags.backend.types import PropertyFilterType
 from products.feature_flags.backend.user_blast_radius import get_user_blast_radius
 from products.feature_flags.backend.version_history import (
@@ -590,7 +592,7 @@ def check_flag_limits_for_team(
     if not is_create:
         return
 
-    count_limit = settings.MAX_FEATURE_FLAGS_PER_TEAM
+    count_limit = get_max_feature_flags_for_team(team_id)
     flag_count = FeatureFlag.objects.filter(team_id=team_id).count()
 
     if flag_count >= count_limit:
@@ -1046,10 +1048,7 @@ class FeatureFlagSerializer(
         if not hasattr(feature_flag, "team") or feature_flag.team is None:
             return False
         # Fallback to database query if annotation is not available
-        return Team.objects.filter(
-            project_id=feature_flag.team.project_id,
-            session_recording_linked_flag__contains={"id": feature_flag.id},
-        ).exists()
+        return teams_linking_flag(feature_flag).exists()
 
     def validate(self, attrs):
         """Validate feature flag creation/update including evaluation tag requirements."""
@@ -1900,10 +1899,7 @@ class FeatureFlagSerializer(
             raise_if_flag_has_dependents(instance, action="delete")
 
             # Check if flag is used in session replay settings
-            if Team.objects.filter(
-                project_id=instance.team.project_id,
-                session_recording_linked_flag__contains={"id": instance.id},
-            ).exists():
+            if teams_linking_flag(instance).exists():
                 raise exceptions.ValidationError(
                     "This feature flag is used in session replay settings. Please remove it from replay settings before deleting."
                 )

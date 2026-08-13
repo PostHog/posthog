@@ -128,7 +128,6 @@ import {
     ReplayNetworkCapture,
     ReplayNetworkHeadersPayloads,
 } from './environment/SessionRecordingSettings'
-import { SessionSummariesSettings } from './environment/SessionSummariesSettings'
 import { SurveyDefaultAppearance, SurveyEnableToggle } from './environment/SurveySettings'
 import { TeamAccessControl } from './environment/TeamAccessControl'
 import {
@@ -1162,22 +1161,6 @@ export const SETTINGS_MAP: SettingSection[] = [
                 description: 'Configure integrations to create and link issues from session replays.',
                 component: <ReplayIntegrations />,
                 keywords: ['integration', 'connect', 'third-party'],
-            },
-            {
-                id: 'replay-ai-config',
-                title: (
-                    <>
-                        AI product context
-                        <LemonTag type="highlight" size="small" className="ml-1">
-                            New
-                        </LemonTag>
-                    </>
-                ),
-                description:
-                    'Team-wide context the AI uses when summarizing session replays (custom events, intentional behaviors, known friction, etc.)',
-                component: <SessionSummariesSettings />,
-                flag: 'REPLAY_VIDEO_BASED_SUMMARIZATION',
-                keywords: ['ai', 'summary', 'summaries', 'prompt', 'context', 'llm'],
             },
         ],
     },

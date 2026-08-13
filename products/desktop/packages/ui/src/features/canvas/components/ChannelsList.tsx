@@ -84,7 +84,10 @@ import {
   useSpaceTaskActionsContext,
 } from "@posthog/ui/features/canvas/hooks/useSpaceTaskActions";
 import { useStarredChannelSlots } from "@posthog/ui/features/canvas/hooks/useStarredChannelSlots";
-import { PERSONAL_CHANNEL_NAME } from "@posthog/ui/features/canvas/hooks/useTaskChannels";
+import {
+  PERSONAL_CHANNEL_LABEL,
+  PERSONAL_CHANNEL_NAME,
+} from "@posthog/ui/features/canvas/hooks/useTaskChannels";
 import { useIsChannelUnread } from "@posthog/ui/features/canvas/hooks/useUnreadChannels";
 import { useUnreadSessionCount } from "@posthog/ui/features/canvas/hooks/useUnreadSessionCount";
 import {
@@ -237,6 +240,15 @@ const SESSION_PREFETCH_DELAY_MS = 250;
  * of its own outranks it and stays muted under the keyboard while brightening
  * under the pointer.
  */
+/**
+ * What the keyboard calls the personal row before the channel list has loaded.
+ *
+ * The row is provisioned server-side with the first fetch, so until then it has
+ * no id to be identified by. The rendered row and the keyboard's flat node list
+ * both have to spell this, and they have to agree.
+ */
+const PERSONAL_ROW_VALUE = "personal-row";
+
 const ROW_LABEL_TONE =
   "text-muted-foreground group-hover/button:text-foreground group-data-highlighted/button:text-foreground";
 
@@ -985,6 +997,7 @@ const ChannelSection = memo(
     );
 
     const glyph = channelGlyph(channel.name, {
+      personal: channel.channelType === "personal",
       size: 14,
       space: spacesLayout,
       weight: isUnread ? "bold" : undefined,
@@ -1405,33 +1418,28 @@ const PersonalChannelRow = memo(function PersonalChannelRow({
     );
   };
 
-  // No glyph in the list of spaces: nothing else in that column carries one, and
-  // a lock on this row alone would start its name a glyph's width right of every
-  // other. `channelGlyph` keeps the lock for a private channel whatever the
-  // layout, so dropping it is this row's call. It still appears everywhere the
-  // space is named on its own — the back row, the breadcrumb.
-  const glyph = spacesLayout
-    ? null
-    : channelGlyph(PERSONAL_CHANNEL_NAME, {
-        size: 14,
-        weight: isUnread ? "bold" : undefined,
-        className: cn(
-          "shrink-0",
-          isUnread || isActive
-            ? "text-foreground"
-            : "text-muted-foreground group-hover/button:text-foreground",
-        ),
-      });
+  // The one row in the list that carries a glyph, and it earns the exception:
+  // this is the space nobody else can see, and the lock is the only thing that
+  // says so. Its name starts a glyph's width right of the others, which is the
+  // cost of marking it.
+  const glyph = channelGlyph(PERSONAL_CHANNEL_LABEL, {
+    personal: true,
+    size: 14,
+    weight: isUnread ? "bold" : undefined,
+    className: cn(
+      "shrink-0",
+      isUnread || isActive
+        ? "text-foreground"
+        : "text-muted-foreground group-hover/button:text-foreground",
+    ),
+  });
 
   return (
     <>
       <Box className="group/chan relative">
         <SpaceRowSurface
           asOption={spacesLayout}
-          // "me" is provisioned server-side with the first list fetch, so before
-          // it loads there is no id to identify the option by — its name is
-          // unique among spaces either way.
-          optionValue={meChannel?.id ?? PERSONAL_CHANNEL_NAME}
+          optionValue={meChannel?.id ?? PERSONAL_ROW_VALUE}
           data-selected={(isActive && !expanded) || undefined}
           onClick={openPersonalChannel}
           // "me" is a starred space among the others now, so it takes the same
@@ -1441,7 +1449,7 @@ const PersonalChannelRow = memo(function PersonalChannelRow({
           {onToggleExpanded && meChannel && (
             <SpaceDisclosure
               expanded={expanded}
-              spaceName={PERSONAL_CHANNEL_NAME}
+              spaceName={PERSONAL_CHANNEL_LABEL}
               onToggle={() => onToggleExpanded(meChannel.id)}
             />
           )}
@@ -1453,7 +1461,7 @@ const PersonalChannelRow = memo(function PersonalChannelRow({
               isUnread || isActive ? "text-foreground" : ROW_LABEL_TONE,
             )}
           >
-            {PERSONAL_CHANNEL_NAME}
+            {PERSONAL_CHANNEL_LABEL}
           </span>
           <span className="mt-[2px] flex shrink-0 items-center gap-1">
             <SpaceAttentionDot
@@ -1479,7 +1487,7 @@ const PersonalChannelRow = memo(function PersonalChannelRow({
                       <Button
                         variant="outline"
                         size="icon-xs"
-                        aria-label={`New in ${PERSONAL_CHANNEL_NAME}`}
+                        aria-label={`New in ${PERSONAL_CHANNEL_LABEL}`}
                         className={cn(
                           "gap-1 transition-opacity group-hover:border-border",
                           newMenuOpen
@@ -1666,7 +1674,10 @@ export function ChannelsList() {
   // stand between you and the row you already named, and an empty "Starred"
   // heading reads as a result that isn't there.
   const searchResults = channels.filter((c) => matches(c.name));
-  const meMatches = matches(PERSONAL_CHANNEL_NAME);
+  // Its old name too, so someone who still types "me" lands on it. A search
+  // alias, not a second identity: nothing else matches on the old name.
+  const meMatches =
+    matches(PERSONAL_CHANNEL_LABEL) || matches(PERSONAL_CHANNEL_NAME);
   const noMatches =
     normalizedQuery !== "" && !meMatches && !searchResults.length;
 
@@ -1707,9 +1718,7 @@ export function ChannelsList() {
   // A collapsed group or space renders no rows, so it contributes none.
   const collapsedSections = useSidebarStore((s) => s.collapsedSections);
   const toggleSection = useSidebarStore((s) => s.toggleSection);
-  // "me" is provisioned server-side with the first list fetch; before it loads
-  // it has no id to go by.
-  const meValue = me?.id ?? PERSONAL_CHANNEL_NAME;
+  const meValue = me?.id ?? PERSONAL_ROW_VALUE;
   const starredValue = sectionValue(STARRED_SECTION_ID);
   const channelsValue = sectionValue(CHANNELS_SECTION_ID);
   const spaceNodes = (
