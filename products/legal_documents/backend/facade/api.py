@@ -249,7 +249,9 @@ def _mark_signed_and_schedule_archive(document: LegalDocument) -> LegalDocument:
     return document
 
 
-def _try_mark_signed_and_schedule_archive(document: LegalDocument, capture: Callable[..., None] | None = None) -> bool:
+def _try_mark_signed_and_schedule_archive(
+    document: LegalDocument, capture: Callable[..., None] | None = None, delay_seconds: int = 0
+) -> bool:
     """
     Reconcile-only variant of `_mark_signed_and_schedule_archive`. The sweep's
     queryset snapshot can be stale by the time this runs, so it uses the
@@ -261,16 +263,18 @@ def _try_mark_signed_and_schedule_archive(document: LegalDocument, capture: Call
         return False
     logic.apply_baa_signed_side_effects(document)
     logic.fire_legal_document_signed_event(document, capture=capture)
-    _schedule_pdf_archive(document)
+    _schedule_pdf_archive(document, delay_seconds=delay_seconds)
     return True
 
 
-def _schedule_pdf_archive(document: LegalDocument) -> None:
+def _schedule_pdf_archive(document: LegalDocument, delay_seconds: int = 0) -> None:
     # Local import breaks the facade ⇄ tasks import cycle (tasks import the facade).
     from ..tasks.tasks import archive_signed_legal_document_pdf  # noqa: PLC0415
 
     document_id = str(document.id)
-    transaction.on_commit(lambda: archive_signed_legal_document_pdf.delay(document_id))
+    transaction.on_commit(
+        lambda: archive_signed_legal_document_pdf.apply_async(args=[document_id], countdown=delay_seconds)
+    )
 
 
 def archive_signed_pdf(document_id: UUID) -> None:
@@ -303,6 +307,10 @@ def reconcile_pending_signatures() -> contracts.LegalDocumentReconcileResult:
     newly_signed = 0
     errors = 0
     pending_seen = 0
+    # PandaDoc allows 100 downloads a minute across the whole account, shared with
+    # live signings. Staggering one archive per second keeps a backlog drain from
+    # starving a customer signing right now, and holds regardless of worker count.
+    scheduled_archives = 0
     signed_this_run: set[UUID] = set()
     # One scoped client for the whole loop, not one per row: this runs in a Celery
     # worker, where the global client's background flush may never run before the
@@ -313,8 +321,11 @@ def reconcile_pending_signatures() -> contracts.LegalDocumentReconcileResult:
             pending_seen += 1
             try:
                 if logic.get_pandadoc_document_status(document) == logic.PANDADOC_COMPLETED_STATUS:
-                    if _try_mark_signed_and_schedule_archive(document, capture=capture):
+                    if _try_mark_signed_and_schedule_archive(
+                        document, capture=capture, delay_seconds=scheduled_archives
+                    ):
                         newly_signed += 1
+                        scheduled_archives += 1
                         signed_this_run.add(document.id)
             except Exception as exc:
                 errors += 1
@@ -336,8 +347,9 @@ def reconcile_pending_signatures() -> contracts.LegalDocumentReconcileResult:
     archives_requeued = 0
     for document in logic.list_signed_documents_missing_pdf(exclude_ids=signed_this_run):
         try:
-            _schedule_pdf_archive(document)
+            _schedule_pdf_archive(document, delay_seconds=scheduled_archives)
             archives_requeued += 1
+            scheduled_archives += 1
         except Exception as exc:
             errors += 1
             logger.exception("legal_document_reconcile_archive_row_failed", document_id=str(document.id))

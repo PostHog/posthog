@@ -891,10 +891,11 @@ class TestLegalDocumentReconciliation(APIBaseTest):
 
     @patch("products.legal_documents.backend.logic.pandadoc_client.PandaDocClient.get_document_status")
     def test_reconcile_skips_documents_older_than_lookback_window(self, status_mock) -> None:
-        # Abandoned envelopes must not be polled forever — the sweep only looks at
-        # rows created inside the lookback window, or it would hammer PandaDoc.
+        # Abandoned envelopes must not be polled forever, or the sweep re-asks PandaDoc
+        # about them every 15 minutes. 30 days is deliberately inside the window this
+        # started with, so widening it back would fail here rather than pass quietly.
         status_mock.return_value = "document.completed"
-        LegalDocument.objects.filter(id=self.document.id).update(created_at=timezone.now() - timedelta(days=120))
+        LegalDocument.objects.filter(id=self.document.id).update(created_at=timezone.now() - timedelta(days=30))
 
         result = legal_api.reconcile_pending_signatures()
 
@@ -965,14 +966,45 @@ class TestLegalDocumentReconciliation(APIBaseTest):
     def test_reconcile_schedules_archive_once_for_newly_signed_row(self, status_mock) -> None:
         status_mock.return_value = "document.completed"
         with (
-            patch("products.legal_documents.backend.tasks.tasks.archive_signed_legal_document_pdf.delay") as delay_mock,
+            patch(
+                "products.legal_documents.backend.tasks.tasks.archive_signed_legal_document_pdf.apply_async"
+            ) as enqueue_mock,
             self.captureOnCommitCallbacks(execute=True),
         ):
             result = legal_api.reconcile_pending_signatures()
 
         self.assertEqual(result.newly_signed, 1)
         self.assertEqual(result.archives_requeued, 0)
-        delay_mock.assert_called_once_with(str(self.document.id))
+        enqueue_mock.assert_called_once_with(args=[str(self.document.id)], countdown=0)
+
+    @patch("products.legal_documents.backend.logic.pandadoc_client.PandaDocClient.get_document_status")
+    def test_reconcile_staggers_archives_one_per_second(self, status_mock) -> None:
+        # PandaDoc caps downloads per account, shared with live signings, so a backlog
+        # drain has to spread out rather than enqueue every archive at once.
+        for i in (1, 2):
+            org = self.create_organization_with_features([])
+            LegalDocument.objects.create(
+                organization=org,
+                document_type="DPA",
+                company_name=f"Later Co {i}",
+                company_address="2 Analytics Way",
+                representative_email=f"later{i}@other.example",
+                pandadoc_document_id=f"doc_later_{i}",
+                created_by=self.user,
+            )
+        status_mock.return_value = "document.completed"
+
+        with (
+            patch(
+                "products.legal_documents.backend.tasks.tasks.archive_signed_legal_document_pdf.apply_async"
+            ) as enqueue_mock,
+            self.captureOnCommitCallbacks(execute=True),
+        ):
+            result = legal_api.reconcile_pending_signatures()
+
+        self.assertEqual(result.newly_signed, 3)
+        countdowns = [call.kwargs["countdown"] for call in enqueue_mock.call_args_list]
+        self.assertEqual(countdowns, [0, 1, 2])
 
     def test_reconcile_skips_side_effects_for_concurrently_signed_row(self) -> None:
         # A webhook can sign the row between the reconcile loop reading its queryset

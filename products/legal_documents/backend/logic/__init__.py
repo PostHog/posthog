@@ -167,11 +167,11 @@ def mark_signed_pdf_stored(document: LegalDocument) -> LegalDocument:
 # PandaDoc status string for a fully-signed envelope. Mirrors the webhook layer.
 PANDADOC_COMPLETED_STATUS = "document.completed"
 
-# The reconciliation sweep polls PandaDoc once per pending row, so bound the set:
-# only rows created inside this window, capped per run. Envelopes older than this
-# are abandoned drafts, not late signatures — polling them forever would hammer
-# PandaDoc's API for no gain.
-_RECONCILE_LOOKBACK = timedelta(days=45)
+# The reconciliation sweep polls PandaDoc once per pending row every 15 minutes, so
+# bound the set: only rows created inside this window, capped per run. Two weeks is
+# where the returns stop. Of the pending envelopes older than that, 2 of 162 ever
+# completed, so a longer window mostly re-asks about drafts nobody will ever sign.
+_RECONCILE_LOOKBACK = timedelta(days=14)
 RECONCILE_MAX_PER_RUN = 500
 
 
