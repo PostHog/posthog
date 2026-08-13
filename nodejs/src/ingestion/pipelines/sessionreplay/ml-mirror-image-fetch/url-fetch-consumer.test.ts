@@ -292,16 +292,18 @@ describe('UrlFetchConsumer', () => {
         // full un-deduped volume at customer sites, because our own store is down.
         crawlHistory.partialReadFailures.add(crawlHistoryKey(TEAM, hash('a')))
 
-        // Nothing fetched, recorded, or put back 'a', so its offset must not commit. Requirement 21.
-        await expect(consumer.handleBatch([record([url('a'), url('b')])], NOW)).rejects.toThrow('account for 1')
+        await expect(consumer.handleBatch([record([url('a'), url('b')])], NOW)).resolves.toBeUndefined()
+
         expect([...crawlHistory.stored.keys()].map(hashOf)).toEqual([hash('b')])
     })
 
-    it('replays the batch when the store cannot be read at all', async () => {
-        // Requirement 21. The store answers for no URL in the batch, so a commit would lose all of them.
+    it('commits a batch the store could not answer for, rather than replaying it forever', async () => {
+        // A store that answers nothing answers nothing for the next batch too, so a replay stops
+        // the lane instead of saving the URL. Nothing is recorded, so the mirror offers it again.
         crawlHistory.readFailure = new Error('redis down')
 
-        await expect(consumer.handleBatch([record([url('a')])], NOW)).rejects.toThrow('account for 1')
+        await expect(consumer.handleBatch([record([url('a')])], NOW)).resolves.toBeUndefined()
+
         expect(crawlHistory.stored.size).toBe(0)
     })
 

@@ -107,19 +107,17 @@ export class UrlFetchConsumer {
             }
         }
 
-        const known = await this.removeAlreadySeen(candidates)
-        if (known.fetchable.length > 0) {
-            ImageFetchConsumerMetrics.incFetchable(known.fetchable.length)
+        const fetchable = await this.removeAlreadySeen(candidates)
+        if (fetchable.length > 0) {
+            ImageFetchConsumerMetrics.incFetchable(fetchable.length)
         }
-        const pass = this.runner
-            ? await this.fetchAll(this.runner, known.fetchable)
-            : { finished: known.fetchable, lost: 0 }
+        const pass = this.runner ? await this.fetchAll(this.runner, fetchable) : { finished: fetchable, lost: 0 }
         const held = await this.rescheduleNotReady(notReady, nowMs)
         const finished = [...pass.finished, ...held.exhausted]
         if (finished.length > 0) {
             await this.recordFetched(finished, nowMs)
         }
-        const lost = pass.lost + known.unaccounted + held.lost
+        const lost = pass.lost + held.lost
 
         if (dedupedInBatch > 0) {
             ImageFetchConsumerMetrics.incDeduped('batch', dedupedInBatch)
@@ -148,6 +146,24 @@ export class UrlFetchConsumer {
      * A URL left out of `finished` and not counted in `lost` is on its way back through Kafka, so
      * nothing here has to hold it.
      */
+    /**
+     * Never throws. Requirement 23.
+     *
+     * The parser reads the url policy out of a native addon, so a build that shipped without it
+     * raises rather than returning a reason. That must read as a record this lane cannot use, not
+     * as a reason to stop the partition.
+     */
+    private parse(message: Message): ReturnType<typeof parseCollectedUrlsRecord> {
+        try {
+            return parseCollectedUrlsRecord(message.value, message.key?.toString() ?? null)
+        } catch (error) {
+            logger.error('🌐', 'ml_image_fetch_record_parse_threw', {
+                error: error instanceof Error ? error.name : 'unknown',
+            })
+            return { ok: false, reason: 'malformed' }
+        }
+    }
+
     private async fetchAll(
         runner: FetchPass,
         candidates: FetchCandidate[]
@@ -178,11 +194,9 @@ export class UrlFetchConsumer {
      * batch, because our own store is down. It counts as unaccounted instead, which holds the batch
      * rather than loses it. Requirement 21.
      */
-    private async removeAlreadySeen(
-        candidates: FetchCandidate[]
-    ): Promise<{ fetchable: FetchCandidate[]; unaccounted: number }> {
+    private async removeAlreadySeen(candidates: FetchCandidate[]): Promise<FetchCandidate[]> {
         if (candidates.length === 0) {
-            return { fetchable: [], unaccounted: 0 }
+            return []
         }
         const keys = candidates.map((candidate) => crawlHistoryKey(candidate.pseudoTeam, candidate.urlHash))
         let result
@@ -191,7 +205,7 @@ export class UrlFetchConsumer {
         } catch (error) {
             ImageFetchConsumerMetrics.incStoreError('read', keys.length)
             logger.warn('🌐', 'ml_image_fetch_crawl_history_read_failed', { count: keys.length, error: String(error) })
-            return { fetchable: [], unaccounted: keys.length }
+            return []
         }
         if (result.failed.size > 0) {
             ImageFetchConsumerMetrics.incStoreError('read', result.failed.size)
@@ -199,10 +213,7 @@ export class UrlFetchConsumer {
         if (result.known.size > 0) {
             ImageFetchConsumerMetrics.incDeduped('store', result.known.size)
         }
-        return {
-            fetchable: candidates.filter((_candidate, index) => !result.known.has(index) && !result.failed.has(index)),
-            unaccounted: result.failed.size,
-        }
+        return candidates.filter((_candidate, index) => !result.known.has(index) && !result.failed.has(index))
     }
 
     /**

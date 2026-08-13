@@ -104,11 +104,17 @@ so a throw out of the pass is a defect in our own code rather than an answer abo
 consumer counts that throw, drops the batch, and commits it. A replay would meet the same defect on
 every read and stop the partition rather than recover it.
 
-**Holding a batch costs the pod.** There is no way to refuse one offset and commit the rest, so the
-fetch consumer throws, and a throw out of the poll loop shuts the pod down. Kubernetes restarts it
-and the batch replays. One failed Kafka produce, or one crawl history read the store could not
-answer, therefore restarts a pod. That is the price of not losing the URLs, and both causes are
-already conditions that stop the lane working.
+**Holding a batch costs the pod.** There is no way to refuse one offset and commit the rest, so a
+consumer that must hold a batch throws, and a throw out of the poll loop shuts the pod down.
+Kubernetes restarts it and the batch replays.
+
+Only a failed Kafka produce is worth that. It is the one case where the lane took a URL out of the
+frontier and put nothing back, and it usually clears on the next attempt.
+
+A crawl history read that the store cannot answer is not worth it. The store answers nothing for
+the next batch either, so the pod would restart on every batch and make no progress. Those URLs are
+left unrecorded instead, and the mirror offers them again when a session refers to the same image.
+The read errors are counted, so the loss is visible.
 
 ### What we must be able to see
 

@@ -20,6 +20,17 @@ function addon(): typeof import('@posthog/replay-anonymizer') {
     return cached
 }
 
+/**
+ * Load the addon now, so a stale `index.node` stops the pod at startup.
+ *
+ * The parser calls into it for every URL, and requirement 23 says a record is counted and dropped
+ * rather than thrown. A throw from there would crash loop on the first batch and stall the
+ * partition for every site on it.
+ */
+export function assertUrlPolicyLoaded(): void {
+    addon()
+}
+
 export function politenessKey(host: string): string {
     return addon().politenessKey(host)
 }

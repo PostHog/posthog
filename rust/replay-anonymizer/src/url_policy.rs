@@ -331,13 +331,16 @@ pub fn try_canonicalize(raw: &str) -> Result<CanonicalUrl, Decline> {
     if url.port().is_some() {
         return Err(Decline::BadPort);
     }
-    // The consumer checks that the host sits inside the domain the record is keyed by, and
-    // `example.com.` is not inside `example.com` by any string rule, so a trailing dot here makes
-    // the consumer drop the URL as foreign.
+    // `example.com.` and `example.com` name the same host, and the consumer compares the two as
+    // strings in more than one place. The dot comes off the URL as well as off the host, so
+    // everything downstream sees one spelling.
     let host_str = url.host_str().ok_or(Decline::NoHost)?;
     let host = host_str.strip_suffix('.').unwrap_or(host_str).to_string();
     if !is_public_host(&host) {
         return Err(Decline::NonPublicHost);
+    }
+    if host != host_str {
+        url.set_host(Some(&host)).map_err(|_| Decline::NoHost)?;
     }
 
     remove_credentials_and_fragment(&mut url);
@@ -601,6 +604,15 @@ mod tests {
         // refuses plain http on its own.
         assert!(canonicalize("https://[2606:4700::1111]/i.png").is_some());
         assert!(canonicalize("https://8.8.8.8/i.png").is_some());
+    }
+
+    #[test]
+    fn a_fully_qualified_host_survives_the_whole_lane() {
+        let c = canonicalize("https://cdn.example.com./i.png").expect("collected");
+        // The consumer compares `new URL(fetch).hostname` with `host`. A dot on one side only
+        // makes every fully qualified host fail that comparison.
+        assert_eq!(c.host, "cdn.example.com");
+        assert_eq!(c.fetch, "https://cdn.example.com/i.png");
     }
 
     #[test]

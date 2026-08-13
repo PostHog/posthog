@@ -16,6 +16,7 @@ import { FetchRunner } from '~/ingestion/pipelines/sessionreplay/ml-mirror-image
 import { FrontierPublisher } from '~/ingestion/pipelines/sessionreplay/ml-mirror-image-fetch/frontier-publisher'
 import { HostBudget } from '~/ingestion/pipelines/sessionreplay/ml-mirror-image-fetch/host-budget'
 import { HttpImageFetcher } from '~/ingestion/pipelines/sessionreplay/ml-mirror-image-fetch/image-fetcher'
+import { assertUrlPolicyLoaded } from '~/ingestion/pipelines/sessionreplay/ml-mirror-image-fetch/politeness-key'
 import { UrlFetchConsumer } from '~/ingestion/pipelines/sessionreplay/ml-mirror-image-fetch/url-fetch-consumer'
 import { resolveMlMirrorRedisConnection } from '~/ingestion/pipelines/sessionreplay/ml-mirror/config'
 import { createProducerRegistry } from '~/ingestion/pipelines/sessionreplay/outputs/producer-registry'
@@ -141,6 +142,10 @@ export class IngestionSessionReplayMlImageFetchServer implements NodeServer {
 
     private async startServices(): Promise<void> {
         initializePrometheusLabels(this.config.INGESTION_PIPELINE, this.config.INGESTION_LANE)
+        // Here rather than on the first record. The parser calls into this addon for every URL, and
+        // it must answer with a reason rather than raise, so a build that shipped without the addon
+        // has to stop the pod at startup instead.
+        assertUrlPolicyLoaded()
 
         const dryRun = this.config.SESSION_RECORDING_ML_IMAGE_FETCH_DRY_RUN
         if (!dryRun) {

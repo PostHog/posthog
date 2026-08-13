@@ -67,9 +67,11 @@ export class RetryDelayConsumer {
                 }
             }
             if (!(await this.release(message))) {
-                // The rest of the batch stays where it is. An offset is a high water mark, so
-                // storing a later one would commit this record as well. Requirement 21.
-                return
+                // Thrown, not returned. Returning holds this batch and no more: the next poll reads
+                // the records after it and stores one of their offsets, and an offset is a high
+                // water mark, so that commits this record too. A throw leaves the poll loop, so
+                // nothing is stored and the record is read again. Requirement 21.
+                throw new Error('the image fetch retry lane could not publish a record back to the frontier')
             }
             this.options.storeOffset(message)
         }

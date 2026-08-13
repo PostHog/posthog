@@ -94,12 +94,16 @@ describe('RetryDelayConsumer', () => {
         expect(elapsed).toBeLessThan(DELAY_MS / 10)
     })
 
-    it('stores no offset for a record it could not publish, so the record is read again', async () => {
+    it('fails the batch for a record it could not publish, so no later offset commits past it', async () => {
+        // Storing nothing is not enough on its own. The next poll would read the records after this
+        // one and store one of their offsets, and an offset is a high water mark.
         const { consumer, published, stored } = build({
             produce: () => Promise.reject(new Error('broker down')),
         })
 
-        await consumer.handleBatch([message(Date.now() - DELAY_MS - 1000)])
+        await expect(consumer.handleBatch([message(Date.now() - DELAY_MS - 1000)])).rejects.toThrow(
+            'could not publish a record back to the frontier'
+        )
 
         expect(published).toEqual([])
         expect(stored).toEqual([])
