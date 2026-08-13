@@ -45,9 +45,8 @@ _CONNECTION: _Connection = {
 }
 
 
-# Per-test control-plane membership rows, keyed by org id. The CP is the read source for
-# the periodic sweep's team enumeration, so tests register rows here instead of creating
-# Django rows — the per-team connection itself no longer consults the control plane.
+# Per-test control-plane membership rows, keyed by org id. The periodic sweep uses
+# these rows to schedule reconciliation for enrolled projects.
 _MEMBERSHIPS: dict[str, list[ManagedWarehouseTeamMembership]] = {}
 
 
@@ -110,7 +109,7 @@ def _create_server(org: Organization, **overrides: object) -> DuckgresServer:
 
 @pytest.mark.django_db
 class TestEnsureManagedWarehouseDirectSource:
-    def test_creates_a_query_source_with_the_org_root_credential(self) -> None:
+    def test_creates_a_query_source_with_the_stored_server_login(self) -> None:
         org = Organization.objects.create(name="Org")
         team = Team.objects.create(organization=org)
         _create_server(org)
@@ -123,11 +122,11 @@ class TestEnsureManagedWarehouseDirectSource:
         assert isinstance(source.connection_metadata, dict)
         assert source.connection_metadata["engine"] == "duckdb"
         assert source.prefix == MANAGED_WAREHOUSE_SOURCE_PREFIX
-        # job_inputs carry the org root credential so live queries see every schema.
+        # job_inputs carry the stored server login used by live queries and discovery.
         assert source.job_inputs["host"] == _CONNECTION["host"]
         assert source.job_inputs["user"] == _CONNECTION["username"]
         assert source.job_inputs["password"] == _CONNECTION["password"]
-        assert source.connection_metadata["credential_kind"] == "org_root"
+        assert source.connection_metadata["credential_kind"] == "stored_server_login"
 
     def test_is_idempotent(self) -> None:
         # Without dedup, every status poll / re-enable would spawn a duplicate connection.
@@ -153,11 +152,9 @@ class TestEnsureManagedWarehouseDirectSource:
 
         assert source.direct_query_enabled is True
         assert isinstance(source.connection_metadata, dict)
-        assert source.connection_metadata["credential_kind"] == "org_root"
+        assert source.connection_metadata["credential_kind"] == "stored_server_login"
 
-    def test_needs_no_control_plane_membership(self) -> None:
-        # Root needs no handshake: a team the control plane doesn't know about still
-        # gets its connection.
+    def test_explicit_enrollment_does_not_reread_control_plane_membership(self) -> None:
         org = Organization.objects.create(name="Org")
         team = Team.objects.create(organization=org)
         _create_server(org)
@@ -166,9 +163,10 @@ class TestEnsureManagedWarehouseDirectSource:
 
         assert source.direct_query_enabled is True
         assert isinstance(source.connection_metadata, dict)
-        assert source.connection_metadata["credential_kind"] == "org_root"
+        assert source.connection_metadata["credential_kind"] == "stored_server_login"
 
-    def test_refreshes_a_project_reader_source_onto_the_root_credential(self) -> None:
+    @pytest.mark.parametrize("legacy_kind", ["org_root", "project_reader"])
+    def test_migrates_a_legacy_source_onto_the_stored_server_login(self, legacy_kind: str) -> None:
         org = Organization.objects.create(name="Org")
         team = Team.objects.create(organization=org)
         _create_server(org)
@@ -192,7 +190,7 @@ class TestEnsureManagedWarehouseDirectSource:
             connection_metadata={
                 "engine": "duckdb",
                 "system_managed": True,
-                "credential_kind": "project_reader",
+                "credential_kind": legacy_kind,
                 "reader_configured": True,
             },
         )
@@ -212,13 +210,12 @@ class TestEnsureManagedWarehouseDirectSource:
         assert managed_source.job_inputs["password"] == _CONNECTION["password"]
         assert managed_source.direct_query_enabled is True
         assert isinstance(managed_source.connection_metadata, dict)
-        assert managed_source.connection_metadata["credential_kind"] == "org_root"
+        assert managed_source.connection_metadata["credential_kind"] == "stored_server_login"
         assert "reader_configured" not in managed_source.connection_metadata
-        # Reader-discovered catalogs are already bounded and stay in place; only the
-        # swappable credential changes.
+        # The existing catalog remains available while the source moves to the current login snapshot.
         assert team_schema.deleted is False
 
-    def test_removes_existing_schemas_when_upgrading_a_root_managed_source(self) -> None:
+    def test_removes_existing_schemas_when_upgrading_an_unknown_credential_kind(self) -> None:
         org = Organization.objects.create(name="Org")
         team = Team.objects.create(organization=org)
         _create_server(org)
@@ -268,11 +265,10 @@ class TestReconcileManagedWarehouseTables:
         _add_membership(team)
         return org, team
 
-    def test_discovers_the_whole_org_catalog_and_makes_it_queryable(self) -> None:
+    def test_discovers_the_stored_login_catalog_and_makes_it_queryable(self) -> None:
         org, team = self._setup()
         other_team = Team.objects.create(organization=org)
-        # Discovery runs as root, so every team's schema shows up on this team's source;
-        # only engine-internal schemas are excluded.
+        # The stored login controls catalog visibility; only engine-internal schemas are excluded.
         discovered = [
             _source_schema("events_prod"),
             _source_schema("persons_prod"),
@@ -347,8 +343,7 @@ class TestReconcileManagedWarehouseTables:
         ]
         query_cursor.execute.assert_called_once_with(sql, None)
 
-        # Tables from other teams in the org are queryable too — org-wide visibility
-        # is the point of the root credential.
+        # A table visible to the stored login remains queryable even when it belongs to another schema.
         cross_team_query = HogQLQueryExecutor(
             query=f"SELECT uuid FROM team_{other_team.id}.orders",
             team=team,
@@ -438,8 +433,7 @@ class TestReconcileManagedWarehouseTables:
     def test_periodic_sweep_schedules_every_managed_project(self) -> None:
         org, team = self._setup()
         all_rows = _MEMBERSHIPS[str(org.id)] + [
-            # Legacy shared-table membership: root-backed sources support it, so the
-            # sweep schedules it like any other row.
+            # Legacy shared-table membership remains an enrolled project, so the sweep schedules it.
             _membership(team.id + 1, str(org.id), "team_x", legacy_shared=True),
         ]
 
@@ -470,17 +464,6 @@ class TestReconcileManagedWarehouseTables:
             reconcile_all_managed_warehouse_tables_task()
 
         schedule.assert_not_called()
-
-    def test_registers_a_connection_for_a_team_without_cp_membership(self) -> None:
-        # The connection no longer depends on control-plane membership: any team in an org
-        # with a provisioned warehouse gets one on reconcile.
-        org = Organization.objects.create(name="Org")
-        team = Team.objects.create(organization=org)
-        _create_server(org)
-
-        reconcile_managed_warehouse_tables(team_id=team.id, organization_id=org.id)
-
-        assert ExternalDataSource.objects.filter(team_id=team.id, prefix=MANAGED_WAREHOUSE_SOURCE_PREFIX).exists()
 
     def test_reconciles_for_a_legacy_shared_tables_team(self) -> None:
         org, team = self._setup()

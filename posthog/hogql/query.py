@@ -606,7 +606,7 @@ class HogQLQueryExecutor:
         adapter = get_raw_adapter_for_source(source)
         if adapter is None:
             raise ExposedHogQLError(INVALID_CONNECTION_ID_ERROR)
-        if adapter.engine != "duckgres" and raw_query_denied_by_table_access(
+        if not source.is_managed_warehouse and raw_query_denied_by_table_access(
             self.team,
             source,
             user=self.user,

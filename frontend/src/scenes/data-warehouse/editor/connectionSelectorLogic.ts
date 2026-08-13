@@ -88,13 +88,22 @@ function getConnectionEngine(
 
 export function getConnectionOptionLabel(source: ExternalDataSourceConnectionOptionApi): string {
     const engine = getConnectionEngine(source)
-    if (source.prefix === MANAGED_WAREHOUSE_SOURCE_PREFIX && engine === 'duckdb') {
+    if (isManagedWarehouseConnection(source)) {
         return 'PostHog (Managed warehouse)'
     }
     const isSynced = source.access_method === 'warehouse'
     // Prefer the user-set description, then the prefix; fall back to the source type name (never the raw UUID).
     const name = source.description || source.prefix || source.source_type || source.id
     return `${name} (${ENGINE_LABELS[engine]}${isSynced ? ' · synced' : ''})`
+}
+
+function isManagedWarehouseConnection(source: ExternalDataSourceConnectionOptionApi): boolean {
+    return (
+        source.prefix === MANAGED_WAREHOUSE_SOURCE_PREFIX &&
+        source.source_type === 'Postgres' &&
+        source.access_method === 'direct' &&
+        getConnectionEngine(source) === 'duckdb'
+    )
 }
 
 export function getConnectionSelectorValue(
@@ -263,12 +272,17 @@ export const connectionSelectorLogic = kea<connectionSelectorLogicType>([
             ): ConnectionSelectOptionGroup[] => {
                 const sourceOptions = connectionOptionsLoading
                     ? [{ value: LOADING_CONNECTIONS, label: 'Loading...', disabled: true }]
-                    : (connectionOptions ?? []).map((source) => ({
-                          value: source.id,
-                          label: getConnectionOptionLabel(source),
-                          iconSrc: ENGINE_ICONS[getConnectionEngine(source)],
-                          managementUrl: urls.dataWarehouseSource(`managed-${source.id}`),
-                      }))
+                    : (connectionOptions ?? []).map((source) => {
+                          const isManagedWarehouse = isManagedWarehouseConnection(source)
+                          return {
+                              value: source.id,
+                              label: getConnectionOptionLabel(source),
+                              iconSrc: isManagedWarehouse ? IconPostHog : ENGINE_ICONS[getConnectionEngine(source)],
+                              ...(isManagedWarehouse
+                                  ? {}
+                                  : { managementUrl: urls.dataWarehouseSource(`managed-${source.id}`) }),
+                          }
+                      })
 
                 // Driven by the backend direct-SQL capability surface so the menu never drifts from
                 // the engines we actually support (a new direct source shows up with no frontend change).

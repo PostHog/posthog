@@ -46,9 +46,9 @@ class DirectSQLAdapter(Protocol):
         ...
 
     def prepare_raw_sql(self, sql: str) -> str:
-        """Apply the engine's read-only / single-statement guard to user-supplied raw SQL."""
+        """Apply the engine's raw-statement guards to user-supplied SQL."""
         ...
 
     def execute(self, request: DirectQueryRequest) -> DirectQueryResult:
-        """Connect, enforce read-only + timeout, run the SQL, and map results/types back."""
+        """Connect, apply engine execution controls, run the SQL, and map results/types back."""
         ...

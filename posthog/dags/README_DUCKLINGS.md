@@ -145,13 +145,10 @@ class DucklingBackfillConfig:
 2. Enable another team's backfill with the "Enable warehouse backfill for a team" admin
    action or the managed warehouse onboarding API. This creates the control-plane team row
    with backfill enabled. The discovery sensor will pick up the team on its next run.
-   The enablement flow also creates a
-   managed Postgres live-query connection with a distinct Duckgres reader for the team. Once the
-   warehouse is ready, background schema discovery exposes every table in the team's event/person,
-   data-import, team, and modeled-data namespaces in the SQL editor. Duckgres enforces read-only
-   access to those namespaces for both HogQL and raw SQL. Legacy teams that still use the shared
-   unsuffixed `events` and `persons` tables are not exposed because those tables contain rows for
-   multiple teams.
+   The enablement flow also creates a managed Postgres live-query connection for the team. Once the
+   warehouse is ready, background schema discovery exposes the relations visible to the login stored
+   on the organization's `DuckgresServer`. The SQL editor inherits that login's permissions; PostHog
+   does not add a read-only policy.
 
 3. To trigger immediate historical backfill, reset the full backfill sensor cursor
 

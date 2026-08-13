@@ -356,9 +356,9 @@ def _register_provisioning_team(organization_id: UUID | str, team_id: int) -> No
 def _ensure_direct_source(team_id: int, organization_id: UUID | str) -> None:
     """Best-effort: register the org's managed warehouse as the team's query connection.
 
-    A managed warehouse speaks the Postgres wire protocol, so each member team gets an
-    ExternalDataSource pointed at the org server and authenticated with its org root
-    credential. A failure here must never block onboarding.
+    Successful provision and onboarding flows give that project an ``ExternalDataSource``
+    pointed at the org server and authenticated with its stored login. A failure here must
+    never block onboarding.
     """
     try:
         from products.managed_warehouse.backend.facade.connection import (  # noqa: PLC0415

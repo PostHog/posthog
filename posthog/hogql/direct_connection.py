@@ -101,8 +101,20 @@ def get_direct_connection_source(
         .exclude(deleted=True)
         .first()
     )
-    if source is None or not is_direct_capable(source):
+    if (
+        source is None
+        or not is_direct_capable(source)
+        or (source.has_managed_warehouse_prefix and not source.is_managed_warehouse)
+    ):
         return None
+
+    if source.is_managed_warehouse:
+        from products.managed_warehouse.backend.facade.api import (  # noqa: PLC0415 - avoids loading the managed-warehouse product during django.setup()
+            has_provisioned_warehouse,
+        )
+
+        if not has_provisioned_warehouse(team.organization_id):
+            return None
 
     # Synced (warehouse) sources only expose their `should_sync` catalog — raw SQL bypasses that
     # boundary and reads any upstream table, so raw queries are pure-direct only. Pure-direct
@@ -111,8 +123,10 @@ def get_direct_connection_source(
     if require_pure_direct and source.access_method != ExternalDataSource.AccessMethod.DIRECT:
         return None
 
-    if user is not None and not UserAccessControl(user=user, team=team).check_access_level_for_object(
-        source, required_level="viewer"
+    if (
+        user is not None
+        and not source.is_managed_warehouse
+        and not UserAccessControl(user=user, team=team).check_access_level_for_object(source, required_level="viewer")
     ):
         return None
 

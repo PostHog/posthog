@@ -102,6 +102,7 @@ from products.data_warehouse.backend.facade.models import ExternalDataSourceReve
 from products.revenue_analytics.backend.facade.api import ensure_person_join, remove_person_join
 from products.warehouse_sources.backend.facade.api import validate_source_prefix
 from products.warehouse_sources.backend.facade.models import (
+    MANAGED_WAREHOUSE_SOURCE_PREFIX,
     DataWarehouseTable,
     ExternalDataJob,
     ExternalDataSchema,
@@ -1757,7 +1758,6 @@ class ExternalDataSourceViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixi
         "connect_link",
         "stored_credentials",
         "webhook_info",
-        "connections",
         "cdc_status",
     ]
     queryset = ExternalDataSource.objects.all()
@@ -1794,6 +1794,12 @@ class ExternalDataSourceViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixi
                 raise PermissionDenied("You do not have editor access to every table in this source.")
 
     def dangerously_get_permissions(self):
+        if self.action == "connections":
+            return [
+                IsAuthenticated(),
+                APIScopePermission(),
+                TeamMemberAccessPermission(),
+            ]
         # The account picker enumerates every account/site the connected provider exposes, so require
         # manage access even though it's a GET — a read-only member shouldn't discover unrelated
         # accounts (info disclosure). Other actions fall back to the viewset defaults.
@@ -1859,6 +1865,8 @@ class ExternalDataSourceViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixi
     def safely_get_queryset(self, queryset):
         return (
             queryset.exclude(deleted=True)
+            # The reserved managed warehouse row is an internal query handle, not a configurable source.
+            .exclude(prefix=MANAGED_WAREHOUSE_SOURCE_PREFIX)
             # created_by (FK) and revenue_analytics_config (reverse 1:1) are read per source during
             # serialization. select_related folds them into the main query instead of firing one
             # extra SELECT per source — the reverse 1:1 was an unprefetched N+1 that dominated the
@@ -4567,9 +4575,15 @@ class ExternalDataSourceViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixi
         return Response(status=status.HTTP_200_OK, data=SourceConnectLinkSerializer(data).data)
 
     @extend_schema(responses=ExternalDataSourceConnectionOptionSerializer(many=True))
-    @action(methods=["GET"], detail=False, pagination_class=None, filter_backends=[])
+    @action(
+        methods=["GET"],
+        detail=False,
+        pagination_class=None,
+        filter_backends=[],
+        required_scopes=["external_data_source:read"],
+    )
     def connections(self, request: Request, *args: Any, **kwargs: Any) -> Response:
-        queryset = (
+        connection_sources = (
             ExternalDataSource._base_manager.filter(
                 team_id=self.team_id,
                 source_type__in=direct_capable_source_types(),
@@ -4577,12 +4591,39 @@ class ExternalDataSourceViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixi
             # Pure-direct sources are always live; synced sources only when the toggle is on.
             .filter(Q(access_method=ExternalDataSource.AccessMethod.DIRECT) | Q(direct_query_enabled=True))
             .exclude(deleted=True)
-            .only("id", "prefix", "connection_metadata", "source_type", "access_method")
+            .only("id", "prefix", "description", "connection_metadata", "source_type", "access_method")
             .order_by(self.ordering)
         )
-        queryset = self.user_access_control.filter_queryset_by_access_level(queryset)
+        from products.managed_warehouse.backend.facade.api import (  # noqa: PLC0415 - keeps managed warehouse off the viewset import path
+            has_provisioned_warehouse,
+        )
 
-        serializer = ExternalDataSourceConnectionOptionSerializer(queryset, many=True)
+        managed_warehouse_filter = Q(
+            source_type=ExternalDataSourceType.POSTGRES,
+            access_method=ExternalDataSource.AccessMethod.DIRECT,
+            prefix=MANAGED_WAREHOUSE_SOURCE_PREFIX,
+            connection_metadata__engine="duckdb",
+            connection_metadata__system_managed=True,
+        )
+        managed_source = (
+            connection_sources.filter(managed_warehouse_filter).first()
+            if has_provisioned_warehouse(self.team.organization_id)
+            else None
+        )
+        external_sources = connection_sources.exclude(prefix=MANAGED_WAREHOUSE_SOURCE_PREFIX)
+        if is_service_auth(request):
+            accessible_external_sources = external_sources
+        else:
+            accessible_external_sources = self.user_access_control.filter_queryset_by_access_level(external_sources)
+            if not self.user_access_control.has_resource_access(
+                "external_data_source"
+            ) and not self.user_access_control.has_any_specific_access_for_resource(
+                "external_data_source", required_level="viewer"
+            ):
+                accessible_external_sources = accessible_external_sources.filter(created_by=request.user)
+        options = ([managed_source] if managed_source is not None else []) + list(accessible_external_sources)
+
+        serializer = ExternalDataSourceConnectionOptionSerializer(options, many=True)
         return Response(status=status.HTTP_200_OK, data=serializer.data)
 
     @extend_schema(responses=DirectConnectionSourceOptionSerializer(many=True))

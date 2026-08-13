@@ -120,6 +120,22 @@ class ExternalDataSource(ModelActivityMixin, CreatedMetaFields, UpdatedMetaField
         metadata = self.connection_metadata
         return isinstance(metadata, dict) and metadata.get("system_managed") is True
 
+    @property
+    def has_managed_warehouse_prefix(self) -> bool:
+        return self.prefix == MANAGED_WAREHOUSE_SOURCE_PREFIX
+
+    @property
+    def is_managed_warehouse(self) -> bool:
+        metadata = self.connection_metadata
+        return (
+            self.source_type == ExternalDataSourceType.POSTGRES
+            and self.access_method == self.AccessMethod.DIRECT
+            and self.has_managed_warehouse_prefix
+            and self.is_system_managed
+            and isinstance(metadata, dict)
+            and metadata.get("engine") == "duckdb"
+        )
+
     @classmethod
     def is_system_managed_prefix(cls, prefix: str | None) -> bool:
         return isinstance(prefix, str) and prefix.strip() in SYSTEM_MANAGED_SOURCE_PREFIXES
@@ -220,9 +236,22 @@ def get_direct_external_data_source_for_connection(
             team_id=team_id,
             id=source_uuid,
         )
+        .select_related("team")
         .exclude(deleted=True)
         .first()
     )
-    if source is None or not is_direct_capable(source):
+    if (
+        source is None
+        or not is_direct_capable(source)
+        or (source.has_managed_warehouse_prefix and not source.is_managed_warehouse)
+    ):
         return None
+
+    if source.is_managed_warehouse:
+        from products.managed_warehouse.backend.facade.api import (  # noqa: PLC0415 - avoids loading the managed-warehouse product during django.setup()
+            has_provisioned_warehouse,
+        )
+
+        if not has_provisioned_warehouse(source.team.organization_id):
+            return None
     return source

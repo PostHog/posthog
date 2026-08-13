@@ -3,6 +3,7 @@ import uuid
 import pytest
 from posthog.test.base import APIBaseTest
 
+from parameterized import parameterized
 from rest_framework import status
 
 from posthog.constants import AvailableFeature
@@ -10,7 +11,12 @@ from posthog.models.organization import OrganizationMembership
 from posthog.models.user import User
 from posthog.rbac.user_access_control import UserAccessControl
 
-from products.warehouse_sources.backend.facade.models import ExternalDataSchema, ExternalDataSource
+from products.managed_warehouse.backend.facade.api import persist_duckgres_server_for_org
+from products.warehouse_sources.backend.facade.models import (
+    MANAGED_WAREHOUSE_SOURCE_PREFIX,
+    ExternalDataSchema,
+    ExternalDataSource,
+)
 
 try:
     from ee.models.rbac.access_control import AccessControl
@@ -86,6 +92,23 @@ class TestExternalDataSourceAccessControl(APIBaseTest):
             organization_member=None,
             role=None,
         )
+
+    def _create_managed_source(self, **overrides: object) -> ExternalDataSource:
+        fields: dict[str, object] = {
+            "team": self.team,
+            "source_id": str(uuid.uuid4()),
+            "connection_id": str(uuid.uuid4()),
+            "source_type": "Postgres",
+            "prefix": MANAGED_WAREHOUSE_SOURCE_PREFIX,
+            "access_method": ExternalDataSource.AccessMethod.DIRECT,
+            "created_by": self.user,
+            "connection_metadata": {
+                "engine": "duckdb",
+                "system_managed": True,
+            },
+        }
+        fields.update(overrides)
+        return ExternalDataSource.objects.create(**fields)
 
     # --- Viewer Access Level Tests ---
 
@@ -279,6 +302,119 @@ class TestExternalDataSourceAccessControl(APIBaseTest):
         # Only the source with explicit access should be returned (not the other source)
         self.assertEqual(response.json()["count"], 1)
         self.assertEqual(response.json()["results"][0]["id"], str(self.source.id))
+
+    def test_connections_includes_only_provisioned_managed_warehouse_regardless_of_source_access(self):
+        external_source = ExternalDataSource.objects.create(
+            team=self.team,
+            source_id=str(uuid.uuid4()),
+            connection_id=str(uuid.uuid4()),
+            source_type="Postgres",
+            prefix="Customer database",
+            access_method=ExternalDataSource.AccessMethod.DIRECT,
+        )
+        managed_source = self._create_managed_source()
+        self._create_access_control(self.viewer_user, access_level="none")
+        self._create_access_control(
+            self.viewer_user,
+            resource_id=str(managed_source.id),
+            access_level="none",
+        )
+        self.client.force_login(self.viewer_user)
+
+        response = self.client.get(f"/api/environments/{self.team.pk}/external_data_sources/connections/")
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertEqual(response.json(), [])
+
+        persist_duckgres_server_for_org(
+            self.organization.id,
+            host="managed.example.com",
+            port=5432,
+            database="ducklake",
+            username="root",
+            password="secret",
+        )
+        response = self.client.get(f"/api/environments/{self.team.pk}/external_data_sources/connections/")
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        returned_ids = [item["id"] for item in response.json()]
+        self.assertEqual(returned_ids, [str(managed_source.id)])
+        self.assertNotIn(str(external_source.id), returned_ids)
+
+    @parameterized.expand(
+        [
+            ("missing_system_managed", {"connection_metadata": {"engine": "duckdb"}}),
+            (
+                "wrong_engine",
+                {"connection_metadata": {"engine": "postgres", "system_managed": True}},
+            ),
+            ("wrong_source_type", {"source_type": "MySQL"}),
+            (
+                "synced_source",
+                {
+                    "access_method": ExternalDataSource.AccessMethod.WAREHOUSE,
+                    "direct_query_enabled": True,
+                },
+            ),
+        ]
+    )
+    def test_connections_omits_incomplete_reserved_sources(self, _name: str, overrides: dict[str, object]) -> None:
+        persist_duckgres_server_for_org(
+            self.organization.id,
+            host="managed.example.com",
+            port=5432,
+            database="ducklake",
+            username="stored-login",
+            password="secret",
+        )
+        source = self._create_managed_source(**overrides)
+
+        response = self.client.get(f"/api/environments/{self.team.pk}/external_data_sources/connections/")
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertNotIn(str(source.id), [item["id"] for item in response.json()])
+
+    def test_connections_places_managed_warehouse_before_external_sources(self) -> None:
+        persist_duckgres_server_for_org(
+            self.organization.id,
+            host="managed.example.com",
+            port=5432,
+            database="ducklake",
+            username="stored-login",
+            password="secret",
+        )
+        managed_source = self._create_managed_source()
+        external_source = ExternalDataSource.objects.create(
+            team=self.team,
+            source_id=str(uuid.uuid4()),
+            connection_id=str(uuid.uuid4()),
+            source_type="Postgres",
+            prefix="Customer database",
+            access_method=ExternalDataSource.AccessMethod.DIRECT,
+            created_by=self.user,
+        )
+
+        response = self.client.get(f"/api/environments/{self.team.pk}/external_data_sources/connections/")
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertEqual(
+            [item["id"] for item in response.json()],
+            [str(managed_source.id), str(external_source.id)],
+        )
+
+    def test_reserved_sources_are_not_external_source_resources(self) -> None:
+        managed_source = self._create_managed_source()
+        incomplete_source = self._create_managed_source(connection_metadata={})
+
+        response = self.client.get(f"/api/environments/{self.team.pk}/external_data_sources/")
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        returned_ids = [item["id"] for item in response.json()["results"]]
+        self.assertNotIn(str(managed_source.id), returned_ids)
+        self.assertNotIn(str(incomplete_source.id), returned_ids)
+        for source in (managed_source, incomplete_source):
+            response = self.client.get(f"/api/environments/{self.team.pk}/external_data_sources/{source.id}/")
+            self.assertEqual(response.status_code, status.HTTP_404_NOT_FOUND)
 
     # --- Organization Admin Tests ---
 

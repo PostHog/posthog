@@ -6,8 +6,16 @@ from posthog.hogql.direct_connection import get_direct_connection_source, raw_qu
 from posthog.constants import AvailableFeature
 from posthog.models import OrganizationMembership
 
-from products.warehouse_sources.backend.facade.models import DataWarehouseTable, ExternalDataSource
+from products.managed_warehouse.backend.facade.api import persist_duckgres_server_for_org
+from products.warehouse_sources.backend.facade.models import (
+    MANAGED_WAREHOUSE_SOURCE_PREFIX,
+    DataWarehouseTable,
+    ExternalDataSource,
+)
 from products.warehouse_sources.backend.facade.types import ExternalDataSourceType
+from products.warehouse_sources.backend.models.external_data_source import (
+    get_direct_external_data_source_for_connection,
+)
 
 from ee.models import AccessControl
 
@@ -47,6 +55,67 @@ class TestGetDirectConnectionSource(APIBaseTest):
 
         assert resolved is not None
         self.assertEqual(resolved.id, source.id)
+
+    def test_managed_warehouse_ignores_external_source_access_control(self):
+        self.organization.available_product_features = [
+            {"key": AvailableFeature.ACCESS_CONTROL, "name": AvailableFeature.ACCESS_CONTROL},
+        ]
+        self.organization.save()
+        membership = OrganizationMembership.objects.get(user=self.user, organization=self.organization)
+        membership.level = OrganizationMembership.Level.MEMBER
+        membership.save()
+
+        external_source = self._create_source(access_method=ExternalDataSource.AccessMethod.DIRECT)
+        managed_source = self._create_source(access_method=ExternalDataSource.AccessMethod.DIRECT)
+        managed_source.prefix = MANAGED_WAREHOUSE_SOURCE_PREFIX
+        managed_source.connection_metadata = {
+            "engine": "duckdb",
+            "system_managed": True,
+        }
+        managed_source.save(update_fields=["prefix", "connection_metadata"])
+        AccessControl.objects.create(
+            team=self.team,
+            resource="external_data_source",
+            access_level="none",
+        )
+        persist_duckgres_server_for_org(
+            self.organization.id,
+            host="managed.example.com",
+            port=5432,
+            database="ducklake",
+            username="stored-login",
+            password="secret",
+        )
+
+        self.assertIsNone(get_direct_connection_source(self.team, str(external_source.id), user=self.user))
+        resolved = get_direct_connection_source(self.team, str(managed_source.id), user=self.user)
+
+        assert resolved is not None
+        self.assertEqual(resolved.id, managed_source.id)
+
+    def test_managed_warehouse_requires_the_organization_provision_marker(self):
+        source = self._create_source(access_method=ExternalDataSource.AccessMethod.DIRECT)
+        source.prefix = MANAGED_WAREHOUSE_SOURCE_PREFIX
+        source.connection_metadata = {
+            "engine": "duckdb",
+            "system_managed": True,
+        }
+        source.save(update_fields=["prefix", "connection_metadata"])
+
+        self.assertIsNone(get_direct_connection_source(self.team, str(source.id)))
+        self.assertIsNone(get_direct_external_data_source_for_connection(self.team.id, str(source.id)))
+
+        persist_duckgres_server_for_org(
+            self.organization.id,
+            host="managed.example.com",
+            port=5432,
+            database="ducklake",
+            username="stored-login",
+            password="secret",
+        )
+
+        self.assertEqual(get_direct_connection_source(self.team, str(source.id)), source)
+        self.assertEqual(get_direct_external_data_source_for_connection(self.team.id, str(source.id)), source)
 
 
 class TestRawQueryTableAccess(APIBaseTest):

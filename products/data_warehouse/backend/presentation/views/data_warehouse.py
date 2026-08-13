@@ -1012,10 +1012,11 @@ class DataWarehouseViewSet(TeamAndOrgViewSetMixin, viewsets.ViewSet):
         resp = managed_warehouse.status_for(self.team.organization_id)
         if resp.status_code == 200 and isinstance(resp.data, dict):
             resp.data.update(managed_warehouse.team_backfill_state(self.team_id))
-            resp.data.update(managed_warehouse.team_onboarding_state(self.team.organization_id, self.team_id))
+            onboarding_state = managed_warehouse.team_onboarding_state(self.team.organization_id, self.team_id)
+            resp.data.update(onboarding_state)
             # Once the warehouse is reachable, surface its tables as a queryable direct
-            # connection. Best-effort scheduling coalesces repeated scene loads.
-            if resp.data.get("state") == "ready":
+            # connection for enrolled projects. Best-effort scheduling coalesces repeated scene loads.
+            if resp.data.get("state") == "ready" and onboarding_state["team_onboarded"]:
                 managed_warehouse.ensure_direct_connection_tables(self.team_id, self.team.organization_id)
         return resp
 

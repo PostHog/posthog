@@ -1,23 +1,20 @@
 """Expose a managed Duckgres warehouse in the SQL editor as a Postgres connection.
 
-Each member team gets a Postgres ``ExternalDataSource`` pointed at the organization's
-``DuckgresServer``, authenticated with the server's org root credential. Duckgres root
-sees every schema in the warehouse, so the connection discovers and exposes the whole
-org catalog without per-team namespace configuration — no control-plane handshake is
-involved in setting it up. Setup happens in two steps:
+Each enrolled team gets a Postgres ``ExternalDataSource`` pointed at the organization's
+``DuckgresServer``, authenticated with the login stored on that row. The connection
+discovers and exposes the catalog visible to that login without a separate credential
+handshake. Setup happens in two steps:
 
 1. ``ensure_managed_warehouse_direct_source`` creates the source row when a team
    joins, so the connection appears immediately.
 2. ``reconcile_managed_warehouse_tables`` runs once the warehouse is ready and records
-   every non-internal schema/table the root credential can see.
+   every non-internal schema/table the stored login can see.
 
 This bypasses the user-facing create endpoint because the managed host is internal
 infrastructure and is not reachable for live schema validation during provisioning.
 
-Lifecycle is org-level only: ``soft_delete_managed_warehouse_sources`` handles
-deprovisioning of the whole warehouse. There is no per-team offboarding flow yet —
-a single team leaving keeps its connection until the org deprovisions (revisit if
-per-team removal becomes a product flow).
+``soft_delete_managed_warehouse_sources`` handles deprovisioning of the whole warehouse.
+Deleting a team removes its project-scoped source through the existing model cascade.
 """
 
 from __future__ import annotations
@@ -46,10 +43,11 @@ from products.warehouse_sources.backend.facade.types import ExternalDataSourceTy
 logger = structlog.get_logger(__name__)
 
 MANAGED_WAREHOUSE_SOURCE_DESCRIPTION = "Managed warehouse (auto-provisioned)"
+MANAGED_WAREHOUSE_CREDENTIAL_KIND = "stored_server_login"
+LEGACY_MANAGED_WAREHOUSE_CREDENTIAL_KINDS = frozenset({"org_root", "project_reader"})
 
 # Database engine internals — never warehouse data. Sidebar hygiene, not permissioning:
-# root bypasses Duckgres AllowedSchemas, so this denylist is the only filter on what the
-# discover sweep registers. The later per-schema visibility control plugs in here.
+# The discovery login may expose engine internals, so this denylist keeps them out of the sidebar.
 INTERNAL_SCHEMAS = frozenset({"pg_catalog", "information_schema", "pg_toast", "system"})
 
 
@@ -68,7 +66,7 @@ def _managed_source_queryset(team_id: int) -> QuerySet[ExternalDataSource]:
 
 
 def _source_config(server: DuckgresServer) -> dict[str, object]:
-    """Snapshot the server's org root credential into the source's job_inputs."""
+    """Snapshot the stored server login into the source's job_inputs."""
     source_impl = SourceRegistry.get_source(ExternalDataSourceType.POSTGRES)
     return source_impl.parse_config(
         {
@@ -90,9 +88,11 @@ def _ensure_managed_source_locked(*, team_id: int, server: DuckgresServer) -> Ex
     if existing is not None:
         update_fields: list[str] = []
         connection_metadata = dict(existing.connection_metadata or {})
-        if connection_metadata.get("credential_kind") not in ("org_root", "project_reader"):
-            # Old managed sources predate the project-reader credential boundary, so
-            # discard any catalog entries discovered before Duckgres enforced it.
+        if connection_metadata.get("credential_kind") not in {
+            MANAGED_WAREHOUSE_CREDENTIAL_KIND,
+            *LEGACY_MANAGED_WAREHOUSE_CREDENTIAL_KINDS,
+        }:
+            # Unknown credential eras may expose a different catalog, so rediscover after migration.
             now = timezone.now()
             DataWarehouseTable.raw_objects.filter(
                 team_id=team_id, external_data_source_id=existing.id, deleted=False
@@ -110,13 +110,13 @@ def _ensure_managed_source_locked(*, team_id: int, server: DuckgresServer) -> Ex
         if (
             connection_metadata.get("engine") != "duckdb"
             or connection_metadata.get("system_managed") is not True
-            or connection_metadata.get("credential_kind") != "org_root"
+            or connection_metadata.get("credential_kind") != MANAGED_WAREHOUSE_CREDENTIAL_KIND
         ):
             migrated = {
                 **connection_metadata,
                 "engine": "duckdb",
                 "system_managed": True,
-                "credential_kind": "org_root",
+                "credential_kind": MANAGED_WAREHOUSE_CREDENTIAL_KIND,
             }
             migrated.pop("reader_configured", None)
             existing.connection_metadata = migrated
@@ -145,13 +145,13 @@ def _ensure_managed_source_locked(*, team_id: int, server: DuckgresServer) -> Ex
         connection_metadata={
             "engine": "duckdb",
             "system_managed": True,
-            "credential_kind": "org_root",
+            "credential_kind": MANAGED_WAREHOUSE_CREDENTIAL_KIND,
         },
     )
 
 
 def ensure_managed_warehouse_direct_source(*, team_id: int, organization_id: str | UUID) -> ExternalDataSource:
-    """Create or refresh the team's managed-warehouse query source on the org root credential."""
+    """Create or refresh the team's managed-warehouse query source from the stored server login."""
     with transaction.atomic():
         server = DuckgresServer.objects.select_for_update().get(organization_id=organization_id)
         Team.objects.select_for_update().only("id").get(id=team_id, organization_id=organization_id)
@@ -159,11 +159,10 @@ def ensure_managed_warehouse_direct_source(*, team_id: int, organization_id: str
 
 
 def reconcile_managed_warehouse_tables(*, team_id: int, organization_id: str | UUID) -> None:
-    """Discover and register the org-wide managed-warehouse catalog for this team's source."""
+    """Discover and register the managed-warehouse catalog visible to this team's source."""
     with transaction.atomic():
-        # Check before ensure: a tombstoned source means the warehouse was deprovisioned
-        # (its DuckgresServer row is deleted synchronously), and nothing may revive it —
-        # otherwise this sweep would resurrect sources right after deprovision.
+        # A deprovision tombstone must win over delayed reconciliation, even while the
+        # organization-scoped server row remains available to other internal workflows.
         if _managed_source_queryset(team_id).filter(deleted=True).exists():
             return
 
@@ -248,9 +247,9 @@ def _managed_sources_for_org(organization_id: str | UUID) -> QuerySet[ExternalDa
 
 
 def update_managed_warehouse_root_password(*, organization_id: str | UUID, password: str) -> None:
-    """Rotate the root password on the server row and every managed source of the org.
+    """Rotate the stored password on the server row and every managed source of the org.
 
-    Each source snapshots the root credential into its ``job_inputs``, so a rotation must
+    Each source snapshots the stored login into its ``job_inputs``, so a rotation must
     fan out to all of them in the same transaction — otherwise every source holds a stale
     password and fails silently.
     """
@@ -267,11 +266,7 @@ def update_managed_warehouse_root_password(*, organization_id: str | UUID, passw
 
 
 def soft_delete_managed_warehouse_sources(*, organization_id: str | UUID) -> None:
-    """Atomically tombstone the organization's managed query sources on deprovision.
-
-    Per-team state needs no disabling here: deprovisioning removes the org's team rows
-    from the duckgres control plane, which is the read source for membership.
-    """
+    """Atomically tombstone the organization's managed query sources on deprovision."""
     now = timezone.now()
     with transaction.atomic():
         DuckgresServer.objects.select_for_update().filter(organization_id=organization_id).first()

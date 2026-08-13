@@ -92,7 +92,7 @@ describe('connectionSelectorLogic', () => {
                 id: 'conn-duck',
                 prefix: 'managed_warehouse',
                 engine: 'duckdb',
-                source_type: 'ManagedWarehouse',
+                source_type: 'Postgres',
                 access_method: 'direct',
                 supports_hogql: true,
             },
@@ -103,10 +103,15 @@ describe('connectionSelectorLogic', () => {
 
         await expectLogic(logic).toFinishAllListeners()
 
-        expect(logic.values.connectionSelectOptions[0].options).toEqual([
-            expect.objectContaining({ value: POSTHOG_WAREHOUSE, label: 'PostHog (ClickHouse)' }),
-            expect.objectContaining({ value: 'conn-duck', label: 'PostHog (Managed warehouse)' }),
-        ])
+        const [clickHouseOption, managedWarehouseOption] = logic.values.connectionSelectOptions[0].options
+        expect(clickHouseOption).toEqual(
+            expect.objectContaining({ value: POSTHOG_WAREHOUSE, label: 'PostHog (ClickHouse)' })
+        )
+        expect(managedWarehouseOption).toEqual(
+            expect.objectContaining({ value: 'conn-duck', label: 'PostHog (Managed warehouse)' })
+        )
+        expect(managedWarehouseOption.iconSrc).toEqual(clickHouseOption.iconSrc)
+        expect(managedWarehouseOption).not.toHaveProperty('managementUrl')
     })
 
     it('derives the selected connection value from sql editor state', async () => {
