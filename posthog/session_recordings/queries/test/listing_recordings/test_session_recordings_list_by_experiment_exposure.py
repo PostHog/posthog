@@ -1,12 +1,22 @@
+import json
 from datetime import UTC, datetime, timedelta
 
 from freezegun import freeze_time
 from posthog.test.base import APIBaseTest, ClickhouseTestMixin, _create_event, flush_persons_and_events
 
 from parameterized import parameterized
-from rest_framework.exceptions import ValidationError
+from rest_framework.exceptions import PermissionDenied, ValidationError
+
+from posthog.schema import RecordingsQuery
 
 from posthog.clickhouse.client import sync_execute
+from posthog.constants import AvailableFeature
+from posthog.models import User
+from posthog.models.personal_api_key import PersonalAPIKey
+from posthog.models.utils import generate_random_token_personal, hash_key_value
+from posthog.rbac.user_access_control import UserAccessControlError
+from posthog.session_recordings.queries.recordings_query_runner import RecordingsQueryRunner
+from posthog.session_recordings.queries.session_recording_list_from_query import SessionRecordingListFromQuery
 from posthog.session_recordings.queries.test.listing_recordings.test_utils import (
     assert_query_matches_session_ids,
     filter_recordings_by,
@@ -17,6 +27,8 @@ from posthog.test.persons import create_person
 
 from products.experiments.backend.models.experiment import Experiment
 from products.feature_flags.backend.models.feature_flag import FeatureFlag
+
+from ee.models.rbac.access_control import AccessControl
 
 FROZEN_NOW = "2021-08-21T20:00:00Z"
 BASE_TIME = datetime(2021, 8, 21, 10, 0, tzinfo=UTC)
@@ -389,3 +401,97 @@ class TestSessionRecordingsListByExperimentExposure(ClickhouseTestMixin, APIBase
             {"experiment_exposure": {"experiment_id": experiment.id}},
             [with_event_session, without_event_session],
         )
+
+    def _create_denied_experiment_and_viewer(self) -> tuple[Experiment, User]:
+        self.organization.available_product_features = [
+            {"key": AvailableFeature.ACCESS_CONTROL, "name": AvailableFeature.ACCESS_CONTROL}
+        ]
+        self.organization.save()
+        experiment = self._create_experiment()
+        AccessControl.objects.create(
+            team=self.team, resource="experiment", resource_id=str(experiment.pk), access_level="none"
+        )
+        return experiment, self._create_user("denied-viewer@posthog.com")
+
+    def test_denies_viewers_the_experiment_denies(self) -> None:
+        # The filter reveals which recordings belong to an experiment's exposed persons, so a
+        # viewer barred from the experiment must not be able to list them.
+        experiment, denied_viewer = self._create_denied_experiment_and_viewer()
+        query = RecordingsQuery.model_validate({"experiment_exposure": {"experiment_id": experiment.id}})
+
+        with self.assertRaises(PermissionDenied):
+            SessionRecordingListFromQuery(
+                team=self.team, query=query, hogql_query_modifiers=None, user=denied_viewer
+            ).run()
+
+        # The creator keeps access despite the team-wide "none", and background jobs run with
+        # no viewer to evaluate — neither may be blocked.
+        for allowed_viewer in (self.user, None):
+            result = SessionRecordingListFromQuery(
+                team=self.team, query=query, hogql_query_modifiers=None, user=allowed_viewer
+            ).run()
+            assert result.results == []
+
+    def test_query_runner_refuses_denied_viewers_before_running(self) -> None:
+        # The generic query endpoint serves cached responses without rebuilding the query, so
+        # only the runner-level hook keeps a denied viewer from reading a cached list.
+        experiment, denied_viewer = self._create_denied_experiment_and_viewer()
+        runner = RecordingsQueryRunner(
+            query=RecordingsQuery.model_validate({"experiment_exposure": {"experiment_id": experiment.id}}),
+            team=self.team,
+        )
+
+        with self.assertRaises(UserAccessControlError):
+            runner.validate_query_runner_access(denied_viewer)
+
+        # Without the filter there is no experiment to protect; the same viewer passes.
+        unfiltered = RecordingsQueryRunner(query=RecordingsQuery.model_validate({}), team=self.team)
+        assert unfiltered.validate_query_runner_access(denied_viewer) is True
+
+    @parameterized.expand(
+        [
+            ("query_scope_only", ["query:read"], True, 403),
+            ("with_experiment_scope", ["query:read", "experiment:read"], True, 200),
+            ("no_filter_needs_no_experiment_scope", ["query:read"], False, 200),
+        ]
+    )
+    def test_query_endpoint_scope_parity_for_api_keys(
+        self, _name: str, scopes: list[str], with_filter: bool, expected_status: int
+    ) -> None:
+        experiment = self._create_experiment()
+        value = generate_random_token_personal()
+        PersonalAPIKey.objects.create(label="test", user=self.user, secure_value=hash_key_value(value), scopes=scopes)
+        query: dict = {"kind": "RecordingsQuery"}
+        if with_filter:
+            query["experiment_exposure"] = {"experiment_id": experiment.id}
+
+        response = self.client.post(
+            f"/api/projects/{self.team.pk}/query/",
+            {"query": query},
+            HTTP_AUTHORIZATION=f"Bearer {value}",
+        )
+
+        assert response.status_code == expected_status, response.json()
+
+    @parameterized.expand(
+        [
+            ("replay_scope_only", ["session_recording:read"], True, 403),
+            ("with_experiment_scope", ["session_recording:read", "experiment:read"], True, 200),
+            ("no_filter_needs_no_experiment_scope", ["session_recording:read"], False, 200),
+        ]
+    )
+    def test_list_endpoint_scope_parity_for_api_keys(
+        self, _name: str, scopes: list[str], with_filter: bool, expected_status: int
+    ) -> None:
+        experiment = self._create_experiment()
+        value = generate_random_token_personal()
+        PersonalAPIKey.objects.create(label="test", user=self.user, secure_value=hash_key_value(value), scopes=scopes)
+        params = {"experiment_exposure": json.dumps({"experiment_id": experiment.id})} if with_filter else {}
+
+        response = self.client.get(
+            f"/api/projects/{self.team.pk}/session_recordings/",
+            params,
+            HTTP_AUTHORIZATION=f"Bearer {value}",
+        )
+
+        assert response.status_code == expected_status, response.content

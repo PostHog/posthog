@@ -4,6 +4,7 @@ from typing import Any, Literal, Union, cast
 import structlog
 from dateutil.relativedelta import relativedelta
 from opentelemetry import trace
+from rest_framework.exceptions import PermissionDenied
 
 from posthog.schema import (
     HogQLQueryModifiers,
@@ -21,6 +22,7 @@ from posthog.hogql.property import property_to_expr
 from posthog.exceptions_capture import capture_exception
 from posthog.hogql_queries.insights.paginators import HogQLCursorPaginator, HogQLHasMorePaginator
 from posthog.models import Team, User
+from posthog.rbac.user_access_control import UserAccessControlError
 from posthog.session_recordings.models.metadata import ONGOING_SESSION_WINDOW_MINUTES
 from posthog.session_recordings.queries.sub_queries.base_query import SessionRecordingsListingBaseQuery
 from posthog.session_recordings.queries.sub_queries.cohort_subquery import CohortPropertyGroupsSubQuery
@@ -310,9 +312,18 @@ class SessionRecordingListFromQuery(SessionRecordingsListingBaseQuery):
         """
         # Deferred: the experiments facade package imports posthog.api on init, which
         # circles back into this module through the replay-deletion temporal activities.
-        from products.experiments.backend.facade.replay import exposed_distinct_ids_select  # noqa: PLC0415
+        from products.experiments.backend.facade.replay import (  # noqa: PLC0415
+            exposed_distinct_ids_select,
+            validate_experiment_exposure_access,
+        )
 
         assert self._query.experiment_exposure is not None
+        try:
+            validate_experiment_exposure_access(self._team, self._user, self._query.experiment_exposure.experiment_id)
+        except UserAccessControlError as error:
+            # Only the /query pipeline renders UserAccessControlError; on the recordings API
+            # it would surface as a 500, so translate to what DRF renders as a 403.
+            raise PermissionDenied(str(error))
         join = parsed_query.select_from
         assert join is not None
         while join.next_join is not None:
