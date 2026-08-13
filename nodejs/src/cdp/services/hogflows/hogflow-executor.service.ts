@@ -41,6 +41,7 @@ import {
     actionIdForLogging,
     ensureCurrentAction,
     findContinueAction,
+    hasEventOrActionTarget,
     shouldSkipAction,
     trackE2eLag,
 } from './hogflow-utils'
@@ -109,7 +110,11 @@ export function createHogFlowInvocation(
 // workflow with no goal has nothing to measure, so it writes no rows.
 function pinConversionGoal(hogFlow: HogFlow): PinnedConversionGoal | null {
     const properties = hogFlow.conversion?.filters?.length ? hogFlow.conversion.bytecode : undefined
+    // Drop entries that target neither events nor actions: those compile to always-true bytecode and
+    // would count a conversion on the first event of any kind. Same guard the wait_until and conversion
+    // evaluators apply — pin it here too so the watcher path agrees with them.
     const events = (hogFlow.conversion?.events ?? [])
+        .filter(hasEventOrActionTarget)
         .map((eventConfig) => eventConfig.filters?.bytecode)
         .filter((bytecode): bytecode is any[] => Array.isArray(bytecode) && bytecode.length > 0)
 
