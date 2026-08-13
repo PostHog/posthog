@@ -1613,6 +1613,16 @@ class TestReplayObservationViewSet(_VisionAPITestCase):
         self.assertEqual(resp.status_code, 200, resp.json())
         self.assertEqual([r["session_id"] for r in resp.json()["results"]], ["sess-1", "sess-3", "sess-0"])
 
+    def test_stats_respect_score_bounds(self) -> None:
+        # The scorer stats embed the filtered queryset into raw SQL, so the annotation-based
+        # filter must survive that path, not just the plain list.
+        scorer = self._create_scorer_with_scores([3.0, 10.0, 0.5, 7.0])
+        resp = self.client.get(f"{self.observations_url(str(scorer.id))}stats/?min_score=7")
+        self.assertEqual(resp.status_code, 200, resp.json())
+        body = resp.json()
+        self.assertEqual(body["status_counts"]["total"], 2)
+        self.assertEqual(body["status_counts"]["succeeded"], 2)
+
     def test_order_by_scanner_version_numeric(self) -> None:
         snap_v1 = {**_snapshot_for(self.scanner), "scanner_version": 1}
         snap_v2 = {**_snapshot_for(self.scanner), "scanner_version": 2}
@@ -2593,6 +2603,36 @@ class TestSessionReplayObservationViewSet(_VisionAPITestCase):
 
         filtered = self.client.get(f"{self.session_observations_url}{new.id}/?status=succeeded").json()
         self.assertEqual(filtered["next_observation_id"], str(old.id))
+        self.assertIsNone(filtered["previous_observation_id"])
+
+    def test_retrieve_neighbors_honor_score_bounds(self) -> None:
+        scorer = self._create_scanner(
+            name="frustration",
+            scanner_type=ScannerType.SCORER,
+            scanner_config={"prompt": "p", "scale": {"min": 0, "max": 10}},
+        )
+        now = timezone.now()
+        ids = []
+        # created_at ascends with idx, so the default -created_at listing is sess-2, sess-1, sess-0.
+        for idx, score in enumerate([9.0, 2.0, 8.0]):
+            obs = self._create_observation(scorer, f"sess-{idx}")
+            ReplayObservation.objects.filter(pk=obs.id).update(
+                created_at=now - timedelta(minutes=2 - idx),
+                status=ObservationStatus.SUCCEEDED,
+                completed_at=now,
+                scanner_result={
+                    "model_output": {"scanner_type": "scorer", "score": score, "reasoning": "r", "confidence": 0.5},
+                    "signals_count": 0,
+                },
+            )
+            ids.append(obs.id)
+
+        unfiltered = self.client.get(f"{self.session_observations_url}{ids[2]}/").json()
+        self.assertEqual(unfiltered["next_observation_id"], str(ids[1]))
+
+        # min_score=7 drops the 2.0 row, so next skips to the 9.0 row.
+        filtered = self.client.get(f"{self.session_observations_url}{ids[2]}/?min_score=7").json()
+        self.assertEqual(filtered["next_observation_id"], str(ids[0]))
         self.assertIsNone(filtered["previous_observation_id"])
 
     def test_retrieve_neighbors_honor_order_by(self) -> None:
