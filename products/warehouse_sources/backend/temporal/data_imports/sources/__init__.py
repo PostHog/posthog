@@ -45,17 +45,19 @@ def load_all_sources() -> None:
             _load_source(module_path)
 
 
-def load_source(source_type: ExternalDataSourceType) -> None:
+def load_source(source_type: ExternalDataSourceType) -> bool:
     """Import just the module that registers ``source_type`` with ``SourceRegistry``.
 
     Same failure isolation as ``load_all_sources``: a module that can't be imported is
-    reported and skipped, so the caller observes the type as unregistered. A type with no
-    mapped module is skipped silently, matching how a bulk load leaves an unknown type
-    unregistered.
+    reported and skipped, so the caller observes the type as unregistered. Returns whether an
+    import was attempted; ``False`` means the value has no mapped module (an unknown or
+    retired type), which a bulk load would likewise leave unregistered.
     """
     module_path = _module_paths_by_source_type().get(source_type)
-    if module_path is not None:
-        _load_source(module_path)
+    if module_path is None:
+        return False
+    _load_source(module_path)
+    return True
 
 
 def _bulk_load() -> None:

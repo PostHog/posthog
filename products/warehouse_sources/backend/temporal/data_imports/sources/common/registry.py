@@ -48,7 +48,9 @@ class SourceRegistry:
         # interleave; the serialization is noise next to the import cost. `_attempted_types`
         # mirrors the bulk loader's failure isolation: a module that fails to import is
         # reported once by `load_source` and its type stays unregistered, rather than
-        # re-running the broken import on every lookup.
+        # re-running the broken import on every lookup. Only types that resolved to a module
+        # are cached, because lookups accept arbitrary values (callers pass raw model-field
+        # strings) and caching unresolvable ones would grow the set without bound.
         if cls._loaded or source_type in cls._sources:
             return
         with cls._load_lock:
@@ -56,8 +58,8 @@ class SourceRegistry:
                 return
             from products.warehouse_sources.backend.temporal.data_imports.sources import load_source  # noqa: PLC0415
 
-            load_source(source_type)
-            cls._attempted_types.add(source_type)
+            if load_source(source_type):
+                cls._attempted_types.add(source_type)
 
     @classmethod
     def register(cls, source_class: type["AnySource"]):

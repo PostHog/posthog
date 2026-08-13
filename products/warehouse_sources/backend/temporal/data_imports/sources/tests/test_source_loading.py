@@ -15,6 +15,11 @@ from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 _SOURCES = "products.warehouse_sources.backend.temporal.data_imports.sources"
 
+# The product-tests CI job runs pytest from products/warehouse_sources, and `python -c` puts
+# the current directory on sys.path, so subprocesses must be launched from the repo root for
+# `posthog.settings` to be importable.
+_REPO_ROOT = next(parent for parent in Path(__file__).parents if (parent / "manage.py").exists())
+
 
 def test_broken_source_module_does_not_block_the_rest_of_the_catalog():
     with (
@@ -84,6 +89,14 @@ assert SourceRegistry.is_registered(ExternalDataSourceType.MYSQL)
 assert SOURCES + ".mysql.source" in sys.modules, "is_registered did not load the requested source"
 assert SOURCES + "._load_all" not in sys.modules, "is_registered ran the full-catalog loader"
 
+try:
+    SourceRegistry.get_source("NotARealSourceType")
+except ValueError:
+    pass
+else:
+    raise AssertionError("expected ValueError for an unknown source type")
+assert "NotARealSourceType" not in SourceRegistry._attempted_types, "unresolvable values must not grow the attempt cache"
+
 with patch(SOURCES + ".load_source") as load_source:
     assert SourceRegistry.get_source(ExternalDataSourceType.POSTGRES) is postgres
     load_source.assert_not_called()
@@ -100,5 +113,6 @@ def test_get_source_imports_only_the_requested_source_module():
         capture_output=True,
         text=True,
         timeout=180,
+        cwd=_REPO_ROOT,
     )
     assert result.returncode == 0, f"targeted-load subprocess failed:\n{result.stderr[-4000:]}"
