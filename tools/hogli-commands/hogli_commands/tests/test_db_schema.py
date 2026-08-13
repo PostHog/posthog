@@ -87,6 +87,61 @@ def test_select_ignores_invalid_artifacts(artifact: db_schema.SchemaArtifact) ->
     assert db_schema.select_newest_compatible_artifact([artifact]) is None
 
 
+class _FakeArtifactPage:
+    def __init__(self, artifacts: list[dict[str, Any]], *, has_next: bool) -> None:
+        self._artifacts = artifacts
+        self.links = {"next": {"url": "next"}} if has_next else {}
+
+    def raise_for_status(self) -> None:
+        pass
+
+    def json(self) -> dict[str, Any]:
+        return {"artifacts": self._artifacts}
+
+
+class _FakeArtifactPagesSession:
+    def __init__(self, pages: list[list[dict[str, Any]]]) -> None:
+        self._pages = pages
+        self.get_count = 0
+
+    def get(self, url: str, *, params: dict[str, Any], headers: dict[str, str], timeout: int) -> _FakeArtifactPage:
+        self.get_count += 1
+        page = params["page"]
+        return _FakeArtifactPage(
+            self._pages[page - 1] if page <= len(self._pages) else [],
+            has_next=page < len(self._pages),
+        )
+
+
+def _raw_artifact(artifact_id: int, head_branch: str) -> dict[str, Any]:
+    return {
+        "id": artifact_id,
+        "name": db_schema.SCHEMA_ARTIFACT_NAME,
+        "expired": False,
+        "size_in_bytes": db_schema.MIN_SCHEMA_ARTIFACT_BYTES + 1,
+        "archive_download_url": f"https://api.github.com/artifacts/{artifact_id}/zip",
+        "created_at": "2026-01-01T00:00:00Z",
+        "workflow_run": {"head_sha": "sha", "head_branch": head_branch},
+    }
+
+
+def test_find_stops_at_first_page_with_compatible_candidate() -> None:
+    session = _FakeArtifactPagesSession([[_raw_artifact(1, "master")], [_raw_artifact(2, "master")]])
+
+    artifact = db_schema.find_newest_compatible_artifact(token="t", session=session, base_branch="master")  # type: ignore[arg-type]
+
+    assert session.get_count == 1
+    assert artifact is not None and artifact.id == 1
+
+
+def test_find_caps_pages_when_no_candidate_matches() -> None:
+    pages = [[_raw_artifact(page, "some-pr-branch")] for page in range(1, 31)]
+    session = _FakeArtifactPagesSession(pages)
+
+    assert db_schema.find_newest_compatible_artifact(token="t", session=session, base_branch="master") is None  # type: ignore[arg-type]
+    assert session.get_count == db_schema.MAX_ARTIFACT_PAGES
+
+
 def test_select_honors_custom_base_branch() -> None:
     master_artifact = _artifact(1, "sha-a", "2026-01-01T00:00:00Z", head_branch="master")
     release_artifact = _artifact(2, "sha-b", "2026-01-02T00:00:00Z", head_branch="release-26.1")
@@ -99,20 +154,23 @@ def test_select_honors_custom_base_branch() -> None:
     assert selected == release_artifact
 
 
-def test_download_diagnostics_on_no_compatible_artifact(monkeypatch: pytest.MonkeyPatch) -> None:
-    artifacts = [
-        _artifact(10, "pr-sha", "2026-01-01T00:00:00Z", head_branch="some-pr"),
-        _artifact(11, "master-sha", "2026-01-02T00:00:00Z", head_branch="some-other-pr"),
-    ]
-    monkeypatch.setattr(db_schema, "github_token", lambda: "token")
-    monkeypatch.setattr(db_schema, "fetch_schema_artifacts", lambda **kwargs: artifacts)
+def test_find_emits_diagnostics_on_no_compatible_artifact(capsys: pytest.CaptureFixture[str]) -> None:
+    session = _FakeArtifactPagesSession([[_raw_artifact(10, "some-pr"), _raw_artifact(11, "some-other-pr")]])
 
-    split_runner = CliRunner(mix_stderr=False)
-    result = split_runner.invoke(db_schema.db_download_schema, [])
+    assert db_schema.find_newest_compatible_artifact(token="t", session=session, base_branch="master") is None  # type: ignore[arg-type]
+
+    stderr = capsys.readouterr().err
+    assert "Fetched 2 migrated-schema artifact(s)" in stderr
+    assert "After name/expiry/size/branch filters: 0 candidate(s)" in stderr
+
+
+def test_download_fails_when_no_compatible_artifact(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setattr(db_schema, "github_token", lambda: "token")
+    monkeypatch.setattr(db_schema, "find_newest_compatible_artifact", lambda **kwargs: None)
+
+    result = runner.invoke(db_schema.db_download_schema, [])
 
     assert result.exit_code != 0
-    assert "Fetched 2 migrated-schema artifact(s)" in result.stderr
-    assert "After name/expiry/size/branch filters: 0 candidate(s)" in result.stderr
 
 
 def test_effective_base_branch_prefers_env(monkeypatch: pytest.MonkeyPatch) -> None:
