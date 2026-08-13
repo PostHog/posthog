@@ -68,7 +68,8 @@ export const scene: SceneExport<ErrorTrackingIssueSceneLogicProps> = {
 }
 
 export function ErrorTrackingIssueScene(): JSX.Element {
-    const { issue, issueId, lastSeen, mobileDetailOpen } = useValues(errorTrackingIssueSceneLogic)
+    const { issue, issueId, lastSeen, initialEventTimestamp, mobileDetailOpen } =
+        useValues(errorTrackingIssueSceneLogic)
     const { updateAssignee, updateStatus, updateName, setMobileDetailOpen } = useActions(errorTrackingIssueSceneLogic)
     const { isWindowLessThan } = useWindowSize()
     const isMobile = isWindowLessThan('md')
@@ -122,7 +123,11 @@ export function ErrorTrackingIssueScene(): JSX.Element {
                                             <SceneMenuBarItem
                                                 onClick={() => {
                                                     const url = urls.replay(ReplayTabs.Home, {
-                                                        ...getIssueReplayDateRange(issue.first_seen, lastSeen),
+                                                        ...getIssueReplayDateRange(
+                                                            issue.first_seen,
+                                                            lastSeen,
+                                                            initialEventTimestamp
+                                                        ),
                                                         filter_group: getIssueReplayFilterGroup(issue.id),
                                                     })
                                                     newInternalTab(url)
@@ -158,7 +163,11 @@ export function ErrorTrackingIssueScene(): JSX.Element {
                                                 />
                                                 <ViewRecordingsPlaylistButton
                                                     filters={{
-                                                        ...getIssueReplayDateRange(issue.first_seen, lastSeen),
+                                                        ...getIssueReplayDateRange(
+                                                            issue.first_seen,
+                                                            lastSeen,
+                                                            initialEventTimestamp
+                                                        ),
                                                         filter_group: getIssueReplayFilterGroup(issue.id),
                                                     }}
                                                     size="small"
