@@ -248,7 +248,13 @@ class GitHubIntegrationView(BearerResourceAPIView):
 
 class WizardRunsView(BearerResourceAPIView):
     """Kick off a cloud wizard run against a repository the team's GitHub
-    integration can reach."""
+    integration can reach.
+
+    Starting a coding-agent run inside a customer's repository reaches a long way past
+    provisioning a project, so it needs its own grant rather than following from a partner
+    being allowed to provision resources at all. ``create_wizard_run`` enforces that, for
+    this endpoint and the account-request wizard block alike.
+    """
 
     def post(self, request: Request, resource_id: str) -> Response:
         user = cast(User, request.user)

@@ -27,6 +27,12 @@ logger = structlog.get_logger(__name__)
 # missing permission). Note 40100 is NOT one of them — it means "requests made too frequently".
 TIKTOK_AUTH_ERROR_CODES = {40105, 40110}
 
+# Code 40000 is TikTok's generic "params error" bucket and covers many unrelated messages, so it
+# can't be treated as auth-only by code alone. This specific message means the access token was
+# minted under a different TikTok app than the one currently configured — reconnecting to mint a
+# fresh token under the current app is the only fix; retrying with the same token cannot succeed.
+TIKTOK_APP_TOKEN_MISMATCH_MESSAGE = "app_id is inconsistent with the token's app information"
+
 # Throttling (400xx) and TikTok-side outages (5xxxx/60001) also arrive as HTTP 200 + a body `code`,
 # so no HTTP-level retry ever fires on them. Neither is our bug and neither is fixed by reconnecting:
 # the caller just has to try again shortly.
@@ -79,11 +85,29 @@ def list_advertisers(access_token: str) -> list[dict]:
     return (body.get("data") or {}).get("list") or []
 
 
-# Prefix for the ValueError raised when TikTok returns a client error code that
-# is not in the retryable set (e.g. 40001 "advertiser doesn't exist or has been
-# deleted"). Retrying these never succeeds, so `TikTokAdsSource.get_non_retryable_errors`
-# matches on this exact prefix to fail the job fast instead of looping forever.
+# Prefix for the ValueError the paginator raises on client error codes outside the retryable set.
+# 40001 is a generic bucket covering both a deleted advertiser and per-endpoint permission denials,
+# so callers have to discriminate on wording rather than on the code. Retrying never succeeds, so
+# `TikTokAdsSource.get_non_retryable_errors` matches this prefix to fail the job fast.
 TIKTOK_NON_RETRYABLE_ERROR_PREFIX = "TikTok API client error (non-retryable):"
+
+# Keep the denied path in each fragment: every endpoint here shares one paginator, so a denial on
+# `/report/integrated/get/` carries the same "does not grant you" wording and would otherwise be
+# answered with creative-library advice. TikTok templates the path into the message.
+TIKTOK_CREATIVE_PERMISSION_DENIED_FRAGMENTS = (
+    "does not grant you /file/video/ad/search/",
+    "does not grant you /file/image/ad/search/",
+)
+
+# Reconnecting is the only fix, because our authorize URL sends no `scope`: the creative asset
+# permission is granted per-advertiser on TikTok's side and we can't widen it after the fact.
+TIKTOK_CREATIVE_PERMISSION_DENIED_MESSAGE = (
+    "TikTok denied access to your creative library: the authorized advertiser account has not granted "
+    "PostHog permission to read creative assets. This only affects the creative_videos and creative_images "
+    "tables, which have been disabled. Your campaign, ad and report tables keep syncing. If your TikTok "
+    "admin can grant creative asset access, reconnect the TikTok Ads integration and grant it when TikTok "
+    "asks. Otherwise leave these two tables unselected."
+)
 
 
 class TikTokAdsAPIError(Exception):
@@ -303,6 +327,9 @@ class TikTokReportResource:
                 return cls.transform_entity_reports(reports_list)
             case EndpointType.ACCOUNT:
                 return cls.transform_account_reports(reports_list)
+            case EndpointType.ASSET:
+                # Creative library rows already arrive flat and need no defaulting.
+                return reports_list
             case _:
                 raise ValueError(f"Endpoint type: {endpoint_type} is not implemented")
 
@@ -469,6 +496,7 @@ class TikTokAdsPaginator(BasePaginator):
                     50000,  # System error
                     50002,  # Error processing request on TikTok side. Please see error message for details.
                     51001,  # Internal service timeout. Transient TikTok-side error; safe to retry.
+                    51002,  # Internal service error. Transient TikTok-side error; TikTok's own message asks to retry later.
                     51039,  # Internal service timeout. Transient TikTok-side error; safe to retry.
                     51305,  # Satellite service error
                     60001,  # The system is in maintenance.

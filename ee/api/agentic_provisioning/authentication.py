@@ -71,8 +71,7 @@ class ProvisioningAuthentication(BaseAuthentication):
 
     Partners are OAuthApplications with ``is_provisioning_partner`` set. The OAuthApplication
     handles standard OAuth (tokens, scopes, consent) and also stores provisioning config:
-    feature flags (provisioning_can_create_accounts, provisioning_can_provision_resources)
-    and rate limits.
+    capabilities and rate limits (see OAuthApplication.provisioning).
 
     How a partner proves itself follows from its registered ``token_endpoint_auth_method``
     (RFC 7591), not from what a given request happens to carry: ``private_key_jwt`` partners
@@ -164,7 +163,7 @@ class ProvisioningAuthentication(BaseAuthentication):
         except OAuthApplication.DoesNotExist:
             return None
 
-        if not app.is_provisioning_partner or not app.provisioning_active:
+        if not app.is_provisioning_partner or not app.provisioning.active:
             return None
 
         if app.is_cimd_client:
@@ -219,9 +218,9 @@ class ProvisioningBearerAuthentication(BaseAuthentication):
         if app is None or not app.is_provisioning_partner:
             raise ProvisioningError("unauthorized", "Authentication failed", status=401)
 
-        if not app.provisioning_active:
+        if not app.provisioning.active:
             raise ProvisioningError("unauthorized", "Partner is deactivated", status=401)
-        if not app.provisioning_can_provision_resources:
+        if not app.provisioning.can_provision_resources:
             raise ProvisioningError("forbidden", "Resource provisioning not enabled for this partner", status=403)
 
         return access_token.user, access_token
@@ -230,9 +229,9 @@ class ProvisioningBearerAuthentication(BaseAuthentication):
         return "Bearer"
 
 
-def authenticate_confidential_partner(request: Request) -> OAuthApplication:
-    """Identify a provisioning partner, requiring proof-bearing auth and an admin-registered
-    partner identity.
+def authenticate_confidential_partner(request: Request, *, capability: str) -> OAuthApplication:
+    """Identify a provisioning partner, requiring proof-bearing auth and an explicitly granted
+    capability.
 
     Only confidential partners carry proof that the caller controls the partner. Public
     partners are identified solely by a ``client_id`` anyone can send, so they never qualify
@@ -242,13 +241,8 @@ def authenticate_confidential_partner(request: Request) -> OAuthApplication:
     Authenticating is necessary but not sufficient. A CIMD client self-registers by publishing
     a metadata document, and one that declares ``private_key_jwt`` becomes a confidential
     client whose assertions it can sign with its own published key, so it would clear a
-    confidential-only gate without any PostHog involvement.
-
-    CIMD auto-registration is the only path that sets ``is_provisioning_partner`` without an
-    admin, so it is the only one that needs a second signal, and the signal is an admin-set
-    ``provisioning_partner_type``. Deliberately not required of non-CIMD partners: those exist
-    only because someone created them in the admin, and demanding a partner type of them would
-    lock out an already-configured partner whose type field was simply left blank.
+    confidential-only gate without any PostHog involvement. ``capability`` names the
+    ``provisioning`` flag an admin has to grant on top, which self-registration never sets.
 
     Raises :class:`ProvisioningError` when no qualifying partner is identified.
     """
@@ -264,8 +258,8 @@ def authenticate_confidential_partner(request: Request) -> OAuthApplication:
         raise ProvisioningError("unauthorized", CLIENT_NOT_REGISTERED_MESSAGE, status=401)
     if not partner.requires_client_authentication:
         raise ProvisioningError("forbidden", "This endpoint requires a confidential partner", status=403)
-    if partner.is_cimd_client and not partner.provisioning_partner_type:
-        raise ProvisioningError("forbidden", "This endpoint requires a registered provisioning partner", status=403)
+    if not getattr(partner.provisioning, capability):
+        raise ProvisioningError("forbidden", "This endpoint is not enabled for this partner", status=403)
     return partner
 
 
@@ -273,10 +267,19 @@ class ConfidentialPartnerAuthentication(BaseAuthentication):
     """DRF form of :func:`authenticate_confidential_partner`, so confidential
     endpoints declare it in ``authentication_classes`` and can't ship without
     it. The partner rides ``request.auth``; these endpoints act for the partner,
-    not an end user, so the user stays anonymous."""
+    not an end user, so the user stays anonymous.
+
+    Subclassed per capability rather than parameterized, because DRF instantiates
+    authentication classes with no arguments."""
+
+    capability: str
 
     def authenticate(self, request: Request) -> tuple[AnonymousUser, OAuthApplication]:
-        return AnonymousUser(), authenticate_confidential_partner(request)
+        return AnonymousUser(), authenticate_confidential_partner(request, capability=self.capability)
 
     def authenticate_header(self, request: Request) -> str:
         return "Basic"
+
+
+class GitHubGrantsAuthentication(ConfidentialPartnerAuthentication):
+    capability = "can_use_github_grants"

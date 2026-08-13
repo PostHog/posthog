@@ -12,6 +12,7 @@
  * * `Completed` - Completed
  * * `Failed` - Failed
  * * `Running` - Running
+ * * `Skipped` - Skipped
  */
 export type DataModelingJobStatusEnumApi =
     (typeof DataModelingJobStatusEnumApi)[keyof typeof DataModelingJobStatusEnumApi]
@@ -21,6 +22,7 @@ export const DataModelingJobStatusEnumApi = {
     Completed: 'Completed',
     Failed: 'Failed',
     Running: 'Running',
+    Skipped: 'Skipped',
 } as const
 
 export interface DataModelingJobApi {
@@ -33,6 +35,8 @@ export interface DataModelingJobApi {
     readonly error: string | null
     readonly created_at: string
     readonly last_run_at: string
+    /** When the job row last changed. For finished jobs this is when the run reached its terminal status. */
+    readonly updated_at: string
     /** @nullable */
     readonly workflow_id: string | null
     /** @nullable */
@@ -166,10 +170,10 @@ export interface ManagedWarehouseSourceSummaryApi {
     detail: string
     /** Number of this source's schemas visible to the warehouse. */
     total_schemas: number
-    /** Number of schemas whose one-time historical copy into the warehouse has completed. */
-    backfilled_schemas: number
+    /** Number of schemas applied by a completed copy or register workflow. */
+    applied_schemas: number
     /**
-     * Most recent time an imported batch was applied to the warehouse across this source's schemas, or null if no apply has been recorded.
+     * Most recent completed copy or register workflow across this source's schemas, or null if none completed.
      * @nullable
      */
     last_applied_at: string | null
@@ -192,7 +196,7 @@ export interface ManagedWarehouseSourcesStatusApi {
     readiness_state: ManagedWarehouseReadinessStateEnumApi
     /** Human-readable explanation of imported source readiness. */
     detail: string
-    /** Per-source rollup of schema backfill and live import application statuses. Reflects only warehouse source imports with sync enabled — manage sources at /data-management/sources. */
+    /** Per-source rollup of copy and register workflow statuses for configured warehouse source imports. */
     sources: ManagedWarehouseSourceSummaryApi[]
 }
 
@@ -216,6 +220,34 @@ export interface ManagedWarehouseDataStatusResponseApi {
     generated_at: string
 }
 
+/**
+ * * `copy` - copy
+ * * `register` - register
+ */
+export type WorkflowTypeEnumApi = (typeof WorkflowTypeEnumApi)[keyof typeof WorkflowTypeEnumApi]
+
+export const WorkflowTypeEnumApi = {
+    Copy: 'copy',
+    Register: 'register',
+} as const
+
+/**
+ * * `running` - running
+ * * `completed` - completed
+ * * `failed` - failed
+ * * `skipped` - skipped
+ * * `stale` - stale
+ */
+export type WorkflowStatusEnumApi = (typeof WorkflowStatusEnumApi)[keyof typeof WorkflowStatusEnumApi]
+
+export const WorkflowStatusEnumApi = {
+    Running: 'running',
+    Completed: 'completed',
+    Failed: 'failed',
+    Skipped: 'skipped',
+    Stale: 'stale',
+} as const
+
 export interface ManagedWarehouseSourceTableStatusApi {
     /** Imported source schema identifier. */
     schema_id: string
@@ -238,17 +270,28 @@ export interface ManagedWarehouseSourceTableStatusApi {
     readiness_state: ManagedWarehouseReadinessStateEnumApi
     /** Human-readable explanation of the table's readiness state. */
     detail: string
-    /** Whether the one-time historical copy into the warehouse has completed for this table. */
-    backfilled: boolean
-    /** Backfill chunks already copied into the warehouse. */
-    completed_chunks: number
+    /** Workflow applying the latest source import, or null if no workflow has run.
+     *
+     * * `copy` - copy
+     * * `register` - register */
+    workflow_type: WorkflowTypeEnumApi | null
+    /** State of the latest copy or register workflow, or null if no workflow has run.
+     *
+     * * `running` - running
+     * * `completed` - completed
+     * * `failed` - failed
+     * * `skipped` - skipped
+     * * `stale` - stale */
+    workflow_status: WorkflowStatusEnumApi | null
     /**
-     * Total backfill chunks, or null before the copy plan is ready.
+     * When the latest copy or register workflow started, or null if no workflow has run.
      * @nullable
      */
-    total_chunks: number | null
+    workflow_started_at: string | null
+    /** Whether a copy or register workflow has applied this table to the warehouse. */
+    applied: boolean
     /**
-     * When an imported batch was most recently applied to the warehouse, or null if no apply has been recorded for this table.
+     * When a copy or register workflow most recently applied this table, or null if no workflow completed.
      * @nullable
      */
     last_applied_at: string | null
@@ -260,7 +303,7 @@ export interface ManagedWarehouseSourceTableStatusApi {
 }
 
 export interface ManagedWarehouseSourceSchemasResponseApi {
-    /** Per-schema backfill and live import application status for the requested source. */
+    /** Per-schema copy or register workflow status for the requested source. */
     schemas: ManagedWarehouseSourceTableStatusApi[]
 }
 
@@ -428,6 +471,18 @@ export interface InsightVariableApi {
     readonly code_name: string | null
     /** Allowed values for List variables. Null for other variable types. */
     values?: unknown
+    /** Whether a List variable accepts multiple selected values. */
+    is_multi?: boolean
+    /**
+     * HogQL query whose first result column supplies the allowed values for a List variable. An optional second column supplies display labels.
+     * @nullable
+     */
+    values_query?: string | null
+    /**
+     * ID of the external data source connection values_query runs against. Null runs it against PostHog.
+     * @nullable
+     */
+    values_query_connection_id?: string | null
 }
 
 export interface PaginatedInsightVariableListApi {
@@ -471,6 +526,18 @@ export interface PatchedInsightVariableApi {
     readonly code_name?: string | null
     /** Allowed values for List variables. Null for other variable types. */
     values?: unknown
+    /** Whether a List variable accepts multiple selected values. */
+    is_multi?: boolean
+    /**
+     * HogQL query whose first result column supplies the allowed values for a List variable. An optional second column supplies display labels.
+     * @nullable
+     */
+    values_query?: string | null
+    /**
+     * ID of the external data source connection values_query runs against. Null runs it against PostHog.
+     * @nullable
+     */
+    values_query_connection_id?: string | null
 }
 
 export interface QueryTabStateApi {
@@ -707,6 +774,7 @@ export interface PaginatedWarehouseColumnStatisticsListApi {
  * * `leadership` - Leadership
  * * `marketing` - Marketing
  * * `sales` - Sales / Success
+ * * `student` - Student
  * * `other` - Other
  */
 export type RoleAtOrganizationEnumApi = (typeof RoleAtOrganizationEnumApi)[keyof typeof RoleAtOrganizationEnumApi]
@@ -719,6 +787,7 @@ export const RoleAtOrganizationEnumApi = {
     Leadership: 'leadership',
     Marketing: 'marketing',
     Sales: 'sales',
+    Student: 'student',
     Other: 'other',
 } as const
 
@@ -752,6 +821,79 @@ export interface UserBasicApi {
     /** @nullable */
     readonly hedgehog_config: UserBasicApiHedgehogConfig
     role_at_organization?: RoleAtOrganizationEnumApi | BlankEnumApi | null
+}
+
+export interface DataWarehouseExpressionApi {
+    readonly id: string
+    /**
+     * Whether this expression has been soft-deleted.
+     * @nullable
+     */
+    deleted?: boolean | null
+    readonly created_by: UserBasicApi
+    readonly created_at: string
+    /**
+     * Name of the table the expression field is added to, for example events.
+     * @maxLength 400
+     */
+    table_name: string
+    /**
+     * Name of the virtual field the expression is exposed as. Letters, numbers, underscores and $ only, starting with a letter, underscore or $. Must not clash with an existing field on the table.
+     * @maxLength 400
+     * @pattern ^[A-Za-z_$][A-Za-z0-9_$]*$
+     */
+    field_name: string
+    /**
+     * HogQL expression evaluated in the context of the table, for example properties.$browser or lower(email).
+     * @maxLength 10000
+     */
+    expression: string
+    /**
+     * ExternalDataSource id to scope the expression to that connection's direct-query database. Null applies it to the default warehouse database.
+     * @nullable
+     */
+    connection_id?: string | null
+}
+
+export interface PaginatedDataWarehouseExpressionListApi {
+    count: number
+    /** @nullable */
+    next?: string | null
+    /** @nullable */
+    previous?: string | null
+    results: DataWarehouseExpressionApi[]
+}
+
+export interface PatchedDataWarehouseExpressionApi {
+    readonly id?: string
+    /**
+     * Whether this expression has been soft-deleted.
+     * @nullable
+     */
+    deleted?: boolean | null
+    readonly created_by?: UserBasicApi
+    readonly created_at?: string
+    /**
+     * Name of the table the expression field is added to, for example events.
+     * @maxLength 400
+     */
+    table_name?: string
+    /**
+     * Name of the virtual field the expression is exposed as. Letters, numbers, underscores and $ only, starting with a letter, underscore or $. Must not clash with an existing field on the table.
+     * @maxLength 400
+     * @pattern ^[A-Za-z_$][A-Za-z0-9_$]*$
+     */
+    field_name?: string
+    /**
+     * HogQL expression evaluated in the context of the table, for example properties.$browser or lower(email).
+     * @maxLength 10000
+     */
+    expression?: string
+    /**
+     * ExternalDataSource id to scope the expression to that connection's direct-query database. Null applies it to the default warehouse database.
+     * @nullable
+     */
+    connection_id?: string | null
 }
 
 export interface DataWarehouseModelPathApi {
@@ -892,6 +1034,20 @@ export type DataWarehouseSavedQueryApiQuery = {
 
 export type DataWarehouseSavedQueryApiColumnsItem = { [key: string]: unknown }
 
+export interface SavedQuerySuspensionApi {
+    /** When materialization was suspended. */
+    at: string
+    /** Error from the materialization run that tripped suspension. */
+    reason: string
+    /** Materialization job that tripped suspension. */
+    job_id: string
+}
+
+/**
+ * Engines this query's materialization is suspended for after repeated failures. Suspended engines are skipped by scheduled runs until the query is resumed.
+ */
+export type DataWarehouseSavedQueryApiSuspended = { [key: string]: SavedQuerySuspensionApi }
+
 /**
  * * `never` - never
  * * `15min` - 15min
@@ -917,6 +1073,120 @@ export const SavedQuerySyncFrequencyEnumApi = {
     '7day': '7day',
     '30day': '30day',
 } as const
+
+/**
+ * * `tiered` - tiered
+ * * `dag_schedule` - dag_schedule
+ * * `managed_viewset` - managed_viewset
+ * * `legacy` - legacy
+ * * `no_node` - no_node
+ */
+export type FrequencyModeEnumApi = (typeof FrequencyModeEnumApi)[keyof typeof FrequencyModeEnumApi]
+
+export const FrequencyModeEnumApi = {
+    Tiered: 'tiered',
+    DagSchedule: 'dag_schedule',
+    ManagedViewset: 'managed_viewset',
+    Legacy: 'legacy',
+    NoNode: 'no_node',
+} as const
+
+/**
+ * * `15min` - 15min
+ * * `30min` - 30min
+ * * `1hour` - 1hour
+ * * `6hour` - 6hour
+ * * `12hour` - 12hour
+ * * `24hour` - 24hour
+ * * `7day` - 7day
+ * * `30day` - 30day
+ */
+export type MaterializeSyncFrequencyEnumApi =
+    (typeof MaterializeSyncFrequencyEnumApi)[keyof typeof MaterializeSyncFrequencyEnumApi]
+
+export const MaterializeSyncFrequencyEnumApi = {
+    '15min': '15min',
+    '30min': '30min',
+    '1hour': '1hour',
+    '6hour': '6hour',
+    '12hour': '12hour',
+    '24hour': '24hour',
+    '7day': '7day',
+    '30day': '30day',
+} as const
+
+/**
+ * * `source` - source
+ * * `consumer` - consumer
+ */
+export type SyncFrequencyBlockedByEnumApi =
+    (typeof SyncFrequencyBlockedByEnumApi)[keyof typeof SyncFrequencyBlockedByEnumApi]
+
+export const SyncFrequencyBlockedByEnumApi = {
+    Source: 'source',
+    Consumer: 'consumer',
+} as const
+
+/**
+ * The node holding a cadence back, named so a refusal points at something a person can open.
+ */
+export interface SyncFrequencyBlockerApi {
+    /** Data modeling node ID of the source or view. */
+    id: string
+    /** Node name, as it appears in the data modeling graph. */
+    name: string
+}
+
+export interface SyncFrequencyOptionApi {
+    /** A `sync_frequency` value.
+     *
+     * * `15min` - 15min
+     * * `30min` - 30min
+     * * `1hour` - 1hour
+     * * `6hour` - 6hour
+     * * `12hour` - 12hour
+     * * `24hour` - 24hour
+     * * `7day` - 7day
+     * * `30day` - 30day */
+    cadence: MaterializeSyncFrequencyEnumApi
+    /** False when writing this cadence would be rejected. */
+    allowed: boolean
+    /** Which side withholds this cadence: 'source' when no upstream source syncs that often, 'consumer' when a downstream view or endpoint refreshes more often than this. Null when the cadence is allowed.
+     *
+     * * `source` - source
+     * * `consumer` - consumer */
+    blocked_by: SyncFrequencyBlockedByEnumApi | null
+    /** The source or consumer named in `blocked_by`. Null when allowed, and also when the blocker sits outside the caller's access grants, where `blocked_by` still gives the direction. */
+    blocker: SyncFrequencyBlockerApi | null
+}
+
+export interface SyncFrequencyBoundApi {
+    /** The bounding cadence in plain English, for example '6 hours'. Matches the wording used in the error raised when an out-of-bounds cadence is written. Prose rather than a `sync_frequency` value because a source can deliver on a cadence no `sync_frequency` names. */
+    label: string
+    /** Node that set this bound. Null when nothing identifiable set it, and also when it sits outside the caller's access grants: the bound still applies, it just goes unnamed. */
+    blocker: SyncFrequencyBlockerApi | null
+}
+
+export interface SyncFrequencyBoundsApi {
+    /** What governs this view's cadence. 'tiered' is the only mode where `options` is meaningful and `sync_frequency` is writable per view. 'dag_schedule' means the team's single DAG schedule owns it, 'managed_viewset' means PostHog owns the view, 'legacy' means the v1 backend, where any cadence is accepted and no bounds apply, and 'no_node' means the view has no data modeling node to store a cadence on.
+     *
+     * * `tiered` - tiered
+     * * `dag_schedule` - dag_schedule
+     * * `managed_viewset` - managed_viewset
+     * * `legacy` - legacy
+     * * `no_node` - no_node */
+    frequency_mode: FrequencyModeEnumApi
+    /** Every cadence a picker may show, coarsest-last, each marked allowed or blocked with its cause. Empty outside 'tiered' mode. */
+    options: SyncFrequencyOptionApi[]
+    /** The fastest bound: no cadence finer than this is allowed, because the source named here does not sync more often. Null when no source withholds a cadence. */
+    floor: SyncFrequencyBoundApi | null
+    /** The slowest bound: no cadence coarser than this is allowed, because the consumer named here refreshes that often. Null when no consumer withholds a cadence. */
+    ceiling: SyncFrequencyBoundApi | null
+    /** Upstream sources with no sync schedule, so the floor is a guess: these arrive when someone runs them, and refreshing more often than they really sync will serve stale data. Only sources the caller may read are listed. */
+    best_effort_sources: SyncFrequencyBlockerApi[]
+    /** True when at least one such source sits outside the caller's access grants, so the list above is incomplete and the caveat still applies. */
+    best_effort_sources_withheld: boolean
+}
 
 /**
  * Shared methods for DataWarehouseSavedQuery serializers.
@@ -955,6 +1225,8 @@ export interface DataWarehouseSavedQueryApi {
     sync_frequency?: SavedQuerySyncFrequencyEnumApi | null
     /** True when this team's DAG owns the materialization cadence through a single schedule, so `sync_frequency` cannot be set per view and writes to it are rejected. False when per-node DAG schedules are in use or the team is on the v1 backend. False does not on its own mean the cadence is writable: a view belonging to a managed viewset rejects every update regardless, which `managed_viewset_kind` reports. */
     readonly sync_frequency_managed_by_dag: boolean
+    /** Which cadences this view can actually be set to, and what withholds the rest. Computed from the view's data modeling lineage: upstream source sync frequencies set a floor, downstream cadences set a ceiling. Read-only, and present on retrieve, create and update responses only. */
+    readonly sync_frequency_bounds: SyncFrequencyBoundsApi
     readonly columns: readonly DataWarehouseSavedQueryApiColumnsItem[]
     /** The status of when this SavedQuery last ran.
      *
@@ -1017,6 +1289,8 @@ export interface DataWarehouseSavedQueryApi {
      * @nullable
      */
     readonly user_access_level: string | null
+    /** Engines this query's materialization is suspended for after repeated failures. Suspended engines are skipped by scheduled runs until the query is resumed. */
+    readonly suspended: DataWarehouseSavedQueryApiSuspended
 }
 
 export type PatchedDataWarehouseSavedQueryApiQueryKind =
@@ -1035,6 +1309,11 @@ export type PatchedDataWarehouseSavedQueryApiQuery = {
 }
 
 export type PatchedDataWarehouseSavedQueryApiColumnsItem = { [key: string]: unknown }
+
+/**
+ * Engines this query's materialization is suspended for after repeated failures. Suspended engines are skipped by scheduled runs until the query is resumed.
+ */
+export type PatchedDataWarehouseSavedQueryApiSuspended = { [key: string]: SavedQuerySuspensionApi }
 
 /**
  * Shared methods for DataWarehouseSavedQuery serializers.
@@ -1073,6 +1352,8 @@ export interface PatchedDataWarehouseSavedQueryApi {
     sync_frequency?: SavedQuerySyncFrequencyEnumApi | null
     /** True when this team's DAG owns the materialization cadence through a single schedule, so `sync_frequency` cannot be set per view and writes to it are rejected. False when per-node DAG schedules are in use or the team is on the v1 backend. False does not on its own mean the cadence is writable: a view belonging to a managed viewset rejects every update regardless, which `managed_viewset_kind` reports. */
     readonly sync_frequency_managed_by_dag?: boolean
+    /** Which cadences this view can actually be set to, and what withholds the rest. Computed from the view's data modeling lineage: upstream source sync frequencies set a floor, downstream cadences set a ceiling. Read-only, and present on retrieve, create and update responses only. */
+    readonly sync_frequency_bounds?: SyncFrequencyBoundsApi
     readonly columns?: readonly PatchedDataWarehouseSavedQueryApiColumnsItem[]
     /** The status of when this SavedQuery last ran.
      *
@@ -1135,6 +1416,25 @@ export interface PatchedDataWarehouseSavedQueryApi {
      * @nullable
      */
     readonly user_access_level?: string | null
+    /** Engines this query's materialization is suspended for after repeated failures. Suspended engines are skipped by scheduled runs until the query is resumed. */
+    readonly suspended?: PatchedDataWarehouseSavedQueryApiSuspended
+}
+
+/**
+ * Body of the `materialize` action: which cadence to enable materialization at.
+ */
+export interface SavedQueryMaterializeApi {
+    /** How often to refresh the materialized table, defaulting to daily. Rejected with a 400 when it falls outside what the query's lineage allows: no more often than its sources deliver new data, and no less often than a downstream view or endpoint needs.
+     *
+     * * `15min` - 15min
+     * * `30min` - 30min
+     * * `1hour` - 1hour
+     * * `6hour` - 6hour
+     * * `12hour` - 12hour
+     * * `24hour` - 24hour
+     * * `7day` - 7day
+     * * `30day` - 30day */
+    sync_frequency?: MaterializeSyncFrequencyEnumApi
 }
 
 export interface SavedQueryResumeApi {
@@ -1452,7 +1752,8 @@ export interface CredentialApi {
  * * `Pingdom` - Pingdom
  * * `Cloudflare` - Cloudflare
  * * `CosmosDB` - CosmosDB
- * * `PlanetScale` - PlanetScale
+ * * `PlanetScaleMySQL` - PlanetScaleMySQL
+ * * `PlanetScalePostgres` - PlanetScalePostgres
  * * `SapHana` - SapHana
  * * `Rippling` - Rippling
  * * `HiBob` - HiBob
@@ -1580,6 +1881,7 @@ export interface CredentialApi {
  * * `FloatApp` - FloatApp
  * * `Flowlu` - Flowlu
  * * `Formbricks` - Formbricks
+ * * `Framer` - Framer
  * * `FreeAgent` - FreeAgent
  * * `Freightview` - Freightview
  * * `Freshcaller` - Freshcaller
@@ -2513,6 +2815,45 @@ export interface CredentialApi {
  * * `DuckLake` - DuckLake
  * * `Starburst` - Starburst
  * * `Easybill` - Easybill
+ * * `Bexio` - Bexio
+ * * `Umami` - Umami
+ * * `Manychat` - Manychat
+ * * `Kickstarter` - Kickstarter
+ * * `Typesense` - Typesense
+ * * `FirstPromoter` - FirstPromoter
+ * * `Zero` - Zero
+ * * `Inth` - Inth
+ * * `BCMS` - BCMS
+ * * `Convonite` - Convonite
+ * * `Hookdeck` - Hookdeck
+ * * `Billit` - Billit
+ * * `Moxie` - Moxie
+ * * `TripleWhale` - TripleWhale
+ * * `Directus` - Directus
+ * * `Clay` - Clay
+ * * `TradableBits` - TradableBits
+ * * `Swan` - Swan
+ * * `Hyros` - Hyros
+ * * `Odoo` - Odoo
+ * * `Airbridge` - Airbridge
+ * * `Snovio` - Snovio
+ * * `GoogleMerchantCenter` - GoogleMerchantCenter
+ * * `Raisely` - Raisely
+ * * `RakutenAdvertising` - RakutenAdvertising
+ * * `Zitadel` - Zitadel
+ * * `DeelFlows` - DeelFlows
+ * * `WindsorAi` - WindsorAi
+ * * `Wix` - Wix
+ * * `Sevalla` - Sevalla
+ * * `Motion` - Motion
+ * * `ImpactPartner` - ImpactPartner
+ * * `Cloudinary` - Cloudinary
+ * * `Uploadcare` - Uploadcare
+ * * `WHMCS` - WHMCS
+ * * `MSG91` - MSG91
+ * * `Depot` - Depot
+ * * `Schematic` - Schematic
+ * * `Dokploy` - Dokploy
  */
 export type ExternalDataSourceTypeEnumApi =
     (typeof ExternalDataSourceTypeEnumApi)[keyof typeof ExternalDataSourceTypeEnumApi]
@@ -2711,7 +3052,8 @@ export const ExternalDataSourceTypeEnumApi = {
     Pingdom: 'Pingdom',
     Cloudflare: 'Cloudflare',
     CosmosDB: 'CosmosDB',
-    PlanetScale: 'PlanetScale',
+    PlanetScaleMySQL: 'PlanetScaleMySQL',
+    PlanetScalePostgres: 'PlanetScalePostgres',
     SapHana: 'SapHana',
     Rippling: 'Rippling',
     HiBob: 'HiBob',
@@ -2839,6 +3181,7 @@ export const ExternalDataSourceTypeEnumApi = {
     FloatApp: 'FloatApp',
     Flowlu: 'Flowlu',
     Formbricks: 'Formbricks',
+    Framer: 'Framer',
     FreeAgent: 'FreeAgent',
     Freightview: 'Freightview',
     Freshcaller: 'Freshcaller',
@@ -3772,6 +4115,45 @@ export const ExternalDataSourceTypeEnumApi = {
     DuckLake: 'DuckLake',
     Starburst: 'Starburst',
     Easybill: 'Easybill',
+    Bexio: 'Bexio',
+    Umami: 'Umami',
+    Manychat: 'Manychat',
+    Kickstarter: 'Kickstarter',
+    Typesense: 'Typesense',
+    FirstPromoter: 'FirstPromoter',
+    Zero: 'Zero',
+    Inth: 'Inth',
+    Bcms: 'BCMS',
+    Convonite: 'Convonite',
+    Hookdeck: 'Hookdeck',
+    Billit: 'Billit',
+    Moxie: 'Moxie',
+    TripleWhale: 'TripleWhale',
+    Directus: 'Directus',
+    Clay: 'Clay',
+    TradableBits: 'TradableBits',
+    Swan: 'Swan',
+    Hyros: 'Hyros',
+    Odoo: 'Odoo',
+    Airbridge: 'Airbridge',
+    Snovio: 'Snovio',
+    GoogleMerchantCenter: 'GoogleMerchantCenter',
+    Raisely: 'Raisely',
+    RakutenAdvertising: 'RakutenAdvertising',
+    Zitadel: 'Zitadel',
+    DeelFlows: 'DeelFlows',
+    WindsorAi: 'WindsorAi',
+    Wix: 'Wix',
+    Sevalla: 'Sevalla',
+    Motion: 'Motion',
+    ImpactPartner: 'ImpactPartner',
+    Cloudinary: 'Cloudinary',
+    Uploadcare: 'Uploadcare',
+    Whmcs: 'WHMCS',
+    Msg91: 'MSG91',
+    Depot: 'Depot',
+    Schematic: 'Schematic',
+    Dokploy: 'Dokploy',
 } as const
 
 export interface SimpleExternalDataSourceSerializersApi {
@@ -3910,20 +4292,39 @@ export interface FileUploadResponseApi {
 
 export interface ViewLinkApi {
     readonly id: string
-    /** @nullable */
+    /**
+     * Whether this join has been soft-deleted.
+     * @nullable
+     */
     deleted?: boolean | null
     readonly created_by: UserBasicApi
     readonly created_at: string
-    /** @maxLength 400 */
+    /**
+     * Name of the table the join starts from, for example events.
+     * @maxLength 400
+     */
     source_table_name: string
-    /** @maxLength 400 */
+    /**
+     * Column or HogQL expression on the source table used as the join key.
+     * @maxLength 400
+     */
     source_table_key: string
-    /** @maxLength 400 */
+    /**
+     * Name of the table or view being joined onto the source table.
+     * @maxLength 400
+     */
     joining_table_name: string
-    /** @maxLength 400 */
+    /**
+     * Column or HogQL expression on the joining table used as the join key.
+     * @maxLength 400
+     */
     joining_table_key: string
-    /** @maxLength 400 */
+    /**
+     * Accessor added to the source table to reach the joined rows, for example person in events.person.
+     * @maxLength 400
+     */
     field_name: string
+    /** Optional join configuration, for example experiments optimization flags. */
     configuration?: unknown
 }
 
@@ -3938,32 +4339,116 @@ export interface PaginatedViewLinkListApi {
 
 export interface PatchedViewLinkApi {
     readonly id?: string
-    /** @nullable */
+    /**
+     * Whether this join has been soft-deleted.
+     * @nullable
+     */
     deleted?: boolean | null
     readonly created_by?: UserBasicApi
     readonly created_at?: string
-    /** @maxLength 400 */
+    /**
+     * Name of the table the join starts from, for example events.
+     * @maxLength 400
+     */
     source_table_name?: string
-    /** @maxLength 400 */
+    /**
+     * Column or HogQL expression on the source table used as the join key.
+     * @maxLength 400
+     */
     source_table_key?: string
-    /** @maxLength 400 */
+    /**
+     * Name of the table or view being joined onto the source table.
+     * @maxLength 400
+     */
     joining_table_name?: string
-    /** @maxLength 400 */
+    /**
+     * Column or HogQL expression on the joining table used as the join key.
+     * @maxLength 400
+     */
     joining_table_key?: string
-    /** @maxLength 400 */
+    /**
+     * Accessor added to the source table to reach the joined rows, for example person in events.person.
+     * @maxLength 400
+     */
     field_name?: string
+    /** Optional join configuration, for example experiments optimization flags. */
     configuration?: unknown
 }
 
 export interface ViewLinkValidationApi {
-    /** @maxLength 255 */
+    /**
+     * Name of the table or view being joined onto the source table.
+     * @maxLength 255
+     */
     joining_table_name: string
-    /** @maxLength 255 */
+    /**
+     * Column or HogQL expression on the joining table used as the join key.
+     * @maxLength 255
+     */
     joining_table_key: string
-    /** @maxLength 255 */
+    /**
+     * Name of the table the join starts from, for example events.
+     * @maxLength 255
+     */
     source_table_name: string
-    /** @maxLength 255 */
+    /**
+     * Column or HogQL expression on the source table used as the join key.
+     * @maxLength 255
+     */
     source_table_key: string
+}
+
+export interface ViewLinkValidationResponseApi {
+    /** Whether the join compiled and returned rows when executed against a sample of the source table. */
+    is_valid: boolean
+    /**
+     * Warning about the validation result, for example when the sampled join returned no rows.
+     * @nullable
+     */
+    msg: string | null
+    /**
+     * The HogQL statement used to validate the join.
+     * @nullable
+     */
+    hogql: string | null
+    /** Column names for each row in results. */
+    columns: string[]
+    /** Distinct source and joining key pairs from the joined result, at most 5. */
+    results: unknown[][]
+    /**
+     * Number of sampled source rows checked for a join match, at most 10000. Null when the match-rate query failed.
+     * @nullable
+     */
+    total_rows: number | null
+    /**
+     * Number of sampled source rows with at least one match in the joining table. Null when the match-rate query failed.
+     * @nullable
+     */
+    matched_rows: number | null
+    /**
+     * matched_rows divided by total_rows, between 0 and 1. Null when the match-rate query failed or no rows were sampled.
+     * @nullable
+     */
+    match_rate: number | null
+}
+
+export interface ViewLinkValidationErrorApi {
+    /**
+     * Request field the error relates to, if any.
+     * @nullable
+     */
+    attr: string | null
+    /** Machine-readable error code, for example QueryError. */
+    code: string
+    /** Why the join failed to validate. */
+    detail: string
+    /** Error category; always query_error for validation failures. */
+    type: string
+    /**
+     * The HogQL statement that failed to validate.
+     * @nullable
+     */
+    hogql: string | null
 }
 
 export type DataModelingJobsListParams = {
@@ -4073,6 +4558,21 @@ export type WarehouseColumnStatisticsListParams = {
      * Only return statistics for this data warehouse table.
      */
     table_id?: string
+}
+
+export type WarehouseExpressionsListParams = {
+    /**
+     * Number of results to return per page.
+     */
+    limit?: number
+    /**
+     * The initial index from which to return the results.
+     */
+    offset?: number
+    /**
+     * A search term.
+     */
+    search?: string
 }
 
 export type WarehouseModelPathsListParams = {

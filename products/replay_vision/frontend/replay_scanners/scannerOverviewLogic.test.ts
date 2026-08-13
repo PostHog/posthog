@@ -1,9 +1,12 @@
+import { router } from 'kea-router'
 import { expectLogic } from 'kea-test-utils'
+
+import { urls } from 'scenes/urls'
 
 import { useMocks } from '~/mocks/jest'
 import { initKeaTests } from '~/test/init'
 
-import { scannerOverviewLogic } from './scannerOverviewLogic'
+import { observationsDrilldownSearchParams, scannerOverviewLogic } from './scannerOverviewLogic'
 
 const STATS = {
     status_counts: { total: 0, succeeded: 0, failed: 0, ineligible: 0, in_flight: 0, success_rate: null },
@@ -105,5 +108,109 @@ describe('scannerOverviewLogic', () => {
         expect(logic.values.overviewDateFrom).toBe('-14d')
         expect(logic.values.overviewVerdictFilter).toEqual([])
         expect(logic.values.hasActiveOverviewFilters).toBe(false)
+    })
+
+    describe('creditLimitStats', () => {
+        it('is null when the scanner has no limit, so callers render no panel instead of "0% of 0"', async () => {
+            await expectLogic(logic).toFinishAllListeners()
+            expect(logic.values.creditLimitStats).toBeNull()
+        })
+
+        it.each([
+            { used: 200, limit: 1000, expectedPct: 20, expectedReached: false },
+            { used: 1000, limit: 1000, expectedPct: 100, expectedReached: true },
+            { used: 1200, limit: 1000, expectedPct: 100, expectedReached: true },
+            // The server reports reached as soon as what's left can't cover one more scan, so this
+            // must come from the API and not be re-derived from usedPct.
+            { used: 990, limit: 1000, expectedPct: 99, expectedReached: true },
+        ])(
+            'derives usedPct $expectedPct and limitReached $expectedReached from used=$used, limit=$limit',
+            async ({ used, limit, expectedPct, expectedReached }) => {
+                await expectLogic(logic, () =>
+                    logic.actions.loadScannerSuccess({
+                        ...logic.values.scanner,
+                        credit_limit: limit,
+                        credits_used_against_limit: used,
+                        limit_reached: expectedReached,
+                    })
+                ).toFinishAllListeners()
+                expect(logic.values.creditLimitStats).toEqual({
+                    limit,
+                    used,
+                    usedPct: expectedPct,
+                    limitReached: expectedReached,
+                })
+            }
+        )
+    })
+
+    describe('observationsDrilldownSearchParams', () => {
+        const day = (overrides: object = {}): Parameters<typeof observationsDrilldownSearchParams>[0] => ({
+            day: '2026-05-04',
+            interval: 'day',
+            ...overrides,
+        })
+
+        it('maps a clicked day to an inclusive single-day observations filter', () => {
+            expect(observationsDrilldownSearchParams(day())).toEqual({
+                tab: 'observations',
+                date_from: '2026-05-04',
+                date_to: '2026-05-04',
+            })
+        })
+
+        it('adds verdict=yes for monitor scanners, whose chart plots the yes rate', () => {
+            expect(observationsDrilldownSearchParams(day({ scannerType: 'monitor' }))?.verdict).toBe('yes')
+            expect(observationsDrilldownSearchParams(day({ scannerType: 'classifier' }))?.verdict).toBeUndefined()
+        })
+
+        const tagCases: [string, unknown, string | undefined][] = [
+            ['plain tag', 'rageclick', 'rageclick'],
+            ['single-value breakdown array', ['rageclick'], 'rageclick'],
+            ['other bucket', '$$_posthog_breakdown_other_$$', undefined],
+            ['null bucket', '$$_posthog_breakdown_null_$$', undefined],
+            ['numeric breakdown', 42, undefined],
+            ['empty string', '', undefined],
+        ]
+
+        it.each(tagCases)('breakdown handling: %s', (_label, breakdown, expected) => {
+            expect(observationsDrilldownSearchParams(day({ breakdown }))?.tags).toEqual(expected)
+        })
+
+        it('slices datetime buckets to their date', () => {
+            expect(observationsDrilldownSearchParams(day({ day: '2026-05-04 14:00:00' }))?.date_from).toBe('2026-05-04')
+        })
+
+        // Buckets without a single-day meaning have no Observations-tab equivalent, so the click is a no-op.
+        const noOpCases: [string, object][] = [
+            ['undefined day', { day: undefined }],
+            ['numeric day', { day: 1753747200 }],
+            ['non-date label', { day: 'previous' }],
+            ['week interval', { interval: 'week' }],
+        ]
+
+        it.each(noOpCases)('returns null for %s', (_label, overrides) => {
+            expect(observationsDrilldownSearchParams(day(overrides))).toBeNull()
+        })
+    })
+
+    describe('drillIntoObservations', () => {
+        it('navigates to the observations tab filtered to the clicked day, with the monitor verdict', async () => {
+            // The mocked scanner is a monitor, so the drill-down should carry verdict=yes.
+            await expectLogic(logic, () => logic.actions.drillIntoObservations('2026-05-04')).toFinishAllListeners()
+            expect(router.values.location.pathname).toContain(urls.replayVision('sid'))
+            expect(router.values.searchParams).toMatchObject({
+                tab: 'observations',
+                date_from: '2026-05-04',
+                date_to: '2026-05-04',
+                verdict: 'yes',
+            })
+        })
+
+        it('ignores clicks on buckets that cannot map to a day filter', async () => {
+            const before = router.values.location.pathname
+            await expectLogic(logic, () => logic.actions.drillIntoObservations(undefined)).toFinishAllListeners()
+            expect(router.values.location.pathname).toBe(before)
+        })
     })
 })

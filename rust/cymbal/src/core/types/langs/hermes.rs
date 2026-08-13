@@ -156,7 +156,6 @@ impl From<(&RawHermesFrame, HermesError)> for Frame {
             junk_drawer: None,
             code_variables: None,
             context: None,
-            release: None,
             suspicious: false,
             module: None,
         };
@@ -198,7 +197,6 @@ impl From<(&RawHermesFrame, Token<'_>, Option<String>, usize)> for Frame {
             junk_drawer: None,
             code_variables: None,
             context: get_token_context(&token, token.get_src_line() as usize, context_lines),
-            release: None,
             suspicious: false,
             module: None,
         };
@@ -233,7 +231,6 @@ impl From<&RawHermesFrame> for Frame {
             junk_drawer: None,
             code_variables: None,
             context: None,
-            release: None,
             synthetic: raw_frame.meta.synthetic,
             suspicious: false,
             module: None,

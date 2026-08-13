@@ -21,6 +21,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.generated_
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.github.github import (
     GITHUB_MAX_RETRY_AFTER_SECONDS,
+    GithubAccessDeniedError,
     GithubEgressIdentity,
     GithubResumeConfig,
     GithubRetryableError,
@@ -1424,6 +1425,33 @@ def _pat_config() -> GithubSourceConfig:
     )
 
 
+class TestGithubWebhookCreationBlocked:
+    # An app installation only ever holds what the GitHub app itself requests, so an installation
+    # without repository_hooks write can never create a repo webhook. Offering the button anyway
+    # sent users through a 403 whose suggested fix (edit your token scopes) they couldn't apply.
+    @parameterized.expand(
+        [
+            ("write_permission_allows_creation", {"repository_hooks": "write", "contents": "read"}, False),
+            ("read_permission_blocks_creation", {"repository_hooks": "read"}, True),
+            ("absent_permission_blocks_creation", {"contents": "read"}, True),
+            # Unknown grants (token connections, rows predating persistence) fail open: the create
+            # attempt is the only way to find out, and a real denial still surfaces from GitHub.
+            ("unknown_permissions_fail_open", None, False),
+        ]
+    )
+    def test_blocked_reason_tracks_installation_permissions(
+        self, _name: str, held: dict[str, str] | None, expect_blocked: bool
+    ) -> None:
+        source = GithubSource()
+        config = _pat_config()
+        with mock.patch.object(GithubSource, "_installation_permissions", return_value=held):
+            reason = source.webhook_creation_blocked_reason(config, team_id=1)
+
+        assert (reason is not None) is expect_blocked
+        if expect_blocked:
+            assert "cannot manage repository webhooks" in (reason or "")
+
+
 class TestGithubWebhookSource:
     """The WebhookSource surface: event mapping, schema flags, and the create/
     delete/info round-trips that mint and reconcile the repo webhook."""
@@ -1438,6 +1466,7 @@ class TestGithubWebhookSource:
             "reviews": "pull_request_review",
             "deployments": "deployment",
             "deployment_statuses": "deployment_status",
+            "check_runs": "check_run",
         }
 
     def test_webhook_template_identity(self) -> None:
@@ -1455,6 +1484,7 @@ class TestGithubWebhookSource:
             "reviews",
             "deployments",
             "deployment_statuses",
+            "check_runs",
         }
 
     def test_workflow_runs_and_jobs_are_webhook_only(self) -> None:
@@ -1643,6 +1673,7 @@ class TestGithubWebhookSource:
         assert repo == "owner/repo"
         assert url == "https://app.posthog.com/webhook"
         assert sorted(events) == [
+            "check_run",
             "deployment",
             "deployment_status",
             "pull_request_review",
@@ -1875,7 +1906,7 @@ class TestFetchPageRateLimit:
             "products.warehouse_sources.backend.temporal.data_imports.sources.github.github.make_tracked_session"
         ) as mock_get:
             mock_get.return_value.request.return_value = resp
-            with pytest.raises(requests.HTTPError):
+            with pytest.raises(GithubAccessDeniedError):
                 _fetch_page("https://api.github.com/x", {}, mock.Mock())
 
         assert mock_get.return_value.request.call_count == 1
