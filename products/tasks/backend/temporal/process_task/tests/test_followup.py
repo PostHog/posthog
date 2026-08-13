@@ -378,7 +378,7 @@ class TestCIFollowUpLoop:
                     retry_policy=RetryPolicy(maximum_attempts=1),
                     execution_timeout=timedelta(hours=2),
                 )
-                await env.sleep(CI_FOLLOW_UP_DELAY.total_seconds() * 2 + 10)
+                await env.sleep(CI_FOLLOW_UP_DELAY.total_seconds() * 3 + 10)
                 await handle.signal(ProcessTaskWorkflow.complete_task, args=["completed", None])
                 await handle.result()
 
