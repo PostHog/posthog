@@ -85,7 +85,6 @@
 1 posthog/temporal/product_analytics/upgrade_queries_workflow.py
 1 posthog/temporal/session_replay/rasterize_recording/activities/stuck_counter.py
 1 posthog/temporal/session_replay/session_summary/activities/capture_timing.py
-1 posthog/temporal/signup_enrichment/workflow.py
 1 posthog/temporal/tests/common/test_logger.py
 1 posthog/temporal/tests/data_modeling/test_log_routing.py
 1 posthog/temporal/tests/session_replay/gemini_cleanup_sweep/test_activities.py
@@ -155,6 +154,7 @@
 1 products/growth/backend/enrichment/fields.py
 1 products/growth/backend/enrichment/providers.py
 1 products/growth/backend/enrichment/snapshot.py
+1 products/growth/backend/temporal/signup_enrichment/workflow.py
 1 products/growth/dags/product_push_campaigns.py
 1 products/growth/dags/team_production_event_activation.py
 1 products/live_debugger/backend/models.py
