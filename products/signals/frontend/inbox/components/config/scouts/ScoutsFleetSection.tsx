@@ -35,8 +35,8 @@ import { ScoutTagsFilter } from './ScoutTagsFilter'
  * Cloud port of desktop's `ScoutsFleetSection`.
  */
 export function ScoutsFleetSection(): JSX.Element {
-    const { scoutConfigs, scoutConfigsLoading, enabledCount, customScoutCount } = useValues(scoutFleetLogic)
-    const { loadScoutConfigs, startRunsPolling, stopRunsPolling } = useActions(scoutFleetLogic)
+    const { scoutConfigs, enabledCount, customScoutCount } = useValues(scoutFleetLogic)
+    const { startRunsPolling, stopRunsPolling } = useActions(scoutFleetLogic)
     const { setScratchpadOpen, setFindingsOpen } = useActions(inboxSceneLogic)
     const { closeSetupModal } = useActions(agentSetupModalLogic)
 
@@ -62,35 +62,6 @@ export function ScoutsFleetSection(): JSX.Element {
             dryRunCount: scoutConfigs.filter((config) => !config.emit).length,
         })
     }, [scoutConfigs, enabledCount, customScoutCount])
-
-    if (scoutConfigsLoading && scoutConfigs === null) {
-        return <LemonSkeleton className="h-12 w-full rounded" />
-    }
-
-    // A failed request must not masquerade as an empty troop – a missing scope or
-    // regional rollout gap would otherwise be indistinguishable from "no scouts yet".
-    if (scoutConfigs === null) {
-        return (
-            <div className="flex items-center gap-3 rounded border border-danger bg-danger-highlight px-4 py-3.5">
-                <span className="flex-1 text-xs text-danger">
-                    Couldn't load the scout troop. The scout API may be unavailable or this project may not be enrolled
-                    yet.
-                </span>
-                <LemonButton type="secondary" size="small" status="danger" onClick={() => loadScoutConfigs()}>
-                    Retry
-                </LemonButton>
-            </div>
-        )
-    }
-
-    if (scoutConfigs.length === 0) {
-        return (
-            <div className="flex flex-col gap-3">
-                <ScoutAlphaBanner />
-                <ScoutsEmptyState />
-            </div>
-        )
-    }
 
     return (
         <div className="flex flex-col gap-3">
@@ -125,7 +96,10 @@ export function ScoutsFleetSection(): JSX.Element {
  * nothing when no message is set. Dismissal is remembered per-message, so a reworded notice resurfaces.
  */
 function ScoutAlphaBanner(): JSX.Element | null {
-    const { scoutBannerMessage } = useValues(scoutFleetLogic)
+    const { scoutBannerMessage, scoutMetadata, scoutMetadataLoading } = useValues(scoutFleetLogic)
+    if (scoutMetadataLoading && scoutMetadata === null) {
+        return <LemonSkeleton className="h-12 w-full rounded" />
+    }
     if (!scoutBannerMessage) {
         return null
     }
@@ -171,29 +145,72 @@ function summarize(summary: FleetSummary | null): string {
  * leads with "what the troop is" before its controls.
  */
 function FleetStatsHeader(): JSX.Element {
-    const { scoutConfigs, enabledCount, lastRunAt, fleetSummary } = useValues(scoutFleetLogic)
+    const { scoutConfigs, scoutConfigsLoading, enabledCount, lastRunAt, fleetSummary, scoutRunsLoadedOnce } =
+        useValues(scoutFleetLogic)
 
     return (
         <div className="flex flex-col gap-0.5">
             <div className="flex items-center gap-2 flex-wrap">
-                <span className="text-sm font-medium text-default">
-                    {enabledCount} of {scoutConfigs?.length ?? enabledCount} scouts enabled
-                </span>
-                {lastRunAt ? (
-                    <span className="text-xs text-secondary">
-                        last dispatched <TZLabel time={lastRunAt} />
-                    </span>
-                ) : null}
+                {scoutConfigsLoading && scoutConfigs === null ? (
+                    <LemonSkeleton className="h-4 w-40 rounded" />
+                ) : (
+                    <>
+                        <span className="text-sm font-medium text-default">
+                            {enabledCount} of {scoutConfigs?.length ?? enabledCount} scouts enabled
+                        </span>
+                        {lastRunAt ? (
+                            <span className="text-xs text-secondary">
+                                last dispatched <TZLabel time={lastRunAt} />
+                            </span>
+                        ) : null}
+                    </>
+                )}
             </div>
-            <span className="text-xs text-muted">
-                {summarize(fleetSummary)} · {SCOUT_RUNS_PER_SCOUT_LABEL} per scout
+            {scoutRunsLoadedOnce ? (
+                <span className="text-xs text-muted">
+                    {summarize(fleetSummary)} · {SCOUT_RUNS_PER_SCOUT_LABEL} per scout
+                </span>
+            ) : (
+                <LemonSkeleton className="h-3 w-72 rounded" />
+            )}
+        </div>
+    )
+}
+
+function ScoutsFleetListSkeleton(): JSX.Element {
+    return (
+        <div className="flex flex-col gap-3">
+            <div className="flex items-center gap-2">
+                <LemonSkeleton.Button />
+                <LemonSkeleton.Button />
+                <LemonSkeleton className="h-7 w-48 rounded" />
+            </div>
+            <div className="flex flex-col gap-2">
+                <LemonSkeleton className="h-16 w-full rounded" />
+                <LemonSkeleton className="h-16 w-full rounded" />
+                <LemonSkeleton className="h-16 w-full rounded" />
+            </div>
+        </div>
+    )
+}
+
+function ScoutFleetError({ onRetry }: { onRetry: () => void }): JSX.Element {
+    return (
+        <div className="flex items-center gap-3 rounded border border-danger bg-danger-highlight px-4 py-3.5">
+            <span className="flex-1 text-xs text-danger">
+                Couldn't load the scout troop. The scout API may be unavailable or this project may not be enrolled yet.
             </span>
+            <LemonButton type="secondary" size="small" status="danger" onClick={onRetry}>
+                Retry
+            </LemonButton>
         </div>
     )
 }
 
 function ScoutsFleetList(): JSX.Element {
     const {
+        scoutConfigs,
+        scoutConfigsLoading,
         visibleConfigs,
         rollups,
         hideDisabled,
@@ -204,6 +221,20 @@ function ScoutsFleetList(): JSX.Element {
     } = useValues(scoutFleetLogic)
     const { setHideDisabled, setScoutTagFilter, updateScoutConfig, deleteScout, loadScoutConfigs } =
         useActions(scoutFleetLogic)
+
+    if (scoutConfigsLoading && scoutConfigs === null) {
+        return <ScoutsFleetListSkeleton />
+    }
+
+    // A failed request must not masquerade as an empty troop – a missing scope or
+    // regional rollout gap would otherwise be indistinguishable from "no scouts yet".
+    if (scoutConfigs === null) {
+        return <ScoutFleetError onRetry={() => loadScoutConfigs()} />
+    }
+
+    if (scoutConfigs.length === 0) {
+        return <ScoutsEmptyState />
+    }
 
     return (
         <div className="flex flex-col gap-3">

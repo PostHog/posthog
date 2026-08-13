@@ -95,7 +95,7 @@ def _integration(
 
 def _goal(goal_id="g1", name="Signup", count=1000, misconfigured=False) -> ConversionGoalSummary:
     return ConversionGoalSummary(
-        id=goal_id,
+        conversion_goal_id=goal_id,
         name=name,
         # What the inspector actually emits — it defaults to "EventsNode", not "events".
         kind="EventsNode",
