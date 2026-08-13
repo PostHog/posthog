@@ -37,7 +37,6 @@ import {
 } from "@posthog/ui/features/settings/components/SettingsCard";
 import { SettingsSelect } from "@posthog/ui/features/settings/components/SettingsSelect";
 import { AddCustomSoundDialog } from "@posthog/ui/features/settings/sections/AddCustomSoundDialog";
-import { SlackCommentNotificationsSettings } from "@posthog/ui/features/settings/sections/SlackCommentNotificationsSettings";
 import {
   type CompletionSound,
   type CustomSound,
@@ -430,8 +429,6 @@ export function NotificationsSettings() {
       />
 
       {spokenNarrationEnabled && <VoiceSection />}
-
-      <SlackCommentNotificationsSettings />
 
       <TestSection
         bus={bus}
