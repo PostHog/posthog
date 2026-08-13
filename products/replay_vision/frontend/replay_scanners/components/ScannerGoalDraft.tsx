@@ -1,5 +1,5 @@
 import { useActions, useValues } from 'kea'
-import { useRef, useState } from 'react'
+import { useRef } from 'react'
 
 import { IconArrowRight, IconSparkles } from '@posthog/icons'
 import { LemonButton, LemonTextArea } from '@posthog/lemon-ui'
@@ -9,15 +9,14 @@ import { replayScannerLogic } from '../replayScannerLogic'
 /** "Tell PostHog AI what you want to accomplish" box on the template step: drafts a full scanner
  * from the stated goal and drops the user into the configure step to review it. */
 export function ScannerGoalDraft(): JSX.Element {
-    const [goal, setGoal] = useState('')
     const textAreaRef = useRef<HTMLTextAreaElement>(null)
     const logic = replayScannerLogic({ id: 'new' })
-    const { goalDraftLoading } = useValues(logic)
-    const { draftScannerFromGoal } = useActions(logic)
+    const { goalDraftInput, goalDraftLoading } = useValues(logic)
+    const { draftScannerFromGoal, setGoalDraftInput } = useActions(logic)
 
     const handleSubmit = (): void => {
-        if (goal.trim() && !goalDraftLoading) {
-            draftScannerFromGoal(goal.trim())
+        if (goalDraftInput.trim() && !goalDraftLoading) {
+            draftScannerFromGoal(goalDraftInput.trim())
         }
     }
 
@@ -40,8 +39,8 @@ export function ScannerGoalDraft(): JSX.Element {
                     <LemonTextArea
                         id="vision-goal-draft-input"
                         ref={textAreaRef}
-                        value={goal}
-                        onChange={setGoal}
+                        value={goalDraftInput}
+                        onChange={setGoalDraftInput}
                         onPressEnter={handleSubmit}
                         placeholder="e.g., Find sessions where users get stuck during onboarding"
                         minRows={2}
@@ -61,7 +60,9 @@ export function ScannerGoalDraft(): JSX.Element {
                             icon={<IconArrowRight />}
                             loading={goalDraftLoading}
                             onClick={handleSubmit}
-                            disabledReason={!goal.trim() ? 'Describe what the scanner should look for' : undefined}
+                            disabledReason={
+                                !goalDraftInput.trim() ? 'Describe what the scanner should look for' : undefined
+                            }
                             data-attr="vision-goal-draft-submit"
                         >
                             Set up with AI

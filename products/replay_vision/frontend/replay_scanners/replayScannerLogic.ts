@@ -242,6 +242,7 @@ export interface replayScannerLogicValues {
     durationValidationError: string | null
     estimateRequestVersion: number
     goalDraft: DraftScannerResponseApi | null
+    goalDraftInput: string
     goalDraftLoading: boolean
     hasActiveObservationFilters: boolean
     hasObservationsInFlight: boolean
@@ -472,6 +473,9 @@ export interface replayScannerLogicActions {
         dateFrom: string | null
         dateTo: string | null
     }
+    setGoalDraftInput: (goal: string) => {
+        goal: string
+    }
     setObservationBackfillFilter: (value: string | null) => {
         value: string | null
     }
@@ -636,6 +640,7 @@ export const replayScannerLogic = kea<replayScannerLogicType>([
         acceptAllTagSuggestions: true,
         dismissTagSuggestions: true,
         draftScannerFromGoal: (goal: string) => ({ goal }),
+        setGoalDraftInput: (goal: string) => ({ goal }),
         loadObservations: (background = false) => ({ background }),
         loadObservationsSuccess: (observations: ReplayObservationApi[], total: number) => ({ observations, total }),
         loadObservationsFailure: true,
@@ -804,17 +809,13 @@ export const replayScannerLogic = kea<replayScannerLogicType>([
         goalDraft: [
             null as DraftScannerResponseApi | null,
             {
+                // Errors surface through draftScannerFromGoalFailure; kea-loaders dispatches it for us.
                 draftScannerFromGoal: async ({ goal }) => {
                     const teamId = teamLogic.values.currentTeamId
                     if (!teamId || !goal.trim()) {
                         return values.goalDraft
                     }
-                    try {
-                        return await visionScannersDraftCreate(String(teamId), { goal: goal.trim() })
-                    } catch (error: any) {
-                        lemonToast.error(`Couldn't draft a scanner${error?.detail ? `: ${error.detail}` : ''}`)
-                        return null
-                    }
+                    return await visionScannersDraftCreate(String(teamId), { goal: goal.trim() })
                 },
             },
         ],
@@ -851,6 +852,13 @@ export const replayScannerLogic = kea<replayScannerLogicType>([
             null as number | null,
             {
                 setScannerDraftSavedAt: (_, { savedAt }) => savedAt,
+            },
+        ],
+        // The "tell PostHog AI what you want to accomplish" textarea on the template step.
+        goalDraftInput: [
+            '',
+            {
+                setGoalDraftInput: (_, { goal }) => goal,
             },
         ],
         // Which tag's cohort is being created, so tag rows can show a per-row spinner.
@@ -1354,6 +1362,10 @@ export const replayScannerLogic = kea<replayScannerLogicType>([
                     scanner_config: goalDraft.scanner_config as ScannerConfig,
                 })
                 router.actions.push(urls.replayVisionScannerConfigure('new'))
+            },
+
+            draftScannerFromGoalFailure: ({ errorObject }) => {
+                lemonToast.error(`Couldn't draft a scanner${errorObject?.detail ? `: ${errorObject.detail}` : ''}`)
             },
 
             // Merge AI-suggested tags into the vocabulary: keep existing tags, append new ones, dedupe case-insensitively.
