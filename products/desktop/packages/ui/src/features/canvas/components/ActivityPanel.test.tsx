@@ -12,7 +12,7 @@ import {
 
 // Mutable so a test can render the panel mid-load. Hoisted because a plain `let`
 // is initialized after the hoisted mock factories.
-const loaded = vi.hoisted(() => ({ thread: true, comments: true }));
+const loaded = vi.hoisted(() => ({ thread: true }));
 
 vi.mock("@posthog/ui/features/canvas/hooks/useThreadConversation", () => ({
   useThreadConversation: () => ({
@@ -33,13 +33,6 @@ vi.mock("@posthog/ui/features/canvas/hooks/useThreadConversation", () => ({
     sendMessageToAgent: vi.fn(),
     deleteMessage: vi.fn(),
     onMentionInsert: vi.fn(),
-  }),
-}));
-vi.mock("@posthog/ui/features/canvas/hooks/useTaskCommentActivity", () => ({
-  useTaskCommentActivity: () => ({
-    threads: [],
-    isLoading: false,
-    hasLoaded: loaded.comments,
   }),
 }));
 // The panel warms this from the task id before the task itself arrives, so it is mounted
@@ -96,7 +89,6 @@ describe("ActivityPanel", () => {
 
   beforeEach(() => {
     loaded.thread = true;
-    loaded.comments = true;
     scrollTo = vi.spyOn(Element.prototype, "scrollTo");
     useCommentNavigationStore.setState({
       focusByTask: {},
@@ -214,10 +206,9 @@ describe("ActivityPanel", () => {
     expect(scrollTo.mock.calls.length).toBe(timelineScrolls);
   });
 
-  it("waits for both sources, then never takes the timeline away again", () => {
+  it("waits for the thread, then never takes the timeline away again", () => {
     // The loader belongs to the first paint only, never over rows already on screen.
     loaded.thread = false;
-    loaded.comments = false;
     // A fresh element each time: React bails out of `rerender` when handed the identical one.
     const panel = () => (
       <ActivityPanel
@@ -231,11 +222,6 @@ describe("ActivityPanel", () => {
     expect(screen.getByLabelText("Loading timeline")).toBeInTheDocument();
 
     loaded.thread = true;
-    view.rerender(panel());
-    // Comments haven't answered yet, so drawing now would show a partial timeline.
-    expect(screen.getByLabelText("Loading timeline")).toBeInTheDocument();
-
-    loaded.comments = true;
     view.rerender(panel());
     expect(screen.getByText("timeline body")).toBeInTheDocument();
 
