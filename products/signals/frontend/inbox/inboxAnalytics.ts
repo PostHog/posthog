@@ -15,6 +15,8 @@ export const INBOX_CLIENT = 'cloud' as const
 
 export const INBOX_EVENTS = {
     VIEWED: 'Inbox viewed',
+    WELCOME_VIEWED: 'Inbox welcome viewed',
+    WELCOME_COMMAND_COPIED: 'Inbox welcome command copied',
     PANEL_VIEWED: 'Inbox panel viewed',
     QUERY_CHANGED: 'Inbox query changed',
     REPORTS_IMPRESSED: 'Inbox reports impressed',
@@ -184,6 +186,39 @@ function actionabilityBreakdown(reports: SignalReport[]): Record<string, number>
         actionability_not_actionable_count: counts.not_actionable,
         actionability_unknown_count: counts.unknown,
     }
+}
+
+/** Which welcome takeover a user saw: the original stacked card or the redesigned hero. */
+export type InboxWelcomeVariant = 'control' | 'redesign'
+
+/** Where a wizard-command copy happened: the full welcome takeover or the re-enable banner. */
+export type InboxWelcomeCopySurface = 'takeover' | 'banner'
+
+/**
+ * The self-driving welcome takeover rendered. `Inbox viewed` never fires for un-set-up teams (the
+ * takeover replaces the report list), so this is the top-of-funnel event for setup conversion, and
+ * the exposure marker for welcome-page experiments (`variant` mirrors the experiment arm).
+ */
+export function captureInboxWelcomeViewed(params: { variant: InboxWelcomeVariant }): void {
+    captureInboxEvent(INBOX_EVENTS.WELCOME_VIEWED, {
+        variant: params.variant,
+    })
+}
+
+/**
+ * The wizard setup command was copied. Previously only recoverable from autocapture (and
+ * unreliably: `$el_text` is null on about half of clicks), so the setup funnel's first
+ * conversion step gets its own event. `variant` is null on the banner, which shows one
+ * fixed layout regardless of the welcome experiment.
+ */
+export function captureInboxWelcomeCommandCopied(params: {
+    variant: InboxWelcomeVariant | null
+    surface: InboxWelcomeCopySurface
+}): void {
+    captureInboxEvent(INBOX_EVENTS.WELCOME_COMMAND_COPIED, {
+        variant: params.variant,
+        surface: params.surface,
+    })
 }
 
 export function captureInboxViewed(params: {
@@ -583,7 +618,7 @@ export function captureInboxRunOpened(params: {
  * inbox pageview fires either way. `reason` separates "we chose not to ask" from "nobody wanted it".
  */
 export function captureInboxOnboardingDecided(params: {
-    mode: 'takeover' | 'banner' | 'none'
+    mode: 'takeover' | 'banner' | 'none' | 'pending'
     reason: string | null
 }): void {
     captureInboxEvent(INBOX_EVENTS.ONBOARDING_DECIDED, {
