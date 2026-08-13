@@ -291,13 +291,6 @@ export const Popover = React.forwardRef<HTMLDivElement, PopoverProps>(function P
             if (!target) {
                 return true
             }
-            // A press on the trigger must not count as an outside press. The trigger owns the
-            // open/close toggle (LemonDropdown's onClick); if this dismiss also fired, the two
-            // would race and the menu would close then immediately reopen in one click.
-            const reference = referenceElement ?? referenceRef.current
-            if (reference instanceof Element && reference.contains(target)) {
-                return false
-            }
             // Honor the block class on the floating-ui dismiss path too, not just onClickInside —
             // a nested menu in a parent popover's *reference* subtree (e.g. the TaxonomicFilter
             // category pill in the search input's suffix) inherits the wrong overlay level, so the

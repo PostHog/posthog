@@ -11,32 +11,6 @@ describe('LemonDropdown', () => {
         jest.useRealTimers()
     })
 
-    // Clicking the trigger of an open dropdown must close it. The press fires floating-ui's
-    // outside-press dismiss on `pointerdown` and the trigger's own toggle on `click`. Without the
-    // reference exemption in Popover, the dismiss closes the menu and the toggle then reopens it in
-    // the same gesture, so the menu stays open. This mirrors the stuck signup role dropdown.
-    it('closes when the trigger is clicked while open, without reopening', () => {
-        jest.useFakeTimers()
-
-        render(
-            <LemonDropdown startVisible overlay={<div>Menu</div>}>
-                <button>Open</button>
-            </LemonDropdown>
-        )
-
-        expect(screen.getByText('Menu')).toBeInTheDocument()
-
-        // Flush the pointerdown and the click separately, so a dismiss on pointerdown commits
-        // before the trigger's toggle reads visibility — the ordering that used to reopen the menu.
-        const trigger = screen.getByText('Open')
-        fireEvent.pointerDown(trigger)
-        fireEvent.click(trigger)
-
-        act(() => jest.advanceTimersByTime(50)) // let the exit transition unmount the portal
-
-        expect(screen.queryByText('Menu')).not.toBeInTheDocument()
-    })
-
     it('delays opening a hover dropdown when configured', () => {
         jest.useFakeTimers()
         const onVisibilityChange = jest.fn()
