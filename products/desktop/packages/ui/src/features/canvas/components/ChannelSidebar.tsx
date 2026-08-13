@@ -214,9 +214,6 @@ function ChannelItemsSkeleton() {
   );
 }
 
-const commandCenterAssigner = (taskId: string, taskTitle: string) => () =>
-  placeTaskInCommandCenter(taskId, taskTitle);
-
 /** An empty tab says what would fill it, rather than what the space holds. */
 function TabEmptyState({ tab }: { tab: ChannelTab }) {
   return (
