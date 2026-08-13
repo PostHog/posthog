@@ -6,6 +6,7 @@ from zoneinfo import ZoneInfo
 
 from django.db.models import F
 
+from posthog.dataclasses import frozen
 from posthog.sync import database_sync_to_async_pool
 
 from products.warehouse_sources.backend.models.external_data_source import ExternalDataSource
@@ -74,8 +75,14 @@ def build_table_name(source: ExternalDataSource, schema_name: str):
     return f"{source.prefix or ''}{source.source_type}_{safe_schema_name}".lower()
 
 
-def resolve_table_and_folder_names(schema_name: str, resolved_s3_folder_name: str | None) -> tuple[str, str]:
-    """Return `(table_storage_name, folder_name)` for a schema row.
+@frozen
+class ResolvedSchemaNames:
+    table_storage_name: str
+    folder_name: str
+
+
+def resolve_table_and_folder_names(schema_name: str, resolved_s3_folder_name: str | None) -> ResolvedSchemaNames:
+    """Return the `table_storage_name` and `folder_name` for a schema row.
 
     These are intentionally different normalizations:
     - The S3 folder is the *snake_cased* identifier (`BalanceTransaction` -> `balance_transaction`).
@@ -92,7 +99,7 @@ def resolve_table_and_folder_names(schema_name: str, resolved_s3_folder_name: st
     folder_name = NamingConvention.normalize_identifier(resolved_s3_folder_name or schema_name)
     is_folder_pinned = folder_name != NamingConvention.normalize_identifier(schema_name)
     table_storage_name = folder_name if is_folder_pinned else schema_name
-    return table_storage_name, folder_name
+    return ResolvedSchemaNames(table_storage_name=table_storage_name, folder_name=folder_name)
 
 
 def sync_revenue_analytics_views(schema: ExternalDataSchema, source: ExternalDataSource) -> None:

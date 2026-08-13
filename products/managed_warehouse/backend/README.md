@@ -41,6 +41,14 @@ For local dev the defaults are:
 - `DUCKGRES_USERNAME=posthog`
 - `DUCKGRES_PASSWORD=posthog`
 
+## Self-managed object storage reads
+
+The DuckLake query path can read credentialed self-managed Parquet tables directly from S3-compatible object storage. HogQL compiles these tables to DuckDB's `read_parquet` function. Before each query, the Duckgres client creates a temporary secret from the table's `DataWarehouseCredential`. Secrets cover only the tables the compiled query's schema still exposes after warehouse access control, so a query cannot borrow credentials from a table it may not read. Each secret is scoped to the table's object path and disappears when the connection closes. Credentials use query parameters and never appear in the compiled SQL.
+
+Supported URL forms include AWS S3, Google Cloud Storage with HMAC credentials, Cloudflare R2, and other path-style S3-compatible HTTPS endpoints. Local HTTP endpoints such as SeaweedFS are also supported. AWS regions are inferred from regional endpoints. Other providers use `us-east-1` for S3 request signing.
+
+This path currently supports Parquet only. Support for Azure Blob Storage, CSV, JSON, and Delta will follow. Until then, these sources continue to use the existing non-DuckLake query path.
+
 ## Feature flag gating
 
 Each workflow is gated by its own feature flag (evaluated via `feature_enabled`). Create or update the appropriate flag locally to target the team you are testing with—otherwise the copy workflow will be skipped even if the rest of the configuration is correct.
@@ -52,6 +60,12 @@ Each workflow is gated by its own feature flag (evaluated via `feature_enabled`)
 | Data Import Registration | `ducklake-data-imports-registration-workflow` |
 
 The two data-import flags are independent and target the same stable DuckLake table. During rollout, enable only the intended path for a project; if both run for the same import, the last atomic table swap wins.
+
+## Data Ops workflow status
+
+The copy and registration workflows both write their lifecycle to `ManagedWarehouseSourceJob`. Each row identifies the project, source schema, external data job, workflow type, and workflow attempt. The supported states are running, completed, failed, skipped, and stale.
+
+The Data Ops overview reads the latest workflow attempt for each source schema from this shared model. It also reads the most recent completed attempt separately, so a later failed or stale attempt does not erase when data was last applied successfully. The Duckgres consumer sink state is not used for source readiness.
 
 ## Target bucket layout
 
@@ -68,11 +82,11 @@ Every copy is written to a deterministic schema inside DuckLake. Each workflow n
 - **Schema**: `posthog_data_imports_team_<team_id>`
 - **Table**: a physical name derived from the organization's naming version
 - **Example**: `ducklake.posthog_data_imports_team_123.stripe_prod_invoices`
-- **Registered files**: `s3://<ducklake-bucket>/<ducklake-schema>/<ducklake-table>/_imports/<source-schema-id>/<job-id>/<prepared-relative-path>`
+- **Registered files**: `s3://<ducklake-bucket>/<ducklake-schema>/<ducklake-table>/_imports/<source-schema-id>/<job-id>/<generation-token>/<prepared-relative-path>`
 
 Duckgres stores a table-naming version on the organization. Organizations that existed when versioning was introduced keep the batch sink's snake-case format, such as `tik_tok_ads_ad_report`. New organizations use the copy workflow format, such as `tiktokads_ad_report`. Copy, registration, the batch sink, and query binding derive the same physical name from that organization-level policy. Do not change the policy after an organization has written data unless the underlying tables are migrated at the same time.
 
-Each completed import creates a timestamped prepared Parquet snapshot in the data warehouse bucket. The registration workflow copies those objects directly into the DuckLake bucket, preserving Hive partition directories, registers the destination objects with `ducklake_add_data_files`, verifies the shadow table's row count, and only then swaps it into the stable table name through the Duckgres PostgreSQL connection. Registration, verification, and the swap share one catalog transaction, so a mismatch leaves the previous table live. Each import job gets its own object prefix and child workflow ID, so a later sync does not append into the previous snapshot.
+Each completed import creates a timestamped prepared Parquet snapshot in the data warehouse bucket. The registration workflow copies those objects directly into the DuckLake bucket, preserving Hive partition directories, and registers the generation through one recursive Parquet glob. This gives DuckDB one parallel metadata scan and one generation-sized DuckLake commit. The workflow verifies the shadow table's row count, then swaps it into the stable table name through the Duckgres PostgreSQL connection. Publication uses one short transaction that renames the current table to an attempt-owned backup and the verified shadow to the stable name. A mismatch never enters the publication transaction, so the previous table remains live. The backup is dropped after publication. Each prepared generation gets its own object prefix and child workflow ID.
 
 The registered objects are permanent DuckLake data files, not staging files. Old generations remain reachable through DuckLake snapshots until snapshot expiration and old-file cleanup make them eligible for object deletion. Choose the bucket lifecycle policy with that retention behavior in mind.
 

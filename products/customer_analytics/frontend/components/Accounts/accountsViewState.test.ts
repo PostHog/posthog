@@ -1,7 +1,9 @@
+import { AccountsTableCustomPropertyOperator } from '~/queries/schema/schema-general'
 import { PropertyFilterType, PropertyOperator } from '~/types'
 
-import { ACCOUNTS_HOGQL_DEFAULT_SELECT } from './accountsColumnConfigLogic'
+import { ACCOUNTS_DEFAULT_COLUMNS } from './accountsColumnConfigLogic'
 import {
+    AccountsViewState,
     deserializeAccountsView,
     normalizeRoleFilter,
     orderByToSortOrder,
@@ -49,7 +51,7 @@ describe('normalizeRoleFilter', () => {
 
 describe('serializeAccountsView / deserializeAccountsView', () => {
     it('round-trips a fully populated view', () => {
-        const state = {
+        const state: AccountsViewState = {
             columns: ['name', 'csm'],
             sortOrder: { column: 'csm' as const, direction: 'desc' as const },
             filters: {
@@ -57,7 +59,15 @@ describe('serializeAccountsView / deserializeAccountsView', () => {
                 tags: ['enterprise'],
                 unassigned: false,
                 assignedTo: [1, 2, 3],
-                tileFilter: { tileId: 't1', expression: 'mrr > 100' },
+                tileFilter: {
+                    tileId: 't1',
+                    filter: {
+                        kind: 'custom_property',
+                        definitionId: '11111111-2222-3333-4444-555555555555',
+                        operator: AccountsTableCustomPropertyOperator.GreaterThan,
+                        values: [100],
+                    },
+                },
                 customProperties: [
                     {
                         type: PropertyFilterType.AccountCustomProperty as const,
@@ -82,7 +92,7 @@ describe('serializeAccountsView / deserializeAccountsView', () => {
 
     it('omits empty filters and serializes no sort', () => {
         const payload = serializeAccountsView({
-            columns: [...ACCOUNTS_HOGQL_DEFAULT_SELECT],
+            columns: [...ACCOUNTS_DEFAULT_COLUMNS],
             sortOrder: null,
             filters: {
                 search: '',
@@ -117,6 +127,6 @@ describe('serializeAccountsView / deserializeAccountsView', () => {
 
     it('falls back to default columns when a row has none', () => {
         const state = deserializeAccountsView({ columns: [], order_by: [], filters: {}, properties: {} })
-        expect(state.columns).toEqual(ACCOUNTS_HOGQL_DEFAULT_SELECT)
+        expect(state.columns).toEqual(ACCOUNTS_DEFAULT_COLUMNS)
     })
 })

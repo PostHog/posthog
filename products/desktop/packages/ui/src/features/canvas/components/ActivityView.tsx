@@ -24,13 +24,19 @@ import type { UserBasic } from "@posthog/shared/domain-types";
 import { useOptionalAuthenticatedClient } from "@posthog/ui/features/auth/authClient";
 import { UserAvatar } from "@posthog/ui/features/auth/UserAvatar";
 import { useCurrentUser } from "@posthog/ui/features/auth/useCurrentUser";
+import { ActivityUnreadsToggle } from "@posthog/ui/features/canvas/components/ActivityUnreadsToggle";
 import { MentionText } from "@posthog/ui/features/canvas/components/MentionText";
-import { useChannels } from "@posthog/ui/features/canvas/hooks/useChannels";
+import { useBlockedTaskIds } from "@posthog/ui/features/canvas/hooks/useBlockedSessionCount";
 import { useChannelsLayout } from "@posthog/ui/features/canvas/hooks/useChannelsLayout";
 import { useMarkTaskActivityRead } from "@posthog/ui/features/canvas/hooks/useMarkTaskActivityRead";
 import { useTaskActivity } from "@posthog/ui/features/canvas/hooks/useTaskActivity";
+import { useActivityFilterStore } from "@posthog/ui/features/canvas/stores/activityFilterStore";
+import { useCanvasChatPanelStore } from "@posthog/ui/features/canvas/stores/canvasChatPanelStore";
+import { useThreadPanelStore } from "@posthog/ui/features/canvas/stores/threadPanelStore";
 import { copyChannelLink } from "@posthog/ui/features/canvas/utils/copyChannelLink";
 import { userDisplayName } from "@posthog/ui/features/canvas/utils/userDisplay";
+import { useCommentNavigationStore } from "@posthog/ui/features/sessions/commentNavigationStore";
+import { DOT_TONE_VAR } from "@posthog/ui/features/sidebar/components/items/taskStatusVocabulary";
 import {
   PageHeader,
   PageHeaderActions,
@@ -41,17 +47,16 @@ import {
   PageHeaderTitleRow,
 } from "@posthog/ui/primitives/PageHeader";
 import {
+  navigateToChannelDashboard,
   navigateToChannelTask,
   navigateToTaskDetail,
 } from "@posthog/ui/router/navigationBridge";
 import { track } from "@posthog/ui/shell/analytics";
 import { Text } from "@radix-ui/themes";
 import type { ReactNode } from "react";
-import { memo, useCallback, useEffect, useMemo } from "react";
+import { useCallback, useEffect, useMemo } from "react";
 import {
   activityReadPayload,
-  channelIdForName,
-  createChannelIdByName,
   getUnreadActivityItems,
   markLoadedReadLabel,
 } from "./activityFeed";
@@ -66,6 +71,17 @@ function ChannelSuffix({ channelName }: { channelName: string | null }) {
       </Text>
     </>
   );
+}
+
+function ownedItemName(item: TaskActivityItem): string {
+  switch (item.commentTarget?.scope) {
+    case "desktop_canvas":
+      return "canvas";
+    case "task_artifact":
+      return "artifact";
+    default:
+      return "task";
+  }
 }
 
 /** The lead line describing what happened, chosen by the row's activity kind. */
@@ -115,6 +131,26 @@ export function activityHeadline(
           <ChannelSuffix channelName={item.channelName} />
         </>
       );
+    case "thread_reply":
+      return (
+        <>
+          <Text as="span" size="1" weight="medium">
+            {userDisplayName(item.author)}
+          </Text>{" "}
+          replied to a thread you participated in
+          <ChannelSuffix channelName={item.channelName} />
+        </>
+      );
+    case "owned_item_comment":
+      return (
+        <>
+          <Text as="span" size="1" weight="medium">
+            {userDisplayName(item.author)}
+          </Text>{" "}
+          commented on your {ownedItemName(item)}
+          <ChannelSuffix channelName={item.channelName} />
+        </>
+      );
     default:
       return "You created this task";
   }
@@ -122,20 +158,27 @@ export function activityHeadline(
 
 export function ActivityRow({
   item,
-  folderChannelId,
+  channelId,
   onOpen,
   onMarkRead,
   currentUser,
+  blockedTaskIds,
   surface = "activity",
   onNavigate,
   compact = false,
 }: {
   item: TaskActivityItem;
-  /** Desktop folder channel id (the /website route param); null when unmapped. */
-  folderChannelId: string | null;
+  /** Backend channel id (the /website route param); null when the task is unfiled. */
+  channelId: string | null;
   onOpen: (item: TaskActivityItem) => void;
   onMarkRead: (item: TaskActivityItem) => void;
   currentUser?: UserBasic | null;
+  /**
+   * Tasks whose session is waiting on you. Passed in rather than selected here:
+   * the feed renders one of these per item, and the selector behind it scans and
+   * sorts every live session on each store notification.
+   */
+  blockedTaskIds: ReadonlySet<string>;
   surface?: "activity" | "activity_panel";
   onNavigate?: () => void;
   compact?: boolean;
@@ -144,19 +187,42 @@ export function ActivityRow({
     item.activityKind === "awaiting_input" ||
     item.activityKind === "completed" ||
     (item.activityKind === "message" && !item.author);
+  // The one row here that is blocked on you, and the sidebar's session rows
+  // already say that in blue. Yellow is everything else the feed carries:
+  // something happened that you haven't read.
+  //
+  // Read against the live sessions rather than the row's kind alone, so this is
+  // the same fact the sidebar's blue dot is drawn from. The row records that the
+  // agent asked at a moment in time; whether it is still waiting is a question
+  // only the session can answer, and answering the prompt has to clear the dot.
+  const awaitsReply =
+    item.activityKind === "awaiting_input" && blockedTaskIds.has(item.taskId);
   const openTask = () => {
     track(ANALYTICS_EVENTS.CHANNEL_ACTION, {
       action_type: "open_task",
       surface,
-      channel_id: folderChannelId ?? undefined,
+      channel_id: channelId ?? undefined,
       task_id: item.taskId,
     });
     onOpen(item);
+    if (item.commentId && item.commentTarget) {
+      useCommentNavigationStore
+        .getState()
+        .requestCommentFocus(item.taskId, item.commentTarget, item.commentId);
+    }
     onNavigate?.();
-    // The channel thread route is the deep-link target; tasks whose channel
-    // folder is gone fall back to the plain task view.
-    if (folderChannelId) {
-      navigateToChannelTask(folderChannelId, item.taskId);
+    if (channelId && item.commentTarget?.scope === "desktop_canvas") {
+      useCanvasChatPanelStore.getState().openComments();
+      navigateToChannelDashboard(channelId, item.commentTarget.itemId);
+      return;
+    }
+    // The channel thread route is the deep-link target; unfiled tasks fall
+    // back to the plain task view.
+    if (channelId) {
+      if (item.commentId) {
+        useThreadPanelStore.getState().setCollapsed(false);
+      }
+      navigateToChannelTask(channelId, item.taskId);
     } else {
       navigateToTaskDetail(item.taskId);
     }
@@ -179,10 +245,20 @@ export function ActivityRow({
           ) : (
             <UserAvatar user={item.author ?? currentUser} size="xs" />
           )}
-          {item.isUnread && (
+          {/* Unread is a fact about the feed: you haven't looked at this yet.
+              Waiting on you is a fact about the session, and reading the row
+              doesn't answer the prompt — so it keeps its dot until you do. */}
+          {(item.isUnread || awaitsReply) && (
             <span
-              className="-top-0.5 -right-0.5 absolute h-2 w-2 rounded-full bg-primary"
-              title="New activity"
+              className="-top-0.5 -right-0.5 absolute h-2 w-2 rounded-full"
+              // Off the table the status dots read, so a row that says the agent
+              // is waiting is the same blue as the session it is waiting in.
+              style={{
+                backgroundColor: awaitsReply
+                  ? DOT_TONE_VAR.blue
+                  : "var(--primary)",
+              }}
+              title={awaitsReply ? "Waiting on you" : "New activity"}
             />
           )}
         </span>
@@ -228,20 +304,20 @@ export function ActivityRow({
           size="icon-xs"
           aria-label="Mark as read"
           title="Mark as read"
-          className={`absolute opacity-0 transition-opacity group-hover:opacity-100 ${compact ? "right-2 bottom-1" : `top-2 ${folderChannelId ? "right-9" : "right-2"}`}`}
+          className={`absolute opacity-0 transition-opacity group-hover:opacity-100 ${compact ? "right-2 bottom-1" : `top-2 ${channelId ? "right-9" : "right-2"}`}`}
           onClick={() => onMarkRead(item)}
         >
           <CheckIcon size={14} />
         </Button>
       )}
-      {folderChannelId && !compact && (
+      {channelId && !compact && (
         <Button
           variant="default"
           size="icon-xs"
           aria-label="Copy thread link"
           className="absolute top-2 right-2 opacity-0 transition-opacity group-hover:opacity-100"
           onClick={() =>
-            void copyChannelLink(folderChannelId, "activity", item.taskId)
+            void copyChannelLink(channelId, "activity", item.taskId)
           }
         >
           <LinkIcon size={14} />
@@ -266,32 +342,34 @@ export function ActivityView() {
     isFetchingNextPage,
     fetchNextPage,
   } = useTaskActivity();
+  // Selected once for the feed, not once per row.
+  const blockedTaskIds = useBlockedTaskIds();
   const { mutate: markTasksRead, isPending: isMarkingRead } =
     useMarkTaskActivityRead();
-  const unreadItems = useMemo(() => getUnreadActivityItems(items), [items]);
+  const visibleItems = items;
+  const unreadItems = useMemo(
+    () => getUnreadActivityItems(visibleItems),
+    [visibleItems],
+  );
+  const unreadsOnly = useActivityFilterStore((state) => state.unreadsOnly);
+  const shownItems = unreadsOnly ? unreadItems : visibleItems;
+  const visibleUnreadCount = unreadCount;
   // Opening a row is what marks it read. The server does the same when the task is
   // reached any other way, so the feed converges either way.
   const markRead = useCallback(
     (item: TaskActivityItem) =>
-      markTasksRead([{ task_id: item.taskId, seen_before: item.activityAt }]),
+      markTasksRead([
+        {
+          task_id: item.taskId,
+          seen_before: item.activityAt,
+          ...(item.commentId ? { activity_id: item.id } : {}),
+        },
+      ]),
     [markTasksRead],
   );
   const markAllRead = useCallback(() => {
     markTasksRead(activityReadPayload(unreadItems));
   }, [markTasksRead, unreadItems]);
-  // Items carry backend channel names only; the desktop folder-channel id
-  // (needed for /website navigation and copy-link) is resolved here, where
-  // the single useChannels subscription lives.
-  const { channels: folderChannels } = useChannels();
-  const folderIdByName = useMemo(
-    () => createChannelIdByName(folderChannels),
-    [folderChannels],
-  );
-  const folderChannelIdFor = useCallback(
-    (channelName: string | null): string | null =>
-      channelIdForName(folderIdByName, channelName),
-    [folderIdByName],
-  );
   useEffect(() => {
     track(ANALYTICS_EVENTS.CHANNEL_ACTION, {
       action_type: "view_activity",
@@ -299,164 +377,128 @@ export function ActivityView() {
     });
   }, []);
 
-  const markAllReadButton = useMemo(
-    () =>
-      unreadCount > 0 ? (
-        <Button
-          variant="default"
-          size="sm"
-          loading={isMarkingRead}
-          disabled={isMarkingRead}
-          onClick={markAllRead}
-        >
-          <ChecksIcon size={14} />
-          {markLoadedReadLabel(unreadItems.length, unreadCount)}
-        </Button>
-      ) : null,
-    [unreadCount, unreadItems.length, isMarkingRead, markAllRead],
+  const markAllReadButton = (
+    <Button
+      variant="default"
+      size="sm"
+      loading={isMarkingRead}
+      disabled={isMarkingRead}
+      onClick={markAllRead}
+    >
+      <ChecksIcon size={14} />
+      {markLoadedReadLabel(unreadItems.length, visibleUnreadCount)}
+    </Button>
   );
 
-  const feed = (
-    <ActivityFeed
-      items={items}
-      isLoading={isLoading}
-      spacesLayout={spacesLayout}
-      folderChannelIdFor={folderChannelIdFor}
-      markRead={markRead}
-      currentUser={currentUser}
-      hasNextPage={hasNextPage}
-      isFetchingNextPage={isFetchingNextPage}
-      fetchNextPage={fetchNextPage}
-    />
+  // Sits below the rows and below the empty state alike: filtering to unreads can
+  // empty a page that still has unread activity waiting on the next one.
+  const loadMoreButton = hasNextPage && (
+    <div className="mt-3 flex justify-center">
+      <Button
+        variant="outline"
+        loading={isFetchingNextPage}
+        disabled={isFetchingNextPage}
+        onClick={() => void fetchNextPage()}
+      >
+        Load more
+      </Button>
+    </div>
   );
 
-  // The shared page header ships with the spaces layout; without it the page
-  // keeps the in-container title it has always had. Delete the legacy branch
-  // when the layout flag graduates.
-  if (!spacesLayout) {
+  // The feed body is identical in both shells; only the empty-state copy tracks
+  // the layout's naming ("spaces" vs "channels").
+  const feed =
+    isLoading && shownItems.length === 0 ? (
+      <div className="flex justify-center py-16">
+        <Spinner />
+      </div>
+    ) : shownItems.length === 0 ? (
+      <>
+        <Empty>
+          <EmptyHeader>
+            <EmptyMedia variant="icon">
+              <BellIcon size={20} />
+            </EmptyMedia>
+            <EmptyTitle>
+              {unreadsOnly ? "No unread activity" : "No activity yet"}
+            </EmptyTitle>
+            <EmptyDescription>
+              {unreadsOnly
+                ? "You're all caught up."
+                : `Task updates and comment notifications across ${spacesLayout ? "spaces" : "channels"} appear here.`}
+            </EmptyDescription>
+          </EmptyHeader>
+        </Empty>
+        {loadMoreButton}
+      </>
+    ) : (
+      <>
+        <div className="flex flex-col gap-0.5">
+          {shownItems.map((item) => (
+            <ActivityRow
+              key={item.id}
+              item={item}
+              channelId={item.channelId}
+              onOpen={markRead}
+              onMarkRead={markRead}
+              currentUser={currentUser}
+              blockedTaskIds={blockedTaskIds}
+            />
+          ))}
+        </div>
+        {loadMoreButton}
+      </>
+    );
+
+  if (spacesLayout) {
     return (
-      <div className="h-full overflow-y-auto bg-gray-1">
-        <div className="mx-auto w-full max-w-[680px] px-4 py-6">
-          <div className="flex items-start justify-between gap-4">
-            <div>
-              <Text size="5" weight="bold" className="block">
-                Activity
-              </Text>
-              <Text size="2" className="block text-muted-foreground">
-                Tasks you're involved in across{" "}
-                {spacesLayout ? "spaces" : "channels"}.
-              </Text>
-            </div>
-            {markAllReadButton}
-          </div>
-          <div className="mt-4">{feed}</div>
+      <div className="flex h-full min-h-0 flex-col bg-gray-1">
+        <PageHeader>
+          <PageHeaderHeading>
+            <PageHeaderTitleRow>
+              <PageHeaderTitle>Activity</PageHeaderTitle>
+              {unreadCount > 0 && (
+                <PageHeaderChip icon={<BellIcon size={12} weight="fill" />}>
+                  {unreadCount} unread
+                </PageHeaderChip>
+              )}
+              <PageHeaderActions>
+                {unreadCount > 0 && markAllReadButton}
+                <ActivityUnreadsToggle />
+              </PageHeaderActions>
+            </PageHeaderTitleRow>
+            <PageHeaderDescription>
+              Task updates and comment notifications across spaces.
+            </PageHeaderDescription>
+          </PageHeaderHeading>
+        </PageHeader>
+        <div className="min-h-0 flex-1 overflow-y-auto">
+          <div className="mx-auto w-full max-w-[680px] px-4 py-6">{feed}</div>
         </div>
       </div>
     );
   }
 
   return (
-    <div className="flex h-full min-h-0 flex-col bg-gray-1">
-      <PageHeader>
-        <PageHeaderHeading>
-          <PageHeaderTitleRow>
-            <PageHeaderTitle>Activity</PageHeaderTitle>
-            {unreadCount > 0 && (
-              <PageHeaderChip icon={<BellIcon size={12} weight="fill" />}>
-                {unreadCount} unread
-              </PageHeaderChip>
-            )}
-            {markAllReadButton && (
-              <PageHeaderActions>{markAllReadButton}</PageHeaderActions>
-            )}
-          </PageHeaderTitleRow>
-          <PageHeaderDescription>
-            Tasks you're involved in across{" "}
-            {spacesLayout ? "spaces" : "channels"}.
-          </PageHeaderDescription>
-        </PageHeaderHeading>
-      </PageHeader>
-      <div className="min-h-0 flex-1 overflow-y-auto">
-        <div className="mx-auto w-full max-w-[680px] px-4 py-6">{feed}</div>
+    <div className="h-full overflow-y-auto bg-gray-1">
+      <div className="mx-auto w-full max-w-[680px] px-4 py-6">
+        <div className="flex items-start justify-between gap-4">
+          <div>
+            <Text size="5" weight="bold" className="block">
+              Activity
+            </Text>
+            <Text size="2" className="block text-muted-foreground">
+              Task updates and comment notifications across{" "}
+              {spacesLayout ? "spaces" : "channels"}.
+            </Text>
+          </div>
+          <div className="flex shrink-0 items-center gap-2">
+            {unreadCount > 0 && markAllReadButton}
+            <ActivityUnreadsToggle />
+          </div>
+        </div>
+        <div className="mt-4">{feed}</div>
       </div>
     </div>
   );
 }
-
-/**
- * The feed body. A memo'd child rather than JSX built in the parent: the parent
- * picks between two page shells and returns early, and this way the branch it
- * doesn't take costs nothing.
- */
-const ActivityFeed = memo(function ActivityFeed({
-  items,
-  isLoading,
-  spacesLayout,
-  folderChannelIdFor,
-  markRead,
-  currentUser,
-  hasNextPage,
-  isFetchingNextPage,
-  fetchNextPage,
-}: {
-  items: TaskActivityItem[];
-  isLoading: boolean;
-  spacesLayout: boolean;
-  folderChannelIdFor: (channelName: string | null) => string | null;
-  markRead: (item: TaskActivityItem) => void;
-  currentUser?: UserBasic | null;
-  hasNextPage: boolean;
-  isFetchingNextPage: boolean;
-  fetchNextPage: () => void;
-}) {
-  if (isLoading && items.length === 0) {
-    return (
-      <div className="flex justify-center py-16">
-        <Spinner />
-      </div>
-    );
-  }
-
-  if (items.length === 0) {
-    return (
-      <Empty>
-        <EmptyHeader>
-          <EmptyMedia variant="icon">
-            <BellIcon size={20} />
-          </EmptyMedia>
-          <EmptyTitle>No activity yet</EmptyTitle>
-          <EmptyDescription>
-            Tasks you create, get tagged in, or reply to across{" "}
-            {spacesLayout ? "spaces" : "channels"} land here.
-          </EmptyDescription>
-        </EmptyHeader>
-      </Empty>
-    );
-  }
-
-  return (
-    <div className="flex flex-col gap-0.5">
-      {items.map((item) => (
-        <ActivityRow
-          key={item.taskId}
-          item={item}
-          folderChannelId={folderChannelIdFor(item.channelName)}
-          onOpen={markRead}
-          onMarkRead={markRead}
-          currentUser={currentUser}
-        />
-      ))}
-      {hasNextPage && (
-        <Button
-          variant="outline"
-          className="mt-3 self-center"
-          loading={isFetchingNextPage}
-          disabled={isFetchingNextPage}
-          onClick={() => void fetchNextPage()}
-        >
-          Load more
-        </Button>
-      )}
-    </div>
-  );
-});

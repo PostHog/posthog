@@ -14,7 +14,7 @@ from collections import Counter
 from dataclasses import dataclass
 from datetime import timedelta
 from typing import Any, TypeVar
-from uuid import UUID
+from uuid import UUID, uuid4
 
 from django.utils import timezone
 
@@ -134,6 +134,8 @@ async def _call_scanner_provider(inputs: CallScannerProviderInputs) -> ScannerCa
         navigation=[entry.model_dump() for entry in llm_inputs.navigation],
         navigation_dropped=llm_inputs.navigation_dropped,
         events_truncated=llm_inputs.events_truncated,
+        product_context=llm_inputs.product_context,
+        event_descriptions=llm_inputs.event_descriptions,
     )
     video_part = types.Part(file_data=types.FileData(file_uri=inputs.file_uri, mime_type=inputs.mime_type))
 
@@ -144,10 +146,20 @@ async def _call_scanner_provider(inputs: CallScannerProviderInputs) -> ScannerCa
         preamble_text=preamble_text,
         team_id=inputs.team_id,
         llm_inputs=llm_inputs,
+        trace_id=_scan_trace_id(inputs),
     )
     duration_ms = int(llm_inputs.metadata.duration_seconds * 1000)
     finalized = _resolve_citations(finalized, scanner, duration_ms)
     return ScannerCallOutput(model_output=finalized, signals=signals)
+
+
+def _scan_trace_id(inputs: CallScannerProviderInputs) -> str:
+    """LLM analytics trace id for one scan: the observation id, so every step, tool round-trip, and retry of
+    a scan reads as a single conversation and the observation id doubles as the trace search key. Evaluation
+    re-runs (snapshot_override) get a fresh id so they don't interleave with the real scan's trace."""
+    if inputs.snapshot_override is not None:
+        return str(uuid4())
+    return str(inputs.observation_id)
 
 
 def _resolve_citations(
@@ -297,6 +309,7 @@ async def _run_mission(
     preamble_text: str,
     team_id: int,
     llm_inputs: ScannerLlmInputs,
+    trace_id: str,
 ) -> tuple[BaseScannerOutput, list[SignalFinding]]:
     """Cache the video, run every mission step as a tool-using turn, then assemble the output + side-mission findings.
 
@@ -337,6 +350,7 @@ async def _run_mission(
         dispatch=dispatch,
         team_id=team_id,
         metric_labels=metric_labels,
+        trace_id=trace_id,
     )
     try:
         step_outputs = await _run_mission_attempts(run=run, cache=cache, model=snapshot.model)
@@ -405,6 +419,7 @@ async def _run_steps(
     dispatch: Any,
     team_id: int,
     metric_labels: dict[str, str],
+    trace_id: str,
 ) -> dict[str, BaseModel]:
     """Run the ordered steps over one growing conversation; return the validated output keyed by step name."""
     # The video + preamble lead the conversation inline unless they're already cached as the prefix.
@@ -419,9 +434,12 @@ async def _run_steps(
             step=step,
             convo=convo,
             cache_name=cache_name,
+            video_part=video_part,
+            preamble_text=preamble_text,
             dispatch=dispatch,
             team_id=team_id,
             metric_labels=metric_labels,
+            trace_id=trace_id,
         )
         if result.output is None:
             # Roll the failed step's half-finished exchange back so the next instruction follows the last good
@@ -456,9 +474,12 @@ async def _run_step(
     step: MissionStep,
     convo: list[Any],
     cache_name: str | None,
+    video_part: types.Part,
+    preamble_text: str,
     dispatch: Any,
     team_id: int,
     metric_labels: dict[str, str],
+    trace_id: str,
 ) -> "_StepResult":
     """Run one step's tool loop with one re-prompt on failure. Returns the validated output, or why it was exhausted.
 
@@ -467,6 +488,9 @@ async def _run_step(
     """
     config = _step_config(step, cache_name)
     forced_config = _step_config(step, cache_name, allow_tools=False)
+    # The forced final turn runs inline (it can't reuse the cache, which pins the tool on). When the run is cached,
+    # `convo` omits the video + preamble prefix — those live in the cache — so re-supply them inline for that turn.
+    forced_prefix = [video_part, types.Part(text=preamble_text)] if cache_name else []
 
     async def _generate(c: list[Any], cfg: types.GenerateContentConfig = config) -> Any:
         return await client.models.generate_content(
@@ -474,6 +498,8 @@ async def _run_step(
             contents=c,
             config=cfg,
             posthog_distinct_id=replay_vision_distinct_id(team_id),
+            posthog_trace_id=trace_id,
+            posthog_properties={"$ai_span_name": step.name},
             posthog_groups={"project": str(team_id)},
         )
 
@@ -496,7 +522,10 @@ async def _run_step(
                 )
                 started = time.monotonic()
                 response = await _force_final_answer(
-                    generate=lambda c: _generate(c, forced_config), convo=convo, exhausted=response, dispatch=dispatch
+                    generate=lambda c: _generate(forced_prefix + c, forced_config),
+                    convo=convo,
+                    exhausted=response,
+                    dispatch=dispatch,
                 )
         except Exception:
             record_provider_call(**metric_labels, outcome="provider_error", seconds=time.monotonic() - started)
@@ -583,20 +612,25 @@ async def _force_final_answer(*, generate: Any, convo: list[Any], exhausted: Any
 def _step_config(step: MissionStep, cache_name: str | None, *, allow_tools: bool = True) -> types.GenerateContentConfig:
     """Generation config for one step: its JSON schema, plus the events tool (from the cache when cached).
 
-    `allow_tools=False` is the forced final turn after the tool budget runs out — the model must answer from what it
-    has, so calling is suppressed: omit the tool inline, or disable function-calling on the cached tool.
+    Normal turns offer the tool — from the cache when the video is cached (the tool lives there alongside it), or
+    inline otherwise. The forced final turn (`allow_tools=False`, after the tool budget runs out) must answer from
+    what it has, so no tool is offered. It never references the cache: Gemini rejects a `GenerateContent` request
+    that sets `tools`, `tool_config`, or `system_instruction` alongside `cached_content`, so there's no way to
+    disable the cached tool per-request. That turn always runs inline with the tool simply absent — the caller
+    re-supplies the video + preamble inline for it (see `forced_prefix` in `_run_step`).
     """
     kwargs: dict[str, Any] = {
         "response_mime_type": "application/json",
         "response_json_schema": step.response_model.model_json_schema(),
+        # Return thought summaries so the model's reasoning is visible in LLM analytics. Answer parsing is
+        # unaffected (`response.text` skips thought parts); models with thinking off just return none.
+        "thinking_config": types.ThinkingConfig(include_thoughts=True),
     }
+    if not allow_tools:
+        return types.GenerateContentConfig(**kwargs)  # inline, no tool to call — the model must answer now
     if cache_name:
         kwargs["cached_content"] = cache_name  # video, preamble, and the tool all live in the cache
-        if not allow_tools:
-            kwargs["tool_config"] = types.ToolConfig(
-                function_calling_config=types.FunctionCallingConfig(mode=types.FunctionCallingConfigMode.NONE)
-            )
-    elif allow_tools:
+    else:
         kwargs["tools"] = [events_tool()]
     return types.GenerateContentConfig(**kwargs)
 

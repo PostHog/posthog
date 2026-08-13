@@ -859,6 +859,9 @@ class TestImpersonationReadOnlyMiddleware(APIBaseTest):
         [
             ("query", "query/", {"query": {"kind": "EventsQuery", "select": ["event"]}}),
             ("query_kind", "query/HogQLQuery/", {"query": {"kind": "HogQLQuery", "query": "select 1"}}),
+            # digit-containing kind — the allowlist regex used to miss these
+            ("query_kind_digit", "query/PathsV2Query/", {"query": {"kind": "PathsV2Query"}}),
+            ("query_upgrade", "query/upgrade/", {"query": {"kind": "EventsQuery", "select": ["event"]}}),
             ("endpoint_materialization_preview", "endpoints/some_endpoint/materialization_preview/", {}),
             (
                 "external_data_schemas_incremental_fields",
@@ -884,6 +887,18 @@ class TestImpersonationReadOnlyMiddleware(APIBaseTest):
         )
 
         assert response.status_code != 403 or response.json().get("code") != "impersonation_read_only"
+
+    def test_read_only_impersonation_blocks_query_cancellation(self):
+        self.login_as_other_user_read_only()
+
+        assert self.client.get("/api/users/@me").json()["email"] == "other-user@posthog.com"
+
+        # DELETE /query/<id>/ cancels a query. The ID below matches the allowlisted query
+        # path pattern, so only the method check keeps this blocked.
+        response = self.client.delete(f"/api/projects/{self.team.id}/query/SomeQueryId123/")
+
+        assert response.status_code == 403
+        assert response.json()["code"] == "impersonation_read_only"
 
     def test_regular_impersonation_allows_write(self):
         """Verify regular (non-read-only) impersonation can still write."""
@@ -1852,6 +1867,22 @@ class TestCSPMiddleware(APIBaseTest):
         assert response.status_code == 200
         assert "Content-Security-Policy-Report-Only" in response
         assert "Content-Security-Policy" not in response
+
+    def test_html_response_declares_default_reporting_endpoint_with_distinct_id(self):
+        # Browsers only deliver crash reports to the endpoint named `default`, so dropping or
+        # renaming it silently stops crash ingestion.
+        response = self.client.get("/")
+        header = response["Reporting-Endpoints"]
+        assert 'posthog="https://us.i.posthog.com/report/' in header
+        assert 'default="https://us.i.posthog.com/report/' in header
+        assert f"distinct_id={self.user.distinct_id}" in header
+
+    def test_reporting_endpoints_omit_distinct_id_when_logged_out(self):
+        self.client.logout()
+        response = self.client.get("/login")
+        header = response["Reporting-Endpoints"]
+        assert 'default="https://us.i.posthog.com/report/' in header
+        assert "distinct_id" not in header
 
 
 class TestSocialAuthExceptionMiddleware(APIBaseTest):

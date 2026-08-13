@@ -119,6 +119,9 @@ export function niceLogDomain(minPositive: number, max: number): [number, number
     return [niceMin, niceMax]
 }
 
+/** Point scale keyed by label string. d3 ordinal domains keep only the first occurrence of a
+ *  value, so duplicate labels collapse onto one position and a series drawn through them runs
+ *  backwards. Callers must pass unique labels (ISO dates for time series, not display text). */
 export function createXScale(labels: string[], dimensions: ChartDimensions): ScalePoint<string> {
     return scalePoint<string>()
         .domain(labels)
@@ -563,6 +566,13 @@ export interface BarScaleSet {
      *  more than one axis id across the visible series (`showMultipleYAxes`). `value` is
      *  the primary (left) axis scale. */
     yAxes?: Record<string, { scale: D3YScale; position: 'left' | 'right' }>
+    /** Px floor on bar thickness along the value axis — see {@link BarsConfig.minBarSize}. A layout
+     *  parameter rather than a scale, but carried here because every path that resolves a bar *rect*
+     *  (static draw, hover overlay, click routing) already reads the committed scale set, so the
+     *  floor can't drift between them. Tooltip/value-label anchoring (`buildTooltipContext`) is a
+     *  separate path that positions off the unfloored value, not the drawn rect — a floored bucket's
+     *  anchor can land inside the bar it labels. */
+    minBarSize?: number
 }
 
 /** Band-axis slot of one series's bar within a grouped band: `{ x, width }` along the band axis.
@@ -596,6 +606,8 @@ export function createBarScales(
         fitToHeight?: boolean
         /** Minimum px per row — only consulted to compute the `fitToHeight` row cap. */
         minBandSize?: number
+        /** Px floor on bar thickness along the value axis — see {@link BarsConfig.minBarSize}. */
+        minBarSize?: number
         /** Fixed `[min, max]` or `{ include }` extra values the value axis must cover. */
         valueDomain?: ValueDomain
         /** Px reserved past the bars at the value-axis data end(s) — see {@link BarsConfig.valuePadding}. */
@@ -614,6 +626,7 @@ export function createBarScales(
         maxBandRange,
         fitToHeight,
         minBandSize,
+        minBarSize,
         valueDomain,
         valuePadding = 0,
         axes,
@@ -691,7 +704,7 @@ export function createBarScales(
             yAxes[axisId] = { scale, position }
         })
         const primary = yAxes[DEFAULT_Y_AXIS_ID] ?? yAxes[positions[0].axisId]
-        return { band, value: primary.scale, group, yAxes }
+        return { band, value: primary.scale, group, yAxes, minBarSize }
     }
 
     return {
@@ -707,6 +720,7 @@ export function createBarScales(
             valuePadding
         ),
         group,
+        minBarSize,
     }
 }
 

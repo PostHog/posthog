@@ -9,10 +9,7 @@ import {
   type SignedRewriteInput,
 } from "@posthog/git/signed-commit";
 import { z } from "zod";
-import {
-  reportCommitArtefacts,
-  reportTaskRunBranch,
-} from "../signed-commit-artefacts";
+import { reportSignedCommitActivity } from "../signed-commit-artefacts";
 import { qualifiedLocalToolName } from "./local-tools/registry";
 
 /**
@@ -32,7 +29,7 @@ export const SIGNED_COMMIT_TOOL_DESCRIPTION =
   "first (or pass `paths`), then call this instead of `git commit`/`git push` — those are " +
   "blocked because all commits must be signed. The commit is created via GitHub's API and " +
   "your local checkout is kept in sync. For a new branch, pass `branch` (prefixed with " +
-  "`posthog-code/`) and the tool creates it on the remote. Refuses while a merge/rebase/" +
+  "`posthog/`) and the tool creates it on the remote. Refuses while a merge/rebase/" +
   "cherry-pick is in progress, refuses staged files that copy base-branch content into the PR " +
   "(to bring the base branch in, use `git_signed_merge`), and refuses when the remote branch " +
   "has advanced past your checkout (e.g. a CI bot pushed) — sync it first, then retry.";
@@ -44,7 +41,7 @@ export const signedCommitToolSchema = {
     .string()
     .optional()
     .describe(
-      "Target branch; defaults to the current branch. Use a posthog-code/ prefix for new branches.",
+      "Target branch; defaults to the current branch. Use a posthog/ prefix for new branches.",
     ),
   paths: z
     .array(z.string())
@@ -180,26 +177,12 @@ export function runSignedCommitTool(
     SIGNED_COMMIT_TOOL_NAME,
     async (c, a: SignedCommitInput) => {
       const result = await createSignedCommit(c, a);
-      // TaskRun.branch is the branch that provisioning checks out in the task's
-      // repository on resume. A task can also commit to sibling repositories by
-      // passing `cwd`; persisting one of those branches here makes the next run
-      // try to clone the task repository at a branch that only exists elsewhere.
-      if (ctx.cwd === ctx.taskRepositoryCwd) {
-        await reportTaskRunBranch({
-          taskId: ctx.taskId,
-          taskRunId: ctx.taskRunId,
-          branch: result.branch,
-        });
-      }
-      // The "commit hook": every pushed commit becomes a `commit` artefact on the signal
-      // reports this task is associated with. Best-effort and awaited inside the tool's
-      // try/catch-free success path — reportCommitArtefacts never throws, so a failed
-      // artefact post can't fail a commit that already landed. git_signed_rewrite is
-      // intentionally not hooked (it republishes existing history).
-      await reportCommitArtefacts({
-        taskId: c.taskId,
+      await reportSignedCommitActivity({
+        taskId: ctx.taskId,
+        taskRunId: ctx.taskRunId,
         result,
         message: a.message,
+        updateCheckoutBranch: ctx.cwd === ctx.taskRepositoryCwd,
       });
       return result;
     },

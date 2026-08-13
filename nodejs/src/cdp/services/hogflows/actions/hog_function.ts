@@ -9,7 +9,7 @@ import {
     CyclotronJobInvocationResult,
     MinimalLogEntry,
 } from '../../../types'
-import { HogExecutorExecuteAsyncOptions } from '../../hog-executor.service'
+import { HogExecutorExecuteAsyncOptions } from '../../hog-executor-async.service'
 import { EmailValidationService } from '../../messaging/email-validation.service'
 import { RecipientPreferencesService } from '../../messaging/recipient-preferences.service'
 import { trackHogFlowBillableInvocation } from '../billing-utils'
@@ -61,7 +61,7 @@ export class HogFunctionHandler implements ActionHandler {
             ...functionResult.warehouseWebhookPayloads,
         ]
         result.metrics = [...result.metrics, ...functionResult.metrics]
-        result.emailAssets = [...result.emailAssets, ...functionResult.emailAssets]
+        result.messageAssets = [...result.messageAssets, ...functionResult.messageAssets]
 
         if (!functionResult.finished) {
             // Set the state of the function result on the substate of the flow for the next execution
@@ -95,6 +95,15 @@ export class HogFunctionHandler implements ActionHandler {
                 invocation: functionResult.invocation,
                 billingMetricType: this.hogFlowActionBillingType,
             })
+
+            // Re-pin the attribution version to the one that actually sent. Live edits reach runs
+            // already in flight, so a run that entered on v2 can send its email after v3 is
+            // published — and the conversion belongs to the version whose message the person
+            // received, which is also the version `email_sent` was counted under. Leaving the
+            // run-start stamp here would split a rate across two versions.
+            if (this.hogFlowActionBillingType === 'email' || this.hogFlowActionBillingType === 'push') {
+                result.invocation.state.flowVersion = invocation.hogFlow.version
+            }
         }
 
         return {
@@ -158,7 +167,7 @@ export class HogFunctionHandler implements ActionHandler {
                 metrics,
                 capturedPostHogEvents: [],
                 warehouseWebhookPayloads: [],
-                emailAssets: [],
+                messageAssets: [],
             }
         }
 
@@ -187,7 +196,7 @@ export class HogFunctionHandler implements ActionHandler {
                 ],
                 capturedPostHogEvents: [],
                 warehouseWebhookPayloads: [],
-                emailAssets: [],
+                messageAssets: [],
             }
         }
 

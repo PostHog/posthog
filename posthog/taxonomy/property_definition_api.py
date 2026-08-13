@@ -3,15 +3,16 @@ import uuid
 import dataclasses
 from typing import Any, Optional, Self, Union, cast
 
-from django.db import connection, models
+from django.db import DEFAULT_DB_ALIAS, OperationalError, connections, models, router, transaction
 from django.db.models import Manager, QuerySet
 from django.db.models.functions import Coalesce
 from django.http import Http404
 from django.shortcuts import get_object_or_404
 
 from opentelemetry import trace
+from prometheus_client import Counter
 from rest_framework import mixins, request, response, serializers, status, viewsets
-from rest_framework.exceptions import ValidationError
+from rest_framework.exceptions import APIException, ValidationError
 from rest_framework.pagination import LimitOffsetPagination
 
 from posthog.api.documentation import extend_schema
@@ -39,6 +40,51 @@ EXCLUDED_EVENT_CORE_PROPERTIES = [
     prop for prop in CORE_FILTER_DEFINITIONS_BY_GROUP["event_properties"].keys() if not prop.startswith("$")
 ]
 
+PROPERTY_DEFINITION_TYPES = ["event", "person", "group", "session"]
+
+# Listing runs two raw queries (a count, then a page fetch) that take seconds on projects with
+# very many property definitions. The app database sets no statement_timeout, so a slow one keeps
+# consuming database CPU for the full request until the gateway gives up at 120s, long after the
+# client stopped waiting for it. Bounding each statement well below that ceiling sheds the load
+# instead of queueing it, and returns a 503 the caller can retry or report.
+PROPERTY_DEFINITIONS_STATEMENT_TIMEOUT_MS = 25_000
+
+# Postgres reports a statement cancelled by statement_timeout as SQLSTATE 57014. psycopg2 exposes
+# it as `pgcode` and psycopg3 as `sqlstate`, and Django re-raises either as its own
+# OperationalError, so both attribute names have to be checked on the error and on its cause.
+QUERY_CANCELED_SQLSTATE = "57014"
+
+PROPERTY_DEFINITIONS_TIMED_OUT_COUNTER = Counter(
+    "property_definitions_list_timed_out_total",
+    "Property definition list requests cancelled by the statement timeout.",
+    labelnames=["property_type"],
+)
+
+
+class PropertyDefinitionsTimedOut(APIException):
+    # The taxonomic filter renders a failed list the same way as an empty one, so a generic 5xx here
+    # reads to the user as "this project has no properties". A stable code lets the client tell a
+    # timed-out list apart from any other server error and offer a retry instead.
+    status_code = status.HTTP_503_SERVICE_UNAVAILABLE
+    default_code = "property_definitions_timeout"
+    default_detail = "Loading properties took too long. Try a narrower search, or try again in a moment."
+
+
+def read_db_alias() -> str:
+    # The page fetch is an ORM RawQuerySet, so it follows the read router (see ReplicaRouter's
+    # opt-in list). The count query and the statement timeout have to land on that same connection
+    # or they describe a different session than the one doing the work.
+    return router.db_for_read(PropertyDefinition) or DEFAULT_DB_ALIAS
+
+
+def is_query_canceled(error: BaseException) -> bool:
+    for exc in (error, error.__cause__):
+        if exc is None:
+            continue
+        if (getattr(exc, "sqlstate", None) or getattr(exc, "pgcode", None)) == QUERY_CANCELED_SQLSTATE:
+            return True
+    return False
+
 
 class SeenTogetherQuerySerializer(serializers.Serializer):
     event_names: serializers.ListField = serializers.ListField(child=serializers.CharField(), required=True)
@@ -53,7 +99,7 @@ class PropertyDefinitionQuerySerializer(serializers.Serializer):
     )
 
     type = serializers.ChoiceField(
-        choices=["event", "person", "group", "session"],
+        choices=PROPERTY_DEFINITION_TYPES,
         help_text="What property definitions to return",
         default="event",
     )
@@ -722,7 +768,7 @@ class PropertyDefinitionViewSet(
             span.set_attribute("joins_event_property", query_context.should_join_event_property)
 
             with tracer.start_as_current_span("property_definitions_count_query") as count_span:
-                with connection.cursor() as cursor:
+                with connections[read_db_alias()].cursor() as cursor:
                     cursor.execute(query_context.as_count_sql(), query_context.params)
                     full_count = cursor.fetchone()[0]
                 count_span.set_attribute("full_count", full_count)
@@ -796,9 +842,29 @@ class PropertyDefinitionViewSet(
 
     @extend_schema(parameters=[PropertyDefinitionQuerySerializer])
     def list(self, request, *args, **kwargs):
-        response = super().list(request, *args, **kwargs)
-
         event_type = request.query_params.get("type", "event")
+
+        # Both raw queries and the serialization that reads their rows have to sit inside this
+        # transaction, because SET LOCAL only lasts until it commits and the page fetch is a lazy
+        # RawQuerySet that the paginator does not evaluate until super().list() serializes it.
+        alias = read_db_alias()
+        try:
+            with transaction.atomic(using=alias):
+                with connections[alias].cursor() as cursor:
+                    cursor.execute(
+                        "SET LOCAL statement_timeout = %s",
+                        [PROPERTY_DEFINITIONS_STATEMENT_TIMEOUT_MS],
+                    )
+                response = super().list(request, *args, **kwargs)
+        except OperationalError as error:
+            if not is_query_canceled(error):
+                raise
+            # `event_type` is raw query input, so clamp it to the known set rather than letting a
+            # caller mint unbounded Prometheus label values.
+            PROPERTY_DEFINITIONS_TIMED_OUT_COUNTER.labels(
+                property_type=event_type if event_type in PROPERTY_DEFINITION_TYPES else "unknown"
+            ).inc()
+            raise PropertyDefinitionsTimedOut from error
 
         # Inject virtual event/person/group properties to the end of the results
         if event_type in ["event", "person", "group"]:

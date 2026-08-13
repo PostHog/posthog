@@ -1,3 +1,4 @@
+use crate::authorizer::Signal;
 use crate::log_record::{override_timestamp, KafkaLogRow};
 use crate::service::{decode_body_if_gzip_magic, Service};
 use axum::{
@@ -315,12 +316,8 @@ pub async fn export_datadog_logs_http(
         },
     };
 
-    if service.token_dropper.should_drop(&token, "") {
-        return Err((
-            StatusCode::UNAUTHORIZED,
-            Json(json!({"error": "Invalid token"})),
-        ));
-    }
+    // Datadog agents ship logs, so this shares the logs signal.
+    service.authorizer.authorize_token(&token, Signal::Logs)?;
 
     tracing::Span::current().record("token", &token);
 
