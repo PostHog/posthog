@@ -360,6 +360,9 @@ tools:
             Temporal jobs are removed by the reconciler. Past observations recorded by this scanner are deleted along
             with it. Use sparingly — to stop a scanner without losing its history, set `enabled: false` via
             `vision-scanners-update` instead.
+    vision-scanners-draft-create:
+        operation: vision_scanners_draft_create
+        enabled: false
     vision-scanners-estimate-create:
         operation: vision_scanners_estimate_create
         enabled: true
