@@ -336,6 +336,7 @@ from .deel.source import DeelSource
 from .deepgram.source import DeepgramSource
 from .deepsource.source import DeepsourceSource
 from .deno_deploy.source import DenoDeploySource
+from .depot.source import DepotSource
 from .deputy.source import DeputySource
 from .descope.source import DescopeSource
 from .develocity.source import DevelocitySource
@@ -353,6 +354,7 @@ from .docuseal.source import DocusealSource
 from .docusign.source import DocusignSource
 from .dodopayments.source import DodoPaymentsSource
 from .doit.source import DoItSource
+from .dokploy.source import DokploySource
 from .dolibarr.source import DolibarrSource
 from .donorbox.source import DonorboxSource
 from .doorloop.source import DoorloopSource
@@ -1003,6 +1005,7 @@ from .savvycal.source import SavvyCalSource
 from .scale_ai.source import ScaleAISource
 from .scaleway.source import ScalewaySource
 from .scalr.source import ScalrSource
+from .schematic.source import SchematicSource
 from .search_ads_360.source import SearchAds360Source
 from .sec_edgar.source import SecEdgarSource
 from .secoda.source import SecodaSource

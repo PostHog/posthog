@@ -8,12 +8,13 @@ const mocks = vi.hoisted(() => ({
   items: [] as ChannelItemModel[],
   isLoading: false,
   channelMissing: false,
+  open: vi.fn(),
 }));
 
 vi.mock("@posthog/ui/features/canvas/hooks/useChannelItems", () => ({
   useChannelItems: () => ({
     items: mocks.items,
-    actions: { open: vi.fn(), togglePin: vi.fn(), archive: vi.fn() },
+    actions: { open: mocks.open, togglePin: vi.fn(), archive: vi.fn() },
     me: { uuid: "me-uuid" },
     isLoading: mocks.isLoading,
     channelMissing: mocks.channelMissing,
@@ -52,7 +53,16 @@ vi.mock("@posthog/ui/features/tasks/useTasks", () => ({
 vi.mock("@posthog/ui/features/canvas/hooks/useChannelTaskStatus", () => ({
   useChannelTaskStatus: () => null,
 }));
+// The bulk bar's actions span the archive, pin, and filing query stacks. What
+// the bar does has its own suites; this one is about the list's own states.
+vi.mock("@posthog/ui/features/sidebar/useSidebarBulkActions", () => ({
+  useSidebarBulkActions: () => ({ selectedCount: 0 }),
+}));
+vi.mock("@posthog/ui/features/canvas/hooks/useChannelTasksRunState", () => ({
+  useChannelTasksRunState: () => [],
+}));
 
+import { useTaskSelectionStore } from "@posthog/ui/features/sidebar/taskSelectionStore";
 import { ChannelSidebar } from "./ChannelSidebar";
 
 function item(overrides: Partial<ChannelItemModel> = {}): ChannelItemModel {
@@ -322,5 +332,89 @@ describe("ChannelSidebar recents list", () => {
     ]);
     // The header says it for the whole section, so the rows below drop the badge.
     expect(screen.queryByRole("img", { name: "Pinned" })).toBeNull();
+  });
+});
+
+describe("ChannelSidebar multi-select", () => {
+  beforeEach(() => {
+    mocks.isLoading = false;
+    mocks.channelMissing = false;
+    mocks.open.mockClear();
+    useTaskSelectionStore.setState({
+      selectedTaskIds: [],
+      lastClickedId: null,
+    });
+    mocks.items = [
+      item({ key: "task:a", id: "a", title: "First session" }),
+      item({ key: "task:b", id: "b", title: "Second session" }),
+      item({ key: "canvas:c", kind: "canvas", id: "c", title: "A canvas" }),
+    ];
+  });
+
+  it("opens a session on a plain click", async () => {
+    const user = userEvent.setup();
+    renderSidebar();
+
+    await user.click(screen.getByText("First session"));
+
+    expect(mocks.open).toHaveBeenCalledOnce();
+    expect(useTaskSelectionStore.getState().selectedTaskIds).toEqual([]);
+  });
+
+  it.each([
+    { name: "meta", modifier: "{Meta>}" },
+    { name: "ctrl", modifier: "{Control>}" },
+  ])("selects rather than opens on $name-click", async ({ modifier }) => {
+    const user = userEvent.setup();
+    renderSidebar();
+
+    await user.keyboard(modifier);
+    await user.click(screen.getByText("First session"));
+
+    expect(mocks.open).not.toHaveBeenCalled();
+    expect(useTaskSelectionStore.getState().selectedTaskIds).toEqual(["a"]);
+  });
+
+  it("selects a range on shift-click", async () => {
+    const user = userEvent.setup();
+    renderSidebar();
+
+    await user.keyboard("{Meta>}");
+    await user.click(screen.getByText("First session"));
+    await user.keyboard("{/Meta}{Shift>}");
+    await user.click(screen.getByText("Second session"));
+
+    expect(useTaskSelectionStore.getState().selectedTaskIds).toEqual([
+      "a",
+      "b",
+    ]);
+  });
+
+  // A canvas can't be archived, filed, or tiled like a session, so it stays out
+  // of the selection and modifier-clicking one just opens it.
+  it("opens a canvas even on a modifier-click", async () => {
+    const user = userEvent.setup({ pointerEventsCheck: 0 });
+    renderSidebar();
+
+    // Canvases are their own tab, so the row has to be brought into view first.
+    await user.click(screen.getByRole("tab", { name: "Canvases" }));
+    await user.keyboard("{Meta>}");
+    await user.click(screen.getByText("A canvas"));
+
+    expect(mocks.open).toHaveBeenCalledOnce();
+    expect(useTaskSelectionStore.getState().selectedTaskIds).toEqual([]);
+  });
+
+  it("drops ids that leave the list", async () => {
+    const user = userEvent.setup();
+    const { rerender } = renderSidebar();
+    await user.keyboard("{Meta>}");
+    await user.click(screen.getByText("Second session"));
+    expect(useTaskSelectionStore.getState().selectedTaskIds).toEqual(["b"]);
+
+    mocks.items = [item({ key: "task:a", id: "a", title: "First session" })];
+    rerender(sidebar());
+
+    expect(useTaskSelectionStore.getState().selectedTaskIds).toEqual([]);
   });
 });
