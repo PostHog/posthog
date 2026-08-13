@@ -202,6 +202,33 @@ async def prepare_alert(inputs: PrepareAlertActivityInputs) -> PrepareAlertResul
         return await _prepare()
 
 
+def _record_errored_alert_check(
+    alert_id: str, error: dict, *, only_if_due: bool = False
+) -> RecordFailedEvaluationResult:
+    """Lock the alert and persist one errored AlertCheck, returning its id and the notify decision.
+
+    Shared by evaluate_alert's non-transient failure path and the retry-exhausted
+    record_failed_evaluation activity, so the errored-check write and the notify decision live in
+    one place. Investigation gating is deliberately not run here: it only fires on a transition
+    into FIRING, never on an errored check.
+
+    With only_if_due, a prior attempt that already advanced next_check_at short-circuits without
+    writing, so a retried record_failed_evaluation can't leave a duplicate errored check for the
+    same cadence. Raises AlertConfiguration.DoesNotExist if the alert is gone — callers decide how
+    to handle that.
+    """
+    with transaction.atomic():
+        alert = (
+            AlertConfiguration.objects.select_for_update(of=("self",))
+            .select_related("insight", "team", "threshold")
+            .get(id=alert_id)
+        )
+        if only_if_due and alert.next_check_at is not None and alert.next_check_at > datetime.now(UTC):
+            return RecordFailedEvaluationResult()
+        alert_check, should_notify = add_alert_check(alert, None, None, error)
+    return RecordFailedEvaluationResult(alert_check_id=str(alert_check.id), should_notify=should_notify)
+
+
 @temporalio.activity.defn
 async def evaluate_alert(inputs: EvaluateAlertActivityInputs) -> EvaluateAlertResult:
     """Run the insight ClickHouse query, apply the state machine, persist an AlertCheck row."""
@@ -293,6 +320,18 @@ async def evaluate_alert(inputs: EvaluateAlertActivityInputs) -> EvaluateAlertRe
             )
             error = {"message": str(err), "traceback": traceback.format_exc()}
 
+        # A non-transient failure recorded above: persist the errored check through the shared
+        # routine and return. Transient errors were re-raised for the retry policy and never reach
+        # here, so everything below is the query-succeeded path.
+        if error is not None:
+            result = _record_errored_alert_check(inputs.alert_id, error)
+            assert result.alert_check_id is not None  # written unless the alert is gone, which raises
+            return EvaluateAlertResult(
+                alert_check_id=result.alert_check_id,
+                should_notify=result.should_notify,
+                new_state=AlertState.ERRORED,
+            )
+
         anomaly_scores = alert_evaluation_result.anomaly_scores if alert_evaluation_result else None
         triggered_points = alert_evaluation_result.triggered_points if alert_evaluation_result else None
         triggered_dates = alert_evaluation_result.triggered_dates if alert_evaluation_result else None
@@ -371,31 +410,24 @@ async def record_failed_evaluation(inputs: RecordFailedEvaluationActivityInputs)
 
     @database_sync_to_async(thread_sensitive=False)
     def _record() -> RecordFailedEvaluationResult:
+        # only_if_due keeps this activity's retries idempotent: add_alert_check advances
+        # next_check_at, so an attempt that committed but never delivered its result would
+        # otherwise write a second errored check for the same cadence on retry.
         try:
-            with transaction.atomic():
-                alert = (
-                    AlertConfiguration.objects.select_for_update(of=("self",))
-                    .select_related("insight", "team", "threshold")
-                    .get(id=inputs.alert_id)
-                )
-                # This activity retries, and add_alert_check always writes a fresh row and advances
-                # next_check_at. If a prior attempt committed but its result never reached the
-                # workflow, next_check_at is already in the future — treat the failure as recorded
-                # so a retry doesn't leave a duplicate errored check for the same cadence.
-                if alert.next_check_at is not None and alert.next_check_at > datetime.now(UTC):
-                    return RecordFailedEvaluationResult()
-                alert_check, should_notify = add_alert_check(alert, None, None, {"message": inputs.error_message})
+            result = _record_errored_alert_check(inputs.alert_id, {"message": inputs.error_message}, only_if_due=True)
         except AlertConfiguration.DoesNotExist:
             logger.warning("Alert gone before its failure could be recorded", alert_id=inputs.alert_id)
             return RecordFailedEvaluationResult()
 
-        logger.warning(
-            "alerts.recorded_failed_evaluation",
-            alert_id=inputs.alert_id,
-            alert_check_id=str(alert_check.id),
-            next_check_at=alert.next_check_at,
-        )
-        return RecordFailedEvaluationResult(alert_check_id=str(alert_check.id), should_notify=should_notify)
+        if result.alert_check_id is None:
+            logger.info("alerts.failed_evaluation_already_recorded", alert_id=inputs.alert_id)
+        else:
+            logger.warning(
+                "alerts.recorded_failed_evaluation",
+                alert_id=inputs.alert_id,
+                alert_check_id=result.alert_check_id,
+            )
+        return result
 
     async with Heartbeater():
         return await _record()
