@@ -25,7 +25,7 @@ from posthog.security.pinned_httpx import pinned_transport
 from posthog.security.pinned_requests import SSRFBlockedError
 from posthog.security.url_validation import is_url_allowed
 
-from products.ai_observability.backend.llm.providers._diagnostics import tagged_http_client
+from products.ai_observability.backend.llm.providers._diagnostics import PROVIDER_DEFAULT_LIMITS, tagged_http_client
 from products.ai_observability.backend.llm.providers.openai import OpenAIAdapter, OpenAIConfig
 from products.ai_observability.backend.llm.types import (
     AnalyticsContext,
@@ -91,7 +91,7 @@ def _pinned_http_client(base_url: str) -> httpx.Client:
     """
     return tagged_http_client(
         timeout=OpenAIConfig.TIMEOUT,
-        transport=pinned_transport(base_url),
+        transport=pinned_transport(base_url, limits=PROVIDER_DEFAULT_LIMITS),
         follow_redirects=False,
     )
 
@@ -216,7 +216,10 @@ class OpenAICompatibleAdapter(OpenAIAdapter):
                     timeout=OpenAIConfig.TIMEOUT,
                     http_client=http_client,
                 )
-                return [m.id for m in sorted(client.models.list(), key=lambda m: m.created, reverse=True)]
+                # `created` is required by the OpenAI schema but arbitrary endpoints omit it, and
+                # the SDK then hands back None. Sorting two of those raises, and the except below
+                # would turn that into an empty picker with nothing explaining why.
+                return [m.id for m in sorted(client.models.list(), key=lambda m: m.created or 0, reverse=True)]
         except SSRFBlockedError:
             return []
         except Exception:
