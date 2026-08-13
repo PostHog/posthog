@@ -184,7 +184,7 @@ def _configure_s3_secrets(conn: psycopg.Connection[Any], secrets: Sequence[DuckL
                 # A secret duckgres rejects only breaks the table it belongs to, so keep going
                 # and let the query fail on that table instead of on every other one too.
                 conn.rollback()
-                logger.warning("Skipped unusable DuckLake S3 secret %s", secret.name, exc_info=True)
+                logger.warning("Could not configure DuckLake S3 access for %s", secret.name, exc_info=True)
 
 
 def compile_hogql_to_ducklake_sql(
