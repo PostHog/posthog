@@ -498,27 +498,34 @@ describe('loginLogic', () => {
         const originalContext = window.POSTHOG_APP_CONTEXT
         const originalLocation = window.location
         let hrefSpy: jest.Mock
+        let reloadSpy: jest.Mock
+        let logic: ReturnType<typeof loginLogic.build>
 
         beforeEach(() => {
             initKeaTests()
             // getCurrentTeamIdOrNone() reads the current project from the app context.
             window.POSTHOG_APP_CONTEXT = { current_team: { id: 5 } } as any
             hrefSpy = jest.fn()
+            reloadSpy = jest.fn()
             Object.defineProperty(window, 'location', {
                 value: {
                     origin: 'http://localhost',
                     pathname: '/login',
                     search: '',
                     hash: '',
+                    reload: reloadSpy,
                     set href(url: string) {
                         hrefSpy(url)
                     },
                 },
                 configurable: true,
             })
+            logic = loginLogic()
+            logic.mount()
         })
 
         afterEach(() => {
+            logic.unmount()
             window.POSTHOG_APP_CONTEXT = originalContext
             Object.defineProperty(window, 'location', { value: originalLocation, configurable: true })
         })
@@ -542,6 +549,23 @@ describe('loginLogic', () => {
             router.actions.push(`/login?next=${encodeURIComponent('/project/phc_ABC123/pipeline/destinations')}`)
             handleLoginRedirect()
             expect(hrefSpy).toHaveBeenCalledWith('/project/phc_ABC123/pipeline/destinations')
+        })
+
+        it('does not reload after a full navigation to a different project', async () => {
+            // The reload used to race the full page load and bounce the user back to /login.
+            router.actions.push(`/login?next=${encodeURIComponent('/project/999/pipeline/destinations/hog-abc')}`)
+            logic.actions.submitLoginSuccess({ email: 'user@example.com', password: 'hunter2' })
+            await expectLogic(logic).toFinishAllListeners()
+            expect(hrefSpy).toHaveBeenCalledWith('/project/999/pipeline/destinations/hog-abc')
+            expect(reloadSpy).not.toHaveBeenCalled()
+        })
+
+        it('reloads when the redirect stays client-side', async () => {
+            router.actions.push(`/login?next=${encodeURIComponent('/project/5/pipeline/destinations/hog-abc')}`)
+            logic.actions.submitLoginSuccess({ email: 'user@example.com', password: 'hunter2' })
+            await expectLogic(logic).toFinishAllListeners()
+            expect(hrefSpy).not.toHaveBeenCalled()
+            expect(reloadSpy).toHaveBeenCalled()
         })
     })
 })

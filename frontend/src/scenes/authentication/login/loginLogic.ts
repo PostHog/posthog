@@ -93,7 +93,10 @@ function pointsToDifferentProject(path: string): boolean {
     return !!identifier && identifier !== String(getCurrentTeamIdOrNone())
 }
 
-export function handleLoginRedirect(): void {
+// Returns true when it started a full page load (`window.location.href`). Callers must not run their
+// own reload afterwards — a reload in the same tick races the load and can bounce the user back to
+// /login. A client-side replace returns false, so the caller still reloads to refresh the app context.
+export function handleLoginRedirect(): boolean {
     let nextURL = '/'
     try {
         const nextPath = getRelativeNextPath(router.values.searchParams['next'], location) || '/'
@@ -111,7 +114,7 @@ export function handleLoginRedirect(): void {
     // Check if this is a backend-only route that shouldn't go through the React router
     if (BACKEND_ONLY_ROUTES.some((route) => nextURL.startsWith(route))) {
         window.location.href = nextURL
-        return
+        return true
     }
 
     // A cross-project deep link needs a full page load so `AutoProjectMiddleware` can switch the
@@ -119,11 +122,12 @@ export function handleLoginRedirect(): void {
     // resolve the scene against the project we were last in, 404ing a resource that really exists.
     if (pointsToDifferentProject(nextURL)) {
         window.location.href = nextURL
-        return
+        return true
     }
 
     // A safe way to redirect to a user input URL. Calls history.replaceState() ensuring the URLs origin does not change
     router.actions.replace(nextURL)
+    return false
 }
 
 export interface LoginForm {
@@ -630,12 +634,18 @@ export const loginLogic = kea<loginLogicType>([
     })),
     listeners(({ values, actions }) => ({
         submitLoginSuccess: () => {
-            handleLoginRedirect()
+            // A full page load already refreshes the app context, so only reload when the redirect
+            // stayed client-side. Reloading during a full load races it back to /login.
+            if (handleLoginRedirect()) {
+                return
+            }
             // Reload the page after login to ensure POSTHOG_APP_CONTEXT is set correctly.
             window.location.reload()
         },
         submitCodeVerificationSuccess: () => {
-            handleLoginRedirect()
+            if (handleLoginRedirect()) {
+                return
+            }
             // Reload the page after login to ensure POSTHOG_APP_CONTEXT is set correctly.
             window.location.reload()
         },

@@ -14,6 +14,7 @@ import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { LemonField } from 'lib/lemon-ui/LemonField'
 import { LemonInput } from 'lib/lemon-ui/LemonInput/LemonInput'
 import { Link } from 'lib/lemon-ui/Link'
+import { Spinner } from 'lib/lemon-ui/Spinner/Spinner'
 import { isWebKitBrowser } from 'lib/utils/dom'
 import { isEmail } from 'lib/utils/url'
 import { AuthCardTitle } from 'scenes/authentication/shared/authScene/AuthCardTitle'
@@ -210,6 +211,9 @@ export function LoginForm(): JSX.Element {
                                     // identity provider.
                                     onBlur={() => precheck({ email: login.email, autoAttempt: true })}
                                     status={error ? 'danger' : 'default'}
+                                    // Show the precheck spinner here rather than on the Log in button, so
+                                    // the button stays clickable while we resolve the account's methods.
+                                    suffix={precheckResponseLoading ? <Spinner /> : null}
                                     fullWidth
                                 />
                             )}
@@ -274,7 +278,11 @@ export function LoginForm(): JSX.Element {
                                 fullWidth
                                 htmlType="submit"
                                 data-attr="password-login"
-                                loading={isLoginSubmitting || precheckResponseLoading}
+                                // Only reflect the in-flight login here. A loading LemonButton is disabled,
+                                // and its click handler calls preventDefault(), which kills the native form
+                                // submit — so tying this to the precheck would silently swallow clicks while
+                                // the precheck (fired on email blur/autofill) is still resolving.
+                                loading={isLoginSubmitting}
                             >
                                 Log in
                             </LemonButton>
