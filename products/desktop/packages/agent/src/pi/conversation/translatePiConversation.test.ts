@@ -45,14 +45,13 @@ describe("createPiConversationTranslator", () => {
     const translator = createPiConversationTranslator();
     const message = assistant([{ type: "text", text: "complete" }]);
 
+    translator.translateEvent({ type: "message_start", message });
     const streamed = translator.translateEvent({
       type: "message_update",
-      message,
       assistantMessageEvent: {
         type: "text_delta",
         contentIndex: 0,
         delta: "complete",
-        partial: message,
       },
     });
     const ended = translator.translateEvent({ type: "message_end", message });
@@ -67,35 +66,79 @@ describe("createPiConversationTranslator", () => {
     expect(ended).toEqual([]);
   });
 
-  it("does not repeat streamed content when assistant timestamps collide", () => {
+  it("appends content missing from the streamed deltas at message_end", () => {
+    const translator = createPiConversationTranslator();
+    const message = assistant([{ type: "text", text: "complete" }]);
+
+    translator.translateEvent({ type: "message_start", message });
+    translator.translateEvent({
+      type: "message_update",
+      assistantMessageEvent: {
+        type: "text_delta",
+        contentIndex: 0,
+        delta: "comp",
+      },
+    });
+
+    expect(translator.translateEvent({ type: "message_end", message })).toEqual(
+      [
+        {
+          type: "assistant_message_chunk",
+          timestamp: 10,
+          content: { type: "text", text: "lete" },
+        },
+      ],
+    );
+  });
+
+  it("keeps unstreamed content when assistant timestamps collide", () => {
     const translator = createPiConversationTranslator();
     const first = assistant([{ type: "text", text: "first" }]);
     const second = assistant([{ type: "text", text: "second" }]);
 
+    translator.translateEvent({ type: "message_start", message: first });
     translator.translateEvent({
       type: "message_update",
-      message: first,
       assistantMessageEvent: {
         type: "text_delta",
         contentIndex: 0,
         delta: "first",
-        partial: first,
       },
     });
     translator.translateEvent({ type: "message_end", message: first });
-    translator.translateEvent({
-      type: "message_update",
-      message: second,
-      assistantMessageEvent: {
-        type: "text_delta",
-        contentIndex: 0,
-        delta: "second",
-        partial: second,
-      },
-    });
+    translator.translateEvent({ type: "message_start", message: second });
 
     expect(
       translator.translateEvent({ type: "message_end", message: second }),
+    ).toEqual([
+      {
+        type: "assistant_message_chunk",
+        timestamp: 10,
+        content: { type: "text", text: "second" },
+      },
+    ]);
+  });
+
+  it("discards streamed state when the agent ends without message_end", () => {
+    const translator = createPiConversationTranslator();
+    const message = assistant([{ type: "text", text: "partial" }]);
+
+    translator.translateEvent({ type: "message_start", message });
+    translator.translateEvent({
+      type: "agent_end",
+      messages: [],
+      willRetry: false,
+    });
+
+    expect(
+      translator.translateEvent({
+        type: "message_update",
+        assistantMessageEvent: {
+          type: "text_delta",
+          contentIndex: 0,
+          delta: "stale",
+        },
+      }),
     ).toEqual([]);
   });
 
@@ -163,15 +206,17 @@ describe("createPiConversationTranslator", () => {
       },
     ]);
     const retriedMessage = assistant([{ type: "text", text: "Done" }]);
+    translator.translateEvent({
+      type: "message_start",
+      message: retriedMessage,
+    });
     expect(
       translator.translateEvent({
         type: "message_update",
-        message: retriedMessage,
         assistantMessageEvent: {
           type: "text_delta",
           contentIndex: 0,
           delta: "Done",
-          partial: retriedMessage,
         },
       }),
     ).toEqual([
@@ -581,14 +626,13 @@ describe("createPiConversationTranslator", () => {
       },
     ]);
 
+    translator.translateEvent({ type: "message_start", message });
     translator.translateEvent({
       type: "message_update",
-      message,
       assistantMessageEvent: {
         type: "text_delta",
         contentIndex: 0,
         delta: "running",
-        partial: message,
       },
     });
 
