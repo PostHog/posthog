@@ -704,7 +704,11 @@ export const errorTrackingIssueSceneLogic = kea<errorTrackingIssueSceneLogicType
             },
         },
         summary: {
-            loadSummary: async () => {
+            loadSummary: async (_, breakpoint) => {
+                // A reset dispatches several filter changes in one tick, and each triggers a
+                // summary reload. Debounce so only the final, fully-applied filter state hits
+                // ClickHouse and earlier in-flight responses are cancelled rather than racing.
+                await breakpoint(100)
                 const response = await api.query(
                     errorTrackingIssueQuery({
                         issueId: props.id,
