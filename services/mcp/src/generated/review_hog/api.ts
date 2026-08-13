@@ -56,7 +56,7 @@ export const ReviewHogReviewsRetrieveParams = /* @__PURE__ */ zod.object({
 })
 
 /**
- * Start a ReviewHog review of any pull request the project's GitHub App installation can access, and publish it back to the PR. The requesting user is the review's acting user: their enabled perspectives, blind-spot check, validator, and urgency threshold drive the run, and it appears under their recent reviews. Nonexistent, closed, and fork PRs are rejected synchronously; a PR whose current commit already has a published review returns 'already_reviewed' without starting a run, and triggering a PR whose review is currently running joins the in-flight run. Otherwise non-blocking: returns the Temporal workflow id immediately while the review runs in the worker.
+ * Start a ReviewHog review of any pull request the project's GitHub App installation can access, and publish it back to the PR. The requesting user is the review's acting user: their enabled perspectives, blind-spot check, validator, urgency threshold, and resolution criteria drive the run, and it appears under their recent reviews. `run_mode` picks the variant: a review (which chains the resolution stage per the user's resolve_comments setting), a review without resolving, or resolution only. Nonexistent, closed, and fork PRs are rejected synchronously; a PR whose current commit already has a published review returns 'already_reviewed' without starting a run (resolve_only skips that check — settling threads on a reviewed head is its whole point), and triggering a PR whose run is currently in flight joins that run. Otherwise non-blocking: returns the Temporal workflow id immediately while the run executes in the worker.
  * @summary Start a review of a pull request
  */
 export const ReviewHogReviewsTriggerCreateParams = /* @__PURE__ */ zod.object({
@@ -67,10 +67,19 @@ export const ReviewHogReviewsTriggerCreateParams = /* @__PURE__ */ zod.object({
         ),
 })
 
+export const reviewHogReviewsTriggerCreateBodyRunModeDefault = `review`
+
 export const ReviewHogReviewsTriggerCreateBody = /* @__PURE__ */ zod.object({
     pr_url: zod
         .string()
         .describe(
             "GitHub pull request URL to review, e.g. 'https:\/\/github.com\/PostHog\/posthog.com\/pull\/123'. The repository must be accessible to the project's GitHub App installation."
+        ),
+    run_mode: zod
+        .enum(['review', 'review_only', 'resolve_only'])
+        .describe('\* `review` - review\n\* `review_only` - review_only\n\* `resolve_only` - resolve_only')
+        .default(reviewHogReviewsTriggerCreateBodyRunModeDefault)
+        .describe(
+            "What to run on the pull request. 'review' (default) reviews it and, when the requesting user's resolve_comments setting is on, chains the resolution stage; 'review_only' reviews without resolving regardless of that setting; 'resolve_only' skips the review and only runs the resolution stage on the PR's existing unresolved review threads.\n\n\* `review` - review\n\* `review_only` - review_only\n\* `resolve_only` - resolve_only"
         ),
 })
