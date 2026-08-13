@@ -31,10 +31,8 @@ import { SessionInsights } from 'products/customer_analytics/frontend/components
 import { AccountNotesTabContent } from './components/AccountNotes/AccountNotesTabContent'
 import { AccountsTabContent } from './components/Accounts/AccountsTabContent'
 import { AnnouncementsTabContent } from './components/Announcements/AnnouncementsTabContent'
+import { CustomerJourneyActions } from './components/CustomerJourneys/CustomerJourneyActions'
 import { CustomerJourneys } from './components/CustomerJourneys/CustomerJourneys'
-import { CustomerJourneySelect } from './components/CustomerJourneys/CustomerJourneySelect'
-import { customerJourneysLogic } from './components/CustomerJourneys/customerJourneysLogic'
-import { DeleteJourneyButton } from './components/CustomerJourneys/DeleteJourneyButton'
 import { journeyEditorLogic } from './components/CustomerJourneys/journeyEditorLogic'
 import { FeedTabContent } from './components/Feed/FeedTabContent'
 import { FeedbackButton } from './components/FeedbackButton'
@@ -69,7 +67,6 @@ function CustomerAnalyticsSceneContent(): JSX.Element {
     const { searchParams } = useValues(router)
     const { isEditMode, stagedNodes, isSaving } = useValues(journeyEditorLogic)
     const { saveChanges, cancelChanges } = useActions(journeyEditorLogic)
-    const { activeJourney } = useValues(customerJourneysLogic)
 
     const accessControlDisabledReason = getAccessControlDisabledReason(
         AccessControlResourceType.CustomerAnalytics,
@@ -193,29 +190,7 @@ function CustomerAnalyticsSceneContent(): JSX.Element {
                                     </LemonButton>
                                 </div>
                             ) : activeTab === 'journeys' ? (
-                                <>
-                                    <CustomerJourneySelect />
-                                    <LemonButton
-                                        type="primary"
-                                        size="small"
-                                        to={urls.customerJourneyTemplates()}
-                                        data-attr="new-journey"
-                                        disabledReason={accessControlDisabledReason}
-                                    >
-                                        New journey
-                                    </LemonButton>
-                                    {activeJourney && (
-                                        <LemonButton
-                                            type="secondary"
-                                            size="small"
-                                            to={`${urls.customerJourneyEdit(activeJourney.id)}?insightId=${activeJourney.insight}`}
-                                            data-attr="edit-journey"
-                                        >
-                                            Edit
-                                        </LemonButton>
-                                    )}
-                                    <DeleteJourneyButton />
-                                </>
+                                <CustomerJourneyActions />
                             ) : (
                                 <Shortcut
                                     name="CustomerAnalyticsSettings"
