@@ -239,9 +239,7 @@ class TestSummarizeSessionsTool(BaseTest):
             patch.object(
                 SummarizeSessionsTool,
                 "_validate_specific_session_ids",
-                return_value=SessionRecordingPartition(
-                    found_session_ids=REQUESTED_SESSION_IDS, missing_session_ids=[]
-                ),
+                return_value=SessionRecordingPartition(found_session_ids=REQUESTED_SESSION_IDS, missing_session_ids=[]),
             ),
             patch.object(SummarizeSessionsTool, "_summarize_sessions", AsyncMock(return_value=fallback_result)),
             patch("ee.hogai.tools.replay.summarize_sessions.capture_session_summary_started") as mock_started,
