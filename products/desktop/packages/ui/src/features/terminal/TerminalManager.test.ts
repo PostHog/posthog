@@ -293,6 +293,7 @@ describe("TerminalManager shell output subscription", () => {
     mocks.write.mockReset().mockResolvedValue(undefined);
     mocks.resize.mockReset().mockResolvedValue(undefined);
     mocks.onData.mockClear();
+    mocks.onExit.mockClear();
     mocks.terminalInstances.length = 0;
     rafCallbacks.length = 0;
     vi.stubGlobal("requestAnimationFrame", (cb: FrameRequestCallback) => {
@@ -319,6 +320,33 @@ describe("TerminalManager shell output subscription", () => {
     expect(mocks.terminalInstances[0].write).toHaveBeenCalledWith(
       "output while hidden",
     );
+  });
+
+  it("delivers shell exit to listeners without a mounted component", () => {
+    terminalManager.create({ sessionId, persistenceKey: "task-hidden" });
+    const exitListener = vi.fn();
+    const off = terminalManager.on("exit", exitListener);
+
+    const emitShellExit = mocks.onExit.mock.calls[0][1];
+    emitShellExit({ sessionId, exitCode: 1 });
+
+    expect(exitListener).toHaveBeenCalledWith({
+      sessionId,
+      persistenceKey: "task-hidden",
+      exitCode: 1,
+    });
+    off();
+  });
+
+  it("unsubscribes from shell data and exit on destroy", () => {
+    terminalManager.create({ sessionId, persistenceKey: "task-hidden" });
+    const dataUnsubscribe = mocks.onData.mock.results[0].value.unsubscribe;
+    const exitUnsubscribe = mocks.onExit.mock.results[0].value.unsubscribe;
+
+    terminalManager.destroy(sessionId);
+
+    expect(dataUnsubscribe).toHaveBeenCalledTimes(1);
+    expect(exitUnsubscribe).toHaveBeenCalledTimes(1);
   });
 });
 
