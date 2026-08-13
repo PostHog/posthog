@@ -315,19 +315,19 @@ export function LogsServices(): JSX.Element {
     return (
         <div className="flex flex-col gap-2 py-2 flex-1 min-h-0">
             {servicesSummary && (
-                <LemonBanner type="info" className="mb-0">
+                <LemonBanner type="info" className="mb-0 shrink-0">
                     Top {servicesSummary.top_services_count} services by volume:{' '}
                     {servicesSummary.top_services_volume_share_pct.toFixed(1)}% of traffic in this window.
                 </LemonBanner>
             )}
             {totalServices > services.length && (
-                <LemonBanner type="info" className="mb-0">
+                <LemonBanner type="info" className="mb-0 shrink-0">
                     Showing the top {humanFriendlyNumber(services.length)} of {humanFriendlyNumber(totalServices)}{' '}
                     {searchTerm ? 'matching services' : 'services'} by volume.{' '}
                     {searchTerm ? 'Refine your search to see the rest.' : 'Use search to find the rest.'}
                 </LemonBanner>
             )}
-            <div className="flex items-center justify-between gap-2">
+            <div className="flex items-center justify-between gap-2 shrink-0">
                 <h3 className="m-0">Services</h3>
                 <div className="flex items-center gap-2">
                     <LemonInput
@@ -345,33 +345,35 @@ export function LogsServices(): JSX.Element {
                     />
                 </div>
             </div>
-            {/* The scene container is a fixed height, so this region scrolls. Without it the
-                table is squeezed and clips its own last rows and the pagination control. */}
-            <div className="flex-1 min-h-0 overflow-y-auto">
-                {/* Pagination and sorting are controlled by the logic (which passes in the
-                    pre-sorted page slice) so it knows which rows are visible and can lazy-load
-                    their sparklines; the backend only sparklines the top rows per request. */}
-                <LemonTable
-                    columns={columns}
-                    dataSource={pageRows}
-                    loading={servicesDataLoading}
-                    sorting={sorting}
-                    onSort={(newSorting) => setSorting(newSorting)}
-                    useURLForSorting={false}
-                    pagination={{
-                        controlled: true,
-                        pageSize: SERVICES_PAGE_SIZE,
-                        currentPage: page,
-                        entryCount: services.length,
-                        onForward: () => setPage(page + 1),
-                        onBackward: () => setPage(page - 1),
-                        useUrl: false,
-                    }}
-                    emptyState={searchTerm ? 'No services match your search' : 'No services found in this time range'}
-                    rowKey="service_name"
-                    size="small"
-                />
-            </div>
+            {/* The scene container is a fixed height, so the table scrolls its own content rather
+                than being squeezed and clipping its last rows and the pagination control. Both
+                axes share one viewport, so the horizontal scrollbar stays in view. */}
+            {/* Pagination and sorting are controlled by the logic (which passes in the
+                pre-sorted page slice) so it knows which rows are visible and can lazy-load
+                their sparklines; the backend only sparklines the top rows per request. */}
+            <LemonTable
+                columns={columns}
+                dataSource={pageRows}
+                loading={servicesDataLoading}
+                sorting={sorting}
+                onSort={(newSorting) => setSorting(newSorting)}
+                useURLForSorting={false}
+                pagination={{
+                    controlled: true,
+                    pageSize: SERVICES_PAGE_SIZE,
+                    currentPage: page,
+                    entryCount: services.length,
+                    onForward: () => setPage(page + 1),
+                    onBackward: () => setPage(page - 1),
+                    useUrl: false,
+                }}
+                emptyState={searchTerm ? 'No services match your search' : 'No services found in this time range'}
+                rowKey="service_name"
+                size="small"
+                allowContentScroll
+                // The table scrolls inside the scene, so pin the header to keep column labels visible.
+                className="[&_thead]:sticky [&_thead]:top-0 [&_thead]:z-[2]"
+            />
         </div>
     )
 }
