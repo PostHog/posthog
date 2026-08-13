@@ -252,10 +252,18 @@ class TestServicesQueryDateRange(ClickhouseTestMixin, APIBaseTest):
     # whose date subclasses cannot be built while freezegun has datetime.date patched.
     def test_cap_limits_services_but_not_total_count(self):
         with patch.object(services_query_runner, "SERVICES_LIMIT", 5):
-            result = self._services("2025-12-16T00:00:00Z", "2025-12-16T23:59:59Z")
+            with patch.object(
+                services_query_runner,
+                "execute_hogql_query",
+                wraps=services_query_runner.execute_hogql_query,
+            ) as execute_spy:
+                result = self._services("2025-12-16T00:00:00Z", "2025-12-16T23:59:59Z")
 
         self.assertEqual(len(result["services"]), 5)
         self.assertEqual(result["total_services"], 12)
+        # Counting the services with a second, uncapped scan of the window instead
+        # of the aggregates query's window function added 20s on a large project.
+        self.assertEqual(execute_spy.call_count, 2, "expected only the aggregates and sparkline queries")
         # The cap keeps the highest-volume services: every kept fixture service has
         # 97+ rows, so the smallest two (11 and 3 rows) are the ones cut.
         self.assertTrue(all(s["log_count"] >= 97 for s in result["services"]))
