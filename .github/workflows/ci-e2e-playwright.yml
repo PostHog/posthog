@@ -131,7 +131,8 @@ jobs:
                       shouldRun:
                         # Any change that could affect E2E behavior triggers a run.
                         - playwright/**
-                        - 'products/*/frontend/e2e/**'
+                        - 'products/*/frontend/**'
+                        - 'products/*/backend/**'
                         - .github/workflows/ci-e2e-playwright.yml
                         - 'ee/**'
                         - 'posthog/!(temporal/**)/**'
