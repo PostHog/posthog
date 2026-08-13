@@ -136,6 +136,15 @@ class TestMinePatterns(TestCase):
                 "<host>",
                 "example",
             ),
+            (
+                "timestamp_klog",
+                [
+                    "I0812 15:41:23.951822 12 proxier.go:99] synced",
+                    "I0813 16:02:11.112233 12 proxier.go:99] synced",
+                ],
+                "<timestamp>",
+                "0812",
+            ),
         ]
     )
     def test_masking_collapses_variable_tokens(
@@ -297,13 +306,29 @@ class TestMinePatterns(TestCase):
         for example in patterns[0].examples:
             assert compiled.search(example.body)
 
-    def test_same_statement_on_different_dates_shares_fingerprint(self) -> None:
+    @parameterized.expand(
+        [
+            (
+                "iso",
+                "2026-08-12T08:10:43.397557Z task_retrying attempt=3",
+                "2026-08-19T09:04:17.112233Z task_retrying attempt=7",
+            ),
+            (
+                "klog",
+                "I0812 08:10:43.397557 12 worker.go:31] task_retrying",
+                "I0819 09:04:17.112233 12 worker.go:31] task_retrying",
+            ),
+        ]
+    )
+    def test_same_statement_on_different_dates_shares_fingerprint(
+        self, _name: str, monday_body: str, week_later_body: str
+    ) -> None:
         # The patterns diff compares fingerprints across two windows (default: one week
         # apart). A timestamp fragment surviving masking becomes a literal run, so the
         # same log statement would fingerprint differently and show up as a false
         # new/gone pair.
-        monday = mine_patterns([_sample("2026-08-12T08:10:43.397557Z task_retrying attempt=3")])
-        week_later = mine_patterns([_sample("2026-08-19T09:04:17.112233Z task_retrying attempt=7")])
+        monday = mine_patterns([_sample(monday_body)])
+        week_later = mine_patterns([_sample(week_later_body)])
 
         assert pattern_fingerprint(monday[0].pattern) == pattern_fingerprint(week_later[0].pattern)
 
@@ -330,6 +355,7 @@ class TestCompileMatchRegex(TestCase):
             ("agent Chrome/<version> connected", "agent Chrome/139.0.0.0 connected"),
             ("path /api/v1/users?id=<num> hit", "path /api/v1/users?id=42 hit"),
             ("job <timestamp> finished", "job 2026-08-12T08:10:43.397557Z finished"),
+            ("I<timestamp> synced iptables", "I0812 15:41:23.951822 synced iptables"),
         ]
     )
     def test_compiled_regex_matches_raw_bodies(self, template: str, raw_body: str) -> None:
