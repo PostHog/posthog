@@ -3,8 +3,11 @@ import json
 import pytest
 from unittest.mock import AsyncMock, patch
 
+from django.test import override_settings
+
 import httpx
 
+from posthog.jwt import PosthogJwtAudience, decode_jwt
 from posthog.temporal.session_replay.delete_recordings.activities import (
     _parse_session_recording_list_response,
     delete_recordings,
@@ -104,63 +107,71 @@ async def test_delete_recordings_url_construction():
     )
 
 
-@pytest.mark.asyncio
-async def test_delete_recordings_sends_auth_header():
-    mock_response = httpx.Response(
-        200,
-        json=[],
-        request=httpx.Request("POST", "http://test"),
-    )
+def _mock_delete_response_client(mock_client_cls):
+    mock_client = AsyncMock()
+    mock_client.post.return_value = httpx.Response(200, json=[], request=httpx.Request("POST", "http://test"))
+    mock_client.__aenter__ = AsyncMock(return_value=mock_client)
+    mock_client.__aexit__ = AsyncMock(return_value=False)
+    mock_client_cls.return_value = mock_client
 
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    "internal_secret, jwt_secret, expected_headers",
+    [
+        pytest.param("my-secret-key", "", {"X-Internal-Api-Secret"}, id="legacy_secret_only"),
+        pytest.param("", "signing-key", {"Authorization"}, id="jwt_only"),
+        pytest.param(
+            "my-secret-key",
+            "signing-key",
+            {"X-Internal-Api-Secret", "Authorization"},
+            id="both_during_rollout",
+        ),
+        pytest.param("", "", set(), id="nothing_configured"),
+    ],
+)
+async def test_delete_recordings_auth_headers(internal_secret, jwt_secret, expected_headers):
     with (
-        patch("posthog.temporal.session_replay.delete_recordings.activities.settings") as mock_settings,
+        override_settings(
+            RECORDING_API_URL="http://recording-api:8000",
+            INTERNAL_API_SECRET=internal_secret,
+            RECORDING_API_JWT_SECRET=jwt_secret,
+        ),
         patch(
             "posthog.temporal.session_replay.delete_recordings.activities.internal_httpx_async_client"
         ) as mock_client_cls,
     ):
-        mock_settings.RECORDING_API_URL = "http://recording-api:8000"
-        mock_settings.INTERNAL_API_SECRET = "my-secret-key"
-
-        mock_client = AsyncMock()
-        mock_client.post.return_value = mock_response
-        mock_client.__aenter__ = AsyncMock(return_value=mock_client)
-        mock_client.__aexit__ = AsyncMock(return_value=False)
-        mock_client_cls.return_value = mock_client
+        _mock_delete_response_client(mock_client_cls)
 
         await delete_recordings(DeleteRecordingsInput(team_id=1, session_ids=["s1"], deleted_by="test@posthog.com"))
 
-    mock_client_cls.assert_called_once_with(
-        timeout=60.0,
-        headers={"X-Internal-Api-Secret": "my-secret-key"},
-    )
+    mock_client_cls.assert_called_once()
+    headers = mock_client_cls.call_args.kwargs["headers"]
+    assert set(headers) == expected_headers
+    if "X-Internal-Api-Secret" in expected_headers:
+        assert headers["X-Internal-Api-Secret"] == internal_secret
 
 
 @pytest.mark.asyncio
-async def test_delete_recordings_no_auth_header_when_secret_empty():
-    mock_response = httpx.Response(
-        200,
-        json=[],
-        request=httpx.Request("POST", "http://test"),
-    )
-
+async def test_delete_recordings_token_is_scoped_to_team_and_delete_op():
     with (
-        patch("posthog.temporal.session_replay.delete_recordings.activities.settings") as mock_settings,
+        override_settings(
+            RECORDING_API_URL="http://recording-api:8000",
+            INTERNAL_API_SECRET="",
+            RECORDING_API_JWT_SECRET="signing-key",
+        ),
         patch(
             "posthog.temporal.session_replay.delete_recordings.activities.internal_httpx_async_client"
         ) as mock_client_cls,
     ):
-        mock_settings.RECORDING_API_URL = "http://recording-api:8000"
-        mock_settings.INTERNAL_API_SECRET = ""
+        _mock_delete_response_client(mock_client_cls)
 
-        mock_client = AsyncMock()
-        mock_client.post.return_value = mock_response
-        mock_client.__aenter__ = AsyncMock(return_value=mock_client)
-        mock_client.__aexit__ = AsyncMock(return_value=False)
-        mock_client_cls.return_value = mock_client
+        await delete_recordings(DeleteRecordingsInput(team_id=456, session_ids=["s1"], deleted_by="test@posthog.com"))
 
-        await delete_recordings(DeleteRecordingsInput(team_id=1, session_ids=["s1"], deleted_by="test@posthog.com"))
-
-    mock_client_cls.assert_called_once_with(timeout=60.0, headers={})
+    token = mock_client_cls.call_args.kwargs["headers"]["Authorization"].removeprefix("Bearer ")
+    claims = decode_jwt(token, PosthogJwtAudience.RECORDING_API, verification_keys=["signing-key"])
+    assert claims["team_id"] == 456
+    assert claims["op"] == "delete"
 
 
 @pytest.mark.asyncio
