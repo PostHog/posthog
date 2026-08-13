@@ -50,10 +50,40 @@ describe('playerSidebarLogic', () => {
 
     it('keeps the host default out of the URL', () => {
         logic.actions.setDefaultTab(SessionRecordingSidebarTab.OVERVIEW)
-        expect(router.values.searchParams).not.toHaveProperty('tab')
+        expect(router.values.searchParams).not.toHaveProperty('sidebarTab')
 
         // The viewer's own pick is theirs to share, so that one does belong in the URL.
         logic.actions.setTab(SessionRecordingSidebarTab.OVERVIEW)
-        expect(router.values.searchParams).toHaveProperty('tab', SessionRecordingSidebarTab.OVERVIEW)
+        expect(router.values.searchParams).toHaveProperty('sidebarTab', SessionRecordingSidebarTab.OVERVIEW)
+    })
+
+    it("leaves the host scene's own tab param alone", () => {
+        // A scene that embeds the player and reads `tab` itself, such as the experiment recordings
+        // tab, used to lose its value to the sidebar here. It then resolved the sidebar tab it found
+        // back to its own default, throwing the viewer out of the recording they were watching.
+        router.actions.push('/experiments/123', { tab: 'recordings', sessionRecordingId: 'abc' })
+
+        logic.actions.setTab(SessionRecordingSidebarTab.INSPECTOR)
+
+        expect(router.values.searchParams).toEqual({
+            tab: 'recordings',
+            sessionRecordingId: 'abc',
+            sidebarTab: SessionRecordingSidebarTab.INSPECTOR,
+        })
+    })
+
+    it('reads a sidebar tab shared under the pre-namespace param and rewrites it namespaced', async () => {
+        router.actions.push('/replay', {
+            sessionRecordingId: 'abc',
+            tab: SessionRecordingSidebarTab.NETWORK_WATERFALL,
+        })
+
+        await expectLogic(logic).toMatchValues({ selectedTab: SessionRecordingSidebarTab.NETWORK_WATERFALL })
+        // Taking the old param as a pick re-dispatches it, which rewrites the URL under the
+        // namespaced key so the link stops carrying a `tab` that a host scene would try to read.
+        expect(router.values.searchParams).toEqual({
+            sessionRecordingId: 'abc',
+            sidebarTab: SessionRecordingSidebarTab.NETWORK_WATERFALL,
+        })
     })
 })
