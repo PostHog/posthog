@@ -280,6 +280,30 @@
             "description": "Enables the customer conversations / live chat product for this project."
         },
         "conversations_settings": {},
+        "cookieless_server_hash_mode": {
+            "anyOf": [
+                {
+                    "anyOf": [
+                        {
+                            "const": 0,
+                            "type": "number"
+                        },
+                        {
+                            "const": 1,
+                            "type": "number"
+                        },
+                        {
+                            "const": 2,
+                            "type": "number"
+                        }
+                    ],
+                    "description": "* `0` - Disabled\n* `1` - Stateless\n* `2` - Stateful"
+                },
+                {
+                    "type": "null"
+                }
+            ]
+        },
         "correlation_config": {},
         "customer_analytics_config": {
             "properties": {
