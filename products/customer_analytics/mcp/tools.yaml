@@ -887,14 +887,29 @@ tools:
     feature-request-product-areas-update:
         operation: feature_request_product_areas_update
         enabled: false
+    feature-requests-archive-create:
+        operation: feature_requests_archive_create
+        enabled: false
     feature-requests-create:
         operation: feature_requests_create
         enabled: false
     feature-requests-list:
         operation: feature_requests_list
         enabled: false
+    feature-requests-partial-update:
+        operation: feature_requests_partial_update
+        enabled: false
+    feature-requests-restore-create:
+        operation: feature_requests_restore_create
+        enabled: false
     feature-requests-retrieve:
         operation: feature_requests_retrieve
+        enabled: false
+    feature-requests-status-history-list:
+        operation: feature_requests_status_history_list
+        enabled: false
+    feature-requests-update:
+        operation: feature_requests_update
         enabled: false
     usage-metrics-create:
         operation: groups_types_metrics_create

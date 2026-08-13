@@ -7,6 +7,20 @@ from posthog.models.utils import UUIDModel
 
 class FeatureRequestStatus(models.TextChoices):
     REQUESTED = "requested", "Requested"
+    PLANNED = "planned", "Planned"
+    COMPLETED = "completed", "Completed"
+    WONT_FIX = "wont_fix", "Won't fix"
+    DUPLICATE = "duplicate", "Duplicate"
+
+
+class FeatureRequestPriority(models.TextChoices):
+    HIGH = "high", "High"
+    MEDIUM = "medium", "Medium"
+    LOW = "low", "Low"
+
+
+class FeatureRequestStatusHistorySource(models.TextChoices):
+    MANUAL = "manual", "Manual"
 
 
 class FeatureRequestProductArea(TeamScopedRootMixin, UUIDModel):
@@ -39,6 +53,10 @@ class FeatureRequest(TeamScopedRootMixin, UUIDModel):
         choices=FeatureRequestStatus.choices,
         default=FeatureRequestStatus.REQUESTED,
     )
+    priority = models.CharField(max_length=16, choices=FeatureRequestPriority.choices, null=True, blank=True)
+    archived_at = models.DateTimeField(null=True, blank=True)
+    archived_by_id = models.BigIntegerField(null=True, blank=True)
+    version = models.PositiveIntegerField(default=1, db_default=1)
     idempotency_key = models.UUIDField(null=True, blank=True)
     created_by_id = models.BigIntegerField(null=True, blank=True)
     updated_by_id = models.BigIntegerField(null=True, blank=True)
@@ -59,6 +77,39 @@ class FeatureRequest(TeamScopedRootMixin, UUIDModel):
             ),
         ]
         ordering = ["-updated_at", "-created_at", "-id"]
+
+
+class FeatureRequestStatusHistory(TeamScopedRootMixin, UUIDModel):
+    team = models.ForeignKey("posthog.Team", on_delete=models.CASCADE, db_constraint=False)
+    feature_request = models.ForeignKey(
+        FeatureRequest,
+        on_delete=models.CASCADE,
+        related_name="status_history",
+    )
+    previous_status = models.CharField(
+        max_length=32,
+        choices=FeatureRequestStatus.choices,
+        null=True,
+        blank=True,
+    )
+    status = models.CharField(max_length=32, choices=FeatureRequestStatus.choices)
+    source = models.CharField(
+        max_length=32,
+        choices=FeatureRequestStatusHistorySource.choices,
+        default=FeatureRequestStatusHistorySource.MANUAL,
+    )
+    actor_id = models.BigIntegerField(null=True, blank=True)
+    changed_at = models.DateTimeField()
+
+    class Meta:
+        constraints = [
+            models.UniqueConstraint(
+                fields=["team", "feature_request"],
+                condition=Q(previous_status__isnull=True),
+                name="unique_feature_request_initial_status_history",
+            ),
+        ]
+        ordering = ["-changed_at", "-id"]
 
 
 class FeatureRequestAccountLink(TeamScopedRootMixin, UUIDModel):

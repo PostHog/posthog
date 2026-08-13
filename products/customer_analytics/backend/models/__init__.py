@@ -20,9 +20,12 @@ from .event_stream import EventStream, EventStreamMember
 from .feature_request import (
     FeatureRequest,
     FeatureRequestAccountLink,
+    FeatureRequestPriority,
     FeatureRequestProductArea,
     FeatureRequestProductAreaLink,
     FeatureRequestStatus,
+    FeatureRequestStatusHistory,
+    FeatureRequestStatusHistorySource,
 )
 from .meeting import Meeting, MeetingParticipant, MeetingResponseStatus, MeetingStatus
 from .relationship import AccountRelationship, AccountRelationshipDefinition
@@ -50,9 +53,12 @@ __all__ = [
     "EventStreamMember",
     "FeatureRequest",
     "FeatureRequestAccountLink",
+    "FeatureRequestPriority",
     "FeatureRequestProductArea",
     "FeatureRequestProductAreaLink",
     "FeatureRequestStatus",
+    "FeatureRequestStatusHistory",
+    "FeatureRequestStatusHistorySource",
     "Meeting",
     "MeetingParticipant",
     "MeetingResponseStatus",

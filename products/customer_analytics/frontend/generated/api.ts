@@ -51,6 +51,9 @@ import type {
     FeatureRequestCreateApi,
     FeatureRequestProductAreaApi,
     FeatureRequestProductAreasListParams,
+    FeatureRequestStatusHistoryApi,
+    FeatureRequestUpdateApi,
+    FeatureRequestVersionApi,
     FeatureRequestsListParams,
     GroupUsageMetricApi,
     GroupsTypesMetricsListParams,
@@ -76,6 +79,7 @@ import type {
     PatchedCustomerProfileConfigApi,
     PatchedEventStreamApi,
     PatchedFeatureRequestProductAreaApi,
+    PatchedFeatureRequestUpdateApi,
     PatchedGroupUsageMetricApi,
     SupportTicketApi,
 } from './api.schemas'
@@ -1615,6 +1619,93 @@ export const featureRequestsRetrieve = async (
     options?: RequestInit
 ): Promise<FeatureRequestApi> => {
     return apiMutator<FeatureRequestApi>(getFeatureRequestsRetrieveUrl(projectId, id), {
+        ...options,
+        method: 'GET',
+    })
+}
+
+export const getFeatureRequestsUpdateUrl = (projectId: string, id: string) => {
+    return `/api/projects/${projectId}/feature_requests/${id}/`
+}
+
+export const featureRequestsUpdate = async (
+    projectId: string,
+    id: string,
+    featureRequestUpdateApi: FeatureRequestUpdateApi,
+    options?: RequestInit
+): Promise<FeatureRequestApi> => {
+    return apiMutator<FeatureRequestApi>(getFeatureRequestsUpdateUrl(projectId, id), {
+        ...options,
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json', ...options?.headers },
+        body: JSON.stringify(featureRequestUpdateApi),
+    })
+}
+
+export const getFeatureRequestsPartialUpdateUrl = (projectId: string, id: string) => {
+    return `/api/projects/${projectId}/feature_requests/${id}/`
+}
+
+export const featureRequestsPartialUpdate = async (
+    projectId: string,
+    id: string,
+    patchedFeatureRequestUpdateApi?: PatchedFeatureRequestUpdateApi,
+    options?: RequestInit
+): Promise<FeatureRequestApi> => {
+    return apiMutator<FeatureRequestApi>(getFeatureRequestsPartialUpdateUrl(projectId, id), {
+        ...options,
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json', ...options?.headers },
+        body: JSON.stringify(patchedFeatureRequestUpdateApi),
+    })
+}
+
+export const getFeatureRequestsArchiveCreateUrl = (projectId: string, id: string) => {
+    return `/api/projects/${projectId}/feature_requests/${id}/archive/`
+}
+
+export const featureRequestsArchiveCreate = async (
+    projectId: string,
+    id: string,
+    featureRequestVersionApi: FeatureRequestVersionApi,
+    options?: RequestInit
+): Promise<FeatureRequestApi> => {
+    return apiMutator<FeatureRequestApi>(getFeatureRequestsArchiveCreateUrl(projectId, id), {
+        ...options,
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', ...options?.headers },
+        body: JSON.stringify(featureRequestVersionApi),
+    })
+}
+
+export const getFeatureRequestsRestoreCreateUrl = (projectId: string, id: string) => {
+    return `/api/projects/${projectId}/feature_requests/${id}/restore/`
+}
+
+export const featureRequestsRestoreCreate = async (
+    projectId: string,
+    id: string,
+    featureRequestVersionApi: FeatureRequestVersionApi,
+    options?: RequestInit
+): Promise<FeatureRequestApi> => {
+    return apiMutator<FeatureRequestApi>(getFeatureRequestsRestoreCreateUrl(projectId, id), {
+        ...options,
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', ...options?.headers },
+        body: JSON.stringify(featureRequestVersionApi),
+    })
+}
+
+export const getFeatureRequestsStatusHistoryListUrl = (projectId: string, id: string) => {
+    return `/api/projects/${projectId}/feature_requests/${id}/status_history/`
+}
+
+export const featureRequestsStatusHistoryList = async (
+    projectId: string,
+    id: string,
+    options?: RequestInit
+): Promise<FeatureRequestStatusHistoryApi[]> => {
+    return apiMutator<FeatureRequestStatusHistoryApi[]>(getFeatureRequestsStatusHistoryListUrl(projectId, id), {
         ...options,
         method: 'GET',
     })

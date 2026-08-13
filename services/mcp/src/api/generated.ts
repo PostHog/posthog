@@ -15097,6 +15097,16 @@ export namespace Schemas {
     }
 
     /**
+     * * `manual` - Manual
+     */
+    export type ChangeSourceEnum = typeof ChangeSourceEnum[keyof typeof ChangeSourceEnum];
+
+
+    export const ChangeSourceEnum = {
+      Manual: 'manual',
+    } as const;
+
+    /**
      * The task currently generating this channel's CONTEXT.md, or null.
      */
     export interface ChannelContextGeneration {
@@ -35391,12 +35401,34 @@ export namespace Schemas {
 
     /**
      * * `requested` - Requested
+     * * `planned` - Planned
+     * * `completed` - Completed
+     * * `wont_fix` - Won't fix
+     * * `duplicate` - Duplicate
      */
-    export type RequestStatusEnum = typeof RequestStatusEnum[keyof typeof RequestStatusEnum];
+    export type FeatureRequestStatusEnum = typeof FeatureRequestStatusEnum[keyof typeof FeatureRequestStatusEnum];
 
 
-    export const RequestStatusEnum = {
+    export const FeatureRequestStatusEnum = {
       Requested: 'requested',
+      Planned: 'planned',
+      Completed: 'completed',
+      WontFix: 'wont_fix',
+      Duplicate: 'duplicate',
+    } as const;
+
+    /**
+     * * `high` - High
+     * * `medium` - Medium
+     * * `low` - Low
+     */
+    export type RequestPriorityEnum = typeof RequestPriorityEnum[keyof typeof RequestPriorityEnum];
+
+
+    export const RequestPriorityEnum = {
+      High: 'high',
+      Medium: 'medium',
+      Low: 'low',
     } as const;
 
     export interface FeatureRequestAccount {
@@ -35434,10 +35466,37 @@ export namespace Schemas {
       readonly title: string;
       /** Customer-facing request description in Markdown. */
       readonly description: string;
-      /** Current customer-facing status. The first release always creates requests as requested.
+      /** Current customer-facing lifecycle status.
        *
-       * * `requested` - Requested */
-      readonly request_status: RequestStatusEnum;
+       * * `requested` - Requested
+       * * `planned` - Planned
+       * * `completed` - Completed
+       * * `wont_fix` - Won't fix
+       * * `duplicate` - Duplicate */
+      readonly request_status: FeatureRequestStatusEnum;
+      /** Manual request priority. Null means no priority.
+       *
+       * * `high` - High
+       * * `medium` - Medium
+       * * `low` - Low */
+      readonly request_priority: RequestPriorityEnum | null;
+      /** Whether the request is archived. */
+      readonly is_archived: boolean;
+      /**
+         * When the request was archived, or null while active.
+         * @nullable
+         */
+      readonly archived_at: string | null;
+      /**
+         * ID of the user who archived the request, or null while active.
+         * @nullable
+         */
+      readonly archived_by: number | null;
+      /**
+         * Version required for optimistic concurrency on mutations.
+         * @minimum 1
+         */
+      readonly version: number;
       /** Affected account in the first release. */
       readonly account: FeatureRequestAccount;
       /** Product areas affected by this request. */
@@ -35472,6 +35531,84 @@ export namespace Schemas {
       product_area_ids: string[];
       /** Client-generated key that makes retries return the original request instead of creating a duplicate. */
       idempotency_key: string;
+    }
+
+    export interface FeatureRequestStatusHistory {
+      /** Stable status history entry ID. */
+      readonly id: string;
+      /** Status before this change. Null identifies the initial status.
+       *
+       * * `requested` - Requested
+       * * `planned` - Planned
+       * * `completed` - Completed
+       * * `wont_fix` - Won't fix
+       * * `duplicate` - Duplicate */
+      readonly previous_status: FeatureRequestStatusEnum | null;
+      /** Status after this change.
+       *
+       * * `requested` - Requested
+       * * `planned` - Planned
+       * * `completed` - Completed
+       * * `wont_fix` - Won't fix
+       * * `duplicate` - Duplicate */
+      readonly request_status: FeatureRequestStatusEnum;
+      /** System that recorded the status change.
+       *
+       * * `manual` - Manual */
+      readonly change_source: ChangeSourceEnum;
+      /**
+         * ID of the user who changed the status, if known.
+         * @nullable
+         */
+      readonly actor_id: number | null;
+      /**
+         * Display name of the user who changed the status, if known.
+         * @nullable
+         */
+      readonly actor_name: string | null;
+      /** When the status changed. */
+      readonly changed_at: string;
+    }
+
+    export interface FeatureRequestUpdate {
+      /**
+         * Request version loaded by the editor. Stale versions return 409 Conflict.
+         * @minimum 1
+         */
+      expected_version: number;
+      /**
+         * Updated customer-facing request title.
+         * @maxLength 400
+         */
+      title?: string;
+      /** Updated customer-facing request description in Markdown. */
+      description?: string;
+      /** Updated affected Customer Analytics account ID. */
+      account_id?: string;
+      /** One or more product area IDs. Existing inactive areas can remain linked. */
+      product_area_ids?: string[];
+      /** Updated customer-facing lifecycle status.
+       *
+       * * `requested` - Requested
+       * * `planned` - Planned
+       * * `completed` - Completed
+       * * `wont_fix` - Won't fix
+       * * `duplicate` - Duplicate */
+      request_status?: FeatureRequestStatusEnum;
+      /** Updated manual priority. Pass null to remove the priority.
+       *
+       * * `high` - High
+       * * `medium` - Medium
+       * * `low` - Low */
+      request_priority?: RequestPriorityEnum | null;
+    }
+
+    export interface FeatureRequestVersion {
+      /**
+         * Request version loaded by the editor. Stale versions return 409 Conflict.
+         * @minimum 1
+         */
+      expected_version: number;
     }
 
     export interface FeaturebaseFeedbackSignalExtra {
@@ -55877,6 +56014,39 @@ export namespace Schemas {
       readonly created_at?: string;
       /** When the product area was last updated. */
       readonly updated_at?: string;
+    }
+
+    export interface PatchedFeatureRequestUpdate {
+      /**
+         * Request version loaded by the editor. Stale versions return 409 Conflict.
+         * @minimum 1
+         */
+      expected_version?: number;
+      /**
+         * Updated customer-facing request title.
+         * @maxLength 400
+         */
+      title?: string;
+      /** Updated customer-facing request description in Markdown. */
+      description?: string;
+      /** Updated affected Customer Analytics account ID. */
+      account_id?: string;
+      /** One or more product area IDs. Existing inactive areas can remain linked. */
+      product_area_ids?: string[];
+      /** Updated customer-facing lifecycle status.
+       *
+       * * `requested` - Requested
+       * * `planned` - Planned
+       * * `completed` - Completed
+       * * `wont_fix` - Won't fix
+       * * `duplicate` - Duplicate */
+      request_status?: FeatureRequestStatusEnum;
+      /** Updated manual priority. Pass null to remove the priority.
+       *
+       * * `high` - High
+       * * `medium` - Medium
+       * * `low` - Low */
+      request_priority?: RequestPriorityEnum | null;
     }
 
     /**
@@ -84957,6 +85127,19 @@ export namespace Schemas {
 
     export type FeatureRequestsListParams = {
     /**
+     * Accessible account IDs to include. Multiple values use OR semantics.
+     */
+    account_ids?: string[];
+    /**
+     * Whether to return active requests, archived requests, or all requests.
+     *
+     * * `active` - Active
+     * * `archived` - Archived
+     * * `all` - All
+     * @minLength 1
+     */
+    archive_state?: FeatureRequestsListArchiveState;
+    /**
      * Number of results to return per page.
      */
     limit?: number;
@@ -84964,7 +85147,80 @@ export namespace Schemas {
      * The initial index from which to return the results.
      */
     offset?: number;
+    /**
+     * Priorities to include. Use none for requests without a priority.
+     */
+    priorities?: FeatureRequestsListPrioritiesItem[];
+    /**
+     * Product area IDs to include. Multiple values use OR semantics.
+     */
+    product_area_ids?: string[];
+    /**
+     * Stable ordering for the result list.
+     *
+     * * `-updated_at` - Last updated: newest
+     * * `updated_at` - Last updated: oldest
+     * * `-created_at` - Date created: newest
+     * * `created_at` - Date created: oldest
+     * * `-priority` - Priority: high to low
+     * * `priority` - Priority: low to high
+     * * `title` - Title: A to Z
+     * * `-title` - Title: Z to A
+     * @minLength 1
+     */
+    request_ordering?: string;
+    /**
+     * Case-insensitive text to find in request titles and descriptions.
+     */
+    search?: string;
+    /**
+     * Lifecycle statuses to include. Multiple values use OR semantics.
+     */
+    statuses?: FeatureRequestsListStatusesItem[];
     };
+
+    export type FeatureRequestsListArchiveState = typeof FeatureRequestsListArchiveState[keyof typeof FeatureRequestsListArchiveState];
+
+
+    export const FeatureRequestsListArchiveState = {
+      Active: 'active',
+      Archived: 'archived',
+      All: 'all',
+    } as const;
+
+    /**
+     * * `high` - High
+     * * `medium` - Medium
+     * * `low` - Low
+     * * `none` - No priority
+     */
+    export type FeatureRequestsListPrioritiesItem = typeof FeatureRequestsListPrioritiesItem[keyof typeof FeatureRequestsListPrioritiesItem];
+
+
+    export const FeatureRequestsListPrioritiesItem = {
+      High: 'high',
+      Medium: 'medium',
+      Low: 'low',
+      None: 'none',
+    } as const;
+
+    /**
+     * * `requested` - Requested
+     * * `planned` - Planned
+     * * `completed` - Completed
+     * * `wont_fix` - Won't fix
+     * * `duplicate` - Duplicate
+     */
+    export type FeatureRequestsListStatusesItem = typeof FeatureRequestsListStatusesItem[keyof typeof FeatureRequestsListStatusesItem];
+
+
+    export const FeatureRequestsListStatusesItem = {
+      Requested: 'requested',
+      Planned: 'planned',
+      Completed: 'completed',
+      WontFix: 'wont_fix',
+      Duplicate: 'duplicate',
+    } as const;
 
     export type FieldNotesListParams = {
     /**

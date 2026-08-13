@@ -1963,6 +1963,7 @@ def list_custom_property_sync_runs(
 
 FeatureRequestValidationError = _feature_requests_logic.FeatureRequestValidationError
 FeatureRequestProductAreaConflictError = _feature_requests_logic.FeatureRequestProductAreaConflictError
+FeatureRequestConflictError = _feature_requests_logic.FeatureRequestConflictError
 
 
 def list_feature_request_product_areas(
@@ -2002,11 +2003,17 @@ def update_feature_request_product_area(
 
 
 def list_feature_requests(
-    *, team_id: int, user_access_control: "UserAccessControl", offset: int, limit: int
+    *,
+    team_id: int,
+    user_access_control: "UserAccessControl",
+    filters: contracts.FeatureRequestListFilters,
+    offset: int,
+    limit: int,
 ) -> tuple[list[contracts.FeatureRequestView], int]:
     return _feature_requests_logic.list_feature_requests(
         team_id=team_id,
         user_access_control=user_access_control,
+        filters=filters,
         offset=offset,
         limit=limit,
     )
@@ -2033,6 +2040,52 @@ def create_feature_request(
         team_id=team_id,
         input=input,
         actor_id=actor_id,
+        user_access_control=user_access_control,
+    )
+
+
+def update_feature_request(
+    *,
+    team_id: int,
+    feature_request_id: UUID,
+    input: contracts.UpdateFeatureRequestInput,
+    actor_id: int,
+    user_access_control: "UserAccessControl",
+) -> contracts.FeatureRequestView | None:
+    return _feature_requests_logic.update_feature_request(
+        team_id=team_id,
+        feature_request_id=feature_request_id,
+        input=input,
+        actor_id=actor_id,
+        user_access_control=user_access_control,
+    )
+
+
+def set_feature_request_archived(
+    *,
+    team_id: int,
+    feature_request_id: UUID,
+    expected_version: int,
+    archived: bool,
+    actor_id: int,
+    user_access_control: "UserAccessControl",
+) -> contracts.FeatureRequestView | None:
+    return _feature_requests_logic.set_feature_request_archived(
+        team_id=team_id,
+        feature_request_id=feature_request_id,
+        expected_version=expected_version,
+        archived=archived,
+        actor_id=actor_id,
+        user_access_control=user_access_control,
+    )
+
+
+def list_feature_request_status_history(
+    *, team_id: int, feature_request_id: UUID, user_access_control: "UserAccessControl"
+) -> list[contracts.FeatureRequestStatusHistoryView] | None:
+    return _feature_requests_logic.list_feature_request_status_history(
+        team_id=team_id,
+        feature_request_id=feature_request_id,
         user_access_control=user_access_control,
     )
 

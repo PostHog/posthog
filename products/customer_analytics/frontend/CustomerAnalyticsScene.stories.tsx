@@ -98,6 +98,41 @@ export const B2BModeWithoutGroups: Story = {
     },
 }
 
+const featureRequestStoryItem = {
+    id: '018f47de-7e12-7000-8000-000000000001',
+    title: 'Export account-level retention data',
+    description: 'The customer needs this export for their monthly reporting workflow.',
+    request_status: 'requested',
+    request_priority: 'high',
+    is_archived: false,
+    archived_at: null,
+    archived_by: null,
+    version: 1,
+    account: { id: '018f47de-7e12-7000-8000-000000000002', name: 'Acme' },
+    product_areas: [
+        {
+            id: '018f47de-7e12-7000-8000-000000000003',
+            name: 'Product analytics',
+            display_order: 1,
+            is_active: true,
+            created_at: '2024-01-10T10:00:00Z',
+            updated_at: '2024-01-10T10:00:00Z',
+        },
+        {
+            id: '018f47de-7e12-7000-8000-000000000004',
+            name: 'Data warehouse',
+            display_order: 2,
+            is_active: true,
+            created_at: '2024-01-10T10:00:00Z',
+            updated_at: '2024-01-10T10:00:00Z',
+        },
+    ],
+    created_by: 1,
+    updated_by: 1,
+    created_at: '2024-01-12T10:00:00Z',
+    updated_at: '2024-01-14T10:00:00Z',
+}
+
 export const FeatureRequests: Story = {
     render: () => {
         useStorybookMocks({
@@ -106,39 +141,27 @@ export const FeatureRequests: Story = {
                     count: 1,
                     next: null,
                     previous: null,
-                    results: [
-                        {
-                            id: '018f47de-7e12-7000-8000-000000000001',
-                            title: 'Export account-level retention data',
-                            description: 'The customer needs this export for their monthly reporting workflow.',
-                            request_status: 'requested',
-                            account: { id: '018f47de-7e12-7000-8000-000000000002', name: 'Acme' },
-                            product_areas: [
-                                {
-                                    id: '018f47de-7e12-7000-8000-000000000003',
-                                    name: 'Product analytics',
-                                    display_order: 1,
-                                    is_active: true,
-                                    created_at: '2024-01-10T10:00:00Z',
-                                    updated_at: '2024-01-10T10:00:00Z',
-                                },
-                                {
-                                    id: '018f47de-7e12-7000-8000-000000000004',
-                                    name: 'Data warehouse',
-                                    display_order: 2,
-                                    is_active: true,
-                                    created_at: '2024-01-10T10:00:00Z',
-                                    updated_at: '2024-01-10T10:00:00Z',
-                                },
-                            ],
-                            created_by: 1,
-                            updated_by: 1,
-                            created_at: '2024-01-12T10:00:00Z',
-                            updated_at: '2024-01-14T10:00:00Z',
-                        },
-                    ],
+                    results: [featureRequestStoryItem],
                 },
-                'api/projects/:team_id/feature_request_product_areas/': [],
+                'api/projects/:team_id/feature_requests/:id/': featureRequestStoryItem,
+                'api/projects/:team_id/feature_requests/:id/status_history/': [
+                    {
+                        id: '018f47de-7e12-7000-8000-000000000005',
+                        previous_status: null,
+                        request_status: 'requested',
+                        change_source: 'manual',
+                        actor_id: 1,
+                        actor_name: 'Alex Morgan',
+                        changed_at: '2024-01-12T10:00:00Z',
+                    },
+                ],
+                'api/projects/:team_id/feature_request_product_areas/': featureRequestStoryItem.product_areas,
+                'api/projects/:team_id/accounts/': {
+                    count: 1,
+                    next: null,
+                    previous: null,
+                    results: [featureRequestStoryItem.account],
+                },
             },
         })
         return <App />
@@ -148,6 +171,17 @@ export const FeatureRequests: Story = {
         pageUrl: urls.customerAnalyticsFeatureRequests(),
         testOptions: {
             waitForSelector: '[data-attr="new-feature-request"]',
+        },
+    },
+}
+
+export const FeatureRequestDetails: Story = {
+    ...FeatureRequests,
+    parameters: {
+        featureFlags: [FEATURE_FLAGS.CUSTOMER_ANALYTICS, FEATURE_FLAGS.CUSTOMER_ANALYTICS_FEATURE_REQUESTS],
+        pageUrl: urls.customerAnalyticsFeatureRequests(featureRequestStoryItem.id),
+        testOptions: {
+            waitForSelector: '[data-attr="edit-feature-request"]',
         },
     },
 }

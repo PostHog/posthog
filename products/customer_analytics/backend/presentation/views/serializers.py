@@ -19,6 +19,7 @@ by the sibling ``organization_members`` module.
 """
 
 import json
+from typing import Any
 
 from drf_spectacular.utils import extend_schema_field
 from rest_framework import serializers
@@ -52,6 +53,7 @@ from products.customer_analytics.backend.facade.contracts import (
     EventStreamView,
     FeatureRequestAccountView,
     FeatureRequestProductAreaView,
+    FeatureRequestStatusHistoryView,
     FeatureRequestView,
     MeetingParticipantView,
     MeetingView,
@@ -98,6 +100,28 @@ _ACCOUNT_PROPERTIES_SCHEMA = {
 @extend_schema_field(_ACCOUNT_PROPERTIES_SCHEMA)
 class AccountPropertiesField(serializers.JSONField):
     pass
+
+
+_FEATURE_REQUEST_STATUS_CHOICES = [
+    ("requested", "Requested"),
+    ("planned", "Planned"),
+    ("completed", "Completed"),
+    ("wont_fix", "Won't fix"),
+    ("duplicate", "Duplicate"),
+]
+_FEATURE_REQUEST_PRIORITY_CHOICES = [("high", "High"), ("medium", "Medium"), ("low", "Low")]
+_FEATURE_REQUEST_PRIORITY_FILTER_CHOICES = [*_FEATURE_REQUEST_PRIORITY_CHOICES, ("none", "No priority")]
+_FEATURE_REQUEST_ARCHIVE_CHOICES = [("active", "Active"), ("archived", "Archived"), ("all", "All")]
+_FEATURE_REQUEST_ORDERING_CHOICES = [
+    ("-updated_at", "Last updated: newest"),
+    ("updated_at", "Last updated: oldest"),
+    ("-created_at", "Date created: newest"),
+    ("created_at", "Date created: oldest"),
+    ("-priority", "Priority: high to low"),
+    ("priority", "Priority: low to high"),
+    ("title", "Title: A to Z"),
+    ("-title", "Title: Z to A"),
+]
 
 
 class FeatureRequestProductAreaSerializer(DataclassSerializer):
@@ -147,8 +171,30 @@ class FeatureRequestSerializer(DataclassSerializer):
     description = serializers.CharField(read_only=True, help_text="Customer-facing request description in Markdown.")
     request_status = serializers.ChoiceField(
         read_only=True,
-        choices=[("requested", "Requested")],
-        help_text="Current customer-facing status. The first release always creates requests as requested.",
+        choices=_FEATURE_REQUEST_STATUS_CHOICES,
+        help_text="Current customer-facing lifecycle status.",
+    )
+    request_priority = serializers.ChoiceField(
+        read_only=True,
+        allow_null=True,
+        choices=_FEATURE_REQUEST_PRIORITY_CHOICES,
+        help_text="Manual request priority. Null means no priority.",
+    )
+    is_archived = serializers.BooleanField(read_only=True, help_text="Whether the request is archived.")
+    archived_at = serializers.DateTimeField(
+        read_only=True,
+        allow_null=True,
+        help_text="When the request was archived, or null while active.",
+    )
+    archived_by = serializers.IntegerField(
+        read_only=True,
+        allow_null=True,
+        help_text="ID of the user who archived the request, or null while active.",
+    )
+    version = serializers.IntegerField(
+        read_only=True,
+        min_value=1,
+        help_text="Version required for optimistic concurrency on mutations.",
     )
     account = FeatureRequestAccountSerializer(read_only=True, help_text="Affected account in the first release.")
     product_areas = FeatureRequestProductAreaSerializer(
@@ -173,6 +219,11 @@ class FeatureRequestSerializer(DataclassSerializer):
             "title",
             "description",
             "request_status",
+            "request_priority",
+            "is_archived",
+            "archived_at",
+            "archived_by",
+            "version",
             "account",
             "product_areas",
             "created_by",
@@ -180,6 +231,99 @@ class FeatureRequestSerializer(DataclassSerializer):
             "created_at",
             "updated_at",
         ]
+
+
+class FeatureRequestStatusHistorySerializer(DataclassSerializer):
+    id = serializers.UUIDField(read_only=True, help_text="Stable status history entry ID.")
+    previous_status = serializers.ChoiceField(
+        read_only=True,
+        allow_null=True,
+        choices=_FEATURE_REQUEST_STATUS_CHOICES,
+        help_text="Status before this change. Null identifies the initial status.",
+    )
+    request_status = serializers.ChoiceField(
+        read_only=True,
+        choices=_FEATURE_REQUEST_STATUS_CHOICES,
+        help_text="Status after this change.",
+    )
+    change_source = serializers.ChoiceField(
+        read_only=True,
+        choices=[("manual", "Manual")],
+        help_text="System that recorded the status change.",
+    )
+    actor_id = serializers.IntegerField(
+        read_only=True,
+        allow_null=True,
+        help_text="ID of the user who changed the status, if known.",
+    )
+    actor_name = serializers.CharField(
+        read_only=True,
+        allow_null=True,
+        help_text="Display name of the user who changed the status, if known.",
+    )
+    changed_at = serializers.DateTimeField(read_only=True, help_text="When the status changed.")
+
+    class Meta:
+        dataclass = FeatureRequestStatusHistoryView
+        ref_name = "FeatureRequestStatusHistory"
+        fields = [
+            "id",
+            "previous_status",
+            "request_status",
+            "change_source",
+            "actor_id",
+            "actor_name",
+            "changed_at",
+        ]
+
+
+class CommaSeparatedListField(serializers.ListField):
+    def to_internal_value(self, data: Any) -> list[Any]:
+        if isinstance(data, str):
+            data = data.split(",")
+        elif isinstance(data, list):
+            data = [item for value in data for item in (value.split(",") if isinstance(value, str) else [value])]
+        return super().to_internal_value(data)
+
+
+class FeatureRequestListQuerySerializer(serializers.Serializer):
+    search = serializers.CharField(
+        required=False,
+        allow_blank=True,
+        help_text="Case-insensitive text to find in request titles and descriptions.",
+    )
+    statuses = CommaSeparatedListField(
+        required=False,
+        child=serializers.ChoiceField(choices=_FEATURE_REQUEST_STATUS_CHOICES),
+        help_text="Lifecycle statuses to include. Multiple values use OR semantics.",
+    )
+    priorities = CommaSeparatedListField(
+        required=False,
+        child=serializers.ChoiceField(choices=_FEATURE_REQUEST_PRIORITY_FILTER_CHOICES),
+        help_text="Priorities to include. Use none for requests without a priority.",
+    )
+    product_area_ids = CommaSeparatedListField(
+        required=False,
+        child=serializers.UUIDField(),
+        help_text="Product area IDs to include. Multiple values use OR semantics.",
+    )
+    account_ids = CommaSeparatedListField(
+        required=False,
+        child=serializers.UUIDField(),
+        help_text="Accessible account IDs to include. Multiple values use OR semantics.",
+    )
+    archive_state = serializers.ChoiceField(
+        required=False,
+        default="active",
+        choices=_FEATURE_REQUEST_ARCHIVE_CHOICES,
+        help_text="Whether to return active requests, archived requests, or all requests.",
+    )
+    request_ordering = serializers.ChoiceField(
+        required=False,
+        default="-updated_at",
+        choices=_FEATURE_REQUEST_ORDERING_CHOICES,
+        help_text="Stable ordering for the result list.",
+    )
 
 
 class FeatureRequestCreateSerializer(serializers.Serializer):
@@ -200,6 +344,49 @@ class FeatureRequestCreateSerializer(serializers.Serializer):
     )
     idempotency_key = serializers.UUIDField(
         help_text="Client-generated key that makes retries return the original request instead of creating a duplicate.",
+    )
+
+
+class FeatureRequestUpdateSerializer(serializers.Serializer):
+    expected_version = serializers.IntegerField(
+        min_value=1,
+        help_text="Request version loaded by the editor. Stale versions return 409 Conflict.",
+    )
+    title = serializers.CharField(
+        required=False,
+        max_length=400,
+        trim_whitespace=True,
+        help_text="Updated customer-facing request title.",
+    )
+    description = serializers.CharField(
+        required=False,
+        trim_whitespace=True,
+        help_text="Updated customer-facing request description in Markdown.",
+    )
+    account_id = serializers.UUIDField(required=False, help_text="Updated affected Customer Analytics account ID.")
+    product_area_ids = serializers.ListField(
+        required=False,
+        child=serializers.UUIDField(),
+        allow_empty=False,
+        help_text="One or more product area IDs. Existing inactive areas can remain linked.",
+    )
+    request_status = serializers.ChoiceField(
+        required=False,
+        choices=_FEATURE_REQUEST_STATUS_CHOICES,
+        help_text="Updated customer-facing lifecycle status.",
+    )
+    request_priority = serializers.ChoiceField(
+        required=False,
+        allow_null=True,
+        choices=_FEATURE_REQUEST_PRIORITY_CHOICES,
+        help_text="Updated manual priority. Pass null to remove the priority.",
+    )
+
+
+class FeatureRequestVersionSerializer(serializers.Serializer):
+    expected_version = serializers.IntegerField(
+        min_value=1,
+        help_text="Request version loaded by the editor. Stale versions return 409 Conflict.",
     )
 
 
