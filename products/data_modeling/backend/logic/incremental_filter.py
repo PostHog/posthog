@@ -54,10 +54,12 @@ def find_key_expression(select: ast.SelectQuery, incremental_key: str) -> Option
             return item
     # A star passes every source column through, the key included, so the key resolves by name
     # against the same sources. Without this, `SELECT *` plans incremental but the filter raises
-    # on every run, and the activity's retry silently rebuilds the whole table each time.
+    # on every run, and the activity's retry silently rebuilds the whole table each time. The
+    # star's qualifier is kept (`e.*` filters on `e.key`): with a join in scope, a bare name can
+    # be ambiguous and would fail the run at resolution.
     for item in select.select:
         if isinstance(item, ast.Field) and item.chain and str(item.chain[-1]) == "*":
-            return ast.Field(chain=[incremental_key])
+            return ast.Field(chain=[*item.chain[:-1], incremental_key])
     return None
 
 

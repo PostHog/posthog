@@ -132,15 +132,22 @@ class TestInjectIncrementalFilter(BaseTest):
             )
 
     # Regression: `SELECT *` planned incremental (eligibility expands the star) but the filter
-    # raised on every run, so the retry silently rebuilt the whole table each time.
+    # raised on every run, so the retry silently rebuilt the whole table each time. The star's
+    # qualifier must survive into the key: with a join in scope a bare name is ambiguous, and the
+    # ambiguity error would fail every incremental run.
     @parameterized.expand(
         [
-            ("bare_star", "SELECT * FROM events"),
-            ("qualified_star", "SELECT e.* FROM events e"),
-            ("star_union_branch", "SELECT * FROM events UNION ALL SELECT * FROM events"),
+            ("bare_star", "SELECT * FROM events", ["timestamp"]),
+            ("qualified_star", "SELECT e.* FROM events e", ["e", "timestamp"]),
+            (
+                "joined_qualified_star",
+                "SELECT e.* FROM events e JOIN persons p ON e.person_id = p.id",
+                ["e", "timestamp"],
+            ),
+            ("star_union_branch", "SELECT * FROM events UNION ALL SELECT * FROM events", ["timestamp"]),
         ]
     )
-    def test_a_star_select_filters_on_the_key_by_name(self, _name: str, query: str) -> None:
+    def test_a_star_select_filters_on_the_key_by_name(self, _name: str, query: str, chain: list[str]) -> None:
         node = inject_incremental_filter(query, incremental_key="timestamp", since=SINCE)
 
         for branch in _inner_selects(node):
@@ -148,5 +155,5 @@ class TestInjectIncrementalFilter(BaseTest):
             assert len(terms) == 1
             predicate = terms[0]
             assert isinstance(predicate, ast.CompareOperation)
-            assert clear_locations(predicate.left) == ast.Field(chain=["timestamp"])
+            assert clear_locations(predicate.left) == ast.Field(chain=list(chain))
             assert predicate.right == ast.Constant(value=SINCE)

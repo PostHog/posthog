@@ -157,6 +157,7 @@ def set_incremental_state(saved_query, *, watermark: Any, fingerprint: Optional[
     a materialization is running; ``update_fields`` then keeps this write off every other column.
     """
     model = type(saved_query)
+    watermark = _clamp_temporal_watermark(watermark)
     with transaction.atomic():
         locked = model.objects.select_for_update().get(pk=saved_query.pk)
         state = dict(locked.incremental_state or {})
@@ -170,6 +171,22 @@ def set_incremental_state(saved_query, *, watermark: Any, fingerprint: Optional[
         locked.incremental_state = state
         locked.save(update_fields=["incremental_state"])
     saved_query.incremental_state = state
+
+
+def _clamp_temporal_watermark(watermark: Any) -> Any:
+    """Capture accepts event timestamps up to ~23 hours in the future, so one future-dated row
+    would advance the watermark past data that has not arrived yet, and later runs would skip the
+    legitimate rows in between. Persisting at most "now" costs re-reading the future row's window
+    once; skipping real data is silent loss."""
+    if isinstance(watermark, datetime):
+        try:
+            return min(watermark, watermark_now())
+        except TypeError:
+            # Naive vs aware comparison. Keep the observed watermark rather than guess a timezone.
+            return watermark
+    if isinstance(watermark, date):
+        return min(watermark, watermark_now().date())
+    return watermark
 
 
 def clear_incremental_state(saved_query) -> None:

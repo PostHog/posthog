@@ -1,5 +1,7 @@
 from datetime import UTC, date, datetime, timedelta
 
+from django.utils import timezone
+
 from posthog.test.base import BaseTest
 
 from parameterized import parameterized
@@ -115,6 +117,33 @@ class TestIncrementalConfig(BaseTest):
         assert type(restored) is expected_type
         assert state.definition_fingerprint == "abc"
         assert state.last_run_mode == "incremental"
+
+    @parameterized.expand(
+        [
+            ("future_datetime", lambda now: now + timedelta(hours=23), lambda now: now),
+            ("past_datetime", lambda now: now - timedelta(hours=1), lambda now: now - timedelta(hours=1)),
+            ("future_date", lambda now: (now + timedelta(days=3)).date(), lambda now: now.date()),
+            # Strings never clamp: their order is not temporal, whatever they look like.
+            ("date_like_string", lambda now: "2999-01-01", lambda now: "2999-01-01"),
+        ]
+    )
+    def test_a_temporal_watermark_never_persists_past_now(self, _name: str, make_watermark, make_expected) -> None:
+        """Capture accepts future-dated events, and one of them would advance the watermark past
+        data that has not arrived yet, so later runs silently skip the legitimate rows between."""
+        saved_query = self._saved_query()
+        now = timezone.now()
+
+        set_incremental_state(saved_query, watermark=make_watermark(now), fingerprint="abc", mode="incremental")
+
+        saved_query.refresh_from_db()
+        state = get_incremental_state(saved_query)
+        restored = deserialize_watermark(state.watermark, state.watermark_type)
+        expected = make_expected(now)
+        if isinstance(expected, datetime):
+            # "now" moves between building the expectation and the clamp reading its own clock.
+            assert expected <= restored <= timezone.now()
+        else:
+            assert restored == expected
 
     @parameterized.expand(
         [

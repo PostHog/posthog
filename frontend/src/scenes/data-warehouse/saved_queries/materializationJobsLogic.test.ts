@@ -21,14 +21,16 @@ describe('materializationJobsLogic', () => {
     let logic: ReturnType<typeof materializationJobsLogic.build>
     let checkCalls = 0
 
-    function mockApi({
+    // A plain config builder, not a wrapper around useMocks: a helper calling a use*-named
+    // function trips react-hooks/rules-of-hooks in lint.
+    function apiMocks({
         isMaterialized,
         incremental = null,
     }: {
         isMaterialized: boolean
         incremental?: Record<string, any> | null
-    }): void {
-        useMocks({
+    }): Parameters<typeof useMocks>[0] {
+        return {
             get: {
                 '/api/environments/:team_id/warehouse_saved_queries/:id/': () => [
                     200,
@@ -48,7 +50,7 @@ describe('materializationJobsLogic', () => {
                     return [200, ELIGIBLE_CHECK]
                 },
             },
-        })
+        }
     }
 
     beforeEach(() => {
@@ -69,7 +71,7 @@ describe('materializationJobsLogic', () => {
     // eligibility check fires on each poll, hammering a parse-heavy endpoint. And without the key
     // default, enabling incremental starts from an empty picker.
     it('runs the eligibility check once for an unmaterialized view and defaults the key', async () => {
-        mockApi({ isMaterialized: false })
+        useMocks(apiMocks({ isMaterialized: false }))
         logic = materializationJobsLogic({ viewId: 'view-1' })
         logic.mount()
 
@@ -91,7 +93,7 @@ describe('materializationJobsLogic', () => {
         featureFlagLogic.actions.setFeatureFlags([], {
             [FEATURE_FLAGS.DATA_MODELING_INCREMENTAL_VIEWS]: flag,
         })
-        mockApi({ isMaterialized: false })
+        useMocks(apiMocks({ isMaterialized: false }))
         logic = materializationJobsLogic({ viewId: 'view-1', kind })
         logic.mount()
 
@@ -103,10 +105,12 @@ describe('materializationJobsLogic', () => {
     // not from the empty draft - otherwise it always shows "Full refresh" and offers a no-op save.
     // But a saved-query repoll must not clobber picks the user is in the middle of changing.
     it('seeds the draft from the saved incremental config until the user edits it', async () => {
-        mockApi({
-            isMaterialized: true,
-            incremental: { enabled: true, incremental_key: 'id', unique_key: ['id'], lookback_seconds: 3600 },
-        })
+        useMocks(
+            apiMocks({
+                isMaterialized: true,
+                incremental: { enabled: true, incremental_key: 'id', unique_key: ['id'], lookback_seconds: 3600 },
+            })
+        )
         logic = materializationJobsLogic({ viewId: 'view-1' })
         logic.mount()
 
