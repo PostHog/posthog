@@ -1,11 +1,13 @@
 import { dayjs } from 'lib/dayjs'
 
-import { NodeKind } from '~/queries/schema/schema-general'
+import { NodeKind, RecordingsQuery } from '~/queries/schema/schema-general'
 
+import type { ReplayScannerTemplateApi } from '../generated/api.schemas'
 import type {
     ClassifierScannerConfig,
     MonitorScannerConfig,
     ReplayScanner,
+    ScannerConfig,
     ScorerScannerConfig,
     SummarizerScannerConfig,
 } from './types'
@@ -120,6 +122,14 @@ export function findScannerTemplate(key: string | undefined): ScannerTemplate | 
     return defaultScannerTemplates.find((t) => t.key === key)
 }
 
+export function customScannerTemplateKey(templateId: string): string {
+    return `custom:${templateId}`
+}
+
+export function customScannerTemplateId(templateKey: string | null): string | null {
+    return templateKey?.startsWith('custom:') ? templateKey.slice('custom:'.length) || null : null
+}
+
 export function newScanner(templateKey?: string | null): ReplayScanner {
     const base = {
         id: 'new',
@@ -165,4 +175,20 @@ export function newScanner(templateKey?: string | null): ReplayScanner {
         scanner_type: 'monitor',
         scanner_config: { prompt: '' },
     }
+}
+
+export function newScannerFromCustomTemplate(template: ReplayScannerTemplateApi): ReplayScanner {
+    return {
+        ...newScanner(),
+        name: template.name,
+        description: template.description,
+        scanner_type: template.scanner_type,
+        scanner_config: structuredClone(template.scanner_config) as ScannerConfig,
+        query: structuredClone(template.query) as RecordingsQuery,
+        sampling_rate: template.sampling_rate,
+        sampling_mode: template.sampling_mode,
+        provider: template.provider,
+        model: template.model,
+        emits_signals: template.emits_signals,
+    } as ReplayScanner
 }

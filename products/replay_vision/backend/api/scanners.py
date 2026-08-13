@@ -41,6 +41,7 @@ from products.replay_vision.backend.api.filters import (
     split_csv,
     validate_csv_choices,
 )
+from products.replay_vision.backend.api.scanner_templates import ReplayScannerTemplateSerializer
 from products.replay_vision.backend.api.trigger import (
     WorkflowStartOutcome,
     check_observation_quota,
@@ -67,6 +68,7 @@ from products.replay_vision.backend.models.replay_scanner import (
     ScannerProvider,
     ScannerType,
 )
+from products.replay_vision.backend.models.replay_scanner_template import ReplayScannerTemplate
 from products.replay_vision.backend.queries import (
     ESTIMATE_STALE_AFTER,
     MIN_SAMPLING_RATE,
@@ -1186,6 +1188,7 @@ class ReplayScannerViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, vi
         "observe",
         "bulk_observe",
         "inline_scan",
+        "save_as_template",
     ]
     serializer_class = ReplayScannerSerializer
     queryset = ReplayScanner.objects.all()
@@ -1194,7 +1197,7 @@ class ReplayScannerViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, vi
     http_method_names = ["get", "post", "patch", "delete", "head", "options"]
 
     # Same authorization as /observe/: configuring a scanner indirectly exposes recording contents.
-    _CONFIG_ACTIONS = {"create", "update", "partial_update"}
+    _CONFIG_ACTIONS = {"create", "update", "partial_update", "save_as_template"}
 
     def dangerously_get_required_scopes(self, request: Request, view: Any) -> list[str] | None:
         if self.action in self._CONFIG_ACTIONS:
@@ -1238,6 +1241,59 @@ class ReplayScannerViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, vi
             properties,
             team=self.team,
             request=self.request,
+        )
+
+    @extend_schema(
+        request=None,
+        responses={200: ReplayScannerTemplateSerializer, 201: ReplayScannerTemplateSerializer},
+    )
+    @action(
+        detail=True,
+        methods=["post"],
+        url_path="save_as_template",
+        required_scopes=["replay_scanner:write", "session_recording:read"],
+    )
+    def save_as_template(self, request: Request, **kwargs: Any) -> Response:
+        scanner = self.get_object()
+        template_values = {
+            "name": scanner.name,
+            "description": scanner.description,
+            "scanner_type": scanner.scanner_type,
+            "scanner_config": scanner.scanner_config,
+            "query": scanner.query,
+            "sampling_rate": scanner.sampling_rate,
+            "sampling_mode": scanner.sampling_mode,
+            "provider": scanner.provider,
+            "model": scanner.model,
+            "emits_signals": scanner.emits_signals,
+        }
+        # update_or_create absorbs the concurrent-first-save race; created_by is pinned to
+        # whoever saved first and later re-saves only refresh the snapshot fields.
+        template, created = ReplayScannerTemplate.objects.update_or_create(
+            team_id=self.team_id,
+            source_scanner=scanner,
+            defaults=template_values,
+            create_defaults={
+                **template_values,
+                "team": self.team,
+                "created_by": cast(User, request.user),
+            },
+        )
+
+        report_user_action(
+            cast(User, request.user),
+            "replay_vision_scanner_template_saved",
+            {
+                "scanner_id": str(scanner.id),
+                "template_id": str(template.id),
+                "created": created,
+            },
+            team=self.team,
+            request=request,
+        )
+        return Response(
+            ReplayScannerTemplateSerializer(template).data,
+            status=status.HTTP_201_CREATED if created else status.HTTP_200_OK,
         )
 
     @extend_schema(responses={200: ScannerCreatorsResponseSerializer})

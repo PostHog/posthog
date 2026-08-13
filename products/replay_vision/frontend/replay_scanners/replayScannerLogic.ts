@@ -30,6 +30,7 @@ import { urls } from 'scenes/urls'
 import { SIDE_PANEL_CONTEXT_KEY, SidePanelSceneContext } from '~/layout/navigation-3000/sidepanel/types'
 
 import {
+    visionScannerTemplatesRetrieve,
     visionScannersAffectedCohortCreate,
     visionScannersCreate,
     visionScannersEstimateCreate,
@@ -69,7 +70,12 @@ import {
 } from './scannerEditorSceneLogic'
 import type { ObservationStatusStats } from './scannerStats'
 import { availableTagsFromStats, daysFromDateRange, deriveObservationStatusStats } from './scannerStats'
-import { findScannerTemplate, newScanner } from './scannerTemplates'
+import {
+    customScannerTemplateId,
+    findScannerTemplate,
+    newScanner,
+    newScannerFromCustomTemplate,
+} from './scannerTemplates'
 import {
     ScannerConfig,
     ScannerType,
@@ -1307,6 +1313,24 @@ export const replayScannerLogic = kea<replayScannerLogicType>([
                     // A draft outranks the template param (it carries its own type and config), and an
                     // unknown template falls back to the from-scratch flow. Both present as custom, so
                     // strip the param so the URL matches what the user actually gets.
+                    const customTemplateId = draft ? null : customScannerTemplateId(urlTemplateKey)
+                    if (customTemplateId) {
+                        const apiTeamId = teamLogic.values.currentTeamId
+                        if (!apiTeamId) {
+                            actions.loadScannerFailure()
+                            return
+                        }
+                        try {
+                            const template = await visionScannerTemplatesRetrieve(String(apiTeamId), customTemplateId)
+                            actions.loadScannerSuccess(newScannerFromCustomTemplate(template))
+                        } catch {
+                            const { template: _drop, ...rest } = router.values.searchParams
+                            router.actions.replace(router.values.location.pathname, rest)
+                            actions.loadScannerSuccess(newScanner())
+                            lemonToast.error('This saved scanner template is no longer available')
+                        }
+                        return
+                    }
                     const templateKey =
                         !draft && urlTemplateKey && findScannerTemplate(urlTemplateKey) ? urlTemplateKey : null
                     if (urlTemplateKey && !templateKey) {

@@ -95,6 +95,46 @@ describe('replayScannerLogic', () => {
                 }),
             })
         })
+
+        it('new scanner restores a saved template from its deep link', async () => {
+            useMocks({
+                get: {
+                    '/api/projects/:team/vision/scanner_templates/:id/': [
+                        200,
+                        {
+                            id: 'template-1',
+                            name: 'Checkout follow-up',
+                            description: 'Watch what happens after checkout.',
+                            scanner_type: 'monitor',
+                            scanner_config: { prompt: 'What did the user do next?' },
+                            query: { kind: 'RecordingsQuery', events: [{ id: 'checkout', type: 'events' }] },
+                            sampling_rate: 0.25,
+                            sampling_mode: 'focused',
+                            provider: 'google',
+                            model: 'gemini-3-flash-preview',
+                            emits_signals: true,
+                            source_scanner: 'scanner-1',
+                            created_by: null,
+                            created_at: '2026-01-01T00:00:00Z',
+                            updated_at: '2026-01-01T00:00:00Z',
+                        },
+                    ],
+                },
+            })
+            router.actions.push('/replay-vision/new/configure', { template: 'custom:template-1' })
+
+            await expectLogic(logic, () => logic.actions.loadScanner())
+                .toFinishAllListeners()
+                .toMatchValues({
+                    scanner: expect.objectContaining({
+                        name: 'Checkout follow-up',
+                        scanner_config: { prompt: 'What did the user do next?' },
+                        sampling_rate: 0.25,
+                        sampling_mode: 'focused',
+                        emits_signals: true,
+                    }),
+                })
+        })
     })
 
     describe('setScannerType', () => {

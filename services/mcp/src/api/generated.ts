@@ -49352,6 +49352,91 @@ export namespace Schemas {
       results: ReplayScannerPromptSuggestion[];
     }
 
+    export type ReplayScannerTemplateScannerConfigLength = typeof ReplayScannerTemplateScannerConfigLength[keyof typeof ReplayScannerTemplateScannerConfigLength];
+
+
+    export const ReplayScannerTemplateScannerConfigLength = {
+      Short: 'short',
+      Medium: 'medium',
+      Long: 'long',
+    } as const;
+
+    export type ReplayScannerTemplateScannerConfigScale = {
+      min: number;
+      max: number;
+      label?: string;
+    };
+
+    /**
+     * Type-specific scanner prompt and output configuration restored by this template.
+     */
+    export type ReplayScannerTemplateScannerConfig = {
+      readonly prompt: string;
+      readonly allow_inconclusive?: boolean;
+      readonly tags?: string[];
+      readonly multi_label?: boolean;
+      readonly allow_freeform_tags?: boolean;
+      readonly scale?: ReplayScannerTemplateScannerConfigScale;
+      readonly length?: ReplayScannerTemplateScannerConfigLength;
+    };
+
+    export interface ReplayScannerTemplate {
+      readonly id: string;
+      /** Name shown in the scanner template picker. */
+      readonly name: string;
+      /** Description shown in the scanner template picker. */
+      readonly description: string;
+      /** Scanner type restored when this template is selected.
+       *
+       * * `monitor` - Monitor
+       * * `classifier` - Classifier
+       * * `scorer` - Scorer
+       * * `summarizer` - Summarizer */
+      readonly scanner_type: ScannerTypeEnum;
+      /** Type-specific scanner prompt and output configuration restored by this template. */
+      readonly scanner_config: ReplayScannerTemplateScannerConfig;
+      /** Recording filters restored when this template is selected. */
+      readonly query: unknown;
+      /** Recording sampling rate restored when this template is selected. */
+      readonly sampling_rate: number;
+      /** Session coverage mode restored when this template is selected.
+       *
+       * * `focused` - Focused
+       * * `balanced` - Balanced
+       * * `comprehensive` - Comprehensive */
+      readonly sampling_mode: SamplingModeEnum;
+      /** AI provider restored when this template is selected.
+       *
+       * * `google` - Google */
+      readonly provider: ScannerProviderEnum;
+      /** AI model restored when this template is selected.
+       *
+       * * `gemini-3.5-flash-lite` - Gemini 3.5 Flash Lite
+       * * `gemini-3-flash-preview` - Gemini 3 Flash
+       * * `gemini-3.6-flash` - Gemini 3.6 Flash */
+      readonly model: ScannerModelEnum;
+      /** Whether scanners created from this template emit PostHog Signals. */
+      readonly emits_signals: boolean;
+      /**
+         * Scanner this template was last saved from, or null if that scanner was deleted.
+         * @nullable
+         */
+      readonly source_scanner: string | null;
+      /** User who first saved this template. */
+      readonly created_by: UserBasic | null;
+      readonly created_at: string;
+      readonly updated_at: string;
+    }
+
+    export interface PaginatedReplayScannerTemplateList {
+      count: number;
+      /** @nullable */
+      next?: string | null;
+      /** @nullable */
+      previous?: string | null;
+      results: ReplayScannerTemplate[];
+    }
+
     export type RepoBaselineFilePaths = {[key: string]: string};
 
     export interface Repo {
@@ -89815,6 +89900,17 @@ export namespace Schemas {
      * Filter monitor observations by verdict. Accepts a comma-separated list (e.g. `yes,inconclusive`).
      */
     verdict?: string;
+    };
+
+    export type VisionScannerTemplatesListParams = {
+    /**
+     * Number of results to return per page.
+     */
+    limit?: number;
+    /**
+     * The initial index from which to return the results.
+     */
+    offset?: number;
     };
 
     export type VisionScannersListParams = {

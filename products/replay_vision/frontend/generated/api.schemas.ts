@@ -726,6 +726,15 @@ export interface VisionQuotaApi {
     readonly free_monthly_credits: number
 }
 
+export type ReplayScannerTemplateApiScannerConfigLength =
+    (typeof ReplayScannerTemplateApiScannerConfigLength)[keyof typeof ReplayScannerTemplateApiScannerConfigLength]
+
+export const ReplayScannerTemplateApiScannerConfigLength = {
+    Short: 'short',
+    Medium: 'medium',
+    Long: 'long',
+} as const
+
 /**
  * * `focused` - Focused
  * * `balanced` - Balanced
@@ -760,6 +769,82 @@ export const ScannerModelEnumApi = {
     Gemini3FlashPreview: 'gemini-3-flash-preview',
     Gemini36Flash: 'gemini-3.6-flash',
 } as const
+
+export type ReplayScannerTemplateApiScannerConfigScale = {
+    min: number
+    max: number
+    label?: string
+}
+
+/**
+ * Type-specific scanner prompt and output configuration restored by this template.
+ */
+export type ReplayScannerTemplateApiScannerConfig = {
+    readonly prompt: string
+    readonly allow_inconclusive?: boolean
+    readonly tags?: string[]
+    readonly multi_label?: boolean
+    readonly allow_freeform_tags?: boolean
+    readonly scale?: ReplayScannerTemplateApiScannerConfigScale
+    readonly length?: ReplayScannerTemplateApiScannerConfigLength
+}
+
+export interface ReplayScannerTemplateApi {
+    readonly id: string
+    /** Name shown in the scanner template picker. */
+    readonly name: string
+    /** Description shown in the scanner template picker. */
+    readonly description: string
+    /** Scanner type restored when this template is selected.
+     *
+     * * `monitor` - Monitor
+     * * `classifier` - Classifier
+     * * `scorer` - Scorer
+     * * `summarizer` - Summarizer */
+    readonly scanner_type: ScannerTypeEnumApi
+    /** Type-specific scanner prompt and output configuration restored by this template. */
+    readonly scanner_config: ReplayScannerTemplateApiScannerConfig
+    /** Recording filters restored when this template is selected. */
+    readonly query: unknown
+    /** Recording sampling rate restored when this template is selected. */
+    readonly sampling_rate: number
+    /** Session coverage mode restored when this template is selected.
+     *
+     * * `focused` - Focused
+     * * `balanced` - Balanced
+     * * `comprehensive` - Comprehensive */
+    readonly sampling_mode: SamplingModeEnumApi
+    /** AI provider restored when this template is selected.
+     *
+     * * `google` - Google */
+    readonly provider: ScannerProviderEnumApi
+    /** AI model restored when this template is selected.
+     *
+     * * `gemini-3.5-flash-lite` - Gemini 3.5 Flash Lite
+     * * `gemini-3-flash-preview` - Gemini 3 Flash
+     * * `gemini-3.6-flash` - Gemini 3.6 Flash */
+    readonly model: ScannerModelEnumApi
+    /** Whether scanners created from this template emit PostHog Signals. */
+    readonly emits_signals: boolean
+    /**
+     * Scanner this template was last saved from, or null if that scanner was deleted.
+     * @nullable
+     */
+    readonly source_scanner: string | null
+    /** User who first saved this template. */
+    readonly created_by: UserBasicApi | null
+    readonly created_at: string
+    readonly updated_at: string
+}
+
+export interface PaginatedReplayScannerTemplateListApi {
+    count: number
+    /** @nullable */
+    next?: string | null
+    /** @nullable */
+    previous?: string | null
+    results: ReplayScannerTemplateApi[]
+}
 
 /**
  * The experiment a scanner's targeting watches. Metadata only; scanning never reads it.
@@ -1823,6 +1908,17 @@ export type VisionObservationsRetrieveParams = {
      * Filter monitor observations by verdict. Accepts a comma-separated list (e.g. `yes,inconclusive`).
      */
     verdict?: string
+}
+
+export type VisionScannerTemplatesListParams = {
+    /**
+     * Number of results to return per page.
+     */
+    limit?: number
+    /**
+     * The initial index from which to return the results.
+     */
+    offset?: number
 }
 
 export type VisionScannersListParams = {

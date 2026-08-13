@@ -263,6 +263,15 @@ tools:
             silently skip their observations until the next period, while `vision-scanners-scan-session` is rejected
             outright with a 402. Pair with `vision-scanners-estimate-create` to size a new scanner against the remaining
             budget.
+    vision-scanner-templates-destroy:
+        operation: vision_scanner_templates_destroy
+        enabled: false
+    vision-scanner-templates-list:
+        operation: vision_scanner_templates_list
+        enabled: false
+    vision-scanner-templates-retrieve:
+        operation: vision_scanner_templates_retrieve
+        enabled: false
     vision-scanners-affected-cohort-create:
         operation: vision_scanners_affected_cohort_create
         enabled: true
@@ -614,6 +623,9 @@ tools:
         requires_ai_consent: true
     vision-scanners-prompt-suggestions-list:
         operation: vision_scanners_prompt_suggestions_list
+        enabled: false
+    vision-scanners-save-as-template-create:
+        operation: vision_scanners_save_as_template_create
         enabled: false
     vision-scanners-scan-session:
         operation: vision_scanners_observe_create

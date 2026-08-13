@@ -34,6 +34,7 @@ from products.replay_vision.backend.models.replay_scanner import (
     ScannerType,
 )
 from products.replay_vision.backend.models.replay_scanner_backfill import ReplayScannerBackfill
+from products.replay_vision.backend.models.replay_scanner_template import ReplayScannerTemplate
 from products.replay_vision.backend.models.vision_action import VisionAction
 from products.replay_vision.backend.queries import SAVE_ESTIMATE_BUDGET
 from products.replay_vision.backend.queries.scanner_candidate_query import SETTLE_INTERVAL
@@ -975,6 +976,135 @@ class TestScannerEstimatePersistence(_VisionAPITestCase):
 
         self.assertEqual(resp.status_code, 200, resp.json())
         self.mock_refresh_estimate.assert_called_once()
+
+
+class TestReplayScannerTemplateViewSet(_VisionAPITestCase):
+    @property
+    def templates_url(self) -> str:
+        return f"/api/projects/{self.team.id}/vision/scanner_templates/"
+
+    def test_save_as_template_snapshots_and_refreshes_scanner_configuration(self) -> None:
+        scanner = self._create_scanner(
+            name="Checkout follow-up",
+            description="Find what people do after checkout.",
+            query={"kind": "RecordingsQuery", "events": [{"id": "checkout completed", "type": "events"}]},
+            sampling_rate=0.5,
+        )
+
+        response = self.client.post(f"{self.scanners_url}{scanner.id}/save_as_template/")
+
+        self.assertEqual(response.status_code, 201, response.json())
+        template_id = response.json()["id"]
+        self.assertEqual(response.json()["query"], scanner.query)
+        self.assertEqual(response.json()["sampling_rate"], 0.5)
+
+        ReplayScanner.objects.filter(id=scanner.id).update(
+            description="Find the next action after checkout.",
+            scanner_config={"prompt": "What did the user do next?"},
+            sampling_rate=0.25,
+        )
+        response = self.client.post(f"{self.scanners_url}{scanner.id}/save_as_template/")
+
+        self.assertEqual(response.status_code, 200, response.json())
+        self.assertEqual(response.json()["id"], template_id)
+        self.assertEqual(response.json()["description"], "Find the next action after checkout.")
+        self.assertEqual(response.json()["scanner_config"], {"prompt": "What did the user do next?"})
+        self.assertEqual(response.json()["sampling_rate"], 0.25)
+        self.assertEqual(ReplayScannerTemplate.objects.for_team(self.team.id).count(), 1)
+
+    def test_list_and_delete_are_scoped_to_the_current_team(self) -> None:
+        scanner = self._create_scanner(name="Ours")
+        own_template = ReplayScannerTemplate.objects.for_team(self.team.id).create(
+            team=self.team,
+            source_scanner=scanner,
+            created_by=self.user,
+            name=scanner.name,
+            scanner_type=scanner.scanner_type,
+            scanner_config=scanner.scanner_config,
+            model=scanner.model,
+        )
+        other_organization = Organization.objects.create(name="Other organization")
+        other_team = Team.objects.create(organization=other_organization, name="Other team")
+        other_scanner = ReplayScanner.objects.create(
+            team=other_team,
+            name="Theirs",
+            scanner_type=ScannerType.MONITOR,
+            scanner_config={"prompt": "p"},
+            model=ScannerModel.GEMINI_3_6_FLASH,
+        )
+        other_template = ReplayScannerTemplate.objects.unscoped().create(
+            team=other_team,
+            source_scanner=other_scanner,
+            name=other_scanner.name,
+            scanner_type=other_scanner.scanner_type,
+            scanner_config=other_scanner.scanner_config,
+            model=other_scanner.model,
+        )
+
+        response = self.client.get(self.templates_url)
+
+        self.assertEqual(response.status_code, 200, response.json())
+        self.assertEqual([template["id"] for template in response.json()["results"]], [str(own_template.id)])
+        response = self.client.delete(f"{self.templates_url}{other_template.id}/")
+        self.assertEqual(response.status_code, 404)
+        response = self.client.delete(f"{self.templates_url}not-a-uuid/")
+        self.assertEqual(response.status_code, 404)
+        response = self.client.delete(f"{self.templates_url}{own_template.id}/")
+        self.assertEqual(response.status_code, 204)
+        self.assertFalse(ReplayScannerTemplate.objects.for_team(self.team.id).filter(id=own_template.id).exists())
+
+    def test_list_hides_templates_for_scanners_the_user_cannot_access(self) -> None:
+        visible = self._create_scanner(name="visible")
+        hidden = self._create_scanner(name="hidden")
+        self.assertEqual(self.client.post(f"{self.scanners_url}{visible.id}/save_as_template/").status_code, 201)
+        self.assertEqual(self.client.post(f"{self.scanners_url}{hidden.id}/save_as_template/").status_code, 201)
+        teammate = User.objects.create_and_join(self.team.organization, "teammate@example.com", "pw")
+        for name, created_by in (("own orphan", self.user), ("teammate orphan", teammate)):
+            ReplayScannerTemplate.objects.for_team(self.team.id).create(
+                team=self.team,
+                source_scanner=None,
+                created_by=created_by,
+                name=name,
+                scanner_type=ScannerType.MONITOR,
+                scanner_config={"prompt": "p"},
+                model=ScannerModel.GEMINI_3_6_FLASH,
+            )
+        with patch(
+            "posthog.rbac.user_access_control.UserAccessControl.filter_queryset_by_access_level",
+            side_effect=lambda qs, **_: qs.exclude(pk=hidden.pk),
+        ):
+            response = self.client.get(self.templates_url)
+        self.assertEqual(response.status_code, 200, response.json())
+        names = {template["name"] for template in response.json()["results"]}
+        # Orphaned templates stay visible to their creator only: the deleted source scanner may
+        # have been access-restricted, and deletion must not widen who can read its prompt.
+        self.assertEqual(names, {"visible", "own orphan"})
+
+    def test_delete_requires_edit_access_on_the_source_scanner(self) -> None:
+        scanner = self._create_scanner(name="restricted")
+        self.assertEqual(self.client.post(f"{self.scanners_url}{scanner.id}/save_as_template/").status_code, 201)
+        template = ReplayScannerTemplate.objects.for_team(self.team.id).get(source_scanner=scanner)
+
+        with patch(
+            "posthog.rbac.user_access_control.UserAccessControl.check_access_level_for_object",
+            return_value=False,
+        ):
+            response = self.client.delete(f"{self.templates_url}{template.id}/")
+
+        self.assertEqual(response.status_code, 403)
+        self.assertTrue(ReplayScannerTemplate.objects.for_team(self.team.id).filter(id=template.id).exists())
+
+    def test_reusing_a_deleted_scanners_name_does_not_block_template_save(self) -> None:
+        first = self._create_scanner(name="Checkout")
+        self.assertEqual(self.client.post(f"{self.scanners_url}{first.id}/save_as_template/").status_code, 201)
+        # Deleting the scanner orphans its template (SET_NULL) but the template keeps the name.
+        first.delete()
+        second = self._create_scanner(name="Checkout")
+        self.assertEqual(self.client.post(f"{self.scanners_url}{second.id}/save_as_template/").status_code, 201)
+        self.assertEqual(
+            ReplayScannerTemplate.objects.for_team(self.team.id).filter(name="Checkout").count(),
+            2,
+        )
 
 
 class TestScannerSignalSourceEnablement(_VisionAPITestCase):

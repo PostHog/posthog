@@ -4,6 +4,7 @@ from products.replay_vision.backend.models.replay_observation_usage import Repla
 from products.replay_vision.backend.models.replay_scanner import ReplayScanner
 from products.replay_vision.backend.models.replay_scanner_backfill import ReplayScannerBackfill
 from products.replay_vision.backend.models.replay_scanner_prompt_suggestion import ReplayScannerPromptSuggestion
+from products.replay_vision.backend.models.replay_scanner_template import ReplayScannerTemplate
 from products.replay_vision.backend.models.vision_action import VisionAction, VisionActionRun
 
 __all__ = [
@@ -13,6 +14,7 @@ __all__ = [
     "ReplayScanner",
     "ReplayScannerBackfill",
     "ReplayScannerPromptSuggestion",
+    "ReplayScannerTemplate",
     "VisionAction",
     "VisionActionRun",
 ]

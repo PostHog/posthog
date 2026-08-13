@@ -266,6 +266,7 @@ rules:
                               |ReplayScanner
                               |ReplayScannerBackfill
                               |ReplayScannerPromptSuggestion
+                              |ReplayScannerTemplate
                               |Repo
                               |RepoRoutingRule
                               |ReviewReport
@@ -614,6 +615,7 @@ rules:
                         |ReplayScanner
                         |ReplayScannerBackfill
                         |ReplayScannerPromptSuggestion
+                        |ReplayScannerTemplate
                         |Repo
                         |RepoRoutingRule
                         |ReviewReport
