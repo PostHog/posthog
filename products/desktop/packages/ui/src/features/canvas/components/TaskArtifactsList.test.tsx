@@ -6,6 +6,7 @@ import {
   waitFor,
   within,
 } from "@testing-library/react";
+import type { ComponentProps } from "react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
 const mocks = vi.hoisted(() => ({
@@ -186,6 +187,32 @@ describe("TaskArtifactsList", () => {
 
     expect(screen.getByText("Pull request #1")).toBeTruthy();
     expect(screen.getByText("Pull request #2")).toBeTruthy();
+  });
+
+  // The age reads from each row's announcing timestamp, so the tab shows how
+  // long ago a PR or canvas was produced next to its state.
+  it("shows how long ago each PR and canvas was produced", () => {
+    mocks.runs = [];
+    const now = Date.now();
+    const timeline = [
+      {
+        kind: "artifact",
+        timestamp: now - 2 * 86_400_000,
+        message: { id: "m1", created_at: "" },
+        artifact: { kind: "canvas", name: "Dashboard", url: null },
+      },
+      {
+        kind: "artifact",
+        timestamp: now - 43 * 60_000,
+        message: { id: "m2", created_at: "" },
+        artifact: { kind: "pr", url: "https://github.com/acme/repo/pull/7" },
+      },
+    ] as unknown as ComponentProps<typeof TaskArtifactsList>["timeline"];
+
+    render(<TaskArtifactsList task={task} timeline={timeline} />);
+
+    expect(screen.getByText("Canvas · 2d")).toBeInTheDocument();
+    expect(screen.getByText("Open · 43m")).toBeInTheDocument();
   });
 
   it("lists uploaded files with their comment count", () => {
