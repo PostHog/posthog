@@ -2436,6 +2436,7 @@ def update_task_run(
     *,
     validated_data: dict,
     only_if_non_terminal: bool = False,
+    caller_is_agent: bool = False,
 ) -> contracts.TaskRunDetailDTO | None:
     """Apply a PATCH to a run: merge output/state, set completion, then dispatch side effects.
 
@@ -2574,7 +2575,7 @@ def update_task_run(
             logger.warning("task_run.pr_progress_emit_failed", extra={"run_id": str(run.id)}, exc_info=True)
 
     new_commit_head = _commit_push_head_sha(run.output)
-    if isinstance(run.output, dict) and new_commit_head and new_commit_head != old_commit_head:
+    if caller_is_agent and isinstance(run.output, dict) and new_commit_head and new_commit_head != old_commit_head:
         post_commits_pushed_thread_update(run, run.output["commit_push"])
 
     return _task_run_detail_to_dto(run)
@@ -3185,6 +3186,7 @@ def create_task_run_living_artifact(
     team_id: int,
     *,
     artifact: dict,
+    caller_is_agent: bool = False,
 ) -> tuple[dict | None, str | None]:
     from products.tasks.backend.logic.services.living_artifacts import (  # noqa: PLC0415 — keep storage deps off the api import path
         create_living_artifact,
@@ -3200,7 +3202,8 @@ def create_task_run_living_artifact(
         logger.warning("Failed to create living artifact for task run %s: %s", run.id, exc)
         return None, str(exc)
     serialized = serialize_task_artifact(created)
-    post_artifact_thread_update(run, serialized, revised=False)
+    if caller_is_agent:
+        post_artifact_thread_update(run, serialized, revised=False)
     return serialized, None
 
 
@@ -3209,6 +3212,7 @@ def edit_task_run_living_artifact(
     task_id: str | UUID,
     team_id: int,
     *,
+    caller_is_agent: bool = False,
     artifact_id: str | UUID,
     content: str | None = None,
     content_bytes: bytes | None = None,
@@ -3246,7 +3250,8 @@ def edit_task_run_living_artifact(
         logger.warning("Failed to edit living artifact %s for task run %s: %s", artifact_id, run.id, exc)
         return None, str(exc)
     serialized = serialize_task_artifact(updated)
-    post_artifact_thread_update(run, serialized, revised=True)
+    if caller_is_agent:
+        post_artifact_thread_update(run, serialized, revised=True)
     return serialized, None
 
 

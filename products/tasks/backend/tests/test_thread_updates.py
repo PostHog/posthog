@@ -298,7 +298,31 @@ class TestAgentThreadUpdates(TestCase):
                 self.task.id,
                 self.team.id,
                 validated_data={"output": output},
+                caller_is_agent=True,
             )
+            update_task_run(
+                self.task_run.id,
+                self.task.id,
+                self.team.id,
+                validated_data={"output": output},
+                caller_is_agent=True,
+            )
+
+        messages = self._messages(self.task)
+        self.assertEqual([message.event for message in messages], ["commits_pushed"])
+        self.assertEqual(messages[0].payload["head_sha"], "abc123")
+        self.assertEqual(messages[0].payload["total"], 1)
+
+    @patch(_FLAG_TARGET, return_value=True)
+    def test_commit_push_from_a_human_caller_does_not_forge_an_agent_row(self, _flag) -> None:
+        output = {
+            "commit_push": {
+                "branch": "posthog/x",
+                "repository": "posthog/posthog",
+                "commits": [{"sha": "beadedcafe", "subject": "feat: x", "url": "https://github.com/x"}],
+            }
+        }
+        with team_scope(self.team.id):
             update_task_run(
                 self.task_run.id,
                 self.task.id,
@@ -306,10 +330,7 @@ class TestAgentThreadUpdates(TestCase):
                 validated_data={"output": output},
             )
 
-        messages = self._messages(self.task)
-        self.assertEqual([message.event for message in messages], ["commits_pushed"])
-        self.assertEqual(messages[0].payload["head_sha"], "abc123")
-        self.assertEqual(messages[0].payload["total"], 1)
+        self.assertEqual(self._messages(self.task), [])
 
     @patch(_FLAG_TARGET, return_value=True)
     def test_commit_push_sanitizes_untrusted_branch(self, _flag) -> None:
