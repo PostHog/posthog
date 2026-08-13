@@ -159,10 +159,11 @@ def send_comment_slack_dms(*, team_id: int, comment_id: UUID, task_id: UUID, rec
                     lookup_allowances=mention_lookup_allowances,
                 ),
             )
+            # The fallback lives on the attachment: a top-level ``text`` next to attachments is
+            # rendered as message body, showing the heading twice.
             slack.client.chat_postMessage(
                 channel=slack_user_id,
-                text=fallback,
-                attachments=[{"color": _ACCENT, "blocks": blocks}],
+                attachments=[{"color": _ACCENT, "blocks": blocks, "fallback": fallback}],
                 unfurl_links=False,
             )
         except Exception as exc:
