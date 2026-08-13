@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import json
 import secrets
-from typing import TypedDict, TypeVar
+from typing import Literal, TypedDict, TypeVar
 
 from django.conf import settings
 from django.db import transaction
@@ -12,7 +12,9 @@ import structlog
 import posthoganalytics
 from pydantic import BaseModel, ValidationError
 
+from posthog.dataclasses import frozen
 from posthog.event_usage import groups
+from posthog.exceptions import QuotaLimitExceeded
 from posthog.models import Team, User
 from posthog.models.organization import OrganizationMembership
 from posthog.sync import database_sync_to_async
@@ -38,7 +40,7 @@ from products.signals.backend.report_generation.research import (
     PriorityAssessment,
 )
 from products.signals.backend.report_generation.resolve_reviewers import resolve_org_github_login_to_users
-from products.signals.backend.report_generation.select_repo import RepoSelectionResult
+from products.signals.backend.report_generation.select_repo import RepoSelectionResult, persisted_repo_selection
 from products.signals.backend.signal_metadata import (
     SignalSourceReference,
     fetch_source_products_for_reports,
@@ -345,7 +347,7 @@ def _create_implementation_task_if_absent(
     repository: str,
     base_branch: str | None,
     billing_exempt_reason: str | None = None,
-) -> bool:
+) -> str | None:
     """Create the implementation task and record it (gate row + work-log artefact), serialized per report.
 
     Auto-start is re-evaluated from several independent paths — the reviewer-edit on-commit hook,
@@ -353,8 +355,7 @@ def _create_implementation_task_if_absent(
     would let both observe "no implementation task yet" and each spawn one (duplicate Temporal
     workflow, duplicate draft PR, duplicate spend). Locking the `SignalReport` row and re-checking
     inside the lock makes the decision atomic: the second evaluation blocks, then sees the gate and
-    returns ``False``. Returns ``True`` if it created the task, ``False`` if one already exists / the
-    report is gone.
+    returns ``None``. Returns the new task's id, or ``None`` if one already exists / the report is gone.
 
     The same lock is where billing exemptions freeze (`_stamp_billing_exemption`): the reason is
     decided and written before the task exists, so it can never race a billable PR run.
@@ -370,7 +371,7 @@ def _create_implementation_task_if_absent(
     with transaction.atomic():
         report = SignalReport.objects.select_for_update().filter(id=report_id, team_id=team_id).first()
         if report is None:
-            return False
+            return None
         # The gate reads the unified task↔report view (`associated_task_runs` merges the legacy
         # `SignalReportTask` rows with the `task_run` artefact log). Unifying only *adds* sources,
         # so it can never under-detect a started implementation — and `record_implementation_task`
@@ -380,7 +381,7 @@ def _create_implementation_task_if_absent(
         if SignalReport.associated_task_runs(
             report_id=report_id, team_id=team_id, product=SIGNALS_PRODUCT, type=TASK_RUN_TYPE_IMPLEMENTATION
         ):
-            return False
+            return None
         exempt_reason = _stamp_billing_exemption(report, billing_exempt_reason)
         team = Team.objects.select_related("organization").get(id=team_id)
         created = tasks_facade.create_and_run_task(
@@ -423,7 +424,7 @@ def _create_implementation_task_if_absent(
         # After commit: the exempt report's implementation task exists — count it (includes a
         # best-effort ClickHouse lookup, so it must not run under the lock).
         _capture_billing_exempted(team=team, report_id=report_id, reason=exempt_reason, task_id=task_id)
-    return True
+    return task_id
 
 
 def _resolve_autostart_assignee(
@@ -695,7 +696,7 @@ async def maybe_autostart_implementation_task(
         team_id, report_id
     )
 
-    created = await database_sync_to_async(_create_implementation_task_if_absent, thread_sensitive=False)(
+    task_id = await database_sync_to_async(_create_implementation_task_if_absent, thread_sensitive=False)(
         team_id=team_id,
         report_id=report_id,
         title=title,
@@ -712,18 +713,16 @@ async def maybe_autostart_implementation_task(
         base_branch=base_branch,
         billing_exempt_reason=billing_exempt_reason,
     )
-    if not created:
+    if task_id is None:
         # Another evaluation won the race and already created the implementation task.
         logger.info("self-driving auto-start skipped", report_id=report_id, team_id=team_id, reason="lost create race")
         return
 
 
-async def _latest_artefact_as(report_id: str, artefact_type: str, model_cls: type[_M]) -> _M | None:
+def _latest_artefact_as_sync(report_id: str, artefact_type: str, model_cls: type[_M]) -> _M | None:
     """Parse the latest artefact of ``artefact_type`` for a report (append-only, latest-wins)."""
     artefact = (
-        await SignalReportArtefact.objects.filter(report_id=report_id, type=artefact_type)
-        .order_by("-created_at")
-        .afirst()
+        SignalReportArtefact.objects.filter(report_id=report_id, type=artefact_type).order_by("-created_at").first()
     )
     if artefact is None:
         return None
@@ -731,6 +730,12 @@ async def _latest_artefact_as(report_id: str, artefact_type: str, model_cls: typ
         return model_cls.model_validate_json(artefact.content)
     except ValidationError:
         return None
+
+
+async def _latest_artefact_as(report_id: str, artefact_type: str, model_cls: type[_M]) -> _M | None:
+    return await database_sync_to_async(_latest_artefact_as_sync, thread_sensitive=False)(
+        report_id, artefact_type, model_cls
+    )
 
 
 async def _latest_reviewers_content(report_id: str) -> tuple[list[ReviewerContent], int | None]:
@@ -838,3 +843,140 @@ async def maybe_autostart_from_report_artefacts(*, team_id: int, report_id: str)
         # which would let one user act under another's PostHog identity (reviewer impersonation).
         triggering_user_id=editor_user_id,
     )
+
+
+# A report in one of these states has nothing left to implement, so no path may start a PR for it.
+_CLOSED_REPORT_STATUSES = frozenset(
+    {
+        SignalReport.Status.SUPPRESSED,
+        SignalReport.Status.RESOLVED,
+        SignalReport.Status.DELETED,
+    }
+)
+
+PrKickoffOutcome = Literal["started", "already_started", "no_repository", "report_closed", "not_found", "over_quota"]
+
+
+@frozen
+class PrKickoffResult:
+    outcome: PrKickoffOutcome
+    task_url: str | None = None
+
+
+def _selected_repository(report_id: str) -> str | None:
+    """The repository the report's research settled on, or ``None`` when a PR has nowhere to land —
+    no selection yet, a scout's deliberate no-repo decision, or an artefact we can't parse.
+
+    A malformed artefact must not raise: it would take down a Slack delivery that is otherwise fine.
+    """
+    try:
+        selection = persisted_repo_selection(report_id)
+    except ValidationError:
+        logger.warning("signals repo selection artefact is unparseable", report_id=report_id)
+        return None
+    return selection.repository if selection is not None and selection.repository else None
+
+
+def implementation_pr_can_be_started(report: SignalReport) -> bool:
+    """Whether a person could still start an implementation PR for this report.
+
+    The render gate for the Slack "Create PR" button, mirroring the inbox's own
+    `canCreateImplementationPr`. Deliberately not the authority: the click re-checks all of this
+    under a row lock, so a report that auto-started between delivery and the click is caught there.
+    """
+    if report.status in _CLOSED_REPORT_STATUSES:
+        return False
+    if _selected_repository(str(report.id)) is None:
+        return False
+    return not SignalReport.associated_task_runs(
+        report_id=str(report.id),
+        team_id=report.team_id,
+        product=SIGNALS_PRODUCT,
+        type=TASK_RUN_TYPE_IMPLEMENTATION,
+    )
+
+
+def start_implementation_pr_from_slack(*, team_id: int, report_id: str, user_id: int) -> PrKickoffResult:
+    """Start an implementation task because someone clicked "Create PR" in Slack.
+
+    The autonomy gates auto-start applies — actionability, priority thresholds, the team's autostart
+    switch — don't: a person asked for this run explicitly, exactly as they would in the inbox. What
+    still holds is everything that isn't about autonomy: the report must be open and carry a
+    repository to open the PR against, the one-implementation-per-report lock and the self-driving
+    quota both apply, and the run is attributed to ``user_id`` — the org member the caller resolved
+    the clicking Slack identity to, never a suggested reviewer.
+    """
+    report = SignalReport.objects.filter(id=report_id, team_id=team_id).only("id", "status", "title", "summary").first()
+    if report is None or not report.title or not report.summary:
+        return _capture_slack_pr_kickoff(PrKickoffResult(outcome="not_found"), team_id, report_id, user_id)
+    if report.status in _CLOSED_REPORT_STATUSES:
+        return _capture_slack_pr_kickoff(PrKickoffResult(outcome="report_closed"), team_id, report_id, user_id)
+
+    repository = _selected_repository(report_id)
+    if repository is None:
+        return _capture_slack_pr_kickoff(PrKickoffResult(outcome="no_repository"), team_id, report_id, user_id)
+
+    team_config = SignalTeamConfig.objects.filter(team_id=team_id).first()
+    description = _build_autostart_task_description(
+        report_id=report_id,
+        team_id=team_id,
+        summary=report.summary,
+        repository=repository,
+        priority=_latest_artefact_as_sync(
+            report_id, SignalReportArtefact.ArtefactType.PRIORITY_JUDGMENT, PriorityAssessment
+        ),
+        source_references=_fetch_source_references(team_id, report_id),
+    )
+    try:
+        task_id = _create_implementation_task_if_absent(
+            team_id=team_id,
+            report_id=report_id,
+            title=report.title,
+            description=description,
+            user_id=user_id,
+            repository=repository,
+            base_branch=team_config.base_branch_for(repository) if team_config else None,
+        )
+    except QuotaLimitExceeded:
+        return _capture_slack_pr_kickoff(PrKickoffResult(outcome="over_quota"), team_id, report_id, user_id)
+    if task_id is None:
+        return _capture_slack_pr_kickoff(PrKickoffResult(outcome="already_started"), team_id, report_id, user_id)
+
+    task_url = f"{settings.SITE_URL.rstrip('/')}/project/{team_id}/tasks/{task_id}"
+    return _capture_slack_pr_kickoff(
+        PrKickoffResult(outcome="started", task_url=task_url), team_id, report_id, user_id, task_id=task_id
+    )
+
+
+def _capture_slack_pr_kickoff(
+    result: PrKickoffResult, team_id: int, report_id: str, user_id: int, *, task_id: str | None = None
+) -> PrKickoffResult:
+    """`signals_report_pr_started_from_slack` — how often the Slack button is clicked, and what it
+    did. Every outcome is captured, so a button that keeps refusing is visible rather than silent."""
+    logger.info(
+        "signals report PR kickoff from Slack",
+        report_id=report_id,
+        team_id=team_id,
+        user_id=user_id,
+        outcome=result.outcome,
+        task_id=task_id,
+    )
+    try:
+        team = Team.objects.select_related("organization").get(id=team_id)
+        posthoganalytics.capture(
+            event="signals_report_pr_started_from_slack",
+            distinct_id=str(team.organization.id),
+            properties={
+                "team_id": team_id,
+                "organization_id": str(team.organization.id),
+                "report_id": report_id,
+                "user_id": user_id,
+                "outcome": result.outcome,
+                "task_id": task_id,
+            },
+            groups=groups(team.organization, team),
+        )
+    except Exception:
+        # Analytics must never break the click.
+        logger.exception("Failed to capture signals_report_pr_started_from_slack", report_id=report_id)
+    return result

@@ -1,3 +1,5 @@
+import json
+
 import pytest
 from posthog.test.base import BaseTest
 from unittest.mock import MagicMock, patch
@@ -6,15 +8,18 @@ from django.apps import apps
 from django.conf import settings
 
 from celery.exceptions import Retry
+from parameterized import parameterized
 from slack_sdk.errors import SlackApiError
 
 from posthog.models import Team
 from posthog.models.integration import Integration
 
-from products.signals.backend.models import SignalReport, SignalScoutEmission, SignalScoutRun
+from products.signals.backend.facade.slack_actions import SLACK_CREATE_PR_ACTION_ID
+from products.signals.backend.models import SignalReport, SignalReportArtefact, SignalScoutEmission, SignalScoutRun
 from products.signals.backend.scout_harness.slack_delivery import (
     ScoutSlackPermanentDeliveryError,
     post_scout_emission_to_slack,
+    post_scout_report_to_slack,
 )
 from products.signals.backend.scout_harness.slack_delivery_queue import queue_configured_scout_slack_delivery
 from products.signals.backend.tasks import deliver_scout_slack_output, enqueue_scout_slack_delivery
@@ -132,6 +137,60 @@ class TestScoutSlackDelivery(BaseTest):
         reply = fake_client.chat_postMessage.call_args_list[1].kwargs
         assert reply["thread_ts"] == "1785418710.000200"
         assert reply["blocks"][0]["type"] == "context"
+
+    @parameterized.expand(
+        [
+            # A report the pipeline resolved a repo for is the case the button exists for.
+            ("repo_selected", {"repository": "PostHog/posthog", "reason": "owns the code"}, True),
+            # A scout that filed a no-code report passes NO_REPO, which persists as a null repository.
+            ("no_repo_sentinel", {"repository": None, "reason": "nothing to fix in code"}, False),
+            ("no_repo_selection", None, False),
+        ]
+    )
+    def test_report_offers_create_pr_only_when_a_pr_can_be_opened(
+        self, _name: str, repo_selection: dict | None, expect_button: bool
+    ) -> None:
+        report = SignalReport.objects.create(
+            team=self.team,
+            status=SignalReport.Status.READY,
+            title="Stale pricing",
+            summary="Pricing page is out of date",
+        )
+        if repo_selection is not None:
+            SignalReportArtefact.objects.create(
+                team=self.team,
+                report=report,
+                type=SignalReportArtefact.ArtefactType.REPO_SELECTION,
+                content=json.dumps(repo_selection),
+            )
+        run = self._make_emission().scout_run
+        integration = Integration.objects.create(team=self.team, kind=Integration.IntegrationKind.SLACK)
+        fake_client = MagicMock()
+        fake_client.chat_postMessage.return_value = {"ts": "1785418710.000300"}
+
+        with patch("products.signals.backend.scout_harness.slack_delivery.SlackIntegration") as slack_integration:
+            slack_integration.return_value.client = fake_client
+            post_scout_report_to_slack(
+                report,
+                run,
+                delivery_id=str(report.id),
+                integration_id=integration.id,
+                channel="CSCOUTS|#scout-findings",
+            )
+
+        elements = fake_client.chat_postMessage.call_args_list[0].kwargs["blocks"][-1]["elements"]
+        create_pr = [el for el in elements if el.get("action_id") == SLACK_CREATE_PR_ACTION_ID]
+        assert bool(create_pr) is expect_button
+        # The link out to the report is never displaced by the new button.
+        assert elements[0]["text"]["text"] == "View report in PostHog"
+        if not expect_button:
+            return
+        # The webhook re-resolves everything from these three values, so they have to be complete.
+        assert json.loads(create_pr[0]["value"]) == {
+            "integration_id": integration.id,
+            "report_id": str(report.id),
+            "team_id": self.team.id,
+        }
 
     def test_reply_posted_regardless_of_ai_approval(self) -> None:
         # The Slack follow-up invite is unconditional — no AI-approval gate on scout output.

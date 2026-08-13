@@ -46,6 +46,7 @@ from products.signals.backend.slack_formatting import (
     strip_chart_references as _strip_chart_references,
     truncate_slack_section as _truncate_slack_section,
 )
+from products.signals.backend.slack_report_actions import slack_create_pr_button
 
 # Actionability values shown in the inbox Reports tab. Slack notifications mirror that tab, so a
 # report notifies iff its latest actionability judgment is one of these (and it's READY).
@@ -315,6 +316,7 @@ def _build_message_blocks(
     source_products: list[str],
     reviewer_mentions: list[str],
     repository: str | None = None,
+    create_pr_action: dict | None = None,
 ) -> tuple[list[dict], str]:
     title_line = report.title or "New report"
     header_text = (
@@ -369,6 +371,8 @@ def _build_message_blocks(
             "url": f"{settings.SITE_URL}/project/{report.team_id}/inbox/reports/{report.id}",
         }
     ]
+    if create_pr_action is not None:
+        action_elements.append(create_pr_action)
     blocks.append({"type": "actions", "elements": action_elements})
 
     priority_suffix = f" ({priority})" if priority else ""
@@ -615,6 +619,7 @@ def _deliver_route_notification(
             source_products=source_products,
             reviewer_mentions=mentions,
             repository=repository,
+            create_pr_action=slack_create_pr_button(report, integration_id=route.integration.id),
         )
         response = slack.client.chat_postMessage(channel=channel_id, blocks=blocks, text=text)
         thread_ts = response.get("ts") if hasattr(response, "get") else None

@@ -12,6 +12,7 @@ from posthog.models import Organization, Team, User
 from posthog.models.integration import Integration
 from posthog.models.organization import OrganizationMembership
 
+from products.signals.backend.facade.slack_actions import SLACK_CREATE_PR_ACTION_ID
 from products.signals.backend.models import (
     AutonomyPriority,
     SignalReport,
@@ -604,6 +605,8 @@ def test_dispatch_includes_repository_from_repo_selection_artefact(org_and_team)
     assert sent == 1
     blocks = fake_client.chat_postMessage.call_args.kwargs["blocks"]
     assert "PostHog/posthog" in blocks[1]["text"]["text"]
+    # A report with a repository to work in is offered the Create PR button next to the link out.
+    assert [el.get("action_id") for el in blocks[-1]["elements"]] == [None, SLACK_CREATE_PR_ACTION_ID]
 
 
 @pytest.mark.django_db

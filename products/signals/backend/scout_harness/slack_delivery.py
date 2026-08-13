@@ -19,6 +19,7 @@ from products.signals.backend.slack_formatting import (
     strip_chart_references,
     truncate_slack_section,
 )
+from products.signals.backend.slack_report_actions import slack_create_pr_button
 
 logger = structlog.get_logger(__name__)
 
@@ -231,7 +232,9 @@ def post_scout_emission_to_slack(
     )
 
 
-def build_scout_report_slack_message(report: SignalReport, run: SignalScoutRun) -> tuple[list[dict], str]:
+def build_scout_report_slack_message(
+    report: SignalReport, run: SignalScoutRun, *, create_pr_action: dict | None = None
+) -> tuple[list[dict], str]:
     scout_name = _prettify_scout_name(run.skill_name)
     title = " ".join((report.title or "").split()) or "New scout report"
     header = title if len(title) <= 150 else title[:147].rstrip() + "..."
@@ -249,18 +252,16 @@ def build_scout_report_slack_message(report: SignalReport, run: SignalScoutRun) 
         blocks.append({"type": "section", "text": {"type": "mrkdwn", "text": rendered_summary}})
 
     report_url = f"{settings.SITE_URL.rstrip('/')}/project/{report.team_id}/inbox/reports/{report.id}"
-    blocks.append(
+    elements: list[dict] = [
         {
-            "type": "actions",
-            "elements": [
-                {
-                    "type": "button",
-                    "text": {"type": "plain_text", "text": "View report in PostHog"},
-                    "url": report_url,
-                }
-            ],
+            "type": "button",
+            "text": {"type": "plain_text", "text": "View report in PostHog"},
+            "url": report_url,
         }
-    )
+    ]
+    if create_pr_action is not None:
+        elements.append(create_pr_action)
+    blocks.append({"type": "actions", "elements": elements})
     fallback = f"Scout · {escape_slack_mrkdwn(scout_name)}: {escape_slack_mrkdwn(title[:200])}"
     return blocks, fallback
 
@@ -284,7 +285,9 @@ def post_scout_report_to_slack(
         project_id=report.team.project_id,
     )
     channel_id = _slack_channel_id(channel)
-    blocks, fallback = build_scout_report_slack_message(report, run)
+    blocks, fallback = build_scout_report_slack_message(
+        report, run, create_pr_action=slack_create_pr_button(report, integration_id=integration.id)
+    )
     client = SlackIntegration(integration).client
     try:
         response = client.chat_postMessage(

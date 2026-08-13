@@ -898,6 +898,110 @@ class TestSignalsDismissReport(TestCase):
         assert report.status == SignalReport.Status.READY
 
 
+class TestSignalsCreatePr(TestCase):
+    def setUp(self):
+        self.client = APIClient()
+        self.signing_secret = "posthog-code-test-secret"
+
+        self.organization = Organization.objects.create(name="Create PR Org")
+        self.team = Team.objects.create(organization=self.organization, name="Create PR Team")
+        self.user = User.objects.create(email="clicker@example.com", distinct_id="create-pr-user-1")
+        OrganizationMembership.objects.create(user=self.user, organization=self.organization)
+        self.integration = Integration.objects.create(
+            team=self.team,
+            kind="slack",
+            integration_id="T12345",
+            sensitive_config={"access_token": "xoxb-test"},
+        )
+
+    def _create_pr_payload(self, report_id: str) -> dict:
+        return {
+            "type": "block_actions",
+            "team": {"id": "T12345"},
+            "user": {"id": "U777"},
+            "response_url": "https://hooks.slack.test/response",
+            "actions": [
+                {
+                    "action_id": "signals_create_pr",
+                    "value": json.dumps(
+                        {
+                            "integration_id": self.integration.id,
+                            "report_id": report_id,
+                            "team_id": self.team.id,
+                        }
+                    ),
+                }
+            ],
+            "message": {"ts": "1234.9999", "blocks": []},
+        }
+
+    def _post_interactivity(self, payload: dict) -> Any:
+        body_str = f"payload={json.dumps(payload)}"
+        signed = sign_slack_request(body_str.encode(), self.signing_secret)
+        return self.client.post(
+            "/slack/interactivity-callback/",
+            data=body_str,
+            content_type="application/x-www-form-urlencoded",
+            HTTP_X_SLACK_SIGNATURE=signed.signature,
+            HTTP_X_SLACK_REQUEST_TIMESTAMP=signed.timestamp,
+        )
+
+    @patch("products.signals.backend.facade.api.start_report_pr_from_slack")
+    @patch("products.slack_app.backend.api._is_org_member")
+    @patch("products.slack_app.backend.services.inbox_interactivity.requests.post")
+    @patch("products.slack_app.backend.api.SlackIntegration.slack_config")
+    def test_create_pr_starts_the_run_as_the_clicking_member(
+        self, mock_config, mock_requests_post, mock_is_org_member, mock_start
+    ):
+        mock_config.return_value = {"SLACK_APP_SIGNING_SECRET": self.signing_secret}
+        mock_is_org_member.return_value = self.user
+        mock_start.return_value = SimpleNamespace(outcome="started", task_url="https://app.posthog.test/tasks/abc")
+
+        response = self._post_interactivity(self._create_pr_payload("00000000-0000-0000-0000-0000000000ab"))
+
+        assert response.status_code == 200
+        # The run must be attributed to the resolved PostHog user, never to a report reviewer.
+        assert mock_start.call_args.kwargs["user_id"] == self.user.id
+        assert mock_start.call_args.args == (self.team.id, "00000000-0000-0000-0000-0000000000ab")
+        body = mock_requests_post.call_args.kwargs["json"]
+        assert body["replace_original"] is True
+        assert "https://app.posthog.test/tasks/abc" in body["blocks"][-1]["elements"][0]["text"]
+
+    @patch("products.signals.backend.facade.api.start_report_pr_from_slack")
+    @patch("products.slack_app.backend.api._is_org_member")
+    @patch("products.slack_app.backend.services.inbox_interactivity.requests.post")
+    @patch("products.slack_app.backend.api.SlackIntegration.slack_config")
+    def test_create_pr_refuses_non_org_member(self, mock_config, mock_requests_post, mock_is_org_member, mock_start):
+        # A stranger in a shared channel must not be able to spend the org's self-driving PR credits.
+        mock_config.return_value = {"SLACK_APP_SIGNING_SECRET": self.signing_secret}
+        mock_is_org_member.return_value = None
+
+        response = self._post_interactivity(self._create_pr_payload("00000000-0000-0000-0000-0000000000ab"))
+
+        assert response.status_code == 200
+        mock_start.assert_not_called()
+
+    @patch("products.signals.backend.facade.api.start_report_pr_from_slack")
+    @patch("products.slack_app.backend.api._is_org_member")
+    @patch("products.slack_app.backend.services.inbox_interactivity.requests.post")
+    @patch("products.slack_app.backend.api.SlackIntegration.slack_config")
+    def test_create_pr_refusal_explains_itself_and_leaves_the_button(
+        self, mock_config, mock_requests_post, mock_is_org_member, mock_start
+    ):
+        # Nothing started, so the message must keep its button for whoever can fix the reason.
+        mock_config.return_value = {"SLACK_APP_SIGNING_SECRET": self.signing_secret}
+        mock_is_org_member.return_value = self.user
+        mock_start.return_value = SimpleNamespace(outcome="already_started", task_url=None)
+
+        response = self._post_interactivity(self._create_pr_payload("00000000-0000-0000-0000-0000000000ab"))
+
+        assert response.status_code == 200
+        body = mock_requests_post.call_args.kwargs["json"]
+        assert body["response_type"] == "ephemeral"
+        assert body["replace_original"] is False
+        assert "already in progress" in body["text"]
+
+
 class TestInsightAlertSnooze(TestCase):
     def setUp(self):
         self.client = APIClient()

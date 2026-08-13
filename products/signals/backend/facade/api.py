@@ -22,6 +22,7 @@ from products.signals.backend.contracts import SIGNAL_VARIANT_LOOKUP, SignalReme
 from products.signals.backend.models import SignalSourceConfig
 
 if TYPE_CHECKING:
+    from products.signals.backend.auto_start import PrKickoffResult
     from products.tasks.backend.facade.repo_selection import RepoSelectionResult
 
 logger = structlog.get_logger(__name__)
@@ -141,6 +142,19 @@ def dismiss_report_from_slack(
     )
 
     return suppress_report_from_slack(team_id, report_id, slack_user_id=slack_user_id, user_id=user_id)
+
+
+def start_report_pr_from_slack(team_id: int, report_id: str, *, user_id: int) -> "PrKickoffResult":
+    """Facade entrypoint for the Slack 'Create PR' button. See auto_start.start_implementation_pr_from_slack.
+
+    ``user_id`` is the PostHog user the clicking Slack identity resolved to — the caller resolves it
+    to gate the click to org members, and the implementation run is attributed to them.
+    """
+    from products.signals.backend.auto_start import (
+        start_implementation_pr_from_slack,  # noqa: PLC0415 — avoids importing model layer at facade import time
+    )
+
+    return start_implementation_pr_from_slack(team_id=team_id, report_id=report_id, user_id=user_id)
 
 
 def persisted_repo_selection(report_id: str) -> "RepoSelectionResult | None":

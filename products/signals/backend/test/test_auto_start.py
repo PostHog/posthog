@@ -1,5 +1,7 @@
 import re
+import json
 from types import SimpleNamespace
+from uuid import uuid4
 
 import pytest
 from unittest.mock import patch
@@ -24,6 +26,7 @@ from products.signals.backend.auto_start import (
     _resolve_autostart_fallback_user,
     _resolve_triggering_user,
     maybe_autostart_implementation_task,
+    start_implementation_pr_from_slack,
 )
 from products.signals.backend.models import (
     SignalReport,
@@ -42,7 +45,11 @@ from products.signals.backend.report_generation.research import (
     PriorityAssessment,
 )
 from products.signals.backend.signal_metadata import SignalSourceReference
-from products.signals.backend.task_run_artefacts import TASK_RUN_TYPE_IMPLEMENTATION, signals_task_ids
+from products.signals.backend.task_run_artefacts import (
+    TASK_RUN_TYPE_IMPLEMENTATION,
+    record_implementation_task,
+    signals_task_ids,
+)
 from products.signals.backend.test.test_billing import _seed_canonical_scout_skill
 from products.tasks.backend.facade import api as tasks_facade
 
@@ -307,8 +314,8 @@ def test_create_implementation_task_if_absent_is_idempotent(organization, team):
         first = _create_implementation_task_if_absent(**kwargs)
         second = _create_implementation_task_if_absent(**kwargs)
 
-    assert first is True
-    assert second is False
+    assert first is not None
+    assert second is None
     assert mock_create.call_count == 1
     call_kwargs = mock_create.call_args.kwargs
     assert call_kwargs["origin_product"] == tasks_facade.TaskOriginProduct.SIGNAL_REPORT
@@ -393,7 +400,7 @@ def test_create_implementation_task_freezes_billing_exemption(
             billing_exempt_reason=declared_reason,
         )
 
-    assert created is True
+    assert created is not None
     report.refresh_from_db()
     assert report.billing_exempt_reason == expected_reason
 
@@ -699,3 +706,66 @@ async def test_quota_gate_blocks_autostart_only_when_enforced(enforced):
         )
 
     assert (mock_create.call_count == 0) is enforced
+
+
+@pytest.mark.django_db
+@pytest.mark.parametrize(
+    ("repo_selection", "status", "pre_started", "expected_outcome"),
+    [
+        ({"repository": "owner/repo", "reason": "owns the code"}, SignalReport.Status.READY, False, "started"),
+        # A scout that deliberately filed a no-code report, and a report whose repo was never
+        # resolved, both have nothing to open a PR against.
+        ({"repository": None, "reason": "nothing to fix in code"}, SignalReport.Status.READY, False, "no_repository"),
+        (None, SignalReport.Status.READY, False, "no_repository"),
+        (
+            {"repository": "owner/repo", "reason": "owns the code"},
+            SignalReport.Status.SUPPRESSED,
+            False,
+            "report_closed",
+        ),
+        # The one-implementation-per-report gate holds for a click, so a second reviewer clicking
+        # after auto-start (or after each other) never doubles the spend.
+        ({"repository": "owner/repo", "reason": "owns the code"}, SignalReport.Status.READY, True, "already_started"),
+    ],
+)
+def test_start_implementation_pr_from_slack(organization, team, repo_selection, status, pre_started, expected_outcome):
+    Task = apps.get_model("tasks", "Task")
+    TaskRun = apps.get_model("tasks", "TaskRun")
+    user = _create_org_member_with_github("clicker@example.com", organization, "Clicker")
+    report = SignalReport.objects.create(
+        team=team, status=status, title="Stale pricing", summary="s", signal_count=1, total_weight=1.0
+    )
+    if repo_selection is not None:
+        SignalReportArtefact.objects.create(
+            team=team,
+            report=report,
+            type=SignalReportArtefact.ArtefactType.REPO_SELECTION,
+            content=json.dumps(repo_selection),
+        )
+    if pre_started:
+        record_implementation_task(team_id=team.id, report_id=str(report.id), task_id=str(uuid4()))
+
+    def _fake_create_and_run_task(**kwargs):
+        task = Task.objects.create(
+            team=team,
+            title=kwargs["title"],
+            description=kwargs["description"],
+            created_by_id=kwargs["user_id"],
+            origin_product=Task.OriginProduct.SIGNAL_REPORT,
+        )
+        run = TaskRun.objects.create(task=task, team=team)
+        return SimpleNamespace(task_id=task.id, team_id=team.id, latest_run=SimpleNamespace(id=run.id))
+
+    with patch.object(tasks_facade, "create_and_run_task", side_effect=_fake_create_and_run_task) as mock_create:
+        result = start_implementation_pr_from_slack(team_id=team.id, report_id=str(report.id), user_id=user.id)
+
+    assert result.outcome == expected_outcome
+    assert mock_create.call_count == (1 if expected_outcome == "started" else 0)
+    if expected_outcome != "started":
+        assert result.task_url is None
+        return
+    # The run is attributed to the clicking org member, and the reply links straight to it.
+    task = Task.objects.get(team=team)
+    assert task.created_by_id == user.id
+    assert result.task_url is not None and str(task.id) in result.task_url
+    assert mock_create.call_args.kwargs["repository"] == "owner/repo"

@@ -22,6 +22,7 @@ import posthoganalytics
 from slack_sdk.errors import SlackApiError
 from temporalio.common import WorkflowIDConflictPolicy, WorkflowIDReusePolicy
 
+from posthog.dataclasses import frozen
 from posthog.event_usage import groups
 from posthog.git import extract_explicit_repo
 from posthog.helpers.slack_scopes import REQUIRED_SLACK_SCOPES
@@ -56,6 +57,7 @@ from posthog.temporal.common.client import sync_connect
 from posthog.user_permissions import UserPermissions
 from posthog.utils import get_instance_region
 
+from products.signals.backend.facade.slack_actions import SLACK_CREATE_PR_ACTION_ID
 from products.slack_app.backend import inbox_channel, onboarding
 from products.slack_app.backend.discussion_replies import try_ingest_discussion_reply
 from products.slack_app.backend.feature_flags import (
@@ -3725,10 +3727,9 @@ def _handle_channel_approval_deny(payload: dict) -> HttpResponse:
 SIGNALS_DISMISS_REPORT_ACTION_ID = "signals_dismiss_report"
 
 
-def _dismiss_action_value(payload: dict) -> dict | None:
-    action = next(
-        (a for a in payload.get("actions", []) if a.get("action_id") == SIGNALS_DISMISS_REPORT_ACTION_ID), None
-    )
+def _signals_report_action_value(payload: dict, action_id: str) -> dict | None:
+    """The JSON `value` a report button carries: `{integration_id, report_id, team_id}`."""
+    action = next((a for a in payload.get("actions", []) if a.get("action_id") == action_id), None)
     if not action:
         return None
     try:
@@ -3738,31 +3739,45 @@ def _dismiss_action_value(payload: dict) -> dict | None:
     return value if isinstance(value, dict) else None
 
 
-def _extract_dismiss_hints(payload: dict) -> int | None:
-    """Integration id carried by a signals 'Dismiss' button, used for region-ownership routing."""
-    value = _dismiss_action_value(payload)
-    if not value:
-        return None
-    integration_id = value.get("integration_id")
-    return integration_id if isinstance(integration_id, int) else None
+def _extract_signals_report_hints(payload: dict) -> int | None:
+    """Integration id carried by a signals report button, used for region-ownership routing."""
+    for action_id in (SIGNALS_DISMISS_REPORT_ACTION_ID, SLACK_CREATE_PR_ACTION_ID):
+        value = _signals_report_action_value(payload, action_id)
+        if value:
+            integration_id = value.get("integration_id")
+            if isinstance(integration_id, int):
+                return integration_id
+    return None
 
 
-def _handle_signals_dismiss_report(payload: dict) -> HttpResponse:
-    """Suppress a signals inbox report when a reviewer clicks 'Dismiss' in Slack."""
-    from products.signals.backend.facade.api import (  # noqa: PLC0415 — cross-product action kept off the slack import path
-        dismiss_report_from_slack,
-    )
+@frozen
+class _SignalsReportClick:
+    """An authorized click on a report button: the report it names, and the org member behind the
+    clicking Slack identity."""
 
-    value = _dismiss_action_value(payload)
+    report_team_id: int
+    report_id: str
+    slack_user_id: str
+    user: User
+
+
+def _resolve_signals_report_click(payload: dict, action_id: str, *, log_event: str) -> _SignalsReportClick | None:
+    """Authorize a report button click, or ``None`` when it must be dropped.
+
+    Shared by every report action: the button's own workspace must own the integration, the
+    integration's team must own the report, and the clicker must resolve to a member of that
+    organization — a non-member in a shared channel must not act on the org's reports.
+    """
+    value = _signals_report_action_value(payload, action_id)
     slack_team_id = payload.get("team", {}).get("id")
     if not value or not slack_team_id:
-        return HttpResponse(status=200)
+        return None
 
     integration_id = value.get("integration_id")
     report_id = value.get("report_id")
     report_team_id = value.get("team_id")
     if not (isinstance(integration_id, int) and report_id and isinstance(report_team_id, int)):
-        return HttpResponse(status=200)
+        return None
 
     try:
         # Slack webhook: no team context; scoped by PK + kind + workspace ID. The team match below
@@ -3772,33 +3787,98 @@ def _handle_signals_dismiss_report(payload: dict) -> HttpResponse:
             id=integration_id, kind=SLACK_INTEGRATION_KIND, integration_id=slack_team_id
         )
     except Integration.DoesNotExist:
-        logger.info("signals_dismiss_report_no_integration", integration_id=integration_id)
-        return HttpResponse(status=200)
+        logger.info(f"{log_event}_no_integration", integration_id=integration_id)
+        return None
 
     if integration.team_id != report_team_id:
         logger.warning(
-            "signals_dismiss_report_team_mismatch",
+            f"{log_event}_team_mismatch",
             integration_team_id=integration.team_id,
             report_team_id=report_team_id,
         )
-        return HttpResponse(status=200)
+        return None
 
     slack_user_id = payload.get("user", {}).get("id", "")
-    # Only PostHog org members may dismiss — a non-member in a shared channel must not suppress reports.
     org_member = _is_org_member(integration, slack_user_id)
     if org_member is None:
-        logger.warning(
-            "signals_dismiss_report_not_org_member",
-            integration_id=integration.id,
-            slack_user_id=slack_user_id,
-        )
+        logger.warning(f"{log_event}_not_org_member", integration_id=integration.id, slack_user_id=slack_user_id)
+        return None
+
+    return _SignalsReportClick(
+        report_team_id=report_team_id,
+        report_id=str(report_id),
+        slack_user_id=slack_user_id,
+        user=org_member,
+    )
+
+
+def _handle_signals_dismiss_report(payload: dict) -> HttpResponse:
+    """Suppress a signals inbox report when a reviewer clicks 'Dismiss' in Slack."""
+    from products.signals.backend.facade.api import (  # noqa: PLC0415 — cross-product action kept off the slack import path
+        dismiss_report_from_slack,
+    )
+
+    click = _resolve_signals_report_click(payload, SIGNALS_DISMISS_REPORT_ACTION_ID, log_event="signals_dismiss_report")
+    if click is None:
         return HttpResponse(status=200)
 
     suppressed = dismiss_report_from_slack(
-        report_team_id, str(report_id), slack_user_id=slack_user_id, user_id=org_member.id
+        click.report_team_id, click.report_id, slack_user_id=click.slack_user_id, user_id=click.user.id
     )
 
-    _post_signals_dismiss_feedback(payload, dismissed=suppressed, slack_user_id=slack_user_id)
+    _post_signals_dismiss_feedback(payload, dismissed=suppressed, slack_user_id=click.slack_user_id)
+    return HttpResponse(status=200)
+
+
+# What each refusal reads as in Slack. The click is a request, so the copy says what stopped it and
+# where the person can go instead, never just that it failed.
+_SIGNALS_CREATE_PR_REFUSALS: dict[str, str] = {
+    "already_started": "A pull request is already in progress for this report. Open the report in PostHog to follow it.",
+    "no_repository": (
+        "PostHog couldn't work out which repository to open a pull request against. "
+        "Open the report in PostHog to start one from there."
+    ),
+    "report_closed": "This report is closed. Restore it in PostHog if you still want a pull request for it.",
+    "not_found": "This report is no longer available.",
+    "over_quota": (
+        "Your organization reached its self-driving pull request limit. "
+        "Raise the limit from the Inbox usage widget in PostHog."
+    ),
+}
+_SIGNALS_CREATE_PR_FALLBACK_REFUSAL = "Couldn't start a pull request. Try again from the report in PostHog."
+
+
+def _handle_signals_create_pr(payload: dict) -> HttpResponse:
+    """Start an implementation run when a reviewer clicks 'Create PR' on a report in Slack.
+
+    Does exactly what the same button in the inbox does, so the reviewer never has to open PostHog
+    to kick off the fix. The run is attributed to the clicking org member.
+    """
+    from products.signals.backend.facade.api import (  # noqa: PLC0415 — cross-product action kept off the slack import path
+        start_report_pr_from_slack,
+    )
+
+    click = _resolve_signals_report_click(payload, SLACK_CREATE_PR_ACTION_ID, log_event="signals_create_pr")
+    if click is None:
+        return HttpResponse(status=200)
+
+    result = start_report_pr_from_slack(click.report_team_id, click.report_id, user_id=click.user.id)
+    if result.outcome != "started":
+        # Ephemeral, and the message is left alone: the button stays usable for whoever can act on
+        # the reason (raise the quota, pick a repository) and retry.
+        inbox_interactivity.post_response_url(
+            payload.get("response_url", ""),
+            {
+                "response_type": "ephemeral",
+                "replace_original": False,
+                "text": _SIGNALS_CREATE_PR_REFUSALS.get(result.outcome, _SIGNALS_CREATE_PR_FALLBACK_REFUSAL),
+            },
+        )
+        return HttpResponse(status=200)
+
+    actor = f"<@{click.slack_user_id}>" if click.slack_user_id else "a teammate"
+    follow = f" · <{result.task_url}|Follow along>" if result.task_url else ""
+    _replace_message_stripping_actions(payload, f"🛠️ Creating a pull request, started by {actor}{follow}")
     return HttpResponse(status=200)
 
 
@@ -4218,7 +4298,7 @@ def posthog_code_interactivity_handler(request: HttpRequest) -> HttpResponse:
     context = _decode_picker_context(context_token) if context_token else None
     hinted_integration_id, hinted_user_id = _extract_picker_hints(payload)
     terminate_integration_id, terminate_user_id = _extract_terminate_hints(payload)
-    dismiss_integration_id = _extract_dismiss_hints(payload)
+    signals_report_integration_id = _extract_signals_report_hints(payload)
     alert_snooze_uuid = _extract_alert_snooze_hints(payload)
     inbox_integration_id = inbox_interactivity.extract_inbox_hints(payload)
     requesting_user = payload.get("user", {}).get("id", "")
@@ -4245,12 +4325,13 @@ def posthog_code_interactivity_handler(request: HttpRequest) -> HttpResponse:
             kind=SLACK_INTEGRATION_KIND,
             integration_id=slack_team_id,
         ).exists()
-    elif slack_team_id and dismiss_integration_id:
+    elif slack_team_id and signals_report_integration_id:
         # Routing/region-ownership only — this just claims the workspace's integration locally.
-        # Authorization (report-team match + org-member gate) is enforced in _handle_signals_dismiss_report.
-        # Intended trust boundary for dismiss is org membership (any org member can dismiss the org's reports).
+        # Authorization (report-team match + org-member gate) is enforced by _resolve_signals_report_click.
+        # Intended trust boundary for a report action is org membership (any org member can act on
+        # the org's reports).
         local = Integration.objects.filter(  # nosemgrep: idor-lookup-without-team
-            id=dismiss_integration_id,  # nosemgrep: idor-taint-user-input-to-model-get
+            id=signals_report_integration_id,  # nosemgrep: idor-taint-user-input-to-model-get
             kind=SLACK_INTEGRATION_KIND,
             integration_id=slack_team_id,
         ).exists()
@@ -4376,6 +4457,8 @@ def posthog_code_interactivity_handler(request: HttpRequest) -> HttpResponse:
                 return _handle_channel_approval_deny(payload)
             if action_id == SIGNALS_DISMISS_REPORT_ACTION_ID:
                 return _handle_signals_dismiss_report(payload)
+            if action_id == SLACK_CREATE_PR_ACTION_ID:
+                return _handle_signals_create_pr(payload)
             if action_id in (INSIGHT_ALERT_SNOOZE_ACTION_ID, INSIGHT_ALERT_SNOOZE_UNTIL_ACTION_ID):
                 return _handle_insight_alert_snooze(payload)
             if action_id == onboarding.INBOX_CREATE_ACTION_ID:
