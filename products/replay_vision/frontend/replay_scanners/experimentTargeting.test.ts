@@ -1,4 +1,5 @@
-import { Experiment, PropertyFilterType, PropertyOperator } from '~/types'
+import { RecordingsQuery } from '~/queries/schema/schema-general'
+import { Experiment, FilterLogicalOperator, PropertyFilterType, PropertyOperator } from '~/types'
 
 import {
     buildExperimentScannerQuery,
@@ -6,6 +7,7 @@ import {
     experimentScannerParams,
     parseExperimentScannerParams,
     reconcileVariantKeys,
+    replaceExperimentExposureFilter,
 } from './experimentTargeting'
 
 const experiment = {
@@ -125,6 +127,68 @@ describe('experimentTargeting', () => {
         expect(Object.keys(query)).toEqual(
             expect.not.arrayContaining(['date_from', 'date_to', 'order', 'session_ids', 'limit'])
         )
+    })
+
+    it('variant changes swap the exposure filter and keep user-added filters', () => {
+        const initial = buildExperimentScannerQuery(experiment, ['test'], false)
+        const userFilter = {
+            key: '$browser',
+            type: PropertyFilterType.Event,
+            value: ['Chrome'],
+            operator: PropertyOperator.Exact,
+        }
+        const edited = { ...initial, properties: [userFilter] } as RecordingsQuery
+
+        const updated = replaceExperimentExposureFilter(edited, {
+            experiment,
+            variantKeys: ['control'],
+            useExposureFallback: false,
+        })
+
+        expect(updated.events?.[0]?.properties?.[0]).toMatchObject({
+            key: '$feature_flag_response',
+            value: ['control'],
+        })
+        expect(updated.properties).toEqual([userFilter])
+    })
+
+    it('fallback-mode variant changes keep user event filters and swap only the flag property', () => {
+        const initial = buildExperimentScannerQuery(experiment, ['test'], true)
+        const userEvent = { id: '$pageview', name: '$pageview', type: 'events' }
+        const edited = { ...initial, events: [userEvent] } as RecordingsQuery
+
+        const updated = replaceExperimentExposureFilter(edited, {
+            experiment,
+            variantKeys: ['control'],
+            useExposureFallback: true,
+        })
+
+        expect(updated.events).toEqual([expect.objectContaining({ id: '$pageview' })])
+        expect(updated.properties).toEqual([
+            expect.objectContaining({ key: '$feature/checkout-redesign', value: ['control'] }),
+        ])
+    })
+
+    it('forces AND when swapping the exposure filter into an OR query', () => {
+        const orQuery = {
+            ...buildExperimentScannerQuery(experiment, ['test'], false),
+            operand: FilterLogicalOperator.Or,
+        } as RecordingsQuery
+        const updated = replaceExperimentExposureFilter(orQuery, {
+            experiment,
+            variantKeys: ['test'],
+            useExposureFallback: false,
+        })
+        expect(updated.operand).toEqual(FilterLogicalOperator.And)
+    })
+
+    it('inserts the exposure filter when the user removed it', () => {
+        const emptied = replaceExperimentExposureFilter(
+            { ...buildExperimentScannerQuery(experiment, [], false), events: [] },
+            { experiment, variantKeys: ['test'], useExposureFallback: false }
+        )
+        expect(emptied.events).toHaveLength(1)
+        expect(emptied.events?.[0]?.properties?.[0]).toMatchObject({ value: ['test'] })
     })
 
     it.each([
