@@ -12,8 +12,9 @@ from parameterized import parameterized
 from rest_framework.exceptions import AuthenticationFailed
 from rest_framework.request import Request
 
+from posthog.auth import ScopedServiceJWTAuthentication
 from posthog.jwt import PosthogJwtAudience
-from posthog.scoped_service_jwt import ScopedServiceJWTAuthentication, ScopedServiceJwtPurpose
+from posthog.scoped_service_jwt import ScopedServiceJwtPurpose
 
 TEST_PURPOSE = ScopedServiceJwtPurpose(
     audience=PosthogJwtAudience.RECORDING_API,
