@@ -25,6 +25,7 @@ import urllib.request
 
 from hogland import APIError, Hogland
 
+from . import timing
 from .hogland_backend import HoglandBackend
 from .stack import PostHogPreviewStack
 
@@ -266,6 +267,11 @@ def main(argv: list[str] | None = None) -> int:
         if getattr(e, "body", None):
             sys.stderr.write(f"[hogbox-preview] details: {json.dumps(e.body, indent=2, default=str)}\n")
         raise
+    finally:
+        # Both paths. A failed run's partial timings are precisely how you tell a
+        # restore timeout from a migrate failure without opening the log, and
+        # that's the case where the log is least pleasant to read.
+        timing.write_summary()
 
 
 if __name__ == "__main__":

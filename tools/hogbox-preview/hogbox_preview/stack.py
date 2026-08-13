@@ -598,9 +598,13 @@ class PostHogPreviewStack:
         # so settings import is fine; collectstatic itself needs no live DB.
         import pathlib
 
-        timing.stage("frontend swap start (upload dist)")
-        tar = pathlib.Path(self.frontend_dist_tar).read_bytes()
-        self.backend.write_file(f"{self.repo_dir}/frontend/dist.tgz", tar)
+        # Upload and collectstatic are separately timed: together they're ~260s,
+        # a third of the whole wait, and they were one opaque block — the dist
+        # is chunked over the exec API, so "slow upload" and "slow collectstatic"
+        # need very different fixes.
+        with timing.span("frontend-dist-upload"):
+            tar = pathlib.Path(self.frontend_dist_tar).read_bytes()
+            self.backend.write_file(f"{self.repo_dir}/frontend/dist.tgz", tar)
         compose = f"docker compose -f {self.COMPOSE} -f {self.OVERRIDE}"
         # CI tars the dist with `-C frontend dist`, so its members are rooted at
         # `dist/`; strip that leading level on extract or the SPA double-nests to
