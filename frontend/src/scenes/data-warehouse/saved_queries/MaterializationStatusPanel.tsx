@@ -559,23 +559,52 @@ export function MaterializationStatusPanel({ viewId, kind = 'view' }: Materializ
                                     )
                                 }
 
-                                return error && status !== 'Completed' ? (
-                                    <Tooltip title={error} interactive>
+                                const statusTag =
+                                    error && status !== 'Completed' ? (
+                                        <Tooltip title={error} interactive>
+                                            <LemonTag type={type}>{status}</LemonTag>
+                                        </Tooltip>
+                                    ) : (
                                         <LemonTag type={type}>{status}</LemonTag>
-                                    </Tooltip>
-                                ) : (
-                                    <LemonTag type={type}>{status}</LemonTag>
+                                    )
+                                return (
+                                    <div className="flex items-center gap-1">
+                                        {statusTag}
+                                        {showIncremental && job.run_mode && (
+                                            <LemonTag type="muted">
+                                                {job.run_mode === 'incremental' ? 'incremental' : 'full refresh'}
+                                            </LemonTag>
+                                        )}
+                                    </div>
                                 )
                             },
                         },
                         {
                             title: 'Rows',
                             dataIndex: 'rows_materialized',
-                            render: (_, { rows_materialized, status }: DataModelingJob) =>
-                                (status === 'Running' || status === 'Cancelled' || status === 'Skipped') &&
-                                rows_materialized === 0
-                                    ? '~'
-                                    : humanFriendlyNumber(rows_materialized),
+                            render: (_, { rows_materialized, status, run_mode }: DataModelingJob) => {
+                                if (
+                                    (status === 'Running' || status === 'Cancelled' || status === 'Skipped') &&
+                                    rows_materialized === 0
+                                ) {
+                                    return '~'
+                                }
+                                const count = humanFriendlyNumber(rows_materialized)
+                                if (!run_mode) {
+                                    return count
+                                }
+                                return (
+                                    <Tooltip
+                                        title={
+                                            run_mode === 'incremental'
+                                                ? 'Rows this run synced, including the re-read lookback window.'
+                                                : 'This run rebuilt the whole table. This is its full row count.'
+                                        }
+                                    >
+                                        <span>{count}</span>
+                                    </Tooltip>
+                                )
+                            },
                         },
                         {
                             title: 'Updated',

@@ -6366,6 +6366,8 @@ export interface DataModelingJob {
     id: string
     saved_query_id: string
     status: DataModelingJobStatus
+    /** full_refresh: rows_materialized is the whole table. incremental: only the rows synced. Null: unknown (old run) */
+    run_mode?: 'full_refresh' | 'incremental' | null
     rows_materialized: number
     rows_expected: number | null
     error: string | null

@@ -18069,11 +18069,28 @@ export namespace Schemas {
       Skipped: 'Skipped',
     } as const;
 
+    /**
+     * * `full_refresh` - Full refresh
+     * * `incremental` - Incremental
+     */
+    export type RunModeEnum = typeof RunModeEnum[keyof typeof RunModeEnum];
+
+
+    export const RunModeEnum = {
+      FullRefresh: 'full_refresh',
+      Incremental: 'incremental',
+    } as const;
+
     export interface DataModelingJob {
       readonly id: string;
       /** @nullable */
       readonly saved_query_id: string | null;
       readonly status: DataModelingJobStatusEnum;
+      /** What this run wrote: full_refresh rebuilt the whole table, so rows_materialized is the table's size; incremental wrote only its window, so rows_materialized counts just the rows synced. Null for runs from before modes were recorded, or that failed before the plan resolved.
+       *
+       * * `full_refresh` - Full refresh
+       * * `incremental` - Incremental */
+      readonly run_mode: RunModeEnum | null;
       readonly rows_materialized: number;
       /** @nullable */
       readonly error: string | null;

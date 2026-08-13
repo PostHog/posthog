@@ -25,11 +25,27 @@ export const DataModelingJobStatusEnumApi = {
     Skipped: 'Skipped',
 } as const
 
+/**
+ * * `full_refresh` - Full refresh
+ * * `incremental` - Incremental
+ */
+export type RunModeEnumApi = (typeof RunModeEnumApi)[keyof typeof RunModeEnumApi]
+
+export const RunModeEnumApi = {
+    FullRefresh: 'full_refresh',
+    Incremental: 'incremental',
+} as const
+
 export interface DataModelingJobApi {
     readonly id: string
     /** @nullable */
     readonly saved_query_id: string | null
     readonly status: DataModelingJobStatusEnumApi
+    /** What this run wrote: full_refresh rebuilt the whole table, so rows_materialized is the table's size; incremental wrote only its window, so rows_materialized counts just the rows synced. Null for runs from before modes were recorded, or that failed before the plan resolved.
+     *
+     * * `full_refresh` - Full refresh
+     * * `incremental` - Incremental */
+    readonly run_mode: RunModeEnumApi | null
     readonly rows_materialized: number
     /** @nullable */
     readonly error: string | null

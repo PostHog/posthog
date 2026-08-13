@@ -819,6 +819,13 @@ async def materialize_view_activity(inputs: MaterializeViewInputs) -> Materializ
         plan = dataclasses.replace(plan, incremental=False, reason="table missing")
     await logger.ainfo(f"Materializing node {objects.node.name}: {plan.reason}")
 
+    # Recorded on the job so the runs UI can tell a rebuild's row count (the whole table) apart
+    # from an incremental run's (only the rows synced in its window).
+    objects.job.run_mode = (
+        DataModelingJob.RunMode.INCREMENTAL if plan.incremental else DataModelingJob.RunMode.FULL_REFRESH
+    )
+    await database_sync_to_async_pool(objects.job.save)()
+
     async with Heartbeater():
         hogql_query = typing.cast(dict, objects.saved_query.query)["query"]
 
