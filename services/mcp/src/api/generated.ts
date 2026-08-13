@@ -59338,6 +59338,11 @@ export namespace Schemas {
          * @maxItems 10
          */
       tags?: string[];
+      /**
+         * MCP gateway servers (by id) this scout's runs may use, chosen from the connections members shared to the whole team. Selection is per scout: an empty list gives the scout no MCP servers. Applies from the scout's next run.
+         * @maxItems 100
+         */
+      mcp_gateway_server_ids?: string[];
     }
 
     export interface PatchedSignalSourceConfig {
@@ -69685,6 +69690,11 @@ export namespace Schemas {
          */
       readonly model: string | null;
       /**
+         * MCP gateway servers (by id) this scout's runs may use, chosen from the connections members shared to the whole team. Selection is per scout: an empty list gives the scout no MCP servers. Applies from the scout's next run.
+         * @maxItems 100
+         */
+      readonly mcp_gateway_server_ids: readonly string[];
+      /**
          * When the coordinator last dispatched this scout. Null if it has never run.
          * @nullable
          */
@@ -69758,6 +69768,11 @@ export namespace Schemas {
          */
       structured_output_schema?: SignalScoutConfigCreateStructuredOutputSchema;
       /**
+         * MCP gateway servers (by id) this scout's runs may use, chosen from the connections members shared to the whole team. Selection is per scout: an empty list gives the scout no MCP servers. Applies from the scout's next run.
+         * @maxItems 100
+         */
+      mcp_gateway_server_ids?: string[];
+      /**
          * The `signals-scout-*` skill to register a config for. The skill must already exist on this project — author it via the skills store first.
          * @maxLength 200
          */
@@ -69815,6 +69830,11 @@ export namespace Schemas {
          * @nullable
          */
       structured_output_schema?: SignalScoutConfigOptionsStructuredOutputSchema;
+      /**
+         * MCP gateway servers (by id) this scout's runs may use, chosen from the connections members shared to the whole team. Selection is per scout: an empty list gives the scout no MCP servers. Applies from the scout's next run.
+         * @maxItems 100
+         */
+      mcp_gateway_server_ids?: string[];
     }
 
     /**

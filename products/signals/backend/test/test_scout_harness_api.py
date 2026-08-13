@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from datetime import datetime, timedelta
 from typing import TYPE_CHECKING
+from uuid import uuid4
 
 from posthog.test.base import APIBaseTest
 from unittest.mock import AsyncMock, patch
@@ -1862,6 +1863,22 @@ class TestScoutHarnessConfigAPI(APIBaseTest):
         assert config.emit is True
         assert config.run_interval_minutes == 60
         assert config.enabled_by_id == self.user.id
+
+    def test_partial_update_stores_mcp_gateway_server_ids_as_strings(self) -> None:
+        config = SignalScoutConfig.objects.create(team=self.team, skill_name="signals-scout-foo")
+        server_id = str(uuid4())
+
+        response = self.client.patch(
+            self._detail_url(str(config.id)),
+            data={"mcp_gateway_server_ids": [server_id]},
+            format="json",
+        )
+
+        assert response.status_code == status.HTTP_200_OK
+        assert response.json()["mcp_gateway_server_ids"] == [server_id]
+        config.refresh_from_db()
+        # The JSON column must hold canonical strings, or the row save crashes on UUID instances.
+        assert config.mcp_gateway_server_ids == [server_id]
 
     def test_partial_update_disable_records_a_user_pause(self) -> None:
         config = SignalScoutConfig.objects.create(team=self.team, skill_name="signals-scout-foo")
