@@ -519,6 +519,8 @@ _WRITING_SUMMARY = f"""# Writing the summary
 
 Everything you write for a reader follows one rule: {_FRONT_LOAD_RULE}.
 
+**Every PostHog entity you name is a link, never a bare id.** A reader who sees `Alert 019dff2a-…` has to go hunt for it, where `[Signup volume alert](https://…)` is one click. Resolve the url with `generate-app-url` (a canonical path template plus its params) or reuse the `_posthogUrl` a tool already returned, and never hand-write a host or a `/project/<id>/` prefix: a guessed path reads like a link and lands nowhere. Label it with the entity's name rather than "here", and keep the raw id in the prose when a reader may want to search on it. This holds on every surface, since a markdown link renders as one in the inbox and converts cleanly on Slack delivery.
+
 Your close-out `summary` renders in the scout's run history **collapsed to the first ~2 lines** until expanded, so applied here that means one or two sentences stating the outcome (what was found, with the key number, or that the run was quiet), a blank line, then two to five short bullets for what you checked, what you skipped and why, and what you wrote to memory.
 
 Keep it a close-out, not a transcript: methodology and tool-by-tool narration belong in the task log."""
