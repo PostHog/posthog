@@ -293,7 +293,7 @@
                     use_hive_partitioning=0
   '''
 # ---
-# name: TestPersonalSpendQueries.test_empty_result_when_no_events.5
+# name: TestPersonalSpendQueries.test_empty_result_when_no_events.7
   '''
   /* user_id:0 request:_snapshot_@me_spend_ */
   SELECT replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$ai_model'), ''), 'null'), '^"|"$', '') AS model
@@ -332,7 +332,7 @@
                    use_hive_partitioning=0
   '''
 # ---
-# name: TestPersonalSpendQueries.test_empty_result_when_no_events.6
+# name: TestPersonalSpendQueries.test_empty_result_when_no_events.8
   '''
   /* user_id:0 request:_snapshot_@me_spend_ */
   SELECT toDate(events.timestamp) AS day,
