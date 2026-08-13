@@ -170,6 +170,10 @@ class ClientConfig(TypedDict, total=False):
     # Cap on retry attempts per request. Left unset, RESTClient uses its default;
     # the inline preview sets 1 so a rate-limited endpoint errors instead of sleeping.
     max_retries: int
+    # Ceiling (seconds) on the exponential backoff between retries when the response carries no
+    # server-provided delay. Left unset, RESTClient uses its default. Raise it for an endpoint whose
+    # rate-limit window is longer than the default ceiling, so the retry budget can outlast the window.
+    retry_backoff_max_seconds: float
     # SSRF host-pinning. When set (even to an empty list), every outgoing request URL —
     # including paginator next-page links and seeded resume URLs — must resolve to one of
     # these hosts; the base_url host is always implicitly allowed. Off-host URLs are rejected
