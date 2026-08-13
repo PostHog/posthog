@@ -265,7 +265,7 @@ def visible_blocker_names(
         visible.update({node_id: resolved.names[node_id] for node_id in resource_node_ids})
 
     if node_ids_by_saved_query:
-        creators = DataWarehouseSavedQuery.objects.filter(id__in=node_ids_by_saved_query).values_list(
+        creators = DataWarehouseSavedQuery.objects.filter(id__in=node_ids_by_saved_query, team_id=team_id).values_list(
             "id", "created_by_id"
         )
         levels = user_access_control.bulk_object_access_levels(
