@@ -319,6 +319,38 @@ export type DashboardApiPersistedVariables = { [key: string]: unknown } | null
 
 export type DashboardApiTilesItem = { [key: string]: unknown }
 
+export interface TileLayoutBoxApi {
+    /** Column position in the dashboard grid (0-indexed). */
+    x?: number
+    /** Row position in the dashboard grid (0-indexed). */
+    y?: number
+    /** Width in grid columns. The desktop grid is 12 columns wide. */
+    w?: number
+    /** Height in grid rows. */
+    h?: number
+}
+
+export interface TileLayoutsApi {
+    /** Layout for the standard (desktop) breakpoint. The grid is 12 columns wide. */
+    sm?: TileLayoutBoxApi
+    /** Layout for the small (mobile) breakpoint. The grid is 1 column wide. */
+    xs?: TileLayoutBoxApi
+}
+
+export interface DashboardGroupApi {
+    readonly id: string
+    readonly name: string
+    /**
+     * ID of the header tile for this group. Used as the react-grid-layout item key.
+     * @nullable
+     */
+    readonly tile_id: number | null
+    /** Layout of the group header tile. Always full width and one row tall on desktop. */
+    readonly layouts: TileLayoutsApi
+    /** IDs of content tiles that currently belong to this group. */
+    readonly member_tile_ids: readonly number[]
+}
+
 /**
  * Serializer mixin that handles tags for objects.
  */
@@ -389,6 +421,8 @@ export interface DashboardApi {
     quick_filter_ids?: string[] | null
     /** @nullable */
     readonly tiles: readonly DashboardApiTilesItem[] | null
+    /** Named groups of tiles on this dashboard. Null on list responses. */
+    readonly groups: readonly DashboardGroupApi[]
     /** Template key to create the dashboard from a predefined template. */
     use_template?: string
     /**
@@ -978,24 +1012,6 @@ export interface CopyDashboardTileRequestApi {
     fromDashboardId: number
     /** Dashboard tile id to copy. */
     tileId: number
-}
-
-export interface TileLayoutBoxApi {
-    /** Column position in the dashboard grid (0-indexed). */
-    x?: number
-    /** Row position in the dashboard grid (0-indexed). */
-    y?: number
-    /** Width in grid columns. The desktop grid is 12 columns wide. */
-    w?: number
-    /** Height in grid rows. */
-    h?: number
-}
-
-export interface TileLayoutsApi {
-    /** Layout for the standard (desktop) breakpoint. The grid is 12 columns wide. */
-    sm?: TileLayoutBoxApi
-    /** Layout for the small (mobile) breakpoint. The grid is 1 column wide. */
-    xs?: TileLayoutBoxApi
 }
 
 export interface CreateTextTileRequestApi {
@@ -8910,6 +8926,11 @@ export interface DashboardTileApi {
     text: TextApi
     button_tile: ButtonTileApi
     widget?: DashboardWidgetApi | null
+    /**
+     * ID of the dashboard group this tile belongs to, if any.
+     * @nullable
+     */
+    readonly parent_group_id: string | null
     layouts?: unknown
     /**
      * @maxLength 400
@@ -8926,6 +8947,61 @@ export interface DashboardTileApi {
 export interface DeleteTileRequestApi {
     /** ID of the dashboard tile to delete. Use dashboard-get to look up tile IDs. */
     tile_id: number
+}
+
+export interface CreateDashboardGroupRequestApi {
+    /**
+     * Display name for the group header.
+     * @maxLength 400
+     */
+    name: string
+    /** Optional layout for the group header tile. Defaults to a full-width row at the bottom of the dashboard. */
+    layouts?: TileLayoutsApi
+}
+
+/**
+ * * `delete_tiles` - delete_tiles
+ * * `move_to_ungrouped` - move_to_ungrouped
+ */
+export type MemberHandlingEnumApi = (typeof MemberHandlingEnumApi)[keyof typeof MemberHandlingEnumApi]
+
+export const MemberHandlingEnumApi = {
+    DeleteTiles: 'delete_tiles',
+    MoveToUngrouped: 'move_to_ungrouped',
+} as const
+
+export interface DeleteDashboardGroupRequestApi {
+    /** ID of the dashboard group to delete. */
+    group_id: string
+    /** delete_tiles soft-deletes member tiles. move_to_ungrouped leaves them on the dashboard outside any group.
+     *
+     * * `delete_tiles` - delete_tiles
+     * * `move_to_ungrouped` - move_to_ungrouped */
+    member_handling: MemberHandlingEnumApi
+}
+
+export interface MoveDashboardTileToGroupRequestApi {
+    /** ID of the content tile to move. */
+    tile_id: number
+    /**
+     * Destination group ID, or null to remove the tile from its group.
+     * @nullable
+     */
+    group_id?: string | null
+    /** Optional updated layout for the moved tile. */
+    layouts?: TileLayoutsApi
+}
+
+export interface UpdateDashboardGroupRequestApi {
+    /** ID of the dashboard group to update. */
+    group_id: string
+    /**
+     * New display name for the group header.
+     * @maxLength 400
+     */
+    name?: string
+    /** New layout for the group header tile. Header tiles are always full width and one row tall. */
+    layouts?: TileLayoutsApi
 }
 
 export interface MoveTileTileApi {
@@ -10013,6 +10089,54 @@ export type DashboardsDeleteTileParams = {
 export type DashboardsDeleteTileFormat = (typeof DashboardsDeleteTileFormat)[keyof typeof DashboardsDeleteTileFormat]
 
 export const DashboardsDeleteTileFormat = {
+    Json: 'json',
+    Txt: 'txt',
+} as const
+
+export type DashboardsGroupsCreateParams = {
+    format?: DashboardsGroupsCreateFormat
+}
+
+export type DashboardsGroupsCreateFormat =
+    (typeof DashboardsGroupsCreateFormat)[keyof typeof DashboardsGroupsCreateFormat]
+
+export const DashboardsGroupsCreateFormat = {
+    Json: 'json',
+    Txt: 'txt',
+} as const
+
+export type DashboardsGroupsDeleteCreateParams = {
+    format?: DashboardsGroupsDeleteCreateFormat
+}
+
+export type DashboardsGroupsDeleteCreateFormat =
+    (typeof DashboardsGroupsDeleteCreateFormat)[keyof typeof DashboardsGroupsDeleteCreateFormat]
+
+export const DashboardsGroupsDeleteCreateFormat = {
+    Json: 'json',
+    Txt: 'txt',
+} as const
+
+export type DashboardsGroupsMoveTileCreateParams = {
+    format?: DashboardsGroupsMoveTileCreateFormat
+}
+
+export type DashboardsGroupsMoveTileCreateFormat =
+    (typeof DashboardsGroupsMoveTileCreateFormat)[keyof typeof DashboardsGroupsMoveTileCreateFormat]
+
+export const DashboardsGroupsMoveTileCreateFormat = {
+    Json: 'json',
+    Txt: 'txt',
+} as const
+
+export type DashboardsGroupsUpdateCreateParams = {
+    format?: DashboardsGroupsUpdateCreateFormat
+}
+
+export type DashboardsGroupsUpdateCreateFormat =
+    (typeof DashboardsGroupsUpdateCreateFormat)[keyof typeof DashboardsGroupsUpdateCreateFormat]
+
+export const DashboardsGroupsUpdateCreateFormat = {
     Json: 'json',
     Txt: 'txt',
 } as const

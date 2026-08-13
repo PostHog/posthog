@@ -8537,6 +8537,11 @@ export namespace Schemas {
       text: Text;
       button_tile: ButtonTile;
       widget?: DashboardWidget | null;
+      /**
+         * ID of the dashboard group this tile belongs to, if any.
+         * @nullable
+         */
+      readonly parent_group_id: string | null;
       layouts?: unknown;
       /**
          * @maxLength 400
@@ -17415,6 +17420,34 @@ export namespace Schemas {
       memory_gb?: number;
     }
 
+    export interface TileLayoutBox {
+      /** Column position in the dashboard grid (0-indexed). */
+      x?: number;
+      /** Row position in the dashboard grid (0-indexed). */
+      y?: number;
+      /** Width in grid columns. The desktop grid is 12 columns wide. */
+      w?: number;
+      /** Height in grid rows. */
+      h?: number;
+    }
+
+    export interface TileLayouts {
+      /** Layout for the standard (desktop) breakpoint. The grid is 12 columns wide. */
+      sm?: TileLayoutBox;
+      /** Layout for the small (mobile) breakpoint. The grid is 1 column wide. */
+      xs?: TileLayoutBox;
+    }
+
+    export interface CreateDashboardGroupRequest {
+      /**
+         * Display name for the group header.
+         * @maxLength 400
+         */
+      name: string;
+      /** Optional layout for the group header tile. Defaults to a full-width row at the bottom of the dashboard. */
+      layouts?: TileLayouts;
+    }
+
     /**
      * Typed configuration for a FileDownload batch-export destination.
      */
@@ -17683,24 +17716,6 @@ export namespace Schemas {
       text: string;
       /** When true, this source's content is injected into every support reply prompt as general context (tone, policies, direction). */
       always_include?: boolean;
-    }
-
-    export interface TileLayoutBox {
-      /** Column position in the dashboard grid (0-indexed). */
-      x?: number;
-      /** Row position in the dashboard grid (0-indexed). */
-      y?: number;
-      /** Width in grid columns. The desktop grid is 12 columns wide. */
-      w?: number;
-      /** Height in grid rows. */
-      h?: number;
-    }
-
-    export interface TileLayouts {
-      /** Layout for the standard (desktop) breakpoint. The grid is 12 columns wide. */
-      sm?: TileLayoutBox;
-      /** Layout for the small (mobile) breakpoint. The grid is 1 column wide. */
-      xs?: TileLayoutBox;
     }
 
     export interface CreateTextTileRequest {
@@ -18395,6 +18410,20 @@ export namespace Schemas {
       Number37: 37,
     } as const;
 
+    export interface DashboardGroup {
+      readonly id: string;
+      readonly name: string;
+      /**
+         * ID of the header tile for this group. Used as the react-grid-layout item key.
+         * @nullable
+         */
+      readonly tile_id: number | null;
+      /** Layout of the group header tile. Always full width and one row tall on desktop. */
+      readonly layouts: TileLayouts;
+      /** IDs of content tiles that currently belong to this group. */
+      readonly member_tile_ids: readonly number[];
+    }
+
     /**
      * Serializer mixin that handles tags for objects.
      */
@@ -18465,6 +18494,8 @@ export namespace Schemas {
       quick_filter_ids?: string[] | null;
       /** @nullable */
       readonly tiles: readonly DashboardTilesItem[] | null;
+      /** Named groups of tiles on this dashboard. Null on list responses. */
+      readonly groups: readonly DashboardGroup[];
       /** Template key to create the dashboard from a predefined template. */
       use_template?: string;
       /**
@@ -24213,6 +24244,28 @@ export namespace Schemas {
       Bayesian: 'bayesian',
       Frequentist: 'frequentist',
     } as const;
+
+    /**
+     * * `delete_tiles` - delete_tiles
+     * * `move_to_ungrouped` - move_to_ungrouped
+     */
+    export type MemberHandlingEnum = typeof MemberHandlingEnum[keyof typeof MemberHandlingEnum];
+
+
+    export const MemberHandlingEnum = {
+      DeleteTiles: 'delete_tiles',
+      MoveToUngrouped: 'move_to_ungrouped',
+    } as const;
+
+    export interface DeleteDashboardGroupRequest {
+      /** ID of the dashboard group to delete. */
+      group_id: string;
+      /** delete_tiles soft-deletes member tiles. move_to_ungrouped leaves them on the dashboard outside any group.
+       *
+       * * `delete_tiles` - delete_tiles
+       * * `move_to_ungrouped` - move_to_ungrouped */
+      member_handling: MemberHandlingEnum;
+    }
 
     export interface DeleteTileRequest {
       /** ID of the dashboard tile to delete. Use dashboard-get to look up tile IDs. */
@@ -45857,6 +45910,18 @@ export namespace Schemas {
       no_total: number;
       /** Succeeded observations whose verdict was `inconclusive`. */
       inconclusive_total: number;
+    }
+
+    export interface MoveDashboardTileToGroupRequest {
+      /** ID of the content tile to move. */
+      tile_id: number;
+      /**
+         * Destination group ID, or null to remove the tile from its group.
+         * @nullable
+         */
+      group_id?: string | null;
+      /** Optional updated layout for the moved tile. */
+      layouts?: TileLayouts;
     }
 
     export interface MoveTileTile {
@@ -77867,6 +77932,18 @@ export namespace Schemas {
       memory_gb?: number;
     }
 
+    export interface UpdateDashboardGroupRequest {
+      /** ID of the dashboard group to update. */
+      group_id: string;
+      /**
+         * New display name for the group header.
+         * @maxLength 400
+         */
+      name?: string;
+      /** New layout for the group header tile. Header tiles are always full width and one row tall. */
+      layouts?: TileLayouts;
+    }
+
     export interface UpdateDashboardWidgetsBatchResponse {
       /** Updated dashboard widget tiles in request order. */
       tiles: DashboardTile[];
@@ -82854,6 +82931,54 @@ export namespace Schemas {
 
 
     export const DashboardsDeleteTileFormat = {
+      Json: 'json',
+      Txt: 'txt',
+    } as const;
+
+    export type DashboardsGroupsCreateParams = {
+    format?: DashboardsGroupsCreateFormat;
+    };
+
+    export type DashboardsGroupsCreateFormat = typeof DashboardsGroupsCreateFormat[keyof typeof DashboardsGroupsCreateFormat];
+
+
+    export const DashboardsGroupsCreateFormat = {
+      Json: 'json',
+      Txt: 'txt',
+    } as const;
+
+    export type DashboardsGroupsDeleteCreateParams = {
+    format?: DashboardsGroupsDeleteCreateFormat;
+    };
+
+    export type DashboardsGroupsDeleteCreateFormat = typeof DashboardsGroupsDeleteCreateFormat[keyof typeof DashboardsGroupsDeleteCreateFormat];
+
+
+    export const DashboardsGroupsDeleteCreateFormat = {
+      Json: 'json',
+      Txt: 'txt',
+    } as const;
+
+    export type DashboardsGroupsMoveTileCreateParams = {
+    format?: DashboardsGroupsMoveTileCreateFormat;
+    };
+
+    export type DashboardsGroupsMoveTileCreateFormat = typeof DashboardsGroupsMoveTileCreateFormat[keyof typeof DashboardsGroupsMoveTileCreateFormat];
+
+
+    export const DashboardsGroupsMoveTileCreateFormat = {
+      Json: 'json',
+      Txt: 'txt',
+    } as const;
+
+    export type DashboardsGroupsUpdateCreateParams = {
+    format?: DashboardsGroupsUpdateCreateFormat;
+    };
+
+    export type DashboardsGroupsUpdateCreateFormat = typeof DashboardsGroupsUpdateCreateFormat[keyof typeof DashboardsGroupsUpdateCreateFormat];
+
+
+    export const DashboardsGroupsUpdateCreateFormat = {
       Json: 'json',
       Txt: 'txt',
     } as const;

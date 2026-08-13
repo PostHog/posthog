@@ -1109,6 +1109,109 @@ export const DashboardsDeleteTileBody = /* @__PURE__ */ zod.object({
     tile_id: zod.number().describe('ID of the dashboard tile to delete. Use dashboard-get to look up tile IDs.'),
 })
 
+export const dashboardsGroupsCreateBodyNameMax = 400
+
+export const DashboardsGroupsCreateBody = /* @__PURE__ */ zod.object({
+    name: zod.string().max(dashboardsGroupsCreateBodyNameMax).describe('Display name for the group header.'),
+    layouts: zod
+        .object({
+            sm: zod
+                .object({
+                    x: zod.number().optional().describe('Column position in the dashboard grid (0-indexed).'),
+                    y: zod.number().optional().describe('Row position in the dashboard grid (0-indexed).'),
+                    w: zod.number().optional().describe('Width in grid columns. The desktop grid is 12 columns wide.'),
+                    h: zod.number().optional().describe('Height in grid rows.'),
+                })
+                .optional()
+                .describe('Layout for the standard (desktop) breakpoint. The grid is 12 columns wide.'),
+            xs: zod
+                .object({
+                    x: zod.number().optional().describe('Column position in the dashboard grid (0-indexed).'),
+                    y: zod.number().optional().describe('Row position in the dashboard grid (0-indexed).'),
+                    w: zod.number().optional().describe('Width in grid columns. The desktop grid is 12 columns wide.'),
+                    h: zod.number().optional().describe('Height in grid rows.'),
+                })
+                .optional()
+                .describe('Layout for the small (mobile) breakpoint. The grid is 1 column wide.'),
+        })
+        .optional()
+        .describe(
+            'Optional layout for the group header tile. Defaults to a full-width row at the bottom of the dashboard.'
+        ),
+})
+
+export const DashboardsGroupsDeleteCreateBody = /* @__PURE__ */ zod.object({
+    group_id: zod.uuid().describe('ID of the dashboard group to delete.'),
+    member_handling: zod
+        .enum(['delete_tiles', 'move_to_ungrouped'])
+        .describe('\* `delete_tiles` - delete_tiles\n\* `move_to_ungrouped` - move_to_ungrouped')
+        .describe(
+            'delete_tiles soft-deletes member tiles. move_to_ungrouped leaves them on the dashboard outside any group.\n\n\* `delete_tiles` - delete_tiles\n\* `move_to_ungrouped` - move_to_ungrouped'
+        ),
+})
+
+export const DashboardsGroupsMoveTileCreateBody = /* @__PURE__ */ zod.object({
+    tile_id: zod.number().describe('ID of the content tile to move.'),
+    group_id: zod.uuid().nullish().describe('Destination group ID, or null to remove the tile from its group.'),
+    layouts: zod
+        .object({
+            sm: zod
+                .object({
+                    x: zod.number().optional().describe('Column position in the dashboard grid (0-indexed).'),
+                    y: zod.number().optional().describe('Row position in the dashboard grid (0-indexed).'),
+                    w: zod.number().optional().describe('Width in grid columns. The desktop grid is 12 columns wide.'),
+                    h: zod.number().optional().describe('Height in grid rows.'),
+                })
+                .optional()
+                .describe('Layout for the standard (desktop) breakpoint. The grid is 12 columns wide.'),
+            xs: zod
+                .object({
+                    x: zod.number().optional().describe('Column position in the dashboard grid (0-indexed).'),
+                    y: zod.number().optional().describe('Row position in the dashboard grid (0-indexed).'),
+                    w: zod.number().optional().describe('Width in grid columns. The desktop grid is 12 columns wide.'),
+                    h: zod.number().optional().describe('Height in grid rows.'),
+                })
+                .optional()
+                .describe('Layout for the small (mobile) breakpoint. The grid is 1 column wide.'),
+        })
+        .optional()
+        .describe('Optional updated layout for the moved tile.'),
+})
+
+export const dashboardsGroupsUpdateCreateBodyNameMax = 400
+
+export const DashboardsGroupsUpdateCreateBody = /* @__PURE__ */ zod.object({
+    group_id: zod.uuid().describe('ID of the dashboard group to update.'),
+    name: zod
+        .string()
+        .max(dashboardsGroupsUpdateCreateBodyNameMax)
+        .optional()
+        .describe('New display name for the group header.'),
+    layouts: zod
+        .object({
+            sm: zod
+                .object({
+                    x: zod.number().optional().describe('Column position in the dashboard grid (0-indexed).'),
+                    y: zod.number().optional().describe('Row position in the dashboard grid (0-indexed).'),
+                    w: zod.number().optional().describe('Width in grid columns. The desktop grid is 12 columns wide.'),
+                    h: zod.number().optional().describe('Height in grid rows.'),
+                })
+                .optional()
+                .describe('Layout for the standard (desktop) breakpoint. The grid is 12 columns wide.'),
+            xs: zod
+                .object({
+                    x: zod.number().optional().describe('Column position in the dashboard grid (0-indexed).'),
+                    y: zod.number().optional().describe('Row position in the dashboard grid (0-indexed).'),
+                    w: zod.number().optional().describe('Width in grid columns. The desktop grid is 12 columns wide.'),
+                    h: zod.number().optional().describe('Height in grid rows.'),
+                })
+                .optional()
+                .describe('Layout for the small (mobile) breakpoint. The grid is 1 column wide.'),
+        })
+        .optional()
+        .describe('New layout for the group header tile. Header tiles are always full width and one row tall.'),
+})
+
 export const DashboardsMoveTileCreateBody = /* @__PURE__ */ zod.object({
     to_dashboard: zod.number().describe('Destination dashboard ID.'),
     tile: zod
