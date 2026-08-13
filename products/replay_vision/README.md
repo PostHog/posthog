@@ -25,6 +25,7 @@ A finding can also be turned into a PostHog Task once (the observation remembers
 Usage (receipts + in-flight rows + in-flight prompt tests) counts against the organization's credit limit for the current billing period, falling back to the calendar month when billing hasn't synced the product.
 Per-scanner volume estimates are credit-weighted and summed into a projected-spend prognosis shown at configuration time.
 Scheduled observations over budget are skipped; on-demand ones are rejected.
+A scanner can also carry its own optional `credit_limit` for the same period, so one broad scanner cannot drain the whole organization budget. A scanner that reaches its limit stops scanning until the period resets, stays enabled, and does not go back for the sessions it skipped.
 
 ## Scenes and tabs
 
