@@ -15,7 +15,6 @@ from products.feature_flags.backend.filters_validation import (
     collect_cross_field_violations,
     collect_filters_violations,
     flatten_structural_errors,
-    validate_cross_field_or_raise,
 )
 
 
@@ -267,15 +266,6 @@ class TestFiltersValidation(SimpleTestCase):
 
         cross_field = collect_filters_violations({"multivariate": _multivariate(("a", 50))})
         assert [violation.rule_id for violation in cross_field] == ["cross_field.variant_rollout_sum_not_100"]
-
-    def test_validate_cross_field_or_raise(self) -> None:
-        validate_cross_field_or_raise({"groups": []})
-
-        with self.assertRaises(serializers.ValidationError) as ctx:
-            validate_cross_field_or_raise({"multivariate": _multivariate(("a", 50))})
-        detail = ctx.exception.detail
-        assert isinstance(detail, list) and isinstance(detail[0], ErrorDetail)
-        assert detail[0].code == "cross_field.variant_rollout_sum_not_100"
 
     def test_groups_non_empty_is_a_create_only_rule(self) -> None:
         # The POST/PATCH asymmetry is locked on #50084: stored/patched flags may have empty

@@ -194,6 +194,15 @@ def _mark_filters_bypassed(serializer: serializers.Serializer) -> None:
     root._filters_bypassed = True  # type: ignore[attr-defined]
 
 
+def _mark_filters_enforced_rejection(serializer: serializers.Serializer) -> None:
+    """Marks a rejection as coming from a switch-gated tier, so the counter can tell it apart
+    from the checks that rejected long before enforcement (cohort existence, circular
+    dependencies, regex, size cap, the early_exit gate, the serde guard). Without the split,
+    the rejected series is dominated by those and says nothing about the flip's impact."""
+    root = serializer.root if serializer.root is not None else serializer
+    root._filters_enforced_rejection = True  # type: ignore[attr-defined]
+
+
 def _count_filters_write_success(serializer: serializers.Serializer, operation: str, request: Any) -> None:
     root = serializer.root if serializer.root is not None else serializer
     outcome = "bypassed" if getattr(root, "_filters_bypassed", False) else "accepted"
@@ -1486,13 +1495,19 @@ class FeatureFlagSerializer(
         return _is_realtime_cohort_flag_targeting_enabled(self.context["request"])
 
     def validate_filters(self, filters):
-        # Metrics wrapper: one `rejected` increment per write, regardless of which tier
-        # inside raised. `accepted` is counted at save time in create()/update().
+        # Metrics wrapper: one increment per rejected write. `rejected` means a switch-gated
+        # tier raised, so the series answers "what does enforcement reject"; everything that
+        # already rejected before this rollout lands in `rejected_preexisting`. `accepted` and
+        # `bypassed` are counted at save time in create()/update().
         operation = "create" if self.instance is None else "update"
         try:
             return self._validate_filters_inner(filters, operation)
         except serializers.ValidationError:
-            _count_filters_write(operation, "rejected", self.context.get("request"))
+            root = self.root if self.root is not None else self
+            enforced = getattr(root, "_filters_enforced_rejection", False)
+            _count_filters_write(
+                operation, "rejected" if enforced else "rejected_preexisting", self.context.get("request")
+            )
             raise
 
     def _validate_filters_inner(self, filters, operation: str):
@@ -1574,7 +1589,13 @@ class FeatureFlagSerializer(
                 for violation in flatten_structural_errors(structural.errors)
             ]
             _count_filters_violations("merged_structural", operation, [detail.code for detail in details])
+            # Cross-field collectors trust structurally valid input, so they never run for this
+            # write. Record that rather than leaving the stage silent: the flags this rollout is
+            # about are mostly cross-field violators whose merged state fails structurally, so a
+            # bare zero on the cross_field series would read as "none left to fix".
+            _count_filters_violations("cross_field", operation, ["not_evaluated"])
             if enforcement:
+                _mark_filters_enforced_rejection(self)
                 raise serializers.ValidationError(details)
             _mark_filters_bypassed(self)
             filters_enforcement_logger.warning(
@@ -1662,6 +1683,7 @@ class FeatureFlagSerializer(
                     "cross_field", operation, [violation.rule_id for violation in cross_field_violations]
                 )
                 if enforcement:
+                    _mark_filters_enforced_rejection(self)
                     raise serializers.ValidationError(
                         [
                             ErrorDetail(f"{violation.path}: {violation.message}", code=violation.rule_id)

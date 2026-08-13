@@ -14231,3 +14231,105 @@ class TestFeatureFlagFiltersMetrics(APIBaseTest):
         self.assertEqual(response.status_code, status.HTTP_201_CREATED, response.json())
         self.assertEqual(self._write_count("create", "bypassed"), bypassed_before + 1)
         self.assertEqual(self._write_count("create", "accepted"), accepted_before)
+
+    def _violation_count(self, stage: str, rule: str, operation: str) -> float:
+        return FLAG_FILTERS_VIOLATION_COUNTER.labels(stage=stage, rule=rule, operation=operation)._value.get()
+
+    def _create_flag_via_orm(self, key: str, filters: dict) -> FeatureFlag:
+        return FeatureFlag.objects.create(team=self.team, created_by=self.user, key=key, name=key, filters=filters)
+
+    def test_update_writes_are_counted_under_their_own_operation(self) -> None:
+        # update() increments through a different call site than create(); without this the
+        # operation="update" series could stop reporting and CI would stay green.
+        flag = self._create_flag_via_orm("metrics-update", {"groups": [{"properties": [], "rollout_percentage": 10}]})
+        accepted_before = self._write_count("update", "accepted")
+        rejected_before = self._write_count("update", "rejected")
+
+        ok = self.client.patch(
+            f"/api/projects/{self.team.id}/feature_flags/{flag.id}/",
+            {"filters": {"groups": [{"properties": [], "rollout_percentage": 20}]}},
+            format="json",
+        )
+        self.assertEqual(ok.status_code, status.HTTP_200_OK)
+
+        bad = self.client.patch(
+            f"/api/projects/{self.team.id}/feature_flags/{flag.id}/",
+            {"filters": {"groups": [{"properties": [], "rollout_percentage": 150}]}},
+            format="json",
+        )
+        self.assertEqual(bad.status_code, status.HTTP_400_BAD_REQUEST)
+
+        self.assertEqual(self._write_count("update", "accepted"), accepted_before + 1)
+        self.assertEqual(self._write_count("update", "rejected"), rejected_before + 1)
+
+    def test_preexisting_rejections_are_counted_apart_from_enforcement(self) -> None:
+        # A missing cohort rejected long before this rollout, so counting it as `rejected`
+        # would leave that series unreadable as "what enforcement rejects".
+        rejected_before = self._write_count("create", "rejected")
+        preexisting_before = self._write_count("create", "rejected_preexisting")
+
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/feature_flags/",
+            {
+                "key": "metrics-missing-cohort",
+                "filters": {
+                    "groups": [
+                        {"properties": [{"key": "id", "type": "cohort", "value": 9999999}], "rollout_percentage": 100}
+                    ]
+                },
+            },
+            format="json",
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+        self.assertEqual(self._write_count("create", "rejected_preexisting"), preexisting_before + 1)
+        self.assertEqual(self._write_count("create", "rejected"), rejected_before)
+
+    @override_settings(FEATURE_FLAG_FILTERS_ENFORCEMENT=False)
+    def test_cross_field_bypass_is_logged_counted_and_persisted(self) -> None:
+        # The branch production runs while the switch is off: structurally valid input with a
+        # cross-field violation. It marks the write bypassed, counts the rule, and saves anyway.
+        bypassed_before = self._write_count("create", "bypassed")
+        rule_before = self._violation_count("cross_field", "cross_field.variant_rollout_sum_not_100", "create")
+
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/feature_flags/",
+            {
+                "key": "metrics-cross-field-bypass",
+                "filters": {
+                    "groups": [{"properties": [], "rollout_percentage": 100}],
+                    "multivariate": {"variants": [{"key": "control", "rollout_percentage": 40}]},
+                },
+            },
+            format="json",
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_201_CREATED, response.json())
+        self.assertEqual(self._write_count("create", "bypassed"), bypassed_before + 1)
+        self.assertEqual(
+            self._violation_count("cross_field", "cross_field.variant_rollout_sum_not_100", "create"),
+            rule_before + 1,
+        )
+
+    @override_settings(FEATURE_FLAG_FILTERS_ENFORCEMENT=False)
+    def test_structural_failure_records_cross_field_as_not_evaluated(self) -> None:
+        # Cross-field checks need structurally valid input, so they never run for these writes.
+        # The dashboard has to see that, or a bare zero reads as "nothing left to fix".
+        not_evaluated_before = self._violation_count("cross_field", "not_evaluated", "create")
+
+        # A blank variant key fails the structural tier but not the serde guard, which rejects
+        # regardless of the switch. A guard-rejected shape would never reach this branch.
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/feature_flags/",
+            {
+                "key": "metrics-not-evaluated",
+                "filters": {
+                    "groups": [{"properties": [], "rollout_percentage": 100}],
+                    "multivariate": {"variants": [{"key": "", "rollout_percentage": 100}]},
+                },
+            },
+            format="json",
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_201_CREATED, response.json())
+        self.assertEqual(self._violation_count("cross_field", "not_evaluated", "create"), not_evaluated_before + 1)
