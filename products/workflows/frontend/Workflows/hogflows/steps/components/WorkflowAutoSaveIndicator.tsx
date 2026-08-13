@@ -28,14 +28,20 @@ export function WorkflowAutoSaveIndicator(): JSX.Element | null {
     }
 
     if (workflowChanged && workflowHasErrors) {
-        return <span className="text-xs text-warning">Auto-save paused: fix the errors in this workflow</span>
+        return (
+            <span className="text-xs text-warning whitespace-nowrap">
+                Auto-save paused: fix the errors in this workflow
+            </span>
+        )
     }
     if (workflowChanged && !autoSaveEnabled) {
-        return <span className="text-xs text-warning">Auto-save is off. You have unsaved changes</span>
+        return (
+            <span className="text-xs text-warning whitespace-nowrap">Auto-save is off. You have unsaved changes</span>
+        )
     }
     if (autoSaveEnabled && showSaving) {
         return (
-            <span className="text-xs text-tertiary flex items-center gap-1">
+            <span className="text-xs text-tertiary flex items-center gap-1 whitespace-nowrap">
                 <Spinner textColored /> Saving…
             </span>
         )

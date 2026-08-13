@@ -762,9 +762,11 @@ function EmailTemplaterEditorPanel({
     }, [isModalOpen])
 
     return (
-        <div className="flex-1 min-h-0 flex relative p-4">
-            {/* Without onClose this sits just left of the modal's own close button (top-3 right-4) */}
-            <div className={clsx('absolute top-3 z-10 flex items-center gap-2', onClose ? 'right-4' : 'right-14')}>
+        <div className="flex-1 min-h-0 flex flex-col gap-2 p-4">
+            {/* Without onClose the modal renders its own close button at top-3 right-4; the
+                padding keeps our controls clear of it. */}
+            <div className={clsx('flex items-center gap-2 shrink-0', !onClose && 'pr-10')}>
+                <h2 className="flex-1 min-w-0 truncate my-0">Editing email template</h2>
                 {saveIndicator}
                 {/* The toggle label changes width; keeping it left of the right-anchored
                     tabs means the tabs never shift when it flips */}
@@ -789,35 +791,30 @@ function EmailTemplaterEditorPanel({
                     <LemonButton size="small" icon={<IconX />} onClick={onClose} tooltip="Close" aria-label="Close" />
                 )}
             </div>
-            <div className="flex flex-col flex-1">
-                <div className="shrink-0">
-                    <h2>Editing email template</h2>
-                </div>
-                <EmailTemplaterForm mode="full" fieldsHidden={fieldsHidden} />
-                <div className="flex gap-2 items-center mt-2">
-                    <LemonButton type="secondary" onClick={() => setIsSaveTemplateModalOpen(true)}>
-                        Save as new template
+            <EmailTemplaterForm mode="full" fieldsHidden={fieldsHidden} />
+            <div className="flex gap-2 items-center shrink-0">
+                <LemonButton type="secondary" onClick={() => setIsSaveTemplateModalOpen(true)}>
+                    Save as new template
+                </LemonButton>
+                <div className="flex-1" />
+                {liveChanges ? (
+                    // Edits propagate live and the host persists them, so the only
+                    // action left is leaving the editor.
+                    <LemonButton type="primary" onClick={() => closeWithConfirmation()}>
+                        Done
                     </LemonButton>
-                    <div className="flex-1" />
-                    {liveChanges ? (
-                        // Edits propagate live and the host persists them, so the only
-                        // action left is leaving the editor.
-                        <LemonButton type="primary" onClick={() => closeWithConfirmation()}>
-                            Done
+                ) : (
+                    <>
+                        <LemonButton onClick={() => closeWithConfirmation()}>Discard changes</LemonButton>
+                        <LemonButton
+                            type="primary"
+                            onClick={() => submitEmailTemplate()}
+                            disabledReason={isEmailEditorReady ? undefined : 'Loading email editor...'}
+                        >
+                            Save
                         </LemonButton>
-                    ) : (
-                        <>
-                            <LemonButton onClick={() => closeWithConfirmation()}>Discard changes</LemonButton>
-                            <LemonButton
-                                type="primary"
-                                onClick={() => submitEmailTemplate()}
-                                disabledReason={isEmailEditorReady ? undefined : 'Loading email editor...'}
-                            >
-                                Save
-                            </LemonButton>
-                        </>
-                    )}
-                </div>
+                    </>
+                )}
             </div>
         </div>
     )
