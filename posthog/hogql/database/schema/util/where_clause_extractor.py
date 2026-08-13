@@ -1,6 +1,7 @@
 import random
 import string
 from collections.abc import Callable
+from dataclasses import dataclass
 from datetime import datetime
 from typing import Optional, cast
 
@@ -1298,6 +1299,12 @@ def references_joined_table(
     return finder.found_joined_reference
 
 
+@dataclass(frozen=True, kw_only=True, slots=True)
+class PushdownSplit:
+    inner_where: Optional[ast.Expr]
+    outer_where: Optional[ast.Expr]
+
+
 class EventsPredicatePushdownExtractor:
     """
     Extracts predicates from a WHERE clause that can be pushed down into an events subquery.
@@ -1320,12 +1327,12 @@ class EventsPredicatePushdownExtractor:
         self.events_table_type = events_table_type
         self.select_aliases = select_aliases or {}
 
-    def get_pushdown_predicates(self, where: ast.Expr) -> tuple[Optional[ast.Expr], Optional[ast.Expr]]:
+    def get_pushdown_predicates(self, where: ast.Expr) -> PushdownSplit:
         """
         Split a WHERE expression into inner (pushable) and outer (non-pushable) parts.
 
         Returns:
-            (inner_where, outer_where) tuple where:
+            PushdownSplit where:
             - inner_where: Predicates to push into events subquery (or None if none)
             - outer_where: Predicates to keep in outer query (or None if none)
         """
@@ -1334,7 +1341,7 @@ class EventsPredicatePushdownExtractor:
         inner_where = self._combine_with_and(inner_exprs)
         outer_where = self._combine_with_and(outer_exprs)
 
-        return (inner_where, outer_where)
+        return PushdownSplit(inner_where=inner_where, outer_where=outer_where)
 
     def _split_expression(self, expr: ast.Expr) -> tuple[list[ast.Expr], list[ast.Expr]]:
         """
