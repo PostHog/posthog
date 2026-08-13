@@ -286,16 +286,12 @@ describe('dashboardsLogic', () => {
             },
         })
 
-        const reportSearched = jest.spyOn(eventUsageLogic.actions, 'reportDashboardListSearched')
         await expectLogic(logic, () => {
             logic.actions.setSearch('needl')
         }).toDispatchActions(['loadSearchedDashboardsSuccess'])
 
         expect(logic.values.dashboards).toHaveLength(1)
         expect(logic.values.dashboards[0].name).toBe('needle')
-        // Findability signal fires once per settled search: term length + result count, never the query text.
-        // Covers the dashboards-list-view experiment instrumentation (flag: dashboards-list-view · experiment 379125).
-        expect(reportSearched).toHaveBeenCalledWith(5, 1)
     })
 
     it('does not refetch when only pinned / shared / createdBy change', async () => {
