@@ -1,7 +1,9 @@
 from datetime import UTC, datetime
+from types import SimpleNamespace
 
+import pytest
 from posthog.test.base import BaseTest, ClickhouseTestMixin
-from unittest.mock import patch
+from unittest.mock import MagicMock, patch
 
 from posthog.api_queries_quota import (
     API_QUERIES_QUOTA_ERRORS_COUNTER,
@@ -65,4 +67,39 @@ class TestChargeableByteMetering(ClickhouseTestMixin, BaseTest):
 
     def test_untagged_query_does_not_count(self):
         sync_execute(self.BOUNDED_QUERY)
+        assert get_api_queries_bytes(str(self.organization.id)) == 0
+
+
+class QueryDied(Exception):
+    pass
+
+
+class TestFailedQueryMetering(BaseTest):
+    def _sync_execute_with_fake_client(self, fake_client):
+        pool = MagicMock()
+        pool.__enter__.return_value = fake_client
+        tag_queries(chargeable=1, org_id=self.organization.id)
+        try:
+            with patch("posthog.clickhouse.client.execute.get_client_from_pool", return_value=pool):
+                with pytest.raises(QueryDied):
+                    sync_execute("SELECT 1")
+        finally:
+            reset_query_tags()
+
+    def test_killed_query_meters_progress_reported_before_death(self):
+        fake_client = MagicMock()
+
+        def die_mid_scan(*args, **kwargs):
+            fake_client.last_query = SimpleNamespace(progress=SimpleNamespace(bytes=4444))
+            raise QueryDied("timeout")
+
+        fake_client.execute.side_effect = die_mid_scan
+        self._sync_execute_with_fake_client(fake_client)
+        assert get_api_queries_bytes(str(self.organization.id)) == 4444
+
+    def test_connection_failure_does_not_remeter_previous_query(self):
+        fake_client = MagicMock()
+        fake_client.last_query = SimpleNamespace(progress=SimpleNamespace(bytes=9999))
+        fake_client.execute.side_effect = QueryDied("network down before connecting")
+        self._sync_execute_with_fake_client(fake_client)
         assert get_api_queries_bytes(str(self.organization.id)) == 0

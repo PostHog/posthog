@@ -495,22 +495,31 @@ def sync_execute(
             _llm_analytics_concurrency_slot(ch_user, team_id),
             sync_client or get_client_from_pool(workload, team_id, readonly, ch_user) as client,
         ):
-            result = client.execute(
-                prepared_sql,
-                params=prepared_args,
-                settings=settings,
-                with_column_types=with_column_types,
-                query_id=query_id,
-                external_tables=external_tables,
-            )
+            query_info_before = getattr(client, "last_query", None)
+            try:
+                result = client.execute(
+                    prepared_sql,
+                    params=prepared_args,
+                    settings=settings,
+                    with_column_types=with_column_types,
+                    query_id=query_id,
+                    external_tables=external_tables,
+                )
+            finally:
+                # A query killed mid-scan (timeout, memory limit) has already cost the read, so
+                # meter the progress the server reported before it died. The driver only resets
+                # `last_query` once the connection is established; the identity check keeps a
+                # pooled client's previous query from being re-metered when connecting fails.
+                query_info = getattr(client, "last_query", None)
+                if tags.chargeable and tags.org_id and query_info is not None and query_info is not query_info_before:
+                    if query_info.progress:
+                        increment_api_queries_bytes(str(tags.org_id), query_info.progress.bytes)
             if (
                 "INSERT INTO" in prepared_sql
                 and hasattr(client, "last_query")
                 and client.last_query.progress.written_rows > 0
             ):
                 result = client.last_query.progress.written_rows
-            if tags.chargeable and tags.org_id and hasattr(client, "last_query") and client.last_query.progress:
-                increment_api_queries_bytes(str(tags.org_id), client.last_query.progress.bytes)
     except Exception as e:
         exception_type = clickhouse_error_type(e)
         QUERY_ERROR_COUNTER.labels(
