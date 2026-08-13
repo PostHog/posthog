@@ -3,9 +3,13 @@ from __future__ import annotations
 import time
 from typing import TYPE_CHECKING, Any
 
+from django.apps import apps
+
 import psycopg
 from psycopg import sql as psql
 from psycopg.conninfo import make_conninfo
+
+from posthog.hogql.database.s3_table import parse_duckdb_s3_source
 
 from products.managed_warehouse.backend.common import (
     get_duckgres_config_for_org,
@@ -97,6 +101,54 @@ def _set_search_path(conn: psycopg.Connection[Any], extra_schemas: list[str] | N
     literal = psql.Literal(",".join(schemas))
     sql = psql.SQL("SET search_path TO {}").format(literal)
     conn.execute(sql)
+
+
+def _configure_self_managed_s3_secrets(conn: psycopg.Connection[Any], team_id: int) -> None:
+    data_warehouse_table = apps.get_model("warehouse_sources", "DataWarehouseTable")
+    tables = (
+        data_warehouse_table.objects.queryable()
+        .filter(
+            team_id=team_id,
+            external_data_source__isnull=True,
+            credential__isnull=False,
+            format="Parquet",
+        )
+        .select_related("credential")
+    )
+
+    with conn.cursor() as cur:
+        for table in tables:
+            source = parse_duckdb_s3_source(table.url_pattern)
+            if source is None or table.credential is None:
+                continue
+
+            secret_options = [
+                psql.SQL("TYPE S3"),
+                psql.SQL("KEY_ID %s"),
+                psql.SQL("SECRET %s"),
+                psql.SQL("REGION %s"),
+            ]
+            values: list[object] = [
+                table.credential.access_key,
+                table.credential.access_secret,
+                source.region,
+            ]
+            if source.endpoint is not None:
+                secret_options.append(psql.SQL("ENDPOINT %s"))
+                values.append(source.endpoint)
+            secret_options.extend(
+                [
+                    psql.SQL("USE_SSL %s"),
+                    psql.SQL("URL_STYLE %s"),
+                    psql.SQL("SCOPE %s"),
+                ]
+            )
+            values.extend([source.use_ssl, source.url_style, source.scope])
+            statement = psql.SQL("CREATE OR REPLACE TEMPORARY SECRET {} ({})").format(
+                psql.Identifier(f"self_managed_{str(table.id).replace('-', '')}"),
+                psql.SQL(", ").join(secret_options),
+            )
+            cur.execute(statement, values)
 
 
 def compile_hogql_to_ducklake_sql(
@@ -200,6 +252,7 @@ def execute_ducklake_query(
     _connect_start = time.monotonic()
     with psycopg.connect(conninfo) as conn:
         connect_ms = (time.monotonic() - _connect_start) * 1000
+        _configure_self_managed_s3_secrets(conn, team_id)
         _set_search_path(conn)
         with conn.cursor() as cur:
             _query_start = time.monotonic()
@@ -267,6 +320,7 @@ def execute_ducklake_create_table(
     # capture previous table size before replacing — best-effort, don't block materialization
     previous_file_size_bytes = _calculate_table_size(conninfo, safe_schema, safe_table)
     with psycopg.connect(conninfo) as conn:
+        _configure_self_managed_s3_secrets(conn, team_id)
         conn.execute(psql.SQL("CREATE SCHEMA IF NOT EXISTS {}").format(psql.Identifier(safe_schema)))
         # duckgres SET seems to only accept a single comma-separated string value with single quotes
         _set_search_path(conn, extra_schemas=[safe_schema])
