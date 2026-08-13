@@ -281,6 +281,39 @@ class TestFetchUsage:
         assert result.usage_missing is False
 
     @patch("posthog.temporal.duckgres_usage.client.internal_requests")
+    def test_malformed_storage_container_is_flagged(self, mock_requests: MagicMock) -> None:
+        # storage present but not a list (a dict here) is malformed — flag it so the
+        # caller withholds the ack, distinct from an absent storage key.
+        body = {**USAGE_BODY, "storage": {"oops": "not a list"}}
+        mock_requests.request.return_value = _response(200, body)
+
+        result = fetch_usage()
+
+        assert result.storage_rows == []
+        assert result.storage_malformed is True
+
+    @patch("posthog.temporal.duckgres_usage.client.internal_requests")
+    def test_absent_storage_key_is_not_malformed(self, mock_requests: MagicMock) -> None:
+        # An absent storage key is legitimate (servers without the storage metric), so
+        # it must NOT be flagged as malformed.
+        body = {k: v for k, v in USAGE_BODY.items() if k != "storage"}
+        mock_requests.request.return_value = _response(200, body)
+
+        result = fetch_usage()
+
+        assert result.storage_rows == []
+        assert result.storage_malformed is False
+
+    @patch("posthog.temporal.duckgres_usage.client.internal_requests")
+    def test_empty_storage_array_is_not_malformed(self, mock_requests: MagicMock) -> None:
+        body = {**USAGE_BODY, "storage": []}
+        mock_requests.request.return_value = _response(200, body)
+
+        result = fetch_usage()
+
+        assert result.storage_malformed is False
+
+    @patch("posthog.temporal.duckgres_usage.client.internal_requests")
     def test_raises_on_http_error(self, mock_requests: MagicMock) -> None:
         mock_requests.request.return_value = _response(500, {"error": "boom"})
 

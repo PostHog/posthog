@@ -83,6 +83,12 @@ class UsageResponse:
     # caller alerts AND withholds the ack: we can't read a missing array as "the
     # window truly had no usage" and let duckgres delete the source buckets.
     usage_missing: bool = False
+    # True when the storage key was PRESENT but not a list (malformed). An absent
+    # storage key is legitimate (servers without the storage metric) and does NOT
+    # set this; a present-but-malformed one does. The caller alerts AND withholds the
+    # ack, same as usage_missing — we can't read a broken container as "no storage"
+    # and let the shared ack delete storage buckets we never captured.
+    storage_malformed: bool = False
 
 
 def is_configured() -> bool:
@@ -142,8 +148,12 @@ def fetch_usage(timeout: int = 60) -> UsageResponse:
             continue
         rows.append(row)
 
-    storage_rows: list[StorageRow] = []
     raw_storage = body.get("storage")
+    # An absent storage key is legitimate (no storage metric); a present-but-non-list
+    # value is malformed and withholds the ack, mirroring usage_missing above.
+    storage_malformed = raw_storage is not None and not isinstance(raw_storage, list)
+
+    storage_rows: list[StorageRow] = []
     for raw in raw_storage if isinstance(raw_storage, list) else []:
         try:
             storage_row = StorageRow(
@@ -170,6 +180,7 @@ def fetch_usage(timeout: int = 60) -> UsageResponse:
         invalid_value_row_count=len(invalid),
         invalid_value_row_sample=invalid[0] if invalid else None,
         usage_missing=usage_missing,
+        storage_malformed=storage_malformed,
     )
 
 

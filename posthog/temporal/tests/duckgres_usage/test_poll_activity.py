@@ -445,6 +445,15 @@ MISSING_USAGE_RESPONSE = UsageResponse(
     usage_missing=True,
 )
 
+MALFORMED_STORAGE_RESPONSE = UsageResponse(
+    # Compute parsed fine, but the storage container was malformed (present, not a
+    # list). Compute still persists; the ack is withheld for the storage we couldn't read.
+    watermark_low=dt.datetime(2026, 7, 5, 23, 59, 59, tzinfo=dt.UTC),
+    watermark_high=dt.datetime(2026, 7, 7, 12, 39, tzinfo=dt.UTC),
+    rows=[_row(dt.date(2026, 7, 6))],
+    storage_malformed=True,
+)
+
 
 @pytest.mark.django_db(transaction=True)
 @pytest.mark.asyncio
@@ -478,6 +487,23 @@ async def test_missing_usage_withholds_ack_and_alerts(activity_environment) -> N
     assert not await cursor_exists()
     captured = [type(c.args[0]).__name__ for c in mock_capture.call_args_list]
     assert "DuckgresMissingUsage" in captured
+
+
+@pytest.mark.django_db(transaction=True)
+@pytest.mark.asyncio
+async def test_malformed_storage_withholds_ack_and_alerts(activity_environment) -> None:
+    # The storage container came back malformed (present but not a list): compute still
+    # persists, but the ack is WITHHELD so the shared ack can't delete storage buckets
+    # we never captured.
+    is_conf, fetch, cap, log = _patched(MALFORMED_STORAGE_RESPONSE)
+    with is_conf, fetch, cap as mock_capture, log:
+        result = await activity_environment.run(poll_duckgres_usage, PollDuckgresUsageInputs())
+
+    assert await usage_count() == 1  # the compute row still persisted
+    assert result.ack_watermark is None  # withheld
+    assert not await cursor_exists()
+    captured = [type(c.args[0]).__name__ for c in mock_capture.call_args_list]
+    assert "DuckgresMalformedStorage" in captured
 
 
 @pytest.mark.django_db(transaction=True)

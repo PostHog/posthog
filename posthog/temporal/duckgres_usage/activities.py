@@ -116,6 +116,13 @@ class DuckgresMissingUsage(Exception):
     keeps the source buckets until a well-formed response lands."""
 
 
+class DuckgresMalformedStorage(Exception):
+    """The storage key was present but not a list — a malformed container we cannot
+    read as "no storage". (An ABSENT storage key is fine; servers without the storage
+    metric omit it.) We persisted nothing for storage and WITHHOLD the ack, since the
+    shared ack would otherwise delete storage buckets we never captured."""
+
+
 @activity.defn(name="poll-duckgres-usage")
 async def poll_duckgres_usage(inputs: PollDuckgresUsageInputs) -> PollDuckgresUsageResult:
     async with Heartbeater():
@@ -136,10 +143,11 @@ async def poll_duckgres_usage(inputs: PollDuckgresUsageInputs) -> PollDuckgresUs
         parse_failure = response.unparsed_row_count > 0
         out_of_window = count_out_of_window_rows(response)
         conflict = resolution.conflicting_row_count > 0
-        # A missing usage array withholds the ack (we can't confirm the window is
-        # empty); an impossible value does NOT — it's dropped and can never recover,
-        # so withholding would only freeze the ack forever.
+        # A missing usage array (or a malformed storage container) withholds the ack —
+        # we can't confirm what the window held. An impossible value does NOT — it's
+        # dropped and can never recover, so withholding would only freeze the ack.
         usage_missing = response.usage_missing
+        storage_malformed = response.storage_malformed
         invalid_value = response.invalid_value_row_count > 0
         if recorded is not None and response.watermark_low < recorded:
             # Duckgres re-serves data we already acked past; replace semantics
@@ -164,6 +172,7 @@ async def poll_duckgres_usage(inputs: PollDuckgresUsageInputs) -> PollDuckgresUs
             and out_of_window == 0
             and not conflict
             and not usage_missing
+            and not storage_malformed
         )
         ack_watermark = ack_at.isoformat() if (should_ack and ack_at is not None) else None
 
@@ -254,6 +263,13 @@ async def poll_duckgres_usage(inputs: PollDuckgresUsageInputs) -> PollDuckgresUs
                     "nothing and withheld the ack until a well-formed response lands"
                 )
             )
+        if storage_malformed:
+            capture_exception(
+                DuckgresMalformedStorage(
+                    "duckgres usage response carried a malformed storage value (present but not a list); "
+                    "persisted no storage and withheld the ack until a well-formed response lands"
+                )
+            )
 
         await logger.ainfo(
             "duckgres_usage_polled",
@@ -271,6 +287,7 @@ async def poll_duckgres_usage(inputs: PollDuckgresUsageInputs) -> PollDuckgresUs
             foreign_team_row_count=resolution.foreign_team_row_count,
             invalid_value_row_count=response.invalid_value_row_count,
             usage_missing=usage_missing,
+            storage_malformed=storage_malformed,
         )
         return PollDuckgresUsageResult(
             rows_written=rows_written,
