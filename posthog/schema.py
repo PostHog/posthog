@@ -2633,14 +2633,6 @@ class SessionRecordingExternalReference(BaseModel):
     title: str
 
 
-class SummaryOutcome(BaseModel):
-    model_config = ConfigDict(
-        extra="forbid",
-    )
-    description: str | None = None
-    success: bool | None = None
-
-
 class SessionReplayBlock(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
@@ -6810,7 +6802,6 @@ class SessionRecordingType(BaseModel):
     start_time: str = Field(..., description="When the recording starts in ISO format.")
     start_url: str | None = None
     summary: str | None = None
-    summary_outcome: SummaryOutcome | None = None
     viewed: bool = Field(..., description="Whether this recording has been viewed by you already.")
     viewers: list[str] = Field(..., description="user ids of other users who have viewed this recording")
 
@@ -28042,9 +28033,20 @@ class DatabaseSchemaQuery(BaseModel):
         default=None,
         description="Optional direct external data source id for schema introspection",
     )
+    includeFields: bool | None = Field(
+        default=None,
+        description=("When false, skip serializing each table's fields (`fields` comes back empty). Defaults to true."),
+    )
     kind: Literal["DatabaseSchemaQuery"] = "DatabaseSchemaQuery"
     modifiers: HogQLQueryModifiers | None = Field(default=None, description="Modifiers used when performing the query")
     response: DatabaseSchemaQueryResponse | None = None
+    tables: list[str] | None = Field(
+        default=None,
+        description=(
+            "Only serialize these tables (keys as returned in the response, e.g."
+            " `events` or `zendesk.groups`). Omit for all tables."
+        ),
+    )
     tags: QueryLogTags | None = None
     version: float | None = Field(default=None, description="version of the node, used for schema migrations")
 

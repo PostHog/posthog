@@ -97,6 +97,7 @@ import type {
 } from "../types";
 import { resourceLink } from "../utils/acp-content";
 import { AsyncMutex } from "../utils/async-mutex";
+import { withTimeout } from "../utils/common";
 import { resolveGatewayProduct, resolveGatewayTarget } from "../utils/gateway";
 import { resolveGithubToken } from "../utils/github-token";
 import { Logger } from "../utils/logger";
@@ -128,6 +129,8 @@ const agentErrorClassificationSchema = z.enum([
   "upstream_provider_failure",
   "agent_error",
 ]) satisfies z.ZodType<AgentErrorClassification>;
+
+const INITIAL_TASK_RUN_REFRESH_TIMEOUT_MS = 5_000;
 
 export const UPSTREAM_PROVIDER_FAILURE_MESSAGE =
   "The upstream AI provider failed to process the request. Please retry the task in a few minutes.";
@@ -2193,21 +2196,19 @@ export class AgentServer {
   ): Promise<void> {
     if (!this.session) return;
 
-    // Fetch TaskRun early — needed for both resume detection and initial prompt
     let taskRun = prefetchedRun ?? null;
-    if (!taskRun) {
-      try {
-        taskRun = await this.posthogAPI.getTaskRun(
-          payload.task_id,
-          payload.run_id,
-        );
-      } catch (error) {
-        this.logger.debug("Failed to fetch task run", {
-          taskId: payload.task_id,
-          runId: payload.run_id,
-          error,
-        });
-      }
+    try {
+      const refresh = await withTimeout(
+        this.posthogAPI.getTaskRun(payload.task_id, payload.run_id),
+        INITIAL_TASK_RUN_REFRESH_TIMEOUT_MS,
+      );
+      if (refresh.result === "success") taskRun = refresh.value;
+    } catch (error) {
+      this.logger.debug("Failed to refresh task run before initial message", {
+        taskId: payload.task_id,
+        runId: payload.run_id,
+        error,
+      });
     }
 
     if (this.nativeResume) {

@@ -2,6 +2,7 @@ import { ArchiveIcon } from "@phosphor-icons/react";
 import { cn, Separator } from "@posthog/quill";
 import { PROJECT_BLUEBIRD_FLAG } from "@posthog/shared";
 import { useArchivedTaskIds } from "@posthog/ui/features/archive/useArchivedTaskIds";
+import { ChannelItemPreviewCardProvider } from "@posthog/ui/features/canvas/components/ChannelItemHoverCard";
 import { ChannelNav } from "@posthog/ui/features/canvas/components/ChannelNav";
 import { ChannelSidebar } from "@posthog/ui/features/canvas/components/ChannelSidebar";
 import { ChannelsFab } from "@posthog/ui/features/canvas/components/ChannelsFab";
@@ -38,7 +39,6 @@ import { ErrorBoundary } from "@posthog/ui/primitives/ErrorBoundary";
 import { useSidebarEdgeHoverPeek } from "@posthog/ui/primitives/hooks/useSidebarEdgeHoverPeek";
 import { ResizableSidebar } from "@posthog/ui/primitives/ResizableSidebar";
 import { navigateToArchived } from "@posthog/ui/router/navigationBridge";
-import { Box, Flex } from "@radix-ui/themes";
 import { useParams } from "@tanstack/react-router";
 import { useDeferredValue, useEffect, useRef } from "react";
 
@@ -71,7 +71,7 @@ function ChannelPanes({
   });
 
   return (
-    <Box ref={panesRef} className="min-h-0 flex-1 overflow-hidden">
+    <div ref={panesRef} className="min-h-0 flex-1 overflow-hidden">
       <div
         className={cn(
           "flex h-full w-[200%] transition-transform duration-200 ease-out motion-reduce:transition-none",
@@ -94,7 +94,7 @@ function ChannelPanes({
           )}
         </div>
       </div>
-    </Box>
+    </div>
   );
 }
 export function ChannelsSidebar() {
@@ -225,65 +225,69 @@ export function ChannelsSidebar() {
       onPeekLeave={() => endSidebarPeek()}
       onPeekDismiss={cancelSidebarPeek}
     >
-      <Flex direction="column" className="h-full bg-chrome">
-        {!channelsLayout && (
-          <>
-            <SidebarNavSection />
-            <TasksHeader />
-          </>
-        )}
+      {/* One preview card for every row in here — the channel's own list and
+          the space tree both draw their rows as triggers on it. */}
+      <ChannelItemPreviewCardProvider>
+        <div className="flex h-full flex-col bg-chrome">
+          {!channelsLayout && (
+            <>
+              <SidebarNavSection />
+              <TasksHeader />
+            </>
+          )}
 
-        {channelsLayout ? (
-          <>
-            {/* Which project you're in is the outermost thing about this window,
-                so under the layout it sits above the nav row rather than in the
-                footer. Its menu opens downward, which is the right direction
-                from the top of a sidebar. */}
-            <Box className="shrink-0 px-2 pb-1">
-              <ProjectSwitcher />
-            </Box>
-            <ChannelNav />
-            <ChannelPanes channelId={currentChannelId} showList={showList} />
-          </>
-        ) : bodyChannelsWorld ? (
-          <>
-            <Separator />
-            <Box className="relative min-h-0 flex-1">
-              <ChannelsList />
-              <ChannelsFab />
-            </Box>
-          </>
-        ) : (
-          <Box className="min-h-0 flex-1">
-            <SidebarMenu />
-          </Box>
-        )}
+          {channelsLayout ? (
+            <>
+              {/* Which project you're in is the outermost thing about this
+                  window, so under the layout it sits above the nav row rather
+                  than in the footer. Its menu opens downward, which is the
+                  right direction from the top of a sidebar. */}
+              <div className="shrink-0 px-2 pb-1">
+                <ProjectSwitcher />
+              </div>
+              <ChannelNav />
+              <ChannelPanes channelId={currentChannelId} showList={showList} />
+            </>
+          ) : bodyChannelsWorld ? (
+            <>
+              <Separator />
+              <div className="relative min-h-0 flex-1">
+                <ChannelsList />
+                <ChannelsFab />
+              </div>
+            </>
+          ) : (
+            <div className="min-h-0 flex-1">
+              <SidebarMenu />
+            </div>
+          )}
 
-        <UpdateBanner />
+          <UpdateBanner />
 
-        {showArchivedRow && archivedTaskIds.size > 0 && (
-          <Box className="shrink-0 border-border border-t">
-            <button
-              type="button"
-              className="flex w-full items-center gap-1 bg-transparent px-2 py-1.5 text-left text-[13px] text-gray-11 transition-colors hover:bg-gray-3"
-              onClick={navigateToArchived}
-            >
-              <span className="flex h-[18px] w-[18px] shrink-0 items-center justify-center text-gray-10">
-                <ArchiveIcon size={14} />
-              </span>
-              <span className="text-gray-11">Archived</span>
-            </button>
-          </Box>
-        )}
+          {showArchivedRow && archivedTaskIds.size > 0 && (
+            <div className="shrink-0 border-border border-t">
+              <button
+                type="button"
+                className="flex w-full items-center gap-1 bg-transparent px-2 py-1.5 text-left text-[13px] text-gray-11 transition-colors hover:bg-gray-3"
+                onClick={navigateToArchived}
+              >
+                <span className="flex h-[18px] w-[18px] shrink-0 items-center justify-center text-gray-10">
+                  <ArchiveIcon size={14} />
+                </span>
+                <span className="text-gray-11">Archived</span>
+              </button>
+            </div>
+          )}
 
-        {/* The code layout keeps it in the footer: that sidebar's top is the nav
+          {/* The code layout keeps it in the footer: that sidebar's top is the nav
             section and task header, and there's no nav row to sit above. */}
-        {!channelsLayout && (
-          <Box className="shrink-0 px-2 pb-2">
-            <ProjectSwitcher />
-          </Box>
-        )}
-      </Flex>
+          {!channelsLayout && (
+            <div className="shrink-0 px-2 pb-2">
+              <ProjectSwitcher />
+            </div>
+          )}
+        </div>
+      </ChannelItemPreviewCardProvider>
     </ResizableSidebar>
   );
 }

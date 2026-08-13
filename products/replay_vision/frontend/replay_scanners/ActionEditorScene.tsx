@@ -9,7 +9,6 @@ import {
     LemonInputSelect,
     LemonSegmentedButton,
     LemonSelect,
-    Link,
 } from '@posthog/lemon-ui'
 
 import { IntegrationChoice } from 'lib/components/CyclotronJob/integrations/IntegrationChoice'
@@ -30,6 +29,7 @@ import { SceneContent } from '~/layout/scenes/components/SceneContent'
 import { SceneTitleSection } from '~/layout/scenes/components/SceneTitleSection'
 import { ProductKey } from '~/queries/schema/schema-general'
 
+import { VisionDocsLink } from '../components/DocsLink'
 import { ReplayVisionFeedbackButton } from '../components/ReplayVisionFeedbackButton'
 import {
     AlertConfigFrequencyEnumApi,
@@ -633,9 +633,9 @@ function WebhookDelivery({ noun }: { noun: string }): JSX.Element {
             </LemonField>
             <span className="text-xs text-muted">
                 We POST a JSON payload to this URL.{' '}
-                <Link to="https://posthog.com/docs/replay-vision/webhooks" target="_blank">
+                <VisionDocsLink page="webhooks" dataAttr="vision-docs-link-webhook-payload">
                     See the payload format
-                </Link>
+                </VisionDocsLink>
                 .
             </span>
             {!actionForm.webhook_url && (
