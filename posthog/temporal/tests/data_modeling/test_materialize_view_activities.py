@@ -542,7 +542,7 @@ class TestShouldPauseScheduleForTimeout:
         )
 
         should_pause, count = await database_sync_to_async(should_pause_schedule_for_timeout)(
-            asaved_query.id, current_job.id
+            asaved_query.id, current_job
         )
         assert should_pause is False
         assert count == 3
@@ -573,7 +573,7 @@ class TestShouldPauseScheduleForTimeout:
         )
 
         should_pause, count = await database_sync_to_async(should_pause_schedule_for_timeout)(
-            asaved_query.id, current_job.id
+            asaved_query.id, current_job
         )
         assert should_pause is True
         assert count == 5
@@ -613,7 +613,7 @@ class TestShouldPauseScheduleForTimeout:
         )
 
         should_pause, count = await database_sync_to_async(should_pause_schedule_for_timeout)(
-            asaved_query.id, current_job.id
+            asaved_query.id, current_job
         )
         assert should_pause is True
         assert count == 5
@@ -639,7 +639,7 @@ class TestShouldPauseScheduleForTimeout:
         jobs.append(current_job)
 
         should_pause, count = await database_sync_to_async(should_pause_schedule_for_timeout)(
-            asaved_query.id, current_job.id
+            asaved_query.id, current_job
         )
         assert should_pause is True
         assert count == 5
