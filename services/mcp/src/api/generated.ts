@@ -39305,11 +39305,6 @@ export namespace Schemas {
       Unknown: 'unknown',
     } as const;
 
-    export interface SummaryOutcome {
-      description?: string | null;
-      success?: boolean | null;
-    }
-
     export interface SessionRecordingType {
       active_seconds?: number | null;
       /** calculated on the backend so that we can sort by it, definition may change over time */
@@ -39352,7 +39347,6 @@ export namespace Schemas {
       start_time: string;
       start_url?: string | null;
       summary?: string | null;
-      summary_outcome?: SummaryOutcome | null;
       /** Whether this recording has been viewed by you already. */
       viewed: boolean;
       /** user ids of other users who have viewed this recording */
