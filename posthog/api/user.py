@@ -119,7 +119,7 @@ from posthog.rate_limit import (
     UserAuthenticationThrottle,
     UserEmailVerificationThrottle,
 )
-from posthog.rbac.user_access_control import UserAccessControl
+from posthog.rbac.user_access_control import UserAccessControl, visible_teams_for_user
 from posthog.session.activity import (
     list_user_sessions,
     revoke_other_sessions,
@@ -764,10 +764,18 @@ class UserSerializer(serializers.ModelSerializer):
                 )
 
             validated_data["current_organization"] = current_organization
-            # instance.teams is RBAC-aware; organization.teams is not, and would drop the user into
-            # a project they cannot open.
-            validated_data["current_team"] = (
-                current_team if current_team else instance.teams.filter(organization=current_organization).first()
+            # `organization.teams` is not access-aware and would drop the user into a project they
+            # cannot open. `instance.teams` reads the access-control entitlement off whichever of the
+            # user's organizations comes back first, so it answers for the wrong one here. This
+            # helper resolves both access-control systems against the organization being switched to.
+            validated_data["current_team"] = current_team or (
+                visible_teams_for_user(
+                    current_organization,
+                    UserAccessControl(user=instance, organization_id=str(current_organization.id)),
+                    UserPermissions(user=instance),
+                )
+                .order_by("pk")
+                .first()
             )
         elif current_team:
             validated_data["current_team"] = current_team

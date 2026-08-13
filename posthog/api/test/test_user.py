@@ -1164,13 +1164,40 @@ class TestUserAPI(APIBaseTest):
 
         accessible_project = Team.objects.create(name="Accessible", organization=self.new_org)
         # self.new_project sorts first by id, so an unscoped fallback would land on it.
-        AccessControl.objects.create(team=self.new_project, resource="project", access_level="none")
-        # User.teams reads the feature list off whichever of the user's orgs comes back first.
+        # `resource_id` is what the access-control API writes for an object-level rule, and what
+        # `filter_queryset_by_access_level` reads. A row without it is a resource-level rule.
+        AccessControl.objects.create(
+            team=self.new_project, resource="project", resource_id=str(self.new_project.id), access_level="none"
+        )
         for org in (self.organization, self.new_org):
             org.available_product_features = [
                 {"key": AvailableFeature.ACCESS_CONTROL, "name": AvailableFeature.ACCESS_CONTROL}
             ]
             org.save()
+
+        response = self.client.patch("/api/users/@me/", {"set_current_organization": str(self.new_org.id)})
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertEqual(response.json()["team"]["id"], accessible_project.id)
+        self.user.refresh_from_db()
+        self.assertEqual(self.user.current_team, accessible_project)
+
+    def test_switching_organization_skips_private_projects_when_only_that_org_has_access_control(self):
+        from ee.models.rbac.access_control import AccessControl
+
+        accessible_project = Team.objects.create(name="Accessible", organization=self.new_org)
+        # self.new_project sorts first by id, so an unscoped fallback would land on it.
+        AccessControl.objects.create(
+            team=self.new_project, resource="project", resource_id=str(self.new_project.id), access_level="none"
+        )
+        # Only the organization being switched to is entitled. A fallback that reads the entitlement
+        # off whichever of the user's organizations comes back first skips filtering entirely here.
+        self.new_org.available_product_features = [
+            {"key": AvailableFeature.ACCESS_CONTROL, "name": AvailableFeature.ACCESS_CONTROL}
+        ]
+        self.new_org.save()
+        self.organization.available_product_features = []
+        self.organization.save()
 
         response = self.client.patch("/api/users/@me/", {"set_current_organization": str(self.new_org.id)})
 
