@@ -325,7 +325,15 @@ def _timestamp_st(draw: st.DrawFn) -> str:
     return text + draw(st.sampled_from(["", "Z", "+00:00", "-05:30", "+0230", "-1145"]))
 
 
-_variable_token_st = st.one_of(_uuid_st, _hex_0x_st, _hex_bare_st, _num_st, _timestamp_st())
+_ipv4_st = st.tuples(*[st.integers(min_value=0, max_value=255)] * 4).map(lambda octets: ".".join(map(str, octets)))
+# Characters an address really follows in a log body. "/" is deliberately absent: that is
+# the one the guard rejects, and the URL case below covers "//" separately.
+_delimiter_st = st.sampled_from([" ", "=", ":", '"', ",", "[", "(", "|"])
+_product_st = st.text("abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ", min_size=1, max_size=14)
+_scheme_st = st.sampled_from(["http", "https"])
+
+
+_variable_token_st = st.one_of(_uuid_st, _hex_0x_st, _hex_bare_st, _num_st, _timestamp_st(), _ipv4_st)
 
 
 class TestMaskingProperties(TestCase):
@@ -401,6 +409,10 @@ _truncated_uuid_st = st.uuids().map(lambda u: str(u)[:23])
 
 # Tokens the masker deliberately leaves (fully or partly) literal. A pivot regex mined
 # from a masked body must not match a sibling holding one of these in the same slot.
+_five_octet_st = st.tuples(*[st.integers(min_value=0, max_value=255)] * 5).map(
+    lambda octets: ".".join(map(str, octets))
+)
+_versioned_quad_st = st.tuples(_product_st, _ipv4_st).map(lambda t: f"{t[0]}/{t[1]}")
 # One row per (masked kind, confusable neighbor). Both halves of the row matter: the mask
 # has to tell the pair apart, and so does the pivot regex the mask produces. A single
 # union-of-everything property dilutes each pair to a fraction of the example budget, so
@@ -412,6 +424,8 @@ _CONFUSABLE_PAIRS = [
     ("timestamp_vs_minute_precision", _timestamp_st(), _minute_timestamp_st),
     ("uuid_vs_truncated_uuid", _uuid_st, _truncated_uuid_st),
     ("hex_vs_letter_only_hex", st.one_of(_hex_0x_st, _hex_bare_st), _letter_hex_st),
+    ("ip_vs_five_octets", _ipv4_st, _five_octet_st),
+    ("ip_vs_versioned_quad", _ipv4_st, _versioned_quad_st),
 ]
 
 
@@ -435,3 +449,38 @@ class TestPivotSoundness(TestCase):
         # the "view matching logs" pivot.
         assert mined.match_regex is not None
         assert not re.search(mined.match_regex, impostor_body)
+
+
+class TestIpMaskProperties(TestCase):
+    """The cases above pin specific addresses; these hold the guard over every octet value.
+
+    The guard reads the character before the address, so the property that matters is which
+    contexts still mask and which no longer do, across the whole address space.
+    """
+
+    @given(address=_ipv4_st, delimiter=_delimiter_st)
+    @settings(max_examples=400, deadline=None)
+    def test_any_address_after_a_plain_delimiter_masks(self, address: str, delimiter: str) -> None:
+        patterns = mine_patterns([_sample(f"peer{delimiter}{address} closed")])
+
+        assert "<ip>" in patterns[0].pattern
+        assert address not in patterns[0].pattern
+
+    @given(address=_ipv4_st, product=_product_st)
+    @settings(max_examples=400, deadline=None)
+    def test_no_address_is_read_out_of_a_version_after_a_product_name(self, address: str, product: str) -> None:
+        # Every dotted quad is a valid version string too, so this has to hold for all of
+        # them, not only for the browser builds the example cases use.
+        patterns = mine_patterns([_sample(f"agent {product}/{address} connected")])
+
+        assert "<ip>" not in patterns[0].pattern
+
+    @given(address=_ipv4_st, scheme=_scheme_st)
+    @settings(max_examples=400, deadline=None)
+    def test_any_address_in_a_url_still_masks(self, address: str, scheme: str) -> None:
+        # A URL host is the one place an address does follow a "/". An earlier version of the
+        # guard blocked every "/" and silently stopped masking these.
+        patterns = mine_patterns([_sample(f"GET {scheme}://{address}/health ok")])
+
+        assert "<ip>" in patterns[0].pattern
+        assert address not in patterns[0].pattern
