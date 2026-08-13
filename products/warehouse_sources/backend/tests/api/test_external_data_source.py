@@ -11429,6 +11429,34 @@ class TestExternalDataSourceSetup(APIBaseTest):
         mock_capture_exception.assert_not_called()
         assert not ExternalDataSource.objects.filter(team=self.team).exists()
 
+    @patch("products.warehouse_sources.backend.presentation.views.external_data_source.capture_exception")
+    @patch(
+        "products.warehouse_sources.backend.temporal.data_imports.sources.stripe.source.StripeSource.validate_credentials",
+        return_value=(True, None),
+    )
+    def test_setup_classifies_schema_discovery_error_instead_of_leaking_raw(
+        self, _mock_validate, mock_capture_exception
+    ):
+        # Credentials pass the earlier gate, but `get_schemas` opens its own connection and can still
+        # fail (e.g. the key expired in between). One-shot setup must classify via the source's
+        # non-retryable-error map, same as the `create` path, not surface the raw driver error.
+        with patch(
+            "products.warehouse_sources.backend.temporal.data_imports.sources.stripe.source.StripeSource.get_schemas",
+            side_effect=Exception("Expired API Key provided"),
+        ):
+            response = self.client.post(
+                f"/api/environments/{self.team.pk}/external_data_sources/setup/",
+                data={
+                    "source_type": "Stripe",
+                    "prefix": "stripe_setup_error",
+                    "payload": {"auth_method": {"selection": "api_key", "stripe_secret_key": "sk_test_123"}},
+                },
+            )
+        assert response.status_code == status.HTTP_400_BAD_REQUEST, response.json()
+        assert response.json()["message"] == "Your Stripe API key has expired. Please create a new key and reconnect."
+        mock_capture_exception.assert_not_called()
+        assert not ExternalDataSource.objects.filter(team=self.team).exists()
+
     def test_create_rejects_source_without_schema_discovery_without_persisting(self):
         # AmazonS3 is an unreleased scaffold with no get_schemas. Creating it must 400 and leave no
         # row behind — otherwise get_schemas raises NotImplementedError as an uncaught 500 after the
