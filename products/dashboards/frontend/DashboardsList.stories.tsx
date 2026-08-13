@@ -4,10 +4,10 @@ import __dashboards from 'scenes/dashboard/__mocks__/dashboards.json'
 
 import { mswDecorator } from '~/mocks/browser'
 
-import { DashboardsContent } from './components/DashboardsContent'
+import { DashboardsTableContainer } from 'scenes/dashboard/dashboards/DashboardsTable'
 
-const meta: Meta<typeof DashboardsContent> = {
-    component: DashboardsContent,
+const meta: Meta<typeof DashboardsTableContainer> = {
+    component: DashboardsTableContainer,
     title: 'Products/Dashboards',
     decorators: [
         mswDecorator({
@@ -25,6 +25,6 @@ const meta: Meta<typeof DashboardsContent> = {
 
 export default meta
 
-type Story = StoryObj<typeof DashboardsContent>
+type Story = StoryObj<typeof DashboardsTableContainer>
 
 export const List: Story = {}
