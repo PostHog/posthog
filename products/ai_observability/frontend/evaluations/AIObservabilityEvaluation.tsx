@@ -252,6 +252,22 @@ export function AIObservabilityEvaluation(): JSX.Element {
         push(evaluationBackTarget.path)
     }
 
+    const saveButton = (
+        <AccessControlAction
+            resourceType={AccessControlResourceType.LlmAnalytics}
+            minAccessLevel={AccessControlLevel.Editor}
+        >
+            <LemonButton
+                type="primary"
+                onClick={handleSave}
+                disabledReason={saveButtonDisabledReason}
+                loading={evaluationFormSubmitting}
+            >
+                {isNewEvaluation ? 'Create evaluation' : 'Save changes'}
+            </LemonButton>
+        </AccessControlAction>
+    )
+
     const hogEvaluationMethodOptions: { value: EvaluationType; label: string }[] = [
         {
             value: 'hog',
@@ -321,21 +337,7 @@ export function AIObservabilityEvaluation(): JSX.Element {
                     <LemonButton type="secondary" icon={<IconArrowLeft />} onClick={handleCancel}>
                         {hasUnsavedChanges ? 'Cancel' : 'Back'}
                     </LemonButton>
-                    {activeTab !== 'runs' && (
-                        <AccessControlAction
-                            resourceType={AccessControlResourceType.LlmAnalytics}
-                            minAccessLevel={AccessControlLevel.Editor}
-                        >
-                            <LemonButton
-                                type="primary"
-                                onClick={handleSave}
-                                disabledReason={saveButtonDisabledReason}
-                                loading={evaluationFormSubmitting}
-                            >
-                                {isNewEvaluation ? 'Create evaluation' : 'Save changes'}
-                            </LemonButton>
-                        </AccessControlAction>
-                    )}
+                    {activeTab !== 'runs' && saveButton}
                 </div>
             </div>
 
@@ -748,6 +750,12 @@ export function AIObservabilityEvaluation(): JSX.Element {
                                     {isNewEvaluation && isReportableEvaluation && (
                                         <EvaluationReportConfig evaluationId="new" />
                                     )}
+
+                                    {/* The form is long enough that the header action scrolls out of sight */}
+                                    <div className="flex items-center justify-end gap-2">
+                                        {hasUnsavedChanges && <LemonTag type="warning">Unsaved changes</LemonTag>}
+                                        {saveButton}
+                                    </div>
                                 </Form>
 
                                 {/* Scheduled Reports (for existing evaluations, outside the form) */}
