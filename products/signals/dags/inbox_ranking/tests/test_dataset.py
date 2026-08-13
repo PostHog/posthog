@@ -97,7 +97,7 @@ def test_merge_label_streams_fills_defaults_and_maps_columns():
     stream_rows: dict[str, list[tuple[Any, ...]]] = {
         "impressions": [(UUID_A, T1.replace(tzinfo=None), 5, 2, 3, 1, ["error_tracking"])],
         "opens": [(UUID_A.upper(), T2, 4, 2), (UUID_B, T2, 1, 1)],
-        "actions": [("bogus-id", 1, T1, 1, T1, 1, 1)],
+        "actions": [("bogus-id", 1, T1, 1, T1, 1, 1, 1, T1, 1, T1)],
         "status_changes": [],
         "pr_events": [],
     }
