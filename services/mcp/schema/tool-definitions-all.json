@@ -6676,7 +6676,7 @@
         "feature_flag": "logs-alerting"
     },
     "logs-alerts-partial-update": {
-        "description": "Update a log alert configuration by ID. Only the fields you provide are changed. Use this to adjust thresholds, filters, enable/disable alerts, or snooze them.",
+        "description": "Update a log alert configuration by ID. Only the fields you provide are changed. Use this to adjust thresholds, filters, quiet hours, enable/disable alerts, or snooze them.",
         "category": "Logs",
         "feature": "logs",
         "summary": "Update log alert",
