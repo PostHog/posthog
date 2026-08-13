@@ -35,6 +35,8 @@ const EMPTY_FILTER_GROUP: UniversalFiltersGroup = {
     values: [],
 }
 
+const DEFAULT_SEVERITY_LEVELS: LogMessage['severity_text'][] = ['trace', 'debug', 'info', 'warn', 'error', 'fatal']
+
 export interface LogsAlertFormType {
     name: string
     severityLevels: LogMessage['severity_text'][]
@@ -70,11 +72,14 @@ function saveErrorMessage(error: ApiError): string {
 }
 
 export function buildFormDefaults(alert: LogsAlertConfigurationApi | null): LogsAlertFormType {
+    const filters = (alert?.filters ?? {}) as Record<string, unknown>
+
     return {
         name: alert?.name ?? '',
-        severityLevels:
-            ((alert?.filters as Record<string, unknown>)?.severityLevels as LogMessage['severity_text'][]) ?? [],
-        serviceNames: ((alert?.filters as Record<string, unknown>)?.serviceNames as string[]) ?? [],
+        severityLevels: alert
+            ? ((filters.severityLevels as LogMessage['severity_text'][]) ?? [])
+            : DEFAULT_SEVERITY_LEVELS,
+        serviceNames: (filters.serviceNames as string[]) ?? [],
         filterGroup: extractFilterGroup(alert),
         thresholdOperator: alert?.threshold_operator ?? LogsAlertThresholdOperatorEnumApi.Above,
         thresholdCount: alert?.threshold_count ?? 100,
