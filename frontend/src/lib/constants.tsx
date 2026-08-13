@@ -35,6 +35,7 @@ export const NON_BREAKDOWN_DISPLAY_TYPES = [
     ChartDisplayType.Metric,
     ChartDisplayType.CalendarHeatmap,
     ChartDisplayType.TwoDimensionalHeatmap,
+    ChartDisplayType.ScatterPlot,
     ChartDisplayType.BoxPlot,
 ]
 /** Display types which only work with a single series. */
@@ -53,6 +54,7 @@ export const NON_VALUES_ON_SERIES_DISPLAY_TYPES = [
     ChartDisplayType.Metric,
     ChartDisplayType.CalendarHeatmap,
     ChartDisplayType.TwoDimensionalHeatmap,
+    ChartDisplayType.ScatterPlot,
 ]
 
 /** Display types for which a percent stack view is available. */
