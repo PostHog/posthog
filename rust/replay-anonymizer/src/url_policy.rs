@@ -315,7 +315,11 @@ pub fn try_canonicalize(raw: &str) -> Result<CanonicalUrl, Decline> {
     if !matches!(url.scheme(), "http" | "https") {
         return Err(Decline::BadScheme);
     }
-    let host = url.host_str().ok_or(Decline::NoHost)?.to_string();
+    // The trailing dot goes here too, not only in `politeness_key`. The consumer checks that the
+    // host sits inside the domain the record is keyed by, and `example.com.` is not inside
+    // `example.com` by any string rule, so leaving it on drops the URL as foreign.
+    let host_str = url.host_str().ok_or(Decline::NoHost)?;
+    let host = host_str.strip_suffix('.').unwrap_or(host_str).to_string();
     if !is_public_host(&host) {
         return Err(Decline::NonPublicHost);
     }

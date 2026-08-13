@@ -151,7 +151,29 @@ An earlier version of this lane treated an absent crawl history entry as a retry
 
 ## What is not built
 
-- No counter across pods. A rebalance can put two pods on one domain for a few seconds, and the
-  rate doubles for that long.
-- No robots.txt. The lane cannot leave dry run until it reads one.
-- No produce to the scrub topic. The bytes are counted and dropped.
+The requirements above are the target. These parts of them have no implementation yet, and the
+code is the authority until they do.
+
+**Nothing publishes to the frontier or to a delay topic.** `FrontierPublisher` exists and is
+tested, and the delay consumers exist and are registered, but no caller wires them together. So
+requirements 7 and 11 to 15 are unmet: a cross-domain redirect is followed in place rather than
+republished, a transient failure is dropped rather than retried, and no hop is ever spent.
+Requirement 24 follows: a URL the lane gives up on gets no crawl history entry, which is the loss
+the section above describes.
+
+**`notBeforeMs` is parsed and ignored.** A record that arrives early is fetched anyway. The host
+budget refuses it without sending, so the effect today is a wasted read rather than a rude request.
+
+**Requirement 8 is partly met.** A redirect target is checked for scheme, an HTTPS downgrade, and
+userinfo, and every hop re-enters the SSRF checks. It is not checked against the public-host rule
+or the length limit that the first candidate passed.
+
+**Requirements 29 and 30 have no metrics.** There is no per-team view. Requirement 31 holds only
+because nothing team-aware exists to break it.
+
+**No counter across pods.** A rebalance can put two pods on one domain for a few seconds, and the
+rate doubles for that long.
+
+**No robots.txt.** The lane cannot leave dry run until it reads one.
+
+**No produce to the scrub topic.** The bytes are counted and dropped.

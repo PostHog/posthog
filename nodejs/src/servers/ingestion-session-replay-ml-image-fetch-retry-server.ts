@@ -15,6 +15,15 @@ import {
 } from './ingestion-session-replay-ml-mirror-server'
 
 /**
+ * Headroom on top of the sleeping a batch can do, for the publishing between the sleeps.
+ *
+ * librdkafka rejects a `max.poll.interval.ms` above one day, so a tier and a batch size whose
+ * product passes that is a configuration error rather than something to clamp silently.
+ */
+const POLL_INTERVAL_MARGIN_MS = 60_000
+const MAX_POLL_INTERVAL_MS = 86_400_000
+
+/**
  * One delay tier of the image fetch lane.
  *
  * The same server runs every tier. The topic and the period come from the environment, so three
@@ -67,13 +76,28 @@ export class IngestionSessionReplayMlImageFetchRetryServer implements NodeServer
             autoOffsetStore: true,
             fetchBatchSize: this.config.SESSION_RECORDING_ML_IMAGE_FETCH_RETRY_BATCH_SIZE,
         }
-        const consumer = new KafkaConsumer(consumerConfig)
+        // Set here rather than left to the deployment. This consumer sleeps for the period of its
+        // topic inside one batch, and the shared default of 300s would evict the 10m and 1h tiers
+        // mid-sleep, then replay the partition into a consumer that sleeps just as long.
+        //
+        // One record per batch is what makes this bound exact. Records ripen in the order they were
+        // written, so a full batch usually waits once and then publishes the rest at speed, but a
+        // sparse topic can hold records written hours apart and that batch would wait once per
+        // record. Throughput does not matter here: the work is one publish, and a ripe record waits
+        // for nothing.
+        const pollIntervalMs = delayMs + POLL_INTERVAL_MARGIN_MS
+        const consumer = new KafkaConsumer(consumerConfig, { 'max.poll.interval.ms': pollIntervalMs })
         const delayConsumer = new RetryDelayConsumer(producer, {
             frontierTopic: KAFKA_SESSION_REPLAY_IMAGE_FETCH,
             delayMs,
             heartbeat: () => consumer.heartbeat(),
         })
-        logger.info('🌐', 'ml_image_fetch_retry_started', { topic, delayMs })
+        if (pollIntervalMs > MAX_POLL_INTERVAL_MS) {
+            throw new Error(
+                `a delay of ${delayMs}ms needs a poll interval of ${pollIntervalMs}ms, which is past what Kafka allows`
+            )
+        }
+        logger.info('🌐', 'ml_image_fetch_retry_started', { topic, delayMs, pollIntervalMs })
 
         await consumer.connect((messages) => delayConsumer.handleBatch(messages))
 

@@ -23,6 +23,24 @@ describe('parseCollectedUrlsRecord', () => {
         expect(parsed).toEqual({ ok: false, reason: 'malformed' })
     })
 
+    it.each([
+        ['a fully qualified host against a bare key', 'cdn.example.com.', 'example.com'],
+        ['a bare host against a fully qualified key', 'cdn.example.com', 'example.com.'],
+        ['both fully qualified', 'cdn.example.com.', 'example.com.'],
+    ])('keeps %s', (_name, host, key) => {
+        // politeness_key strips the trailing dot, so a record written before the canonicaliser did
+        // the same carries a dotted host against a bare key. Comparing them as plain strings drops
+        // every such URL as foreign, and those records are already in the topic.
+        const value = Buffer.from(
+            `{"v":1,"pseudoTeam":"${TEAM}","capturedAtMs":1700000000000,` +
+                `"urls":[{"ref":"imageurl:${TEAM}:${HASH}","url":"https://${host}/a.png","host":"${host}"}]}`
+        )
+
+        const parsed = parseCollectedUrlsRecord(value, key)
+
+        expect(parsed.ok && parsed.candidates).toHaveLength(1)
+    })
+
     it('accepts an ordinary timestamp', () => {
         const parsed = parseCollectedUrlsRecord(body('"capturedAtMs":1700000000000'), 'example.com')
 

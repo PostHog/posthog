@@ -138,8 +138,21 @@ function clampHops(value: unknown): number {
     return Math.max(0, Math.min(MAX_HOPS, Math.floor(value)))
 }
 
+/**
+ * The trailing dot is dropped from both sides first.
+ *
+ * `example.com.` and `example.com` name the same host, and the key is built from a function that
+ * strips the dot. A record written before the producer stripped it carries the dotted form, and
+ * comparing the two as strings would drop every one of those as foreign.
+ */
 function hostBelongsToDomain(host: string, domain: string): boolean {
-    return host === domain || host.endsWith(`.${domain}`)
+    const bare = withoutTrailingDot(host)
+    const key = withoutTrailingDot(domain)
+    return bare === key || bare.endsWith(`.${key}`)
+}
+
+function withoutTrailingDot(value: string): string {
+    return value.endsWith('.') ? value.slice(0, -1) : value
 }
 
 /**

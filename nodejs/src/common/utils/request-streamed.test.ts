@@ -51,19 +51,20 @@ describe('fetchStreamed', () => {
     })
 
     it.each([
-        ['exactly its declared length', 5, 'abcde', false],
-        ['less than it declared', 10, 'abcde', false],
-        ['more than it declared', 3, 'abcde', true],
-    ])('handles a body that is %s', async (_name, declared, body, expectOverLimit) => {
-        // The declared length only decides how the bytes are gathered. A body that exceeds it is
-        // still cut off, so a wrong Content-Length cannot make the reader hold more than it agreed.
-        respond([Buffer.from(body)], { 'content-length': String(declared) })
+        ['exactly its declared length', 5],
+        ['less than it declared', 10],
+        ['more than it declared', 3],
+    ])('ignores a Content-Length that is %s', async (_name, declared) => {
+        // Content-Length is a claim, not a fact. Only the caller's limit binds, and it binds on the
+        // bytes that arrive. Sizing anything from the claim would let an origin pin memory by
+        // declaring a large body and sending almost none of it.
+        respond([Buffer.from('abcde')], { 'content-length': String(declared) })
 
         const response = await fetchStreamed('https://example.com/a.png', { timeoutMs: 1000 })
         const { bytes, overLimit } = await response.read(100)
 
-        expect(overLimit).toBe(expectOverLimit)
-        expect(bytes.toString()).toBe(expectOverLimit ? '' : body)
+        expect(overLimit).toBe(false)
+        expect(bytes.toString()).toBe('abcde')
     })
 
     it('reads no body after the response was discarded', async () => {

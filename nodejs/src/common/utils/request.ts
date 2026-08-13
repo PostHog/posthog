@@ -450,21 +450,18 @@ export type StreamedResponse = {
 }
 
 /**
- * `declaredBytes` is the response's own `Content-Length`, and it only decides how the bytes are
- * gathered. A response that declares a size is copied straight into one buffer of that size, which
- * halves the peak: collecting chunks and concatenating them holds both copies at once. A response
- * that declares nothing, or lies about it, falls back to the chunks and is still cut off at
- * `maxBytes`, so the limit never depends on the claim.
+ * Memory here follows the bytes that arrive, never the bytes a response claims.
+ *
+ * Sizing one buffer from `Content-Length` would halve the peak for an honest response, because
+ * collecting chunks and concatenating them holds both copies for a moment. It would also let an
+ * origin pin `maxBytes` of memory by declaring a large body and then sending almost nothing, for
+ * the whole request timeout, once for every request in flight. Chunks cost an attacker exactly what
+ * they cost us.
  */
 async function readCappedBody(
     body: Dispatcher.ResponseData['body'],
-    maxBytes: number,
-    declaredBytes?: number
+    maxBytes: number
 ): Promise<{ bytes: Buffer; overLimit: boolean }> {
-    const preallocated =
-        declaredBytes !== undefined && declaredBytes >= 0 && declaredBytes <= maxBytes
-            ? Buffer.allocUnsafe(declaredBytes)
-            : undefined
     const chunks: Buffer[] = []
     let total = 0
     let overLimit = false
@@ -472,30 +469,16 @@ async function readCappedBody(
         for await (const chunk of body) {
             const buffer = Buffer.isBuffer(chunk) ? chunk : Buffer.from(chunk)
             total += buffer.length
-            if (total > maxBytes || (preallocated && total > preallocated.length)) {
+            if (total > maxBytes) {
                 overLimit = true
                 break
             }
-            if (preallocated) {
-                buffer.copy(preallocated, total - buffer.length)
-            } else {
-                chunks.push(buffer)
-            }
+            chunks.push(buffer)
         }
     } finally {
         destroyBody(body)
     }
-    if (overLimit) {
-        return { bytes: Buffer.alloc(0), overLimit }
-    }
-    // A body shorter than its declared length is truncated to what arrived, so the caller never sees
-    // the uninitialised tail of the allocation.
-    return { bytes: preallocated ? preallocated.subarray(0, total) : Buffer.concat(chunks), overLimit }
-}
-
-function declaredBytes(headers: Record<string, string>): number | undefined {
-    const value = Number(headers['content-length'])
-    return Number.isInteger(value) && value >= 0 ? value : undefined
+    return { bytes: overLimit ? Buffer.alloc(0) : Buffer.concat(chunks), overLimit }
 }
 
 /**
@@ -549,7 +532,7 @@ export async function fetchStreamed(url: string, options: StreamedFetchOptions):
                 return { bytes: Buffer.alloc(0), overLimit: false }
             }
             try {
-                return await readCappedBody(result.body, maxBytes, declaredBytes(headers))
+                return await readCappedBody(result.body, maxBytes)
             } finally {
                 settle()
             }

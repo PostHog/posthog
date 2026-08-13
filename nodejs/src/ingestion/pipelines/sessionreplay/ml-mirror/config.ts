@@ -147,7 +147,13 @@ export type MlMirrorConfig = {
      */
     SESSION_RECORDING_ML_IMAGE_FETCH_RETRY_TOPIC: string
     SESSION_RECORDING_ML_IMAGE_FETCH_RETRY_DELAY_MS: number
-    /** Small: the pod sleeps for most of a batch, and a large batch delays the offsets behind it. */
+    /**
+     * One record per batch, so the poll interval the server computes is exact.
+     *
+     * A batch of many records can hold records written hours apart, and that batch waits once for
+     * each of them. Sizing the poll interval for that case means multiplying the tier's period by
+     * the batch size, which passes what Kafka accepts at the 1 hour tier.
+     */
     SESSION_RECORDING_ML_IMAGE_FETCH_RETRY_BATCH_SIZE: number
 
     /**
@@ -246,7 +252,7 @@ export function getDefaultMlMirrorConfig(): MlMirrorConfig {
         SESSION_RECORDING_ML_IMAGE_FETCH_MAX_TRACKED_DOMAINS: 20_000,
         SESSION_RECORDING_ML_IMAGE_FETCH_RETRY_TOPIC: '',
         SESSION_RECORDING_ML_IMAGE_FETCH_RETRY_DELAY_MS: 60_000,
-        SESSION_RECORDING_ML_IMAGE_FETCH_RETRY_BATCH_SIZE: 50,
+        SESSION_RECORDING_ML_IMAGE_FETCH_RETRY_BATCH_SIZE: 1,
         SESSION_RECORDING_ML_URL_PRODUCED_REF_CACHE_MAX: 500_000,
         SESSION_RECORDING_ML_IMAGE_SCRUB_GROUP_ID: 'session-replay-ml-image-scrub',
         SESSION_RECORDING_ML_IMAGE_SCRUB_PREFIX: 'scrubbed-images',
