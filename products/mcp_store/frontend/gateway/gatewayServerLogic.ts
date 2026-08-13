@@ -37,7 +37,7 @@ import {
 import type { MCPServiceAccountApi } from '../generated/api.schemas'
 import type { TeamMCPGatewayConfigApi } from '../generated/api.schemas'
 import { defaultAgentGrantPolicy, isPolicyStateAllowedByCeiling } from './gatewayPolicyUtils'
-import { mcpGatewayLogic } from './mcpGatewayLogic'
+import { AgentServerShare, agentServerShare, mcpGatewayLogic } from './mcpGatewayLogic'
 
 export interface GatewayServerLogicProps {
     id: string
@@ -116,6 +116,7 @@ export interface gatewayServerLogicValues {
     agentServerAccessLoadingKeys: Set<string> // mcpGatewayLogic
     canManageAgentAccess: boolean // mcpGatewayLogic
     config: TeamMCPGatewayConfigApi | null // mcpGatewayLogic
+    currentUserId: number | null // mcpGatewayLogic
     isAdmin: boolean // mcpGatewayLogic
     members: GatewayMemberSummaryApi[] // mcpGatewayLogic
     membersInitialized: boolean // mcpGatewayLogic
@@ -132,6 +133,7 @@ export interface gatewayServerLogicValues {
     agentAccessPolicyMap: Record<string, AgentToolPolicyState>
     agentAccessSelectedId: string | null
     agentShareDisabledReason: string | undefined
+    agentSharesByAccountId: Record<string, AgentServerShare>
     availableAgentAccounts: MCPServiceAccountApi[]
     availableScopes: PolicyScope[]
     breadcrumbs: Breadcrumb[]
@@ -213,11 +215,13 @@ export interface gatewayServerLogicActions {
         accountId: string,
         serverId: string,
         enabled: boolean,
+        scope?: import('../generated/api.schemas').MCPAgentGrantScopeEnumApi | undefined,
         policies?: import('../generated/api.schemas').ToolPolicyEntryApi[] | undefined
     ) => {
         accountId: string
         enabled: boolean
         policies: import('../generated/api.schemas').ToolPolicyEntryApi[] | undefined
+        scope: import('../generated/api.schemas').MCPAgentGrantScopeEnumApi
         serverId: string
     } // mcpGatewayLogic
     setAgentServerAccessSuccess: (
@@ -380,13 +384,18 @@ export interface gatewayServerLogicMeta {
     __keaTypeGenInternalSelectorTypes: {
         server: (servers: MCPGatewayServerApi[], arg: any) => MCPGatewayServerApi | null
         breadcrumbs: (server: MCPGatewayServerApi | null) => Breadcrumb[]
+        agentSharesByAccountId: (
+            server: MCPGatewayServerApi | null,
+            serviceAccounts: MCPServiceAccountApi[],
+            currentUserId: number | null
+        ) => Record<string, AgentServerShare>
         policyCounts: (
             toolPolicies: ResolvedToolPolicyApi[],
             scope: PolicyScope
         ) => Record<MCPToolApprovalStateEnumApi, number>
         availableAgentAccounts: (
-            server: MCPGatewayServerApi | null,
-            serviceAccounts: MCPServiceAccountApi[]
+            serviceAccounts: MCPServiceAccountApi[],
+            agentSharesByAccountId: Record<string, AgentServerShare>
         ) => MCPServiceAccountApi[]
         agentShareDisabledReason: (server: MCPGatewayServerApi | null) => string | undefined
         refreshInstallationId: (server: MCPGatewayServerApi | null) => string | null
@@ -432,6 +441,7 @@ export const gatewayServerLogic = kea<gatewayServerLogicType>([
             [
                 'canManageAgentAccess',
                 'config',
+                'currentUserId',
                 'isAdmin',
                 'members',
                 'membersInitialized',
@@ -650,6 +660,20 @@ export const gatewayServerLogic = kea<gatewayServerLogicType>([
                 { key: 'mcp-gateway-server', name: server?.name ?? 'Server' },
             ],
         ],
+        agentSharesByAccountId: [
+            (s) => [s.server, s.serviceAccounts, s.currentUserId],
+            (
+                server: MCPGatewayServerApi | null,
+                serviceAccounts: MCPServiceAccountApi[],
+                currentUserId: number | null
+            ): Record<string, AgentServerShare> =>
+                Object.fromEntries(
+                    serviceAccounts.map((account) => [
+                        account.id,
+                        agentServerShare(account, server?.id ?? '', currentUserId),
+                    ])
+                ),
+        ],
         policyCounts: [
             (s) => [s.toolPolicies, s.scope],
             (
@@ -672,11 +696,14 @@ export const gatewayServerLogic = kea<gatewayServerLogicType>([
             },
         ],
         availableAgentAccounts: [
-            (s) => [s.server, s.serviceAccounts],
-            (server: MCPGatewayServerApi | null, serviceAccounts: MCPServiceAccountApi[]): MCPServiceAccountApi[] => {
-                const grantedAgentIds = new Set(server?.agents.map((agent) => agent.service_account_id) ?? [])
-                return serviceAccounts.filter((account) => !grantedAgentIds.has(account.id))
-            },
+            (s) => [s.serviceAccounts, s.agentSharesByAccountId],
+            (
+                serviceAccounts: MCPServiceAccountApi[],
+                agentSharesByAccountId: Record<string, AgentServerShare>
+            ): MCPServiceAccountApi[] =>
+                // Sharing is personal, so an agent a teammate already shares with
+                // stays available for the viewer to share their own connection.
+                serviceAccounts.filter((account) => !agentSharesByAccountId[account.id]?.sharedByYou),
         ],
         agentShareDisabledReason: [
             (s) => [s.server],
@@ -820,7 +847,7 @@ export const gatewayServerLogic = kea<gatewayServerLogicType>([
                         values.agentAccessPolicyMap[policy.tool_name] ??
                         defaultAgentGrantPolicy(policy.tool_name, policy.team_state, policy.is_destructive),
                 }))
-            actions.setAgentServerAccess(values.agentAccessSelectedId, values.server.id, true, policies)
+            actions.setAgentServerAccess(values.agentAccessSelectedId, values.server.id, true, 'personal', policies)
         },
         syncScopeFromUrl: async ({ scopeParam }, breakpoint) => {
             await breakpoint(0)

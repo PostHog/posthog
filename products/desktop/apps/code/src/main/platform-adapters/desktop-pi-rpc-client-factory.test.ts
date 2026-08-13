@@ -34,6 +34,7 @@ describe("DesktopPiRpcClientFactory", () => {
         expires: 1,
         region: "eu" as const,
       })),
+      getState: vi.fn(() => ({ currentProjectId: 1 })),
     } as unknown as AgentAuth;
     const authProxy = {
       start: vi.fn(async () => "http://127.0.0.1:1234"),
@@ -76,6 +77,7 @@ describe("DesktopPiRpcClientFactory", () => {
     ).resolves.toBe(client);
     expect(authProxy.start).toHaveBeenCalledWith(
       getLlmGatewayUrl(getCloudUrlFromRegion("eu")),
+      { "X-PostHog-Project-Id": "1" },
     );
     expect(createPiRpcClient).toHaveBeenCalledWith({
       cwd: "/workspace",

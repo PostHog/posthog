@@ -274,7 +274,7 @@ def _build_autostart_task_description(
         f"{_PR_DESCRIPTION_FORM_RULES}"
         f"{source_reference_instruction}"
         "When opening the PR, include this report link in the description footer, "
-        "making the footer '*Created with [PostHog Desktop](https://posthog.com/code?ref=pr) "
+        "making the footer '*Created with [PostHog Desktop](https://posthog.com/desktop?ref=pr) "
         f"from [this inbox report]({report_link}){footer_source_refs}.' - "
         "so the human reviewer can jump straight to it."
     )
@@ -689,9 +689,7 @@ async def maybe_autostart_implementation_task(
         )
         return
 
-    base_branch = None
-    if repository and team_config:
-        base_branch = (team_config.autostart_base_branches or {}).get(repository.lower())
+    base_branch = team_config.base_branch_for(repository) if team_config else None
 
     source_references = await database_sync_to_async(_fetch_source_references, thread_sensitive=False)(
         team_id, report_id

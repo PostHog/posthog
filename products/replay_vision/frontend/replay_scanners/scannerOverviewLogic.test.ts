@@ -110,6 +110,40 @@ describe('scannerOverviewLogic', () => {
         expect(logic.values.hasActiveOverviewFilters).toBe(false)
     })
 
+    describe('creditLimitStats', () => {
+        it('is null when the scanner has no limit, so callers render no panel instead of "0% of 0"', async () => {
+            await expectLogic(logic).toFinishAllListeners()
+            expect(logic.values.creditLimitStats).toBeNull()
+        })
+
+        it.each([
+            { used: 200, limit: 1000, expectedPct: 20, expectedReached: false },
+            { used: 1000, limit: 1000, expectedPct: 100, expectedReached: true },
+            { used: 1200, limit: 1000, expectedPct: 100, expectedReached: true },
+            // The server reports reached as soon as what's left can't cover one more scan, so this
+            // must come from the API and not be re-derived from usedPct.
+            { used: 990, limit: 1000, expectedPct: 99, expectedReached: true },
+        ])(
+            'derives usedPct $expectedPct and limitReached $expectedReached from used=$used, limit=$limit',
+            async ({ used, limit, expectedPct, expectedReached }) => {
+                await expectLogic(logic, () =>
+                    logic.actions.loadScannerSuccess({
+                        ...logic.values.scanner,
+                        credit_limit: limit,
+                        credits_used_against_limit: used,
+                        limit_reached: expectedReached,
+                    })
+                ).toFinishAllListeners()
+                expect(logic.values.creditLimitStats).toEqual({
+                    limit,
+                    used,
+                    usedPct: expectedPct,
+                    limitReached: expectedReached,
+                })
+            }
+        )
+    })
+
     describe('observationsDrilldownSearchParams', () => {
         const day = (overrides: object = {}): Parameters<typeof observationsDrilldownSearchParams>[0] => ({
             day: '2026-05-04',

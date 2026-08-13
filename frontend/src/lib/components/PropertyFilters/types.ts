@@ -10,6 +10,7 @@ import {
     TaxonomicFilterValue,
 } from 'lib/components/TaxonomicFilter/types'
 
+import { PropValue } from '~/models/propertyDefinitionsModel'
 import { AnyDataNode, DatabaseSchemaField } from '~/queries/schema/schema-general'
 import { AnyPropertyFilter, FilterLogicalOperator, PropertyGroupFilter } from '~/types'
 
@@ -74,4 +75,10 @@ export interface PropertyFilterInternalProps {
      * (`TAXONOMIC_FILTER_MENU_REBUILD`).
      */
     triggerVariant?: 'button' | 'input'
+    /**
+     * Statically known value suggestions per property key, replacing API-fetched ones.
+     * Return an empty array to disable suggestions for a key, or null to fall back
+     * to the default behavior. See `PropertyValueProps.staticValues`.
+     */
+    staticValueOptions?: (propertyKey: string) => PropValue[] | null
 }

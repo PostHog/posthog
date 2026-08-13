@@ -37,7 +37,7 @@ The standalone gateway routes under `/mcp-servers` use the same data and page co
 When `MCP_GATEWAY` is off, the top-level scene renders a "not enabled" banner in place, while the detail routes (wrapped in `GatewayRouteGuard`) redirect to the Settings page.
 Server details are available to members, while agent and member details require project admin access — the guard sends non-admins back to the gateway home.
 The flag gates the frontend only: the gateway REST API has no flag check and stays reachable when the flag is off.
-Settings supplies its own navigation shell so the gateway workflows fit the main PostHog application without importing the PostHog Code layout.
+Settings supplies its own navigation shell so the gateway workflows fit the main PostHog application without importing the PostHog Desktop layout.
 
 ## How the catalog works
 
@@ -120,7 +120,7 @@ To show brand icons on a self-hosted instance, create a logo.dev account, genera
 There are two ways a caller uses a connection, and they differ in who speaks MCP.
 
 - **`POST .../mcp_server_installations/:id/proxy/`** is a transparent JSON-RPC passthrough.
-  The caller is an MCP client that runs its own `initialize` handshake and holds the session — PostHog Code points a sandbox at this URL as if it were the vendor's server.
+  The caller is an MCP client that runs its own `initialize` handshake and holds the session — PostHog Desktop points a sandbox at this URL as if it were the vendor's server.
   Built-in agents get the equivalent root-level route with a signed token (see `backend/facade/api.py`).
 - **`POST .../mcp_server_installations/:id/call_tool/`** takes `{tool_name, arguments}` and returns one tool result.
   The caller wants a result, not a transport, so PostHog runs the handshake server-side (`call_upstream_tool` in `backend/tools.py`).

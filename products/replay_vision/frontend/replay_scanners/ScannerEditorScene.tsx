@@ -6,26 +6,14 @@ import * as construction2Png from '@posthog/brand/hoggies/png/construction-2'
 import * as imTheDriverPng from '@posthog/brand/hoggies/png/im-the-driver'
 import * as magnifyingGlassPng from '@posthog/brand/hoggies/png/magnifying-glass-1'
 import * as xRayPng from '@posthog/brand/hoggies/png/x-ray'
-import {
-    LemonButton,
-    LemonInput,
-    LemonSelect,
-    LemonSwitch,
-    LemonTag,
-    LemonTextArea,
-    Link,
-    SpinnerOverlay,
-} from '@posthog/lemon-ui'
+import { LemonButton, LemonInput, LemonSelect, LemonSwitch, LemonTag, LemonTextArea, Link } from '@posthog/lemon-ui'
 
 import { pngHoggie } from 'lib/brand/hoggies'
-import { NotFound } from 'lib/components/NotFound'
 import { FEATURE_FLAGS } from 'lib/constants'
-import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
 import { LemonDialog } from 'lib/lemon-ui/LemonDialog'
 import { LemonField } from 'lib/lemon-ui/LemonField'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { useAttachedLogic } from 'lib/logic/scenes/useAttachedLogic'
-import { appLogic } from 'scenes/appLogic'
 import { SceneExport } from 'scenes/sceneTypes'
 import { urls } from 'scenes/urls'
 
@@ -46,7 +34,7 @@ import {
     scannerStepUrl,
 } from './scannerEditorSceneLogic'
 import { ScannerEditorStepper, STEP_LABELS } from './ScannerEditorStepper'
-import { SCANNER_TYPE_OPTIONS, getModelOptions } from './types'
+import { SCANNER_TYPE_OPTIONS, getModelOptions, modelNamingVariant } from './types'
 
 const HedgehogConstruction2 = pngHoggie(construction2Png)
 const HedgehogImTheDriver = pngHoggie(imTheDriverPng)
@@ -96,16 +84,6 @@ export function ScannerEditorSceneComponent(): JSX.Element {
         durationValidationError,
     } = useValues(scannerLogic)
     const { submitScanner, setSubmitIntent } = useActions(scannerLogic)
-    const { featureFlags, receivedFeatureFlags } = useValues(featureFlagLogic)
-    const { featureFlagsTimedOut } = useValues(appLogic)
-
-    if (!featureFlags[FEATURE_FLAGS.REPLAY_VISION]) {
-        // Flags load asynchronously, so wait for them before deciding the page doesn't exist.
-        if (!receivedFeatureFlags && !featureFlagsTimedOut) {
-            return <SpinnerOverlay sceneLevel />
-        }
-        return <NotFound object="page" />
-    }
 
     if (step !== 'template' && (scannerLoading || !scanner)) {
         return (
@@ -122,7 +100,10 @@ export function ScannerEditorSceneComponent(): JSX.Element {
         self_driving: false,
         configure: showScannerErrors && !!(scannerValidationErrors?.name || scannerValidationErrors?.scanner_config),
         triggers:
-            showScannerErrors && (scannerValidationErrors?.sampling_rate != null || durationValidationError != null),
+            showScannerErrors &&
+            (scannerValidationErrors?.sampling_rate != null ||
+                scannerValidationErrors?.credit_limit != null ||
+                durationValidationError != null),
     }
 
     // Validate the current step and move on: submit routes to the next visible step on success.
@@ -224,7 +205,8 @@ function ConfigureStep(): JSX.Element {
     const { scanner, isNew } = useValues(replayScannerLogic({ id: scannerId }))
     const { setScannerType } = useActions(replayScannerLogic({ id: scannerId }))
     const { searchParams } = useValues(router)
-    const showTierNames = useFeatureFlag('REPLAY_VISION_MODEL_TIER_NAMING_EXPERIMENT', 'test')
+    const { featureFlags } = useValues(featureFlagLogic)
+    const namingVariant = modelNamingVariant(featureFlags[FEATURE_FLAGS.REPLAY_VISION_MODEL_TIER_NAMING_EXPERIMENT])
     const isTypeSelectable = isNew && !searchParams.template
 
     if (!scanner) {
@@ -306,11 +288,11 @@ function ConfigureStep(): JSX.Element {
                     <LemonSelect
                         className="max-w-full"
                         value={scanner.model}
-                        options={getModelOptions(showTierNames)}
+                        options={getModelOptions(namingVariant)}
                     />
                 </LemonField>
                 <div className="text-xs text-muted">
-                    {showTierNames
+                    {namingVariant
                         ? 'Higher tiers tend to produce higher-quality observations, but cost more per observation.'
                         : 'Newer models tend to produce higher-quality observations, but cost more per observation.'}
                 </div>
