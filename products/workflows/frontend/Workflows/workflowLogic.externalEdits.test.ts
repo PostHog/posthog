@@ -322,6 +322,34 @@ describe('workflowLogic external edits', () => {
         expect(logic.values.externallyEdited).toBe(true)
     })
 
+    it('shows the banner when an auto-save 409s with a pending schedule change, instead of reloading it away', async () => {
+        // Only a manual save persists a schedule change, so the silent-reload path would wipe it.
+        silenceKeaLoadersErrors()
+        useMocks({
+            get: {
+                '/api/environments/:team_id/hog_flows/:id/': () => {
+                    getCalls += 1
+                    return [200, makeWorkflow()]
+                },
+                '/api/projects/:team_id/hog_function_templates/': { results: [], count: 0 },
+            },
+            patch: {
+                '/api/environments/:team_id/hog_flows/:id/': () => [409, { detail: 'stale_update' }],
+            },
+        })
+        logic.actions.setScheduleStartsAt('2026-07-01T00:00:00.000Z')
+        logic.actions.setWorkflowValue('name', 'Conflicting edit')
+        const baselineGets = getCalls
+
+        await expectLogic(logic, () => {
+            logic.actions.markAutoSave(true)
+            logic.actions.saveWorkflow(logic.values.workflow)
+        }).toDispatchActions(['saveWorkflowFailure'])
+
+        expect(logic.values.externallyEdited).toBe(true)
+        expect(getCalls).toBe(baselineGets)
+    })
+
     it('silently reloads when an auto-save is rejected as stale, instead of showing the banner', async () => {
         silenceKeaLoadersErrors() // the 409 save failure is the scenario under test
         useMocks({

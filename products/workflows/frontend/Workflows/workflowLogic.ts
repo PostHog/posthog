@@ -2910,9 +2910,11 @@ export const workflowLogic = kea<workflowLogicType>([
                         })
                     } catch (error) {
                         if (error instanceof ApiError && error.status === 409) {
-                            if (values.isAutoSave) {
+                            if (values.isAutoSave && values.pendingSchedule === false) {
                                 // An auto-save losing the race is not a decision point: the user never
                                 // asked to overwrite anything, so reconcile to the newer copy silently.
+                                // A pending schedule change is the exception: only a manual save
+                                // persists it, and the reload would wipe it, so that gets the banner.
                                 actions.setSyncingExternalEdit(true)
                                 actions.loadWorkflow()
                             } else {
