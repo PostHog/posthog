@@ -7,6 +7,7 @@ from django.utils import timezone
 
 import structlog
 import django_filters
+import posthoganalytics
 from django_filters.rest_framework import DjangoFilterBackend
 from drf_spectacular.utils import (
     OpenApiParameter,
@@ -28,7 +29,10 @@ from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.api.shared import UserBasicSerializer
 from posthog.event_usage import report_user_action
 from posthog.exceptions import QuotaLimitExceeded
+from posthog.models.team import Team
 from posthog.models.user import User
+from posthog.permissions import get_authenticator_scopes
+from posthog.rate_limit import AIBurstRateThrottle, AISustainedRateThrottle
 from posthog.rbac.access_control_api_mixin import AccessControlViewSetMixin
 from posthog.rbac.user_access_control import UserAccessControlSerializerMixin
 
@@ -44,6 +48,7 @@ from products.replay_vision.backend.api.filters import (
 from products.replay_vision.backend.api.trigger import (
     WorkflowStartOutcome,
     check_observation_quota,
+    check_scanner_quota,
     check_team_in_flight_capacity,
     start_apply_scanner_workflow,
 )
@@ -88,9 +93,11 @@ from products.replay_vision.backend.scanner_config import (
     acting_user,
     scanner_config_error,
 )
+from products.replay_vision.backend.scanner_draft import DraftError, draft_scanner_from_goal
 from products.replay_vision.backend.scanning import MAX_SESSIONS_PER_SCAN, run_inline_scan, scan_existing_scanner
 from products.replay_vision.backend.session_limits import MAX_SESSION_ID_LENGTH
 from products.replay_vision.backend.tag_suggestions import SuggestionError, suggest_classifier_tags
+from products.replay_vision.backend.temporal.metrics import record_scanner_limit_reached
 
 # Date is set by the schedule at trigger time, not by the user — strip on save.
 _QUERY_FIELDS_TO_STRIP = ("date_from", "date_to")
@@ -763,8 +770,9 @@ class BulkObserveResultSerializer(serializers.Serializer):
             ("started", "Started"),
             ("already_running", "Already running"),
             ("already_scanned", "Already scanned"),
-            ("skipped_limit", "Skipped - in-flight limit reached"),
-            ("skipped_quota", "Skipped - monthly credit quota reached"),
+            ("skipped_limit", "Skipped, in-flight limit reached"),
+            ("skipped_quota", "Skipped, the org's credit quota for this period was reached"),
+            ("skipped_scanner_limit", "Skipped, scanner's own credit limit reached"),
             ("failed", "Failed to start"),
         ],
         help_text=(
@@ -772,7 +780,8 @@ class BulkObserveResultSerializer(serializers.Serializer):
             "already in flight (no-op, not recharged); 'already_scanned' - this scanner already has a "
             "finished observation for this session, so nothing was started and nothing was charged (read "
             "it back, or use the retry action to run it again); 'skipped_limit' - the in-flight cap was "
-            "reached before this session; 'skipped_quota' - the monthly credit quota would be exceeded; "
+            "reached before this session; 'skipped_quota' - the org's credit quota for this period would "
+            "be exceeded; 'skipped_scanner_limit' - this scanner's own credit limit would be exceeded; "
             "'failed' - the workflow failed to start."
         ),
     )
@@ -1060,6 +1069,32 @@ class SuggestTagsResponseSerializer(serializers.Serializer):
     )
 
 
+class DraftScannerRequestSerializer(serializers.Serializer):
+    """Body of POST /vision/scanners/draft/ — the user's goal, stated in their own words."""
+
+    goal = serializers.CharField(
+        max_length=2000,
+        help_text="What the user wants to accomplish, e.g. 'find out where users get stuck during onboarding'.",
+    )
+
+
+class DraftScannerResponseSerializer(serializers.Serializer):
+    """An AI-drafted scanner configuration, ready to seed the creation wizard. Nothing is persisted."""
+
+    name = serializers.CharField(help_text="Drafted scanner name.")
+    description = serializers.CharField(help_text="Drafted one-sentence description.")
+    scanner_type = serializers.ChoiceField(
+        choices=ScannerType.choices, help_text="The scanner type the draft picked for the goal."
+    )
+    scanner_config = serializers.JSONField(
+        help_text="Type-specific config for the drafted `scanner_type`; always includes `prompt`."
+    )
+    rationale = serializers.CharField(
+        allow_blank=True,
+        help_text="Why the draft picked this scanner type and configuration, addressed to the user.",
+    )
+
+
 class ScannerImpactSerializer(serializers.Serializer):
     """Who this scanner's findings affected in the window; counted from observations, not estimated."""
 
@@ -1153,6 +1188,20 @@ class AffectedCohortResponseSerializer(serializers.Serializer):
     window_days = serializers.IntegerField(
         read_only=True,
         help_text="Trailing window the cohort was drawn from, in days.",
+    )
+
+
+def _is_goal_draft_enabled(user: User, team: Team) -> bool:
+    """Server-side half of the REPLAY_VISION_GOAL_DRAFT rollout flag; the client hides the box when it's off."""
+    return bool(
+        posthoganalytics.feature_enabled(
+            "replay-vision-goal-draft",
+            str(user.distinct_id),
+            groups={"organization": str(team.organization_id), "project": str(team.id)},
+            group_properties={"organization": {"id": str(team.organization_id)}},
+            only_evaluate_locally=False,
+            send_feature_flag_events=False,
+        )
     )
 
 
@@ -1310,6 +1359,9 @@ class ReplayScannerViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, vi
         except QuotaLimitExceeded:
             self._report_quota_exhausted(scanner, "on_demand")
             raise
+        # Deliberately outside the analytics wrapper above: that event means "the org ran out of
+        # credits", and firing it for a self-imposed per-scanner cap would corrupt that metric.
+        check_scanner_quota(scanner)
         check_team_in_flight_capacity(self.team.id)
 
         body = ObserveRequestSerializer(data=request.data)
@@ -1388,6 +1440,8 @@ class ReplayScannerViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, vi
         user = cast(User, request.user)
 
         started, results = scan_existing_scanner(scanner=scanner, session_ids=session_ids, user=user)
+        if any(r["scan_outcome"] == "skipped_scanner_limit" for r in results):
+            record_scanner_limit_reached("bulk")
 
         report_user_action(
             user,
@@ -1707,3 +1761,74 @@ class ReplayScannerViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, vi
             )
 
         return Response(SuggestTagsResponseSerializer({"suggestions": suggestions}).data)
+
+    @extend_schema(
+        request=DraftScannerRequestSerializer,
+        responses={
+            200: DraftScannerResponseSerializer,
+            400: OpenApiResponse(
+                response=ReplayVisionErrorSerializer,
+                description="The goal is missing or AI consent hasn't been granted.",
+            ),
+            403: OpenApiResponse(
+                response=ReplayVisionErrorSerializer,
+                description="The caller lacks the required access, or the feature isn't enabled.",
+            ),
+            503: OpenApiResponse(response=ReplayVisionErrorSerializer, description="The draft couldn't be generated."),
+        },
+    )
+    # Each call is an inline LLM request, so it gets the shared AI rate limits like prompt suggestions.
+    @action(
+        detail=False,
+        methods=["post"],
+        url_path="draft",
+        required_scopes=["replay_scanner:write", "session_recording:read"],
+        throttle_classes=[AIBurstRateThrottle, AISustainedRateThrottle],
+    )
+    def draft(self, request: Request, **kwargs: Any) -> Response:
+        """Draft a full scanner configuration from a natural-language goal, for the goal-based creation flow."""
+        # This action is `detail=False`, so the generic gate settles for editor access to any one scanner.
+        # A draft spends model budget toward a scanner only editors can save, so hold it to `create`'s bar.
+        if not self.user_access_control.check_access_level_for_resource("replay_scanner", required_level="editor"):
+            raise PermissionDenied("Drafting a Replay Vision scanner requires edit access to this project's scanners.")
+        # The draft feeds a scanner that will expose recording contents, so mirror the config actions' gate.
+        if not self.user_access_control.check_access_level_for_resource("session_recording", required_level="viewer"):
+            raise PermissionDenied("Drafting a Replay Vision scanner requires session_recording read access.")
+        if not _is_goal_draft_enabled(cast(User, request.user), self.team):
+            raise PermissionDenied("This feature is not available.")
+        # Same consent requirement as scanner creation: the goal and the team's taxonomy go to the model.
+        if not self.team.organization.is_ai_data_processing_approved:
+            raise ValidationError(
+                "Your organization needs to allow AI analysis before you can draft a Replay Vision scanner."
+            )
+
+        body = DraftScannerRequestSerializer(data=request.data)
+        body.is_valid(raise_exception=True)
+
+        try:
+            drafted = draft_scanner_from_goal(
+                team=self.team,
+                user=cast(User, request.user),
+                goal=body.validated_data["goal"],
+                user_access_control=self.user_access_control,
+                # Core memory's own API is INTERNAL (session-only), so scoped tokens must not
+                # receive its content through the draft either.
+                include_business_context=get_authenticator_scopes(request.successful_authenticator) is None,
+            )
+        except DraftError:
+            return Response(
+                {"detail": "Couldn't draft a scanner right now. Try again in a moment."},
+                status=status.HTTP_503_SERVICE_UNAVAILABLE,
+            )
+
+        return Response(
+            DraftScannerResponseSerializer(
+                {
+                    "name": drafted.name,
+                    "description": drafted.description,
+                    "scanner_type": drafted.scanner_type,
+                    "scanner_config": drafted.scanner_config,
+                    "rationale": drafted.rationale,
+                }
+            ).data
+        )
