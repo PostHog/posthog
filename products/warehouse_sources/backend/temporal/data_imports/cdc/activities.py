@@ -721,10 +721,8 @@ class CDCExtractActivity:
             enriched_table = enrich_toast_omitted_rows(raw_table, key_columns)
             enriched_table = enrich_delete_rows(enriched_table, key_columns)
 
-            # Shadow buffered ingress: persist the raw (pre-dedup/SCD2) stream, then strip the seq
-            # column so the legacy write path stays byte-identical. Strip only OUR column — the
-            # batcher stamps it with provenance metadata and skips the append when a source column
-            # of the same name exists, so that one passes through untouched.
+            # Buffer the raw (pre-dedup/SCD2) stream, then strip the seq column so the legacy write
+            # path stays byte-identical. Only ours — a source column of the same name stays.
             self._maybe_shadow_write_buffer(schema, table_name, enriched_table)
             if has_engine_seq(enriched_table):
                 enriched_table = enriched_table.remove_column(enriched_table.column_names.index(CDC_SEQ_COLUMN))

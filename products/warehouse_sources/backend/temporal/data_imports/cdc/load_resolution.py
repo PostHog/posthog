@@ -1,23 +1,7 @@
-"""Pre-write resolution of a CDC batch, and verification that DELETE rows kept their data.
+"""Resolve a CDC batch against what its table already holds, before the write.
 
-Ordering and delete semantics used to be expressed as delta-rs MERGE clauses (predicate-split
-`when_matched_update`, plus an `AND source._ph_cdc_seq >= target._ph_cdc_seq` guard). That is no
-longer possible: `DeltaWriter.write` routes incremental merges through `deltalite.DeltaLiteTable
-.upsert` first and only falls back to the MERGE on failure, and deltalite's upsert has no predicate
-surface — it replaces the whole row by primary key. Projecting a DELETE batch down to the tombstone
-columns does not help either; deltalite nulls every target column the source omits, which is exactly
-the data loss the predicated clause existed to prevent.
-
-So both semantics move here, ahead of the write and independent of which engine performs it:
-
-- ordering is resolved by dropping rows at or below the last committed position, and by deduping to
-  the highest position per key, rather than by a merge predicate;
-- DELETE rows keep their data because `enrich_delete_rows` filled them, which makes that enrichment
-  load-bearing rather than defence in depth — `verify_delete_enrichment` is the detector for when it
-  silently fails.
-
-Everything position-related is dormant until batches actually carry `CDC_SEQ_COLUMN` (the legacy
-lane strips it), so these helpers no-op on today's traffic.
+The engine that performs the write replaces whole rows by primary key and accepts no predicates, so
+ordering and delete safety have to be settled on the batch rather than in merge clauses.
 """
 
 from __future__ import annotations
@@ -38,37 +22,26 @@ from products.warehouse_sources.backend.temporal.data_imports.cdc.batcher import
 
 WRITE_RESOLUTION_FLAG = "dwh-cdc-write-resolution"
 
-# `sync_type_config` key holding, per lane resource name, the highest position already applied to
-# that lane's table. Read back on the next batch so replayed or resurrected buffer files cannot
-# re-apply. Sibling of `cdc_last_log_position`, which records how far *capture* read — buffered
-# ingress lets the two diverge, since capture runs ahead of load by design.
+# Highest position applied, per lane resource name. Sibling of `cdc_last_log_position`, which
+# tracks capture — buffered ingress lets the two diverge, since capture runs ahead of load.
 LOAD_POSITION_CONFIG_KEY = "cdc_load_position"
 
-# Verification walks DELETE rows in Python. The count is already bounded by the batch, but cap it
-# so a pathological delete-only batch cannot dominate the write path.
+# Verification is a diagnostic; cap it so a delete-heavy batch can't dominate the write path.
 MAX_VERIFIED_DELETE_ROWS = 1_000
-
-# Enough to identify which columns regressed without unbounded log lines.
 MAX_REPORTED_COLUMNS = 10
 
-
-# The companion (_cdc) lane's write mode. Its table is append-only history, so it is the one lane
-# where collapsing to a single row per key would destroy data rather than resolve a conflict.
+# The companion lane. Its table is append-only history, so deduping it would delete versions.
 SCD2_APPEND_MODE = "scd2_append"
 
 
 @frozen
 class ResolutionStats:
-    """Rows the resolution step removed, by why."""
-
     superseded: int
     duplicate_key: int
 
 
 @frozen
 class DeleteEnrichmentReport:
-    """Outcome of checking that enrichment left DELETE rows with their data values."""
-
     delete_rows_checked: int
     rows_with_nulled_columns: int
     columns: tuple[str, ...]
@@ -89,12 +62,11 @@ def _pk_tuples(table: pa.Table, primary_keys: list[str]) -> list[tuple]:
 
 
 def has_engine_seq(table: pa.Table) -> bool:
-    """True only when CDC_SEQ_COLUMN was stamped by the batcher, not supplied by the source.
+    """Whether the position column is ours.
 
-    A source table may have its own column named `_ph_cdc_seq`; the batcher deliberately passes it
-    through untouched rather than overwriting it (collision skip in `_events_to_table`). Name
-    presence alone therefore proves nothing, and treating a user value as an engine position would
-    let a source set a high number, poison the watermark, and have its own later rows dropped.
+    A source table may have its own `_ph_cdc_seq`, which the batcher passes through untouched, so
+    the name proves nothing. Trusting a source value would let it poison the position and have its
+    own later rows dropped.
     """
     if CDC_SEQ_COLUMN not in table.column_names:
         return False
@@ -103,7 +75,6 @@ def has_engine_seq(table: pa.Table) -> bool:
 
 
 def batch_max_seq(table: pa.Table) -> int | None:
-    """Highest engine position in the batch, or None when it carries none."""
     if not has_engine_seq(table) or table.num_rows == 0:
         return None
     values = [v for v in table.column(CDC_SEQ_COLUMN).to_pylist() if v is not None]
@@ -111,22 +82,17 @@ def batch_max_seq(table: pa.Table) -> int | None:
 
 
 def drop_superseded_rows(table: pa.Table, watermark: int | None) -> tuple[pa.Table, int]:
-    """Drop rows strictly below `watermark` — those are already in the table.
+    """Drop rows strictly below `watermark`.
 
-    Rows exactly AT the watermark are kept, which looks redundant but is not: every event in one
-    Postgres transaction shares its commit LSN, and a transaction larger than the flush budget is
-    split across micro-batches. Dropping `seq == watermark` would silently discard every later
-    chunk of a split transaction — real data loss, and invisible. Re-applying rows at the watermark
-    is harmless by comparison: the write is an upsert keyed on the primary key, so replaying an
-    identical row is a no-op.
-
-    Rows with a null position are kept too: an unknown position cannot be proven stale. No position
-    column (today's traffic) or no watermark means no filtering at all.
+    Rows exactly at it stay: one Postgres transaction shares a commit LSN across every event, and a
+    transaction bigger than the flush budget spans batches, so dropping equality would truncate it.
+    Re-applying is cheap by comparison — the write is a primary-key upsert.
     """
     if watermark is None or not has_engine_seq(table) or table.num_rows == 0:
         return table, 0
 
     seqs = table.column(CDC_SEQ_COLUMN).to_pylist()
+    # A null position can't be proven stale, so it survives.
     keep = [i for i, s in enumerate(seqs) if s is None or s >= watermark]
     if len(keep) == table.num_rows:
         return table, 0
@@ -136,9 +102,8 @@ def drop_superseded_rows(table: pa.Table, watermark: int | None) -> tuple[pa.Tab
 def dedupe_keep_highest_seq(table: pa.Table, primary_keys: list[str]) -> tuple[pa.Table, int]:
     """Collapse each primary key to its highest-position row, preserving batch order otherwise.
 
-    The writer already dedupes keep-last, which is equivalent only while a batch stays ordered by
-    position. Buffer files are ordered by construction; this makes the write correct even when that
-    stops being true, and deltalite hard-errors on duplicate keys rather than picking one.
+    deltalite rejects duplicate keys outright, and the writer's keep-last dedupe only matches
+    keep-highest while a batch stays ordered by position.
     """
     present_pks = [c for c in primary_keys if c in table.column_names]
     if not has_engine_seq(table) or not present_pks or table.num_rows == 0:
@@ -153,9 +118,8 @@ def dedupe_keep_highest_seq(table: pa.Table, primary_keys: list[str]) -> tuple[p
         if current is None:
             best[key] = i
             continue
-        # Ties and nulls fall back to "later row wins", matching the writer's keep-last dedupe.
         incoming, existing = seqs[i], seqs[current]
-        if incoming is None or existing is None or incoming >= existing:
+        if incoming is None or existing is None or incoming >= existing:  # ties fall back to keep-last
             best[key] = i
 
     if len(best) == table.num_rows:
@@ -165,29 +129,24 @@ def dedupe_keep_highest_seq(table: pa.Table, primary_keys: list[str]) -> tuple[p
 
 
 def read_load_position(sync_type_config: dict | None, resource_name: str) -> int | None:
-    """Highest position already applied to `resource_name`'s table, or None if never recorded."""
     positions = (sync_type_config or {}).get(LOAD_POSITION_CONFIG_KEY) or {}
     value = positions.get(resource_name)
     return int(value) if isinstance(value, int) or (isinstance(value, str) and value.isdigit()) else None
 
 
 def persist_load_position(schema_id: Any, team_id: int, resource_name: str, position: int) -> None:
-    """Record how far this lane's table has been loaded — call ONLY after the commit lands.
+    """Record the position — only ever after the commit lands.
 
-    Ordering is the whole safety argument. Persisting after a confirmed commit means this value can
-    only lag the table, never lead it: lagging re-applies rows, which the primary-key upsert makes a
-    no-op, whereas leading would skip rows that were never written. That is why the position does
-    not need to be atomic with the write, and so does not need to live in the Delta commit.
-
-    Goes through the locked-merge helper because capture writes `cdc_last_log_position` to the same
-    JSON column concurrently; a read-modify-write off a stale copy would drop one of the two.
+    That ordering is the safety argument: this value can then only lag the table, never lead it.
+    Lagging re-applies rows, which the upsert makes a no-op; leading would skip rows that were never
+    written. The locked merge keeps capture's concurrent write to the same JSON column intact.
     """
     from products.warehouse_sources.backend.models.external_data_schema import update_sync_type_config_keys
 
     def _merge(config: dict[str, Any]) -> None:
         positions = config.setdefault(LOAD_POSITION_CONFIG_KEY, {})
         current = positions.get(resource_name)
-        # Monotonic: a retried older batch must not rewind the guard for later ones.
+        # Monotonic, so a retried older batch can't rewind the guard for later ones.
         if current is None or int(current) < position:
             positions[resource_name] = position
 
@@ -201,17 +160,7 @@ def resolve_batch(
     watermark: int | None,
     cdc_write_mode: str | None,
 ) -> tuple[pa.Table, ResolutionStats]:
-    """Apply position resolution for one lane, before the write.
-
-    Both lanes drop already-applied rows — replaying a buffer file into the companion is how the
-    duplicate history rows noted in `cdc/activities.py` arise. Only the consolidated lane dedupes:
-    the companion keeps every version of a key on purpose.
-
-    Note the residue on the history lane: because rows AT the watermark are kept (see
-    `drop_superseded_rows` on split transactions), replaying the boundary batch re-appends those
-    rows rather than dropping them. That is the accepted trade — duplicate history rows on retry,
-    which this pipeline already tolerates, versus truncating a transaction, which it cannot.
-    """
+    """Resolve one lane's batch. Only the consolidated lane dedupes — see SCD2_APPEND_MODE."""
     table, superseded = drop_superseded_rows(table, watermark)
 
     duplicates = 0
@@ -226,11 +175,10 @@ def verify_delete_enrichment(
     primary_keys: list[str],
     existing_rows: pa.Table | None,
 ) -> DeleteEnrichmentReport:
-    """Report DELETE rows that will null a data column the target currently holds.
+    """Report DELETE rows that would null a data column the target still holds.
 
-    Runs after enrichment, against the same `existing_rows` the enrichment consumed, so it costs one
-    more pass over rows already materialized. A non-empty report means a delete is about to erase
-    data — under deltalite the upsert replaces the row wholesale, so nothing downstream will catch it.
+    The upsert replaces whole rows, so an unenriched delete erases data with nothing downstream to
+    catch it. Reuses the `existing_rows` enrichment already fetched.
     """
     empty = DeleteEnrichmentReport(delete_rows_checked=0, rows_with_nulled_columns=0, columns=())
     if existing_rows is None or existing_rows.num_rows == 0 or table.num_rows == 0:
@@ -246,20 +194,17 @@ def verify_delete_enrichment(
     if not data_cols:
         return empty
 
-    # Narrow to the rows actually under inspection before materializing anything: this is a
-    # diagnostic, and a wide table would otherwise pull every data column of the whole batch into
-    # Python to look at a capped handful of DELETEs.
+    # Narrow before materializing: a wide table would otherwise pull every data column of the whole
+    # batch into Python to inspect a capped handful of rows.
     ops = table.column(CDC_OP_COLUMN).to_pylist()
     delete_indices = [i for i, op in enumerate(ops) if op == "D"][:MAX_VERIFIED_DELETE_ROWS]
     if not delete_indices:
         return empty
     deletes = table.take(pa.array(delete_indices, type=pa.int64()))
 
-    existing_by_key: dict[tuple, dict[str, object]] = {}
     existing_keys = _pk_tuples(existing_rows, present_pks)
     existing_values = {c: existing_rows.column(c).to_pylist() for c in data_cols}
-    for i, key in enumerate(existing_keys):
-        existing_by_key[key] = {c: existing_values[c][i] for c in data_cols}
+    existing_by_key = {key: {c: existing_values[c][i] for c in data_cols} for i, key in enumerate(existing_keys)}
 
     keys = _pk_tuples(deletes, present_pks)
     outgoing = {c: deletes.column(c).to_pylist() for c in data_cols}
@@ -286,16 +231,10 @@ def verify_delete_enrichment(
 
 @lru_cache(maxsize=2048)
 def is_cdc_write_resolution_enabled(team_id: int, schema_id: str, run_uuid: str) -> bool:
-    """Evaluate the per-team rollout flag for CDC write resolution, once per schema per run.
+    """Per-team rollout gate, resolved once per schema per run.
 
-    Keyed on `run_uuid` so a long-running or high-frequency source does not put a flags-service
-    round trip on every batch's write path — CDC dispatches batches far more often than the
-    deltalite gate this otherwise mirrors. Bounding staleness to one run also matches how the
-    capture-side shadow flag resolves, so the two lanes flip on the same boundary.
-
-    Fail closed on any error: a flags-service blip must leave today's write path untouched rather
-    than silently start dropping rows. Mirrors `is_deltalite_write_enabled`'s property shape so a
-    release condition can target one schema before ramping by team.
+    Keyed on `run_uuid` to keep a flags round trip off every batch's write path. Fails closed: a
+    flags blip must not start dropping rows.
     """
     import posthoganalytics
 
@@ -317,5 +256,5 @@ def is_cdc_write_resolution_enabled(team_id: int, schema_id: str, run_uuid: str)
                 send_feature_flag_events=False,
             )
         )
-    except Exception:  # noqa: BLE001 - a flag-eval or lookup failure means "leave the write path alone"
+    except Exception:  # noqa: BLE001
         return False

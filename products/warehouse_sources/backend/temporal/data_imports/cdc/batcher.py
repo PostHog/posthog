@@ -18,9 +18,8 @@ DELETED_AT_COLUMN = "_ph_deleted_at"
 # real positions never approach 2^63. Names the buffer files' position range
 # and (in Phase B) drives the merge's monotonicity guard.
 CDC_SEQ_COLUMN = "_ph_cdc_seq"
-# Arrow field metadata marking CDC_SEQ_COLUMN as engine-produced. A source table may legitimately
-# have its own column of that name (see the collision skip in _events_to_table), and the load side
-# must never mistake user values for engine positions — see cdc/load_resolution.has_engine_seq.
+# Marks CDC_SEQ_COLUMN as engine-produced, so readers can tell it from a source column of the same
+# name (see the collision skip in _events_to_table).
 CDC_SEQ_PROVENANCE = {b"posthog_cdc": b"engine_position"}
 
 # Suffix of the SCD2 companion table's resource name ({schema.name}_cdc). Shared
@@ -551,10 +550,6 @@ def _events_to_table(events: list[ChangeEvent], position_to_seq: Callable[[str],
     if position_to_seq is not None and CDC_SEQ_COLUMN not in column_names:
         seq_values = [position_to_seq(event.position_serialized) for event in events]
         arrays.append(pa.array(seq_values, type=pa.int64()))
-        # Stamped so readers can tell OUR column from a source column of the same name that the
-        # collision check above let through: the load side drops rows by comparing this position,
-        # and trusting a user-supplied value there would let a source poison the watermark and
-        # discard its own later rows. Field metadata survives the parquet round-trip.
         fields.append(pa.field(CDC_SEQ_COLUMN, pa.int64(), metadata=CDC_SEQ_PROVENANCE))
 
     schema = pa.schema(fields)

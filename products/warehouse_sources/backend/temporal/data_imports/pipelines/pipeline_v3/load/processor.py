@@ -207,9 +207,7 @@ def _enrich_cdc_rows(
                 pa_table = enrich_toast_omitted_rows(pa_table, primary_keys, existing_rows)
                 pa_table = enrich_delete_rows(pa_table, primary_keys, existing_rows)
 
-                # deltalite replaces the whole row on upsert, so an unenriched DELETE silently
-                # erases columns the target still holds. Nothing downstream can detect that after
-                # the fact — verify here, while the previous state is still in hand.
+                # Only place the previous state is still in hand to compare against.
                 if verify_deletes and delete_key_set:
                     report = verify_delete_enrichment(pa_table, present_pks, existing_rows)
                     if not report.ok:
@@ -243,11 +241,8 @@ def _resolve_cdc_positions(
 ) -> tuple[pa.Table, int | None]:
     """Drop rows this lane's table has already applied.
 
-    Returns the resolved batch and the position to record once the write commits — the caller
-    persists it, because a position written before the commit could skip rows that never landed.
-
-    Dormant until batches carry an engine-stamped position (the legacy lane strips it), so this
-    returns immediately on today's traffic.
+    Returns the batch and the position to record, which the caller persists only once the write
+    commits — a position ahead of the table would skip rows that never landed.
     """
     if not has_engine_seq(pa_table):
         return pa_table, None
@@ -882,8 +877,6 @@ def _process_message_reported(
             "batch_index": str(export_signal.batch_index),
         }
 
-        # Resolved once per schema per run (the helper memoizes on run_uuid), so a high-frequency
-        # source doesn't put a flags round trip on every batch. Non-CDC batches never evaluate it.
         resolution_enabled = cdc_write_mode is not None and is_cdc_write_resolution_enabled(
             export_signal.team_id, schema_id_str, export_signal.run_uuid
         )
@@ -965,9 +958,8 @@ def _process_message_reported(
         DELTA_ROWS_WRITTEN_TOTAL.labels(team_id=team_id_str, schema_id=schema_id_str).inc(pa_table.num_rows)
 
         if pending_load_position is not None:
-            # Strictly after the commit: a position ahead of the table would skip rows that never
-            # landed. Best-effort, because failing here would fail a batch whose data is already
-            # written — the cost of losing it is re-applying rows next time, which is a no-op.
+            # Best-effort: failing here would fail a batch that is already written, and the cost of
+            # losing the position is re-applying rows next time, which is a no-op.
             try:
                 persist_load_position(
                     schema.id, export_signal.team_id, export_signal.resource_name, pending_load_position
