@@ -1,11 +1,19 @@
 import re
 import datetime as dt
+from itertools import zip_longest
 
 from unittest import TestCase
 
+from hypothesis import (
+    given,
+    settings,
+    strategies as st,
+)
 from parameterized import parameterized
 
 from products.logs.backend.log_patterns import (
+    _MASKING_INSTRUCTIONS,
+    _PLACEHOLDER_PATTERNS,
     LogSample,
     compile_match_regex,
     extract_match_literal,
@@ -274,3 +282,84 @@ class TestCompileMatchRegex(TestCase):
     )
     def test_extract_match_literal(self, _name: str, template: str, expected: str | None) -> None:
         assert extract_match_literal(template) == expected
+
+
+_uuid_st = st.tuples(st.uuids(), st.booleans()).map(lambda t: str(t[0]).upper() if t[1] else str(t[0]))
+_hex_0x_st = st.text("0123456789abcdefABCDEF", min_size=1, max_size=32).map(lambda s: f"0x{s}")
+_hex_bare_st = st.text("0123456789abcdefABCDEF", min_size=16, max_size=40)
+_num_st = st.integers(min_value=0, max_value=10**12).map(str)
+_word_st = st.text("abcdefghijklmnopqrstuvwxyz", min_size=3, max_size=10)
+
+
+@st.composite
+def _timestamp_st(draw: st.DrawFn) -> str:
+    instant = draw(st.datetimes(min_value=dt.datetime(1000, 1, 1), max_value=dt.datetime(9999, 12, 31, 23, 59, 59)))
+    separator = draw(st.sampled_from(["T", " "]))
+    text = instant.strftime(f"%Y-%m-%d{separator}%H:%M:%S")
+    fraction = draw(st.one_of(st.none(), st.integers(min_value=0, max_value=999_999_999)))
+    if fraction is not None:
+        text += f"{draw(st.sampled_from(['.', ',']))}{fraction}"
+    return text + draw(st.sampled_from(["", "Z", "+00:00", "-05:30", "+0230", "-1145"]))
+
+
+_variable_token_st = st.one_of(_uuid_st, _hex_0x_st, _hex_bare_st, _num_st, _timestamp_st())
+
+
+class TestMaskingProperties(TestCase):
+    def test_every_mask_name_has_a_registered_placeholder(self) -> None:
+        # A masking rule without a placeholder entry produces templates whose match_regex
+        # can never validate, silently degrading the "view matching logs" pivot.
+        for instruction in _MASKING_INSTRUCTIONS:
+            assert f"<{instruction.mask_with}>" in _PLACEHOLDER_PATTERNS
+
+    @given(value=_uuid_st)
+    @settings(deadline=None)
+    def test_any_uuid_masks_to_placeholder(self, value: str) -> None:
+        patterns = mine_patterns([_sample(f"trace {value} start")])
+
+        assert patterns[0].pattern == "trace <uuid> start"
+
+    @given(value=st.one_of(_hex_0x_st, _hex_bare_st))
+    @settings(deadline=None)
+    def test_any_hex_token_masks_to_placeholder(self, value: str) -> None:
+        patterns = mine_patterns([_sample(f"token {value} rejected")])
+
+        assert patterns[0].pattern == "token <hex> rejected"
+
+    @given(value=_num_st)
+    @settings(deadline=None)
+    def test_any_integer_token_masks_to_num(self, value: str) -> None:
+        patterns = mine_patterns([_sample(f"took {value} ms")])
+
+        assert patterns[0].pattern == "took <num> ms"
+
+    @given(value=_timestamp_st())
+    @settings(deadline=None)
+    def test_any_iso_timestamp_masks_to_placeholder(self, value: str) -> None:
+        patterns = mine_patterns([_sample(f"job {value} done")])
+
+        assert patterns[0].pattern == "job <timestamp> done"
+
+    @given(first_instant=_timestamp_st(), second_instant=_timestamp_st())
+    @settings(deadline=None)
+    def test_same_statement_at_two_instants_shares_fingerprint(self, first_instant: str, second_instant: str) -> None:
+        first = mine_patterns([_sample(f"{first_instant} task_retrying attempt=3")])
+        second = mine_patterns([_sample(f"{second_instant} task_retrying attempt=7")])
+
+        assert pattern_fingerprint(first[0].pattern) == pattern_fingerprint(second[0].pattern)
+
+    @given(
+        words=st.lists(_word_st, min_size=1, max_size=6),
+        values=st.lists(_variable_token_st, min_size=1, max_size=4),
+    )
+    @settings(deadline=None)
+    def test_match_regex_round_trips_any_masked_body(self, words: list[str], values: list[str]) -> None:
+        # compile_match_regex validates against the sampled body, so a placeholder pattern
+        # that matches less than its masking rule consumed surfaces here as a None regex.
+        interleaved = [token for pair in zip_longest(words, values) for token in pair if token is not None]
+        body = f"event {' '.join(interleaved)} done"
+        patterns = mine_patterns([_sample(body)])
+
+        assert len(patterns) == 1
+        assert patterns[0].match_regex is not None
+        assert re.search(patterns[0].match_regex, body)
