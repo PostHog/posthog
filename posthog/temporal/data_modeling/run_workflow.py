@@ -727,6 +727,7 @@ async def materialize_model(
         preserve_table_name_casing=True,
         existing_queryable_folder=saved_query_table.queryable_folder if saved_query_table else None,
         logger=logger,
+        refresh_file_uris=lambda: asyncio.to_thread(delta_table.file_uris),
     )
 
     saved_query.is_materialized = True

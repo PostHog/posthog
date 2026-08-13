@@ -95,7 +95,7 @@ def _build_model_table_uri(team_id: int, saved_query_id_hex: str, normalized_nam
     return f"{settings.BUCKET_URL}/team_{team_id}_model_{saved_query_id_hex}/modeling/{normalized_name}"
 
 
-def _get_aws_storage_options() -> dict[str, str]:
+def get_aws_storage_options() -> dict[str, str]:
     if settings.USE_LOCAL_SETUP:
         ensure_bucket_exists(
             settings.BUCKET_URL,
@@ -509,7 +509,7 @@ async def materialize_view_activity(inputs: MaterializeViewInputs) -> Materializ
         hogql_query = typing.cast(dict, objects.saved_query.query)["query"]
 
         row_count = 0
-        storage_options = _get_aws_storage_options()
+        storage_options = get_aws_storage_options()
         delta_table: deltalake.DeltaTable | None = None
         # cache the schema of the first batch so we can synthesize an empty parquet for
         # zero-row results without going through delta-rs (whose Schema is arro3, not
