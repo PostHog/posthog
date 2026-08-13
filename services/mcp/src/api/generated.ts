@@ -26155,6 +26155,54 @@ export namespace Schemas {
       error: string | null;
     }
 
+    /**
+     * Body of POST /vision/scanners/draft/ — the user's goal, stated in their own words.
+     */
+    export interface DraftScannerRequest {
+      /**
+         * What the user wants to accomplish, e.g. 'find out where users get stuck during onboarding'.
+         * @maxLength 2000
+         */
+      goal: string;
+    }
+
+    /**
+     * * `monitor` - Monitor
+     * * `classifier` - Classifier
+     * * `scorer` - Scorer
+     * * `summarizer` - Summarizer
+     */
+    export type ScannerTypeEnum = typeof ScannerTypeEnum[keyof typeof ScannerTypeEnum];
+
+
+    export const ScannerTypeEnum = {
+      Monitor: 'monitor',
+      Classifier: 'classifier',
+      Scorer: 'scorer',
+      Summarizer: 'summarizer',
+    } as const;
+
+    /**
+     * An AI-drafted scanner configuration, ready to seed the creation wizard. Nothing is persisted.
+     */
+    export interface DraftScannerResponse {
+      /** Drafted scanner name. */
+      name: string;
+      /** Drafted one-sentence description. */
+      description: string;
+      /** The scanner type the draft picked for the goal.
+       *
+       * * `monitor` - Monitor
+       * * `classifier` - Classifier
+       * * `scorer` - Scorer
+       * * `summarizer` - Summarizer */
+      scanner_type: ScannerTypeEnum;
+      /** Type-specific config for the drafted `scanner_type`; always includes `prompt`. */
+      scanner_config: unknown;
+      /** Why the draft picked this scanner type and configuration, addressed to the user. */
+      rationale: string;
+    }
+
     export interface DraftStatusResponse {
       updated_at: string;
       has_draft: boolean;
@@ -41014,22 +41062,6 @@ export namespace Schemas {
       /** The most recent warnings of this type (up to the `samples` query parameter, 5 by default), newest first. */
       samples: IngestionWarningV2Sample[];
     }
-
-    /**
-     * * `monitor` - Monitor
-     * * `classifier` - Classifier
-     * * `scorer` - Scorer
-     * * `summarizer` - Summarizer
-     */
-    export type ScannerTypeEnum = typeof ScannerTypeEnum[keyof typeof ScannerTypeEnum];
-
-
-    export const ScannerTypeEnum = {
-      Monitor: 'monitor',
-      Classifier: 'classifier',
-      Scorer: 'scorer',
-      Summarizer: 'summarizer',
-    } as const;
 
     /**
      * Body of POST /vision/scanners/inline_scan/ - a prompt plus the sessions to point it at.
