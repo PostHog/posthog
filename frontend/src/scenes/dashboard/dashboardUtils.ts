@@ -62,17 +62,10 @@ export function dashboardToSaveableTemplate(
             ...(dashboard.groups ?? []).map((group) => ({
                 type: 'GROUP' as const,
                 group_key: group.id,
-                name: group.name,
-                layouts: group.layouts.sm
-                    ? {
-                          sm: {
-                              x: group.layouts.sm.x ?? 0,
-                              y: group.layouts.sm.y ?? 0,
-                              w: group.layouts.sm.w ?? BREAKPOINT_COLUMN_COUNTS.sm,
-                              h: group.layouts.sm.h ?? 1,
-                          },
-                      }
-                    : {},
+                name: group.name ?? '',
+                layouts: {
+                    sm: { x: 0, y: group.position, w: BREAKPOINT_COLUMN_COUNTS.sm, h: 1 },
+                },
             })),
             ...dashboard.tiles
                 .filter((tile) => !tile.error)

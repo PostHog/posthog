@@ -323,6 +323,53 @@ describe('dashboardLogic', () => {
         })
     })
 
+    describe('sections', () => {
+        beforeEach(() => {
+            logic = dashboardLogic({ id: 5 })
+            logic.mount()
+        })
+
+        it('orders groups, buckets members, and appends orphan tiles', () => {
+            const firstTile = { ...TEXT_TILE, id: 41, parent_group_id: 'first' }
+            const orphanTile = { ...TEXT_TILE, id: 42, parent_group_id: null }
+            const dashboard = {
+                ...dashboards[5],
+                tiles: [orphanTile, firstTile],
+                groups: [
+                    {
+                        id: 'second',
+                        name: 'Second',
+                        position: 1,
+                        member_tile_ids: [],
+                        created_at: '2026-01-02',
+                        created_by: null,
+                        last_modified_at: '2026-01-02',
+                        last_modified_by: null,
+                    },
+                    {
+                        id: 'first',
+                        name: 'First',
+                        position: 0,
+                        member_tile_ids: [41],
+                        created_at: '2026-01-01',
+                        created_by: null,
+                        last_modified_at: '2026-01-01',
+                        last_modified_by: null,
+                    },
+                ],
+            } as DashboardType<QueryBasedInsightModel>
+
+            logic.actions.loadDashboardSuccess(dashboard)
+
+            expect(logic.values.sections.map((section) => section.key)).toEqual(['first', 'second', 'orphan'])
+            expect(logic.values.sections.map((section) => section.tiles.map((tile) => tile.id))).toEqual([
+                [41],
+                [],
+                [42],
+            ])
+        })
+    })
+
     describe('tile layouts', () => {
         beforeEach(() => {
             logic = dashboardLogic({ id: 5 })

@@ -7,25 +7,33 @@ exports[`DashboardItems matches snapshot in edit mode with layout zoom enabled 1
   <div
     class="relative"
   >
-    <div
-      data-attr="grid-background"
-      data-margin="14.4,14.4"
-      data-row-height="60"
-    />
-    <div
-      data-attr="react-grid-layout"
-      data-class-name="dashboard-edit-mode box-content pb-[40vh]"
-      data-drag-enabled="true"
-      data-margin="14.4,14.4"
-      data-resize-enabled="false"
-      data-row-height="60"
+    <section
+      class="relative mb-4"
     >
       <div
-        data-attr="insight-card"
-        data-show-resize-handles="false"
-        data-tile-id="1"
-      />
-    </div>
+        class="relative px-3"
+      >
+        <div
+          data-attr="grid-background"
+          data-margin="14.4,14.4"
+          data-row-height="60"
+        />
+        <div
+          data-attr="react-grid-layout"
+          data-class-name="dashboard-edit-mode box-content pb-[40vh]"
+          data-drag-enabled="true"
+          data-margin="14.4,14.4"
+          data-resize-enabled="false"
+          data-row-height="60"
+        >
+          <div
+            data-attr="insight-card"
+            data-show-resize-handles="false"
+            data-tile-id="1"
+          />
+        </div>
+      </div>
+    </section>
   </div>
 </div>
 `;

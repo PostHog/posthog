@@ -1,14 +1,6 @@
 import { Layout, LayoutItem } from 'react-grid-layout'
 
-import type { DashboardGroupApi } from '@posthog/products-dashboards/frontend/generated/api.schemas'
-
-import {
-    calculateDuplicateLayout,
-    calculateInsertionLayout,
-    calculateLayouts,
-    calculateLayoutsWithGroups,
-    collapseDashboardGroupLayouts,
-} from 'scenes/dashboard/tileLayouts'
+import { calculateDuplicateLayout, calculateInsertionLayout, calculateLayouts } from 'scenes/dashboard/tileLayouts'
 
 import { DashboardLayoutSize, DashboardTile, QueryBasedInsightModel, TileLayout } from '~/types'
 
@@ -24,46 +16,6 @@ function textTileWithLayout(
 }
 
 describe('calculating tile layouts', () => {
-    it('adds group rows and hides collapsed members without changing later section order', () => {
-        const tiles = [
-            textTileWithLayout({ sm: { x: 0, y: 1, w: 6, h: 3 } } as Record<DashboardLayoutSize, TileLayout>, 1),
-            textTileWithLayout({ sm: { x: 0, y: 5, w: 6, h: 2 } } as Record<DashboardLayoutSize, TileLayout>, 2),
-        ]
-        const groups: DashboardGroupApi[] = [
-            {
-                id: 'group-1',
-                tile_id: 10,
-                name: 'Acquisition',
-                layouts: { sm: { x: 0, y: 0, w: 12, h: 1 } },
-                member_tile_ids: [1],
-                created_at: '',
-                created_by: null,
-                last_modified_at: '',
-                last_modified_by: null,
-            },
-            {
-                id: 'group-2',
-                tile_id: 11,
-                name: 'Retention',
-                layouts: { sm: { x: 0, y: 4, w: 12, h: 1 } },
-                member_tile_ids: [2],
-                created_at: '',
-                created_by: null,
-                last_modified_at: '',
-                last_modified_by: null,
-            },
-        ]
-
-        const layouts = calculateLayoutsWithGroups(tiles, groups)
-        const collapsed = collapseDashboardGroupLayouts(layouts, groups, new Set(['group-1']))
-
-        expect(collapsed.sm?.map(({ i, y }) => ({ i, y }))).toEqual([
-            { i: '10', y: 0 },
-            { i: '11', y: 1 },
-            { i: '2', y: 2 },
-        ])
-    })
-
     it('minimum width and height are added if missing', () => {
         const tiles: DashboardTile<QueryBasedInsightModel>[] = [
             textTileWithLayout({
