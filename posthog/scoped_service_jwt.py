@@ -22,7 +22,6 @@ from django.conf import settings
 
 from posthog.dataclasses import frozen
 from posthog.jwt import PosthogJwtAudience, decode_jwt, encode_jwt
-from posthog.settings.utils import get_list
 
 DEFAULT_SERVICE_TOKEN_TTL = timedelta(minutes=5)
 
@@ -42,10 +41,12 @@ class ScopedServiceJwtPurpose:
     def signing_keys(self) -> list[str]:
         value = getattr(settings, self.settings_name, "") or ""
         # Settings may hold either the raw comma-separated string (RECORDING_API_JWT_SECRET) or a
-        # list already parsed with get_list at load time (WORKFLOWS_RESCHEDULE_JWT_SECRETS).
+        # list already parsed with get_list at load time (WORKFLOWS_RESCHEDULE_JWT_SECRETS). The
+        # string parse matches get_list, inlined because importing posthog.settings here would pull
+        # the whole settings package into posthog.auth's import graph.
         if isinstance(value, list | tuple):
             return [key.strip() for key in value if key and key.strip()]
-        return [key for key in get_list(value) if key]
+        return [key.strip() for key in value.split(",") if key.strip()]
 
     def enabled(self) -> bool:
         """False until the purpose's secret is provisioned. Callers use this to fall back to

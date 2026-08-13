@@ -1123,7 +1123,14 @@ class ScopedServiceJWTAuthentication(authentication.BaseAuthentication):
             raise AuthenticationFailed("Service token authentication is not configured.")
 
         try:
-            claims = self.purpose.verify(header[1].decode())
+            token = header[1].decode()
+        except UnicodeDecodeError:
+            # UnicodeDecodeError is a ValueError, so without this clause a non-UTF-8 bearer
+            # value would escape as a 500 instead of a clean auth failure.
+            raise AuthenticationFailed("Invalid Authorization header.")
+
+        try:
+            claims = self.purpose.verify(token)
         except jwt.PyJWTError:
             raise AuthenticationFailed("Invalid or expired service token.")
 
@@ -1148,6 +1155,12 @@ class ScopedServiceJWTAuthentication(authentication.BaseAuthentication):
             raise AuthenticationFailed("Invalid service token team.")
 
         return InternalAPIUser(current_organization_id=team.organization_id, current_team_id=team.id), None
+
+    def authenticate_header(self, request: Request) -> str:
+        # Without a challenge value DRF renders every AuthenticationFailed from this class as
+        # 403 instead of 401, making a bad or expired service credential read as a permission
+        # failure to the calling service.
+        return "Bearer"
 
 
 def _team_id_from_request_path(request: Request) -> Optional[str]:

@@ -133,6 +133,14 @@ class TestScopedServiceJWTAuthentication(APIBaseTest):
     def test_request_without_bearer_header_falls_through_to_other_authenticators(self):
         assert self.authentication.authenticate(self._request(None)) is None
 
+    def test_non_utf8_bearer_value_is_a_clean_auth_failure(self):
+        request = Request(self.factory.get("/internal/endpoint", HTTP_AUTHORIZATION="Bearer \xff\xfe"))
+        with pytest.raises(AuthenticationFailed):
+            self.authentication.authenticate(request)
+
+    def test_failures_send_a_bearer_challenge_so_drf_renders_401_not_403(self):
+        assert self.authentication.authenticate_header(self._request(None)) == "Bearer"
+
     @override_settings(TEST_SCOPED_SERVICE_JWT_SECRET="")
     def test_unconfigured_secret_fails_closed(self):
         token = _raw_token("any-key", {"team_id": self.team.id})
