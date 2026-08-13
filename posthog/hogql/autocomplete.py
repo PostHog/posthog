@@ -45,6 +45,7 @@ from posthog.hogql.resolver_utils import extract_select_queries
 from posthog.hogql.timings import HogQLTimings
 from posthog.hogql.type_system import (
     ComparisonCompatibility,
+    RuntimeType,
     comparison_compatibility,
     infer_function_return_type,
     runtime_type_from_constant_type,
@@ -107,8 +108,13 @@ def get_direct_table_function_names(context: HogQLContext) -> list[str]:
     return sorted({name for name in available_table_functions if isinstance(name, str)})
 
 
+# The editor groups by kind first: variables and fields sort under "1", functions under "2". Ranking
+# has to stay inside the function group, so a ranked function keeps that prefix and adds its bucket
+# after it ("2-0-now"). Sorting a function above the table's own columns is not the trade here.
+_FUNCTION_KIND_SORT_PREFIX = "2"
+
 # Ranking buckets for function suggestions, lowest sorts first. Monaco orders by `sortText`, so the
-# prefix decides position and the name breaks ties within a bucket.
+# bucket decides position within the group and the name breaks ties inside a bucket.
 _FUNCTION_RANK_BY_COMPATIBILITY: dict[ComparisonCompatibility, str] = {
     ComparisonCompatibility.DEFINITELY_COMPATIBLE: "0",
     ComparisonCompatibility.CHEAP_CAST: "1",
@@ -165,9 +171,10 @@ def expected_type_at_position(
 def _function_sort_text(function_name: str, expected_type: ast.ConstantType) -> str:
     return_type = _declared_function_return_type(function_name)
     if return_type is None:
-        return f"{_UNRANKED_FUNCTION_PREFIX}-{function_name}"
-    compatibility = comparison_compatibility(expected_type, return_type)
-    return f"{_FUNCTION_RANK_BY_COMPATIBILITY[compatibility]}-{function_name}"
+        bucket = _UNRANKED_FUNCTION_PREFIX
+    else:
+        bucket = _FUNCTION_RANK_BY_COMPATIBILITY[comparison_compatibility(expected_type, return_type)]
+    return f"{_FUNCTION_KIND_SORT_PREFIX}-{bucket}-{function_name}"
 
 
 def append_function_suggestions(
@@ -262,9 +269,20 @@ def constant_type_to_database_field(constant_type: ConstantType, name: str) -> D
 
 
 # Shown when the type system has no answer for a field. Deliberately visible rather than blank:
-# an unlabelled completion is indistinguishable from one we chose not to label, and the gap is the
+# an unlabeled completion is indistinguishable from one we chose not to label, and the gap is the
 # thing worth seeing.
 UNKNOWN_TYPE_LABEL = "unknown"
+
+
+def _display_runtime_type(runtime_type: RuntimeType) -> str:
+    """Render a runtime type for a completion detail.
+
+    An unknown family renders as the unknown label rather than `Unknown`/`Nullable(Unknown)`. We do
+    not know the type, so we do not know its nullability either, and claiming it reads as a fact.
+    """
+    if runtime_type.family == "unknown":
+        return UNKNOWN_TYPE_LABEL
+    return runtime_type.display()
 
 
 def convert_field_or_table_to_type_string(
@@ -283,9 +301,9 @@ def convert_field_or_table_to_type_string(
             assert field_expr.type is not None
             constant_type = field_expr.type.resolve_constant_type(context)
 
-            return runtime_type_from_constant_type(constant_type).display()
+            return _display_runtime_type(runtime_type_from_constant_type(constant_type))
         except Exception as e:
-            tracking_error = Exception("Cant resolve expression field in autocomplete")
+            tracking_error = Exception("Can't resolve expression field in autocomplete")
             tracking_error.__cause__ = e
             capture_exception(tracking_error)
 
@@ -294,7 +312,7 @@ def convert_field_or_table_to_type_string(
         return "Table"
     if isinstance(field_or_table, ast.DatabaseField):
         try:
-            return runtime_type_from_database_field(field_or_table).display()
+            return _display_runtime_type(runtime_type_from_database_field(field_or_table))
         except Exception:
             return UNKNOWN_TYPE_LABEL
 
