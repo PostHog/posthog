@@ -837,9 +837,17 @@ export const emailTemplaterLogic = kea<emailTemplaterLogicType>([
                 return
             }
             const shouldBeOpen = searchParams[EMAIL_EDITOR_URL_PARAM] === EMAIL_EDITOR_URL_VALUE
-            if (shouldBeOpen !== values.isModalOpen) {
-                actions.setIsModalOpen(shouldBeOpen)
+            if (shouldBeOpen === values.isModalOpen) {
+                return
             }
+            if (!shouldBeOpen && props.liveChanges) {
+                // Browser back closes through here rather than the Done button; route it through
+                // the same flush so a canvas edit still inside the design debounce isn't lost.
+                // The URL already lacks the param, so the close's actionToUrl echo is a no-op.
+                actions.closeWithConfirmation()
+                return
+            }
+            actions.setIsModalOpen(shouldBeOpen)
         },
     })),
 

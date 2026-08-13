@@ -440,6 +440,23 @@ describe('emailTemplaterLogic', () => {
             expect(onChange.mock.calls[0][0]).toMatchObject({ text: 'Plain words', html: '' })
         })
 
+        it('browser back mid-debounce flushes the pending canvas edit through the same path', async () => {
+            jest.useFakeTimers()
+            editorDesign = DESIGN_EDITED
+            editorListeners['design:updated']()
+            // Back button: the URL loses the param and urlToAction drives the close.
+            router.actions.push(router.values.location.pathname, {})
+            await jest.advanceTimersByTimeAsync(0)
+            expect(onChange).toHaveBeenCalledTimes(1)
+            expect(onChange.mock.calls[0][0]).toMatchObject({ design: DESIGN_EDITED })
+            expect(logic.values.isModalOpen).toBe(false)
+
+            await jest.advanceTimersByTimeAsync(500)
+            jest.useRealTimers()
+            await expectLogic(logic).toFinishAllListeners()
+            expect(onChange).toHaveBeenCalledTimes(1)
+        })
+
         it('closing mid-debounce flushes the pending canvas edit instead of dropping it', async () => {
             jest.useFakeTimers()
             editorDesign = DESIGN_EDITED
