@@ -9318,6 +9318,10 @@ export namespace Schemas {
       readonly created_at: string;
       /** Insight ID monitored by this alert. Note: Response returns full InsightBasicSerializer object. */
       insight: number;
+      /** Short ID of the insight monitored by this alert. */
+      readonly insight_short_id: string;
+      /** Display name of the insight monitored by this alert. */
+      readonly insight_display_name: string;
       /**
          * Human-readable name for the alert.
          * @maxLength 255
@@ -18407,6 +18411,16 @@ export namespace Schemas {
          * @nullable
          */
       readonly folder: string | null;
+      /**
+         * Id of this dashboard's file system entry, or null when it has none. Together with `file_system_path` this is everything a caller needs to move the dashboard between folders, so a list page does not have to look the entry up separately.
+         * @nullable
+         */
+      readonly file_system_id: string | null;
+      /**
+         * Full path of this dashboard's file system entry, e.g. 'Unfiled/Dashboards/Revenue'. Unlike `folder` this keeps the dashboard's own name as the last segment, which is what a move needs in order to compute the destination path. Null when it has no entry.
+         * @nullable
+         */
+      readonly file_system_path: string | null;
       readonly is_shared: boolean;
       deleted?: boolean;
       readonly creation_mode: CreationModeEnum;
@@ -18481,6 +18495,16 @@ export namespace Schemas {
          * @nullable
          */
       readonly folder: string | null;
+      /**
+         * Id of this dashboard's file system entry, or null when it has none. Together with `file_system_path` this is everything a caller needs to move the dashboard between folders, so a list page does not have to look the entry up separately.
+         * @nullable
+         */
+      readonly file_system_id: string | null;
+      /**
+         * Full path of this dashboard's file system entry, e.g. 'Unfiled/Dashboards/Revenue'. Unlike `folder` this keeps the dashboard's own name as the last segment, which is what a move needs in order to compute the destination path. Null when it has no entry.
+         * @nullable
+         */
+      readonly file_system_path: string | null;
       readonly is_shared: boolean;
       readonly deleted: boolean;
       readonly creation_mode: CreationModeEnum;
@@ -18746,7 +18770,7 @@ export namespace Schemas {
     export interface DataCatalogMetric {
       readonly id: string;
       /**
-         * Identifier-safe run handle, unique per team and reserved forever. Write-once.
+         * Identifier-safe run handle, unique among the team's live metrics. Renaming or deleting a metric frees its name for reuse, and anything referencing the old name (SQL over information_schema.metrics, run URLs, links) stops resolving.
          * @maxLength 128
          * @pattern ^[A-Za-z][A-Za-z0-9_]*$
          */
@@ -19921,10 +19945,14 @@ export namespace Schemas {
     export interface DatabaseSchemaQuery {
       /** Optional direct external data source id for schema introspection */
       connectionId?: string | null;
+      /** When false, skip serializing each table's fields (`fields` comes back empty). Defaults to true. */
+      includeFields?: boolean | null;
       kind?: 'DatabaseSchemaQuery';
       /** Modifiers used when performing the query */
       modifiers?: HogQLQueryModifiers | null;
       response?: DatabaseSchemaQueryResponse | null;
+      /** Only serialize these tables (keys as returned in the response, e.g. `events` or `zendesk.groups`). Omit for all tables. */
+      tables?: string[] | null;
       tags?: QueryLogTags | null;
       /** version of the node, used for schema migrations */
       version?: number | null;
@@ -21211,6 +21239,9 @@ export namespace Schemas {
      * * `Snovio` - Snovio
      * * `GoogleMerchantCenter` - GoogleMerchantCenter
      * * `Raisely` - Raisely
+     * * `RakutenAdvertising` - RakutenAdvertising
+     * * `Zitadel` - Zitadel
+     * * `DeelFlows` - DeelFlows
      * * `WindsorAi` - WindsorAi
      * * `Wix` - Wix
      * * `Sevalla` - Sevalla
@@ -22508,6 +22539,9 @@ export namespace Schemas {
       Snovio: 'Snovio',
       GoogleMerchantCenter: 'GoogleMerchantCenter',
       Raisely: 'Raisely',
+      RakutenAdvertising: 'RakutenAdvertising',
+      Zitadel: 'Zitadel',
+      DeelFlows: 'DeelFlows',
       WindsorAi: 'WindsorAi',
       Wix: 'Wix',
       Sevalla: 'Sevalla',
@@ -23819,6 +23853,9 @@ export namespace Schemas {
        * * `Snovio` - Snovio
        * * `GoogleMerchantCenter` - GoogleMerchantCenter
        * * `Raisely` - Raisely
+       * * `RakutenAdvertising` - RakutenAdvertising
+       * * `Zitadel` - Zitadel
+       * * `DeelFlows` - DeelFlows
        * * `WindsorAi` - WindsorAi
        * * `Wix` - Wix
        * * `Sevalla` - Sevalla
@@ -25818,6 +25855,9 @@ export namespace Schemas {
        * * `Snovio` - Snovio
        * * `GoogleMerchantCenter` - GoogleMerchantCenter
        * * `Raisely` - Raisely
+       * * `RakutenAdvertising` - RakutenAdvertising
+       * * `Zitadel` - Zitadel
+       * * `DeelFlows` - DeelFlows
        * * `WindsorAi` - WindsorAi
        * * `Wix` - Wix
        * * `Sevalla` - Sevalla
@@ -27393,6 +27433,7 @@ export namespace Schemas {
      * * `snowflake` - snowflake
      * * `redshift` - redshift
      * * `clickhouse` - clickhouse
+     * * `motherduck` - motherduck
      */
     export type EngineEnum = typeof EngineEnum[keyof typeof EngineEnum];
 
@@ -27404,6 +27445,7 @@ export namespace Schemas {
       Snowflake: 'snowflake',
       Redshift: 'redshift',
       Clickhouse: 'clickhouse',
+      Motherduck: 'motherduck',
     } as const;
 
     export interface EngineeringAnalyticsCIBrokenDefaultBranchSignalExtra {
@@ -31463,6 +31505,7 @@ export namespace Schemas {
     /**
      * * `behavior` - behavior
      * * `friction` - friction
+     * * `variant_only` - variant_only
      * * `metric` - metric
      */
     export type ExperimentWatchCardKindEnum = typeof ExperimentWatchCardKindEnum[keyof typeof ExperimentWatchCardKindEnum];
@@ -31471,6 +31514,7 @@ export namespace Schemas {
     export const ExperimentWatchCardKindEnum = {
       Behavior: 'behavior',
       Friction: 'friction',
+      VariantOnly: 'variant_only',
       Metric: 'metric',
     } as const;
 
@@ -31491,6 +31535,16 @@ export namespace Schemas {
     } as const;
 
     /**
+     * One recording a card names first, and the phrase that says why.
+     */
+    export interface ExperimentWatchHighlight {
+      /** The recording to open. Always one of the card's own session_ids. */
+      session_id: string;
+      /** Everything this recording carries that earned it the place, ready to render as-is, for example '6 rage clicks, 6 errors' or '1 error, did this 4 times'. Every signal the session shows is listed, so the phrase is the whole picture rather than the single strongest part of it. Friction counts cover the whole session; 'did this N times' counts the card's own event. Not a comparison and not a reason the card exists. */
+      reason: string;
+    }
+
+    /**
      * One group of recordings worth opening, and the sentence that justifies it.
      *
      * Deliberately no rate, no ratio and no person count: a precise number next to an event name is
@@ -31499,10 +31553,11 @@ export namespace Schemas {
      * card can actually show.
      */
     export interface ExperimentWatchCard {
-      /** What the card is: 'behavior' for an event this variant did clearly more than the other variants together, 'friction' for the same finding on an error or rage signal, 'metric' for a shortcut to recordings around one of the experiment's own metric events. Metric cards claim nothing about how the metric moved: that is the experiment results' answer.
+      /** What the card is: 'behavior' for an event this variant did clearly more than the other variants together, 'friction' for the same finding on an error or rage signal, 'variant_only' for an event no other variant fired at all, and 'metric' for a shortcut to recordings around one of the experiment's own metric events. A 'variant_only' card shows the variant rendering its own change rather than a behavior difference, so present it as confirmation the change is live and never as a finding. Metric cards claim nothing about how the metric moved: that is the experiment results' answer.
        *
        * * `behavior` - behavior
        * * `friction` - friction
+       * * `variant_only` - variant_only
        * * `metric` - metric */
       kind: ExperimentWatchCardKindEnum;
       /** The event behind the card. */
@@ -31517,7 +31572,7 @@ export namespace Schemas {
        * * `slightly_more` - slightly_more */
       strength: ExperimentWatchCardStrengthEnum | null;
       /**
-         * The metric whose event this card shortcuts to. Null outside metric cards.
+         * The metric this card's event belongs to, on a comparison card as well as on a shortcut card. When set, the experiment's results measure this event over the whole run window with the statistics that go with a result, so say the card points there and never present the card as a second answer about that metric. Null when no metric counts the event.
          * @nullable
          */
       metric_name: string | null;
@@ -31525,6 +31580,8 @@ export namespace Schemas {
       recording_count: number;
       /** The recordings themselves, most recent first, ready to hand to the recordings list as-is. */
       session_ids: string[];
+      /** Which of the card's recordings to open first, at most 3, ranked by how much each one carries: recordings showing several kinds of signal at once come before recordings showing more of a single kind. Offer these before the full list: the recordings list orders by its own sort, so session_ids order never reaches the viewer, and twenty recordings that share an event are otherwise indistinguishable in it. Empty when no recording the viewer can open carries a signal, which is worth saying rather than hiding. */
+      highlights: ExperimentWatchHighlight[];
     }
 
     /**
@@ -31559,7 +31616,7 @@ export namespace Schemas {
      * state the magnitudes. Nothing here says a variant is winning.
      */
     export interface ExperimentSessionEventDeltaResponse {
-      /** The shelf, strongest comparison first, then metric shortcuts. Events the variants can't be told apart on get no card at all rather than a weak one, so an empty shelf means no difference was big enough to be sure of, not that nothing was measured. The experiment's own metric events never appear as comparisons: see metric_events. */
+      /** The shelf, strongest comparison first, then the variant's own rendering, then metric shortcuts. Events the variants can't be told apart on get no card at all rather than a weak one, so an empty shelf means no difference was big enough to be sure of, not that nothing was measured. Group by kind before presenting: a 'variant_only' card outranks every real difference by construction, and reading the shelf in order would report it as the headline. */
       cards: ExperimentWatchCard[];
       /** Every variant's compared population, in the flag's variant order. */
       arms: ExperimentWatchArm[];
@@ -31570,7 +31627,7 @@ export namespace Schemas {
        * * `exclude` - exclude
        * * `first_seen` - first_seen */
       multiple_variant_handling: ExperimentWatchMultipleVariantHandlingEnum;
-      /** The experiment's own metric events, which never enter the behavior comparison. They are the events it was built to move, so they would top the ranking on nearly every experiment, and the experiment's results already say what happened to them with the statistics that go with a result. They can appear as 'metric' shortcut cards, which claim nothing. */
+      /** The events the experiment's own metrics count. A card on one of these carries metric_name and must be read as pointing at the experiment's results, which measure the same event over the whole run window with the statistics that go with a result. Cards state no magnitude for exactly this reason, so never turn one into a claim about how the metric moved. */
       metric_events: string[];
       /** Start of what was actually compared. The requested window is the experiment's run window clamped to its most recent 14 days (2 when sessions are matched on the stamped flag property, which no event name can prune a scan on), but a busy experiment reaches the session ceiling long before that, and this reports where the compared sessions really begin - often hours rather than days back. Display this, not the experiment's own dates. */
       date_from: string;
@@ -32259,7 +32316,8 @@ export namespace Schemas {
        * * `mysql` - mysql
        * * `snowflake` - snowflake
        * * `redshift` - redshift
-       * * `clickhouse` - clickhouse */
+       * * `clickhouse` - clickhouse
+       * * `motherduck` - motherduck */
       readonly engine: EngineEnum | null;
       /** The source type (e.g. 'Postgres', 'MySQL', 'Snowflake').
        *
@@ -33543,6 +33601,9 @@ export namespace Schemas {
        * * `Snovio` - Snovio
        * * `GoogleMerchantCenter` - GoogleMerchantCenter
        * * `Raisely` - Raisely
+       * * `RakutenAdvertising` - RakutenAdvertising
+       * * `Zitadel` - Zitadel
+       * * `DeelFlows` - DeelFlows
        * * `WindsorAi` - WindsorAi
        * * `Wix` - Wix
        * * `Sevalla` - Sevalla
@@ -34872,6 +34933,9 @@ export namespace Schemas {
        * * `Snovio` - Snovio
        * * `GoogleMerchantCenter` - GoogleMerchantCenter
        * * `Raisely` - Raisely
+       * * `RakutenAdvertising` - RakutenAdvertising
+       * * `Zitadel` - Zitadel
+       * * `DeelFlows` - DeelFlows
        * * `WindsorAi` - WindsorAi
        * * `Wix` - Wix
        * * `Sevalla` - Sevalla
@@ -35022,7 +35086,8 @@ export namespace Schemas {
        * * `mysql` - mysql
        * * `snowflake` - snowflake
        * * `redshift` - redshift
-       * * `clickhouse` - clickhouse */
+       * * `clickhouse` - clickhouse
+       * * `motherduck` - motherduck */
       readonly engine: EngineEnum | null;
       /** @nullable */
       readonly last_run_at: string | null;
@@ -35439,6 +35504,91 @@ export namespace Schemas {
          * @nullable
          */
       readonly modified_by: number | null;
+    }
+
+    /**
+     * * `requested` - Requested
+     */
+    export type RequestStatusEnum = typeof RequestStatusEnum[keyof typeof RequestStatusEnum];
+
+
+    export const RequestStatusEnum = {
+      Requested: 'requested',
+    } as const;
+
+    export interface FeatureRequestAccount {
+      /** ID of the affected Customer Analytics account. */
+      readonly id: string;
+      /** Name of the affected account. */
+      readonly name: string;
+    }
+
+    export interface FeatureRequestProductArea {
+      /** Stable product area ID. */
+      readonly id: string;
+      /**
+         * Team-maintained product area name.
+         * @maxLength 200
+         */
+      name: string;
+      /**
+         * Position in product area selectors. Lower values appear first.
+         * @minimum 0
+         */
+      display_order?: number;
+      /** Whether editors can select this product area for new requests. */
+      is_active?: boolean;
+      /** When the product area was created. */
+      readonly created_at: string;
+      /** When the product area was last updated. */
+      readonly updated_at: string;
+    }
+
+    export interface FeatureRequest {
+      /** Stable feature request ID. */
+      readonly id: string;
+      /** Customer-facing request title. */
+      readonly title: string;
+      /** Customer-facing request description in Markdown. */
+      readonly description: string;
+      /** Current customer-facing status. The first release always creates requests as requested.
+       *
+       * * `requested` - Requested */
+      readonly request_status: RequestStatusEnum;
+      /** Affected account in the first release. */
+      readonly account: FeatureRequestAccount;
+      /** Product areas affected by this request. */
+      readonly product_areas: readonly FeatureRequestProductArea[];
+      /**
+         * ID of the user who created the request.
+         * @nullable
+         */
+      readonly created_by: number | null;
+      /**
+         * ID of the last user to update the request.
+         * @nullable
+         */
+      readonly updated_by: number | null;
+      /** When the request was created. */
+      readonly created_at: string;
+      /** When the request was last updated. */
+      readonly updated_at: string;
+    }
+
+    export interface FeatureRequestCreate {
+      /**
+         * Required customer-facing request title.
+         * @maxLength 400
+         */
+      title: string;
+      /** Required customer-facing request description in Markdown. */
+      description: string;
+      /** ID of the affected Customer Analytics account. */
+      account_id: string;
+      /** One or more active product area IDs. Duplicate IDs are ignored. */
+      product_area_ids: string[];
+      /** Client-generated key that makes retries return the original request instead of creating a duplicate. */
+      idempotency_key: string;
     }
 
     export interface FeaturebaseFeedbackSignalExtra {
@@ -35991,11 +36141,13 @@ export namespace Schemas {
     } as const;
 
     /**
-     * One agent's access to a gateway server.
+     * One agent's access to a gateway server, on behalf of one member.
      */
     export interface GatewayAgentAccess {
       /** Service account granted access. */
       service_account_id: string;
+      /** The member whose connection the agent uses. */
+      user: UserBasic;
       /** Agent display name. */
       name: string;
       /** Agent identity handle, e.g. posthog-support. */
@@ -36010,7 +36162,7 @@ export namespace Schemas {
          * @nullable
          */
       last_active_at: string | null;
-      /** Admin who shared this server with the agent. */
+      /** Member who shared this server with the agent. */
       granted_by: UserBasic | null;
     }
 
@@ -42609,6 +42761,8 @@ export namespace Schemas {
          * @minimum 0
          */
       cooldown_minutes?: number;
+      /** Blocked local time windows when the alert must not run. Times use the project timezone. Null disables quiet hours. */
+      schedule_restriction?: AlertScheduleRestriction | null;
       /**
          * ISO 8601 timestamp until which the alert is snoozed. Set to null to unsnooze.
          * @nullable
@@ -44656,6 +44810,8 @@ export namespace Schemas {
     export interface MCPServiceAccountServer {
       /** Gateway server granted to the agent. */
       id: string;
+      /** The member whose connection the agent uses. */
+      shared_by: UserBasic;
       /** Server display name. */
       name: string;
       /** Server description. */
@@ -46380,6 +46536,38 @@ export namespace Schemas {
       prompt: string;
       /** The full type-specific config this version ran with (prompt plus, depending on scanner type, allow_inconclusive, tags, scale, or length), taken from the observation run snapshots. */
       scanner_config: unknown;
+      /**
+         * The scanner type this version ran as.
+         * @nullable
+         */
+      scanner_type: string | null;
+      /**
+         * The model this version ran on.
+         * @nullable
+         */
+      model: string | null;
+      /**
+         * The provider this version ran on.
+         * @nullable
+         */
+      provider: string | null;
+      /**
+         * Whether this version emitted signals.
+         * @nullable
+         */
+      emits_signals: boolean | null;
+      /** The `RecordingsQuery` recording filters this version ran with. */
+      query: unknown;
+      /**
+         * The 0..1 downsample this version ran with.
+         * @nullable
+         */
+      sampling_rate: number | null;
+      /**
+         * The session-coverage pre-filter this version ran with.
+         * @nullable
+         */
+      sampling_mode: string | null;
       /** Thumbs-up ratings on this version's observations. */
       up: number;
       /** Thumbs-down ratings on this version's observations. */
@@ -46397,7 +46585,7 @@ export namespace Schemas {
       by_day: ObservationLabelDayCount[];
       /** Daily label counts over the last `recent_days` days, bucketed by the day the rating was last set or changed: the team's rating activity. Days without rating changes are omitted. */
       by_rating_day: ObservationLabelDayCount[];
-      /** Each scanner (prompt) version that produced observations (all-time), with its first day, prompt, and rating counts, for chart markers and the prompt version history. */
+      /** Each scanner version that produced observations (all-time), with its first day, the config it ran with, and rating counts, for chart markers and the config version history. */
       version_markers: ObservationVersionMarker[];
     }
 
@@ -48087,6 +48275,15 @@ export namespace Schemas {
       /** @nullable */
       previous?: string | null;
       results: FeatureFlag[];
+    }
+
+    export interface PaginatedFeatureRequestList {
+      count: number;
+      /** @nullable */
+      next?: string | null;
+      /** @nullable */
+      previous?: string | null;
+      results: FeatureRequest[];
     }
 
     export interface PaginatedFieldNoteList {
@@ -53503,6 +53700,10 @@ export namespace Schemas {
       readonly created_at?: string;
       /** Insight ID monitored by this alert. Note: Response returns full InsightBasicSerializer object. */
       insight?: number;
+      /** Short ID of the insight monitored by this alert. */
+      readonly insight_short_id?: string;
+      /** Display name of the insight monitored by this alert. */
+      readonly insight_display_name?: string;
       /**
          * Human-readable name for the alert.
          * @maxLength 255
@@ -54215,7 +54416,7 @@ export namespace Schemas {
     export interface PatchedDataCatalogMetric {
       readonly id?: string;
       /**
-         * Identifier-safe run handle, unique per team and reserved forever. Write-once.
+         * Identifier-safe run handle, unique among the team's live metrics. Renaming or deleting a metric frees its name for reuse, and anything referencing the old name (SQL over information_schema.metrics, run URLs, links) stops resolving.
          * @maxLength 128
          * @pattern ^[A-Za-z][A-Za-z0-9_]*$
          */
@@ -55715,7 +55916,8 @@ export namespace Schemas {
        * * `mysql` - mysql
        * * `snowflake` - snowflake
        * * `redshift` - redshift
-       * * `clickhouse` - clickhouse */
+       * * `clickhouse` - clickhouse
+       * * `motherduck` - motherduck */
       readonly engine?: EngineEnum | null;
       /** @nullable */
       readonly last_run_at?: string | null;
@@ -55775,6 +55977,27 @@ export namespace Schemas {
        * * `distinct_id` - User ID (default)
        * * `device_id` - Device ID */
       bucketing_identifier?: BucketingIdentifierEnum | null;
+    }
+
+    export interface PatchedFeatureRequestProductArea {
+      /** Stable product area ID. */
+      readonly id?: string;
+      /**
+         * Team-maintained product area name.
+         * @maxLength 200
+         */
+      name?: string;
+      /**
+         * Position in product area selectors. Lower values appear first.
+         * @minimum 0
+         */
+      display_order?: number;
+      /** Whether editors can select this product area for new requests. */
+      is_active?: boolean;
+      /** When the product area was created. */
+      readonly created_at?: string;
+      /** When the product area was last updated. */
+      readonly updated_at?: string;
     }
 
     /**
@@ -56735,6 +56958,8 @@ export namespace Schemas {
          * @minimum 0
          */
       cooldown_minutes?: number;
+      /** Blocked local time windows when the alert must not run. Times use the project timezone. Null disables quiet hours. */
+      schedule_restriction?: AlertScheduleRestriction | null;
       /**
          * ISO 8601 timestamp until which the alert is snoozed. Set to null to unsnooze.
          * @nullable
@@ -66705,6 +66930,16 @@ export namespace Schemas {
       createdAt: string | null;
     }
 
+    export interface ReadyToMergeBucket {
+      /** Bucket start, aligned to ready_to_merge_series_granularity (top of hour, midnight, or Monday). */
+      bucket_start: string;
+      /**
+         * Median per-PR ready_to_merge_seconds (merged_at minus the last observed ready-for-review transition) over PRs merged in this bucket, bots and drafts excluded. Null when nothing merged with an observed value (a gap, never zero).
+         * @nullable
+         */
+      p50_seconds: number | null;
+    }
+
     /**
      * Request body for triggering a metrics recalculation.
      */
@@ -66898,7 +67133,7 @@ export namespace Schemas {
       /** Bucket start, aligned to time_to_green_series_granularity (top of hour, midnight, or Monday). */
       bucket_start: string;
       /**
-         * Median wall-clock seconds of successful PR-attributed CI runs started in this bucket. Null when the bucket had no successful PR run (a gap, not instant CI).
+         * Median wall-clock seconds from a PR push round's first run start until every workflow on that head SHA first completed benign, over rounds started in this bucket (merge-queue gates and partially-attributed fork rounds excluded). Null when the bucket had no fully green round (a gap, not instant CI).
          * @nullable
          */
       p50_seconds: number | null;
@@ -66907,12 +67142,14 @@ export namespace Schemas {
     export interface RepoOverview {
       /** CI cost per merged PR across the window, oldest first, zero-filled, bucketed by cost_series_granularity. Empty when the job-level source isn't synced or include_series=false. */
       cost_series: CostPerMergeBucket[];
-      /** Median time-to-green (p50 successful PR-attributed CI run duration) per bucket across the window, oldest first, bucketed by time_to_green_series_granularity. Empty buckets carry null; the whole series is empty when include_series=false. */
+      /** Median time-to-green (p50 wall clock for a PR push round to settle fully green) per bucket across the window, oldest first, bucketed by time_to_green_series_granularity. Empty buckets carry null; the whole series is empty when include_series=false. */
       time_to_green_series: TimeToGreenBucket[];
       /** CI pass rate (completed runs that succeeded, all branches) per bucket across the window, oldest first, bucketed by success_rate_series_granularity. Empty buckets carry null; the whole series is empty when include_series=false. */
       success_rate_series: PassRateBucket[];
       /** Median time-to-merge (p50 open_to_merge_seconds, bots/drafts excluded) per bucket across the window, oldest first, bucketed by open_to_merge_series_granularity. Empty buckets carry null; the whole series is empty when include_series=false. */
       open_to_merge_series: OpenToMergeBucket[];
+      /** Median cycle time (p50 per-PR ready_to_merge_seconds, bots/drafts excluded) per bucket across the window, oldest first, bucketed by ready_to_merge_series_granularity. Empty buckets carry null; the whole series is empty when the issue-events table isn't synced or include_series=false, so fall back to open_to_merge_series. */
+      ready_to_merge_series: ReadyToMergeBucket[];
       /** Workflow runs started in the window, all branches and workflows. */
       run_count: number;
       /** Same count over the equal-length window immediately before date_from — the delta baseline. */
@@ -66945,6 +67182,16 @@ export namespace Schemas {
          * @nullable
          */
       median_open_to_merge_seconds_prev: number | null;
+      /**
+         * Median per-PR ready_to_merge_seconds (the true cycle time: merged_at minus the last observed ready-for-review transition) over PRs merged in the window, bots and drafts excluded. Null when the issue-events table isn't synced or no merged PR has an observed value; fall back to median_open_to_merge_seconds and label it open-to-merge.
+         * @nullable
+         */
+      median_ready_to_merge_seconds: number | null;
+      /**
+         * The same median over the previous window. Null when not observed.
+         * @nullable
+         */
+      median_ready_to_merge_seconds_prev: number | null;
       /**
          * Billable (self-hosted) job minutes in the window; null when the job-level source isn't synced.
          * @nullable
@@ -66987,6 +67234,8 @@ export namespace Schemas {
       success_rate_series_granularity: string;
       /** Bucket width of the open_to_merge_series trend: 'hour', 'day', or 'week'. */
       open_to_merge_series_granularity: string;
+      /** Bucket width of the ready_to_merge_series trend: 'hour', 'day', or 'week'. */
+      ready_to_merge_series_granularity: string;
     }
 
     export type ReportPriority = typeof ReportPriority[keyof typeof ReportPriority];
@@ -69007,10 +69256,12 @@ export namespace Schemas {
     } as const;
 
     export interface ServiceAccountAccessUpdate {
-      /** Gateway server to grant or revoke. */
+      /** Gateway server to share or stop sharing. */
       gateway_server_id: string;
-      /** True grants access, false revokes it. */
+      /** True shares the caller's own connection with the agent, false removes the caller's share. */
       enabled: boolean;
+      /** Only valid with enabled=false. Removes every member's share of this server with this agent, along with the agent's tool policies for it. Project admins only. */
+      all?: boolean;
       /**
          * Optional agent-scope tool policies to set alongside the grant. At most 1,000 entries per request.
          * @maxItems 1000
@@ -71578,6 +71829,9 @@ export namespace Schemas {
        * * `Snovio` - Snovio
        * * `GoogleMerchantCenter` - GoogleMerchantCenter
        * * `Raisely` - Raisely
+       * * `RakutenAdvertising` - RakutenAdvertising
+       * * `Zitadel` - Zitadel
+       * * `DeelFlows` - DeelFlows
        * * `WindsorAi` - WindsorAi
        * * `Wix` - Wix
        * * `Sevalla` - Sevalla
@@ -72917,6 +73171,9 @@ export namespace Schemas {
        * * `Snovio` - Snovio
        * * `GoogleMerchantCenter` - GoogleMerchantCenter
        * * `Raisely` - Raisely
+       * * `RakutenAdvertising` - RakutenAdvertising
+       * * `Zitadel` - Zitadel
+       * * `DeelFlows` - DeelFlows
        * * `WindsorAi` - WindsorAi
        * * `Wix` - Wix
        * * `Sevalla` - Sevalla
@@ -74246,6 +74503,9 @@ export namespace Schemas {
        * * `Snovio` - Snovio
        * * `GoogleMerchantCenter` - GoogleMerchantCenter
        * * `Raisely` - Raisely
+       * * `RakutenAdvertising` - RakutenAdvertising
+       * * `Zitadel` - Zitadel
+       * * `DeelFlows` - DeelFlows
        * * `WindsorAi` - WindsorAi
        * * `Wix` - Wix
        * * `Sevalla` - Sevalla
@@ -81870,9 +82130,17 @@ export namespace Schemas {
      */
     created_by?: string;
     /**
+     * Optional. Restrict results by whether the alert uses anomaly detection.
+     */
+    has_detector?: boolean;
+    /**
      * Optional. Restrict results to alerts on this insight ID.
      */
     insight_id?: number;
+    /**
+     * Optional. Restrict results to alerts whose insight has this tag.
+     */
+    insight_tag?: string;
     /**
      * Number of results to return per page.
      */
@@ -84777,6 +85045,24 @@ export namespace Schemas {
      * Groups for feature flag evaluation (JSON object string)
      */
     groups?: string;
+    };
+
+    export type FeatureRequestProductAreasListParams = {
+    /**
+     * Include inactive product areas. Defaults to false.
+     */
+    include_inactive?: boolean;
+    };
+
+    export type FeatureRequestsListParams = {
+    /**
+     * Number of results to return per page.
+     */
+    limit?: number;
+    /**
+     * The initial index from which to return the results.
+     */
+    offset?: number;
     };
 
     export type FieldNotesListParams = {

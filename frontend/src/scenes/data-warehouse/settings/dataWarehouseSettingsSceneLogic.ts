@@ -108,14 +108,19 @@ export interface dataWarehouseSettingsSceneLogicActions {
             types?: string[][]
         }
     } // dataWarehouseViewsLogic
+    ensureAllTableFields: () => {
+        value: true
+    } // databaseTableListLogic
     loadDatabase: (
         args_0?:
             | {
                   force?: boolean
+                  shallow?: boolean
               }
             | undefined
     ) => {
         force?: boolean
+        shallow?: boolean
     } // databaseTableListLogic
     loadDatabaseFailure: (
         error: string,
@@ -129,12 +134,14 @@ export interface dataWarehouseSettingsSceneLogicActions {
         payload?:
             | {
                   force?: boolean
+                  shallow?: boolean
               }
             | undefined
     ) => {
         database: Required<DatabaseSchemaQueryResponse> | null
         payload?: {
             force?: boolean
+            shallow?: boolean
         }
     } // databaseTableListLogic
     refreshDatabaseSchema: () => {
@@ -233,7 +240,13 @@ export const dataWarehouseSettingsSceneLogic = kea<dataWarehouseSettingsSceneLog
             dataWarehouseViewsLogic,
             ['deleteDataWarehouseSavedQuery', 'updateDataWarehouseSavedQuery', 'updateDataWarehouseSavedQuerySuccess'],
             databaseTableListLogic,
-            ['loadDatabase', 'refreshDatabaseSchema', 'loadDatabaseSuccess', 'loadDatabaseFailure'],
+            [
+                'loadDatabase',
+                'refreshDatabaseSchema',
+                'loadDatabaseSuccess',
+                'loadDatabaseFailure',
+                'ensureAllTableFields',
+            ],
         ],
     })),
     actions(({ values }) => ({
@@ -507,6 +520,10 @@ export const dataWarehouseSettingsSceneLogic = kea<dataWarehouseSettingsSceneLog
     afterMount(({ actions, values }) => {
         if (!values.database && !values.databaseLoading) {
             actions.loadDatabase()
+        } else {
+            // The store may hold a shallow (fields-less) schema left by the SQL editor; the schema
+            // editing panel and the taxonomic data warehouse groups need fields.
+            actions.ensureAllTableFields()
         }
     }),
 ])

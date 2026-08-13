@@ -821,7 +821,12 @@ function TestSection({
                 </Button>
               }
             />
-            <DropdownMenuContent align="end" side="bottom" sideOffset={6}>
+            <DropdownMenuContent
+              align="end"
+              side="bottom"
+              sideOffset={6}
+              className="w-max"
+            >
               <DropdownMenuItem onClick={testToast} disabled={!bus}>
                 In-app toast
               </DropdownMenuItem>

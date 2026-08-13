@@ -385,6 +385,29 @@ fn record_warm_span(span: &'static str, start: Instant) {
         .record(start.elapsed().as_secs_f64() * 1000.0);
 }
 
+/// Cancellation-safe cleanup for a warm in flight. The coordination loop
+/// drops warms on lease loss and shutdown, and a dropped future never
+/// reaches code after its await points — so the abort of the unpublished
+/// build and the clearing of this partition's seeded dirty marks live in
+/// `Drop`, which runs on every exit: error, panic, and cancellation.
+/// Disarmed immediately before the publish, when the state stops being
+/// residue and becomes the partition's serving truth.
+struct WarmCleanup<'a> {
+    cache: &'a PartitionedCache,
+    dirty_index: &'a DirtyIndex,
+    partition: u32,
+    armed: bool,
+}
+
+impl Drop for WarmCleanup<'_> {
+    fn drop(&mut self) {
+        if self.armed {
+            self.cache.abort_warm_partition(self.partition);
+            self.dirty_index.clear_partition(self.partition);
+        }
+    }
+}
+
 /// Populate the cache from Kafka for a single partition.
 ///
 /// Invariants at call time (enforced by the handoff protocol). The
@@ -513,11 +536,31 @@ pub async fn warm_from_kafka(
         .assign(&assign_tpl)
         .map_err(|e| CoordError::invalid_state(format!("consumer assign: {e}")))?;
 
-    // Buffer records locally and only commit them to the cache after the
-    // entire range warms successfully. Any decode/IO failure mid-range
-    // aborts warming with no observable cache mutation, which keeps a
-    // partial cache from masking PG fallback reads.
-    let mut buffered: Vec<(PersonCacheKey, CachedPerson, i64)> = Vec::new();
+    // Stream records straight into an unpublished partition cache: the
+    // build evicts under the same per-partition byte budget as a serving
+    // cache, so the warm's peak memory is bounded no matter how large
+    // the range is. Each record writes its dirty mark BEFORE its insert,
+    // so at every instant an evicted unapplied person is already
+    // recoverable from the changelog — the same miss path a serving
+    // partition relies on. Nothing is observable until the publish at
+    // the end.
+    cache.begin_warm_partition(partition);
+    // Every non-published exit — an error, a panic, or the coordination
+    // loop dropping this future on lease loss or shutdown (the
+    // cancellation `HandoffHandler::warm_partition`'s contract names) —
+    // must leave no trace: the guard aborts the build and clears the
+    // partition's seeded marks on drop. A stale mark surviving into a
+    // later acquisition would redirect a miss to a superseded changelog
+    // offset; the re-warm only overwrites marks for records past the
+    // writer's *new* committed offset, so it cannot heal one.
+    let mut cleanup = WarmCleanup {
+        cache,
+        dirty_index,
+        partition,
+        armed: true,
+    };
+    let mut consumed: u64 = 0;
+    let mut seeded = 0u64;
     let mut last_offset: i64 = -1;
 
     // A transactionally-produced range can end in control records
@@ -529,7 +572,10 @@ pub async fn warm_from_kafka(
     let poll_slice = Duration::from_millis(100).min(cfg.recv_timeout);
     let mut quiet_since = Instant::now();
 
-    loop {
+    // `return` inside this block exits the block, not the function: a
+    // failure propagates through `?` below and the guard cleans up.
+    let consume_result: CoordResult<()> = async {
+        loop {
         let msg = match timeout(poll_slice, consumer.recv()).await {
             Ok(Ok(m)) => m,
             // A non-fatal consumer error means librdkafka is handling it:
@@ -566,8 +612,7 @@ pub async fn warm_from_kafka(
                 if quiet_since.elapsed() >= cfg.recv_timeout {
                     return Err(CoordError::invalid_state(format!(
                         "warm stalled on repeated consumer errors (last: {code:?}); \
-                         consumed {count} msgs, last_offset={last_offset}, hwm={hwm}",
-                        count = buffered.len()
+                         consumed {consumed} msgs, last_offset={last_offset}, hwm={hwm}",
                     )));
                 }
                 counter!(
@@ -602,8 +647,7 @@ pub async fn warm_from_kafka(
                 }
                 if quiet_since.elapsed() >= cfg.recv_timeout {
                     return Err(CoordError::invalid_state(format!(
-                        "warm timeout; consumed {count} msgs, last_offset={last_offset}, hwm={hwm}",
-                        count = buffered.len()
+                        "warm timeout; consumed {consumed} msgs, last_offset={last_offset}, hwm={hwm}",
                     )));
                 }
                 continue;
@@ -627,7 +671,23 @@ pub async fn warm_from_kafka(
                 team_id: cached.team_id,
                 person_id: cached.id,
             };
-            buffered.push((key, cached, offset));
+            consumed += 1;
+            // Records at or past the writer's committed offset are not
+            // yet in PG: mark before insert, so if the build evicts this
+            // person a later miss recovers from the changelog instead of
+            // trusting a stale PG row.
+            if committed_offset.is_none_or(|committed| offset >= committed) {
+                dirty_index.mark(
+                    key.clone(),
+                    DirtyMark {
+                        version: cached.version,
+                        offset,
+                        partition,
+                    },
+                );
+                seeded += 1;
+            }
+            cache.warm_put(partition, key, cached);
         } else {
             // The writer never produces null-payload (tombstone) records
             // to `personhog_updates` today. If one ever appears it would
@@ -647,50 +707,36 @@ pub async fn warm_from_kafka(
         if offset + 1 >= hwm {
             break;
         }
+        }
+        Ok(())
     }
+    .await;
+    consume_result?;
 
     record_warm_span("consume", span_start);
 
-    // Records at or above the writer's committed offset are not yet in PG:
-    // seed the dirty index so that, if the cache later evicts them, a miss
-    // recovers from the changelog instead of trusting a stale PG row. With
-    // no committed offset the writer has applied nothing, so every record
-    // is marked. Seeding happens before the install publishes the
-    // partition, so no request can observe the cache without the marks.
-    let mut seeded = 0u64;
-    for (key, cached, offset) in &buffered {
-        if committed_offset.is_none_or(|committed| *offset >= committed) {
-            dirty_index.mark(
-                key.clone(),
-                DirtyMark {
-                    version: cached.version,
-                    offset: *offset,
-                    partition,
-                },
-            );
-            seeded += 1;
-        }
-    }
-
-    // Atomic install: the populated `PersonCache` is built first, then a
-    // single `DashMap::insert` publishes it. The previous pattern
+    // Atomic publish: one `DashMap` insert flips the fully-built cache
+    // from invisible to observable. The previous pattern
     // (`create_partition` + per-record `put` loop) created a window
     // where readers could observe `has_partition == true` while the
     // cache was still being populated, and then fall through to PG —
     // potentially returning stale values for records the writer hasn't
-    // yet persisted. Atomicity here removes the dependency on the
+    // yet persisted. Publishing at the end removes the dependency on the
     // protocol invariant ("no reads during Warming") for correctness.
-    let count = buffered.len() as u64;
-    cache.install_warmed_partition(
-        partition,
-        buffered.into_iter().map(|(key, cached, _)| (key, cached)),
-    );
+    let resident_bytes = cache.warm_usage_bytes(partition) as u64;
+    // Disarm before the publish: from here the marks and the cache are
+    // the partition's serving state, not warm residue. No await sits
+    // between the disarm and the publish, so no cancellation can land
+    // in between.
+    cleanup.armed = false;
+    cache.publish_warmed_partition(partition);
 
     let elapsed = start.elapsed();
     tracing::info!(
         pod = cfg.pod_name,
         partition,
-        messages = count,
+        messages = consumed,
+        resident_bytes,
         dirty_seeded = seeded,
         hwm,
         start_offset,
@@ -698,7 +744,7 @@ pub async fn warm_from_kafka(
         "warmed partition from kafka"
     );
     histogram!("personhog_leader_warm_duration_ms").record(elapsed.as_secs_f64() * 1000.0);
-    counter!("personhog_leader_warmed_messages_total").increment(count);
+    counter!("personhog_leader_warmed_messages_total").increment(consumed);
 
     // Every error path above dropped the consumer instead of returning
     // it — a client that just failed is not pool material. Failing to
@@ -721,6 +767,112 @@ mod tests {
         initial_backoff: Duration::from_millis(500),
         max_backoff: Duration::from_secs(5),
     };
+
+    fn warm_test_person() -> CachedPerson {
+        CachedPerson {
+            id: 42,
+            uuid: "00000000-0000-0000-0000-000000000042".to_string(),
+            team_id: 1,
+            properties: b"{}".to_vec(),
+            created_at: 0,
+            version: 1,
+            is_identified: false,
+            is_deleted: false,
+            last_seen_at: None,
+            approx_bytes: crate::cache::approx_person_bytes(2),
+        }
+    }
+
+    /// The coordination loop cancels a warm by dropping its future, which
+    /// never reaches code after an await point — so the cleanup lives in
+    /// `WarmCleanup::drop`, and this pins that it runs. A surviving build
+    /// pins memory for a partition this pod never serves; a surviving mark
+    /// outlives re-acquisition, because the next warm only overwrites
+    /// marks past the writer's committed offset by then, and redirects a
+    /// later cache miss to a superseded changelog offset.
+    #[test]
+    fn dropping_an_armed_cleanup_clears_the_build_and_its_marks() {
+        let cache = PartitionedCache::new(1 << 20);
+        let dirty_index = DirtyIndex::new(1_000);
+        let key = PersonCacheKey {
+            team_id: 1,
+            person_id: 42,
+        };
+
+        cache.begin_warm_partition(0);
+        {
+            let _cleanup = WarmCleanup {
+                cache: &cache,
+                dirty_index: &dirty_index,
+                partition: 0,
+                armed: true,
+            };
+            dirty_index.mark(
+                key.clone(),
+                DirtyMark {
+                    version: 1,
+                    offset: 7,
+                    partition: 0,
+                },
+            );
+            cache.warm_put(0, key.clone(), warm_test_person());
+        }
+
+        assert!(
+            dirty_index.get(&key).is_none(),
+            "a cancelled warm must clear the marks it seeded"
+        );
+        assert_eq!(
+            cache.usage_bytes(),
+            0,
+            "a cancelled warm must leave no build in flight"
+        );
+        assert!(!cache.has_partition(0), "nothing may have published");
+    }
+
+    /// The mirror: once the warm publishes, the marks and the cache are
+    /// the partition's serving state rather than warm residue, so the
+    /// disarmed guard must leave both alone.
+    #[test]
+    fn dropping_a_disarmed_cleanup_leaves_the_published_partition_alone() {
+        let cache = PartitionedCache::new(1 << 20);
+        let dirty_index = DirtyIndex::new(1_000);
+        let key = PersonCacheKey {
+            team_id: 1,
+            person_id: 42,
+        };
+
+        cache.begin_warm_partition(0);
+        {
+            let mut cleanup = WarmCleanup {
+                cache: &cache,
+                dirty_index: &dirty_index,
+                partition: 0,
+                armed: true,
+            };
+            dirty_index.mark(
+                key.clone(),
+                DirtyMark {
+                    version: 1,
+                    offset: 7,
+                    partition: 0,
+                },
+            );
+            cache.warm_put(0, key.clone(), warm_test_person());
+            cleanup.armed = false;
+            cache.publish_warmed_partition(0);
+        }
+
+        assert!(
+            dirty_index.get(&key).is_some(),
+            "a published partition keeps its marks"
+        );
+        assert!(cache.has_partition(0), "the partition stays published");
+        assert!(matches!(
+            cache.get(0, &key),
+            crate::cache::CacheLookup::Found(_)
+        ));
+    }
 
     #[test]
     fn resolve_uses_committed_minus_lookback() {

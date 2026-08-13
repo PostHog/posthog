@@ -66,25 +66,28 @@ class ServiceCredentialConnect:
 
 @dataclass(frozen=True)
 class ServiceCredential:
-    """A team-scoped credential minted by the duckgres control plane, for one
-    run's new duckgres connections (RDS-IAM pattern: short-lived, scoped,
-    disposable — see duckgres/CLAUDE.md "Service Credentials").
+    """An org-scoped per-credential grant minted by the duckgres control
+    plane, for one run's new duckgres connections (RDS-IAM pattern:
+    short-lived, scoped, disposable — see duckgres/CLAUDE.md "Service
+    Credentials").
 
-    ``password`` is empty when the CP REUSED a still-valid grant (`rotated`
-    is False): callers that already hold the credential keep using it;
-    callers that don't must re-mint with ``force_rotate=True``.
+    Each mint creates its own server-side grant row, so minting never
+    disturbs sessions created by other mints. ``principal`` is audit metadata
+    and does not select an existing grant. ``credential_id`` is the
+    CP-generated identifier (``svc_<24 random hex>``); it is not a secret and
+    may be logged. Callers retain it to refresh the credential they minted.
+    Every successful mint and refresh includes ``credential_secret``.
 
     ``connect`` carries the CP-issued dial target for the credential and is
     REQUIRED on every successful mint — a mint response without it is an
     older CP than the contract and must be rejected at mint time.
     """
 
-    username: str
+    credential_id: str
     # repr=False: a dataclass repr lands credentials into any traceback,
     # pytest assertion diff, or log line that stringifies the object.
-    password: str = field(repr=False)
+    credential_secret: str = field(repr=False)
     expires_at: datetime
-    rotated: bool
     connect: ServiceCredentialConnect
 
 

@@ -1322,6 +1322,9 @@ class ExternalDataSourceType(models.TextChoices):
     SNOVIO = "Snovio", "Snovio"
     GOOGLEMERCHANTCENTER = "GoogleMerchantCenter", "GoogleMerchantCenter"
     RAISELY = "Raisely", "Raisely"
+    RAKUTENADVERTISING = "RakutenAdvertising", "RakutenAdvertising"
+    ZITADEL = "Zitadel", "Zitadel"
+    DEELFLOWS = "DeelFlows", "DeelFlows"
     WINDSORAI = "WindsorAi", "WindsorAi"
     WIX = "Wix", "Wix"
     SEVALLA = "Sevalla", "Sevalla"
@@ -1346,6 +1349,7 @@ DIRECT_ENGINE_BY_SOURCE_TYPE: dict[str, str] = {
     ExternalDataSourceType.REDSHIFT: "redshift",
     ExternalDataSourceType.CLICKHOUSE: "clickhouse",
     ExternalDataSourceType.CLICKHOUSECLOUD: "clickhouse",
+    ExternalDataSourceType.MOTHERDUCK: "motherduck",
 }
 
 

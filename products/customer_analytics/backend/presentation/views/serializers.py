@@ -50,6 +50,9 @@ from products.customer_analytics.backend.facade.contracts import (
     CustomPropertySourceView,
     CustomPropertySyncRunView,
     EventStreamView,
+    FeatureRequestAccountView,
+    FeatureRequestProductAreaView,
+    FeatureRequestView,
     MeetingParticipantView,
     MeetingView,
 )
@@ -95,6 +98,109 @@ _ACCOUNT_PROPERTIES_SCHEMA = {
 @extend_schema_field(_ACCOUNT_PROPERTIES_SCHEMA)
 class AccountPropertiesField(serializers.JSONField):
     pass
+
+
+class FeatureRequestProductAreaSerializer(DataclassSerializer):
+    id = serializers.UUIDField(read_only=True, help_text="Stable product area ID.")
+    name = serializers.CharField(max_length=200, help_text="Team-maintained product area name.")
+    display_order = serializers.IntegerField(
+        required=False,
+        min_value=0,
+        default=0,
+        help_text="Position in product area selectors. Lower values appear first.",
+    )
+    is_active = serializers.BooleanField(
+        required=False,
+        default=True,
+        help_text="Whether editors can select this product area for new requests.",
+    )
+    created_at = serializers.DateTimeField(read_only=True, help_text="When the product area was created.")
+    updated_at = serializers.DateTimeField(read_only=True, help_text="When the product area was last updated.")
+
+    class Meta:
+        dataclass = FeatureRequestProductAreaView
+        ref_name = "FeatureRequestProductArea"
+        fields = ["id", "name", "display_order", "is_active", "created_at", "updated_at"]
+
+
+class FeatureRequestProductAreaListQuerySerializer(serializers.Serializer):
+    include_inactive = serializers.BooleanField(
+        required=False,
+        default=False,
+        help_text="Include inactive product areas. Defaults to false.",
+    )
+
+
+class FeatureRequestAccountSerializer(DataclassSerializer):
+    id = serializers.UUIDField(read_only=True, help_text="ID of the affected Customer Analytics account.")
+    name = serializers.CharField(read_only=True, help_text="Name of the affected account.")
+
+    class Meta:
+        dataclass = FeatureRequestAccountView
+        ref_name = "FeatureRequestAccount"
+        fields = ["id", "name"]
+
+
+class FeatureRequestSerializer(DataclassSerializer):
+    id = serializers.UUIDField(read_only=True, help_text="Stable feature request ID.")
+    title = serializers.CharField(read_only=True, help_text="Customer-facing request title.")
+    description = serializers.CharField(read_only=True, help_text="Customer-facing request description in Markdown.")
+    request_status = serializers.ChoiceField(
+        read_only=True,
+        choices=[("requested", "Requested")],
+        help_text="Current customer-facing status. The first release always creates requests as requested.",
+    )
+    account = FeatureRequestAccountSerializer(read_only=True, help_text="Affected account in the first release.")
+    product_areas = FeatureRequestProductAreaSerializer(
+        many=True,
+        read_only=True,
+        help_text="Product areas affected by this request.",
+    )
+    created_by = serializers.IntegerField(
+        read_only=True, allow_null=True, help_text="ID of the user who created the request."
+    )
+    updated_by = serializers.IntegerField(
+        read_only=True, allow_null=True, help_text="ID of the last user to update the request."
+    )
+    created_at = serializers.DateTimeField(read_only=True, help_text="When the request was created.")
+    updated_at = serializers.DateTimeField(read_only=True, help_text="When the request was last updated.")
+
+    class Meta:
+        dataclass = FeatureRequestView
+        ref_name = "FeatureRequest"
+        fields = [
+            "id",
+            "title",
+            "description",
+            "request_status",
+            "account",
+            "product_areas",
+            "created_by",
+            "updated_by",
+            "created_at",
+            "updated_at",
+        ]
+
+
+class FeatureRequestCreateSerializer(serializers.Serializer):
+    title = serializers.CharField(
+        max_length=400,
+        trim_whitespace=True,
+        help_text="Required customer-facing request title.",
+    )
+    description = serializers.CharField(
+        trim_whitespace=True,
+        help_text="Required customer-facing request description in Markdown.",
+    )
+    account_id = serializers.UUIDField(help_text="ID of the affected Customer Analytics account.")
+    product_area_ids = serializers.ListField(
+        child=serializers.UUIDField(),
+        allow_empty=False,
+        help_text="One or more active product area IDs. Duplicate IDs are ignored.",
+    )
+    idempotency_key = serializers.UUIDField(
+        help_text="Client-generated key that makes retries return the original request instead of creating a duplicate.",
+    )
 
 
 class CustomerProfileConfigSerializer(DataclassSerializer):
