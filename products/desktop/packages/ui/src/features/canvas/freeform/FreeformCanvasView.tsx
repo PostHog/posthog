@@ -23,6 +23,7 @@ import {
   type CanvasTextSelection,
   limitCanvasCommentHighlights,
 } from "@posthog/core/canvas/freeformSchemas";
+import { textToContent } from "@posthog/core/message-editor/content";
 import { useHostTRPC } from "@posthog/host-router/react";
 import {
   Badge,
@@ -37,6 +38,10 @@ import {
   EmptyHeader,
   EmptyMedia,
   EmptyTitle,
+  Tooltip as QuillTooltip,
+  TooltipContent,
+  TooltipProvider,
+  TooltipTrigger,
 } from "@posthog/quill";
 import { CANVAS_COMPONENT_PATH } from "@posthog/shared";
 import { ANALYTICS_EVENTS } from "@posthog/shared/analytics-events";
@@ -59,6 +64,7 @@ import {
   useFreeformChatStore,
   useFreeformThread,
 } from "@posthog/ui/features/canvas/stores/freeformChatStore";
+import { useDraftStore } from "@posthog/ui/features/message-editor/draftStore";
 import type { EditorHandle } from "@posthog/ui/features/message-editor/types";
 import { useCommentNavigationStore } from "@posthog/ui/features/sessions/commentNavigationStore";
 import {
@@ -79,7 +85,7 @@ import {
   Text,
   Tooltip,
 } from "@radix-ui/themes";
-import { useQuery, useQueryClient } from "@tanstack/react-query";
+import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { Link } from "@tanstack/react-router";
 import { AnimatePresence, motion } from "framer-motion";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
@@ -556,18 +562,37 @@ export function FreeformCanvasView({
     }),
     [channelId, dashboardId, pinnedArtifact?.buildId],
   );
+  const { mutate: reportRuntimeError } = useMutation(
+    trpc.dashboards.reportError.mutationOptions(),
+  );
   const onError = useCallback(
     (message: string) => {
       if (message !== lastRuntimeErrorRef.current) {
         lastRuntimeErrorRef.current = message;
+        const errorType = canvasErrorType(message);
         track(ANALYTICS_EVENTS.CANVAS_RUNTIME_ERROR, {
           ...canvasTrackProps,
-          error_type: canvasErrorType(message),
+          error_type: errorType,
         });
+        // File the error in the authoring task's thread so its agent hears
+        // about it — the class name only; the full message stays client-side.
+        if (canvasTrackProps.build_id) {
+          reportRuntimeError({
+            id: dashboardId,
+            buildId: canvasTrackProps.build_id,
+            errorType,
+          });
+        }
       }
       setRuntimeError(threadId, message);
     },
-    [threadId, setRuntimeError, canvasTrackProps],
+    [
+      threadId,
+      setRuntimeError,
+      canvasTrackProps,
+      dashboardId,
+      reportRuntimeError,
+    ],
   );
   const onRendered = useCallback(() => {
     // "rendered" is as good as "ready" as proof the pinned artifact URL loaded.
@@ -586,15 +611,25 @@ export function FreeformCanvasView({
 
   // The edit composer's editor handle, so self-repair can prefill it.
   const editorRef = useRef<EditorHandle>(null);
-  // Reveal the panel composer and prefill it. The panel stays mounted while
-  // collapsed, so the editor handle is available even from a minimized panel.
+  const setPanelTab = useCanvasChatPanelStore((s) => s.setTab);
+  const draftActions = useDraftStore((s) => s.actions);
+  // Reveal the panel's chat composer and prefill it. A canvas that has ever
+  // generated shows the task session's composer, which receives content
+  // through the draft store keyed by task id — the editor ref only exists on
+  // the generate bar a never-generated canvas mounts.
   const prefillComposer = useCallback(
     (message: string) => {
       setCollapsed(false);
+      setPanelTab("chat");
+      if (effectiveTaskId) {
+        draftActions.setPendingContent(effectiveTaskId, textToContent(message));
+        draftActions.requestFocus(effectiveTaskId);
+        return;
+      }
       editorRef.current?.setContent(message);
       editorRef.current?.focus();
     },
-    [setCollapsed],
+    [setCollapsed, setPanelTab, effectiveTaskId, draftActions],
   );
   const askAgentToFix = () => {
     if (!runtimeError) return;
@@ -799,10 +834,23 @@ export function FreeformCanvasView({
                 ) : (
                   runtimeError && (
                     <>
-                      <Flex align="center" gap="1" className="text-red-11">
-                        <WarningIcon size={14} />
-                        <Text size="1">Runtime error</Text>
-                      </Flex>
+                      <TooltipProvider delay={0}>
+                        <QuillTooltip>
+                          <TooltipTrigger
+                            render={
+                              <div className="flex items-center gap-1 text-red-11">
+                                <WarningIcon size={14} />
+                                <Text size="1">Runtime error</Text>
+                              </div>
+                            }
+                          />
+                          <TooltipContent>
+                            <span className="block max-w-sm whitespace-pre-wrap break-words">
+                              {runtimeError}
+                            </span>
+                          </TooltipContent>
+                        </QuillTooltip>
+                      </TooltipProvider>
                       <Button
                         size="sm"
                         variant="outline"

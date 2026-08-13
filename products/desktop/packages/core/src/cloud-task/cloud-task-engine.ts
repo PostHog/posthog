@@ -473,7 +473,7 @@ export class CloudTaskEngine extends TypedEventEmitter<CloudTaskEvents> {
   }
 
   /**
-   * Relay-designated server names per run (docs/cloud-mcp-relay.md).
+   * Relay-designated server names per run (docs/CLOUD-MCP-RELAY.md).
    * In-memory by design: only the client that created a run in this app
    * session may execute relay requests for it; requests for undesignated
    * runs or names are dropped.
