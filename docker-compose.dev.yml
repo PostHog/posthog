@@ -19,7 +19,10 @@ services:
             file: docker-compose.base.yml
             service: proxy
         ports:
-            - 127.0.0.1:8010:8000
+            # PROXY_* vars let parallel worktree stacks run their own proxy instance that
+            # routes overridden services to worktree-local ports and the rest to the shared
+            # stack (see bin/worktree-stack). Defaults preserve the single-stack behavior.
+            - 127.0.0.1:${PROXY_PORT:-8010}:8000
         extra_hosts:
             - 'web:host-gateway'
             - 'plugins:host-gateway'
@@ -93,39 +96,39 @@ services:
                     }
 
                     handle @capture-ai {
-                        reverse_proxy capture-ai:3309
+                        reverse_proxy capture-ai:${PROXY_CAPTURE_AI_PORT:-3309}
                     }
 
                     handle @capture {
-                        reverse_proxy capture:3307
+                        reverse_proxy capture:${PROXY_CAPTURE_PORT:-3307}
                     }
 
                     handle @capture-logs {
-                        reverse_proxy capture-logs:4320
+                        reverse_proxy capture-logs:${PROXY_CAPTURE_LOGS_PORT:-4320}
                     }
 
                     handle @replay-capture {
-                        reverse_proxy replay-capture:3306
+                        reverse_proxy replay-capture:${PROXY_REPLAY_CAPTURE_PORT:-3306}
                     }
 
                     handle @flags {
-                        reverse_proxy feature-flags:3001
+                        reverse_proxy feature-flags:${PROXY_FLAGS_PORT:-3001}
                     }
 
                     handle @surveys {
-                        reverse_proxy hypercache-server:3002
+                        reverse_proxy hypercache-server:${PROXY_HYPERCACHE_PORT:-3002}
                     }
 
                     handle @remote-config {
-                        reverse_proxy hypercache-server:3002
+                        reverse_proxy hypercache-server:${PROXY_HYPERCACHE_PORT:-3002}
                     }
 
                     handle @webhooks {
-                        reverse_proxy plugins:6738
+                        reverse_proxy plugins:${PROXY_WEBHOOKS_PORT:-6738}
                     }
 
                     handle {
-                        reverse_proxy web:8000
+                        reverse_proxy web:${PROXY_WEB_PORT:-8000}
                     }
                 }
 

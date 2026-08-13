@@ -19,6 +19,7 @@ pbt-divergences.jsonl
 posthog/hogql/test/fixtures/real_queries/
 .posthog/
 .postgres-backups/
+.worktree-stack/
 .python-version
 .temporal-worker-settings
 .turbo

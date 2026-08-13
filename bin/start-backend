@@ -28,7 +28,7 @@ REPO_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 # stream (an agent run log held by a browser tab) never finishes on its own, so without this the
 # worker never exits, the replacement is never spawned, and port 8000 stays dead until it is killed
 # by hand. A worker with nothing in flight still exits immediately, so normal reloads are unaffected.
-python ${DEBUG:+ -m debugpy --listen 127.0.0.1:5678} -m granian \
+python ${DEBUG:+ -m debugpy --listen 127.0.0.1:${DEBUGPY_PORT:-5678}} -m granian \
     --interface asgi \
     posthog.asgi:application \
     --reload \
@@ -37,6 +37,7 @@ python ${DEBUG:+ -m debugpy --listen 127.0.0.1:5678} -m granian \
     --reload-paths ./products \
     --reload-paths ./frontend/src/products.json \
     --host $HOST_BIND \
+    --port "${BACKEND_PORT:-8000}" \
     --log-level debug \
     --workers 1 \
     --workers-kill-timeout 5

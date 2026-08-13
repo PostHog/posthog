@@ -14,6 +14,9 @@ import { publicAssetsPlugin } from './plugins/vite-public-assets-plugin'
 // https://vitejs.dev/config/
 export default defineConfig(({ mode }) => {
     const isDev = mode === 'development'
+    // VITE_PORT/BACKEND_PORT let parallel worktree stacks bind unique ports; defaults match the main stack.
+    const vitePort = Number(process.env.VITE_PORT) || 8234
+    const backendPort = Number(process.env.BACKEND_PORT) || 8000
 
     return {
         plugins: [
@@ -33,7 +36,7 @@ export default defineConfig(({ mode }) => {
                             console.info(`
 ――――――――――――――――――――――――――――――――――――――――――――――――――――――――――――
 
-   🚀 Visit http://localhost:8010 to see the app
+   🚀 Visit ${process.env.SITE_URL || 'http://localhost:8010'} to see the app
    ⚠️  You may need to wait for the other services to start
 
 ――――――――――――――――――――――――――――――――――――――――――――――――――――――――――――
@@ -114,10 +117,10 @@ export default defineConfig(({ mode }) => {
             },
         },
         server: {
-            port: 8234,
-            // The rest of the stack hardcodes 8234, so falling back to another port serves a
-            // broken app (the browser keeps talking to whatever squats 8234). Fail loudly instead;
-            // bin/start-frontend reclaims the port from stale processes before launching.
+            port: vitePort,
+            // The rest of the stack expects this exact port, so falling back to another port serves a
+            // broken app (the browser keeps talking to whatever squats the expected port). Fail loudly
+            // instead; bin/start-frontend reclaims the port from stale processes before launching.
             strictPort: true,
             host: process.argv.includes('--host') ? '0.0.0.0' : 'localhost',
             allowedHosts: process.env.VITE_ALLOWED_HOSTS?.split(',')
@@ -126,11 +129,11 @@ export default defineConfig(({ mode }) => {
             // nosemgrep: trailofbits.javascript.apollo-graphql.v3-cors-audit.v3-potentially-bad-cors
             cors: true,
             // JS_URL overrides for sandbox environments where Vite is exposed on a different port.
-            origin: process.env.JS_URL || 'http://localhost:8234',
+            origin: process.env.JS_URL || `http://localhost:${vitePort}`,
             hmr: process.env.JS_URL ? { clientPort: parseInt(process.env.JS_URL.split(':').pop()!) } : undefined,
             proxy: {
                 '/static': {
-                    target: 'http://localhost:8000',
+                    target: `http://localhost:${backendPort}`,
                     changeOrigin: true,
                 },
             },

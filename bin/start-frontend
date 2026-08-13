@@ -12,7 +12,8 @@ export DEBUG=0
 export COREPACK_ENABLE_DOWNLOAD_PROMPT=0
 
 # The Vite dev server listens on a fixed port the rest of the app expects.
-VITE_PORT=8234
+# Overridable so parallel worktree stacks can each run their own dev server.
+export VITE_PORT="${VITE_PORT:-8234}"
 
 # Print the PID(s) currently listening on $VITE_PORT, or nothing if the port is
 # free (or no probing tool is available). Single source of truth so detection

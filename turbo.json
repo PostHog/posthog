@@ -75,13 +75,29 @@
             "dependsOn": ["^build"],
             "persistent": true,
             "cache": false,
-            "passThroughEnv": ["SKIP_TYPEGEN", "COREPACK_ENABLE_DOWNLOAD_PROMPT", "SSL_CERT_FILE", "JS_URL"]
+            "passThroughEnv": [
+                "SKIP_TYPEGEN",
+                "COREPACK_ENABLE_DOWNLOAD_PROMPT",
+                "SSL_CERT_FILE",
+                "JS_URL",
+                "VITE_PORT",
+                "BACKEND_PORT",
+                "SITE_URL"
+            ]
         },
         "start-vite": {
             "dependsOn": ["^build"],
             "persistent": true,
             "cache": false,
-            "passThroughEnv": ["SKIP_TYPEGEN", "COREPACK_ENABLE_DOWNLOAD_PROMPT", "SSL_CERT_FILE", "JS_URL"]
+            "passThroughEnv": [
+                "SKIP_TYPEGEN",
+                "COREPACK_ENABLE_DOWNLOAD_PROMPT",
+                "SSL_CERT_FILE",
+                "JS_URL",
+                "VITE_PORT",
+                "BACKEND_PORT",
+                "SITE_URL"
+            ]
         },
         "dev": {
             "dependsOn": ["^build"],

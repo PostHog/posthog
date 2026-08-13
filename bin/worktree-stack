@@ -1,0 +1,319 @@
+#!/bin/bash
+# Run app services from a git worktree against the machine's single shared dev
+# infra (Postgres, ClickHouse, Redis, Kafka, capture, plugin-server, ...), so
+# several worktrees can each serve their own copy of the app at the same time.
+#
+# Each worktree gets a stable index and a port block derived from it, plus its
+# own Caddy proxy (the same one the main stack uses at :8010). The proxy routes
+# the services this worktree overrides (Django, and optionally others via
+# PROXY_* env vars) to worktree-local ports, and every other path to the shared
+# stack. The app URL for this worktree is printed by `worktree-stack url`.
+#
+# The shared infra and the database stay singletons: worktrees do not run
+# migrations automatically, and queue consumers started here (celery-worker,
+# nodejs) join the same consumer groups as the shared stack, so each message is
+# handled by exactly one instance (shared or worktree, nondeterministic).
+# Never run celery-beat per worktree; the scheduler is a singleton.
+
+set -e
+
+usage() {
+    cat <<'EOF'
+Usage: bin/worktree-stack <command> [services...]
+
+Commands:
+  up [svc...]   Start services for this worktree (default: proxy backend frontend)
+  down          Stop all services started for this worktree
+  status        Show service state and readiness
+  url           Print this worktree's app URL (browser / computer-use entrypoint)
+  env           Print `export` lines for this worktree's ports (for eval)
+
+Services:
+  proxy          Caddy entrypoint for this worktree (docker)
+  backend        Django via granian on BACKEND_PORT
+  frontend       Vite dev server on VITE_PORT
+  celery-worker  Celery worker (competing consumer with the shared stack)
+  nodejs         plugin-server (competing consumer with the shared stack)
+EOF
+    exit 1
+}
+
+COMMAND=${1:-}
+shift || true
+[[ -z "$COMMAND" ]] && usage
+
+WORKTREE_ROOT="$(git rev-parse --show-toplevel)"
+GIT_COMMON_DIR="$(git rev-parse --path-format=absolute --git-common-dir)"
+MAIN_ROOT="$(dirname "$GIT_COMMON_DIR")"
+
+STATE_DIR="$WORKTREE_ROOT/.worktree-stack"
+LOG_DIR="$STATE_DIR/logs"
+PID_DIR="$STATE_DIR/pids"
+REGISTRY="$MAIN_ROOT/.posthog/worktree-stack-registry"
+
+# ---------------------------------------------------------------------------
+# Index allocation: the main checkout is index 0 (the plain single stack);
+# each worktree gets the lowest free index >= 1, recorded in a registry file
+# under the main checkout so indexes stay stable across sessions.
+# ---------------------------------------------------------------------------
+allocate_index() {
+    if [[ "$WORKTREE_ROOT" == "$MAIN_ROOT" ]]; then
+        echo 0
+        return
+    fi
+    mkdir -p "$(dirname "$REGISTRY")"
+    touch "$REGISTRY"
+
+    local lock="$REGISTRY.lock"
+    local waited=0
+    until mkdir "$lock" 2>/dev/null; do
+        sleep 0.2
+        waited=$((waited + 1))
+        [[ $waited -gt 50 ]] && { echo "error: registry lock stuck at $lock" >&2; exit 1; }
+    done
+    trap 'rmdir "$lock" 2>/dev/null || true' RETURN
+
+    # Prune entries whose worktree no longer exists, then look up or allocate.
+    local tmp
+    tmp="$(mktemp)"
+    while IFS=$'\t' read -r idx path; do
+        [[ -d "$path" ]] && printf '%s\t%s\n' "$idx" "$path" >> "$tmp"
+    done < "$REGISTRY"
+    mv "$tmp" "$REGISTRY"
+
+    local existing
+    existing="$(awk -F'\t' -v p="$WORKTREE_ROOT" '$2 == p { print $1 }' "$REGISTRY")"
+    if [[ -n "$existing" ]]; then
+        echo "$existing"
+        return
+    fi
+
+    local i=1
+    while awk -F'\t' -v i="$i" '$1 == i { found=1 } END { exit !found }' "$REGISTRY"; do
+        i=$((i + 1))
+    done
+    printf '%s\t%s\n' "$i" "$WORKTREE_ROOT" >> "$REGISTRY"
+    echo "$i"
+}
+
+IDX="$(allocate_index)"
+
+# ---------------------------------------------------------------------------
+# Port block. Index 0 reproduces the main stack's defaults exactly.
+# Spacing of 100 keeps the derived ports clear of the fixed infra ports
+# (5432 postgres, 6379 redis, 8123/9000 clickhouse, 9092 kafka, 7233 temporal).
+# ---------------------------------------------------------------------------
+export PROXY_PORT=$((8010 + 100 * IDX))
+export BACKEND_PORT=$((8000 + 100 * IDX))
+export VITE_PORT=$((8234 + 100 * IDX))
+export DEBUGPY_PORT=$((5678 + IDX))
+export PLUGIN_HTTP_PORT=$((6739 + 100 * IDX))
+export SITE_URL="http://localhost:$PROXY_PORT"
+export JS_URL="http://localhost:$VITE_PORT"
+export PROXY_WEB_PORT="$BACKEND_PORT"
+
+COMPOSE_PROJECT="posthog-wt$IDX"
+
+print_env() {
+    cat <<EOF
+export WORKTREE_STACK_INDEX=$IDX
+export PROXY_PORT=$PROXY_PORT
+export BACKEND_PORT=$BACKEND_PORT
+export VITE_PORT=$VITE_PORT
+export DEBUGPY_PORT=$DEBUGPY_PORT
+export SITE_URL=$SITE_URL
+export JS_URL=$JS_URL
+EOF
+}
+
+# ---------------------------------------------------------------------------
+# Dev environment. Mirrors bin/start's env sourcing (shell env > .env.local >
+# .env.development > .env.services) plus its computed connection URLs, so a
+# service started here sees the same environment it would under the main
+# stack. The port block above is exported first, so it wins over file values.
+# ---------------------------------------------------------------------------
+source_env_defaults() {
+    [[ -f "$1" ]] || return 0
+    while IFS='=' read -r name value; do
+        [[ -z "$name" || "$name" == \#* ]] && continue
+        [[ "$value" == *op://* ]] && continue
+        if [[ -z "${!name:-}" ]]; then
+            export "$name=$value"
+        fi
+    done < "$1"
+    return 0
+}
+
+load_dev_env() {
+    source_env_defaults "$WORKTREE_ROOT/.env.local"
+    source_env_defaults "$WORKTREE_ROOT/.env.development"
+    source_env_defaults "$WORKTREE_ROOT/.env.services"
+    export PERSONS_DATABASE_URL=${PERSONS_DATABASE_URL:-postgres://posthog:posthog@${PGHOST:-db}:${PGPORT:-5432}/posthog_persons}
+    export PERSONS_READONLY_DATABASE_URL=${PERSONS_READONLY_DATABASE_URL:-postgres://posthog:posthog@${PGHOST:-db}:${PGPORT:-5432}/posthog_persons}
+    export PERSONS_WRITE_DATABASE_URL=${PERSONS_WRITE_DATABASE_URL:-$PERSONS_DATABASE_URL}
+    export PERSONS_READ_DATABASE_URL=${PERSONS_READ_DATABASE_URL:-$PERSONS_READONLY_DATABASE_URL}
+    export PERSONS_DB_WRITER_URL=${PERSONS_DB_WRITER_URL:-$PERSONS_DATABASE_URL}
+    export PERSONS_DB_READER_URL=${PERSONS_DB_READER_URL:-$PERSONS_READONLY_DATABASE_URL}
+    export BEHAVIORAL_COHORTS_DATABASE_URL=${BEHAVIORAL_COHORTS_DATABASE_URL:-postgres://posthog:posthog@${PGHOST:-db}:${PGPORT:-5432}/behavioral_cohorts}
+    export FLAGS_READ_STORE_DATABASE_URL=${FLAGS_READ_STORE_DATABASE_URL:-postgres://posthog:posthog@${PGHOST:-db}:${PGPORT:-5432}/flags_read_store}
+    export CYCLOTRON_DATABASE_URL=${CYCLOTRON_DATABASE_URL:-postgres://posthog:posthog@${PGHOST:-db}:${PGPORT:-5432}/cyclotron}
+    export CYCLOTRON_NODE_DATABASE_URL=${CYCLOTRON_NODE_DATABASE_URL:-postgres://posthog:posthog@${PGHOST:-db}:${PGPORT:-5432}/cyclotron_node}
+}
+
+# ---------------------------------------------------------------------------
+# Process management. Services keep their own child trees (turbo, granian
+# workers), so teardown walks descendants deepest-first instead of trusting a
+# single pid.
+# ---------------------------------------------------------------------------
+collect_descendants() {
+    local parent=$1 child
+    for child in $(pgrep -P "$parent" 2>/dev/null); do
+        collect_descendants "$child"
+        echo "$child"
+    done
+}
+
+kill_tree() {
+    local root=$1 pids
+    pids="$(collect_descendants "$root") $root"
+    # shellcheck disable=SC2086
+    kill -TERM $pids 2>/dev/null || true
+    for _ in 1 2 3 4 5 6 7 8 9 10; do
+        kill -0 "$root" 2>/dev/null || return 0
+        sleep 0.3
+    done
+    pids="$(collect_descendants "$root") $root"
+    # shellcheck disable=SC2086
+    kill -KILL $pids 2>/dev/null || true
+}
+
+start_process() {
+    local name=$1
+    shift
+    local pidfile="$PID_DIR/$name.pid"
+    if [[ -f "$pidfile" ]] && kill -0 "$(cat "$pidfile")" 2>/dev/null; then
+        echo "  $name: already running (pid $(cat "$pidfile"))"
+        return
+    fi
+    mkdir -p "$LOG_DIR" "$PID_DIR"
+    # Background only the nohup command itself: `cd ... && nohup ... &` would
+    # background the whole list, leaving a wrapper bash holding the caller's
+    # stdout/stderr open (which blocks pipelines reading our output) and
+    # putting the wrapper's pid in the pidfile instead of the service's.
+    (
+        cd "$WORKTREE_ROOT" || exit 1
+        nohup "$@" < /dev/null > "$LOG_DIR/$name.log" 2>&1 &
+        echo $! > "$pidfile"
+    )
+    echo "  $name: started (pid $(cat "$pidfile"), log $LOG_DIR/$name.log)"
+}
+
+check_infra() {
+    if ! (echo > /dev/tcp/127.0.0.1/5432) 2>/dev/null; then
+        cat >&2 <<EOF
+error: shared infra is not reachable (Postgres :5432).
+Start it once from the main checkout: cd $MAIN_ROOT && hogli start -d
+EOF
+        exit 1
+    fi
+}
+
+start_service() {
+    case "$1" in
+        proxy)
+            docker compose -p "$COMPOSE_PROJECT" -f "$WORKTREE_ROOT/docker-compose.dev.yml" up -d proxy \
+                && echo "  proxy: up at $SITE_URL (project $COMPOSE_PROJECT)"
+            ;;
+        backend)
+            start_process backend ./bin/start-backend
+            ;;
+        frontend)
+            start_process frontend ./bin/start-frontend
+            ;;
+        celery-worker)
+            start_process celery-worker ./bin/start-celery worker
+            ;;
+        nodejs)
+            HTTP_SERVER_PORT="$PLUGIN_HTTP_PORT" start_process nodejs ./bin/posthog-node
+            ;;
+        celery-beat)
+            echo "error: celery-beat is a singleton scheduler; run it only in the main stack" >&2
+            exit 1
+            ;;
+        *)
+            echo "error: unknown service '$1'" >&2
+            usage
+            ;;
+    esac
+}
+
+probe() {
+    local label=$1 url=$2
+    if curl -fsS -o /dev/null --max-time 2 "$url" 2>/dev/null; then
+        echo "  $label: ready ($url)"
+    else
+        echo "  $label: not responding ($url)"
+    fi
+}
+
+case "$COMMAND" in
+    up)
+        if [[ "$IDX" -eq 0 ]]; then
+            echo "error: this is the main checkout; run the normal stack with hogli start" >&2
+            exit 1
+        fi
+        check_infra
+        load_dev_env
+        SERVICES=("$@")
+        [[ ${#SERVICES[@]} -eq 0 ]] && SERVICES=(proxy backend frontend)
+        echo "worktree-stack #$IDX ($WORKTREE_ROOT)"
+        for svc in "${SERVICES[@]}"; do
+            start_service "$svc"
+        done
+        echo
+        echo "App URL: $SITE_URL"
+        ;;
+    down)
+        if [[ -d "$PID_DIR" ]]; then
+            for pidfile in "$PID_DIR"/*.pid; do
+                [[ -e "$pidfile" ]] || continue
+                name="$(basename "$pidfile" .pid)"
+                pid="$(cat "$pidfile")"
+                if kill -0 "$pid" 2>/dev/null; then
+                    echo "stopping $name (pid $pid)"
+                    kill_tree "$pid"
+                fi
+                rm -f "$pidfile"
+            done
+        fi
+        docker compose -p "$COMPOSE_PROJECT" -f "$WORKTREE_ROOT/docker-compose.dev.yml" down --remove-orphans 2>/dev/null || true
+        echo "worktree-stack #$IDX stopped"
+        ;;
+    status)
+        echo "worktree-stack #$IDX ($WORKTREE_ROOT)"
+        if [[ -d "$PID_DIR" ]]; then
+            for pidfile in "$PID_DIR"/*.pid; do
+                [[ -e "$pidfile" ]] || continue
+                name="$(basename "$pidfile" .pid)"
+                pid="$(cat "$pidfile")"
+                if kill -0 "$pid" 2>/dev/null; then
+                    echo "  $name: running (pid $pid)"
+                else
+                    echo "  $name: dead (stale pidfile)"
+                fi
+            done
+        fi
+        probe proxy "$SITE_URL"
+        probe backend "http://localhost:$BACKEND_PORT/_health"
+        probe frontend "$JS_URL/@vite/client"
+        ;;
+    url)
+        echo "$SITE_URL"
+        ;;
+    env)
+        print_env
+        ;;
+    *)
+        usage
+        ;;
+esac

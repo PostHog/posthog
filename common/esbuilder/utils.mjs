@@ -23,7 +23,7 @@ import ts from 'typescript'
 export { build as esbuildBuild } from 'esbuild'
 
 const defaultHost = process.argv.includes('--host') && process.argv.includes('0.0.0.0') ? '0.0.0.0' : 'localhost'
-const defaultPort = 8234
+const defaultPort = Number(process.env.VITE_PORT) || 8234
 
 export const isDev = process.argv.includes('--dev')
 
