@@ -87,8 +87,11 @@ const anomalyAlertColumns: LemonTableColumns<AlertApi> = [
         title: 'Last checked',
         key: 'last-checked',
         render: (_, alert) => (alert.last_checked_at ? <TZLabel time={alert.last_checked_at} /> : 'Never'),
-        sorter: (left, right) =>
-            dayjs(left.last_checked_at ?? 0).valueOf() - dayjs(right.last_checked_at ?? 0).valueOf(),
+        sorter: (left, right) => {
+            const leftTime = left.last_checked_at ? dayjs(left.last_checked_at).valueOf() : Infinity
+            const rightTime = right.last_checked_at ? dayjs(right.last_checked_at).valueOf() : Infinity
+            return leftTime - rightTime
+        },
     },
     {
         key: 'actions',

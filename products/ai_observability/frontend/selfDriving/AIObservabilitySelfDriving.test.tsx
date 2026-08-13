@@ -312,7 +312,7 @@ describe('AIObservabilitySelfDriving', () => {
         expect(router.values.searchParams).toEqual(expect.objectContaining({ evaluation_tab: 'configuration' }))
     })
 
-    it('sorts evals by report columns', async () => {
+    it('sorts eval and anomaly alert columns', async () => {
         render(
             <Provider>
                 <AIObservabilitySelfDriving />
@@ -335,6 +335,18 @@ describe('AIObservabilitySelfDriving', () => {
 
         await userEvent.click(screen.getByText('Reports generated'))
         expect(evalNames()).toEqual(['Correctness check', 'Tone check'])
+
+        const anomalyAlertNames = (): string[] =>
+            Array.from(
+                document.querySelectorAll(
+                    '[data-attr="anomaly-alert-investigations-table"] tbody tr td:first-child span:first-child'
+                )
+            ).map((nameSpan) => nameSpan.textContent ?? '')
+
+        expect(anomalyAlertNames()).toEqual(['Unexpected AI cost', 'Unexpected error rate'])
+
+        await userEvent.click(screen.getByText('Last checked'))
+        expect(anomalyAlertNames()).toEqual(['Unexpected AI cost', 'Unexpected error rate'])
     })
 
     it('guides users without evals to templates or their agent', async () => {
