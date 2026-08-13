@@ -1558,6 +1558,12 @@ export interface RecordingUniversalFilters {
     order?: RecordingsQuery['order']
     order_direction?: RecordingsQuery['order_direction']
     limit?: RecordingsQuery['limit']
+    /**
+     * Server-resolved population narrowing (sessions of persons exposed to the experiment).
+     * Not part of `filter_group`, so the filter-pill editor neither renders nor edits it;
+     * it rides through conversions so saved filters and scanners keep the narrowing.
+     */
+    experiment_exposure?: RecordingsQuery['experiment_exposure']
 }
 
 export interface UniversalFiltersGroup {
