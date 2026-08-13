@@ -9,3 +9,4 @@ The change is intentionally harmless and has no runtime impact.
 - Initial fixture added
 - Scope documented
 - Dummy PR ready for review
+- First follow-up checkpoint recorded
