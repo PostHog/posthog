@@ -9,6 +9,7 @@ from posthog.schema import (
 )
 
 from products.warehouse_sources.backend.temporal.data_imports.sources.anthropic.anthropic import AnthropicResumeConfig
+from products.warehouse_sources.backend.temporal.data_imports.sources.anthropic.settings import ANTHROPIC_ENDPOINTS
 from products.warehouse_sources.backend.temporal.data_imports.sources.anthropic.source import AnthropicSource
 from products.warehouse_sources.backend.types import ExternalDataSourceType
 
@@ -37,7 +38,6 @@ class TestAnthropicSchemas:
             "workspaces",
             "api_keys",
             "workspace_members",
-            "service_accounts",
             "usage_report",
             "cost_report",
             "claude_code_analytics",
@@ -62,9 +62,7 @@ class TestAnthropicSchemas:
         assert [f["field"] for f in schema.incremental_fields] == ["date"]
         assert schema.default_incremental_lookback_seconds == 60 * 60 * 24
 
-    @parameterized.expand(
-        [("users",), ("workspaces",), ("api_keys",), ("workspace_members",), ("invites",), ("service_accounts",)]
-    )
+    @parameterized.expand([("users",), ("workspaces",), ("api_keys",), ("workspace_members",), ("invites",)])
     def test_entity_endpoints_are_full_refresh_only(self, endpoint: str) -> None:
         # No updated-since filter exists on the entity lists, so they must not advertise incremental.
         schema = next(s for s in AnthropicSource().get_schemas(MagicMock(), team_id=1) if s.name == endpoint)
@@ -74,6 +72,17 @@ class TestAnthropicSchemas:
     def test_names_filter(self) -> None:
         schemas = AnthropicSource().get_schemas(MagicMock(), team_id=1, names=["usage_report"])
         assert [s.name for s in schemas] == ["usage_report"]
+
+    def test_no_endpoint_targets_an_admin_key_forbidden_path(self) -> None:
+        # This source authenticates with an Admin API key, which Anthropic does not accept on its
+        # service-account or federation endpoints (those require an org:admin OAuth token). An
+        # endpoint targeting one of those paths would fail every sync, so the catalog must exclude it.
+        offenders = [
+            name
+            for name, config in ANTHROPIC_ENDPOINTS.items()
+            if "service_accounts" in config.path or "/federation" in config.path
+        ]
+        assert offenders == []
 
 
 class TestAnthropicResumableManager:
@@ -99,7 +108,6 @@ class TestAnthropicSourceForPipeline:
             ("cost_report", ["id"], "datetime"),
             ("users", ["id"], "datetime"),
             ("workspace_members", ["workspace_id", "user_id"], None),
-            ("service_accounts", ["workspace_id", "id"], "datetime"),
             ("claude_code_analytics", ["id"], "datetime"),
             ("claude_code_model_breakdown", ["id"], "datetime"),
         ]
