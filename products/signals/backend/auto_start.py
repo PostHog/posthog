@@ -68,6 +68,20 @@ class ReviewerContent(TypedDict):
     is_skill_owner: bool
 
 
+# A report in one of these states has nothing left to implement, so no path may start a PR for it.
+_CLOSED_REPORT_STATUSES = frozenset(
+    {
+        SignalReport.Status.SUPPRESSED,
+        SignalReport.Status.RESOLVED,
+        SignalReport.Status.DELETED,
+    }
+)
+
+# The judgments the inbox treats as worth a pull request, and so the ones its Create PR button offers.
+_PR_WORTHY_ACTIONABILITY = frozenset(
+    {ActionabilityChoice.IMMEDIATELY_ACTIONABLE, ActionabilityChoice.REQUIRES_HUMAN_INPUT}
+)
+
 _PRIORITY_RANK: dict[Priority, int] = {
     Priority.P0: 0,
     Priority.P1: 1,
@@ -347,6 +361,7 @@ def _create_implementation_task_if_absent(
     repository: str,
     base_branch: str | None,
     billing_exempt_reason: str | None = None,
+    require_open_report: bool = False,
 ) -> str | None:
     """Create the implementation task and record it (gate row + work-log artefact), serialized per report.
 
@@ -359,6 +374,10 @@ def _create_implementation_task_if_absent(
 
     The same lock is where billing exemptions freeze (`_stamp_billing_exemption`): the reason is
     decided and written before the task exists, so it can never race a billable PR run.
+
+    ``require_open_report`` re-reads the report's status under that same lock. A caller that checked
+    the status itself, before the lock, needs it: a dismiss committing in the gap would otherwise get
+    a PR opened against a closed report, and the receiver that closes PRs on dismissal has already run.
     """
     # Resolved outside the transaction: the flag read does network I/O and must not hold the row lock.
     agent_runtime = resolve_agent_runtime(team_id, STEP_IMPLEMENTATION)
@@ -371,6 +390,8 @@ def _create_implementation_task_if_absent(
     with transaction.atomic():
         report = SignalReport.objects.select_for_update().filter(id=report_id, team_id=team_id).first()
         if report is None:
+            return None
+        if require_open_report and report.status in _CLOSED_REPORT_STATUSES:
             return None
         # The gate reads the unified task↔report view (`associated_task_runs` merges the legacy
         # `SignalReportTask` rows with the `task_run` artefact log). Unifying only *adds* sources,
@@ -845,22 +866,33 @@ async def maybe_autostart_from_report_artefacts(*, team_id: int, report_id: str)
     )
 
 
-# A report in one of these states has nothing left to implement, so no path may start a PR for it.
-_CLOSED_REPORT_STATUSES = frozenset(
-    {
-        SignalReport.Status.SUPPRESSED,
-        SignalReport.Status.RESOLVED,
-        SignalReport.Status.DELETED,
-    }
-)
-
-PrKickoffOutcome = Literal["started", "already_started", "no_repository", "report_closed", "not_found", "over_quota"]
+PrKickoffOutcome = Literal[
+    "started",
+    "already_started",
+    "already_addressed",
+    "not_ready",
+    "no_repository",
+    "no_ai_consent",
+    "no_project_access",
+    "report_closed",
+    "not_found",
+    "over_quota",
+    "failed",
+]
 
 
 @frozen
 class PrKickoffResult:
     outcome: PrKickoffOutcome
     task_url: str | None = None
+
+
+@frozen
+class _PrEligibility:
+    """Why a report can't get an implementation PR, and the repository it would land in if it can."""
+
+    blocker: PrKickoffOutcome | None
+    repository: str | None = None
 
 
 def _selected_repository(report_id: str) -> str | None:
@@ -877,44 +909,106 @@ def _selected_repository(report_id: str) -> str | None:
     return selection.repository if selection is not None and selection.repository else None
 
 
-def implementation_pr_can_be_started(report: SignalReport) -> bool:
-    """Whether a person could still start an implementation PR for this report.
+def _ai_processing_approved(team_id: int) -> bool:
+    approved = (
+        Team.objects.filter(id=team_id).values_list("organization__is_ai_data_processing_approved", flat=True).first()
+    )
+    return bool(approved)
 
-    The render gate for the Slack "Create PR" button, mirroring the inbox's own
-    `canCreateImplementationPr`. Deliberately not the authority: the click re-checks all of this
-    under a row lock, so a report that auto-started between delivery and the click is caught there.
+
+def _report_status_admits_a_pr(report: SignalReport, actionability: ActionabilityAssessment | None) -> bool:
+    """The inbox's own status rule for offering Create PR, in the same order.
+
+    An allowlist rather than "anything not closed": a report that went back to CANDIDATE or
+    IN_PROGRESS because new signals arrived is mid-research, and its old Slack message must not start
+    a paid run off the research it has now moved past.
+    """
+    if report.status == SignalReport.Status.PENDING_INPUT:
+        return True
+    if report.status != SignalReport.Status.READY:
+        return False
+    return actionability is not None and actionability.actionability in _PR_WORTHY_ACTIONABILITY
+
+
+def _pr_eligibility(report: SignalReport) -> _PrEligibility:
+    """The one rule the Slack button's render gate and its click both read.
+
+    Mirrors the inbox's own `canCreateImplementationPr` plus the two gates the tasks API does not
+    enforce for it: the report must not be judged already addressed, and the organization must have
+    approved AI data processing. Everything here is team-wide, so the render gate can ask it without
+    a user; the click adds the per-user access check on top.
     """
     if report.status in _CLOSED_REPORT_STATUSES:
-        return False
-    if _selected_repository(str(report.id)) is None:
-        return False
-    return not SignalReport.associated_task_runs(
+        return _PrEligibility(blocker="report_closed")
+    actionability = _latest_artefact_as_sync(
+        str(report.id), SignalReportArtefact.ArtefactType.ACTIONABILITY_JUDGMENT, ActionabilityAssessment
+    )
+    if actionability is not None and actionability.already_addressed:
+        return _PrEligibility(blocker="already_addressed")
+    if not _report_status_admits_a_pr(report, actionability):
+        return _PrEligibility(blocker="not_ready")
+    repository = _selected_repository(str(report.id))
+    if repository is None:
+        return _PrEligibility(blocker="no_repository")
+    if SignalReport.associated_task_runs(
         report_id=str(report.id),
         team_id=report.team_id,
         product=SIGNALS_PRODUCT,
         type=TASK_RUN_TYPE_IMPLEMENTATION,
-    )
+    ):
+        return _PrEligibility(blocker="already_started")
+    if not _ai_processing_approved(report.team_id):
+        return _PrEligibility(blocker="no_ai_consent")
+    return _PrEligibility(blocker=None, repository=repository)
+
+
+def implementation_pr_can_be_started(report: SignalReport) -> bool:
+    """Whether a person could still start an implementation PR for this report — the render gate for
+    the Slack "Create PR" button.
+
+    Deliberately not the authority: the click re-reads this rule and re-checks the report under a row
+    lock, so a report that auto-started or was dismissed between delivery and the click is caught there.
+    """
+    return _pr_eligibility(report).blocker is None
+
+
+def _has_project_access(team_id: int, user_id: int) -> bool:
+    """Whether the user may act on this team's data at all.
+
+    Organization membership is not enough. On a private project an org member can be denied access,
+    and the click must not let them spend the project's PR credits or run an agent against its
+    repository — the same rule that keeps a report's contents out of their Slack notifications.
+    """
+    team = Team.objects.filter(id=team_id).first()
+    return team is not None and team.all_users_with_access().filter(id=user_id).exists()
 
 
 def start_implementation_pr_from_slack(*, team_id: int, report_id: str, user_id: int) -> PrKickoffResult:
     """Start an implementation task because someone clicked "Create PR" in Slack.
 
-    The autonomy gates auto-start applies — actionability, priority thresholds, the team's autostart
-    switch — don't: a person asked for this run explicitly, exactly as they would in the inbox. What
-    still holds is everything that isn't about autonomy: the report must be open and carry a
-    repository to open the PR against, the one-implementation-per-report lock and the self-driving
-    quota both apply, and the run is attributed to ``user_id`` — the org member the caller resolved
-    the clicking Slack identity to, never a suggested reviewer.
+    The autonomy gates auto-start applies — priority thresholds, the team's autostart switch — don't:
+    a person asked for this run explicitly, exactly as they would in the inbox. What still holds is
+    everything that isn't about autonomy: the shared `_pr_eligibility` rule, the clicking user's
+    access to the project, the one-implementation-per-report lock, and the self-driving quota. The run
+    is attributed to ``user_id`` — the org member the caller resolved the clicking Slack identity to,
+    never a suggested reviewer.
     """
-    report = SignalReport.objects.filter(id=report_id, team_id=team_id).only("id", "status", "title", "summary").first()
+    report = (
+        SignalReport.objects.filter(id=report_id, team_id=team_id)
+        .only("id", "status", "title", "summary", "team_id")
+        .first()
+    )
     if report is None or not report.title or not report.summary:
         return _capture_slack_pr_kickoff(PrKickoffResult(outcome="not_found"), team_id, report_id, user_id)
-    if report.status in _CLOSED_REPORT_STATUSES:
-        return _capture_slack_pr_kickoff(PrKickoffResult(outcome="report_closed"), team_id, report_id, user_id)
+    if not _has_project_access(team_id, user_id):
+        return _capture_slack_pr_kickoff(PrKickoffResult(outcome="no_project_access"), team_id, report_id, user_id)
 
-    repository = _selected_repository(report_id)
-    if repository is None:
-        return _capture_slack_pr_kickoff(PrKickoffResult(outcome="no_repository"), team_id, report_id, user_id)
+    eligibility = _pr_eligibility(report)
+    # `repository` is set whenever nothing blocks; the second half of the condition is what tells mypy.
+    if eligibility.blocker is not None or eligibility.repository is None:
+        outcome: PrKickoffOutcome = eligibility.blocker or "no_repository"
+        return _capture_slack_pr_kickoff(PrKickoffResult(outcome=outcome), team_id, report_id, user_id)
+    repository = eligibility.repository
 
     team_config = SignalTeamConfig.objects.filter(team_id=team_id).first()
     description = _build_autostart_task_description(
@@ -936,11 +1030,21 @@ def start_implementation_pr_from_slack(*, team_id: int, report_id: str, user_id:
             user_id=user_id,
             repository=repository,
             base_branch=team_config.base_branch_for(repository) if team_config else None,
+            require_open_report=True,
         )
     except QuotaLimitExceeded:
         return _capture_slack_pr_kickoff(PrKickoffResult(outcome="over_quota"), team_id, report_id, user_id)
+    except ValueError:
+        # Task creation rejects the request itself, e.g. the team's GitHub integration went away
+        # between the repo selection and the click. The person gets a refusal instead of a 500.
+        logger.exception("signals report PR kickoff from Slack was rejected", report_id=report_id, team_id=team_id)
+        return _capture_slack_pr_kickoff(PrKickoffResult(outcome="failed"), team_id, report_id, user_id)
     if task_id is None:
-        return _capture_slack_pr_kickoff(PrKickoffResult(outcome="already_started"), team_id, report_id, user_id)
+        # Either a run already exists or the report closed under the lock. Re-read the status so the
+        # refusal names the one that happened.
+        report.refresh_from_db(fields=["status"])
+        blocked: PrKickoffOutcome = "report_closed" if report.status in _CLOSED_REPORT_STATUSES else "already_started"
+        return _capture_slack_pr_kickoff(PrKickoffResult(outcome=blocked), team_id, report_id, user_id)
 
     task_url = f"{settings.SITE_URL.rstrip('/')}/project/{team_id}/tasks/{task_id}"
     return _capture_slack_pr_kickoff(

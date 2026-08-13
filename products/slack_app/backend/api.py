@@ -3834,10 +3834,17 @@ def _handle_signals_dismiss_report(payload: dict) -> HttpResponse:
 # where the person can go instead, never just that it failed.
 _SIGNALS_CREATE_PR_REFUSALS: dict[str, str] = {
     "already_started": "A pull request is already in progress for this report. Open the report in PostHog to follow it.",
+    "already_addressed": "This report is already addressed, so a pull request would repeat work that is done.",
+    "not_ready": "This report isn't ready for a pull request yet. Open it in PostHog to see where it stands.",
     "no_repository": (
         "PostHog couldn't work out which repository to open a pull request against. "
         "Open the report in PostHog to start one from there."
     ),
+    "no_ai_consent": (
+        "Your organization hasn't approved AI data processing yet. "
+        "An organization admin can approve it in PostHog settings, then this button works."
+    ),
+    "no_project_access": "You don't have access to this project in PostHog. Ask an admin to give you access.",
     "report_closed": "This report is closed. Restore it in PostHog if you still want a pull request for it.",
     "not_found": "This report is no longer available.",
     "over_quota": (

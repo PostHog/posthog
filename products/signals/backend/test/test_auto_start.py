@@ -726,6 +726,14 @@ async def test_quota_gate_blocks_autostart_only_when_enforced(enforced):
         # The one-implementation-per-report gate holds for a click, so a second reviewer clicking
         # after auto-start (or after each other) never doubles the spend.
         ({"repository": "owner/repo", "reason": "owns the code"}, SignalReport.Status.READY, True, "already_started"),
+        # A report that went back into research is mid-flight, so its old Slack message must not
+        # start a run off research it has already moved past.
+        (
+            {"repository": "owner/repo", "reason": "owns the code"},
+            SignalReport.Status.IN_PROGRESS,
+            False,
+            "not_ready",
+        ),
     ],
 )
 def test_start_implementation_pr_from_slack(organization, team, repo_selection, status, pre_started, expected_outcome):
@@ -734,6 +742,16 @@ def test_start_implementation_pr_from_slack(organization, team, repo_selection, 
     user = _create_org_member_with_github("clicker@example.com", organization, "Clicker")
     report = SignalReport.objects.create(
         team=team, status=status, title="Stale pricing", summary="s", signal_count=1, total_weight=1.0
+    )
+    SignalReportArtefact.objects.create(
+        team=team,
+        report=report,
+        type=SignalReportArtefact.ArtefactType.ACTIONABILITY_JUDGMENT,
+        content=ActionabilityAssessment(
+            explanation="The stale value is hardcoded in one place.",
+            actionability=ActionabilityChoice.IMMEDIATELY_ACTIONABLE,
+            already_addressed=False,
+        ).model_dump_json(),
     )
     if repo_selection is not None:
         SignalReportArtefact.objects.create(
@@ -769,3 +787,48 @@ def test_start_implementation_pr_from_slack(organization, team, repo_selection, 
     assert task.created_by_id == user.id
     assert result.task_url is not None and str(task.id) in result.task_url
     assert mock_create.call_args.kwargs["repository"] == "owner/repo"
+
+
+@pytest.mark.django_db
+@pytest.mark.parametrize(
+    ("case", "expected_outcome"),
+    [
+        ("report_already_addressed", "already_addressed"),
+        ("ai_processing_not_approved", "no_ai_consent"),
+        ("clicker_without_project_access", "no_project_access"),
+    ],
+)
+def test_start_implementation_pr_from_slack_refuses_ineligible_clicks(organization, team, case, expected_outcome):
+    # Every gate here is one the tasks API does not enforce, so a Slack click that skipped the inbox
+    # would otherwise spend a PR the inbox itself would have refused.
+    user = _create_org_member_with_github("clicker@example.com", organization, "Clicker")
+    report = SignalReport.objects.create(
+        team=team, status=SignalReport.Status.READY, title="Stale pricing", summary="s"
+    )
+    SignalReportArtefact.objects.create(
+        team=team,
+        report=report,
+        type=SignalReportArtefact.ArtefactType.REPO_SELECTION,
+        content=json.dumps({"repository": "owner/repo", "reason": "owns the code"}),
+    )
+    SignalReportArtefact.objects.create(
+        team=team,
+        report=report,
+        type=SignalReportArtefact.ArtefactType.ACTIONABILITY_JUDGMENT,
+        content=ActionabilityAssessment(
+            explanation="A prior PR shipped this fix." if case == "report_already_addressed" else "One clear fix.",
+            actionability=ActionabilityChoice.IMMEDIATELY_ACTIONABLE,
+            already_addressed=case == "report_already_addressed",
+        ).model_dump_json(),
+    )
+    if case == "ai_processing_not_approved":
+        organization.is_ai_data_processing_approved = False
+        organization.save(update_fields=["is_ai_data_processing_approved"])
+    elif case == "clicker_without_project_access":
+        user = User.objects.create(email="outsider@example.com")
+
+    with patch.object(tasks_facade, "create_and_run_task") as mock_create:
+        result = start_implementation_pr_from_slack(team_id=team.id, report_id=str(report.id), user_id=user.id)
+
+    assert result.outcome == expected_outcome
+    mock_create.assert_not_called()

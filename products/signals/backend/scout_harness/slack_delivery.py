@@ -286,7 +286,7 @@ def post_scout_report_to_slack(
     )
     channel_id = _slack_channel_id(channel)
     blocks, fallback = build_scout_report_slack_message(
-        report, run, create_pr_action=slack_create_pr_button(report, integration_id=integration.id)
+        report, run, create_pr_action=slack_create_pr_button(report, integration=integration)
     )
     client = SlackIntegration(integration).client
     try:

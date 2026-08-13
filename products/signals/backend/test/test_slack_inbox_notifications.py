@@ -271,7 +271,13 @@ def _make_ready_report(
             team=team,
             report=report,
             type=SignalReportArtefact.ArtefactType.ACTIONABILITY_JUDGMENT,
-            content=json.dumps({"actionability": actionability}),
+            content=json.dumps(
+                {
+                    "actionability": actionability,
+                    "explanation": "The failing code path is clear.",
+                    "already_addressed": False,
+                }
+            ),
         )
     if priority:
         SignalReportArtefact.objects.create(

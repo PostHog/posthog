@@ -141,20 +141,35 @@ class TestScoutSlackDelivery(BaseTest):
     @parameterized.expand(
         [
             # A report the pipeline resolved a repo for is the case the button exists for.
-            ("repo_selected", {"repository": "PostHog/posthog", "reason": "owns the code"}, True),
+            ("repo_selected", {"repository": "PostHog/posthog", "reason": "owns the code"}, False, True),
             # A scout that filed a no-code report passes NO_REPO, which persists as a null repository.
-            ("no_repo_sentinel", {"repository": None, "reason": "nothing to fix in code"}, False),
-            ("no_repo_selection", None, False),
+            ("no_repo_sentinel", {"repository": None, "reason": "nothing to fix in code"}, False, False),
+            ("no_repo_selection", None, False, False),
+            # Delivery accepts any connection in the project, but the webhook authorizes a report
+            # action against the connection's own team — so a button here would be dropped on click.
+            ("cross_environment_connection", {"repository": "PostHog/posthog", "reason": "owns it"}, True, False),
         ]
     )
     def test_report_offers_create_pr_only_when_a_pr_can_be_opened(
-        self, _name: str, repo_selection: dict | None, expect_button: bool
+        self, _name: str, repo_selection: dict | None, connect_from_child_environment: bool, expect_button: bool
     ) -> None:
         report = SignalReport.objects.create(
             team=self.team,
             status=SignalReport.Status.READY,
             title="Stale pricing",
             summary="Pricing page is out of date",
+        )
+        SignalReportArtefact.objects.create(
+            team=self.team,
+            report=report,
+            type=SignalReportArtefact.ArtefactType.ACTIONABILITY_JUDGMENT,
+            content=json.dumps(
+                {
+                    "actionability": "immediately_actionable",
+                    "explanation": "The pricing table is hardcoded.",
+                    "already_addressed": False,
+                }
+            ),
         )
         if repo_selection is not None:
             SignalReportArtefact.objects.create(
@@ -164,7 +179,15 @@ class TestScoutSlackDelivery(BaseTest):
                 content=json.dumps(repo_selection),
             )
         run = self._make_emission().scout_run
-        integration = Integration.objects.create(team=self.team, kind=Integration.IntegrationKind.SLACK)
+        integration_team = self.team
+        if connect_from_child_environment:
+            integration_team = Team.objects.create(
+                organization=self.organization,
+                project=self.team.project,
+                parent_team=self.team,
+                name="Child environment",
+            )
+        integration = Integration.objects.create(team=integration_team, kind=Integration.IntegrationKind.SLACK)
         fake_client = MagicMock()
         fake_client.chat_postMessage.return_value = {"ts": "1785418710.000300"}
 

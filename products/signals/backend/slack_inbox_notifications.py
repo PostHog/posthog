@@ -619,7 +619,7 @@ def _deliver_route_notification(
             source_products=source_products,
             reviewer_mentions=mentions,
             repository=repository,
-            create_pr_action=slack_create_pr_button(report, integration_id=route.integration.id),
+            create_pr_action=slack_create_pr_button(report, integration=route.integration),
         )
         response = slack.client.chat_postMessage(channel=channel_id, blocks=blocks, text=text)
         thread_ts = response.get("ts") if hasattr(response, "get") else None
