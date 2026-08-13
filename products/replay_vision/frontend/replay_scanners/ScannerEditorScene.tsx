@@ -6,6 +6,7 @@ import * as construction2Png from '@posthog/brand/hoggies/png/construction-2'
 import * as imTheDriverPng from '@posthog/brand/hoggies/png/im-the-driver'
 import * as magnifyingGlassPng from '@posthog/brand/hoggies/png/magnifying-glass-1'
 import * as xRayPng from '@posthog/brand/hoggies/png/x-ray'
+import { IconSparkles } from '@posthog/icons'
 import { LemonButton, LemonInput, LemonSelect, LemonSwitch, LemonTag, LemonTextArea, Link } from '@posthog/lemon-ui'
 
 import { pngHoggie } from 'lib/brand/hoggies'
@@ -23,6 +24,7 @@ import { ProductKey } from '~/queries/schema/schema-general'
 
 import { ReplayVisionFeedbackButton } from '../components/ReplayVisionFeedbackButton'
 import { getReplayVisionEditDisabledReason } from '../utils/accessControl'
+import { ScannerGoalDraft } from './components/ScannerGoalDraft'
 import { ScannerTemplatePicker } from './components/ScannerTemplatePicker'
 import { ScannerTriggers } from './components/ScannerTriggers'
 import { ScannerTypeConfigEditor } from './components/ScannerTypeConfigEditor'
@@ -71,6 +73,7 @@ const STEP_HEADERS: Record<
 
 export function ScannerEditorSceneComponent(): JSX.Element {
     const { scannerId, step, isNew, visibleSteps } = useValues(scannerEditorSceneLogic)
+    const { featureFlags } = useValues(featureFlagLogic)
 
     const scannerLogic = replayScannerLogic({ id: scannerId })
     useAttachedLogic(scannerLogic, scannerEditorSceneLogic)
@@ -152,6 +155,7 @@ export function ScannerEditorSceneComponent(): JSX.Element {
                                 </p>
                             </div>
                             <ScannerTemplatePicker />
+                            {featureFlags[FEATURE_FLAGS.REPLAY_VISION_GOAL_DRAFT] ? <ScannerGoalDraft /> : null}
                         </>
                     ) : (
                         <Form
@@ -199,7 +203,7 @@ export function ScannerEditorSceneComponent(): JSX.Element {
 
 function ConfigureStep(): JSX.Element {
     const { scannerId } = useValues(scannerEditorSceneLogic)
-    const { scanner, isNew } = useValues(replayScannerLogic({ id: scannerId }))
+    const { scanner, isNew, goalDraft } = useValues(replayScannerLogic({ id: scannerId }))
     const { setScannerType } = useActions(replayScannerLogic({ id: scannerId }))
     const { searchParams } = useValues(router)
     const { featureFlags } = useValues(featureFlagLogic)
@@ -212,6 +216,15 @@ function ConfigureStep(): JSX.Element {
 
     return (
         <div className="flex flex-col gap-4">
+            {isNew && goalDraft?.rationale ? (
+                <div
+                    className="flex items-start gap-2 rounded border border-[var(--color-ai)] p-3 text-sm"
+                    data-attr="vision-goal-draft-rationale"
+                >
+                    <IconSparkles className="text-ai mt-0.5 size-4 shrink-0" />
+                    <span>{goalDraft.rationale}</span>
+                </div>
+            ) : null}
             <LemonField name="name" label="Name">
                 <LemonInput placeholder="e.g. Checkout friction" />
             </LemonField>
