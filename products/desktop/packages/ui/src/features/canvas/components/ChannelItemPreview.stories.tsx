@@ -151,15 +151,18 @@ export const Crowded: Story = {
     item: item(
       run({
         output: {
+          // Written to exercise the card, not transcribed from anywhere: long
+          // enough to clamp at three lines, and carrying a url whose unbroken
+          // width is what used to push the text column out of the card.
           final_message:
-            "That's exactly what's on the branch now — light mode animated, dark mode the static white mark. Nothing further to change; https://github.com/PostHog/posthog/pull/80979 covers the rest of it.",
+            "Swapped the retry loop for a bounded backoff, so the importer now fails closed on a bad row instead of skipping it. The remaining cleanup is tracked in https://github.com/PostHog/posthog/pull/12345 for a follow-up.",
           pr_url: "https://github.com/posthog/posthog/pull/1",
         },
         state: {
           slack_thread_url: "https://example.slack.com/archives/C1/p1",
         },
       }),
-      { title: "Fix loading screen logo color in dark mode" },
+      { title: "Clean up the importer's retry handling" },
       { origin_product: "slack" },
     ),
   },
