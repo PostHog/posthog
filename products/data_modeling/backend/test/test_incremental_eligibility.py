@@ -320,6 +320,15 @@ class TestStarExpansion:
         assert result.key_candidate_types["uuid"] == "uuid"
         assert result.key_candidate_types["properties"] == "json"
 
+    def test_schema_expression_fields_are_typed_too(self) -> None:
+        # person_id is an ExpressionField whose inner expression stays untyped in the hogql
+        # dialect; without on-demand resolution it reads as unknown and slips into the key picker.
+        result = self._check("SELECT person_id, timestamp FROM events")
+
+        assert "person_id" in result.key_candidate_types
+        assert "person_id" not in result.key_candidates
+        assert "person_id" in result.unique_key_candidates
+
     @parameterized.expand(
         [
             ("boolean", "SELECT timestamp, timestamp > now() AS flag FROM events", "flag"),

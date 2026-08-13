@@ -69,6 +69,8 @@ _CONSTANT_TYPE_LABELS: dict[type, str] = {
     ast.DecimalType: "decimal",
     ast.FloatType: "float",
     ast.StringType: "string",
+    ast.StringJSONType: "json",
+    ast.StringArrayType: "array",
     ast.UUIDType: "uuid",
     ast.BooleanType: "boolean",
     ast.ArrayType: "array",
@@ -277,6 +279,23 @@ def _database_field_label(database_field: object) -> Optional[str]:
     return None
 
 
+def _expression_field_label(field_type: ast.ExpressionFieldType, context: HogQLContext) -> Optional[str]:
+    """Schema-level computed columns (events.person_id, the error tracking issue_* joins) keep
+    their inner expression untyped in the hogql dialect, so type it here the way the execution
+    dialects do: resolve a copy scoped to the field's own table."""
+    table_type = field_type.table_type
+    while isinstance(table_type, ast.VirtualTableType):
+        table_type = table_type.table_type
+    scope = ast.SelectQueryType(tables={field_type.name: table_type})
+    try:
+        resolved = resolve_types(clone_expr(field_type.expr), context, dialect="hogql", scopes=[scope])
+        if resolved.type is None:
+            return None
+        return _CONSTANT_TYPE_LABELS.get(type(resolved.type.resolve_constant_type(context)))
+    except Exception:
+        return None
+
+
 def _key_candidate_types(selects: list[ast.SelectQuery], database: "Database") -> dict[str, str]:
     """Coarse type labels for the picker's type tags, from the resolved AST.
 
@@ -300,6 +319,8 @@ def _key_candidate_types(selects: list[ast.SelectQuery], database: "Database") -
                 label = _database_field_label(expr.type.resolve_database_field(context))
             except Exception:
                 label = None
+        elif isinstance(expr.type, ast.ExpressionFieldType):
+            label = _expression_field_label(expr.type, context)
         if label is None:
             try:
                 label = _CONSTANT_TYPE_LABELS.get(type(expr.type.resolve_constant_type(context)))
