@@ -1,5 +1,6 @@
 {
   "case": "timeline-e2e-01",
   "event": "task_created",
-  "status": "pending"
+  "status": "queued",
+  "timeline_step": "created"
 }
