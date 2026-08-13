@@ -160,11 +160,14 @@ class TestSessionRecordingsListOperandsQueries(ClickhouseTestMixin, APIBaseTest)
             [self.non_target_vip_session],
         )
 
+    @parameterized.expand([("and_operand", "AND"), ("or_operand", "OR")])
     @snapshot_clickhouse_queries
-    def test_two_negative_anded(self):
+    def test_two_negatives_exclude_regardless_of_operand(self, _name: str, operand: str):
+        # Negative filters are always AND'd, so "match any" (OR) never turns an exclusion off:
+        # both operands keep only the session that matches neither negative's inverse.
         self._assert_query_matches_session_ids(
             {
-                "operand": "AND",
+                "operand": operand,
                 "events": [
                     {
                         "id": "$pageview",
@@ -186,7 +189,11 @@ class TestSessionRecordingsListOperandsQueries(ClickhouseTestMixin, APIBaseTest)
         )
 
     @snapshot_clickhouse_queries
-    def test_two_negative_ORed(self):
+    def test_negative_exclusion_still_applies_under_match_any(self):
+        # The reported bug: "match any" of two positive filters combined with an exclusion silently
+        # dropped the exclusion. Matching (visited target) OR (is vip) selects three sessions, but the
+        # "vip is not true" exclusion must still remove both vip sessions, leaving only the non-vip
+        # session that visited target.
         self._assert_query_matches_session_ids(
             {
                 "operand": "OR",
@@ -195,19 +202,20 @@ class TestSessionRecordingsListOperandsQueries(ClickhouseTestMixin, APIBaseTest)
                         "id": "$pageview",
                         "name": "$pageview",
                         "type": "events",
-                        "properties": [{"key": "vip", "type": "event", "value": ["true"], "operator": "is_not"}],
+                        "properties": [
+                            {"key": "$pathname", "type": "event", "value": "target", "operator": "icontains"}
+                        ],
                     },
                     {
                         "id": "$pageview",
                         "name": "$pageview",
                         "type": "events",
-                        "properties": [
-                            {"key": "$pathname", "type": "event", "value": "target", "operator": "not_icontains"}
-                        ],
+                        "properties": [{"key": "vip", "type": "event", "value": ["true"], "operator": "exact"}],
                     },
                 ],
+                "properties": [{"key": "vip", "type": "event", "value": ["true"], "operator": "is_not"}],
             },
-            [self.non_target_non_vip_session, self.non_target_vip_session, self.target_non_vip_session],
+            [self.target_non_vip_session],
         )
 
     def _a_session_with_named_events(self, events: list[tuple[str, dict]], duration_seconds: int = 30) -> str:

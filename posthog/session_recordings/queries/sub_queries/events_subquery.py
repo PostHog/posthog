@@ -438,8 +438,11 @@ class ReplayFiltersEventsSubQuery(SessionRecordingsListingBaseQuery):
                 else event_where_exprs
             )
 
-        # Skip event properties with negative operators since they're handled by _negative_guard_query
-        skip_negative_properties = self._query.operand == "AND"
+        # Negative operators are always handled by the negative-blocklist / HAVING path, regardless of
+        # the query operand, so they never ride the positive OR path here. This keeps an exclusion like
+        # "email is not internal" applied even when the user picks "match any", the same way test-account
+        # filters are always AND'd (see session_recording_list_from_query).
+        skip_negative_properties = True
 
         for p in self.event_properties:
             if skip_negative_properties and is_negative_prop(p):
@@ -638,9 +641,6 @@ class ReplayFiltersEventsSubQuery(SessionRecordingsListingBaseQuery):
         return ast.And(exprs=exprs)
 
     def _having_predicates(self) -> ast.Expr:
-        if self._query.operand == "OR":
-            return ast.Constant(value=True)
-
         def countif_zero(prop: AnyPropertyFilter) -> ast.Expr:
             operator = cast(PropertyOperator, prop.operator)  # type: ignore[union-attr]
             inverted = prop.model_copy(update={"operator": INVERSE_OPERATOR_FOR[operator]})
@@ -650,8 +650,10 @@ class ReplayFiltersEventsSubQuery(SessionRecordingsListingBaseQuery):
                 right=ast.Constant(value=0),
             )
 
+        # AND the per-negative checks regardless of the query operand — a session must satisfy every
+        # exclusion, not just any one of them.
         exprs = [countif_zero(p) for p in self._collect_negative_properties()]
-        return self.wrapped_with_query_operand(exprs=exprs) if exprs else ast.Constant(value=True)
+        return ast.And(exprs=exprs) if exprs else ast.Constant(value=True)
 
     @property
     def action_entities(self):
@@ -687,9 +689,9 @@ class ReplayFiltersEventsSubQuery(SessionRecordingsListingBaseQuery):
     def _should_push_cohorts_to_events_query(self) -> bool:
         """True when this subquery should handle cohort filters instead of CohortPropertyGroupsSubQuery.
 
-        Scoped to PoE teams with the feature flag enabled, and only for operand=AND where
-        the _negative_blocklist_query path exists. Non-PoE and OR-operand queries continue
-        to use the separate cohort subquery.
+        Scoped to PoE teams with the feature flag enabled, and only for operand=AND. Non-PoE and
+        OR-operand cohort queries keep using the separate cohort subquery, which preserves their
+        distinct OR-between-cohorts semantics.
         """
         return bool(
             self._team.person_on_events_mode
@@ -719,10 +721,11 @@ class ReplayFiltersEventsSubQuery(SessionRecordingsListingBaseQuery):
         The blocklist is much smaller than the allowlist for typical negative filters
         (e.g. "host is not internal IP" → blocklist contains only internal IP sessions).
         This avoids hitting the LIMIT on high-traffic teams with millions of event-sessions.
-        """
-        if self._query.operand == "OR":
-            return None
 
+        The blocklist is AND'd into the main query regardless of the query operand: a session is
+        excluded if any of its events matches any inverted negative, so every exclusion still applies
+        under a "match any" (OR) query.
+        """
         negative_props = self._collect_negative_properties()
         if not negative_props:
             return None

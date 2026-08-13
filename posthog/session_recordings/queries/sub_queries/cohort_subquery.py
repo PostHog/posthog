@@ -38,8 +38,8 @@ class CohortPropertyGroupsSubQuery(SessionRecordingsListingBaseQuery):
 
         # Hand the cohort filter off to ReplayFiltersEventsSubQuery when we can.
         # That path filters against the events table (so events whose person_id isn't
-        # in person_distinct_id2 are still considered), but it only works for AND queries
-        # because its NOT-IN handling rides on _negative_blocklist_query, which no-ops on OR.
+        # in person_distinct_id2 are still considered), but only for AND queries — OR-operand
+        # cohort filtering stays here to preserve its OR-between-cohorts semantics.
         if poe_is_active(self._team) and self._query.operand != "OR" and is_anonymous_cohort_fix_enabled(self._team):
             return None
 
