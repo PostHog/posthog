@@ -94,6 +94,7 @@ from products.feature_flags.backend.tasks import (
     refresh_expiring_flags_cache_entries,
     sync_cross_region_flags_task,
 )
+from products.legal_documents.backend.facade.tasks import reconcile_pending_legal_documents
 from products.logs.backend.facade.tasks import logs_alert_events_cleanup_task
 from products.pulse.backend.tasks import mark_stale_pulse_briefs_failed
 from products.reminders.backend.tasks import process_due_reminders
@@ -698,6 +699,16 @@ def setup_periodic_tasks(sender: Celery, **kwargs: Any) -> None:
         crontab(minute="*"),
         process_due_reminders.s(),
         name="process due reminders",
+    )
+
+    # Poll PandaDoc for legal documents we still think are unsigned and archive
+    # any signed PDFs that missed their webhook — the safety net that recovers
+    # dropped completion webhooks and the current signed-but-stuck backlog.
+    add_periodic_task_with_expiry(
+        sender,
+        crontab(minute="*/15"),
+        reconcile_pending_legal_documents.s(),
+        name="reconcile pending legal documents",
     )
 
     # Reconcile pulse briefs stranded in GENERATING by an externally-terminated workflow.
