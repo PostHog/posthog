@@ -964,17 +964,12 @@ class EstimateResponseSerializer(serializers.Serializer):
     matched_sessions_in_window = serializers.IntegerField(
         help_text=(
             "Distinct sessions matching the query within the 30-day lookback, after the sampling_mode quality "
-            "filter but before random sampling. Approximate when `sampled` is true."
+            "filter but before random sampling."
         ),
     )
     window_days = serializers.IntegerField(
         help_text=(
             "Lookback window the estimate is based on. Normally 30; smaller when the team has fewer days of recordings."
-        ),
-    )
-    sampled = serializers.BooleanField(
-        help_text=(
-            "True when `matched_sessions_in_window` was extrapolated from a sample of users, making it approximate."
         ),
     )
     estimated_observations_per_month = serializers.IntegerField(
@@ -1653,7 +1648,6 @@ class ReplayScannerViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, vi
                 {
                     "matched_sessions_in_window": estimate.matched_sessions,
                     "window_days": estimate.effective_window_days,
-                    "sampled": estimate.sampled,
                     "estimated_observations_per_month": observations_per_month,
                     "credits_per_observation": credits_per_observation,
                     "estimated_credits_per_month": observations_per_month * credits_per_observation,

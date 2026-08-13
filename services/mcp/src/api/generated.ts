@@ -28748,12 +28748,10 @@ export namespace Schemas {
      * Forward-looking volume and credit-cost estimate for a proposed scanner.
      */
     export interface EstimateResponse {
-      /** Distinct sessions matching the query within the 30-day lookback, after the sampling_mode quality filter but before random sampling. Approximate when `sampled` is true. */
+      /** Distinct sessions matching the query within the 30-day lookback, after the sampling_mode quality filter but before random sampling. */
       matched_sessions_in_window: number;
       /** Lookback window the estimate is based on. Normally 30; smaller when the team has fewer days of recordings. */
       window_days: number;
-      /** True when `matched_sessions_in_window` was extrapolated from a sample of users, making it approximate. */
-      sampled: boolean;
       /** Projected monthly observations: quality-filtered matched sessions scaled to 30 days, times sampling_rate. */
       estimated_observations_per_month: number;
       /** Credits one observation costs at the proposed `model` (1 credit = $0.01). */
