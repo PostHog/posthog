@@ -176,6 +176,17 @@ describe('HostBudget', () => {
         expect(host.take('example.com', 2000, FAR_FUTURE)).toEqual({ granted: false, reason: 'breaker_open' })
     })
 
+    it('does not report a busy but unblocked domain as one whose hold it forgot', () => {
+        // The eviction scan skips a domain that is blocked or that has connections open. Only the
+        // first kind loses a hold, and the metric is named for that kind.
+        const host = budget({ maxTrackedDomains: 1, maxConcurrent: 1 })
+        host.acquireConnection('busy.com', 1000)
+
+        host.take('new.com', 1000, FAR_FUTURE)
+
+        expect(host.evictedWhileBlocked).toBe(0)
+    })
+
     it('evicts an idle domain in preference to one it is still holding back', () => {
         const host = budget({ maxTrackedDomains: 2 })
         host.recordRetryAfter('blocked.com', 1000, 60_000)

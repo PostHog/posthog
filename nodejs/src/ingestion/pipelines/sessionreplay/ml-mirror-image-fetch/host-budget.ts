@@ -248,8 +248,14 @@ export class HostBudget {
             }
         }
         if (oldest) {
+            // Counted only when the entry really was blocked. The scan above also skips a domain
+            // that merely has connections open, and evicting one of those loses a count rather than
+            // a hold, which is a different fault and must not read as this one.
+            const evicted = this.domains.get(oldest)
             this.domains.delete(oldest)
-            this.evictedWhileBlocked++
+            if (evicted && evicted.blockedUntilMs > nowMs) {
+                this.evictedWhileBlocked++
+            }
         }
     }
 }
