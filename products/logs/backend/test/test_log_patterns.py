@@ -142,7 +142,7 @@ class TestMinePatterns(TestCase):
                     "I0812 15:41:23.951822 12 proxier.go:99] synced",
                     "I0813 16:02:11.112233 12 proxier.go:99] synced",
                 ],
-                "<timestamp>",
+                "<klogtime>",
                 "0812",
             ),
         ]
@@ -355,7 +355,7 @@ class TestCompileMatchRegex(TestCase):
             ("agent Chrome/<version> connected", "agent Chrome/139.0.0.0 connected"),
             ("path /api/v1/users?id=<num> hit", "path /api/v1/users?id=42 hit"),
             ("job <timestamp> finished", "job 2026-08-12T08:10:43.397557Z finished"),
-            ("I<timestamp> synced iptables", "I0812 15:41:23.951822 synced iptables"),
+            ("I<klogtime> synced iptables", "I0812 15:41:23.951822 synced iptables"),
         ]
     )
     def test_compiled_regex_matches_raw_bodies(self, template: str, raw_body: str) -> None:
@@ -566,6 +566,23 @@ _versioned_quad_st = st.tuples(_product_st, _ipv4_st).map(lambda t: f"{t[0]}/{t[
 _plain_decimal_st = st.tuples(st.integers(min_value=0, max_value=9999), st.integers(min_value=0, max_value=999)).map(
     lambda t: f"{t[0]}.{t[1]}"
 )
+
+
+@st.composite
+def _bare_klog_st(draw: st.DrawFn) -> str:
+    # A klog date-time with no severity letter in front. The klog mask requires the
+    # letter, so this stays literal and must not be pulled into an ISO timestamp pivot.
+    header = draw(_klog_header_st())
+    return header[1:]
+
+
+@st.composite
+def _bare_klog_st(draw: st.DrawFn) -> str:
+    # A klog date-time with no severity letter in front. The klog mask requires that
+    # letter, so this stays literal and must not be pulled into an ISO timestamp pivot.
+    return draw(_klog_header_st())[1:]
+
+
 # One row per (masked kind, confusable neighbor). Both halves of the row matter: the mask
 # has to tell the pair apart, and so does the pivot regex the mask produces. A single
 # union-of-everything property dilutes each pair to a fraction of the example budget, so
@@ -581,6 +598,7 @@ _CONFUSABLE_PAIRS = [
     ("ip_vs_versioned_quad", _ipv4_st, _versioned_quad_st),
     ("version_vs_plain_decimal", _slash_version_st, _plain_decimal_st),
     ("host_vs_dotted_code_path", _fqdn_st(), _dotted_code_path_st()),
+    ("timestamp_vs_bare_klog_form", _timestamp_st(), _bare_klog_st()),
 ]
 
 
@@ -766,7 +784,7 @@ class TestKlogTimestampProperties(TestCase):
         patterns = mine_patterns([_sample(f"{header} 12 worker.go:31] task_retrying")])
 
         # exact template: the date is fully consumed and the severity letter survives
-        assert patterns[0].pattern == f"{header[0]}<timestamp> <num> worker.go:<num>] task_retrying"
+        assert patterns[0].pattern == f"{header[0]}<klogtime> <num> worker.go:<num>] task_retrying"
 
     @given(headers=_klog_header_pair_st())
     @settings(max_examples=400, deadline=None)
@@ -782,7 +800,7 @@ class TestKlogTimestampProperties(TestCase):
     @given(headers=_klog_header_pair_st())
     @settings(max_examples=400, deadline=None)
     def test_klog_match_regex_matches_a_sibling_at_another_instant(self, headers: tuple[str, str]) -> None:
-        # The <timestamp> fragment has to cover the klog form as well as ISO-8601, or the
+        # The <klogtime> fragment has to cover every klog instant, or the
         # pivot from a klog pattern to its logs returns only the minute it was mined from.
         line = "{} 12 worker.go:31] task_retrying"
         patterns = mine_patterns([_sample(line.format(headers[0]))])
