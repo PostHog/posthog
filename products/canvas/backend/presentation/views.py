@@ -1,7 +1,6 @@
 from typing import Any, cast
 from uuid import UUID
 
-from django.conf import settings
 from django.core.exceptions import ValidationError as DjangoValidationError
 from django.db.models import Q, QuerySet
 from django.utils import timezone
@@ -48,6 +47,7 @@ from products.canvas.backend.presentation.serializers import (
     CanvasValidateRequestSerializer,
     CanvasValidateResponseSerializer,
     CanvasVersionSerializer,
+    canvas_url,
 )
 from products.canvas.backend.source import apply_source_edits, has_errors, validate_source_project
 from products.tasks.backend.facade import api as tasks_facade
@@ -139,21 +139,32 @@ class CanvasViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
 
     def safely_get_queryset(self, queryset: QuerySet) -> QuerySet:
         queryset = queryset.filter(team_id=self.team_id, deleted=False)
-        # Channels are per-user for the personal kind: the facade's visibility
-        # rule makes a canvas filed into someone else's personal channel
-        # invisible (and unwritable) to everyone but its owner, for list and
-        # every detail action alike. The create() check alone is not enough —
-        # DRF resolves all detail actions off this queryset.
         user = self._request_user()
-        queryset = queryset.filter(tasks_facade.visible_channels_q(user.id if user else None, relation="channel"))
-        if self._is_sandbox_authenticated(self.request):
+        is_sandbox_authenticated = self._is_sandbox_authenticated(self.request)
+        if is_sandbox_authenticated:
             sandbox_task_id = self._sandbox_task_id(self.request)
             if sandbox_task_id is None:
                 return queryset.none()
-            queryset = queryset.filter(
-                Q(generation_task_id=sandbox_task_id) | Q(source_versions__task_id=sandbox_task_id)
-            ).distinct()
-        elif self.action in self._CREATOR_ONLY_ACTIONS:
+            public_canvas_q = tasks_facade.visible_channels_q(None, relation="channel")
+            if user is None:
+                queryset = (
+                    queryset.filter(public_canvas_q)
+                    if self.action in self.scope_object_read_actions
+                    else queryset.none()
+                )
+            else:
+                actor_canvas_q = Q(created_by_id=user.id) & tasks_facade.visible_channels_q(user.id, relation="channel")
+                queryset = queryset.filter(
+                    public_canvas_q | actor_canvas_q
+                    if self.action in self.scope_object_read_actions
+                    else actor_canvas_q
+                )
+        else:
+            # Channels are per-user for the personal kind: the facade's visibility
+            # rule makes a canvas filed into someone else's personal channel
+            # invisible (and unwritable) to everyone but its owner.
+            queryset = queryset.filter(tasks_facade.visible_channels_q(user.id if user else None, relation="channel"))
+        if not is_sandbox_authenticated and self.action in self._CREATOR_ONLY_ACTIONS:
             if user is None:
                 return queryset.none()
             queryset = queryset.filter(created_by_id=user.id)
@@ -186,13 +197,16 @@ class CanvasViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
         if not tasks_facade.channel_exists(self.team_id, channel_id, user.id if user else None):
             return Response({"detail": "Channel not found in this team."}, status=status.HTTP_400_BAD_REQUEST)
         sandbox_task_id = self._sandbox_task_id(request)
-        if self._is_sandbox_authenticated(request) and (
-            sandbox_task_id is None or not tasks_facade.task_is_in_channel(sandbox_task_id, self.team_id, channel_id)
-        ):
-            return Response(
-                {"detail": "This sandbox can create canvases only in its task's space."},
-                status=status.HTTP_403_FORBIDDEN,
-            )
+        if self._is_sandbox_authenticated(request):
+            task_channel_id = tasks_facade.task_channel_id(sandbox_task_id, self.team_id) if sandbox_task_id else None
+            if task_channel_id != channel_id:
+                # Naming the right channel lets the agent recover in one step
+                # and tell the user where the canvas will actually land.
+                hint = f' Use the task\'s channel "{task_channel_id}".' if task_channel_id else ""
+                return Response(
+                    {"detail": f"This sandbox can create canvases only in its task's space.{hint}"},
+                    status=status.HTTP_403_FORBIDDEN,
+                )
         canvas = Canvas.objects.create(
             team_id=self.team_id,
             channel_id=channel_id,
@@ -883,15 +897,25 @@ class CanvasViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
             self.team_id,
             acting_user_id=user.id if user else None,
             canvas_name=canvas.name or "Canvas",
-            canvas_url=f"{settings.SITE_URL}/code/canvas/{canvas.channel_id}/{canvas.id}",
+            canvas_url=canvas_url(canvas),
         )
 
     @staticmethod
     def _is_sandbox_authenticated(request: Request) -> bool:
-        """True when the request bears an OAuth token minted under a sandbox app —
-        the credential a task sandbox (via the MCP server) calls this API with."""
+        """True when the request bears an OAuth token minted for a task sandbox —
+        the credential a task sandbox (via the MCP server) calls this API with.
+
+        The sandbox apps also issue the desktop app's interactive grants, so the application
+        alone does not prove sandbox origin. Server-minted tokens carry either a task binding
+        or the internal provenance scope. An unbound server token must still fail closed rather
+        than inherit its user's Canvas visibility.
+        """
         authenticator = request.successful_authenticator
         if not isinstance(authenticator, OAuthAccessTokenAuthentication):
             return False
-        application = authenticator.access_token.application
+        access_token = authenticator.access_token
+        scopes = set((access_token.scope or "").split())
+        if access_token.sandbox_task_id is None and "internal_run:read" not in scopes:
+            return False
+        application = access_token.application
         return application is not None and application.client_id in SANDBOX_OAUTH_APP_CLIENT_IDS

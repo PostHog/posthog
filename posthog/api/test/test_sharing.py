@@ -25,14 +25,16 @@ from posthog.api.sharing import (
 )
 from posthog.constants import AvailableFeature
 from posthog.models import ActivityLog, OrganizationMembership
+from posthog.models.data_color_theme import DataColorTheme
 from posthog.models.filters.filter import Filter
 from posthog.models.share_password import SharePassword
 from posthog.models.sharing_configuration import SharingConfiguration
 from posthog.models.user import User
 
+from products.alerts.backend.models.alert import AlertConfiguration
 from products.dashboards.backend.access import DashboardAccessMethod
 from products.dashboards.backend.models.dashboard import Dashboard
-from products.dashboards.backend.models.dashboard_tile import DashboardTile
+from products.dashboards.backend.models.dashboard_tile import ButtonTile, DashboardTile, Text
 from products.dashboards.backend.models.dashboard_widget import DashboardWidget
 from products.data_modeling.backend.facade.models import DataWarehouseSavedQuery
 from products.exports.backend.models.exported_asset import ExportedAsset, get_render_access_token
@@ -1706,6 +1708,52 @@ class TestSharedCohortInlining(APIBaseTest):
         assert widget_data["widget_type"] == "error_tracking_list"
         assert widget_data["config"]["limit"] == 10
         assert "created_by" not in widget_data
+
+    @mock_exporter_template
+    def test_shared_dashboard_omits_authorship_of_dashboard_and_tiles(self):
+        dashboard = Dashboard.objects.create(team=self.team, name="dash", created_by=self.user)
+        insight = Insight.objects.create(
+            team=self.team,
+            name="Pageviews",
+            query={"kind": "TrendsQuery", "series": [{"kind": "EventsNode", "event": "$pageview"}]},
+            created_by=self.user,
+            last_modified_by=self.user,
+        )
+        AlertConfiguration.objects.create(
+            team=self.team, insight=insight, name="High pageviews", enabled=True, created_by=self.user
+        )
+        DashboardTile.objects.create(dashboard=dashboard, team_id=self.team.id, insight=insight)
+        text = Text.objects.create(team=self.team, body="Read me", created_by=self.user, last_modified_by=self.user)
+        DashboardTile.objects.create(dashboard=dashboard, team_id=self.team.id, text=text)
+        button = ButtonTile.objects.create(
+            team=self.team,
+            url="https://example.com",
+            text="Open docs",
+            created_by=self.user,
+            last_modified_by=self.user,
+        )
+        DashboardTile.objects.create(dashboard=dashboard, team_id=self.team.id, button_tile=button)
+        DataColorTheme.objects.create(team=self.team, name="Brand", colors=["#000000"], created_by=self.user)
+
+        config = SharingConfiguration.objects.create(team=self.team, dashboard=dashboard, enabled=True)
+        response = self.client.get(f"/shared/{config.access_token}")
+        assert response.status_code == 200
+
+        body = response.content.decode()
+        assert self.user.email not in body
+
+        exported = self._parse_exported_data(body)
+        exported_dashboard = exported["dashboard"]
+        assert "created_by" not in exported_dashboard
+        for tile in exported_dashboard["tiles"]:
+            for tile_content in (tile.get("insight"), tile.get("text"), tile.get("button_tile")):
+                if tile_content is not None:
+                    assert "created_by" not in tile_content
+                    assert "last_modified_by" not in tile_content
+            if tile.get("insight") is not None:
+                assert tile["insight"]["alerts"] == []
+        for theme in exported["themes"]:
+            assert "created_by" not in theme
 
 
 class TestSharingResourceEditChecks(APIBaseTest):

@@ -11,7 +11,7 @@ use personhog_coordination::pod::{desired_state, DesiredState};
 use personhog_coordination::protocol::{
     drain_satisfied, freeze_quorum_met, plan_partial_rebalance, warm_satisfied,
 };
-use personhog_coordination::strategy::{AssignmentStrategy, StickyBalancedStrategy};
+use personhog_coordination::strategy::{AssignmentStrategy, Member, StickyBalancedStrategy};
 use personhog_coordination::types::{
     AssignmentStatus, HandoffState, PartitionAssignment, PodDrainedAck, PodStatus, PodWarmedAck,
     RegisteredPod, RegisteredRouter, RouterFreezeAck,
@@ -141,6 +141,11 @@ pub struct HandoffModel {
     /// Writes a lease-expired pod may still accept before its keepalive
     /// self-fences it. Zero disables the zombie window entirely.
     pub zombie_window: u8,
+    /// Pods below this id form a departing generation for the planner:
+    /// they are Hold members, and every other pod is capped at its final
+    /// share (the coordinator's rollout policies). Zero models the
+    /// steady state, where every pod is an uncapped active member.
+    pub hold_pods: u8,
     /// Adds reachability probes (`sometimes` properties) for scenario
     /// shapes that only exist at larger scale — used to measure, rather
     /// than assume, which configurations actually reach them. Off in the
@@ -213,14 +218,41 @@ impl HandoffModel {
             .iter()
             .map(|(p, owner)| (*p as u32, pod_name(*owner)))
             .collect();
-        let mut active: Vec<String> = state
+        let members = self.planner_members(state);
+        StickyBalancedStrategy.compute_assignments(&current, &members, self.partitions as u32)
+    }
+
+    /// Planner membership with the model's placement policies applied —
+    /// shared by target computation and rebalance planning so every
+    /// property judges the same placement mode.
+    fn planner_members(&self, state: &SystemState) -> Vec<Member> {
+        let mut ids: Vec<PodId> = state
             .pods
             .iter()
             .filter(|(_, p)| p.registered)
-            .map(|(id, _)| pod_name(*id))
+            .map(|(id, _)| *id)
             .collect();
-        active.sort();
-        StickyBalancedStrategy.compute_assignments(&current, &active, self.partitions as u32)
+        ids.sort();
+        if self.hold_pods == 0 {
+            return ids
+                .into_iter()
+                .map(|id| Member::active(pod_name(id)))
+                .collect();
+        }
+        // The cap mirrors the coordinator's: total over the incoming
+        // fleet's *desired* size, not its live count, so a crashed
+        // incoming pod does not inflate its peers' quota.
+        let incoming = self.pods.saturating_sub(self.hold_pods).max(1);
+        let cap = (self.partitions as u32).div_ceil(incoming as u32);
+        ids.into_iter()
+            .map(|id| {
+                if id < self.hold_pods {
+                    Member::hold(pod_name(id))
+                } else {
+                    Member::active_capped(pod_name(id), cap)
+                }
+            })
+            .collect()
     }
 
     fn target_owner(&self, state: &SystemState, partition: Partition) -> Option<PodId> {
@@ -675,18 +707,12 @@ impl HandoffModel {
             .iter()
             .map(|(p, h)| production_handoff(*p, h))
             .collect();
-        let mut active: Vec<String> = last
-            .pods
-            .iter()
-            .filter(|(_, p)| p.registered)
-            .map(|(id, _)| pod_name(*id))
-            .collect();
-        active.sort();
+        let members = self.planner_members(last);
         let mut plan = plan_partial_rebalance(
             &StickyBalancedStrategy,
             &current,
             &in_flight,
-            &active,
+            &members,
             self.partitions as u32,
         );
         if plan.handoffs.is_empty() {

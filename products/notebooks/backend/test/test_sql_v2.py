@@ -17,6 +17,7 @@ from freezegun import freeze_time
 from posthog.test.base import APIBaseTest
 from unittest.mock import patch
 
+from django.conf import settings
 from django.core import signing
 from django.core.cache import cache
 from django.test import SimpleTestCase, override_settings
@@ -569,12 +570,22 @@ class TestSQLV2Run(APIBaseTest):
         self.assertIn("new_col", run.code)
         self.assertNotIn("old_col", run.code)
 
+    @parameterized.expand(
+        [
+            ("sql_consumer", "hogql", "select * from sql_df", NotebookNodeRun.NodeType.DUCKDB),
+            ("python_consumer", "python", "print(sql_df)", NotebookNodeRun.NodeType.PYTHON),
+        ]
+    )
     @patch("products.notebooks.backend.presentation.views.notebook.start_sql_v2_run_workflow")
     @patch("products.notebooks.backend.presentation.views.notebook.is_sql_v2_enabled", return_value=True)
-    def test_hogql_ref_whose_latest_run_was_duckdb_is_treated_as_not_run(self, _mock_enabled, mock_start):
-        # A SQL node's runs can alternate engines; a duckdb run's code is raw SQL naming
-        # kernel frames, so inlining it as a CTE would ship it to ClickHouse. The stale older
-        # hogql run must not be used either — the node's latest result is a local frame.
+    def test_ref_whose_latest_run_was_duckdb_reads_it_as_a_kernel_frame(
+        self, _name, consumer_node_type, code, expected_node_type, _mock_enabled, mock_start
+    ):
+        # A SQL node's runs can alternate engines; a duckdb run's code is raw SQL naming kernel
+        # frames, so inlining it as a CTE would ship it to ClickHouse, and the stale older hogql
+        # run must not be used either. But the run did happen: a duckdb run binds its result into
+        # the kernel namespace under its dataframe name, so downstream cells read it as a local
+        # frame instead of being told the node never ran.
         with freeze_time("2026-07-04T00:00:00Z"):
             self._record_done_run("node-c", "select id from events")
         with freeze_time("2026-07-04T00:01:00Z"):
@@ -589,12 +600,20 @@ class TestSQLV2Run(APIBaseTest):
                 )
         response = self.client.post(
             self.run_url,
-            data={"node_id": "d", "code": "select * from sql_df", "refs": {"sql_df": {"node_id": "node-c"}}},
+            data={
+                "node_id": "d",
+                "code": code,
+                "node_type": consumer_node_type,
+                "refs": {"sql_df": {"node_id": "node-c"}},
+            },
             format="json",
         )
-        self.assertEqual(response.status_code, 400)
-        self.assertIn("has not been run", response.json()["detail"])
-        mock_start.assert_not_called()
+        self.assertEqual(response.status_code, 200)
+        run = NotebookNodeRun.objects.for_team(self.team.id).get(id=response.json()["run_id"])
+        self.assertEqual(run.node_type, expected_node_type)
+        self.assertEqual(run.code, code)  # never CTE-rewritten: the upstream result is a frame
+        dispatched = mock_start.call_args.args[0]
+        self.assertEqual([(i["name"], i["kind"]) for i in dispatched.inputs], [("sql_df", "local")])
 
     @patch("products.notebooks.backend.presentation.views.notebook.start_sql_v2_run_workflow")
     @patch("products.notebooks.backend.presentation.views.notebook.is_sql_v2_enabled", return_value=True)
@@ -878,20 +897,33 @@ class TestSQLV2RunOnAConnection(APIBaseTest):
         run.refresh_from_db()
         self.assertEqual(run.status, NotebookNodeRun.Status.FAILED)
 
+    @parameterized.expand([("python_frame", False), ("duckdb_node_frame", True)])
     @patch("products.notebooks.backend.presentation.views.notebook.start_sql_v2_run_workflow")
     @patch("products.notebooks.backend.presentation.views.notebook.enqueue_direct_run")
-    def test_local_frame_reference_never_reroutes_a_connection_run_to_the_sandbox(
-        self, mock_enqueue, mock_start, _mock_enabled
+    def test_a_local_frame_never_reroutes_a_connection_run_to_the_sandbox(
+        self, _name, from_duckdb_run, mock_enqueue, mock_start, _mock_enabled
     ):
-        # Without the guard this takes Journey 5's DuckDB reroute, where the sandbox would run
-        # the query against a kernel frame instead of the warehouse the user picked.
-        response = self._post(
-            code="select * from new_events",
-            refs={"new_events": {"node_id": "node-py", "kind": "local"}},
-            connection_id=str(self.source_id),
-        )
+        # Without the guard this takes Journey 5's DuckDB reroute, where the sandbox would run the
+        # query against a kernel frame instead of the warehouse the user picked. A SQL node whose
+        # last run was duckdb left its result in that same namespace, so it takes the same guard.
+        if from_duckdb_run:
+            with team_scope(self.team.id):
+                NotebookNodeRun.objects.create(
+                    team=self.team,
+                    notebook=self.notebook,
+                    node_id="node-duck",
+                    code="select * from new_events",
+                    node_type=NotebookNodeRun.NodeType.DUCKDB,
+                    status=NotebookNodeRun.Status.DONE,
+                )
+            refs = {"sql_df": {"node_id": "node-duck"}}
+            code = "select * from sql_df"
+        else:
+            refs = {"new_events": {"node_id": "node-py", "kind": "local"}}
+            code = "select * from new_events"
+        response = self._post(code=code, refs=refs, connection_id=str(self.source_id))
         self.assertEqual(response.status_code, 400)
-        self.assertIn("Python dataframe", response.json()["detail"])
+        self.assertIn("local dataframe", response.json()["detail"])
         mock_start.assert_not_called()
         mock_enqueue.assert_not_called()
 
@@ -1697,7 +1729,12 @@ class TestSQLV2DataPlaneEndpoint(APIBaseTest):
         from products.notebooks.backend import frame_store
 
         frame_uuid = "018e0e7a-1111-2222-3333-444444444444"
-        with self.settings(OBJECT_STORAGE_ENABLED=True):
+        # Presign against the endpoint this process writes through, dropping the cached storage
+        # client so the override applies — see test_frame_store.py for why both halves matter.
+        with (
+            self.settings(OBJECT_STORAGE_ENABLED=True, OBJECT_STORAGE_PUBLIC_ENDPOINT=settings.OBJECT_STORAGE_ENDPOINT),
+            patch.object(object_storage, "_client", object_storage.UnavailableStorage()),
+        ):
             self.addCleanup(self._delete_team_frames)
             response = self._run_to_completion(
                 {

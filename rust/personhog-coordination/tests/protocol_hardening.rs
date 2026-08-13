@@ -4221,3 +4221,120 @@ async fn a_repair_nudge_converges_without_waiting_for_reconcile() {
 
     cancel.cancel();
 }
+
+/// Records `prepare_acquire` calls — the pending-ownership hint.
+struct PrepareProbeHandler {
+    events: Arc<Mutex<Vec<HandoffEvent>>>,
+    prepared: Arc<AtomicUsize>,
+}
+
+#[async_trait]
+impl personhog_coordination::pod::HandoffHandler for PrepareProbeHandler {
+    async fn drain_partition_inflight(&self, partition: u32) -> Result<()> {
+        self.events
+            .lock()
+            .await
+            .push(HandoffEvent::Drained(partition));
+        Ok(())
+    }
+
+    async fn warm_partition(&self, partition: u32) -> Result<()> {
+        self.events
+            .lock()
+            .await
+            .push(HandoffEvent::Warmed(partition));
+        Ok(())
+    }
+
+    async fn prepare_acquire(&self, _partition: u32) {
+        self.prepared.fetch_add(1, Ordering::SeqCst);
+    }
+
+    async fn release_partition(&self, partition: u32) -> Result<()> {
+        self.events
+            .lock()
+            .await
+            .push(HandoffEvent::Released(partition));
+        Ok(())
+    }
+
+    async fn resume_partition(&self, partition: u32) -> Result<()> {
+        self.events
+            .lock()
+            .await
+            .push(HandoffEvent::Resumed(partition));
+        Ok(())
+    }
+}
+
+/// The incoming owner of a handoff still freezing or draining must see
+/// the pending-ownership hint — the window where connection setup can
+/// run ahead of the fence — while warming stays forbidden until the
+/// phase says the HWM is stable.
+#[tokio::test]
+async fn a_pending_new_owner_is_hinted_but_not_warmed() {
+    let store = test_store("pending-owner-hint").await;
+    let cancel = CancellationToken::new();
+
+    store
+        .put_assignments(&[PartitionAssignment {
+            partition: 0,
+            owner: "old-pod".to_string(),
+            status: AssignmentStatus::Active,
+            advertise_address: None,
+        }])
+        .await
+        .expect("write assignment");
+
+    let events: Arc<Mutex<Vec<HandoffEvent>>> = Arc::new(Mutex::new(Vec::new()));
+    let prepared = Arc::new(AtomicUsize::new(0));
+    let handler = PrepareProbeHandler {
+        events: Arc::clone(&events),
+        prepared: Arc::clone(&prepared),
+    };
+    let pod = personhog_coordination::pod::PodHandle::new(
+        Arc::clone(&store),
+        personhog_coordination::pod::PodConfig {
+            pod_name: "pre-pod".to_string(),
+            lease_ttl: 30,
+            heartbeat_interval: Duration::from_secs(10),
+            reconcile_interval: Duration::from_secs(86_400),
+            ..Default::default()
+        },
+        Arc::new(handler),
+        None,
+        Arc::new(AuthorityClock::unclaimed()),
+    );
+    let token = cancel.child_token();
+    tokio::spawn(async move { pod.run(token).await });
+
+    put_handoff(
+        &store,
+        0,
+        Some("old-pod"),
+        "pre-pod",
+        HandoffPhase::Draining,
+    )
+    .await;
+
+    wait_for_condition_named(
+        WAIT_TIMEOUT,
+        POLL_INTERVAL,
+        "pending new owner receives the prepare hint",
+        || {
+            let prepared = Arc::clone(&prepared);
+            async move { prepared.load(Ordering::SeqCst) >= 1 }
+        },
+    )
+    .await;
+    assert!(
+        !events
+            .lock()
+            .await
+            .iter()
+            .any(|e| matches!(e, HandoffEvent::Warmed(0))),
+        "a draining handoff must hint the new owner without warming it"
+    );
+
+    cancel.cancel();
+}
