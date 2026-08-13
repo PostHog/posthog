@@ -319,6 +319,66 @@ class TestEmailChannelPermissions(BaseTest):
         assert response.json()["configs"][0]["confirmation_available"] is False
         assert not EmailChannelSetup.objects.for_team(self.team.id).filter(id=setup.id).exists()
 
+    @parameterized.expand(
+        [
+            ("pending_with_expired_setup", EmailChannelConnectionStatus.PENDING_CONFIRMATION, True),
+            ("confirmation_expired", EmailChannelConnectionStatus.CONFIRMATION_EXPIRED, False),
+        ]
+    )
+    @patch(
+        "products.conversations.backend.api.email_settings.get_instance_setting",
+        return_value="mg.posthog.com",
+    )
+    def test_connect_releases_expired_customer_email_reservation(
+        self,
+        _name: str,
+        connection_status: str,
+        create_setup: bool,
+        _mock_setting: MagicMock,
+    ) -> None:
+        other_organization = Organization.objects.create(name="Other organization")
+        other_team = Team.objects.create(organization=other_organization)
+        other_owner = User.objects.create(email="other-owner@example.com")
+        OrganizationMembership.objects.create(
+            organization=other_organization,
+            user=other_owner,
+            level=OrganizationMembership.Level.MEMBER,
+        )
+        stale_channel = EmailChannel.objects.create(
+            team=other_team,
+            kind=EmailChannelKind.CUSTOMER_COMMUNICATION,
+            owner=other_owner,
+            inbound_token="stale-token",
+            from_email="reserved@example.com",
+            from_name="Reserved",
+            domain="example.com",
+            connection_status=connection_status,
+        )
+        if create_setup:
+            EmailChannelSetup.objects.for_team(other_team.id).create(
+                team=other_team,
+                channel=stale_channel,
+                provider=EmailChannelSetupProvider.GOOGLE,
+                expires_at=timezone.now() - timedelta(seconds=1),
+            )
+
+        response = self.client.post(
+            "/api/conversations/v1/email/connect",
+            {
+                "from_email": "reserved@example.com",
+                "from_name": "Customer success",
+                "kind": EmailChannelKind.CUSTOMER_COMMUNICATION,
+                "owner_id": self.user.id,
+            },
+            content_type="application/json",
+        )
+
+        assert response.status_code == 200
+        assert not EmailChannel.objects.filter(id=stale_channel.id).exists()
+        replacement = EmailChannel.objects.get(team=self.team, from_email="reserved@example.com")
+        assert replacement.owner_id == self.user.id
+        assert replacement.connection_status == EmailChannelConnectionStatus.PENDING_CONFIRMATION
+
     @patch("products.conversations.backend.api.email_settings.mailgun_add_domain")
     @patch(
         "products.conversations.backend.api.email_settings.get_instance_setting",

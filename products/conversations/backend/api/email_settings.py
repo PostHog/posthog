@@ -147,6 +147,29 @@ def _expire_customer_email_setups(*, team: Team, owner: User) -> None:
         ).update(connection_status=EmailChannelConnectionStatus.CONFIRMATION_EXPIRED)
 
 
+def _release_expired_customer_email_reservation(*, from_email: str) -> None:
+    channel = (
+        EmailChannel.objects.select_for_update()
+        .filter(
+            from_email=from_email,
+            kind=EmailChannelKind.CUSTOMER_COMMUNICATION,
+        )
+        .select_related("setup")
+        .first()
+    )
+    if channel is None or channel.connection_status == EmailChannelConnectionStatus.ACTIVE:
+        return
+
+    try:
+        setup = channel.setup
+    except EmailChannelSetup.DoesNotExist:
+        setup = None
+
+    setup_expired = setup is None or setup.expires_at <= timezone.now()
+    if channel.connection_status == EmailChannelConnectionStatus.CONFIRMATION_EXPIRED or setup_expired:
+        channel.delete()
+
+
 def _release_domain_if_unused(team: Team, domain: str) -> None:
     """Best-effort removal of a Mailgun registration that no support config uses.
 
@@ -499,6 +522,9 @@ class EmailConnectView(APIView):
                 # Lock team row to serialize concurrent connects and enforce the config limit
                 Team.objects.select_for_update().get(id=team.id)
 
+                if kind == EmailChannelKind.CUSTOMER_COMMUNICATION:
+                    _release_expired_customer_email_reservation(from_email=from_email)
+
                 current_count = EmailChannel.objects.filter(team=team, kind=kind).count()
                 max_channels = (
                     MAX_EMAIL_CONFIGS_PER_TEAM
@@ -781,6 +807,7 @@ class EmailConfirmForwardingView(APIView):
                 return Response({"error": "Gmail has not sent a forwarding confirmation yet."}, status=400)
 
             confirmation_url = setup.confirmation_action
+            # Google provides no completion callback, so the owner's request for this authenticated action is the activation boundary.
             setup.delete()
             config.connection_status = EmailChannelConnectionStatus.ACTIVE
             config.save(update_fields=["connection_status"])
