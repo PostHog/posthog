@@ -603,7 +603,6 @@ class CanvasReportErrorSerializer(serializers.Serializer):
 class CanvasErrorReportResultSerializer(serializers.Serializer):
     """Outcome of filing a canvas error report."""
 
-    filed = serializers.BooleanField(help_text="Whether a new report was filed in the authoring task's thread.")
     report_outcome = serializers.ChoiceField(
         choices=["filed", "duplicate", "no_authoring_task", "skipped"],
         help_text=(
@@ -630,7 +629,6 @@ class CanvasRequestFixSerializer(serializers.Serializer):
 class CanvasFixRequestResultSerializer(serializers.Serializer):
     """Outcome of dispatching a canvas fix to the authoring agent."""
 
-    dispatched = serializers.BooleanField(help_text="Whether the authoring agent was woken to work on the fix.")
     dispatch_outcome = serializers.ChoiceField(
         choices=["signaled", "new_run"],
         help_text="signaled: the task's live run received the request. new_run: a fresh agent run was started.",

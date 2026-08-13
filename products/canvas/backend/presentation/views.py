@@ -9,6 +9,7 @@ from drf_spectacular.types import OpenApiTypes
 from drf_spectacular.utils import OpenApiParameter, OpenApiResponse, extend_schema
 from rest_framework import status, viewsets
 from rest_framework.decorators import action
+from rest_framework.exceptions import NotFound
 from rest_framework.request import Request
 from rest_framework.response import Response
 
@@ -864,14 +865,7 @@ class CanvasViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
         canvas = self.get_object()
         payload = CanvasReportErrorSerializer(data=request.data)
         payload.is_valid(raise_exception=True)
-        build = (
-            CanvasBuild.objects.for_team(self.team_id)
-            .select_related("source_version")
-            .filter(id=payload.validated_data["build_id"], canvas_id=canvas.id)
-            .first()
-        )
-        if build is None:
-            return Response({"detail": "Build not found for this canvas."}, status=status.HTTP_404_NOT_FOUND)
+        build = self._canvas_build(canvas, payload.validated_data["build_id"])
         error_type = error_reports.sanitize_error_type(payload.validated_data["error_type"])
         outcome = error_reports.report_runtime_error(canvas, build, error_type)
         self._report_canvas_action(
@@ -881,7 +875,7 @@ class CanvasViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
             error_type=error_type,
             report_outcome=outcome,
         )
-        return Response({"filed": outcome == "filed", "report_outcome": outcome}, status=status.HTTP_202_ACCEPTED)
+        return Response({"report_outcome": outcome}, status=status.HTTP_202_ACCEPTED)
 
     @extend_schema(
         operation_id="canvases_request_fix_create",
@@ -911,14 +905,7 @@ class CanvasViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
             )
         payload = CanvasRequestFixSerializer(data=request.data)
         payload.is_valid(raise_exception=True)
-        build = (
-            CanvasBuild.objects.for_team(self.team_id)
-            .select_related("source_version")
-            .filter(id=payload.validated_data["build_id"], canvas_id=canvas.id)
-            .first()
-        )
-        if build is None:
-            return Response({"detail": "Build not found for this canvas."}, status=status.HTTP_404_NOT_FOUND)
+        build = self._canvas_build(canvas, payload.validated_data["build_id"])
         task_id = error_reports.authoring_task_id(canvas, build)
         if task_id is None:
             return Response(
@@ -931,18 +918,13 @@ class CanvasViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
             if is_build_failure
             else error_reports.sanitize_error_type(payload.validated_data.get("error_type"))
         )
-        error_codes = [
-            str(entry["code"])
-            for entry in build.diagnostics or []
-            if isinstance(entry, dict) and entry.get("severity") == "error" and entry.get("code")
-        ][:10]
         prompt = error_reports.build_fix_prompt(
             canvas,
             build_id=str(build.id),
             source_version_id=str(build.source_version_id) if build.source_version_id else None,
             error_type=error_type,
             origin="build" if is_build_failure else "runtime",
-            error_codes=error_codes,
+            error_codes=error_reports.diagnostic_error_codes(build.diagnostics),
         )
         user = self._request_user()
         outcome = tasks_facade.request_canvas_fix(
@@ -950,7 +932,7 @@ class CanvasViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
         )
         if outcome == "not_found":
             return Response(
-                {"detail": "This canvas has no authoring task to route the fix to."},
+                {"detail": "The authoring task for this canvas no longer exists."},
                 status=status.HTTP_409_CONFLICT,
             )
         if outcome == "quota_exhausted":
@@ -978,9 +960,21 @@ class CanvasViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
             dispatch_outcome=outcome,
         )
         return Response(
-            {"dispatched": True, "dispatch_outcome": outcome, "task_id": str(task_id)},
+            {"dispatch_outcome": outcome, "task_id": str(task_id)},
             status=status.HTTP_202_ACCEPTED,
         )
+
+    def _canvas_build(self, canvas: Canvas, build_id: UUID) -> CanvasBuild:
+        """Resolve one of this canvas's builds, or 404."""
+        build = (
+            CanvasBuild.objects.for_team(self.team_id)
+            .select_related("source_version")
+            .filter(id=build_id, canvas_id=canvas.id)
+            .first()
+        )
+        if build is None:
+            raise NotFound("Build not found for this canvas.")
+        return build
 
     def _log_canvas_activity(self, canvas: Canvas, activity: str, detail: Detail) -> None:
         log_activity(

@@ -14530,8 +14530,6 @@ export namespace Schemas {
      * Outcome of filing a canvas error report.
      */
     export interface CanvasErrorReportResult {
-      /** Whether a new report was filed in the authoring task's thread. */
-      filed: boolean;
       /** filed: a new report row was written. duplicate: this build and error type were already reported. no_authoring_task: the canvas has no linked task to notify. skipped: thread updates are unavailable.
        *
        * * `filed` - filed
@@ -14557,8 +14555,6 @@ export namespace Schemas {
      * Outcome of dispatching a canvas fix to the authoring agent.
      */
     export interface CanvasFixRequestResult {
-      /** Whether the authoring agent was woken to work on the fix. */
-      dispatched: boolean;
       /** signaled: the task's live run received the request. new_run: a fresh agent run was started.
        *
        * * `signaled` - signaled

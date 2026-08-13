@@ -7256,6 +7256,11 @@ def post_artifact_thread_update(run: TaskRun, artifact: dict, *, revised: bool) 
         logger.exception("Failed to post artifact thread update", extra={"task_id": str(run.task_id)})
 
 
+def _thread_safe_canvas_name(canvas_name: str) -> str:
+    # Brackets and newlines in the name would break the [label](url) token.
+    return re.sub(r"[\[\]\n]", " ", canvas_name).strip() or "Canvas"
+
+
 def post_canvas_created_thread_update(
     task_id: str | UUID, team_id: int, *, acting_user_id: int | None, canvas_name: str, canvas_url: str | None
 ) -> None:
@@ -7275,8 +7280,7 @@ def post_canvas_created_thread_update(
             return
         if not _agent_thread_updates_enabled(task.created_by):
             return
-        # Brackets and newlines in the name would break the [label](url) token.
-        name = re.sub(r"[\[\]\n]", " ", canvas_name).strip() or "Canvas"
+        name = _thread_safe_canvas_name(canvas_name)
         content = f"[{name}]({canvas_url}) has been created" if canvas_url else f"{name} has been created"
         _create_agent_thread_message(
             task,
@@ -7326,7 +7330,7 @@ def post_canvas_error_thread_update(
                 .exists()
             ):
                 return "duplicate"
-            name = re.sub(r"[\[\]\n]", " ", canvas_name).strip() or "Canvas"
+            name = _thread_safe_canvas_name(canvas_name)
             if origin == "build":
                 codes = ", ".join(error_codes or []) or "unknown"
                 content = f'Canvas "{name}" build failed ({codes})'
@@ -7384,22 +7388,23 @@ def request_canvas_fix(task_id: str | UUID, team_id: int, *, prompt: str, acting
         # through to a fresh run rather than reporting a dead end.
     with transaction.atomic():
         task_run = task.create_run(mode="background", extra_state={"pending_user_message": prompt})
-        dispatch_team_id = task.team_id
-        dispatch_user_id = task.created_by_id
-        dispatch_task_id = str(task.id)
-        dispatch_run_id = str(task_run.id)
         transaction.on_commit(
-            lambda: _dispatch_canvas_fix_run(
-                team_id=dispatch_team_id,
-                user_id=dispatch_user_id,
-                task_id=dispatch_task_id,
-                run_id=dispatch_run_id,
+            lambda: _dispatch_server_run(
+                team_id=task.team_id,
+                user_id=task.created_by_id,
+                task_id=str(task.id),
+                run_id=str(task_run.id),
             )
         )
     return "new_run"
 
 
-def _dispatch_canvas_fix_run(*, team_id: int, user_id: int | None, task_id: str, run_id: str) -> None:
+def _dispatch_server_run(*, team_id: int, user_id: int | None, task_id: str, run_id: str) -> None:
+    """Dispatch a server-originated run's processing workflow, bypassing the per-user check.
+
+    Nothing canvas-specific: the same shape as ``automation_service``'s dispatch, kept
+    here because that module puts temporalio on its import path and this one must not.
+    """
     from products.tasks.backend.temporal.client import (  # noqa: PLC0415 — keep temporalio off the api import path
         execute_task_processing_workflow,
     )

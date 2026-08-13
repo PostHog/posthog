@@ -1205,14 +1205,14 @@ class TestCanvasErrorReports(CanvasAPIBaseTest):
 
         first = self._report(canvas_id, build_id)
         assert first.status_code == status.HTTP_202_ACCEPTED, first.json()
-        assert first.json() == {"filed": True, "report_outcome": "filed"}
+        assert first.json() == {"report_outcome": "filed"}
         payload = self._reports(task).get().payload
         assert payload["error_type"] == "TypeError"
         assert payload["origin"] == "runtime"
         assert payload["build_id"] == build_id
 
         repeat = self._report(canvas_id, build_id)
-        assert repeat.json() == {"filed": False, "report_outcome": "duplicate"}
+        assert repeat.json() == {"report_outcome": "duplicate"}
         assert self._reports(task).count() == 1
 
         other_type = self._report(canvas_id, build_id, error_type="RangeError")
@@ -1235,7 +1235,7 @@ class TestCanvasErrorReports(CanvasAPIBaseTest):
 
         response = self._report(canvas_id, build_id)
         assert response.status_code == status.HTTP_202_ACCEPTED
-        assert response.json() == {"filed": False, "report_outcome": "no_authoring_task"}
+        assert response.json() == {"report_outcome": "no_authoring_task"}
         assert not TaskThreadMessage.objects.for_team(self.team.id).exists()
 
     def test_report_error_rejects_foreign_build(self):
@@ -1257,7 +1257,7 @@ class TestCanvasErrorReports(CanvasAPIBaseTest):
             response = self._request_fix(canvas_id, build_id)
 
         assert response.status_code == status.HTTP_202_ACCEPTED, response.json()
-        assert response.json() == {"dispatched": True, "dispatch_outcome": "new_run", "task_id": str(task.id)}
+        assert response.json() == {"dispatch_outcome": "new_run", "task_id": str(task.id)}
         run = TaskRun.objects.filter(task=task).get()
         prompt = run.state["pending_user_message"]
         assert canvas_id in prompt

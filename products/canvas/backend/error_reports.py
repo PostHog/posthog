@@ -9,6 +9,7 @@ data the authoring agent has no business seeing.
 """
 
 import re
+from typing import Any
 from uuid import UUID
 
 import structlog
@@ -35,6 +36,15 @@ def authoring_task_id(canvas: Canvas, build: CanvasBuild | None) -> UUID | None:
     if build is not None and build.source_version is not None and build.source_version.task_id is not None:
         return build.source_version.task_id
     return canvas.generation_task_id
+
+
+def diagnostic_error_codes(diagnostics: list[Any] | None) -> list[str]:
+    """The error-severity diagnostic codes of a build, bounded for agent-facing text."""
+    return [
+        str(entry["code"])
+        for entry in diagnostics or []
+        if isinstance(entry, dict) and entry.get("severity") == "error" and entry.get("code")
+    ][:10]
 
 
 def report_runtime_error(canvas: Canvas, build: CanvasBuild, error_type: str) -> str:
@@ -71,11 +81,7 @@ def report_build_failure(build: CanvasBuild) -> None:
     from products.tasks.backend.facade import api as tasks_facade  # noqa: PLC0415
 
     try:
-        codes = [
-            str(entry["code"])
-            for entry in build.diagnostics or []
-            if isinstance(entry, dict) and entry.get("severity") == "error" and entry.get("code")
-        ][:10]
+        codes = diagnostic_error_codes(build.diagnostics)
         if not codes:
             return
         canvas = Canvas.objects.for_team(build.team_id).filter(id=build.canvas_id, deleted=False).first()
