@@ -1,0 +1,75 @@
+# Fields whose declared `nullable=` disagrees with the ClickHouse column behind them.
+#
+# Every entry here is a bug waiting to happen, not an exemption. The type system trusts these
+# declarations, so a wrong one makes it reason about NULLs that cannot appear, or miss ones that
+# can. Burn this list down; do not grow it.
+#
+# Format: one `clickhouse_table.column` per line. See test_nullability_drift.py.
+
+# --- Declared non-nullable, actually Nullable -------------------------------------------------
+# The dangerous direction: the type system believes NULL is impossible here and can drop null
+# handling that the data needs.
+
+# Materialized as `Nullable(UInt128)` (see posthog/models/event/sql.py) because an event whose
+# `$session_id` property is absent or not a UUID has no value to store.
+events.$session_id_uuid
+
+# --- Declared nullable, actually non-nullable -------------------------------------------------
+# The conservative direction: correctness is safe, but queries carry null handling they do not
+# need, which costs both readability and ClickHouse performance.
+
+error_tracking_fingerprint_issue_state.first_seen
+error_tracking_fingerprint_issue_state.issue_id
+error_tracking_fingerprint_issue_state.issue_status
+
+logs_distributed._bytes_uncompressed
+logs_distributed.mat_body_ipv4_matches
+
+session_replay_events.ai_tags_fixed
+session_replay_events.ai_tags_freeform
+session_replay_events.all_urls
+
+web_pre_aggregated_bounces.browser
+web_pre_aggregated_bounces.city_name
+web_pre_aggregated_bounces.country_code
+web_pre_aggregated_bounces.end_pathname
+web_pre_aggregated_bounces.entry_pathname
+web_pre_aggregated_bounces.has_fbclid
+web_pre_aggregated_bounces.has_gad_source_paid_search
+web_pre_aggregated_bounces.has_gclid
+web_pre_aggregated_bounces.mat_metadata_backend
+web_pre_aggregated_bounces.mat_metadata_loggedIn
+web_pre_aggregated_bounces.os
+web_pre_aggregated_bounces.referring_domain
+web_pre_aggregated_bounces.region_code
+web_pre_aggregated_bounces.region_name
+web_pre_aggregated_bounces.utm_campaign
+web_pre_aggregated_bounces.utm_content
+web_pre_aggregated_bounces.utm_medium
+web_pre_aggregated_bounces.utm_source
+web_pre_aggregated_bounces.utm_term
+web_pre_aggregated_bounces.viewport_height
+web_pre_aggregated_bounces.viewport_width
+
+web_pre_aggregated_stats.browser
+web_pre_aggregated_stats.city_name
+web_pre_aggregated_stats.country_code
+web_pre_aggregated_stats.end_pathname
+web_pre_aggregated_stats.entry_pathname
+web_pre_aggregated_stats.has_fbclid
+web_pre_aggregated_stats.has_gad_source_paid_search
+web_pre_aggregated_stats.has_gclid
+web_pre_aggregated_stats.mat_metadata_backend
+web_pre_aggregated_stats.mat_metadata_loggedIn
+web_pre_aggregated_stats.os
+web_pre_aggregated_stats.pathname
+web_pre_aggregated_stats.referring_domain
+web_pre_aggregated_stats.region_code
+web_pre_aggregated_stats.region_name
+web_pre_aggregated_stats.utm_campaign
+web_pre_aggregated_stats.utm_content
+web_pre_aggregated_stats.utm_medium
+web_pre_aggregated_stats.utm_source
+web_pre_aggregated_stats.utm_term
+web_pre_aggregated_stats.viewport_height
+web_pre_aggregated_stats.viewport_width

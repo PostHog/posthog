@@ -121,7 +121,7 @@ class EventsTable(Table):
         "$session_id": StringDatabaseField(
             name="$session_id", nullable=False, description="Session this event belongs to; join to `sessions`."
         ),
-        "$session_id_uuid": DatabaseField(name="$session_id_uuid", nullable=False),
+        "$session_id_uuid": DatabaseField(name="$session_id_uuid", nullable=True),
         "$window_id": StringDatabaseField(
             name="$window_id", nullable=False, description="Window/tab identifier within a session."
         ),
