@@ -59,8 +59,6 @@ import {
   useFreeformChatStore,
   useFreeformThread,
 } from "@posthog/ui/features/canvas/stores/freeformChatStore";
-import { textToContent } from "@posthog/core/message-editor/content";
-import { useDraftStore } from "@posthog/ui/features/message-editor/draftStore";
 import type { EditorHandle } from "@posthog/ui/features/message-editor/types";
 import { useCommentNavigationStore } from "@posthog/ui/features/sessions/commentNavigationStore";
 import {
@@ -588,25 +586,15 @@ export function FreeformCanvasView({
 
   // The edit composer's editor handle, so self-repair can prefill it.
   const editorRef = useRef<EditorHandle>(null);
-  const setPanelTab = useCanvasChatPanelStore((s) => s.setTab);
-  const draftActions = useDraftStore((s) => s.actions);
-  // Reveal the panel's chat composer and prefill it. A canvas that has ever
-  // generated shows the task session's composer, which receives content
-  // through the draft store keyed by task id — the editor ref only exists on
-  // the generate bar a never-generated canvas mounts.
+  // Reveal the panel composer and prefill it. The panel stays mounted while
+  // collapsed, so the editor handle is available even from a minimized panel.
   const prefillComposer = useCallback(
     (message: string) => {
       setCollapsed(false);
-      setPanelTab("chat");
-      if (effectiveTaskId) {
-        draftActions.setPendingContent(effectiveTaskId, textToContent(message));
-        draftActions.requestFocus(effectiveTaskId);
-        return;
-      }
       editorRef.current?.setContent(message);
       editorRef.current?.focus();
     },
-    [setCollapsed, setPanelTab, effectiveTaskId, draftActions],
+    [setCollapsed],
   );
   const askAgentToFix = () => {
     if (!runtimeError) return;
