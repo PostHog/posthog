@@ -923,6 +923,7 @@ doesn't conflict with concurrent PRs.
 - datorama
 - dayforce
 - db2
+- deelflows
 - deno_deploy
 - depot
 - deputy
@@ -1257,6 +1258,7 @@ doesn't conflict with concurrent PRs.
 - railz
 - raisely
 - raken
+- rakuten_advertising
 - rapid7_insightvm
 - raygun
 - rb2b
@@ -1454,6 +1456,7 @@ doesn't conflict with concurrent PRs.
 - zenefits
 - zenloop
 - zero
+- zitadel
 - zluri
 - zoho_analytics
 - zoho_bigin
