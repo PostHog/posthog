@@ -1886,15 +1886,19 @@ class OauthIntegration:
                 timeout=10,
             )
         elif kind == "tiktok-ads":
+            # Refresh against the Business API app we authorized against, using its app_id/secret and
+            # JSON body (mirroring the token exchange). The open.tiktokapis.com/v2 endpoint with
+            # client_key belongs to Login Kit — a different TikTok app family whose credentials this
+            # integration never holds.
             return requests.post(
-                "https://open.tiktokapis.com/v2/oauth/token/",
-                data={
-                    "client_key": client_id,  # TikTok uses client_key instead of client_id
-                    "client_secret": client_secret,
+                "https://business-api.tiktok.com/open_api/v1.3/oauth2/refresh_token/",
+                json={
+                    "app_id": client_id,
+                    "secret": client_secret,
                     "refresh_token": refresh_token,
                     "grant_type": "refresh_token",
                 },
-                headers={"Content-Type": "application/x-www-form-urlencoded"},
+                headers={"Content-Type": "application/json"},
                 timeout=10,
             )
         elif kind == "bing-ads":
@@ -1943,13 +1947,17 @@ class OauthIntegration:
                 allow_redirects=False,
             )
 
-    @staticmethod
-    def _parse_token_refresh_response(res: requests.Response) -> dict:
+    def _parse_token_refresh_response(self, res: requests.Response) -> dict:
         try:
-            return res.json()
+            config = res.json()
         except ValueError:
             # e.g. an HTML error page from a proxy/5xx - still a failed refresh, not an exception
             return {}
+        # TikTok Business API nests the refreshed tokens under `data`, same as the token exchange.
+        # Lift them to the top level so the generic access_token/refresh_token/expires_in handling reads them.
+        if self.integration.kind == "tiktok-ads" and isinstance(config.get("data"), dict):
+            config = {**config, **config["data"]}
+        return config
 
     def _record_terminal_unreadable_secret(self) -> None:
         logger.error(

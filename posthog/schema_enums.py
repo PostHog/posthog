@@ -2540,6 +2540,10 @@ class ExternalDataSourceType(StrEnum):
     SEVALLA = "Sevalla"
     MOTION = "Motion"
     FRAMER = "Framer"
+    CLOUDINARY = "Cloudinary"
+    UPLOADCARE = "Uploadcare"
+    WHMCS = "WHMCS"
+    MSG91 = "MSG91"
 
 
 class ExternalQueryErrorCode(StrEnum):
@@ -2718,6 +2722,12 @@ class GoogleAdsDefaultSources(StrEnum):
     GOOGLE_DISCOVER = "google_discover"
     ADMOB = "admob"
     WAZE = "waze"
+
+
+class GroupMathType(StrEnum):
+    UNIQUE_GROUP = "unique_group"
+    FIRST_TIME_FOR_GROUP = "first_time_for_group"
+    FIRST_MATCHING_EVENT_FOR_GROUP = "first_matching_event_for_group"
 
 
 class GradientScaleMode(StrEnum):
