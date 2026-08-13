@@ -820,6 +820,7 @@ class TestObservationStateActivities:
         assert receipt.observation_created_at == observation.created_at
         assert receipt.model == observation.scanner_snapshot["model"]
         assert receipt.credits == observation_credits_for_model(observation.scanner_snapshot["model"])
+        assert receipt.scanner_id == scanner.id
 
     def test_mark_succeeded_usage_receipt_is_idempotent(self) -> None:
         scanner = _make_scanner()
