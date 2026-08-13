@@ -10,3 +10,4 @@ The change is intentionally harmless and has no runtime impact.
 - Scope documented
 - Dummy PR ready for review
 - First follow-up checkpoint recorded
+- Second follow-up checkpoint recorded
