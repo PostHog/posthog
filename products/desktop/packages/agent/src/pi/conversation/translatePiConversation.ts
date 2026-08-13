@@ -121,6 +121,7 @@ export function createPiConversationTranslator(): PiConversationTranslator {
   let latestRuntimeTimestamp = 0;
   let latestConversationTimestamp = 0;
   let pendingRuntimeError: AgentConversationEvent | undefined;
+  let settledStopReason: string | undefined;
   let retrying = false;
   let directBashSequence = 0;
 
@@ -485,6 +486,10 @@ export function createPiConversationTranslator(): PiConversationTranslator {
         return customMessageEvents(event.message);
       }
 
+      if (isAssistantMessage(event.message)) {
+        settledStopReason = event.message.stopReason;
+      }
+
       const events = messageTranslator.translate(event.message);
       const runtimeError = events.find(
         (translated) => translated.type === "runtime_error",
@@ -609,9 +614,13 @@ export function createPiConversationTranslator(): PiConversationTranslator {
 
       const timestamp = Math.max(Date.now(), latestRuntimeTimestamp);
       const hadRuntimeActivity = latestRuntimeTimestamp > 0;
+      const stopReason = settledStopReason;
       latestRuntimeTimestamp = 0;
+      settledStopReason = undefined;
 
-      return hadRuntimeActivity ? [{ type: "turn_completed", timestamp }] : [];
+      return hadRuntimeActivity
+        ? [{ type: "turn_completed", timestamp, stopReason }]
+        : [];
     }
 
     return [];
