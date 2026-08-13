@@ -5,8 +5,11 @@ from django.test import override_settings
 
 from temporalio.exceptions import WorkflowAlreadyStartedError
 
-from posthog.temporal.signup_enrichment.trigger import dispatch_signup_enrichment, start_signup_enrichment_workflow
-from posthog.temporal.signup_enrichment.workflow import SignupEnrichmentInputs
+from products.growth.backend.temporal.signup_enrichment.trigger import (
+    dispatch_signup_enrichment,
+    start_signup_enrichment_workflow,
+)
+from products.growth.backend.temporal.signup_enrichment.workflow import SignupEnrichmentInputs
 
 
 class _InlineExecutor:
@@ -16,18 +19,21 @@ class _InlineExecutor:
 
 @pytest.fixture(autouse=True)
 def _run_dispatch_pool_inline():
-    with patch("posthog.temporal.signup_enrichment.trigger._dispatch_executor", _InlineExecutor()):
+    with patch("products.growth.backend.temporal.signup_enrichment.trigger._dispatch_executor", _InlineExecutor()):
         yield
 
 
 def _dispatch_mocks(region="US"):
     """Patch out the transaction/Temporal/DB boundaries so on_commit fires inline."""
     return (
-        patch("posthog.temporal.signup_enrichment.trigger.transaction.on_commit", side_effect=lambda fn: fn()),
-        patch("posthog.temporal.signup_enrichment.trigger.sync_connect"),
-        patch("posthog.temporal.signup_enrichment.trigger.asyncio.run"),
-        patch("posthog.temporal.signup_enrichment.trigger.get_instance_region", return_value=region),
-        patch("posthog.temporal.signup_enrichment.trigger.record_signup_work_email"),
+        patch(
+            "products.growth.backend.temporal.signup_enrichment.trigger.transaction.on_commit",
+            side_effect=lambda fn: fn(),
+        ),
+        patch("products.growth.backend.temporal.signup_enrichment.trigger.sync_connect"),
+        patch("products.growth.backend.temporal.signup_enrichment.trigger.asyncio.run"),
+        patch("products.growth.backend.temporal.signup_enrichment.trigger.get_instance_region", return_value=region),
+        patch("products.growth.backend.temporal.signup_enrichment.trigger.record_signup_work_email"),
     )
 
 
@@ -128,7 +134,7 @@ def test_work_email_write_failure_does_not_block_dispatch():
     on_commit, connect, run, region, record = _dispatch_mocks()
     with on_commit, connect as connect_mock, run, region, record as record_mock:
         record_mock.side_effect = RuntimeError("db down")
-        with patch("posthog.temporal.signup_enrichment.trigger.capture_exception") as capture_mock:
+        with patch("products.growth.backend.temporal.signup_enrichment.trigger.capture_exception") as capture_mock:
             start_signup_enrichment_workflow(organization_id="org-1", distinct_id="d1", email="founder@stripe.com")
     connect_mock.assert_called_once()
     capture_mock.assert_called_once()
@@ -144,7 +150,7 @@ def test_work_email_write_failure_does_not_block_dispatch():
 )
 def test_dispatch_signup_enrichment_swallows_only_already_started(error, propagates):
     inputs = SignupEnrichmentInputs(organization_id="org-1", distinct_id="d1", domain="stripe.com")
-    with patch("posthog.temporal.signup_enrichment.trigger._start_workflow", side_effect=error):
+    with patch("products.growth.backend.temporal.signup_enrichment.trigger._start_workflow", side_effect=error):
         if propagates:
             with pytest.raises(RuntimeError):
                 dispatch_signup_enrichment(inputs)
@@ -156,7 +162,7 @@ def test_duplicate_workflow_is_logged_not_captured():
     on_commit, connect, run, region, record = _dispatch_mocks()
     with on_commit, connect, run as run_mock, region, record:
         run_mock.side_effect = WorkflowAlreadyStartedError("signup-enrichment-org-1", "signup-enrichment")
-        with patch("posthog.temporal.signup_enrichment.trigger.capture_exception") as capture_mock:
+        with patch("products.growth.backend.temporal.signup_enrichment.trigger.capture_exception") as capture_mock:
             start_signup_enrichment_workflow(organization_id="org-1", distinct_id="d1", email="founder@stripe.com")
     capture_mock.assert_not_called()
 
@@ -168,7 +174,7 @@ def test_dispatch_dropped_when_backlog_full():
     full = threading.BoundedSemaphore(1)
     full.acquire()
     on_commit, connect, run, region, record = _dispatch_mocks()
-    with patch("posthog.temporal.signup_enrichment.trigger._dispatch_slots", full):
+    with patch("products.growth.backend.temporal.signup_enrichment.trigger._dispatch_slots", full):
         with on_commit, connect as connect_mock, run, region, record:
             start_signup_enrichment_workflow(organization_id="org-1", distinct_id="d1", email="founder@stripe.com")
     connect_mock.assert_not_called()
@@ -180,7 +186,7 @@ def test_dispatch_slot_released_after_run():
 
     single = threading.BoundedSemaphore(1)
     on_commit, connect, run, region, record = _dispatch_mocks()
-    with patch("posthog.temporal.signup_enrichment.trigger._dispatch_slots", single):
+    with patch("products.growth.backend.temporal.signup_enrichment.trigger._dispatch_slots", single):
         with on_commit, connect as connect_mock, run, region, record:
             start_signup_enrichment_workflow(organization_id="org-1", distinct_id="d1", email="founder@stripe.com")
             start_signup_enrichment_workflow(organization_id="org-2", distinct_id="d2", email="ceo@vercel.com")
@@ -197,7 +203,7 @@ def test_signup_geoip_country_is_threaded_into_workflow_inputs():
         region,
         record,
         patch(
-            "posthog.temporal.signup_enrichment.trigger.get_geoip_properties",
+            "products.growth.backend.temporal.signup_enrichment.trigger.get_geoip_properties",
             return_value={"$geoip_country_code": "US"},
         ),
     ):
@@ -218,7 +224,7 @@ def test_geoip_failure_degrades_to_no_country_and_still_dispatches():
         region,
         record,
         patch(
-            "posthog.temporal.signup_enrichment.trigger.get_geoip_properties",
+            "products.growth.backend.temporal.signup_enrichment.trigger.get_geoip_properties",
             side_effect=RuntimeError("geoip db missing"),
         ),
     ):
