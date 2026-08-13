@@ -1,4 +1,10 @@
-import { dropHandledAuthGateExceptions, dropReadOnlyExceptions } from './selfReadOnlyModeLogic'
+import { NETWORK_ERROR_MESSAGES } from 'lib/api-error'
+
+import {
+    dropHandledAuthGateExceptions,
+    dropReadOnlyExceptions,
+    dropUnactionableNetworkExceptions,
+} from './selfReadOnlyModeLogic'
 
 describe('dropReadOnlyExceptions', () => {
     it('passes non-exception events through unchanged', () => {
@@ -91,5 +97,48 @@ describe('dropHandledAuthGateExceptions', () => {
     it('tolerates missing properties and a missing exception list', () => {
         expect(dropHandledAuthGateExceptions({ event: '$exception' })).toEqual({ event: '$exception' })
         expect(dropHandledAuthGateExceptions(null)).toBeNull()
+    })
+})
+
+describe('dropUnactionableNetworkExceptions', () => {
+    const exceptionWith = (value: string, type = 'NetworkError'): { event: string; properties: any } => ({
+        event: '$exception',
+        properties: { $exception_list: [{ type, value }] },
+    })
+
+    // The asymmetry is the whole point of the filter: the first two say something about the client's
+    // situation, the third says a request failed while the user was online and staying put.
+    it.each([
+        ['device is offline', NETWORK_ERROR_MESSAGES.offline, true],
+        ['page was closing', NETWORK_ERROR_MESSAGES.navigating, true],
+        ['an unexplained connection failure', NETWORK_ERROR_MESSAGES.network, false],
+    ])('given %s, drops the event: %s', (_desc, value, dropped) => {
+        const event = exceptionWith(value)
+        expect(dropUnactionableNetworkExceptions(event)).toBe(dropped ? null : event)
+    })
+
+    it('keeps an unrelated error that happens to carry a network message', () => {
+        // Matching on the message alone would let any `Error` with this text be silenced
+        const event = exceptionWith(NETWORK_ERROR_MESSAGES.offline, 'Error')
+        expect(dropUnactionableNetworkExceptions(event)).toBe(event)
+    })
+
+    it('drops the failure even when it sits deeper in the exception list', () => {
+        // posthog-js appends the wrapped cause, so `NetworkError` is not always first
+        const event = {
+            event: '$exception',
+            properties: {
+                $exception_list: [
+                    { type: 'Error', value: 'loadSavedHeatmaps failed' },
+                    { type: 'NetworkError', value: NETWORK_ERROR_MESSAGES.navigating },
+                ],
+            },
+        }
+        expect(dropUnactionableNetworkExceptions(event)).toBeNull()
+    })
+
+    it('tolerates missing properties and a missing exception list', () => {
+        expect(dropUnactionableNetworkExceptions({ event: '$exception' })).toEqual({ event: '$exception' })
+        expect(dropUnactionableNetworkExceptions(null)).toBeNull()
     })
 })

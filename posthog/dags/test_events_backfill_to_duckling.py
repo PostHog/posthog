@@ -67,6 +67,7 @@ from products.managed_warehouse.backend.facade.client import ServiceCredential, 
 from products.managed_warehouse.backend.facade.contracts import (
     ManagedWarehouseTableNames,
     ManagedWarehouseTeamMembership,
+    ServiceCredentialConnect,
 )
 
 
@@ -1574,6 +1575,12 @@ class TestDuckgresSessionServiceCredential:
     # ahead). Deterministic under any wall clock.
     _STALE_EXPIRY = datetime(2020, 1, 1, tzinfo=UTC)
     _FRESH_EXPIRY = datetime(2040, 1, 1, tzinfo=UTC)
+    _CONNECT = ServiceCredentialConnect(
+        host="019740a8-ac01-0000-cad1-4626cafbc273.dw.us.postwh.com",
+        port=443,
+        database="ducklake",
+        sslmode="require",
+    )
 
     def _credential(self, password: str, *, rotated: bool = True, expires_at: datetime | None = None):
         return ServiceCredential(
@@ -1581,6 +1588,7 @@ class TestDuckgresSessionServiceCredential:
             password=password,
             expires_at=expires_at or self._FRESH_EXPIRY,
             rotated=rotated,
+            connect=self._CONNECT,
         )
 
     @patch("posthog.dags.events_backfill_to_duckling.mint_service_credential")
