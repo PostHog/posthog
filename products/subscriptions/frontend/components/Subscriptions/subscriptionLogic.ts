@@ -841,9 +841,17 @@ export const subscriptionLogic = kea<subscriptionLogicType>([
             }
             // ?prefill=nudge is set by the subscribe-nudge notification / toast, possibly opened in a
             // fresh session days later — the prefill is built here from URL + context, not kea state.
+            const nudgeSubject = props.dashboardId ? 'dashboard' : props.insightShortId ? 'insight' : null
+            // The route pattern matches any subject's page, so without this a logic keyed to another
+            // insight or dashboard prefills and reports the click for someone else's nudge. Matched
+            // on the tail because the live pathname carries a project prefix the helper leaves out.
+            const isOwnSubject = router.values.location.pathname.endsWith(
+                urlForSubscription('new', { dashboardId: props.dashboardId, insightShortId: props.insightShortId })
+            )
             if (
                 searchParams[SUBSCRIPTION_PREFILL_PARAMS.param] === SUBSCRIPTION_PREFILL_PARAMS.nudge &&
-                props.dashboardId
+                nudgeSubject &&
+                isOwnSubject
             ) {
                 // Consume the params before applying: the replace synchronously re-enters this
                 // handler (resetting the form to plain defaults), and it also makes a later refresh
@@ -855,7 +863,12 @@ export const subscriptionLogic = kea<subscriptionLogicType>([
                 } = router.values.searchParams
                 router.actions.replace(router.values.location.pathname, restSearchParams, router.values.hashParams)
                 const prefill: Partial<SubscriptionType> = {
-                    title: `${props.dashboardName || 'Dashboard'} weekly digest`,
+                    // Only dashboards reach this route with a name in hand, so an insight's
+                    // subscription is named for the schedule rather than for the insight.
+                    title:
+                        nudgeSubject === 'dashboard'
+                            ? `${props.dashboardName || 'Dashboard'} weekly digest`
+                            : 'Weekly digest',
                     ...(values.user?.email ? { target_value: values.user.email } : {}),
                 }
                 // Goes through setSubscriptionValues (not the loaded baseline) so the form is marked
@@ -868,10 +881,12 @@ export const subscriptionLogic = kea<subscriptionLogicType>([
                 const via = searchParams[SUBSCRIPTION_PREFILL_PARAMS.viaParam]
                 posthog.capture(
                     via === SUBSCRIPTION_PREFILL_PARAMS.viaExport
-                        ? 'dashboard export nudge clicked'
+                        ? `${nudgeSubject} export nudge clicked`
                         : 'dashboard subscribe nudge clicked',
                     {
-                        dashboard_id: props.dashboardId,
+                        ...(nudgeSubject === 'dashboard'
+                            ? { dashboard_id: props.dashboardId }
+                            : { insight_short_id: props.insightShortId }),
                         prefilled: !!values.user?.email,
                         via: PREFILL_VIA_VALUES.includes(via) ? via : SUBSCRIPTION_PREFILL_PARAMS.viaNotification,
                     }
