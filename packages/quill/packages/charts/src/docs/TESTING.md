@@ -36,6 +36,7 @@ The accessor surface (full list in `testing/accessor.ts`):
 
 ```ts
 chart.element // wrapper div for the chart
+chart.canvas // the static (data) canvas, not the aria-hidden hover overlay
 chart.seriesCount // visible series count, from the canvas's aria-label
 chart.yTicks() // ['0', '20', '40', …]
 chart.yRightTicks() // right-axis ticks (multi-axis charts)
@@ -173,7 +174,7 @@ it('reports render errors through onError', () => {
 
 **Don't inspect canvas pixels.** No `getContext('2d')` spies, no pixel snapshots — JSdom's canvas is a stub anyway.
 
-**Don't fall back to `container.querySelector('canvas')` for canvas presence.** `renderHogChart` already throws when the canvas is missing.
+**Don't fall back to `container.querySelector('canvas')` for canvas presence.** `renderHogChart` already throws when the canvas is missing. To act on a rendered canvas — asserting its backing store, dispatching a canvas-level event like `contextrestored` — use `chart.canvas` rather than re-querying the DOM. Absence assertions (`expect(container.querySelector('canvas')).toBeNull()`) still need a raw query, since the accessor throws when there's no canvas.
 
 **Don't write `it.each` matrices that only assert "a canvas rendered".** Each row should read at least one observable property of that permutation — `chart.yTicks().some(t => t.endsWith('%'))` for percent layout, `chart.hasRightAxis` for a multi-axis case.
 

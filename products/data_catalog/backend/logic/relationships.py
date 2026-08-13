@@ -7,7 +7,7 @@ join is a demonstrated-working join) before creating exactly one join under a ro
 
 import json
 import hashlib
-from typing import Optional
+from typing import TYPE_CHECKING, Optional
 
 from django.db import (
     IntegrityError,
@@ -34,7 +34,6 @@ from posthog.hogql.parser import parse_expr, parse_select
 from posthog.hogql.query import execute_hogql_query
 
 from posthog.clickhouse.query_tagging import Feature, Product, tag_queries
-from posthog.event_usage import report_user_action
 from posthog.exceptions_capture import capture_exception
 from posthog.models import Team, User
 
@@ -42,7 +41,16 @@ from products.data_tools.backend.facade.models import DataWarehouseJoin
 
 from ..facade.enums import RelationshipStatus
 from ..models import RelationshipProposal
+from .analytics import (
+    RELATIONSHIP_ACCEPTED_EVENT,
+    RELATIONSHIP_PROPOSED_EVENT,
+    RELATIONSHIP_REJECTED_EVENT,
+    capture_relationship_event,
+)
 from .exceptions import CatalogConflict
+
+if TYPE_CHECKING:
+    from rest_framework.request import Request
 
 
 def _fingerprint(source_name: str, source_key: str, joining_name: str, joining_key: str) -> str:
@@ -60,22 +68,6 @@ def _canonicalize_join_key(key: str) -> str:
         return parse_expr(key).to_hogql()
     except HogQLSyntaxError as error:
         raise ValidationError({"keys": f"Invalid HogQL join key: {error}"}) from error
-
-
-def _capture(user: Optional[User], team: Team, event: str, proposal: RelationshipProposal) -> None:
-    if user is None:
-        return
-    report_user_action(
-        user=user,
-        event=event,
-        team=team,
-        properties={
-            "proposal_id": str(proposal.id),
-            "status": proposal.status,
-            "source_table": proposal.source_table_name,
-            "joining_table": proposal.joining_table_name,
-        },
-    )
 
 
 def _validate_tables_exist(team: Team, user: Optional[User], *table_names: str) -> None:
@@ -98,6 +90,7 @@ def propose_relationship(
     confidence: Optional[float] = None,
     reasoning: str = "",
     evidence: Optional[dict] = None,
+    request: "Request | None" = None,
 ) -> RelationshipProposal:
     # Propose-time existence check so hallucinated/typo'd tables never reach the review queue.
     _validate_tables_exist(team, user, source_table_name, joining_table_name)
@@ -106,10 +99,8 @@ def propose_relationship(
     existing = RelationshipProposal.objects.for_team(team.id).filter(undirected_fingerprint=fingerprint).first()
     if existing is not None:
         raise CatalogConflict(
-            detail={
-                "error": f"A proposal for this join pair already exists (status: {existing.status}).",
-                "proposal_id": str(existing.id),
-            }
+            detail=f"A proposal for this join pair already exists (status: {existing.status}).",
+            extra={"proposal_id": str(existing.id)},
         )
 
     try:
@@ -132,17 +123,17 @@ def propose_relationship(
         # race the logic check alone cannot).
         existing = RelationshipProposal.objects.for_team(team.id).filter(undirected_fingerprint=fingerprint).first()
         raise CatalogConflict(
-            detail={
-                "error": "A proposal for this join pair already exists.",
-                "proposal_id": str(existing.id) if existing else None,
-            }
+            detail="A proposal for this join pair already exists.",
+            extra={"proposal_id": str(existing.id) if existing else None},
         )
 
-    _capture(user, team, "data catalog relationship proposed", proposal)
+    capture_relationship_event(RELATIONSHIP_PROPOSED_EVENT, proposal, team=team, user=user, request=request)
     return proposal
 
 
-def accept_proposal(proposal: RelationshipProposal, user: Optional[User]) -> RelationshipProposal:
+def accept_proposal(
+    proposal: RelationshipProposal, user: Optional[User], request: "Request | None" = None
+) -> RelationshipProposal:
     with transaction.atomic():
         # Serialize concurrent accepts of this proposal.
         proposal = RelationshipProposal.objects.for_team(proposal.team_id).select_for_update().get(pk=proposal.pk)
@@ -162,7 +153,14 @@ def accept_proposal(proposal: RelationshipProposal, user: Optional[User]) -> Rel
         proposal.created_join = join
         proposal.save()
 
-    _capture(user, proposal.team, "data catalog relationship accepted", proposal)
+    capture_relationship_event(
+        RELATIONSHIP_ACCEPTED_EVENT,
+        proposal,
+        team=proposal.team,
+        user=user,
+        request=request,
+        extra={"join_reused": existing_join is not None},
+    )
     return proposal
 
 
@@ -269,7 +267,9 @@ def _create_join(proposal: RelationshipProposal, user: Optional[User]) -> DataWa
     )
 
 
-def reject_proposal(proposal: RelationshipProposal, user: Optional[User], reason: str = "") -> RelationshipProposal:
+def reject_proposal(
+    proposal: RelationshipProposal, user: Optional[User], reason: str = "", request: "Request | None" = None
+) -> RelationshipProposal:
     with transaction.atomic():
         proposal = RelationshipProposal.objects.for_team(proposal.team_id).select_for_update().get(pk=proposal.pk)
         if proposal.status == RelationshipStatus.REJECTED:
@@ -282,7 +282,14 @@ def reject_proposal(proposal: RelationshipProposal, user: Optional[User], reason
         proposal.rejection_reason = reason
         proposal.save()
 
-    _capture(user, proposal.team, "data catalog relationship rejected", proposal)
+    capture_relationship_event(
+        RELATIONSHIP_REJECTED_EVENT,
+        proposal,
+        team=proposal.team,
+        user=user,
+        request=request,
+        extra={"has_rejection_reason": bool(reason)},
+    )
     return proposal
 
 

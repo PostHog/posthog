@@ -77,6 +77,17 @@ describe('Composer', () => {
         expect(onSubmit).toHaveBeenCalledTimes(1)
     })
 
+    it('submits on Enter and keeps Shift+Enter for new lines', () => {
+        renderComposer({ value: 'ship it' })
+        const textarea = screen.getByRole('textbox')
+
+        fireEvent.keyDown(textarea, { key: 'Enter', shiftKey: true })
+        expect(onSubmit).not.toHaveBeenCalled()
+
+        fireEvent.keyDown(textarea, { key: 'Enter' })
+        expect(onSubmit).toHaveBeenCalledTimes(1)
+    })
+
     it('turns the send button into a Stop button while a turn is active with empty input', () => {
         const { container } = renderComposer({ value: '', isTurnActive: true, onStop })
         // Enabled (no "Type a message first"), and clicking cancels the run rather than submitting the form.

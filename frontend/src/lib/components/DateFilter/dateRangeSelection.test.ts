@@ -13,7 +13,7 @@ describe('date range selection mapping', () => {
         ['-1mStart', '-1mEnd', { kind: 'fixed', name: 'Last month' }],
         ['wStart', null, { kind: 'fixed', name: 'This week' }],
         ['mStart', null, { kind: 'fixed', name: 'This month' }],
-        ['yStart', null, { kind: 'fixed', name: 'Year to date' }],
+        ['yStart', null, { kind: 'fixed', name: 'This year' }],
         ['all', null, { kind: 'fixed', name: 'All time' }],
     ] as const)('round-trips %s / %s', (dateFrom, dateTo, expected) => {
         const selection = selectionForDateRange(dateFrom, dateTo)

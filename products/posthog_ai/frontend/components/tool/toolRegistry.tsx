@@ -1,4 +1,4 @@
-import { type ComponentType, type LazyExoticComponent } from 'react'
+import { type ComponentType, type LazyExoticComponent, type ReactNode } from 'react'
 
 import {
     IconAI,
@@ -20,6 +20,7 @@ import {
 import { IconRobot } from 'lib/lemon-ui/icons'
 import { lazyWithRetry } from 'lib/utils/retryImport'
 
+import type { PermissionRequestRecord } from 'products/posthog_ai/frontend/types/streamTypes'
 import type { ToolCallMessage } from 'products/posthog_ai/frontend/types/toolTypes'
 
 export interface ToolRendererProps {
@@ -52,7 +53,20 @@ export interface ToolRegistryEntry {
     /** Display name / icon for fallback rendering and for the tool-call header line. */
     displayName: string
     icon: JSX.Element
-    Renderer: ToolRendererComponent
+    /**
+     * Tool-result card renderer. Optional so a product can register a **preview-only** entry (just a
+     * `renderPermissionPreview`) without also claiming the result card — such entries fall back to the
+     * generic built-in card via `lookupToolRenderer`.
+     */
+    Renderer?: ToolRendererComponent
+    /**
+     * Optional approval-card preview. When a pending permission request resolves to this tool,
+     * `PermissionInput` calls this with the request and renders the returned node in place of the raw
+     * JSON payload. Returning null falls back to the JSON payload — e.g. the owning scene isn't mounted,
+     * so there's nothing to diff against. The generic surface never enumerates products here; a product
+     * registers its own preview via `registerToolRenderers` from its scene entrypoint.
+     */
+    renderPermissionPreview?: (record: PermissionRequestRecord) => ReactNode | null
     /**
      * When set, this entry only matches a call that came through the trusted single-exec PostHog
      * server — one whose inner tool name we parsed out of the exec command. The product data-tool
@@ -63,6 +77,11 @@ export interface ToolRegistryEntry {
      * through to the generic MCP card instead.
      */
     requiresPostHogOrigin?: boolean
+}
+
+/** A registry entry resolved for the card path — `lookupToolRenderer` guarantees a `Renderer`. */
+export interface ResolvedToolRegistryEntry extends ToolRegistryEntry {
+    Renderer: ToolRendererComponent
 }
 
 export interface ToolRegistry {
@@ -204,12 +223,14 @@ toolRegistry.register({
  * `fromPostHogExec` is whether the call came through the trusted single-exec PostHog server (its inner
  * tool name was parsed out of the exec command). An entry marked `requiresPostHogOrigin` only matches a
  * trusted call, so a third-party tool whose bare name collides with a product-widget key can't spoof a
- * first-party card — it falls through to the generic card here.
+ * first-party card — it falls through to the generic card here. A registered preview-only entry (no
+ * `Renderer`) resolves to the same generic card, so its `renderPermissionPreview` is preserved while the
+ * result card stays the built-in one.
  */
-export function lookupToolRenderer(resolvedKey: string, fromPostHogExec: boolean): ToolRegistryEntry {
+export function lookupToolRenderer(resolvedKey: string, fromPostHogExec: boolean): ResolvedToolRegistryEntry {
     const entry = toolRegistry.lookup(resolvedKey)
     if (entry && (!entry.requiresPostHogOrigin || fromPostHogExec)) {
-        return entry
+        return { ...entry, Renderer: entry.Renderer ?? BuiltinToolRenderer }
     }
     return {
         key: resolvedKey,

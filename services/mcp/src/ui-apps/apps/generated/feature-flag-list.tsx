@@ -37,7 +37,7 @@ function FeatureFlagListContent({ data, app }: { data: FeatureFlagListData; app:
             try {
                 const result = await app.callServerTool({
                     name: 'feature-flag-get-definition',
-                    arguments: { flagId: item.id },
+                    arguments: { id: item.id },
                 })
                 if (result.isError || !result.structuredContent) {
                     fallbackToChat(item.key)

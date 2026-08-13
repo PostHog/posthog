@@ -40,7 +40,7 @@ export const calculateViewportRange = (
 
 // some of the date options we allow in insights don't apply to heatmaps
 // let's filter the list down
-const dateItemDenyList = ['Last 180 days', 'This month', 'Previous month', 'Year to date', 'All time']
+const dateItemDenyList = ['Last 180 days', 'This month', 'Previous month', 'This year', 'All time']
 export const heatmapDateOptions = dateMapping.filter(
     (dm) => dm.key !== CUSTOM_OPTION_KEY && !dateItemDenyList.includes(dm.key)
 )

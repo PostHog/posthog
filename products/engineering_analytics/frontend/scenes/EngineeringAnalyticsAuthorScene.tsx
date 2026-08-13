@@ -29,7 +29,7 @@ import { SHARED_DEFAULT_DATE_FROM, engineeringAnalyticsFiltersLogic } from './en
 // are always a subset of the loaded PRs — a Custom range could reach past the load and desync the tiles
 // from the server-windowed workflow breakdown.
 const AUTHOR_DATE_OPTIONS = dateMapping.filter(({ key }) =>
-    ['Last 7 days', 'Last 14 days', 'Last 30 days', 'Last 90 days', 'Last 180 days', 'Year to date'].includes(key)
+    ['Last 7 days', 'Last 14 days', 'Last 30 days', 'Last 90 days', 'Last 180 days', 'This year'].includes(key)
 )
 
 export const scene: SceneExport<AuthorLogicProps> = {
@@ -70,7 +70,7 @@ export function EngineeringAnalyticsAuthorScene(): JSX.Element {
     const singleRepo = repoSlugs.length === 1 ? prs[0] : null
 
     return (
-        <SceneContent>
+        <SceneContent className="pb-16">
             <SceneTitleSection name="Author" resourceType={{ type: 'health' }} />
             <ScopeBar
                 repoSlot={

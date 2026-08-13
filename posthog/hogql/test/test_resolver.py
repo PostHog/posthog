@@ -26,6 +26,7 @@ from posthog.hogql.database.models import (
     StringJSONDatabaseField,
     Table,
     TableNode,
+    UUIDDatabaseField,
 )
 from posthog.hogql.database.schema.events import EventsTable
 from posthog.hogql.database.schema.persons import PersonsTable
@@ -1028,26 +1029,26 @@ class TestResolver(BaseTest):
         assert "events__override" in sql
         assert "LEFT" in sql.upper()
 
-    def test_join_using(self):
-        node = self._select(
-            "WITH my_table AS (SELECT 1 AS a) SELECT q1.a FROM my_table AS q1 INNER JOIN my_table AS q2 USING a"
-        )
+    @parameterized.expand(
+        [
+            (
+                "cte",
+                "WITH my_table AS (SELECT 1 AS a) SELECT q1.a FROM my_table AS q1 INNER JOIN my_table AS q2 USING a",
+            ),
+            ("table", "SELECT q1.event FROM events AS q1 INNER JOIN events AS q2 USING event"),
+        ],
+    )
+    def test_join_using_desugars_to_on(self, _name: str, query: str):
+        node = self._select(query)
         node = resolve_types(node, self.context, dialect="clickhouse")
         assert isinstance(node, ast.SelectQuery)
         assert isinstance(node.select_from, ast.JoinExpr)
         assert isinstance(node.select_from.next_join, ast.JoinExpr)
-        assert isinstance(node.select_from.next_join.constraint, ast.JoinConstraint)
         constraint = node.select_from.next_join.constraint
-        assert constraint.constraint_type == "USING"
-        assert cast(ast.Alias, constraint.expr).alias == "a"
-
-        node = self._select("SELECT q1.event FROM events AS q1 INNER JOIN events AS q2 USING event")
-        node = resolve_types(node, self.context, dialect="clickhouse")
-        assert isinstance(node, ast.SelectQuery)
-        assert isinstance(node.select_from, ast.JoinExpr)
-        assert isinstance(node.select_from.next_join, ast.JoinExpr)
-        assert isinstance(node.select_from.next_join.constraint, ast.JoinConstraint)
-        assert node.select_from.next_join.constraint.constraint_type == "USING"
+        assert isinstance(constraint, ast.JoinConstraint)
+        assert constraint.constraint_type == "ON"
+        assert isinstance(constraint.expr, ast.CompareOperation)
+        assert constraint.expr.op == ast.CompareOperationOp.Eq
 
     @override_settings(PERSON_ON_EVENTS_OVERRIDE=False, PERSON_ON_EVENTS_V2_OVERRIDE=False)
     @pytest.mark.usefixtures("unittest_snapshot")
@@ -1255,7 +1256,7 @@ class TestResolver(BaseTest):
             nullable=False,
             description="Event name, e.g. '$pageview' or 'purchase'. Autocapture/PostHog events are prefixed with '$'.",
         )
-        assert cast(ast.FieldType, node.select[1].type).resolve_database_field(self.context) == StringDatabaseField(
+        assert cast(ast.FieldType, node.select[1].type).resolve_database_field(self.context) == UUIDDatabaseField(
             name="person_id",
             array=None,
             nullable=False,
@@ -2081,3 +2082,44 @@ class TestResolver(BaseTest):
         expr = self._select(query)
         with self.assertRaisesRegex(QueryError, "Cannot access property.*renaming the alias"):
             resolve_types(expr, self.context, dialect="clickhouse")
+
+    # A malformed string literal compared to a UUID column (events.uuid, person ids) would fail
+    # the whole query at ClickHouse execution time with the opaque CANNOT_PARSE_UUID, so the
+    # resolver must reject it with a message naming the value
+    @parameterized.expand(
+        [
+            ("person_id_eq", "SELECT event FROM events WHERE person_id = '2026072018044213140'"),
+            ("person_id_literal_on_left", "SELECT event FROM events WHERE '2026072018044213140' != person_id"),
+            (
+                "events_uuid_in_tuple",
+                "SELECT event FROM events WHERE uuid IN ('0198a4c2-8b3d-7e50-b4a1-2f9c6d8e0a1b', 'nope')",
+            ),
+            ("person_subtable_id", "SELECT event FROM events WHERE person.id = 'not-a-uuid'"),
+            (
+                "trailing_newline",
+                "SELECT event FROM events WHERE person_id = '0198a4c2-8b3d-7e50-b4a1-2f9c6d8e0a1b\n'",
+            ),
+            ("persons_scope_id", "SELECT id FROM persons WHERE id = 'not-a-uuid'"),
+        ]
+    )
+    def test_invalid_uuid_literal_comparison_raises(self, _name, query):
+        expr = self._select(query)
+        with self.assertRaisesRegex(QueryError, "is not a valid UUID"):
+            resolve_types(expr, self.context, dialect="clickhouse")
+
+    @parameterized.expand(
+        [
+            ("valid_uuid", "SELECT event FROM events WHERE person_id = '0198a4c2-8b3d-7e50-b4a1-2f9c6d8e0a1b'"),
+            ("string_column_untouched", "SELECT event FROM events WHERE distinct_id = 'not-a-uuid'"),
+            ("subquery_untouched", "SELECT event FROM events WHERE person_id IN (SELECT person_id FROM events)"),
+        ]
+    )
+    def test_uuid_literal_comparison_allows(self, _name, query):
+        expr = self._select(query)
+        resolve_types(expr, self.context, dialect="clickhouse")
+
+    def test_uuid_literal_guard_skipped_for_non_clickhouse_dialects(self):
+        # other target dialects accept UUID text forms ClickHouse doesn't (braces, no dashes),
+        # so the canonical-form guard must not reject their queries
+        expr = self._select("SELECT event FROM events WHERE person_id = 'not-a-uuid'")
+        resolve_types(expr, self.context, dialect="postgres")

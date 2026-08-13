@@ -11,7 +11,9 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.circleci.s
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.circleci.source import CircleCISource
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
-from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs import CircleCISourceConfig
+from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.circleci import (
+    CircleCISourceConfig,
+)
 from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 

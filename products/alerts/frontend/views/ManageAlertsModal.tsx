@@ -3,89 +3,51 @@ import { router } from 'kea-router'
 
 import { Link } from '@posthog/lemon-ui'
 
+import { UserActivityIndicator } from 'lib/components/UserActivityIndicator/UserActivityIndicator'
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { LemonModal } from 'lib/lemon-ui/LemonModal'
-import { LemonTag } from 'lib/lemon-ui/LemonTag'
-import { ProfileBubbles } from 'lib/lemon-ui/ProfilePicture'
 import { Spinner } from 'lib/lemon-ui/Spinner'
 import { pluralize } from 'lib/utils/strings'
 import { urls } from 'scenes/urls'
 
-import { AlertState, InsightThresholdType } from '~/queries/schema/schema-general'
 import { InsightShortId } from '~/types'
 
+import { AlertStateIndicator } from '../components/AlertDefinition'
+import { buildAlertSummary } from '../components/alertSummary'
+import { AlertSummaryBanner } from '../components/AlertSummaryBanner'
 import { InsightAlertsLogicProps, alertsUnsupportedReason, insightAlertsLogic } from '../logic/insightAlertsLogic'
 import { AlertType } from '../types'
 
-export function AlertStateIndicator({ alert }: { alert: AlertType }): JSX.Element {
-    switch (alert.state) {
-        case AlertState.FIRING:
-            return <LemonTag type="danger">FIRING</LemonTag>
-        case AlertState.ERRORED:
-            return <LemonTag type="danger">ERRORED</LemonTag>
-        case AlertState.SNOOZED:
-            return <LemonTag type="muted">SNOOZED</LemonTag>
-        case AlertState.NOT_FIRING:
-            return <LemonTag type="success">NOT FIRING</LemonTag>
-    }
-}
-
 interface AlertListItemProps {
     alert: AlertType
+    destinationCount?: number
+    destinationsLoading?: boolean
     onClick: () => void
 }
 
-function AlertSummary({ alert }: { alert: AlertType }): JSX.Element | null {
-    if (!alert.enabled) {
-        return <div className="text-secondary pl-3">Disabled</div>
-    }
-
-    if (alert.detector_config) {
-        const config = alert.detector_config as unknown as Record<string, unknown>
-        if (config.type === 'ensemble') {
-            const detectors = (config.detectors as Array<{ type: string }>) ?? []
-            const operator = (config.operator as string)?.toUpperCase() ?? 'AND'
-            const labels = detectors.map((d) => (d.type === 'zscore' ? 'Z-Score' : d.type === 'mad' ? 'MAD' : d.type))
-            return <div className="text-secondary pl-3">{labels.join(` ${operator} `)}</div>
-        }
-        const { type, threshold } = config as { type: string; threshold?: number }
-        const label = type === 'zscore' ? 'Z-Score' : type === 'mad' ? 'MAD' : type
-        return (
-            <div className="text-secondary pl-3">
-                {label} {threshold != null ? threshold : ''}
-            </div>
-        )
-    }
-
-    const bounds = alert.threshold?.configuration?.bounds
-    const isPercentage = alert.threshold?.configuration.type === InsightThresholdType.PERCENTAGE
-    if (!bounds?.lower && !bounds?.upper) {
-        return null
+export function AlertListItem({
+    alert,
+    destinationCount = 0,
+    destinationsLoading = false,
+    onClick,
+}: AlertListItemProps): JSX.Element {
+    const summary = buildAlertSummary(alert, alert.subscribed_users?.length ?? 0, destinationCount)
+    if (destinationsLoading) {
+        summary.notifies = 'Loading…'
     }
 
     return (
-        <div className="text-secondary pl-3">
-            {bounds?.lower != null &&
-                `Low ${isPercentage ? bounds.lower * 100 : bounds.lower}${isPercentage ? '%' : ''}`}
-            {bounds?.lower != null && bounds?.upper != null ? ' · ' : ''}
-            {bounds?.upper != null &&
-                `High ${isPercentage ? bounds.upper * 100 : bounds.upper}${isPercentage ? '%' : ''}`}
-        </div>
-    )
-}
-
-export function AlertListItem({ alert, onClick }: AlertListItemProps): JSX.Element {
-    return (
-        <LemonButton type="secondary" onClick={onClick} data-attr="alert-list-item" fullWidth>
-            <div className="flex justify-between flex-auto items-center p-2">
-                <div className="flex flex-row gap-3 items-center">
-                    <span>{alert.name}</span>
-                    <AlertStateIndicator alert={alert} />
-                    <AlertSummary alert={alert} />
-                </div>
-
-                <ProfileBubbles limit={4} people={alert.subscribed_users?.map(({ email }) => ({ email }))} />
-            </div>
+        <LemonButton onClick={onClick} data-attr="alert-list-item" fullWidth>
+            <AlertSummaryBanner
+                summary={summary}
+                header={
+                    <div className="flex items-center justify-between gap-3">
+                        <span className="min-w-0 truncate">{alert.name}</span>
+                        <AlertStateIndicator alert={alert} />
+                    </div>
+                }
+                footer={<UserActivityIndicator prefix="Created" at={alert.created_at} by={alert.created_by} />}
+            />
         </LemonButton>
     )
 }
@@ -105,7 +67,7 @@ export function ManageAlertsModal(props: ManageAlertsModalProps): JSX.Element {
     const { push } = useActions(router)
     const logic = insightAlertsLogic(props)
 
-    const { alerts, alertsLoading } = useValues(logic)
+    const { alerts, alertsLoading, alertDestinationCounts, alertDestinationCountsLoading } = useValues(logic)
 
     const showDeferredListSpinner = props.deferInitialAlertsLoad && props.isOpen && alertsLoading
     const openAlert = (alertId: AlertType['id']): void => {
@@ -134,8 +96,8 @@ export function ManageAlertsModal(props: ManageAlertsModalProps): JSX.Element {
             </LemonModal.Header>
             <LemonModal.Content>
                 <div className="mb-4">
-                    With alerts, PostHog will monitor your insight and notify you when certain conditions are met. We do
-                    not evaluate alerts in real-time, but rather on a schedule (hourly, daily...).
+                    With alerts, PostHog monitors your insight at a recurring interval and notifies you when conditions
+                    are met.
                     <br />
                     <Link to={urls.alerts()} target="_blank">
                         View all your alerts here
@@ -153,7 +115,13 @@ export function ManageAlertsModal(props: ManageAlertsModalProps): JSX.Element {
                         </div>
 
                         {alerts.map((alert) => (
-                            <AlertListItem key={alert.id} alert={alert} onClick={() => openAlert(alert.id)} />
+                            <AlertListItem
+                                key={alert.id}
+                                alert={alert}
+                                destinationCount={alertDestinationCounts[alert.id] ?? 0}
+                                destinationsLoading={alertDestinationCountsLoading}
+                                onClick={() => openAlert(alert.id)}
+                            />
                         ))}
                     </div>
                 ) : (
@@ -166,6 +134,9 @@ export function ManageAlertsModal(props: ManageAlertsModalProps): JSX.Element {
             </LemonModal.Content>
 
             <LemonModal.Footer>
+                <LemonButton type="secondary" onClick={props.onClose}>
+                    Close
+                </LemonButton>
                 <LemonButton
                     type="primary"
                     onClick={createAlert}
@@ -174,9 +145,6 @@ export function ManageAlertsModal(props: ManageAlertsModalProps): JSX.Element {
                     }
                 >
                     New alert
-                </LemonButton>
-                <LemonButton type="secondary" onClick={props.onClose}>
-                    Close
                 </LemonButton>
             </LemonModal.Footer>
         </LemonModal>

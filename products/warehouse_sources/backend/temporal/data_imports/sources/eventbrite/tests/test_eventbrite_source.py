@@ -3,6 +3,7 @@ from unittest import mock
 
 from posthog.schema import SourceFieldInputConfig, SourceFieldInputConfigType
 
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.base import error_message_matches
 from products.warehouse_sources.backend.temporal.data_imports.sources.eventbrite.eventbrite import (
     EventbriteResumeConfig,
 )
@@ -11,7 +12,9 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.eventbrite
     INCREMENTAL_ENDPOINTS,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.eventbrite.source import EventbriteSource
-from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs import EventbriteSourceConfig
+from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.eventbrite import (
+    EventbriteSourceConfig,
+)
 from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 
@@ -51,11 +54,14 @@ class TestEventbriteSource:
         assert expected_key in self.source.get_non_retryable_errors()
 
     def test_non_retryable_errors_matches_observed_error_message(self):
+        # Eventbrite's API sends the HTTP reason phrase in all caps, not the title-case wording
+        # `requests.raise_for_status()` generates for other vendors — the dict key above must still
+        # match it.
         observed_error = (
-            "401 Client Error: Unauthorized for url: https://www.eventbriteapi.com/v3/users/me/organizations/"
+            "401 Client Error: UNAUTHORIZED for url: https://www.eventbriteapi.com/v3/users/me/organizations/"
         )
         non_retryable_errors = self.source.get_non_retryable_errors()
-        assert any(key in observed_error for key in non_retryable_errors)
+        assert error_message_matches(observed_error, non_retryable_errors)
 
     @pytest.mark.parametrize(
         "other_vendor_error",
@@ -131,7 +137,8 @@ class TestEventbriteSource:
         manager = mock.MagicMock()
         inputs = mock.MagicMock()
         inputs.schema_name = "orders"
-        inputs.logger = mock.MagicMock()
+        inputs.team_id = 123
+        inputs.job_id = "job-1"
         inputs.should_use_incremental_field = True
         inputs.db_incremental_field_last_value = "2026-01-01T00:00:00Z"
         inputs.incremental_field = "changed"
@@ -141,7 +148,8 @@ class TestEventbriteSource:
         mock_eventbrite_source.assert_called_once_with(
             api_token=self.config.api_token,
             endpoint="orders",
-            logger=inputs.logger,
+            team_id=123,
+            job_id="job-1",
             resumable_source_manager=manager,
             should_use_incremental_field=True,
             db_incremental_field_last_value="2026-01-01T00:00:00Z",

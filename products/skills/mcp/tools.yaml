@@ -9,6 +9,18 @@ feature: skills
 url_prefix: /skills
 ui_apps: {}
 tools:
+    community-skills-install-create:
+        operation: community_skills_install_create
+        enabled: false
+    community-skills-list:
+        operation: community_skills_list
+        enabled: false
+    community-skills-retrieve:
+        operation: community_skills_retrieve
+        enabled: false
+    community-skills-vote-create:
+        operation: community_skills_vote_create
+        enabled: false
     llm-skills-import-create:
         operation: llm_skills_import_create
         enabled: false
@@ -47,7 +59,9 @@ tools:
         description: >
             Create a new agent skill. Requires a unique kebab-case name (lowercase letters, numbers, hyphens), a
             description explaining when to use it, and the skill body (SKILL.md instruction content as markdown).
-            Optionally include license, compatibility, allowed_tools, metadata, and bundled files.
+            Optionally include license, compatibility, allowed_tools, metadata, bundled files, and owners. Owners (a
+            list of project-member user UUIDs) default to the creating user; set them to route reviews or questions
+            about this skill to specific people.
         include_params:
             - name
             - description
@@ -57,6 +71,7 @@ tools:
             - allowed_tools
             - metadata
             - files
+            - owners
     skill-duplicate:
         operation: llm_skills_name_duplicate_create
         enabled: true
@@ -226,6 +241,14 @@ tools:
 
             Passing a 'files' list here replaces ALL files and risks data loss if any file is
             omitted — use it only when you intentionally want to replace the entire bundle.
+
+            To change who owns the skill, pass 'owners' (a list of project-member user UUIDs) —
+            this replaces the owner set. Omit it to leave owners unchanged; pass an empty list to
+            clear them. Ownership is independent of the version, so a body edit alone never
+            changes it.
+
+            Pass 'version_description' with a short note on what changed and why — it is shown in
+            the skill's version history.
         include_params:
             - body
             - edits
@@ -236,4 +259,6 @@ tools:
             - metadata
             - files
             - file_edits
+            - owners
             - base_version
+            - version_description

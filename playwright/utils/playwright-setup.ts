@@ -10,7 +10,7 @@
  * - Team: Environment within project where data lives (e.g., "Production", "Staging")
  * - User: Configurable via LOGIN_USERNAME/LOGIN_PASSWORD env vars (defaults: test@posthog.com/12345678)
  */
-import { APIRequestContext, Page, request as playwrightRequest } from '@playwright/test'
+import { APIRequestContext, APIResponse, Page, request as playwrightRequest } from '@playwright/test'
 
 import { LOGIN_PASSWORD } from './playwright-test-core'
 
@@ -274,39 +274,28 @@ export class PlaywrightSetup {
     }
 
     async login(page: Page, workspace: PlaywrightWorkspaceSetupResult): Promise<void> {
-        await page.goto(`${this.baseURL}/login`)
-        await page.waitForLoadState('networkidle')
-        await page.evaluate(
-            async ({ email, password }) => {
-                const maxAttempts = 3
-                for (let attempt = 1; attempt <= maxAttempts; attempt++) {
-                    try {
-                        const res = await fetch('/api/login/', {
-                            method: 'POST',
-                            headers: {
-                                'Content-Type': 'application/json',
-                            },
-                            body: JSON.stringify({ email, password }),
-                        })
-                        if (res.ok) {
-                            return
-                        }
-                        if (attempt === maxAttempts || res.status < 500) {
-                            throw new Error(`Login failed with status ${res.status}`)
-                        }
-                    } catch (e) {
-                        if (attempt === maxAttempts) {
-                            throw e
-                        }
-                    }
-                    await new Promise((r) => setTimeout(r, 500 * attempt))
+        const maxAttempts = 3
+        for (let attempt = 1; attempt <= maxAttempts; attempt++) {
+            let response: APIResponse
+            try {
+                response = await page.request.post(`${this.baseURL}/api/login/`, {
+                    data: { email: workspace.user_email, password: LOGIN_PASSWORD },
+                })
+            } catch (e) {
+                if (attempt === maxAttempts) {
+                    throw e
                 }
-            },
-            {
-                email: workspace.user_email,
-                password: LOGIN_PASSWORD,
+                await new Promise((r) => setTimeout(r, 500 * attempt))
+                continue
             }
-        )
+            if (response.ok()) {
+                return
+            }
+            if (attempt === maxAttempts || response.status() < 500) {
+                throw new Error(`Login failed with status ${response.status()}`)
+            }
+            await new Promise((r) => setTimeout(r, 500 * attempt))
+        }
     }
 
     /**

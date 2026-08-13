@@ -97,6 +97,7 @@ _ISSUE_COMMENTS_RE = re.compile(r"^/repos/(?P<repo>[^/]+/[^/]+)/issues/(?P<numbe
 _COMMENT_PATCH_RE = re.compile(r"^/repos/(?P<repo>[^/]+/[^/]+)/issues/comments/(?P<cid>\d+)$")
 _DISMISS_RE = re.compile(r"^/repos/(?P<repo>[^/]+/[^/]+)/pulls/(?P<number>\d+)/reviews/(?P<rid>\d+)/dismissals$")
 _LABEL_DELETE_RE = re.compile(r"^/repos/(?P<repo>[^/]+/[^/]+)/issues/(?P<number>\d+)/labels/(?P<label>[^/]+)$")
+_LABEL_ADD_RE = re.compile(r"^/repos/(?P<repo>[^/]+/[^/]+)/issues/(?P<number>\d+)/labels$")
 _CONTENTS_RE = re.compile(r"^/repos/(?P<repo>[^/]+/[^/]+)/contents/(?P<path>.+)$")
 _CHECK_RUNS_RE = re.compile(r"^/repos/(?P<repo>[^/]+/[^/]+)/commits/(?P<sha>[^/]+)/check-runs$")
 _COLLABORATOR_PERMISSION_RE = re.compile(r"^/repos/(?P<repo>[^/]+/[^/]+)/collaborators/(?P<username>[^/]+)/permission$")
@@ -147,6 +148,12 @@ class GitHubRecorder:
         # Test hook: force every reaction POST to return this response (e.g. a 500) to
         # exercise the client's fail-open path without monkeypatching bound methods.
         self.reaction_response_override: FakeResponse | None = None
+        # Test hook: force every label-add POST to return this response (e.g. a 422 for a label that
+        # does not exist on the repo) to exercise the handoff's best-effort swallow path.
+        self.add_label_response_override: FakeResponse | None = None
+        # Test hook: raise this exception from the label-add POST (e.g. GitHubRateLimitError) to
+        # exercise the best-effort catch for exception types the client does not raise itself.
+        self.add_label_side_effect: Exception | None = None
         self.teams_by_login: dict[str, list[str]] = {}
         self.policy_files: dict[str, str] = {}
         self.github_writes: list[dict[str, Any]] = []
@@ -206,6 +213,8 @@ class GitHubRecorder:
             return self._record_write("issue_comment_edit", m.group("repo"), 0, json_body)
         if method == "PUT" and (m := _DISMISS_RE.match(path)):
             return self._dismiss_review(m.group("repo"), int(m.group("number")), int(m.group("rid")), json_body)
+        if method == "POST" and (m := _LABEL_ADD_RE.match(path)):
+            return self._add_label(m.group("repo"), int(m.group("number")), json_body)
         if method == "DELETE" and (m := _LABEL_DELETE_RE.match(path)):
             return self._remove_label(m.group("repo"), int(m.group("number")), m.group("label"))
 
@@ -300,6 +309,19 @@ class GitHubRecorder:
     def _remove_label(self, repo: str, number: int, label: str) -> FakeResponse:
         self.github_writes.append({"kind": "remove_label", "repo": repo, "number": number, "label": label})
         return FakeResponse(200, json_data=[])
+
+    def _add_label(self, repo: str, number: int, body: dict | None) -> FakeResponse:
+        labels = (body or {}).get("labels", [])
+        self.github_writes.append({"kind": "add_label", "repo": repo, "number": number, "labels": labels})
+        # A side effect set by the test simulates the egress layer raising before the response is
+        # returned — a GitHubRateLimitError (the real raise_if_github_rate_limited is stubbed to a
+        # no-op in the chain, so the rate-limit path is otherwise unreachable in tests) or a
+        # requests.RequestException on a network blip. Exercises the handoff's best-effort catch.
+        if self.add_label_side_effect is not None:
+            raise self.add_label_side_effect
+        if self.add_label_response_override is not None:
+            return self.add_label_response_override
+        return FakeResponse(200, json_data=[{"name": n} for n in labels])
 
     def _dismiss_review(self, repo: str, number: int, review_id: int, body: dict | None) -> FakeResponse:
         self.github_writes.append(

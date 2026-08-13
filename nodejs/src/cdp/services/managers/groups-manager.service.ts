@@ -126,6 +126,14 @@ export class GroupsManagerService {
             return
         }
 
+        // A malformed invocation can arrive with globals present but missing project/event
+        // (e.g. partial state rehydration). Skip enrichment rather than dereferencing them —
+        // an unguarded throw here becomes an unhandled rejection that crash-loops the worker.
+        if (!globals.project || !globals.event) {
+            globals.groups = {}
+            return
+        }
+
         globals.groups = await this.getGroupsForEvent(globals.project.id, globals.event.properties, globals.project.url)
     }
 

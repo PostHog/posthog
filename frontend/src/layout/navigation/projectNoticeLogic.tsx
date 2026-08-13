@@ -5,6 +5,7 @@ import { router } from 'kea-router'
 import { IconGear, IconPlus } from '@posthog/icons'
 
 import api, { ApiError } from 'lib/api'
+import { getProductPushDisplay } from 'lib/components/NavPanelAdvertisement/navPanelProductPushDisplay'
 import { reverseProxyCheckerLogic } from 'lib/components/ReverseProxyChecker/reverseProxyCheckerLogic'
 import { superpowersLogic } from 'lib/components/Superpowers/superpowersLogic'
 import { LemonBannerProps } from 'lib/lemon-ui/LemonBanner/LemonBanner'
@@ -25,6 +26,7 @@ import { inviteLogic } from 'scenes/settings/organization/inviteLogic'
 import { teamLogic } from 'scenes/teamLogic'
 import { urls } from 'scenes/urls'
 import { userLogic } from 'scenes/userLogic'
+import { brandingForProduct } from 'scenes/welcome/productBranding'
 
 import { ProductKey } from '~/queries/schema/schema-general'
 import { OnboardingStepKey, UserType } from '~/types'
@@ -32,6 +34,7 @@ import { OnboardingStepKey, UserType } from '~/types'
 export type ProjectNoticeVariant =
     | 'billing_alert'
     | 'demo_project'
+    | 'provisioned_welcome'
     | 'real_project_with_no_events'
     | 'invite_teammates'
     | 'unverified_email'
@@ -47,11 +50,55 @@ export interface ProjectNoticeBlueprint {
     mountNoEventsBannerLogic?: boolean
 }
 
-export function shouldShowNoEventsProjectNotice(activeSceneId: string | null, liveEventCount: number): boolean {
-    return activeSceneId !== Scene.Quickstart && !(activeSceneId === Scene.LiveEvents && liveEventCount > 0)
+const NOTICE_DISMISS_PREFIX = 'project-notice-dismissed.'
+
+// The products we want every provisioned account exploring. Keys resolve in both PRODUCT_BRANDING
+// (label + docs) and PRODUCT_PUSH_DISPLAY (hog illustration), mirroring the welcome dialog's showcase.
+const FLAGSHIP_PRODUCT_KEYS = [
+    'product_analytics',
+    'web_analytics',
+    'session_replay',
+    'error_tracking',
+    'llm_analytics',
+]
+
+/** Compact row of flagship-product hogs + labels, echoing the welcome dialog inside the banner. */
+function ProvisionedProductStrip(): JSX.Element {
+    return (
+        <span className="inline-flex flex-wrap items-center gap-x-3 gap-y-1 align-middle">
+            {FLAGSHIP_PRODUCT_KEYS.map((productKey) => {
+                const { Hoggie } = getProductPushDisplay(productKey)
+                const meta = brandingForProduct(productKey)
+                return (
+                    <Link
+                        key={productKey}
+                        to={meta.docsHref}
+                        target="_blank"
+                        subtle
+                        className="inline-flex items-center gap-1"
+                        data-attr={`provisioned-welcome-${productKey}`}
+                    >
+                        <Hoggie className="h-6 w-auto" aria-hidden="true" />
+                        <span className="text-xs font-medium">{meta.label}</span>
+                    </Link>
+                )
+            })}
+        </span>
+    )
 }
 
-const NOTICE_DISMISS_PREFIX = 'project-notice-dismissed.'
+/** Message body of the provisioned-welcome banner. Exported so it's reviewable in Storybook. */
+export function ProvisionedWelcomeMessage(): JSX.Element {
+    return (
+        <div className="flex flex-col gap-1">
+            <span>
+                <b>Welcome to PostHog!</b> We're setting up PostHog in your repo in the background. In the meantime,
+                here's what you can do with it:
+            </span>
+            <ProvisionedProductStrip />
+        </div>
+    )
+}
 
 function isNoticeDismissed(key: string): boolean {
     try {
@@ -195,7 +242,8 @@ export interface projectNoticeLogicMeta {
             noticeDismissedThisSession: boolean,
             activeSceneId: string | null,
             arg: number,
-            hasReverseProxy: boolean | null
+            hasReverseProxy: boolean | null,
+            isProvisionedUser: boolean
         ) => ProjectNoticeVariant | null
         projectNoticeDismissKey: (
             projectNoticeVariant: ProjectNoticeVariant | null,
@@ -268,9 +316,10 @@ export const projectNoticeLogic = kea<projectNoticeLogicType>([
                     const response = await api.get(`api/organizations/${values.currentOrganizationId}/proxy_records`)
                     return response.results
                 } catch (error) {
-                    // A missing or expired session makes this boot-time GET 401. There's no banner to
-                    // show an unauthenticated user, so swallow it rather than polluting error tracking.
-                    if (error instanceof ApiError && error.status === 401) {
+                    // A missing or expired session makes this boot-time GET 401. A restricted org member
+                    // whose access level to the org resource is below read gets a 403 from the RBAC layer.
+                    // Either way there's no banner to show, so swallow it rather than polluting error tracking.
+                    if (error instanceof ApiError && (error.status === 401 || error.status === 403)) {
                         return null
                     }
                     throw error
@@ -317,6 +366,7 @@ export const projectNoticeLogic = kea<projectNoticeLogicType>([
                 (state) => liveEventsLogic.findMounted()?.selectors.eventCount(state) ?? 0,
                 // null = not yet checked; we only nudge once detection confirms there's no proxy.
                 s.hasReverseProxy,
+                userLogic.selectors.isProvisionedUser,
             ],
             (
                 organization: null | import('~/types').OrganizationType,
@@ -340,7 +390,8 @@ export const projectNoticeLogic = kea<projectNoticeLogicType>([
                 noticeDismissedThisSession: boolean,
                 activeSceneId: string | null,
                 liveEventCount: number,
-                hasReverseProxy: boolean | null
+                hasReverseProxy: boolean | null,
+                isProvisionedUser: boolean
             ): ProjectNoticeVariant | null => {
                 if (!organization) {
                     return null
@@ -368,6 +419,10 @@ export const projectNoticeLogic = kea<projectNoticeLogicType>([
                     return 'demo_project'
                 } else if (!user?.is_email_verified && !user?.has_social_auth && preflight?.email_service_available) {
                     return 'unverified_email'
+                } else if (isProvisionedUser && !isNoticeDismissed('provisioned_welcome')) {
+                    // For partner-provisioned accounts, the welcome nudge supersedes the generic
+                    // "no events yet" banner — their events arrive via the background wizard install.
+                    return 'provisioned_welcome'
                 } else if (
                     !isNoticeDismissed('real_project_with_no_events') &&
                     currentTeam &&
@@ -375,7 +430,7 @@ export const projectNoticeLogic = kea<projectNoticeLogicType>([
                     // Belt-and-braces: never claim "no events" while the live activity feed is
                     // actively rendering events on the same screen — `currentTeam.ingested_event`
                     // can lag behind the live SSE stream during the first ingestion window.
-                    shouldShowNoEventsProjectNotice(activeSceneId, liveEventCount)
+                    !(activeSceneId === Scene.LiveEvents && liveEventCount > 0)
                 ) {
                     return 'real_project_with_no_events'
                 } else if (hasEventIngestionRestriction) {
@@ -411,6 +466,7 @@ export const projectNoticeLogic = kea<projectNoticeLogicType>([
                     case 'real_project_with_no_events':
                     case 'missing_reverse_proxy':
                     case 'invite_teammates':
+                    case 'provisioned_welcome':
                         return variant
                     default:
                         return null
@@ -534,6 +590,12 @@ export const projectNoticeLogic = kea<projectNoticeLogicType>([
                             },
                             onClose: dismiss,
                             mountNoEventsBannerLogic: true,
+                        }
+                    case 'provisioned_welcome':
+                        return {
+                            message: <ProvisionedWelcomeMessage />,
+                            type: 'info',
+                            onClose: dismiss,
                         }
                     case 'invite_teammates':
                         return {

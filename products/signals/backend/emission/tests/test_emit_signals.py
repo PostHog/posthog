@@ -7,6 +7,8 @@ from typing import Any
 import pytest
 from unittest.mock import AsyncMock, MagicMock, patch
 
+from django.test import override_settings
+
 import temporalio.worker
 from temporalio import activity
 from temporalio.testing import WorkflowEnvironment
@@ -310,6 +312,28 @@ class TestCheckActionability:
         assert "x-posthog-property-ai_product" not in headers
         assert "x-posthog-property-$ai_billable" not in headers
 
+    @pytest.mark.asyncio
+    @override_settings(AI_GATEWAY_URL="https://ai-gateway.example/v1", AI_GATEWAY_API_KEY="phs_test")
+    async def test_gateway_mode_labels_ride_on_properties_blob(self):
+        mock_client = MagicMock()
+        mock_client.messages.create = AsyncMock(return_value=_make_llm_response("ACTIONABLE"))
+
+        output = _make_output(source_id="42")
+        await _check_actionability(mock_client, 7, output, "Is this actionable? {description}")
+
+        headers = mock_client.messages.create.call_args.kwargs["extra_headers"]
+        # The Go gateway reads labels only from X-PostHog-Properties; the per-key headers are gone.
+        # The blob owns ai_product (no product route) and team_id (the customer team the usage
+        # report attributes to), since the per-call blob replaces the client default.
+        assert "x-posthog-property-ai_stage" not in headers
+        assert json.loads(headers["X-PostHog-Properties"]) == {
+            "ai_product": "signals_emission",
+            "ai_stage": "actionability",
+            "source_product": output.source_product,
+            "source_type": output.source_type,
+            "team_id": "7",
+        }
+
 
 class TestFilterActionable:
     @pytest.mark.asyncio
@@ -334,7 +358,7 @@ class TestFilterActionable:
         mock_client.messages.create = mock_create
 
         with (
-            patch(f"{PIPELINE_MODULE_PATH}.get_async_anthropic_gateway_client", return_value=mock_client),
+            patch(f"{PIPELINE_MODULE_PATH}.build_async_anthropic_client", return_value=mock_client),
             patch(f"{PIPELINE_MODULE_PATH}.activity"),
         ):
             result = await filter_actionable(team, outputs, "prompt {description}", extra={})
@@ -431,7 +455,7 @@ class TestSummarizeLongDescriptions:
         mock_client.messages.create = AsyncMock(return_value=_make_llm_response("Summarized."))
 
         with (
-            patch(f"{PIPELINE_MODULE_PATH}.get_async_anthropic_gateway_client", return_value=mock_client),
+            patch(f"{PIPELINE_MODULE_PATH}.build_async_anthropic_client", return_value=mock_client),
             patch(f"{PIPELINE_MODULE_PATH}.activity"),
         ):
             result = await summarize_long_descriptions(team, [short, long], self.PROMPT, self.THRESHOLD, extra={})
@@ -459,7 +483,7 @@ class TestEmitSignals:
             patch(f"{PIPELINE_MODULE_PATH}.emit_signal", new_callable=AsyncMock) as mock_emit,
             patch(f"{PIPELINE_MODULE_PATH}.activity"),
         ):
-            count = await _emit_signals(team=team, outputs=[output], extra={})
+            count = await _emit_signals(team=team, organization=MagicMock(), outputs=[output], extra={})
 
         assert count == 1
         mock_emit.assert_called_once_with(
@@ -486,9 +510,15 @@ class TestEmitSignals:
         with (
             patch(f"{PIPELINE_MODULE_PATH}.emit_signal", side_effect=mock_emit),
             patch(f"{PIPELINE_MODULE_PATH}.activity"),
+            patch(f"{PIPELINE_MODULE_PATH}.posthoganalytics.capture") as capture,
         ):
-            count = await _emit_signals(team=MagicMock(), outputs=outputs, extra={})
+            count = await _emit_signals(team=MagicMock(), organization=MagicMock(), outputs=outputs, extra={})
 
+        # Records dropped here are never retried, so the loss has to be measurable, not log-only.
+        capture.assert_called_once()
+        assert capture.call_args.kwargs["event"] == "signal_data_source_emit_failed"
+        assert capture.call_args.kwargs["properties"]["source_id"] == "2"
+        assert capture.call_args.kwargs["properties"]["error_type"] == "Exception"
         assert count == 2
         assert call_count == 3
 
@@ -508,7 +538,7 @@ class TestEmitSignals:
             patch(f"{PIPELINE_MODULE_PATH}.emit_signal", new_callable=AsyncMock) as mock_emit,
             patch(f"{PIPELINE_MODULE_PATH}.activity"),
         ):
-            count = await _emit_signals(team=MagicMock(), outputs=[output], extra={})
+            count = await _emit_signals(team=MagicMock(), organization=MagicMock(), outputs=[output], extra={})
 
         assert count == 1
         mock_emit.assert_called_once()
@@ -524,7 +554,7 @@ class TestEmitSignals:
             patch(f"{PIPELINE_MODULE_PATH}.activity"),
         ):
             with pytest.raises(RuntimeError, match="All 1 signal emissions failed"):
-                await _emit_signals(team=MagicMock(), outputs=[output], extra={})
+                await _emit_signals(team=MagicMock(), organization=MagicMock(), outputs=[output], extra={})
 
         mock_emit.assert_not_called()
 
@@ -537,7 +567,7 @@ class TestEmitSignals:
             patch(f"{PIPELINE_MODULE_PATH}.activity"),
         ):
             with pytest.raises(RuntimeError, match="All 2 signal emissions failed"):
-                await _emit_signals(team=MagicMock(), outputs=outputs, extra={})
+                await _emit_signals(team=MagicMock(), organization=MagicMock(), outputs=outputs, extra={})
 
 
 class TestPipelineStageTelemetry:
@@ -589,7 +619,7 @@ class TestPipelineStageTelemetry:
         mock_llm_client.messages.create = create
 
         with (
-            patch(f"{PIPELINE_MODULE_PATH}.get_async_anthropic_gateway_client", return_value=mock_llm_client),
+            patch(f"{PIPELINE_MODULE_PATH}.build_async_anthropic_client", return_value=mock_llm_client),
             patch(f"{PIPELINE_MODULE_PATH}.activity"),
             patch(f"{PIPELINE_MODULE_PATH}.emit_signal", new_callable=AsyncMock),
             patch(f"{PIPELINE_MODULE_PATH}.posthoganalytics.capture") as capture,

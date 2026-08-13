@@ -14,8 +14,8 @@ import { CommandBlock } from 'lib/components/CommandBlock/CommandBlock'
 import { Link } from 'lib/lemon-ui/Link'
 import { inStorybook, inStorybookTestRunner } from 'lib/utils/dom'
 import { humanFriendlyNumber } from 'lib/utils/numbers'
-import { useWizardCommand } from 'scenes/onboarding/shared/SetupWizardBanner'
 import { setupWizardStatusLogic } from 'scenes/onboarding/shared/setupWizardStatusLogic'
+import { useWizardCommand } from 'scenes/onboarding/shared/useWizardCommand'
 
 export type SampleDataVariant = 'line' | 'bar' | 'pie' | 'funnel' | 'number' | 'table'
 

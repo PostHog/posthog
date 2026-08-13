@@ -19,7 +19,7 @@ from .config_setup import (
 from .jsonpath_utils import TJsonPath
 from .paginators import BasePaginator
 from .resource import Resource
-from .rest_client import DEFAULT_RETRY_ATTEMPTS, RESTClient
+from .rest_client import DEFAULT_RETRY_ATTEMPTS, RESTClient, RESTClientRetryableError
 from .typing import ClientConfig, Endpoint, EndpointResource, HTTPMethodBasic, ResolvedParam, RESTAPIConfig
 from .utils import exclude_keys  # noqa: F401
 
@@ -82,12 +82,18 @@ def rest_api_resources(
     db_incremental_field_last_value: Optional[Any],
     resume_hook: Optional[Callable[[Optional[dict[str, Any]]], None]] = None,
     initial_paginator_state: Optional[dict[str, Any]] = None,
+    on_parent_error: Optional[Callable[[str, Exception], None]] = None,
 ) -> list[Resource]:
     """Creates a list of resources from a REST API configuration.
 
     Prefer ``rest_api_resource`` (singular) for the common single-resource
     case. This function is needed for multi-resource configs like date-chunked
     report endpoints or parent/child fanout.
+
+    ``on_parent_error`` opts a parent/child fanout into per-parent fault tolerance: when a parent's
+    child pagination raises ``RESTClientRetryableError`` (a transient failure the client's own
+    retries could not clear), the fanout hands the parent path and error to this callback and moves
+    on to the next parent instead of failing the whole resource. Without it, that error propagates.
     """
     client_config = config["client"]
     resource_defaults = config.get("resource_defaults") or {}
@@ -112,6 +118,7 @@ def rest_api_resources(
         db_incremental_field_last_value=db_incremental_field_last_value,
         resume_hook=resume_hook,
         initial_paginator_state=initial_paginator_state,
+        on_parent_error=on_parent_error,
     )
 
     return list(resources.values())
@@ -120,7 +127,7 @@ def rest_api_resources(
 def _make_paginate_dependent_resource(
     *,
     client: RESTClient,
-    resolved_param: ResolvedParam,
+    resolved_param: ResolvedParam | list[ResolvedParam],
     include_from_parent: list[str],
     default_columns_config: Optional[Any],
     incremental_object: Optional[Incremental],
@@ -130,6 +137,8 @@ def _make_paginate_dependent_resource(
     resume_hook: Optional[Callable[[Optional[dict[str, Any]]], None]] = None,
     initial_state: Optional[dict[str, Any]] = None,
     data_selector_required: bool = False,
+    data_selector_empty_ok: bool = False,
+    on_parent_error: Optional[Callable[[str, Exception], None]] = None,
 ) -> Callable[..., Iterator[list[Any]]]:
     """Build the generator for a dependent (child) resource.
 
@@ -189,22 +198,38 @@ def _make_paginate_dependent_resource(
                 current_child_state = paginator_state
                 checkpoint(_path, paginator_state)
 
-            for child_page in client.paginate(
-                method=method,
-                path=formatted_path,
-                params=dict(params),
-                paginator=paginator,
-                data_selector=data_selector,
-                hooks=hooks,
-                resume_hook=child_resume_hook if resume_hook is not None else None,
-                initial_paginator_state=child_initial,
-                data_selector_required=data_selector_required,
-            ):
-                if parent_record:
-                    for child_record in child_page:
-                        child_record.update(parent_record)
+            try:
+                for child_page in client.paginate(
+                    method=method,
+                    path=formatted_path,
+                    params=dict(params),
+                    paginator=paginator,
+                    data_selector=data_selector,
+                    hooks=hooks,
+                    resume_hook=child_resume_hook if resume_hook is not None else None,
+                    initial_paginator_state=child_initial,
+                    data_selector_required=data_selector_required,
+                    data_selector_empty_ok=data_selector_empty_ok,
+                ):
+                    if parent_record:
+                        for child_record in child_page:
+                            child_record.update(parent_record)
 
-                yield list(convert_types(child_page, effective_columns_config))
+                    yield list(convert_types(child_page, effective_columns_config))
+            except RESTClientRetryableError as exc:
+                # One parent whose child resource keeps failing after the client exhausts its own
+                # retries must not sink the whole fan-out. When the caller opts in, skip that parent,
+                # hand the failure to the handler, and move on so every other parent's rows land.
+                if on_parent_error is None:
+                    raise
+                on_parent_error(formatted_path, exc)
+                if resume_hook is not None:
+                    # Clear the in-progress pointer so a later retry re-attempts this parent from the
+                    # start; leave it off `completed` so it is never permanently skipped.
+                    current_path = None
+                    current_child_state = None
+                    checkpoint(None, None)
+                continue
 
             if resume_hook is not None:
                 completed.add(formatted_path)
@@ -219,19 +244,26 @@ def create_resources(
     client_config: ClientConfig,
     dependency_graph: graphlib.TopologicalSorter,
     endpoint_resource_map: dict[str, EndpointResource],
-    resolved_param_map: dict[str, Optional[ResolvedParam]],
+    resolved_param_map: dict[str, Optional[list[ResolvedParam]]],
     team_id: int,
     job_id: str,
     db_incremental_field_last_value: Optional[Any] = None,
     resume_hook: Optional[Callable[[Optional[dict[str, Any]]], None]] = None,
     initial_paginator_state: Optional[dict[str, Any]] = None,
+    on_parent_error: Optional[Callable[[str, Exception], None]] = None,
 ) -> dict[str, Resource]:
     resources: dict[str, Resource] = {}
 
     # Resume is routed to the dependent (child) resource in a fan-out; the parent list is re-fetched
     # each run (see _make_paginate_dependent_resource). So when any resource is dependent, the
-    # non-dependent resources in the same config don't consume the resume hook.
-    has_dependent_resource = any(rp is not None for rp in resolved_param_map.values())
+    # non-dependent resources in the same config don't consume the resume hook. With MULTIPLE
+    # dependent resources (a chained/multi-level fan-out), no resource gets resume — one shared
+    # hook consumed at several levels would corrupt the saved state; retries re-fetch and the
+    # merge dedupes.
+    dependent_count = sum(1 for rp in resolved_param_map.values() if rp is not None)
+    has_dependent_resource = dependent_count > 0
+    dependent_resume_hook = resume_hook if dependent_count == 1 else None
+    dependent_initial_state = initial_paginator_state if dependent_count == 1 else None
 
     for resource_name in dependency_graph.static_order():
         resource_name = cast(str, resource_name)
@@ -241,10 +273,10 @@ def create_resources(
         request_json = endpoint_config.get("json", None)
         paginator = create_paginator(endpoint_config.get("paginator"))
 
-        resolved_param: ResolvedParam | None = resolved_param_map[resource_name]
+        resolved_params: list[ResolvedParam] | None = resolved_param_map[resource_name]
 
         include_from_parent: list[str] = endpoint_resource.get("include_from_parent") or []
-        if not resolved_param and include_from_parent:
+        if not resolved_params and include_from_parent:
             raise ValueError(
                 f"Resource {resource_name} has include_from_parent but is not dependent on another resource"
             )
@@ -262,6 +294,9 @@ def create_resources(
             paginator=create_paginator(client_config.get("paginator")),
             session=client_config.get("session"),
             max_retry_attempts=client_config.get("max_retries", DEFAULT_RETRY_ATTEMPTS),
+            allowed_hosts=client_config.get("allowed_hosts"),
+            allow_redirects=client_config.get("allow_redirects", True),
+            request_timeout=client_config.get("request_timeout"),
         )
 
         hooks = create_response_hooks(endpoint_config.get("response_actions"))
@@ -284,7 +319,7 @@ def create_resources(
             )
         }
 
-        if resolved_param is None:
+        if resolved_params is None:
 
             def paginate_resource(
                 method: HTTPMethodBasic,
@@ -306,6 +341,10 @@ def create_resources(
                     None if has_dependent_resource else initial_paginator_state
                 ),
                 data_selector_required: bool = bool(endpoint_config.get("data_selector_required")),
+                data_selector_empty_ok: bool = bool(endpoint_config.get("data_selector_empty_ok")),
+                data_selector_malformed_retryable: bool = bool(
+                    endpoint_config.get("data_selector_malformed_retryable")
+                ),
             ) -> Iterator[list[Any]]:
                 if incremental_object:
                     params = _set_incremental_params(
@@ -327,6 +366,8 @@ def create_resources(
                     resume_hook=resume_hook,
                     initial_paginator_state=initial_paginator_state,
                     data_selector_required=data_selector_required,
+                    data_selector_empty_ok=data_selector_empty_ok,
+                    data_selector_malformed_retryable=data_selector_malformed_retryable,
                 ):
                     yield list(convert_types(page, columns_config))
 
@@ -347,22 +388,24 @@ def create_resources(
             )
 
         else:
-            predecessor = resources[resolved_param.resolve_config["resource"]]
+            predecessor = resources[resolved_params[0].resolve_config["resource"]]
 
-            base_params = exclude_keys(request_params, {resolved_param.param_name})
+            base_params = exclude_keys(request_params, {rp.param_name for rp in resolved_params})
 
             paginate_fn = _make_paginate_dependent_resource(
                 client=client,
-                resolved_param=resolved_param,
+                resolved_param=resolved_params,
                 include_from_parent=include_from_parent,
                 default_columns_config=columns_config,
                 incremental_object=incremental_object,
                 incremental_param=incremental_param,
                 incremental_cursor_transform=incremental_cursor_transform,
                 db_incremental_field_last_value=db_incremental_field_last_value,
-                resume_hook=resume_hook,
-                initial_state=initial_paginator_state,
+                resume_hook=dependent_resume_hook,
+                initial_state=dependent_initial_state,
                 data_selector_required=bool(endpoint_config.get("data_selector_required")),
+                data_selector_empty_ok=bool(endpoint_config.get("data_selector_empty_ok")),
+                on_parent_error=on_parent_error,
             )
 
             resources[resource_name] = Resource(

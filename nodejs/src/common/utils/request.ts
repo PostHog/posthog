@@ -20,7 +20,9 @@ import { URL } from 'url'
 import { getExternalRequestConfig } from '~/common/config'
 
 import { isProdEnv } from './env-utils'
+import { fetchAttribution } from './fetch-attribution'
 import { parseJSON } from './json-parse'
+import { logger } from './logger'
 
 const requestConfig = getExternalRequestConfig()
 
@@ -82,6 +84,17 @@ export class ResolutionError extends Error {
     }
 }
 
+// Logged only when a check blocks the request. The check runs inside undici's connect flow
+// where the thrown error can't carry caller context, so attribution comes from the ALS store;
+// it reflects the request that opened the connection (keep-alive reuse skips the check).
+function logBlockedUrlValidation(hostname: string, resolvedIps: string[]): void {
+    logger.warn('[SSRF] Request blocked by URL validation check', {
+        hostname,
+        resolvedIps,
+        ...fetchAttribution.getStore(),
+    })
+}
+
 function validateUrl(url: string): URL {
     // Raise if the provided URL seems unsafe, otherwise do nothing.
     let parsedUrl: URL
@@ -129,6 +142,7 @@ function validateHostnameIPLiteral(hostname: string, allowUnsafe: boolean): void
     } else {
         if (!isGlobalIPv6(parsed)) {
             unsafeRequestCounter.inc({ reason: 'internal_ip_literal' })
+            logBlockedUrlValidation(hostname, [bare])
             throw new SecureRequestError('Hostname is not allowed')
         }
         return
@@ -136,6 +150,7 @@ function validateHostnameIPLiteral(hostname: string, allowUnsafe: boolean): void
 
     if (!isGlobalIPv4(ipv4)) {
         unsafeRequestCounter.inc({ reason: 'internal_ip_literal' })
+        logBlockedUrlValidation(hostname, [bare])
         throw new SecureRequestError('Hostname is not allowed')
     }
 }
@@ -178,6 +193,7 @@ async function staticLookupAsync(hostname: string): Promise<LookupAddress[]> {
     } catch {
         throw new ResolutionError('Invalid hostname')
     }
+    const resolvedIps = addrinfo.map((a) => a.address)
     for (const addrInfo of addrinfo) {
         const parsed = ipaddr.parse(addrInfo.address)
 
@@ -192,6 +208,7 @@ async function staticLookupAsync(hostname: string): Promise<LookupAddress[]> {
             const allowUnsafe = !isProdEnv()
             if (!allowUnsafe && !isGlobalIPv6(parsed)) {
                 unsafeRequestCounter.inc({ reason: 'internal_hostname' })
+                logBlockedUrlValidation(hostname, resolvedIps)
                 throw new SecureRequestError('Hostname is not allowed')
             }
             validAddrinfo.push(addrInfo)
@@ -204,12 +221,14 @@ async function staticLookupAsync(hostname: string): Promise<LookupAddress[]> {
         // Check if the IPv4 address is global
         if (!allowUnsafe && !isGlobalIPv4(ipv4)) {
             unsafeRequestCounter.inc({ reason: 'internal_hostname' })
+            logBlockedUrlValidation(hostname, resolvedIps)
             throw new SecureRequestError('Hostname is not allowed')
         }
         validAddrinfo.push(addrInfo)
     }
     if (validAddrinfo.length === 0) {
         unsafeRequestCounter.inc({ reason: 'unable_to_resolve' })
+        logBlockedUrlValidation(hostname, resolvedIps)
         throw new ResolutionError(`Unable to resolve ${hostname}`)
     }
 
@@ -313,7 +332,12 @@ async function readAndDestroyBody(body: Dispatcher.ResponseData['body']): Promis
     return text
 }
 
-export async function _fetch(url: string, options: FetchOptions = {}, dispatcher: Dispatcher): Promise<FetchResponse> {
+export async function _fetch(
+    url: string,
+    options: FetchOptions = {},
+    dispatcher: Dispatcher,
+    defaultTimeoutMs: number = requestConfig.EXTERNAL_REQUEST_TIMEOUT_MS
+): Promise<FetchResponse> {
     let parsed: URL
     try {
         parsed = new URL(url)
@@ -325,7 +349,7 @@ export async function _fetch(url: string, options: FetchOptions = {}, dispatcher
         throw new Error('URL must have HTTP or HTTPS protocol and a valid hostname')
     }
 
-    options.timeoutMs = options.timeoutMs ?? requestConfig.EXTERNAL_REQUEST_TIMEOUT_MS
+    options.timeoutMs = options.timeoutMs ?? defaultTimeoutMs
 
     const result = await request(parsed.toString(), {
         method: options.method ?? 'GET',
@@ -380,13 +404,19 @@ export async function internalFetch(url: string, options: FetchOptions = {}): Pr
     return await _fetch(url, options, sharedInsecureAgent)
 }
 
+/**
+ * Requests to a host we don't run, meaning CDP destinations and anything else pointed at a
+ * customer-supplied URL. These take the third-party response budget, which is tunable separately
+ * from the internal-service one that `internalFetch` keeps; see
+ * DEFAULT_THIRD_PARTY_REQUEST_TIMEOUT_MS.
+ */
 export async function fetch(url: string, options: FetchOptions = {}): Promise<FetchResponse> {
     const parsed = new URL(url)
     validateHostnameIPLiteral(parsed.hostname, !isProdEnv())
     inflightExternalRequests.inc()
     try {
         const dispatcher = options.allowH2 ? sharedSecureH2Agent : sharedSecureAgent
-        return await _fetch(url, options, dispatcher)
+        return await _fetch(url, options, dispatcher, requestConfig.EXTERNAL_REQUEST_THIRD_PARTY_TIMEOUT_MS)
     } finally {
         inflightExternalRequests.dec()
     }
@@ -409,7 +439,7 @@ export function legacyFetch(input: RequestInfo, options?: RequestInit): Promise<
 
     const requestOptions = options ?? {}
     requestOptions.dispatcher = sharedSecureAgent
-    requestOptions.signal = AbortSignal.timeout(requestConfig.EXTERNAL_REQUEST_TIMEOUT_MS)
+    requestOptions.signal = AbortSignal.timeout(requestConfig.EXTERNAL_REQUEST_THIRD_PARTY_TIMEOUT_MS)
 
     return undiciFetch(parsed.toString(), requestOptions)
 }

@@ -44,6 +44,98 @@ class TestOrganizationMembersAPI(APIBaseTest, QueryMatchingTest):
 
     #     assert len(response.json()["results"]) == 2
 
+    def _restrict_member_list_visibility(self) -> tuple[User, User, User]:
+        from posthog.constants import AvailableFeature
+
+        from ee.models.rbac.access_control import AccessControl
+
+        project_mate = User.objects.create_and_join(self.organization, "mate@posthog.com", None)
+        outsider = User.objects.create_and_join(self.organization, "outsider@posthog.com", None)
+        admin = User.objects.create_and_join(
+            self.organization, "admin@posthog.com", None, level=OrganizationMembership.Level.ADMIN
+        )
+        # Private project: default "none" with explicit grants for the requester and one project mate
+        AccessControl.objects.create(team=self.team, resource="project", access_level="none")
+        AccessControl.objects.create(
+            team=self.team,
+            resource="project",
+            organization_member=self.organization_membership,
+            access_level="member",
+        )
+        AccessControl.objects.create(
+            team=self.team,
+            resource="project",
+            organization_member=project_mate.organization_memberships.get(organization=self.organization),
+            access_level="member",
+        )
+        self.organization.available_product_features = [
+            {"key": AvailableFeature.ACCESS_CONTROL, "name": AvailableFeature.ACCESS_CONTROL}
+        ]
+        self.organization.members_can_see_org_members = False
+        self.organization.save()
+        return project_mate, outsider, admin
+
+    def test_members_only_see_project_mates_when_org_restricts_member_list_visibility(self):
+        project_mate, outsider, admin = self._restrict_member_list_visibility()
+
+        # Restricted members see themselves and their project mates — not org admins or other members
+        response = self.client.get("/api/organizations/@current/members/")
+        assert {m["user"]["email"] for m in response.json()["results"]} == {self.user.email, project_mate.email}
+
+        self.organization_membership.level = OrganizationMembership.Level.ADMIN
+        self.organization_membership.save()
+
+        response = self.client.get("/api/organizations/@current/members/")
+        assert {m["user"]["email"] for m in response.json()["results"]} == {
+            self.user.email,
+            project_mate.email,
+            outsider.email,
+            admin.email,
+        }
+
+    def test_stale_access_control_rules_are_ignored_without_the_entitlement(self):
+        project_mate, outsider, admin = self._restrict_member_list_visibility()
+        # Plan downgrade: the private-project rows stay in the DB but must stop being enforced
+        self.organization.available_product_features = []
+        self.organization.save()
+
+        response = self.client.get("/api/organizations/@current/members/")
+        assert {m["user"]["email"] for m in response.json()["results"]} == {
+            self.user.email,
+            project_mate.email,
+            outsider.email,
+            admin.email,
+        }
+
+    def test_open_project_keeps_all_members_visible_when_restricted(self):
+        from posthog.constants import AvailableFeature
+
+        from ee.models.rbac.access_control import AccessControl
+
+        other = User.objects.create_and_join(self.organization, "1@posthog.com", None)
+        demoted = User.objects.create_and_join(self.organization, "demoted@posthog.com", None)
+        AccessControl.objects.create(team=self.team, resource="project", access_level="member")
+        # An explicit "none" override can't lower access below an open default today (max-wins);
+        # this pins the open-team visibility path — expectations flip if more-specific-wins lands.
+        AccessControl.objects.create(
+            team=self.team,
+            resource="project",
+            organization_member=demoted.organization_memberships.get(organization=self.organization),
+            access_level="none",
+        )
+        self.organization.available_product_features = [
+            {"key": AvailableFeature.ACCESS_CONTROL, "name": AvailableFeature.ACCESS_CONTROL}
+        ]
+        self.organization.members_can_see_org_members = False
+        self.organization.save()
+
+        response = self.client.get("/api/organizations/@current/members/")
+        assert {m["user"]["email"] for m in response.json()["results"]} == {
+            self.user.email,
+            other.email,
+            demoted.email,
+        }
+
     def test_cant_list_members_for_an_alien_organization(self):
         org = Organization.objects.create(name="Alien Org")
         user = User.objects.create(email="another_user@posthog.com")

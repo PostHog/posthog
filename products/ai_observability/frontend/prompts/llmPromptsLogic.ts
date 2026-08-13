@@ -4,16 +4,17 @@ import { router, urlToAction } from 'kea-router'
 
 import { objectsEqual } from 'lib/utils/objects'
 
-import api, { CountedPaginatedResponse } from '~/lib/api'
+import { ApiConfig, CountedPaginatedResponse } from '~/lib/api'
 import { Sorting } from '~/lib/lemon-ui/LemonTable'
 import { lemonToast } from '~/lib/lemon-ui/LemonToast/LemonToast'
 import { PaginationManual } from '~/lib/lemon-ui/PaginationControl'
 import { trackedActionToUrl } from '~/lib/logic/scenes/trackedActionToUrl'
 import { sceneLogic } from '~/scenes/sceneLogic'
 import { urls } from '~/scenes/urls'
-import { LLMPrompt } from '~/types'
 
+import { llmPromptsList, llmPromptsNameArchiveCreate } from '../generated/api'
 import { cleanPagedSearchOrderParams } from '../utils'
+import { LLMPrompt } from './types'
 import { getApiErrorDetail, requestPromptDuplicate } from './utils'
 
 export const PROMPTS_PER_PAGE = 30
@@ -181,8 +182,9 @@ export const llmPromptsLogic = kea<llmPromptsLogicType>([
                         window.scrollTo(0, 0)
                     }
 
-                    const response = await api.llmPrompts.list(params)
-                    return response
+                    const response = await llmPromptsList(String(ApiConfig.getCurrentTeamId()), params)
+                    // Cast applies the deliberate narrowing documented in ./types.
+                    return response as unknown as CountedPaginatedResponse<LLMPrompt>
                 },
             },
         ],
@@ -248,7 +250,7 @@ export const llmPromptsLogic = kea<llmPromptsLogicType>([
 
         deletePrompt: async ({ promptName }) => {
             try {
-                await api.llmPrompts.archiveByName(promptName)
+                await llmPromptsNameArchiveCreate(String(ApiConfig.getCurrentTeamId()), promptName)
                 lemonToast.info(`${promptName || 'Prompt'} has been archived.`)
                 await asyncActions.loadPrompts(false)
             } catch (error) {

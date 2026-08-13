@@ -32,6 +32,15 @@ class ReplayScannerPromptSuggestion(UUIDModel):
     rationale = models.TextField(
         blank=True, default="", help_text="What the rewrite changed and why, grounded in the ratings."
     )
+    base_config = models.JSONField(
+        null=True, blank=True, help_text="The scanner config this suggestion was generated against, for diffing."
+    )
+    suggested_config = models.JSONField(
+        null=True, blank=True, help_text="The full proposed scanner config, ready to apply."
+    )
+    changes = models.JSONField(
+        default=list, blank=True, help_text="Typed per-field diff entries: field, kind, op, before, after, rationale."
+    )
     status = models.CharField(max_length=16, choices=SuggestionStatus.choices, default=SuggestionStatus.PENDING)
     based_on_up = models.PositiveIntegerField(default=0, help_text="Thumbs-up ratings the suggestion was based on.")
     based_on_down = models.PositiveIntegerField(default=0, help_text="Thumbs-down ratings the suggestion was based on.")

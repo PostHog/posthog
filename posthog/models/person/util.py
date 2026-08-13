@@ -4,6 +4,7 @@ import json
 import datetime
 import contextvars
 from concurrent.futures import ThreadPoolExecutor
+from dataclasses import dataclass
 from typing import TYPE_CHECKING, Optional, Union
 from uuid import UUID
 from zoneinfo import ZoneInfo
@@ -159,13 +160,20 @@ def _batched_get_persons_by_distinct_ids(
     return valid_results
 
 
+@dataclass
+class DistinctIdForPerson:
+    id: str
+    version: int
+
+
 def _batched_get_distinct_ids_for_persons(
     team_id: int,
     person_ids: list[int],
     limit_per_person: int | None = None,
-) -> dict[int, list[str]]:
+) -> dict[int, list[DistinctIdForPerson]]:
+    """Fetch each person's distinct_ids with their versions, one RPC per PERSONHOG_BATCH_SIZE batch."""
     client = _get_client()
-    distinct_ids_by_person: dict[int, list[str]] = {}
+    distinct_ids_by_person: dict[int, list[DistinctIdForPerson]] = {}
     for i in range(0, len(person_ids), PERSONHOG_BATCH_SIZE):
         batch_ids = person_ids[i : i + PERSONHOG_BATCH_SIZE]
         did_request = GetDistinctIdsForPersonsRequest(team_id=team_id, person_ids=batch_ids)
@@ -173,7 +181,9 @@ def _batched_get_distinct_ids_for_persons(
             did_request.limit_per_person = limit_per_person
         did_resp = client.get_distinct_ids_for_persons(did_request)
         for pd in did_resp.person_distinct_ids:
-            distinct_ids_by_person[pd.person_id] = [d.distinct_id for d in pd.distinct_ids]
+            distinct_ids_by_person[pd.person_id] = [
+                DistinctIdForPerson(id=d.distinct_id, version=int(d.version or 0)) for d in pd.distinct_ids
+            ]
     return distinct_ids_by_person
 
 
@@ -315,7 +325,8 @@ def _fetch_persons_by_distinct_ids_via_personhog(
     )
 
     return [
-        proto_person_to_model(r.person, distinct_ids=distinct_ids_by_person.get(r.person.id, [])) for r in valid_results
+        proto_person_to_model(r.person, distinct_ids=[d.id for d in distinct_ids_by_person.get(r.person.id, [])])
+        for r in valid_results
     ]
 
 
@@ -373,10 +384,11 @@ def get_distinct_ids_for_persons(
     if not person_ids:
         return {}
 
-    return personhog_call(
+    distinct_ids_by_person = personhog_call(
         "get_distinct_ids_for_persons",
         lambda: _batched_get_distinct_ids_for_persons(team_id, person_ids, limit_per_person=limit_per_person),
     )
+    return {person_id: [d.id for d in distinct_ids] for person_id, distinct_ids in distinct_ids_by_person.items()}
 
 
 def _fetch_persons_by_uuids_via_personhog(
@@ -398,7 +410,10 @@ def _fetch_persons_by_uuids_via_personhog(
         team_id, person_ids, limit_per_person=distinct_id_limit
     )
 
-    return [proto_person_to_model(p, distinct_ids=distinct_ids_by_person.get(p.id, [])) for p in valid_persons]
+    return [
+        proto_person_to_model(p, distinct_ids=[d.id for d in distinct_ids_by_person.get(p.id, [])])
+        for p in valid_persons
+    ]
 
 
 def get_persons_by_uuids(team_id: int, uuids: list[str], *, distinct_id_limit: int | None = None) -> list[Person]:
@@ -600,12 +615,18 @@ def delete_persons_from_postgres(team_id: int, persons: list[Person]) -> None:
     personhog_call("delete_persons", personhog_fn)
 
 
-def delete_person(person: Person) -> None:
+def delete_person(person: Person, distinct_ids: list[DistinctIdForPerson] | None = None) -> None:
+    """Produce ClickHouse deletion tombstones for a person and its distinct_ids.
+
+    ``distinct_ids`` can be prefetched in batch (see ``delete_persons_profile``) to
+    avoid one RPC per person; when omitted it is fetched here.
+    """
     # This is racy https://github.com/PostHog/posthog/issues/11590
-    distinct_ids_to_version = _get_distinct_ids_with_version(person)
+    if distinct_ids is None:
+        distinct_ids = _get_distinct_ids_with_version(person)
     _delete_person(person.team_id, person.uuid, int(person.version or 0), person.created_at)
-    for distinct_id, version in distinct_ids_to_version.items():
-        _delete_ch_distinct_id(person.team_id, person.uuid, distinct_id, version)
+    for distinct_id in distinct_ids:
+        _delete_ch_distinct_id(person.team_id, person.uuid, distinct_id.id, distinct_id.version)
 
 
 def _delete_person(
@@ -627,12 +648,12 @@ def _delete_person(
     )
 
 
-def _get_distinct_ids_with_version(person: Person) -> dict[str, int]:
-    def personhog_fn() -> dict[str, int]:
+def _get_distinct_ids_with_version(person: Person) -> list[DistinctIdForPerson]:
+    def personhog_fn() -> list[DistinctIdForPerson]:
         resp = _get_client().get_distinct_ids_for_person(
             GetDistinctIdsForPersonRequest(team_id=person.team_id, person_id=person.pk)
         )
-        return {d.distinct_id: int(d.version or 0) for d in resp.distinct_ids}
+        return [DistinctIdForPerson(id=d.distinct_id, version=int(d.version or 0)) for d in resp.distinct_ids]
 
     return personhog_call("get_distinct_ids_with_version", personhog_fn)
 

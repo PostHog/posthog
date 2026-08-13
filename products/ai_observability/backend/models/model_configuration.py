@@ -45,16 +45,16 @@ class LLMModelConfiguration(UUIDTModel):
 
     def get_available_models(self) -> list[str]:
         """Get available models — delegates to the provider API if a BYOK key is
-        present, otherwise returns the trial model list (PostHog pays)."""
+        present, otherwise returns the playground model list (PostHog pays)."""
         if self.provider_key:
             from products.ai_observability.backend.llm.client import Client
 
             api_key = self.provider_key.encrypted_config.get("api_key")
             return Client.list_models(self.provider, api_key)
 
-        from products.ai_observability.backend.llm import TRIAL_MODELS_BY_PROVIDER
+        from products.ai_observability.backend.llm import PLAYGROUND_MODELS_BY_PROVIDER
 
-        return TRIAL_MODELS_BY_PROVIDER.get(self.provider, [])
+        return PLAYGROUND_MODELS_BY_PROVIDER.get(self.provider, [])
 
     def save(self, *args, **kwargs) -> None:
         self.full_clean()

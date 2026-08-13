@@ -2,10 +2,12 @@ import { expectLogic } from 'kea-test-utils'
 
 import api from 'lib/api'
 import { JSONContent } from 'lib/components/RichContentEditor/types'
+import { lemonToast } from 'lib/lemon-ui/LemonToast/LemonToast'
 
 import { initKeaTests } from '~/test/init'
 
 import { buildMarkdownNotebookContent, serializeMarkdownNotebookComponent } from '../Notebook/markdownNotebookV2'
+import { notebookSettingsLogic } from '../Notebook/notebookSettingsLogic'
 import { NotebookNodeType } from '../types'
 import { collectSqlV2Refs, notebookNodeSQLV2Logic } from './notebookNodeSQLV2Logic'
 
@@ -67,9 +69,18 @@ describe('notebookNodeSQLV2Logic', () => {
             expect(collectSqlV2Refs(document, 'self')).toEqual({ sql_df: hogql('a'), sql_df_2: hogql('b') })
         })
 
-        it('resolves blank names to the default the dependency graph shows', () => {
-            const document = doc(sqlNode('a', ''), sqlNode('b', '  '))
-            expect(collectSqlV2Refs(document, 'self')).toEqual({ sql_df: hogql('a'), sql_df_2: hogql('b') })
+        it('skips unnamed cells and lets a named sibling keep the default name', () => {
+            // The dataframe name is optional: a blank-name cell is display-only and exports
+            // nothing — and it must not push a real 'sql_df' cell into a disambiguated name.
+            const document = doc(sqlNode('a', ''), sqlNode('b', '  '), sqlNode('c', 'sql_df'))
+            expect(collectSqlV2Refs(document, 'self')).toEqual({ sql_df: hogql('c') })
+        })
+
+        it('skips cells with an invalid (non-identifier) name', () => {
+            // `people-df` can never be referenced as a bare table name, so it must not be
+            // offered as a ref that a downstream cell would fail to resolve.
+            const document = doc(sqlNode('a', 'people-df'), sqlNode('b', 'good_df'))
+            expect(collectSqlV2Refs(document, 'self')).toEqual({ good_df: hogql('b') })
         })
 
         it('finds SQLV2 nodes nested inside other content', () => {
@@ -80,11 +91,19 @@ describe('notebookNodeSQLV2Logic', () => {
         it('collects python cells as local refs under their kernel variable name', () => {
             // Journey 5: a SQL node referencing new_events must reroute to DuckDB, which only
             // happens if the python cell's returnVariable reaches the backend as a local ref.
-            const document = doc(sqlNode('a', 'df1'), pythonNode('py', 'new_events'), pythonNode('py2'))
+            // A blank name binds nothing in the kernel, so it exports no ref — otherwise every
+            // unnamed cell would claim the same name and shadow the others. Only a cell with no
+            // attribute at all predates the optional name and keeps the legacy 'df'.
+            const document = doc(
+                sqlNode('a', 'df1'),
+                pythonNode('py', 'new_events'),
+                pythonNode('py2', ''),
+                pythonNode('py3')
+            )
             expect(collectSqlV2Refs(document, 'self')).toEqual({
                 df1: hogql('a'),
                 new_events: local('py'),
-                df: local('py2'), // returnVariable defaults to 'df', matching the python cell UI
+                df: local('py3'),
             })
         })
 
@@ -119,6 +138,58 @@ describe('notebookNodeSQLV2Logic', () => {
         })
     })
 
+    describe('execution lanes', () => {
+        it('pages a direct run client-side from the rows the result poll returned', async () => {
+            // The server page endpoint refuses hogql runs; losing the local slice would
+            // strand every page beyond the envelope's first.
+            const rows = Array.from({ length: 120 }, (_, index) => [index])
+            resultSpy.mockResolvedValue({
+                status: 'done',
+                result: {
+                    columns: ['a'],
+                    types: [['a', 'Int64']],
+                    row_count: 50,
+                    first_page: rows.slice(0, 50),
+                    has_more: true,
+                },
+                error: null,
+                rows,
+            })
+            const pageSpy = jest.spyOn(api.notebooks, 'sqlV2RunPage')
+            mount({ runId: 'r1', hasResult: false })
+            await expectLogic(logic).toFinishAllListeners()
+            expect(logic.values.directRows?.rows).toHaveLength(120)
+
+            logic.actions.setPage(3)
+            await expectLogic(logic).toFinishAllListeners()
+            expect(pageSpy).not.toHaveBeenCalled()
+            expect(logic.values.pageResult).toEqual({
+                columns: ['a'],
+                types: [['a', 'Int64']],
+                rows: rows.slice(100, 120),
+                has_more: false,
+            })
+        })
+
+        it('opens the kernel panel and notifies for a kernel-lane run, and not for a direct one', async () => {
+            // Scenario B: a run that needs the sandbox must surface the provisioning wait;
+            // a pure-SQL run must never pop the panel or toast (it needs no sandbox at all).
+            const toastSpy = jest.spyOn(lemonToast, 'info')
+            mount()
+            logic.actions.runQuery('select 1')
+            await expectLogic(logic).toFinishAllListeners()
+            expect(notebookSettingsLogic.findMounted()?.values.showKernelInfo).toBe(false)
+            expect(logic.values.pendingKernelStart).toBe(false)
+            expect(toastSpy).not.toHaveBeenCalled()
+
+            logic.actions.runQuery('select * from new_events', { new_events: { node_id: 'py', kind: 'local' } })
+            await expectLogic(logic).toFinishAllListeners()
+            expect(notebookSettingsLogic.findMounted()?.values.showKernelInfo).toBe(true)
+            expect(logic.values.pendingKernelStart).toBe(true)
+            expect(toastSpy).toHaveBeenCalledWith(expect.stringContaining('Starting a compute sandbox'))
+        })
+    })
+
     it('rejects blank code before dispatching a run', async () => {
         mount()
         logic.actions.runQuery('   ')
@@ -135,7 +206,19 @@ describe('notebookNodeSQLV2Logic', () => {
         expect(runSpy).toHaveBeenCalledWith('nb1', { node_id: 'n1', code: 'select 1', refs: {} })
         // runId is persisted so a reload/remount can recover the in-flight run; nodeId is
         // pinned so the markdown cell's fingerprint id can't drift away from the run's node_id.
-        expect(updateAttributes).toHaveBeenCalledWith({ nodeId: 'n1', runId: 'r1', result: null })
+        expect(updateAttributes).toHaveBeenCalledWith({ nodeId: 'n1', runId: 'r1', result: null, runStatus: null })
+    })
+
+    it('dispatches a run against the cell’s connection', async () => {
+        // Without this the run reaches the backend with no connection and executes on ClickHouse,
+        // which is what made warehouse queries fail with "Unknown table".
+        mount()
+        logic.actions.runQuery('select 1', {}, { connectionId: 'conn-1', sendRawQuery: true })
+        await expectLogic(logic).toDispatchActions(['runQuery', 'startPolling'])
+        expect(runSpy).toHaveBeenCalledWith(
+            'nb1',
+            expect.objectContaining({ connection_id: 'conn-1', send_raw_query: true })
+        )
     })
 
     it('dispatches a python run with its node type and output name', async () => {
@@ -174,6 +257,7 @@ describe('notebookNodeSQLV2Logic', () => {
                 stderr: '',
                 media: [],
             },
+            runStatus: 'done',
         })
         expect(logic.values.isRunning).toBe(false)
     })
@@ -196,8 +280,11 @@ describe('notebookNodeSQLV2Logic', () => {
         })
         mount({ runId: 'r1', hasResult: false })
         await expectLogic(logic).toFinishAllListeners()
+        // The outcome is persisted with the partial result: without it a reload can't tell this
+        // apart from a completed run, since both leave a result behind.
         expect(updateAttributes).toHaveBeenCalledWith({
             result: expect.objectContaining({ stdout: 'partial output' }),
+            runStatus: 'interrupted',
         })
         expect(logic.values.runError).toBe('Run interrupted.')
         expect(logic.values.isRunning).toBe(false)

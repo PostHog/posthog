@@ -30,7 +30,7 @@ function createMockContext(opts: {
             return { id: 'wf-1', status: opts.status ?? 'active', trigger: opts.trigger }
         }
         if (method === 'POST' && path.endsWith('/user_blast_radius/')) {
-            return { limit: DEFAULT_LIMIT, ...opts.blastRadius }
+            return { limit: DEFAULT_LIMIT, confirm_token: 'tok-preview', ...opts.blastRadius }
         }
         if (method === 'POST' && path.endsWith('/batch_jobs/')) {
             return { id: 'batch-1', status: 'queued' }
@@ -78,7 +78,8 @@ describe('workflows batch handlers', () => {
                 path: '/api/projects/1/hog_flows/user_blast_radius/',
                 body: { filters: BATCH_FILTERS },
             })
-            expect(result).toEqual({ affected: 42, total: 100, limit: DEFAULT_LIMIT })
+            // confirm_token must surface to the agent: it is a required workflows-run-batch input.
+            expect(result).toEqual({ affected: 42, total: 100, limit: DEFAULT_LIMIT, confirm_token: 'tok-preview' })
         })
     })
 
@@ -92,6 +93,7 @@ describe('workflows batch handlers', () => {
             const result = await runBatchTool.handler(context, {
                 workflow_id: 'wf-1',
                 acknowledged_affected_count: 10,
+                confirm_token: 'tok-123',
                 variables: { plan: 'pro' },
             })
 
@@ -99,7 +101,7 @@ describe('workflows batch handlers', () => {
             expect(batchCall).toMatchObject({
                 method: 'POST',
                 path: '/api/projects/1/hog_flows/wf-1/batch_jobs/',
-                body: { filters: BATCH_FILTERS, variables: { plan: 'pro' } },
+                body: { filters: BATCH_FILTERS, confirm_token: 'tok-123', variables: { plan: 'pro' } },
             })
             expect(result).toMatchObject({ id: 'batch-1' })
         })
@@ -110,10 +112,14 @@ describe('workflows batch handlers', () => {
                 blastRadius: { affected: 10, total: 100 },
             })
 
-            await runBatchTool.handler(context, { workflow_id: 'wf-1', acknowledged_affected_count: 10 })
+            await runBatchTool.handler(context, {
+                workflow_id: 'wf-1',
+                acknowledged_affected_count: 10,
+                confirm_token: 'tok-123',
+            })
 
             const batchCall = calls(request).find((c) => c.path.endsWith('/batch_jobs/'))
-            expect(batchCall!.body).toEqual({ filters: BATCH_FILTERS })
+            expect(batchCall!.body).toEqual({ filters: BATCH_FILTERS, confirm_token: 'tok-123' })
         })
 
         it('rejects and does not fire when the acknowledged count is stale, surfacing the fresh count', async () => {
@@ -123,7 +129,11 @@ describe('workflows batch handlers', () => {
             })
 
             await expect(
-                runBatchTool.handler(context, { workflow_id: 'wf-1', acknowledged_affected_count: 10 })
+                runBatchTool.handler(context, {
+                    workflow_id: 'wf-1',
+                    acknowledged_affected_count: 10,
+                    confirm_token: 'tok-123',
+                })
             ).rejects.toThrow(/25/)
             expect(calls(request).some((c) => c.path.endsWith('/batch_jobs/'))).toBe(false)
         })
@@ -138,6 +148,7 @@ describe('workflows batch handlers', () => {
                 runBatchTool.handler(context, {
                     workflow_id: 'wf-1',
                     acknowledged_affected_count: 5001,
+                    confirm_token: 'tok-123',
                 })
             ).rejects.toThrow(/5000/)
             expect(calls(request).some((c) => c.path.endsWith('/batch_jobs/'))).toBe(false)
@@ -152,6 +163,7 @@ describe('workflows batch handlers', () => {
             const result = await runBatchTool.handler(context, {
                 workflow_id: 'wf-1',
                 acknowledged_affected_count: 40_000,
+                confirm_token: 'tok-123',
             })
 
             expect(calls(request).some((c) => c.path.endsWith('/batch_jobs/'))).toBe(true)
@@ -165,7 +177,11 @@ describe('workflows batch handlers', () => {
             })
 
             await expect(
-                runBatchTool.handler(context, { workflow_id: 'wf-1', acknowledged_affected_count: 10 })
+                runBatchTool.handler(context, {
+                    workflow_id: 'wf-1',
+                    acknowledged_affected_count: 10,
+                    confirm_token: 'tok-123',
+                })
             ).rejects.toThrow(/batch/)
             expect(calls(request).some((c) => c.path.endsWith('/batch_jobs/'))).toBe(false)
         })
@@ -178,7 +194,11 @@ describe('workflows batch handlers', () => {
             })
 
             await expect(
-                runBatchTool.handler(context, { workflow_id: 'wf-1', acknowledged_affected_count: 10 })
+                runBatchTool.handler(context, {
+                    workflow_id: 'wf-1',
+                    acknowledged_affected_count: 10,
+                    confirm_token: 'tok-123',
+                })
             ).rejects.toThrow(/enable/i)
             expect(calls(request).some((c) => c.path.endsWith('/batch_jobs/'))).toBe(false)
         })
@@ -197,6 +217,7 @@ describe('workflows batch handlers', () => {
                 starts_at: '2026-06-01T00:00:00Z',
                 timezone: 'UTC',
                 acknowledged_affected_count: 3,
+                confirm_token: 'tok-preview',
                 variables: { plan: 'pro' },
             })
 
@@ -208,6 +229,7 @@ describe('workflows batch handlers', () => {
                     rrule: 'FREQ=DAILY;INTERVAL=1',
                     starts_at: '2026-06-01T00:00:00Z',
                     timezone: 'UTC',
+                    confirm_token: 'tok-preview',
                     variables: { plan: 'pro' },
                 },
             })
@@ -226,6 +248,7 @@ describe('workflows batch handlers', () => {
                     rrule: 'FREQ=DAILY;INTERVAL=1',
                     starts_at: '2026-06-01T00:00:00Z',
                     acknowledged_affected_count: 3,
+                    confirm_token: 'unused',
                 })
             ).rejects.toThrow(/50/)
             expect(calls(request).some((c) => c.path.endsWith('/schedules/'))).toBe(false)
@@ -244,6 +267,7 @@ describe('workflows batch handlers', () => {
                     rrule: 'FREQ=DAILY;INTERVAL=1',
                     starts_at: '2026-06-01T00:00:00Z',
                     acknowledged_affected_count: 3,
+                    confirm_token: 'unused',
                 })
             ).rejects.toThrow(/active/i)
             expect(calls(request).some((c) => c.path.endsWith('/schedules/'))).toBe(false)
@@ -261,6 +285,7 @@ describe('workflows batch handlers', () => {
                     rrule: 'FREQ=DAILY;INTERVAL=1',
                     starts_at: '2026-06-01T00:00:00Z',
                     acknowledged_affected_count: 1,
+                    confirm_token: 'unused',
                 })
             ).rejects.toThrow(/batch/)
             expect(calls(request).some((c) => c.path.endsWith('/schedules/'))).toBe(false)

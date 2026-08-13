@@ -23,6 +23,7 @@ export type IntegrationConfigureProps = {
     schema?: { requiredScopes?: string }
     integration?: string
     beforeRedirect?: () => void
+    allowClear?: boolean
 }
 
 export function IntegrationChoice({
@@ -32,6 +33,7 @@ export function IntegrationChoice({
     integration,
     redirectUrl,
     beforeRedirect,
+    allowClear = true,
 }: IntegrationConfigureProps): JSX.Element | null {
     const { integrationsLoading, integrations, newIntegrationModalKind, slackAvailable } = useValues(integrationsLogic)
     const { newGoogleCloudKey, openNewIntegrationModal, closeNewIntegrationModal, deleteIntegration } =
@@ -98,6 +100,7 @@ export function IntegrationChoice({
         : oauthUnavailable
           ? {
                 to: urls.settings('project-integrations'),
+                targetBlank: true,
                 sideIcon: <IconExternal />,
                 label: `${kindName} is not configured on this instance`,
             }
@@ -136,10 +139,11 @@ export function IntegrationChoice({
                     items: [
                         {
                             to: urls.settings('project-integrations'),
+                            targetBlank: true,
                             label: 'Manage integrations',
                             sideIcon: <IconExternal />,
                         },
-                        value
+                        value && allowClear
                             ? {
                                   onClick: () => onChange?.(null),
                                   label: 'Clear selection',

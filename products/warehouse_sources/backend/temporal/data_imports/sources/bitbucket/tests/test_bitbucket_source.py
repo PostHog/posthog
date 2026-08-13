@@ -7,7 +7,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.bitbucket.
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.bitbucket.source import BitbucketSource
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
-from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs import (
+from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.bitbucket import (
     BitbucketAuthMethodConfig,
     BitbucketSourceConfig,
 )

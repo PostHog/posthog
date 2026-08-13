@@ -1,3 +1,5 @@
+import { colonDelimitedDuration } from 'lib/utils/durations'
+
 // `uuid` is legacy (only old event-uuid citations carry it). Timestamp citations use `timestamp_ms` alone.
 export type Segment = { kind: 'text'; value: string } | { kind: 'chip'; timestamp_ms: number; uuid?: string }
 
@@ -52,4 +54,22 @@ export function parseCitedSegments(text: string, segments: unknown): Segment[] {
         return splitLeakedCitations(text)
     }
     return persisted.flatMap((segment) => (segment.kind === 'text' ? splitLeakedCitations(segment.value) : [segment]))
+}
+
+/** Plain-text rendering of a cited field for the clipboard: citation chips become readable `(mm:ss)` timestamps. */
+export function citedTextToPlainText(text: string, segments: unknown): string {
+    const list = parseCitedSegments(text, segments)
+    if (list.length === 0) {
+        return text
+    }
+    let out = ''
+    for (const segment of list) {
+        if (segment.kind === 'text') {
+            out += segment.value
+            continue
+        }
+        const label = colonDelimitedDuration(Math.max(0, Math.floor(segment.timestamp_ms / 1000)), null)
+        out += `${out && !/\s$/.test(out) ? ' ' : ''}(${label})`
+    }
+    return out
 }

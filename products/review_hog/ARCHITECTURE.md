@@ -197,10 +197,12 @@ pr_metadata.head_branch` is threaded (as explicit kwargs, alongside `team_id` / 
    re-researches only the pending ones. The keep/drop **criteria are pulled, not baked**: the prompt instructs the
    agent to `skill-get` the team's `review-hog-validation-criteria` skill (version pinned by
    `load_validation_skill_for_run`), so the bar for "this issue matters" is team-owned, like the perspectives.
-9. **Build report + finalize** — `build_review_body(chunks, issues, validations, pr_files)` renders the public body
-   in-process (verdicts sourced from the DB via `load_run_validations`, the same rows publish reads); chunks with
-   no validated finding are skipped, and valid `MUST_FIX`/`SHOULD_FIX` findings whose line isn't on the diff are
-   appended as an **"Other findings (outside the changed lines)"** section so they aren't silently dropped at publish.
+9. **Build report + finalize** — `build_review_body(issues, validations, pr_files)` renders the public body
+   in-process (verdicts sourced from the DB via `load_run_validations`, the same rows publish reads). The body is
+   **one line: how many findings this turn publishes, by severity** ("Found **2 must fix**, **1 consider**.") —
+   no chunk walk, no file inventory, no summary of the diff, because nobody reads one. Valid `MUST_FIX`/`SHOULD_FIX`
+   findings whose line isn't on the diff are still appended as an **"Other findings (outside the changed lines)"**
+   section so they aren't silently dropped at publish.
    `finalize_review_report` stores it as `ReviewReport.report_markdown` and bumps the run watermark.
 10. **Publish** — `publish_review` (GitHub REST via the gated egress transport, **DB-driven**) reads the body from
     `ReviewReport.report_markdown` and the inline comments from the valid finding/verdict rows (`load_valid_findings`),
@@ -210,7 +212,18 @@ pr_metadata.head_branch` is threaded (as explicit kwargs, alongside `team_id` / 
     finding — if all are off-diff (no inline comments resolve) the body still posts, carrying them in the
     Other-findings section, so a review is never dropped wholesale. Falls back to a body-only review when
     posting with inline comments fails. Authenticates with the team's installation token. Gated **per run** by `inputs.publish` (the workflow only dispatches this stage
-    when publishing is on); the eval CLI defaults it off, the label trigger sets it on.
+    when publishing is on); the eval CLI defaults it off, the label trigger sets it on. Both publish-idempotency
+    marker scans (`_review_already_posted` here, `_find_marker_comment` on the status comment) trust the marker
+    only in **app-bot** comments/reviews — on a public repo anyone can paste it, and a spoofed match would
+    suppress the publish or clobber a stranger's comment. On the publish path a live **status comment**
+    (`reviewer/status_comment.py`) is posted at kickoff, edited with stage progress, and rewritten with the
+    outcome: the full found counts, what was published, and — when the urgency threshold held findings back —
+    whose threshold it was (the author's / the requester's / the default, from `resolved_from`) plus a
+    "View them in PostHog" deep link to the exact report (`/project/<team>/code-review?review=<report id>`,
+    a **permanent public contract** — the frontend URL sync and `report_deep_link` must keep agreeing on it).
+    After the publish stage the workflow captures a **`reviewhog_review_completed`** product-analytics event —
+    one per finalized turn (published or stored), carrying repository / PR / trigger / finding-count / PR-size
+    properties (`track_review_completed_activity`). Best-effort: telemetry can never fail a review.
 
 ---
 
@@ -247,10 +260,16 @@ session** per chunk via the sibling helpers `start_sandbox_session` / `continue_
    `output_path` / `_error.txt` and no manual JSON extraction — persistence is the caller's job. The runner
    persists the full agent log at `task_run.log_url` (S3 / Tasks UI), so the executor never copies it locally.
 
-The perspective review runs on a different model family than the rest — **OpenAI Codex `gpt-5.5` @ `xhigh`**,
-pinned by `REVIEW_{RUNTIME_ADAPTER,MODEL,REASONING_EFFORT}` constants and passed as optional kwargs to
-`run_sandbox_review`; chunking, dedup, and the validator stay on the Claude default. See [DECISIONS.md](./DECISIONS.md)
-for why (and the `full-access` permission-mode gotcha headless Codex needs), and
+The perspective review (the blind-spot sweep rides the same activity) runs on a different model family than the
+rest — **OpenAI Codex `gpt-5.6-sol` @ `xhigh`**, with `initial_permission_mode="full-access"`. The pins are per
+**report**, not per process: each `ReviewReport` persists a **review arm** (adapter / model / effort / permission
+mode), drawn once at report creation from the weighted `REVIEW_EXPERIMENT_ARMS` (`constants.py`; currently the
+single default arm above) and kept for the report's life, so a model A/B never mixes arms within one report.
+`load_review_arm` → `resolve_review_arm` honors a persisted assignment only while it stays a registry-supported
+combo — anything else falls back to the default pins and stamps `review_arm_fallback` on the run's analytics
+events — so reports assigned an arm that later left the lineup keep running it while its combo stays registered.
+Chunking, dedup, and the validator stay on Claude. See [DECISIONS.md](./DECISIONS.md) for the Sonnet-vs-Sol
+production A/B that picked this default (and the `full-access` permission-mode gotcha headless Codex needs), and
 [Selecting the sandbox model & reasoning effort](#selecting-the-sandbox-model--reasoning-effort) below for the
 two-repo path that applies these knobs.
 
@@ -292,15 +311,17 @@ Read this before testing another model (Sonnet, a new Codex model, a different e
 
 **`posthog/posthog` — where the knobs are set + validated.**
 
-- **Pick the values (ReviewHog):** `reviewer/constants.py` `REVIEW_{RUNTIME_ADAPTER,MODEL,REASONING_EFFORT}` →
-  passed at the `review_chunk_activity` `run_sandbox_review(...)` call → `run_sandbox_review`
-  (`reviewer/sandbox/executor.py`) threads them onto the `CustomPromptSandboxContext`. To test another model, change
-  these constants (the executor kwargs exist for every single-turn stage).
+- **Pick the values (ReviewHog):** `reviewer/constants.py` `REVIEW_{RUNTIME_ADAPTER,MODEL,REASONING_EFFORT,INITIAL_PERMISSION_MODE}`
+  feed `DEFAULT_REVIEW_ARM`; `review_chunk_activity` loads the report's persisted arm (`load_review_arm` →
+  `resolve_review_arm`) and passes it as kwargs to `run_sandbox_review` (`reviewer/sandbox/executor.py`), which
+  threads them onto the `CustomPromptSandboxContext`. To change the reviewer fleet-wide, change the pins; to A/B
+  another model, add a weighted arm to `REVIEW_EXPERIMENT_ARMS` (the executor kwargs exist for every single-turn stage).
 - **The registry (source of truth for what's allowed)** — `products/tasks/backend/temporal/process_task/utils.py`,
   re-exported framework-free from the facade `products/tasks/backend/facade/run_config.py` (import from the facade):
   `RuntimeAdapter` (`claude|codex`), `LLMProvider`, `ReasoningEffort`, `RUNTIME_PROVIDER_BY_ADAPTER`,
-  `CLAUDE_REASONING_EFFORTS_BY_MODEL`, `CODEX_MODELS` + `CODEX_REASONING_EFFORTS` + `CODEX_XHIGH_REASONING_MODELS`
-  (only `gpt-5.5` allows `xhigh`), and the pure checks `get_provider_for_runtime_adapter` /
+  `CLAUDE_REASONING_EFFORTS_BY_MODEL`, `CODEX_MODELS` + `CODEX_REASONING_EFFORTS` + the
+  `CODEX_XHIGH/MAX_REASONING_MODELS` tiers (`gpt-5.5` caps at `xhigh`; the `gpt-5.6-*` models allow up to
+  `max`), and the pure checks `get_provider_for_runtime_adapter` /
   `get_supported_reasoning_efforts` / `get_reasoning_effort_error`. A new model/effort must be added here or the combo
   is rejected. `test_constants.py` locks the ReviewHog combo to this registry at unit time.
 - **Transport into the sandbox:** `Task._build_task` writes `extra_state[{runtime_adapter, provider, model,
@@ -308,7 +329,7 @@ reasoning_effort}]` → `get_task_processing_context` reads it back → `start_a
   `build_agent_runtime_env_prefix` (`logic/services/sandbox.py`) emits
   `POSTHOG_CODE_{RUNTIME_ADAPTER,PROVIDER,MODEL,REASONING_EFFORT}` env prefixed onto the agent launch command.
 
-**`@posthog/agent` — where they are consumed + applied** (the PostHog Code monorepo, _not_ this repo; clone via
+**`@posthog/agent` — where they are consumed + applied** (the PostHog Desktop monorepo, _not_ this repo; clone via
 `LOCAL_POSTHOG_CODE_MONOREPO_ROOT`, package `packages/agent`, baked into `Dockerfile.sandbox-base`).
 
 - **Entry `src/server/bin.ts`** reads + zod-validates `POSTHOG_CODE_{RUNTIME_ADAPTER,MODEL,REASONING_EFFORT}`, guards
@@ -316,15 +337,15 @@ reasoning_effort}]` → `get_task_processing_context` reads it back → `start_a
   registry; hard-errors server startup on an unsupported combo), then constructs the `AgentServer`.
 - **Adapter split `src/server/agent-server.ts`:** Codex → `src/adapters/codex/spawn.ts::buildConfigArgs` pushes
   `-c model="…"` **and** `-c model_reasoning_effort="…"` onto the Codex CLI (this is the line that applies `xhigh` to
-  `gpt-5.5`); Claude → `buildClaudeCodeSessionMeta` sets `options.model` + `options.effort` (effort only for the
+  `gpt-5.6-sol`); Claude → `buildClaudeCodeSessionMeta` sets `options.model` + `options.effort` (effort only for the
   claude adapter). `agent.ts` fetches the gateway model allow-list and **silently drops the model if it isn't served**
   (`sanitizedModel` / `allowedModelIds`), so a typo'd/unavailable model falls back to a default rather than erroring —
   verify `$ai_model` on every run when switching.
 
 **Recipe — testing e.g. Sonnet.** Set `runtime_adapter = "claude"`, `model` a key in `CLAUDE_REASONING_EFFORTS_BY_MODEL`,
 and an effort that model supports; provider auto-derives to `anthropic`. For a new Codex model: `runtime_adapter =
-"codex"`, `model` in `CODEX_MODELS`, effort in `CODEX_REASONING_EFFORTS` (`xhigh` only if the model is in
-`CODEX_XHIGH_REASONING_MODELS`). A brand-new model/effort must be added to the registry in **both** repos (`utils.py`
+"codex"`, `model` in `CODEX_MODELS`, effort in `CODEX_REASONING_EFFORTS` (`xhigh`/`max` only for models in the
+`CODEX_XHIGH/MAX_REASONING_MODELS` tiers). A brand-new model/effort must be added to the registry in **both** repos (`utils.py`
 here + `reasoning-effort.ts` / the gateway model list in `@posthog/agent`) or startup validation rejects it on one side.
 
 ---
@@ -335,17 +356,16 @@ All Pydantic. `models/__init__.py` is the authoritative registry that generates 
 `schema.json` files from `Model.model_json_schema()` — **`schema.json` files are generated artifacts; edit
 the model and regenerate, never hand-edit.**
 
-| Model                                                                        | File                                    | Schema-backed?                    | Role                                                                                                                                       |
-| ---------------------------------------------------------------------------- | --------------------------------------- | --------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------ |
-| `ChunksList` / `Chunk` / `FileInfo`                                          | `models/split_pr_into_chunks.py`        | ✅ chunking                       | PR → reviewable chunks (`chunk_type`, `key_changes`)                                                                                       |
-| `Issue` / `IssuesReview` / `LineRange` / `IssuePriority` / `PerspectiveType` | `models/issues_review.py`               | ✅ issues_review (`IssuesReview`) | **`Issue` is the shared currency** of the dedup → validate → publish stages; `Issue.source_perspective` records which perspective found it |
-| `IssueDeduplication` / `DuplicateIssue`                                      | `models/issue_deduplicator.py`          | ✅ issue_deduplicator             | ids of issues to drop                                                                                                                      |
-| `IssueValidation`                                                            | `models/issue_validation.py`            | ✅ issue_validation               | `is_valid` + `category` (+ optional `adjusted_priority`) per issue                                                                         |
-| `ValidationMarkdownReport*`                                                  | `models/prepare_validation_markdown.py` | — internal                        | report tree (Chunk × Issue)                                                                                                                |
-| `PRMetadata` / `PRComment` / `PRFile` / `PRFileUpdate`                       | `models/github_meta.py`                 | — internal                        | raw GitHub ingestion                                                                                                                       |
+| Model                                                                        | File                             | Schema-backed?                    | Role                                                                                                                                       |
+| ---------------------------------------------------------------------------- | -------------------------------- | --------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------ |
+| `ChunksList` / `Chunk` / `FileInfo`                                          | `models/split_pr_into_chunks.py` | ✅ chunking                       | PR → reviewable chunks (`chunk_type`, `key_changes`)                                                                                       |
+| `Issue` / `IssuesReview` / `LineRange` / `IssuePriority` / `PerspectiveType` | `models/issues_review.py`        | ✅ issues_review (`IssuesReview`) | **`Issue` is the shared currency** of the dedup → validate → publish stages; `Issue.source_perspective` records which perspective found it |
+| `IssueDeduplication` / `DuplicateIssue`                                      | `models/issue_deduplicator.py`   | ✅ issue_deduplicator             | ids of issues to drop                                                                                                                      |
+| `IssueValidation`                                                            | `models/issue_validation.py`     | ✅ issue_validation               | `is_valid` + `category` (+ optional `adjusted_priority`) per issue                                                                         |
+| `PRMetadata` / `PRComment` / `PRFile` / `PRFileUpdate`                       | `models/github_meta.py`          | — internal                        | raw GitHub ingestion                                                                                                                       |
 
 `Issue.id` encodes provenance as `"{pass_number}-{chunk_id}-{issue_number}"` and is parsed back throughout
-the pipeline to route validations and group the report. `IssuePriority` is `MUST_FIX` / `SHOULD_FIX` /
+the pipeline to route validations. `IssuePriority` is `MUST_FIX` / `SHOULD_FIX` /
 `CONSIDER`. The validator may override a finding's priority via `adjusted_priority` (validator-wins, resolved at
 read time by `effective_priority`); see [DECISIONS.md](./DECISIONS.md).
 
@@ -410,7 +430,13 @@ IDOR rule) via `class X(UUIDModel, TeamScopedRootMixin)`:
   key, so re-runs append turns rather than create a new report; branch-only targets key on
   `(team, repository, head_branch) WHERE pr_number IS NULL`). Carries `status` (`active`/`idle`/`closed`),
   `run_count`, `last_run_at`, the `head_sha` + `last_seen_comment_id` watermark, `published_head_sha`, the
-  rendered `report_markdown`, `acting_user`, and the `signal_report_id` / `trigger_source` provenance.
+  rendered `report_markdown`, `acting_user`, `author_login` (the PR author's GitHub login, refreshed from the
+  fetched metadata every turn — powers the "For you" scope's authored-PRs match), `run_urgency_threshold` (the
+  gate the last **completed** turn's body/publish ran under, stamped at finalize alongside `run_count` — what
+  the drawer buckets findings by; null for pre-column turns), the persisted review arm
+  (`review_runtime_adapter` / `review_model` / `review_reasoning_effort` / `review_initial_permission_mode`,
+  drawn once at creation — see [Sandbox execution layer](#sandbox-execution-layer)), and the
+  `signal_report_id` / `trigger_source` provenance.
 - **`ReviewReportArtefact`** — the append-only work log mirroring `SignalReportArtefact`, with a funnel that
   derives `type` from the content-model class and maps `ArtefactAttribution` → `created_by_id` / `task_id`.
   `ArtefactType`: `issue_finding`, `validation_verdict`, `task_run`, `commit`, `code_reference`, `note`, plus
@@ -455,11 +481,27 @@ See [DECISIONS.md](./DECISIONS.md) for the "reuse the leaf, own the model" bound
 - **Prod label trigger** (settings, `posthog/settings/access.py`) — `REVIEWHOG_TRIGGER_TOKEN` (shared secret),
   `REVIEWHOG_TEAM_ID` (the run team), `REVIEWHOG_RUN_USER_ID` (optional; falls back to the integration creator).
 
-**Triggers.** Four entry points drive the same `ReviewPRWorkflow`: the `run_review` CLI (manual / eval), the
+**Triggers.** Five entry points drive the same `ReviewPRWorkflow`: the `run_review` CLI (manual / eval), the
 `reviewhog` **label** on a `PostHog/posthog` PR (a thin GitHub Action → `POST /api/review_hog/trigger`), a **UI**
-"Review this PR" field in the Code review scene (session-authed, any installation-accessible PR), and an **inbox**
-trigger (a `TaskRun` receiver auto-reviews self-driving Signals implementations). See [DECISIONS.md](./DECISIONS.md)
-for each trigger's auth / scope / identity rules.
+"Review this PR" field in the Code review scene (any installation-accessible PR), an **inbox** trigger (a
+`TaskRun` receiver auto-reviews self-driving Signals implementations), and **MCP tools**
+(`review-hog-reviews-{trigger,list,get}`, defined in `products/review_hog/mcp/tools.yaml` and gated on the
+`review-hog` feature flag) that drive the same reviews viewset with a personal API key or OAuth token. The UI and
+MCP paths are one surface: the viewset carries the grantable `review_hog` scope (`review_hog:read` for list /
+retrieve / perspective_stats, `review_hog:write` for trigger) rather than INTERNAL, and the trigger action keeps
+the `REVIEWHOG_TEAM_ID` dogfood gate and its synchronous URL / App-access / fork / open-state checks regardless of
+caller. See [DECISIONS.md](./DECISIONS.md) for each trigger's auth / scope / identity rules.
+
+**Review surfaces (Code review scene).** The reviews API's `scope=mine` ("For you") matches reports where the
+viewer is the **acting user OR the PR's author** — `author_login` compared case-insensitively against the
+viewer's linked GitHub login (`User.get_github_login()`, the reverse of the author→user mapping the reviewer
+runs under; no linked login → acting-user match only). `scope=everyone` is the whole project; `retrieve` is
+project-wide so any listed review opens. A specific report is linkable at `/code-review?review=<report id>`
+(mirrored to/from the drawer by `reviewHogSettingsLogic`'s URL sync; the status comment's held-back link
+targets it, so the param is a permanent contract). The drawer buckets a review's findings into published vs
+below-threshold by the detail's stored `run_urgency_threshold` — the viewer's current setting is only the
+fallback for pre-column rows — and its first tab reads "Published" only when the review actually posted
+(`published_head_sha` set), "Kept" otherwise.
 
 ---
 
@@ -488,6 +530,13 @@ for each trigger's auth / scope / identity rules.
   `published_head_sha` (a zero-findings or crashed turn), slots can silently mis-map. Identical rosters are always
   safe. Fix belongs with cross-turn finding identity: key results by `skill_name`(+version) instead of slot, and
   drop persisted selection/results whose recorded roster differs from the run's.
+- **TODO — the drawer's "Published" flag trusts the report-lifetime watermark, not the shown turn.** The
+  reviews API computes `published` as `published_head_sha IS NOT NULL`, while the drawer shows the _latest
+  completed turn_'s findings. A report that published once and later finalizes a turn that never posts
+  (store-only re-run, or `publish_review` failing past retries) shows that turn's findings under
+  "Published" with no not-published banner. Fix: `retrieve` already loads the completed head — expose
+  per-turn truth (`published_head_sha == completed_head_sha`) on the detail payload and gate the drawer's
+  published flag on it.
 - **Alpha maturity** — the published comment still says "ReviewHog Alpha" and asks users to reply
   "valid"/"invalid" (`reviewer/tools/publish_review.py`, the `post_promo` block). Publish is now live
   per-run (the trigger endpoint posts with `publish=true`), so settle the prod wording before real users

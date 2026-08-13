@@ -1,2 +1,6 @@
-# Re-exported so Celery autodiscovers the task when the tasks package is imported.
-from products.customer_analytics.backend.tasks.tasks import process_custom_property_sync  # noqa: F401
+# Re-exported so Celery autodiscovers the tasks when the tasks package is imported.
+from products.customer_analytics.backend.tasks.tasks import (  # noqa: F401
+    process_custom_property_sync,
+    rematch_account_meetings,
+    send_announcement,
+)

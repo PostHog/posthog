@@ -20,7 +20,7 @@ from rest_framework.response import Response
 from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.constants import AvailableFeature
 
-from ee.billing.quota_limiting import QuotaLimitingCaches, QuotaResource, is_team_limited
+from ee.billing.quota_limiting import INFORMATIONAL_USAGE_RESOURCES, QuotaResource, get_fresh_team_limited_resources
 
 
 class QuotaResourceLimitSerializer(serializers.Serializer):
@@ -60,13 +60,20 @@ def _resource_usage(summary: dict[str, Any]) -> float | None:
 class QuotaLimitsResponseSerializer(serializers.Serializer):
     limited = serializers.DictField(
         child=QuotaResourceLimitSerializer(),
-        help_text="Per-resource limit state for every `QuotaResource` value, e.g. `ai_credits`, `posthog_code_credits`.",
+        help_text=(
+            "Per-resource limit state for every `QuotaResource` value, e.g. `ai_credits`, "
+            "`posthog_code_credits`. Also carries the informational Desktop component resources "
+            "(`posthog_code_token_credits`, `sandbox_compute_credits`, "
+            "`sandbox_compute_cpu_millicore_seconds`, `sandbox_compute_memory_mib_seconds`) with "
+            "usage in their native units, a null limit, and `limited` always false — they are never "
+            "quota-enforced; only the combined `posthog_code_credits` is."
+        ),
     )
     code_usage_billing_active = serializers.BooleanField(
         help_text=(
-            "Whether the team's organization pays for PostHog Code usage: billing grants the "
-            "`posthog_code_usage` product feature only on the Code usage product's paid plan, "
-            "synced into the organization's available features. Consumers gate paid-tier Code "
+            "Whether the team's organization pays for PostHog Desktop usage: billing grants the "
+            "`posthog_code_usage` product feature only on the Desktop usage product's paid plan, "
+            "synced into the organization's available features. Consumers gate paid-tier Desktop "
             "behavior on this; an org unknown to billing reads as not paying."
         ),
     )
@@ -91,25 +98,29 @@ class QuotaLimitsViewSet(TeamAndOrgViewSetMixin, viewsets.ViewSet):
     )
     def list(self, request: Request, *args: Any, **kwargs: Any) -> Response:
         org_usage = self.team.organization.usage or {}
+        # Fresh read on purpose: the gateway re-caches this answer for minutes, so serving
+        # the 30s per-worker memo here would re-poison a just-invalidated gateway entry.
+        limited_resources = get_fresh_team_limited_resources(self.team.api_token)
         limited = {}
         for resource in QuotaResource:
             summary = org_usage.get(resource.value) or {}
             limited[resource.value] = {
-                "limited": is_team_limited(
-                    self.team.api_token,
-                    resource,
-                    QuotaLimitingCaches.QUOTA_LIMITER_CACHE_KEY,
-                ),
+                "limited": limited_resources[resource],
                 "usage": _resource_usage(summary),
                 "limit": summary.get("limit"),
             }
-        return Response(
-            QuotaLimitsResponseSerializer(
-                {
-                    "limited": limited,
-                    "code_usage_billing_active": self.team.organization.is_feature_available(
-                        AvailableFeature.POSTHOG_CODE_USAGE
-                    ),
-                }
-            ).data
-        )
+        for field in INFORMATIONAL_USAGE_RESOURCES:
+            limited[field] = {
+                "limited": False,
+                "usage": _resource_usage(org_usage.get(field) or {}),
+                "limit": None,
+            }
+        data = QuotaLimitsResponseSerializer(
+            {
+                "limited": limited,
+                "code_usage_billing_active": self.team.organization.is_feature_available(
+                    AvailableFeature.POSTHOG_CODE_USAGE
+                ),
+            }
+        ).data
+        return Response(data)

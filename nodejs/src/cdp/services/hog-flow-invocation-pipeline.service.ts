@@ -10,14 +10,20 @@ import { KeyedRateLimitRequest, KeyedRateLimiterService } from '../../common/ser
 import { QuotaLimiting } from '../../common/services/quota-limiting.service'
 import { CdpValkeyShadowPools } from '../cdp-services'
 import { counterRateLimited } from '../consumers/metrics'
-import { CyclotronJobInvocation, HogFunctionInvocationGlobals, LogEntry, MinimalAppMetric } from '../types'
-import { mirrorCall } from '../utils/mirror-call'
+import {
+    CyclotronJobInvocation,
+    CyclotronJobInvocationHogFlow,
+    HogFunctionInvocationGlobals,
+    LogEntry,
+    MinimalAppMetric,
+} from '../types'
+import { dualRead } from '../utils/dual-store'
 import { HogFlowExecutorService } from './hogflows/hogflow-executor.service'
 import { HogFlowManagerService } from './hogflows/hogflow-manager.service'
 import { shouldBlockHogFlowDueToQuota } from './hogflows/hogflow-quota-limiting'
 import { HogFunctionMonitoringService } from './monitoring/hog-function-monitoring.service'
 import { HogMaskerService } from './monitoring/hog-masker.service'
-import { HogWatcherService, HogWatcherState } from './monitoring/hog-watcher.service'
+import { HogWatcherService, HogWatcherState, sameWatcherStates } from './monitoring/hog-watcher.service'
 
 export interface HogFlowInvocationPipelineConfig {
     CDP_RATE_LIMITER_BUCKET_SIZE: number
@@ -29,12 +35,12 @@ export interface HogFlowInvocationPipelineDeps {
     hogFlowManager: HogFlowManagerService
     hogFlowExecutor: HogFlowExecutorService
     hogWatcher: HogWatcherService
-    hogWatcherMirror: HogWatcherService | null
+    hogWatcherMirror: HogWatcherService
     hogMasker: HogMaskerService
     hogFunctionMonitoringService: HogFunctionMonitoringService
     quotaLimiting: QuotaLimiting
     redis: RedisV2
-    valkeyShadow: CdpValkeyShadowPools | null
+    valkeyShadow: CdpValkeyShadowPools
 }
 
 /**
@@ -45,7 +51,7 @@ export interface HogFlowInvocationPipelineDeps {
  */
 export class HogFlowInvocationPipeline {
     private hogRateLimiter: KeyedRateLimiterService
-    private hogRateLimiterMirror: KeyedRateLimiterService | null
+    private hogRateLimiterMirror: KeyedRateLimiterService
 
     constructor(
         private config: HogFlowInvocationPipelineConfig,
@@ -58,9 +64,7 @@ export class HogFlowInvocationPipeline {
             ttlSeconds: config.CDP_RATE_LIMITER_TTL,
         }
         this.hogRateLimiter = new KeyedRateLimiterService(rateLimiterConfig, deps.redis)
-        this.hogRateLimiterMirror = deps.valkeyShadow
-            ? new KeyedRateLimiterService(rateLimiterConfig, deps.valkeyShadow.writer)
-            : null
+        this.hogRateLimiterMirror = new KeyedRateLimiterService(rateLimiterConfig, deps.valkeyShadow.writer)
     }
 
     @instrumented('cdpConsumer.handleEachBatch.queueMatchingFlows')
@@ -101,28 +105,31 @@ export class HogFlowInvocationPipeline {
         ).flat()
 
         const hogFlowIds = possibleInvocations.map((x) => x.hogFlow.id)
-        const [states] = await Promise.all([
-            instrumentFn('cdpConsumer.handleEachBatch.hogWatcher.getEffectiveStates', async () => {
-                return await this.deps.hogWatcher.getEffectiveStates(hogFlowIds)
-            }),
-            mirrorCall('hog-watcher.getEffectiveStates', () =>
-                this.deps.hogWatcherMirror?.getEffectiveStates(hogFlowIds)
-            ),
-        ])
+        const states = await dualRead(
+            'hog-watcher.getEffectiveStates',
+            () =>
+                instrumentFn('cdpConsumer.handleEachBatch.hogWatcher.getEffectiveStates', async () => {
+                    return await this.deps.hogWatcher.getEffectiveStates(hogFlowIds)
+                }),
+            () => this.deps.hogWatcherMirror.getEffectiveStates(hogFlowIds),
+            sameWatcherStates
+        )
 
         const rateLimitInputs: KeyedRateLimitRequest[] = possibleInvocations.map((x) => ({
             id: x.hogFlow.id,
             cost: 1,
         }))
-        const [rateLimits] = await Promise.all([
-            instrumentFn('cdpConsumer.handleEachBatch.hogRateLimiter.rateLimitGrouped', async () => {
-                return await this.hogRateLimiter.rateLimitGrouped(rateLimitInputs)
-            }),
-            mirrorCall('hog-rate-limiter.rateLimitGrouped', () =>
-                this.hogRateLimiterMirror?.rateLimitGrouped(rateLimitInputs)
-            ),
-        ])
-        const validInvocations: CyclotronJobInvocation[] = []
+        const rateLimits = await dualRead(
+            'hog-flow-rate-limiter.rateLimitGrouped',
+            () =>
+                instrumentFn('cdpConsumer.handleEachBatch.hogRateLimiter.rateLimitGrouped', async () => {
+                    return await this.hogRateLimiter.rateLimitGrouped(rateLimitInputs)
+                }),
+            () => this.hogRateLimiterMirror.rateLimitGrouped(rateLimitInputs),
+            (primary, secondary) =>
+                primary.every(([, result], index) => result.isRateLimited === secondary[index]?.[1].isRateLimited)
+        )
+        const validInvocations: CyclotronJobInvocationHogFlow[] = []
 
         await Promise.all(
             possibleInvocations.map(async (item, index) => {
@@ -137,6 +144,7 @@ export class HogFlowInvocationPipeline {
                                 metric_kind: 'failure',
                                 metric_name: 'rate_limited',
                                 count: 1,
+                                app_source_version: { id: item.hogFlow.id, version: item.hogFlow.version },
                             },
                             'hog_flow'
                         )
@@ -189,6 +197,7 @@ export class HogFlowInvocationPipeline {
                             metric_kind: 'failure',
                             metric_name: 'disabled_permanently',
                             count: 1,
+                            app_source_version: { id: item.hogFlow.id, version: item.hogFlow.version },
                         },
                         'hog_flow'
                     )
@@ -212,6 +221,7 @@ export class HogFlowInvocationPipeline {
                 metric_kind: 'other',
                 metric_name: 'masked',
                 count: 1,
+                app_source_version: { id: item.hogFlow.id, version: item.hogFlow.version },
             })),
             'hog_flow'
         )
@@ -225,6 +235,7 @@ export class HogFlowInvocationPipeline {
                 metric_kind: 'other',
                 metric_name: 'triggered',
                 count: 1,
+                app_source_version: { id: item.hogFlow.id, version: item.hogFlow.version },
             })
         })
 

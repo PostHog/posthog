@@ -259,6 +259,25 @@ class TestRelationshipAPI(APIBaseTest):
         assert response.status_code == status.HTTP_201_CREATED, response.json()
         assert response.json()["status"] == RelationshipStatus.PROPOSED
 
+    def test_duplicate_pair_returns_409_with_proposal_id(self) -> None:
+        # The dedupe conflict must render through the HTTP exception handler and hand back the
+        # existing proposal's id — it's what lets an agent link to the proposal instead of retrying.
+        first = self.client.post(self.url, _JOIN, format="json")
+        assert first.status_code == status.HTTP_201_CREATED, first.json()
+        reversed_join = {
+            **_JOIN,
+            "source_table_name": _JOIN["joining_table_name"],
+            "source_table_key": _JOIN["joining_table_key"],
+            "joining_table_name": _JOIN["source_table_name"],
+            "joining_table_key": _JOIN["source_table_key"],
+        }
+        response = self.client.post(self.url, reversed_join, format="json")
+        assert response.status_code == status.HTTP_409_CONFLICT, response.content
+        body = response.json()
+        assert body["code"] == "catalog_conflict"
+        assert "already exists" in body["detail"]
+        assert body["extra"]["proposal_id"] == first.json()["id"]
+
     def test_create_proposal_rejects_invalid_confidence(self) -> None:
         response = self.client.post(self.url, {**_JOIN, "confidence": 1.01}, format="json")
         assert response.status_code == status.HTTP_400_BAD_REQUEST

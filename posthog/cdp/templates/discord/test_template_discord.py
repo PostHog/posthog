@@ -1,5 +1,7 @@
 import pytest
 
+from parameterized import parameterized
+
 from posthog.cdp.templates.discord.template_discord import template as template_discord
 from posthog.cdp.templates.helpers import BaseHogFunctionTemplateTest
 
@@ -31,6 +33,18 @@ class TestTemplateDiscord(BaseHogFunctionTemplateTest):
                 },
             },
         )
+
+    @parameterized.expand(
+        [
+            ["none", []],
+            ["roles_users", ["roles", "users"]],
+            ["everyone", ["everyone", "roles", "users"]],
+        ]
+    )
+    def test_allowed_mentions_maps_to_parse(self, choice, expected_parse):
+        self.run_function(inputs=self._inputs(allowedMentions=choice))
+
+        assert self.get_mock_fetch_calls()[0][1]["body"]["allowed_mentions"] == {"parse": expected_parse}
 
     def test_only_allow_teams_url(self):
         for url, allowed in [

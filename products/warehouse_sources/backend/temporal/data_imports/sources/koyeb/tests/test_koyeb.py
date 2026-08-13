@@ -1,66 +1,78 @@
+import json
 from datetime import UTC, date, datetime, timedelta, timezone
 from typing import Any
 
-from unittest.mock import MagicMock, patch
+from unittest import mock
+from unittest.mock import MagicMock
 
-import requests
 from parameterized import parameterized
+from requests import Response
 
-from products.warehouse_sources.backend.temporal.data_imports.sources.koyeb import koyeb
 from products.warehouse_sources.backend.temporal.data_imports.sources.koyeb.koyeb import (
-    PAGE_SIZE,
     USAGE_WINDOW_START,
     KoyebResumeConfig,
-    _build_params,
     _format_time_value,
-    get_rows,
     koyeb_source,
     validate_credentials,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.koyeb.settings import KOYEB_ENDPOINTS
 
-
-class _FakeResumableManager:
-    def __init__(self, state: KoyebResumeConfig | None = None) -> None:
-        self._state = state
-        self.saved: list[KoyebResumeConfig] = []
-
-    def can_resume(self) -> bool:
-        return self._state is not None
-
-    def load_state(self) -> KoyebResumeConfig | None:
-        return self._state
-
-    def save_state(self, data: KoyebResumeConfig) -> None:
-        self.saved.append(data)
+# RESTClient builds its session via make_tracked_session in the rest_client module.
+CLIENT_SESSION_PATCH = "products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.rest_client.make_tracked_session"
+# Secret-scrubbed endpoints (and validate_credentials) build their session in the koyeb module.
+KOYEB_SESSION_PATCH = (
+    "products.warehouse_sources.backend.temporal.data_imports.sources.koyeb.koyeb.make_tracked_session"
+)
 
 
-def _patch_fetch(monkeypatch: Any, responses: list[dict]) -> list[str]:
-    """Replace _fetch_page with a queue that returns canned pages in order, recording each URL."""
-    calls: list[str] = []
-    queue = list(responses)
-
-    def fake_fetch(session: Any, url: str, headers: dict[str, str], logger: Any) -> dict:
-        calls.append(url)
-        return queue.pop(0)
-
-    monkeypatch.setattr(koyeb, "_fetch_page", fake_fetch)
-    return calls
+def _response(data_key: str, items: list[dict[str, Any]] | None, *, has_next: bool | None = None) -> Response:
+    body: dict[str, Any] = {data_key: items if items is not None else []}
+    if has_next is not None:
+        body["has_next"] = has_next
+    resp = Response()
+    resp.status_code = 200
+    resp._content = json.dumps(body).encode()
+    return resp
 
 
-def _collect(endpoint: str, manager: _FakeResumableManager, monkeypatch: Any, responses: list[dict], **kwargs: Any):
-    calls = _patch_fetch(monkeypatch, responses)
-    rows: list[dict] = []
-    for batch in get_rows(
+def _make_manager(resume_state: KoyebResumeConfig | None = None) -> mock.MagicMock:
+    manager = mock.MagicMock()
+    manager.can_resume.return_value = resume_state is not None
+    manager.load_state.return_value = resume_state
+    return manager
+
+
+def _wire(session: mock.MagicMock, responses: list[Response]) -> list[dict[str, Any]]:
+    """Wire a mock session, returning a list that snapshots each request's url/params AT SEND TIME.
+
+    ``request.params`` is a single dict mutated in place across pages, so inspecting it after the run
+    shows only the final state — snapshot a copy when each request is prepared instead.
+    """
+    session.headers = {}
+    snapshots: list[dict[str, Any]] = []
+
+    def _prepare(request: Any) -> mock.MagicMock:
+        snapshots.append({"url": request.url, "params": dict(request.params or {})})
+        return mock.MagicMock()
+
+    session.prepare_request.side_effect = _prepare
+    session.send.side_effect = responses
+    return snapshots
+
+
+def _rows(source_response) -> list[dict[str, Any]]:
+    return [row for page in source_response.items() for row in page]
+
+
+def _run(endpoint: str, **kwargs: Any):
+    return koyeb_source(
         api_token="t",
         endpoint=endpoint,
-        logger=MagicMock(),
-        resumable_source_manager=manager,  # type: ignore[arg-type]
-        should_use_incremental_field=kwargs.get("should_use_incremental_field", False),
-        db_incremental_field_last_value=kwargs.get("db_incremental_field_last_value"),
-    ):
-        rows.extend(batch)
-    return rows, calls
+        team_id=1,
+        job_id="j",
+        resumable_source_manager=kwargs.pop("manager", _make_manager()),
+        **kwargs,
+    )
 
 
 class TestFormatTimeValue:
@@ -82,164 +94,194 @@ class TestFormatTimeValue:
         assert _format_time_value(value) == expected
 
 
-class TestBuildParams:
+class TestValidateCredentials:
     @parameterized.expand(
         [
-            ("plain_endpoint", "apps", None, {"limit": PAGE_SIZE, "offset": 0}),
-            # Endpoints with an `order` param are always requested ascending so offset pagination
-            # stays stable while rows are appended mid-sync.
-            ("ordered_endpoint", "app_events", None, {"limit": PAGE_SIZE, "offset": 0, "order": "asc"}),
-            (
-                "incremental_instances",
-                "instances",
-                datetime(2024, 5, 1, tzinfo=UTC),
-                {"limit": PAGE_SIZE, "offset": 0, "order": "asc", "starting_time": "2024-05-01T00:00:00Z"},
-            ),
-            # apps has no server-side time filter, so a watermark must not become a query param.
-            (
-                "no_time_filter_drops_cutoff",
-                "apps",
-                datetime(2024, 5, 1, tzinfo=UTC),
-                {"limit": PAGE_SIZE, "offset": 0},
-            ),
+            ("ok", 200, True, None),
+            ("unauthorized", 401, False, "Invalid or unauthorized Koyeb API token"),
+            ("forbidden", 403, False, "Invalid or unauthorized Koyeb API token"),
+            ("server_error", 500, False, "Koyeb API error: 500"),
         ]
     )
-    def test_build_params(self, _name: str, endpoint: str, cutoff: Any, expected: dict[str, Any]) -> None:
-        assert _build_params(KOYEB_ENDPOINTS[endpoint], 0, cutoff) == expected
+    @mock.patch(KOYEB_SESSION_PATCH)
+    def test_status_mapping(
+        self, _name: str, status: int, expected_ok: bool, expected_error: str | None, mock_session
+    ) -> None:
+        mock_session.return_value.get.return_value = mock.MagicMock(status_code=status)
+        ok, error = validate_credentials("token")
+        assert ok is expected_ok
+        assert error == expected_error
 
-    def test_usage_details_always_sends_required_window(self) -> None:
-        # /v1/usages/details rejects requests without a time window, so both bounds must be present
-        # even on a full refresh.
-        params = _build_params(KOYEB_ENDPOINTS["usage_details"], 200, None, "2026-01-01T00:00:00Z")
-        assert params["starting_time"] == USAGE_WINDOW_START
-        assert params["ending_time"] == "2026-01-01T00:00:00Z"
-        assert params["offset"] == 200
-        assert params["order"] == "asc"
-
-
-class TestValidateCredentials:
-    @parameterized.expand([(200, True), (401, False), (403, False), (500, False)])
-    def test_status_mapping(self, status: int, expected_ok: bool) -> None:
-        response = requests.Response()
-        response.status_code = status
-        session = MagicMock()
-        session.get.return_value = response
-        with patch.object(koyeb, "make_tracked_session", lambda *a, **k: session):
-            ok, error = validate_credentials("token")
-
-        assert ok is expected_ok, f"status={status}"
-        assert (error is None) is expected_ok, f"status={status}"
-
-    def test_request_exception_is_handled(self, monkeypatch: Any) -> None:
-        session = MagicMock()
-        session.get.side_effect = requests.ConnectionError("boom")
-        monkeypatch.setattr(koyeb, "make_tracked_session", lambda *a, **k: session)
-
+    @mock.patch(KOYEB_SESSION_PATCH)
+    def test_transport_error_is_invalid(self, mock_session) -> None:
+        # validate_via_probe swallows any transport failure and reports "not validated".
+        mock_session.return_value.get.side_effect = Exception("boom")
         ok, error = validate_credentials("token")
         assert ok is False
-        assert error == "boom"
+        assert error is not None
 
 
-class TestGetRows:
-    def test_follows_offset_pagination_with_has_next(self, monkeypatch: Any) -> None:
-        responses = [
-            {"apps": [{"id": str(i)} for i in range(PAGE_SIZE)], "has_next": True},
-            {"apps": [{"id": "last"}], "has_next": False},
-        ]
-        rows, calls = _collect("apps", _FakeResumableManager(), monkeypatch, responses)
+class TestPagination:
+    @mock.patch(CLIENT_SESSION_PATCH)
+    def test_follows_offset_pagination_and_progresses(self, MockSession) -> None:
+        session = MockSession.return_value
+        full_page = [{"id": str(i)} for i in range(100)]
+        snaps = _wire(
+            session, [_response("apps", full_page, has_next=True), _response("apps", [{"id": "last"}], has_next=False)]
+        )
 
-        assert len(rows) == PAGE_SIZE + 1
-        assert "offset=0" in calls[0]
-        assert f"offset={PAGE_SIZE}" in calls[1]
-        assert len(calls) == 2
+        manager = _make_manager()
+        rows = _rows(_run("apps", manager=manager))
 
-    def test_short_page_without_has_next_terminates(self, monkeypatch: Any) -> None:
-        # Some replies (e.g. secrets) carry no has_next; a short page is the end-of-list signal.
-        responses = [{"secrets": [{"id": "s1"}, {"id": "s2"}]}]
-        rows, calls = _collect("secrets", _FakeResumableManager(), monkeypatch, responses)
+        assert len(rows) == 101
+        assert session.send.call_count == 2
+        assert snaps[0]["params"]["offset"] == 0
+        assert snaps[0]["params"]["limit"] == 100
+        assert snaps[1]["params"]["offset"] == 100
+        # Checkpoint saved after the first full page (points at the next page); short page ends it.
+        manager.save_state.assert_called_once()
+        assert manager.save_state.call_args.args[0] == KoyebResumeConfig(offset=100)
+
+    @mock.patch(CLIENT_SESSION_PATCH)
+    def test_short_first_page_terminates_without_checkpoint(self, MockSession) -> None:
+        session = MockSession.return_value
+        _wire(session, [_response("secrets", [{"id": "s1"}, {"id": "s2"}])])
+
+        manager = _make_manager()
+        rows = _rows(_run("secrets", manager=manager))
 
         assert [r["id"] for r in rows] == ["s1", "s2"]
-        assert len(calls) == 1
+        assert session.send.call_count == 1
+        manager.save_state.assert_not_called()
 
-    def test_full_page_without_has_next_fetches_until_empty_page(self, monkeypatch: Any) -> None:
-        # An exact-multiple total with no has_next only stops on the following empty page.
-        responses: list[dict] = [
-            {"secrets": [{"id": str(i)} for i in range(PAGE_SIZE)]},
-            {"secrets": []},
-        ]
-        rows, calls = _collect("secrets", _FakeResumableManager(), monkeypatch, responses)
+    @mock.patch(CLIENT_SESSION_PATCH)
+    def test_full_page_without_has_next_fetches_until_empty_page(self, MockSession) -> None:
+        session = MockSession.return_value
+        full_page = [{"id": str(i)} for i in range(100)]
+        _wire(session, [_response("secrets", full_page), _response("secrets", [])])
 
-        assert len(rows) == PAGE_SIZE
-        assert len(calls) == 2
+        rows = _rows(_run("secrets"))
 
-    def test_saves_offset_after_each_completed_page(self, monkeypatch: Any) -> None:
-        responses = [
-            {"apps": [{"id": str(i)} for i in range(PAGE_SIZE)], "has_next": True},
-            {"apps": [{"id": str(i)} for i in range(PAGE_SIZE)], "has_next": True},
-            {"apps": [{"id": "last"}], "has_next": False},
-        ]
-        manager = _FakeResumableManager()
-        _collect("apps", manager, monkeypatch, responses)
+        assert len(rows) == 100
+        assert session.send.call_count == 2
 
-        # No checkpoint after the final page — the walk is complete, nothing left to resume into.
-        assert manager.saved == [KoyebResumeConfig(offset=PAGE_SIZE), KoyebResumeConfig(offset=PAGE_SIZE * 2)]
+    @mock.patch(CLIENT_SESSION_PATCH)
+    def test_resumes_from_saved_offset(self, MockSession) -> None:
+        session = MockSession.return_value
+        snaps = _wire(session, [_response("apps", [{"id": "1"}], has_next=False)])
 
-    def test_resumes_from_saved_offset(self, monkeypatch: Any) -> None:
-        responses = [{"apps": [{"id": "1"}], "has_next": False}]
-        manager = _FakeResumableManager(KoyebResumeConfig(offset=300))
-        rows, calls = _collect("apps", manager, monkeypatch, responses)
+        rows = _rows(_run("apps", manager=_make_manager(KoyebResumeConfig(offset=300))))
 
         assert [r["id"] for r in rows] == ["1"]
-        assert "offset=300" in calls[0]
+        assert snaps[0]["params"]["offset"] == 300
 
-    def test_incremental_instances_sends_starting_time(self, monkeypatch: Any) -> None:
-        responses = [{"instances": [{"id": "i1"}], "has_next": False}]
-        _, calls = _collect(
-            "instances",
-            _FakeResumableManager(),
-            monkeypatch,
-            responses,
-            should_use_incremental_field=True,
-            db_incremental_field_last_value=datetime(2024, 5, 1, tzinfo=UTC),
+    @mock.patch(CLIENT_SESSION_PATCH)
+    def test_uses_response_data_key_and_path_per_endpoint(self, MockSession) -> None:
+        session = MockSession.return_value
+        # Event streams return rows under "events", not the endpoint name.
+        snaps = _wire(session, [_response("events", [{"id": "e1"}], has_next=False)])
+
+        rows = _rows(_run("deployment_events"))
+
+        assert [r["id"] for r in rows] == ["e1"]
+        assert snaps[0]["url"].endswith("/v1/deployment_events")
+
+
+class TestQueryParams:
+    @mock.patch(CLIENT_SESSION_PATCH)
+    def test_order_param_present_for_ordered_endpoint(self, MockSession) -> None:
+        session = MockSession.return_value
+        snaps = _wire(session, [_response("events", [{"id": "e1"}], has_next=False)])
+        _rows(_run("app_events"))
+        assert snaps[0]["params"]["order"] == "asc"
+
+    @mock.patch(CLIENT_SESSION_PATCH)
+    def test_no_order_param_for_plain_endpoint(self, MockSession) -> None:
+        session = MockSession.return_value
+        snaps = _wire(session, [_response("apps", [{"id": "a"}], has_next=False)])
+        _rows(_run("apps"))
+        assert "order" not in snaps[0]["params"]
+
+    @mock.patch(CLIENT_SESSION_PATCH)
+    def test_incremental_instances_sends_starting_time(self, MockSession) -> None:
+        session = MockSession.return_value
+        snaps = _wire(session, [_response("instances", [{"id": "i1"}], has_next=False)])
+        _rows(
+            _run(
+                "instances",
+                should_use_incremental_field=True,
+                db_incremental_field_last_value=datetime(2024, 5, 1, tzinfo=UTC),
+            )
         )
+        assert snaps[0]["params"]["starting_time"] == "2024-05-01T00:00:00Z"
+        assert snaps[0]["params"]["order"] == "asc"
 
-        assert "starting_time=2024-05-01T00%3A00%3A00Z" in calls[0]
-        assert "order=asc" in calls[0]
-
-    def test_full_refresh_instances_omits_starting_time(self, monkeypatch: Any) -> None:
-        responses = [{"instances": [{"id": "i1"}], "has_next": False}]
-        _, calls = _collect(
-            "instances",
-            _FakeResumableManager(),
-            monkeypatch,
-            responses,
-            should_use_incremental_field=False,
-            db_incremental_field_last_value=datetime(2024, 5, 1, tzinfo=UTC),
+    @mock.patch(CLIENT_SESSION_PATCH)
+    def test_full_refresh_instances_omits_starting_time(self, MockSession) -> None:
+        session = MockSession.return_value
+        snaps = _wire(session, [_response("instances", [{"id": "i1"}], has_next=False)])
+        _rows(
+            _run(
+                "instances",
+                should_use_incremental_field=False,
+                db_incremental_field_last_value=datetime(2024, 5, 1, tzinfo=UTC),
+            )
         )
+        assert "starting_time" not in snaps[0]["params"]
 
-        assert "starting_time" not in calls[0]
+    @mock.patch(CLIENT_SESSION_PATCH)
+    def test_endpoint_without_time_filter_drops_cutoff(self, MockSession) -> None:
+        # apps has no server-side time filter, so a watermark must not become a query param.
+        session = MockSession.return_value
+        snaps = _wire(session, [_response("apps", [{"id": "a"}], has_next=False)])
+        _rows(
+            _run(
+                "apps",
+                should_use_incremental_field=True,
+                db_incremental_field_last_value=datetime(2024, 5, 1, tzinfo=UTC),
+            )
+        )
+        assert "starting_time" not in snaps[0]["params"]
 
-    def test_deployment_definition_secrets_are_redacted(self, monkeypatch: Any) -> None:
+    @mock.patch(CLIENT_SESSION_PATCH)
+    def test_usage_details_always_sends_required_window(self, MockSession) -> None:
+        session = MockSession.return_value
+        snaps = _wire(session, [_response("usage_details", [{"instance_id": "x", "started_at": "t"}], has_next=False)])
+        _rows(_run("usage_details"))
+        assert snaps[0]["params"]["starting_time"] == USAGE_WINDOW_START
+        assert "ending_time" in snaps[0]["params"]
+        assert snaps[0]["params"]["order"] == "asc"
+
+
+class TestSecretScrubbing:
+    @mock.patch(KOYEB_SESSION_PATCH)
+    def test_deployment_definition_secrets_are_redacted(self, mock_session) -> None:
         # Deployment definitions embed plaintext env values and config-file content; leaving them
         # in place would expose credentials to anyone with warehouse-query access.
-        responses = [
-            {
-                "deployments": [
-                    {
-                        "id": "d1",
-                        "definition": {
-                            "env": [
-                                {"key": "DB_PASSWORD", "value": "hunter2"},
-                                {"key": "API_KEY", "secret": "my-secret-ref"},
-                            ],
-                            "config_files": [{"path": "/etc/app.conf", "content": "token=abc123"}],
-                        },
-                    }
-                ],
-                "has_next": False,
-            }
-        ]
-        rows, _ = _collect("deployments", _FakeResumableManager(), monkeypatch, responses)
+        session = mock_session.return_value
+        _wire(
+            session,
+            [
+                _response(
+                    "deployments",
+                    [
+                        {
+                            "id": "d1",
+                            "definition": {
+                                "env": [
+                                    {"key": "DB_PASSWORD", "value": "hunter2"},
+                                    {"key": "API_KEY", "secret": "my-secret-ref"},
+                                ],
+                                "config_files": [{"path": "/etc/app.conf", "content": "token=abc123"}],
+                            },
+                        }
+                    ],
+                    has_next=False,
+                )
+            ],
+        )
+
+        rows = _rows(_run("deployments"))
 
         env = rows[0]["definition"]["env"]
         assert env[0] == {"key": "DB_PASSWORD", "value": "[redacted by PostHog]"}
@@ -250,53 +292,38 @@ class TestGetRows:
             "content": "[redacted by PostHog]",
         }
 
-    def test_non_deployment_rows_pass_through_untouched(self, monkeypatch: Any) -> None:
-        # Only definition-bearing endpoints are scrubbed; a stray `value`/`content` elsewhere stays.
-        responses = [{"secrets": [{"id": "s1", "value": "keep-me"}]}]
-        rows, _ = _collect("secrets", _FakeResumableManager(), monkeypatch, responses)
-
+    @mock.patch(CLIENT_SESSION_PATCH)
+    def test_non_deployment_rows_pass_through_untouched(self, MockSession) -> None:
+        # Only definition-bearing endpoints are scrubbed; a stray `value` elsewhere stays.
+        session = MockSession.return_value
+        _wire(session, [_response("secrets", [{"id": "s1", "value": "keep-me"}], has_next=False)])
+        rows = _rows(_run("secrets"))
         assert rows[0] == {"id": "s1", "value": "keep-me"}
 
-    def test_sample_capture_disabled_only_for_secret_scrubbed_endpoints(self, monkeypatch: Any) -> None:
-        # HTTP sample capture stores the raw response body before the definition scrub runs, so
-        # secret-scrubbed endpoints must opt their session out of capture while the rest stay in.
-        session_kwargs: list[dict] = []
+    @mock.patch(CLIENT_SESSION_PATCH)
+    @mock.patch(KOYEB_SESSION_PATCH)
+    def test_capture_disabled_only_for_secret_scrubbed_endpoints(self, mock_koyeb_session, mock_client_session) -> None:
+        # HTTP sample capture stores the raw body before the definition scrub runs, so secret-scrubbed
+        # endpoints must build a capture-off session; the rest let RESTClient build its own (capture on).
+        _wire(mock_koyeb_session.return_value, [_response("deployments", [], has_next=False)])
+        _rows(_run("deployments"))
+        assert mock_koyeb_session.call_args.kwargs["capture"] is False
 
-        def fake_session(**kwargs: Any) -> Any:
-            session_kwargs.append(kwargs)
-            return MagicMock()
-
-        monkeypatch.setattr(koyeb, "make_tracked_session", fake_session)
-        _patch_fetch(monkeypatch, [{"deployments": [], "has_next": False}, {"apps": [], "has_next": False}])
-        for endpoint in ("deployments", "apps"):
-            list(
-                get_rows(
-                    api_token="t",
-                    endpoint=endpoint,
-                    logger=MagicMock(),
-                    resumable_source_manager=_FakeResumableManager(),  # type: ignore[arg-type]
-                )
-            )
-
-        assert session_kwargs == [{"capture": False}, {"capture": True}]
-
-    def test_uses_response_data_key_per_endpoint(self, monkeypatch: Any) -> None:
-        # Event streams all return their rows under "events", not the endpoint name.
-        responses = [{"events": [{"id": "e1"}], "has_next": False}]
-        rows, calls = _collect("deployment_events", _FakeResumableManager(), monkeypatch, responses)
-
-        assert [r["id"] for r in rows] == ["e1"]
-        assert "/v1/deployment_events" in calls[0]
+        mock_koyeb_session.reset_mock()
+        _wire(mock_client_session.return_value, [_response("apps", [], has_next=False)])
+        _rows(_run("apps"))
+        mock_koyeb_session.assert_not_called()
 
 
-class TestKoyebSource:
+class TestSourceResponse:
     @parameterized.expand([(name,) for name in KOYEB_ENDPOINTS])
     def test_source_response_per_endpoint(self, endpoint: str) -> None:
         config = KOYEB_ENDPOINTS[endpoint]
         response = koyeb_source(
             api_token="t",
             endpoint=endpoint,
-            logger=MagicMock(),
+            team_id=1,
+            job_id="j",
             resumable_source_manager=MagicMock(),
         )
         assert response.name == endpoint

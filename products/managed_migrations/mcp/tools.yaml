@@ -9,6 +9,9 @@ feature: managed_migrations
 url_prefix: /managed_migrations
 ui_apps: {}
 tools:
+    managed-migrations-aws-iam-setup-retrieve:
+        operation: managed_migrations_aws_iam_setup_retrieve
+        enabled: false
     managed-migrations-create:
         operation: managed_migrations_create
         enabled: false
@@ -23,6 +26,9 @@ tools:
         enabled: false
     managed-migrations-pause-create:
         operation: managed_migrations_pause_create
+        enabled: false
+    managed-migrations-promote-create:
+        operation: managed_migrations_promote_create
         enabled: false
     managed-migrations-resume-create:
         operation: managed_migrations_resume_create
@@ -53,6 +59,9 @@ tools:
         list: true
         title: List batch import jobs across all teams (PostHog staff only)
         description_file: ./prompts/managed-migrations-support-list.md
+    managed-migrations-trial-records-retrieve:
+        operation: managed_migrations_trial_records_retrieve
+        enabled: false
     managed-migrations-update:
         operation: managed_migrations_update
         enabled: false

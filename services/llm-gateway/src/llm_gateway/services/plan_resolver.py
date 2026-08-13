@@ -1,4 +1,4 @@
-"""Resolves a user's PostHog Code plan via the PostHog API seats endpoint.
+"""Resolves a user's PostHog Desktop plan via the PostHog API seats endpoint.
 
 Calls ``GET /api/seats/me/?product_key=posthog_code`` on the PostHog API,
 forwarding the user's auth token. The Django SeatViewSet handles billing

@@ -6,7 +6,9 @@ from unittest import mock
 from posthog.schema import ReleaseStatus, SourceFieldInputConfig, SourceFieldInputConfigType
 
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
-from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs import MetaplaneSourceConfig
+from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.metaplane import (
+    MetaplaneSourceConfig,
+)
 from products.warehouse_sources.backend.temporal.data_imports.sources.metaplane.metaplane import MetaplaneResumeConfig
 from products.warehouse_sources.backend.temporal.data_imports.sources.metaplane.settings import ENDPOINTS
 from products.warehouse_sources.backend.temporal.data_imports.sources.metaplane.source import MetaplaneSource

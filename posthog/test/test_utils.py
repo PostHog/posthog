@@ -11,6 +11,7 @@ from freezegun import freeze_time
 from posthog.test.base import BaseTest
 from unittest.mock import call, patch
 
+from django.contrib.auth.models import AnonymousUser
 from django.core.cache import cache
 from django.core.handlers.wsgi import WSGIRequest
 from django.http import HttpRequest
@@ -42,6 +43,7 @@ from posthog.utils import (
     format_query_params_absolute_url,
     get_available_timezones_with_offsets,
     get_compare_period_dates,
+    get_context_for_template,
     get_default_event_info,
     get_default_event_name,
     get_dogfood_flags_team_id,
@@ -110,6 +112,13 @@ class TestAbsoluteUrls(TestCase):
                 "https://app.posthog.com",
                 "https://app.posthog.com/an.external.domain.com/something-outside-posthog",
             ),
+            # A relative path has no authority to judge, so reserved characters encoded in
+            # its query are ordinary data. absolute_uri builds most of our emailed links.
+            (
+                "/signup?email=someone%40example.com",
+                "https://app.posthog.com",
+                "https://app.posthog.com/signup?email=someone%40example.com",
+            ),
             ("/api/path", "", "/api/path"),  # current behavior whether correct or not
             (
                 "/api/path",
@@ -147,9 +156,14 @@ class TestAbsoluteUrls(TestCase):
             # passes, but HTTP clients/browsers route to attacker.example.
             ("raw_backslash", "https://attacker.example\\@app.posthog.com/path"),
             ("percent_encoded_backslash", "https://attacker.example%5C@app.posthog.com/path"),
+            # urljoin hands an absolute URL straight back, so the authority the caller
+            # embeds in a link or a redirect is the one supplied here.
+            ("percent_encoded_slash", "https://attacker.example%2F@app.posthog.com/path"),
+            ("percent_encoded_question_mark", "https://attacker.example%3F@app.posthog.com/path"),
+            ("percent_encoded_hash", "https://attacker.example%23@app.posthog.com/path"),
         ]
     )
-    def test_absolute_uri_rejects_backslash_authority_bypass(self, _name: str, url: str) -> None:
+    def test_absolute_uri_rejects_ambiguous_authority(self, _name: str, url: str) -> None:
         with self.settings(SITE_URL="https://app.posthog.com"):
             with pytest.raises(PotentialSecurityProblemException):
                 absolute_uri(url)
@@ -1389,6 +1403,40 @@ class TestBuildFlagProvider(TestCase):
     @override_settings(SELF_CAPTURE=False, E2E_TESTING=False, CLOUD_DEPLOYMENT="EU")
     def test_explicit_env_team_id_wins_over_eu_region(self):
         assert _build_flag_provider()._resolve_team_id() == 5
+
+
+class TestSelfCaptureBrowserFlagToken(TestCase):
+    PASSWORD = "testpassword12345"
+
+    def setUp(self):
+        super().setUp()
+        # The dogfood branch reads the whole teams table; clear ambient rows so the team we create
+        # is the first one. Cascade deletes roll back with the test transaction.
+        User.objects.all().delete()
+        Organization.objects.all().delete()
+
+    @override_settings(SELF_CAPTURE=True, E2E_TESTING=False)
+    def test_browser_token_uses_dogfood_flags_team_not_self_capture_team(self):
+        # js_posthog_api_key is the token posthog-js evaluates PostHog's own flags with, so it must
+        # be the dogfood-flags team (first team, where flags are synced) even when a more-recently
+        # active user's current_team points at another team that holds no internal flags. Sourcing
+        # it from the self-capture team instead made local flags load then vanish on reload.
+        organization = Organization.objects.create(name="Org")
+        first_team = Team.objects.create(organization=organization, name="First")
+        recent_team = Team.objects.create(organization=organization, name="Recent")
+
+        recent_user = User.objects.create_and_join(organization, "recent@posthog.com", self.PASSWORD)
+        recent_user.current_team = recent_team
+        recent_user.last_login = datetime(2026, 1, 2, tzinfo=ZoneInfo("UTC"))
+        recent_user.save()
+
+        request = RequestFactory().get("/?no-preloaded-app-context=1")
+        request.user = AnonymousUser()
+
+        context = get_context_for_template("head.html", request)
+
+        assert context["js_posthog_api_key"] == first_team.api_token
+        assert first_team.api_token != recent_team.api_token
 
 
 VALID_PRELOAD_MANIFEST = {

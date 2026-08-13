@@ -25,7 +25,6 @@ function makeNotification(overrides: Partial<InAppNotification> = {}): InAppNoti
         created_at: '2026-05-07T12:00:00Z',
         read: false,
         read_at: null,
-        archivable: false,
         ...overrides,
     }
 }
@@ -219,7 +218,7 @@ describe('sidePanelNotificationsLogic.archive', () => {
     afterEach(() => logic.unmount())
 
     it('removes an archived notification and decrements unread count', async () => {
-        const a = makeNotification({ id: 'a', archivable: true, read: false })
+        const a = makeNotification({ id: 'a', read: false })
         const b = makeNotification({ id: 'b', resource_id: 'other' })
         logic.actions.setInAppNotifications([a, b], false)
         logic.actions.setInAppUnreadCount(2)
@@ -228,47 +227,23 @@ describe('sidePanelNotificationsLogic.archive', () => {
         expect(logic.values.inAppUnreadCount).toBe(1)
     })
 
-    it('does not archive a non-archivable notification', async () => {
-        const a = makeNotification({ id: 'a', archivable: false })
-        logic.actions.setInAppNotifications([a], false)
-        await logic.actions.archiveNotification('a')
-        expect(logic.values.inAppNotifications.map((n: InAppNotification) => n.id)).toEqual(['a'])
-    })
-
-    it('archiveAll removes only archivable notifications', async () => {
-        const a = makeNotification({ id: 'a', archivable: true, resource_id: 'a' })
-        const b = makeNotification({ id: 'b', archivable: false, resource_id: 'b' })
+    it('archiveAll removes every notification', async () => {
+        const a = makeNotification({ id: 'a', resource_id: 'a' })
+        const b = makeNotification({ id: 'b', resource_id: 'b' })
         logic.actions.setInAppNotifications([a, b], false)
         await logic.actions.archiveAll()
-        expect(logic.values.inAppNotifications.map((n: InAppNotification) => n.id)).toEqual(['b'])
+        expect(logic.values.inAppNotifications).toEqual([])
     })
 
     it('archiveAll resyncs the unread count from the server (server value wins)', async () => {
         // Optimistic decrement alone would land at 9, but the server is the source of truth.
-        const a = makeNotification({ id: 'a', archivable: true, read: false })
+        const a = makeNotification({ id: 'a', read: false })
         logic.actions.setInAppNotifications([a], false)
         logic.actions.setInAppUnreadCount(10)
         await expectLogic(logic, () => {
             logic.actions.archiveAll()
         }).toDispatchActions(['archiveAll', 'refreshInAppUnreadCount', 'setInAppUnreadCount'])
         expect(logic.values.inAppUnreadCount).toBe(1)
-    })
-
-    it('hasArchivableNotifications reflects presence of an archivable notification', () => {
-        logic.actions.setInAppNotifications([makeNotification({ id: 'a', archivable: true })], false)
-        expect(logic.values.hasArchivableNotifications).toBe(true)
-        logic.actions.setInAppNotifications([makeNotification({ id: 'b', archivable: false })], false)
-        expect(logic.values.hasArchivableNotifications).toBe(false)
-    })
-
-    it('group.has_archivable is true when any child is archivable, even if the representative is not', () => {
-        // Newest (representative) is non-archivable; an older same-group child is archivable.
-        const rep = makeNotification({ id: 'rep', archivable: false, created_at: '2026-05-07T12:00:00Z' })
-        const older = makeNotification({ id: 'older', archivable: true, created_at: '2026-05-07T09:00:00Z' })
-        logic.actions.setInAppNotifications([rep, older], false)
-        const group = logic.values.groups.find((g) => g.count === 2)
-        expect(group?.representative.id).toBe('rep')
-        expect(group?.has_archivable).toBe(true)
     })
 })
 

@@ -15,7 +15,7 @@ export const manifest: ProductManifest = {
         '/alerts': ['Alerts', 'alerts'],
     },
     urls: {
-        alert: (alertId: string): string => `/alerts?alert_id=${alertId}`,
+        alert: (alertId: string): string => `/alerts?alert_type=insights&alert_id=${alertId}`,
         alerts: (): string => '/alerts',
     },
     fileSystemTypes: {},

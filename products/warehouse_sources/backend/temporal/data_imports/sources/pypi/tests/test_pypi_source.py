@@ -5,8 +5,8 @@ import structlog
 
 from posthog.schema import ReleaseStatus, SourceFieldInputConfig, SourceFieldInputConfigType
 
-from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline.typings import SourceInputs
-from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs import PyPISourceConfig
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.typings import SourceInputs
+from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.pypi import PyPISourceConfig
 from products.warehouse_sources.backend.temporal.data_imports.sources.pypi.settings import ENDPOINTS
 from products.warehouse_sources.backend.temporal.data_imports.sources.pypi.source import PyPISource
 from products.warehouse_sources.backend.types import ExternalDataSourceType

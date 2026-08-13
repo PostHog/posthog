@@ -40,6 +40,12 @@ class CDCSourceAdapter(Protocol[CDCConfigT_co]):
 
     def create_reader(self, source: ExternalDataSource) -> CDCStreamReader: ...
 
+    def position_to_seq(self, position_serialized: str) -> int:
+        """Convert an event's serialized position to the engine-neutral monotonic
+        integer used for `_ph_cdc_seq` and buffer-file position ranges (PG: the
+        LSN's 64-bit value). Must be strictly order-preserving within one source."""
+        ...
+
     @contextmanager
     def management_connection(self, source: ExternalDataSource, connect_timeout: int = 15) -> Iterator[Any]: ...
 
@@ -142,11 +148,12 @@ class CDCSourceAdapter(Protocol[CDCConfigT_co]):
 def _cdc_adapters() -> dict[ExternalDataSourceType, CDCSourceAdapter[CDCConfig]]:
     """Registry of CDC adapters keyed by source type. Adding a new CDC-capable source
     is a single entry here — everything else derives from this map."""
-    # Supabase is Postgres on the wire, so it reuses the Postgres adapter verbatim.
+    # Supabase and Neon are Postgres on the wire, so they reuse the Postgres adapter verbatim.
     postgres_adapter = PostgresCDCAdapter()
     return {
         ExternalDataSourceType.POSTGRES: postgres_adapter,
         ExternalDataSourceType.SUPABASE: postgres_adapter,
+        ExternalDataSourceType.NEON: postgres_adapter,
     }
 
 

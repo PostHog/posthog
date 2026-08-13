@@ -2,28 +2,31 @@ import { Meta, StoryObj } from '@storybook/react'
 import { waitFor } from '@testing-library/dom'
 import userEvent from '@testing-library/user-event'
 import { useMountedLogic } from 'kea'
-import { router } from 'kea-router'
 
 import { FEATURE_FLAGS } from 'lib/constants'
 import { useDelayedOnMountEffect, useOnMountEffect } from 'lib/hooks/useOnMountEffect'
-import { App } from 'scenes/App'
-import { urls } from 'scenes/urls'
 
 import { mswDecorator, useStorybookMocks } from '~/mocks/browser'
 import { billingJson } from '~/mocks/fixtures/_billing'
 import preflightJson from '~/mocks/fixtures/_preflight.json'
 import { IntegrationType } from '~/types'
 
-import { onboardingLogic } from '../../legacy/onboardingLogic'
 import { activeCloudRunLogic } from './activeCloudRunLogic'
 import { WizardCloudRunBlock } from './WizardCloudRunBlock'
 import { wizardCloudRunLogic } from './wizardCloudRunLogic'
+import { WizardCommandBlock } from './WizardCommandBlock'
+import { WizardInstallOptions } from './WizardInstallOptions'
 
 /**
- * Stories for the "open a PR for me" cloud-run option on the context-first onboarding install step.
- * Rendered through the full `<App />` scene: the welcome step shows first, then a play function clicks
- * "Get started" to land on the install step where the cloud-run block lives (it connects to
- * onboardingLogic, so the scene is its natural habitat).
+ * Stories for the "open a PR for me" cloud-run option: the block's own states, rendered on their own
+ * rather than through an onboarding scene.
+ *
+ * In the product the block sits on the legacy install step — the self-driving flow forces the cloud
+ * arm off, because its run is interactive and the cloud runner is headless. `Legacy/Install Step`
+ * already snapshots the block in that setting, so driving a scene from here would duplicate those
+ * snapshots (and, if it drove the self-driving flow, snapshot a step where the block cannot appear).
+ * These stories cover what no scene story does: not-connected, repo picking, queued, and the toggle
+ * back to running it yourself.
  *
  * The block only appears when ONBOARDING_WIZARD_CLOUD_RUN='test' (set via the featureFlags parameter)
  * and preflight reports cloud/dev (so `isCloudOrDev` is true).
@@ -85,12 +88,13 @@ const meta: Meta = {
         layout: 'fullscreen',
         viewMode: 'story',
         mockDate: '2023-05-25',
+        // Legacy flow, deliberately: the self-driving install step forces the cloud arm off (its run
+        // is interactive and the cloud runner is headless), so the block only renders here.
         featureFlags: {
             [FEATURE_FLAGS.ONBOARDING_WIZARD_CLOUD_RUN]: 'test',
-            [FEATURE_FLAGS.ONBOARDING_FLOW_VARIANT]: 'self-driving',
         },
-        // These stories render the full app shell around a wizard step that's mid-flight by design
-        // (connecting/polling/queued) — skip the test runner's default "wait for loaders to hide" check.
+        // The block is mid-flight by design in several of these (connecting/polling/queued) — skip the
+        // test runner's default "wait for loaders to hide" check.
         testOptions: { waitForLoadersToDisappear: false },
     },
     decorators: [
@@ -117,26 +121,19 @@ export default meta
 
 type Story = StoryObj
 
-// The scene mounts asynchronously after navigation, so waits inside play functions need far more
-// than @testing-library's 1s default before CI can be trusted to have rendered the install step.
-const WAIT_OPTIONS = { timeout: 8000, interval: 200 }
-
-// Click a footer/body button by its exact label, waiting for it to mount first.
-async function clickButton(text: string): Promise<void> {
-    await waitFor(() => {
-        const btn = Array.from(document.querySelectorAll('button')).find((b) => b.textContent?.trim() === text)
-        if (!btn) {
-            throw new Error(`button "${text}" not ready`)
-        }
-    }, WAIT_OPTIONS)
-    const btn = Array.from(document.querySelectorAll('button')).find((b) => b.textContent?.trim() === text)
-    await userEvent.click(btn as Element)
-}
+// The block seeds its state from a delayed-mount effect, and the repo picker's options arrive over a
+// mocked request, so play-function waits need a load-tolerant budget: on a busy CI shard an
+// under-budgeted wait fails all three retries instead of flaking once.
+const WAIT_OPTIONS = { timeout: 30000, interval: 200 }
 
 /**
- * Lands on the context-first install step with a given set of integrations, optionally driving
- * wizardCloudRunLogic into a later state. The logic is mounted up front so `drive` can dispatch
- * before the install-step block renders; the play then advances welcome → install.
+ * The block on its own, with a given set of integrations and optionally driven into a later state.
+ *
+ * Deliberately not rendered through an onboarding scene. The block lives on the legacy install step
+ * (the self-driving flow forces the cloud arm off — its run is interactive and the cloud runner is
+ * headless), and `Legacy/Install Step` already snapshots it in place. Driving a scene from here
+ * would duplicate those snapshots rather than capture what this file is about: the block's own
+ * states, which no scene story covers.
  */
 function cloudRunStory({
     integrations,
@@ -151,7 +148,6 @@ function cloudRunStory({
 }): Story {
     return {
         render: () => {
-            useMountedLogic(onboardingLogic)
             useMountedLogic(wizardCloudRunLogic)
             useMountedLogic(activeCloudRunLogic)
 
@@ -165,17 +161,17 @@ function cloudRunStory({
                 // activeCloudRun is persisted (survives a refresh mid-run) — clear any handle left
                 // over from an earlier story in the same browser session before driving this one.
                 activeCloudRunLogic.actions.clearActiveCloudRun()
-                router.actions.push(urls.onboarding())
                 drive?.()
             })
 
-            return <App />
+            return (
+                <div className="max-w-xl">
+                    <WizardCloudRunBlock />
+                </div>
+            )
         },
         parameters: { testOptions: { waitForSelector } },
-        play: async () => {
-            await clickButton('Get started')
-            await extraPlay?.()
-        },
+        play: extraPlay ? async () => await extraPlay() : undefined,
     }
 }
 
@@ -205,12 +201,14 @@ export const RepoPickerOpen: Story = cloudRunStory({
     integrations: [githubIntegration],
     waitForSelector: '[data-attr="select-github-repository"]',
     extraPlay: async () => {
+        // LemonInput puts data-attr on the <input> element itself, so match the input directly —
+        // a descendant selector like `[data-attr=...] input` never matches anything.
         await waitFor(() => {
-            if (!document.querySelector('[data-attr="select-github-repository"] input')) {
+            if (!document.querySelector('input[data-attr="select-github-repository"]')) {
                 throw new Error('repo picker not ready')
             }
         }, WAIT_OPTIONS)
-        await userEvent.click(document.querySelector('[data-attr="select-github-repository"] input') as Element)
+        await userEvent.click(document.querySelector('input[data-attr="select-github-repository"]') as Element)
         // full_name only appears in the open dropdown (nothing is selected), so this confirms it's open.
         await waitFor(() => {
             if (!Array.from(document.querySelectorAll('span')).some((el) => el.textContent === 'acme-co/mobile-app')) {
@@ -220,15 +218,9 @@ export const RepoPickerOpen: Story = cloudRunStory({
     },
 })
 
-/**
- * Run kicked off — non-blocking confirmation; the FAB takes over from here. Renders the block directly
- * (not through the full click-through `<App />` flow the other stories use): the queued state only
- * needs cloudRunStatus/selectedRepository seeded before mount, and going through "Get started" plus the
- * install step's own async setup raced the delayed-mount effect that drives every other story here.
- */
+/** Run kicked off — non-blocking confirmation; the FAB takes over from here. */
 export const PullRequestQueued: Story = {
     render: () => {
-        useMountedLogic(onboardingLogic)
         useMountedLogic(wizardCloudRunLogic)
         useMountedLogic(activeCloudRunLogic)
 
@@ -253,11 +245,33 @@ export const PullRequestQueued: Story = {
     parameters: { testOptions: { waitForSelector: '[data-attr="wizard-cloud-run-queued"]' } },
 }
 
-/** The other half of the same wizard — toggling to "Run it yourself" reveals the CLI command. */
-export const RunItYourself: Story = cloudRunStory({
-    integrations: [],
-    waitForSelector: '[data-attr="wizard-command-block"]',
-    extraPlay: async () => {
+/**
+ * The other half of the same wizard — toggling to "Run it yourself" reveals the CLI command. The
+ * toggle belongs to `WizardInstallOptions`, which hosts the block, so this one renders that instead.
+ */
+export const RunItYourself: Story = {
+    render: () => {
+        useMountedLogic(wizardCloudRunLogic)
+        useMountedLogic(activeCloudRunLogic)
+
+        useStorybookMocks({
+            get: {
+                '/api/environments/:team_id/integrations': { results: [] },
+            },
+        })
+
+        useDelayedOnMountEffect(() => {
+            activeCloudRunLogic.actions.clearActiveCloudRun()
+        })
+
+        return (
+            <div className="max-w-xl">
+                <WizardInstallOptions localBlock={<WizardCommandBlock />} />
+            </div>
+        )
+    },
+    parameters: { testOptions: { waitForSelector: '[data-attr="wizard-command-block"]' } },
+    play: async () => {
         await waitFor(() => {
             if (!document.querySelector('[data-attr="wizard-mode-local"]')) {
                 throw new Error('install-mode toggle not ready')
@@ -265,7 +279,7 @@ export const RunItYourself: Story = cloudRunStory({
         }, WAIT_OPTIONS)
         await userEvent.click(document.querySelector('[data-attr="wizard-mode-local"]') as Element)
     },
-})
+}
 
 interface PlaygroundArgs {
     githubConnected: boolean
@@ -276,11 +290,10 @@ interface PlaygroundArgs {
 /**
  * Interactive harness for the whole cloud-run flow: the controls panel drives whether GitHub is
  * connected, which repo is picked, and whether the PR has been queued. Keyed on the args so flipping
- * a control remounts the scene and re-derives state from scratch — the logic reducers (selected repo,
+ * a control remounts the block and re-derives state from scratch — the logic reducers (selected repo,
  * run status) don't reset on their own, and the connected/not state comes from a render-time mock.
  */
 function CloudRunPlayground({ githubConnected, repository, pullRequestQueued }: PlaygroundArgs): JSX.Element {
-    useMountedLogic(onboardingLogic)
     useMountedLogic(wizardCloudRunLogic)
     useMountedLogic(activeCloudRunLogic)
 
@@ -294,7 +307,6 @@ function CloudRunPlayground({ githubConnected, repository, pullRequestQueued }: 
 
     useDelayedOnMountEffect(() => {
         activeCloudRunLogic.actions.clearActiveCloudRun()
-        router.actions.push(urls.onboarding())
         if (repository) {
             wizardCloudRunLogic.actions.setSelectedRepository(repository)
         }
@@ -303,7 +315,11 @@ function CloudRunPlayground({ githubConnected, repository, pullRequestQueued }: 
         }
     })
 
-    return <App />
+    return (
+        <div className="max-w-xl">
+            <WizardCloudRunBlock />
+        </div>
+    )
 }
 
 /** Fully controllable: flip GitHub on/off, pick a repo, and queue the PR straight from the controls panel. */
@@ -326,7 +342,4 @@ export const Playground: StoryObj<PlaygroundArgs> = {
     },
     render: (args) => <CloudRunPlayground key={JSON.stringify(args)} {...args} />,
     parameters: { testOptions: { waitForSelector: '[data-attr="wizard-cloud-run-open-pr"]' } },
-    play: async () => {
-        await clickButton('Get started')
-    },
 }

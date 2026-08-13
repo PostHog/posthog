@@ -9,10 +9,6 @@ from posthog.schema import (
     SourceFieldInputConfigType,
 )
 
-from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline.typings import (
-    SourceInputs,
-    SourceResponse,
-)
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.base import (
     ExternalWebhookInfo,
     FieldType,
@@ -28,6 +24,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common.can
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.registry import SourceRegistry
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.schema import SourceSchema
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.typings import SourceInputs, SourceResponse
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.webhook_s3 import WebhookSourceManager
 from products.warehouse_sources.backend.temporal.data_imports.sources.featurebase.featurebase import (
     FeaturebaseResumeConfig,
@@ -45,7 +42,9 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.featurebas
     INCREMENTAL_FIELDS,
     RESOURCE_TO_FEATUREBASE_OBJECT_TYPE,
 )
-from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs import FeaturebaseSourceConfig
+from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.featurebase import (
+    FeaturebaseSourceConfig,
+)
 from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 if TYPE_CHECKING:
@@ -158,6 +157,7 @@ class FeaturebaseSource(
         with_counts: bool = False,
         names: list[str] | None = None,
         force_refresh: bool = False,
+        api_version: str | None = None,
     ) -> list[SourceSchema]:
         def _description(endpoint: str) -> str | None:
             if endpoint == "post_voters":
@@ -189,7 +189,11 @@ class FeaturebaseSource(
         return schemas
 
     def validate_credentials(
-        self, config: FeaturebaseSourceConfig, team_id: int, schema_name: Optional[str] = None
+        self,
+        config: FeaturebaseSourceConfig,
+        team_id: int,
+        schema_name: Optional[str] = None,
+        api_version: str | None = None,
     ) -> tuple[bool, str | None]:
         valid, error = validate_featurebase_credentials(config.api_key)
         if valid:
@@ -202,7 +206,9 @@ class FeaturebaseSource(
     def get_webhook_source_manager(self, inputs: SourceInputs) -> WebhookSourceManager:
         return WebhookSourceManager(inputs, inputs.logger)
 
-    def create_webhook(self, config: FeaturebaseSourceConfig, webhook_url: str, team_id: int) -> WebhookCreationResult:
+    def create_webhook(
+        self, config: FeaturebaseSourceConfig, webhook_url: str, team_id: int, api_version: str | None = None
+    ) -> WebhookCreationResult:
         return create_featurebase_webhook(config.api_key, webhook_url)
 
     def get_desired_webhook_events(
@@ -218,16 +224,19 @@ class FeaturebaseSource(
         webhook_url: str,
         team_id: int,
         eligible_schema_names: list[str],
+        api_version: str | None = None,
     ) -> WebhookSyncResult:
         desired_topics = self.get_desired_webhook_events(config, eligible_schema_names) or []
         return sync_featurebase_webhook_events(config.api_key, webhook_url, desired_topics)
 
     def get_external_webhook_info(
-        self, config: FeaturebaseSourceConfig, webhook_url: str, team_id: int
+        self, config: FeaturebaseSourceConfig, webhook_url: str, team_id: int, api_version: str | None = None
     ) -> ExternalWebhookInfo | None:
         return get_featurebase_webhook_info(config.api_key, webhook_url)
 
-    def delete_webhook(self, config: FeaturebaseSourceConfig, webhook_url: str, team_id: int) -> WebhookDeletionResult:
+    def delete_webhook(
+        self, config: FeaturebaseSourceConfig, webhook_url: str, team_id: int, api_version: str | None = None
+    ) -> WebhookDeletionResult:
         return delete_featurebase_webhook(config.api_key, webhook_url)
 
     def source_for_pipeline(

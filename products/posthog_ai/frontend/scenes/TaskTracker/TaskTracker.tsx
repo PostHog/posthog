@@ -50,7 +50,7 @@ export function TaskTracker({ taskId }: TaskTrackerProps): JSX.Element {
         if (selectedTaskId) {
             return (
                 <div className="flex flex-col h-full min-h-0">
-                    <AllowTrainingCallout featureName="PostHog Code" />
+                    <AllowTrainingCallout featureName="PostHog Desktop" />
                     <div className="flex flex-1 min-h-0 flex-col overflow-hidden">
                         <TaskDetailPage taskId={selectedTaskId} isMobile />
                     </div>

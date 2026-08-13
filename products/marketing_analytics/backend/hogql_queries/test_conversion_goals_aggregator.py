@@ -7,6 +7,8 @@ import pytest
 from posthog.test.base import BaseTest, ClickhouseTestMixin
 from unittest.mock import patch
 
+from django.test import SimpleTestCase
+
 from posthog.schema import (
     BaseMathType,
     ConversionGoalFilter1,
@@ -21,6 +23,7 @@ from posthog.hogql.test.utils import pretty_print_in_tests
 
 from posthog.clickhouse.client.execute import sync_execute
 from posthog.clickhouse.preaggregation.marketing_touchpoints_sql import TRUNCATE_MARKETING_TOUCHPOINTS_TABLE_SQL
+from posthog.clickhouse.query_tagging import Feature, get_query_tag_value, reset_query_tags, tag_queries
 from posthog.hogql_queries.utils.query_date_range import QueryDateRange
 
 from products.actions.backend.models.action import Action
@@ -31,7 +34,7 @@ from products.analytics_platform.backend.lazy_computation.lazy_computation_execu
 from products.analytics_platform.backend.models.preaggregation_job import PreaggregationJob
 
 from .conversion_goal_processor import ConversionGoalProcessor, SharedTouchpointsPrecompute
-from .conversion_goals_aggregator import ConversionGoalsAggregator
+from .conversion_goals_aggregator import ConversionGoalsAggregator, _map_in_caller_context
 from .marketing_analytics_config import MarketingAnalyticsConfig
 
 
@@ -637,7 +640,7 @@ class TestConversionGoalsAggregator(ClickhouseTestMixin, BaseTest):
         aggregator = ConversionGoalsAggregator(processors, self.config)
 
         with patch(
-            "products.marketing_analytics.backend.hogql_queries.conversion_goal_processor.ensure_precomputed",
+            "products.marketing_analytics.backend.hogql_queries.conversion_goal_processor.marketing_ensure_precomputed",
             side_effect=lambda **kwargs: LazyComputationResult(ready=True, job_ids=[uuid.uuid4()]),
         ) as ensure:
             aggregator.generate_unified_cte(self.date_range, self._create_mock_additional_conditions_getter())
@@ -656,7 +659,7 @@ class TestConversionGoalsAggregator(ClickhouseTestMixin, BaseTest):
         date_to = datetime(2024, 1, 31, tzinfo=UTC)
 
         with patch(
-            "products.marketing_analytics.backend.hogql_queries.conversion_goal_processor.ensure_precomputed",
+            "products.marketing_analytics.backend.hogql_queries.conversion_goal_processor.marketing_ensure_precomputed",
             side_effect=lambda **kwargs: LazyComputationResult(ready=True, job_ids=[uuid.uuid4()]),
         ) as ensure:
             first = shared.get(date_from, date_to)
@@ -666,3 +669,29 @@ class TestConversionGoalsAggregator(ClickhouseTestMixin, BaseTest):
                 shared.get(date_from, date_to + timedelta(days=1))
 
         assert ensure.call_count == 1
+
+
+class TestGoalParallelismContextPropagation(SimpleTestCase):
+    def tearDown(self):
+        reset_query_tags()
+        super().tearDown()
+
+    def test_query_tags_survive_into_the_goal_worker_threads(self):
+        # Multi-goal reads build each goal's precompute in a thread pool. ThreadPoolExecutor workers do
+        # not inherit the caller's contextvars, so a bare pool.map drops the query tags — and with them
+        # the CACHE_WARMUP tag a background revalidation sets on itself, which is the only thing stopping
+        # that revalidation from serving itself stale and never refreshing. Guards that regression.
+        tag_queries(feature=Feature.CACHE_WARMUP, trigger="marketingAnalyticsStaleRevalidation")
+        seen: dict[int, tuple] = {}
+
+        def build(item: int) -> int:
+            seen[item] = (get_query_tag_value("feature"), get_query_tag_value("trigger"))
+            return item * 10
+
+        # 3 items > 1 forces the real pool rather than the serial path.
+        result = _map_in_caller_context(build, [1, 2, 3])
+
+        assert result == [10, 20, 30]
+        assert all(tags == (Feature.CACHE_WARMUP, "marketingAnalyticsStaleRevalidation") for tags in seen.values()), (
+            seen
+        )

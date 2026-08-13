@@ -1,4 +1,6 @@
+from copy import deepcopy
 from datetime import UTC, datetime, timedelta
+from typing import Any
 
 from posthog.test.base import APIBaseTest
 from unittest.mock import ANY, patch
@@ -378,6 +380,62 @@ class TestWebExperiment(APIBaseTest):
         # But variants changes should be present
         variant_changes = [c for c in changes if c["field"] == "variants"]
         assert len(variant_changes) == 1
+
+    _ROUND_TRIP_FILTER_CASES: list[tuple[str, dict[str, Any] | None]] = [
+        ("as_created", None),
+        (
+            "release_conditions_and_payloads",
+            {
+                "groups": [
+                    {
+                        "properties": [
+                            {"key": "email", "type": "person", "value": "@posthog.com", "operator": "icontains"}
+                        ],
+                        "rollout_percentage": 50,
+                        "variant": "test",
+                        "aggregation_group_type_index": None,
+                    },
+                    {"properties": [], "rollout_percentage": 100, "aggregation_group_type_index": None},
+                ],
+                "payloads": {"test": '{"color": "blue"}'},
+            },
+        ),
+        ("empty_release_conditions", {"groups": []}),
+    ]
+
+    @parameterized.expand(_ROUND_TRIP_FILTER_CASES)
+    def test_variant_update_round_trips_existing_flag_filters(self, _name, filters_override):
+        response = self._create_web_experiment("Round trip")
+        experiment_id = response.json()["id"]
+        web_experiment = WebExperiment.objects.get(id=experiment_id)
+        feature_flag = web_experiment.feature_flag
+        if filters_override:
+            feature_flag.filters = {**feature_flag.filters, **filters_override}
+            feature_flag.save()
+        filters_before = deepcopy(feature_flag.filters)
+
+        update_response = self.client.patch(
+            f"/api/projects/{self.team.id}/web_experiments/{experiment_id}/",
+            data={
+                "variants": {
+                    "control": {"rollout_percentage": 40},
+                    "test": {"rollout_percentage": 60},
+                },
+            },
+            format="json",
+        )
+
+        assert update_response.status_code == status.HTTP_200_OK, update_response.json()
+        feature_flag.refresh_from_db()
+        assert feature_flag.filters == {
+            **filters_before,
+            "multivariate": {
+                "variants": [
+                    {"key": "control", "rollout_percentage": 40},
+                    {"key": "test", "rollout_percentage": 60},
+                ]
+            },
+        }
 
     def test_accepts_safe_html_with_formatting(self):
         """Test that safe HTML with complex formatting is accepted and preserved"""

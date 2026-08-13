@@ -9,10 +9,6 @@ from posthog.schema import (
     SourceFieldInputConfigType,
 )
 
-from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline.typings import (
-    SourceInputs,
-    SourceResponse,
-)
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.base import FieldType, ResumableSource
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.canonical_descriptions import (
     CanonicalDescriptions,
@@ -20,7 +16,10 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common.can
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.registry import SourceRegistry
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.schema import SourceSchema
-from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs import SemgrepSourceConfig
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.typings import SourceInputs, SourceResponse
+from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.semgrep import (
+    SemgrepSourceConfig,
+)
 from products.warehouse_sources.backend.temporal.data_imports.sources.semgrep.semgrep import (
     SemgrepResumeConfig,
     semgrep_source,
@@ -92,6 +91,7 @@ Create a token in Semgrep AppSec Platform under **Settings → Tokens** and gran
         with_counts: bool = False,
         names: list[str] | None = None,
         force_refresh: bool = False,
+        api_version: str | None = None,
     ) -> list[SourceSchema]:
         # Semgrep exposes no server-side updated-since filter: the findings `since` param filters
         # on `relevant_since`, which does not advance when a finding's status or triage changes,
@@ -112,7 +112,11 @@ Create a token in Semgrep AppSec Platform under **Settings → Tokens** and gran
         return schemas
 
     def validate_credentials(
-        self, config: SemgrepSourceConfig, team_id: int, schema_name: Optional[str] = None
+        self,
+        config: SemgrepSourceConfig,
+        team_id: int,
+        schema_name: Optional[str] = None,
+        api_version: str | None = None,
     ) -> tuple[bool, str | None]:
         # /deployments is the cheapest probe and the root every synced endpoint fans out from, so
         # it confirms the token for any schema.
@@ -133,6 +137,7 @@ Create a token in Semgrep AppSec Platform under **Settings → Tokens** and gran
         return semgrep_source(
             api_token=config.api_token,
             endpoint=inputs.schema_name,
-            logger=inputs.logger,
+            team_id=inputs.team_id,
+            job_id=inputs.job_id,
             resumable_source_manager=resumable_source_manager,
         )

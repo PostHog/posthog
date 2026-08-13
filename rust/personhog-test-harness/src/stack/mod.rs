@@ -25,9 +25,11 @@ use process::ServiceProcess;
 /// during bring-up, every service opens outbound sockets in the same
 /// instant the listeners bind.
 const REPLICA_GRPC_PORT: u16 = 24051;
+const IDENTITY_GRPC_PORT: u16 = 24052;
 const ROUTER_GRPC_BASE_PORT: u16 = 24054;
 const LEADER_GRPC_BASE_PORT: u16 = 24060;
 const REPLICA_METRICS_PORT: u16 = 24151;
+const IDENTITY_METRICS_PORT: u16 = 24152;
 const WRITER_METRICS_PORT: u16 = 24153;
 const ROUTER_METRICS_BASE_PORT: u16 = 24154;
 const LEADER_METRICS_BASE_PORT: u16 = 24160;
@@ -50,13 +52,21 @@ pub struct StackConfig {
     pub writer_flush_interval_ms: u64,
     /// The table the writer upserts into.
     pub pg_target_table: String,
-    /// Leader in-memory cache capacity (entries). Lower it below the seeded
-    /// person count to put the cache under eviction pressure.
+    /// Leader per-partition cache budget in bytes (entries are weighed
+    /// by serialized size). Lower it below the seeded pool's footprint
+    /// to put the cache under eviction pressure.
     pub cache_memory_capacity: usize,
+    /// Extra environment for spawned leaders, appended after the
+    /// standard set (so it can override any of it).
+    pub extra_leader_env: Vec<(String, String)>,
     pub recovery_pool_size: usize,
     /// etcd lease TTL for leaders, in seconds. Bounds how long a crashed
     /// (unrevoked) leader stays the registered owner.
     pub leader_lease_ttl: i64,
+    /// Also spawn the personhog-identity service, pointed at the traffic
+    /// router for its initial-properties writes. Only needed when the run
+    /// creates persons through the identity path.
+    pub spawn_identity: bool,
 }
 
 /// A locally-spawned personhog stack: replica, writer, N leaders, and M
@@ -81,10 +91,32 @@ pub struct Stack {
     store: PersonhogStore,
     topic: String,
     pub router_url: String,
+    /// Set when the stack spawned a personhog-identity service.
+    pub identity_url: Option<String>,
     pub log_dir: PathBuf,
 }
 
 impl Stack {
+    /// The distinct id and hash-key-override tables paired with a person
+    /// table. Identity writes the mapping (and clears overrides) in the same
+    /// id namespace as its person table, so the three always travel together.
+    fn identity_companion_tables(person_table: &str) -> Result<(&'static str, &'static str)> {
+        match person_table {
+            "posthog_person" => Ok((
+                "posthog_persondistinctid",
+                "posthog_featureflaghashkeyoverride",
+            )),
+            "personhog_person_tmp" => Ok((
+                "personhog_persondistinctid_tmp",
+                "personhog_featureflaghashkeyoverride_tmp",
+            )),
+            other => bail!(
+                "--create-via-identity has no known identity table set for \
+                 --pg-target-table {other:?}"
+            ),
+        }
+    }
+
     pub async fn up(config: StackConfig) -> Result<Self> {
         if config.routers == 0 || config.routers > MAX_ROUTERS {
             bail!("--routers must be between 1 and {MAX_ROUTERS}");
@@ -96,18 +128,21 @@ impl Stack {
         fs::create_dir_all(&log_dir)
             .with_context(|| format!("creating log dir {}", log_dir.display()))?;
 
-        let binaries = [
+        let mut binaries = vec![
             "personhog-replica",
             "personhog-router",
             "personhog-leader",
             "personhog-writer",
         ];
-        for bin in binaries {
+        if config.spawn_identity {
+            binaries.push("personhog-identity");
+        }
+        for bin in &binaries {
             let path = config.bin_dir.join(bin);
             if !path.exists() {
                 bail!(
                     "{} not found — build the stack first:\n  cargo build -p personhog-replica \
-                     -p personhog-router -p personhog-leader -p personhog-writer",
+                     -p personhog-router -p personhog-leader -p personhog-writer -p personhog-identity",
                     path.display()
                 );
             }
@@ -205,6 +240,33 @@ impl Stack {
         let traffic_router_port = ROUTER_GRPC_BASE_PORT + (config.routers - 1) as u16;
         let router_url = format!("http://127.0.0.1:{traffic_router_port}");
 
+        // Identity resolves and creates on the Postgres primary and pushes
+        // initial properties through the traffic router; it holds no etcd
+        // state, so it can come up alongside the routers. Its table set is
+        // derived from the stack's person table so identity, writer, and the
+        // leader fallback agree on one id namespace.
+        let identity_url = if config.spawn_identity {
+            let (pdi_table, ffhko_table) =
+                Self::identity_companion_tables(&config.pg_target_table)?;
+            infra.push(ServiceProcess::spawn(
+                "identity",
+                &config.bin_dir.join("personhog-identity"),
+                &[
+                    ("GRPC_ADDRESS", format!("127.0.0.1:{IDENTITY_GRPC_PORT}")),
+                    ("PRIMARY_DATABASE_URL", config.persons_db_url.clone()),
+                    ("ROUTER_URL", router_url.clone()),
+                    ("METRICS_PORT", IDENTITY_METRICS_PORT.to_string()),
+                    ("PERSON_TABLE", config.pg_target_table.clone()),
+                    ("PERSON_DISTINCT_ID_TABLE", pdi_table.to_string()),
+                    ("FF_HASH_KEY_OVERRIDE_TABLE", ffhko_table.to_string()),
+                ],
+                &log_dir,
+            )?);
+            Some(format!("http://127.0.0.1:{IDENTITY_GRPC_PORT}"))
+        } else {
+            None
+        };
+
         let mut stack = Self {
             config,
             infra,
@@ -216,6 +278,7 @@ impl Stack {
             store,
             topic,
             router_url,
+            identity_url,
             log_dir,
         };
 
@@ -232,27 +295,31 @@ impl Stack {
         Ok(stack)
     }
 
-    /// Spawn one more leader. The pod registers with an explicit host:port
-    /// name, which the router's resolver dials as-is.
+    /// Spawn one more leader. The pod derives its advertise address from
+    /// its concrete bind and registers it for the router to dial.
     pub fn spawn_leader(&mut self) -> Result<String> {
         let index = self.next_leader_index;
         self.next_leader_index += 1;
 
         let grpc_port = LEADER_GRPC_BASE_PORT + index as u16;
-        let pod_name = format!("127.0.0.1:{grpc_port}");
+        // A real pod name: the leader derives its advertise address from
+        // its concrete bind, registers it, and the router dials what the
+        // routing table carries — the same path a deployment takes.
+        let pod_name = format!("personhog-leader-{index}");
+        let grpc_address = format!("127.0.0.1:{grpc_port}");
         // Heartbeats must land well inside the lease window or a healthy
         // pod's lease expires between renewals.
         let heartbeat_secs = (self.config.leader_lease_ttl / 3).max(1);
-        let proc = ServiceProcess::spawn(
+        let proc = ServiceProcess::spawn_with_extra(
             &format!("leader-{index}"),
             &self.config.bin_dir.join("personhog-leader"),
             &[
-                ("GRPC_ADDRESS", pod_name.clone()),
+                ("GRPC_ADDRESS", grpc_address),
                 ("POD_NAME", pod_name.clone()),
                 ("LEASE_TTL", self.config.leader_lease_ttl.to_string()),
                 ("HEARTBEAT_INTERVAL_SECS", heartbeat_secs.to_string()),
                 (
-                    "CACHE_MEMORY_CAPACITY",
+                    "CACHE_MEMORY_CAPACITY_BYTES",
                     self.config.cache_memory_capacity.to_string(),
                 ),
                 (
@@ -271,11 +338,16 @@ impl Stack {
                     "personhog-test-harness-writer".to_string(),
                 ),
                 ("FALLBACK_DATABASE_URL", self.config.persons_db_url.clone()),
+                // Pair the fallback with the spawned writer's target: the
+                // dirty index treats an unmarked person's PG row as
+                // current, which is only true of the writer's own table.
+                ("FALLBACK_TABLE", self.config.pg_target_table.clone()),
                 (
                     "METRICS_PORT",
                     (LEADER_METRICS_BASE_PORT + index as u16).to_string(),
                 ),
             ],
+            &self.config.extra_leader_env,
             &self.log_dir,
         )?;
 
@@ -345,8 +417,12 @@ impl Stack {
     }
 
     /// SIGCONT the paused zombie. It wakes believing it still owns its
-    /// partitions; whatever it does next (self-fence, exit, re-register)
-    /// must not corrupt state that has moved to the new owner.
+    /// partitions; the contract is that it detects the revoked lease,
+    /// self-fences locally, and rejoins with a fresh session — at which
+    /// point the rebalancer may legitimately assign it partitions again.
+    /// It therefore returns to the live set: convergence counts it as a
+    /// valid owner, verification reads data it serves, and check_alive
+    /// fails the run if the self-fence path crashes it instead.
     pub fn resume_zombie(&mut self) -> Result<String> {
         let (pod_name, proc) = self
             .paused
@@ -354,7 +430,7 @@ impl Stack {
             .context("no paused zombie leader to resume")?;
         proc.sigcont();
         tracing::info!(pod = %pod_name, "SIGCONTed zombie leader");
-        self.retired.push(proc);
+        self.leaders.push((pod_name.clone(), proc));
         Ok(pod_name)
     }
 
@@ -370,12 +446,12 @@ impl Stack {
     /// wiring.
     async fn coordinator_router_index(&self) -> Result<usize> {
         let traffic_router = format!("harness-router-{}", self.config.routers - 1);
-        let deadline = std::time::Instant::now() + Duration::from_secs(5);
+        let deadline = Instant::now() + Duration::from_secs(5);
         let holder = loop {
             if let Some(leader) = self.store.get_leader().await? {
                 break leader.holder;
             }
-            if std::time::Instant::now() >= deadline {
+            if Instant::now() >= deadline {
                 bail!("no coordinator elected within 5s; cannot target coordinator chaos");
             }
             tokio::time::sleep(Duration::from_millis(100)).await;
@@ -622,6 +698,13 @@ impl Stack {
         for i in 0..self.routers.len() {
             let addr = format!("127.0.0.1:{}", ROUTER_GRPC_BASE_PORT + i as u16);
             wait_tcp(&addr, Duration::from_secs(10)).await?;
+        }
+        if self.identity_url.is_some() {
+            wait_tcp(
+                &format!("127.0.0.1:{IDENTITY_GRPC_PORT}"),
+                Duration::from_secs(10),
+            )
+            .await?;
         }
         tracing::info!(
             router = %self.router_url,

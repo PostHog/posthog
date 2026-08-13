@@ -6,7 +6,7 @@
             "type": "number"
         },
         "widgets": {
-            "description": "Widget tiles to add atomically. Supported widget_type values: activity_events_list, error_tracking_list, experiment_results, experiments_list, logs_list, session_replay_list, survey_results. Use dashboard-widget-catalog-list for per-type config_schema documentation. (1–10 per request).",
+            "description": "Widget tiles to add atomically. Supported widget_type values: activity_events_list, conversations_recent_tickets, error_tracking_list, experiment_results, experiments_list, logs_list, session_replay_list, survey_results. Use dashboard-widget-catalog-list for per-type config_schema documentation. (1–10 per request).",
             "items": {
                 "anyOf": [
                     {
@@ -103,6 +103,10 @@
                                                                 "is_not",
                                                                 "icontains",
                                                                 "not_icontains",
+                                                                "starts_with",
+                                                                "not_starts_with",
+                                                                "ends_with",
+                                                                "not_ends_with",
                                                                 "regex",
                                                                 "not_regex",
                                                                 "gt",
@@ -203,6 +207,10 @@
                                                                 "is_not",
                                                                 "icontains",
                                                                 "not_icontains",
+                                                                "starts_with",
+                                                                "not_starts_with",
+                                                                "ends_with",
+                                                                "not_ends_with",
                                                                 "regex",
                                                                 "not_regex",
                                                                 "gt",
@@ -478,6 +486,10 @@
                                                                 "is_not",
                                                                 "icontains",
                                                                 "not_icontains",
+                                                                "starts_with",
+                                                                "not_starts_with",
+                                                                "ends_with",
+                                                                "not_ends_with",
                                                                 "regex",
                                                                 "not_regex",
                                                                 "gt",
@@ -741,6 +753,10 @@
                                                                 "is_not",
                                                                 "icontains",
                                                                 "not_icontains",
+                                                                "starts_with",
+                                                                "not_starts_with",
+                                                                "ends_with",
+                                                                "not_ends_with",
                                                                 "regex",
                                                                 "not_regex",
                                                                 "gt",
@@ -1413,6 +1429,170 @@
                             },
                             "widget_type": {
                                 "enum": ["logs_list"],
+                                "type": "string"
+                            }
+                        },
+                        "required": ["widget_type", "config"],
+                        "type": "object"
+                    },
+                    {
+                        "properties": {
+                            "config": {
+                                "description": "Configuration for the recent tickets widget.",
+                                "properties": {
+                                    "assignees": {
+                                        "description": "Only show tickets assigned to these users or roles. 'me' means the requesting user and 'unassigned' means tickets without an assignment. Empty shows all assignees.",
+                                        "items": {
+                                            "anyOf": [
+                                                {
+                                                    "enum": ["me", "unassigned"],
+                                                    "type": "string"
+                                                },
+                                                {
+                                                    "properties": {
+                                                        "id": {
+                                                            "anyOf": [
+                                                                {
+                                                                    "type": "string"
+                                                                },
+                                                                {
+                                                                    "type": "number"
+                                                                }
+                                                            ]
+                                                        },
+                                                        "type": {
+                                                            "enum": ["user", "role"],
+                                                            "type": "string"
+                                                        }
+                                                    },
+                                                    "required": ["id", "type"],
+                                                    "type": "object"
+                                                }
+                                            ]
+                                        },
+                                        "maxItems": 100,
+                                        "type": "array"
+                                    },
+                                    "channel": {
+                                        "default": "all",
+                                        "description": "Ticket channel filter.",
+                                        "enum": ["widget", "email", "slack", "teams", "github", "all"],
+                                        "type": "string"
+                                    },
+                                    "limit": {
+                                        "default": 10,
+                                        "description": "Maximum number of tickets to return.",
+                                        "maximum": 25,
+                                        "minimum": 1,
+                                        "type": "number"
+                                    },
+                                    "priorities": {
+                                        "description": "Only show tickets with these priorities. Empty shows all priorities.",
+                                        "items": {
+                                            "enum": ["low", "medium", "high", "critical"],
+                                            "type": "string"
+                                        },
+                                        "type": "array"
+                                    },
+                                    "savedViewId": {
+                                        "anyOf": [
+                                            {
+                                                "maxLength": 12,
+                                                "type": "string"
+                                            },
+                                            {
+                                                "type": "null"
+                                            }
+                                        ],
+                                        "description": "short_id of a saved Support view to use as the source. When set, the saved view owns the ticket filters; the widget still sorts by most recently updated and applies its limit."
+                                    },
+                                    "search": {
+                                        "default": "",
+                                        "description": "Search requester name or email, ticket subject, message text, or ticket number.",
+                                        "maxLength": 200,
+                                        "type": "string"
+                                    },
+                                    "status": {
+                                        "default": "all",
+                                        "description": "Ticket status filter.",
+                                        "enum": ["new", "open", "pending", "on_hold", "resolved", "all"],
+                                        "type": "string"
+                                    }
+                                },
+                                "type": "object"
+                            },
+                            "description": {
+                                "description": "Optional markdown description shown when show_description is enabled.",
+                                "type": "string"
+                            },
+                            "layouts": {
+                                "description": "Optional react-grid-layout positions keyed by breakpoint (sm, xs).",
+                                "properties": {
+                                    "sm": {
+                                        "description": "Layout for the standard (desktop) breakpoint. The grid is 12 columns wide.",
+                                        "properties": {
+                                            "h": {
+                                                "description": "Height in grid rows.",
+                                                "type": "number"
+                                            },
+                                            "w": {
+                                                "description": "Width in grid columns. The desktop grid is 12 columns wide.",
+                                                "type": "number"
+                                            },
+                                            "x": {
+                                                "description": "Column position in the dashboard grid (0-indexed).",
+                                                "type": "number"
+                                            },
+                                            "y": {
+                                                "description": "Row position in the dashboard grid (0-indexed).",
+                                                "type": "number"
+                                            }
+                                        },
+                                        "type": "object"
+                                    },
+                                    "xs": {
+                                        "description": "Layout for the small (mobile) breakpoint. The grid is 1 column wide.",
+                                        "properties": {
+                                            "h": {
+                                                "description": "Height in grid rows.",
+                                                "type": "number"
+                                            },
+                                            "w": {
+                                                "description": "Width in grid columns. The desktop grid is 12 columns wide.",
+                                                "type": "number"
+                                            },
+                                            "x": {
+                                                "description": "Column position in the dashboard grid (0-indexed).",
+                                                "type": "number"
+                                            },
+                                            "y": {
+                                                "description": "Row position in the dashboard grid (0-indexed).",
+                                                "type": "number"
+                                            }
+                                        },
+                                        "type": "object"
+                                    }
+                                },
+                                "type": "object"
+                            },
+                            "name": {
+                                "anyOf": [
+                                    {
+                                        "maxLength": 400,
+                                        "type": "string"
+                                    },
+                                    {
+                                        "type": "null"
+                                    }
+                                ],
+                                "description": "Optional custom display name for the widget tile."
+                            },
+                            "show_description": {
+                                "description": "Whether to show the description on the dashboard tile.",
+                                "type": "boolean"
+                            },
+                            "widget_type": {
+                                "enum": ["conversations_recent_tickets"],
                                 "type": "string"
                             }
                         },

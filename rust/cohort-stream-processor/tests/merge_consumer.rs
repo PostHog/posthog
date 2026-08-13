@@ -621,6 +621,9 @@ async fn spawn_instance(
         live_watermarks: Arc::new(
             cohort_stream_processor::partitions::watermarks::LiveWatermarks::new(),
         ),
+        register_transfer_enabled: false,
+        reconcile: cohort_stream_processor::workers::ReconcileDeps::default(),
+        person_seed: cohort_stream_processor::workers::PersonSeedDeps::default(),
     });
 
     let dispatcher = Arc::new(EventDispatcher::new(
@@ -768,6 +771,7 @@ async fn keyed_produces_agree_with_partition_of_live() {
                 source_partition: 0,
                 source_offset: n as i64,
                 leaves: vec![],
+                membership_registers: vec![],
                 forward_hops: 0,
                 person_dedup: None,
             })

@@ -5,7 +5,12 @@ import pytest
 from unittest.mock import MagicMock, Mock, patch
 
 from parameterized import parameterized
-from requests.exceptions import ChunkedEncodingError, HTTPError
+from requests.exceptions import (
+    ChunkedEncodingError,
+    ConnectionError as RequestsConnectionError,
+    HTTPError,
+    ReadTimeout,
+)
 
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
 from products.warehouse_sources.backend.temporal.data_imports.sources.convex.convex import (
@@ -13,10 +18,15 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.convex.con
     ConvexResumeConfig,
     InvalidDeployUrlError,
     InvalidWindowError,
+    StreamingExportNotEnabledError,
     _convex_get,
     convex_source,
     document_deltas,
+    get_json_schemas,
+    iter_component_tables,
     list_snapshot,
+    qualified_table_name,
+    split_qualified_table_name,
     validate_credentials,
     validate_deploy_url,
 )
@@ -110,6 +120,17 @@ class TestValidateDeployUrl:
         assert err is None
         called_url = mock_get.return_value.get.call_args.args[0]
         assert called_url.startswith("https://swift-lemur-123.convex.cloud/api/")
+
+    @patch("products.warehouse_sources.backend.temporal.data_imports.sources.convex.convex.make_tracked_session")
+    def test_validate_credentials_surfaces_streaming_export_message(self, mock_get):
+        mock_get.return_value.get.return_value = _make_response({"code": "StreamingExportNotEnabled"}, status_code=400)
+
+        ok, err = validate_credentials("https://swift-lemur-123.convex.cloud", "prod:abc123")
+
+        assert not ok
+        assert err == (
+            "Streaming export requires the Convex Professional plan. See https://www.convex.dev/plans to upgrade."
+        )
 
     @patch("products.warehouse_sources.backend.temporal.data_imports.sources.convex.convex.make_tracked_session")
     def test_validate_credentials_does_not_leak_url_on_http_error(self, mock_get):
@@ -257,15 +278,29 @@ class TestDocumentDeltasResumable:
         manager.save_state.assert_not_called()
 
 
-class TestConvexChunkedEncodingRetry:
+class TestConvexTransientErrorRetry:
+    @parameterized.expand(
+        [
+            (
+                "chunked_encoding",
+                ChunkedEncodingError("Connection broken: InvalidChunkLength(got length b'', 0 bytes read)"),
+            ),
+            ("read_timeout", ReadTimeout("Read timed out. (read timeout=60)")),
+            ("connection_error", RequestsConnectionError("Max retries exceeded with url: /api/document_deltas")),
+        ]
+    )
     @patch("products.warehouse_sources.backend.temporal.data_imports.sources.convex.convex.make_tracked_session")
-    def test_document_deltas_retries_on_chunked_encoding_error(self, mock_get: Mock) -> None:
-        # A connection broken mid-body surfaces as ChunkedEncodingError after the response headers,
-        # past _CONVEX_RETRY's reach (urllib3 only retries pre-response failures). The reads are
-        # idempotent GETs, so a fresh request must re-fetch the page rather than fail the sync.
+    def test_document_deltas_retries_on_transient_error(
+        self, _name: str, transient_error: Exception, mock_get: Mock
+    ) -> None:
+        # These surface after urllib3's own (much shorter) retry budget is exhausted — a
+        # ChunkedEncodingError happens after the response headers, past _CONVEX_RETRY's reach
+        # entirely (urllib3 only retries pre-response failures), while ReadTimeout/ConnectionError
+        # can still occur once _CONVEX_RETRY's total attempts run out. The reads are idempotent
+        # GETs, so a fresh request must re-fetch the page rather than fail the whole sync.
         manager = _make_manager(can_resume=False)
         mock_get.return_value.get.side_effect = [
-            ChunkedEncodingError("Connection broken: InvalidChunkLength(got length b'', 0 bytes read)"),
+            transient_error,
             _make_response({"values": [{"_id": "a"}], "cursor": 30, "hasMore": False}),
         ]
 
@@ -288,6 +323,7 @@ class TestConvexRetryPolicy:
             ("cf_522_connection_timed_out", 522, True),
             ("cf_523_origin_unreachable", 523, True),
             ("cf_524_timeout", 524, True),
+            ("cf_530_dns_error", 530, True),
             # Standard transient codes inherited from DEFAULT_RETRY must still be retried.
             ("rate_limited_429", 429, True),
             ("internal_500", 500, True),
@@ -365,6 +401,109 @@ class TestConvexSource:
             assert first_params[key] == value
 
 
+class TestComponentSupport:
+    @parameterized.expand(
+        [
+            # Root-component tables keep their bare name so existing synced tables are unaffected.
+            ("root", "", "users", "users"),
+            ("single_component", "betterAuth", "users", "betterAuth.users"),
+            # Convex nests component paths with "/"; the table name is still the segment after the
+            # final ".", so the round-trip must recover the full path.
+            ("nested_component", "parent/child", "users", "parent/child.users"),
+        ]
+    )
+    def test_qualified_table_name_round_trips(
+        self, _name: str, component_path: str, table_name: str, expected_qualified: str
+    ) -> None:
+        qualified = qualified_table_name(component_path, table_name)
+        assert qualified == expected_qualified
+        assert split_qualified_table_name(qualified) == (component_path, table_name)
+
+    @parameterized.expand(
+        [
+            # byComponent shape: {component_path: {table: schema}} — root is the "" key.
+            (
+                "grouped_by_component",
+                {
+                    "": {"users": {"type": "object"}, "messages": {"type": "object"}},
+                    "betterAuth": {"users": {"type": "object"}},
+                },
+                [("", "users"), ("", "messages"), ("betterAuth", "users")],
+            ),
+            # Legacy deployments ignore byComponent and return the flat {table: schema} shape; every
+            # table is then a root-component table.
+            (
+                "legacy_flat",
+                {"users": {"type": "object"}, "messages": {"type": "object"}},
+                [("", "users"), ("", "messages")],
+            ),
+            # `type`/`properties` are valid Convex table names: the "" root key must classify the
+            # response as grouped, not a schema-key inspection that misfires on such a table.
+            (
+                "grouped_with_table_named_type",
+                {"": {"type": {"type": "object"}}, "betterAuth": {"users": {"type": "object"}}},
+                [("", "type"), ("betterAuth", "users")],
+            ),
+            ("empty", {}, []),
+        ]
+    )
+    def test_iter_component_tables(
+        self, _name: str, schemas_response: dict[str, Any], expected: list[tuple[str, str]]
+    ) -> None:
+        assert sorted(iter_component_tables(schemas_response)) == sorted(expected)
+
+    @patch("products.warehouse_sources.backend.temporal.data_imports.sources.convex.convex.make_tracked_session")
+    def test_get_json_schemas_requests_by_component(self, mock_get: Mock) -> None:
+        # Without byComponent=true the API returns only root-component tables, so non-default
+        # components (e.g. betterAuth) become invisible — this guards against that regression.
+        mock_get.return_value.get.return_value = _make_response({})
+
+        get_json_schemas("https://x.convex.cloud", "key")
+
+        assert mock_get.return_value.get.call_args.kwargs["params"]["byComponent"] == "true"
+
+    @parameterized.expand(
+        [
+            # Root tables must not send a component param — the API defaults to the root component.
+            ("root", "users", "users", None),
+            # A component-qualified warehouse table name must read the bare table from its component.
+            ("component", "betterAuth.users", "users", "betterAuth"),
+        ]
+    )
+    @patch("products.warehouse_sources.backend.temporal.data_imports.sources.convex.convex.make_tracked_session")
+    def test_convex_source_routes_to_component(
+        self,
+        _name: str,
+        warehouse_table_name: str,
+        expected_convex_table: str,
+        expected_component: str | None,
+        mock_get: Mock,
+    ) -> None:
+        manager = _make_manager(can_resume=False)
+        mock_get.return_value.get.return_value = _make_response(
+            {"values": [{"_id": "a", "_creationTime": 1}], "cursor": 1, "snapshot": 1, "hasMore": False}
+        )
+
+        response = convex_source(
+            deploy_url="https://x.convex.cloud",
+            deploy_key="key",
+            table_name=warehouse_table_name,
+            team_id=1,
+            job_id="job",
+            should_use_incremental_field=False,
+            db_incremental_field_last_value=None,
+            resumable_source_manager=manager,
+        )
+
+        # The storage name stays qualified so the Delta path is stable per warehouse table.
+        assert response.name == warehouse_table_name
+
+        list(cast(Iterable[Any], response.items()))
+        params = mock_get.return_value.get.call_args_list[0].kwargs["params"]
+        assert params["tableName"] == expected_convex_table
+        assert params.get("component") == expected_component
+
+
 class TestConvexNonRetryableErrors:
     @patch("products.warehouse_sources.backend.temporal.data_imports.sources.convex.convex.make_tracked_session")
     def test_invalid_window_message_is_recognised_as_non_retryable(self, mock_get: Mock) -> None:
@@ -386,6 +525,34 @@ class TestConvexNonRetryableErrors:
         error_msg = str(exc_info.value)
         non_retryable_errors = ConvexSource().get_non_retryable_errors()
         assert any(key in error_msg for key in non_retryable_errors), error_msg
+
+    @patch("products.warehouse_sources.backend.temporal.data_imports.sources.convex.convex.make_tracked_session")
+    def test_streaming_export_not_enabled_message_is_recognised_as_non_retryable(self, mock_get: Mock) -> None:
+        # get_schemas (schema discovery) calls get_json_schemas directly, unlike
+        # validate_credentials which already inspected the response body for this code. Without
+        # get_json_schemas surfacing the code itself, discovery only ever saw a bare HTTPError
+        # whose message never matches the "StreamingExportNotEnabled" non-retryable entry below.
+        mock_get.return_value.get.return_value = _make_response({"code": "StreamingExportNotEnabled"}, status_code=400)
+
+        with pytest.raises(StreamingExportNotEnabledError) as exc_info:
+            get_json_schemas("https://x.convex.cloud", "key")
+
+        error_msg = str(exc_info.value)
+        non_retryable_errors = ConvexSource().get_non_retryable_errors()
+        assert any(key in error_msg for key in non_retryable_errors), error_msg
+
+    @patch("products.warehouse_sources.backend.temporal.data_imports.sources.convex.convex.make_tracked_session")
+    def test_get_json_schemas_400_with_unparseable_body_falls_through_to_http_error(self, mock_get: Mock) -> None:
+        # A 400 whose body isn't JSON (e.g. a proxy/edge error page) must not crash the
+        # body-parsing added for StreamingExportNotEnabled detection - it should fall through
+        # to the normal raise_for_status() error instead of raising an unhandled ValueError.
+        response = _make_response({}, status_code=400)
+        response.json.side_effect = ValueError("not JSON")
+        response.raise_for_status.side_effect = HTTPError(response=response)
+        mock_get.return_value.get.return_value = response
+
+        with pytest.raises(HTTPError):
+            get_json_schemas("https://x.convex.cloud", "key")
 
     @parameterized.expand(
         [
@@ -411,3 +578,38 @@ class TestConvexNonRetryableErrors:
     def test_transient_errors_do_not_match(self, _name: str, observed_error: str) -> None:
         non_retryable_errors = ConvexSource().get_non_retryable_errors()
         assert not any(key in observed_error for key in non_retryable_errors)
+
+
+class TestConvexRetryableErrors:
+    @parameterized.expand(
+        [
+            (
+                "500",
+                "500 Server Error: Internal Server Error for url: "
+                "https://x.convex.cloud/api/list_snapshot?tableName=events&format=json",
+            ),
+            ("502", "502 Server Error: Bad Gateway for url: https://x.convex.cloud/api/document_deltas"),
+            ("503", "503 Server Error: Service Unavailable for url: https://x.convex.cloud/api/list_snapshot"),
+            ("504", "504 Server Error: Gateway Timeout for url: https://x.convex.cloud/api/document_deltas"),
+            ("cloudflare_520", "520 Server Error: Unknown Error for url: https://x.convex.cloud/api/list_snapshot"),
+            ("429", "429 Client Error: Too Many Requests for url: https://x.convex.cloud/api/list_snapshot"),
+        ]
+    )
+    def test_transient_errors_are_recognized_as_retryable(self, _name: str, observed_error: str) -> None:
+        retryable_errors = ConvexSource().get_retryable_errors()
+        assert any(key in observed_error for key in retryable_errors), observed_error
+
+    @parameterized.expand(
+        [
+            ("401", "401 Client Error: Unauthorized for url: https://x.convex.cloud/api/document_deltas"),
+            ("403", "403 Client Error: Forbidden for url: https://x.convex.cloud/api/document_deltas"),
+            (
+                "invalid_window",
+                "Delta cursor for table 'events' is older than Convex's ~30 day retention window. "
+                "Please trigger a full resync of this source.",
+            ),
+        ]
+    )
+    def test_non_retryable_errors_do_not_match(self, _name: str, observed_error: str) -> None:
+        retryable_errors = ConvexSource().get_retryable_errors()
+        assert not any(key in observed_error for key in retryable_errors), observed_error

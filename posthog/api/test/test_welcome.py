@@ -72,6 +72,32 @@ class TestWelcomeEndpoint(APIBaseTest):
         self.assertIn(other.email, emails)
         self.assertNotIn(self.user.email, emails)
 
+    def test_team_members_respect_member_list_visibility(self):
+        from posthog.constants import AvailableFeature
+
+        from ee.models.rbac.access_control import AccessControl
+
+        project_mate = User.objects.create_and_join(self.organization, "mate@example.com", None, "Mate")
+        User.objects.create_and_join(self.organization, "hidden@example.com", None, "Hidden")
+        # Private project: default "none" with explicit grants for the requester and one project mate
+        AccessControl.objects.create(team=self.team, resource="project", access_level="none")
+        for membership in (
+            self.organization_membership,
+            project_mate.organization_memberships.get(organization=self.organization),
+        ):
+            AccessControl.objects.create(
+                team=self.team, resource="project", organization_member=membership, access_level="member"
+            )
+        self.organization.available_product_features = [
+            {"key": AvailableFeature.ACCESS_CONTROL, "name": AvailableFeature.ACCESS_CONTROL}
+        ]
+        self.organization.members_can_see_org_members = False
+        self.organization.save()
+
+        response = self.client.get("/api/organizations/@current/welcome/current/")
+        emails = [m["email"] for m in response.json()["team_members"]]
+        self.assertEqual(emails, [project_mate.email])
+
     def test_members_never_logged_in_show_never_status(self):
         User.objects.create_and_join(self.organization, "never@example.com", None, "Never")
         response = self.client.get("/api/organizations/@current/welcome/current/")

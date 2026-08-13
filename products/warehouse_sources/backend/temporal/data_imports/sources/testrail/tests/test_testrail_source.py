@@ -6,7 +6,9 @@ from parameterized import parameterized
 from posthog.schema import ReleaseStatus, SourceFieldInputConfig, SourceFieldInputConfigType
 
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
-from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs import TestrailSourceConfig
+from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.testrail import (
+    TestrailSourceConfig,
+)
 from products.warehouse_sources.backend.temporal.data_imports.sources.testrail.settings import (
     ENDPOINTS,
     TESTRAIL_ENDPOINTS,

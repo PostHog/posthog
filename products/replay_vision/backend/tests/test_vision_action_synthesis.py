@@ -54,7 +54,7 @@ class TestVisionActionSynthesis(BaseTest):
             name="summarizer",
             scanner_type=ScannerType.SUMMARIZER,
             scanner_config={"prompt": "summarize"},
-            model=ScannerModel.GEMINI_3_FLASH,
+            model=ScannerModel.GEMINI_3_6_FLASH,
         )
 
     def _observation(self, summary: str, title: str | None = None, session_id: str = "s1") -> ReplayObservation:
@@ -195,7 +195,8 @@ class TestVisionActionSynthesis(BaseTest):
 
     def test_summary_leads_with_scanner_window_and_count_header(self) -> None:
         # The report must always state which scanner it's for, how many recordings it covers, and the
-        # window start — prepended in code so it's present regardless of what the LLM returns.
+        # window start — prepended in code so it's present regardless of what the LLM returns. The
+        # scanner name links to this run's page so both the in-app report and Slack can jump back to it.
         self._observation("Users churned at checkout", title="Checkout")
         self._observation("Onboarding looked smooth", title="Onboarding", session_id="s2")
         action = self._action()
@@ -204,12 +205,13 @@ class TestVisionActionSynthesis(BaseTest):
         self._synthesize(action, run, llm_content="# Summary\nThemes.")
 
         run.refresh_from_db()
+        run_url = f"{settings.SITE_URL}/project/{self.team.id}/replay-vision/actions/{action.id}/runs/{run.id}"
         self.assertTrue(
-            run.synthesized_markdown.startswith("**Summary for summarizer** — 2 recordings since "),
+            run.synthesized_markdown.startswith(f"**Summary for [summarizer]({run_url})** — 2 recordings since "),
             run.synthesized_markdown,
         )
-        # The header rides into the Slack payload too (bold header → *bold*).
-        self.assertIn("*Summary for summarizer*", run.output["slack"])
+        # The linked header rides into the Slack payload too (**bold** → *bold*, [name](url) → <url|name>).
+        self.assertIn(f"*Summary for <{run_url}|summarizer>*", run.output["slack"])
 
     def test_header_flags_sampling_when_window_exceeds_cap(self) -> None:
         # When the period holds more observations than the cap, the header must say the summary covers
@@ -236,7 +238,7 @@ class TestVisionActionSynthesis(BaseTest):
         self._synthesize(action, run)
 
         run.refresh_from_db()
-        self.assertIn("**Summary for Checkoutflow**", run.synthesized_markdown)
+        self.assertIn("**Summary for [Checkoutflow](", run.synthesized_markdown)
 
     def test_summary_header_defangs_links_in_scanner_name(self) -> None:
         # A scanner name is free text and lands in the header; a name with link/image markdown must not
@@ -252,6 +254,28 @@ class TestVisionActionSynthesis(BaseTest):
         run.refresh_from_db()
         self.assertNotIn("](https://evil.example", run.synthesized_markdown)
         self.assertNotIn("](https://evil.example", run.output["slack"])
+
+    def test_summary_header_name_cannot_break_out_of_the_run_link(self) -> None:
+        # _linkify_summary_header wraps the name in [name](run_url) AFTER the external-link strip pass.
+        # A name carrying `](url)` would break out of that link and plant a header link to an attacker
+        # domain (the "]" arms the injected link once linkify supplies the opening "["). The name's
+        # bracket/paren chars must be stripped so the only link the header can point to is the run page.
+        self.scanner.name = "Checkout](//attacker.example/)"
+        self.scanner.save()
+        self._observation("churned")
+        action = self._action()
+        run = self._run_for(action)
+
+        self._synthesize(action, run)
+
+        run.refresh_from_db()
+        run_url = f"{settings.SITE_URL}/project/{self.team.id}/replay-vision/actions/{action.id}/runs/{run.id}"
+        # The header still links, but only to the run page — the attacker domain can't be a link
+        # target. It may survive as inert label text; what must not exist is a link pointing at it.
+        self.assertIn(f"]({run_url})", run.synthesized_markdown)
+        self.assertNotIn("](//attacker.example", run.synthesized_markdown)
+        self.assertNotIn("attacker.example|", run.output["slack"])
+        self.assertNotIn("<//attacker.example", run.output["slack"])
 
     def test_persists_only_included_observation_ids(self) -> None:
         # observation_ids must track the summaries actually included — a blank-summary observation is
@@ -432,7 +456,7 @@ class TestVisionActionSynthesis(BaseTest):
             name="hidden",
             scanner_type=ScannerType.CLASSIFIER,
             scanner_config={"prompt": "classify"},
-            model=ScannerModel.GEMINI_3_FLASH,
+            model=ScannerModel.GEMINI_3_6_FLASH,
         )
         self._observation("visible scanner output", session_id="visible")
         ReplayObservation.objects.create(
@@ -617,6 +641,94 @@ class TestVisionActionSynthesis(BaseTest):
         self.assertEqual(result.observation_count, 2)
         run.refresh_from_db()
         self.assertEqual(set(run.observation_ids), {str(fixed.id), str(freeform.id)})
+
+    def test_summarizer_line_carries_outcome_and_friction_signal(self) -> None:
+        # The synthesis line must surface the summarizer's structured outcome + friction status, not just its
+        # prose — that explicit signal is what lets the model (and the validator) tell a clean session from an
+        # error one. Without it, a successful waitlist signup reads the same as a failed one.
+        self._typed_observation(
+            {
+                "scanner_type": "summarizer",
+                "title": "Signup",
+                "summary": "User joined the waitlist",
+                "outcome": "successfully joined the waitlist",
+                "friction_points": [],
+            },
+            session_id="s1",
+        )
+        action = self._action()
+        run = self._run_for(action)
+
+        prompts: list[str] = []
+        self._synthesize(action, run, captured_prompts=prompts)
+
+        self.assertIn("friction: none", prompts[0])
+        self.assertIn("outcome: successfully joined the waitlist", prompts[0])
+
+    def test_validation_drops_clean_citation_on_negative_claim(self) -> None:
+        # The fabricated-cluster guard: a clean session (friction_points empty, outcome present) cited as
+        # evidence of an error is a false citation. It must be stripped from the stored report so a reader
+        # who clicks it doesn't land on a success. The surrounding prose is left intact.
+        self._typed_observation(
+            {
+                "scanner_type": "summarizer",
+                "title": "Signup",
+                "summary": "User joined the waitlist with no problems",
+                "outcome": "successfully joined the waitlist",
+                "friction_points": [],
+            },
+            session_id="s1",
+        )
+        action = self._action()
+        run = self._run_for(action)
+
+        self._synthesize(action, run, llm_content="Some users hit an invalid invite link error [obs 1].")
+
+        run.refresh_from_db()
+        self.assertNotIn("[obs 1]", run.synthesized_markdown)
+        self.assertIn("invalid invite link error", run.synthesized_markdown)
+
+    def test_validation_keeps_citation_when_observation_reports_friction(self) -> None:
+        # A citation that genuinely backs a negative claim (the observation itself reports friction) must be
+        # preserved — the validator only removes contradictions, never real evidence.
+        self._typed_observation(
+            {
+                "scanner_type": "summarizer",
+                "title": "Broken link",
+                "summary": "User could not sign up",
+                "outcome": "abandoned after the invite link failed",
+                "friction_points": ["invalid invite link"],
+            },
+            session_id="s1",
+        )
+        action = self._action()
+        run = self._run_for(action)
+
+        self._synthesize(action, run, llm_content="Some users hit an invalid invite link error [obs 1].")
+
+        run.refresh_from_db()
+        self.assertIn("[obs 1]", run.synthesized_markdown)
+
+    def test_validation_keeps_clean_citation_on_non_negative_claim(self) -> None:
+        # A clean session cited for a non-negative claim (a success or neutral pattern) is a valid citation —
+        # the validator must not touch it. Only error/friction claims trigger the contradiction check.
+        self._typed_observation(
+            {
+                "scanner_type": "summarizer",
+                "title": "Signup",
+                "summary": "User joined the waitlist",
+                "outcome": "successfully joined the waitlist",
+                "friction_points": [],
+            },
+            session_id="s1",
+        )
+        action = self._action()
+        run = self._run_for(action)
+
+        self._synthesize(action, run, llm_content="Many users successfully joined the waitlist [obs 1].")
+
+        run.refresh_from_db()
+        self.assertIn("[obs 1]", run.synthesized_markdown)
 
 
 class TestMarkdownToSlack(BaseTest):

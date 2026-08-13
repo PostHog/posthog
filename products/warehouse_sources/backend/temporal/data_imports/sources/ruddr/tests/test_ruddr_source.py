@@ -6,7 +6,7 @@ from parameterized import parameterized
 from posthog.schema import ReleaseStatus, SourceFieldInputConfig, SourceFieldInputConfigType
 
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
-from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs import RuddrSourceConfig
+from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.ruddr import RuddrSourceConfig
 from products.warehouse_sources.backend.temporal.data_imports.sources.ruddr.ruddr import RuddrResumeConfig
 from products.warehouse_sources.backend.temporal.data_imports.sources.ruddr.settings import ENDPOINTS
 from products.warehouse_sources.backend.temporal.data_imports.sources.ruddr.source import RuddrSource

@@ -202,6 +202,22 @@ class TestProperty(BaseTest):
             self._parse_expr("toString(properties.a) not ilike '%3%'"),
         )
         self.assertEqual(
+            self._property_to_expr({"type": "event", "key": "a", "value": "3", "operator": "starts_with"}),
+            self._parse_expr("toString(properties.a) ilike '3%'"),
+        )
+        self.assertEqual(
+            self._property_to_expr({"type": "event", "key": "a", "value": "3", "operator": "not_starts_with"}),
+            self._parse_expr("toString(properties.a) not ilike '3%'"),
+        )
+        self.assertEqual(
+            self._property_to_expr({"type": "event", "key": "a", "value": "3", "operator": "ends_with"}),
+            self._parse_expr("toString(properties.a) ilike '%3'"),
+        )
+        self.assertEqual(
+            self._property_to_expr({"type": "event", "key": "a", "value": "3", "operator": "not_ends_with"}),
+            self._parse_expr("toString(properties.a) not ilike '%3'"),
+        )
+        self.assertEqual(
             self._property_to_expr({"type": "event", "key": "a", "value": ".*", "operator": "regex"}),
             self._parse_expr("ifNull(match(toString(properties.a), '.*'), 0)"),
         )
@@ -437,6 +453,35 @@ class TestProperty(BaseTest):
             ),
         )
         self.assertIs(1, a.exprs[1].args[1].value)
+
+    def test_property_to_expr_event_list_starts_with_ends_with(self):
+        # positive operators combine multiple values with OR
+        self.assertEqual(
+            self._property_to_expr({"type": "event", "key": "a", "value": ["b", "c"], "operator": "starts_with"}),
+            self._parse_expr("toString(properties.a) ilike 'b%' or toString(properties.a) ilike 'c%'"),
+        )
+        self.assertEqual(
+            self._property_to_expr({"type": "event", "key": "a", "value": ["b", "c"], "operator": "ends_with"}),
+            self._parse_expr("toString(properties.a) ilike '%b' or toString(properties.a) ilike '%c'"),
+        )
+        # negative operators combine multiple values with AND
+        self.assertEqual(
+            self._property_to_expr({"type": "event", "key": "a", "value": ["b", "c"], "operator": "not_starts_with"}),
+            self._parse_expr("toString(properties.a) not ilike 'b%' and toString(properties.a) not ilike 'c%'"),
+        )
+        self.assertEqual(
+            self._property_to_expr({"type": "event", "key": "a", "value": ["b", "c"], "operator": "not_ends_with"}),
+            self._parse_expr("toString(properties.a) not ilike '%b' and toString(properties.a) not ilike '%c'"),
+        )
+        # a single-element list unwraps to a plain ILIKE, not a one-branch OR/AND
+        self.assertEqual(
+            self._property_to_expr({"type": "event", "key": "a", "value": ["single"], "operator": "starts_with"}),
+            self._parse_expr("toString(properties.a) ilike 'single%'"),
+        )
+        self.assertEqual(
+            self._property_to_expr({"type": "event", "key": "a", "value": ["single"], "operator": "not_ends_with"}),
+            self._parse_expr("toString(properties.a) not ilike '%single'"),
+        )
 
     def test_property_to_expr_feature(self):
         self.assertEqual(
@@ -1139,6 +1184,27 @@ class TestProperty(BaseTest):
                 scope="revenue_analytics",
             ),
             self._parse_expr("revenue_analytics_product.name = 'Product A'"),
+        )
+
+    @parameterized.expand([("event_scope", "event"), ("person_scope", "person")])
+    def test_account_custom_property_rejected_in_generic_scopes(self, _name, scope):
+        # Account custom properties only resolve inside customer analytics queries. Before the
+        # explicit guard, the non-strict dict path swallowed the unknown type into Constant(1),
+        # silently widening any query that carried such a filter.
+        with self.assertRaises(QueryError) as e:
+            self._property_to_expr(
+                {
+                    "type": "account_custom_property",
+                    "key": "11111111-2222-3333-4444-555555555555",
+                    "value": "b",
+                    "operator": "exact",
+                },
+                scope=scope,
+                strict=False,
+            )
+        self.assertEqual(
+            str(e.exception),
+            f"The 'account_custom_property' property filter does not work in '{scope}' scope",
         )
 
     def test_revenue_analytics_property_multiple_values(self):

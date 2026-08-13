@@ -104,10 +104,11 @@ def _make_update(
     relation_id: int,
     new_values: list[tuple[str, str] | None],
     old_values: list[tuple[str, str] | None] | None = None,
+    old_marker: bytes = b"K",
 ) -> bytes:
     data = b"U" + struct.pack("!I", relation_id)
     if old_values is not None:
-        data += b"K" + _make_tuple_data(old_values)
+        data += old_marker + _make_tuple_data(old_values)
     data += b"N" + _make_tuple_data(new_values)
     return data
 
@@ -299,8 +300,29 @@ class TestPgOutputDecoder:
 
         assert len(events) == 1
         assert events[0].columns["id"] == 1
-        # TOAST unchanged column should not appear in columns
+        # Not in columns (no value was sent), but marked omitted so downstream
+        # fills it from the last known state instead of writing NULL over it.
         assert "big_text" not in events[0].columns
+        assert events[0].omitted_columns == frozenset({"big_text"})
+
+    def test_unchanged_toast_filled_from_replica_identity_full_old_tuple(self):
+        # With REPLICA IDENTITY FULL the old tuple carries the TOAST value; since the
+        # column is unchanged, the old value IS the current value — no marker needed.
+        decoder = self._setup_decoder_with_relation(columns=[("id", _OID_INT4, -1), ("big_text", _OID_TEXT, -1)])
+
+        decoder.decode_message(_make_begin(), "0/100")
+        update = _make_update(
+            1,
+            new_values=[("t", "1"), ("u", "")],
+            old_values=[("t", "1"), ("t", "big toasted value")],
+            old_marker=b"O",
+        )
+        decoder.decode_message(update, "0/150")
+        events = decoder.decode_message(_make_commit(), "0/200")
+
+        assert len(events) == 1
+        assert events[0].columns["big_text"] == "big toasted value"
+        assert events[0].omitted_columns == frozenset()
 
     def test_transaction_buffering(self):
         decoder = self._setup_decoder_with_relation(columns=[("id", _OID_INT4, -1)])

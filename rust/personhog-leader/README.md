@@ -9,6 +9,36 @@
 - pods can scale up and down without service disruptions or inconsistent writes
 - crashed pods can be recovered from with minimal downtime
 
+### API contract: every RPC must be safe under at-least-once delivery
+
+A leader-path request can be delivered more than once: clients retry
+`UNAVAILABLE` after ambiguous failures, and the router internally
+replays fence- and transport-bounced requests. Neither layer can know
+whether an ambiguous first delivery applied, so the safety burden sits
+here, on the RPC's semantics — not in any retry policy.
+
+Be precise about what "safe" means today. Reads are pure.
+`UpdatePersonProperties` is a merge command with no request-level
+identity: re-applying the same merge converges to the same state
+*unless a different caller wrote the same field between the original
+apply and the replay*, in which case the replay clobbers the newer
+write. That interleaved case is the accepted at-least-once residual —
+the exposure is identical under client-driven retries, which the
+platform has always had — and its planned closure is operation
+identity: the router stamps each logical request with an op id, the
+leader keeps a short ring of recently applied ids on the cached person
+entry, and the id rides the produced record so warming rebuilds the
+ring on a new owner (scoped with the epoch-fencing work; the stamp and
+the ring land together).
+
+Future RPCs must clear the same bar: convergent under redelivery
+(tombstone-style deletes, max-merge version floors, re-appliable
+merges), or carrying explicit operation identity. An RPC that is
+neither (an unguarded increment, an append) is broken in this
+architecture regardless of router behavior and must not be added; this
+is a review requirement for new leader RPCs (see the
+`adding-personhog-rpc` skill).
+
 ### To Implement
 
 ### Known Implementation Details
@@ -50,6 +80,61 @@ TBD:
 - this offset is the boundary:
 - below the offset: state is durably in Postgres
 - at or above the offset: state is PG + the changes in our distributed log (the kafka topic)
+
+#### Admission
+
+Every record the leader produces to the changelog must be applyable by the
+writer's upsert verbatim: the changelog is the source of truth, Postgres is a
+downstream consumer of it, and a record the writer cannot apply would leave
+acked state that never lands (the writer halts rather than skip, since every
+later snapshot for a person builds on the same state). Admission enforces
+this before the ack, under the per-person lock, on the merged result of each
+update:
+
+1. **Sanitize** (`personhog_common::properties::sanitize_for_jsonb`): NUL
+   (`\u0000`) becomes `\u{FFFD}` in every string, matching the Node
+   pipeline's `sanitizeJsonbValue` — Postgres jsonb refuses NUL. Floats
+   beyond ±1e307 are clamped: Postgres renders jsonb numerics in expanded
+   decimal, and serde_json cannot parse expansions of ~1e308+, so larger
+   values would apply but never load back.
+2. **Measure** (`jsonb_column_size`): an exact reimplementation of
+   `pg_column_size` for JSONB, welded byte-equal to a live Postgres by
+   `personhog-common/tests/jsonb_size_pg.rs`. A merged result above the
+   threshold (the `check_properties_size` ceiling) follows the Node
+   pipeline's policy (`handleOversizedPersonProperties`): if the stored
+   row was already over the threshold, it is remediated — non-protected
+   properties trimmed alphabetically to the target, the triggering
+   update's property changes discarded; if the row was within limits, the
+   update is rejected with `INVALID_ARGUMENT`. Errors carry sizes, never
+   values, and remediation that cannot fit (protected properties alone
+   exceed the target) also rejects. `PropertySizeLimits::new` refuses
+   inverted configuration at startup.
+3. **Assert** (`assert_writeable`): identity fields that originate from
+   earlier state (uuid parses, team_id fits the column's integer,
+   created_at within sane bounds) — corrupt state must never reach the
+   changelog.
+
+The merge saga's fold (`FoldPersonDocument`) cannot reject for size — the
+saga would re-drive it forever — so its oversized path always completes:
+trim candidates are the fold's own contribution (a within-limit target
+never loses a key it held), the target's own keys join only when its
+stored document already exceeded the limit, and a trim that cannot reach
+the hysteresis target retries against the hard ceiling, since any document
+at or under the threshold is still applyable. The residual — a stored
+document whose protected keys alone exceed the ceiling, so no applyable
+fold document exists — completes without producing: the person keeps its
+pre-fold state, the fold's property and scalar effects are skipped, and
+the case is surfaced via `personhog_leader_folds_total{outcome=
+"unapplyable"}`, an error log, and a size-violation warning. This is an
+accepted gap: the alternatives are wedging the saga (reject) or halting
+the writer (produce an unapplyable record).
+
+Trims and rejections emit `person_properties_size_violation` ingestion
+warnings (`src/warnings.rs`), throttled per (team, type) to match the Node
+pipeline's limiter. The writer-side weld
+(`personhog-writer/tests/admission_weld.rs`) runs hostile property fixtures
+through these exact functions and the writer's real statement against live
+Postgres, asserting byte-exact round-trips.
 
 #### Cache warming on partition handoff
 
@@ -155,7 +240,8 @@ graph TB
     subgraph POD[PersonHog Leader BE]
         direction TB
         VALIDATE[Validate ownership] --> COMPUTE[Compute write]
-        COMPUTE --> CACHE[Update in-memory cache]
+        COMPUTE --> ADMIT[Admission: sanitize, measure, reject/remediate]
+        ADMIT --> CACHE[Update in-memory cache]
         CACHE --> KAFKA[Durably store to Kafka]
     end
 

@@ -12,7 +12,7 @@ from posthog.caching.utils import ThresholdMode, is_stale
 from posthog.hogql_queries.ai.ai_property_rewriter import AI_PROPERTY_TO_COLUMN
 from posthog.models.team.team import Team
 
-_HEAVY_PROPERTIES: frozenset[str] = frozenset(
+HEAVY_PROPERTY_NAMES: frozenset[str] = frozenset(
     {
         "$ai_input",
         "$ai_output",
@@ -22,7 +22,11 @@ _HEAVY_PROPERTIES: frozenset[str] = frozenset(
         "$ai_tools",
     }
 )
-HEAVY_COLUMN_TO_PROPERTY: dict[str, str] = {v: k for k, v in AI_PROPERTY_TO_COLUMN.items() if k in _HEAVY_PROPERTIES}
+HEAVY_COLUMN_TO_PROPERTY: dict[str, str] = {
+    column_name: property_name
+    for property_name, column_name in AI_PROPERTY_TO_COLUMN.items()
+    if property_name in HEAVY_PROPERTY_NAMES
+}
 
 # Ordered tuple of heavy column names. Used for unpacking event tuples from ClickHouse.
 # Keep in sync with the SQL tuple in trace_query_runner.py _build_query().

@@ -38,7 +38,7 @@ import {
 
 const DESTRUCTIVE_ERROR_PCT = 5
 
-// LIMIT in tool_quality.sql — when the fetched set hits this, more tools may exist.
+// LIMIT in MCPToolQualityRowsQueryRunner — when the fetched set hits this, more tools may exist.
 const TOOL_ROW_LIMIT = 200
 
 function formatToolCount(filtered: number, total: number): string {
@@ -117,7 +117,8 @@ function SortableHead({
 }
 
 function ToolRows(): JSX.Element {
-    const { filteredRows, toolRowsLoading, selectedTool, dateFilter } = useValues(mcpAnalyticsToolQualityLogic)
+    const { filteredRows, toolRowsLoading, selectedTool, dateFilter, pinnedInterval } =
+        useValues(mcpAnalyticsToolQualityLogic)
     const { setSelectedTool } = useActions(mcpAnalyticsToolQualityLogic)
 
     if (toolRowsLoading && filteredRows.length === 0) {
@@ -167,7 +168,7 @@ function ToolRows(): JSX.Element {
                         <Button
                             variant="outline"
                             size="sm"
-                            render={<LinkPrimitive to={mcpToolReportUrl(row.tool, dateFilter)} />}
+                            render={<LinkPrimitive to={mcpToolReportUrl(row.tool, dateFilter, pinnedInterval)} />}
                             onClick={(e) => e.stopPropagation()}
                             data-attr="mcp-tool-quality-full-report"
                         >

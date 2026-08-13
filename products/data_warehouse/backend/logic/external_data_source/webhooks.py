@@ -139,11 +139,14 @@ def create_and_register_webhook(
     config: Config,
     hog_fn_result: WebhookHogFunctionCreateResult,
     team_id: int,
+    api_version: str | None = None,
 ) -> WebhookSetupResult:
     """Create the external webhook and save any extra inputs (e.g. signing secret) onto the HogFunction."""
     assert hog_fn_result.hog_function is not None
 
-    result: WebhookCreationResult = source.create_webhook(config, hog_fn_result.webhook_url, team_id)
+    result: WebhookCreationResult = source.create_webhook(
+        config, hog_fn_result.webhook_url, team_id, api_version=api_version
+    )
 
     if result.success and result.extra_inputs:
         hog_function = hog_fn_result.hog_function
@@ -168,9 +171,12 @@ def reconcile_webhook_events(
     hog_fn_result: WebhookHogFunctionCreateResult,
     team_id: int,
     eligible_schema_names: list[str],
+    api_version: str | None = None,
 ) -> WebhookSyncResult:
     """Reconcile a registered webhook's events with the selected schemas (no-op by default)."""
-    return source.sync_webhook_events(config, hog_fn_result.webhook_url, team_id, eligible_schema_names)
+    return source.sync_webhook_events(
+        config, hog_fn_result.webhook_url, team_id, eligible_schema_names, api_version=api_version
+    )
 
 
 @dataclasses.dataclass
@@ -185,6 +191,7 @@ def delete_webhook_and_hog_function(
     source: WebhookSource,
     config: Config,
     source_id: str,
+    api_version: str | None = None,
 ) -> WebhookDeletionSetupResult:
     """Delete the HogFunction and attempt to remove the external webhook."""
 
@@ -200,7 +207,9 @@ def delete_webhook_and_hog_function(
 
     webhook_url = get_webhook_url(hog_function.id)
 
-    external_result: WebhookDeletionResult = source.delete_webhook(config, webhook_url, team.pk)
+    external_result: WebhookDeletionResult = source.delete_webhook(
+        config, webhook_url, team.pk, api_version=api_version
+    )
 
     hog_function.deleted = True
     hog_function.enabled = False

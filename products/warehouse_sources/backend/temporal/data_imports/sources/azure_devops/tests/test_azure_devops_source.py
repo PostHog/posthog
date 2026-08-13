@@ -4,6 +4,8 @@ from unittest import mock
 from posthog.schema import ReleaseStatus, SourceFieldInputConfig, SourceFieldInputConfigType
 
 from products.warehouse_sources.backend.temporal.data_imports.sources.azure_devops.azure_devops import (
+    AZURE_DEVOPS_VERSION_7_2,
+    AZURE_DEVOPS_VERSION_LEGACY,
     AzureDevOpsResumeConfig,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.azure_devops.settings import (
@@ -12,7 +14,9 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.azure_devo
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.azure_devops.source import AzureDevOpsSource
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
-from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs import AzureDevOpsSourceConfig
+from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.azuredevops import (
+    AzureDevOpsSourceConfig,
+)
 from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 
@@ -99,23 +103,26 @@ class TestAzureDevOpsSource:
         assert self.source.get_schemas(self.config, self.team_id, names=["nope"]) == []
 
     @pytest.mark.parametrize(
-        "mock_return, expected_valid, expected_message",
+        "probe_result",
         [
-            (True, True, None),
-            (False, False, "Invalid Azure DevOps credentials"),
+            (True, None),
+            (
+                False,
+                "Azure DevOps denied access. Please check that your personal access token has read scopes for this data.",
+            ),
         ],
     )
     @mock.patch(
         "products.warehouse_sources.backend.temporal.data_imports.sources.azure_devops.source.validate_azure_devops_credentials"
     )
-    def test_validate_credentials(self, mock_validate, mock_return, expected_valid, expected_message):
-        mock_validate.return_value = mock_return
+    def test_validate_credentials_passes_probe_result_through(self, mock_validate, probe_result):
+        mock_validate.return_value = probe_result
 
-        is_valid, error_message = self.source.validate_credentials(self.config, self.team_id)
-
-        assert is_valid is expected_valid
-        assert error_message == expected_message
-        mock_validate.assert_called_once_with("myorg", "pat")
+        # The specific failure reason from the probe must reach the caller unchanged, not be
+        # collapsed into a single generic message.
+        assert self.source.validate_credentials(self.config, self.team_id) == probe_result
+        # No pin at creation time resolves to default_version.
+        mock_validate.assert_called_once_with("myorg", "pat", AZURE_DEVOPS_VERSION_7_2)
 
     def test_get_resumable_source_manager_binds_resume_config(self):
         inputs = mock.MagicMock()
@@ -132,6 +139,7 @@ class TestAzureDevOpsSource:
         inputs.schema_name = "work_item_revisions"
         inputs.should_use_incremental_field = True
         inputs.db_incremental_field_last_value = "2024-01-02T03:04:05Z"
+        inputs.api_version = AZURE_DEVOPS_VERSION_7_2
         manager = mock.MagicMock()
 
         self.source.source_for_pipeline(self.config, manager, inputs)
@@ -142,8 +150,36 @@ class TestAzureDevOpsSource:
         assert kwargs["personal_access_token"] == "pat"
         assert kwargs["endpoint"] == "work_item_revisions"
         assert kwargs["resumable_source_manager"] is manager
+        assert kwargs["api_version"] == AZURE_DEVOPS_VERSION_7_2
         assert kwargs["should_use_incremental_field"] is True
         assert kwargs["db_incremental_field_last_value"] == "2024-01-02T03:04:05Z"
+
+    @pytest.mark.parametrize(
+        "pinned, expected",
+        [
+            (None, AZURE_DEVOPS_VERSION_7_2),
+            ("", AZURE_DEVOPS_VERSION_7_2),
+            (AZURE_DEVOPS_VERSION_LEGACY, AZURE_DEVOPS_VERSION_LEGACY),
+            (AZURE_DEVOPS_VERSION_7_2, AZURE_DEVOPS_VERSION_7_2),
+        ],
+    )
+    @mock.patch(
+        "products.warehouse_sources.backend.temporal.data_imports.sources.azure_devops.source.azure_devops_source"
+    )
+    def test_source_for_pipeline_resolves_the_pin(self, mock_ado_source, pinned, expected):
+        inputs = mock.MagicMock()
+        inputs.schema_name = "projects"
+        inputs.should_use_incremental_field = False
+        inputs.api_version = pinned
+
+        self.source.source_for_pipeline(self.config, mock.MagicMock(), inputs)
+
+        assert mock_ado_source.call_args.kwargs["api_version"] == expected
+
+    def test_default_version_is_the_new_ga_version(self):
+        # New sources start on 7.2; the legacy label stays supported so existing pins keep working.
+        assert self.source.default_version == AZURE_DEVOPS_VERSION_7_2
+        assert set(self.source.supported_versions) == {AZURE_DEVOPS_VERSION_LEGACY, AZURE_DEVOPS_VERSION_7_2}
 
     @mock.patch(
         "products.warehouse_sources.backend.temporal.data_imports.sources.azure_devops.source.azure_devops_source"

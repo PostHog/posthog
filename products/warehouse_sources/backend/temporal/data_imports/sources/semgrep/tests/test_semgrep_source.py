@@ -101,7 +101,8 @@ class TestResumableWiring:
     def test_source_for_pipeline_plumbs_arguments(self) -> None:
         inputs = MagicMock()
         inputs.schema_name = "sca_findings"
-        inputs.logger = MagicMock()
+        inputs.team_id = 7
+        inputs.job_id = "job-1"
         manager = MagicMock()
         with patch(
             "products.warehouse_sources.backend.temporal.data_imports.sources.semgrep.source.semgrep_source"
@@ -110,7 +111,8 @@ class TestResumableWiring:
         mocked.assert_called_once_with(
             api_token="token",
             endpoint="sca_findings",
-            logger=inputs.logger,
+            team_id=7,
+            job_id="job-1",
             resumable_source_manager=manager,
         )
 

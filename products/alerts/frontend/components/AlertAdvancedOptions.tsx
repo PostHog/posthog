@@ -5,13 +5,19 @@ import { LemonCollapse } from '@posthog/lemon-ui'
 interface AlertAdvancedOptionsProps {
     children: ReactNode
     enabledCount?: number
+    defaultOpen?: boolean
 }
 
-export function AlertAdvancedOptions({ children, enabledCount = 0 }: AlertAdvancedOptionsProps): JSX.Element {
+export function AlertAdvancedOptions({
+    children,
+    enabledCount = 0,
+    defaultOpen = false,
+}: AlertAdvancedOptionsProps): JSX.Element {
     const countLabel = `${enabledCount} advanced option${enabledCount === 1 ? '' : 's'} on`
 
     return (
         <LemonCollapse
+            defaultActiveKey={defaultOpen ? 'advanced' : undefined}
             panels={[
                 {
                     key: 'advanced',

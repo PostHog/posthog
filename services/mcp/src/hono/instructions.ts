@@ -108,18 +108,21 @@ export class InstructionsBuilder {
         const supportsInstructions = state.clientProfile.capabilities.supportsInstructions
         // Claude web/desktop report `supportsInstructions` but never surface the
         // `instructions` payload to the model, so its env-context (tool domains,
-        // project metadata, group types) would be lost. Keep it on the exec command
-        // description for those chat hosts only — Cowork surfaces instructions
-        // normally and gets env-context through them. (Codex, which reports
-        // `supportsInstructions: false`, already gets the full env-context via the
+        // project metadata, group types) would be lost. Those chat hosts get their
+        // own smaller-budget reference. (Codex, which reports
+        // `supportsInstructions: false`, gets the full env-context via the
         // un-stripped path.)
-        const keepEnvContext = state.clientProfile.isClaudeChatHost()
         const ctx = this.buildContext(state)
-        if (keepEnvContext) {
+        if (state.clientProfile.isClaudeChatHost()) {
             return this.formatter.buildClaudeExecCommandReference(ctx)
         }
         return this.formatter.buildExecCommandReference(ctx, {
             stripEnvContext: supportsInstructions,
+            // Env-context rides here even for clients that honor `instructions`: that
+            // payload is capped at MCP_INSTRUCTIONS_CHAR_BUDGET and is spent entirely
+            // on the tool-domain index, which is the part that can't be recovered by
+            // any later tool call. This description has no such cap.
+            keepEnvContext: true,
         })
     }
 
@@ -139,11 +142,11 @@ export class InstructionsBuilder {
     }
 
     formatExecuteSqlDescription(toolFeatureFlags?: EvaluatedFlags): string {
-        // Data-catalog discovery is spliced into the same section so a flag-off render stays
-        // byte-identical to the un-gated prompt (no stray placeholder gaps).
         const dataCatalogEnabled = toolFeatureFlags?.[PRODUCT_DATA_CATALOG_FLAG] === true
+        // Metric discovery leads the splice so catalog-first routing still precedes
+        // raw schema discovery, without displacing the tool's own intro line.
         const schemaDiscovery = dataCatalogEnabled
-            ? `${SCHEMA_DISCOVERY.trim()}\n\n${CATALOG_TRUST_DISCOVERY.trim()}\n\n${METRIC_DISCOVERY.trim()}`
+            ? `${METRIC_DISCOVERY.trim()}\n\n${SCHEMA_DISCOVERY.trim()}\n\n${CATALOG_TRUST_DISCOVERY.trim()}`
             : SCHEMA_DISCOVERY.trim()
         return formatPrompt(EXECUTE_SQL_PROMPT, {
             guidelines: this.guidelines.trim(),

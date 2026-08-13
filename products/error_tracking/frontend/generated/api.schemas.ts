@@ -49,6 +49,10 @@ export const PropertyOperatorApi = {
     IsNot: 'is_not',
     Icontains: 'icontains',
     NotIcontains: 'not_icontains',
+    StartsWith: 'starts_with',
+    NotStartsWith: 'not_starts_with',
+    EndsWith: 'ends_with',
+    NotEndsWith: 'not_ends_with',
     Regex: 'regex',
     NotRegex: 'not_regex',
     Gt: 'gt',
@@ -291,6 +295,15 @@ export interface RevenueAnalyticsPropertyFilterApi {
     value?: (string | number | boolean)[] | string | number | boolean | null
 }
 
+export interface AccountCustomPropertyFilterApi {
+    key: string
+    label?: string | null
+    operator: PropertyOperatorApi
+    /** Customer analytics account custom property — the key is the property definition id */
+    type?: 'account_custom_property'
+    value?: (string | number | boolean)[] | string | number | boolean | null
+}
+
 export interface WorkflowVariablePropertyFilterApi {
     key: string
     label?: string | null
@@ -324,6 +337,7 @@ export interface PropertyGroupFilterValueApi {
         | MetricPropertyFilterApi
         | SpanPropertyFilterApi
         | RevenueAnalyticsPropertyFilterApi
+        | AccountCustomPropertyFilterApi
         | WorkflowVariablePropertyFilterApi
     )[]
 }
@@ -612,6 +626,16 @@ export interface PatchedErrorTrackingGroupingRuleApi {
     readonly updated_at?: string
 }
 
+export type ErrorTrackingIssueSeverityApi =
+    (typeof ErrorTrackingIssueSeverityApi)[keyof typeof ErrorTrackingIssueSeverityApi]
+
+export const ErrorTrackingIssueSeverityApi = {
+    Low: 'low',
+    Medium: 'medium',
+    High: 'high',
+    Critical: 'critical',
+} as const
+
 export interface ErrorTrackingIssueAssigneeReadApi {
     readonly id: number | string | null
     type: string
@@ -628,6 +652,8 @@ export interface ErrorTrackingIssueCohortReadApi {
 export interface ErrorTrackingIssueReadApi {
     id: string
     status: string
+    /** Issue severity, or null when no severity is assigned. */
+    severity: ErrorTrackingIssueSeverityApi | null
     /** @nullable */
     name: string | null
     /** @nullable */
@@ -669,6 +695,8 @@ export interface ErrorTrackingIssueWriteApi {
      * * `resolved` - resolved
      * * `suppressed` - suppressed */
     status?: ErrorTrackingIssueWriteStatusEnumApi
+    /** Issue severity to set, or null to remove the assigned severity. */
+    severity?: ErrorTrackingIssueSeverityApi | null
     /**
      * Optional issue display name.
      * @nullable
@@ -688,6 +716,8 @@ export interface PatchedErrorTrackingIssueWriteApi {
      * * `resolved` - resolved
      * * `suppressed` - suppressed */
     status?: ErrorTrackingIssueWriteStatusEnumApi
+    /** Issue severity to set, or null to remove the assigned severity. */
+    severity?: ErrorTrackingIssueSeverityApi | null
     /**
      * Optional issue display name.
      * @nullable
@@ -706,6 +736,8 @@ export interface PatchedErrorTrackingIssueWriteApi {
 export interface PatchedErrorTrackingIssueReadApi {
     id?: string
     status?: string
+    /** Issue severity, or null when no severity is assigned. */
+    severity?: ErrorTrackingIssueSeverityApi | null
     /** @nullable */
     name?: string | null
     /** @nullable */
@@ -904,6 +936,10 @@ export interface ErrorTrackingIssueDetailApi {
  * * `is_not` - is_not
  * * `icontains` - icontains
  * * `not_icontains` - not_icontains
+ * * `starts_with` - starts_with
+ * * `not_starts_with` - not_starts_with
+ * * `ends_with` - ends_with
+ * * `not_ends_with` - not_ends_with
  * * `regex` - regex
  * * `not_regex` - not_regex
  * * `gt` - gt
@@ -925,6 +961,10 @@ export const PropertyItemOperatorEnumApi = {
     IsNot: 'is_not',
     Icontains: 'icontains',
     NotIcontains: 'not_icontains',
+    StartsWith: 'starts_with',
+    NotStartsWith: 'not_starts_with',
+    EndsWith: 'ends_with',
+    NotEndsWith: 'not_ends_with',
     Regex: 'regex',
     NotRegex: 'not_regex',
     Gt: 'gt',
@@ -974,6 +1014,7 @@ export const BlankEnumApi = {
  * * `span_attribute` - span_attribute
  * * `span_resource_attribute` - span_resource_attribute
  * * `revenue_analytics` - revenue_analytics
+ * * `account_custom_property` - account_custom_property
  * * `flag` - flag
  * * `workflow_variable` - workflow_variable
  */
@@ -1007,6 +1048,7 @@ export const PropertyFilterTypeEnumApi = {
     SpanAttribute: 'span_attribute',
     SpanResourceAttribute: 'span_resource_attribute',
     RevenueAnalytics: 'revenue_analytics',
+    AccountCustomProperty: 'account_custom_property',
     Flag: 'flag',
     WorkflowVariable: 'workflow_variable',
 } as const

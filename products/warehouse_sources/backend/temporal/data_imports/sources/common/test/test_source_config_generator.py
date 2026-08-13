@@ -26,9 +26,7 @@ from products.warehouse_sources.backend.types import ExternalDataSourceType
 class TestSourceConfigGenerator(ClickhouseTestMixin):
     def _run(self, sources: dict[ExternalDataSourceType, SourceConfig]) -> str:
         generator = SourceConfigGenerator()
-        for name, config in sources.items():
-            generator.generate_source_config(name, config)
-        return generator._build_output()
+        return "\n".join(generator._generate_module(name, config) for name, config in sources.items())
 
     @pytest.mark.usefixtures("unittest_snapshot")
     def test_source_config_types(self):
@@ -317,6 +315,37 @@ class TestSourceConfigGenerator(ClickhouseTestMixin):
         output = self._run({ExternalDataSourceType.GITHUB: config})
         assert (
             "repositories: list[str] | None = config.value(converter=config.str_to_optional_list, default_factory=lambda: None)"
+            in output
+        )
+
+    @pytest.mark.parametrize("required", [True, False])
+    def test_source_config_select_multiple_emits_optional_list(self, required):
+        # Same contract as the multiple oauth-account select: an optional list either way, so a
+        # config saved before the field existed keeps parsing.
+        config = SourceConfig(
+            name=SchemaExternalDataSourceType.GOOGLE_SEARCH_CONSOLE,
+            iconPath="",
+            fields=cast(
+                list[FieldType],
+                [
+                    SourceFieldSelectConfig(
+                        name="search_types",
+                        label="Search types",
+                        required=required,
+                        defaultValue="web",
+                        multiple=True,
+                        options=[
+                            SourceFieldSelectConfigOption(label="Web", value="web"),
+                            SourceFieldSelectConfigOption(label="Image", value="image"),
+                        ],
+                    ),
+                ],
+            ),
+        )
+
+        output = self._run({ExternalDataSourceType.GOOGLESEARCHCONSOLE: config})
+        assert (
+            "search_types: list[str] | None = config.value(converter=config.str_to_optional_list, default_factory=lambda: None)"
             in output
         )
 

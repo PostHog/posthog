@@ -39,6 +39,11 @@ export async function detectCodes(src: Src): Promise<Box[]> {
     // Structural ImageData (zxing dispatches on width/height/data); Node has no ImageData class, so
     // colorSpace only exists to satisfy the DOM type.
     const imageData = { data: rgba, width: W, height: H, colorSpace: 'srgb' } as ImageData
+    // tryHarder is the dominant cost here (roughly two thirds of this stage) and it stays on. It buys
+    // nothing on crisp on-screen codes, where dropping it finds the same 13 of 15 in dev/make-code-corpus,
+    // but a replay frame can hold a photographed code (a ticket on a phone, a webcam preview), and on
+    // camera-degraded versions of that same set it finds 13 of 15 against 8 without. Restricting
+    // formats is likewise a false economy: it drops a large Code128 that the full set decodes.
     const results = await readBarcodes(imageData, { tryHarder: true, maxNumberOfSymbols: 32 })
 
     const boxes: Box[] = []

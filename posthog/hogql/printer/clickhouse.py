@@ -9,6 +9,7 @@ from posthog.hogql import ast
 from posthog.hogql.ast import AST, Constant, StringType
 from posthog.hogql.constants import HogQLDialect
 from posthog.hogql.context import HogQLContext
+from posthog.hogql.database.direct_sql_table import DirectSQLTable
 from posthog.hogql.database.models import (
     DANGEROUS_NoTeamIdCheckTable,
     SavedQuery,
@@ -17,6 +18,10 @@ from posthog.hogql.database.models import (
 )
 from posthog.hogql.database.s3_table import DataWarehouseTable, S3Table
 from posthog.hogql.database.schema.events import EVENTS_TABLE_TYPES
+from posthog.hogql.database.schema.util.where_clause_extractor import (
+    extract_uuid_constants,
+    get_events_session_id_table_type,
+)
 from posthog.hogql.errors import ImpossibleASTError, InternalHogQLError, QueryError
 from posthog.hogql.escape_sql import (
     escape_clickhouse_identifier,
@@ -588,39 +593,6 @@ class ClickHousePrinter(BasePrinter):
         keys_placeholder = self.context.add_sensitive_value(sorted(keys_to_drop))
         return f"{JSON_DROP_KEYS_CLICKHOUSE_NAME}({keys_placeholder})({field_sql})"
 
-    def _get_events_session_id_table_type(self, node: ast.Expr) -> ast.BaseTableType | None:
-        """If the expression resolves to $session_id on the events table, return the table type."""
-        from posthog.hogql.database.schema.events import EventsTable
-
-        expr_type = resolve_field_type(node)
-
-        if isinstance(expr_type, ast.FieldType) and expr_type.name == "$session_id":
-            table_type = expr_type.table_type
-        elif (
-            isinstance(expr_type, ast.PropertyType)
-            and expr_type.chain == ["$session_id"]
-            and expr_type.field_type.name == "properties"
-        ):
-            table_type = expr_type.field_type.table_type
-        elif (
-            isinstance(node, ast.JsonSubcolumnAccess)
-            and node.keys == ["$session_id"]
-            and isinstance(resolve_field_type(node.expr), ast.FieldType)
-        ):
-            field_type = cast(ast.FieldType, resolve_field_type(node.expr))
-            if field_type.name != "properties":
-                return None
-            table_type = field_type.table_type
-        else:
-            return None
-
-        original_table_type = table_type
-        while isinstance(table_type, (ast.TableAliasType, ast.ColumnAliasedTableType)):
-            table_type = table_type.table_type
-        if isinstance(table_type, ast.TableType) and isinstance(table_type.table, EventsTable):
-            return cast(ast.BaseTableType, original_table_type)
-        return None
-
     def _get_optimized_session_id_compare_operation(self, node: ast.CompareOperation) -> str | None:
         """Rewrite $session_id comparisons against UUID constants to use the $session_id_uuid column."""
         op_name = {
@@ -635,13 +607,13 @@ class ClickHousePrinter(BasePrinter):
         session_id_table: ast.BaseTableType | None = None
         constants: list[ast.Constant] = []
 
-        if table := self._get_events_session_id_table_type(node.left):
+        if table := get_events_session_id_table_type(node.left):
             session_id_table = table
-            constants = self._extract_uuid_constants(node.right)
+            constants = extract_uuid_constants(node.right)
         elif node.op in (ast.CompareOperationOp.Eq, ast.CompareOperationOp.NotEq):
-            if table := self._get_events_session_id_table_type(node.right):
+            if table := get_events_session_id_table_type(node.right):
                 session_id_table = table
-                constants = self._extract_uuid_constants(node.left)
+                constants = extract_uuid_constants(node.left)
 
         if session_id_table is None or not constants:
             return None
@@ -652,20 +624,6 @@ class ClickHousePrinter(BasePrinter):
         if node.op in (ast.CompareOperationOp.Eq, ast.CompareOperationOp.NotEq):
             return f"{op_name}({field_sql}, {wrapped[0]})"
         return f"{op_name}({field_sql}, tuple({', '.join(wrapped)}))"
-
-    @staticmethod
-    def _extract_uuid_constants(node: ast.Expr) -> list[ast.Constant]:
-        """Extract UUID string constants from an expression. Returns empty list if any value is not a valid UUID."""
-        if isinstance(node, ast.Constant):
-            return [node] if UUIDT.is_valid_uuid(node.value) else []
-        if isinstance(node, (ast.Tuple, ast.Array)):
-            result: list[ast.Constant] = []
-            for expr in node.exprs:
-                if not isinstance(expr, ast.Constant) or not UUIDT.is_valid_uuid(expr.value):
-                    return []
-                result.append(expr)
-            return result
-        return []
 
     @staticmethod
     def _parse_zoned_datetime_constant(node: ast.Expr) -> datetime | None:
@@ -791,9 +749,13 @@ class ClickHousePrinter(BasePrinter):
                 return f"ifNull({op}, 1)"
             return op
         elif node.op == ast.CompareOperationOp.GlobalIn:
-            pass
+            return op
         elif node.op == ast.CompareOperationOp.GlobalNotIn:
-            pass
+            # Mirror NotIn above: GLOBAL only changes where the set is built, never the
+            # null semantics, so a nullable left keeps rows on NULL exactly like NOT IN.
+            if nullable_left and not not_nullable and not in_join_constraint and not in_index_hint:
+                return f"ifNull({op}, 1)"
+            return op
         elif node.op == ast.CompareOperationOp.Regex:
             value_if_both_sides_are_null = True
         elif node.op == ast.CompareOperationOp.NotRegex:
@@ -964,6 +926,17 @@ class ClickHousePrinter(BasePrinter):
     ):
         # :IMPORTANT: This assures a "team_id" where clause is present on every selected table.
         # Skip warehouse tables and tables with an explicit skip.
+        if isinstance(table_type.table, DirectSQLTable):
+            # An external table has no team_id — the connection it belongs to is what scopes it to a team.
+            # ClickHouse is both our own dialect and a direct engine, so refuse to print a direct table into a
+            # query aimed at our cluster: without this, a mislabelled table would silently read whatever
+            # `<database>.<table>` resolves to there, unfiltered.
+            if not self.context.is_direct_query:
+                raise QueryError(
+                    f'Table "{table_type.table.to_printed_hogql()}" can only be queried through its direct connection.'
+                )
+            return None
+
         if (
             not isinstance(table_type.table, DataWarehouseTable)
             and not isinstance(table_type.table, SavedQuery)
@@ -1032,6 +1005,32 @@ class ClickHousePrinter(BasePrinter):
             node.next_join or node.join_type == "JOIN" or (node.join_type and node.join_type.startswith("GLOBAL "))
         ):
             sql = f"(SELECT * FROM {sql})"
+
+        # ClickHouse doesn't push the outer team_id guard through joins into a postgresql()
+        # read, so a joined federated table gets COPY'd out of Postgres in full. Repeat the
+        # filter adjacent to the table function, where it does get pushed down; the outer
+        # guard stays and column pruning still applies through the SELECT *. Skip tables
+        # that declare predicates: those print in the enclosing select, and the wrap would
+        # block them from being pushed into the federated read alongside the team guard.
+        from posthog.hogql.database.postgres_table import (
+            PostgresTable,  # noqa: PLC0415 (keeps persons-DB deps off the printer import path)
+        )
+
+        if (
+            isinstance(table, PostgresTable)
+            # mypy proves this intersection impossible from signatures, but subclasses of
+            # both exist at runtime (customer_analytics _AccountScopedPostgresTable).
+            and not isinstance(table, DANGEROUS_NoTeamIdCheckTable)  # type: ignore[unreachable]
+            and "team_id" in table.fields
+            and not table.get_predicates()
+            and self.context.team_id is not None
+        ):
+            # The HogQL `team_id` field may map to a differently named DB column (e.g.
+            # system.teams exposes it as an alias of `id`), so filter the real column, not
+            # the HogQL name. Skip the wrap when the field isn't a plain column.
+            team_id_column = getattr(table.fields["team_id"], "name", None)
+            if team_id_column:
+                sql = f"(SELECT * FROM {sql} WHERE {team_id_column} = {int(self.context.team_id)})"
 
         return sql
 

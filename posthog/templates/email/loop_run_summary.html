@@ -1,0 +1,21 @@
+{% extends "email/base.html" %} {% load posthog_assets %} {% load posthog_filters %}
+{% block heading %}{{ event_title }}{% endblock %}
+{% block section %}
+<p>
+    Your loop <b>{{ loop_name }}</b>: {{ event_body }}
+</p>
+{% if report %}
+<div class="mt" style="white-space: pre-wrap; text-align: left; font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;">{{ report }}</div>
+{% endif %}
+{% if run_url %}
+<div class="mb mt text-center">
+    <a class="button" href="{{ run_url }}">View run</a>
+</div>
+<div class="mt">
+    <p>
+        If the button above doesn't work, paste this link into your browser:<br />
+        <a href="{{ run_url }}">{{ run_url }}</a>
+    </p>
+</div>
+{% endif %}
+{% endblock %}

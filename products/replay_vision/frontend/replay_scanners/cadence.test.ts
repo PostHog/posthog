@@ -59,4 +59,16 @@ describe('cadence', () => {
         expect(humanizeCadence({ weekdays: [0, 2], hour: 14, minute: 0 })).toBe('Weekly on Mon, Wed at 14:00')
         expect(humanizeCadence({ weekdays: [], hour: 8, minute: 0 })).toBe('Pick at least one day')
     })
+
+    it('labels the time with the schedule timezone so it is not read as the viewer local time', () => {
+        // UTC keeps this deterministic. A named zone's abbreviation flips with DST.
+        expect(humanizeCadence({ weekdays: [0, 1, 2, 3, 4, 5, 6], hour: 8, minute: 0 }, 'UTC')).toBe(
+            'Daily at 08:00 UTC'
+        )
+        expect(humanizeCadence({ weekdays: [0, 2], hour: 14, minute: 0 }, 'UTC')).toBe(
+            'Weekly on Mon, Wed at 14:00 UTC'
+        )
+        // Timezone is optional; without it the label stays as before.
+        expect(humanizeCadence({ weekdays: [0, 1, 2, 3, 4, 5, 6], hour: 8, minute: 0 })).toBe('Daily at 08:00')
+    })
 })

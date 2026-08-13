@@ -9,6 +9,7 @@ import math
 import uuid
 import asyncio
 from datetime import UTC, datetime, timedelta
+from types import SimpleNamespace
 from typing import Any
 
 import pytest
@@ -18,26 +19,52 @@ from unittest.mock import patch
 import numpy as np
 from parameterized import parameterized
 
+from posthog.hogql.constants import DEFAULT_RETURNED_ROWS
+
 from posthog.api.embedding_worker import EmbeddingResponse
 
 from products.mcp_analytics.backend import intent_clustering
+from products.mcp_analytics.backend.constants import MAX_SNAPSHOT_CLUSTERS
 from products.mcp_analytics.backend.intent_clustering import (
     DEFAULT_DISTANCE_THRESHOLD,
+    DESCRIPTION_EMBEDDING_PREFIX,
     EMBEDDING_MODEL,
+    JOURNEY_DEPTH,
+    MAX_ADVERTISED_LIST_EVENTS_PER_SESSION,
+    MAX_ADVERTISED_TOOLS_PER_SESSION,
+    MAX_DESCRIPTION_LENGTH,
     MAX_INTENT_TEXT_LENGTH,
+    MAX_TOOL_NAME_LENGTH,
+    MAX_TOOLS_IN_SNAPSHOT,
+    MAX_TOOLS_PER_ADVERTISED_LIST,
+    MIN_ADVERTISED_SESSIONS,
     NO_INTENT_RECORDED_FALLBACK,
+    SNAPSHOT_VERSION,
+    CallRecord,
+    CorpusStats,
     IntentRecord,
+    WindowStats,
     _content_hash,
     _decode_embedding,
     _encode_embedding,
     _medoid_index,
     _routing_entropy,
+    build_call_corpus,
     build_snapshot,
     cluster_embeddings,
-    embed_intents_async,
-    fetch_intent_corpus,
+    compute_cluster_flows,
+    compute_description_fit,
+    compute_tool_overlaps,
+    compute_tool_pivot,
+    embed_texts_async,
+    fetch_advertised_tools,
+    fetch_session_calls,
+    fetch_tool_descriptions,
+    fetch_window_stats,
+    sample_corpus_sessions,
+    top_corpus_tools,
 )
-from products.mcp_analytics.backend.models import MCPIntentEmbeddingCache, MCPSession
+from products.mcp_analytics.backend.models import MCPIntentEmbeddingCache
 from products.mcp_analytics.backend.tests import _MCPAnalyticsTeamScopedTestMixin
 
 # Helpers
@@ -236,23 +263,605 @@ class TestBuildSnapshot:
         with pytest.raises(AssertionError):
             build_snapshot(records, np.array([0, 0], dtype=np.int64), np.array([_unit([1.0, 0.0])]))
 
+    def test_caps_stored_clusters_and_keeps_the_full_count_in_meta(self) -> None:
+        # A degenerate run (tight threshold, diverse corpus) can label almost every
+        # intent as its own cluster; without the cap the persisted blob and the
+        # unpaginated API response grow unbounded.
+        n_total = MAX_SNAPSHOT_CLUSTERS + 5
+        records = [
+            IntentRecord(intent_text=f"intent_{i}", frequency=i + 1, tool_counts={"tool_a": i + 1})
+            for i in range(n_total)
+        ]
+        labels = np.arange(n_total, dtype=np.int64)
+        embeddings = np.array([_unit([1.0, float(i + 1)]) for i in range(n_total)], dtype=np.float32)
 
-# fetch_intent_corpus -----------------------------------------------------
+        snapshot = build_snapshot(records, labels, embeddings)
+
+        assert len(snapshot["clusters"]) == MAX_SNAPSHOT_CLUSTERS
+        assert snapshot["computed_with"]["n_clusters"] == n_total
+        # The highest-volume clusters are the ones kept (call counts 1..n_total; the 5 smallest drop).
+        assert min(cluster["call_count"] for cluster in snapshot["clusters"]) == 6
+
+    def test_pivot_totals_survive_the_cluster_cap(self) -> None:
+        # The cluster cap runs before the pivot, so without care every per-tool
+        # total silently loses the calls of the clusters it dropped.
+        n_total = MAX_SNAPSHOT_CLUSTERS + 5
+        records = [
+            IntentRecord(intent_text=f"intent_{i}", frequency=i + 1, tool_counts={"tool_a": i + 1})
+            for i in range(n_total)
+        ]
+        labels = np.arange(n_total, dtype=np.int64)
+        embeddings = np.array([_unit([1.0, float(i + 1)]) for i in range(n_total)], dtype=np.float32)
+
+        snapshot = build_snapshot(records, labels, embeddings, calls_by_session={})
+
+        tool = snapshot["tools"][0]
+        assert tool["call_count"] == sum(range(1, n_total + 1))
+        assert tool["n_clusters_served"] == n_total
+        assert {entry["cluster_id"] for entry in tool["clusters"]} <= {c["id"] for c in snapshot["clusters"]}
+
+    def test_pivot_tools_match_the_population_descriptions_are_fetched_for(self) -> None:
+        # Descriptions are only fetched for top_corpus_tools(records). If the pivot
+        # ranks a different population, a tool that made the pivot never has a
+        # description fetched and renders as "none captured" for no visible reason.
+        n_tools = MAX_TOOLS_IN_SNAPSHOT + 5
+        records = [
+            IntentRecord(intent_text=f"intent_{i}", frequency=i + 1, tool_counts={f"tool_{i:04d}": i + 1})
+            for i in range(n_tools)
+        ]
+        labels = np.arange(n_tools, dtype=np.int64)
+        embeddings = np.array([_unit([1.0, float(i + 1)]) for i in range(n_tools)], dtype=np.float32)
+
+        snapshot = build_snapshot(records, labels, embeddings, calls_by_session={})
+
+        assert {tool["tool"] for tool in snapshot["tools"]} == top_corpus_tools(records)
+
+    def test_empty_corpus_keeps_the_coverage_it_does_know(self) -> None:
+        # A run that saw traffic but could attribute none of it must not look
+        # identical to a run that saw nothing at all — "0% of calls carried an
+        # intent" is the message that tells the owner what to fix.
+        snapshot = build_snapshot(
+            [],
+            np.array([], dtype=np.int64),
+            np.zeros((0, 4), dtype=np.float32),
+            window_stats=WindowStats(total_calls=400, calls_with_intent=0, sessions=25),
+        )
+
+        assert snapshot["clusters"] == []
+        assert snapshot["computed_with"]["window_sessions"] == 25
+        assert snapshot["computed_with"]["intent_coverage_pct"] == pytest.approx(0.0)
+
+    def test_snapshot_is_versioned_and_v1_style_invocation_degrades(self) -> None:
+        records = [IntentRecord(intent_text="a", frequency=1, tool_counts={"tool_a": 1})]
+        snapshot = build_snapshot(records, np.array([0], dtype=np.int64), np.array([_unit([1.0, 0.0])]))
+
+        assert snapshot["version"] == SNAPSHOT_VERSION
+        assert snapshot["tools"] == []
+        assert snapshot["tool_overlaps"] == []
+        assert snapshot["clusters"][0]["switches"] == []
+        assert snapshot["clusters"][0]["self_retries"] == []
+        assert snapshot["computed_with"]["sampled_sessions"] is None
+        assert snapshot["computed_with"]["intent_coverage_pct"] is None
+
+    def test_full_v2_snapshot_carries_pivot_overlaps_and_meta(self) -> None:
+        records = [
+            IntentRecord(intent_text="check flags", frequency=3, session_count=1, tool_counts={"flag_get": 3}),
+            IntentRecord(
+                intent_text="run a query",
+                frequency=3,
+                session_count=1,
+                tool_counts={"sql_run": 2, "flag_get": 1},
+                error_counts={"sql_run": 1},
+            ),
+        ]
+        labels = np.array([0, 1], dtype=np.int64)
+        embeddings = np.array([_unit([1.0, 0.0]), _unit([0.0, 1.0])], dtype=np.float32)
+        calls_by_session = {
+            "s1": [
+                CallRecord(session_id="s1", tool="flag_get", intent_text="check flags", is_error=False),
+                CallRecord(session_id="s1", tool="flag_get", intent_text="check flags", is_error=False),
+                CallRecord(session_id="s1", tool="flag_get", intent_text="check flags", is_error=False),
+                CallRecord(session_id="s1", tool="sql_run", intent_text="run a query", is_error=True),
+                CallRecord(session_id="s1", tool="sql_run", intent_text="run a query", is_error=False),
+                CallRecord(session_id="s1", tool="flag_get", intent_text="run a query", is_error=False),
+            ],
+        }
+        snapshot = build_snapshot(
+            records,
+            labels,
+            embeddings,
+            calls_by_session=calls_by_session,
+            advertised_by_session={"s1": {"flag_get", "sql_run"}},
+            tool_descriptions={"flag_get": "Reads a feature flag"},
+            description_embeddings={"flag_get": _unit([1.0, 0.0])},
+            corpus_stats=CorpusStats(total_calls=8, attributed_calls=6, imputed_calls=1, kept_calls=6),
+            window_stats=WindowStats(total_calls=100, calls_with_intent=90, sessions=50),
+        )
+
+        assert snapshot["version"] == SNAPSHOT_VERSION
+        tools = {t["tool"]: t for t in snapshot["tools"]}
+        assert set(tools) == {"flag_get", "sql_run"}
+        assert tools["flag_get"]["call_count"] == 4
+        assert tools["flag_get"]["description"] == "Reads a feature flag"
+        assert tools["sql_run"]["description"] is None
+        assert len(snapshot["tool_overlaps"]) == 1
+
+        meta = snapshot["computed_with"]
+        assert meta["corpus"] == "per_call"
+        assert meta["sampled_sessions"] == 1
+        assert meta["window_sessions"] == 50
+        assert meta["session_coverage_pct"] == pytest.approx(2.0)
+        assert meta["intent_coverage_pct"] == pytest.approx(90.0)
+        assert meta["imputed_call_pct"] == pytest.approx(100.0 * 1 / 6, abs=0.1)
+        assert meta["unattributed_call_pct"] == pytest.approx(25.0)
+        assert meta["corpus_call_coverage_pct"] == pytest.approx(100.0)
+        assert meta["advertisement_coverage_pct"] == pytest.approx(100.0)
+        assert meta["n_tools"] == 2
+        assert meta["description_coverage_pct"] == pytest.approx(50.0)
 
 
-class TestFetchIntentCorpus(_MCPAnalyticsTeamScopedTestMixin, ClickhouseTestMixin, BaseTest):
-    """End-to-end: posthog_mcp_session in Postgres + $mcp_tool_call in ClickHouse."""
+# build_call_corpus --------------------------------------------------------
 
-    def _seed_session(
+
+class TestBuildCallCorpus:
+    def test_attributes_tool_counts_to_the_calls_own_intent(self) -> None:
+        # The v1 pipeline smeared the session's first intent across every call in
+        # the session, so tools used for a later intent were mis-credited.
+        rows = [
+            ("s1", "flag_get", "check flags", False),
+            ("s1", "sql_run", "run a query", False),
+        ]
+
+        records, _, _ = build_call_corpus(rows)
+
+        by_text = {r.intent_text: r for r in records}
+        assert by_text["check flags"].tool_counts == {"flag_get": 1}
+        assert by_text["run a query"].tool_counts == {"sql_run": 1}
+
+    def test_locf_carries_intent_within_but_not_across_sessions(self) -> None:
+        rows = [
+            ("s1", "flag_get", "check flags", False),
+            ("s1", "sql_run", "", False),
+            ("s2", "insight_get", "", False),
+            ("s2", "sql_run", "run a query", False),
+        ]
+
+        records, calls_by_session, stats = build_call_corpus(rows)
+
+        by_text = {r.intent_text: r for r in records}
+        assert by_text["check flags"].tool_counts == {"flag_get": 1, "sql_run": 1}
+        assert by_text["run a query"].tool_counts == {"sql_run": 1}
+        assert [c.intent_text for c in calls_by_session["s2"]] == [None, "run a query"]
+        assert stats.total_calls == 4
+        assert stats.attributed_calls == 3
+        assert stats.imputed_calls == 1
+
+    def test_error_counts_and_distinct_session_count(self) -> None:
+        rows = [
+            ("s1", "flag_get", "check flags", True),
+            ("s2", "flag_get", "check flags", False),
+            ("s2", "flag_get", "check flags", True),
+        ]
+
+        records, _, _ = build_call_corpus(rows)
+
+        assert len(records) == 1
+        assert records[0].frequency == 3
+        assert records[0].session_count == 2
+        assert records[0].error_counts == {"flag_get": 2}
+
+    @parameterized.expand(
+        [
+            ("placeholder", NO_INTENT_RECORDED_FALLBACK),
+            ("padded_placeholder", f"  {NO_INTENT_RECORDED_FALLBACK}  "),
+            ("empty", ""),
+            ("whitespace", "   "),
+        ]
+    )
+    def test_non_intents_are_treated_as_absent(self, _name: str, raw_intent: str) -> None:
+        records, calls_by_session, stats = build_call_corpus([("s1", "flag_get", raw_intent, False)])
+
+        assert records == []
+        assert calls_by_session["s1"][0].intent_text is None
+        assert stats.attributed_calls == 0
+
+    def test_oversized_intent_is_clipped_before_grouping(self) -> None:
+        records, _, _ = build_call_corpus([("s1", "flag_get", "x" * (MAX_INTENT_TEXT_LENGTH * 3), False)])
+
+        assert [len(r.intent_text) for r in records] == [MAX_INTENT_TEXT_LENGTH]
+
+    def test_top_n_keeps_highest_call_count_intents_and_reports_kept_calls(self) -> None:
+        rows = [("s1", "t", "popular", False)] * 3 + [("s2", "t", "middling", False)] * 2 + [("s3", "t", "rare", False)]
+
+        records, _, stats = build_call_corpus(rows, top_n=2)
+
+        assert [r.intent_text for r in records] == ["popular", "middling"]
+        assert stats.attributed_calls == 6
+        assert stats.kept_calls == 5
+
+
+# compute_cluster_flows ----------------------------------------------------
+
+
+def _record(intent: str) -> IntentRecord:
+    return IntentRecord(intent_text=intent, frequency=1, tool_counts={})
+
+
+class TestComputeClusterFlows:
+    def test_journeys_use_only_the_clusters_own_calls(self) -> None:
+        # One session serving two intents: each cluster's journey and outcome must
+        # come from its own calls, not the whole session (an error on the other
+        # intent's call must not mark this cluster's journey as errored).
+        records = [_record("intent a"), _record("intent b")]
+        labels = np.array([0, 1], dtype=np.int64)
+        calls_by_session = {
+            "s1": [
+                CallRecord(session_id="s1", tool="tool_x", intent_text="intent a", is_error=False),
+                CallRecord(session_id="s1", tool="tool_z", intent_text="intent b", is_error=True),
+                CallRecord(session_id="s1", tool="tool_y", intent_text="intent a", is_error=False),
+            ],
+        }
+
+        flows = compute_cluster_flows(records, labels, calls_by_session)
+
+        journey_a = flows[0]["journey"]
+        assert journey_a["paths"] == [{"steps": ["tool_x", "tool_y", None, None], "outcome": "completed", "count": 1}]
+        journey_b = flows[1]["journey"]
+        assert journey_b["paths"][0]["outcome"] == "error"
+        assert flows[0]["session_ids"] == {"s1"}
+
+    def test_journey_clips_to_depth(self) -> None:
+        records = [_record("intent a")]
+        labels = np.array([0], dtype=np.int64)
+        calls = [
+            CallRecord(session_id="s1", tool=f"tool_{i}", intent_text="intent a", is_error=False)
+            for i in range(JOURNEY_DEPTH + 2)
+        ]
+
+        flows = compute_cluster_flows(records, labels, {"s1": calls})
+
+        steps = flows[0]["journey"]["paths"][0]["steps"]
+        assert len(steps) == JOURNEY_DEPTH
+        assert steps == [f"tool_{i}" for i in range(JOURNEY_DEPTH)]
+
+    @parameterized.expand(
+        [
+            (
+                "error_then_other_tool_is_a_switch",
+                True,
+                "tool_b",
+                [{"from_tool": "tool_a", "to_tool": "tool_b", "count": 1}],
+                [],
+            ),
+            ("error_then_same_tool_is_a_retry", True, "tool_a", [], [{"tool": "tool_a", "count": 1}]),
+            ("success_then_other_tool_is_neither", False, "tool_b", [], []),
+        ]
+    )
+    def test_switch_and_retry_extraction(
         self,
-        session_id: str,
-        intent: str,
-        *,
-        created_at_offset: timedelta = timedelta(minutes=-55),
+        _name: str,
+        first_errors: bool,
+        second_tool: str,
+        expected_switches: list[dict],
+        expected_retries: list[dict],
     ) -> None:
-        session = MCPSession.objects.create(team=self.team, session_id=session_id, intent=intent)
-        # created_at is auto_now_add, so override it directly to position the row in the lookback window.
-        MCPSession.objects.filter(pk=session.pk).update(created_at=datetime.now(tz=UTC) + created_at_offset)
+        records = [_record("intent a")]
+        labels = np.array([0], dtype=np.int64)
+        calls_by_session = {
+            "s1": [
+                CallRecord(session_id="s1", tool="tool_a", intent_text="intent a", is_error=first_errors),
+                CallRecord(session_id="s1", tool=second_tool, intent_text="intent a", is_error=False),
+            ],
+        }
+
+        flows = compute_cluster_flows(records, labels, calls_by_session)
+
+        assert flows[0]["switches"] == expected_switches
+        assert flows[0]["self_retries"] == expected_retries
+
+    def test_unattributed_calls_are_invisible_to_flows(self) -> None:
+        records = [_record("intent a")]
+        labels = np.array([0], dtype=np.int64)
+        calls_by_session = {
+            "s1": [
+                CallRecord(session_id="s1", tool="tool_a", intent_text="intent a", is_error=True),
+                CallRecord(session_id="s1", tool="stray", intent_text=None, is_error=False),
+                CallRecord(session_id="s1", tool="tool_b", intent_text="intent a", is_error=False),
+            ],
+        }
+
+        flows = compute_cluster_flows(records, labels, calls_by_session)
+
+        assert flows[0]["journey"]["paths"][0]["steps"] == ["tool_a", "tool_b", None, None]
+        assert flows[0]["switches"] == [{"from_tool": "tool_a", "to_tool": "tool_b", "count": 1}]
+
+
+# top_corpus_tools ----------------------------------------------------------
+
+
+class TestTopCorpusTools:
+    def test_caps_to_the_highest_volume_corpus_tools(self) -> None:
+        # A caller emitting unique tool names per call could otherwise turn one
+        # recompute into one embedding request per unique name.
+        records = [
+            IntentRecord(intent_text="a", frequency=5, tool_counts={"busy": 5}),
+            IntentRecord(intent_text="b", frequency=3, tool_counts={"quiet": 1, "busy": 2}),
+        ]
+
+        assert top_corpus_tools(records, max_tools=1) == {"busy"}
+
+
+# compute_description_fit --------------------------------------------------
+
+
+class TestComputeDescriptionFit:
+    def test_fit_is_cosine_to_cluster_centroid(self) -> None:
+        embeddings = np.array([_unit([1.0, 0.0]), _unit([1.0, 0.0]), _unit([0.0, 1.0])], dtype=np.float32)
+        labels = np.array([0, 0, 1], dtype=np.int64)
+
+        fit = compute_description_fit(embeddings, labels, {"tool_a": _unit([1.0, 0.0])})
+
+        assert fit["tool_a"][0] == pytest.approx(1.0)
+        assert fit["tool_a"][1] == pytest.approx(0.0, abs=1e-6)
+
+    def test_tools_without_embeddings_are_absent(self) -> None:
+        embeddings = np.array([_unit([1.0, 0.0])], dtype=np.float32)
+        labels = np.array([0], dtype=np.int64)
+
+        assert compute_description_fit(embeddings, labels, {}) == {}
+
+
+# compute_tool_pivot -------------------------------------------------------
+
+
+def _cluster_fixture() -> list[dict[str, Any]]:
+    return [
+        {
+            "id": 0,
+            "label": "check flags",
+            "call_count": 10,
+            "routing_entropy": 0.5,
+            "tool_distribution": [
+                {"tool": "t1", "count": 6, "pct": 60.0, "errors": 1, "error_rate_pct": 16.7},
+                {"tool": "t2", "count": 4, "pct": 40.0, "errors": 0, "error_rate_pct": 0.0},
+            ],
+        },
+        {
+            "id": 1,
+            "label": "run queries",
+            "call_count": 4,
+            "routing_entropy": 0.0,
+            "tool_distribution": [
+                {"tool": "t1", "count": 4, "pct": 100.0, "errors": 0, "error_rate_pct": 0.0},
+            ],
+        },
+    ]
+
+
+def _attributed_call(session: str, tool: str, intent: str = "check flags") -> CallRecord:
+    return CallRecord(session_id=session, tool=tool, intent_text=intent, is_error=False)
+
+
+class TestComputeToolPivot:
+    def test_capture_rank_competitor_and_contested_score(self) -> None:
+        pivot, dropped = compute_tool_pivot(
+            _cluster_fixture(),
+            calls_by_session={"s1": [_attributed_call("s1", "t1"), _attributed_call("s1", "t2")]},
+            advertised_by_session={},
+            tool_descriptions={},
+            description_fit={},
+        )
+
+        assert dropped == 0
+        by_tool = {t["tool"]: t for t in pivot}
+        t1 = by_tool["t1"]
+        assert t1["call_count"] == 10
+        assert t1["error_count"] == 1
+        # Call-weighted mean of cluster entropies: (6*0.5 + 4*0.0) / 10.
+        assert t1["contested_score"] == pytest.approx(0.3)
+        assert [c["cluster_id"] for c in t1["clusters"]] == [0, 1]
+        first = t1["clusters"][0]
+        assert first["capture_pct"] == pytest.approx(60.0)
+        assert first["rank"] == 1
+        assert first["top_competitor"] == {"tool": "t2", "pct": 40.0}
+        t2 = by_tool["t2"]
+        assert t2["clusters"][0]["rank"] == 2
+        assert t2["clusters"][0]["top_competitor"] == {"tool": "t1", "pct": 60.0}
+        assert by_tool["t1"]["clusters"][1]["top_competitor"] is None
+
+    def test_advertised_denominator_ignores_sessions_absent_from_the_corpus(self) -> None:
+        # The row cap can drop whole sessions after their ids were sampled. Leaving
+        # them in the advertised denominator with nothing in the numerator drags
+        # every discovery rate down exactly when the truncation warning fires.
+        advertised = {f"s{i}": {"t1"} for i in range(MIN_ADVERTISED_SESSIONS + 3)}
+        calls = {f"s{i}": [_attributed_call(f"s{i}", "t1")] for i in range(MIN_ADVERTISED_SESSIONS)}
+
+        pivot, _ = compute_tool_pivot(
+            _cluster_fixture(),
+            calls_by_session=calls,
+            advertised_by_session=advertised,
+            tool_descriptions={},
+            description_fit={},
+        )
+
+        t1 = {t["tool"]: t for t in pivot}["t1"]
+        assert t1["advertised_sessions"] == MIN_ADVERTISED_SESSIONS
+        assert t1["discovery_rate_pct"] == pytest.approx(100.0)
+
+    def test_discovery_rate_needs_the_advertised_floor(self) -> None:
+        # t1 advertised in 5 corpus sessions and called in 3 of them: measurable at
+        # exactly the floor. t2 advertised in only 1 session: below the floor, so
+        # null. The other two sessions are in the corpus for a different tool.
+        advertised = {f"s{i}": {"t1"} for i in range(MIN_ADVERTISED_SESSIONS)}
+        advertised["s0"] = {"t1", "t2"}
+        calls = {f"s{i}": [_attributed_call(f"s{i}", "t1")] for i in range(3)}
+        calls |= {f"s{i}": [_attributed_call(f"s{i}", "t2")] for i in (3, 4)}
+
+        pivot, _ = compute_tool_pivot(
+            _cluster_fixture(),
+            calls_by_session=calls,
+            advertised_by_session=advertised,
+            tool_descriptions={},
+            description_fit={},
+        )
+
+        by_tool = {t["tool"]: t for t in pivot}
+        assert by_tool["t1"]["advertised_sessions"] == 5
+        assert by_tool["t1"]["called_when_advertised"] == 3
+        assert by_tool["t1"]["discovery_rate_pct"] == pytest.approx(60.0)
+        assert by_tool["t2"]["advertised_sessions"] == 1
+        assert by_tool["t2"]["discovery_rate_pct"] is None
+
+    def test_description_and_fit_are_attached(self) -> None:
+        pivot, _ = compute_tool_pivot(
+            _cluster_fixture(),
+            calls_by_session={},
+            advertised_by_session={},
+            tool_descriptions={"t1": "Reads a flag"},
+            description_fit={"t1": {0: 0.42}},
+        )
+
+        by_tool = {t["tool"]: t for t in pivot}
+        assert by_tool["t1"]["description"] == "Reads a flag"
+        assert by_tool["t1"]["clusters"][0]["description_fit"] == pytest.approx(0.42)
+        assert by_tool["t1"]["clusters"][1]["description_fit"] is None
+        assert by_tool["t2"]["description"] is None
+
+    def test_max_tools_cap_drops_lowest_volume_tools(self) -> None:
+        pivot, dropped = compute_tool_pivot(
+            _cluster_fixture(),
+            calls_by_session={},
+            advertised_by_session={},
+            tool_descriptions={},
+            description_fit={},
+            max_tools=1,
+        )
+
+        assert [t["tool"] for t in pivot] == ["t1"]
+        assert dropped == 1
+
+    def test_entries_carry_no_per_cluster_constants(self) -> None:
+        # label, cluster call count, and entropy are constants of the cluster, and
+        # a tool x cluster entry repeats them once per tool. At the caps this file
+        # sets that is megabytes of duplicated intent text in one JSONB blob, which
+        # is exactly what the cluster cap exists to prevent. The client joins the
+        # cluster's own fields on cluster_id instead.
+        pivot, _ = compute_tool_pivot(
+            _cluster_fixture(),
+            calls_by_session={},
+            advertised_by_session={},
+            tool_descriptions={},
+            description_fit={},
+        )
+
+        assert set(pivot[0]["clusters"][0]) == {
+            "cluster_id",
+            "calls",
+            "capture_pct",
+            "rank",
+            "description_fit",
+            "top_competitor",
+        }
+
+    def test_totals_span_every_cluster_while_entries_stay_joinable(self) -> None:
+        # Clusters past the snapshot cap are dropped from the blob, but their calls
+        # still happened: per-tool totals must count them, or the pivot silently
+        # under-reports. Entries stay restricted to persisted clusters so every
+        # cluster_id still resolves client-side.
+        pivot, _ = compute_tool_pivot(
+            _cluster_fixture(),
+            calls_by_session={},
+            advertised_by_session={},
+            tool_descriptions={},
+            description_fit={},
+            snapshot_cluster_ids={0},
+        )
+
+        t1 = {t["tool"]: t for t in pivot}["t1"]
+        assert t1["call_count"] == 10
+        assert t1["n_clusters_served"] == 2
+        assert [entry["cluster_id"] for entry in t1["clusters"]] == [0]
+
+    def test_session_count_counts_only_intent_attributed_calls(self) -> None:
+        # call_count is attributed calls only, and compute_tool_overlaps builds its
+        # session sets the same way. Counting unattributed calls here lets a tool
+        # show a healthy discovery rate driven entirely by calls that never entered
+        # a cluster.
+        calls = {
+            "s-attributed": [_attributed_call("s-attributed", "t1")],
+            "s-unattributed": [CallRecord(session_id="s-unattributed", tool="t1", intent_text=None, is_error=False)],
+        }
+
+        pivot, _ = compute_tool_pivot(
+            _cluster_fixture(),
+            calls_by_session=calls,
+            advertised_by_session={"s-attributed": {"t1"}, "s-unattributed": {"t1"}},
+            tool_descriptions={},
+            description_fit={},
+        )
+
+        t1 = {t["tool"]: t for t in pivot}["t1"]
+        assert t1["session_count"] == 1
+        assert t1["called_when_advertised"] == 1
+
+
+# compute_tool_overlaps ----------------------------------------------------
+
+
+class TestComputeToolOverlaps:
+    def test_contested_calls_sum_min_across_clusters(self) -> None:
+        calls_by_session = {
+            "s1": [_attributed_call("s1", "t1"), _attributed_call("s1", "t2")],
+            "s2": [_attributed_call("s2", "t1")],
+        }
+
+        overlaps, dropped = compute_tool_overlaps(_cluster_fixture(), calls_by_session)
+
+        assert dropped == 0
+        assert overlaps == [
+            {
+                "tool_a": "t1",
+                "tool_b": "t2",
+                "contested_calls": 4,
+                "sessions_with_both": 1,
+                "sessions_with_either": 2,
+                "top_cluster_id": 0,
+            }
+        ]
+
+    def test_max_pairs_cap_reports_dropped(self) -> None:
+        overlaps, dropped = compute_tool_overlaps(_cluster_fixture(), {}, max_pairs=0)
+
+        assert overlaps == []
+        assert dropped == 1
+
+    def test_pair_expansion_only_considers_each_clusters_head(self) -> None:
+        # An event sender controls tool names, so one intent can carry thousands of
+        # distinct tools; expanding all O(n^2) pairs before ranking would blow up
+        # the recompute. Only the head of each distribution enters pair expansion.
+        distribution: list[dict[str, Any]] = [
+            {"tool": f"t{i}", "count": 100 - i, "pct": 1.0, "errors": 0, "error_rate_pct": 0.0} for i in range(4)
+        ]
+        clusters = [
+            {
+                "id": 0,
+                "label": "x",
+                "call_count": sum(entry["count"] for entry in distribution),
+                "routing_entropy": 0.5,
+                "tool_distribution": distribution,
+            }
+        ]
+
+        overlaps, _ = compute_tool_overlaps(clusters, {}, max_tools_per_cluster=2)
+
+        assert [(o["tool_a"], o["tool_b"]) for o in overlaps] == [("t0", "t1")]
+
+
+# Corpus queries (ClickHouse-backed) ---------------------------------------
+
+
+class TestCorpusQueries(_MCPAnalyticsTeamScopedTestMixin, ClickhouseTestMixin, BaseTest):
+    """End-to-end coverage of the ClickHouse corpus queries behind the v2 pipeline."""
 
     def _seed_tool_call(
         self,
@@ -261,6 +870,8 @@ class TestFetchIntentCorpus(_MCPAnalyticsTeamScopedTestMixin, ClickhouseTestMixi
         is_error: bool = False,
         intent: str | None = None,
         timestamp: datetime | None = None,
+        exec_tool_name: str | None = None,
+        description: str | None = None,
     ) -> None:
         properties: dict[str, Any] = {
             "$session_id": session_id,
@@ -269,6 +880,10 @@ class TestFetchIntentCorpus(_MCPAnalyticsTeamScopedTestMixin, ClickhouseTestMixi
         }
         if intent is not None:
             properties["$mcp_intent"] = intent
+        if exec_tool_name is not None:
+            properties["$mcp_exec_tool_call_name"] = exec_tool_name
+        if description is not None:
+            properties["$mcp_tool_description"] = description
         _create_event(
             event_uuid=uuid.uuid4(),
             event="$mcp_tool_call",
@@ -278,131 +893,32 @@ class TestFetchIntentCorpus(_MCPAnalyticsTeamScopedTestMixin, ClickhouseTestMixi
             properties=properties,
         )
 
-    def test_returns_empty_when_no_sessions(self) -> None:
-        records, intent_by_session = fetch_intent_corpus(self.team)
-        assert records == []
-        assert intent_by_session == {}
-
-    def test_aggregates_tool_calls_across_sessions_with_matching_intent(self) -> None:
-        self._seed_session("session-a", "check feature flag rollout")
-        self._seed_session("session-b", "check feature flag rollout")
-        self._seed_tool_call("session-a", "feature_flag_get")
-        self._seed_tool_call("session-a", "feature_flag_get")
-        self._seed_tool_call("session-b", "feature_flag_get", is_error=True)
-        self._seed_tool_call("session-b", "query_run")
-        flush_persons_and_events()
-
-        records, intent_by_session = fetch_intent_corpus(self.team)
-
-        assert len(records) == 1
-        assert records[0].intent_text == "check feature flag rollout"
-        assert records[0].tool_counts == {"feature_flag_get": 3, "query_run": 1}
-        assert records[0].error_counts == {"feature_flag_get": 1}
-        assert records[0].frequency == 4
-        assert intent_by_session == {
-            "session-a": "check feature flag rollout",
-            "session-b": "check feature flag rollout",
-        }
-
-    def test_keeps_intents_without_tool_calls_as_zero_call_records(self) -> None:
-        # A session was logged but no events flowed through yet — we should
-        # still surface the intent so the UI can show "no calls yet".
-        self._seed_session("session-quiet", "quiet intent with no events")
-
-        records, _ = fetch_intent_corpus(self.team)
-
-        assert len(records) == 1
-        assert records[0].intent_text == "quiet intent with no events"
-        assert records[0].tool_counts == {}
-        assert records[0].frequency == 1
-
-    def test_lookback_days_excludes_sessions_outside_the_window(self) -> None:
-        # In-window session (intent generated ~55 min ago).
-        self._seed_session("recent", "recent intent")
-        # Out-of-window session (intent generated 10 days ago, beyond the 7-day default).
-        self._seed_session("old", "old intent", created_at_offset=timedelta(days=-10))
-
-        records, intent_by_session = fetch_intent_corpus(self.team)
-
-        assert {r.intent_text for r in records} == {"recent intent"}
-        assert intent_by_session == {"recent": "recent intent"}
-
-    @parameterized.expand(
-        [
-            ("default_7_excludes_old", 7, []),
-            ("override_30_includes_old", 30, ["old intent"]),
-        ]
-    )
-    def test_lookback_days_argument_is_respected(
-        self, _name: str, lookback_days: int, expected_intents: list[str]
-    ) -> None:
-        # Intent generated 10 days ago: excluded at 7 days, included at 30.
-        self._seed_session("old", "old intent", created_at_offset=timedelta(days=-10))
-
-        records, _ = fetch_intent_corpus(self.team, lookback_days=lookback_days)
-
-        assert [r.intent_text for r in records] == expected_intents
-
-    def test_builds_corpus_from_event_intents_without_session_rows(self) -> None:
-        # Two intents in one session: the chronologically first one represents it.
-        self._seed_tool_call(
-            "session-a",
-            "execute_sql",
-            intent="find slow queries",
-            timestamp=datetime.now(tz=UTC) - timedelta(hours=2),
+    def _seed_tools_list(self, session_id: str, tool_names: list[str]) -> None:
+        _create_event(
+            event_uuid=uuid.uuid4(),
+            event="$mcp_tools_list",
+            team=self.team,
+            distinct_id="seed",
+            timestamp=datetime.now(tz=UTC) - timedelta(hours=1),
+            properties={"$session_id": session_id, "$mcp_listed_tool_names": tool_names},
         )
-        self._seed_tool_call("session-a", "query_trends", intent="chart the slow queries")
-        # Calls without an intent still count toward the session's tool stats.
-        self._seed_tool_call("session-a", "insight_create")
-        self._seed_tool_call("session-b", "feature_flag_get", intent="check flag rollout", is_error=True)
+
+    def test_sample_returns_only_sessions_that_recorded_an_intent(self) -> None:
+        self._seed_tool_call("session-a", "execute_sql", intent="find slow queries")
+        self._seed_tool_call("session-quiet", "execute_sql")
         # Sessionless intent events must not enter the corpus.
         self._seed_tool_call("", "execute_sql", intent="orphan intent")
         flush_persons_and_events()
 
-        records, intent_by_session = fetch_intent_corpus(self.team)
-
-        assert intent_by_session == {
-            "session-a": "find slow queries",
-            "session-b": "check flag rollout",
-        }
-        by_text = {r.intent_text: r for r in records}
-        assert by_text["find slow queries"].tool_counts == {
-            "execute_sql": 1,
-            "query_trends": 1,
-            "insight_create": 1,
-        }
-        assert by_text["check flag rollout"].error_counts == {"feature_flag_get": 1}
-
-    def test_llm_summary_overrides_event_intent(self) -> None:
-        self._seed_tool_call("session-a", "execute_sql", intent="raw first intent")
-        flush_persons_and_events()
-        self._seed_session("session-a", "Condensed LLM summary of the session")
-
-        records, intent_by_session = fetch_intent_corpus(self.team)
-
-        assert intent_by_session == {"session-a": "Condensed LLM summary of the session"}
-        assert [r.intent_text for r in records] == ["Condensed LLM summary of the session"]
-
-    def test_oversized_event_intent_is_clipped(self) -> None:
-        # Agents control the intent text — an unbounded value would flow into
-        # embedding requests and the snapshot blob.
-        self._seed_tool_call("session-big", "execute_sql", intent="x" * (MAX_INTENT_TEXT_LENGTH * 5))
-        flush_persons_and_events()
-
-        records, intent_by_session = fetch_intent_corpus(self.team)
-
-        assert intent_by_session == {"session-big": "x" * MAX_INTENT_TEXT_LENGTH}
-        assert [len(r.intent_text) for r in records] == [MAX_INTENT_TEXT_LENGTH]
+        assert sample_corpus_sessions(self.team) == ["session-a"]
 
     @parameterized.expand(
         [
-            ("default_7_excludes_old", 7, {}),
-            ("override_30_includes_old", 30, {"session-old": "old event intent"}),
+            ("default_7_excludes_old", 7, []),
+            ("override_30_includes_old", 30, ["session-old"]),
         ]
     )
-    def test_event_intents_respect_lookback_window(
-        self, _name: str, lookback_days: int, expected: dict[str, str]
-    ) -> None:
+    def test_sample_respects_lookback_window(self, _name: str, lookback_days: int, expected: list[str]) -> None:
         self._seed_tool_call(
             "session-old",
             "execute_sql",
@@ -411,27 +927,131 @@ class TestFetchIntentCorpus(_MCPAnalyticsTeamScopedTestMixin, ClickhouseTestMixi
         )
         flush_persons_and_events()
 
-        _, intent_by_session = fetch_intent_corpus(self.team, lookback_days=lookback_days)
+        assert sample_corpus_sessions(self.team, lookback_days=lookback_days) == expected
 
-        assert intent_by_session == expected
+    def test_session_calls_are_ordered_and_use_the_effective_tool_name(self) -> None:
+        base = datetime.now(tz=UTC) - timedelta(hours=2)
+        self._seed_tool_call(
+            "session-a", "exec", intent="find slow queries", timestamp=base, exec_tool_name="execute_sql"
+        )
+        self._seed_tool_call("session-a", "query_trends", timestamp=base + timedelta(minutes=1), is_error=True)
+        self._seed_tool_call("session-b", "feature_flag_get", intent="check flags")
+        flush_persons_and_events()
 
-    @parameterized.expand(
-        [
-            ("raw", NO_INTENT_RECORDED_FALLBACK),
-            ("padded_whitespace", f"  {NO_INTENT_RECORDED_FALLBACK}  "),
+        rows = fetch_session_calls(self.team, ["session-a", "session-b"])
+
+        by_session: dict[str, list] = {}
+        for row in rows:
+            by_session.setdefault(row[0], []).append(row)
+        assert [(r[1], r[2], r[3]) for r in by_session["session-a"]] == [
+            ("execute_sql", "find slow queries", False),
+            ("query_trends", "", True),
         ]
-    )
-    def test_summariser_fallback_intent_is_excluded(self, _name: str, placeholder_text: str) -> None:
-        # Session whose intent column holds the summariser's "nothing here"
-        # placeholder — must be excluded so it doesn't form its own cluster.
-        # Whitespace variants must also be excluded after .strip().
-        self._seed_session("placeholder", placeholder_text)
-        self._seed_session("real", "look up feature flag rollout")
+        assert [(r[1], r[2], r[3]) for r in by_session["session-b"]] == [("feature_flag_get", "check flags", False)]
 
-        records, intent_by_session = fetch_intent_corpus(self.team)
+    def test_oversized_sender_strings_are_clipped_at_the_sql_boundary(self) -> None:
+        # A sender with the capture token controls these strings; without the SQL
+        # clip a recompute materializes up to 50k full-size values in worker memory.
+        long_tool = "t" * (MAX_TOOL_NAME_LENGTH + 50)
+        long_intent = "i" * (MAX_INTENT_TEXT_LENGTH + 50)
+        self._seed_tool_call("session-a", long_tool, intent=long_intent)
+        self._seed_tools_list("session-a", [long_tool])
+        flush_persons_and_events()
 
-        assert [r.intent_text for r in records] == ["look up feature flag rollout"]
-        assert intent_by_session == {"real": "look up feature flag rollout"}
+        rows = fetch_session_calls(self.team, ["session-a"])
+        advertised = fetch_advertised_tools(self.team, ["session-a"])
+
+        assert rows[0][1] == long_tool[:MAX_TOOL_NAME_LENGTH]
+        assert rows[0][2] == long_intent[:MAX_INTENT_TEXT_LENGTH]
+        # Discovery matching depends on the calls and advertised-catalog queries
+        # clipping tool names identically.
+        assert advertised["session-a"] == {rows[0][1]}
+
+    def test_advertised_tools_union_across_tools_list_events(self) -> None:
+        self._seed_tools_list("session-a", ["exec", "render-ui"])
+        self._seed_tools_list("session-a", ["exec", "query_trends"])
+        self._seed_tools_list("session-other", ["exec"])
+        flush_persons_and_events()
+
+        advertised = fetch_advertised_tools(self.team, ["session-a", "session-no-list"])
+
+        assert advertised == {"session-a": {"exec", "render-ui", "query_trends"}}
+
+    def test_advertised_catalog_is_bounded_per_list_and_per_session(self) -> None:
+        # Both the array and the number of tools-list events are sender-controlled, and the
+        # union aggregates both — without the SQL bounds one session can make the
+        # advertised-catalog aggregation arbitrarily large in ClickHouse memory.
+        oversized = [f"tool-{i}" for i in range(MAX_TOOLS_PER_ADVERTISED_LIST + 50)]
+        self._seed_tools_list("session-wide", oversized)
+        for i in range(MAX_ADVERTISED_LIST_EVENTS_PER_SESSION + 5):
+            self._seed_tools_list("session-chatty", [f"chatty-{i}"])
+        flush_persons_and_events()
+
+        # A third session pushes the distinct union past the per-session bound with
+        # events that each stay under the per-event and per-session-event caps.
+        for i in range(3):
+            self._seed_tools_list("session-union", [f"union-{i}-{j}" for j in range(400)])
+        flush_persons_and_events()
+
+        advertised = fetch_advertised_tools(self.team, ["session-wide", "session-chatty", "session-union"])
+
+        assert len(advertised["session-wide"]) == MAX_TOOLS_PER_ADVERTISED_LIST
+        assert len(advertised["session-chatty"]) <= MAX_ADVERTISED_LIST_EVENTS_PER_SESSION
+        assert len(advertised["session-union"]) == MAX_ADVERTISED_TOOLS_PER_SESSION
+
+    def test_window_stats_count_calls_intents_and_sessions(self) -> None:
+        self._seed_tool_call("session-a", "execute_sql", intent="find slow queries")
+        self._seed_tool_call("session-a", "query_trends")
+        self._seed_tool_call("session-b", "feature_flag_get")
+        # The corpus query requires a tool name, so nameless calls must stay out of
+        # these denominators too — intent_coverage_pct is read against the corpus.
+        self._seed_tool_call("session-a", "")
+        self._seed_tool_call("session-nameless", "")
+        flush_persons_and_events()
+
+        stats = fetch_window_stats(self.team)
+
+        assert stats == WindowStats(total_calls=3, calls_with_intent=1, sessions=2)
+
+    def test_tool_descriptions_take_the_latest_and_clip(self) -> None:
+        base = datetime.now(tz=UTC) - timedelta(hours=3)
+        self._seed_tool_call("s1", "execute_sql", description="old description", timestamp=base)
+        self._seed_tool_call(
+            "s1",
+            "execute_sql",
+            description="new " + "x" * MAX_DESCRIPTION_LENGTH,
+            timestamp=base + timedelta(minutes=5),
+        )
+        self._seed_tool_call("s1", "query_trends", timestamp=base)
+        flush_persons_and_events()
+
+        descriptions = fetch_tool_descriptions(self.team, ["execute_sql"])
+
+        # query_trends has calls in the window but is outside the requested set, so
+        # it never enters the aggregation; execute_sql resolves to its newest text.
+        assert set(descriptions) == {"execute_sql"}
+        assert descriptions["execute_sql"].startswith("new ")
+        assert len(descriptions["execute_sql"]) == MAX_DESCRIPTION_LENGTH
+        assert fetch_tool_descriptions(self.team, []) == {}
+
+    def test_corpus_queries_are_not_truncated_at_the_default_hogql_limit(self) -> None:
+        # execute_hogql_query injects LIMIT 100 into any query without an explicit
+        # LIMIT; every corpus query returns one-plus rows per sampled session, so a
+        # corpus above 100 sessions would silently lose calls and advertisements.
+        n_sessions = DEFAULT_RETURNED_ROWS + 20
+        for i in range(n_sessions):
+            self._seed_tool_call(f"session-{i}", "execute_sql", intent=f"unique intent {i}")
+            self._seed_tools_list(f"session-{i}", ["execute_sql"])
+        flush_persons_and_events()
+
+        session_ids = sample_corpus_sessions(self.team)
+        assert len(session_ids) == n_sessions
+
+        rows = fetch_session_calls(self.team, session_ids)
+        assert len(rows) == n_sessions
+
+        advertised = fetch_advertised_tools(self.team, session_ids)
+        assert len(advertised) == n_sessions
 
 
 # Embedding helpers -----------------------------------------------------
@@ -443,6 +1063,11 @@ class TestEmbeddingHelpers:
         assert _content_hash("hello") != _content_hash("ello")
         assert _content_hash("hello") == _content_hash("hello")  # stable
 
+    def test_content_hash_separates_embedding_kinds(self) -> None:
+        # Intent and description embeddings share one cache table; identical text
+        # under different prefixes must never collide into one cache row.
+        assert _content_hash("hello", prefix=DESCRIPTION_EMBEDDING_PREFIX) != _content_hash("hello")
+
     def test_encode_decode_round_trips_to_float32(self) -> None:
         vec = [0.1, -0.2, 0.5, 1.5e-3]
         blob = _encode_embedding(vec)
@@ -451,7 +1076,7 @@ class TestEmbeddingHelpers:
         assert np.allclose(decoded, np.asarray(vec, dtype=np.float32))
 
 
-# embed_intents_async (cache integration, mocked ORM) ------------------------
+# embed_texts_async (cache integration, mocked ORM) ------------------------
 
 
 def _fake_embedding(text: str) -> EmbeddingResponse:
@@ -462,7 +1087,7 @@ def _fake_embedding(text: str) -> EmbeddingResponse:
     return EmbeddingResponse(embedding=vec.tolist(), tokens_used=0, did_truncate=False)
 
 
-class TestEmbedIntentsAsyncCacheLogic:
+class TestEmbedTextsAsyncCacheLogic:
     """Cache hit/miss logic with the Postgres helpers mocked.
 
     The ORM round-trip is covered separately by ``TestEmbeddingCacheModel``
@@ -484,7 +1109,9 @@ class TestEmbedIntentsAsyncCacheLogic:
             patch.object(intent_clustering, "_persist_embedding", side_effect=_persist),
             patch.object(intent_clustering, "async_generate_embedding", side_effect=worker),
         ):
-            return asyncio.run(embed_intents_async(object(), texts))  # type: ignore[arg-type]
+            # A stub with an `id` stands in for Team — the failure-path log
+            # reads team.id, and the cache IO that needs a real team is mocked.
+            return asyncio.run(embed_texts_async(SimpleNamespace(id=0), texts))  # type: ignore[arg-type]
 
     def test_first_run_populates_cache(self) -> None:
         cached: dict[str, np.ndarray] = {}
@@ -540,8 +1167,8 @@ class TestEmbedIntentsAsyncCacheLogic:
 
     def test_duplicate_texts_each_call_the_worker(self) -> None:
         # Documents intentional production behaviour: dedup happens upstream
-        # (fetch_intent_corpus aggregates by distinct intent_text), so
-        # embed_intents_async itself does not dedup. If the caller passes the
+        # (build_call_corpus aggregates by distinct intent_text), so
+        # embed_texts_async itself does not dedup. If the caller passes the
         # same text twice, each call independently misses the in-memory cache
         # and hits the worker. The unique constraint on the cache row makes
         # the persist-side race harmless.

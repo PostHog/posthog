@@ -4,7 +4,7 @@
         {
             "properties": {
                 "orgId": {
-                    "description": "The organization to switch to: the `id` returned by `organizations-list` (a UUID-like string, not the organization name). Use `organizations-list` to resolve a name to its id.",
+                    "description": "The organization to switch to: the `id` returned by `organizations-get` (a UUID-like string, not the organization name). Use `organizations-get` to resolve a name to its id.",
                     "type": "string"
                 }
             },

@@ -8,7 +8,7 @@ from posthog.schema import (
 
 from products.warehouse_sources.backend.temporal.data_imports.sources.codacy.settings import ENDPOINTS
 from products.warehouse_sources.backend.temporal.data_imports.sources.codacy.source import CodacySource
-from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs import CodacySourceConfig
+from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.codacy import CodacySourceConfig
 from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 

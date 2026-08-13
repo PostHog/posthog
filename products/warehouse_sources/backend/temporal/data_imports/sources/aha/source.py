@@ -9,10 +9,6 @@ from posthog.schema import (
     SourceFieldInputConfigType,
 )
 
-from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline.typings import (
-    SourceInputs,
-    SourceResponse,
-)
 from products.warehouse_sources.backend.temporal.data_imports.sources.aha.aha import (
     AhaResumeConfig,
     aha_source,
@@ -29,7 +25,8 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common.sch
     SourceSchema,
     build_endpoint_schemas,
 )
-from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs import AhaSourceConfig
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.typings import SourceInputs, SourceResponse
+from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.aha import AhaSourceConfig
 from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 
@@ -108,6 +105,7 @@ Create an API key under **Settings → Personal → Developer → API keys** in 
         with_counts: bool = False,
         names: list[str] | None = None,
         force_refresh: bool = False,
+        api_version: str | None = None,
     ) -> list[SourceSchema]:
         # `build_endpoint_schemas` treats any endpoint present in the mapping as incremental, so
         # drop the full-refresh endpoints (empty `incremental_fields`) to keep them full refresh.
@@ -115,7 +113,7 @@ Create an API key under **Settings → Personal → Developer → API keys** in 
         return build_endpoint_schemas(ENDPOINTS, incremental_fields, names)
 
     def validate_credentials(
-        self, config: AhaSourceConfig, team_id: int, schema_name: Optional[str] = None
+        self, config: AhaSourceConfig, team_id: int, schema_name: Optional[str] = None, api_version: str | None = None
     ) -> tuple[bool, str | None]:
         try:
             ok, status_code = validate_aha_credentials(config.subdomain, config.api_key)

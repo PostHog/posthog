@@ -55,6 +55,7 @@ function makeState(tools: { name: string }[], overrides: Partial<ResolvedState> 
             isClaudeChatHost: vi.fn(() => false),
         } as any,
         requestContext: {
+            authMethod: 'personal_api_key',
             sessionId: 'sess-1',
             mcpClientName: 'test',
             mcpClientVersion: '1.0',
@@ -64,6 +65,7 @@ function makeState(tools: { name: string }[], overrides: Partial<ResolvedState> 
         sessionContext: null,
         allTools: tools as any,
         scopeGatedTools: [],
+        gatewayToolsEnabled: false,
         distinctId: 'test-distinct-id',
         renderUiEnabled: false,
         metadata: undefined,
@@ -186,33 +188,32 @@ describe('ToolExecutor', () => {
             expect(result.tools[0]!.name).toBe('exec')
         })
 
-        // Env-context (active project metadata + tool-domain index) must reach the model
-        // on the exec `command` for clients that don't otherwise receive the `instructions`
-        // payload: Codex reports `supportsInstructions: false` so never gets it, and Claude
-        // web/desktop report `true` but silently ignore it. Claude Code and Cowork strip
-        // it here because it arrives via `instructions` instead.
+        // Active project metadata reaches the model on the exec `command` for every
+        // single-exec client, including the ones that honor `instructions`: that payload is
+        // capped at MCP_INSTRUCTIONS_CHAR_BUDGET and spends all of it on the tool-domain
+        // index, so env-context would be the first thing a client-side truncation ate. The
+        // command description has no cap. The domain index is the mirror image — it stays
+        // out of the command description except for Claude web/desktop, which ignores
+        // `instructions` and has nowhere else to receive it.
         it.each([
             {
                 label: 'Claude web/desktop (ignores instructions)',
                 supportsInstructions: true,
                 isClaudeChatHost: true,
-                expectEnv: true,
             },
             {
                 label: 'Codex (supportsInstructions: false)',
                 supportsInstructions: false,
                 isClaudeChatHost: false,
-                expectEnv: true,
             },
             {
                 label: 'Claude Code / Cowork (consume instructions)',
                 supportsInstructions: true,
                 isClaudeChatHost: false,
-                expectEnv: false,
             },
         ])(
-            'injects project metadata into the exec command for $label → $expectEnv',
-            async ({ supportsInstructions, isClaudeChatHost, expectEnv }) => {
+            'injects project metadata into the exec command for $label',
+            async ({ supportsInstructions, isClaudeChatHost }) => {
                 const tools = catalog
                     .getPreBuiltEntries()
                     .slice(0, 5)
@@ -242,11 +243,7 @@ describe('ToolExecutor', () => {
                 expect(commandDesc.includes('- analytics:')).toBe(isClaudeChatHost)
                 expect(commandDesc.includes('### Retrieving data')).toBe(!isClaudeChatHost)
                 expect(commandDesc.includes(compactDomains)).toBe(isClaudeChatHost)
-                if (expectEnv) {
-                    expect(commandDesc).toContain(metadataMarker)
-                } else {
-                    expect(commandDesc).not.toContain(metadataMarker)
-                }
+                expect(commandDesc).toContain(metadataMarker)
             }
         )
 
@@ -288,13 +285,16 @@ describe('ToolExecutor', () => {
             expect(result.tools.map((t) => t.name)).toEqual(['exec', 'render-ui'])
 
             // The advertised schema is derived from the zod validation schema —
-            // pin the contract the agent writes calls against.
+            // pin the contract the agent writes calls against. The analytics
+            // client injects a required `context` intent parameter into every
+            // advertised tool (surfaced as `$mcp_intent`).
             const renderUiEntry = result.tools[1]!
             const properties = renderUiEntry.inputSchema.properties as Record<string, Record<string, unknown>>
             expect(properties.tool_name!.enum).toEqual(['survey-get'])
             expect(properties.tool_name!.description).toBeTruthy()
             expect(properties.tool_input!.description).toBeTruthy()
-            expect(renderUiEntry.inputSchema.required).toEqual(['tool_name'])
+            expect(properties.context!.description).toBeTruthy()
+            expect(renderUiEntry.inputSchema.required).toEqual(['tool_name', 'context'])
         })
 
         it('omits render-ui when render-ui is disabled, even with a UI-app tool available', async () => {

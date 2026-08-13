@@ -5,7 +5,16 @@ from urllib.parse import parse_qs, urlparse
 import pytest
 from unittest import mock
 
+import requests
+
 from products.warehouse_sources.backend.temporal.data_imports.sources.azure_devops.azure_devops import (
+    _FORBIDDEN_MESSAGE,
+    _INVALID_ORGANIZATION_MESSAGE,
+    _INVALID_PAT_MESSAGE,
+    _ORGANIZATION_NOT_FOUND_MESSAGE,
+    _UNREACHABLE_MESSAGE,
+    AZURE_DEVOPS_VERSION_7_2,
+    AZURE_DEVOPS_VERSION_LEGACY,
     AzureDevOpsAuthError,
     AzureDevOpsResumeConfig,
     _flatten_revision,
@@ -14,6 +23,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.azure_devo
     azure_devops_source,
     get_rows,
     validate_credentials,
+    wire_api_version,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.azure_devops.settings import (
     AZURE_DEVOPS_ENDPOINTS,
@@ -85,11 +95,12 @@ class TestValidateCredentials:
     @pytest.mark.parametrize(
         "status_code, expected",
         [
-            (200, True),
-            # An invalid PAT yields a 203 + HTML sign-in page, not a 401.
-            (203, False),
-            (401, False),
-            (404, False),
+            (200, (True, None)),
+            # An invalid or expired PAT yields a 203 + HTML sign-in page, not a 401.
+            (203, (False, _INVALID_PAT_MESSAGE)),
+            (401, (False, _INVALID_PAT_MESSAGE)),
+            (403, (False, _FORBIDDEN_MESSAGE)),
+            (404, (False, _ORGANIZATION_NOT_FOUND_MESSAGE)),
         ],
     )
     @mock.patch(
@@ -100,14 +111,60 @@ class TestValidateCredentials:
         response.status_code = status_code
         mock_session.return_value.get.return_value = response
 
-        assert validate_credentials("myorg", "pat") is expected
+        assert validate_credentials("myorg", "pat", AZURE_DEVOPS_VERSION_7_2) == expected
+
+    @pytest.mark.parametrize("status_code", [429, 500, 503])
+    @mock.patch(
+        "products.warehouse_sources.backend.temporal.data_imports.sources.azure_devops.azure_devops.make_tracked_session"
+    )
+    def test_validate_credentials_unexpected_status_names_the_status(self, mock_session, status_code):
+        # A throttled or Azure-side failure must not be reported as invalid credentials; the message
+        # names the status and stays actionable.
+        response = mock.MagicMock()
+        response.status_code = status_code
+        mock_session.return_value.get.return_value = response
+
+        is_valid, error = validate_credentials("myorg", "pat", AZURE_DEVOPS_VERSION_7_2)
+
+        assert is_valid is False
+        assert str(status_code) in (error or "")
+        assert "Invalid Azure DevOps credentials" not in (error or "")
 
     @mock.patch(
         "products.warehouse_sources.backend.temporal.data_imports.sources.azure_devops.azure_devops.make_tracked_session"
     )
     def test_validate_credentials_rejects_bad_org_without_request(self, mock_session):
-        assert validate_credentials("my org!", "pat") is False
+        assert validate_credentials("my org!", "pat", AZURE_DEVOPS_VERSION_7_2) == (
+            False,
+            _INVALID_ORGANIZATION_MESSAGE,
+        )
         mock_session.return_value.get.assert_not_called()
+
+    @mock.patch(
+        "products.warehouse_sources.backend.temporal.data_imports.sources.azure_devops.azure_devops.make_tracked_session"
+    )
+    def test_validate_credentials_reports_unreachable_on_transport_error(self, mock_session):
+        mock_session.return_value.get.side_effect = requests.ConnectionError("boom")
+
+        is_valid, error = validate_credentials("myorg", "pat", AZURE_DEVOPS_VERSION_7_2)
+
+        assert is_valid is False
+        assert error == _UNREACHABLE_MESSAGE
+        assert "boom" not in (error or "")
+
+    @pytest.mark.parametrize("version, wire", [(AZURE_DEVOPS_VERSION_LEGACY, "7.1"), (AZURE_DEVOPS_VERSION_7_2, "7.2")])
+    @mock.patch(
+        "products.warehouse_sources.backend.temporal.data_imports.sources.azure_devops.azure_devops.make_tracked_session"
+    )
+    def test_validate_credentials_sends_mapped_api_version(self, mock_session, version, wire):
+        response = mock.MagicMock()
+        response.status_code = 200
+        mock_session.return_value.get.return_value = response
+
+        validate_credentials("myorg", "pat", version)
+
+        url = mock_session.return_value.get.call_args.args[0]
+        assert parse_qs(urlparse(url).query)["api-version"] == [wire]
 
 
 class TestGetRows:
@@ -121,7 +178,7 @@ class TestGetRows:
         ]
 
         manager = _make_manager()
-        batches = list(get_rows("myorg", "pat", "projects", mock.MagicMock(), manager))
+        batches = list(get_rows("myorg", "pat", "projects", mock.MagicMock(), manager, AZURE_DEVOPS_VERSION_7_2))
 
         assert [item["id"] for batch in batches for item in batch] == ["p1", "p2"]
         second_url = mock_session.return_value.get.call_args_list[1].args[0]
@@ -137,7 +194,7 @@ class TestGetRows:
         ]
 
         manager = _make_manager()
-        batches = list(get_rows("myorg", "pat", "builds", mock.MagicMock(), manager))
+        batches = list(get_rows("myorg", "pat", "builds", mock.MagicMock(), manager, AZURE_DEVOPS_VERSION_7_2))
 
         assert batches == [[{"id": 1, "queueTime": "2024-01-01T00:00:00Z"}]]
         build_url = mock_session.return_value.get.call_args_list[1].args[0]
@@ -162,6 +219,7 @@ class TestGetRows:
                 "builds",
                 mock.MagicMock(),
                 manager,
+                AZURE_DEVOPS_VERSION_7_2,
                 should_use_incremental_field=True,
                 db_incremental_field_last_value=datetime(2024, 1, 2, tzinfo=UTC),
             )
@@ -182,7 +240,7 @@ class TestGetRows:
         ]
 
         manager = _make_manager()
-        batches = list(get_rows("myorg", "pat", "pull_requests", mock.MagicMock(), manager))
+        batches = list(get_rows("myorg", "pat", "pull_requests", mock.MagicMock(), manager, AZURE_DEVOPS_VERSION_7_2))
 
         assert len(batches) == 2
         urls = [call.args[0] for call in mock_session.return_value.get.call_args_list[1:]]
@@ -206,7 +264,9 @@ class TestGetRows:
         ]
 
         manager = _make_manager()
-        batches = list(get_rows("myorg", "pat", "work_item_revisions", mock.MagicMock(), manager))
+        batches = list(
+            get_rows("myorg", "pat", "work_item_revisions", mock.MagicMock(), manager, AZURE_DEVOPS_VERSION_7_2)
+        )
 
         assert batches[0][0]["changed_date"] == "2024-01-01T00:00:00Z"
         assert len(batches) == 2
@@ -220,7 +280,7 @@ class TestGetRows:
         mock_session.return_value.get.return_value = _response({"values": [], "isLastBatch": True})
 
         manager = _make_manager(AzureDevOpsResumeConfig(continuation_token="tok_resume"))
-        list(get_rows("myorg", "pat", "work_item_revisions", mock.MagicMock(), manager))
+        list(get_rows("myorg", "pat", "work_item_revisions", mock.MagicMock(), manager, AZURE_DEVOPS_VERSION_7_2))
 
         url = mock_session.return_value.get.call_args.args[0]
         assert parse_qs(urlparse(url).query)["continuationToken"] == ["tok_resume"]
@@ -241,6 +301,7 @@ class TestGetRows:
                 "work_item_revisions",
                 mock.MagicMock(),
                 manager,
+                AZURE_DEVOPS_VERSION_7_2,
                 should_use_incremental_field=True,
                 db_incremental_field_last_value=datetime(2024, 1, 2, tzinfo=UTC),
             )
@@ -269,6 +330,7 @@ class TestGetRows:
                 "builds",
                 mock.MagicMock(),
                 manager,
+                AZURE_DEVOPS_VERSION_7_2,
                 should_use_incremental_field=True,
                 db_incremental_field_last_value=datetime(2024, 1, 2, tzinfo=UTC),
             )
@@ -289,14 +351,16 @@ class TestGetRows:
 
         manager = _make_manager()
         with pytest.raises(AzureDevOpsAuthError):
-            list(get_rows("myorg", "pat", "projects", mock.MagicMock(), manager))
+            list(get_rows("myorg", "pat", "projects", mock.MagicMock(), manager, AZURE_DEVOPS_VERSION_7_2))
 
 
 class TestAzureDevOpsSourceResponse:
     @pytest.mark.parametrize("endpoint", list(ENDPOINTS))
     def test_response_metadata_per_endpoint(self, endpoint):
         config = AZURE_DEVOPS_ENDPOINTS[endpoint]
-        response = azure_devops_source("myorg", "pat", endpoint, mock.MagicMock(), _make_manager())
+        response = azure_devops_source(
+            "myorg", "pat", endpoint, mock.MagicMock(), _make_manager(), AZURE_DEVOPS_VERSION_7_2
+        )
 
         assert response.name == endpoint
         assert response.primary_keys == config.primary_keys
@@ -309,10 +373,35 @@ class TestAzureDevOpsSourceResponse:
             assert response.partition_keys is None
 
     def test_pull_requests_are_desc_sorted(self):
-        response = azure_devops_source("myorg", "pat", "pull_requests", mock.MagicMock(), _make_manager())
+        response = azure_devops_source(
+            "myorg", "pat", "pull_requests", mock.MagicMock(), _make_manager(), AZURE_DEVOPS_VERSION_7_2
+        )
         assert response.sort_mode == "desc"
 
     @pytest.mark.parametrize("config", list(AZURE_DEVOPS_ENDPOINTS.values()))
     def test_partition_keys_are_stable_fields(self, config):
         if config.partition_key:
             assert config.partition_key in {"queueTime", "creationDate", "changed_date"}
+
+
+class TestApiVersionDispatch:
+    @pytest.mark.parametrize("version, wire", [(AZURE_DEVOPS_VERSION_LEGACY, "7.1"), (AZURE_DEVOPS_VERSION_7_2, "7.2")])
+    def test_wire_api_version_maps_each_supported_label(self, version, wire):
+        assert wire_api_version(version) == wire
+
+    def test_wire_api_version_rejects_unknown_label(self):
+        # A silent fallthrough would send no api-version and track whatever the vendor defaults to.
+        with pytest.raises(ValueError):
+            wire_api_version("nope")
+
+    @pytest.mark.parametrize("version, wire", [(AZURE_DEVOPS_VERSION_LEGACY, "7.1"), (AZURE_DEVOPS_VERSION_7_2, "7.2")])
+    @mock.patch(
+        "products.warehouse_sources.backend.temporal.data_imports.sources.azure_devops.azure_devops.make_tracked_session"
+    )
+    def test_get_rows_sends_pinned_api_version_on_the_wire(self, mock_session, version, wire):
+        mock_session.return_value.get.return_value = _response({"value": []})
+
+        list(get_rows("myorg", "pat", "projects", mock.MagicMock(), _make_manager(), version))
+
+        url = mock_session.return_value.get.call_args.args[0]
+        assert parse_qs(urlparse(url).query)["api-version"] == [wire]

@@ -1,146 +1,175 @@
-from typing import Any
+import json
+from typing import Any, Optional
 
 import pytest
-from unittest.mock import MagicMock, patch
+from unittest import mock
 
 import requests
 from parameterized import parameterized
 
-from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline.batcher import Batcher
-from products.warehouse_sources.backend.temporal.data_imports.sources.vellum import vellum
 from products.warehouse_sources.backend.temporal.data_imports.sources.vellum.settings import VELLUM_ENDPOINTS
 from products.warehouse_sources.backend.temporal.data_imports.sources.vellum.vellum import (
     VellumResumeConfig,
-    get_rows,
     vellum_source,
 )
 
+# vellum builds the tracked session (capture=False) in its own module and hands it to RESTClient via
+# client_config["session"], so patch it there rather than in rest_client.
+SESSION_PATCH = "products.warehouse_sources.backend.temporal.data_imports.sources.vellum.vellum.make_tracked_session"
+# tenacity sleeps between client retries; patch its clock so retryable-status tests don't wait.
+SLEEP_PATCH = "tenacity.nap.time.sleep"
 
-class _FakeResumableManager:
-    def __init__(self, state: VellumResumeConfig | None = None) -> None:
-        self._state = state
-        self.saved: list[VellumResumeConfig] = []
-
-    def can_resume(self) -> bool:
-        return self._state is not None
-
-    def load_state(self) -> VellumResumeConfig | None:
-        return self._state
-
-    def save_state(self, data: VellumResumeConfig) -> None:
-        self.saved.append(data)
+BASE = "https://api.vellum.ai/v1"
+DOCUMENTS_URL = f"{BASE}/documents"
+WFD_URL = f"{BASE}/workflow-deployments"
+EVENTS_A = f"{BASE}/workflow-deployments/A/execution-events"
+EVENTS_B = f"{BASE}/workflow-deployments/B/execution-events"
 
 
-def _response_with_status(status_code: int) -> requests.Response:
-    response = requests.Response()
-    response.status_code = status_code
-    return response
+def _resp(
+    status: int = 200,
+    *,
+    results: Optional[list[dict[str, Any]]] = None,
+    count: Optional[int] = None,
+    body: Optional[dict[str, Any]] = None,
+    url: str = DOCUMENTS_URL,
+) -> requests.Response:
+    resp = requests.Response()
+    resp.status_code = status
+    resp.url = url
+    resp.reason = "OK" if status < 400 else "Error"
+    if body is None:
+        body = {}
+        if results is not None:
+            body["results"] = results
+        if count is not None:
+            body["count"] = count
+    resp._content = json.dumps(body).encode()
+    return resp
 
 
-def _collect(manager: _FakeResumableManager, monkeypatch: Any, endpoint: str, pages: dict) -> list[dict]:
-    """Drive get_rows with a fake `_fetch_page` keyed by request URL + offset."""
-
-    def fake_fetch(session: Any, url: str, headers: dict, params: dict, logger: Any) -> dict:
-        result = pages[(url, params["offset"])]
-        if isinstance(result, Exception):
-            raise result
-        return result
-
-    monkeypatch.setattr(vellum, "_fetch_page", fake_fetch)
-
-    rows: list[dict] = []
-    for table in get_rows(
-        api_key="test-key",
-        endpoint=endpoint,
-        logger=MagicMock(),
-        resumable_source_manager=manager,  # type: ignore[arg-type]
-    ):
-        rows.extend(table.to_pylist())
-    return rows
+def _make_manager(resume_state: VellumResumeConfig | None = None) -> mock.MagicMock:
+    manager = mock.MagicMock()
+    manager.can_resume.return_value = resume_state is not None
+    manager.load_state.return_value = resume_state
+    return manager
 
 
-DOCUMENTS_URL = "https://api.vellum.ai/v1/documents"
-WFD_URL = "https://api.vellum.ai/v1/workflow-deployments"
+def _wire(session: mock.MagicMock, responses: list[requests.Response]) -> list[dict[str, Any]]:
+    """Wire a mock session; return a list capturing each request's params AT SEND TIME.
+
+    ``request.params`` is one dict mutated in place across pages, so snapshot a copy when each request
+    is prepared instead of inspecting the final state.
+    """
+    session.headers = {}
+    param_snapshots: list[dict[str, Any]] = []
+
+    def _prepare(request: Any) -> mock.MagicMock:
+        param_snapshots.append(dict(request.params or {}))
+        prepared = mock.MagicMock()
+        prepared.url = request.url
+        return prepared
+
+    session.prepare_request.side_effect = _prepare
+    session.send.side_effect = responses
+    return param_snapshots
+
+
+def _rows(source_response) -> list[dict[str, Any]]:
+    return [row for page in source_response.items() for row in page]
+
+
+def _run(endpoint: str, manager: mock.MagicMock) -> Any:
+    return vellum_source("key", endpoint, team_id=1, job_id="j", resumable_source_manager=manager)
 
 
 class TestOffsetPagination:
-    def test_walks_offsets_and_stops_at_count(self, monkeypatch: Any) -> None:
-        # offset must advance by the number of rows actually returned, and pagination must stop once
-        # the accumulated offset reaches `count` — a wrong terminator either loops forever or truncates.
-        pages = {
-            (DOCUMENTS_URL, 0): {"count": 3, "results": [{"id": "d1"}, {"id": "d2"}]},
-            (DOCUMENTS_URL, 2): {"count": 3, "results": [{"id": "d3"}]},
-        }
-        rows = _collect(_FakeResumableManager(), monkeypatch, "documents", pages)
-        assert rows == [{"id": "d1"}, {"id": "d2"}, {"id": "d3"}]
+    @mock.patch(SESSION_PATCH)
+    def test_walks_offsets_and_stops_at_count(self, MockSession) -> None:
+        # offset must advance by the page size and pagination must stop once offset reaches `count`.
+        session = MockSession.return_value
+        page1 = [{"id": f"d_{i}"} for i in range(100)]
+        params = _wire(session, [_resp(results=page1, count=101), _resp(results=[{"id": "d_last"}], count=101)])
 
-    def test_stops_on_short_page_without_count(self, monkeypatch: Any) -> None:
-        # The execution-events response carries no `next`; an empty page is the only stop signal.
-        pages = {
-            (DOCUMENTS_URL, 0): {"results": [{"id": "d1"}]},
-            (DOCUMENTS_URL, 1): {"results": []},
-        }
-        rows = _collect(_FakeResumableManager(), monkeypatch, "documents", pages)
-        assert rows == [{"id": "d1"}]
+        rows = _rows(_run("documents", _make_manager()))
 
-    def test_resumes_from_saved_offset(self, monkeypatch: Any) -> None:
+        assert [r["id"] for r in rows] == [*(f"d_{i}" for i in range(100)), "d_last"]
+        assert params[0]["offset"] == 0
+        assert params[0]["limit"] == 100
+        assert params[1]["offset"] == 100
+
+    @mock.patch(SESSION_PATCH)
+    def test_stops_on_short_page(self, MockSession) -> None:
+        # A short (below-limit) page is the last page — the accumulated rows are all that exist.
+        session = MockSession.return_value
+        _wire(session, [_resp(results=[{"id": "d1"}], count=1)])
+
+        rows = _rows(_run("documents", _make_manager()))
+        assert [r["id"] for r in rows] == ["d1"]
+        assert session.send.call_count == 1
+
+    @mock.patch(SESSION_PATCH)
+    def test_resumes_from_saved_offset(self, MockSession) -> None:
         # A resumed run must skip pages already synced; starting from offset 0 would redo work.
-        pages = {(DOCUMENTS_URL, 2): {"count": 3, "results": [{"id": "d3"}]}}
-        manager = _FakeResumableManager(VellumResumeConfig(offset=2))
-        rows = _collect(manager, monkeypatch, "documents", pages)
-        assert rows == [{"id": "d3"}]
+        session = MockSession.return_value
+        params = _wire(session, [_resp(results=[{"id": "d3"}], count=3)])
 
-    def test_saved_offset_is_current_page_not_next(self, monkeypatch: Any) -> None:
-        # Saving the *current* page offset means a crash re-fetches this page and merge dedupes;
-        # saving the next page's offset would skip the page's unyielded tail on resume.
-        pages = {
-            (DOCUMENTS_URL, 0): {"count": 4, "results": [{"id": "d1"}, {"id": "d2"}]},
-            (DOCUMENTS_URL, 2): {"count": 4, "results": [{"id": "d3"}, {"id": "d4"}]},
-        }
-        manager = _FakeResumableManager()
+        _rows(_run("documents", _make_manager(VellumResumeConfig(offset=2))))
+        assert params[0]["offset"] == 2
 
-        def fake_fetch(session: Any, url: str, headers: dict, params: dict, logger: Any) -> dict:
-            return pages[(url, params["offset"])]
+    @mock.patch(SESSION_PATCH)
+    def test_checkpoint_saved_after_full_page(self, MockSession) -> None:
+        # After a full page is yielded, the saved offset points at the NEXT page so a crash re-fetches
+        # only what wasn't synced; a short page ends the walk without an extra checkpoint.
+        session = MockSession.return_value
+        page1 = [{"id": f"d_{i}"} for i in range(100)]
+        _wire(session, [_resp(results=page1, count=101), _resp(results=[{"id": "d_last"}], count=101)])
 
-        monkeypatch.setattr(vellum, "_fetch_page", fake_fetch)
-        # chunk_size=1 forces a yield (and a save) after every row.
-        batcher = Batcher(logger=MagicMock(), chunk_size=1, chunk_size_bytes=100 * 1024 * 1024)
-        list(
-            vellum._paginate(
-                MagicMock(),
-                DOCUMENTS_URL,
-                {},
-                MagicMock(),
-                batcher,
-                manager,  # type: ignore[arg-type]
-                ordering=None,
-                start_offset=0,
-                deployment_id=None,
-            )
-        )
-        # Rows from page-1 save offset 0, rows from page-2 save offset 2 — never 2 while still on page 1.
-        assert [s.offset for s in manager.saved] == [0, 0, 2, 2]
+        manager = _make_manager()
+        _rows(_run("documents", manager))
 
-    def test_ordering_param_sent_when_configured(self, monkeypatch: Any) -> None:
-        # workflow_deployments paginates oldest-first via ?ordering=created for a stable page order;
-        # dropping it risks page-boundary skips/dupes as rows are inserted mid-sync.
-        seen: list[dict] = []
+        manager.save_state.assert_called_once()
+        assert manager.save_state.call_args.args[0] == VellumResumeConfig(offset=100)
 
-        def fake_fetch(session: Any, url: str, headers: dict, params: dict, logger: Any) -> dict:
-            seen.append(params)
-            return {"count": 0, "results": []}
+    @mock.patch(SESSION_PATCH)
+    def test_ordering_param_sent_when_configured(self, MockSession) -> None:
+        # workflow_deployments paginates oldest-first via ?ordering=created for a stable page order.
+        session = MockSession.return_value
+        params = _wire(session, [_resp(results=[], count=0, url=WFD_URL)])
+        _rows(_run("workflow_deployments", _make_manager()))
+        assert params[0]["ordering"] == "created"
 
-        monkeypatch.setattr(vellum, "_fetch_page", fake_fetch)
-        list(get_rows("k", "workflow_deployments", MagicMock(), _FakeResumableManager()))  # type: ignore[arg-type]
-        assert seen[0]["ordering"] == "created"
-        # documents has no stable created field, so no ordering is forced.
-        seen.clear()
-        list(get_rows("k", "documents", MagicMock(), _FakeResumableManager()))  # type: ignore[arg-type]
-        assert "ordering" not in seen[0]
+    @mock.patch(SESSION_PATCH)
+    def test_ordering_param_absent_for_unordered_endpoint(self, MockSession) -> None:
+        # documents exposes no stable created field, so no ordering is forced.
+        session = MockSession.return_value
+        params = _wire(session, [_resp(results=[], count=0)])
+        _rows(_run("documents", _make_manager()))
+        assert "ordering" not in params[0]
 
 
-EVENTS_A = "https://api.vellum.ai/v1/workflow-deployments/A/execution-events"
-EVENTS_B = "https://api.vellum.ai/v1/workflow-deployments/B/execution-events"
+class TestRetries:
+    @parameterized.expand([("rate_limited", 429), ("server_error", 503)])
+    @mock.patch(SLEEP_PATCH, return_value=None)
+    @mock.patch(SESSION_PATCH)
+    def test_retryable_status_codes_retry(self, _name: str, status_code: int, MockSession, _sleep) -> None:
+        # 429/5xx must be retried, not surfaced — a transient blip shouldn't fail the sync.
+        session = MockSession.return_value
+        _wire(session, [_resp(status=status_code, body={}), _resp(results=[{"id": "d1"}], count=1)])
+
+        rows = _rows(_run("documents", _make_manager()))
+        assert [r["id"] for r in rows] == ["d1"]
+        assert session.send.call_count == 2
+
+    @mock.patch(SESSION_PATCH)
+    def test_client_error_propagates(self, MockSession) -> None:
+        # A 403 (bad/insufficient key) must surface at once so get_non_retryable_errors can stop the sync.
+        session = MockSession.return_value
+        _wire(session, [_resp(status=403, body={"detail": "forbidden"})])
+
+        with pytest.raises(requests.HTTPError):
+            _rows(_run("documents", _make_manager()))
+        assert session.send.call_count == 1
 
 
 class TestExecutionEventsFanOut:
@@ -150,94 +179,99 @@ class TestExecutionEventsFanOut:
         assert config.should_sync_default is False
         assert config.primary_keys == ["workflow_deployment_id", "span_id"]
 
-    def test_injects_parent_id_into_every_row(self, monkeypatch: Any) -> None:
+    @mock.patch(SESSION_PATCH)
+    def test_injects_parent_id_into_every_row(self, MockSession) -> None:
         # The parent id completes the composite key; without it rows from different deployments that
-        # share a span id would collide and every merge would multi-match (the OOM failure mode).
-        pages = {
-            (WFD_URL, 0): {"count": 2, "results": [{"id": "A"}, {"id": "B"}]},
-            (EVENTS_A, 0): {"count": 1, "results": [{"span_id": "s1", "start": "2026-01-01T00:00:00Z"}]},
-            (EVENTS_B, 0): {"count": 1, "results": [{"span_id": "s2", "start": "2026-01-02T00:00:00Z"}]},
-        }
-        rows = _collect(_FakeResumableManager(), monkeypatch, "workflow_execution_events", pages)
+        # share a span id would collide and every merge would multi-match.
+        session = MockSession.return_value
+        _wire(
+            session,
+            [
+                _resp(results=[{"id": "A"}, {"id": "B"}], count=2, url=WFD_URL),
+                _resp(results=[{"span_id": "s1", "start": "2026-01-01T00:00:00Z"}], count=1, url=EVENTS_A),
+                _resp(results=[{"span_id": "s2", "start": "2026-01-02T00:00:00Z"}], count=1, url=EVENTS_B),
+            ],
+        )
+
+        rows = _rows(_run("workflow_execution_events", _make_manager()))
         assert rows == [
             {"workflow_deployment_id": "A", "span_id": "s1", "start": "2026-01-01T00:00:00Z"},
             {"workflow_deployment_id": "B", "span_id": "s2", "start": "2026-01-02T00:00:00Z"},
         ]
 
-    def test_deployment_deleted_mid_fan_out_is_skipped(self, monkeypatch: Any) -> None:
-        not_found = requests.HTTPError(response=_response_with_status(404))
-        pages = {
-            (WFD_URL, 0): {"count": 2, "results": [{"id": "A"}, {"id": "B"}]},
-            (EVENTS_A, 0): not_found,
-            (EVENTS_B, 0): {"count": 1, "results": [{"span_id": "s2", "start": "2026-01-02T00:00:00Z"}]},
-        }
-        rows = _collect(_FakeResumableManager(), monkeypatch, "workflow_execution_events", pages)
+    @mock.patch(SESSION_PATCH)
+    def test_deployment_deleted_mid_fan_out_is_skipped(self, MockSession) -> None:
+        # A deployment deleted between enumeration and its fetch 404s — skip it, don't fail the sync.
+        session = MockSession.return_value
+        _wire(
+            session,
+            [
+                _resp(results=[{"id": "A"}, {"id": "B"}], count=2, url=WFD_URL),
+                _resp(status=404, body={"detail": "not found"}, url=EVENTS_A),
+                _resp(results=[{"span_id": "s2", "start": "2026-01-02T00:00:00Z"}], count=1, url=EVENTS_B),
+            ],
+        )
+
+        rows = _rows(_run("workflow_execution_events", _make_manager()))
         assert rows == [{"workflow_deployment_id": "B", "span_id": "s2", "start": "2026-01-02T00:00:00Z"}]
 
-    def test_non_404_error_propagates(self, monkeypatch: Any) -> None:
-        server_error = requests.HTTPError(response=_response_with_status(500))
-        pages = {
-            (WFD_URL, 0): {"count": 1, "results": [{"id": "A"}]},
-            (EVENTS_A, 0): server_error,
-        }
-        with pytest.raises(requests.HTTPError):
-            _collect(_FakeResumableManager(), monkeypatch, "workflow_execution_events", pages)
+    @mock.patch(SESSION_PATCH)
+    def test_non_404_error_propagates(self, MockSession) -> None:
+        # Any non-404 child error must fail the whole sync rather than be silently swallowed.
+        session = MockSession.return_value
+        _wire(
+            session,
+            [
+                _resp(results=[{"id": "A"}], count=1, url=WFD_URL),
+                _resp(status=403, body={"detail": "forbidden"}, url=EVENTS_A),
+            ],
+        )
 
-    def test_resume_from_bookmarked_deployment(self, monkeypatch: Any) -> None:
-        # Resuming must restart at the bookmarked deployment (B), not re-walk A from the top.
-        pages = {
-            (WFD_URL, 0): {"count": 2, "results": [{"id": "A"}, {"id": "B"}]},
-            (EVENTS_B, 0): {"count": 1, "results": [{"span_id": "s2", "start": "2026-01-02T00:00:00Z"}]},
-        }
-        manager = _FakeResumableManager(VellumResumeConfig(offset=0, deployment_id="B"))
-        rows = _collect(manager, monkeypatch, "workflow_execution_events", pages)
+        with pytest.raises(requests.HTTPError):
+            _rows(_run("workflow_execution_events", _make_manager()))
+
+    @mock.patch(SESSION_PATCH)
+    def test_resume_skips_completed_deployment(self, MockSession) -> None:
+        # Resuming with deployment A already recorded complete must not re-walk A — only B is fetched.
+        session = MockSession.return_value
+        _wire(
+            session,
+            [
+                _resp(results=[{"id": "A"}, {"id": "B"}], count=2, url=WFD_URL),
+                _resp(results=[{"span_id": "s2", "start": "2026-01-02T00:00:00Z"}], count=1, url=EVENTS_B),
+            ],
+        )
+
+        resume = VellumResumeConfig(
+            fanout_state={
+                "completed": ["/workflow-deployments/A/execution-events"],
+                "current": None,
+                "child_state": None,
+            }
+        )
+        rows = _rows(_run("workflow_execution_events", _make_manager(resume)))
         assert rows == [{"workflow_deployment_id": "B", "span_id": "s2", "start": "2026-01-02T00:00:00Z"}]
 
+    @mock.patch(SESSION_PATCH)
+    def test_fanout_checkpoint_saved(self, MockSession) -> None:
+        # The fan-out must checkpoint its framework resume state so a restart can skip synced parents.
+        session = MockSession.return_value
+        _wire(
+            session,
+            [
+                _resp(results=[{"id": "A"}], count=1, url=WFD_URL),
+                _resp(results=[{"span_id": "s1", "start": "2026-01-01T00:00:00Z"}], count=1, url=EVENTS_A),
+            ],
+        )
 
-class TestFetchPageRetries:
-    @parameterized.expand(
-        [
-            ("chunked_encoding", requests.exceptions.ChunkedEncodingError("Connection broken")),
-            ("read_timeout", requests.ReadTimeout("Read timed out.")),
-            ("connection_error", requests.ConnectionError("Connection reset by peer")),
-        ]
-    )
-    def test_transient_errors_are_retried(self, _name: str, transient_error: Exception) -> None:
-        good = MagicMock(status_code=200, ok=True)
-        good.json.return_value = {"count": 0, "results": []}
-        session = MagicMock()
-        session.get.side_effect = [transient_error, good]
+        manager = _make_manager()
+        _rows(_run("workflow_execution_events", manager))
 
-        with patch.object(vellum._fetch_page.retry, "sleep", lambda *_: None):  # type: ignore[attr-defined]
-            result = vellum._fetch_page(session, WFD_URL, {}, {"offset": 0}, MagicMock())
-
-        assert result == {"count": 0, "results": []}
-        assert session.get.call_count == 2
-
-    @parameterized.expand([("rate_limited", 429), ("server_error", 503)])
-    def test_retryable_status_codes_retry(self, _name: str, status_code: int) -> None:
-        bad = MagicMock(status_code=status_code)
-        good = MagicMock(status_code=200, ok=True)
-        good.json.return_value = {"count": 0, "results": []}
-        session = MagicMock()
-        session.get.side_effect = [bad, good]
-
-        with patch.object(vellum._fetch_page.retry, "sleep", lambda *_: None):  # type: ignore[attr-defined]
-            result = vellum._fetch_page(session, WFD_URL, {}, {"offset": 0}, MagicMock())
-
-        assert result == {"count": 0, "results": []}
-        assert session.get.call_count == 2
-
-    def test_client_error_raises_immediately(self) -> None:
-        # A 403 (bad/insufficient key) must surface at once so get_non_retryable_errors can stop the sync.
-        bad = MagicMock(status_code=403, ok=False, text="Invalid API key")
-        bad.raise_for_status.side_effect = requests.HTTPError("403 Client Error: Forbidden", response=bad)
-        session = MagicMock()
-        session.get.return_value = bad
-
-        with pytest.raises(requests.HTTPError):
-            vellum._fetch_page(session, WFD_URL, {}, {"offset": 0}, MagicMock())
-        assert session.get.call_count == 1
+        assert manager.save_state.called
+        saved = manager.save_state.call_args.args[0]
+        assert isinstance(saved, VellumResumeConfig)
+        assert saved.fanout_state is not None
+        assert "/workflow-deployments/A/execution-events" in saved.fanout_state["completed"]
 
 
 class TestSourceResponse:
@@ -246,15 +280,15 @@ class TestSourceResponse:
             ("workflow_deployments", ["id"], "created"),
             ("prompt_deployments", ["id"], "created"),
             ("document_indexes", ["id"], "created"),
-            # documents exposes only the mutable last_uploaded_at, so it must not be partitioned.
             ("documents", ["id"], None),
             ("workflow_execution_events", ["workflow_deployment_id", "span_id"], "start"),
         ]
     )
+    @mock.patch(SESSION_PATCH)
     def test_primary_keys_and_partitioning(
-        self, endpoint: str, expected_pks: list[str], expected_partition: str | None
+        self, endpoint: str, expected_pks: list[str], expected_partition: str | None, MockSession
     ) -> None:
-        response = vellum_source("k", endpoint, MagicMock(), MagicMock())
+        response = _run(endpoint, _make_manager())
         assert response.primary_keys == expected_pks
         assert response.partition_keys == ([expected_partition] if expected_partition else None)
         assert response.partition_mode == ("datetime" if expected_partition else None)

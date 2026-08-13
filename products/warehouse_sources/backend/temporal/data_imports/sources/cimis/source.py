@@ -13,10 +13,6 @@ from posthog.schema import (
     SourceFieldSelectConfigOption,
 )
 
-from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline.typings import (
-    SourceInputs,
-    SourceResponse,
-)
 from products.warehouse_sources.backend.temporal.data_imports.sources.cimis.cimis import (
     cimis_source,
     parse_targets,
@@ -33,7 +29,8 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common.can
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.registry import SourceRegistry
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.schema import SourceSchema
-from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs import CimisSourceConfig
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.typings import SourceInputs, SourceResponse
+from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.cimis import CimisSourceConfig
 from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 
@@ -117,6 +114,7 @@ To sync the **daily** and **hourly** weather tables, set **Targets** to a comma-
         with_counts: bool = False,
         names: list[str] | None = None,
         force_refresh: bool = False,
+        api_version: str | None = None,
     ) -> list[SourceSchema]:
         def _build_schema(endpoint: str) -> SourceSchema:
             endpoint_config = CIMIS_ENDPOINTS[endpoint]
@@ -136,7 +134,7 @@ To sync the **daily** and **hourly** weather tables, set **Targets** to a comma-
         return schemas
 
     def validate_credentials(
-        self, config: CimisSourceConfig, team_id: int, schema_name: Optional[str] = None
+        self, config: CimisSourceConfig, team_id: int, schema_name: Optional[str] = None, api_version: str | None = None
     ) -> tuple[bool, str | None]:
         logger = structlog.get_logger(__name__)
         return validate_cimis_credentials(config.app_key, parse_targets(config.targets), logger)

@@ -8,6 +8,8 @@ export function isDashboardFilterEmpty(filter: DashboardFilter | TileFilters | n
             filter.date_to == null &&
             (filter.properties == null || (Array.isArray(filter.properties) && filter.properties.length === 0)) &&
             filter.breakdown_filter == null &&
-            filter.interval == null)
+            filter.interval == null &&
+            filter.filterTestAccounts == null &&
+            !(filter as TileFilters).ignoreDashboardFilters)
     )
 }

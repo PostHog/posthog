@@ -6,11 +6,9 @@
 pub mod batcher;
 pub mod cascade;
 pub mod kafka;
+pub mod marker;
 pub mod merge;
 pub mod seed;
-
-use std::sync::atomic::{AtomicUsize, Ordering};
-use std::sync::{Arc, Mutex};
 
 use async_trait::async_trait;
 use chrono::Utc;
@@ -19,15 +17,23 @@ use metrics::counter;
 use serde::{Deserialize, Serialize};
 
 use cohort_core::seed::RunId;
+// Hoisted to the shared seed contract so the seeder's marker watcher and this producer agree on the
+// wire bytes; re-exported here so processor call sites keep their `crate::producer` import path.
+pub use cohort_core::seed::ReconcileCompleteMarker;
 
 use crate::filters::reverse_index::TeamFilters;
 use crate::filters::CohortId;
 use crate::observability::metrics::OUTPUT_TRANSITIONS_UNMAPPED;
+use crate::producer::merge::Capture;
 use crate::stage1::transition::{LeafTransition, TransitionKind};
 
 pub use batcher::OutputBuffer;
 pub use cascade::{CaptureCascadeSink, CascadeSink, KafkaCascadeSink, NoopCascadeSink};
 pub use kafka::KafkaMembershipSink;
+pub use marker::{
+    CaptureReconcileMarkerSink, KafkaReconcileMarkerSink, NoopReconcileMarkerSink,
+    ReconcileMarkerSink,
+};
 pub use merge::{
     CaptureStreamEventSink, CaptureTransferSink, KafkaStreamEventSink, KafkaTransferSink,
     StreamEventSink, TransferSink,
@@ -60,6 +66,7 @@ pub struct CohortMembershipChange {
 #[serde(rename_all = "snake_case")]
 pub enum ChangeOrigin {
     Seed,
+    Reconcile,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
@@ -122,7 +129,35 @@ pub fn map_transition<'a>(
 
 /// Current UTC time as a ClickHouse `DateTime64(6)` string (microseconds).
 pub fn now_last_updated() -> String {
-    Utc::now().format("%Y-%m-%d %H:%M:%S%.6f").to_string()
+    format_last_updated(Utc::now().timestamp_micros())
+}
+
+/// Per-partition output-version allocator. Wall time supplies the normal value; the local floor
+/// makes every later worker message strictly newer even if the clock stalls or moves backward.
+#[derive(Debug, Default)]
+pub(crate) struct LastUpdatedClock {
+    last_micros: Option<i64>,
+}
+
+impl LastUpdatedClock {
+    pub fn next(&mut self) -> String {
+        self.next_at(Utc::now().timestamp_micros())
+    }
+
+    fn next_at(&mut self, observed_micros: i64) -> String {
+        let next_micros = self.last_micros.map_or(observed_micros, |last_micros| {
+            observed_micros.max(last_micros.saturating_add(1))
+        });
+        self.last_micros = Some(next_micros);
+        format_last_updated(next_micros)
+    }
+}
+
+fn format_last_updated(timestamp_micros: i64) -> String {
+    chrono::DateTime::<Utc>::from_timestamp_micros(timestamp_micros)
+        .expect("current UTC timestamps fit Chrono's supported range")
+        .format("%Y-%m-%d %H:%M:%S%.6f")
+        .to_string()
 }
 
 #[async_trait]
@@ -134,10 +169,7 @@ pub trait MembershipSink: Send + Sync {
 }
 
 #[derive(Debug, Default, Clone)]
-pub struct CaptureSink {
-    changes: Arc<Mutex<Vec<CohortMembershipChange>>>,
-    fail_remaining: Arc<AtomicUsize>,
-}
+pub struct CaptureSink(Capture<CohortMembershipChange>);
 
 impl CaptureSink {
     pub fn new() -> Self {
@@ -145,17 +177,11 @@ impl CaptureSink {
     }
 
     pub fn failing_first(n: usize) -> Self {
-        Self {
-            changes: Arc::default(),
-            fail_remaining: Arc::new(AtomicUsize::new(n)),
-        }
+        Self(Capture::failing_first(n))
     }
 
     pub fn changes(&self) -> Vec<CohortMembershipChange> {
-        self.changes
-            .lock()
-            .expect("CaptureSink mutex poisoned")
-            .clone()
+        self.0.recorded()
     }
 }
 
@@ -165,24 +191,7 @@ impl MembershipSink for CaptureSink {
         &self,
         changes: Vec<CohortMembershipChange>,
     ) -> Vec<Result<(), KafkaProduceError>> {
-        let should_fail = self
-            .fail_remaining
-            .fetch_update(Ordering::SeqCst, Ordering::SeqCst, |n| {
-                (n > 0).then(|| n - 1)
-            })
-            .is_ok();
-        if should_fail {
-            return changes
-                .into_iter()
-                .map(|_| Err(KafkaProduceError::KafkaProduceCanceled))
-                .collect();
-        }
-        let acks = (0..changes.len()).map(|_| Ok(())).collect();
-        self.changes
-            .lock()
-            .expect("CaptureSink mutex poisoned")
-            .extend(changes);
-        acks
+        self.0.produce(changes)
     }
 }
 
@@ -354,6 +363,12 @@ mod tests {
     }
 
     #[test]
+    fn reconcile_origin_serializes_snake_case() {
+        let value = serde_json::to_value(ChangeOrigin::Reconcile).unwrap();
+        assert_eq!(value, json!("reconcile"));
+    }
+
+    #[test]
     fn live_path_change_stays_byte_identical_and_a_seed_tag_adds_only_the_two_keys() {
         let live = CohortMembershipChange {
             team_id: 42,
@@ -400,6 +415,21 @@ mod tests {
         assert_eq!(date.len(), 10);
         assert_eq!(date.matches('-').count(), 2);
         assert_eq!(time.matches(':').count(), 2);
+    }
+
+    #[test]
+    fn last_updated_clock_is_strictly_monotonic_when_wall_time_stalls_or_rewinds() {
+        let mut clock = LastUpdatedClock::default();
+
+        let first = clock.next_at(1_700_000_000_000_000);
+        let stalled = clock.next_at(1_700_000_000_000_000);
+        let rewound = clock.next_at(1_699_999_999_000_000);
+
+        assert!(first < stalled);
+        assert!(stalled < rewound);
+        assert_eq!(first, "2023-11-14 22:13:20.000000");
+        assert_eq!(stalled, "2023-11-14 22:13:20.000001");
+        assert_eq!(rewound, "2023-11-14 22:13:20.000002");
     }
 
     #[tokio::test]

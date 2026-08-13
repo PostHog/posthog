@@ -10,13 +10,12 @@ import type {
 import { LLMProvider } from '../settings/llmProviderKeysLogic'
 
 export type EvaluationType = 'llm_judge' | 'hog' | 'sentiment'
-export type EvaluationTarget = 'generation' | 'trace'
+export type EvaluationTarget = 'generation' | 'trace' | 'session'
+export type EvaluationSettleStrategy = 'fixed_window' | 'inactivity'
 export type EvaluationOutputType = 'boolean' | 'sentiment'
 export type EvaluationStatus = 'active' | 'paused' | 'error'
 export type EvaluationStatusReason =
     | 'provider_key_required'
-    | 'trial_limit_reached'
-    | 'model_not_allowed'
     | 'provider_key_deleted'
     | 'no_default_model'
     | 'provider_key_invalid'
@@ -37,9 +36,18 @@ export interface EvaluationOutputConfig {
     allows_na?: boolean
 }
 
+/** Settle config for aggregate targets (trace, session). A missing `strategy` resolves per target:
+ * 'fixed_window' for a trace, because rows saved before strategies existed mean exactly that, and
+ * 'inactivity' for a session, which has no such rows. Accepted ranges also differ per target, both
+ * enforced by the backend's `validate_target_config`. */
 export interface EvaluationTargetConfig {
-    /** For 'trace' target: seconds to wait after the first matching generation before evaluating the trace. */
+    strategy?: EvaluationSettleStrategy
+    /** fixed_window: seconds to wait after the first matching generation before evaluating. */
     window_seconds?: number
+    /** inactivity: seconds without new activity before the target counts as settled. */
+    quiet_period_seconds?: number
+    /** inactivity: hard cap in seconds on the total wait from the first matching generation. */
+    max_age_seconds?: number
 }
 
 export interface LLMJudgeEvaluationConfig {
@@ -59,6 +67,7 @@ export interface BaseEvaluationConfig {
     id: string
     name: string
     description?: string
+    directory_id?: string | null
     enabled: boolean
     status: EvaluationStatus
     status_reason: EvaluationStatusReason | null
@@ -68,10 +77,10 @@ export interface BaseEvaluationConfig {
     conditions: EvaluationConditionSet[]
     /** What the evaluation runs on: each matching generation event, or the whole trace once. */
     target: EvaluationTarget
-    /** Target-specific settings. For 'trace': {window_seconds}. Empty for 'generation'. */
+    /** Target-specific settings — see EvaluationTargetConfig. Empty for 'generation'. */
     target_config: EvaluationTargetConfig
     model_configuration: ModelConfiguration | null
-    total_runs: number
+    total_runs?: number
     last_run_at?: string
     created_at: string
     updated_at: string
@@ -116,6 +125,9 @@ export interface EvaluationRun {
     evaluation_name: string
     generation_id: string | null
     trace_id: string
+    // Session-target verdicts carry no $ai_trace_id, so the session id is the only thing that
+    // identifies what was graded. Absent on every other target.
+    session_id?: string | null
     timestamp: string
     evaluation_type?: EvaluationType
     result_type?: EvaluationOutputType
@@ -123,18 +135,11 @@ export interface EvaluationRun {
     sentiment_label?: string | null
     sentiment_score?: number | null
     applicable?: boolean
+    // A skipped run completed without grading anything. Its `result` is still false when the
+    // evaluation disallows N/A, so it has to be read alongside this rather than on its own.
+    skipped?: boolean
     reasoning: string
     status: 'completed' | 'failed' | 'running'
-}
-
-export interface HogTestResult {
-    event_uuid: string
-    trace_id?: string | null
-    input_preview: string
-    output_preview: string
-    result: boolean | null
-    reasoning: string
-    error: string | null
 }
 
 export type EvaluationReportFrequency = 'scheduled' | 'every_n'

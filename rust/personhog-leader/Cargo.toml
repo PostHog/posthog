@@ -10,8 +10,15 @@ personhog-common = { path = "../personhog-common" }
 personhog-coordination = { path = "../personhog-coordination" }
 assignment-coordination = { path = "../common/assignment-coordination" }
 common-kafka = { path = "../common/kafka" }
+common-ingestion-warnings = { path = "../common/ingestion_warnings" }
 common-metrics = { path = "../common/metrics" }
 common-alloc = { path = "../common/alloc" }
+k8s-awareness = { path = "../common/k8s-awareness" }
+kube = { version = "0.98", features = ["client"] }
+# Direct dep only to install a process-wide rustls CryptoProvider at startup (see
+# main.rs): kube's HTTPS client uses rustls 0.23, which can't auto-pick a provider
+# with both aws-lc-rs and ring in the tree. Matches personhog-router/cymbal.
+rustls = { version = "0.23", default-features = false, features = ["ring", "std"] }
 lifecycle = { path = "../common/lifecycle" }
 
 async-trait = { workspace = true }
@@ -24,19 +31,29 @@ foyer = "0.22.3"
 metrics = { workspace = true }
 prost = { workspace = true }
 rdkafka = { workspace = true }
+serde = { workspace = true }
 serde_json = { workspace = true }
 sqlx = { workspace = true }
 tokio = { workspace = true }
+tokio-util = { workspace = true }
 tonic = { workspace = true }
 tracing = { workspace = true }
 tracing-subscriber = { workspace = true }
+uuid = { workspace = true }
+
+[features]
+# Adversarial states the integration tests need to construct but that no
+# production caller may reach — a producer condemned by a failed abort,
+# for instance, which otherwise takes a broker fault to reproduce.
+test-support = []
 
 [dev-dependencies]
+personhog-coordination = { path = "../personhog-coordination", features = ["test-support"] }
 health = { path = "../common/health" }
+personhog-leader = { path = ".", features = ["test-support"] }
 tokio = { workspace = true, features = ["test-util"] }
 tokio-stream = "0.1"
 tokio-util = { workspace = true }
-uuid = { workspace = true }
 
 [lints]
 workspace = true

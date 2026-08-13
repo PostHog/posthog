@@ -7,6 +7,7 @@ import { logger } from '~/common/utils/logger'
 import { sleep } from '~/common/utils/utils'
 
 import {
+    CyclotronV2InFlightCounts,
     CyclotronV2JobInit,
     CyclotronV2JobInitSchema,
     CyclotronV2ManagerConfig,
@@ -435,13 +436,28 @@ export class CyclotronV2Manager {
 
     // "In flight" = jobs still owned by the queue: parked waits/delays ('available' with a future
     // scheduled time) and jobs a worker currently holds ('running'). Terminal rows don't count.
-    async countInFlightJobs(teamId: number, functionId: string): Promise<number> {
-        const result = await this.pool.query<{ count: number }>(
-            `SELECT COUNT(*)::int AS count FROM cyclotron_jobs
-             WHERE team_id = $1 AND function_id = $2 AND status IN ('available', 'running')`,
+    // Grouped by action_id so publish impact can say "N runs are parked on step X"; rows without
+    // one (freshly enqueued and not yet executed, or predating the lookup column) land in
+    // positionUnknown, never silently dropped.
+    async countInFlightJobs(teamId: number, functionId: string): Promise<CyclotronV2InFlightCounts> {
+        const result = await this.pool.query<{ action_id: string | null; count: number }>(
+            `SELECT action_id, COUNT(*)::int AS count FROM cyclotron_jobs
+             WHERE team_id = $1 AND function_id = $2 AND status IN ('available', 'running')
+             GROUP BY action_id`,
             [teamId, functionId]
         )
-        return result.rows[0].count
+        let count = 0
+        let positionUnknown = 0
+        const byAction: Record<string, number> = {}
+        for (const row of result.rows) {
+            count += row.count
+            if (row.action_id) {
+                byAction[row.action_id] = row.count
+            } else {
+                positionUnknown = row.count
+            }
+        }
+        return { count, byAction, positionUnknown }
     }
 
     /**

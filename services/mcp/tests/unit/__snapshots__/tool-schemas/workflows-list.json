@@ -7,7 +7,8 @@
             "type": "string"
         },
         "created_by": {
-            "type": "number"
+            "description": "Filter to workflows created by the user with this uuid.",
+            "type": "string"
         },
         "id": {
             "type": "string"
@@ -19,6 +20,10 @@
         "offset": {
             "description": "The initial index from which to return the results.",
             "type": "number"
+        },
+        "search": {
+            "description": "Case-insensitive search across workflow name and description.",
+            "type": "string"
         },
         "status": {
             "description": "* `draft` - Draft\n* `active` - Active\n* `archived` - Archived",

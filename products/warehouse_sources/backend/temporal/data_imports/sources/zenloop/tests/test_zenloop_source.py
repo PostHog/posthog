@@ -4,7 +4,9 @@ from unittest import mock
 from posthog.schema import ReleaseStatus, SourceFieldInputConfig, SourceFieldInputConfigType
 
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
-from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs import ZenloopSourceConfig
+from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.zenloop import (
+    ZenloopSourceConfig,
+)
 from products.warehouse_sources.backend.temporal.data_imports.sources.zenloop.settings import ENDPOINTS
 from products.warehouse_sources.backend.temporal.data_imports.sources.zenloop.source import ZenloopSource
 from products.warehouse_sources.backend.temporal.data_imports.sources.zenloop.zenloop import ZenloopResumeConfig

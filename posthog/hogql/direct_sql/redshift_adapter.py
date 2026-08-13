@@ -4,6 +4,7 @@ import psycopg
 import sqlparse
 from opentelemetry import trace
 from sqlparse import tokens as sqlparse_tokens
+from sshtunnel import BaseSSHTunnelForwarderError
 
 from posthog.hogql.constants import HogQLDialect
 from posthog.hogql.direct_query_metrics import DIRECT_QUERY_ROW_CAP_EXCEEDED_TOTAL, observe_direct_query
@@ -18,7 +19,9 @@ if TYPE_CHECKING:
     from posthog.models.team import Team
 
     from products.warehouse_sources.backend.facade.models import ExternalDataSource
-    from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs import RedshiftSourceConfig
+    from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.redshift import (
+        RedshiftSourceConfig,
+    )
     from products.warehouse_sources.backend.temporal.data_imports.sources.redshift.redshift import (
         RedshiftImplementation,
     )
@@ -160,7 +163,7 @@ class RedshiftAdapter:
                         # as an empty result instead of raising on fetch, mirroring Postgres.
                         description = cursor.description or []
                         results = _fetch_capped_redshift_rows(cursor) if description else []
-        except (psycopg.Error, ExposedHogQLError) as error:
+        except (psycopg.Error, BaseSSHTunnelForwarderError, ExposedHogQLError) as error:
             span.set_attribute("error_type", error.__class__.__name__)
             if request.debug:
                 return DirectQueryResult(results=[], types=[], print_columns=[], error=postgres_error_to_message(error))

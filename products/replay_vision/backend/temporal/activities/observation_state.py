@@ -5,11 +5,15 @@ from django.db import transaction
 from django.utils import timezone
 
 import structlog
+import posthoganalytics
 from temporalio import activity
+
+from posthog.settings import SITE_URL
 
 from products.replay_vision.backend.billing import observation_credits_for_model
 from products.replay_vision.backend.models.replay_observation import ObservationStatus, ReplayObservation
 from products.replay_vision.backend.models.replay_observation_usage import ReplayObservationUsage
+from products.replay_vision.backend.temporal.constants import replay_vision_distinct_id
 from products.replay_vision.backend.temporal.decorators import track_activity
 from products.replay_vision.backend.temporal.errors import FailureKind, IneligibleSessionKind
 from products.replay_vision.backend.temporal.metrics import (
@@ -133,7 +137,13 @@ def mark_observation_succeeded_activity(inputs: MarkObservationSucceededInputs) 
             return  # No state transition — retry against an already-terminal row.
         # Write the usage receipt in the same transaction as the transition so a crash can't undercount.
         obs = ReplayObservation.objects.values(
-            "team_id", "team__organization_id", "created_at", "scanner_snapshot__model"
+            "team_id",
+            "team__organization_id",
+            "team__uuid",
+            "scanner_id",
+            "triggered_by",
+            "created_at",
+            "scanner_snapshot__model",
         ).get(pk=inputs.observation_id)
         model = obs["scanner_snapshot__model"] or ""
         credits = observation_credits_for_model(model)
@@ -156,4 +166,28 @@ def mark_observation_succeeded_activity(inputs: MarkObservationSucceededInputs) 
         "replay_vision.observation.succeeded",
         observation_id=str(inputs.observation_id),
         scanner_type=inputs.scanner_type,
+    )
+    # Internal cross-customer telemetry: one event per succeeded scan, for adoption/volume dashboards.
+    # Gated on the transition above so an at-least-once retry can't double-count a scan.
+    posthoganalytics.capture(
+        distinct_id=replay_vision_distinct_id(obs["team_id"]),
+        event="replay_vision_scan_completed",
+        # Deterministic event uuid (dedup key) so an ingestion-side retry can't produce a duplicate row.
+        uuid=str(inputs.observation_id),
+        properties={
+            "observation_id": str(inputs.observation_id),
+            "scanner_id": str(obs["scanner_id"]),
+            "scanner_type": inputs.scanner_type.value,
+            "model": model,
+            "credits": credits,
+            "triggered_by": obs["triggered_by"],
+            "team_id": obs["team_id"],
+            "organization_id": str(obs["team__organization_id"]),
+        },
+        # Mirrors posthog.event_usage.groups() without fetching the Team row.
+        groups={
+            "instance": SITE_URL,
+            "organization": str(obs["team__organization_id"]),
+            "project": str(obs["team__uuid"]),
+        },
     )

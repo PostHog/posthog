@@ -1,19 +1,17 @@
+import json
+from collections.abc import Iterable
 from datetime import UTC, date, datetime
-from typing import Any, Optional
+from typing import Any, Optional, cast
 
 import pytest
-from unittest.mock import MagicMock, patch
+from unittest import mock
 
-import requests
 from parameterized import parameterized
+from requests import HTTPError, Response
 
-from products.warehouse_sources.backend.temporal.data_imports.sources.savvycal import savvycal
 from products.warehouse_sources.backend.temporal.data_imports.sources.savvycal.savvycal import (
     SAVVYCAL_BASE_URL,
     SavvyCalResumeConfig,
-    SavvyCalRetryableError,
-    check_access,
-    get_rows,
     savvycal_source,
     validate_credentials,
 )
@@ -22,95 +20,131 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.savvycal.s
     SAVVYCAL_ENDPOINTS,
 )
 
-# Call the undecorated function so the tenacity retry/backoff wrapper doesn't slow failure-path tests.
-_fetch_page_unwrapped = savvycal._fetch_page.__wrapped__  # type: ignore[attr-defined]
+# RESTClient builds its session via make_tracked_session in the rest_client module.
+CLIENT_SESSION_PATCH = "products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.rest_client.make_tracked_session"
+# validate_credentials builds its own tracked session in the savvycal module.
+SAVVYCAL_SESSION_PATCH = (
+    "products.warehouse_sources.backend.temporal.data_imports.sources.savvycal.savvycal.make_tracked_session"
+)
+# The client's retry backoff sleeps on tenacity's nap; patch it so retry-path tests don't wait.
+SLEEP_PATCH = "tenacity.nap.time.sleep"
 
 
-class _FakeResumableManager:
-    def __init__(self, state: SavvyCalResumeConfig | None = None) -> None:
-        self._state = state
-        self.saved: list[SavvyCalResumeConfig] = []
-
-    def can_resume(self) -> bool:
-        return self._state is not None
-
-    def load_state(self) -> SavvyCalResumeConfig | None:
-        return self._state
-
-    def save_state(self, data: SavvyCalResumeConfig) -> None:
-        self.saved.append(data)
+def _response(entries: Optional[list[dict[str, Any]]], after: Optional[str] = None, *, status: int = 200) -> Response:
+    """A SavvyCal list response: {"entries": [...], "metadata": {"after": ...}}."""
+    payload = {"entries": entries or [], "metadata": {"after": after, "before": None, "limit": 100}}
+    resp = Response()
+    resp.status_code = status
+    resp._content = json.dumps(payload).encode()
+    resp.url = f"{SAVVYCAL_BASE_URL}/events"
+    return resp
 
 
-class TestGetRows:
-    @staticmethod
-    def _collect(
-        manager: _FakeResumableManager,
-        pages: dict[str | None, tuple[list[dict], Optional[str]]],
-        endpoint: str = "events",
-        should_use_incremental_field: bool = False,
-        db_incremental_field_last_value: Any = None,
-    ) -> tuple[list[dict], list[dict[str, Any]]]:
-        requested_params: list[dict[str, Any]] = []
+def _raw_response(body: Any, *, status: int = 200) -> Response:
+    resp = Response()
+    resp.status_code = status
+    resp._content = json.dumps(body).encode()
+    resp.url = f"{SAVVYCAL_BASE_URL}/events"
+    return resp
 
-        def fake_fetch(
-            session: Any, path: str, params: dict[str, Any], logger: Any
-        ) -> tuple[list[dict], Optional[str]]:
-            requested_params.append(params)
-            return pages[params.get("after")]
 
-        rows: list[dict] = []
-        with (
-            patch.object(savvycal, "_fetch_page", fake_fetch),
-            patch.object(savvycal, "make_tracked_session", return_value=MagicMock()),
-        ):
-            for batch in get_rows(
-                api_key="pt_secret_key",
-                endpoint=endpoint,
-                logger=MagicMock(),
-                resumable_source_manager=manager,  # type: ignore[arg-type]
-                should_use_incremental_field=should_use_incremental_field,
-                db_incremental_field_last_value=db_incremental_field_last_value,
-            ):
-                rows.extend(batch)
-        return rows, requested_params
+def _make_manager(resume_state: SavvyCalResumeConfig | None = None) -> mock.MagicMock:
+    manager = mock.MagicMock()
+    manager.can_resume.return_value = resume_state is not None
+    manager.load_state.return_value = resume_state
+    return manager
 
-    def test_single_page_yields_and_stops(self) -> None:
-        manager = _FakeResumableManager()
-        rows, _ = self._collect(manager, {None: ([{"id": "a"}, {"id": "b"}], None)})
+
+def _wire(session: mock.MagicMock, responses: list[Response]) -> list[dict[str, Any]]:
+    """Wire a mock session and capture each request's params AT SEND TIME.
+
+    ``request.params`` is one dict mutated in place across pages, so snapshot a copy when each
+    request is prepared instead of inspecting the final state.
+    """
+    session.headers = {}
+    param_snapshots: list[dict[str, Any]] = []
+
+    def _prepare(request: Any) -> mock.MagicMock:
+        param_snapshots.append(dict(request.params or {}))
+        return mock.MagicMock()
+
+    session.prepare_request.side_effect = _prepare
+    session.send.side_effect = responses
+    return param_snapshots
+
+
+def _run(
+    session: mock.MagicMock,
+    responses: list[Response],
+    endpoint: str = "events",
+    manager: mock.MagicMock | None = None,
+    should_use_incremental_field: bool = False,
+    db_incremental_field_last_value: Any = None,
+) -> tuple[list[dict[str, Any]], list[dict[str, Any]], mock.MagicMock]:
+    params = _wire(session, responses)
+    manager = manager if manager is not None else _make_manager()
+    source_response = savvycal_source(
+        api_key="pt_secret_key",
+        endpoint=endpoint,
+        team_id=1,
+        job_id="job",
+        resumable_source_manager=manager,
+        should_use_incremental_field=should_use_incremental_field,
+        db_incremental_field_last_value=db_incremental_field_last_value,
+    )
+    rows = [row for page in cast("Iterable[Any]", source_response.items()) for row in page]
+    return rows, params, manager
+
+
+class TestPagination:
+    @mock.patch(CLIENT_SESSION_PATCH)
+    def test_single_page_yields_and_stops(self, MockSession) -> None:
+        session = MockSession.return_value
+        rows, params, manager = _run(session, [_response([{"id": "a"}, {"id": "b"}], after=None)])
         assert rows == [{"id": "a"}, {"id": "b"}]
         # A null after cursor ends the sync without persisting resume state.
-        assert manager.saved == []
+        manager.save_state.assert_not_called()
+        assert session.send.call_count == 1
 
-    def test_follows_after_cursor_until_null(self) -> None:
-        manager = _FakeResumableManager()
-        pages: dict[str | None, tuple[list[dict], Optional[str]]] = {
-            None: ([{"id": "a"}], "cur_2"),
-            "cur_2": ([{"id": "b"}], None),
-        }
-        rows, params = self._collect(manager, pages)
+    @mock.patch(CLIENT_SESSION_PATCH)
+    def test_follows_after_cursor_until_null(self, MockSession) -> None:
+        session = MockSession.return_value
+        rows, params, manager = _run(
+            session, [_response([{"id": "a"}], after="cur_2"), _response([{"id": "b"}], after=None)]
+        )
         assert rows == [{"id": "a"}, {"id": "b"}]
-        # State is saved once — after the first page, pointing at the next cursor — then we stop.
-        assert [s.after for s in manager.saved] == ["cur_2"]
-        # The first request must not carry an after param; the second must.
+        # The first request carries no after param; the second carries the cursor from page one.
         assert "after" not in params[0]
         assert params[1]["after"] == "cur_2"
+        # State is saved exactly once — after the first page, pointing at the next cursor.
+        assert manager.save_state.call_count == 1
+        assert manager.save_state.call_args.args[0] == SavvyCalResumeConfig(after="cur_2", from_date=None)
 
-    def test_resumes_from_saved_cursor(self) -> None:
-        manager = _FakeResumableManager(SavvyCalResumeConfig(after="cur_2"))
-        # The first page must never be fetched on resume.
-        rows, _ = self._collect(manager, {"cur_2": ([{"id": "b"}], None)})
+    @mock.patch(CLIENT_SESSION_PATCH)
+    def test_resumes_from_saved_cursor(self, MockSession) -> None:
+        session = MockSession.return_value
+        manager = _make_manager(SavvyCalResumeConfig(after="cur_2"))
+        # The first page must never be fetched on resume; the seeded cursor rides on the first request.
+        rows, params, _ = _run(session, [_response([{"id": "b"}], after=None)], manager=manager)
         assert rows == [{"id": "b"}]
+        assert params[0]["after"] == "cur_2"
+        assert session.send.call_count == 1
 
-    def test_empty_first_page_yields_nothing(self) -> None:
-        manager = _FakeResumableManager()
-        rows, _ = self._collect(manager, {None: ([], None)})
+    @mock.patch(CLIENT_SESSION_PATCH)
+    def test_empty_first_page_yields_nothing(self, MockSession) -> None:
+        session = MockSession.return_value
+        rows, _, manager = _run(session, [_response([], after=None)])
         assert rows == []
-        assert manager.saved == []
+        manager.save_state.assert_not_called()
 
-    def test_events_full_refresh_widens_default_filters(self) -> None:
-        # SavvyCal defaults to period=upcoming, state=confirmed, attendance=attending — any of
-        # those silently drops most of the account's history from a warehouse import.
-        _, params = self._collect(_FakeResumableManager(), {None: ([], None)})
+
+class TestEventFilters:
+    @mock.patch(CLIENT_SESSION_PATCH)
+    def test_events_full_refresh_widens_default_filters(self, MockSession) -> None:
+        # SavvyCal defaults to period=upcoming, state=confirmed, attendance=attending — any of those
+        # silently drops most of the account's history from a warehouse import.
+        session = MockSession.return_value
+        _, params, _ = _run(session, [_response([], after=None)])
         assert params[0]["period"] == "all"
         assert params[0]["state"] == "all"
         assert params[0]["attendance"] == "any"
@@ -124,54 +158,49 @@ class TestGetRows:
             ("date", date(2026, 3, 5), "2026-03-05"),
         ]
     )
+    @mock.patch(CLIENT_SESSION_PATCH)
     def test_events_incremental_maps_watermark_to_fixed_window(
-        self, _name: str, watermark: Any, expected_from: str
+        self, _name: str, watermark: Any, expected_from: str, MockSession
     ) -> None:
-        _, params = self._collect(
-            _FakeResumableManager(),
-            {None: ([], None)},
+        session = MockSession.return_value
+        _, params, _ = _run(
+            session,
+            [_response([], after=None)],
             should_use_incremental_field=True,
             db_incremental_field_last_value=watermark,
         )
         assert params[0]["period"] == "fixed"
         assert params[0]["from"] == expected_from
 
-    def test_resume_reuses_saved_from_bound_over_new_watermark(self) -> None:
+    @mock.patch(CLIENT_SESSION_PATCH)
+    def test_resume_reuses_saved_from_bound_over_new_watermark(self, MockSession) -> None:
         # The saved cursor was minted under the original `from` bound; recomputing it from an
         # advanced watermark would pair the cursor with a different query.
-        manager = _FakeResumableManager(SavvyCalResumeConfig(after="cur_2", from_date="2026-01-01"))
-        pages: dict[str | None, tuple[list[dict], Optional[str]]] = {
-            "cur_2": ([{"id": "b"}], "cur_3"),
-            "cur_3": ([], None),
-        }
-        _, params = self._collect(
-            manager,
-            pages,
+        session = MockSession.return_value
+        manager = _make_manager(SavvyCalResumeConfig(after="cur_2", from_date="2026-01-01"))
+        _, params, _ = _run(
+            session,
+            [_response([{"id": "b"}], after="cur_3"), _response([], after=None)],
+            manager=manager,
             should_use_incremental_field=True,
             db_incremental_field_last_value=datetime(2026, 6, 1, tzinfo=UTC),
         )
         assert all(p["from"] == "2026-01-01" for p in params)
         # The re-saved state carries the same original bound forward.
-        assert manager.saved[0].from_date == "2026-01-01"
+        assert manager.save_state.call_args.args[0].from_date == "2026-01-01"
 
-    def test_webhooks_secret_is_redacted(self) -> None:
-        # The webhook signing secret must never reach the warehouse table.
-        manager = _FakeResumableManager()
-        rows, _ = self._collect(
-            manager,
-            {None: ([{"id": "wbhk_1", "url": "https://x", "secret": "whsec_leak"}], None)},
-            endpoint="webhooks",
-        )
-        assert rows == [{"id": "wbhk_1", "url": "https://x"}]
-
-    def test_non_events_endpoint_sends_no_event_filters(self) -> None:
-        _, params = self._collect(_FakeResumableManager(), {None: ([], None)}, endpoint="links")
+    @mock.patch(CLIENT_SESSION_PATCH)
+    def test_non_events_endpoint_sends_no_event_filters(self, MockSession) -> None:
+        session = MockSession.return_value
+        _, params, _ = _run(session, [_response([], after=None)], endpoint="links")
         assert params[0] == {"limit": 100}
 
-    def test_incremental_flag_ignored_for_full_refresh_endpoint(self) -> None:
-        _, params = self._collect(
-            _FakeResumableManager(),
-            {None: ([], None)},
+    @mock.patch(CLIENT_SESSION_PATCH)
+    def test_incremental_flag_ignored_for_full_refresh_endpoint(self, MockSession) -> None:
+        session = MockSession.return_value
+        _, params, _ = _run(
+            session,
+            [_response([], after=None)],
             endpoint="webhooks",
             should_use_incremental_field=True,
             db_incremental_field_last_value=datetime(2026, 6, 1, tzinfo=UTC),
@@ -179,105 +208,76 @@ class TestGetRows:
         assert "from" not in params[0]
         assert "period" not in params[0]
 
-
-class TestFetchPage:
-    def _session_returning(self, status_code: int, body: Any = None) -> MagicMock:
-        response = MagicMock()
-        response.status_code = status_code
-        response.ok = status_code < 400
-        response.json.return_value = body if body is not None else {"entries": [], "metadata": {"after": None}}
-        response.text = ""
-        response.raise_for_status.side_effect = (
-            requests.HTTPError(f"{status_code} error", response=response) if status_code >= 400 else None
+    @mock.patch(CLIENT_SESSION_PATCH)
+    def test_webhooks_secret_is_redacted(self, MockSession) -> None:
+        # The webhook signing secret must never reach the warehouse table.
+        session = MockSession.return_value
+        rows, _, _ = _run(
+            session,
+            [_response([{"id": "wbhk_1", "url": "https://x", "secret": "whsec_leak"}], after=None)],
+            endpoint="webhooks",
         )
-        session = MagicMock()
-        session.get.return_value = response
-        return session
+        assert rows == [{"id": "wbhk_1", "url": "https://x"}]
 
+
+class TestErrorHandling:
     @parameterized.expand([("rate_limited", 429), ("server_error", 500), ("bad_gateway", 503)])
-    def test_retryable_statuses_raise_retryable_error(self, _name: str, status: int) -> None:
-        session = self._session_returning(status)
-        with pytest.raises(SavvyCalRetryableError):
-            _fetch_page_unwrapped(session, "/events", {"limit": 100}, MagicMock())
+    @mock.patch(SLEEP_PATCH, return_value=None)
+    @mock.patch(CLIENT_SESSION_PATCH)
+    def test_retryable_status_is_retried_and_recovers(self, _name: str, status: int, MockSession, _sleep) -> None:
+        # A 429/5xx is retried by the client; a following good page completes the sync.
+        session = MockSession.return_value
+        rows, _, _ = _run(session, [_response(None, status=status), _response([{"id": "a"}], after=None)])
+        assert rows == [{"id": "a"}]
+        assert session.send.call_count == 2
 
     @parameterized.expand([("unauthorized", 401), ("forbidden", 403), ("bad_request", 400)])
-    def test_client_errors_raise_for_status(self, _name: str, status: int) -> None:
-        session = self._session_returning(status)
-        with pytest.raises(requests.HTTPError):
-            _fetch_page_unwrapped(session, "/events", {"limit": 100}, MagicMock())
+    @mock.patch(CLIENT_SESSION_PATCH)
+    def test_client_error_raises_and_does_not_retry(self, _name: str, status: int, MockSession) -> None:
+        session = MockSession.return_value
+        with pytest.raises(HTTPError):
+            _run(session, [_response(None, status=status)])
+        assert session.send.call_count == 1
 
-    def test_success_returns_entries_and_after_cursor(self) -> None:
-        body = {"entries": [{"id": "a"}], "metadata": {"after": "cur_2", "before": None, "limit": 100}}
-        session = self._session_returning(200, body)
-        rows, after = _fetch_page_unwrapped(session, "/events", {"limit": 100}, MagicMock())
+    @parameterized.expand(
+        [
+            ("bare_list", [{"id": "a"}]),
+            ("missing_entries", {"metadata": {"after": None}}),
+            ("entries_not_a_list", {"entries": {"id": "a"}, "metadata": {"after": None}}),
+        ]
+    )
+    @mock.patch(SLEEP_PATCH, return_value=None)
+    @mock.patch(CLIENT_SESSION_PATCH)
+    def test_unexpected_200_payload_is_retried_and_recovers(
+        self, _name: str, malformed_body: Any, MockSession, _sleep
+    ) -> None:
+        # A 200 whose body isn't the {"entries": [...]} shape is treated as transient and retried.
+        session = MockSession.return_value
+        rows, _, _ = _run(session, [_raw_response(malformed_body), _response([{"id": "a"}], after=None)])
         assert rows == [{"id": "a"}]
-        assert after == "cur_2"
-        args, kwargs = session.get.call_args
-        assert args[0] == f"{SAVVYCAL_BASE_URL}/events"
-        assert kwargs["params"] == {"limit": 100}
-
-    def test_null_after_returns_none(self) -> None:
-        body = {"entries": [{"id": "a"}], "metadata": {"after": None, "before": "cur_1", "limit": 100}}
-        session = self._session_returning(200, body)
-        _, after = _fetch_page_unwrapped(session, "/events", {"limit": 100}, MagicMock())
-        assert after is None
-
-    @parameterized.expand([("bare_list", [{"id": "a"}]), ("missing_entries", {"metadata": {"after": None}})])
-    def test_unexpected_payload_is_retryable(self, _name: str, body: Any) -> None:
-        session = self._session_returning(200, body)
-        with pytest.raises(SavvyCalRetryableError):
-            _fetch_page_unwrapped(session, "/links", {"limit": 100}, MagicMock())
+        assert session.send.call_count == 2
 
 
-class TestCheckAccess:
-    def _session(self, response: Any) -> MagicMock:
-        session = MagicMock()
-        if isinstance(response, Exception):
-            session.get.side_effect = response
-        else:
-            session.get.return_value = response
-        return session
-
+class TestValidateCredentials:
     @parameterized.expand(
         [
-            ("ok", 200, True, 200, None),
-            ("unauthorized", 401, False, 401, None),
-            ("forbidden", 403, False, 403, None),
-            ("server_error", 500, False, 500, "SavvyCal returned HTTP 500"),
+            ("ok", 200, (True, None)),
+            ("unauthorized", 401, (False, "Invalid SavvyCal personal access token")),
+            ("forbidden", 403, (False, "Invalid SavvyCal personal access token")),
+            ("server_error", 500, (False, "SavvyCal returned HTTP 500")),
         ]
     )
-    def test_status_mapping(
-        self, _name: str, status: int, ok: bool, expected_status: int, expected_message: str | None
-    ) -> None:
-        response = MagicMock()
-        response.status_code = status
-        response.ok = ok
-        with patch.object(savvycal, "make_tracked_session", return_value=self._session(response)):
-            assert check_access("pt_secret_key") == (expected_status, expected_message)
+    @mock.patch(SAVVYCAL_SESSION_PATCH)
+    def test_status_mapping(self, _name: str, status: int, expected: tuple[bool, str | None], mock_session) -> None:
+        mock_session.return_value.get.return_value = mock.MagicMock(status_code=status)
+        assert validate_credentials("pt_secret_key") == expected
 
-    def test_connection_error_maps_to_zero(self) -> None:
-        session = self._session(requests.ConnectionError("boom"))
-        with patch.object(savvycal, "make_tracked_session", return_value=session):
-            status, message = check_access("pt_secret_key")
-        assert status == 0
-        assert message is not None and "boom" in message
-
-    @parameterized.expand(
-        [
-            ("ok", 200, True, None),
-            ("unauthorized", 401, False, "Invalid SavvyCal personal access token"),
-            ("forbidden", 403, False, "Invalid SavvyCal personal access token"),
-            ("server_error", 500, False, "SavvyCal returned HTTP 500"),
-        ]
-    )
-    def test_validate_credentials(
-        self, _name: str, status: int, expected_valid: bool, expected_message: str | None
-    ) -> None:
-        response = MagicMock()
-        response.status_code = status
-        response.ok = status < 400
-        with patch.object(savvycal, "make_tracked_session", return_value=self._session(response)):
-            assert validate_credentials("pt_secret_key") == (expected_valid, expected_message)
+    @mock.patch(SAVVYCAL_SESSION_PATCH)
+    def test_connection_error_is_not_validated(self, mock_session) -> None:
+        mock_session.return_value.get.side_effect = Exception("boom")
+        valid, message = validate_credentials("pt_secret_key")
+        assert valid is False
+        assert message == "Could not validate SavvyCal personal access token"
 
 
 class TestSavvyCalSourceResponse:
@@ -286,8 +286,9 @@ class TestSavvyCalSourceResponse:
         response = savvycal_source(
             api_key="pt_secret_key",
             endpoint=endpoint,
-            logger=MagicMock(),
-            resumable_source_manager=MagicMock(),
+            team_id=1,
+            job_id="job",
+            resumable_source_manager=_make_manager(),
         )
         assert response.name == endpoint
         assert response.primary_keys == ["id"]
@@ -295,7 +296,11 @@ class TestSavvyCalSourceResponse:
 
     def test_events_partition_on_stable_created_at(self) -> None:
         response = savvycal_source(
-            api_key="pt_secret_key", endpoint="events", logger=MagicMock(), resumable_source_manager=MagicMock()
+            api_key="pt_secret_key",
+            endpoint="events",
+            team_id=1,
+            job_id="job",
+            resumable_source_manager=_make_manager(),
         )
         # start_at moves on reschedule; partitioning must stay on the immutable creation timestamp.
         assert response.partition_mode == "datetime"
@@ -304,7 +309,11 @@ class TestSavvyCalSourceResponse:
     def test_links_have_no_partitioning(self) -> None:
         # The Link schema exposes no creation timestamp to partition on.
         response = savvycal_source(
-            api_key="pt_secret_key", endpoint="links", logger=MagicMock(), resumable_source_manager=MagicMock()
+            api_key="pt_secret_key",
+            endpoint="links",
+            team_id=1,
+            job_id="job",
+            resumable_source_manager=_make_manager(),
         )
         assert response.partition_mode is None
         assert response.partition_keys is None

@@ -12,6 +12,7 @@ personhog-proto = { path = "../personhog-proto" }
 assignment-coordination = { path = "../common/assignment-coordination" }
 k8s-awareness = { path = "../common/k8s-awareness" }
 common-alloc = { path = "../common/alloc" }
+keyed-stash = { path = "../common/keyed-stash" }
 metrics-exporter-prometheus = { workspace = true }
 lifecycle = { path = "../common/lifecycle" }
 kube = { version = "0.98", features = ["client", "runtime"] }

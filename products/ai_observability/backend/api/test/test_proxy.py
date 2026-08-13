@@ -19,10 +19,15 @@ from posthog.rate_limit import (
 )
 
 from products.ai_observability.backend.api.proxy import LLMProxyCompletionSerializer, LLMProxyViewSet
-from products.ai_observability.backend.llm import PROVIDERS, TRIAL_MODEL_IDS, get_default_models, get_trial_models
+from products.ai_observability.backend.llm import (
+    PLAYGROUND_MODEL_IDS,
+    PROVIDERS,
+    get_default_models,
+    get_playground_models,
+)
 from products.ai_observability.backend.models.provider_keys import LLMProviderKey
 
-TRIAL_THROTTLES = (LLMProxyBurstRateThrottle, LLMProxySustainedRateThrottle, LLMProxyDailyRateThrottle)
+PLAYGROUND_THROTTLES = (LLMProxyBurstRateThrottle, LLMProxySustainedRateThrottle, LLMProxyDailyRateThrottle)
 BYOK_THROTTLES = (LLMProxyBYOKBurstRateThrottle, LLMProxyBYOKSustainedRateThrottle, LLMProxyBYOKDailyRateThrottle)
 
 
@@ -50,9 +55,9 @@ class TestLLMProxyThrottles(APIBaseTest):
     # Params: (provider_key_id, key_provider, encrypted_config, request_provider, has_team, expected_throttles)
     @parameterized.expand(
         [
-            ("no_provider_key", None, "openai", None, "openai", True, TRIAL_THROTTLES),
-            ("invalid_provider_key_id", str(uuid4()), "openai", None, "openai", True, TRIAL_THROTTLES),
-            ("provider_key_without_api_key", "generated", "openai", {}, "openai", True, TRIAL_THROTTLES),
+            ("no_provider_key", None, "openai", None, "openai", True, PLAYGROUND_THROTTLES),
+            ("invalid_provider_key_id", str(uuid4()), "openai", None, "openai", True, PLAYGROUND_THROTTLES),
+            ("provider_key_without_api_key", "generated", "openai", {}, "openai", True, PLAYGROUND_THROTTLES),
             (
                 "valid_matching_provider_key",
                 "generated",
@@ -107,7 +112,15 @@ class TestLLMProxyThrottles(APIBaseTest):
                 True,
                 BYOK_THROTTLES,
             ),
-            ("user_without_team", "generated", "openai", {"api_key": "sk-test-key"}, "openai", False, TRIAL_THROTTLES),
+            (
+                "user_without_team",
+                "generated",
+                "openai",
+                {"api_key": "sk-test-key"},
+                "openai",
+                False,
+                PLAYGROUND_THROTTLES,
+            ),
         ]
     )
     def test_completion_throttle_behavior(
@@ -163,28 +176,28 @@ class TestLLMProxyThrottles(APIBaseTest):
         assert serializer.validated_data["seed"] == 42
 
 
-class TestTrialModelAllowlist(TestCase):
-    def test_trial_models_are_subset_of_supported_models(self) -> None:
+class TestPlaygroundModelAllowlist(TestCase):
+    def test_playground_models_are_subset_of_supported_models(self) -> None:
         for _, config in PROVIDERS:
-            assert set(config.TRIAL_MODELS) <= set(config.SUPPORTED_MODELS), (
-                f"{config.__name__}.TRIAL_MODELS contains models not in SUPPORTED_MODELS"
+            assert set(config.PLAYGROUND_MODELS) <= set(config.SUPPORTED_MODELS), (
+                f"{config.__name__}.PLAYGROUND_MODELS contains models not in SUPPORTED_MODELS"
             )
 
     def test_model_ids_unique_across_providers(self) -> None:
-        all_trial: list[str] = []
+        all_playground: list[str] = []
         for _, config in PROVIDERS:
-            all_trial.extend(config.TRIAL_MODELS)
-        assert len(all_trial) == len(set(all_trial)), "Duplicate model IDs found across providers"
+            all_playground.extend(config.PLAYGROUND_MODELS)
+        assert len(all_playground) == len(set(all_playground)), "Duplicate model IDs found across providers"
 
-    def test_get_trial_models_returns_only_trial_eligible(self) -> None:
-        trial_ids = {m["id"] for m in get_trial_models()}
-        assert trial_ids == TRIAL_MODEL_IDS
+    def test_get_playground_models_returns_only_playground_eligible(self) -> None:
+        playground_ids = {m["id"] for m in get_playground_models()}
+        assert playground_ids == PLAYGROUND_MODEL_IDS
 
-    def test_get_trial_models_smaller_than_default(self) -> None:
-        assert len(get_trial_models()) < len(get_default_models())
+    def test_get_playground_models_smaller_than_default(self) -> None:
+        assert len(get_playground_models()) < len(get_default_models())
 
 
-class TestTrialModelEnforcement(APIBaseTest):
+class TestPlaygroundModelEnforcement(APIBaseTest):
     def setUp(self) -> None:
         super().setUp()
         self.organization.customer_id = "cus_test"
@@ -204,17 +217,17 @@ class TestTrialModelEnforcement(APIBaseTest):
             ("expensive_anthropic", "claude-opus-4-6", "anthropic"),
         ]
     )
-    def test_completion_rejects_non_trial_model(self, _name: str, model: str, provider: str) -> None:
+    def test_completion_rejects_non_playground_model(self, _name: str, model: str, provider: str) -> None:
         response = self.client.post(
             "/api/llm_proxy/completion/",
             data=self._completion_payload(model, provider),
             format="json",
         )
         assert response.status_code == 403
-        assert "not available on the trial plan" in response.json()["error"]
+        assert "not available on the PostHog-funded playground" in response.json()["error"]
 
     @patch("products.ai_observability.backend.api.proxy.Client")
-    def test_completion_allows_trial_model(self, mock_client_cls) -> None:
+    def test_completion_allows_playground_model(self, mock_client_cls) -> None:
         mock_client_cls.return_value.stream.return_value = iter([])
         response = self.client.post(
             "/api/llm_proxy/completion/",
@@ -227,7 +240,7 @@ class TestTrialModelEnforcement(APIBaseTest):
         mock_client_cls.return_value.stream.assert_called_once()
 
     @patch("products.ai_observability.backend.api.proxy.Client")
-    def test_byok_key_bypasses_trial_allowlist(self, mock_client_cls) -> None:
+    def test_byok_key_bypasses_playground_allowlist(self, mock_client_cls) -> None:
         mock_client_cls.return_value.stream.return_value = iter([])
         byok_key = LLMProviderKey.objects.create(
             team=self.team,
@@ -248,8 +261,8 @@ class TestTrialModelEnforcement(APIBaseTest):
         b"".join(response.streaming_content)  # type: ignore[attr-defined]
         mock_client_cls.return_value.stream.assert_called_once()
 
-    def test_models_endpoint_returns_only_trial_models(self) -> None:
+    def test_models_endpoint_returns_only_playground_models(self) -> None:
         response = self.client.get("/api/llm_proxy/models/")
         assert response.status_code == 200
         returned_ids = {m["id"] for m in response.json()}
-        assert returned_ids == TRIAL_MODEL_IDS
+        assert returned_ids == PLAYGROUND_MODEL_IDS

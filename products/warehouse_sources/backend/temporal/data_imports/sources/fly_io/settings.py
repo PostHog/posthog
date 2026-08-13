@@ -9,7 +9,7 @@ class FlyIoEndpointConfig:
     name: str
     # Path template relative to the API base. `{org_slug}` is substituted with the configured
     # organization for the org-scoped endpoints; the apps endpoint takes org_slug as a query
-    # param instead (see `_build_url` in fly_io.py).
+    # param instead (see `_endpoint_path`/`_endpoint_params` in fly_io.py).
     path: str
     # Body key the list of rows lives under (e.g. {"apps": [...]}, {"machines": [...]}).
     response_data_path: str

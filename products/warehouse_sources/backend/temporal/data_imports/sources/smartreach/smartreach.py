@@ -1,147 +1,150 @@
 import dataclasses
-from collections.abc import Iterator
 from typing import Any, Optional
-from urllib.parse import urlsplit
+from urllib.parse import urlencode
 
-import requests
-from structlog.types import FilteringBoundLogger
-from tenacity import retry, retry_if_exception_type, stop_after_attempt, wait_exponential_jitter
-
-from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline.typings import SourceResponse
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.http import make_tracked_session
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source import (
+    RESTAPIConfig,
+    rest_api_resource,
+)
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.paginators import (
+    JSONResponsePaginator,
+)
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.typing import (
+    ApiKeyAuthConfig,
+    Endpoint,
+)
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.source_helpers import validate_via_probe
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.typings import SourceResponse
 from products.warehouse_sources.backend.temporal.data_imports.sources.smartreach.settings import SMARTREACH_ENDPOINTS
 
-SMARTREACH_BASE_URL = "https://api.smartreach.io/api/v1"
-# `links.next` is echoed back from the API response, so it can't be trusted blindly: a tampered
-# response could point it at an arbitrary host and leak the user's API key there. Only follow next
-# URLs that stay on SmartReach's own origin.
-SMARTREACH_ALLOWED_ORIGIN = ("https", "api.smartreach.io")
-REQUEST_TIMEOUT_SECONDS = 60
+SMARTREACH_API_V1 = "v1"
+SMARTREACH_API_V3 = "v3"
+
+# Each version is served under its own base path; auth (X-API-KEY) and links.next pagination are
+# shared. v3 diverges in two request-shaping ways we branch on below: the base path, and where the
+# row list sits in the response envelope (root vs `data.*`). v3 also requires a `team_id` query
+# param on the list endpoints (see smartreach_source / check_access).
+SMARTREACH_BASE_URLS: dict[str, str] = {
+    SMARTREACH_API_V1: "https://api.smartreach.io/api/v1",
+    SMARTREACH_API_V3: "https://api.smartreach.io/api/v3",
+}
+
+# Kept for the several call sites and tests that reference the v1 origin directly.
+SMARTREACH_BASE_URL = SMARTREACH_BASE_URLS[SMARTREACH_API_V1]
+
 # Cheap endpoint used to confirm an API key is genuine. The user key is account-wide, so one probe
 # validates access to every list endpoint.
 DEFAULT_PROBE_ENDPOINT = "campaigns"
 
 
-class SmartreachRetryableError(Exception):
-    pass
+def _base_url(api_version: str) -> str:
+    try:
+        return SMARTREACH_BASE_URLS[api_version]
+    except KeyError:
+        # Never fall through to a default: silently syncing under an unmapped version is the drift
+        # the version framework exists to prevent.
+        raise ValueError(f"Unsupported SmartReach API version {api_version!r}")
+
+
+def _data_selector(data_key: str, api_version: str) -> str:
+    # v3 returns the row list at the envelope root (e.g. `prospects`); v1 nests it under `data`.
+    if api_version == SMARTREACH_API_V3:
+        return data_key
+    return f"data.{data_key}"
 
 
 @dataclasses.dataclass
 class SmartreachResumeConfig:
     # Full URL of the next page, taken verbatim from `links.next`. None means "start at the
     # endpoint's first page". The next URL already carries every pagination param, so the original
-    # query params must NOT be re-sent alongside it (doing so can restart pagination from the top).
+    # query params must NOT be re-sent alongside it (the paginator drops them).
     next_url: str | None = None
 
 
-def _headers(api_key: str) -> dict[str, str]:
-    return {"X-API-KEY": api_key, "Accept": "application/json"}
+def _headers() -> dict[str, str]:
+    # Auth (the X-API-KEY header) is supplied via the framework auth config so its value is redacted
+    # from logs and raised errors; only the non-secret Accept header is set here.
+    return {"Accept": "application/json"}
 
 
-def _extract_rows(data: dict[str, Any], data_key: str) -> list[dict[str, Any]]:
-    # SmartReach wraps the list in `{"data": {"<data_key>": [...]}, "links": {"next": ...}}`.
-    # Tolerate a bare `{"data": [...]}` shape too, in case an endpoint returns the list directly.
-    payload = data.get("data")
-    if isinstance(payload, dict):
-        rows = payload.get(data_key)
-        return rows if isinstance(rows, list) else []
-    if isinstance(payload, list):
-        return payload
-    return []
-
-
-def _is_same_origin(url: str) -> bool:
-    parts = urlsplit(url)
-    return (parts.scheme, parts.hostname) == SMARTREACH_ALLOWED_ORIGIN
-
-
-def _next_url(data: dict[str, Any]) -> Optional[str]:
-    links = data.get("links")
-    if not isinstance(links, dict):
-        return None
-    next_url = links.get("next")
-    if not isinstance(next_url, str) or not next_url:
-        return None
-    if not _is_same_origin(next_url):
-        # Refuse to follow (and to persist) an off-origin cursor: fetching it would send the API key
-        # to whatever host the response named. Fail loudly rather than silently truncating the sync.
-        raise ValueError(f"SmartReach returned an off-origin pagination URL: {next_url}")
-    return next_url
-
-
-@retry(
-    retry=retry_if_exception_type((SmartreachRetryableError, requests.ReadTimeout, requests.ConnectionError)),
-    stop=stop_after_attempt(5),
-    wait=wait_exponential_jitter(initial=1, max=30),
-    reraise=True,
-)
-def _fetch_page(session: requests.Session, url: str, logger: FilteringBoundLogger) -> dict[str, Any]:
-    # `url` is either the endpoint's first-page URL or a `links.next` URL that already encodes its
-    # own pagination params, so no query params are passed here.
-    response = session.get(url, timeout=REQUEST_TIMEOUT_SECONDS)
-
-    if response.status_code == 429 or response.status_code >= 500:
-        raise SmartreachRetryableError(f"SmartReach API error (retryable): status={response.status_code}, url={url}")
-
-    if not response.ok:
-        logger.error(f"SmartReach API error: status={response.status_code}, body={response.text}, url={url}")
-        response.raise_for_status()
-
-    return response.json()
-
-
-def get_rows(
-    api_key: str,
-    endpoint: str,
-    logger: FilteringBoundLogger,
-    resumable_source_manager: ResumableSourceManager[SmartreachResumeConfig],
-) -> Iterator[list[dict[str, Any]]]:
-    config = SMARTREACH_ENDPOINTS[endpoint]
-    # `redact_values` masks the user key in logged URLs and captured samples. `allow_redirects=False`
-    # keeps a redirect from bouncing the key off-origin (see `_next_url` for the same concern).
-    session = make_tracked_session(headers=_headers(api_key), redact_values=(api_key,), allow_redirects=False)
-
-    resume = resumable_source_manager.load_state() if resumable_source_manager.can_resume() else None
-    if resume and resume.next_url:
-        url = resume.next_url
-        logger.debug(f"SmartReach: resuming {endpoint} from saved cursor URL")
-    else:
-        url = f"{SMARTREACH_BASE_URL}{config.path}"
-
-    while True:
-        data = _fetch_page(session, url, logger)
-
-        rows = _extract_rows(data, config.data_key)
-        if rows:
-            yield rows
-
-        next_url = _next_url(data)
-        if not next_url:
-            break
-
-        url = next_url
-        # Save AFTER yielding so a crash re-fetches from the next cursor (already-yielded pages are
-        # persisted); merge dedupes the re-pulled page on the primary key.
-        resumable_source_manager.save_state(SmartreachResumeConfig(next_url=next_url))
+def _api_key_auth(api_key: str) -> ApiKeyAuthConfig:
+    return {"type": "api_key", "api_key": api_key, "name": "X-API-KEY", "location": "header"}
 
 
 def smartreach_source(
     api_key: str,
     endpoint: str,
-    logger: FilteringBoundLogger,
+    team_id: int,
+    job_id: str,
     resumable_source_manager: ResumableSourceManager[SmartreachResumeConfig],
+    api_version: str,
+    smartreach_team_id: str | None = None,
+    db_incremental_field_last_value: Optional[Any] = None,
 ) -> SourceResponse:
     config = SMARTREACH_ENDPOINTS[endpoint]
 
+    endpoint_config: Endpoint = {
+        "path": config.path,
+        # A missing key yields an empty page (matching the previous behavior) rather than failing
+        # loud, so data_selector_required is left off.
+        "data_selector": _data_selector(config.data_key, api_version),
+    }
+    # v3 requires the SmartReach team id on every list request; v1 has no such param. Set it only on
+    # the first request — the paginator then follows links.next verbatim, which already carries it.
+    if api_version == SMARTREACH_API_V3 and smartreach_team_id:
+        endpoint_config["params"] = {"team_id": smartreach_team_id}
+
+    rest_config: RESTAPIConfig = {
+        "client": {
+            "base_url": _base_url(api_version),
+            "headers": _headers(),
+            "auth": _api_key_auth(api_key),
+            # SmartReach echoes the next page as a full URL in `links.next`, so it can't be trusted
+            # blindly: a tampered response could point it at an arbitrary host and leak the API key.
+            "paginator": JSONResponsePaginator(next_url_path="links.next"),
+            # Pin every request — including paginator next-page and seeded resume URLs — to
+            # SmartReach's own https origin. `allowed_hosts=[]` means "same host as base_url only",
+            # and the base scheme/port are pinned too, so an off-origin or scheme-downgraded
+            # (http://) `links.next` is rejected before the key goes out. `allow_redirects=False`
+            # stops a redirect from bouncing the key off-origin.
+            "allowed_hosts": [],
+            "allow_redirects": False,
+        },
+        "resource_defaults": {},
+        "resources": [
+            {
+                "name": endpoint,
+                "endpoint": endpoint_config,
+            }
+        ],
+    }
+
+    initial_paginator_state: Optional[dict[str, Any]] = None
+    if resumable_source_manager.can_resume():
+        resume = resumable_source_manager.load_state()
+        if resume is not None and resume.next_url:
+            initial_paginator_state = {"next_url": resume.next_url}
+
+    def save_checkpoint(state: Optional[dict[str, Any]]) -> None:
+        # Persist only when a next page remains; save AFTER a page is yielded so a crash re-yields
+        # the last page (merge dedupes) rather than skipping it. No state is saved for the final page.
+        if state and state.get("next_url"):
+            resumable_source_manager.save_state(SmartreachResumeConfig(next_url=state["next_url"]))
+
+    resource = rest_api_resource(
+        rest_config,
+        team_id,
+        job_id,
+        db_incremental_field_last_value,
+        resume_hook=save_checkpoint,
+        initial_paginator_state=initial_paginator_state,
+    )
+
     return SourceResponse(
         name=endpoint,
-        items=lambda: get_rows(
-            api_key=api_key,
-            endpoint=endpoint,
-            logger=logger,
-            resumable_source_manager=resumable_source_manager,
-        ),
+        items=lambda: resource,
         primary_keys=config.primary_keys,
         partition_count=1,
         partition_size=1,
@@ -151,23 +154,31 @@ def smartreach_source(
     )
 
 
-def check_access(api_key: str, endpoint: str = DEFAULT_PROBE_ENDPOINT) -> tuple[int, Optional[str]]:
+def check_access(
+    api_key: str,
+    api_version: str,
+    smartreach_team_id: str | None = None,
+    endpoint: str = DEFAULT_PROBE_ENDPOINT,
+) -> tuple[int, Optional[str]]:
     """Probe a single list endpoint to validate the user key.
 
     Returns ``(status, message)``: ``200`` reachable, ``401``/``403`` auth failure, ``0`` for a
     connection problem, other HTTP status otherwise.
     """
     config = SMARTREACH_ENDPOINTS[endpoint]
-    session = make_tracked_session(headers=_headers(api_key), redact_values=(api_key,), allow_redirects=False)
-    try:
-        response = session.get(f"{SMARTREACH_BASE_URL}{config.path}", timeout=15)
-    except Exception as e:
-        return 0, f"Could not connect to SmartReach: {e}"
-
-    if response.status_code in (401, 403):
-        return response.status_code, None
-
-    if not response.ok:
-        return response.status_code, f"SmartReach returned HTTP {response.status_code}"
-
-    return 200, None
+    url = f"{_base_url(api_version)}{config.path}"
+    # v3 list endpoints reject a request without team_id, so the probe must carry it too.
+    if api_version == SMARTREACH_API_V3 and smartreach_team_id:
+        url = f"{url}?{urlencode({'team_id': smartreach_team_id})}"
+    ok, status = validate_via_probe(
+        lambda: make_tracked_session(redact_values=(api_key,), allow_redirects=False),
+        url,
+        headers={"X-API-KEY": api_key, **_headers()},
+    )
+    if status is None:
+        return 0, "Could not connect to SmartReach"
+    if status in (401, 403):
+        return status, None
+    if ok:
+        return status, None
+    return status, f"SmartReach returned HTTP {status}"

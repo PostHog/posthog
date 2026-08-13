@@ -17,6 +17,7 @@
  * * `experiment` - EXPERIMENT
  * * `error_tracking` - ERROR_TRACKING
  * * `customer_analytics` - CUSTOMER_ANALYTICS
+ * * `ticket` - TICKET
  */
 export type NotificationEventSourceTypeEnumApi =
     (typeof NotificationEventSourceTypeEnumApi)[keyof typeof NotificationEventSourceTypeEnumApi]
@@ -31,6 +32,7 @@ export const NotificationEventSourceTypeEnumApi = {
     Experiment: 'experiment',
     ErrorTracking: 'error_tracking',
     CustomerAnalytics: 'customer_analytics',
+    Ticket: 'ticket',
 } as const
 
 /**
@@ -50,8 +52,6 @@ export interface NotificationEventApi {
     read: boolean
     /** @nullable */
     read_at: string | null
-    /** Whether this notification opted in to being archived (dismissed) by the recipient. When false, the notification only supports read/unread. */
-    archivable: boolean
     target_type: string
     target_id: string
     /** @nullable */

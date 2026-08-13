@@ -53,10 +53,12 @@ pub enum SendOutcome {
     },
     /// Channel full: carries the un-sent sub-batch to hold, pause, and redispatch. No drop recorded.
     Full(Vec<ShuffleMessage>),
-    /// No worker registered (never assigned, or revoked): dropped and recorded; Kafka replays.
-    NoWorker,
-    /// Worker channel closed (worker exited): dropped and recorded; Kafka replays.
-    ChannelClosed,
+    /// No worker registered (never assigned, or revoked). The caller may hold the returned batch;
+    /// otherwise Kafka replays it.
+    NoWorker(Vec<ShuffleMessage>),
+    /// Worker channel closed (worker exited). The caller may hold the returned batch; otherwise Kafka
+    /// replays it.
+    ChannelClosed(Vec<ShuffleMessage>),
 }
 
 /// A registered worker channel: the sender and the per-partition event-intake budget its
@@ -237,8 +239,7 @@ impl PartitionRouter {
 
     fn try_send_to_partition(&self, partition: i32, batch: Vec<ShuffleMessage>) -> SendOutcome {
         let Some(channel) = self.channel_for(partition) else {
-            self.record_drop(partition, batch.len(), REASON_NO_WORKER);
-            return SendOutcome::NoWorker;
+            return SendOutcome::NoWorker(batch);
         };
         let count = batch.len();
         // `None` for an event-less batch — carried through, not defaulted to 0, so a non-Event caller
@@ -267,8 +268,7 @@ impl PartitionRouter {
             }
             Err(TrySendError::Closed(returned)) => {
                 channel.intake.release(counted);
-                self.record_drop(partition, returned.len(), REASON_CHANNEL_CLOSED);
-                SendOutcome::ChannelClosed
+                SendOutcome::ChannelClosed(returned)
             }
         }
     }
@@ -350,6 +350,7 @@ mod tests {
                 | ShuffleMessage::Cascade { .. }
                 | ShuffleMessage::RedrivePendingTransfers
                 | ShuffleMessage::MergeCfGc { .. }
+                | ShuffleMessage::ReconcileDrain
                 | ShuffleMessage::Seed { .. } => {
                     unreachable!("router tests route only events")
                 }
@@ -592,17 +593,17 @@ mod tests {
     #[tokio::test]
     async fn try_route_batch_reports_no_worker_and_channel_closed() {
         let router = PartitionRouter::new(16);
-        assert!(matches!(
-            router.try_route_batch(vec![(9, event_off(1))]).remove(&9),
-            Some(SendOutcome::NoWorker),
-        ));
+        match router.try_route_batch(vec![(9, event_off(1))]).remove(&9) {
+            Some(SendOutcome::NoWorker(returned)) => assert_eq!(tags(&returned), vec![1]),
+            other => panic!("expected NoWorker, got {other:?}"),
+        }
 
         let rx = router.add_partition(3).unwrap();
         drop(rx);
-        assert!(matches!(
-            router.try_route_batch(vec![(3, event_off(1))]).remove(&3),
-            Some(SendOutcome::ChannelClosed),
-        ));
+        match router.try_route_batch(vec![(3, event_off(1))]).remove(&3) {
+            Some(SendOutcome::ChannelClosed(returned)) => assert_eq!(tags(&returned), vec![1]),
+            other => panic!("expected ChannelClosed, got {other:?}"),
+        }
     }
 
     #[tokio::test]

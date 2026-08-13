@@ -44,7 +44,8 @@ export function SettingsBar({
     return (
         <div
             className={cn(
-                'flex flex-row w-full overflow-hidden font-light text-xs bg-primary items-center',
+                // scrolls horizontally rather than clipping, so controls stay reachable in a narrow panel
+                'flex flex-row w-full overflow-x-auto overflow-y-hidden show-scrollbar-on-hover font-light text-xs bg-primary items-center',
                 className,
                 {
                     'border-b': ['bottom', 'all'].includes(border),

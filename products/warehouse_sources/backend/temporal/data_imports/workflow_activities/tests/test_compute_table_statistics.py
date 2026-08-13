@@ -6,6 +6,8 @@ from decimal import Decimal
 import pytest
 from unittest.mock import AsyncMock, MagicMock, patch
 
+from django.db import connection
+from django.test.utils import CaptureQueriesContext
 from django.utils import timezone
 
 import pyarrow as pa
@@ -19,6 +21,9 @@ from products.warehouse_sources.backend.models.external_data_job import External
 from products.warehouse_sources.backend.models.external_data_schema import ExternalDataSchema
 from products.warehouse_sources.backend.models.external_data_source import ExternalDataSource
 from products.warehouse_sources.backend.models.table import DataWarehouseTable
+from products.warehouse_sources.backend.temporal.data_imports.pipelines.core.delta.errors import (
+    TransientObjectStoreError,
+)
 from products.warehouse_sources.backend.temporal.data_imports.workflow_activities import (
     compute_table_statistics as comp,
 )
@@ -30,9 +35,7 @@ from products.warehouse_sources.backend.temporal.data_imports.workflow_activitie
     compute_table_statistics_sync,
 )
 
-DELTA_HELPER_PATH = (
-    "products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline.delta_table_helper.DeltaTableHelper"
-)
+DELTA_HELPER_PATH = "products.warehouse_sources.backend.temporal.data_imports.pipelines.core.delta.table.DeltaTableRef"
 
 
 class TestAggregateAddActionStats:
@@ -192,6 +195,29 @@ class TestComputeTableStatisticsSync:
         assert stat.computed_for_delta_version == 12
         assert stat.column_type == "Int64"
 
+    def test_job_reuses_prefetched_schema_to_avoid_lazy_query(self) -> None:
+        # job is fetched without select_related("schema"), so job.folder_path() (which reads
+        # job.schema.source.source_type) would otherwise fire a lazy SELECT on a pooled connection a
+        # transaction pooler may have dropped mid-run, raising a transient OperationalError.
+        team = self._team()
+        schema, table, _ = self._schema_table_job(team)
+        add_actions = pa.table({"num_records": [1], "null_count.amount": [0], "min.amount": [1], "max.amount": [1]})
+        captured: dict = {}
+
+        def _capture_helper(*, resource_name, job, logger):
+            captured["job"] = job
+            return self._mock_delta(add_actions)
+
+        with (
+            patch.object(comp, "statistics_enabled", return_value=True),
+            patch(DELTA_HELPER_PATH, side_effect=_capture_helper),
+        ):
+            compute_table_statistics_sync(team.id, schema.id)
+
+        with CaptureQueriesContext(connection) as ctx:
+            captured["job"].folder_path()
+        assert len(ctx.captured_queries) == 0
+
     def test_runs_without_ai_data_processing_consent(self) -> None:
         # Statistics never leave our infra, so — unlike enrichment — they must NOT be gated on AI consent.
         # Guards against someone copy-pasting enrichment's consent gate into this path.
@@ -284,10 +310,30 @@ class TestComputeTableStatisticsActivity:
         mock_sync.assert_called_once()
 
     async def test_activity_reraises_on_failure(self) -> None:
-        with patch.object(comp, "compute_table_statistics_sync", side_effect=ValueError("boom")):
+        with (
+            patch.object(comp, "compute_table_statistics_sync", side_effect=ValueError("boom")),
+            patch.object(comp, "capture_exception") as mock_capture,
+        ):
             inputs = ComputeTableStatisticsInputs(team_id=1, schema_id=uuid.uuid4())
             with pytest.raises(ValueError, match="boom"):
                 await ActivityEnvironment().run(compute_table_statistics_activity, inputs)
+        mock_capture.assert_called_once()
+
+    async def test_activity_does_not_report_transient_object_store_error(self) -> None:
+        # get_delta_table re-raises known-transient object-store blips (S3 connect timeouts, IMDS/STS
+        # credential hiccups) as TransientObjectStoreError specifically so they don't mint a fresh
+        # error-tracking issue per blip. The activity's own except block must respect that contract
+        # instead of unconditionally calling capture_exception on every exception.
+        with (
+            patch.object(
+                comp, "compute_table_statistics_sync", side_effect=TransientObjectStoreError("connect timeout")
+            ),
+            patch.object(comp, "capture_exception") as mock_capture,
+        ):
+            inputs = ComputeTableStatisticsInputs(team_id=1, schema_id=uuid.uuid4())
+            with pytest.raises(TransientObjectStoreError):
+                await ActivityEnvironment().run(compute_table_statistics_activity, inputs)
+        mock_capture.assert_not_called()
 
 
 class TestComputeTableStatisticsWorkflow:

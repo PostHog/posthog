@@ -7,7 +7,8 @@ from dataclasses import dataclass, field
 # refresh only; collections are small per account, so a full fetch is cheap.
 #
 # Response envelopes vary per endpoint: fine-tunes/files/endpoints wrap rows in {"data": [...]},
-# while batches/evaluations/models return a bare JSON array. The transport handles both shapes.
+# while batches/evaluations/models return a bare JSON array. Each endpoint pins its shape via
+# `data_selector` so an unexpected body fails loud instead of syncing zero rows.
 
 
 @dataclass
@@ -20,15 +21,21 @@ class TogetherAIEndpointConfig:
     primary_keys: list[str] = field(default_factory=lambda: ["id"])
     # Static query params sent with the request.
     params: dict[str, str] = field(default_factory=dict)
+    # JSONPath to the row list in the response body. fine-tunes/files/endpoints wrap rows in
+    # {"data": [...]} (data_selector="data"); batches/evaluations/models return a bare JSON array
+    # (data_selector=None, the whole body is the list).
+    data_selector: str | None = None
 
 
 TOGETHER_AI_ENDPOINTS: dict[str, TogetherAIEndpointConfig] = {
-    "fine_tunes": TogetherAIEndpointConfig(name="fine_tunes", path="/fine-tunes"),
+    "fine_tunes": TogetherAIEndpointConfig(name="fine_tunes", path="/fine-tunes", data_selector="data"),
     "batches": TogetherAIEndpointConfig(name="batches", path="/batches"),
-    "files": TogetherAIEndpointConfig(name="files", path="/files"),
+    "files": TogetherAIEndpointConfig(name="files", path="/files", data_selector="data"),
     # Only the account's dedicated endpoint deployments — the unfiltered list also includes every
     # public serverless model, which duplicates the models table.
-    "endpoints": TogetherAIEndpointConfig(name="endpoints", path="/endpoints", params={"type": "dedicated"}),
+    "endpoints": TogetherAIEndpointConfig(
+        name="endpoints", path="/endpoints", params={"type": "dedicated"}, data_selector="data"
+    ),
     "evaluations": TogetherAIEndpointConfig(name="evaluations", path="/evaluations", primary_keys=["workflow_id"]),
     # The serverless model catalog: id, type, pricing, context length per model. Rows carry a
     # `created` unix timestamp instead of `created_at`.

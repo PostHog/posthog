@@ -9,6 +9,7 @@ import { ActivityLog } from 'lib/components/ActivityLog/ActivityLog'
 import { NotFound } from 'lib/components/NotFound'
 import { SceneAddToNotebookDropdownMenu } from 'lib/components/Scenes/InsightOrDashboard/SceneAddToNotebookDropdownMenu'
 import { SceneFile } from 'lib/components/Scenes/SceneFile'
+import { TestAccountFilterSwitch } from 'lib/components/TestAccountFiltersSwitch'
 import { TZLabel } from 'lib/components/TZLabel'
 import { CohortTypeEnum, FEATURE_FLAGS } from 'lib/constants'
 import { useFileSystemLogView } from 'lib/hooks/useFileSystemLogView'
@@ -141,6 +142,7 @@ export function CohortEdit({ id, attachTo }: CohortEditProps): JSX.Element {
         deleteCohort,
         restoreCohort,
         setOuterGroupsType,
+        setFilterTestAccounts,
         setQuery,
         duplicateCohort,
         setCohortValue,
@@ -698,14 +700,25 @@ export function CohortEdit({ id, attachTo }: CohortEditProps): JSX.Element {
                                         className={cn('flex items-start justify-between')}
                                         hideTitleAndDescription
                                     >
-                                        <AndOrFilterSelect
-                                            value={cohort.filters.properties.type}
-                                            onChange={(value) => {
-                                                setOuterGroupsType(value)
-                                            }}
-                                            topLevelFilter={true}
-                                            suffix={['criterion', 'criteria']}
-                                        />
+                                        <div className="flex items-center justify-between gap-2 flex-wrap">
+                                            <AndOrFilterSelect
+                                                value={cohort.filters.properties.type}
+                                                onChange={(value) => {
+                                                    setOuterGroupsType(value)
+                                                }}
+                                                topLevelFilter={true}
+                                                suffix={['criterion', 'criteria']}
+                                            />
+                                            <Tooltip title="Only person property filters from your internal and test account settings apply to cohorts. Event-based filters do not apply to person-level criteria.">
+                                                <div>
+                                                    <TestAccountFilterSwitch
+                                                        checked={!!cohort.filters.filterTestAccounts}
+                                                        onChange={setFilterTestAccounts}
+                                                        applicableFilterTypes={['person']}
+                                                    />
+                                                </div>
+                                            </Tooltip>
+                                        </div>
                                         <div className={cn('w-full [&>div]:my-0 [&>div]:w-full')}>
                                             <CohortCriteriaGroups id={logicProps.id} />
                                         </div>

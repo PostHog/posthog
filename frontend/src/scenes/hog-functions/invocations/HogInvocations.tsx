@@ -34,7 +34,7 @@ import { PersonDisplay } from 'scenes/persons/PersonDisplay'
 import { urls } from 'scenes/urls'
 
 import { escapeHogQLString, hogql } from '~/queries/utils'
-import { DateMappingOption, PersonType } from '~/types'
+import { DateMappingOption, HogFunctionTypeType, PersonType } from '~/types'
 
 import { LogsViewer } from '../logs/LogsViewer'
 import { LogsViewerLogicProps } from '../logs/logsViewerLogic'
@@ -49,6 +49,7 @@ import {
     RunStatus,
     dateClauseFor,
     hogInvocationsLogic,
+    isRerunnableHogFunctionType,
     isRerunWrapperKind,
 } from './hogInvocationsLogic'
 import { InvocationsSparkline } from './InvocationsSparkline'
@@ -226,6 +227,13 @@ export interface HogInvocationsProps extends HogInvocationsLogicProps {
      * renders one scoped table per broadcast inside a collapsible panel.
      */
     compact?: boolean
+    /**
+     * The hog function's type, for `functionKind === 'hog_function'`. Re-run is only offered
+     * for types a cyclotron worker executes (see `RERUNNABLE_HOG_FUNCTION_TYPES`); for others
+     * the re-run controls are disabled, matching the API's 400. Workflows (hog flows) leave
+     * this undefined.
+     */
+    hogFunctionType?: HogFunctionTypeType
 }
 
 /**
@@ -239,6 +247,7 @@ export function HogInvocations({
     compact,
     parentRunId,
     defaultDateFrom,
+    hogFunctionType,
 }: HogInvocationsProps): JSX.Element | null {
     const logic = hogInvocationsLogic({ id, functionKind, parentRunId, defaultDateFrom })
     const {
@@ -270,6 +279,14 @@ export function HogInvocations({
     } = useActions(logic)
     const [rerunModalOpen, setRerunModalOpen] = useState(false)
 
+    // Hog functions whose type a cyclotron worker can't execute can't be re-run — the API
+    // rejects it with a 400, so disable the controls here rather than letting a click fail.
+    // Hog flows always execute on cyclotron, so they leave `hogFunctionType` undefined.
+    const rerunUnsupportedReason: string | undefined =
+        functionKind === 'hog_function' && !isRerunnableHogFunctionType(hogFunctionType)
+            ? "Re-run isn't available for this function type"
+            : undefined
+
     useEffect(() => {
         refresh()
     }, [refresh])
@@ -283,7 +300,10 @@ export function HogInvocations({
             title: (
                 <LemonCheckbox
                     checked={selectAllState === 'all' ? true : selectAllState === 'some' ? 'indeterminate' : false}
-                    disabledReason={selectableIds.length === 0 ? 'Nothing selectable in this view' : undefined}
+                    disabledReason={
+                        rerunUnsupportedReason ??
+                        (selectableIds.length === 0 ? 'Nothing selectable in this view' : undefined)
+                    }
                     onChange={() => {
                         if (selectAllState === 'all' || selectAllState === 'some') {
                             clearSelected()
@@ -300,11 +320,12 @@ export function HogInvocations({
                     checked={Boolean(selectedIds[row.invocation_id])}
                     onChange={() => toggleSelected(row.invocation_id)}
                     disabledReason={
-                        isRerunWrapperKind(row.function_kind)
+                        rerunUnsupportedReason ??
+                        (isRerunWrapperKind(row.function_kind)
                             ? "Can't re-run a re-run"
                             : row.status === 'running'
                               ? "Can't rerun a run that's still in flight"
-                              : undefined
+                              : undefined)
                     }
                 />
             ),
@@ -455,7 +476,8 @@ export function HogInvocations({
                         size="xsmall"
                         type="secondary"
                         disabledReason={
-                            row.status === 'running' ? "Can't rerun a run that's still in flight" : undefined
+                            rerunUnsupportedReason ??
+                            (row.status === 'running' ? "Can't rerun a run that's still in flight" : undefined)
                         }
                         onClick={() => {
                             LemonDialog.open({
@@ -571,6 +593,7 @@ export function HogInvocations({
                             size="small"
                             type="primary"
                             icon={<IconRevert />}
+                            disabledReason={rerunUnsupportedReason}
                             onClick={() => setRerunModalOpen(true)}
                         >
                             Re-run…
@@ -611,11 +634,12 @@ export function HogInvocations({
                             size="small"
                             type="primary"
                             disabledReason={
-                                rerunableSelectedIds.length === 0
+                                rerunUnsupportedReason ??
+                                (rerunableSelectedIds.length === 0
                                     ? 'Selected runs are all still in flight'
                                     : selectedCount > HOG_INVOCATIONS_RERUN_MAX_COUNT
                                       ? `Selected ${selectedCount} > limit ${HOG_INVOCATIONS_RERUN_MAX_COUNT}`
-                                      : undefined
+                                      : undefined)
                             }
                             onClick={() => {
                                 LemonDialog.open({

@@ -56,6 +56,19 @@ SELECT_STAR_FROM_EVENTS_FIELDS = [
 # Wide columns that defeat presorted optimization
 WIDE_COLUMNS = {"elements_chain", "properties"}
 
+# Pagination cursors are encoded as ``<timestamp>|<uuid>`` so a stable uuid tiebreaker can advance
+# past events that share the boundary timestamp instead of dropping every tied row beyond the page
+# limit (which happens with a plain exclusive ``timestamp <`` filter). Coarse-precision sources such
+# as bulk imports routinely land hundreds of events on the same second, so ties are not rare there.
+CURSOR_DELIMITER = "|"
+
+
+def split_pagination_cursor(value: str) -> tuple[str, str | None]:
+    """Split a ``<timestamp>|<uuid>`` cursor. Plain user-supplied date filters have no delimiter and
+    pass through unchanged with a ``None`` tiebreaker."""
+    timestamp, delimiter, uuid = value.partition(CURSOR_DELIMITER)
+    return timestamp, (uuid if delimiter else None)
+
 
 class EventsQueryRunner(AnalyticsQueryRunner[EventsQueryResponse]):
     query: EventsQuery
@@ -131,9 +144,9 @@ class EventsQueryRunner(AnalyticsQueryRunner[EventsQueryResponse]):
         return True
 
     def apply_pagination_cursor(self, cursor: str) -> None:
-        # NB: This uses the last row's timestamp as the cursor, so events sharing
-        # the exact same timestamp as the page boundary may be skipped. In practice
-        # this is rare since the events table uses DateTime64(6) (microsecond precision).
+        # The cursor is a ``<timestamp>|<uuid>`` pair (see ``split_pagination_cursor``); ``to_query``
+        # turns it into a timestamp filter with a uuid tiebreaker so events sharing the boundary
+        # timestamp are not skipped. Bare-timestamp cursors from older clients still work.
         order: str = "DESC"
         if self.query.orderBy:
             order = parse_order_expr(self.query.orderBy[0]).order
@@ -159,6 +172,17 @@ class EventsQueryRunner(AnalyticsQueryRunner[EventsQueryResponse]):
         if isinstance(val, datetime):
             return val.isoformat()
         return str(val)
+
+    def _extract_last_uuid(self, row: list) -> str | None:
+        select_input = self.select_input_raw()
+        if "*" in select_input:
+            star_idx = select_input.index("*")
+            if isinstance(row[star_idx], dict) and row[star_idx].get("uuid") is not None:
+                return str(row[star_idx]["uuid"])
+        for i, col in enumerate(select_input):
+            if col.split("--")[0].strip() == "uuid" and row[i] is not None:
+                return str(row[i])
+        return None
 
     def _raise_on_restricted_property_select(self, select: list[ast.Expr]) -> None:
         # User-authored ``select`` entries that explicitly reference a restricted event or person
@@ -298,26 +322,56 @@ class EventsQueryRunner(AnalyticsQueryRunner[EventsQueryResponse]):
             with self.timings.measure("timestamps"):
                 # prevent accidentally future events from being visible by default
                 before = self.query.before or (now() + timedelta(seconds=5)).isoformat()
-                parsed_date = relative_date_parse(before, self.team.timezone_info)
-                where_exprs.append(
-                    parse_expr(
-                        "timestamp < {timestamp}",
-                        {"timestamp": ast.Constant(value=parsed_date)},
-                        timings=self.timings,
-                    )
-                )
-
-                # limit to the last 24h by default
-                after = self.query.after or "-24h"
-                if after != "all":
-                    parsed_date = relative_date_parse(after, self.team.timezone_info)
+                before_timestamp, before_uuid = split_pagination_cursor(before)
+                parsed_date = relative_date_parse(before_timestamp, self.team.timezone_info)
+                if before_uuid:
+                    # Advance past events sharing the boundary timestamp using uuid as a tiebreaker,
+                    # matching the ``timestamp DESC, uuid DESC`` ordering applied below.
                     where_exprs.append(
                         parse_expr(
-                            "timestamp > {timestamp}",
+                            "timestamp < {before} OR (timestamp = {before_eq} AND uuid < {before_uuid})",
+                            {
+                                "before": ast.Constant(value=parsed_date),
+                                "before_eq": ast.Constant(value=parsed_date),
+                                "before_uuid": ast.Call(name="toUUID", args=[ast.Constant(value=before_uuid)]),
+                            },
+                            timings=self.timings,
+                        )
+                    )
+                else:
+                    where_exprs.append(
+                        parse_expr(
+                            "timestamp < {timestamp}",
                             {"timestamp": ast.Constant(value=parsed_date)},
                             timings=self.timings,
                         )
                     )
+
+                # limit to the last 24h by default
+                after = self.query.after or "-24h"
+                if after != "all":
+                    after_timestamp, after_uuid = split_pagination_cursor(after)
+                    parsed_date = relative_date_parse(after_timestamp, self.team.timezone_info)
+                    if after_uuid:
+                        where_exprs.append(
+                            parse_expr(
+                                "timestamp > {after} OR (timestamp = {after_eq} AND uuid > {after_uuid})",
+                                {
+                                    "after": ast.Constant(value=parsed_date),
+                                    "after_eq": ast.Constant(value=parsed_date),
+                                    "after_uuid": ast.Call(name="toUUID", args=[ast.Constant(value=after_uuid)]),
+                                },
+                                timings=self.timings,
+                            )
+                        )
+                    else:
+                        where_exprs.append(
+                            parse_expr(
+                                "timestamp > {timestamp}",
+                                {"timestamp": ast.Constant(value=parsed_date)},
+                                timings=self.timings,
+                            )
+                        )
 
             # where & having
             with self.timings.measure("where"):
@@ -360,6 +414,14 @@ class EventsQueryRunner(AnalyticsQueryRunner[EventsQueryResponse]):
                     and isinstance(first_order, ast.Field)
                     and first_order.chain == ["timestamp"]
                 )
+
+                # When ordering by timestamp, append uuid as a stable secondary sort so the ordering
+                # is total. Ties on timestamp would otherwise be arbitrary and shift between pages,
+                # which is what lets cursor pagination silently skip events sharing a timestamp.
+                if self._cursor_eligible and not any(
+                    isinstance(o.expr, ast.Field) and o.expr.chain == ["uuid"] for o in order_by
+                ):
+                    order_by.append(ast.OrderExpr(expr=ast.Field(chain=["uuid"]), order=order_by[0].order))
 
             with self.timings.measure("select"):
                 if self.query.source is not None:
@@ -453,7 +515,7 @@ class EventsQueryRunner(AnalyticsQueryRunner[EventsQueryResponse]):
                         properties = result[star_idx].get("properties", {})
                         if isinstance(properties, dict):
                             session_id = properties.get("$session_id")
-                            if session_id:
+                            if isinstance(session_id, str) and session_id:
                                 properties["$has_recording"] = session_id in session_recordings_map
 
         person_indices: list[int] = []
@@ -519,7 +581,10 @@ class EventsQueryRunner(AnalyticsQueryRunner[EventsQueryResponse]):
         next_cursor = None
         if self._cursor_eligible and self.paginator.has_more() and self.paginator.results:
             last_row = self.paginator.results[-1]
-            next_cursor = self._extract_last_timestamp(last_row)
+            last_timestamp = self._extract_last_timestamp(last_row)
+            if last_timestamp is not None:
+                last_uuid = self._extract_last_uuid(last_row)
+                next_cursor = f"{last_timestamp}{CURSOR_DELIMITER}{last_uuid}" if last_uuid else last_timestamp
 
         return EventsQueryResponse(
             results=self.paginator.results,
@@ -565,7 +630,7 @@ class EventsQueryRunner(AnalyticsQueryRunner[EventsQueryResponse]):
                 properties = result[star_idx].get("properties", {})
                 if isinstance(properties, dict):
                     session_id = properties.get("$session_id")
-                    if session_id and session_id != "":
+                    if isinstance(session_id, str) and session_id:
                         session_ids.add(session_id)
 
         # If no session IDs, return empty set
@@ -576,8 +641,11 @@ class EventsQueryRunner(AnalyticsQueryRunner[EventsQueryResponse]):
         # Use the date range from the query to optimize the search
         after = self.query.after or "-24h"
         before = self.query.before or (now() + timedelta(seconds=5)).isoformat()
-        date_from = relative_date_parse(after, self.team.timezone_info) if after != "all" else None
-        date_to = relative_date_parse(before, self.team.timezone_info)
+        # before/after may carry a `<timestamp>|<uuid>` pagination cursor — only the timestamp matters here.
+        after_timestamp = split_pagination_cursor(after)[0]
+        before_timestamp = split_pagination_cursor(before)[0]
+        date_from = relative_date_parse(after_timestamp, self.team.timezone_info) if after != "all" else None
+        date_to = relative_date_parse(before_timestamp, self.team.timezone_info)
 
         where_conditions: list[ast.Expr] = [
             ast.CompareOperation(

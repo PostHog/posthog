@@ -60,8 +60,9 @@ Use this first when the question asks for the most expensive users:
 ```sql
 posthog:execute-sql
 SELECT
-    argMax(user_tuple, timestamp) AS __llm_person,
     distinct_id,
+    argMax(email, timestamp) AS email,
+    argMax(name, timestamp) AS name,
     countDistinctIf(ai_trace_id, notEmpty(ai_trace_id)) AS traces,
     count() AS generations,
     countIf(notEmpty(ai_error) OR ai_is_error = 'true') AS errors,
@@ -81,7 +82,8 @@ FROM (
         toString(properties.$ai_is_error) AS ai_is_error,
         toInt(properties.$ai_input_tokens) AS ai_input_tokens,
         toInt(properties.$ai_output_tokens) AS ai_output_tokens,
-        tuple(distinct_id, person.created_at, person.properties) AS user_tuple
+        toString(person.properties.email) AS email,
+        toString(person.properties.name) AS name
     FROM events
     WHERE event = '$ai_generation'
         AND timestamp >= now() - INTERVAL 30 DAY
@@ -101,8 +103,10 @@ AND (
 )
 ```
 
-Use person properties only for labeling, such as email or name. Do not expose
-more personal data than needed.
+Project only the explicit label columns you need, such as `email` and `name`.
+Never select the raw `person.properties` object or a tuple containing it: it
+serializes the full property blob into the result and leaks personal data far
+beyond a label. If a user has no email or name, fall back to `distinct_id`.
 
 ### 2. Establish the baseline
 
@@ -130,17 +134,29 @@ WITH per_user AS (
 )
 SELECT
     count() AS users,
-    round(sum(total_cost), 4) AS total_cost,
+    round(sum(total_cost), 4) AS project_total_cost,
     round(avg(total_cost), 4) AS avg_cost_per_user,
     round(quantile(0.5)(total_cost), 4) AS p50_user_cost,
     round(quantile(0.9)(total_cost), 4) AS p90_user_cost,
     round(quantile(0.99)(total_cost), 4) AS p99_user_cost,
-    round(avg(avg_cost_per_generation), 6) AS avg_cost_per_generation,
-    round(avg(avg_input_tokens), 0) AS avg_input_tokens,
-    round(avg(avg_output_tokens), 0) AS avg_output_tokens,
+    round(avg(avg_cost_per_generation), 6) AS mean_user_cost_per_generation,
+    round(avg(avg_input_tokens), 0) AS mean_user_input_tokens,
+    round(avg(avg_output_tokens), 0) AS mean_user_output_tokens,
     round(sum(errors) / nullIf(sum(generations), 0), 4) AS error_rate
 FROM per_user
 ```
+
+The outer aggregate columns are named differently from the CTE columns they
+aggregate (`project_total_cost`, not `total_cost`). HogQL resolves a bare
+`total_cost` inside the outer `sum()`/`avg()` back to the output alias of the
+same name, which nests one aggregate inside another and fails the query with
+`Aggregate function sum(per_user.total_cost) is found inside another aggregate
+function`. Keep the two levels of names distinct.
+
+If the baseline query still errors, report that the baseline is unavailable and
+say so in the response. Do not fabricate p50/p90/p99 figures or claim a user is
+"Nx above the median" without them — rank by absolute cost and share of spend
+instead, and note that the per-user distribution could not be computed.
 
 When reporting top users, include each user's share of total spend and how many
 multiples above p50/p90 they are. That makes the skew obvious.
@@ -312,7 +328,9 @@ the trace timestamp so the UI opens the right time window.
 Lead with the answer, not the queries. A good response has:
 
 1. **Top users** - ranked by total cost, with total cost, share of spend,
-   generations, traces, average cost per generation, and error rate.
+   generations, traces, average cost per generation, and error rate. Identify
+   each user by a label only (email, name, or `distinct_id`). Do not print raw
+   `person.properties` objects or other personal fields the user did not ask for.
 2. **Why they are expensive** - one or two concrete drivers per user, compared
    against the baseline.
 3. **Evidence** - model/token/cache/custom-dimension breakdowns plus linked
@@ -326,3 +344,8 @@ Lead with the answer, not the queries. A good response has:
 Avoid generic advice. "Use cheaper models" is not useful unless the data shows
 that model mix is the driver. "Reduce prompt size" is not useful unless input
 tokens are high relative to the baseline.
+
+## Related skills
+
+- **`exploring-llm-costs`** — project-wide spend: totals, breakdowns, and cost regressions
+- **`exploring-llm-traces`** — read the traces behind a user's expensive generations

@@ -389,6 +389,41 @@ describe('createQueryWrapper filterTestAccounts project default', () => {
     })
 })
 
+describe('createQueryWrapper trace compaction', () => {
+    const schema = z.object({ kind: z.string() })
+
+    function contextWithResults(results: unknown): Context {
+        return {
+            api: {
+                query: vi.fn().mockReturnValue({ runQuery: vi.fn().mockResolvedValue({ results }) }),
+                getProjectBaseUrl: vi.fn().mockReturnValue('http://localhost:8010/project/1'),
+            },
+            stateManager: { getProjectId: vi.fn().mockResolvedValue('1') },
+        } as unknown as Context
+    }
+
+    const oversizedTrace = {
+        id: 'trace-1',
+        events: [{ properties: { $ai_input: 'x'.repeat(20_000) } }],
+    }
+
+    it('compacts oversized string values for TraceQuery results', async () => {
+        const tool = createQueryWrapper({ name: 'test', schema, kind: 'TraceQuery' })()
+
+        const result = (await tool.handler(contextWithResults([oversizedTrace]), { kind: 'TraceQuery' })) as any
+
+        expect(result.results[0].events[0].properties.$ai_input).toContain('truncated')
+    })
+
+    it('leaves non-trace query results untouched', async () => {
+        const tool = createQueryWrapper({ name: 'test', schema, kind: 'HogQLQuery' })()
+
+        const result = (await tool.handler(contextWithResults([oversizedTrace]), { kind: 'HogQLQuery' })) as any
+
+        expect(result.results[0].events[0].properties.$ai_input).toBe('x'.repeat(20_000))
+    })
+})
+
 describe('createQueryWrapper actors dispatch', () => {
     function createMockContext(): Context {
         return {

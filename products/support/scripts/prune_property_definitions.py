@@ -35,127 +35,20 @@ before running anything - reads included - requires typing the authenticated use
 email, so acting on behalf of an impersonated user is always a conscious choice.
 """
 
-# ruff: noqa: T201 allow print statements in this CLI script
-
 import os
 import re
 import sys
 import json
-import time
 import argparse
 from collections import Counter
 from collections.abc import Iterator
 from typing import Any, Optional
-from urllib.parse import urlencode, urlparse
+from urllib.parse import urlencode
 
 import requests
-
-MAX_RETRIES = 5
-BACKOFF_BASE_SECONDS = 2.0
-RETRY_AFTER_MAX_SECONDS = 60.0
-REGION_HOSTS = {"us": "https://us.posthog.com", "eu": "https://eu.posthog.com"}
-
-
-def resolve_host(value: str) -> str:
-    """Map a region shorthand ('us'/'eu', any case) to its Cloud host; pass explicit hosts through."""
-    return REGION_HOSTS.get(value.strip().lower(), value).rstrip("/")
-
-
-class PruneError(Exception):
-    pass
-
-
-def log(message: str) -> None:
-    print(message, file=sys.stderr)
-
-
-def printable(value: str) -> str:
-    """Escape terminal control sequences in untrusted text (e.g. ingested property names)."""
-    return "".join(ch if ch.isprintable() else ch.encode("unicode_escape").decode("ascii") for ch in str(value))
-
-
-def request_with_retries(
-    session: requests.Session, method: str, url: str, max_retries: int = MAX_RETRIES, **kwargs: Any
-) -> requests.Response:
-    """Issue a request, retrying on 429 (honoring Retry-After) and 5xx with backoff."""
-    last_error = ""
-    for attempt in range(max_retries):
-        try:
-            response = session.request(method, url, timeout=60, **kwargs)
-        except requests.RequestException as err:
-            last_error = str(err)
-            time.sleep(BACKOFF_BASE_SECONDS * 2**attempt)
-            continue
-        if response.status_code == 429:
-            default_wait = BACKOFF_BASE_SECONDS * 2**attempt
-            raw_retry_after = response.headers.get("Retry-After")
-            try:
-                # Retry-After may be seconds or an HTTP-date; only the numeric form is honored
-                retry_after = float(raw_retry_after) if raw_retry_after is not None else default_wait
-            except ValueError:
-                retry_after = default_wait
-            retry_after = min(max(retry_after, 0.0), RETRY_AFTER_MAX_SECONDS)
-            log(f"  rate limited, retrying in {retry_after:.0f}s...")
-            time.sleep(retry_after)
-            continue
-        if response.status_code >= 500:
-            last_error = f"HTTP {response.status_code}: {response.text[:200]}"
-            time.sleep(BACKOFF_BASE_SECONDS * 2**attempt)
-            continue
-        return response
-    raise PruneError(f"{method} {url} failed after {max_retries} attempts: {last_error}")
-
-
-def confirm_acting_user(email: str) -> None:
-    """Make the operator type the session's email so the acting-as identity is conscious, not assumed."""
-    log("Session auth acts as the browser session's logged-in user - including for read queries.")
-    try:
-        entered = input("Enter that user's email to confirm you know who you're acting as: ")
-    except EOFError as err:
-        raise PruneError(
-            "Session auth requires interactively confirming the authenticated user; "
-            "use a personal API key for non-interactive runs."
-        ) from err
-    if entered.strip().lower() != email.strip().lower():
-        raise PruneError(
-            "That does not match the session's authenticated user - check whose session this is "
-            "(e.g. the impersonated user in your browser) and rerun."
-        )
-
-
-def setup_session_auth(session: requests.Session, host: str, session_id: str) -> None:
-    """Authenticate with a browser session cookie (works for impersonated staff sessions).
-
-    Django session auth requires a CSRF token on unsafe methods, so fetch the CSRF cookie
-    from the login page and mirror it into the X-CSRFToken header, with the host as Referer.
-    Before anything runs - reads included - the operator must type the authenticated user's
-    email to confirm they know who the session acts as.
-    """
-    parsed = urlparse(host)
-    is_local = parsed.hostname in ("localhost", "127.0.0.1")
-    if parsed.scheme != "https" and not is_local:
-        raise PruneError(f"Refusing to send a session cookie to a non-HTTPS host: {host}")
-    # Scope the cookie to this host (and require HTTPS) so requests never attaches the
-    # session to another origin - e.g. via a mistyped --host or a cross-origin redirect.
-    session.cookies.set("sessionid", session_id, domain=parsed.hostname, secure=not is_local)
-    request_with_retries(session, "GET", f"{host}/login")
-    csrf_token = session.cookies.get("posthog_csrftoken")
-    if not csrf_token:
-        raise PruneError(f"Could not obtain a CSRF cookie from {host}/login - is this a PostHog instance?")
-    session.headers["X-CSRFToken"] = csrf_token
-    session.headers["Referer"] = f"{host}/"
-
-    me = request_with_retries(session, "GET", f"{host}/api/users/@me/")
-    if me.status_code != 200:
-        raise PruneError(
-            f"Session auth failed (HTTP {me.status_code}) - is the sessionid cookie value current? "
-            "Impersonated sessions expire when the impersonation ends or times out."
-        )
-    email = me.json().get("email")
-    if not email:
-        raise PruneError("Could not determine the session's authenticated user")
-    confirm_acting_user(email)
-    log(f"Authenticated via session as {email}")
+from lib.console import confirm, format_status_counts, log, printable
+from lib.errors import PostHogScriptError
+from lib.posthog_api import request_with_retries, resolve_host, setup_session_auth
 
 
 def iter_property_definitions(
@@ -184,7 +77,9 @@ def iter_property_definitions(
     while url:
         response = request_with_retries(session, "GET", url)
         if response.status_code != 200:
-            raise PruneError(f"Property definitions query failed (HTTP {response.status_code}): {response.text[:500]}")
+            raise PostHogScriptError(
+                f"Property definitions query failed (HTTP {response.status_code}): {response.text[:500]}"
+            )
         data = response.json()
         page += 1
         log(f"  page {page}: {len(data['results'])} definitions")
@@ -215,15 +110,6 @@ def find_matching_definitions(
     return matched, not_found
 
 
-def format_status_counts(counts: Counter[str]) -> str:
-    """Render a status-code histogram like 'HTTP 204: 39, HTTP 403: 11' (digit codes first)."""
-    parts = []
-    for code in sorted(counts, key=lambda c: (not c.isdigit(), c)):
-        label = f"HTTP {code}" if code.isdigit() else code
-        parts.append(f"{label}: {counts[code]}")
-    return ", ".join(parts)
-
-
 def prune_definitions(
     session: requests.Session, host: str, project_id: str, matched: list[dict[str, Any]], batch_size: int
 ) -> tuple[Counter[str], list[str]]:
@@ -244,7 +130,7 @@ def prune_definitions(
         url = f"{host}/api/projects/{project_id}/property_definitions/{definition['id']}/"
         try:
             response = request_with_retries(session, "DELETE", url)
-        except PruneError as err:
+        except PostHogScriptError as err:
             status_counts["error"] += 1
             batch_counts["error"] += 1
             failures.append(f"{definition['name']} ({definition['id']}): {err}")
@@ -419,11 +305,9 @@ def main() -> int:
             f"\nAbout to permanently delete {len(matched)} {args.prop_type} property definitions "
             f"from project {args.project_id}. Type 'prune' to continue: "
         )
-        try:
-            confirmed = input(prompt).strip().lower()
-        except EOFError as err:
-            raise PruneError("Confirmation requires interactive input; pass --yes for non-interactive runs.") from err
-        if confirmed != "prune":
+        if not confirm(
+            prompt, "prune", eof_message="Confirmation requires interactive input; pass --yes for non-interactive runs."
+        ):
             log("Aborted.")
             return 1
 
@@ -449,7 +333,7 @@ def main() -> int:
 if __name__ == "__main__":
     try:
         sys.exit(main())
-    except PruneError as err:
+    except PostHogScriptError as err:
         log(f"Error: {printable(str(err))}")
         sys.exit(1)
     except KeyboardInterrupt:

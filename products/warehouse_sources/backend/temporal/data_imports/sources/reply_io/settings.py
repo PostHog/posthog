@@ -1,5 +1,7 @@
 from dataclasses import dataclass, field
 
+from products.warehouse_sources.backend.types import IncrementalField
+
 
 @dataclass
 class ReplyIoEndpointConfig:
@@ -37,4 +39,4 @@ REPLY_IO_ENDPOINTS: dict[str, ReplyIoEndpointConfig] = {
 
 ENDPOINTS = tuple(REPLY_IO_ENDPOINTS.keys())
 
-INCREMENTAL_FIELDS: dict[str, list[dict[str, str]]] = {}
+INCREMENTAL_FIELDS: dict[str, list[IncrementalField]] = {}

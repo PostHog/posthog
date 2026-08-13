@@ -1,5 +1,6 @@
 from datetime import datetime
 
+from django.db import transaction
 from django.utils import timezone
 
 from posthog.models.team.team import Team
@@ -90,8 +91,9 @@ def generate_session_intent(team: Team, session_id: str, date_from: datetime | N
 def generate_intent_digest(team: Team) -> contracts.IntentDigest:
     """Generate (or return the cached) project-level digest of what agents are trying to do.
 
-    Powers the dashboard's low-volume activity stage. Content-addressed cache: only
-    regenerates when new intents arrive.
+    Powers the dashboard's activity tab: a one-sentence summary plus semantic themes. Cached
+    both by intent corpus and by recency, so a quiet project regenerates only when its intents
+    change and a busy one regenerates at a bounded rate.
     """
     return logic.generate_intent_digest(team)
 
@@ -105,8 +107,9 @@ def get_activity_overview(team: Team) -> contracts.ActivityOverview:
     return logic.get_activity_overview(team)
 
 
-def get_intent_cluster_snapshot(team: Team) -> contracts.IntentClusterSnapshot:
-    return logic.get_intent_cluster_snapshot(team)
+def get_intent_cluster_snapshot(team: Team, tool: str | None = None) -> contracts.IntentClusterSnapshot:
+    """The latest snapshot, optionally narrowed to one tool's slice of it."""
+    return logic.get_intent_cluster_snapshot(team, tool=tool)
 
 
 def trigger_intent_cluster_recompute(team: Team, user: User | None) -> None:
@@ -116,31 +119,57 @@ def trigger_intent_cluster_recompute(team: Team, user: User | None) -> None:
     the workflow's compute activity writes the snapshot status (COMPUTING →
     IDLE/ERROR) as it runs.
     """
-    import time
-    import uuid
     import asyncio
 
     from django.conf import settings
 
+    from temporalio.exceptions import WorkflowAlreadyStartedError
+
     from posthog.temporal.common.client import async_connect
-    from posthog.temporal.mcp_analytics.intent_clustering.constants import CHILD_WORKFLOW_ID_PREFIX, WORKFLOW_NAME
+    from posthog.temporal.mcp_analytics.intent_clustering.constants import (
+        CHILD_WORKFLOW_ID_PREFIX,
+        WORKFLOW_EXECUTION_TIMEOUT,
+        WORKFLOW_NAME,
+    )
     from posthog.temporal.mcp_analytics.intent_clustering.models import IntentClusteringWorkflowInputs
 
     from products.mcp_analytics.backend.models import MCPIntentClusterSnapshot
 
-    # Flip to COMPUTING before dispatching so the 202 response and any
-    # immediate poll see consistent state. The workflow's activity
-    # re-asserts COMPUTING on pickup; both writes are idempotent.
-    MCPIntentClusterSnapshot.objects.update_or_create(
-        team=team,
-        defaults={
-            "status": MCPIntentClusterSnapshot.Status.COMPUTING,
-            "error_message": "",
-            "last_computed_by": user,
-        },
-    )
+    # One run at a time per team: while a fresh run holds the snapshot in
+    # COMPUTING, another dispatch would only stack a duplicate workflow on the
+    # queue behind it. A run stuck past STALE_COMPUTING_THRESHOLD is presumed
+    # dead (same rule as the sweep in get_intent_cluster_snapshot), so a
+    # retry is allowed through. The row lock serialises concurrent triggers so
+    # they can't all pass the freshness check before any of them claims the
+    # snapshot; the Temporal dispatch stays outside the transaction.
+    # Claiming COMPUTING before dispatching also means the 202 response and
+    # any immediate poll see consistent state — the workflow's activity
+    # re-asserts COMPUTING on pickup, and both writes are idempotent.
+    with transaction.atomic():
+        snapshot, created = MCPIntentClusterSnapshot.objects.select_for_update().get_or_create(
+            team=team,
+            defaults={
+                "status": MCPIntentClusterSnapshot.Status.COMPUTING,
+                "error_message": "",
+                "last_computed_by": user,
+            },
+        )
+        if not created:
+            if (
+                snapshot.status == MCPIntentClusterSnapshot.Status.COMPUTING
+                and snapshot.updated_at >= timezone.now() - logic.STALE_COMPUTING_THRESHOLD
+            ):
+                return
+            snapshot.status = MCPIntentClusterSnapshot.Status.COMPUTING
+            snapshot.error_message = ""
+            snapshot.last_computed_by = user
+            snapshot.save(update_fields=["status", "error_message", "last_computed_by", "updated_at"])
 
-    workflow_id = f"{CHILD_WORKFLOW_ID_PREFIX}-{team.id}-adhoc-{int(time.time() * 1000)}-{uuid.uuid4().hex[:8]}"
+    # Deterministic per team: Temporal refuses a second start while a run with
+    # this id is live, so even a run that outlives STALE_COMPUTING_THRESHOLD
+    # (which is shorter than the 20-minute execution timeout) can't be
+    # overlapped by a retry — the id frees up once the previous run closes.
+    workflow_id = f"{CHILD_WORKFLOW_ID_PREFIX}-{team.id}-adhoc"
 
     # Create + use the Temporal client inside one event loop. sync_connect()
     # would build the client in asgiref's managed loop and then asyncio.run()
@@ -149,15 +178,24 @@ def trigger_intent_cluster_recompute(team: Team, user: User | None) -> None:
     # Matches the cluster_mcp_intents management command pattern.
     async def _start() -> None:
         client = await async_connect()
+        # execution_timeout bounds the whole run *including* queue wait: with
+        # no worker polling the task queue, an unbounded workflow sits pending
+        # forever and every recompute click stacks another one behind it.
         await client.start_workflow(
             WORKFLOW_NAME,
             IntentClusteringWorkflowInputs(team_id=team.id, user_id=user.id if user else None),
             id=workflow_id,
             task_queue=settings.MCPA_TASK_QUEUE,
+            execution_timeout=WORKFLOW_EXECUTION_TIMEOUT,
         )
 
     try:
         asyncio.run(_start())
+    except WorkflowAlreadyStartedError:
+        # The previous run outlived the stale threshold but is genuinely still
+        # running — leave the snapshot in COMPUTING; the live run flips the
+        # status when it finishes.
+        return
     except Exception:
         # Dispatch failed, so no activity will ever flip the status — revert
         # the optimistic COMPUTING write instead of leaving the snapshot stuck

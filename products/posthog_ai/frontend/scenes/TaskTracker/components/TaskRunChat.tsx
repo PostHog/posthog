@@ -162,9 +162,9 @@ function LiveComposer({ logicProps }: { logicProps: RunInteractionLogicProps }):
                         <Composer.Placeholder>
                             {isTerminal ? 'Send a message to start a new run…' : 'Send a follow-up message…'}
                         </Composer.Placeholder>
-                        <Composer.Textarea data-attr="sandbox-composer-input" submitShortcut="cmd-enter" />
+                        <Composer.Textarea data-attr="sandbox-composer-input" />
                     </Composer.Field>
-                    <Composer.Footer className="flex items-center gap-1 pl-2">
+                    <Composer.Footer className="flex flex-wrap items-center gap-1 pl-2">
                         {/* Mode + model/effort pickers: selection lives in the bound runInteractionLogic and is
                         applied when the message is sent — synced to the running agent on a follow-up,
                         or used to seed the next run once terminal. */}

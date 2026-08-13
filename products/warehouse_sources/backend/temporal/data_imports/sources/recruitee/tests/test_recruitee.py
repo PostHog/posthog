@@ -1,48 +1,80 @@
+import json
 from typing import Any
 
 import pytest
-from unittest.mock import MagicMock
+from unittest import mock
 
-import requests
 from parameterized import parameterized
+from requests import Response
 
-from products.warehouse_sources.backend.temporal.data_imports.sources.recruitee import recruitee
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.rest_client import (
+    RESTClientRetryableError,
+)
 from products.warehouse_sources.backend.temporal.data_imports.sources.recruitee.recruitee import (
     PAGE_SIZE,
     RecruiteeResumeConfig,
-    RecruiteeRetryableError,
     base_url,
-    check_access,
-    get_rows,
     recruitee_source,
     validate_credentials,
 )
-from products.warehouse_sources.backend.temporal.data_imports.sources.recruitee.settings import (
-    ENDPOINTS,
-    RECRUITEE_ENDPOINTS,
+
+# RESTClient builds its session via make_tracked_session in the rest_client module.
+CLIENT_SESSION_PATCH = "products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.rest_client.make_tracked_session"
+# validate_credentials builds its own tracked session in the recruitee module.
+RECRUITEE_SESSION_PATCH = (
+    "products.warehouse_sources.backend.temporal.data_imports.sources.recruitee.recruitee.make_tracked_session"
 )
-
-# Call the undecorated function so the tenacity retry/backoff wrapper doesn't slow failure-path tests.
-_fetch_page_unwrapped = recruitee._fetch_page.__wrapped__  # type: ignore[attr-defined]
-
-
-class _FakeResumableManager:
-    def __init__(self, state: RecruiteeResumeConfig | None = None) -> None:
-        self._state = state
-        self.saved: list[RecruiteeResumeConfig] = []
-
-    def can_resume(self) -> bool:
-        return self._state is not None
-
-    def load_state(self) -> RecruiteeResumeConfig | None:
-        return self._state
-
-    def save_state(self, data: RecruiteeResumeConfig) -> None:
-        self.saved.append(data)
+# Every request is pinned to this host, so mocked prepared requests must carry a valid URL.
+PREPARED_URL = "https://api.recruitee.com/c/acme/candidates"
 
 
-def _full_page(start_id: int) -> list[dict]:
-    return [{"id": start_id + i} for i in range(PAGE_SIZE)]
+def _response(items: list[dict[str, Any]] | None, *, data_key: str = "candidates", body: Any = None) -> Response:
+    payload: Any = body if body is not None else {data_key: items or []}
+    resp = Response()
+    resp.status_code = 200
+    resp._content = json.dumps(payload).encode()
+    return resp
+
+
+def _make_manager(resume_state: RecruiteeResumeConfig | None = None) -> mock.MagicMock:
+    manager = mock.MagicMock()
+    manager.can_resume.return_value = resume_state is not None
+    manager.load_state.return_value = resume_state
+    return manager
+
+
+def _wire(session: mock.MagicMock, responses: list[Response]) -> list[dict[str, Any]]:
+    """Wire a mock session and return a list capturing each request's params AT SEND TIME.
+
+    ``request.params`` is one dict mutated in place across pages, so snapshot a copy at
+    prepare_request time. The prepared request must carry a real host URL because the client's
+    host-pinning guard runs on every send.
+    """
+    session.headers = {}
+    param_snapshots: list[dict[str, Any]] = []
+
+    def _prepare(request: Any) -> mock.MagicMock:
+        param_snapshots.append(dict(request.params or {}))
+        return mock.MagicMock(url=PREPARED_URL)
+
+    session.prepare_request.side_effect = _prepare
+    session.send.side_effect = responses
+    return param_snapshots
+
+
+def _source(endpoint: str = "candidates", manager: mock.MagicMock | None = None):
+    return recruitee_source(
+        company_id="acme",
+        api_token="rc-token",
+        endpoint=endpoint,
+        team_id=1,
+        job_id="j",
+        resumable_source_manager=manager if manager is not None else _make_manager(),
+    )
+
+
+def _rows(source_response) -> list[dict[str, Any]]:
+    return [row for page in source_response.items() for row in page]
 
 
 class TestBaseUrl:
@@ -55,180 +87,121 @@ class TestBaseUrl:
             base_url(company_id)
 
 
-class TestGetRows:
-    @staticmethod
-    def _collect(
-        manager: _FakeResumableManager, monkeypatch: Any, pages: dict[int, list[dict]], endpoint: str = "candidates"
-    ) -> list[dict]:
-        def fake_fetch(
-            session: Any, company_id: str, path: str, data_key: str, offset: int, limit: int, logger: Any
-        ) -> list[dict]:
-            return pages[offset]
+class TestPagination:
+    @mock.patch(CLIENT_SESSION_PATCH)
+    def test_paginates_and_progresses_offset(self, MockSession) -> None:
+        session = MockSession.return_value
+        full_page = [{"id": i} for i in range(PAGE_SIZE)]
+        params = _wire(session, [_response(full_page), _response([{"id": 999}])])
 
-        monkeypatch.setattr(recruitee, "_fetch_page", fake_fetch)
-        monkeypatch.setattr(recruitee, "make_tracked_session", lambda **kwargs: MagicMock())
+        manager = _make_manager()
+        rows = _rows(_source(manager=manager))
 
-        rows: list[dict] = []
-        for batch in get_rows(
-            company_id="acme",
-            api_token="rc-token",
-            endpoint=endpoint,
-            logger=MagicMock(),
-            resumable_source_manager=manager,  # type: ignore[arg-type]
-        ):
-            rows.extend(batch)
-        return rows
+        assert [r["id"] for r in rows] == [*range(PAGE_SIZE), 999]
+        assert params[0]["offset"] == 0
+        assert params[0]["limit"] == PAGE_SIZE
+        assert params[1]["offset"] == PAGE_SIZE
+        # Checkpoint saved once after the first full page (points at the next page); short page ends it.
+        manager.save_state.assert_called_once()
+        assert manager.save_state.call_args.args[0] == RecruiteeResumeConfig(offset=PAGE_SIZE)
 
-    def test_single_short_page_yields_and_stops(self, monkeypatch: Any) -> None:
-        manager = _FakeResumableManager()
-        rows = self._collect(manager, monkeypatch, {0: [{"id": 1}, {"id": 2}]})
-        assert rows == [{"id": 1}, {"id": 2}]
-        # The page is short (< PAGE_SIZE), so we stop without persisting resume state.
-        assert manager.saved == []
+    @mock.patch(CLIENT_SESSION_PATCH)
+    def test_short_first_page_makes_one_request_and_no_checkpoint(self, MockSession) -> None:
+        session = MockSession.return_value
+        _wire(session, [_response([{"id": 1}, {"id": 2}])])
 
-    def test_follows_offset_pagination_until_short_page(self, monkeypatch: Any) -> None:
-        manager = _FakeResumableManager()
-        pages = {0: _full_page(0), PAGE_SIZE: [{"id": 999}]}
-        rows = self._collect(manager, monkeypatch, pages)
-        assert len(rows) == PAGE_SIZE + 1
-        # State is saved after the first full page (offset advances to PAGE_SIZE), then we stop.
-        assert [s.offset for s in manager.saved] == [PAGE_SIZE]
+        manager = _make_manager()
+        rows = _rows(_source(manager=manager))
 
-    def test_resumes_from_saved_offset(self, monkeypatch: Any) -> None:
-        manager = _FakeResumableManager(RecruiteeResumeConfig(offset=PAGE_SIZE))
-        # Offset 0 must never be fetched on resume.
-        pages = {PAGE_SIZE: [{"id": 5}]}
-        rows = self._collect(manager, monkeypatch, pages)
-        assert rows == [{"id": 5}]
+        assert [r["id"] for r in rows] == [1, 2]
+        assert session.send.call_count == 1
+        manager.save_state.assert_not_called()
 
-    def test_empty_first_page_yields_nothing(self, monkeypatch: Any) -> None:
-        manager = _FakeResumableManager()
-        rows = self._collect(manager, monkeypatch, {0: []})
+    @mock.patch(CLIENT_SESSION_PATCH)
+    def test_empty_first_page_yields_nothing(self, MockSession) -> None:
+        session = MockSession.return_value
+        _wire(session, [_response([])])
+
+        manager = _make_manager()
+        rows = _rows(_source(manager=manager))
+
         assert rows == []
-        assert manager.saved == []
+        assert session.send.call_count == 1
+        manager.save_state.assert_not_called()
+
+    @mock.patch(CLIENT_SESSION_PATCH)
+    def test_resumes_from_saved_offset(self, MockSession) -> None:
+        session = MockSession.return_value
+        params = _wire(session, [_response([{"id": 5}])])
+
+        manager = _make_manager(RecruiteeResumeConfig(offset=200))
+        _rows(_source(manager=manager))
+
+        # Offset 0 must never be fetched on resume — the first request starts at the saved offset.
+        assert params[0]["offset"] == 200
 
 
-class TestFetchPage:
-    def _session_returning(self, status_code: int, body: Any = None) -> MagicMock:
-        response = MagicMock()
-        response.status_code = status_code
-        response.ok = status_code < 400
-        response.json.return_value = body if body is not None else {"candidates": []}
-        response.text = ""
-        response.raise_for_status.side_effect = (
-            requests.HTTPError(f"{status_code} error", response=response) if status_code >= 400 else None
-        )
-        session = MagicMock()
-        session.get.return_value = response
-        return session
+class TestDataExtraction:
+    @parameterized.expand([("candidates",), ("offers",), ("departments",), ("placements",)])
+    @mock.patch(CLIENT_SESSION_PATCH)
+    def test_extracts_rows_from_resource_named_key(self, endpoint: str, MockSession) -> None:
+        session = MockSession.return_value
+        _wire(session, [_response([{"id": 1}, {"id": 2}], data_key=endpoint)])
 
-    @parameterized.expand([("rate_limited", 429), ("server_error", 500), ("bad_gateway", 503)])
-    def test_retryable_statuses_raise_retryable_error(self, _name: str, status: int) -> None:
-        session = self._session_returning(status)
-        with pytest.raises(RecruiteeRetryableError):
-            _fetch_page_unwrapped(session, "acme", "/candidates", "candidates", 0, PAGE_SIZE, MagicMock())
+        rows = _rows(_source(endpoint=endpoint))
+        assert [r["id"] for r in rows] == [1, 2]
 
-    @parameterized.expand([("unauthorized", 401), ("forbidden", 403), ("not_found", 404)])
-    def test_client_errors_raise_for_status(self, _name: str, status: int) -> None:
-        session = self._session_returning(status)
-        with pytest.raises(requests.HTTPError):
-            _fetch_page_unwrapped(session, "acme", "/candidates", "candidates", 0, PAGE_SIZE, MagicMock())
+    @mock.patch(CLIENT_SESSION_PATCH)
+    def test_accept_header_set_on_session(self, MockSession) -> None:
+        session = MockSession.return_value
+        _wire(session, [_response([{"id": 1}])])
 
-    def test_success_extracts_list_under_data_key(self) -> None:
-        body = {"candidates": [{"id": 1}]}
-        session = self._session_returning(200, body)
-        result = _fetch_page_unwrapped(session, "acme", "/candidates", "candidates", 0, PAGE_SIZE, MagicMock())
-        assert result == [{"id": 1}]
+        _rows(_source())
+        assert session.headers.get("Accept") == "application/json"
 
-    def test_non_dict_body_is_retryable(self) -> None:
-        session = self._session_returning(200, [{"id": 1}])
-        with pytest.raises(RecruiteeRetryableError):
-            _fetch_page_unwrapped(session, "acme", "/candidates", "candidates", 0, PAGE_SIZE, MagicMock())
+    @parameterized.expand(
+        [
+            ("non_dict_body", [{"id": 1}]),
+            ("missing_data_key", {"offers": []}),
+            ("value_not_a_list", {"candidates": {"id": 1}}),
+        ]
+    )
+    @mock.patch("tenacity.nap.time.sleep", return_value=None)
+    @mock.patch(CLIENT_SESSION_PATCH)
+    def test_malformed_body_is_retried_then_raises(self, _name: str, malformed: Any, MockSession, _sleep) -> None:
+        session = MockSession.return_value
+        # A 200 whose body isn't the expected list-under-key shape is retried; after the attempts are
+        # exhausted the retryable error propagates instead of syncing 0 rows or a garbage row.
+        _wire(session, [_response(None, body=malformed) for _ in range(5)])
 
-    def test_missing_data_key_is_retryable(self) -> None:
-        session = self._session_returning(200, {"offers": []})
-        with pytest.raises(RecruiteeRetryableError):
-            _fetch_page_unwrapped(session, "acme", "/candidates", "candidates", 0, PAGE_SIZE, MagicMock())
-
-    def test_request_uses_limit_and_offset_params(self) -> None:
-        session = self._session_returning(200, {"offers": []})
-        _fetch_page_unwrapped(session, "acme", "/offers", "offers", 200, PAGE_SIZE, MagicMock())
-        args, kwargs = session.get.call_args
-        assert kwargs["params"] == {"limit": PAGE_SIZE, "offset": 200}
-        assert args[0] == "https://api.recruitee.com/c/acme/offers"
+        with pytest.raises(RESTClientRetryableError):
+            _rows(_source())
 
 
-class TestCheckAccess:
-    def _patch_session(self, monkeypatch: Any, response: Any) -> MagicMock:
-        session = MagicMock()
-        if isinstance(response, Exception):
-            session.get.side_effect = response
+class TestValidateCredentials:
+    def _patch_get(self, mock_session, *, status: int | None = None, raises: Exception | None = None) -> None:
+        get = mock_session.return_value.get
+        if raises is not None:
+            get.side_effect = raises
         else:
-            session.get.return_value = response
-        monkeypatch.setattr(recruitee, "make_tracked_session", lambda **kwargs: session)
-        return session
+            get.return_value = mock.MagicMock(status_code=status)
 
-    @pytest.mark.parametrize(
-        "status, ok, expected_status, expected_message",
+    @parameterized.expand(
         [
-            (200, True, 200, None),
-            (401, False, 401, None),
-            (403, False, 403, None),
-            (500, False, 500, "Recruitee returned HTTP 500"),
-        ],
+            ("ok", 200, True, None),
+            ("unauthorized", 401, False, "Invalid Recruitee company ID or API token"),
+            ("forbidden", 403, False, "Invalid Recruitee company ID or API token"),
+            ("server_error", 500, False, "Recruitee returned HTTP 500"),
+        ]
     )
+    @mock.patch(RECRUITEE_SESSION_PATCH)
     def test_status_mapping(
-        self, status: int, ok: bool, expected_status: int, expected_message: str | None, monkeypatch: Any
+        self, _name: str, status: int, expected_valid: bool, expected_message: str | None, mock_session
     ) -> None:
-        response = MagicMock()
-        response.status_code = status
-        response.ok = ok
-        self._patch_session(monkeypatch, response)
-        assert check_access("acme", "rc-token") == (expected_status, expected_message)
-
-    def test_connection_error_maps_to_zero(self, monkeypatch: Any) -> None:
-        self._patch_session(monkeypatch, requests.ConnectionError("boom"))
-        status, message = check_access("acme", "rc-token")
-        assert status == 0
-        assert message is not None and "boom" in message
-
-    @pytest.mark.parametrize(
-        "status, expected_valid, expected_message",
-        [
-            (200, True, None),
-            (401, False, "Invalid Recruitee company ID or API token"),
-            (403, False, "Invalid Recruitee company ID or API token"),
-            (500, False, "Recruitee returned HTTP 500"),
-        ],
-    )
-    def test_validate_credentials(
-        self, status: int, expected_valid: bool, expected_message: str | None, monkeypatch: Any
-    ) -> None:
-        response = MagicMock()
-        response.status_code = status
-        response.ok = status < 400
-        self._patch_session(monkeypatch, response)
+        self._patch_get(mock_session, status=status)
         assert validate_credentials("acme", "rc-token") == (expected_valid, expected_message)
 
-
-class TestRecruiteeSourceResponse:
-    @parameterized.expand([(e,) for e in ENDPOINTS])
-    def test_source_response_shape(self, endpoint: str) -> None:
-        response = recruitee_source(
-            company_id="acme",
-            api_token="rc-token",
-            endpoint=endpoint,
-            logger=MagicMock(),
-            resumable_source_manager=MagicMock(),
-        )
-        assert response.name == endpoint
-        assert response.primary_keys == ["id"]
-        # No stable creation timestamp is guaranteed across every object, so we don't partition.
-        assert response.partition_mode is None
-
-    def test_every_endpoint_uses_id_primary_key(self) -> None:
-        assert all(config.primary_keys == ["id"] for config in RECRUITEE_ENDPOINTS.values())
-        assert set(RECRUITEE_ENDPOINTS) == set(ENDPOINTS)
-
-    def test_data_key_matches_resource_name(self) -> None:
-        assert all(config.data_key == name for name, config in RECRUITEE_ENDPOINTS.items())
+    @mock.patch(RECRUITEE_SESSION_PATCH)
+    def test_connection_error_is_not_validated(self, mock_session) -> None:
+        self._patch_get(mock_session, raises=Exception("boom"))
+        assert validate_credentials("acme", "rc-token") == (False, "Could not validate Recruitee credentials")

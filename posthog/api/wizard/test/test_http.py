@@ -1,4 +1,5 @@
 import json
+from datetime import timedelta
 
 from posthog.test.base import APIBaseTest
 from unittest.mock import MagicMock, patch
@@ -6,6 +7,7 @@ from unittest.mock import MagicMock, patch
 from django.core.cache import cache
 from django.test import override_settings
 from django.urls import reverse
+from django.utils import timezone
 
 from rest_framework import status
 
@@ -527,6 +529,48 @@ class SetupWizardCloudRunTests(APIBaseTest):
             format="json",
         )
         assert response.status_code == status.HTTP_403_FORBIDDEN
+
+    @patch("products.tasks.backend.facade.api.recent_wizard_cloud_run_times")
+    @patch("posthog.api.wizard.http.tasks_facade.create_wizard_cloud_run")
+    def test_throttles_when_quota_counting_runs_reports_the_cap(self, mock_create, mock_run_times):
+        # Wiring guard for the outcome-aware throttles: the endpoint must consult the facade's
+        # run count (the exclusion behavior itself is covered in the tasks product's facade tests).
+        mock_run_times.return_value = [timezone.now() - timedelta(minutes=5), timezone.now() - timedelta(minutes=1)]
+
+        response = self.client.post(
+            self.CLOUD_RUN_URL,
+            data={"project_id": self.team.id, "repository": "acme/app"},
+            format="json",
+        )
+
+        assert response.status_code == status.HTTP_429_TOO_MANY_REQUESTS
+        mock_create.assert_not_called()
+
+    @patch("posthog.api.wizard.http.WIZARD_CLOUD_RUN_DAILY_ATTEMPT_CAP", 2)
+    @patch("products.tasks.backend.facade.api.recent_wizard_cloud_run_times")
+    @patch("posthog.api.wizard.http.tasks_facade.create_wizard_cloud_run")
+    def test_attempt_reservation_is_a_hard_ceiling_regardless_of_run_outcome(self, mock_create, mock_run_times):
+        # The DB-counted throttles ignore failed/cancelled runs, so the atomic reservation is
+        # the only thing bounding a start-fail or start-cancel loop.
+        mock_run_times.return_value = []
+        mock_create.return_value = MagicMock(task_id="task-uuid", latest_run=MagicMock(id="run-uuid", status="queued"))
+
+        for _ in range(2):
+            response = self.client.post(
+                self.CLOUD_RUN_URL,
+                data={"project_id": self.team.id, "repository": "acme/app"},
+                format="json",
+            )
+            assert response.status_code == status.HTTP_200_OK, response.content
+
+        response = self.client.post(
+            self.CLOUD_RUN_URL,
+            data={"project_id": self.team.id, "repository": "acme/app"},
+            format="json",
+        )
+
+        assert response.status_code == status.HTTP_429_TOO_MANY_REQUESTS
+        assert mock_create.call_count == 2
 
     def tearDown(self):
         super().tearDown()

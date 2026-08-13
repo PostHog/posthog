@@ -9,6 +9,28 @@
  */
 import * as zod from 'zod'
 
+/**
+ * Staff-only, unscoped cohort calculation tooling.
+ *
+ * Replaces the prod-shell runbook for stuck cohort calculations: look up any team's cohort by
+ * id, list cohorts whose calculation is stuck, and force-recalculate by bumping
+ * pending_version and enqueueing through the same task path organic saves use.
+ *
+ * Registered on the root router so it is not team-nested; staff act on cohorts in teams they
+ * do not belong to. Cohort.objects is not fail-closed today (the model is on the scoping
+ * baseline) — if Cohort migrates to a fail-closed manager, these cross-team queries must
+ * switch to the explicit unscoped escape hatch.
+ */
+export const cohortsStaffRecalculateCreateBodyCohortIdsMax = 10
+
+export const CohortsStaffRecalculateCreateBody = /* @__PURE__ */ zod.object({
+    cohort_ids: zod
+        .array(zod.number())
+        .min(1)
+        .max(cohortsStaffRecalculateCreateBodyCohortIdsMax)
+        .describe('Cohort ids to force-recalculate (max 10 per request).'),
+})
+
 export const cohortsCreateBodyNameMax = 400
 
 export const cohortsCreateBodyDescriptionMax = 1000
@@ -26,6 +48,7 @@ export const CohortsCreateBody = /* @__PURE__ */ zod.object({
                 properties: zod
                     .record(zod.string(), zod.unknown())
                     .describe('Deep\/recursive schema (opaque in Zod — use TypeScript types for full shape)'),
+                filterTestAccounts: zod.union([zod.boolean(), zod.null()]).optional(),
             }),
             zod.null(),
         ])
@@ -67,6 +90,7 @@ export const CohortsUpdateBody = /* @__PURE__ */ zod.object({
                 properties: zod
                     .record(zod.string(), zod.unknown())
                     .describe('Deep\/recursive schema (opaque in Zod — use TypeScript types for full shape)'),
+                filterTestAccounts: zod.union([zod.boolean(), zod.null()]).optional(),
             }),
             zod.null(),
         ])
@@ -108,6 +132,7 @@ export const CohortsPartialUpdateBody = /* @__PURE__ */ zod.object({
                 properties: zod
                     .record(zod.string(), zod.unknown())
                     .describe('Deep\/recursive schema (opaque in Zod — use TypeScript types for full shape)'),
+                filterTestAccounts: zod.union([zod.boolean(), zod.null()]).optional(),
             }),
             zod.null(),
         ])

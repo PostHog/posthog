@@ -283,7 +283,10 @@ Convention defaults (derived from the app key and product directory):
 - `item_name_field` → `name`, `entity_label` → `my entity`
 
 Override any field explicitly when the convention doesn't match
-(e.g. `click_prop: onFlagClick`, `detail_args: "{ flagId: item.id }"`).
+(e.g. `click_prop: onEntityClick`, `detail_args: "{ entityId: item.id }"`).
+`detail_args` must match the target tool's actual parameter names —
+mismatching them (e.g. passing `flagId` to a tool that expects `id`) silently
+drops the argument instead of failing.
 
 **Link tools to apps** with `ui_app`:
 

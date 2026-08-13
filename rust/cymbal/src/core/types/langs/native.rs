@@ -205,7 +205,11 @@ impl RawNativeFrame {
                 vec![self.handle_resolution_error(NativeError::MissingSymbolSet(chunk_id))],
             ),
             Err(ResolveError::ResolutionError(e)) => {
-                tracing::warn!("Unexpected native symbol resolution error: {:?}", e);
+                tracing::warn!(
+                    team_id,
+                    "Unexpected native symbol resolution error: {:?}",
+                    e
+                );
                 Ok(vec![self.handle_resolution_error(NativeError::ParseError(
                     e.to_string(),
                 ))])
@@ -306,6 +310,32 @@ impl RawNativeFrame {
         self.meta.in_app && !source_path.is_some_and(is_library_source_path)
     }
 
+    /// Go's toolchain suffixes dual-ABI wrapper symbols in the debug info
+    /// (`runtime.goexit.abi0`), while the Go runtime — and therefore the
+    /// client's own frames — reports the plain name. Strip the suffix so kept
+    /// and replaced groups agree on the name vocabulary: resolved names feed
+    /// fingerprints, so a mismatch splits the same crash across issues when
+    /// symbols get uploaded.
+    ///
+    /// `abi0`/`abiinternal` are also valid Go identifiers (`pkg.abi0` can be
+    /// a real function), so the suffix is only dropped when the client
+    /// reported exactly the un-suffixed name for this frame — evidence it is
+    /// toolchain metadata rather than part of the name. Wrappers are physical
+    /// assembly functions, so the client name is present for them.
+    fn display_name_for(&self, symbol_info: &SymbolInfo) -> String {
+        let name = &symbol_info.display_name;
+        if self.lang.as_deref() == Some("go") {
+            for suffix in [".abi0", ".abiinternal"] {
+                if let Some(stripped) = name.strip_suffix(suffix) {
+                    if self.function.as_deref() == Some(stripped) {
+                        return stripped.to_string();
+                    }
+                }
+            }
+        }
+        name.clone()
+    }
+
     fn build_resolved_frame(&self, symbol_info: &SymbolInfo) -> Frame {
         let mut f = Frame {
             frame_id: FrameId::placeholder(),
@@ -318,13 +348,12 @@ impl RawNativeFrame {
             column: None,
             source: symbol_info.filename.clone(),
             in_app: self.in_app_for(symbol_info.full_path.as_deref()),
-            resolved_name: Some(symbol_info.display_name.clone()),
+            resolved_name: Some(self.display_name_for(symbol_info)),
             lang: self.lang_for(symbol_info.filename.as_deref()),
             resolved: true,
             resolve_failure: None,
 
             junk_drawer: None,
-            release: None,
             synthetic: self.meta.synthetic,
             context: None,
             suspicious: false,
@@ -374,7 +403,6 @@ impl RawNativeFrame {
             resolved: false,
             resolve_failure: Some(err.to_string()),
             junk_drawer: None,
-            release: None,
             synthetic: self.meta.synthetic,
             context: None,
             suspicious: false,
@@ -537,7 +565,6 @@ impl From<&RawNativeFrame> for Frame {
             resolve_failure: None,
 
             junk_drawer: None,
-            release: None,
             synthetic: raw.meta.synthetic,
             context: None,
             suspicious: false,
@@ -773,6 +800,84 @@ mod test {
         assert!(matches!(result, Err(NativeError::InvalidAddress(_))));
     }
 
+    // Go frames drop the toolchain's ABI-wrapper suffix so server-resolved
+    // names match what the Go runtime (and so the client's kept frames)
+    // reports — but only when the client's own name confirms the suffix is
+    // toolchain metadata; `pkg.abi0` can be a real function. Other languages
+    // keep the symbol verbatim.
+    #[test]
+    fn go_resolved_names_drop_abi_wrapper_suffixes() {
+        let cases = [
+            (
+                Some("go"),
+                Some("runtime.goexit"),
+                "runtime.goexit.abi0",
+                "runtime.goexit",
+            ),
+            (
+                Some("go"),
+                Some("runtime.main"),
+                "runtime.main.abiinternal",
+                "runtime.main",
+            ),
+            (Some("go"), Some("main.main"), "main.main", "main.main"),
+            // A genuine function named abi0: client and debug info agree, so
+            // nothing is stripped.
+            (Some("go"), Some("pkg.abi0"), "pkg.abi0", "pkg.abi0"),
+            // No client name means no evidence the suffix is a wrapper.
+            (
+                Some("go"),
+                None,
+                "runtime.goexit.abi0",
+                "runtime.goexit.abi0",
+            ),
+            (
+                Some("rust"),
+                Some("alloc::alloc"),
+                "alloc::alloc.abi0",
+                "alloc::alloc.abi0",
+            ),
+            (
+                None,
+                Some("runtime.goexit"),
+                "runtime.goexit.abi0",
+                "runtime.goexit.abi0",
+            ),
+        ];
+
+        for (lang, client_function, symbol, expected) in cases {
+            let frame = RawNativeFrame {
+                instruction_addr: Some("0x1000".to_string()),
+                symbol_addr: None,
+                image_addr: Some("0x1000".to_string()),
+                lang: lang.map(String::from),
+                module: None,
+                function: client_function.map(String::from),
+                filename: None,
+                lineno: None,
+                colno: None,
+                client_resolved: true,
+                inline: false,
+                meta: CommonFrameMetadata::default(),
+            };
+            let symbol_info = SymbolInfo {
+                display_name: symbol.to_string(),
+                full_name: symbol.to_string(),
+                filename: None,
+                full_path: None,
+                line: 42,
+            };
+
+            let resolved = frame.build_resolved_frame(&symbol_info);
+            assert_eq!(
+                resolved.resolved_name.as_deref(),
+                Some(expected),
+                "lang={lang:?} symbol={symbol}"
+            );
+            assert_eq!(resolved.mangled_name, symbol, "full name stays verbatim");
+        }
+    }
+
     #[test]
     fn test_find_debug_image_by_image_addr() {
         let debug_images = vec![
@@ -997,6 +1102,11 @@ mod test {
     //   test_rust_binary:   debug_id d1dea836-4ad3-daad-dd96-0e8626f766e1,
     //                       charge at 0x10640, lookup(0x10644) ->
     //                       core::hint::black_box inlined into charge
+    //   libtest_android.so: debug_id c393685c-6edc-d276-cbd6-37e4c8b4e2aa,
+    //                       preferred base 0, JNI entry at 0x4448,
+    //                       lookup(0x43d8) -> engine::inlined_leaf (line 12)
+    //                       inlined into engine::process_frame (entry 0x43cc),
+    //                       lookup(0x4454) -> the JNI entry's call site (line 27)
 
     /// Non-PIE ELF: the binary links at a fixed base (0x1000000) and loads
     /// there unchanged, so image_addr equals the link-time base.
@@ -1279,6 +1389,89 @@ mod test {
         assert_eq!(frames[1].source.as_deref(), Some("test_go.go"));
         assert_eq!(frames[1].line, Some(16));
         assert_eq!(frames[1].lang, "go");
+    }
+
+    /// Android NDK-shaped fixture: an aarch64-linux-android shared object
+    /// (JNI entry, Itanium-mangled C++, inlined leaf). Addresses are
+    /// synthesized the way an SDK would from a tombstone: the tombstone's
+    /// per-frame `rel_pc` is an ELF-relative address, so `image_addr` is
+    /// recovered as `pc - rel_pc` without knowing the real mapping layout.
+    #[sqlx::test(migrations = "./tests/test_migrations")]
+    async fn test_native_symbolication_android_ndk_shared_object(db: sqlx::PgPool) {
+        use crate::frames::RawFrame;
+
+        const ELF: &[u8] = include_bytes!("../../../../tests/static/native/libtest_android.so");
+
+        // Pin the debug id vocabulary: the CLI derives the chunk id from the
+        // ELF at upload, while an Android SDK would derive it from the
+        // tombstone's per-frame GNU build id (first 16 bytes, first three
+        // fields byte-swapped). Both must land on symbolic's derivation.
+        let object = symbolic::debuginfo::Object::parse(ELF).unwrap();
+        let chunk_id = object.debug_id().to_string();
+        assert_eq!(chunk_id, "c393685c-6edc-d276-cbd6-37e4c8b4e2aa");
+
+        let catalog = catalog_for_chunk(&db, &chunk_id, zip_fixture(ELF, None)).await;
+
+        // Android-typical load base. The fixture's rel_pc values are ELF
+        // vaddrs (preferred base 0), including the exec segment's nonzero
+        // load bias (p_vaddr 0x43cc vs p_offset 0x3cc from the NDK's 16 KiB
+        // max-page-size, the APK-embedded mapping shape).
+        let base = 0x7a12_3450_0000u64;
+        let debug_images = vec![debug_image_at(&chunk_id, base)];
+
+        // Tombstone pcs are already the right lookup address (the leaf is
+        // the faulting instruction and libunwindstack rewinds caller pcs to
+        // the call instruction), so the SDK biases instruction_addr by +1 to
+        // cancel the uniform -1 return-address adjustment applied here. The
+        // addresses below model that wire value.
+        //
+        // Crash leaf: faulting instruction 0x43d8, inside inlined_leaf as
+        // inlined into engine::process_frame; sent as 0x43d9, resolved at
+        // 0x43d8.
+        let frame = RawFrame::Native(native_frame_at(base + 0x43d9, base));
+        let frames = frame.resolve(1, &catalog, &debug_images, 15).await.unwrap();
+
+        assert_eq!(
+            frames.len(),
+            2,
+            "expected inline expansion, got: {frames:#?}"
+        );
+        assert!(frames.iter().all(|f| f.resolved));
+        assert_eq!(
+            frames[0].resolved_name.as_deref(),
+            Some("engine::process_frame")
+        );
+        assert_eq!(
+            frames[1].resolved_name.as_deref(),
+            Some("engine::inlined_leaf")
+        );
+        assert_eq!(frames[1].source.as_deref(), Some("test_android.cpp"));
+        assert_eq!(frames[1].lang, "cpp");
+        // The exact crash line: the +1 bias keeps the lookup on the
+        // faulting instruction instead of shifting one line-table row up.
+        assert_eq!(frames[1].line, Some(12));
+
+        // Caller: the JNI entry point (extern "C", so the name survives
+        // undecorated). The unwinder already rewound the arm64 return
+        // address 0x4458 to the call instruction 0x4454; sent as 0x4455,
+        // resolved at 0x4454. Without the bias the -1 here would adjust it
+        // a second time, off the call's source line.
+        let frame = RawFrame::Native(native_frame_at(base + 0x4455, base));
+        let resolved = frame
+            .resolve(1, &catalog, &debug_images, 15)
+            .await
+            .unwrap()
+            .pop()
+            .unwrap();
+
+        assert!(resolved.resolved, "{:?}", resolved.resolve_failure);
+        assert_eq!(
+            resolved.resolved_name.as_deref(),
+            Some("Java_com_example_app_MainActivity_nativeRender")
+        );
+        assert_eq!(resolved.lang, "cpp");
+        // The call's own line, not the row before it.
+        assert_eq!(resolved.line, Some(27));
     }
 
     /// Missing symbol set: the frame falls back to client-side enrichment and

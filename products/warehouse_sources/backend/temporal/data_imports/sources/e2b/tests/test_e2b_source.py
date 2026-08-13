@@ -8,7 +8,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common.res
 from products.warehouse_sources.backend.temporal.data_imports.sources.e2b.e2b import E2BResumeConfig
 from products.warehouse_sources.backend.temporal.data_imports.sources.e2b.settings import ENDPOINTS
 from products.warehouse_sources.backend.temporal.data_imports.sources.e2b.source import E2BSource
-from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs import E2BSourceConfig
+from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.e2b import E2BSourceConfig
 from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 

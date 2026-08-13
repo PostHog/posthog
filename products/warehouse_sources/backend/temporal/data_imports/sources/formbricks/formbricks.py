@@ -11,10 +11,10 @@ import requests
 from structlog.types import FilteringBoundLogger
 from tenacity import retry, retry_if_exception_type, stop_after_attempt, wait_exponential_jitter
 
-from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline.typings import SourceResponse
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.http import make_tracked_session
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.mixins import _is_host_safe
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.typings import SourceResponse
 from products.warehouse_sources.backend.temporal.data_imports.sources.formbricks.settings import (
     FORMBRICKS_ENDPOINTS,
     FormbricksEndpointConfig,
@@ -36,6 +36,22 @@ RESPONSE_CHUNK_BYTES = 256 * 1024
 # total transfer time — 256 MiB in 300s is a ~0.85 MiB/s floor, far below any real API response and
 # far above a slow-drip stall.
 MAX_DOWNLOAD_SECONDS = 300
+
+# Formbricks ships both a v1 and a v2 management API, and neither wholly supersedes the other for
+# an ingest-only reader. v2 adds paginated, incrementally-filterable list endpoints for responses,
+# contact-attribute-keys, and webhooks — which this source already reads from `/api/v2/` (responses
+# needs the v2 sortBy/startDate/filterDateField window for incremental sync; v1's list has none of
+# those). But v2 exposes no environment-wide list endpoint for surveys, contacts, contact-attributes,
+# or action-classes, so those stay on `/api/v1/`. Each resource's path in FORMBRICKS_ENDPOINTS
+# therefore already targets whichever version can list it, and the source-level pin does not re-route
+# requests: routing the v1-only resources to v2 would 404, and the v2 resources are already on v2.
+# v2 is the version Formbricks recommends for new integrations and the one this source's primary
+# resource requires, so it is the default stamped onto new sources; v1 stays supported so existing
+# pins keep resolving.
+FORMBRICKS_API_VERSION_V1 = "v1"
+FORMBRICKS_API_VERSION_V2 = "v2"
+FORMBRICKS_SUPPORTED_VERSIONS = (FORMBRICKS_API_VERSION_V1, FORMBRICKS_API_VERSION_V2)
+FORMBRICKS_DEFAULT_VERSION = FORMBRICKS_API_VERSION_V2
 
 DEFAULT_HOST = "https://app.formbricks.com"
 HOST_NOT_ALLOWED_ERROR = "Formbricks host is not allowed"

@@ -166,6 +166,16 @@ pub enum SinkConfig {
     Kafka(KafkaEmitterConfig),
     Capture(CaptureEmitterConfig),
     NoOp,
+    // Trial run: parse and transform only, writing browsable results to the
+    // worker-configured trial output bucket instead of emitting events. Jobs
+    // with this sink take the trial path in the main loop; the bucket and
+    // prefix come from worker env, never from job config.
+    #[serde(rename = "trial_s3")]
+    TrialS3 {
+        // Stop after this many source records; clamped to the worker's
+        // TRIAL_MAX_RECORD_LIMIT.
+        record_limit: u64,
+    },
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -329,6 +339,14 @@ impl SinkConfig {
                     // emit to kafka at the same time.
                     KafkaEmitter::new(resolved_config, &model.id.to_string(), context).await?,
                 ))
+            }
+            SinkConfig::TrialS3 { .. } => {
+                // Trial jobs never construct an Emitter: the main loop dispatches
+                // them to TrialJob before Job::new runs. Reaching this arm means
+                // the dispatch check is broken.
+                anyhow::bail!(
+                    "trial_s3 is not an emitter sink; trial jobs must take the trial path"
+                )
             }
             SinkConfig::Capture(capture_config) => {
                 let token = context.get_token_for_team_id(model.team_id).await?;
@@ -545,9 +563,15 @@ impl S3SourceConfig {
             )));
         };
 
+        // This hop must use the pod's ambient region, not the customer bucket's: the
+        // managed-migrations role's trust policy only allows assumes arriving through the
+        // workload VPC's STS endpoint (aws:SourceVpce), and that endpoint only serves the
+        // local region's STS hostname. Calling a cross-region STS endpoint here would
+        // egress publicly and be denied. The customer hop below keeps the bucket region.
+        let ambient_config = aws_config::defaults(BehaviorVersion::latest()).load().await;
         let intermediate = aws_config::sts::AssumeRoleProvider::builder(intermediate_arn)
             .session_name("posthog-batch-import")
-            .region(Region::new(self.region.clone()))
+            .configure(&ambient_config)
             .build()
             .await;
         // An unassumable intermediate role is a PostHog deployment problem, so surface the

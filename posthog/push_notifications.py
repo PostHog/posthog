@@ -4,7 +4,7 @@ The Expo push API accepts up to 100 messages per HTTP call and returns one
 ticket per message. Tickets carry transient errors (delivery failed, push token
 invalid) but final delivery success is only confirmed by polling receipts.
 
-For the PostHog Code mobile app the only thing we care about is best-effort
+For the PostHog mobile app, the only thing we care about is best-effort
 fan-out plus pruning tokens the device push service has rejected as
 permanently invalid (`DeviceNotRegistered`). Receipt polling is deferred until
 we have a real reason to surface delivery status.
@@ -43,7 +43,7 @@ def send_push_to_user(
 
     ``suppressed_push_token_ids`` lets the caller (typically a feature-specific
     dispatcher) drop devices that have proven they're already watching the
-    relevant context — e.g. presence beacons on a PostHog Code task. Tokens
+    relevant context — e.g. presence beacons on a PostHog Desktop task. Tokens
     whose ``UserPushToken.id`` is in the set are skipped before fanout, even
     if that leaves the user with zero recipients. The contract is "if any
     device is provably watching, suppress the others", so an empty post-filter

@@ -29,7 +29,7 @@ async def _run(enrich_side_effect) -> tuple[dict, MagicMock, AsyncMock, MagicMoc
     pha_client = MagicMock()
     enrich = AsyncMock(side_effect=enrich_side_effect)
     with (
-        patch(f"{_MODULE}.get_client", return_value=pha_client),
+        patch(f"{_MODULE}.get_regional_ph_client", return_value=pha_client),
         patch(f"{_MODULE}.enrich_organization", enrich),
         patch(f"{_MODULE}._deterministic_company_type", return_value=None),
         patch(f"{_MODULE}.capture_signup_enrichment_snapshot") as snapshot,
@@ -78,14 +78,21 @@ async def test_miss_then_recheck_upgrades_without_a_second_completed_event():
     assert completed[0].kwargs["properties"]["matched"] is False
 
 
-async def test_match_on_first_attempt_skips_the_recheck():
+async def test_match_on_first_attempt_still_runs_the_recheck():
+    """The recheck now runs for every org, matched or not — it also re-scores against Clay's
+    bridge columns, which may not have landed yet at the first attempt."""
     fields = EnrichmentFields(company_type="STARTUP", headcount=130)
-    result, pha_client, enrich, snapshot = await _run([fields])
+    result, pha_client, enrich, snapshot = await _run([fields, fields])
 
     assert result == {"matched": True, "fields_filled": 2}
-    assert enrich.await_count == 1
+    assert enrich.await_count == 2
+    assert enrich.await_args_list[1].kwargs["is_recheck"] is True
     snapshot.assert_called_once()
-    assert _events(pha_client, "signup_enrichment_recheck") == []
+
+    # Already matched at the first attempt, so matching again at recheck is not an upgrade.
+    recheck = _events(pha_client, "signup_enrichment_recheck")
+    assert len(recheck) == 1
+    assert recheck[0].kwargs["properties"]["upgraded"] is False
     assert len(_events(pha_client, "signup_enrichment_completed")) == 1
 
 
@@ -96,7 +103,7 @@ async def test_recheck_skips_deleted_organization():
     )
     with (
         patch(f"{_MODULE}.enrich_organization") as enrich_mock,
-        patch(f"{_MODULE}.get_client") as client_mock,
+        patch(f"{_MODULE}.get_regional_ph_client") as client_mock,
         patch("posthog.models.Organization.objects") as org_objects,
     ):
         org_objects.filter.return_value.exists.return_value = False

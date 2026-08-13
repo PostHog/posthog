@@ -12,6 +12,8 @@ import * as zod from 'zod'
 /**
  * Trust marks on warehouse tables and views. Reads exclude soft-deleted targets.
  */
+export const dataCatalogCertificationsCreateBodyProposedStatusDefault = `certified`
+
 export const DataCatalogCertificationsCreateBody = /* @__PURE__ */ zod
     .object({
         table_id: zod.uuid().optional().describe('Warehouse table id to certify (XOR the other targets).'),
@@ -19,6 +21,13 @@ export const DataCatalogCertificationsCreateBody = /* @__PURE__ */ zod
         table_name: zod.string().optional().describe('Table name; 409 with candidates if ambiguous.'),
         view_name: zod.string().optional().describe('View name; 409 with candidates if ambiguous.'),
         notes: zod.string().optional().describe('Why this mark exists.'),
+        proposed_status: zod
+            .enum(['certified', 'deprecated'])
+            .describe('\* `certified` - certified\n\* `deprecated` - deprecated')
+            .default(dataCatalogCertificationsCreateBodyProposedStatusDefault)
+            .describe(
+                "Intent of the proposal: 'certified' to propose trusting this source, 'deprecated' to propose avoiding it (e.g. a stale or wrong source).\n\n\* `certified` - certified\n\* `deprecated` - deprecated"
+            ),
     })
     .describe('Input for proposing a certification: address the target by id or (convenience) by name.')
 
@@ -30,11 +39,16 @@ export const dataCatalogMetricsCreateBodyNameMax = 128
 export const dataCatalogMetricsCreateBodyNameRegExp = new RegExp('^[A-Za-z][A-Za-z0-9_]\*$')
 export const dataCatalogMetricsCreateBodyDisplayNameMax = 255
 
+export const dataCatalogMetricsCreateBodyDescriptionMax = 1000
+
 export const dataCatalogMetricsCreateBodyUnitMax = 64
 
 export const dataCatalogMetricsCreateBodySourceInsightShortIdMax = 12
 
 export const dataCatalogMetricsCreateBodyAiModelMax = 128
+
+export const dataCatalogMetricsCreateBodyConfidenceMin = 0
+export const dataCatalogMetricsCreateBodyConfidenceMax = 1
 
 export const DataCatalogMetricsCreateBody = /* @__PURE__ */ zod.object({
     name: zod
@@ -47,7 +61,12 @@ export const DataCatalogMetricsCreateBody = /* @__PURE__ */ zod.object({
         .max(dataCatalogMetricsCreateBodyDisplayNameMax)
         .optional()
         .describe('Human-friendly label. Mutable, unlike name.'),
-    description: zod.string().describe('What the metric means and how to interpret it.'),
+    description: zod
+        .string()
+        .max(dataCatalogMetricsCreateBodyDescriptionMax)
+        .describe(
+            "What the metric means and what it serves, in 1-3 short sentences: the business meaning plus any load-bearing inclusions\/exclusions or grain. Never narrate or restate the query - the definition carries the mechanics; put rationale for query choices in 'reasoning'."
+        ),
     unit: zod
         .string()
         .max(dataCatalogMetricsCreateBodyUnitMax)
@@ -76,7 +95,12 @@ export const DataCatalogMetricsCreateBody = /* @__PURE__ */ zod.object({
         .max(dataCatalogMetricsCreateBodyAiModelMax)
         .optional()
         .describe('Model that generated the metric, if AI-authored.'),
-    confidence: zod.number().nullish().describe("AI author's confidence in the proposal, 0-1."),
+    confidence: zod
+        .number()
+        .min(dataCatalogMetricsCreateBodyConfidenceMin)
+        .max(dataCatalogMetricsCreateBodyConfidenceMax)
+        .nullish()
+        .describe("AI author's confidence in the proposal, 0-1."),
     reasoning: zod.string().optional().describe("AI author's reasoning, surfaced as review context."),
 })
 
@@ -88,11 +112,16 @@ export const dataCatalogMetricsUpdateBodyNameMax = 128
 export const dataCatalogMetricsUpdateBodyNameRegExp = new RegExp('^[A-Za-z][A-Za-z0-9_]\*$')
 export const dataCatalogMetricsUpdateBodyDisplayNameMax = 255
 
+export const dataCatalogMetricsUpdateBodyDescriptionMax = 1000
+
 export const dataCatalogMetricsUpdateBodyUnitMax = 64
 
 export const dataCatalogMetricsUpdateBodySourceInsightShortIdMax = 12
 
 export const dataCatalogMetricsUpdateBodyAiModelMax = 128
+
+export const dataCatalogMetricsUpdateBodyConfidenceMin = 0
+export const dataCatalogMetricsUpdateBodyConfidenceMax = 1
 
 export const DataCatalogMetricsUpdateBody = /* @__PURE__ */ zod.object({
     name: zod
@@ -105,7 +134,12 @@ export const DataCatalogMetricsUpdateBody = /* @__PURE__ */ zod.object({
         .max(dataCatalogMetricsUpdateBodyDisplayNameMax)
         .optional()
         .describe('Human-friendly label. Mutable, unlike name.'),
-    description: zod.string().describe('What the metric means and how to interpret it.'),
+    description: zod
+        .string()
+        .max(dataCatalogMetricsUpdateBodyDescriptionMax)
+        .describe(
+            "What the metric means and what it serves, in 1-3 short sentences: the business meaning plus any load-bearing inclusions\/exclusions or grain. Never narrate or restate the query - the definition carries the mechanics; put rationale for query choices in 'reasoning'."
+        ),
     unit: zod
         .string()
         .max(dataCatalogMetricsUpdateBodyUnitMax)
@@ -134,7 +168,12 @@ export const DataCatalogMetricsUpdateBody = /* @__PURE__ */ zod.object({
         .max(dataCatalogMetricsUpdateBodyAiModelMax)
         .optional()
         .describe('Model that generated the metric, if AI-authored.'),
-    confidence: zod.number().nullish().describe("AI author's confidence in the proposal, 0-1."),
+    confidence: zod
+        .number()
+        .min(dataCatalogMetricsUpdateBodyConfidenceMin)
+        .max(dataCatalogMetricsUpdateBodyConfidenceMax)
+        .nullish()
+        .describe("AI author's confidence in the proposal, 0-1."),
     reasoning: zod.string().optional().describe("AI author's reasoning, surfaced as review context."),
 })
 
@@ -146,11 +185,16 @@ export const dataCatalogMetricsPartialUpdateBodyNameMax = 128
 export const dataCatalogMetricsPartialUpdateBodyNameRegExp = new RegExp('^[A-Za-z][A-Za-z0-9_]\*$')
 export const dataCatalogMetricsPartialUpdateBodyDisplayNameMax = 255
 
+export const dataCatalogMetricsPartialUpdateBodyDescriptionMax = 1000
+
 export const dataCatalogMetricsPartialUpdateBodyUnitMax = 64
 
 export const dataCatalogMetricsPartialUpdateBodySourceInsightShortIdMax = 12
 
 export const dataCatalogMetricsPartialUpdateBodyAiModelMax = 128
+
+export const dataCatalogMetricsPartialUpdateBodyConfidenceMin = 0
+export const dataCatalogMetricsPartialUpdateBodyConfidenceMax = 1
 
 export const DataCatalogMetricsPartialUpdateBody = /* @__PURE__ */ zod.object({
     name: zod
@@ -164,7 +208,13 @@ export const DataCatalogMetricsPartialUpdateBody = /* @__PURE__ */ zod.object({
         .max(dataCatalogMetricsPartialUpdateBodyDisplayNameMax)
         .optional()
         .describe('Human-friendly label. Mutable, unlike name.'),
-    description: zod.string().optional().describe('What the metric means and how to interpret it.'),
+    description: zod
+        .string()
+        .max(dataCatalogMetricsPartialUpdateBodyDescriptionMax)
+        .optional()
+        .describe(
+            "What the metric means and what it serves, in 1-3 short sentences: the business meaning plus any load-bearing inclusions\/exclusions or grain. Never narrate or restate the query - the definition carries the mechanics; put rationale for query choices in 'reasoning'."
+        ),
     unit: zod
         .string()
         .max(dataCatalogMetricsPartialUpdateBodyUnitMax)
@@ -193,7 +243,12 @@ export const DataCatalogMetricsPartialUpdateBody = /* @__PURE__ */ zod.object({
         .max(dataCatalogMetricsPartialUpdateBodyAiModelMax)
         .optional()
         .describe('Model that generated the metric, if AI-authored.'),
-    confidence: zod.number().nullish().describe("AI author's confidence in the proposal, 0-1."),
+    confidence: zod
+        .number()
+        .min(dataCatalogMetricsPartialUpdateBodyConfidenceMin)
+        .max(dataCatalogMetricsPartialUpdateBodyConfidenceMax)
+        .nullish()
+        .describe("AI author's confidence in the proposal, 0-1."),
     reasoning: zod.string().optional().describe("AI author's reasoning, surfaced as review context."),
 })
 

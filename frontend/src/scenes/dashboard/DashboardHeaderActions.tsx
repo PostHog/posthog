@@ -9,6 +9,7 @@ import { keyBinds } from 'lib/components/Shortcuts/shortcuts'
 import { FEATURE_FLAGS } from 'lib/constants'
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { LemonMenu, LemonMenuItem } from 'lib/lemon-ui/LemonMenu'
+import { getAccessControlDisabledReason } from 'lib/utils/accessControlUtils'
 import { DashboardEventSource } from 'lib/utils/eventUsageLogic'
 import { MaxTool } from 'scenes/max/MaxTool'
 import { Scene } from 'scenes/sceneTypes'
@@ -17,21 +18,20 @@ import { urls } from 'scenes/urls'
 import { iconForType } from '~/layout/panel-layout/ProjectTree/defaultTree'
 import { AccessControlLevel, AccessControlResourceType, DashboardMode } from '~/types'
 
-import { addInsightToDashboardLogic } from './addInsightToDashboardModalLogic'
 import { DashboardLoadAction, dashboardLogic } from './dashboardLogic'
 import { DashboardSubscribeButton } from './DashboardSubscribeButton'
 
 export function getAddTileMenuItems({
     dashboardId,
     dashboardWidgetsEnabled,
-    showAddInsightToDashboardModal,
+    onAddInsight,
     push,
     setAddWidgetModalOpen,
     onBeforeSelect,
 }: {
     dashboardId: number
     dashboardWidgetsEnabled: boolean
-    showAddInsightToDashboardModal: () => void
+    onAddInsight: () => void
     push: (url: string) => void
     setAddWidgetModalOpen: (open: boolean) => void
     onBeforeSelect?: () => void
@@ -46,7 +46,7 @@ export function getAddTileMenuItems({
     return [
         {
             label: 'Insight',
-            onClick: withBeforeSelect(showAddInsightToDashboardModal),
+            onClick: withBeforeSelect(onAddInsight),
             'data-attr': 'dashboard-add-insight',
         },
         {
@@ -78,8 +78,8 @@ export function getAddTileMenuItems({
 
 export function DashboardAddTileButton(): JSX.Element | null {
     const { dashboard, dashboardWidgetsEnabled } = useValues(dashboardLogic)
-    const { loadDashboard, setAddWidgetModalOpen, setPendingInsertion } = useActions(dashboardLogic)
-    const { showAddInsightToDashboardModal } = useActions(addInsightToDashboardLogic)
+    const { loadDashboard, setAddWidgetModalOpen, setPendingInsertion, openAddInsightModal } =
+        useActions(dashboardLogic)
     const { push } = useActions(router)
 
     if (!dashboard) {
@@ -115,7 +115,7 @@ export function DashboardAddTileButton(): JSX.Element | null {
                     items={getAddTileMenuItems({
                         dashboardId: dashboard.id,
                         dashboardWidgetsEnabled,
-                        showAddInsightToDashboardModal,
+                        onAddInsight: openAddInsightModal,
                         push,
                         setAddWidgetModalOpen,
                         // Adding from the header appends at the bottom; drop any stale inline-insertion target.
@@ -247,6 +247,11 @@ export function ViewModeActions(): JSX.Element {
         return <></>
     }
 
+    const sharingDisabledReason = getAccessControlDisabledReason(
+        AccessControlResourceType.SharingConfiguration,
+        AccessControlLevel.Viewer
+    )
+
     return (
         <>
             <DashboardSubscribeButton />
@@ -256,7 +261,11 @@ export function ViewModeActions(): JSX.Element {
                 onClick={() => push(urls.dashboardSharing(dashboard.id))}
                 size="small"
                 icon={<IconShare fontSize="16" />}
-                disabledReason={tiles.length === 0 ? 'Add at least one tile before sharing this dashboard' : undefined}
+                disabledReason={
+                    tiles.length === 0
+                        ? 'Add at least one tile before sharing this dashboard'
+                        : (sharingDisabledReason ?? undefined)
+                }
             >
                 Share
             </LemonButton>

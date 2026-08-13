@@ -4,7 +4,7 @@ import numpy as np
 
 from posthog.schema import FunnelsQuery, IntervalType, TrendsAlertConfig, TrendsQuery
 
-from posthog.caching.fetch_from_cache import InsightResult
+from posthog.caching.insight_result import InsightResult
 from posthog.hogql_queries.insights.utils.breakdowns import has_breakdown_filter
 from posthog.tasks.alerts.utils import NON_TIME_SERIES_DISPLAY_TYPES
 

@@ -30,6 +30,7 @@ import { LemonField } from 'lib/lemon-ui/LemonField'
 import { LemonTabs } from 'lib/lemon-ui/LemonTabs'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { ButtonPrimitive } from 'lib/ui/Button/ButtonPrimitives'
+import { MenuOpenIndicator } from 'lib/ui/Menus/Menus'
 import { getAccessControlDisabledReason } from 'lib/utils/accessControlUtils'
 import { JSONEditorInput } from 'scenes/feature-flags/JSONEditorInput'
 import { LinkedHogFunctions } from 'scenes/hog-functions/list/LinkedHogFunctions'
@@ -54,6 +55,7 @@ import {
     ScenePanelActionsSection,
     ScenePanelDivider,
     ScenePanelInfoSection,
+    ScenePanelLabel,
 } from '~/layout/scenes/SceneLayout'
 import { defaultDataTableColumns } from '~/queries/nodes/DataTable/utils'
 import { Query } from '~/queries/Query/Query'
@@ -73,6 +75,12 @@ import {
     RecordingUniversalFilters,
     ReplayTabs,
 } from '~/types'
+
+import {
+    AssigneeIconDisplay,
+    AssigneeLabelDisplay,
+} from 'products/error_tracking/frontend/components/Assignee/AssigneeDisplay'
+import { AssigneeSelect } from 'products/error_tracking/frontend/components/Assignee/AssigneeSelect'
 
 import { EarlyAccessFeatureLogicProps, earlyAccessFeatureLogic } from './earlyAccessFeatureLogic'
 import { InstructionsModal } from './InstructionsModal'
@@ -453,6 +461,36 @@ export function EarlyAccessFeature({ id }: EarlyAccessFeatureLogicProps): JSX.El
                                 },
                             ]}
                         />
+                        {!isNewEarlyAccessFeature && (
+                            <ScenePanelLabel title="Assignee">
+                                <AssigneeSelect
+                                    assignee={earlyAccessFeature.assignee ?? null}
+                                    onChange={(assignee) => {
+                                        if (isEditingFeature) {
+                                            setEarlyAccessFeatureValue('assignee', assignee)
+                                        } else {
+                                            saveEarlyAccessFeature({ ...earlyAccessFeature, assignee })
+                                        }
+                                    }}
+                                    fullWidth
+                                >
+                                    {(displayAssignee, isOpen) => (
+                                        <ButtonPrimitive
+                                            fullWidth
+                                            variant="panel"
+                                            disabled={!!accessControlDisabledReason}
+                                            tooltip={accessControlDisabledReason ?? undefined}
+                                            data-state={isOpen ? 'open' : 'closed'}
+                                            data-attr={`${RESOURCE_TYPE}-assignee`}
+                                        >
+                                            <AssigneeIconDisplay assignee={displayAssignee} size="small" />
+                                            <AssigneeLabelDisplay assignee={displayAssignee} size="small" />
+                                            <MenuOpenIndicator className="ml-auto" />
+                                        </ButtonPrimitive>
+                                    )}
+                                </AssigneeSelect>
+                            </ScenePanelLabel>
+                        )}
                         <SceneFile dataAttrKey={RESOURCE_TYPE} />
                         <Link
                             to="https://posthog.com/docs/feature-flags/early-access-feature-management"

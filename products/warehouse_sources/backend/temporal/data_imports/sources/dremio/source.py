@@ -8,7 +8,7 @@ from posthog.schema import (
 
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.base import FieldType, SimpleSource
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.registry import SourceRegistry
-from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs import DremioSourceConfig
+from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.dremio import DremioSourceConfig
 from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 
@@ -23,6 +23,7 @@ class DremioSource(SimpleSource[DremioSourceConfig]):
         return SourceConfig(
             name=SchemaExternalDataSourceType.DREMIO,
             category=DataWarehouseSourceCategory.DATABASES,
+            keywords=["sql"],
             label="Dremio",
             iconPath="/static/services/dremio.png",
             fields=cast(list[FieldType], []),

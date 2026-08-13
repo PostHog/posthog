@@ -5,6 +5,7 @@ from .batch_export import (
     BatchExportFileDownload,
     BatchExportOnDemand,
     BatchExportRun,
+    BatchExportSource,
     DayOfWeek,
 )
 
@@ -15,5 +16,6 @@ __all__ = [
     "BatchExportFileDownload",
     "BatchExportOnDemand",
     "BatchExportRun",
+    "BatchExportSource",
     "DayOfWeek",
 ]

@@ -1,18 +1,16 @@
+import json
 from typing import Any
 
 import pytest
-from unittest.mock import MagicMock
+from unittest import mock
 
-import requests
 from parameterized import parameterized
+from requests import HTTPError, Response
 
-from products.warehouse_sources.backend.temporal.data_imports.sources.justsift import justsift
 from products.warehouse_sources.backend.temporal.data_imports.sources.justsift.justsift import (
     PAGE_SIZE,
     JustSiftResumeConfig,
-    JustSiftRetryableError,
     check_access,
-    get_rows,
     justsift_source,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.justsift.settings import (
@@ -20,193 +18,192 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.justsift.s
     JUSTSIFT_ENDPOINTS,
 )
 
-# Call the undecorated function so the tenacity retry/backoff wrapper doesn't slow failure-path tests.
-_fetch_page_unwrapped = justsift._fetch_page.__wrapped__  # type: ignore[attr-defined]
+# RESTClient builds its session via make_tracked_session in the rest_client module.
+CLIENT_SESSION_PATCH = "products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.rest_client.make_tracked_session"
+# check_access builds its own tracked session in the justsift module.
+JUSTSIFT_SESSION_PATCH = (
+    "products.warehouse_sources.backend.temporal.data_imports.sources.justsift.justsift.make_tracked_session"
+)
 
 
-class _FakeResumableManager:
-    def __init__(self, state: JustSiftResumeConfig | None = None) -> None:
-        self._state = state
-        self.saved: list[JustSiftResumeConfig] = []
-
-    def can_resume(self) -> bool:
-        return self._state is not None
-
-    def load_state(self) -> JustSiftResumeConfig | None:
-        return self._state
-
-    def save_state(self, data: JustSiftResumeConfig) -> None:
-        self.saved.append(data)
-
-
-def _envelope(items: list[dict], total: int | None = None) -> dict[str, Any]:
-    meta: dict[str, Any] = {}
+def _response(items: list[dict[str, Any]] | None, *, total: int | None = None, status: int = 200) -> Response:
+    body: dict[str, Any] = {"links": {}, "meta": {}}
     if total is not None:
-        meta["totalLength"] = total
-    return {"data": items, "links": {}, "meta": meta}
+        body["meta"]["totalLength"] = total
+    if items is not None:
+        body["data"] = items
+    resp = Response()
+    resp.status_code = status
+    resp._content = json.dumps(body).encode()
+    return resp
 
 
-def _full_page(seq: int) -> dict[str, Any]:
-    # A page that is exactly PAGE_SIZE long, so termination relies on the total, not a short page.
-    return _envelope([{"id": f"{seq}-{i}"} for i in range(PAGE_SIZE)])
+def _full_page(seq: int, *, total: int | None = None) -> Response:
+    # A page exactly PAGE_SIZE long, so termination relies on the total, not a short page.
+    return _response([{"id": f"{seq}-{i}"} for i in range(PAGE_SIZE)], total=total)
 
 
-class TestGetRows:
-    @staticmethod
-    def _collect(
-        manager: _FakeResumableManager, monkeypatch: Any, pages: dict[int, dict], endpoint: str = "people"
-    ) -> list[dict]:
-        def fake_fetch(session: Any, path: str, page: int, page_size: int, logger: Any) -> dict:
-            return pages[page]
+def _make_manager(resume_state: JustSiftResumeConfig | None = None) -> mock.MagicMock:
+    manager = mock.MagicMock()
+    manager.can_resume.return_value = resume_state is not None
+    manager.load_state.return_value = resume_state
+    return manager
 
-        monkeypatch.setattr(justsift, "_fetch_page", fake_fetch)
-        monkeypatch.setattr(justsift, "make_tracked_session", lambda **kwargs: MagicMock())
 
-        rows: list[dict] = []
-        for batch in get_rows(
-            api_key="sift-token",
-            endpoint=endpoint,
-            logger=MagicMock(),
-            resumable_source_manager=manager,  # type: ignore[arg-type]
-        ):
-            rows.extend(batch)
-        return rows
+def _wire(session: mock.MagicMock, responses: list[Response]) -> list[dict[str, Any]]:
+    """Wire a mock session and return a list capturing each request's params AT SEND TIME.
 
-    def test_single_short_page_yields_items_and_stops(self, monkeypatch: Any) -> None:
-        manager = _FakeResumableManager()
-        rows = self._collect(manager, monkeypatch, {1: _envelope([{"id": "a"}, {"id": "b"}])})
+    ``request.params`` is a single dict mutated in place across pages, so inspecting it after the run
+    shows only the final state — snapshot a copy when each request is prepared instead.
+    """
+    session.headers = {}
+    param_snapshots: list[dict[str, Any]] = []
+
+    def _prepare(request: Any) -> mock.MagicMock:
+        param_snapshots.append(dict(request.params or {}))
+        return mock.MagicMock()
+
+    session.prepare_request.side_effect = _prepare
+    session.send.side_effect = responses
+    return param_snapshots
+
+
+def _source(endpoint: str, manager: mock.MagicMock) -> Any:
+    return justsift_source(
+        api_key="sift-token",
+        endpoint=endpoint,
+        team_id=1,
+        job_id="j",
+        resumable_source_manager=manager,
+    )
+
+
+def _rows(source_response) -> list[dict[str, Any]]:
+    return [row for page in source_response.items() for row in page]
+
+
+class TestPagination:
+    @mock.patch(CLIENT_SESSION_PATCH)
+    def test_single_short_page_yields_items_and_stops(self, MockSession) -> None:
+        session = MockSession.return_value
+        _wire(session, [_response([{"id": "a"}, {"id": "b"}])])
+
+        manager = _make_manager()
+        rows = _rows(_source("people", manager))
+
         assert rows == [{"id": "a"}, {"id": "b"}]
+        assert session.send.call_count == 1
         # A short page ends the sync, so no resume state is persisted.
-        assert manager.saved == []
+        manager.save_state.assert_not_called()
 
-    def test_follows_pagination_until_short_page(self, monkeypatch: Any) -> None:
-        pages = {
-            1: _full_page(1),
-            2: _full_page(2),
-            3: _envelope([{"id": "tail"}]),
-        }
-        rows = self._collect(_FakeResumableManager(), monkeypatch, pages)
+    @mock.patch(CLIENT_SESSION_PATCH)
+    def test_follows_pagination_until_short_page(self, MockSession) -> None:
+        session = MockSession.return_value
+        params = _wire(session, [_full_page(1), _full_page(2), _response([{"id": "tail"}])])
+
+        rows = _rows(_source("people", _make_manager()))
+
         assert len(rows) == PAGE_SIZE * 2 + 1
         assert rows[-1] == {"id": "tail"}
+        assert [p["page"] for p in params] == [1, 2, 3]
+        assert all(p["pageSize"] == PAGE_SIZE for p in params)
 
-    def test_terminates_when_total_is_covered_by_full_page(self, monkeypatch: Any) -> None:
-        # A final page that is exactly PAGE_SIZE long still terminates because the reported total is
-        # reached — without this the loop would fetch a spurious empty page.
-        rows = self._collect(
-            _FakeResumableManager(), monkeypatch, {1: _full_page(1) | {"meta": {"totalLength": PAGE_SIZE}}}
-        )
+    @mock.patch(CLIENT_SESSION_PATCH)
+    def test_terminates_when_total_is_covered_by_full_page(self, MockSession) -> None:
+        # A final page exactly PAGE_SIZE long still terminates because the reported total is reached
+        # — without the total check the loop would fetch a spurious empty page.
+        session = MockSession.return_value
+        _wire(session, [_full_page(1, total=PAGE_SIZE)])
+
+        rows = _rows(_source("people", _make_manager()))
+
         assert len(rows) == PAGE_SIZE
+        assert session.send.call_count == 1
 
-    def test_saves_next_page_after_yielding_each_batch(self, monkeypatch: Any) -> None:
-        manager = _FakeResumableManager()
-        pages = {
-            1: _full_page(1),
-            2: _envelope([{"id": "last"}]),
-        }
-        self._collect(manager, monkeypatch, pages)
+    @mock.patch(CLIENT_SESSION_PATCH)
+    def test_saves_next_page_after_yielding_each_batch(self, MockSession) -> None:
+        session = MockSession.return_value
+        _wire(session, [_full_page(1), _response([{"id": "last"}])])
+
+        manager = _make_manager()
+        _rows(_source("people", manager))
+
         # State is saved AFTER page 1 is yielded (pointing at page 2), never for the final page.
-        assert [s.next_page for s in manager.saved] == [2]
+        manager.save_state.assert_called_once_with(JustSiftResumeConfig(next_page=2))
 
-    def test_resumes_from_saved_page(self, monkeypatch: Any) -> None:
-        manager = _FakeResumableManager(JustSiftResumeConfig(next_page=2))
-        pages = {
-            # Page 1 must never be fetched on resume.
-            2: _full_page(2),
-            3: _envelope([{"id": "z"}]),
-        }
-        rows = self._collect(manager, monkeypatch, pages)
+    @mock.patch(CLIENT_SESSION_PATCH)
+    def test_resumes_from_saved_page(self, MockSession) -> None:
+        session = MockSession.return_value
+        params = _wire(session, [_full_page(2), _response([{"id": "z"}])])
+
+        manager = _make_manager(JustSiftResumeConfig(next_page=2))
+        rows = _rows(_source("people", manager))
+
         assert len(rows) == PAGE_SIZE + 1
         assert rows[-1] == {"id": "z"}
+        # Page 1 must never be fetched on resume.
+        assert params[0]["page"] == 2
+        assert all(p["page"] != 1 for p in params)
 
-    def test_empty_first_page_does_not_yield(self, monkeypatch: Any) -> None:
-        rows = self._collect(_FakeResumableManager(), monkeypatch, {1: _envelope([])})
+    @mock.patch(CLIENT_SESSION_PATCH)
+    def test_empty_first_page_does_not_yield(self, MockSession) -> None:
+        session = MockSession.return_value
+        _wire(session, [_response([])])
+
+        manager = _make_manager()
+        rows = _rows(_source("people", manager))
+
         assert rows == []
+        manager.save_state.assert_not_called()
+
+    @mock.patch(CLIENT_SESSION_PATCH)
+    def test_missing_data_key_raises_loudly(self, MockSession) -> None:
+        session = MockSession.return_value
+        # A 200 body without "data" means the response shape changed — fail loud, not silently 0 rows.
+        _wire(session, [_response(None)])
+
+        with pytest.raises(ValueError, match="matched nothing"):
+            _rows(_source("people", _make_manager()))
 
 
-class TestFetchPage:
-    def _session_returning(self, status_code: int, body: dict | None = None) -> MagicMock:
-        response = MagicMock()
-        response.status_code = status_code
-        response.ok = status_code < 400
-        response.json.return_value = body or {}
-        response.text = ""
-        response.raise_for_status.side_effect = (
-            requests.HTTPError(f"{status_code} error", response=response) if status_code >= 400 else None
-        )
-        session = MagicMock()
-        session.get.return_value = response
-        return session
+class TestRetryAndFailLoud:
+    @mock.patch("time.sleep", return_value=None)
+    @mock.patch(CLIENT_SESSION_PATCH)
+    def test_transient_5xx_is_retried_then_succeeds(self, MockSession, _sleep) -> None:
+        session = MockSession.return_value
+        _wire(session, [_response(None, status=500), _response([{"id": "a"}])])
 
-    @parameterized.expand([("rate_limited", 429), ("server_error", 500), ("bad_gateway", 503)])
-    def test_retryable_statuses_raise_retryable_error(self, _name: str, status: int) -> None:
-        session = self._session_returning(status)
-        with pytest.raises(JustSiftRetryableError):
-            _fetch_page_unwrapped(session, "/search/people", 1, PAGE_SIZE, MagicMock())
+        rows = _rows(_source("people", _make_manager()))
+
+        assert rows == [{"id": "a"}]
+        assert session.send.call_count == 2
+
+    @mock.patch("time.sleep", return_value=None)
+    @mock.patch(CLIENT_SESSION_PATCH)
+    def test_rate_limit_is_retried_then_succeeds(self, MockSession, _sleep) -> None:
+        session = MockSession.return_value
+        _wire(session, [_response(None, status=429), _response([{"id": "a"}])])
+
+        rows = _rows(_source("people", _make_manager()))
+
+        assert rows == [{"id": "a"}]
+        assert session.send.call_count == 2
 
     @parameterized.expand([("unauthorized", 401), ("forbidden", 403), ("not_found", 404)])
-    def test_client_errors_raise_for_status(self, _name: str, status: int) -> None:
-        session = self._session_returning(status)
-        with pytest.raises(requests.HTTPError):
-            _fetch_page_unwrapped(session, "/search/people", 1, PAGE_SIZE, MagicMock())
+    @mock.patch(CLIENT_SESSION_PATCH)
+    def test_client_errors_fail_loud(self, _name: str, status: int, MockSession) -> None:
+        session = MockSession.return_value
+        # A non-retryable client error surfaces as an HTTPError (raise_for_status), stopping the sync.
+        _wire(session, [_response(None, status=status)])
 
-    def test_success_returns_json_body(self) -> None:
-        body = _envelope([{"id": "a"}], total=1)
-        session = self._session_returning(200, body)
-        result = _fetch_page_unwrapped(session, "/search/people", 1, PAGE_SIZE, MagicMock())
-        assert result == body
-
-    def test_request_uses_page_and_page_size_params(self) -> None:
-        session = self._session_returning(200, _envelope([]))
-        _fetch_page_unwrapped(session, "/fields", 3, PAGE_SIZE, MagicMock())
-        _, kwargs = session.get.call_args
-        assert kwargs["params"] == {"page": 3, "pageSize": PAGE_SIZE}
+        with pytest.raises(HTTPError):
+            _rows(_source("people", _make_manager()))
 
 
-class TestCheckAccess:
-    def _patch_session(self, monkeypatch: Any, response: Any) -> MagicMock:
-        session = MagicMock()
-        if isinstance(response, Exception):
-            session.get.side_effect = response
-        else:
-            session.get.return_value = response
-        monkeypatch.setattr(justsift, "make_tracked_session", lambda **kwargs: session)
-        return session
-
-    # monkeypatch is a pytest fixture, which parameterized.expand cannot inject — keep pytest.mark.parametrize here.
-    @pytest.mark.parametrize(
-        "status, ok, expected_status, expected_message",
-        [
-            (200, True, 200, None),
-            (401, False, 401, None),
-            (403, False, 403, None),
-            (500, False, 500, "Sift returned HTTP 500"),
-        ],
-    )
-    def test_status_mapping(
-        self, status: int, ok: bool, expected_status: int, expected_message: str | None, monkeypatch: Any
-    ) -> None:
-        response = MagicMock()
-        response.status_code = status
-        response.ok = ok
-        self._patch_session(monkeypatch, response)
-        assert check_access("sift-token") == (expected_status, expected_message)
-
-    def test_connection_error_maps_to_zero(self, monkeypatch: Any) -> None:
-        self._patch_session(monkeypatch, requests.ConnectionError("boom"))
-        status, message = check_access("sift-token")
-        assert status == 0
-        assert message is not None and "boom" in message
-
-
-class TestJustSiftSourceResponse:
+class TestSourceResponse:
     @parameterized.expand([("people", ["id"]), ("fields", ["objectKey"])])
     def test_primary_keys_match_endpoint_config(self, endpoint: str, primary_keys: list[str]) -> None:
-        response = justsift_source(
-            api_key="sift-token",
-            endpoint=endpoint,
-            logger=MagicMock(),
-            resumable_source_manager=MagicMock(),
-        )
+        response = _source(endpoint, _make_manager())
         assert response.name == endpoint
         assert response.primary_keys == primary_keys
         # No endpoint exposes a creation timestamp, so nothing is partitioned by datetime.
@@ -215,3 +212,32 @@ class TestJustSiftSourceResponse:
 
     def test_endpoint_catalog_matches_exported_tuple(self) -> None:
         assert set(JUSTSIFT_ENDPOINTS) == set(ENDPOINTS)
+
+
+class TestCheckAccess:
+    def _patch_session(self, response: Any):
+        session = mock.MagicMock()
+        if isinstance(response, Exception):
+            session.get.side_effect = response
+        else:
+            session.get.return_value = response
+        return mock.patch(JUSTSIFT_SESSION_PATCH, return_value=session)
+
+    @pytest.mark.parametrize(
+        "status, expected_status, expected_message",
+        [
+            (200, 200, None),
+            (401, 401, None),
+            (403, 403, None),
+            (500, 500, "Sift returned HTTP 500"),
+        ],
+    )
+    def test_status_mapping(self, status: int, expected_status: int, expected_message: str | None) -> None:
+        with self._patch_session(mock.MagicMock(status_code=status)):
+            assert check_access("sift-token") == (expected_status, expected_message)
+
+    def test_connection_error_maps_to_zero(self) -> None:
+        with self._patch_session(Exception("boom")):
+            status, message = check_access("sift-token")
+        assert status == 0
+        assert message == "Could not connect to Sift"

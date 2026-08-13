@@ -7,7 +7,6 @@ from parameterized import parameterized
 
 from posthog.schema import SourceFieldInputConfig
 
-from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline.typings import SourceInputs
 from products.warehouse_sources.backend.temporal.data_imports.sources.bugsnag.bugsnag import BugsnagResumeConfig
 from products.warehouse_sources.backend.temporal.data_imports.sources.bugsnag.settings import (
     BUGSNAG_ENDPOINTS,
@@ -16,7 +15,10 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.bugsnag.se
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.bugsnag.source import BugsnagSource
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
-from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs import BugsnagSourceConfig
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.typings import SourceInputs
+from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.bugsnag import (
+    BugsnagSourceConfig,
+)
 from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 

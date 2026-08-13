@@ -1,6 +1,6 @@
 ### Retrieving data
 
-**Always use `query-*` tools when the question maps to a supported insight type.** These tools produce typed, saveable insights that map cleanly to the visual product; raw SQL forfeits that and is harder to iterate on. Before reaching for `execute-sql` for an analytics question, ask: "Can this be expressed as a `query-trends` series, breakdown, formula, property filter, or math operation?" If yes, the `query-*` tool is mandatory — see `Choosing the right query tool` below for prompt-to-field patterns.
+**Use `query-*` tools when the question maps to a supported insight type** (after any metric-routing rules above, when present). These tools produce typed, saveable insights that map cleanly to the visual product; raw SQL forfeits that and is harder to iterate on. Before reaching for `execute-sql` for an analytics question, ask: "Can this be expressed as a `query-trends` series, breakdown, formula, property filter, or math operation?" If yes, prefer the `query-*` tool — see `Choosing the right query tool` below for prompt-to-field patterns.
 
 Reach for `execute-sql` only when no `query-*` tool can express the question:
 

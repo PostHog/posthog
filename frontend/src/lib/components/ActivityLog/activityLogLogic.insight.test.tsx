@@ -86,105 +86,162 @@ describe('the activity log logic', () => {
             expect(renderedDescription).toHaveTextContent('peter changed query definition on test insight')
         })
 
-        it('can handle change of insight query', async () => {
-            const insightMock = {
-                type: ActivityScope.INSIGHT,
-                action: 'changed',
-                field: 'query',
-                after: {
-                    kind: 'TrendsQuery',
-                    properties: {
-                        type: 'AND',
+        const trendsQuery = {
+            kind: 'TrendsQuery',
+            properties: {
+                type: 'AND',
+                values: [
+                    {
+                        type: 'OR',
                         values: [
                             {
-                                type: 'OR',
-                                values: [
-                                    {
-                                        type: 'event',
-                                        key: '$current_url',
-                                        operator: 'exact',
-                                        value: ['https://hedgebox.net/files/'],
-                                    },
-                                    {
-                                        type: 'event',
-                                        key: '$geoip_country_code',
-                                        operator: 'exact',
-                                        value: ['US', 'AU'],
-                                    },
-                                ],
+                                type: 'event',
+                                key: '$current_url',
+                                operator: 'exact',
+                                value: ['https://hedgebox.net/files/'],
+                            },
+                            {
+                                type: 'event',
+                                key: '$geoip_country_code',
+                                operator: 'exact',
+                                value: ['US', 'AU'],
                             },
                         ],
                     },
-                    filterTestAccounts: false,
-                    interval: 'day',
-                    dateRange: {
-                        date_from: '-7d',
-                    },
-                    series: [
+                ],
+            },
+            filterTestAccounts: false,
+            interval: 'day',
+            dateRange: {
+                date_from: '-7d',
+            },
+            series: [
+                {
+                    kind: 'EventsNode',
+                    name: '$pageview',
+                    custom_name: 'Views',
+                    event: '$pageview',
+                    properties: [
                         {
-                            kind: 'EventsNode',
-                            name: '$pageview',
-                            custom_name: 'Views',
-                            event: '$pageview',
-                            properties: [
-                                {
-                                    type: 'event',
-                                    key: '$browser',
-                                    operator: 'exact',
-                                    value: 'Chrome',
-                                },
-                                {
-                                    type: 'cohort',
-                                    key: 'id',
-                                    operator: 'in',
-                                    value: 2,
-                                },
-                            ],
-                            limit: 100,
+                            type: 'event',
+                            key: '$browser',
+                            operator: 'exact',
+                            value: 'Chrome',
+                        },
+                        {
+                            type: 'cohort',
+                            key: 'id',
+                            operator: 'in',
+                            value: 2,
                         },
                     ],
-                    trendsFilter: {
-                        display: 'ActionsAreaGraph',
-                    },
-                    breakdownFilter: {
-                        breakdown: '$geoip_country_code',
-                        breakdown_type: 'event',
-                    },
+                    limit: 100,
                 },
-            }
+            ],
+            trendsFilter: {
+                display: 'ActionsAreaGraph',
+            },
+            breakdownFilter: {
+                breakdown: '$geoip_country_code',
+                breakdown_type: 'event',
+            },
+        }
 
-            let logic = await insightTestSetup('test insight', 'updated', [insightMock as any])
-            let actual = logic.values.humanizedActivity
+        it.each([
+            ['a bare query node', trendsQuery],
+            ['a query wrapped in an InsightVizNode', { kind: 'InsightVizNode', source: trendsQuery }],
+        ])('can handle change of insight query as %s', async (_label, after) => {
+            const logic = await insightTestSetup('test insight', 'updated', [
+                {
+                    type: ActivityScope.INSIGHT,
+                    action: 'changed',
+                    field: 'query',
+                    after,
+                } as any,
+            ])
+            const actual = logic.values.humanizedActivity
 
-            let renderedDescription = render(<>{actual[0].description}</>).container
+            const renderedDescription = render(<>{actual[0].description}</>).container
             expect(renderedDescription).toHaveTextContent('peter changed query definition on test insight')
 
-            let renderedExtendedDescription = render(<>{actual[0].extendedDescription}</>).container
+            const renderedExtendedDescription = render(<>{actual[0].extendedDescription}</>).container
             expect(renderedExtendedDescription).toHaveTextContent(
                 "QueryACounting \"Views\"Pageviewby total countwhere event'sBrowser= equals Chromeand person belongs to cohortUser in ID 2FiltersEvent'sCurrent URL= equals https://hedgebox.net/files/or event'sCountry code= equals US or AUBreakdown byCountry code"
             )
-            ;(insightMock.after.breakdownFilter as BreakdownFilter) = {
-                breakdowns: [
-                    {
-                        property: '$geoip_country_code',
-                        type: 'event',
-                    },
-                    {
-                        property: '$session_duration',
-                        type: 'session',
-                    },
-                ],
-            }
+        })
 
-            logic = await insightTestSetup('test insight', 'updated', [insightMock as any])
-            actual = logic.values.humanizedActivity
+        it('can handle change of insight query with multiple breakdowns', async () => {
+            const logic = await insightTestSetup('test insight', 'updated', [
+                {
+                    type: ActivityScope.INSIGHT,
+                    action: 'changed',
+                    field: 'query',
+                    after: {
+                        ...trendsQuery,
+                        breakdownFilter: {
+                            breakdowns: [
+                                {
+                                    property: '$geoip_country_code',
+                                    type: 'event',
+                                },
+                                {
+                                    property: '$session_duration',
+                                    type: 'session',
+                                },
+                            ],
+                        } as BreakdownFilter,
+                    },
+                } as any,
+            ])
+            const actual = logic.values.humanizedActivity
 
-            renderedDescription = render(<>{actual[0].description}</>).container
+            const renderedDescription = render(<>{actual[0].description}</>).container
             expect(renderedDescription).toHaveTextContent('peter changed query definition on test insight')
 
-            renderedExtendedDescription = render(<>{actual[0].extendedDescription}</>).container
-            expect(renderedExtendedDescription).toHaveTextContent(
-                "QueryACounting \"Views\"Pageviewby total countwhere event'sBrowser= equals Chromeand person belongs to cohortUser in ID 2FiltersEvent'sCurrent URL= equals https://hedgebox.net/files/or event'sCountry code= equals US or AUBreakdown byCountry code"
+            const renderedExtendedDescription = render(<>{actual[0].extendedDescription}</>).container
+            expect(renderedExtendedDescription).toHaveTextContent('Breakdown byCountry codeSession duration')
+        })
+
+        it('can handle change of a SQL insight query', async () => {
+            const logic = await insightTestSetup('test insight', 'updated', [
+                {
+                    type: ActivityScope.INSIGHT,
+                    action: 'changed',
+                    field: 'query',
+                    after: {
+                        kind: 'DataVisualizationNode',
+                        source: {
+                            kind: 'HogQLQuery',
+                            query: 'select event from events',
+                        },
+                    },
+                } as any,
+            ])
+            const actual = logic.values.humanizedActivity
+
+            const renderedDescription = render(<>{actual[0].description}</>).container
+            expect(renderedDescription).toHaveTextContent('peter changed query definition on test insight')
+
+            const renderedExtendedDescription = render(<>{actual[0].extendedDescription}</>).container
+            expect(renderedExtendedDescription).toHaveTextContent('select event from events')
+        })
+
+        it('can handle change of a query it cannot summarize', async () => {
+            const logic = await insightTestSetup('test insight', 'updated', [
+                {
+                    type: ActivityScope.INSIGHT,
+                    action: 'changed',
+                    field: 'query',
+                    after: {
+                        kind: 'DataTableNode',
+                        source: { kind: 'EventsQuery', select: ['*'] },
+                    },
+                } as any,
+            ])
+            const actual = logic.values.humanizedActivity
+
+            expect(render(<>{actual[0].description}</>).container).toHaveTextContent(
+                'peter changed the query on test insight'
             )
         })
 

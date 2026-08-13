@@ -15,6 +15,7 @@ from posthog.hogql.database.models import (
     StringDatabaseField,
     StringJSONDatabaseField,
     Table,
+    UUIDDatabaseField,
     VirtualTable,
 )
 from posthog.hogql.database.schema.groups import GroupsTable
@@ -31,7 +32,7 @@ def events_table_clickhouse_table_ref(context) -> str:
 
 class EventsPersonSubTable(VirtualTable):
     fields: dict[str, FieldOrTable] = {
-        "id": StringDatabaseField(name="person_id", nullable=False),
+        "id": UUIDDatabaseField(name="person_id", nullable=False),
         "created_at": DateTimeDatabaseField(name="person_created_at", nullable=False),
         "properties": StringJSONDatabaseField(name="person_properties", nullable=False),
         "revenue_analytics": LazyJoin(
@@ -87,7 +88,7 @@ class EventsGroupSubTable(VirtualTable):
 class EventsTable(Table):
     description: str = "Every analytics event captured for the project. The central fact table for product analytics."
     fields: dict[str, FieldOrTable] = {
-        "uuid": StringDatabaseField(name="uuid", nullable=False, description="Unique identifier of this event row."),
+        "uuid": UUIDDatabaseField(name="uuid", nullable=False, description="Unique identifier of this event row."),
         "event": StringDatabaseField(
             name="event",
             nullable=False,

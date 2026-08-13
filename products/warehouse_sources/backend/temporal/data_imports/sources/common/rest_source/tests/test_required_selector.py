@@ -1,6 +1,8 @@
 import pytest
 from unittest.mock import Mock
 
+from parameterized import parameterized
+
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.rest_client import RESTClient
 
 
@@ -24,6 +26,23 @@ class TestRequiredDataSelector:
     def test_absent_key_is_silent_when_not_required(self) -> None:
         # Backward compatible: without required, a missing key still silently yields nothing.
         assert _client()._extract_response({"unexpected": "envelope"}, "data", required=False) == []
+
+    @parameterized.expand([("empty_object", {}), ("empty_array", [])])
+    def test_empty_body_raises_by_default_when_required(self, _name: str, body: object) -> None:
+        # Without the opt-in, an empty container missing the key stays a fail-loud shape mismatch.
+        with pytest.raises(ValueError, match="matched nothing"):
+            _client()._extract_response(body, "data", required=True)
+
+    @parameterized.expand([("empty_object", {}), ("empty_array", [])])
+    def test_empty_body_is_zero_rows_when_empty_ok(self, _name: str, body: object) -> None:
+        # With empty_body_ok, an empty container is a legit zero-row page -> for sources whose API
+        # drops the envelope key for an empty collection (e.g. Cohere returns {} for no datasets).
+        assert _client()._extract_response(body, "data", required=True, empty_body_ok=True) == []
+
+    def test_non_empty_body_missing_key_still_raises_when_empty_ok(self) -> None:
+        # empty_body_ok only relaxes empty containers; a body with other keys is still a shape change.
+        with pytest.raises(ValueError, match="matched nothing"):
+            _client()._extract_response({"unexpected": "envelope"}, "data", required=True, empty_body_ok=True)
 
 
 class TestRequiredListBody:

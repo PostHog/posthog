@@ -3,7 +3,9 @@ from unittest import mock
 
 from posthog.schema import ReleaseStatus, SourceFieldInputConfig, SourceFieldInputConfigType
 
-from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs import OptimizelySourceConfig
+from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.optimizely import (
+    OptimizelySourceConfig,
+)
 from products.warehouse_sources.backend.temporal.data_imports.sources.optimizely.settings import ENDPOINTS
 from products.warehouse_sources.backend.temporal.data_imports.sources.optimizely.source import OptimizelySource
 from products.warehouse_sources.backend.types import ExternalDataSourceType

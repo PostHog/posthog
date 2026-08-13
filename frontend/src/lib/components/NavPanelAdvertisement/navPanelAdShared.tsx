@@ -111,7 +111,7 @@ export function ProductHogHero({
 }: {
     hero: ProductPushDisplay
     title: string
-    text: string
+    text: React.ReactNode
     topRight?: JSX.Element
 }): JSX.Element {
     return (
@@ -144,7 +144,7 @@ export function AdvertisementCard({
     emoji?: string
     emojiLabel?: string
     title: string
-    text: string
+    text: React.ReactNode
     hero?: ProductPushDisplay
     onClose?: () => void
 }): JSX.Element {

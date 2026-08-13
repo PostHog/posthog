@@ -34,6 +34,12 @@ from products.tasks.backend.facade.sandbox import (
 
 logger = structlog.get_logger(__name__)
 
+# Hard lifetime of a notebook kernel sandbox, used when the notebook sets no
+# `kernel_idle_timeout_seconds`. A kernel serves one interactive session, so nobody waits on it
+# once the tab closes and this TTL is what reclaims it. The task-agent default
+# (`SANDBOX_TTL_SECONDS`) is longer because it has to outlast an unattended agent run.
+NOTEBOOK_KERNEL_TTL_SECONDS = 1 * 60 * 60
+
 
 @dataclass
 class KernelExecutionResult:
@@ -234,6 +240,7 @@ def build_notebook_sandbox_config(notebook: Notebook) -> SandboxConfig:
         template=SandboxTemplate.NOTEBOOK_BASE,
         cpu_cores=1,
         memory_gb=2,
+        ttl_seconds=NOTEBOOK_KERNEL_TTL_SECONDS,
     )
     if notebook.kernel_cpu_cores:
         sandbox_config.cpu_cores = notebook.kernel_cpu_cores

@@ -16,6 +16,7 @@ use crate::{
     debug_or_info,
     events::recordings::RawRecording,
     extractors::extract_body_with_timeout,
+    ingestion_warnings::replay::attribution_from_event,
     payload::{decompress_payload, extract_and_record_metadata, extract_payload_bytes, EventQuery},
     router,
     token::validate_token,
@@ -113,7 +114,7 @@ pub async fn handle_recording_payload(
     counter!("capture_events_received_total").increment(events.len() as u64);
 
     let now = state.timesource.current_time();
-    let sent_at = query_params.sent_at();
+    let sent_at = events[0].sent_at().or_else(|| query_params.sent_at());
 
     let context = ProcessingContext {
         sent_at,
@@ -126,6 +127,8 @@ pub async fn handle_recording_payload(
         historical_migration: false, // recordings don't support historical migration
         user_agent: Some(metadata.user_agent.to_string()),
         chatty_debug_enabled,
+        capture_mode: state.capture_mode,
+        sdk_attribution: attribution_from_event(&events[0], metadata.user_agent),
     };
 
     // Apply all billing limit quotas and drop partial or whole

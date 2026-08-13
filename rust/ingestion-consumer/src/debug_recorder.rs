@@ -69,7 +69,8 @@ pub enum DebugEventKind {
         distinct_ids: usize,
         cleared_deferral: bool,
     },
-    /// Messages were stashed rather than sent (`reason`: drain/unroutable/send_failed).
+    /// Messages were stashed rather than sent
+    /// (`reason`: drain/queued_behind_deferral/unroutable/send_failed).
     Deferred {
         batch_id: String,
         reason: &'static str,
@@ -98,6 +99,16 @@ pub enum DebugEventKind {
         batch_id: String,
         attempt: u32,
         reason: &'static str,
+    },
+    /// A sub-batch was split into size-bounded chunks before sending
+    /// (`reason`: size_estimate — the pre-send estimate exceeded the body cap —
+    /// or http_413 — the worker rejected a chunk and it was halved).
+    SendSplit {
+        worker: String,
+        batch_id: String,
+        reason: &'static str,
+        chunks: usize,
+        messages: usize,
     },
     /// A send exhausted its retries; the messages are deferred for replay.
     SendExhausted {

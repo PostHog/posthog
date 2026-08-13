@@ -26,8 +26,10 @@
     'last_backfill_person_properties_at',
     'last_calculation',
     'last_error_at',
+    'last_realtime_cohort_calculation_at',
     'pending_version',
     'people',
+    'person_filters_shape_hash',
     'version',
   ])
 # ---
@@ -68,6 +70,8 @@
     'created_at',
     'deleted',
     'end_date',
+    'flag_cleanup_task_id',
+    'repository',
     'start_date',
     'status',
     'updated_at',
@@ -155,7 +159,6 @@
     'is_static',
     'kind',
     'last_calculation_duration_ms',
-    'last_realtime_cohort_calculation_at',
     'name',
     'query',
   ])
@@ -211,7 +214,6 @@
     'exposure_criteria',
     'feature_flag_auto_archived',
     'filters',
-    'flag_cleanup_task_id',
     'metrics',
     'metrics_secondary',
     'name',
@@ -225,6 +227,7 @@
     'stats_config',
     'type',
     'variants',
+    'version',
   ])
 # ---
 # name: TestVisitorFieldSnapshots.test_primitive_fields_ExperimentHoldout
@@ -367,6 +370,9 @@
 # ---
 # name: TestVisitorFieldSnapshots.test_relation_fields_EarlyAccessFeature
   list([
+    'assigned_role',
+    'assigned_user',
+    'created_by',
     'feature_flag',
     'team',
   ])
@@ -498,8 +504,10 @@
     '_insert_batch_via_personhog',
     '_insert_resolved_batch',
     '_insert_users_list_with_batching',
-    '_maintain_behavioral_shape',
+    '_leaf_shape_changed',
+    '_maintain_filter_shape_hashes',
     '_meta',
+    '_person_shape_changed',
     '_safe_reset_calculating_state',
     '_safe_save_cohort_state',
     'backfill_participations',
@@ -534,9 +542,11 @@
     'last_backfill_person_properties_at',
     'last_calculation',
     'last_error_at',
+    'last_realtime_cohort_calculation_at',
     'objects',
     'pending_version',
     'people',
+    'person_filters_shape_hash',
     'properties',
     'remove_user_by_uuid',
     'save',
@@ -660,7 +670,10 @@
     '__static_attributes__',
     '__str__',
     '_meta',
+    'assigned_role_id',
+    'assigned_user_id',
     'created_at',
+    'created_by_id',
     'feature_flag_id',
     'get_file_system_representation',
     'get_file_system_unfiled',
@@ -698,6 +711,7 @@
     'experimenttosavedmetric_set',
     'exposure_cohort_id',
     'feature_flag_id',
+    'flag_cleanup_task_id',
     'freeze_exposure_blocker',
     'get_analytics_metadata',
     'get_conclusion_display',
@@ -719,6 +733,7 @@
     'is_paused',
     'is_running',
     'is_stopped',
+    'repository',
     'save',
     'start_date',
     'status',

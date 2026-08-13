@@ -59,37 +59,37 @@ def get_session_events(
     all_events = []
     columns = None
     events_obj = SessionReplayEvents()
-    for page in range(max_pages):
+    for page_number in range(max_pages):
         if not local_reads_prod:
             team = get_team(team_id=team_id)
-            page_columns, page_events, _ = events_obj.get_events(
+            page = events_obj.get_events(
                 session_id=str(session_id),
                 team=team,
                 metadata=session_metadata,
                 events_to_ignore=events_to_ignore,
                 extra_fields=extra_fields,
                 limit=items_per_page,
-                page=page,
+                page=page_number,
             )
         else:
-            page_columns, page_events = _get_production_session_events_locally(
+            page = _get_production_session_events_locally(
                 events_obj=events_obj,
                 session_id=str(session_id),
                 metadata=session_metadata,
                 events_to_ignore=events_to_ignore,
                 extra_fields=extra_fields,
                 limit=items_per_page,
-                page=page,
+                page=page_number,
             )
         # Expect columns to be exact for all the page as we don't change the query
-        if page_columns and not columns:
-            columns = page_columns
+        if page.columns and not columns:
+            columns = page.columns
         # Avoid the next page if no events are returned
-        if not page_events:
+        if not page.rows:
             break
-        all_events.extend(page_events)
+        all_events.extend(page.rows)
         # Or we got less than the page size (reached the end)
-        if len(page_events) < items_per_page:
+        if len(page.rows) < items_per_page:
             break
     if not columns:
         msg = f"No columns found for session_id {session_id}"

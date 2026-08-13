@@ -13,9 +13,11 @@ from .activities.refresh_sandbox_credentials import RefreshSandboxCredentialsInp
 class CredentialRefreshExitReason(StrEnum):
     SANDBOX_GONE = "sandbox_gone"
     CREDENTIALS_UNAVAILABLE = "credentials_unavailable"
+    TASK_GONE = "task_gone"
 
 
 SANDBOX_GONE_ERROR_MESSAGE = "Sandbox stopped; resume to continue"
+TASK_ROWS_GONE_ERROR_MESSAGE = "Task records were deleted while the run was in progress"
 
 
 async def run_credential_refresh_loop(context: TaskProcessingContext, sandbox_id: str) -> CredentialRefreshExitReason:
@@ -39,6 +41,9 @@ async def run_credential_refresh_loop(context: TaskProcessingContext, sandbox_id
                 start_to_close_timeout=timedelta(minutes=2),
                 retry_policy=RetryPolicy(maximum_attempts=2),
             )
+            if result.task_gone:
+                workflow.logger.warning("Stopping credential refresh loop: task rows are gone")
+                return CredentialRefreshExitReason.TASK_GONE
             if result.sandbox_gone:
                 workflow.logger.info("Stopping credential refresh loop: sandbox is gone")
                 return CredentialRefreshExitReason.SANDBOX_GONE

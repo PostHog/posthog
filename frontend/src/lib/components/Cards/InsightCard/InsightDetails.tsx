@@ -6,9 +6,11 @@ import React from 'react'
 import {
     IconCalculator,
     IconCalendar,
+    IconClock,
     IconCode2,
     IconFilter,
     IconPencil,
+    IconPeople,
     IconSort,
     IconUser,
     IconWarning,
@@ -43,6 +45,7 @@ import {
     Node,
     NodeKind,
     PathsQuery,
+    PathsV2Query,
     RetentionQuery,
     StickinessQuery,
     TrendsFormulaNode,
@@ -52,6 +55,7 @@ import {
     TileFilters,
 } from '~/queries/schema/schema-general'
 import {
+    getInterval,
     isActionsNode,
     isAnyDataWarehouseNode,
     isDataTableNodeWithHogQLQuery,
@@ -64,6 +68,7 @@ import {
     isInsightVizNode,
     isLifecycleQuery,
     isPathsQuery,
+    isPathsV2Query,
     isRetentionQuery,
     isTrendsQuery,
     hasBreakdownFilter,
@@ -73,8 +78,11 @@ import {
     BaseMathType,
     FilterLogicalOperator,
     InsightFilterOverrideContext,
+    IntervalType,
     UserBasicType,
 } from '~/types'
+
+import { journeysSummaryParts } from 'products/product_analytics/frontend/insights/journeys/journeysSummary'
 
 import { PropertyKeyInfo } from '../../PropertyKeyInfo'
 import { TZLabel } from '../../TZLabel'
@@ -297,6 +305,25 @@ function PathsSummary({ query }: { query: PathsQuery }): JSX.Element {
     )
 }
 
+function PathsV2Summary({ query }: { query: PathsV2Query }): JSX.Element {
+    // Sync format with summarizeJourneys in journeysSummary.ts
+    const { sources, anchor } = journeysSummaryParts(query.pathsV2Filter)
+    return (
+        <div className="SeriesDisplay">
+            <div>
+                <div>
+                    Journeys based on <b>{sources}</b>
+                </div>
+                {anchor && (
+                    <div>
+                        {anchor.verb} at <b>{anchor.label}</b>
+                    </div>
+                )}
+            </div>
+        </div>
+    )
+}
+
 function RetentionSummary({ query }: { query: RetentionQuery }): JSX.Element {
     const { aggregationLabel } = useValues(mathsLogic)
 
@@ -370,6 +397,8 @@ export function SeriesSummary({
                     {isTrendsQuery(query) && <FormulaSummary query={query} />}
                     {isPathsQuery(query) ? (
                         <PathsSummary query={query} />
+                    ) : isPathsV2Query(query) ? (
+                        <PathsV2Summary query={query} />
                     ) : isRetentionQuery(query) ? (
                         <RetentionSummary query={query} />
                     ) : isInsightQueryWithSeries(query) ? (
@@ -612,6 +641,68 @@ export function DateRangeSummary({
     )
 }
 
+export function IntervalSummary({
+    interval,
+    override,
+    insightInterval,
+}: {
+    interval: IntervalType
+    override: { source: OverrideSource }
+    insightInterval?: IntervalType | null
+}): JSX.Element {
+    const replaced = insightInterval != null && insightInterval !== interval ? insightInterval : null
+    return (
+        <InsightDetailSectionDisplay icon={<IconClock />} label="Grouped by">
+            <div className="flex items-center gap-1">
+                <span className="font-medium">{capitalizeFirstLetter(interval)}</span>
+                <LayerTag source={override.source} />
+            </div>
+            {replaced && (
+                <div className="text-muted-alt text-xs mt-0.5 flex items-center gap-1">
+                    <span>
+                        was <span className="line-through">{capitalizeFirstLetter(replaced)}</span> from
+                    </span>
+                    <LayerTag source="insight" />
+                </div>
+            )}
+        </InsightDetailSectionDisplay>
+    )
+}
+
+const testAccountsLabel = (excluded: boolean): string => (excluded ? 'Excluded' : 'Included')
+
+export function TestAccountFilterSummary({
+    filterTestAccounts,
+    override,
+    insightFilterTestAccounts,
+}: {
+    filterTestAccounts: boolean
+    override: { source: OverrideSource }
+    insightFilterTestAccounts?: boolean | null
+}): JSX.Element {
+    // Show what the insight itself had only when it explicitly set the toggle to the other state.
+    const replaced =
+        insightFilterTestAccounts != null && insightFilterTestAccounts !== filterTestAccounts
+            ? insightFilterTestAccounts
+            : null
+    return (
+        <InsightDetailSectionDisplay icon={<IconPeople />} label="Internal and test users">
+            <div className="flex items-center gap-1">
+                <span className="font-medium">{testAccountsLabel(filterTestAccounts)}</span>
+                <LayerTag source={override.source} />
+            </div>
+            {replaced != null && (
+                <div className="text-muted-alt text-xs mt-0.5 flex items-center gap-1">
+                    <span>
+                        was <span className="line-through">{testAccountsLabel(replaced)}</span> from
+                    </span>
+                    <LayerTag source="insight" />
+                </div>
+            )}
+        </InsightDetailSectionDisplay>
+    )
+}
+
 interface InsightDetailsProps {
     query: Node | null
     footerInfo?: {
@@ -645,6 +736,9 @@ export const InsightDetails = React.memo(
             propertyGroups,
             overriddenByTile,
             breakdown: overrideBreakdown,
+            interval: overrideInterval,
+            filterTestAccounts: overrideFilterTestAccounts,
+            ignoresDashboardFilters,
         } = getEffectiveFilterOverrides(filterOverrideContext, filtersOverride, tileFiltersOverride)
         const insightDateRange = isInsightVizNode(query) ? query.source.dateRange : undefined
         const dateOverride = getDateRangeOverrideDisplay(
@@ -673,6 +767,11 @@ export const InsightDetails = React.memo(
                             variables={isHogQLQuery(query.source) ? query.source.variables : undefined}
                             variablesOverride={variablesOverride}
                         />
+                        {ignoresDashboardFilters && (
+                            <InsightDetailSectionDisplay icon={<IconFilter />} label="Dashboard filters">
+                                <span>Ignored for this insight</span>
+                            </InsightDetailSectionDisplay>
+                        )}
                         {dateOverride && (
                             <DateRangeSummary
                                 dateFrom={dateOverride.dateFrom}
@@ -702,6 +801,24 @@ export const InsightDetails = React.memo(
                             />
                         ) : (
                             <InsightBreakdownSummary query={query.source} />
+                        )}
+                        {overrideInterval && (
+                            <IntervalSummary
+                                interval={overrideInterval.value}
+                                override={{ source: overrideInterval.source }}
+                                insightInterval={isInsightVizNode(query) ? getInterval(query.source) : null}
+                            />
+                        )}
+                        {overrideFilterTestAccounts && (
+                            <TestAccountFilterSummary
+                                filterTestAccounts={overrideFilterTestAccounts.value}
+                                override={{ source: overrideFilterTestAccounts.source }}
+                                insightFilterTestAccounts={
+                                    isHogQLQuery(query.source)
+                                        ? query.source.filters?.filterTestAccounts
+                                        : query.source.filterTestAccounts
+                                }
+                            />
                         )}
                     </>
                 )}

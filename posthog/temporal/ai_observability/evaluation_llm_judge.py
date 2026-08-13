@@ -30,7 +30,6 @@ from posthog.temporal.ai_observability.model_resolution import model_spec
 from posthog.temporal.common.utils import close_db_connections
 
 from products.ai_observability.backend.llm import DEFAULT_MODEL_BY_PROVIDER, Client, CompletionRequest
-from products.ai_observability.backend.llm.config import get_eval_config
 from products.ai_observability.backend.llm.errors import (
     AuthenticationError,
     ContextWindowExceededError,
@@ -243,11 +242,11 @@ def _execute_llm_judge_activity(inputs: ExecuteLLMJudgeInputs) -> EvaluationActi
     if _is_errored_trace(properties):
         return _build_errored_trace_result(allows_na)
 
-    input_raw, output_raw = extract_event_io(event_type, properties)
+    io = extract_event_io(event_type, properties)
     tools_raw = extract_event_tools(properties)
 
-    input_data = extract_text_from_messages(input_raw)
-    output_data = extract_text_from_messages(output_raw)
+    input_data = extract_text_from_messages(io.input_raw)
+    output_data = extract_text_from_messages(io.output_raw)
     tools_data = format_tool_definitions(tools_raw)
 
     system_prompt = build_system_prompt(prompt, allows_na)
@@ -304,7 +303,7 @@ def call_llm_judge(
     type_config = get_output_type_config(allows_na)
     response_format = type_config.response_format
 
-    config = get_eval_config(provider) if provider_key is None else None
+    config = None
 
     client = Client(
         provider_key=provider_key,

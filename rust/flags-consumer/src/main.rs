@@ -39,7 +39,7 @@ struct Cli {
 
 #[derive(Subcommand)]
 enum Command {
-    /// Run the GIN index benchmark against the configured database
+    /// Run the read-store schema benchmark against the configured database
     Benchmark(BenchmarkArgs),
 }
 

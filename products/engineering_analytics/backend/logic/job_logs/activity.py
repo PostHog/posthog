@@ -85,7 +85,7 @@ async def fetch_and_emit_job_log_activity(inputs: FetchJobLogInputs) -> dict[str
         "conclusion": inputs.conclusion or "",
         # job_name/workflow_name make records readable in the Logs UI without a warehouse join;
         # run_attempt disambiguates re-runs (all attempts share run_id, i.e. one trace); head_sha
-        # is the per-commit anchor (SPEC §7 — precision key only, never the attribution key).
+        # is the per-commit anchor (SPEC §6 — precision key only, never the attribution key).
         "job_name": inputs.job_name or "",
         "workflow_name": inputs.workflow_name or "",
         "run_attempt": inputs.run_attempt or 0,

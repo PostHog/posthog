@@ -4,9 +4,6 @@ import { cleanup, render, screen } from '@testing-library/react'
 
 import { setupJsdom, setupSyncRaf } from '@posthog/quill-charts/testing'
 
-import { FEATURE_FLAGS } from 'lib/constants'
-import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
-
 import { initKeaTests } from '~/test/init'
 
 import { AxisSeries } from '../../dataVisualizationLogic'
@@ -28,7 +25,6 @@ afterEach(() => {
 })
 
 const props: PieChartProps = {
-    uniqueKey: 'pie-wrapper-test',
     xData: {
         column: { name: 'category', type: { name: 'STRING', isNumerical: false }, label: 'category', dataIndex: 0 },
         data: ['alpha', 'beta'],
@@ -44,15 +40,10 @@ const props: PieChartProps = {
 }
 
 describe('PieChart wrapper', () => {
-    it('routes to the quill SqlPieGraph when the quill-sql-charts flag is on', async () => {
-        featureFlagLogic.mount()
-        featureFlagLogic.actions.setFeatureFlags([FEATURE_FLAGS.PRODUCT_ANALYTICS_QUILL_SQL_CHARTS], {
-            [FEATURE_FLAGS.PRODUCT_ANALYTICS_QUILL_SQL_CHARTS]: true,
-        })
-
+    it('renders the quill SqlPieGraph', async () => {
         render(<PieChart {...props} />)
 
-        // The quill PieChart canvas carries this accessible name; the legacy chart.js path does not.
+        // The quill PieChart canvas carries this accessible name.
         expect(await screen.findByLabelText(/pie chart with/i, {}, { timeout: 5000 })).toBeInTheDocument()
     })
 })
