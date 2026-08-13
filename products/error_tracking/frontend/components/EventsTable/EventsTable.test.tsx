@@ -18,24 +18,63 @@ const event = {
     },
 } as ErrorEventType
 
+const secondEvent = { ...event, uuid: 'event-2' } as ErrorEventType
+
 describe('EventsTable', () => {
     afterEach(() => cleanup())
 
-    it('scrolls the selected event into view after loading', () => {
+    it('scrolls the selected event into view when it first appears', () => {
+        const scrollIntoView = jest.fn()
+        Element.prototype.scrollIntoView = scrollIntoView
+
+        render(
+            <EventsTable
+                items={[event]}
+                hasMore={false}
+                loading={false}
+                selectedEvent={event}
+                onEventSelect={jest.fn()}
+                onLoadMore={jest.fn()}
+            />
+        )
+
+        expect(scrollIntoView).toHaveBeenCalledWith({ block: 'nearest' })
+    })
+
+    it('does not re-scroll when a pagination request toggles loading for the same selection', () => {
         const scrollIntoView = jest.fn()
         Element.prototype.scrollIntoView = scrollIntoView
         const props = {
             items: [event],
-            hasMore: false,
+            hasMore: true,
             selectedEvent: event,
             onEventSelect: jest.fn(),
             onLoadMore: jest.fn(),
         }
-        const { rerender } = render(<EventsTable {...props} loading />)
+        const { rerender } = render(<EventsTable {...props} loading={false} />)
+        scrollIntoView.mockClear()
+
+        // Loading a further page flips loading true then false while the selection is unchanged.
+        rerender(<EventsTable {...props} loading />)
+        rerender(<EventsTable {...props} loading={false} />)
 
         expect(scrollIntoView).not.toHaveBeenCalled()
+    })
 
-        rerender(<EventsTable {...props} loading={false} />)
+    it('scrolls to the newly selected event when the selection changes', () => {
+        const scrollIntoView = jest.fn()
+        Element.prototype.scrollIntoView = scrollIntoView
+        const props = {
+            items: [event, secondEvent],
+            hasMore: false,
+            loading: false,
+            onEventSelect: jest.fn(),
+            onLoadMore: jest.fn(),
+        }
+        const { rerender } = render(<EventsTable {...props} selectedEvent={event} />)
+        scrollIntoView.mockClear()
+
+        rerender(<EventsTable {...props} selectedEvent={secondEvent} />)
 
         expect(scrollIntoView).toHaveBeenCalledWith({ block: 'nearest' })
     })

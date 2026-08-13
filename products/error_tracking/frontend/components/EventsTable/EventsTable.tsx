@@ -59,7 +59,6 @@ export function EventsTable({
                                 key={record.uuid}
                                 record={record}
                                 selected={selectedEvent?.uuid === record.uuid}
-                                listLoading={loading}
                                 firstEventUuid={firstEventUuid}
                                 lastEventUuid={lastEventUuid}
                                 onSelect={onEventSelect}
@@ -101,25 +100,25 @@ export function EventsTable({
 function EventRow({
     record,
     selected,
-    listLoading,
     firstEventUuid,
     lastEventUuid,
     onSelect,
 }: {
     record: ErrorEventType
     selected: boolean
-    listLoading: boolean
     firstEventUuid?: string
     lastEventUuid?: string
     onSelect: (event: ErrorEventType) => void
 }): JSX.Element {
     const rowRef = useRef<HTMLTableRowElement>(null)
 
+    // Scroll only when this row becomes the selected one. Depending on the list's loading state
+    // would re-fire on every pagination request and yank the list back to the selection.
     useEffect(() => {
-        if (selected && !listLoading) {
+        if (selected) {
             rowRef.current?.scrollIntoView({ block: 'nearest' })
         }
-    }, [listLoading, selected])
+    }, [selected])
 
     return (
         <TableRow
