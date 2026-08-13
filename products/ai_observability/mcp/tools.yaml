@@ -1411,8 +1411,6 @@ wrappers:
         exclude_properties:
             - response
             - modifiers
-        # TracesQuery is not a valid InsightVizNode source, so the default
-        # /insights/new#q=... link opens an empty insight.
         url_prefix: /ai-observability/traces
     query-llm-trace:
         schema_ref: AssistantTraceQuery
