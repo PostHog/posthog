@@ -43,7 +43,7 @@ def _log_body_st(draw: st.DrawFn) -> str:
     return body
 
 
-_word_st = st.sampled_from(
+_log_word_st = st.sampled_from(
     ["request", "failed", "retrying", "user", "team", "cache", "hit", "GET", "POST", "attempt", "closed"]
 )
 _key_st = st.sampled_from(["team_id=", "attempt=", "status=", "peer=", "ts=", "job="])
@@ -66,7 +66,7 @@ _maskable_st = st.one_of(
 def _log_line_st(draw: st.DrawFn) -> str:
     parts = draw(
         st.lists(
-            st.one_of(_word_st, _maskable_st, st.tuples(_key_st, _maskable_st).map("".join)),
+            st.one_of(_log_word_st, _maskable_st, st.tuples(_key_st, _maskable_st).map("".join)),
             min_size=1,
             max_size=14,
         )
@@ -74,13 +74,10 @@ def _log_line_st(draw: st.DrawFn) -> str:
     return " ".join(parts)
 
 
+# Always crosses the truncation cap. Hypothesis biases toward small inputs, so a general body
+# strategy almost never reaches the cap and leaves the prefix handling untested.
 @st.composite
 def _long_log_body_st(draw: st.DrawFn) -> str:
-    """A body that always crosses the truncation cap.
-
-    Hypothesis biases toward small inputs, so a general body strategy almost never reaches
-    the cap and leaves the prefix handling untested. Repeating one filler token forces it.
-    """
     prefix = draw(st.lists(_token_st, min_size=1, max_size=8))
     filler = draw(st.text(st.characters(min_codepoint=33, max_codepoint=126), min_size=3, max_size=14))
     gap = draw(_gap_st)
