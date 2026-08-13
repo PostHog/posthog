@@ -15,6 +15,7 @@ import posthoganalytics
 from posthog.event_usage import groups
 from posthog.exceptions_capture import capture_exception
 from posthog.models.team.team import Team
+from posthog.models.user import User
 from posthog.models.utils import uuid7
 from posthog.sync import database_sync_to_async
 
@@ -460,10 +461,15 @@ def _data_catalog_enabled_for_team(team: Team) -> bool:
         return False
 
 
-def _governed_metric_names_for_team(team: Team) -> list[str] | None:
-    """The team's approved metric names for prompt injection, or None when the read fails."""
+def _governed_metric_names_for_team(team: Team, user_id: int) -> list[str] | None:
+    """Approved metric names for prompt injection, or None when the read fails.
+
+    Resolved as the run's acting user, the same identity the sandbox's MCP token carries, so the
+    injected listing can never be wider than what the run could have queried for itself through
+    `system.information_schema.metrics`.
+    """
     try:
-        return approved_metric_names_for_team(team)
+        return approved_metric_names_for_team(team, User.objects.get(id=user_id))
     except Exception as error:
         capture_exception(error)
         return None
@@ -555,7 +561,7 @@ async def _spawn_and_run(
     )
     data_catalog_enabled = await database_sync_to_async(_data_catalog_enabled_for_team, thread_sensitive=False)(team)
     governed_metric_names = (
-        await database_sync_to_async(_governed_metric_names_for_team, thread_sensitive=False)(team)
+        await database_sync_to_async(_governed_metric_names_for_team, thread_sensitive=False)(team, user_id)
         if data_catalog_enabled
         else None
     )

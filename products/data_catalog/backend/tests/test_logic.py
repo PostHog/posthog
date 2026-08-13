@@ -6,6 +6,8 @@ from django.db import IntegrityError
 from parameterized import parameterized
 from rest_framework.exceptions import ValidationError
 
+from posthog.constants import AvailableFeature
+
 from products.data_catalog.backend.facade.enums import CreatedSource, MetricStatus
 from products.data_catalog.backend.logic import metrics
 from products.data_catalog.backend.logic.drift import compute_drift
@@ -21,6 +23,8 @@ from products.data_catalog.backend.logic.metrics import (
 from products.data_catalog.backend.logic.validation import MAX_DESCRIPTION_LENGTH, validate_metric_definition
 from products.data_catalog.backend.models import Metric
 from products.product_analytics.backend.models.insight import Insight
+
+from ee.models.rbac.access_control import AccessControl
 
 _HOGQL_A = {"kind": "HogQLQuery", "query": "select count() from events"}
 _HOGQL_B = {"kind": "HogQLQuery", "query": "select count() from persons"}
@@ -500,4 +504,14 @@ class TestApprovedMetricSummaries(BaseTest):
         approve_metric(drifted, self.user)
         Insight.objects.filter(pk=insight.pk).update(query=_HOGQL_B)
 
-        assert approved_metric_names_for_team(self.team) == ["mrr"]
+        assert approved_metric_names_for_team(self.team, self.user) == ["mrr"]
+
+    def test_names_are_withheld_from_a_caller_without_data_catalog_access(self) -> None:
+        approved = upsert_metric(team=self.team, user=self.user, name="mrr", description="d", definition=_HOGQL_A)
+        approve_metric(approved, self.user)
+        AccessControl.objects.create(team=self.team, resource="data_catalog", access_level="none")
+        self.organization.available_product_features = [{"key": AvailableFeature.ACCESS_CONTROL, "name": "access"}]
+        self.organization.save()
+
+        assert approved_metric_names_for_team(self.team, self.user) == []
+        assert approved_metric_names_for_team(self.team, None) == ["mrr"]

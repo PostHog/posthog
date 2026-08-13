@@ -34,7 +34,13 @@ from products.signals.backend.scout_harness.derived_metadata import DERIVED_META
 from products.signals.backend.scout_harness.lazy_seed import HARNESS_SEEDED_BY, _compute_row_hash
 from products.signals.backend.scout_harness.limits import FAILURE_STREAK_PAUSE_THRESHOLD, STALE_RUN_CUTOFF_S
 from products.signals.backend.scout_harness.model_selection import ScoutModel
-from products.signals.backend.scout_harness.prompt import _REPORT_CHARTS, HARNESS_PROMPT_VERSION, build_run_prompt
+from products.signals.backend.scout_harness.prompt import (
+    _GOVERNED_METRIC_LISTING_CAP,
+    _METRICS_CATALOG_SUPERSEDES_CACHE as _SUPERSEDES_CACHED_ENTRIES,
+    _REPORT_CHARTS,
+    HARNESS_PROMPT_VERSION,
+    build_run_prompt,
+)
 from products.signals.backend.scout_harness.runner import (
     SIGNALS_SCOUT_FULL_NETWORK_ENV_NAME,
     SIGNALS_SCOUT_SANDBOX_ENV_NAME,
@@ -573,13 +579,25 @@ class TestPromptBuilder(BaseTest):
         assert "`scout_cost_per_run`" in listed
         assert "data-catalog-metric-run" in listed
         assert "Cache the lookup outcome" not in listed
+        assert _SUPERSEDES_CACHED_ENTRIES in listed
 
         empty = build_run_prompt(loaded, **kwargs, data_catalog_enabled=True, governed_metric_names=[])
         assert "no approved metrics" in empty
         assert "Cache the lookup outcome" not in empty
+        assert _SUPERSEDES_CACHED_ENTRIES in empty
 
         fallback = build_run_prompt(loaded, **kwargs, data_catalog_enabled=True, governed_metric_names=None)
         assert "Cache the lookup outcome" in fallback
+        assert _SUPERSEDES_CACHED_ENTRIES not in fallback
+
+        # The cap is what keeps this injection to a handful of tokens in every catalog-enabled run,
+        # and past it the listing stops being the whole catalog, so it has to say a lookup is still
+        # warranted for an unlisted measure.
+        overflowing = [f"metric_{index:03d}" for index in range(_GOVERNED_METRIC_LISTING_CAP + 3)]
+        capped = build_run_prompt(loaded, **kwargs, data_catalog_enabled=True, governed_metric_names=overflowing)
+        assert "`metric_000`" in capped
+        assert f"`metric_{_GOVERNED_METRIC_LISTING_CAP:03d}`" not in capped
+        assert "and 3 more this listing omits" in capped
 
         flag_off = build_run_prompt(loaded, **kwargs, governed_metric_names=names)
         assert "scout_run_fail_pct" not in flag_off
@@ -1070,6 +1088,11 @@ async def test_catalog_steering_reaches_the_prompt_from_the_team_flag(ateam, aer
 )
 async def test_governed_listing_reaches_the_prompt_from_the_catalog(ateam, aerrors_skill, names, expected_marker):
     session, result = await database_sync_to_async(_make_fake_session, thread_sensitive=False)(ateam)
+    acting_user = await sync_to_async(User.objects.create_and_join)(
+        organization=ateam.organization,
+        email=f"scout-catalog-{random.randint(1, 99999)}@posthog.com",
+        password=None,
+    )
     captured: dict = {}
 
     async def _capture_start(*args, on_task_run_created=None, **kwargs):
@@ -1089,13 +1112,17 @@ async def test_governed_listing_reaches_the_prompt_from_the_catalog(ateam, aerro
         ),
         patch(
             "products.signals.backend.scout_harness.runner.resolve_acting_user_id_for_team",
-            return_value=42,
+            return_value=acting_user.id,
         ),
     ):
         run_result = await arun_signals_scout(team_id=ateam.id, skill_name="signals-scout-errors")
 
     assert run_result.status == apps.get_model("tasks", "TaskRun").Status.COMPLETED.value
     assert expected_marker in captured["prompt"]
+    # The listing must be resolved as the run's acting user, or it could be wider than what the run
+    # could have queried for itself; the access check lives behind the facade call, so passing the
+    # user is the only part of that the runner owns.
+    assert names_mock.call_args.args == (ateam, acting_user)
 
 
 @pytest.mark.asyncio
