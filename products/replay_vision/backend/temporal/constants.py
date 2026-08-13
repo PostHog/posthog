@@ -82,6 +82,11 @@ SWEEP_WORKFLOW_EXECUTION_TIMEOUT = dt.timedelta(minutes=15)
 # attempt, swallowed by the sweep) rather than a retry, and the next tick picks it up.
 REFRESH_PROMPT_SUGGESTION_TIMEOUT = dt.timedelta(minutes=5)
 
+# What one sweep tick's activity gets end to end. Its ClickHouse queries share this, so the exclusion
+# scan is capped by what the candidate query left rather than by a fixed budget of its own: overrunning
+# kills the attempt after the candidates were found, so the tick retries without ever dispatching.
+FIND_SCANNER_CANDIDATES_TIMEOUT = dt.timedelta(seconds=200)
+
 SCANNER_SCHEDULE_ID_PREFIX = "replay-vision-scanner"
 # Search-attribute value stamped on every per-scanner schedule so the reconciler can list them.
 SCANNER_SCHEDULE_TYPE = "replay-vision-scanner-sweep"

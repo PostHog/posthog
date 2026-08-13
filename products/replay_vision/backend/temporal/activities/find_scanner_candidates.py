@@ -1,3 +1,4 @@
+import time
 import datetime as dt
 
 from django.utils import timezone
@@ -23,6 +24,7 @@ from products.replay_vision.backend.queries.scanner_candidate_query import (
 from products.replay_vision.backend.temporal.constants import (
     DEEP_SWEEP_INTERVAL,
     DEEP_SWEEP_MAX_EXECUTION_SECONDS,
+    FIND_SCANNER_CANDIDATES_TIMEOUT,
     SCANNER_SCHEDULE_INTERVAL,
 )
 from products.replay_vision.backend.temporal.decorators import track_activity
@@ -65,6 +67,7 @@ def find_scanner_candidates_activity(inputs: FindScannerCandidatesInputs) -> Fin
         # No watermark advance, so the next executed sweep covers the skipped range in one query.
         return FindScannerCandidatesOutput(candidates=[], saturated=False)
 
+    started_at = time.monotonic()
     limit = inputs.candidate_limit if inputs.candidate_limit is not None else DEFAULT_CANDIDATE_LIMIT
     candidate_query = ScannerCandidateQuery(
         team=scanner.team,
@@ -88,7 +91,11 @@ def find_scanner_candidates_activity(inputs: FindScannerCandidatesInputs) -> Fin
     # Deliberately not wrapped: the in-query blocklists are off, so a swallowed failure here would
     # dispatch the batch unfiltered. Returns empty when the scanner excludes nothing.
     excluded = excluded_sessions.excluded_session_ids(
-        team=scanner.team, candidate_query=candidate_query, candidates=fetched, scanner_id=str(scanner.id)
+        team=scanner.team,
+        candidate_query=candidate_query,
+        candidates=fetched,
+        scanner_id=str(scanner.id),
+        seconds_remaining=FIND_SCANNER_CANDIDATES_TIMEOUT.total_seconds() - (time.monotonic() - started_at),
     )
     candidates = [c for c in fetched if c.session_id not in excluded]
 

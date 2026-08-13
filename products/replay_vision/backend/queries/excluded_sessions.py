@@ -20,6 +20,8 @@ strictly more recent snapshot than the in-query form would have, and mutable inp
 membership, group and person properties) resolve at query time exactly as they do today.
 """
 
+import time
+
 from opentelemetry import trace
 
 from posthog.models import Team
@@ -34,6 +36,10 @@ tracer = trace.get_tracer(__name__)
 
 # Bounded by the caller's candidate batch, so it only has to outlast a scan over named session ids.
 _MAX_EXECUTION_SECONDS = 60
+# Overrunning the activity is worse than a slow scan: the attempt is killed after the candidates were
+# found, so the tick retries from the same watermark and never dispatches. Leave room for the caller
+# to finish up.
+_ACTIVITY_RESERVE_SECONDS = 15
 # Session ids are inlined as constants and ClickHouse caps a statement at 1 MiB, so a saturated batch
 # could build a query the server rejects. That would fail the tick forever rather than once, since the
 # next tick refetches the same rows.
@@ -47,6 +53,7 @@ def excluded_session_ids(
     candidate_query: ScannerCandidateQuery,
     candidates: list[CandidateSession],
     scanner_id: str | None = None,
+    seconds_remaining: float | None = None,
 ) -> set[str]:
     """Which of `candidates` carry an event that a negative filter excludes.
 
@@ -59,7 +66,12 @@ def excluded_session_ids(
     if not session_ids:
         return set()
 
+    budget = _MAX_EXECUTION_SECONDS
+    if seconds_remaining is not None:
+        budget = min(budget, max(1, int(seconds_remaining - _ACTIVITY_RESERVE_SECONDS)))
+
     excluded: set[str] = set()
+    deadline = time.monotonic() + budget
     for start in range(0, len(session_ids), _MAX_IDS_PER_QUERY):
         chunk = session_ids[start : start + _MAX_IDS_PER_QUERY]
         for exclusion in candidate_query.excluded_sessions_queries(chunk):
@@ -67,7 +79,7 @@ def excluded_session_ids(
                 exclusion,
                 team=team,
                 query_type="ReplayVisionExcludedSessionsQuery",
-                max_execution_time_seconds=_MAX_EXECUTION_SECONDS,
+                max_execution_time_seconds=max(1, int(deadline - time.monotonic())),
                 # Metered against the scanner's read budget like its candidate query.
                 scanner_id=scanner_id,
             )
