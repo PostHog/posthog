@@ -756,6 +756,7 @@ class TestBillingManager(BaseTest):
         [
             ("active_trial_counts_as_paid", "2027-01-01T00:00:00Z", True),
             ("expired_trial_counts_as_free", "2026-01-01T00:00:00Z", False),
+            ("naive_timestamp_treated_as_utc", "2027-01-01T00:00:00", True),
         ]
     )
     def test_update_org_details_trial_handling(self, _name, free_trial_until, expected):

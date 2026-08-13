@@ -7,8 +7,10 @@ dependency-light (Redis only) so both layers can import it without cycles.
 
 from datetime import UTC, datetime
 
+from dateutil.relativedelta import relativedelta
 from prometheus_client import Counter
 
+from posthog.exceptions_capture import capture_exception
 from posthog.redis import get_client
 
 COUNTER_KEY_PREFIX = "@posthog/api-queries-bytes/"
@@ -27,7 +29,6 @@ def _counter_key(org_id: str, now: datetime) -> str:
 
 
 def increment_api_queries_bytes(org_id: str, bytes_read: int) -> None:
-    """Fail-open INCRBY; an error undercounts one query, never breaks it."""
     if not bytes_read:
         return
     try:
@@ -36,22 +37,21 @@ def increment_api_queries_bytes(org_id: str, bytes_read: int) -> None:
         pipe.incrby(key, bytes_read)
         pipe.expire(key, COUNTER_TTL_SECONDS)
         pipe.execute()
-    except Exception:
+    except Exception as e:
         API_QUERIES_QUOTA_ERRORS_COUNTER.labels(op="increment").inc()
+        capture_exception(e)
 
 
 def get_api_queries_bytes(org_id: str) -> int:
-    """Bytes read by the org's chargeable queries this UTC month. Fail-open to 0."""
     try:
         value = get_client().get(_counter_key(org_id, datetime.now(UTC)))
         return int(value) if value else 0
-    except Exception:
+    except Exception as e:
         API_QUERIES_QUOTA_ERRORS_COUNTER.labels(op="read").inc()
+        capture_exception(e)
         return 0
 
 
 def next_counter_reset(now: datetime) -> datetime:
     """First instant of the next UTC month, when the counter key rolls over."""
-    if now.month == 12:
-        return datetime(now.year + 1, 1, 1, tzinfo=UTC)
-    return datetime(now.year, now.month + 1, 1, tzinfo=UTC)
+    return datetime(now.year, now.month, 1, tzinfo=UTC) + relativedelta(months=1)

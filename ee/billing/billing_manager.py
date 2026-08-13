@@ -70,7 +70,12 @@ def _free_trial_active(customer: CustomerInfo) -> bool:
     if not free_trial_until:
         return False
     expires = parse_datetime(free_trial_until) if isinstance(free_trial_until, str) else free_trial_until
-    return bool(expires and expires > timezone.now())
+    if expires is None:
+        return False
+    # An offset-less timestamp parses naive, and comparing naive to aware raises TypeError.
+    if timezone.is_naive(expires):
+        expires = expires.replace(tzinfo=UTC)
+    return expires > timezone.now()
 
 
 def _get_user_organization_role(user: User, organization: Organization) -> Optional[str]:

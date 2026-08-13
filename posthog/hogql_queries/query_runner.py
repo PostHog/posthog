@@ -369,8 +369,9 @@ def get_api_queries_quota_limited_until(team: Team) -> Optional[datetime]:
         if get_api_queries_bytes(str(team.organization_id)) <= django_settings.API_QUERIES_FREE_TIER_READ_BYTES_LIMIT:
             return None
         return next_counter_reset(datetime.now(UTC))
-    except Exception:
+    except Exception as e:
         API_QUERIES_QUOTA_ERRORS_COUNTER.labels(op="check").inc()
+        capture_exception(e)
         return None
 
 

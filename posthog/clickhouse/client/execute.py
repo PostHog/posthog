@@ -527,9 +527,14 @@ def sync_execute(
                 # `last_query` once the connection is established; the identity check keeps a
                 # pooled client's previous query from being re-metered when connecting fails.
                 query_info = getattr(client, "last_query", None)
-                if tags.chargeable and tags.org_id and query_info is not None and query_info is not query_info_before:
-                    if query_info.progress:
-                        increment_api_queries_bytes(str(tags.org_id), query_info.progress.bytes)
+                if (
+                    tags.chargeable
+                    and tags.org_id
+                    and query_info is not None
+                    and query_info is not query_info_before
+                    and query_info.progress
+                ):
+                    increment_api_queries_bytes(str(tags.org_id), query_info.progress.bytes)
             if (
                 "INSERT INTO" in prepared_sql
                 and hasattr(client, "last_query")
