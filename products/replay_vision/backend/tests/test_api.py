@@ -34,6 +34,7 @@ from products.replay_vision.backend.models.replay_scanner import (
 )
 from products.replay_vision.backend.models.replay_scanner_backfill import ReplayScannerBackfill
 from products.replay_vision.backend.models.vision_action import VisionAction
+from products.replay_vision.backend.queries import SAVE_ESTIMATE_BUDGET
 from products.replay_vision.backend.queries.scanner_candidate_query import SETTLE_INTERVAL
 from products.replay_vision.backend.quota import BillingPeriod, _current_period_bounds
 from products.replay_vision.backend.temporal.constants import (
@@ -904,6 +905,9 @@ class TestScannerEstimatePersistence(_VisionAPITestCase):
         self.assertEqual(resp.status_code, 201, resp.json())
         self.mock_refresh_estimate.assert_called_once()
         self.assertEqual(str(self.mock_refresh_estimate.call_args.args[0].id), resp.json()["id"])
+        # A save blocks the request, so it takes the tighter clock, and it persists the number, so it
+        # keeps the full week.
+        self.assertEqual(self.mock_refresh_estimate.call_args.kwargs["budget"], SAVE_ESTIMATE_BUDGET)
 
     def test_create_succeeds_when_estimate_refresh_fails(self) -> None:
         self.mock_refresh_estimate.side_effect = RuntimeError("clickhouse down")
