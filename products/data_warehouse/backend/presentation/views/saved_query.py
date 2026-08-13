@@ -15,7 +15,6 @@ from rest_framework import exceptions, filters, request, response, serializers, 
 from rest_framework.decorators import action
 from rest_framework.pagination import PageNumberPagination
 from rest_framework.response import Response
-from temporalio.client import ScheduleActionExecutionStartWorkflow
 
 from posthog.schema import DataWarehouseManagedViewsetKind
 
@@ -1454,52 +1453,34 @@ class DataWarehouseSavedQueryViewSet(TeamAndOrgViewSetMixin, AccessControlViewSe
         """Cancel a running saved query workflow."""
         saved_query = self.get_object()
 
-        if saved_query.status != DataWarehouseSavedQuery.Status.RUNNING:
+        running_workflows = {
+            (job.workflow_id, job.workflow_run_id)
+            for job in DataModelingJob.objects.filter(
+                team_id=self.team_id,
+                saved_query=saved_query,
+                status=DataModelingJob.Status.RUNNING,
+            )
+            if job.workflow_id
+        }
+
+        if not running_workflows:
             return response.Response(
                 {"error": "Cannot cancel a query that is not running"}, status=status.HTTP_400_BAD_REQUEST
             )
 
         temporal = sync_connect()
-        workflow_id = f"data-modeling-run-{saved_query.id.hex}"
 
         try:
-            # Ad-hoc handling
-            try:
-                workflow_handle = temporal.get_workflow_handle(workflow_id)
-                if workflow_handle:
-                    async_to_sync(workflow_handle.cancel)()
-            except Exception:
-                logger.info("No ad-hoc workflow to cancel", workflow_id=workflow_id)
+            for workflow_id, workflow_run_id in running_workflows:
+                workflow_handle = temporal.get_workflow_handle(workflow_id, run_id=workflow_run_id)
+                async_to_sync(workflow_handle.cancel)()
 
-            # Schedule handling
-            try:
-                scheduled_workflow_handle = temporal.get_schedule_handle(str(saved_query.id))
-                desc = async_to_sync(scheduled_workflow_handle.describe)()
-                recent_actions = desc.info.running_actions
-                if len(recent_actions) > 0:
-                    most_recent_action = recent_actions[-1]
-                    if isinstance(most_recent_action, ScheduleActionExecutionStartWorkflow):
-                        workflow_id_to_cancel = most_recent_action.workflow_id
-                    else:
-                        logger.warning(
-                            "Unexpected action type in schedule",
-                            action_type=type(most_recent_action).__name__,
-                        )
-
-                    workflow_handle_to_cancel = temporal.get_workflow_handle(workflow_id_to_cancel)
-                    if workflow_handle_to_cancel:
-                        async_to_sync(workflow_handle_to_cancel.cancel)()
-            except Exception:
-                logger.info("No scheduled workflow to cancel", saved_query_id=str(saved_query.id))
-
-            # Update saved query status, but not the data modeling job which occurs in the workflow
-            # This is because the saved_query is used by our UI to prevent multiple cancellations
             saved_query.status = DataWarehouseSavedQuery.Status.CANCELLED
             saved_query.save()
         except Exception as e:
-            logger.exception("Failed to cancel workflow", workflow_id=workflow_id, error=str(e))
+            logger.exception("Failed to cancel workflow", saved_query_id=str(saved_query.id), error=str(e))
             return response.Response(
-                {"error": f"Failed to cancel workflow"}, status=status.HTTP_500_INTERNAL_SERVER_ERROR
+                {"error": "Failed to cancel workflow"}, status=status.HTTP_500_INTERNAL_SERVER_ERROR
             )
 
         log_activity(
