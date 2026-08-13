@@ -190,18 +190,21 @@ class TestRefreshOauthToken(SimpleTestCase):
 
     @parameterized.expand(
         [
-            # A 4xx is the provider judging the grant, which no retry recovers from.
-            ("bad_request", 400, True),
-            ("unauthorized", 401, True),
-            ("server_error", 500, False),
-            ("bad_gateway", 502, False),
+            ("invalid_grant", 400, {"error": "invalid_grant"}, True),
+            ("invalid_client", 401, {"error": "invalid_client"}, True),
+            ("request_timeout", 408, {}, False),
+            ("temporarily_unavailable", 400, {"error": "temporarily_unavailable"}, False),
+            ("too_many_requests", 429, {}, False),
+            ("unauthorized_without_oauth_error", 401, {}, False),
+            ("server_error", 500, {}, False),
         ]
     )
     def test_http_error_separates_a_rejected_grant_from_a_transient_failure(
-        self, _name: str, status_code: int, expect_rejected: bool
-    ):
+        self, _name: str, status_code: int, response_data: dict[str, str], expect_rejected: bool
+    ) -> None:
         mock_resp = MagicMock()
         mock_resp.status_code = status_code
+        mock_resp.json.return_value = response_data
         mock_resp.raise_for_status.side_effect = requests.HTTPError(str(status_code), response=mock_resp)
 
         with patch("products.mcp_store.backend.oauth.requests.post", return_value=mock_resp):
@@ -1430,9 +1433,10 @@ class TestRefreshInstallationToken(BaseTest):
         self.addCleanup(patcher.stop)
 
     @staticmethod
-    def _post_answering(status_code: int) -> MagicMock:
+    def _post_answering(status_code: int, response_data: dict[str, str] | None = None) -> MagicMock:
         response = MagicMock()
         response.status_code = status_code
+        response.json.return_value = response_data or {}
         response.raise_for_status.side_effect = requests.HTTPError(str(status_code), response=response)
         return response
 
@@ -1443,13 +1447,14 @@ class TestRefreshInstallationToken(BaseTest):
         response.raise_for_status.side_effect = error
         return response
 
-    @parameterized.expand([("bad_request", 400), ("unauthorized", 401), ("forbidden", 403)])
-    def test_provider_rejecting_the_grant_flags_reauth(self, _name: str, status_code: int) -> None:
-        # Until the installation is flagged, it keeps looking connected in the UI and every
-        # agent run keeps mounting a server whose every call 401s.
+    @parameterized.expand([("invalid_grant", 400), ("invalid_client", 401)])
+    def test_provider_rejecting_the_grant_flags_reauth(self, oauth_error: str, status_code: int) -> None:
         installation = self._make_installation()
 
-        with patch("products.mcp_store.backend.oauth.requests.post", return_value=self._post_answering(status_code)):
+        with patch(
+            "products.mcp_store.backend.oauth.requests.post",
+            return_value=self._post_answering(status_code, {"error": oauth_error}),
+        ):
             with self.assertRaises(TokenRefreshRejectedError):
                 refresh_installation_token(installation)
 
@@ -1478,12 +1483,25 @@ class TestRefreshInstallationToken(BaseTest):
         assert installation.sensitive_configuration["access_token"] == "fresh"
         assert installation.sensitive_configuration["refresh_token"] == "rotated"
 
-    @parameterized.expand([("server_error", 500), ("bad_gateway", 502), ("gateway_timeout", 504)])
-    def test_provider_outage_leaves_the_connection_alone(self, _name: str, status_code: int) -> None:
-        # Reauth is manual work for the user, so a provider having a bad hour must not demand it.
+    @parameterized.expand(
+        [
+            ("request_timeout", 408, {}),
+            ("temporarily_unavailable", 400, {"error": "temporarily_unavailable"}),
+            ("too_many_requests", 429, {}),
+            ("server_error", 500, {}),
+            ("bad_gateway", 502, {}),
+            ("gateway_timeout", 504, {}),
+        ]
+    )
+    def test_provider_outage_leaves_the_connection_alone(
+        self, _name: str, status_code: int, response_data: dict[str, str]
+    ) -> None:
         installation = self._make_installation()
 
-        with patch("products.mcp_store.backend.oauth.requests.post", return_value=self._post_answering(status_code)):
+        with patch(
+            "products.mcp_store.backend.oauth.requests.post",
+            return_value=self._post_answering(status_code, response_data),
+        ):
             with self.assertRaises(TokenRefreshError) as ctx:
                 refresh_installation_token(installation)
 

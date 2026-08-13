@@ -108,8 +108,10 @@ To show brand icons on a self-hosted instance, create a logo.dev account, genera
 - **OAuth without DCR** ("shared creds"): an operator registers one OAuth app with the vendor and pastes `client_id`/`client_secret` into Django admin (stored encrypted per template). The sync pre-fills `oauth_metadata` from discovery; installs then share the client while each user gets their own tokens. Redirect URI: `{SITE_URL}/api/mcp_store/oauth_redirect/`.
 - **API key**: users supply their own key at install; nothing on the template.
 
-When an OAuth token refresh comes back 4xx, or there is no refresh token to send, the installation is marked `needs_reauth`: it drops out of agent runs and the UI asks the user to reconnect.
-Transient failures (5xx, timeouts, connection errors) leave the installation alone, and a later successful refresh clears the flag.
+When an OAuth token refresh returns `invalid_grant` or `invalid_client`, or there is no refresh token to send, the installation is marked `needs_reauth`.
+It drops out of agent runs, and the UI asks the user to reconnect.
+Transient failures, including throttling, timeouts, connection errors, and other provider errors, leave the installation alone.
+A later successful refresh clears the flag.
 
 ## Operator runbook: activating a shared-creds server
 

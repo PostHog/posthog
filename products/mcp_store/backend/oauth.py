@@ -22,6 +22,7 @@ logger = structlog.get_logger(__name__)
 TIMEOUT = 10
 SUPPORTED_TOKEN_ENDPOINT_AUTH_METHODS = ("none", "client_secret_post", "client_secret_basic")
 DEFAULT_CONFIDENTIAL_TOKEN_ENDPOINT_AUTH_METHOD = "client_secret_basic"
+TOKEN_REFRESH_REJECTION_ERRORS = frozenset({"invalid_client", "invalid_grant"})
 
 
 class SSRFBlockedError(Exception):
@@ -505,6 +506,22 @@ def _token_request_auth(
     return form, None
 
 
+def _oauth_error_code(response: requests.Response | None) -> str | None:
+    if response is None:
+        return None
+
+    try:
+        payload: object = response.json()
+    except ValueError:
+        return None
+
+    if not isinstance(payload, dict):
+        return None
+
+    error_code = payload.get("error")
+    return error_code if isinstance(error_code, str) else None
+
+
 def refresh_oauth_token(
     *,
     token_url: str,
@@ -541,17 +558,17 @@ def refresh_oauth_token(
     except SSRFBlockedError:
         raise TokenRefreshError(f"Token refresh URL blocked by SSRF protection: {token_url}")
     except requests.RequestException as exc:
-        failed_status_code = getattr(getattr(exc, "response", None), "status_code", None)
+        failed_status_code = getattr(exc.response, "status_code", None)
+        oauth_error_code = _oauth_error_code(exc.response)
         logger.warning(
             "OAuth token refresh request failed",
             token_url=token_url,
             status_code=failed_status_code,
+            oauth_error_code=oauth_error_code,
         )
-        # A 4xx is the provider judging the grant itself (invalid_grant, a revoked or
-        # rotated client). Anything else is the network or the provider being down.
-        if failed_status_code is not None and 400 <= failed_status_code < 500:
-            raise TokenRefreshRejectedError("Token refresh rejected by the provider")
-        raise TokenRefreshError("Token refresh request failed")
+        if oauth_error_code in TOKEN_REFRESH_REJECTION_ERRORS:
+            raise TokenRefreshRejectedError("Token refresh rejected by the provider") from exc
+        raise TokenRefreshError("Token refresh request failed") from exc
 
     token_data = resp.json()
     if "access_token" not in token_data:
