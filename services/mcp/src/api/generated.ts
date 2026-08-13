@@ -19269,6 +19269,121 @@ export namespace Schemas {
     } as const;
 
     /**
+     * * `tiered` - tiered
+     * * `dag_schedule` - dag_schedule
+     * * `managed_viewset` - managed_viewset
+     * * `legacy` - legacy
+     * * `no_node` - no_node
+     */
+    export type FrequencyModeEnum = typeof FrequencyModeEnum[keyof typeof FrequencyModeEnum];
+
+
+    export const FrequencyModeEnum = {
+      Tiered: 'tiered',
+      DagSchedule: 'dag_schedule',
+      ManagedViewset: 'managed_viewset',
+      Legacy: 'legacy',
+      NoNode: 'no_node',
+    } as const;
+
+    /**
+     * * `15min` - 15min
+     * * `30min` - 30min
+     * * `1hour` - 1hour
+     * * `6hour` - 6hour
+     * * `12hour` - 12hour
+     * * `24hour` - 24hour
+     * * `7day` - 7day
+     * * `30day` - 30day
+     */
+    export type MaterializeSyncFrequencyEnum = typeof MaterializeSyncFrequencyEnum[keyof typeof MaterializeSyncFrequencyEnum];
+
+
+    export const MaterializeSyncFrequencyEnum = {
+      '15min': '15min',
+      '30min': '30min',
+      '1hour': '1hour',
+      '6hour': '6hour',
+      '12hour': '12hour',
+      '24hour': '24hour',
+      '7day': '7day',
+      '30day': '30day',
+    } as const;
+
+    /**
+     * * `source` - source
+     * * `consumer` - consumer
+     */
+    export type SyncFrequencyBlockedByEnum = typeof SyncFrequencyBlockedByEnum[keyof typeof SyncFrequencyBlockedByEnum];
+
+
+    export const SyncFrequencyBlockedByEnum = {
+      Source: 'source',
+      Consumer: 'consumer',
+    } as const;
+
+    /**
+     * The node holding a cadence back, named so a refusal points at something a person can open.
+     */
+    export interface SyncFrequencyBlocker {
+      /** Data modeling node ID of the source or view. */
+      id: string;
+      /** Node name, as it appears in the data modeling graph. */
+      name: string;
+    }
+
+    export interface SyncFrequencyOption {
+      /** A `sync_frequency` value.
+       *
+       * * `15min` - 15min
+       * * `30min` - 30min
+       * * `1hour` - 1hour
+       * * `6hour` - 6hour
+       * * `12hour` - 12hour
+       * * `24hour` - 24hour
+       * * `7day` - 7day
+       * * `30day` - 30day */
+      cadence: MaterializeSyncFrequencyEnum;
+      /** False when writing this cadence would be rejected. */
+      allowed: boolean;
+      /** Which side withholds this cadence: 'source' when no upstream source syncs that often, 'consumer' when a downstream view or endpoint refreshes more often than this. Null when the cadence is allowed.
+       *
+       * * `source` - source
+       * * `consumer` - consumer */
+      blocked_by: SyncFrequencyBlockedByEnum | null;
+      /** The source or consumer named in `blocked_by`. Null when allowed, and also when the blocker sits outside the caller's access grants, where `blocked_by` still gives the direction. */
+      blocker: SyncFrequencyBlocker | null;
+    }
+
+    export interface SyncFrequencyBound {
+      /** The bounding cadence in plain English, for example '6 hours'. Matches the wording used in the error raised when an out-of-bounds cadence is written. Prose rather than a `sync_frequency` value because a source can deliver on a cadence no `sync_frequency` names. */
+      label: string;
+      /** Node that set this bound. Null when nothing identifiable set it, and also when it sits outside the caller's access grants: the bound still applies, it just goes unnamed. */
+      blocker: SyncFrequencyBlocker | null;
+    }
+
+    export interface SyncFrequencyBounds {
+      /** What governs this view's cadence. 'tiered' is the only mode where `options` is meaningful and `sync_frequency` is writable per view. 'dag_schedule' means the team's single DAG schedule owns it, 'managed_viewset' means PostHog owns the view, 'legacy' means the v1 backend, where any cadence is accepted and no bounds apply, and 'no_node' means the view has no data modeling node to store a cadence on.
+       *
+       * * `tiered` - tiered
+       * * `dag_schedule` - dag_schedule
+       * * `managed_viewset` - managed_viewset
+       * * `legacy` - legacy
+       * * `no_node` - no_node */
+      frequency_mode: FrequencyModeEnum;
+      /** Every cadence a picker may show, coarsest-last, each marked allowed or blocked with its cause. Empty outside 'tiered' mode. */
+      options: SyncFrequencyOption[];
+      /** The fastest bound: no cadence finer than this is allowed, because the source named here does not sync more often. Null when no source withholds a cadence. */
+      floor: SyncFrequencyBound | null;
+      /** The slowest bound: no cadence coarser than this is allowed, because the consumer named here refreshes that often. Null when no consumer withholds a cadence. */
+      ceiling: SyncFrequencyBound | null;
+      /** Upstream sources with no sync schedule, so the floor is a guess: these arrive when someone runs them, and refreshing more often than they really sync will serve stale data. Only sources the caller may read are listed. */
+      best_effort_sources: SyncFrequencyBlocker[];
+      /** True when at least one such source sits outside the caller's access grants, so the list above is incomplete and the caveat still applies. */
+      best_effort_sources_withheld: boolean;
+    }
+
+    /**
      * * `Cancelled` - Cancelled
      * * `Modified` - Modified
      * * `Completed` - Completed
@@ -19337,6 +19452,8 @@ export namespace Schemas {
       sync_frequency?: SavedQuerySyncFrequencyEnum | null;
       /** True when this team's DAG owns the materialization cadence through a single schedule, so `sync_frequency` cannot be set per view and writes to it are rejected. False when per-node DAG schedules are in use or the team is on the v1 backend. False does not on its own mean the cadence is writable: a view belonging to a managed viewset rejects every update regardless, which `managed_viewset_kind` reports. */
       readonly sync_frequency_managed_by_dag: boolean;
+      /** Which cadences this view can actually be set to, and what withholds the rest. Computed from the view's data modeling lineage: upstream source sync frequencies set a floor, downstream cadences set a ceiling. Read-only, and present on retrieve, create and update responses only. */
+      readonly sync_frequency_bounds: SyncFrequencyBounds;
       readonly columns: readonly DataWarehouseSavedQueryColumnsItem[];
       /** The status of when this SavedQuery last ran.
        *
@@ -54376,6 +54493,8 @@ export namespace Schemas {
       sync_frequency?: SavedQuerySyncFrequencyEnum | null;
       /** True when this team's DAG owns the materialization cadence through a single schedule, so `sync_frequency` cannot be set per view and writes to it are rejected. False when per-node DAG schedules are in use or the team is on the v1 backend. False does not on its own mean the cadence is writable: a view belonging to a managed viewset rejects every update regardless, which `managed_viewset_kind` reports. */
       readonly sync_frequency_managed_by_dag?: boolean;
+      /** Which cadences this view can actually be set to, and what withholds the rest. Computed from the view's data modeling lineage: upstream source sync frequencies set a floor, downstream cadences set a ceiling. Read-only, and present on retrieve, create and update responses only. */
+      readonly sync_frequency_bounds?: SyncFrequencyBounds;
       readonly columns?: readonly PatchedDataWarehouseSavedQueryColumnsItem[];
       /** The status of when this SavedQuery last ran.
        *
@@ -68521,30 +68640,6 @@ export namespace Schemas {
     }
 
     /**
-     * * `15min` - 15min
-     * * `30min` - 30min
-     * * `1hour` - 1hour
-     * * `6hour` - 6hour
-     * * `12hour` - 12hour
-     * * `24hour` - 24hour
-     * * `7day` - 7day
-     * * `30day` - 30day
-     */
-    export type SavedQueryMaterializeSyncFrequencyEnum = typeof SavedQueryMaterializeSyncFrequencyEnum[keyof typeof SavedQueryMaterializeSyncFrequencyEnum];
-
-
-    export const SavedQueryMaterializeSyncFrequencyEnum = {
-      '15min': '15min',
-      '30min': '30min',
-      '1hour': '1hour',
-      '6hour': '6hour',
-      '12hour': '12hour',
-      '24hour': '24hour',
-      '7day': '7day',
-      '30day': '30day',
-    } as const;
-
-    /**
      * Body of the `materialize` action: which cadence to enable materialization at.
      */
     export interface SavedQueryMaterialize {
@@ -68558,7 +68653,7 @@ export namespace Schemas {
        * * `24hour` - 24hour
        * * `7day` - 7day
        * * `30day` - 30day */
-      sync_frequency?: SavedQueryMaterializeSyncFrequencyEnum;
+      sync_frequency?: MaterializeSyncFrequencyEnum;
     }
 
     export interface SavedQueryResume {
