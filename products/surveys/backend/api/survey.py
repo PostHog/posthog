@@ -2,6 +2,7 @@ import re
 import builtins
 from contextlib import contextmanager
 from datetime import UTC, datetime, timedelta
+from functools import cached_property
 from typing import Any, Optional, cast
 from urllib.parse import urlparse
 from uuid import UUID
@@ -107,8 +108,41 @@ CACHE_TIMEOUT_SECONDS = 300
 DISPLAY_LANGUAGE_QUERY_PARAM = "display_language"
 DISPLAY_LANGUAGE_RE = re.compile(r"^[A-Za-z]{2,3}(-[A-Za-z0-9]{2,8}){0,3}$")
 
-ALLOWED_LINK_URL_SCHEMES = ["https", "mailto"]
+DEFAULT_LINK_URL_SCHEMES = ("https", "mailto")
+
+# A project registers its own app scheme to deep link into its mobile app, but cannot register
+# these however deliberately it tries. The first five run script or read local content in the page
+# showing the survey, and http is plain-text transport. None is an app scheme, so there is no
+# product reason to allow one.
+NEVER_REGISTRABLE_LINK_SCHEMES = frozenset({"javascript", "vbscript", "data", "file", "blob", "http"})
+
+# RFC 3986 scheme grammar: ALPHA *( ALPHA / DIGIT / "+" / "-" / "." ).
+LINK_URL_SCHEME_NAME_RE = re.compile(r"[a-zA-Z][a-zA-Z0-9+.\-]*")
 EMAIL_REGEX = r"^mailto:[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}$"
+
+
+def resolve_allowed_link_schemes(survey_config: dict | None) -> list[str]:
+    """
+    The URL schemes this project's survey links may use.
+
+    An allowlist rather than a list of dangerous schemes to block, because "myapp://home" and
+    "smb://attacker.example/share" are the same shape: nothing in the URL says which scheme
+    belongs to the customer, so only the project owner can say. A blocklist would have to be
+    extended every time someone thought of another handler, and would accept the ones nobody had
+    thought of yet.
+
+    Registered schemes are filtered here, on read, so an entry already stored that is malformed or
+    that names a scheme we never allow grants nothing. The write path needs no validation of its
+    own as a result.
+    """
+    registered = (survey_config or {}).get("allowed_link_schemes")
+    if not isinstance(registered, list):
+        return list(DEFAULT_LINK_URL_SCHEMES)
+    extra = {
+        scheme.lower() for scheme in registered if isinstance(scheme, str) and LINK_URL_SCHEME_NAME_RE.fullmatch(scheme)
+    }
+    return [*DEFAULT_LINK_URL_SCHEMES, *sorted(extra - NEVER_REGISTRABLE_LINK_SCHEMES - set(DEFAULT_LINK_URL_SCHEMES))]
+
 
 # Translation language codes must be BCP-47-ish (lang[-subtag...]). This is the same shape
 # the JS SDK matches against navigator.language. Aliases like "english" or sentinel values
@@ -436,7 +470,14 @@ class SurveyOpenQuestionSchemaSerializer(SurveyBaseQuestionSchemaSerializer):
 
 class SurveyLinkQuestionSchemaSerializer(SurveyBaseQuestionSchemaSerializer):
     type = serializers.ChoiceField(choices=["link"], required=True)
-    link = serializers.CharField(required=True, help_text="HTTPS or mailto URL for link questions.")
+    link = serializers.CharField(
+        required=True,
+        help_text=(
+            "HTTPS or mailto URL for link questions. To deep link into a mobile app, add the "
+            'app\'s URL scheme to survey_config.allowed_link_schemes on the project first (e.g. ["myapp"]), '
+            "then use it here (e.g. myapp://home)."
+        ),
+    )
 
 
 class SurveyRatingQuestionSchemaSerializer(SurveyBaseQuestionSchemaSerializer):
@@ -867,14 +908,27 @@ class SurveySerializerCreateUpdateOnly(serializers.ModelSerializer):
     targeting_flag_id = serializers.IntegerField(required=False, write_only=True)
     targeting_flag_filters = serializers.JSONField(required=False, write_only=True, allow_null=True)
 
+    @cached_property
+    def _allowed_link_schemes(self) -> list[str]:
+        """Cached because a survey validates one link per question and per translation."""
+        team_id = self.context.get("team_id")
+        if team_id is None:
+            return list(DEFAULT_LINK_URL_SCHEMES)
+        survey_config = Team.objects.filter(id=team_id).values_list("survey_config", flat=True).first()
+        return resolve_allowed_link_schemes(survey_config)
+
     def _validate_and_sanitize_link(self, link: str) -> str:
         """Validate URL scheme and format, then sanitize HTML. Returns cleaned link."""
-        parsed_url = urlparse(link)
+        try:
+            parsed_url = urlparse(link)
+        except ValueError:
+            # An unbalanced bracket in the authority raises here, which would be a 500.
+            raise serializers.ValidationError("Invalid URL. Please enter a valid link.")
 
         # Check for unsupported schemes
-        if parsed_url.scheme not in ALLOWED_LINK_URL_SCHEMES:
+        if parsed_url.scheme not in self._allowed_link_schemes:
             raise serializers.ValidationError(
-                f"Link must be a URL with one of these schemes: [{', '.join(ALLOWED_LINK_URL_SCHEMES)}]"
+                f"Link must be a URL with one of these schemes: [{', '.join(self._allowed_link_schemes)}]"
             )
 
         # Validate mailto links
