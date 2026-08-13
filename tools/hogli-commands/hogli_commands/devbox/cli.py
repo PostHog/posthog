@@ -534,15 +534,8 @@ def _resolve_local_identity_agent(host: str) -> str | None:
     Treats ``none`` (signaling "no agent") and the literal placeholder
     ``SSH_AUTH_SOCK`` (signaling "fall back to the env var") as "no specific
     agent" so callers can decide their own fallback.
-
-    A host without ``ssh`` installed reads the same way as a failed lookup: there
-    is no agent to resolve, so callers fall back rather than the command dying on
-    the traceback that reaches ``devbox:setup`` through this call.
     """
-    try:
-        result = subprocess.run(["ssh", "-G", host], capture_output=True, text=True)
-    except FileNotFoundError:
-        return None
+    result = subprocess.run(["ssh", "-G", host], capture_output=True, text=True)
     if result.returncode != 0:
         return None
     for line in result.stdout.splitlines():

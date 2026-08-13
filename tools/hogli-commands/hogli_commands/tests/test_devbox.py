@@ -3243,13 +3243,6 @@ class TestResolveLocalIdentityAgent:
         )
         assert devbox_cli._resolve_local_identity_agent("coder.dev") is None
 
-    def test_returns_none_when_ssh_is_not_installed(self, monkeypatch: pytest.MonkeyPatch) -> None:
-        def raise_missing(*args: object, **kwargs: object) -> subprocess.CompletedProcess[str]:
-            raise FileNotFoundError(2, "No such file or directory")
-
-        monkeypatch.setattr(devbox_cli.subprocess, "run", raise_missing)
-        assert devbox_cli._resolve_local_identity_agent("coder.dev") is None
-
 
 class TestConfigSshArgs:
     """Test the `coder config-ssh` argument builder.
