@@ -175,6 +175,47 @@ class TestCspReport(BaseTest):
         events = mock_batch_capture.call_args.kwargs["events"]
         assert [e["event"] for e in events] == ["$browser_crash_report"]
 
+    @patch("posthog.api.report.capture_batch_internal")
+    def test_malformed_crash_body_does_not_abort_the_bundle(self, mock_batch_capture):
+        mock_batch_capture.return_value = MagicMock(raise_for_status=MagicMock())
+
+        response = self.client.post(
+            f"/report/?token={self.team.api_token}",
+            data=json.dumps([SINGLE_VIOLATION_REPORT_TO, {**CRASH_REPORT, "body": "corrupted"}]),
+            content_type="application/reports+json",
+        )
+
+        assert response.status_code == status.HTTP_204_NO_CONTENT
+        events = mock_batch_capture.call_args.kwargs["events"]
+        assert [e["event"] for e in events] == ["$csp_violation", "$browser_crash_report"]
+        assert events[1]["properties"]["$browser_crash_reason"] == "unknown"
+
+    @patch("posthog.api.report.capture_batch_internal")
+    def test_crash_url_credentials_are_redacted(self, mock_batch_capture):
+        mock_batch_capture.return_value = MagicMock(raise_for_status=MagicMock())
+        # shaped like a Django reset token, so the length-plus-digit heuristic must mask it
+        reset_token = "abc123-0f0f0f0f0f0f0f0f0f0f0f0f0f0f0f0f"
+        crash_on_reset_page = {
+            **CRASH_REPORT,
+            "url": f"https://app.example.com/reset/0198aaaa-bbbb-cccc-dddd-eeeeffff0000/{reset_token}?next=/replay",
+        }
+
+        response = self.client.post(
+            f"/report/?token={self.team.api_token}",
+            data=json.dumps([crash_on_reset_page]),
+            content_type="application/reports+json",
+        )
+
+        assert response.status_code == status.HTTP_204_NO_CONTENT
+        events = mock_batch_capture.call_args.kwargs["events"]
+        assert len(events) == 1
+        event = events[0]
+        assert reset_token not in json.dumps(event)
+        assert event["properties"]["$current_url"] == "https://app.example.com/reset/<redacted>/<redacted>"
+        assert event["properties"]["$browser_crash_raw_report"]["url"] == (
+            "https://app.example.com/reset/<redacted>/<redacted>"
+        )
+
     def test_csp_report_never_logs_request_headers(self):
         with capture_logs() as logs, patch("posthog.api.report.capture_internal") as mock_capture:
             mock_capture.return_value = MagicMock(raise_for_status=MagicMock())

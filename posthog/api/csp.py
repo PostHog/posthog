@@ -1,6 +1,8 @@
+import re
 import json
 from datetime import UTC, datetime, timedelta
 from typing import Optional
+from urllib.parse import urlsplit, urlunsplit
 
 from django.conf import settings
 from django.http import HttpResponse
@@ -137,17 +139,45 @@ def is_crash_report(data: dict) -> bool:
     return "type" in data and data["type"] == "crash"
 
 
+# Crash reports carry the crashed document's URL, and auth routes embed live credentials
+# as path segments (password reset, 2FA reset, email verification, invite and sharing
+# links), so storing the URL verbatim would put redeemable tokens into events. Query
+# strings are dropped wholesale, and a path segment is masked when it is token-shaped:
+# 16+ URL-safe characters including a digit, which matches Django auth tokens, UUIDs,
+# and sharing tokens but not route names.
+_TOKEN_LIKE_PATH_SEGMENT = re.compile(r"[A-Za-z0-9_.~-]{16,}")
+
+
+def sanitize_crash_report_url(url: object) -> Optional[str]:
+    if not isinstance(url, str) or not url:
+        return None
+    try:
+        parts = urlsplit(url)
+    except ValueError:
+        return None
+    path = "/".join(
+        "<redacted>" if _TOKEN_LIKE_PATH_SEGMENT.fullmatch(segment) and any(c.isdigit() for c in segment) else segment
+        for segment in parts.path.split("/")
+    )
+    return urlunsplit((parts.scheme, parts.netloc, path, "", ""))
+
+
 def parse_crash_report(data: dict) -> dict:
-    body = data.get("body") or {}
+    body = data.get("body")
+    if not isinstance(body, dict):
+        # A malformed body still leaves the envelope's signal: the tab crashed.
+        body = {}
+    document_url = sanitize_crash_report_url(data.get("url"))
     return {
         "reason": body.get("reason") or "unknown",
         "id": body.get("crashId"),
         "is_top_level": body.get("is_top_level"),
         "visibility_state": body.get("visibility_state"),
         "age_ms": data.get("age"),
-        "document_url": data.get("url"),
+        "document_url": document_url,
         "user_agent": data.get("user_agent"),
-        "raw_report": data,
+        # Keep the raw report for debugging, but not its unsanitized url.
+        "raw_report": {**data, "url": document_url},
     }
 
 
