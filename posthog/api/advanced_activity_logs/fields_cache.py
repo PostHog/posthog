@@ -7,7 +7,12 @@ from posthog.redis import get_client
 from .constants import CACHE_KEY_PREFIX, CACHE_TTL_SECONDS, SMALL_ORG_THRESHOLD
 
 
-def _get_cache_key(organization_id: str, team_id: Optional[int] = None, user_id: Optional[int] = None) -> str:
+def _get_cache_key(
+    organization_id: str,
+    team_id: Optional[int] = None,
+    user_id: Optional[int] = None,
+    include_org_scoped: bool = False,
+) -> str:
     """Discovery results are cached at the scope they were computed for.
 
     A project-scoped entry may only contain that project's metadata, so it cannot share a key with
@@ -16,21 +21,30 @@ def _get_cache_key(organization_id: str, team_id: Optional[int] = None, user_id:
     canvas restrictions. Keying on the caller rather than on those restrictions individually means a
     new restriction cannot be forgotten here. The background task attaches no caller, so its entry
     keeps the bare organization key.
+
+    `include_org_scoped` is in the key because an admin can turn that project setting off, which
+    narrows the caller's queryset without changing who the caller is. The remaining restrictions
+    stay bounded by the entry's TTL instead.
     """
     key = f"{CACHE_KEY_PREFIX}:{organization_id}"
     if team_id is not None:
         key = f"{key}:team:{team_id}"
     if user_id is not None:
         key = f"{key}:user:{user_id}"
+    if include_org_scoped:
+        key = f"{key}:orgscoped"
     return key
 
 
 def get_cached_fields(
-    organization_id: str, team_id: Optional[int] = None, user_id: Optional[int] = None
+    organization_id: str,
+    team_id: Optional[int] = None,
+    user_id: Optional[int] = None,
+    include_org_scoped: bool = False,
 ) -> Optional[dict]:
     try:
         client = get_client()
-        key = _get_cache_key(organization_id, team_id, user_id)
+        key = _get_cache_key(organization_id, team_id, user_id, include_org_scoped)
         json_data = client.get(key)
 
         if not json_data:
@@ -48,10 +62,11 @@ def cache_fields(
     record_count: int,
     team_id: Optional[int] = None,
     user_id: Optional[int] = None,
+    include_org_scoped: bool = False,
 ) -> None:
     try:
         client = get_client()
-        key = _get_cache_key(organization_id, team_id, user_id)
+        key = _get_cache_key(organization_id, team_id, user_id, include_org_scoped)
         json_data = json.dumps(fields_data, default=str)
 
         if record_count > SMALL_ORG_THRESHOLD:
@@ -64,11 +79,16 @@ def cache_fields(
         capture_exception(e)
 
 
-def delete_cached_fields(organization_id: str, team_id: Optional[int] = None, user_id: Optional[int] = None) -> bool:
+def delete_cached_fields(
+    organization_id: str,
+    team_id: Optional[int] = None,
+    user_id: Optional[int] = None,
+    include_org_scoped: bool = False,
+) -> bool:
     """Delete cached fields for an organization, or for one project or caller within it"""
     try:
         client = get_client()
-        key = _get_cache_key(organization_id, team_id, user_id)
+        key = _get_cache_key(organization_id, team_id, user_id, include_org_scoped)
         return bool(client.delete(key))
     except Exception as e:
         capture_exception(e)

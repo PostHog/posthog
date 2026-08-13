@@ -463,7 +463,10 @@ class TestAdvancedActivityLogsAvailableFiltersScoping(APIBaseTest):
         delete_cached_fields(str(self.organization.id))
         delete_cached_fields(str(self.organization.id), team_id=self.team.id)
         for user in (self.user, self.other_user):
-            delete_cached_fields(str(self.organization.id), team_id=self.team.id, user_id=user.pk)
+            for org_scoped in (False, True):
+                delete_cached_fields(
+                    str(self.organization.id), team_id=self.team.id, user_id=user.pk, include_org_scoped=org_scoped
+                )
 
     def _log(self, team_id: int | None, scope: str, activity: str, detail: dict, user: User) -> None:
         ActivityLog.objects.create(
@@ -520,6 +523,23 @@ class TestAdvancedActivityLogsAvailableFiltersScoping(APIBaseTest):
         assert res.status_code == status.HTTP_200_OK
         body = res.json()
         assert self._values(body, "scopes") == set()
+        assert body["detail_fields"] == {}
+
+    def test_turning_off_organization_scoped_reads_does_not_reuse_the_wider_cache(self) -> None:
+        # An admin can narrow a caller's queryset without changing who the caller is, so the caller
+        # alone does not identify what an entry was computed from.
+        self.team.receive_org_level_activity_logs = True
+        self.team.save()
+        self._log(None, "Organization", "updated", {"org_scoped_field": "o"}, self.user)
+        assert self._available_filters().status_code == status.HTTP_200_OK
+        assert "Organization" in self._available_filters().json()["detail_fields"]
+
+        self.team.receive_org_level_activity_logs = False
+        self.team.save()
+
+        with patch("posthog.api.advanced_activity_logs.field_discovery.SMALL_ORG_THRESHOLD", 0):
+            body = self._available_filters().json()
+
         assert body["detail_fields"] == {}
 
     def test_record_count_covers_the_organization_scoped_rows_the_project_can_read(self) -> None:

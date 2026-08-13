@@ -55,7 +55,7 @@ class AdvancedActivityLogFieldDiscovery:
         record_count = self._get_record_count()
 
         if record_count > SMALL_ORG_THRESHOLD:
-            cached = get_cached_fields(str(self.organization_id), self.team_id, self.user_id)
+            cached = get_cached_fields(str(self.organization_id), self.team_id, self.user_id, self.include_org_scoped)
             if cached is None and self.team_id is None:
                 # The background task computes one organization-wide entry with no caller attached,
                 # so only an organization-wide caller reads it. That entry can still name another
@@ -79,7 +79,9 @@ class AdvancedActivityLogFieldDiscovery:
             "detail_fields": detail_fields,
         }
 
-        cache_fields(str(self.organization_id), result, record_count, self.team_id, self.user_id)
+        cache_fields(
+            str(self.organization_id), result, record_count, self.team_id, self.user_id, self.include_org_scoped
+        )
         return result
 
     def _get_static_filters(self, queryset: QuerySet) -> dict[str, list[dict[str, str]]]:
@@ -191,7 +193,9 @@ class AdvancedActivityLogFieldDiscovery:
         batch_fields = self._extract_fields_from_records(records)
         batch_converted = self._convert_to_discovery_format(batch_fields)
 
-        existing_cache = get_cached_fields(str(self.organization_id), self.team_id, self.user_id)
+        existing_cache = get_cached_fields(
+            str(self.organization_id), self.team_id, self.user_id, self.include_org_scoped
+        )
         if existing_cache and "detail_fields" in existing_cache:
             current_detail_fields = existing_cache["detail_fields"]
             self._merge_fields_into_result(current_detail_fields, batch_converted)
@@ -221,7 +225,9 @@ class AdvancedActivityLogFieldDiscovery:
         }
 
         record_count = self._get_record_count()
-        cache_fields(str(self.organization_id), cache_data, record_count, self.team_id, self.user_id)
+        cache_fields(
+            str(self.organization_id), cache_data, record_count, self.team_id, self.user_id, self.include_org_scoped
+        )
 
     def _get_base_queryset(self) -> QuerySet:
         queryset = ActivityLog.objects.filter(organization_id=self.organization_id)
