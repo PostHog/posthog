@@ -355,6 +355,37 @@ describe('FetchRunner', () => {
         expect(peak).toBeGreaterThan(1)
     })
 
+    it('bounds the shed republish across the whole pass, not once for each domain', async () => {
+        // Domains run at the same time, so an allowance for each of them multiplies by however many
+        // a batch touches. One busy domain per record of a full batch would open that many times
+        // the cap as Kafka produces at once, past what the producer queue holds.
+        let open = 0
+        let peak = 0
+        let published = 0
+        const publisher = {
+            republish: async () => {
+                open++
+                peak = Math.max(peak, open)
+                await Promise.resolve()
+                published++
+                open--
+                return true
+            },
+        } as unknown as FrontierPublisher
+        const fetcher = new FakeFetcher(() => ({ outcome: 'rate_limited', status: 429, retryAfterMs: 30_000 }))
+        // 40 domains, 100 URLs each. A per-domain cap of 1000 would put back all 4000.
+        const queue = Array.from({ length: 40 }).flatMap((_unused, domain) =>
+            Array.from({ length: 100 }, () => candidate(`site${domain}.com`, 0))
+        )
+
+        const attempts = await runner(fetcher, {}, defaultBudget(), publisher).run(queue)
+
+        expect(attempts).toHaveLength(4000)
+        // The pass allowance, plus the few per domain that held a burst token and were fetched.
+        expect(published).toBeLessThanOrEqual(1000 + 40 * OPTIONS.maxConcurrentPerDomain)
+        expect(peak).toBeLessThanOrEqual(1000 + 40 * OPTIONS.maxConcurrentPerDomain)
+    })
+
     it('gives up and records a URL with no hops left (requirement 12)', async () => {
         const publisher = { republish: () => Promise.resolve(true) } as unknown as FrontierPublisher
         const fetcher = new FakeFetcher(() => ({ outcome: 'timeout' }))

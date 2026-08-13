@@ -80,13 +80,22 @@ const TERMINAL_OUTCOMES: ReadonlySet<AttemptOutcome> = new Set<AttemptOutcome>([
 ])
 
 /**
- * URLs one pass puts back for one domain after a shed.
+ * URLs one pass puts back after a shed, across every domain in it.
  *
  * A shed happens under overload, and one back queue can hold every URL of a batch. Republishing all
  * of them answers overload with more Kafka traffic, and the same URLs arrive again a minute later
  * having each spent a hop. Past this the rest are left unrecorded, so the mirror offers them again.
+ *
+ * One allowance for the pass rather than one for each domain, because domains run at the same time.
+ * A per-domain cap multiplies by however many domains a batch touches, and a batch that offers
+ * URLs across hundreds of them would open that many times this number of produces at once.
  */
-const MAX_SHED_REPUBLISHED = 1000
+const MAX_SHED_REPUBLISHED_PER_PASS = 1000
+
+/** What is left of the pass allowance. Read and written between awaits, so a domain never sees a torn value. */
+interface ShedAllowance {
+    remaining: number
+}
 
 /** Hosts named in one batch-level log line, bounded so one bad batch cannot log a host list of its own size. */
 const MAX_LOGGED_HOSTS = 5
@@ -156,7 +165,7 @@ export class FetchRunner implements FetchPass {
             }
         }
 
-        const attempts = await this.runDomains([...byDomain], deadlineMs)
+        const attempts = await this.runDomains([...byDomain], deadlineMs, { remaining: MAX_SHED_REPUBLISHED_PER_PASS })
         this.logFailures(attempts)
         return attempts
     }
@@ -196,13 +205,17 @@ export class FetchRunner implements FetchPass {
      *
      * `maxInFlightRequests` bounds the requests underneath them.
      */
-    private async runDomains(entries: [string, FetchCandidate[]][], deadlineMs: number): Promise<FetchAttempt[]> {
+    private async runDomains(
+        entries: [string, FetchCandidate[]][],
+        deadlineMs: number,
+        allowance: ShedAllowance
+    ): Promise<FetchAttempt[]> {
         // Every domain writes into this array rather than concatenating afterwards. One batch can
         // offer hundreds of thousands of URLs to a single domain, and both `push(...array)` and
         // `concat` of that size exceed the argument limit of `Function.apply`.
         const attempts: FetchAttempt[] = []
         await Promise.all(
-            entries.map(([domain, backQueue]) => this.runBackQueue(domain, backQueue, deadlineMs, attempts))
+            entries.map(([domain, backQueue]) => this.runBackQueue(domain, backQueue, deadlineMs, attempts, allowance))
         )
         return attempts
     }
@@ -212,7 +225,8 @@ export class FetchRunner implements FetchPass {
         domain: string,
         backQueue: FetchCandidate[],
         deadlineMs: number,
-        attempts: FetchAttempt[]
+        attempts: FetchAttempt[],
+        allowance: ShedAllowance
     ): Promise<void> {
         let next = 0
         // A refusal is a property of the domain, so it applies to every URL still queued for it.
@@ -224,20 +238,24 @@ export class FetchRunner implements FetchPass {
             }
             ImageFetchRequestMetrics.incOutcome(reason, shed.length)
             const waitMs = this.budget.blockedForMs(domain, Date.now())
+            // Taken before the first await, so two domains shedding at once cannot both read the
+            // same remainder and spend it twice.
+            const takes = Math.min(shed.length, allowance.remaining)
+            allowance.remaining -= takes
             // Together rather than one after another. A shed runs once the pass deadline has passed,
             // and one awaited produce for each of tens of thousands of URLs would run past
             // `max.poll.interval.ms` and lose the partition in the middle of the batch.
             const republished = await Promise.all(
-                shed.slice(0, MAX_SHED_REPUBLISHED).map((candidate) => this.reschedule(candidate, reason, waitMs))
+                shed.slice(0, takes).map((candidate) => this.reschedule(candidate, reason, waitMs))
             )
             for (const attempt of republished) {
                 attempts.push(attempt)
             }
-            for (const candidate of shed.slice(MAX_SHED_REPUBLISHED)) {
+            for (const candidate of shed.slice(takes)) {
                 attempts.push({ candidate, outcome: reason, finished: false, lost: false })
             }
-            if (shed.length > MAX_SHED_REPUBLISHED) {
-                ImageFetchRequestMetrics.incShedDropped(shed.length - MAX_SHED_REPUBLISHED)
+            if (shed.length > takes) {
+                ImageFetchRequestMetrics.incShedDropped(shed.length - takes)
             }
         }
 
