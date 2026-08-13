@@ -60,19 +60,11 @@ Each of these is numbered so a test can name the one it covers.
 6. The lane follows a redirect that stays on the same domain, up to the limit.
 7. The lane publishes a redirect that leaves the domain back to the frontier, keyed by the new
    domain.
-8. Every redirect target passes the URL policy again: public host, HTTPS, the scheme's own port,
-   length, and the SSRF checks in `common/utils/request.ts`.
-
-The three controls do different jobs and none replaces another. HTTPS and the port limit which
-service on a host can be reached. `is_public_host` and the address check at request time limit which
-hosts can be reached, which is the half that matters when the attacker owns the DNS for a name and
-can point it anywhere. The address check runs against the addresses the resolver returned, and those
-same addresses are what the connection uses, so there is no window to rebind between the two.
-
-A name the attacker controls can still be pointed at any public address on 443. That is what any
-crawler does, and the traffic carries our egress addresses rather than any customer identity, so it
-is a reputation question rather than a disclosure one. 9. The lane never follows a redirect from HTTPS to plain HTTP. 10. A republished message carries the original ref. The recording points at that ref, and a hash of
-the redirect target matches nothing.
+8. Every redirect target passes the same checks the first candidate passed. See "What we never
+   connect to".
+9. The lane never follows a redirect from HTTPS to plain HTTP.
+10. A republished message carries the original ref. The recording points at that ref, and a hash of
+    the redirect target matches nothing.
 
 ### Hops and retries share one budget
 
@@ -115,6 +107,41 @@ the redirect target matches nothing.
 31. No metric carries a URL, and no metric carries an unbounded team label. The team ID space is in
     the low millions, so a `team_id` label on a per-request metric is unbounded both in the time
     series database and in the memory of the pod exporting it.
+
+### What we never connect to
+
+32. The lane never opens a connection to a private, loopback, link-local, or otherwise non-public
+    address. Smokescreen enforces this in production, and `httpStaticLookup` enforces it when no
+    proxy is set.
+33. Whatever enforces it must check the resolution it connects with. Two separate resolutions of one
+    name is not a control, because the attacker owns the name and only needs the second to differ.
+34. A URL we already know we would refuse is dropped at the collector, before it reaches the topic:
+    a non-public host, a scheme other than HTTPS, a port the scheme does not own, or a URL past the
+    length limit.
+35. The scheme and the port are checked nowhere else. Smokescreen restricts which addresses are
+    reached, not which service on them, so these two rules are the only ones that do.
+
+**Requirement 33 is the one that is easy to get wrong.** Resolving a name ourselves, checking the
+address, and then handing the name to something that resolves it again looks like a defence and is
+not one. Both mechanisms we use avoid that. Smokescreen resolves the host and connects to what it
+resolved. `httpStaticLookup` hands the checked addresses to undici, which connects to those.
+
+Smokescreen is `PostHog/smokescreen`, a thin wrapper on `stripe/smokescreen`. Its ACL is open, which
+allows any domain, and its private-address blocking is on because the deployment passes no
+`--unsafe-allow-private-ranges`. The ACL says nothing about ports.
+
+**The two rules do different jobs.** The host part of requirement 34 repeats what the address check
+does later, and it earns its place by keeping the volume off the topic rather than by making the
+lane safe. The scheme and port part of it is requirement 35, and nothing else in the system performs
+that check.
+
+**Port and scheme are also the controls DNS cannot defeat.** An attacker who owns a name can point
+it at any address, but cannot change the port we dial or the scheme we speak.
+
+**What stays possible.** A name the attacker controls, pointed at any public address, on 443. We
+connect and the outcome metric says whether something answered. Any scanner does this more cheaply,
+and the request carries our egress addresses rather than a customer's, so it is a reputation
+question rather than a disclosure one. The per-domain rate limit bounds it to one request a second.
 
 ## How a message waits
 
