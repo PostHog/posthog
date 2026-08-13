@@ -4,6 +4,16 @@ import { createHash } from 'node:crypto'
 const DEFAULT_TOP_N = 20
 
 /**
+ * Counters held to find those teams.
+ *
+ * Wider than the reported list so the reported list is right: Space-Saving is exact for any team
+ * whose share is above one over this number, which at 200 means anything above half a percent of
+ * the lane's volume cannot be missed. Bounded because the team ID space is in the low millions and
+ * a map of every team ever seen is the unbounded growth this class exists to avoid.
+ */
+const TRACKED_MULTIPLE = 10
+
+/**
  * Registers of the estimator. 2^12 gives about 1.6% error for a few kilobytes, which is far finer
  * than any decision made from this number.
  */
@@ -23,12 +33,48 @@ const HLL_REGISTERS = 1 << HLL_REGISTER_BITS
 export class TeamVolume {
     private readonly counts = new Map<string, number>()
     private readonly registers = new Uint8Array(HLL_REGISTERS)
+    private readonly capacity: number
+    private total = 0
 
-    constructor(private readonly topN: number = DEFAULT_TOP_N) {}
+    constructor(private readonly topN: number = DEFAULT_TOP_N) {
+        this.capacity = topN * TRACKED_MULTIPLE
+    }
 
+    /**
+     * Space-Saving: a full map replaces its smallest counter rather than growing.
+     *
+     * The replacement inherits the count it displaced, so a team that keeps arriving climbs past
+     * the churn of teams seen once. A busy team therefore cannot be pushed out by a flood of quiet
+     * ones, which is what someone spreading traffic over many project tokens would produce.
+     */
     public record(team: string, count = 1): void {
-        this.counts.set(team, (this.counts.get(team) ?? 0) + count)
+        this.total += count
         this.observeDistinct(team)
+
+        const seen = this.counts.get(team)
+        if (seen !== undefined) {
+            this.counts.set(team, seen + count)
+            return
+        }
+        if (this.counts.size < this.capacity) {
+            this.counts.set(team, count)
+            return
+        }
+        const smallest = this.smallest()
+        this.counts.delete(smallest.team)
+        this.counts.set(team, smallest.count + count)
+    }
+
+    private smallest(): { team: string; count: number } {
+        let team = ''
+        let count = Infinity
+        for (const [candidate, candidateCount] of this.counts) {
+            if (candidateCount < count) {
+                team = candidate
+                count = candidateCount
+            }
+        }
+        return { team, count }
     }
 
     /**
@@ -40,7 +86,9 @@ export class TeamVolume {
     public top(): { team: string; count: number }[] {
         const sorted = [...this.counts].sort((left, right) => right[1] - left[1])
         const named = sorted.slice(0, this.topN).map(([team, count]) => ({ team, count }))
-        const rest = sorted.slice(this.topN).reduce((sum, [, count]) => sum + count, 0)
+        // Everything this pod handled, less what the named rows account for. Taken from the running
+        // total rather than from the untracked counters, which no longer exist.
+        const rest = this.total - named.reduce((sum, { count }) => sum + count, 0)
         return rest > 0 ? [...named, { team: 'other', count: rest }] : named
     }
 
@@ -67,7 +115,7 @@ export class TeamVolume {
         return Math.round(estimate)
     }
 
-    /** Kept between scrapes, so the top list describes the whole life of the pod rather than one window. */
+    /** Counters held right now, which never passes the capacity. */
     public get trackedTeams(): number {
         return this.counts.size
     }
