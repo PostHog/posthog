@@ -1266,9 +1266,18 @@ export const sessionRecordingsPlaylistLogic = kea<sessionRecordingsPlaylistLogic
         // that can move it — deduped, since several of them can land on the same recording.
         const notifyRecordingSelected = (): void => {
             const activeId = values.activeSessionRecordingId
-            if (activeId && cache.lastReportedSelectedRecordingId !== activeId) {
-                cache.lastReportedSelectedRecordingId = activeId
-                props.onRecordingSelected?.(activeId)
+            if (activeId) {
+                if (cache.lastReportedSelectedRecordingId !== activeId) {
+                    cache.lastReportedSelectedRecordingId = activeId
+                    props.onRecordingSelected?.(activeId)
+                }
+            } else if (!values.sessionRecordingsResponseLoading && !values.pinnedRecordingsLoading) {
+                // Settled on the empty state (a reload matched nothing): whatever shows next is
+                // shown afresh — even the recording reported last — so drop the dedupe. While a
+                // load is in flight the empty is transient (one loader's success can observe the
+                // other's reload window), and clearing on it would re-report an unchanged top
+                // recording once the reload lands.
+                cache.lastReportedSelectedRecordingId = undefined
             }
         }
 

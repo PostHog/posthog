@@ -1082,6 +1082,36 @@ describe('sessionRecordingsPlaylistLogic', () => {
             expect(onRecordingSelected.mock.calls).toEqual([[aRecording.id], [bRecording.id], [aRecording.id]])
         })
 
+        it('re-reports a recording that returns after a reload matched nothing', async () => {
+            logic = sessionRecordingsPlaylistLogic({
+                logicKey: 'selection-reporting-empty-gap',
+                autoPlay: true,
+                onRecordingSelected,
+            })
+            logic.mount()
+            await expectLogic(logic).toDispatchActions(['loadSessionRecordingsSuccess'])
+            expect(onRecordingSelected.mock.calls).toEqual([[aRecording.id]])
+
+            // A facet can match nothing: the player unloads into the empty state. When the next
+            // reload brings the same recording back, it autoplays afresh — a new open, not a
+            // re-select of something still on screen.
+            const listSpy = jest
+                .spyOn(api.recordings, 'list')
+                .mockResolvedValueOnce({ results: [], has_next: false } as Awaited<
+                    ReturnType<typeof api.recordings.list>
+                >)
+            logic.actions.loadSessionRecordings()
+            await expectLogic(logic).toDispatchActions(['loadSessionRecordingsSuccess'])
+            expect(onRecordingSelected.mock.calls).toEqual([[aRecording.id]])
+
+            listSpy.mockResolvedValueOnce({ results: listOfSessionRecordings, has_next: false } as Awaited<
+                ReturnType<typeof api.recordings.list>
+            >)
+            logic.actions.loadSessionRecordings()
+            await expectLogic(logic).toDispatchActions(['loadSessionRecordingsSuccess'])
+            expect(onRecordingSelected.mock.calls).toEqual([[aRecording.id], [aRecording.id]])
+        })
+
         it('reports nothing on load without autoPlay — only explicit selection', async () => {
             logic = sessionRecordingsPlaylistLogic({
                 logicKey: 'selection-reporting-no-autoplay',
