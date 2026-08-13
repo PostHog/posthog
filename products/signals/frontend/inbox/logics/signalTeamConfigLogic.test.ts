@@ -130,6 +130,23 @@ describe('signalTeamConfigLogic', () => {
         expect(logic.values.maxReportsPerDay).toBeNull()
     })
 
+    it('treats a cleared (NaN) daily limit input as unlimited', async () => {
+        await mountWith({})
+        logic.actions.setDraftMaxReportsPerDay(5)
+        logic.actions.saveDraftMaxReportsPerDay()
+        await expectLogic(logic).toFinishAllListeners()
+        expect(logic.values.maxReportsPerDay).toBe(5)
+
+        // A cleared number LemonInput emits NaN; it must reset the draft to null, not disable Save.
+        logic.actions.setDraftMaxReportsPerDay(Number.NaN)
+        expect(logic.values.draftMaxReportsPerDay).toBeNull()
+        expect(logic.values.saveMaxReportsPerDayDisabledReason).toBeNull()
+        logic.actions.saveDraftMaxReportsPerDay()
+        await expectLogic(logic).toFinishAllListeners()
+        expect(lastPostBody).toEqual({ max_reports_per_day: null })
+        expect(logic.values.maxReportsPerDay).toBeNull()
+    })
+
     it('blocks saving an invalid or unchanged daily report limit draft', async () => {
         await mountWith({})
         // Loading anchored the draft to the server value, so there is nothing to save yet.

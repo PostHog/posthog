@@ -236,7 +236,9 @@ export const signalTeamConfigLogic = kea<signalTeamConfigLogicType>([
         draftMaxReportsPerDay: [
             null as number | null,
             {
-                setDraftMaxReportsPerDay: (_, { value }) => value,
+                // A cleared number LemonInput emits NaN, which is never a valid draft — treat it as
+                // null ("no limit") so the field can be reset to unlimited.
+                setDraftMaxReportsPerDay: (_, { value }) => (value != null && Number.isNaN(value) ? null : value),
                 loadTeamConfigSuccess: (_, { teamConfig }) => teamConfig?.max_reports_per_day ?? null,
                 patchTeamConfigSuccess: (_, { teamConfig }) => teamConfig?.max_reports_per_day ?? null,
             },
