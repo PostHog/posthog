@@ -30,7 +30,6 @@ import { defaultLoopContextOutputs } from "../../loops/loopFormTypes";
 import type { LoopTemplate } from "../../loops/loopTemplates";
 import { useChannels } from "../hooks/useChannels";
 import { useOrgMembers } from "../hooks/useOrgMembers";
-import { PERSONAL_CHANNEL_NAME } from "../hooks/useTaskChannels";
 
 function contextQuickStarts(name: string): { label: string; prompt: string }[] {
   return [
@@ -75,7 +74,7 @@ export function WebsiteChannelLoops({ channelId }: { channelId: string }) {
   // layout. API-created and other unattached loops have no context_target, so
   // rendering the space-scoped list here incorrectly produces the global
   // "Create your first loop" empty state while those loops already exist.
-  if (channel?.name === PERSONAL_CHANNEL_NAME) {
+  if (channel?.channelType === "personal") {
     return <LoopsListView headerContent={headerContent} />;
   }
 

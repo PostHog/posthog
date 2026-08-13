@@ -9318,6 +9318,10 @@ export namespace Schemas {
       readonly created_at: string;
       /** Insight ID monitored by this alert. Note: Response returns full InsightBasicSerializer object. */
       insight: number;
+      /** Short ID of the insight monitored by this alert. */
+      readonly insight_short_id: string;
+      /** Display name of the insight monitored by this alert. */
+      readonly insight_display_name: string;
       /**
          * Human-readable name for the alert.
          * @maxLength 255
@@ -13498,8 +13502,9 @@ export namespace Schemas {
      * * `started` - Started
      * * `already_running` - Already running
      * * `already_scanned` - Already scanned
-     * * `skipped_limit` - Skipped - in-flight limit reached
-     * * `skipped_quota` - Skipped - monthly credit quota reached
+     * * `skipped_limit` - Skipped, in-flight limit reached
+     * * `skipped_quota` - Skipped, the org's credit quota for this period was reached
+     * * `skipped_scanner_limit` - Skipped, scanner's own credit limit reached
      * * `failed` - Failed to start
      */
     export type ScanOutcomeEnum = typeof ScanOutcomeEnum[keyof typeof ScanOutcomeEnum];
@@ -13511,6 +13516,7 @@ export namespace Schemas {
       AlreadyScanned: 'already_scanned',
       SkippedLimit: 'skipped_limit',
       SkippedQuota: 'skipped_quota',
+      SkippedScannerLimit: 'skipped_scanner_limit',
       Failed: 'failed',
     } as const;
 
@@ -13520,13 +13526,14 @@ export namespace Schemas {
     export interface BulkObserveResult {
       /** The session recording this outcome is for. */
       session_id: string;
-      /** 'started' - a scan workflow was kicked off; 'already_running' - a scan for this session is already in flight (no-op, not recharged); 'already_scanned' - this scanner already has a finished observation for this session, so nothing was started and nothing was charged (read it back, or use the retry action to run it again); 'skipped_limit' - the in-flight cap was reached before this session; 'skipped_quota' - the monthly credit quota would be exceeded; 'failed' - the workflow failed to start.
+      /** 'started' - a scan workflow was kicked off; 'already_running' - a scan for this session is already in flight (no-op, not recharged); 'already_scanned' - this scanner already has a finished observation for this session, so nothing was started and nothing was charged (read it back, or use the retry action to run it again); 'skipped_limit' - the in-flight cap was reached before this session; 'skipped_quota' - the org's credit quota for this period would be exceeded; 'skipped_scanner_limit' - this scanner's own credit limit would be exceeded; 'failed' - the workflow failed to start.
        *
        * * `started` - Started
        * * `already_running` - Already running
        * * `already_scanned` - Already scanned
-       * * `skipped_limit` - Skipped - in-flight limit reached
-       * * `skipped_quota` - Skipped - monthly credit quota reached
+       * * `skipped_limit` - Skipped, in-flight limit reached
+       * * `skipped_quota` - Skipped, the org's credit quota for this period was reached
+       * * `skipped_scanner_limit` - Skipped, scanner's own credit limit reached
        * * `failed` - Failed to start */
       scan_outcome: ScanOutcomeEnum;
     }
@@ -18411,6 +18418,16 @@ export namespace Schemas {
          * @nullable
          */
       readonly folder: string | null;
+      /**
+         * Id of this dashboard's file system entry, or null when it has none. Together with `file_system_path` this is everything a caller needs to move the dashboard between folders, so a list page does not have to look the entry up separately.
+         * @nullable
+         */
+      readonly file_system_id: string | null;
+      /**
+         * Full path of this dashboard's file system entry, e.g. 'Unfiled/Dashboards/Revenue'. Unlike `folder` this keeps the dashboard's own name as the last segment, which is what a move needs in order to compute the destination path. Null when it has no entry.
+         * @nullable
+         */
+      readonly file_system_path: string | null;
       readonly is_shared: boolean;
       deleted?: boolean;
       readonly creation_mode: CreationModeEnum;
@@ -18485,6 +18502,16 @@ export namespace Schemas {
          * @nullable
          */
       readonly folder: string | null;
+      /**
+         * Id of this dashboard's file system entry, or null when it has none. Together with `file_system_path` this is everything a caller needs to move the dashboard between folders, so a list page does not have to look the entry up separately.
+         * @nullable
+         */
+      readonly file_system_id: string | null;
+      /**
+         * Full path of this dashboard's file system entry, e.g. 'Unfiled/Dashboards/Revenue'. Unlike `folder` this keeps the dashboard's own name as the last segment, which is what a move needs in order to compute the destination path. Null when it has no entry.
+         * @nullable
+         */
+      readonly file_system_path: string | null;
       readonly is_shared: boolean;
       readonly deleted: boolean;
       readonly creation_mode: CreationModeEnum;
@@ -18750,7 +18777,7 @@ export namespace Schemas {
     export interface DataCatalogMetric {
       readonly id: string;
       /**
-         * Identifier-safe run handle, unique per team and reserved forever. Write-once.
+         * Identifier-safe run handle, unique among the team's live metrics. Renaming or deleting a metric frees its name for reuse, and anything referencing the old name (SQL over information_schema.metrics, run URLs, links) stops resolving.
          * @maxLength 128
          * @pattern ^[A-Za-z][A-Za-z0-9_]*$
          */
@@ -19250,6 +19277,121 @@ export namespace Schemas {
     } as const;
 
     /**
+     * * `tiered` - tiered
+     * * `dag_schedule` - dag_schedule
+     * * `managed_viewset` - managed_viewset
+     * * `legacy` - legacy
+     * * `no_node` - no_node
+     */
+    export type FrequencyModeEnum = typeof FrequencyModeEnum[keyof typeof FrequencyModeEnum];
+
+
+    export const FrequencyModeEnum = {
+      Tiered: 'tiered',
+      DagSchedule: 'dag_schedule',
+      ManagedViewset: 'managed_viewset',
+      Legacy: 'legacy',
+      NoNode: 'no_node',
+    } as const;
+
+    /**
+     * * `15min` - 15min
+     * * `30min` - 30min
+     * * `1hour` - 1hour
+     * * `6hour` - 6hour
+     * * `12hour` - 12hour
+     * * `24hour` - 24hour
+     * * `7day` - 7day
+     * * `30day` - 30day
+     */
+    export type MaterializeSyncFrequencyEnum = typeof MaterializeSyncFrequencyEnum[keyof typeof MaterializeSyncFrequencyEnum];
+
+
+    export const MaterializeSyncFrequencyEnum = {
+      '15min': '15min',
+      '30min': '30min',
+      '1hour': '1hour',
+      '6hour': '6hour',
+      '12hour': '12hour',
+      '24hour': '24hour',
+      '7day': '7day',
+      '30day': '30day',
+    } as const;
+
+    /**
+     * * `source` - source
+     * * `consumer` - consumer
+     */
+    export type SyncFrequencyBlockedByEnum = typeof SyncFrequencyBlockedByEnum[keyof typeof SyncFrequencyBlockedByEnum];
+
+
+    export const SyncFrequencyBlockedByEnum = {
+      Source: 'source',
+      Consumer: 'consumer',
+    } as const;
+
+    /**
+     * The node holding a cadence back, named so a refusal points at something a person can open.
+     */
+    export interface SyncFrequencyBlocker {
+      /** Data modeling node ID of the source or view. */
+      id: string;
+      /** Node name, as it appears in the data modeling graph. */
+      name: string;
+    }
+
+    export interface SyncFrequencyOption {
+      /** A `sync_frequency` value.
+       *
+       * * `15min` - 15min
+       * * `30min` - 30min
+       * * `1hour` - 1hour
+       * * `6hour` - 6hour
+       * * `12hour` - 12hour
+       * * `24hour` - 24hour
+       * * `7day` - 7day
+       * * `30day` - 30day */
+      cadence: MaterializeSyncFrequencyEnum;
+      /** False when writing this cadence would be rejected. */
+      allowed: boolean;
+      /** Which side withholds this cadence: 'source' when no upstream source syncs that often, 'consumer' when a downstream view or endpoint refreshes more often than this. Null when the cadence is allowed.
+       *
+       * * `source` - source
+       * * `consumer` - consumer */
+      blocked_by: SyncFrequencyBlockedByEnum | null;
+      /** The source or consumer named in `blocked_by`. Null when allowed, and also when the blocker sits outside the caller's access grants, where `blocked_by` still gives the direction. */
+      blocker: SyncFrequencyBlocker | null;
+    }
+
+    export interface SyncFrequencyBound {
+      /** The bounding cadence in plain English, for example '6 hours'. Matches the wording used in the error raised when an out-of-bounds cadence is written. Prose rather than a `sync_frequency` value because a source can deliver on a cadence no `sync_frequency` names. */
+      label: string;
+      /** Node that set this bound. Null when nothing identifiable set it, and also when it sits outside the caller's access grants: the bound still applies, it just goes unnamed. */
+      blocker: SyncFrequencyBlocker | null;
+    }
+
+    export interface SyncFrequencyBounds {
+      /** What governs this view's cadence. 'tiered' is the only mode where `options` is meaningful and `sync_frequency` is writable per view. 'dag_schedule' means the team's single DAG schedule owns it, 'managed_viewset' means PostHog owns the view, 'legacy' means the v1 backend, where any cadence is accepted and no bounds apply, and 'no_node' means the view has no data modeling node to store a cadence on.
+       *
+       * * `tiered` - tiered
+       * * `dag_schedule` - dag_schedule
+       * * `managed_viewset` - managed_viewset
+       * * `legacy` - legacy
+       * * `no_node` - no_node */
+      frequency_mode: FrequencyModeEnum;
+      /** Every cadence a picker may show, coarsest-last, each marked allowed or blocked with its cause. Empty outside 'tiered' mode. */
+      options: SyncFrequencyOption[];
+      /** The fastest bound: no cadence finer than this is allowed, because the source named here does not sync more often. Null when no source withholds a cadence. */
+      floor: SyncFrequencyBound | null;
+      /** The slowest bound: no cadence coarser than this is allowed, because the consumer named here refreshes that often. Null when no consumer withholds a cadence. */
+      ceiling: SyncFrequencyBound | null;
+      /** Upstream sources with no sync schedule, so the floor is a guess: these arrive when someone runs them, and refreshing more often than they really sync will serve stale data. Only sources the caller may read are listed. */
+      best_effort_sources: SyncFrequencyBlocker[];
+      /** True when at least one such source sits outside the caller's access grants, so the list above is incomplete and the caveat still applies. */
+      best_effort_sources_withheld: boolean;
+    }
+
+    /**
      * * `Cancelled` - Cancelled
      * * `Modified` - Modified
      * * `Completed` - Completed
@@ -19318,6 +19460,8 @@ export namespace Schemas {
       sync_frequency?: SavedQuerySyncFrequencyEnum | null;
       /** True when this team's DAG owns the materialization cadence through a single schedule, so `sync_frequency` cannot be set per view and writes to it are rejected. False when per-node DAG schedules are in use or the team is on the v1 backend. False does not on its own mean the cadence is writable: a view belonging to a managed viewset rejects every update regardless, which `managed_viewset_kind` reports. */
       readonly sync_frequency_managed_by_dag: boolean;
+      /** Which cadences this view can actually be set to, and what withholds the rest. Computed from the view's data modeling lineage: upstream source sync frequencies set a floor, downstream cadences set a ceiling. Read-only, and present on retrieve, create and update responses only. */
+      readonly sync_frequency_bounds: SyncFrequencyBounds;
       readonly columns: readonly DataWarehouseSavedQueryColumnsItem[];
       /** The status of when this SavedQuery last ran.
        *
@@ -19808,10 +19952,14 @@ export namespace Schemas {
     export interface DatabaseSchemaQuery {
       /** Optional direct external data source id for schema introspection */
       connectionId?: string | null;
+      /** When false, skip serializing each table's fields (`fields` comes back empty). Defaults to true. */
+      includeFields?: boolean | null;
       kind?: 'DatabaseSchemaQuery';
       /** Modifiers used when performing the query */
       modifiers?: HogQLQueryModifiers | null;
       response?: DatabaseSchemaQueryResponse | null;
+      /** Only serialize these tables (keys as returned in the response, e.g. `events` or `zendesk.groups`). Omit for all tables. */
+      tables?: string[] | null;
       tags?: QueryLogTags | null;
       /** version of the node, used for schema migrations */
       version?: number | null;
@@ -27292,6 +27440,7 @@ export namespace Schemas {
      * * `snowflake` - snowflake
      * * `redshift` - redshift
      * * `clickhouse` - clickhouse
+     * * `motherduck` - motherduck
      */
     export type EngineEnum = typeof EngineEnum[keyof typeof EngineEnum];
 
@@ -27303,6 +27452,7 @@ export namespace Schemas {
       Snowflake: 'snowflake',
       Redshift: 'redshift',
       Clickhouse: 'clickhouse',
+      Motherduck: 'motherduck',
     } as const;
 
     export interface EngineeringAnalyticsCIBrokenDefaultBranchSignalExtra {
@@ -31362,6 +31512,7 @@ export namespace Schemas {
     /**
      * * `behavior` - behavior
      * * `friction` - friction
+     * * `variant_only` - variant_only
      * * `metric` - metric
      */
     export type ExperimentWatchCardKindEnum = typeof ExperimentWatchCardKindEnum[keyof typeof ExperimentWatchCardKindEnum];
@@ -31370,6 +31521,7 @@ export namespace Schemas {
     export const ExperimentWatchCardKindEnum = {
       Behavior: 'behavior',
       Friction: 'friction',
+      VariantOnly: 'variant_only',
       Metric: 'metric',
     } as const;
 
@@ -31390,6 +31542,16 @@ export namespace Schemas {
     } as const;
 
     /**
+     * One recording a card names first, and the phrase that says why.
+     */
+    export interface ExperimentWatchHighlight {
+      /** The recording to open. Always one of the card's own session_ids. */
+      session_id: string;
+      /** Everything this recording carries that earned it the place, ready to render as-is, for example '6 rage clicks, 6 errors' or '1 error, did this 4 times'. Every signal the session shows is listed, so the phrase is the whole picture rather than the single strongest part of it. Friction counts cover the whole session; 'did this N times' counts the card's own event. Not a comparison and not a reason the card exists. */
+      reason: string;
+    }
+
+    /**
      * One group of recordings worth opening, and the sentence that justifies it.
      *
      * Deliberately no rate, no ratio and no person count: a precise number next to an event name is
@@ -31398,10 +31560,11 @@ export namespace Schemas {
      * card can actually show.
      */
     export interface ExperimentWatchCard {
-      /** What the card is: 'behavior' for an event this variant did clearly more than the other variants together, 'friction' for the same finding on an error or rage signal, 'metric' for a shortcut to recordings around one of the experiment's own metric events. Metric cards claim nothing about how the metric moved: that is the experiment results' answer.
+      /** What the card is: 'behavior' for an event this variant did clearly more than the other variants together, 'friction' for the same finding on an error or rage signal, 'variant_only' for an event no other variant fired at all, and 'metric' for a shortcut to recordings around one of the experiment's own metric events. A 'variant_only' card shows the variant rendering its own change rather than a behavior difference, so present it as confirmation the change is live and never as a finding. Metric cards claim nothing about how the metric moved: that is the experiment results' answer.
        *
        * * `behavior` - behavior
        * * `friction` - friction
+       * * `variant_only` - variant_only
        * * `metric` - metric */
       kind: ExperimentWatchCardKindEnum;
       /** The event behind the card. */
@@ -31416,7 +31579,7 @@ export namespace Schemas {
        * * `slightly_more` - slightly_more */
       strength: ExperimentWatchCardStrengthEnum | null;
       /**
-         * The metric whose event this card shortcuts to. Null outside metric cards.
+         * The metric this card's event belongs to, on a comparison card as well as on a shortcut card. When set, the experiment's results measure this event over the whole run window with the statistics that go with a result, so say the card points there and never present the card as a second answer about that metric. Null when no metric counts the event.
          * @nullable
          */
       metric_name: string | null;
@@ -31424,6 +31587,8 @@ export namespace Schemas {
       recording_count: number;
       /** The recordings themselves, most recent first, ready to hand to the recordings list as-is. */
       session_ids: string[];
+      /** Which of the card's recordings to open first, at most 3, ranked by how much each one carries: recordings showing several kinds of signal at once come before recordings showing more of a single kind. Offer these before the full list: the recordings list orders by its own sort, so session_ids order never reaches the viewer, and twenty recordings that share an event are otherwise indistinguishable in it. Empty when no recording the viewer can open carries a signal, which is worth saying rather than hiding. */
+      highlights: ExperimentWatchHighlight[];
     }
 
     /**
@@ -31458,7 +31623,7 @@ export namespace Schemas {
      * state the magnitudes. Nothing here says a variant is winning.
      */
     export interface ExperimentSessionEventDeltaResponse {
-      /** The shelf, strongest comparison first, then metric shortcuts. Events the variants can't be told apart on get no card at all rather than a weak one, so an empty shelf means no difference was big enough to be sure of, not that nothing was measured. The experiment's own metric events never appear as comparisons: see metric_events. */
+      /** The shelf, strongest comparison first, then the variant's own rendering, then metric shortcuts. Events the variants can't be told apart on get no card at all rather than a weak one, so an empty shelf means no difference was big enough to be sure of, not that nothing was measured. Group by kind before presenting: a 'variant_only' card outranks every real difference by construction, and reading the shelf in order would report it as the headline. */
       cards: ExperimentWatchCard[];
       /** Every variant's compared population, in the flag's variant order. */
       arms: ExperimentWatchArm[];
@@ -31469,7 +31634,7 @@ export namespace Schemas {
        * * `exclude` - exclude
        * * `first_seen` - first_seen */
       multiple_variant_handling: ExperimentWatchMultipleVariantHandlingEnum;
-      /** The experiment's own metric events, which never enter the behavior comparison. They are the events it was built to move, so they would top the ranking on nearly every experiment, and the experiment's results already say what happened to them with the statistics that go with a result. They can appear as 'metric' shortcut cards, which claim nothing. */
+      /** The events the experiment's own metrics count. A card on one of these carries metric_name and must be read as pointing at the experiment's results, which measure the same event over the whole run window with the statistics that go with a result. Cards state no magnitude for exactly this reason, so never turn one into a claim about how the metric moved. */
       metric_events: string[];
       /** Start of what was actually compared. The requested window is the experiment's run window clamped to its most recent 14 days (2 when sessions are matched on the stamped flag property, which no event name can prune a scan on), but a busy experiment reaches the session ceiling long before that, and this reports where the compared sessions really begin - often hours rather than days back. Display this, not the experiment's own dates. */
       date_from: string;
@@ -32158,7 +32323,8 @@ export namespace Schemas {
        * * `mysql` - mysql
        * * `snowflake` - snowflake
        * * `redshift` - redshift
-       * * `clickhouse` - clickhouse */
+       * * `clickhouse` - clickhouse
+       * * `motherduck` - motherduck */
       readonly engine: EngineEnum | null;
       /** The source type (e.g. 'Postgres', 'MySQL', 'Snowflake').
        *
@@ -34927,7 +35093,8 @@ export namespace Schemas {
        * * `mysql` - mysql
        * * `snowflake` - snowflake
        * * `redshift` - redshift
-       * * `clickhouse` - clickhouse */
+       * * `clickhouse` - clickhouse
+       * * `motherduck` - motherduck */
       readonly engine: EngineEnum | null;
       /** @nullable */
       readonly last_run_at: string | null;
@@ -35344,6 +35511,91 @@ export namespace Schemas {
          * @nullable
          */
       readonly modified_by: number | null;
+    }
+
+    /**
+     * * `requested` - Requested
+     */
+    export type RequestStatusEnum = typeof RequestStatusEnum[keyof typeof RequestStatusEnum];
+
+
+    export const RequestStatusEnum = {
+      Requested: 'requested',
+    } as const;
+
+    export interface FeatureRequestAccount {
+      /** ID of the affected Customer Analytics account. */
+      readonly id: string;
+      /** Name of the affected account. */
+      readonly name: string;
+    }
+
+    export interface FeatureRequestProductArea {
+      /** Stable product area ID. */
+      readonly id: string;
+      /**
+         * Team-maintained product area name.
+         * @maxLength 200
+         */
+      name: string;
+      /**
+         * Position in product area selectors. Lower values appear first.
+         * @minimum 0
+         */
+      display_order?: number;
+      /** Whether editors can select this product area for new requests. */
+      is_active?: boolean;
+      /** When the product area was created. */
+      readonly created_at: string;
+      /** When the product area was last updated. */
+      readonly updated_at: string;
+    }
+
+    export interface FeatureRequest {
+      /** Stable feature request ID. */
+      readonly id: string;
+      /** Customer-facing request title. */
+      readonly title: string;
+      /** Customer-facing request description in Markdown. */
+      readonly description: string;
+      /** Current customer-facing status. The first release always creates requests as requested.
+       *
+       * * `requested` - Requested */
+      readonly request_status: RequestStatusEnum;
+      /** Affected account in the first release. */
+      readonly account: FeatureRequestAccount;
+      /** Product areas affected by this request. */
+      readonly product_areas: readonly FeatureRequestProductArea[];
+      /**
+         * ID of the user who created the request.
+         * @nullable
+         */
+      readonly created_by: number | null;
+      /**
+         * ID of the last user to update the request.
+         * @nullable
+         */
+      readonly updated_by: number | null;
+      /** When the request was created. */
+      readonly created_at: string;
+      /** When the request was last updated. */
+      readonly updated_at: string;
+    }
+
+    export interface FeatureRequestCreate {
+      /**
+         * Required customer-facing request title.
+         * @maxLength 400
+         */
+      title: string;
+      /** Required customer-facing request description in Markdown. */
+      description: string;
+      /** ID of the affected Customer Analytics account. */
+      account_id: string;
+      /** One or more active product area IDs. Duplicate IDs are ignored. */
+      product_area_ids: string[];
+      /** Client-generated key that makes retries return the original request instead of creating a duplicate. */
+      idempotency_key: string;
     }
 
     export interface FeaturebaseFeedbackSignalExtra {
@@ -35896,11 +36148,13 @@ export namespace Schemas {
     } as const;
 
     /**
-     * One agent's access to a gateway server.
+     * One agent's access to a gateway server, on behalf of one member.
      */
     export interface GatewayAgentAccess {
       /** Service account granted access. */
       service_account_id: string;
+      /** The member whose connection the agent uses. */
+      user: UserBasic;
       /** Agent display name. */
       name: string;
       /** Agent identity handle, e.g. posthog-support. */
@@ -35915,7 +36169,7 @@ export namespace Schemas {
          * @nullable
          */
       last_active_at: string | null;
-      /** Admin who shared this server with the agent. */
+      /** Member who shared this server with the agent. */
       granted_by: UserBasic | null;
     }
 
@@ -39294,11 +39548,6 @@ export namespace Schemas {
       Unknown: 'unknown',
     } as const;
 
-    export interface SummaryOutcome {
-      description?: string | null;
-      success?: boolean | null;
-    }
-
     export interface SessionRecordingType {
       active_seconds?: number | null;
       /** calculated on the backend so that we can sort by it, definition may change over time */
@@ -39341,7 +39590,6 @@ export namespace Schemas {
       start_time: string;
       start_url?: string | null;
       summary?: string | null;
-      summary_outcome?: SummaryOutcome | null;
       /** Whether this recording has been viewed by you already. */
       viewed: boolean;
       /** user ids of other users who have viewed this recording */
@@ -42514,6 +42762,8 @@ export namespace Schemas {
          * @minimum 0
          */
       cooldown_minutes?: number;
+      /** Blocked local time windows when the alert must not run. Times use the project timezone. Null disables quiet hours. */
+      schedule_restriction?: AlertScheduleRestriction | null;
       /**
          * ISO 8601 timestamp until which the alert is snoozed. Set to null to unsnooze.
          * @nullable
@@ -44561,6 +44811,8 @@ export namespace Schemas {
     export interface MCPServiceAccountServer {
       /** Gateway server granted to the agent. */
       id: string;
+      /** The member whose connection the agent uses. */
+      shared_by: UserBasic;
       /** Server display name. */
       name: string;
       /** Server description. */
@@ -46285,6 +46537,38 @@ export namespace Schemas {
       prompt: string;
       /** The full type-specific config this version ran with (prompt plus, depending on scanner type, allow_inconclusive, tags, scale, or length), taken from the observation run snapshots. */
       scanner_config: unknown;
+      /**
+         * The scanner type this version ran as.
+         * @nullable
+         */
+      scanner_type: string | null;
+      /**
+         * The model this version ran on.
+         * @nullable
+         */
+      model: string | null;
+      /**
+         * The provider this version ran on.
+         * @nullable
+         */
+      provider: string | null;
+      /**
+         * Whether this version emitted signals.
+         * @nullable
+         */
+      emits_signals: boolean | null;
+      /** The `RecordingsQuery` recording filters this version ran with. */
+      query: unknown;
+      /**
+         * The 0..1 downsample this version ran with.
+         * @nullable
+         */
+      sampling_rate: number | null;
+      /**
+         * The session-coverage pre-filter this version ran with.
+         * @nullable
+         */
+      sampling_mode: string | null;
       /** Thumbs-up ratings on this version's observations. */
       up: number;
       /** Thumbs-down ratings on this version's observations. */
@@ -46302,7 +46586,7 @@ export namespace Schemas {
       by_day: ObservationLabelDayCount[];
       /** Daily label counts over the last `recent_days` days, bucketed by the day the rating was last set or changed: the team's rating activity. Days without rating changes are omitted. */
       by_rating_day: ObservationLabelDayCount[];
-      /** Each scanner (prompt) version that produced observations (all-time), with its first day, prompt, and rating counts, for chart markers and the prompt version history. */
+      /** Each scanner version that produced observations (all-time), with its first day, the config it ran with, and rating counts, for chart markers and the config version history. */
       version_markers: ObservationVersionMarker[];
     }
 
@@ -47023,20 +47307,6 @@ export namespace Schemas {
       ExponentialHistogram: 'exponential_histogram',
       Summary: 'summary',
     } as const;
-
-    /**
-     * Initial goal and session outcome coming from LLM.
-     */
-    export interface Outcome {
-      /**
-         * @minLength 1
-         * @maxLength 10000
-         * @nullable
-         */
-      description?: string | null;
-      /** @nullable */
-      success?: boolean | null;
-    }
 
     export interface OutdatedTrafficAlert {
       /** Outdated version handling significant traffic. */
@@ -47992,6 +48262,15 @@ export namespace Schemas {
       /** @nullable */
       previous?: string | null;
       results: FeatureFlag[];
+    }
+
+    export interface PaginatedFeatureRequestList {
+      count: number;
+      /** @nullable */
+      next?: string | null;
+      /** @nullable */
+      previous?: string | null;
+      results: FeatureRequest[];
     }
 
     export interface PaginatedFieldNoteList {
@@ -49896,24 +50175,6 @@ export namespace Schemas {
       results: ScoreDefinition[];
     }
 
-    export interface SessionGroupSummaryMinimal {
-      readonly id: string;
-      /** Title of the group session summary */
-      readonly title: string;
-      readonly session_count: number;
-      readonly created_at: string;
-      readonly created_by: UserBasic;
-    }
-
-    export interface PaginatedSessionGroupSummaryMinimalList {
-      count: number;
-      /** @nullable */
-      next?: string | null;
-      /** @nullable */
-      previous?: string | null;
-      results: SessionGroupSummaryMinimal[];
-    }
-
     /**
      * Read-only serializer for Integration info embedded in external references
      */
@@ -50000,8 +50261,6 @@ export namespace Schemas {
       readonly ongoing: boolean;
       /** @nullable */
       readonly activity_score: number | null;
-      readonly has_summary: boolean;
-      readonly summary_outcome: Outcome | null;
       /** Load external references (linked issues) for this recording */
       readonly external_references: readonly SessionRecordingExternalReferencesItem[];
       /** Whether this recording matched the filters of the listing query that returned it. False only when a recording requested via session_recording_id was included despite not matching the filters. */
@@ -50483,79 +50742,6 @@ export namespace Schemas {
       /** @nullable */
       previous?: string | null;
       results: SignalSourceConfig[];
-    }
-
-    /**
-     * Headline outcome from the summary: `{success: bool, description: string}` or null if the summary did not record one. Useful for quickly classifying a session as success/failure.
-     * @nullable
-     */
-    export type SingleSessionSummaryMinimalSessionOutcome = {
-      readonly success?: boolean;
-      readonly description?: string;
-    } | null;
-
-    /**
-     * Optional context passed to the summary at generation time (e.g. `focus_area`).
-     * @nullable
-     */
-    export type SingleSessionSummaryMinimalExtraSummaryContext = {
-      readonly focus_area?: string;
-    } | null;
-
-    /**
-     * Lightweight projection for list endpoints — omits the full `summary` JSON (~50 KB per row).
-     */
-    export interface SingleSessionSummaryMinimal {
-      readonly id: string;
-      /** Session replay ID */
-      readonly session_id: string;
-      /**
-         * Distinct ID of the session's user
-         * @nullable
-         */
-      readonly distinct_id: string | null;
-      /**
-         * Session start time
-         * @nullable
-         */
-      readonly session_start_time: string | null;
-      /**
-         * Session duration in seconds
-         * @nullable
-         */
-      readonly session_duration: number | null;
-      /**
-         * Headline outcome from the summary: `{success: bool, description: string}` or null if the summary did not record one. Useful for quickly classifying a session as success/failure.
-         * @nullable
-         */
-      readonly session_outcome: SingleSessionSummaryMinimalSessionOutcome;
-      /** Number of exception event IDs surfaced by this summary (capped at 100). */
-      readonly exception_count: number;
-      /** True if the summary surfaced any exception events. */
-      readonly has_exceptions: boolean;
-      /**
-         * LLM model identifier that generated this summary, if recorded in run metadata.
-         * @nullable
-         */
-      readonly model_used: string | null;
-      /** True if the summary was produced with video-based visual confirmation (the rasterized-recording path). */
-      readonly visual_confirmation: boolean;
-      /**
-         * Optional context passed to the summary at generation time (e.g. `focus_area`).
-         * @nullable
-         */
-      readonly extra_summary_context: SingleSessionSummaryMinimalExtraSummaryContext;
-      readonly created_at: string;
-      readonly created_by: UserBasic | null;
-    }
-
-    export interface PaginatedSingleSessionSummaryMinimalList {
-      count: number;
-      /** @nullable */
-      next?: string | null;
-      /** @nullable */
-      previous?: string | null;
-      results: SingleSessionSummaryMinimal[];
     }
 
     export interface SnapshotHistoryEntry {
@@ -53408,6 +53594,10 @@ export namespace Schemas {
       readonly created_at?: string;
       /** Insight ID monitored by this alert. Note: Response returns full InsightBasicSerializer object. */
       insight?: number;
+      /** Short ID of the insight monitored by this alert. */
+      readonly insight_short_id?: string;
+      /** Display name of the insight monitored by this alert. */
+      readonly insight_display_name?: string;
       /**
          * Human-readable name for the alert.
          * @maxLength 255
@@ -54120,7 +54310,7 @@ export namespace Schemas {
     export interface PatchedDataCatalogMetric {
       readonly id?: string;
       /**
-         * Identifier-safe run handle, unique per team and reserved forever. Write-once.
+         * Identifier-safe run handle, unique among the team's live metrics. Renaming or deleting a metric frees its name for reuse, and anything referencing the old name (SQL over information_schema.metrics, run URLs, links) stops resolving.
          * @maxLength 128
          * @pattern ^[A-Za-z][A-Za-z0-9_]*$
          */
@@ -54304,6 +54494,8 @@ export namespace Schemas {
       sync_frequency?: SavedQuerySyncFrequencyEnum | null;
       /** True when this team's DAG owns the materialization cadence through a single schedule, so `sync_frequency` cannot be set per view and writes to it are rejected. False when per-node DAG schedules are in use or the team is on the v1 backend. False does not on its own mean the cadence is writable: a view belonging to a managed viewset rejects every update regardless, which `managed_viewset_kind` reports. */
       readonly sync_frequency_managed_by_dag?: boolean;
+      /** Which cadences this view can actually be set to, and what withholds the rest. Computed from the view's data modeling lineage: upstream source sync frequencies set a floor, downstream cadences set a ceiling. Read-only, and present on retrieve, create and update responses only. */
+      readonly sync_frequency_bounds?: SyncFrequencyBounds;
       readonly columns?: readonly PatchedDataWarehouseSavedQueryColumnsItem[];
       /** The status of when this SavedQuery last ran.
        *
@@ -55618,7 +55810,8 @@ export namespace Schemas {
        * * `mysql` - mysql
        * * `snowflake` - snowflake
        * * `redshift` - redshift
-       * * `clickhouse` - clickhouse */
+       * * `clickhouse` - clickhouse
+       * * `motherduck` - motherduck */
       readonly engine?: EngineEnum | null;
       /** @nullable */
       readonly last_run_at?: string | null;
@@ -55678,6 +55871,27 @@ export namespace Schemas {
        * * `distinct_id` - User ID (default)
        * * `device_id` - Device ID */
       bucketing_identifier?: BucketingIdentifierEnum | null;
+    }
+
+    export interface PatchedFeatureRequestProductArea {
+      /** Stable product area ID. */
+      readonly id?: string;
+      /**
+         * Team-maintained product area name.
+         * @maxLength 200
+         */
+      name?: string;
+      /**
+         * Position in product area selectors. Lower values appear first.
+         * @minimum 0
+         */
+      display_order?: number;
+      /** Whether editors can select this product area for new requests. */
+      is_active?: boolean;
+      /** When the product area was created. */
+      readonly created_at?: string;
+      /** When the product area was last updated. */
+      readonly updated_at?: string;
     }
 
     /**
@@ -56638,6 +56852,8 @@ export namespace Schemas {
          * @minimum 0
          */
       cooldown_minutes?: number;
+      /** Blocked local time windows when the alert must not run. Times use the project timezone. Null disables quiet hours. */
+      schedule_restriction?: AlertScheduleRestriction | null;
       /**
          * ISO 8601 timestamp until which the alert is snoozed. Set to null to unsnooze.
          * @nullable
@@ -58847,26 +59063,6 @@ export namespace Schemas {
       archived?: boolean;
     }
 
-    export interface PatchedSessionGroupSummary {
-      readonly id?: string;
-      /** Title of the group session summary */
-      readonly title?: string;
-      /**
-         * List of session replay IDs included in this group summary
-         * @items.maxLength 200
-         */
-      readonly session_ids?: readonly string[];
-      /** Group summary in JSON format (EnrichedSessionGroupSummaryPatternsList schema) */
-      readonly summary?: unknown;
-      /** Additional context passed to the summary (ExtraSummaryContext schema) */
-      readonly extra_summary_context?: unknown;
-      /** Summary run metadata (SessionSummaryRunMeta schema) */
-      readonly run_metadata?: unknown;
-      readonly created_at?: string;
-      readonly created_by?: UserBasic;
-      readonly team?: number;
-    }
-
     export type PatchedSessionRecordingExternalReferencesItem = { [key: string]: unknown };
 
     export interface PatchedSessionRecording {
@@ -58912,8 +59108,6 @@ export namespace Schemas {
       readonly ongoing?: boolean;
       /** @nullable */
       readonly activity_score?: number | null;
-      readonly has_summary?: boolean;
-      readonly summary_outcome?: Outcome | null;
       /** Load external references (linked issues) for this recording */
       readonly external_references?: readonly PatchedSessionRecordingExternalReferencesItem[];
       /** Whether this recording matched the filters of the listing query that returned it. False only when a recording requested via session_recording_id was included despite not matching the filters. */
@@ -58980,21 +59174,6 @@ export namespace Schemas {
       /** Return whether this is a synthetic playlist */
       readonly is_synthetic?: boolean;
       _create_in_folder?: string;
-    }
-
-    /**
-     * Team-defined tags layered on top of the fixed taxonomy, as a {name: description} map. Names must be lowercase snake_case (max 60 chars), descriptions max 200 chars, max 15 entries.
-     */
-    export type PatchedSessionSummariesConfigCustomTags = {[key: string]: string};
-
-    export interface PatchedSessionSummariesConfig {
-      /**
-         * Free-form description of the team's product, used to tailor AI-generated single-session replay summaries. Injected into the system prompt of every summary generated for this team via the replay page.
-         * @maxLength 10000
-         */
-      product_context?: string;
-      /** Team-defined tags layered on top of the fixed taxonomy, as a {name: description} map. Names must be lowercase snake_case (max 60 chars), descriptions max 200 chars, max 15 entries. */
-      custom_tags?: PatchedSessionSummariesConfigCustomTags;
     }
 
     /**
@@ -68447,30 +68626,6 @@ export namespace Schemas {
     }
 
     /**
-     * * `15min` - 15min
-     * * `30min` - 30min
-     * * `1hour` - 1hour
-     * * `6hour` - 6hour
-     * * `12hour` - 12hour
-     * * `24hour` - 24hour
-     * * `7day` - 7day
-     * * `30day` - 30day
-     */
-    export type SavedQueryMaterializeSyncFrequencyEnum = typeof SavedQueryMaterializeSyncFrequencyEnum[keyof typeof SavedQueryMaterializeSyncFrequencyEnum];
-
-
-    export const SavedQueryMaterializeSyncFrequencyEnum = {
-      '15min': '15min',
-      '30min': '30min',
-      '1hour': '1hour',
-      '6hour': '6hour',
-      '12hour': '12hour',
-      '24hour': '24hour',
-      '7day': '7day',
-      '30day': '30day',
-    } as const;
-
-    /**
      * Body of the `materialize` action: which cadence to enable materialization at.
      */
     export interface SavedQueryMaterialize {
@@ -68484,7 +68639,7 @@ export namespace Schemas {
        * * `24hour` - 24hour
        * * `7day` - 7day
        * * `30day` - 30day */
-      sync_frequency?: SavedQueryMaterializeSyncFrequencyEnum;
+      sync_frequency?: MaterializeSyncFrequencyEnum;
     }
 
     export interface SavedQueryResume {
@@ -68958,35 +69113,17 @@ export namespace Schemas {
     } as const;
 
     export interface ServiceAccountAccessUpdate {
-      /** Gateway server to grant or revoke. */
+      /** Gateway server to share or stop sharing. */
       gateway_server_id: string;
-      /** True grants access, false revokes it. */
+      /** True shares the caller's own connection with the agent, false removes the caller's share. */
       enabled: boolean;
+      /** Only valid with enabled=false. Removes every member's share of this server with this agent, along with the agent's tool policies for it. Project admins only. */
+      all?: boolean;
       /**
          * Optional agent-scope tool policies to set alongside the grant. At most 1,000 entries per request.
          * @maxItems 1000
          */
       policies?: ToolPolicyEntry[];
-    }
-
-    export interface SessionGroupSummary {
-      readonly id: string;
-      /** Title of the group session summary */
-      readonly title: string;
-      /**
-         * List of session replay IDs included in this group summary
-         * @items.maxLength 200
-         */
-      readonly session_ids: readonly string[];
-      /** Group summary in JSON format (EnrichedSessionGroupSummaryPatternsList schema) */
-      readonly summary: unknown;
-      /** Additional context passed to the summary (ExtraSummaryContext schema) */
-      readonly extra_summary_context: unknown;
-      /** Summary run metadata (SessionSummaryRunMeta schema) */
-      readonly run_metadata: unknown;
-      readonly created_at: string;
-      readonly created_by: UserBasic;
-      readonly team: number;
     }
 
     export interface SessionRecordingBulkDeleteRequest {
@@ -69044,35 +69181,6 @@ export namespace Schemas {
     export const SessionReplayListWidgetTypeEnum = {
       SessionReplayList: 'session_replay_list',
     } as const;
-
-    export interface SessionSummaries {
-      /**
-         * List of session IDs to summarize (max 300)
-         * @minItems 1
-         * @maxItems 300
-         */
-      session_ids: string[];
-      /**
-         * Optional focus area for the summarization
-         * @maxLength 500
-         */
-      focus_area?: string;
-    }
-
-    /**
-     * Team-defined tags layered on top of the fixed taxonomy, as a {name: description} map. Names must be lowercase snake_case (max 60 chars), descriptions max 200 chars, max 15 entries.
-     */
-    export type SessionSummariesConfigCustomTags = {[key: string]: string};
-
-    export interface SessionSummariesConfig {
-      /**
-         * Free-form description of the team's product, used to tailor AI-generated single-session replay summaries. Injected into the system prompt of every summary generated for this team via the replay page.
-         * @maxLength 10000
-         */
-      product_context?: string;
-      /** Team-defined tags layered on top of the fixed taxonomy, as a {name: description} map. Names must be lowercase snake_case (max 60 chars), descriptions max 200 chars, max 15 entries. */
-      custom_tags?: SessionSummariesConfigCustomTags;
-    }
 
     export interface SetAllServersEnabled {
       /** True enables every MCP server for the team; false disables them all. Applies to every registered server and becomes the default for untouched and future catalog servers. */
@@ -69965,65 +70073,6 @@ export namespace Schemas {
       slack_notification_min_priority?: AutonomyPriorityEnum | BlankEnum | null;
       readonly created_at: string;
       readonly updated_at: string;
-    }
-
-    /**
-     * Full LLM-generated summary JSON. Contains `segments` (chronological journey segments), `key_actions` (per-segment events with `abandonment` / `confusion` / `exception` flags — the structured source of session-level problems), `segment_outcomes`, and `session_outcome`. Video-based runs additionally include a `sentiment` block.
-     */
-    export type SingleSessionSummarySummary = { [key: string]: unknown };
-
-    /**
-     * Optional context passed to the summary at generation time (e.g. `focus_area`).
-     * @nullable
-     */
-    export type SingleSessionSummaryExtraSummaryContext = {
-      readonly focus_area?: string;
-    } | null;
-
-    /**
-     * `SessionSummaryRunMeta` — model used, whether video-based visual confirmation was applied, and visual-confirmation event-to-asset mappings.
-     * @nullable
-     */
-    export type SingleSessionSummaryRunMetadata = { [key: string]: unknown } | null;
-
-    /**
-     * Full session summary, including the generated `summary` JSON content.
-     */
-    export interface SingleSessionSummary {
-      readonly id: string;
-      /** Session replay ID */
-      readonly session_id: string;
-      /**
-         * Distinct ID of the session's user
-         * @nullable
-         */
-      readonly distinct_id: string | null;
-      /**
-         * Session start time
-         * @nullable
-         */
-      readonly session_start_time: string | null;
-      /**
-         * Session duration in seconds
-         * @nullable
-         */
-      readonly session_duration: number | null;
-      /** Full LLM-generated summary JSON. Contains `segments` (chronological journey segments), `key_actions` (per-segment events with `abandonment` / `confusion` / `exception` flags — the structured source of session-level problems), `segment_outcomes`, and `session_outcome`. Video-based runs additionally include a `sentiment` block. */
-      readonly summary: SingleSessionSummarySummary;
-      /** Event IDs (capped at 100) where exceptions occurred during the session — extracted from the summary for searchability. */
-      readonly exception_event_ids: readonly string[];
-      /**
-         * Optional context passed to the summary at generation time (e.g. `focus_area`).
-         * @nullable
-         */
-      readonly extra_summary_context: SingleSessionSummaryExtraSummaryContext;
-      /**
-         * `SessionSummaryRunMeta` — model used, whether video-based visual confirmation was applied, and visual-confirmation event-to-asset mappings.
-         * @nullable
-         */
-      readonly run_metadata: SingleSessionSummaryRunMetadata;
-      readonly created_at: string;
-      readonly created_by: UserBasic | null;
     }
 
     export interface SlackChannel {
@@ -74507,6 +74556,15 @@ export namespace Schemas {
       team_id: number;
       /** Whether this team's SDKs receive the slim $feature_flag_called event shape (omitting fields only needed for experiments) instead of the full legacy shape. */
       minimal_flag_called_events: boolean;
+      /**
+         * Per-team override for the maximum number of feature flags this team may create, or null when the team uses the global default.
+         * @nullable
+         */
+      max_feature_flags_override: number | null;
+      /** The flag-count limit actually enforced for this team: the override when one is set, otherwise the global MAX_FEATURE_FLAGS_PER_TEAM setting. */
+      effective_max_feature_flags: number;
+      /** Number of feature flags the team has today, excluding soft-deleted ones, counted the same way the limit is enforced. */
+      feature_flag_count: number;
     }
 
     export interface StaffTeamConfigListResponse {
@@ -74517,8 +74575,15 @@ export namespace Schemas {
     export interface StaffTeamConfigMutation {
       /** Team id to update. Exactly one team per request. */
       team_id: number;
-      /** New value for the team's minimal_flag_called_events setting. Only set true after confirming that team's SDK versions support the slim $feature_flag_called event shape. */
-      minimal_flag_called_events: boolean;
+      /** New value for the team's minimal_flag_called_events setting. Omit to leave it unchanged. Only set true after confirming that team's SDK versions support the slim $feature_flag_called event shape. */
+      minimal_flag_called_events?: boolean;
+      /**
+         * New per-team flag-count limit (1-20,000). Send null to clear the override so the team falls back to the global default. Omit to leave it unchanged.
+         * @minimum 1
+         * @maximum 20000
+         * @nullable
+         */
+      max_feature_flags_override?: number | null;
     }
 
     export interface StaffTeamResult {
@@ -74534,6 +74599,11 @@ export namespace Schemas {
       organization_name: string;
       /** Project id the team belongs to. */
       project_id: number;
+      /**
+         * Project root team id when this team is an environment, or null when it is the root. The flag limit is set on the root, so a team with this set cannot take an override.
+         * @nullable
+         */
+      parent_team_id: number | null;
     }
 
     export interface StaffTeamSearchResponse {
@@ -81830,9 +81900,17 @@ export namespace Schemas {
      */
     created_by?: string;
     /**
+     * Optional. Restrict results by whether the alert uses anomaly detection.
+     */
+    has_detector?: boolean;
+    /**
      * Optional. Restrict results to alerts on this insight ID.
      */
     insight_id?: number;
+    /**
+     * Optional. Restrict results to alerts whose insight has this tag.
+     */
+    insight_tag?: string;
     /**
      * Number of results to return per page.
      */
@@ -84737,6 +84815,24 @@ export namespace Schemas {
      * Groups for feature flag evaluation (JSON object string)
      */
     groups?: string;
+    };
+
+    export type FeatureRequestProductAreasListParams = {
+    /**
+     * Include inactive product areas. Defaults to false.
+     */
+    include_inactive?: boolean;
+    };
+
+    export type FeatureRequestsListParams = {
+    /**
+     * Number of results to return per page.
+     */
+    limit?: number;
+    /**
+     * The initial index from which to return the results.
+     */
+    offset?: number;
     };
 
     export type FieldNotesListParams = {
@@ -88517,17 +88613,6 @@ export namespace Schemas {
       HogFlow: 'hog_flow',
     } as const;
 
-    export type SessionGroupSummariesListParams = {
-    /**
-     * Number of results to return per page.
-     */
-    limit?: number;
-    /**
-     * The initial index from which to return the results.
-     */
-    offset?: number;
-    };
-
     export type SessionRecordingExternalReferencesListParams = {
     /**
      * Number of results to return per page.
@@ -88830,62 +88915,6 @@ export namespace Schemas {
      */
     offset?: number;
     };
-
-    export type SingleSessionSummariesListParams = {
-    /**
-     * Filter to summaries triggered by a specific user, identified by `User.uuid`.
-     */
-    created_by?: string;
-    /**
-     * Inclusive lower bound on `created_at`, accepts relative shorthand like `-7d`.
-     */
-    date_from?: string;
-    /**
-     * Inclusive upper bound on `created_at`, accepts relative shorthand like `-1d`.
-     */
-    date_to?: string;
-    /**
-     * Filter to summaries for a single user (the session's `distinct_id`).
-     */
-    distinct_id?: string;
-    /**
-     * When true, only summaries that surfaced one or more exception events; when false, only summaries without exceptions.
-     */
-    has_exceptions?: boolean;
-    /**
-     * When true, only summaries produced via the video-based visual-confirmation workflow.
-     */
-    has_visual_confirmation?: boolean;
-    /**
-     * Number of results to return per page.
-     */
-    limit?: number;
-    /**
-     * The initial index from which to return the results.
-     */
-    offset?: number;
-    /**
-     * Ordering field, defaults to `-created_at` (most recent first). Allowed: `created_at`, `session_start_time`, `session_duration` (prefix with `-` for descending).
-     */
-    order?: string;
-    /**
-     * Filter by the summary's recorded `session_outcome.success` field. `success` for true, `failure` for false, `unknown` for summaries without an outcome.
-     */
-    outcome?: SingleSessionSummariesListOutcome;
-    /**
-     * Comma-separated list of session IDs to restrict the result to (uses the `(team, session_id)` index).
-     */
-    session_ids?: string;
-    };
-
-    export type SingleSessionSummariesListOutcome = typeof SingleSessionSummariesListOutcome[keyof typeof SingleSessionSummariesListOutcome];
-
-
-    export const SingleSessionSummariesListOutcome = {
-      Failure: 'failure',
-      Success: 'success',
-      Unknown: 'unknown',
-    } as const;
 
     export type StamphogDigestChannelsListParams = {
     /**

@@ -26,7 +26,9 @@ class TestDirectSQLRegistry(SimpleTestCase):
         self.assertIsNone(get_adapter(engine))
 
     def test_registered_engines_includes_all_engines(self):
-        self.assertEqual({"postgres", "mysql", "snowflake", "redshift", "clickhouse"}, set(registered_engines()))
+        self.assertEqual(
+            {"postgres", "mysql", "snowflake", "redshift", "clickhouse", "motherduck"}, set(registered_engines())
+        )
 
     def test_clickhouse_adapter_compiles_hogql(self):
         adapter = get_adapter("clickhouse")
@@ -58,6 +60,8 @@ class TestDirectSQLCapability(SimpleTestCase):
             ("clickhouse_synced_enabled", ExternalDataSourceType.CLICKHOUSE, "warehouse", True, True),
             ("clickhouse_synced_disabled", ExternalDataSourceType.CLICKHOUSE, "warehouse", False, False),
             ("clickhousecloud_direct", ExternalDataSourceType.CLICKHOUSECLOUD, "direct", False, True),
+            ("motherduck_direct_ignores_toggle", ExternalDataSourceType.MOTHERDUCK, "direct", False, True),
+            ("motherduck_synced_enabled", ExternalDataSourceType.MOTHERDUCK, "warehouse", True, True),
             ("unmapped_engine_synced", ExternalDataSourceType.STRIPE, "warehouse", True, False),
             ("unmapped_engine_direct", ExternalDataSourceType.STRIPE, "direct", True, False),
         ]
@@ -79,6 +83,7 @@ class TestDirectSQLCapability(SimpleTestCase):
                 ExternalDataSourceType.REDSHIFT,
                 ExternalDataSourceType.CLICKHOUSE,
                 ExternalDataSourceType.CLICKHOUSECLOUD,
+                ExternalDataSourceType.MOTHERDUCK,
             },
             set(direct_capable_source_types()),
         )
