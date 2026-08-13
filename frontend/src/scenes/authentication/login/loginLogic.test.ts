@@ -360,6 +360,7 @@ describe('loginLogic', () => {
             expect(logic.values.isPasswordLoginUnavailable).toBe(true)
             expect(logic.values.availableLoginMethods).toEqual(['google-oauth2'])
             expect(logic.values.hasNoConfiguredLoginMethod).toBe(false)
+            expect(logic.values.hasOnlyPasskeyLogin).toBe(false)
             expect(logic.values.restrictToProviders).toEqual(['google-oauth2'])
         })
 
@@ -371,7 +372,10 @@ describe('loginLogic', () => {
                 webauthn_credentials: [{ id: 'cred-1', type: 'public-key' }],
             })
             expect(logic.values.availableLoginMethods).toEqual(['passkey'])
+            // A lost passkey would strand this account, so it still gets a reset route even though a
+            // method technically exists.
             expect(logic.values.hasNoConfiguredLoginMethod).toBe(false)
+            expect(logic.values.hasOnlyPasskeyLogin).toBe(true)
             expect(logic.values.restrictToProviders).toEqual([])
         })
 
@@ -386,6 +390,7 @@ describe('loginLogic', () => {
             expect(logic.values.isPasswordLoginUnavailable).toBe(true)
             expect(logic.values.availableLoginMethods).toEqual([])
             expect(logic.values.hasNoConfiguredLoginMethod).toBe(true)
+            expect(logic.values.hasOnlyPasskeyLogin).toBe(false)
         })
 
         it('defers entirely to enforced SSO', async () => {

@@ -172,6 +172,7 @@ export interface loginLogicValues {
         detail: string
     } | null
     hasNoConfiguredLoginMethod: boolean
+    hasOnlyPasskeyLogin: boolean
     isCodeVerificationSubmitting: boolean
     isCodeVerificationValid: boolean
     isLoginSubmitting: boolean
@@ -356,6 +357,11 @@ export interface loginLogicMeta {
             isPasswordLoginUnavailable: boolean,
             availableLoginMethods: LoginMethod[]
         ) => boolean
+        hasOnlyPasskeyLogin: (
+            precheckResponse: PrecheckResponseType,
+            isPasswordLoginUnavailable: boolean,
+            availableLoginMethods: LoginMethod[]
+        ) => boolean
         restrictToProviders: (
             precheckResponse: PrecheckResponseType,
             isPasswordLoginUnavailable: boolean
@@ -528,6 +534,20 @@ export const loginLogic = kea<loginLogicType>([
                 // `availableLoginMethods` is deliberately empty when SSO is enforced — that path owns
                 // the whole form, so it isn't a dead end.
                 !precheckResponse.sso_enforcement && isPasswordLoginUnavailable && availableLoginMethods.length === 0,
+        ],
+        // A passwordless account whose only credential is a passkey. If that passkey is lost the passkey
+        // button leads nowhere, so we still offer a password reset even though a method technically exists.
+        hasOnlyPasskeyLogin: [
+            (s) => [s.precheckResponse, s.isPasswordLoginUnavailable, s.availableLoginMethods],
+            (
+                precheckResponse: PrecheckResponseType,
+                isPasswordLoginUnavailable: boolean,
+                availableLoginMethods: LoginMethod[]
+            ): boolean =>
+                !precheckResponse.sso_enforcement &&
+                isPasswordLoginUnavailable &&
+                availableLoginMethods.length === 1 &&
+                availableLoginMethods[0] === 'passkey',
         ],
         // Allowlist for the social button row: only narrow it once we know the account is passwordless
         // and which providers it has. `null` means "show everything the instance offers", as before.

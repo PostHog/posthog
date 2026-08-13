@@ -48,6 +48,7 @@ export function LoginForm(): JSX.Element {
         isCodeVerificationSubmitting,
         isPasswordLoginUnavailable,
         hasNoConfiguredLoginMethod,
+        hasOnlyPasskeyLogin,
         restrictToProviders,
         autoRedirectingToProvider,
     } = useValues(loginLogic)
@@ -247,9 +248,11 @@ export function LoginForm(): JSX.Element {
                                 )}
                             </LemonField>
                         )}
-                        {hasNoConfiguredLoginMethod && (
+                        {(hasNoConfiguredLoginMethod || hasOnlyPasskeyLogin) && (
                             <div className="py-2.5 px-3 text-sm leading-normal text-primary text-left bg-warning-highlight border border-warning rounded">
-                                No sign-in method is set up for this account. Use{' '}
+                                {hasOnlyPasskeyLogin
+                                    ? 'Lost your passkey? Use '
+                                    : 'No sign-in method is set up for this account. Use '}
                                 <Link
                                     to={[urls.passwordReset(), { email: login.email }]}
                                     data-attr="forgot-password"
