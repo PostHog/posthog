@@ -488,6 +488,44 @@ export default meta
 
 export const ScannersList: StoryObj = {}
 
+// A project that has never created a scanner: the surface of the empty-state experiment.
+const emptyProjectDecorators = [
+    mswDecorator({
+        get: {
+            '/api/projects/:team_id/vision/scanners/': { count: 0, next: null, previous: null, results: [] },
+            '/api/projects/:team_id/vision/scanners/stats/': {
+                total: 0,
+                enabled: 0,
+                by_type: {
+                    monitor: { enabled: 0, total: 0 },
+                    classifier: { enabled: 0, total: 0 },
+                    scorer: { enabled: 0, total: 0 },
+                    summarizer: { enabled: 0, total: 0 },
+                },
+            } satisfies ScannerStatsResponseApi,
+            '/api/projects/:team_id/vision/scanners/creators/': { creators: [] },
+        },
+    }),
+]
+
+export const ScannersListEmpty: StoryObj = {
+    decorators: emptyProjectDecorators,
+}
+
+export const ScannersListEmptyTemplates: StoryObj = {
+    decorators: emptyProjectDecorators,
+    parameters: {
+        featureFlags: { [FEATURE_FLAGS.REPLAY_VISION_EMPTY_STATE_EXPERIMENT]: 'templates' },
+    },
+}
+
+export const ScannersListEmptyExampleObservations: StoryObj = {
+    decorators: emptyProjectDecorators,
+    parameters: {
+        featureFlags: { [FEATURE_FLAGS.REPLAY_VISION_EMPTY_STATE_EXPERIMENT]: 'example-observations' },
+    },
+}
+
 export const UsageTab: StoryObj = {
     parameters: { pageUrl: `${urls.replayVision()}?tab=usage` },
 }
