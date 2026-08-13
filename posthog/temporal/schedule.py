@@ -66,9 +66,6 @@ from posthog.temporal.session_replay.delete_recordings.types import PurgeDeleted
 from posthog.temporal.session_replay.enforce_max_replay_retention.types import EnforceMaxReplayRetentionInput
 from posthog.temporal.session_replay.gemini_cleanup_sweep import create_gemini_cleanup_sweep_schedule
 from posthog.temporal.session_replay.replay_count_metrics.types import ReplayCountMetricsInput
-from posthog.temporal.session_replay.summarization_sweep.reconciler import (
-    create_summarization_sweep_reconciler_schedule,
-)
 from posthog.temporal.session_replay.surfacing_score_export_sweep.schedule import (
     create_surfacing_score_export_sweep_schedule,
 )
@@ -633,6 +630,7 @@ async def cleanup_legacy_session_summarization_schedules(client: Client):
     legacy_schedule_ids = [
         "video-segment-clustering-coordinator-schedule",
         "session-summarization-sweep-schedule",
+        "session-summarization-sweep-reconciler-schedule",
     ]
     for schedule_id in legacy_schedule_ids:
         if await a_schedule_exists(client, schedule_id):
@@ -848,7 +846,6 @@ schedules = [
     create_evaluation_sampler_schedule,
     create_evaluation_clustering_schedule,
     cleanup_legacy_session_summarization_schedules,
-    create_summarization_sweep_reconciler_schedule,
     create_surfacing_score_export_sweep_schedule,
     create_surfacing_scoring_sweep_schedule,
     create_ducklake_compaction_schedule,
