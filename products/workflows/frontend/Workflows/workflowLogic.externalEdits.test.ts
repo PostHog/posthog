@@ -130,7 +130,7 @@ describe('workflowLogic external edits', () => {
 
     it.each([
         [
-            'validation errors block auto-save',
+            'the workflow has no name, so auto-save cannot flush',
             (l: ReturnType<typeof workflowLogic.build>) => l.actions.setWorkflowValue('name', ''),
         ],
         [
@@ -147,6 +147,50 @@ describe('workflowLogic external edits', () => {
 
         expect(logic.values.externallyEdited).toBe(true)
         expect(getCalls).toBe(1)
+    })
+
+    it('reloads over dirty edits despite action validation errors (incomplete steps stage safely)', async () => {
+        // The co-editing case: an active workflow with a half-built email step. Its validation
+        // errors must not park the user's buffer as unflushable, or an agent edit arriving via SSE
+        // dead-ends behind a banner instead of reconciling.
+        const withInvalidEmail = makeWorkflow({
+            status: 'active',
+            actions: [
+                ...makeWorkflow().actions,
+                {
+                    id: 'email_node',
+                    type: 'function_email',
+                    name: 'Email',
+                    description: '',
+                    created_at: 0,
+                    updated_at: 0,
+                    config: { template_id: 'template-email', inputs: { email: { value: {} } } },
+                },
+            ] as HogFlow['actions'],
+        })
+        useMocks({
+            get: {
+                '/api/environments/:team_id/hog_flows/:id/': () => {
+                    getCalls += 1
+                    return [200, withInvalidEmail]
+                },
+                '/api/projects/:team_id/hog_function_templates/': { results: [], count: 0 },
+            },
+        })
+        logic.actions.loadWorkflow()
+        await expectLogic(logic).toDispatchActions(['loadWorkflowSuccess'])
+        expect(logic.values.workflowHasErrors).toBe(true)
+        const baselineGets = getCalls
+
+        logic.actions.setWorkflowValue('name', 'My local edit')
+        expect(logic.values.hasUnsavedChanges).toBe(true)
+
+        await expectLogic(logic, () => {
+            resourceEditedLogic.actions.resourceEdited(makeEvent({ updated_at: NEWER }))
+        }).toDispatchActions(['setSyncingExternalEdit', 'loadWorkflow', 'loadWorkflowSuccess'])
+
+        expect(logic.values.externallyEdited).toBe(false)
+        expect(getCalls).toBe(baselineGets + 1)
     })
 
     it.each([

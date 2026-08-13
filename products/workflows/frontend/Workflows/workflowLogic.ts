@@ -182,6 +182,7 @@ export interface workflowLogicValues {
     currentProjectId: number | null // projectLogic
     user: UserType | null // userLogic
     actionValidationErrorsById: Record<string, HogFlowActionValidationResult | null>
+    autoSaveBlockedByValidation: boolean
     autoSaveEnabled: boolean
     currentSchedule: HogFlowSchedule | null
     deferredResourceEdited: ResourceEditedEvent | null
@@ -2616,6 +2617,7 @@ export interface workflowLogicMeta {
             workflow: HogFlow,
             actionValidationErrorsById: Record<string, HogFlowActionValidationResult | null>
         ) => boolean
+        autoSaveBlockedByValidation: (workflow: HogFlow) => boolean
         triggerAction: (workflow: HogFlow) => TriggerAction | null
         isRowScopedTrigger: (
             triggerAction:
@@ -3402,6 +3404,13 @@ export const workflowLogic = kea<workflowLogicType>([
             },
         ],
 
+        // Only a missing name blocks auto-save; the payload itself is unsaveable without one.
+        // Action validation errors don't block: on an active workflow content stages into the
+        // draft, which is safe to hold incomplete steps (enable and publish revalidate before
+        // anything deploys, and agents stage incomplete drafts through the same API). Pausing on
+        // them would strand a user's edits unsaved exactly while they iterate.
+        autoSaveBlockedByValidation: [(s) => [s.workflow], (workflow: HogFlow): boolean => !workflow.name],
+
         triggerAction: [
             (s) => [s.workflow],
             (workflow: HogFlow): TriggerAction | null => {
@@ -3490,11 +3499,11 @@ export const workflowLogic = kea<workflowLogicType>([
             }
             // Server wins while auto-save can flush the local buffer: unsaved edits are then at most
             // a few seconds old, so reconcile silently instead of interrupting with a conflict
-            // banner. When auto-save can't flush (toggled off, validation errors block it, or a
-            // pending schedule change, which only a manual save persists), the buffer can hold real
-            // work, so the banner lets the user choose.
+            // banner. When auto-save can't flush (toggled off, no name to save under, or a pending
+            // schedule change, which only a manual save persists), the buffer can hold real work,
+            // so the banner lets the user choose.
             const autoSaveCanFlush =
-                values.autoSaveEnabled && !values.workflowHasErrors && values.pendingSchedule === false
+                values.autoSaveEnabled && !values.autoSaveBlockedByValidation && values.pendingSchedule === false
             if (values.hasUnsavedChanges && !autoSaveCanFlush) {
                 actions.setExternallyEdited(true)
             } else {
@@ -3822,7 +3831,7 @@ export const workflowLogic = kea<workflowLogicType>([
                 props.id === 'new' ||
                 !!props.editTemplateId ||
                 !values.workflowChanged ||
-                values.workflowHasErrors
+                values.autoSaveBlockedByValidation
 
             if (shouldSkip) {
                 actions.clearAutoSavePending()

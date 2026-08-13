@@ -1,6 +1,6 @@
-import { useValues } from 'kea'
+import { useActions, useValues } from 'kea'
 
-import { Spinner } from '@posthog/lemon-ui'
+import { LemonButton, Spinner } from '@posthog/lemon-ui'
 
 import { LastSavedIndicator } from 'lib/components/LastSavedIndicator'
 import { useDebouncedValue } from 'lib/hooks/useDebouncedValue'
@@ -16,9 +16,11 @@ export function WorkflowAutoSaveIndicator(): JSX.Element | null {
         workflowLoading,
         autoSaveEnabled,
         workflowChanged,
-        workflowHasErrors,
+        autoSaveBlockedByValidation,
+        externallyEdited,
         lastSavedAt,
     } = useValues(workflowLogic)
+    const { loadWorkflow, keepMyWorkflowVersion } = useActions(workflowLogic)
     const showSaving = useDebouncedValue(isAutoSavePending || workflowLoading, 1000)
 
     // New and template-editing workflows only save through the scene header, so a save-state
@@ -27,12 +29,23 @@ export function WorkflowAutoSaveIndicator(): JSX.Element | null {
         return null
     }
 
-    if (workflowChanged && workflowHasErrors) {
+    // The scene-level conflict banner is covered by the surface hosting this indicator, so the
+    // choice it carries has to be reachable here too.
+    if (externallyEdited) {
         return (
-            <span className="text-xs text-warning whitespace-nowrap">
-                Auto-save paused: fix the errors in this workflow
+            <span className="text-xs text-warning flex items-center gap-2 whitespace-nowrap">
+                Updated elsewhere
+                <LemonButton size="xsmall" type="secondary" onClick={() => keepMyWorkflowVersion()}>
+                    Keep mine
+                </LemonButton>
+                <LemonButton size="xsmall" type="primary" onClick={() => loadWorkflow()}>
+                    Reload
+                </LemonButton>
             </span>
         )
+    }
+    if (workflowChanged && autoSaveBlockedByValidation) {
+        return <span className="text-xs text-warning whitespace-nowrap">Auto-save paused: name your workflow</span>
     }
     if (workflowChanged && !autoSaveEnabled) {
         return (
