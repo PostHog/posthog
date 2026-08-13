@@ -86,6 +86,13 @@ pub enum FingerprintVersion {
     // line/column, and normalizes volatile path and message tokens. Selected by an offline
     // research loop: pairwise F1 0.40 vs 0.26 for V1 on a held-out LLM-labeled pair dataset.
     V2,
+    // V2 plus short mangled-name masking. On an unresolved frame the mangled name is the
+    // minifier's symbol (`Es`, `nl`), which is regenerated on every build, so it fed a fresh
+    // fingerprint into every deploy and split one bug into an issue per release. V3 masks the
+    // shortest of those names before hashing; everything else matches V2. No legacy twin: V3
+    // ships after wire-order normalization, so it only ever keys new issues over the canonical
+    // order and has no pre-flip issues to match.
+    V3,
 }
 
 impl FingerprintVersion {
@@ -102,6 +109,7 @@ impl FingerprintVersion {
             FingerprintVersion::V1,
             FingerprintVersion::V2Legacy,
             FingerprintVersion::V2,
+            FingerprintVersion::V3,
         ]
     }
 
@@ -111,6 +119,7 @@ impl FingerprintVersion {
             FingerprintVersion::V2Legacy => "v2_legacy",
             FingerprintVersion::V1 => "v1",
             FingerprintVersion::V2 => "v2",
+            FingerprintVersion::V3 => "v3",
         }
     }
 
@@ -130,27 +139,39 @@ impl FingerprintVersion {
     pub fn strategy(&self) -> FingerprintStrategy {
         match self {
             FingerprintVersion::V1 | FingerprintVersion::V1Legacy => FingerprintStrategy::default(),
-            FingerprintVersion::V2 | FingerprintVersion::V2Legacy => FingerprintStrategy {
-                frame_selection: FrameSelection::AllFrames,
-                // `Last` scores better offline (holdout F1 0.55 vs 0.40) but SDKs disagree on
-                // chain order — current SDKs put the root cause last, the legacy python SDK put
-                // it first — so keying on one end regroups differently per SDK version. Stays
-                // `All` until ordering is normalized across SDKs.
-                chain_selection: ChainSelection::All,
-                unresolved_include_line: false,
-                unresolved_include_column: false,
-                normalize: Normalization {
-                    strip_query_strings: true,
-                    strip_hashed_chunks: true,
-                    basename_only: true,
-                },
-                message_normalize: MessageNormalization {
-                    mask_quoted: true,
-                    mask_hex_ids: true,
-                    mask_numbers: true,
-                    truncate: Some(200),
-                },
+            FingerprintVersion::V2 | FingerprintVersion::V2Legacy => Self::v2_strategy(),
+            FingerprintVersion::V3 => FingerprintStrategy {
+                // Below this length a mangled name is minifier output, not a real symbol, so it
+                // is masked. `Es` and `nl` (2 chars) both collapse to the same marker; longer
+                // names still carry bug identity and pass through untouched.
+                mask_short_mangled_names: Some(2),
+                ..Self::v2_strategy()
             },
+        }
+    }
+
+    fn v2_strategy() -> FingerprintStrategy {
+        FingerprintStrategy {
+            frame_selection: FrameSelection::AllFrames,
+            // `Last` scores better offline (holdout F1 0.55 vs 0.40) but SDKs disagree on
+            // chain order — current SDKs put the root cause last, the legacy python SDK put
+            // it first — so keying on one end regroups differently per SDK version. Stays
+            // `All` until ordering is normalized across SDKs.
+            chain_selection: ChainSelection::All,
+            unresolved_include_line: false,
+            unresolved_include_column: false,
+            normalize: Normalization {
+                strip_query_strings: true,
+                strip_hashed_chunks: true,
+                basename_only: true,
+            },
+            message_normalize: MessageNormalization {
+                mask_quoted: true,
+                mask_hex_ids: true,
+                mask_numbers: true,
+                truncate: Some(200),
+            },
+            mask_short_mangled_names: None,
         }
     }
 }
@@ -322,6 +343,11 @@ pub struct FingerprintStrategy {
     pub unresolved_include_column: bool,
     pub normalize: Normalization,
     pub message_normalize: MessageNormalization,
+    // When set, an unresolved frame whose mangled name is no longer than this many characters
+    // contributes a constant marker instead of the raw name. Short mangled names are minifier
+    // output that changes every build, so they encode the deploy, not the bug. `None` (V1/V2)
+    // keeps the raw name.
+    pub mask_short_mangled_names: Option<usize>,
 }
 
 impl Default for FingerprintStrategy {
@@ -333,9 +359,14 @@ impl Default for FingerprintStrategy {
             unresolved_include_column: true,
             normalize: Normalization::default(),
             message_normalize: MessageNormalization::default(),
+            mask_short_mangled_names: None,
         }
     }
 }
+
+// Hashed in place of a masked short mangled name, so every per-build minified symbol at a
+// frame collapses to one value.
+const MASKED_MANGLED_NAME: &str = "*";
 
 impl FingerprintStrategy {
     pub fn from_exception_list(&self, exception_list: &ExceptionList) -> Fingerprint {
@@ -403,6 +434,17 @@ impl FingerprintStrategy {
         }
     }
 
+    fn normalize_mangled_name<'a>(&self, name: &'a str) -> Cow<'a, str> {
+        match self.mask_short_mangled_names {
+            // `take(max + 1).count()` stops after the threshold, so length is bounded without
+            // walking a long name in full.
+            Some(max) if name.chars().take(max + 1).count() <= max => {
+                Cow::Borrowed(MASKED_MANGLED_NAME)
+            }
+            _ => Cow::Borrowed(name),
+        }
+    }
+
     fn update_frame(&self, frame: &Frame, fp: &mut FingerprintBuilder) {
         let get_part = |s: &common_types::error_tracking::FrameId, p: Vec<&str>| {
             FingerprintRecordPart::Frame {
@@ -434,7 +476,7 @@ impl FingerprintStrategy {
         }
 
         // Otherwise, get more granular
-        fp.update(frame.mangled_name.as_bytes());
+        fp.update(self.normalize_mangled_name(&frame.mangled_name).as_bytes());
         included_pieces.push("Mangled function name");
 
         if self.unresolved_include_line {
@@ -800,6 +842,88 @@ mod test {
                 "V2 should merge {msg_a:?} vs {msg_b:?}"
             );
         }
+    }
+
+    // ---- V2 vs V3 direction tests ----
+
+    #[test]
+    fn v3_merges_partial_stacks_that_differ_only_by_a_short_mangled_name() {
+        // The reported case: two resolved frames plus one unresolved frame whose minified name
+        // is regenerated every build. V2 forks a new issue per deploy; V3 collapses them.
+        let stack = |minified: &str| {
+            resolved_stack(vec![
+                frame(
+                    "updateCurrentTeam",
+                    Some("http://x.com/app.js"),
+                    Some("updateCurrentTeam"),
+                    true,
+                    true,
+                    None,
+                ),
+                frame(
+                    "_update",
+                    Some("http://x.com/app.js"),
+                    Some("Object._update"),
+                    true,
+                    true,
+                    None,
+                ),
+                frame(
+                    minified,
+                    Some("http://x.com/app.js"),
+                    None,
+                    false,
+                    true,
+                    None,
+                ),
+            ])
+        };
+        assert_ne!(
+            value(
+                FingerprintVersion::V2,
+                vec![exception("TypeError", "Failed to fetch", stack("Es"))]
+            ),
+            value(
+                FingerprintVersion::V2,
+                vec![exception("TypeError", "Failed to fetch", stack("nl"))]
+            ),
+        );
+        assert_eq!(
+            value(
+                FingerprintVersion::V3,
+                vec![exception("TypeError", "Failed to fetch", stack("Es"))]
+            ),
+            value(
+                FingerprintVersion::V3,
+                vec![exception("TypeError", "Failed to fetch", stack("nl"))]
+            ),
+        );
+    }
+
+    #[test]
+    fn v3_keeps_longer_mangled_names_distinct() {
+        // A name longer than the mask threshold still carries bug identity, so two different
+        // unresolved functions must not collapse into one issue.
+        let stack = |name: &str| {
+            resolved_stack(vec![frame(
+                name,
+                Some("http://x.com/app.js"),
+                None,
+                false,
+                true,
+                None,
+            )])
+        };
+        assert_ne!(
+            value(
+                FingerprintVersion::V3,
+                vec![exception("Error", "boom", stack("handleClick"))]
+            ),
+            value(
+                FingerprintVersion::V3,
+                vec![exception("Error", "boom", stack("renderList"))]
+            ),
+        );
     }
 
     #[test]
