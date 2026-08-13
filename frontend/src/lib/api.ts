@@ -350,7 +350,7 @@ export function getCookie(name: string): string | null {
     return cookieValue
 }
 
-function isAbortError(error: unknown): boolean {
+export function isAbortError(error: unknown): boolean {
     return (error as { name?: string } | null)?.name === 'AbortError'
 }
 
