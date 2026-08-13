@@ -48,6 +48,28 @@ def feature_enabled_or_false(
     )
 
 
+def get_feature_flag_or_none(
+    key: str,
+    distinct_id: Number | str | UUID | int,
+    groups: Mapping[str, str | int] | None = None,
+    only_evaluate_locally: bool = False,
+    send_feature_flag_events: bool = True,
+) -> str | bool | None:
+    """Variant-returning sibling of feature_enabled_or_false that never raises, so callers on
+    paths that must not fail (cache writes, background tasks) can treat any failure as flag-off."""
+    try:
+        return posthoganalytics.get_feature_flag(
+            key,
+            distinct_id,
+            groups=groups,
+            only_evaluate_locally=only_evaluate_locally,
+            send_feature_flag_events=send_feature_flag_events,
+        )
+    except Exception:
+        logger.warning("get_feature_flag_failed", flag_key=key, exc_info=True)
+        return None
+
+
 def get_regional_ph_client(**kwargs: Any):
     if not is_cloud():
         return

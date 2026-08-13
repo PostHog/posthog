@@ -63,6 +63,12 @@ NOTEBOOKS_FRAME_STORE_S3_BUCKET = os.getenv("NOTEBOOKS_FRAME_STORE_S3_BUCKET") o
 # Query cache specific bucket - falls back to general object storage bucket if not set
 QUERY_CACHE_S3_BUCKET = os.getenv("QUERY_CACHE_S3_BUCKET") or OBJECT_STORAGE_BUCKET
 
+# Cached query results at least this many serialized bytes go to S3 as a blob with a Redis
+# pointer, when the query-cache-s3-writes flag allows it; smaller results always stay inline in
+# Redis. Sized so that dashboards, which almost never have tiles this large, keep sub-millisecond
+# cache reads, while the byte-heavy tail of ad-hoc and API results moves off the Redis cluster.
+QUERY_CACHE_S3_MIN_SIZE_BYTES = int(os.getenv("QUERY_CACHE_S3_MIN_SIZE_BYTES", "1048576"))
+
 # Video segment clustering workflow bucket - should have a 24h lifecycle rule for automatic cleanup
 VIDEO_SEGMENT_CLUSTERING_S3_BUCKET = os.getenv("VIDEO_SEGMENT_CLUSTERING_S3_BUCKET") or OBJECT_STORAGE_BUCKET
 
