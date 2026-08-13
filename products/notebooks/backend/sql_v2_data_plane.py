@@ -36,7 +36,13 @@ from posthog.models import Team, User
 
 from products.notebooks.backend import frame_store
 from products.notebooks.backend.models import Notebook
-from products.notebooks.backend.sql_v2 import is_frame_store_enabled, verify_data_plane_token
+from products.notebooks.backend.sql_v2 import (
+    DELIVERY_INLINE,
+    DELIVERY_OBJECT_RELAY,
+    is_frame_store_ch_writes_enabled,
+    is_frame_store_enabled,
+    verify_data_plane_token,
+)
 from products.notebooks.backend.sql_v2_direct import apply_page_bounds
 from products.notebooks.backend.sql_v2_serializers import NotebookSQLV2DataPlaneRequestSerializer
 
@@ -168,12 +174,13 @@ def notebook_sql_v2_data_plane(request: HttpRequest) -> HttpResponse:
                         user_id=user.id if user else None,
                         notebook_short_id=notebook_short_id,
                         query=bounded,
+                        ch_writes=is_frame_store_ch_writes_enabled(user),
                         _test_only_inline=settings.TEST,
                     )
             except Exception:
                 logger.exception("notebook_frame_materialize_enqueue_failed", notebook_short_id=notebook_short_id)
                 return JsonResponse({"error": "Query could not be scheduled."}, status=500)
-            return JsonResponse({"query_id": status.id}, status=202)
+            return JsonResponse({"query_id": status.id, "delivery": DELIVERY_OBJECT_RELAY}, status=202)
         if frame_store_configured:
             # The environment is provisioned but this user is outside the rollout, which is
             # the expected state for most users while the flag ramps. Counted, not logged:
@@ -205,7 +212,9 @@ def notebook_sql_v2_data_plane(request: HttpRequest) -> HttpResponse:
         logger.exception("notebook_sql_v2_data_plane_enqueue_failed", notebook_short_id=notebook_short_id)
         return JsonResponse({"error": "Query could not be scheduled."}, status=500)
 
-    return JsonResponse({"query_id": status.id}, status=202)
+    # Reached either because the caller wanted inline delivery or because an object request
+    # fell through the two gates above, so this is also the honest label for a fallback.
+    return JsonResponse({"query_id": status.id, "delivery": DELIVERY_INLINE}, status=202)
 
 
 @extend_schema(
@@ -253,7 +262,13 @@ def notebook_sql_v2_data_plane_status(request: HttpRequest, query_id: str) -> Ht
         # above; presign_get additionally refuses keys outside this team's prefix. The
         # presigned URL is a bearer secret — it must never be logged.
         try:
-            presigned_url = frame_store.presign_get(str(object_key), team_id)
+            # Sign against the bucket the writer recorded. A status written before a bucket
+            # change still points at the old bucket, and signing it against the new one
+            # would 404 every frame materialized in the window before that deploy.
+            recorded_bucket = results.get("bucket")
+            presigned_url = frame_store.presign_get(
+                str(object_key), team_id, bucket=str(recorded_bucket) if recorded_bucket else None
+            )
         except frame_store.FrameStoreError:
             logger.exception("notebook_frame_presign_failed", team_id=team_id, query_id=query_id)
             return JsonResponse({"error": "The frame download could not be prepared. Try re-running."}, status=500)

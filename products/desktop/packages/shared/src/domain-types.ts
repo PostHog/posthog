@@ -93,6 +93,17 @@ export interface Task {
   latest_run?: TaskRun;
 }
 
+export interface TaskSearchResult {
+  id: string;
+  kind: "task" | "pull_request" | "artifact" | "channel";
+  title: string;
+  subtitle: string;
+  task_id: string | null;
+  task_run_id: string | null;
+  channel_id: string | null;
+  metadata: Record<string, unknown>;
+}
+
 /**
  * A backend task channel — the single channel identity: it owns the task feed,
  * threads, instructions (CONTEXT.md) and filed canvases. `personal` is the
@@ -148,6 +159,42 @@ export interface TaskThreadMessage {
   author?: UserBasic | null;
   forwarded_to_agent_at?: string | null;
   forwarded_by?: UserBasic | null;
+  /** Users mentioned in the row, indexed at write time. Absent on older backends. */
+  mentioned_user_ids?: number[];
+}
+
+/** The latest resolve or reopen on a comment thread. */
+export interface TaskCommentStateEvent {
+  state: "resolved" | "open";
+  author?: UserBasic | null;
+  created_at: string;
+}
+
+/**
+ * One comment thread on a task, collapsed the way the activity timeline shows it
+ * (`/thread_messages/comment_activity/`). Mirrors `TaskCommentActivityDTO`.
+ */
+export interface TaskCommentThreadSummary {
+  id: string;
+  target: { id: string; type: string; name: string };
+  content: string;
+  content_truncated: boolean;
+  selected_text: string | null;
+  author?: UserBasic | null;
+  created_at: string;
+  last_activity_at: string;
+  reply_count: number;
+  participants: UserBasic[];
+  mentioned_user_ids: number[];
+  resolved: boolean;
+  state_event: TaskCommentStateEvent | null;
+  latest_reply: {
+    author?: UserBasic | null;
+    content: string;
+    /** The excerpt is bounded, so a long reply comes back cut. */
+    content_truncated: boolean;
+    created_at: string;
+  } | null;
 }
 
 /**

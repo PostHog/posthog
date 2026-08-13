@@ -17,7 +17,7 @@ from urllib.parse import quote
 from django.conf import settings
 from django.core.cache import cache
 from django.core.exceptions import MultipleObjectsReturned
-from django.db.models import QuerySet
+from django.db.models import Q, QuerySet
 
 import requests
 import structlog
@@ -247,6 +247,29 @@ class EmailNormalizer:
         return email.lower()
 
 
+def strip_email_alias(email: str) -> str:
+    """
+    Strip a Gmail-style '+suffix' from the local part of an email (e.g.
+    'someuser+alias@domain.com' -> 'someuser@domain.com'). Comparison-only —
+    never use this for the email that actually gets stored.
+    """
+    if not email:
+        return email
+    local, _, domain = email.rpartition("@")
+    local = local.split("+", 1)[0]
+    return f"{local}@{domain}"
+
+
+def reject_plus_addressed_email(value: str) -> None:
+    """Raise if the local part of `value` contains '+'."""
+    local = value.split("@", 1)[0]
+    if "+" in local:
+        raise serializers.ValidationError(
+            "Email addresses with a '+' aren't supported. Please use your primary email address.",
+            code="plus_addressing_not_allowed",
+        )
+
+
 class EmailLookupHandler:
     @staticmethod
     def get_user_by_email(email: str, is_active: Optional[bool] = True) -> Optional["User"]:
@@ -326,6 +349,23 @@ class EmailValidationHelper:
     @staticmethod
     def user_exists(email: str) -> bool:
         return EmailLookupHandler.get_user_by_email(email) is not None
+
+    @staticmethod
+    def user_exists_with_stripped_alias(email: str, exclude_user_id: Optional[int] = None) -> bool:
+        """
+        True if any existing active user's email, once its '+alias' is stripped, equals `email`.
+        `exclude_user_id` skips one account, so a user dropping their own '+alias' isn't blocked by themselves.
+        """
+        from posthog.models.user import User
+
+        stripped = strip_email_alias(email)
+        local, _, domain = stripped.rpartition("@")
+        candidates = User.objects.filter(is_active=True).filter(
+            Q(email__iexact=stripped) | (Q(email__istartswith=f"{local}+") & Q(email__iendswith=f"@{domain}"))
+        )
+        if exclude_user_id is not None:
+            candidates = candidates.exclude(pk=exclude_user_id)
+        return candidates.exists()
 
 
 ESP_SUPPRESSION_CACHE_TTL_IN_SECONDS = 86400  # 1 day
