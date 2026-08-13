@@ -985,8 +985,11 @@ class TestSignalsCreatePr(TestCase):
         [
             # Nothing about the report will lift these, and one report can sit in several channels, so
             # the clicked copy retires its button rather than leaving a dead one behind.
-            ("already_started", True, "already in progress"),
             ("report_closed", True, "This report is closed"),
+            ("already_addressed", True, "already addressed"),
+            # A run that failed without a pull request can be started again from the report, so this
+            # refusal must leave the button rather than dead-end every copy of the message.
+            ("already_started", False, "already has an implementation run"),
             # These can change, so the button has to survive for whoever can act on the reason.
             ("over_quota", False, "self-driving pull request limit"),
             ("no_ai_consent", False, "AI data processing"),

@@ -3833,7 +3833,10 @@ def _handle_signals_dismiss_report(payload: dict) -> HttpResponse:
 # What each refusal reads as in Slack. The click is a request, so the copy says what stopped it and
 # where the person can go instead, never just that it failed.
 _SIGNALS_CREATE_PR_REFUSALS: dict[str, str] = {
-    "already_started": "A pull request is already in progress for this report. Open the report in PostHog to follow it.",
+    "already_started": (
+        "This report already has an implementation run. "
+        "Open the report in PostHog to follow it, or to start another if that one didn't land."
+    ),
     "already_addressed": "This report is already addressed, so a pull request would repeat work that is done.",
     "not_ready": "This report isn't ready for a pull request yet. Open it in PostHog to see where it stands.",
     "no_repository": (
@@ -3844,7 +3847,7 @@ _SIGNALS_CREATE_PR_REFUSALS: dict[str, str] = {
         "Your organization hasn't approved AI data processing yet. "
         "An organization admin can approve it in PostHog settings, then this button works."
     ),
-    "no_project_access": "You don't have access to this project in PostHog. Ask an admin to give you access.",
+    "no_access": ("You don't have permission to start a pull request in this project. Ask a PostHog admin for access."),
     "report_closed": "This report is closed. Restore it in PostHog if you still want a pull request for it.",
     "not_found": "This report is no longer available.",
     "over_quota": (
@@ -3856,8 +3859,10 @@ _SIGNALS_CREATE_PR_FALLBACK_REFUSAL = "Couldn't start a pull request. Try again 
 # Refusals nothing about the report will lift, so the button is spent. One report can sit in several
 # channels, and the run started from one copy leaves every other copy's button standing — clicking it
 # can only refuse. These retire the copy that was clicked; the rest go as they are clicked. Everything
-# else (quota, consent, project access, a transient rejection) can change, so those keep their button.
-_SIGNALS_CREATE_PR_SPENT_REFUSALS = frozenset({"already_started", "already_addressed", "report_closed", "not_found"})
+# else keeps its button, because the reason can change: a quota is raised, consent is approved, access
+# is granted, and an implementation run that failed without a pull request can be started again from
+# the report itself.
+_SIGNALS_CREATE_PR_SPENT_REFUSALS = frozenset({"already_addressed", "report_closed", "not_found"})
 
 
 def _handle_signals_create_pr(payload: dict) -> HttpResponse:

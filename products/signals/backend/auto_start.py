@@ -17,6 +17,7 @@ from posthog.event_usage import groups
 from posthog.exceptions import QuotaLimitExceeded
 from posthog.models import Team, User
 from posthog.models.organization import OrganizationMembership
+from posthog.rbac.user_access_control import UserAccessControl
 from posthog.sync import database_sync_to_async
 
 from products.signals.backend.agent_runtime import STEP_IMPLEMENTATION, resolve_agent_runtime
@@ -75,11 +76,6 @@ _CLOSED_REPORT_STATUSES = frozenset(
         SignalReport.Status.RESOLVED,
         SignalReport.Status.DELETED,
     }
-)
-
-# The judgments the inbox treats as worth a pull request, and so the ones its Create PR button offers.
-_PR_WORTHY_ACTIONABILITY = frozenset(
-    {ActionabilityChoice.IMMEDIATELY_ACTIONABLE, ActionabilityChoice.REQUIRES_HUMAN_INPUT}
 )
 
 _PRIORITY_RANK: dict[Priority, int] = {
@@ -393,7 +389,7 @@ def _create_implementation_task_if_absent(
         report = SignalReport.objects.select_for_update().filter(id=report_id, team_id=team_id).first()
         if report is None:
             return None
-        if require_pr_eligible_status and not _report_status_admits_a_pr(
+        if require_pr_eligible_status and not _report_judgment_admits_a_pr(
             report,
             _latest_artefact_as_sync(
                 str(report.id), SignalReportArtefact.ArtefactType.ACTIONABILITY_JUDGMENT, ActionabilityAssessment
@@ -893,7 +889,7 @@ PrKickoffOutcome = Literal[
     "not_ready",
     "no_repository",
     "no_ai_consent",
-    "no_project_access",
+    "no_access",
     "report_closed",
     "not_found",
     "over_quota",
@@ -936,27 +932,38 @@ def _ai_processing_approved(team_id: int) -> bool:
     return bool(approved)
 
 
-def _report_status_admits_a_pr(report: SignalReport, actionability: ActionabilityAssessment | None) -> bool:
-    """The inbox's own status rule for offering Create PR, in the same order.
+def _report_judgment_admits_a_pr(report: SignalReport, actionability: ActionabilityAssessment | None) -> bool:
+    """Whether the report's own status and judgment admit an implementation run right now.
 
     An allowlist rather than "anything not closed": a report that went back to CANDIDATE or
     IN_PROGRESS because new signals arrived is mid-research, and its old Slack message must not start
     a paid run off the research it has now moved past.
+
+    Narrower than the inbox's `canCreateImplementationPr` in one way, deliberately. The inbox also
+    offers Create PR for a report that needs human input, because it starts that run interactively and
+    renders the agent's questions as a form. A Slack click has nowhere to put a question and the run
+    starts in the background, where questions are parked, so a report whose research says it needs a
+    person is not something this button can carry.
     """
-    if report.status == SignalReport.Status.PENDING_INPUT:
-        return True
-    if report.status != SignalReport.Status.READY:
+    if actionability is None or actionability.already_addressed:
         return False
-    return actionability is not None and actionability.actionability in _PR_WORTHY_ACTIONABILITY
+    return (
+        report.status == SignalReport.Status.READY
+        and actionability.actionability is ActionabilityChoice.IMMEDIATELY_ACTIONABLE
+    )
 
 
 def _pr_eligibility(report: SignalReport) -> _PrEligibility:
     """The one rule the Slack button's render gate and its click both read.
 
-    Mirrors the inbox's own `canCreateImplementationPr` plus the two gates the tasks API does not
-    enforce for it: the report must not be judged already addressed, and the organization must have
-    approved AI data processing. Everything here is team-wide, so the render gate can ask it without
-    a user; the click adds the per-user access check on top.
+    `_report_judgment_admits_a_pr` decides what the report itself allows; the rest adds what the tasks
+    API does not enforce for this button — the organization's AI-processing consent — and the report's
+    own repository and run history. Everything here is team-wide, so the render gate can ask it with no
+    user in hand; the click adds the per-user access check on top.
+
+    Closed and already-addressed are pulled out ahead of the shared predicate, which also refuses both.
+    The predicate answers one question for the locked recheck, while a refusal has to name its reason
+    so the person reads something they can act on.
     """
     if report.status in _CLOSED_REPORT_STATUSES:
         return _PrEligibility(blocker="report_closed")
@@ -965,7 +972,7 @@ def _pr_eligibility(report: SignalReport) -> _PrEligibility:
     )
     if actionability is not None and actionability.already_addressed:
         return _PrEligibility(blocker="already_addressed")
-    if not _report_status_admits_a_pr(report, actionability):
+    if not _report_judgment_admits_a_pr(report, actionability):
         return _PrEligibility(blocker="not_ready")
     repository = _selected_repository(str(report.id))
     if repository is None:
@@ -992,15 +999,23 @@ def implementation_pr_can_be_started(report: SignalReport) -> bool:
     return _pr_eligibility(report).blocker is None
 
 
-def _has_project_access(team_id: int, user_id: int) -> bool:
-    """Whether the user may act on this team's data at all.
+def _may_start_an_implementation_run(team_id: int, user_id: int) -> bool:
+    """Whether the user may start an implementation run in this project.
 
-    Organization membership is not enough. On a private project an org member can be denied access,
-    and the click must not let them spend the project's PR credits or run an agent against its
-    repository — the same rule that keeps a report's contents out of their Slack notifications.
+    Two gates, the same two the in-app button clears on its way through the tasks API. Access to the
+    project at all, because organization membership is not enough — a private project can deny a
+    member, and that member must not receive a report's contents in Slack either. Then editor access
+    to the `task` resource, which is what `AccessControlPermission` demands for the `task:write` the
+    create endpoint derives: without it a viewer could spend the project's PR credits from Slack and
+    run an agent against its repository, which the product itself would refuse them.
     """
-    team = Team.objects.filter(id=team_id).first()
-    return team is not None and team.all_users_with_access().filter(id=user_id).exists()
+    team = Team.objects.filter(id=team_id).select_related("organization").first()
+    if team is None:
+        return False
+    user = team.all_users_with_access().filter(id=user_id).first()
+    if user is None:
+        return False
+    return UserAccessControl(user=user, team=team).check_access_level_for_resource("task", "editor")
 
 
 def start_implementation_pr_from_slack(*, team_id: int, report_id: str, user_id: int) -> PrKickoffResult:
@@ -1020,8 +1035,8 @@ def start_implementation_pr_from_slack(*, team_id: int, report_id: str, user_id:
     )
     if report is None or not report.title or not report.summary:
         return _capture_slack_pr_kickoff(PrKickoffResult(outcome="not_found"), team_id, report_id, user_id)
-    if not _has_project_access(team_id, user_id):
-        return _capture_slack_pr_kickoff(PrKickoffResult(outcome="no_project_access"), team_id, report_id, user_id)
+    if not _may_start_an_implementation_run(team_id, user_id):
+        return _capture_slack_pr_kickoff(PrKickoffResult(outcome="no_access"), team_id, report_id, user_id)
 
     eligibility = _pr_eligibility(report)
     # `repository` is set whenever nothing blocks; the second half of the condition is what tells mypy.
@@ -1068,7 +1083,7 @@ def start_implementation_pr_from_slack(*, team_id: int, report_id: str, user_id:
             blocked = "not_found"
         elif status in _CLOSED_REPORT_STATUSES:
             blocked = "report_closed"
-        elif status not in (SignalReport.Status.READY, SignalReport.Status.PENDING_INPUT):
+        elif status != SignalReport.Status.READY:
             blocked = "not_ready"
         return _capture_slack_pr_kickoff(PrKickoffResult(outcome=blocked), team_id, report_id, user_id)
 

@@ -11,6 +11,7 @@ from django.apps import apps
 from asgiref.sync import sync_to_async
 from social_django.models import UserSocialAuth
 
+from posthog.constants import AvailableFeature
 from posthog.models import Organization, Team, User
 from posthog.models.organization import OrganizationMembership
 from posthog.models.scoping import team_scope
@@ -53,6 +54,8 @@ from products.signals.backend.task_run_artefacts import (
 )
 from products.signals.backend.test.test_billing import _seed_canonical_scout_skill
 from products.tasks.backend.facade import api as tasks_facade
+
+from ee.models.rbac.access_control import AccessControl
 
 
 @pytest.fixture
@@ -796,13 +799,17 @@ def test_start_implementation_pr_from_slack(organization, team, repo_selection, 
     ("case", "expected_outcome"),
     [
         ("report_already_addressed", "already_addressed"),
+        # A report whose research says it needs a person can't be carried by a background run started
+        # from a button, because the agent's questions are parked with nobody to answer them.
+        ("report_requires_human_input", "not_ready"),
         ("ai_processing_not_approved", "no_ai_consent"),
-        ("clicker_without_project_access", "no_project_access"),
+        ("clicker_without_project_access", "no_access"),
+        ("clicker_without_task_editor_access", "no_access"),
     ],
 )
 def test_start_implementation_pr_from_slack_refuses_ineligible_clicks(organization, team, case, expected_outcome):
-    # Every gate here is one the tasks API does not enforce, so a Slack click that skipped the inbox
-    # would otherwise spend a PR the inbox itself would have refused.
+    # Every gate here is one the tasks API does not enforce on this path, so a Slack click that skipped
+    # the inbox would otherwise spend a PR the product itself would have refused.
     user = _create_org_member_with_github("clicker@example.com", organization, "Clicker")
     report = SignalReport.objects.create(
         team=team, status=SignalReport.Status.READY, title="Stale pricing", summary="s"
@@ -819,7 +826,11 @@ def test_start_implementation_pr_from_slack_refuses_ineligible_clicks(organizati
         type=SignalReportArtefact.ArtefactType.ACTIONABILITY_JUDGMENT,
         content=ActionabilityAssessment(
             explanation="A prior PR shipped this fix." if case == "report_already_addressed" else "One clear fix.",
-            actionability=ActionabilityChoice.IMMEDIATELY_ACTIONABLE,
+            actionability=(
+                ActionabilityChoice.REQUIRES_HUMAN_INPUT
+                if case == "report_requires_human_input"
+                else ActionabilityChoice.IMMEDIATELY_ACTIONABLE
+            ),
             already_addressed=case == "report_already_addressed",
         ).model_dump_json(),
     )
@@ -828,6 +839,14 @@ def test_start_implementation_pr_from_slack_refuses_ineligible_clicks(organizati
         organization.save(update_fields=["is_ai_data_processing_approved"])
     elif case == "clicker_without_project_access":
         user = User.objects.create(email="outsider@example.com")
+    elif case == "clicker_without_task_editor_access":
+        # A project member RBAC leaves as a task viewer. `TaskViewSet.create` refuses them, so the
+        # button has to as well, rather than spending the project's PR credits on their behalf.
+        organization.available_product_features = [
+            {"key": AvailableFeature.ACCESS_CONTROL, "name": AvailableFeature.ACCESS_CONTROL}
+        ]
+        organization.save(update_fields=["available_product_features"])
+        AccessControl.objects.create(team=team, resource="task", access_level="viewer")
 
     with patch.object(tasks_facade, "create_and_run_task") as mock_create:
         result = start_implementation_pr_from_slack(team_id=team.id, report_id=str(report.id), user_id=user.id)
@@ -846,6 +865,8 @@ def test_start_implementation_pr_from_slack_refuses_ineligible_clicks(organizati
         # The quiet one: new signals dropped the report back into research, so the click would pay for
         # a run off research the report has already moved past.
         SignalReport.Status.CANDIDATE,
+        # A report waiting on a person, which a background run cannot ask.
+        SignalReport.Status.PENDING_INPUT,
     ],
 )
 def test_create_implementation_task_rechecks_the_status_under_the_lock(organization, team, status):
