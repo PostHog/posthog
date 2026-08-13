@@ -22,6 +22,7 @@ export const INBOX_EVENTS = {
     REPORTS_IMPRESSED: 'Inbox reports impressed',
     REPORT_OPENED: 'Inbox report opened',
     REPORT_CLOSED: 'Inbox report closed',
+    REPORT_SCROLLED: 'Inbox report scrolled',
     REPORT_ACTION: 'Inbox report action',
     REPORT_ACTION_COMPLETED: 'Inbox report action completed',
     REPORT_FEEDBACK: 'Inbox report feedback',
@@ -317,6 +318,26 @@ export function captureInboxReportClosed(
         },
         options
     )
+}
+
+/**
+ * The report detail pane was scrolled, fired once per open on the first scroll. It feeds the dwell
+ * half of the "Inbox engagement" metric, whose second step reads a scroll after at least 5 seconds.
+ * Only the desktop `Inbox report scrolled` event fed that step before, so it was dead for cloud.
+ * `time_since_open_ms` is the dwell before the scroll. Mirrors the desktop event's shape.
+ */
+export function captureInboxReportScrolled(params: {
+    report: SignalReport
+    rank: number | null
+    listSize: number | null
+    timeSinceOpenMs: number
+}): void {
+    captureInboxEvent(INBOX_EVENTS.REPORT_SCROLLED, {
+        ...baseReportProperties(params.report),
+        rank: params.rank,
+        list_size: params.listSize,
+        time_since_open_ms: params.timeSinceOpenMs,
+    })
 }
 
 export function captureInboxReportAction(params: {
