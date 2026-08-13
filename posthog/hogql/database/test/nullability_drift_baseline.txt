@@ -8,11 +8,8 @@
 
 # --- Declared non-nullable, actually Nullable -------------------------------------------------
 # The dangerous direction: the type system believes NULL is impossible here and can drop null
-# handling that the data needs.
-
-# Materialized as `Nullable(UInt128)` (see posthog/models/event/sql.py) because an event whose
-# `$session_id` property is absent or not a UUID has no value to store.
-events.$session_id_uuid
+# handling that the data needs. Empty, and worth keeping that way — `events.$session_id_uuid` was
+# the only one, and it is fixed.
 
 # --- Declared nullable, actually non-nullable -------------------------------------------------
 # The conservative direction: correctness is safe, but queries carry null handling they do not
