@@ -164,6 +164,8 @@ export interface AlertConfigApi {
      * * `14` - 14 days
      * * `30` - 30 days */
     window_days?: WindowDaysEnumApi
+    /** When true, each example line in the alert message includes the scanner's full reasoning for that observation, not just its verdict/score/tags. Useful when piping the message somewhere else to read or act on. Defaults to false. */
+    include_reasoning?: boolean
 }
 
 /**
@@ -581,6 +583,7 @@ export interface ScannerResultApi {
  * * `schedule` - Schedule
  * * `on_demand` - On demand
  * * `retry` - Retry
+ * * `backfill` - Backfill
  */
 export type ObservationTriggerEnumApi = (typeof ObservationTriggerEnumApi)[keyof typeof ObservationTriggerEnumApi]
 
@@ -588,6 +591,7 @@ export const ObservationTriggerEnumApi = {
     Schedule: 'schedule',
     OnDemand: 'on_demand',
     Retry: 'retry',
+    Backfill: 'backfill',
 } as const
 
 /**
@@ -625,14 +629,20 @@ export interface ReplayObservationApi {
     readonly scanner_snapshot: ScannerSnapshotApi | null
     /** Result data persisted on success; null until the observation succeeds. */
     readonly scanner_result: ScannerResultApi | null
-    /** Whether this observation came from the schedule, an on-demand request, or a retry of a failed or ineligible observation.
+    /** Whether this observation came from the schedule, an on-demand request, a retry of a failed or ineligible observation, or a historical backfill.
      *
      * * `schedule` - Schedule
      * * `on_demand` - On demand
-     * * `retry` - Retry */
+     * * `retry` - Retry
+     * * `backfill` - Backfill */
     readonly triggered_by: ObservationTriggerEnumApi
     /** User who triggered an on-demand observation; null for scheduled observations. */
     readonly triggered_by_user: UserBasicApi | null
+    /**
+     * Backfill that dispatched this observation; null for live, on-demand, and retry triggers.
+     * @nullable
+     */
+    readonly backfill_id: string | null
     /**
      * Distinct id of the person in the recorded session (the subject being watched); null if unknown.
      * @nullable
@@ -706,8 +716,12 @@ export interface VisionQuotaApi {
     readonly period_start: string
     /** First moment of the next quota period (UTC); the current period's exclusive upper bound. */
     readonly period_end: string
-    /** Credit-weighted sum of enabled scanners' projected observations/month across the organization. Scanners without a computed estimate contribute 0. */
+    /** `scanners_monthly_credits` plus `backfills_committed_credits`. Kept as the single headline number; prefer the two components when pro-rating, since only the scanner half is a monthly rate. */
     readonly projected_monthly_credits: number
+    /** Credit-weighted sum of enabled scanners' projected observations/month across the organization. A monthly rate: only the part falling in the days left of the period lands this period. Scanners without a computed estimate contribute 0. */
+    readonly scanners_monthly_credits: number
+    /** Committed-but-unspent credits of the organization's active backfills. A one-off charge rather than a rate, so it lands in full regardless of how much of the period is left. */
+    readonly backfills_committed_credits: number
     /** Credits per period included for free. Already counted inside `credit_limit`; only credits beyond this number are billed. */
     readonly free_monthly_credits: number
 }
@@ -1117,6 +1131,86 @@ export interface ObserveResponseApi {
     workflow_id: string
 }
 
+/**
+ * * `running` - Running
+ * * `paused_quota` - Paused (quota)
+ * * `completed` - Completed
+ * * `cancelled` - Cancelled
+ */
+export type BackfillStatusEnumApi = (typeof BackfillStatusEnumApi)[keyof typeof BackfillStatusEnumApi]
+
+export const BackfillStatusEnumApi = {
+    Running: 'running',
+    PausedQuota: 'paused_quota',
+    Completed: 'completed',
+    Cancelled: 'cancelled',
+} as const
+
+export interface ReplayScannerBackfillApi {
+    readonly id: string
+    readonly status: BackfillStatusEnumApi
+    /** Inclusive lower bound of the historical window to scan. */
+    readonly window_start: string
+    /** Exclusive upper bound of the window; clamped to now at creation. */
+    readonly window_end: string
+    /** Unobserved candidates enumerated at creation; the ceiling is total_count x credits_per_observation. */
+    readonly total_count: number
+    readonly dispatched_count: number
+    /** Candidates the walk stepped over because this scanner had already tried them. Counted at creation but never dispatched, so progress and remaining spend both have to account for them. */
+    readonly skipped_count: number
+    /** Per-observation credit price frozen at creation from the snapshot model. */
+    readonly credits_per_observation: number
+    /** Observations from this backfill that succeeded. */
+    readonly succeeded_count: number
+    /** Observations from this backfill that failed. */
+    readonly failed_count: number
+    /** Sessions that turned out ineligible (too short, expired recording, ...). */
+    readonly ineligible_count: number
+    /** Observations from this backfill still pending or running. */
+    readonly in_flight_count: number
+    readonly created_by: UserBasicApi | null
+    readonly created_at: string
+    /**
+     * When the backfill reached a terminal status (completed or cancelled).
+     * @nullable
+     */
+    readonly finished_at: string | null
+}
+
+export interface PaginatedReplayScannerBackfillListApi {
+    count: number
+    /** @nullable */
+    next?: string | null
+    /** @nullable */
+    previous?: string | null
+    results: ReplayScannerBackfillApi[]
+}
+
+export interface BackfillWindowApi {
+    /** Inclusive lower bound of the historical window to scan. */
+    window_start: string
+    /** Exclusive upper bound of the window; clamped server-side to now. */
+    window_end: string
+}
+
+export interface BackfillEstimateResponseApi {
+    /** Upper bound on the sessions the backfill would scan, after sampling and quality filters and excluding sessions this scanner already reported an observation for. */
+    total_sessions: number
+    /** Cost ceiling in credits (1 credit = $0.01): total_sessions x credits_per_observation. Actual spend lands under it: sessions already tried, expired recordings, and failures are not billed. */
+    total_credits: number
+    /** Per-observation credit price at the scanner's current model. */
+    credits_per_observation: number
+    /**
+     * Credits left in the org's monthly quota; null when the org is uncapped.
+     * @nullable
+     */
+    credits_remaining: number | null
+    /** The window lower bound the estimate covered. */
+    window_start: string
+    /** The window upper bound after clamping to now. */
+    window_end: string
+}
+
 export interface ObservationStatusCountsApi {
     /** Total observations in the filtered set. */
     total: number
@@ -1483,6 +1577,8 @@ export interface EstimateResponseApi {
     estimated_credits_per_month: number
     /** Credit-weighted projected monthly spend of the org's other enabled scanners (excluding `scanner_id`), from their cached estimates. Read from the same snapshot as this estimate so the forecast can't double-count the edited scanner. */
     other_enabled_scanners_monthly_credits: number
+    /** Committed-but-unspent credits of the org's active backfills, the same figure the quota snapshot's projection carries. A one-off charge rather than a monthly rate, so the forecast shows it as its own segment instead of adding it to a per-month total. */
+    active_backfill_credits: number
     /** Sampling rate applied to the projection. Echoed from the request. */
     sampling_rate: number
 }
@@ -1676,6 +1772,10 @@ export type VisionObservationsListParams = {
 
 export type VisionObservationsRetrieveParams = {
     /**
+     * Only observations dispatched by this backfill.
+     */
+    backfill_id?: string
+    /**
      * Only observations created at or after this time. Accepts ISO 8601 or a relative date like `-7d`; values without an explicit offset are interpreted in the project's timezone.
      */
     date_from?: string
@@ -1687,6 +1787,14 @@ export type VisionObservationsRetrieveParams = {
      * When true, return only observations that have a shared label (thumbs up or down); when false, only unlabeled observations.
      */
     labeled?: string
+    /**
+     * Filter scorer observations to those scoring at or below this value. Rows with no numeric score (other scanner types, failed or in-flight runs) are excluded.
+     */
+    max_score?: number
+    /**
+     * Filter scorer observations to those scoring at or above this value. Rows with no numeric score (other scanner types, failed or in-flight runs) are excluded.
+     */
+    min_score?: number
     /**
      * Sort observations. Plain keys: created_at, started_at, completed_at, status, recording_subject_email. JSONB keys: result_score (scorer), result_verdict (monitor), result_confidence, scanner_version. Prefix with `-` for descending; nullable keys sort nulls last either way.
      */
@@ -1708,7 +1816,7 @@ export type VisionObservationsRetrieveParams = {
      */
     tags?: string
     /**
-     * Filter by trigger source (schedule, on_demand, or retry). Accepts a comma-separated list.
+     * Filter by trigger source (schedule, on_demand, retry, or backfill). Accepts a comma-separated list.
      */
     triggered_by?: string
     /**
@@ -1781,7 +1889,22 @@ export type VisionScannersImpactRetrieveParams = {
     window_days?: number
 }
 
+export type VisionScannersBackfillsListParams = {
+    /**
+     * Number of results to return per page.
+     */
+    limit?: number
+    /**
+     * The initial index from which to return the results.
+     */
+    offset?: number
+}
+
 export type VisionScannersObservationsListParams = {
+    /**
+     * Only observations dispatched by this backfill.
+     */
+    backfill_id?: string
     /**
      * Only observations created at or after this time. Accepts ISO 8601 or a relative date like `-7d`; values without an explicit offset are interpreted in the project's timezone.
      */
@@ -1798,6 +1921,14 @@ export type VisionScannersObservationsListParams = {
      * Number of results to return per page.
      */
     limit?: number
+    /**
+     * Filter scorer observations to those scoring at or below this value. Rows with no numeric score (other scanner types, failed or in-flight runs) are excluded.
+     */
+    max_score?: number
+    /**
+     * Filter scorer observations to those scoring at or above this value. Rows with no numeric score (other scanner types, failed or in-flight runs) are excluded.
+     */
+    min_score?: number
     /**
      * The initial index from which to return the results.
      */
@@ -1823,7 +1954,7 @@ export type VisionScannersObservationsListParams = {
      */
     tags?: string
     /**
-     * Filter by trigger source (schedule, on_demand, or retry). Accepts a comma-separated list.
+     * Filter by trigger source (schedule, on_demand, retry, or backfill). Accepts a comma-separated list.
      */
     triggered_by?: string
     /**
@@ -1833,6 +1964,10 @@ export type VisionScannersObservationsListParams = {
 }
 
 export type VisionScannersObservationsRetrieveParams = {
+    /**
+     * Only observations dispatched by this backfill.
+     */
+    backfill_id?: string
     /**
      * Only observations created at or after this time. Accepts ISO 8601 or a relative date like `-7d`; values without an explicit offset are interpreted in the project's timezone.
      */
@@ -1845,6 +1980,14 @@ export type VisionScannersObservationsRetrieveParams = {
      * When true, return only observations that have a shared label (thumbs up or down); when false, only unlabeled observations.
      */
     labeled?: string
+    /**
+     * Filter scorer observations to those scoring at or below this value. Rows with no numeric score (other scanner types, failed or in-flight runs) are excluded.
+     */
+    max_score?: number
+    /**
+     * Filter scorer observations to those scoring at or above this value. Rows with no numeric score (other scanner types, failed or in-flight runs) are excluded.
+     */
+    min_score?: number
     /**
      * Sort observations. Plain keys: created_at, started_at, completed_at, status, recording_subject_email. JSONB keys: result_score (scorer), result_verdict (monitor), result_confidence, scanner_version. Prefix with `-` for descending; nullable keys sort nulls last either way.
      */
@@ -1866,7 +2009,7 @@ export type VisionScannersObservationsRetrieveParams = {
      */
     tags?: string
     /**
-     * Filter by trigger source (schedule, on_demand, or retry). Accepts a comma-separated list.
+     * Filter by trigger source (schedule, on_demand, retry, or backfill). Accepts a comma-separated list.
      */
     triggered_by?: string
     /**
@@ -1876,6 +2019,10 @@ export type VisionScannersObservationsRetrieveParams = {
 }
 
 export type VisionScannersObservationsStatsRetrieveParams = {
+    /**
+     * Only observations dispatched by this backfill.
+     */
+    backfill_id?: string
     /**
      * Only observations created at or after this time. Accepts ISO 8601 or a relative date like `-7d`; values without an explicit offset are interpreted in the project's timezone.
      */
@@ -1888,6 +2035,14 @@ export type VisionScannersObservationsStatsRetrieveParams = {
      * When true, return only observations that have a shared label (thumbs up or down); when false, only unlabeled observations.
      */
     labeled?: string
+    /**
+     * Filter scorer observations to those scoring at or below this value. Rows with no numeric score (other scanner types, failed or in-flight runs) are excluded.
+     */
+    max_score?: number
+    /**
+     * Filter scorer observations to those scoring at or above this value. Rows with no numeric score (other scanner types, failed or in-flight runs) are excluded.
+     */
+    min_score?: number
     /**
      * Window size in days for the coverage `recent_sessions` count. Clamped to [1, 365]. Defaults to 14 when omitted.
      */
@@ -1909,7 +2064,7 @@ export type VisionScannersObservationsStatsRetrieveParams = {
      */
     tags?: string
     /**
-     * Filter by trigger source (schedule, on_demand, or retry). Accepts a comma-separated list.
+     * Filter by trigger source (schedule, on_demand, retry, or backfill). Accepts a comma-separated list.
      */
     triggered_by?: string
     /**

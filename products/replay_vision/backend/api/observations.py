@@ -43,7 +43,6 @@ from products.replay_vision.backend.api.observation_progress import stream_obser
 from products.replay_vision.backend.api.observation_stats import compute_observation_stats
 from products.replay_vision.backend.consent import is_ai_data_processing_approved
 from products.replay_vision.backend.error_kinds import ERROR_REASON_HELP_TEXT
-from products.replay_vision.backend.feature_flag import ReplayVisionEnabledPermission
 from products.replay_vision.backend.models.replay_observation import (
     IN_FLIGHT_STATUSES,
     ObservationStatus,
@@ -68,6 +67,26 @@ logger = structlog.get_logger(__name__)
 
 def _jsonb_typeof(expr: Any) -> Func:
     return Func(expr, function="JSONB_TYPEOF", output_field=CharField())
+
+
+def _annotate_output_number(qs: QuerySet[ReplayObservation], key: str, alias: str) -> QuerySet[ReplayObservation]:
+    """Annotate `alias` with `scanner_result.model_output.<key>` as a float, null when the value isn't numeric.
+
+    CASE-guard the cast so schema drift or a manual fixup (a `score` stored as a string) can't 500 the query.
+    """
+    type_alias = f"{alias}_type"
+    value_jsonb = KeyTransform(key, KeyTransform("model_output", "scanner_result"))
+    value_text = KeyTextTransform(key, KeyTextTransform("model_output", "scanner_result"))
+    return qs.annotate(
+        **{
+            type_alias: _jsonb_typeof(value_jsonb),
+            alias: Case(
+                When(**{type_alias: "number"}, then=Cast(value_text, FloatField())),
+                default=Value(None),
+                output_field=FloatField(),
+            ),
+        }
+    )
 
 
 class ScannerSnapshotSerializer(serializers.Serializer):
@@ -171,7 +190,12 @@ class ReplayObservationSerializer(serializers.ModelSerializer):
     triggered_by = serializers.ChoiceField(
         choices=ObservationTrigger.choices,
         read_only=True,
-        help_text="Whether this observation came from the schedule, an on-demand request, or a retry of a failed or ineligible observation.",
+        help_text="Whether this observation came from the schedule, an on-demand request, a retry of a failed or ineligible observation, or a historical backfill.",
+    )
+    backfill_id = serializers.UUIDField(
+        read_only=True,
+        allow_null=True,
+        help_text="Backfill that dispatched this observation; null for live, on-demand, and retry triggers.",
     )
     triggered_by_user = UserBasicSerializer(
         read_only=True,
@@ -238,6 +262,7 @@ class ReplayObservationSerializer(serializers.ModelSerializer):
             "scanner_result",
             "triggered_by",
             "triggered_by_user",
+            "backfill_id",
             "distinct_id",
             "recording_subject_email",
             "previous_observation_id",
@@ -435,6 +460,9 @@ _ALL_ORDER_KEYS = OBSERVATION_ORDER_FIELDS + _JSONB_ORDER_KEYS + ("recording_sub
 # Derived from the scanner output schema so the filter can never drift from what monitors emit.
 _MONITOR_VERDICTS = frozenset(get_args(MonitorVerdict))
 
+# Annotation alias for the scorer score bounds; kept apart from the ordering aliases so both can apply at once.
+_SCORE_FILTER_ALIAS = "_filter_score"
+
 
 class _ObservationOrderByFilter(OrderByFilter):
     """Observation-specific ordering: plain columns + JSONB-backed keys with numeric casts and nulls-last."""
@@ -455,30 +483,13 @@ class _ObservationOrderByFilter(OrderByFilter):
             # labeled sessions cluster together (asc: incorrect then correct; desc: correct then incorrect).
             return self._order_nulls_last(qs, "label__is_correct", descending)
         if key == "result_score":
-            # CASE-guard the cast so a non-numeric `score` (schema drift, manual fixup) doesn't 500 the query.
-            score_jsonb = KeyTransform("score", KeyTransform("model_output", "scanner_result"))
-            score_text = KeyTextTransform("score", KeyTextTransform("model_output", "scanner_result"))
-            qs = qs.annotate(
-                _score_type=_jsonb_typeof(score_jsonb),
-                _order_score=Case(
-                    When(_score_type="number", then=Cast(score_text, FloatField())),
-                    default=Value(None),
-                    output_field=FloatField(),
-                ),
+            return self._order_nulls_last(
+                _annotate_output_number(qs, "score", "_order_score"), "_order_score", descending
             )
-            return self._order_nulls_last(qs, "_order_score", descending)
         if key == "result_confidence":
-            confidence_jsonb = KeyTransform("confidence", KeyTransform("model_output", "scanner_result"))
-            confidence_text = KeyTextTransform("confidence", KeyTextTransform("model_output", "scanner_result"))
-            qs = qs.annotate(
-                _confidence_type=_jsonb_typeof(confidence_jsonb),
-                _order_confidence=Case(
-                    When(_confidence_type="number", then=Cast(confidence_text, FloatField())),
-                    default=Value(None),
-                    output_field=FloatField(),
-                ),
+            return self._order_nulls_last(
+                _annotate_output_number(qs, "confidence", "_order_confidence"), "_order_confidence", descending
             )
-            return self._order_nulls_last(qs, "_order_confidence", descending)
         if key == "scanner_version":
             version_jsonb = KeyTransform("scanner_version", "scanner_snapshot")
             version_text = KeyTextTransform("scanner_version", "scanner_snapshot")
@@ -513,13 +524,30 @@ class ReplayObservationFilter(django_filters.FilterSet):
     triggered_by = MultiChoiceFilter(
         field_name="triggered_by",
         valid_choices=frozenset(v for v, _ in ObservationTrigger.choices),
-        help_text="Filter by trigger source (schedule, on_demand, or retry). Accepts a comma-separated list.",
+        help_text="Filter by trigger source (schedule, on_demand, retry, or backfill). Accepts a comma-separated list.",
+    )
+    backfill_id = django_filters.UUIDFilter(
+        field_name="backfill_id", help_text="Only observations dispatched by this backfill."
     )
     verdict = MultiChoiceFilter(
         field_name="scanner_result__model_output__verdict",
         valid_choices=_MONITOR_VERDICTS,
         error_key="verdict",
         help_text="Filter monitor observations by verdict. Accepts a comma-separated list (e.g. `yes,inconclusive`).",
+    )
+    min_score = django_filters.NumberFilter(
+        method="_filter_min_score",
+        help_text=(
+            "Filter scorer observations to those scoring at or above this value. Rows with no numeric score "
+            "(other scanner types, failed or in-flight runs) are excluded."
+        ),
+    )
+    max_score = django_filters.NumberFilter(
+        method="_filter_max_score",
+        help_text=(
+            "Filter scorer observations to those scoring at or below this value. Rows with no numeric score "
+            "(other scanner types, failed or in-flight runs) are excluded."
+        ),
     )
     tags = django_filters.CharFilter(
         method="_filter_tags",
@@ -586,7 +614,9 @@ class ReplayObservationFilter(django_filters.FilterSet):
         return [
             OpenApiParameter(
                 name,
-                str,
+                # Numeric filters must not surface as strings, or the generated clients type them
+                # differently here than on the list endpoint drf-spectacular discovers on its own.
+                float if isinstance(field, django_filters.NumberFilter) else str,
                 OpenApiParameter.QUERY,
                 required=False,
                 description=str(field.extra.get("help_text", "")),
@@ -613,6 +643,26 @@ class ReplayObservationFilter(django_filters.FilterSet):
         if not value.startswith(("-", "+")) and "T" not in value and ":" not in value:
             parsed = parsed.replace(hour=23, minute=59, second=59, microsecond=999999)
         return queryset.filter(created_at__lte=parsed)
+
+    def _scored(self, queryset: QuerySet[ReplayObservation]) -> QuerySet[ReplayObservation]:
+        # min_score and max_score can arrive together, and re-annotating the same alias raises.
+        if _SCORE_FILTER_ALIAS in queryset.query.annotations:
+            return queryset
+        return _annotate_output_number(queryset, "score", _SCORE_FILTER_ALIAS)
+
+    # Both bounds look up the annotation `_scored` adds, via a literal key in a `**` dict: a plain
+    # keyword can't be used because django-stubs resolves those against the model's real fields.
+    # The key is spelled out rather than built from `_SCORE_FILTER_ALIAS` so no variable reaches a
+    # filter lookup; rename the alias and these two have to move with it.
+    def _filter_min_score(
+        self, queryset: QuerySet[ReplayObservation], _name: str, value: float
+    ) -> QuerySet[ReplayObservation]:
+        return self._scored(queryset).filter(**{"_filter_score__gte": value})
+
+    def _filter_max_score(
+        self, queryset: QuerySet[ReplayObservation], _name: str, value: float
+    ) -> QuerySet[ReplayObservation]:
+        return self._scored(queryset).filter(**{"_filter_score__lte": value})
 
     def _filter_tags(
         self, queryset: QuerySet[ReplayObservation], _name: str, value: str
@@ -706,7 +756,6 @@ class ReplayObservationViewSet(
 
     scope_object = "replay_scanner"
     required_scopes = ["replay_scanner:read", "session_recording:read"]
-    permission_classes = [ReplayVisionEnabledPermission]
     serializer_class = ReplayObservationSerializer
     queryset = ReplayObservation.objects.all()
     filter_backends = [_TeamAwareFilterBackend]

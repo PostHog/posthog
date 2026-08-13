@@ -41,7 +41,10 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.postgres.c
     drop_slot_and_publication,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.postgres.postgres import (
+    _CONNECTION_DROPPED_ERROR_SUBSTRINGS,
     _CONNECTION_LIMIT_ERROR_SUBSTRINGS,
+    _POOLER_CONNECTION_DROPPED_ERROR_SUBSTRINGS,
+    _SERVER_STARTING_UP_ERROR_SUBSTRINGS,
     _SSH_HANDSHAKE_EOF_ERROR,
     XMIN_AS_INCREMENTAL_FIELD_ERROR,
     PostgresImplementation,
@@ -79,6 +82,14 @@ _HOST_UNREACHABLE_ERROR = (
     "blocking PostHog's IP addresses. Use a host that's reachable over IPv4 (for example a "
     "connection pooler), enable your provider's IPv4 add-on, or add PostHog's IP addresses to your "
     "firewall allowlist, then try again."
+)
+
+# Wrong username or password reported by libpq's standard wording or the SCRAM exchange. The raw
+# driver string is prefixed with "connection to server at <host>, port <port> failed", so surface a
+# clean, host-free message on the non-retryable sync path instead of storing that raw prefix.
+_INVALID_CREDENTIALS_ERROR = (
+    "The database rejected the username or password. Check the user and password configured for "
+    "this source, then re-enable the sync."
 )
 
 PostgresErrors = {
@@ -337,7 +348,7 @@ class PostgresSource(SQLSource[PostgresSourceConfig], SSHTunnelMixin, ValidateDa
                 '"postgres.<project-ref>"). Update the user for this source to the pooler username '
                 "shown in your Supabase dashboard, then re-enable the sync."
             ),
-            "error received from server in SCRAM exchange: Wrong password": None,
+            "error received from server in SCRAM exchange: Wrong password": _INVALID_CREDENTIALS_ERROR,
             # The server (commonly Supabase's Supavisor transaction pooler on port 6543) rejects the
             # SASL/SCRAM credential exchange with "FATAL: SASL authentication failed" instead of
             # PostgreSQL's "password authentication failed for user" — so none of the password keys
@@ -368,14 +379,14 @@ class PostgresSource(SQLSource[PostgresSourceConfig], SSHTunnelMixin, ValidateDa
             ),
             "could not translate host name": None,
             "timeout expired connection to server at": None,
-            "password authentication failed for user": None,
+            "password authentication failed for user": _INVALID_CREDENTIALS_ERROR,
             # Some providers (observed on a Neon-style pooler) report the same auth rejection without
             # libpq's "for user" wording, putting the role on its own line instead: "password
             # authentication failed\nuser \"<role>\"". The key above requires "for user" right after
             # "failed", so it doesn't substring-match this variant and Temporal keeps retrying a
             # credential mismatch only the customer can fix. Match the stable, wording-independent
             # fragment shared by both forms.
-            "password authentication failed": None,
+            "password authentication failed": _INVALID_CREDENTIALS_ERROR,
             # AWS RDS Proxy reports bad credentials with its own wording instead of PostgreSQL's
             # "password authentication failed for user" — it validates against Secrets Manager and
             # returns "The password that was provided for the role <role> is wrong." None of the
@@ -780,27 +791,36 @@ class PostgresSource(SQLSource[PostgresSourceConfig], SSHTunnelMixin, ValidateDa
 
     def get_retryable_errors(self) -> set[str]:
         # `get_rows` already retries a mid-stream drop in-process (reconnect, or fall back to
-        # offset chunking) — see `_CONNECTION_DROPPED_ERROR_SUBSTRINGS` in postgres.py. It only
-        # reaches here once that in-process handling gives up (e.g. a full-table scan can't safely
-        # resume once rows have been yielded, since OFFSET has no stable ORDER BY to resume from).
+        # offset chunking) — see `_CONNECTION_DROPPED_ERROR_SUBSTRINGS` /
+        # `_POOLER_CONNECTION_DROPPED_ERROR_SUBSTRINGS` in postgres.py. It only reaches here once
+        # that in-process handling gives up (e.g. a full-table scan can't safely resume once rows
+        # have been yielded, since OFFSET has no stable ORDER BY to resume from, or the drop
+        # recurs on every reconnect attempt within `_connect_with_dropped_retry`'s bounded budget).
         # Temporal then retries the whole activity and the failure is transient and
         # self-recovering, so classify it here too — otherwise `_handle_import_error` logs it at
         # `exception` on every occurrence, flooding error tracking with a self-recovering failure
-        # (e.g. a cloud provider terminating a backend for maintenance or failover).
-        # "the database system is shutting down" is the connect-time sibling of the same restart: a
-        # smart/fast shutdown refuses new connections while the source is going down, which the
-        # offset-chunking reconnect also retries in-process (`_SERVER_STARTING_UP_ERROR_SUBSTRINGS`
-        # in postgres.py) — this is the same whole-activity-retry fallback for when that budget is
-        # exhausted (e.g. a longer maintenance window).
+        # (e.g. a cloud provider terminating a backend for maintenance/failover, or a pooler whose
+        # connection pool stays saturated longer than the in-process retry budget).
+        #
+        # `_SERVER_STARTING_UP_ERROR_SUBSTRINGS` covers the connect-time siblings of the same class:
+        # a primary/standby booting, replaying WAL after a crash, or a smart/fast shutdown refusing
+        # new connections while the source is going down — all retried in-process by the
+        # offset-chunking reconnect, same exhausted-budget fallback as above.
         #
         # `_CONNECTION_LIMIT_ERROR_SUBSTRINGS` (e.g. "remaining connection slots are reserved") is a
         # connect-time capacity refusal already retried in-process by `_connect_with_dropped_retry` /
         # `_is_dropped_or_connection_limit`. A slot frees the moment another connection closes, so a
         # sustained shortage that outlasts that budget is still transient — the same
-        # reaches-here-only-after-internal-retries-exhaust case as the two entries above.
+        # reaches-here-only-after-internal-retries-exhaust case as the other entries.
+        #
+        # Reusing the actual substring tuples postgres.py retries on (rather than a hand-picked
+        # subset) keeps this in sync as new transient classes are added there — a substring added
+        # to one of those tuples without a matching update here would otherwise keep reporting a
+        # self-recovering failure to error tracking on every occurrence.
         return {
-            "terminating connection due to",
-            "the database system is shutting down",
+            *_CONNECTION_DROPPED_ERROR_SUBSTRINGS,
+            *_POOLER_CONNECTION_DROPPED_ERROR_SUBSTRINGS,
+            *_SERVER_STARTING_UP_ERROR_SUBSTRINGS,
             *_CONNECTION_LIMIT_ERROR_SUBSTRINGS,
         }
 
@@ -1084,7 +1104,7 @@ class PostgresSource(SQLSource[PostgresSourceConfig], SSHTunnelMixin, ValidateDa
             return False, _HOST_IS_URL_ERROR
 
         valid_host, host_errors = self.is_database_host_valid(
-            config.host, team_id, using_ssh_tunnel=config.ssh_tunnel.enabled if config.ssh_tunnel else False
+            config.host, team_id, using_ssh_tunnel=self.ssh_tunnel_enabled(config)
         )
         if not valid_host:
             return valid_host, host_errors

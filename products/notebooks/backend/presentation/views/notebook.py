@@ -558,6 +558,9 @@ def _format_hogql_response_payload(response: Any) -> dict[str, Any]:
     return response_payload
 
 
+IDENTITY_ONLY_DETAIL_ACTIONS = frozenset({"collab_presence", "collab_stream", "activity"})
+
+
 @extend_schema(
     description="The API for interacting with Notebooks. This feature is in early access and the API can have "
     "breaking changes without announcement.",
@@ -690,6 +693,8 @@ class NotebookViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, ForbidD
             # The list serializer omits content/text_content, but both are large columns
             # (ProseMirror JSON + full plaintext) that we'd otherwise load and JSON-decode per row.
             # search/contains filters run as WHERE-clause predicates, so they don't need the columns in Python.
+            queryset = queryset.defer("content", "text_content")
+        elif self.action in IDENTITY_ONLY_DETAIL_ACTIONS:
             queryset = queryset.defer("content", "text_content")
 
         order = self.request.GET.get("order", None)

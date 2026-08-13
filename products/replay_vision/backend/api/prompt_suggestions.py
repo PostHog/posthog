@@ -26,7 +26,6 @@ from posthog.temporal.common.client import sync_connect
 from posthog.temporal.common.search_attributes import POSTHOG_TEAM_ID_KEY
 
 from products.replay_vision.backend.billing import observation_credits_for_model
-from products.replay_vision.backend.feature_flag import ReplayVisionEnabledPermission
 from products.replay_vision.backend.models.replay_observation import ObservationStatus, ReplayObservation
 from products.replay_vision.backend.models.replay_scanner import ReplayScanner, ScannerType
 from products.replay_vision.backend.models.replay_scanner_prompt_suggestion import (
@@ -46,7 +45,7 @@ from products.replay_vision.backend.prompt_suggestions import (
     generate_prompt_suggestion,
     labels_fingerprint,
 )
-from products.replay_vision.backend.quota import compute_quota_snapshot
+from products.replay_vision.backend.quota import quota_state
 from products.replay_vision.backend.scanner_config import scanner_config_error
 from products.replay_vision.backend.temporal.constants import (
     EVALUATE_PROMPT_SUGGESTION_WORKFLOW_NAME,
@@ -230,7 +229,6 @@ class ReplayScannerPromptSuggestionViewSet(
 
     scope_object = "replay_scanner"
     required_scopes = ["replay_scanner:read", "session_recording:read"]
-    permission_classes = [ReplayVisionEnabledPermission]
     serializer_class = ReplayScannerPromptSuggestionSerializer
     queryset = ReplayScannerPromptSuggestion.objects.all()
 
@@ -428,7 +426,7 @@ class ReplayScannerPromptSuggestionViewSet(
             # overspend the month. An uncapped org (no credit limit) never trips this.
             planned = min(session_limit, rated_count)
             planned_credits = planned * observation_credits_for_model(scanner.model)
-            quota = compute_quota_snapshot(organization_id=self.team.organization_id)
+            quota = quota_state(organization_id=self.team.organization_id)
             if quota.would_exceed(planned_credits):
                 raise QuotaLimitExceeded(
                     detail=(

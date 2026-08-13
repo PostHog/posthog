@@ -79,7 +79,7 @@ logger = structlog.get_logger(__name__)
 
 
 @dataclass
-class TableInfo:
+class WarehouseTableFixture:
     """Information about a test table created from CSV data."""
 
     table: DataWarehouseTable
@@ -831,7 +831,7 @@ class TestMarketingAnalyticsAdapters(ClickhouseTestMixin, BaseTest):
     def setUp(self):
         super().setUp()
         self.context = self._create_test_context()
-        self.test_tables: dict[str, TableInfo] = {}
+        self.test_tables: dict[str, WarehouseTableFixture] = {}
         self._cleanup_functions: list[Callable[[], None]] = []
 
     def tearDown(self):
@@ -858,7 +858,7 @@ class TestMarketingAnalyticsAdapters(ClickhouseTestMixin, BaseTest):
             base_currency=DEFAULT_CURRENCY,
         )
 
-    def _setup_csv_table(self, table_key: str) -> TableInfo:
+    def _setup_csv_table(self, table_key: str) -> WarehouseTableFixture:
         if table_key not in self.test_data_configs:
             raise ValueError(f"Invalid table key: {table_key}")
 
@@ -882,7 +882,7 @@ class TestMarketingAnalyticsAdapters(ClickhouseTestMixin, BaseTest):
             self.team,
         )
 
-        table_info = TableInfo(
+        table_info = WarehouseTableFixture(
             table=table,
             source=source,
             credential=credential,

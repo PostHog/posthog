@@ -135,11 +135,15 @@ class SessionRecordingListFromQuery(SessionRecordingsListingBaseQuery):
         bypass_date_window_for_session_ids: bool = False,
         user: User | None = None,
         events_sample_factor: float | None = None,
+        events_timestamp_floor: datetime | None = None,
         **_,
     ):
         self._user = user
         # Storage-level SAMPLE on any events subqueries; opt-in for estimates.
         self._events_sample_factor = events_sample_factor
+        # Extra lower bound on positive events subqueries, for callers that re-run often over a wide
+        # session window and do not need each run to re-scan the whole range.
+        self._events_timestamp_floor = events_timestamp_floor
         self.events_subqueries_sampled = False
         self._bypass_date_window_for_session_ids = bypass_date_window_for_session_ids
         # TRICKY: we need to make sure we init test account filters only once,
@@ -376,7 +380,11 @@ class SessionRecordingListFromQuery(SessionRecordingsListingBaseQuery):
 
         # if in PoE mode then we should be pushing person property queries into here
         events_sub_query_builder = ReplayFiltersEventsSubQuery(
-            self._team, self._query, self._allow_event_property_expansion, sample_factor=self._events_sample_factor
+            self._team,
+            self._query,
+            self._allow_event_property_expansion,
+            sample_factor=self._events_sample_factor,
+            events_timestamp_floor=self._events_timestamp_floor,
         )
         events_sub_queries = events_sub_query_builder.get_queries_for_session_id_matching()
         for events_sub_query in events_sub_queries:
@@ -441,13 +449,40 @@ class SessionRecordingListFromQuery(SessionRecordingsListingBaseQuery):
             optional_exprs.append(property_to_expr(remaining_properties, team=self._team, scope="replay"))
 
         if self._query.console_log_filters:
+            console_logs_where_exprs: list[ast.Expr] = [
+                property_to_expr(
+                    self.property_group_with_operand(self._query.console_log_filters),
+                    team=self._team,
+                )
+            ]
+
+            # Clamp the console logs subquery to the query's date range so we don't scan
+            # the entire table (console logs are message-content filters, not key lookups,
+            # and older partitions are tiered to object storage). Mirrors the ±1 day
+            # buffer used by ReplayFiltersEventsSubQuery: logs can be emitted slightly
+            # before a session's min_first_timestamp lands in the window and up to almost
+            # 24 hours after a session that started within it.
+            if self._query.date_from:
+                console_logs_where_exprs.append(
+                    ast.CompareOperation(
+                        op=ast.CompareOperationOp.GtEq,
+                        left=ast.Field(chain=["timestamp"]),
+                        right=ast.Constant(value=self.query_date_range.date_from() - timedelta(days=1)),
+                    )
+                )
+            if self._query.date_to:
+                console_logs_where_exprs.append(
+                    ast.CompareOperation(
+                        op=ast.CompareOperationOp.LtEq,
+                        left=ast.Field(chain=["timestamp"]),
+                        right=ast.Constant(value=self.query_date_range.date_to() + timedelta(days=1)),
+                    )
+                )
+
             console_logs_subquery = ast.SelectQuery(
                 select=[ast.Field(chain=["log_source_id"])],
                 select_from=ast.JoinExpr(table=ast.Field(chain=["console_logs_log_entries"])),
-                where=property_to_expr(
-                    self.property_group_with_operand(self._query.console_log_filters),
-                    team=self._team,
-                ),
+                where=ast.And(exprs=console_logs_where_exprs),
             )
 
             optional_exprs.append(
@@ -478,6 +513,7 @@ class SessionRecordingListFromQuery(SessionRecordingsListingBaseQuery):
                 test_account_query,
                 self._allow_event_property_expansion,
                 sample_factor=self._events_sample_factor,
+                events_timestamp_floor=self._events_timestamp_floor,
             )
             for sub_q in test_account_events_builder.get_queries_for_session_id_matching():
                 exprs.append(

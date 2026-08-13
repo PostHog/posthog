@@ -10,6 +10,7 @@ import { objectClean } from 'lib/utils/objects'
 import { BillingUsageInteractionProps } from 'scenes/billing/types'
 import type { DashboardAddTileType } from 'scenes/dashboard/dashboardAddTileTypes'
 import { SharedMetric } from 'scenes/experiments/SharedMetrics/sharedMetricLogic'
+import type { SelfDrivingOnboardingStepId } from 'scenes/onboarding/onboardingEventUsageLogic'
 import { ProductTourEvent } from 'scenes/product-tours/constants'
 import { NewSurvey, SURVEY_CREATED_SOURCE, SurveyTemplateType } from 'scenes/surveys/constants'
 import { userLogic } from 'scenes/userLogic'
@@ -165,7 +166,12 @@ export interface ExperimentRecordingsBucketFailedContext {
 // by `version` (1 = legacy, 2 = context-first redesign) and `flow_variant`. Stamping properties
 // instead of renaming keeps every existing dashboard and alert on the v1 events working. The
 // redesign's v2 events live in `scenes/onboarding/onboardingEventUsageLogic`.
-const LEGACY_ONBOARDING_EVENT_PROPS = { version: 1, flow_variant: 'legacy' } as const
+export type OnboardingEventProperties = {
+    flow_variant: 'context_first' | 'legacy'
+    version: 1 | 2
+}
+
+const LEGACY_ONBOARDING_EVENT_PROPS: OnboardingEventProperties = { version: 1, flow_variant: 'legacy' }
 
 function retentionWindowDays(metric: ExperimentRetentionMetric): number | undefined {
     const unitToDays: Record<string, number> = { day: 1, week: 7, month: 30 }
@@ -1362,6 +1368,15 @@ export interface eventUsageLogicActions {
     reportFeatureFlagScheduleSuccess: () => {
         value: true
     }
+    reportFeatureFlagsBulkArchived: (
+        archivedCount: number,
+        pendingApprovalCount: number,
+        failedCount: number
+    ) => {
+        archivedCount: number
+        failedCount: number
+        pendingApprovalCount: number
+    }
     reportFlagsCodeExampleInteraction: (optionType: string) => {
         optionType: string
     }
@@ -1596,8 +1611,12 @@ export interface eventUsageLogicActions {
         reportKey: string
         role: string | null
     }
-    reportOnboardingCompleted: (productKey: string) => {
+    reportOnboardingCompleted: (
+        productKey: string,
+        properties?: OnboardingEventProperties
+    ) => {
         productKey: string
+        properties: OnboardingEventProperties | undefined
     }
     reportOnboardingProductSelectionPath: (
         path: 'ai' | 'browsing_history' | 'manual' | 'use_case',
@@ -1625,22 +1644,30 @@ export interface eventUsageLogicActions {
         recommendationSource: string
         selected: boolean
     }
-    reportOnboardingStarted: (entrypoint: string) => {
+    reportOnboardingStarted: (
+        entrypoint: string,
+        properties?: OnboardingEventProperties
+    ) => {
         entrypoint: string
+        properties: OnboardingEventProperties | undefined
     }
     reportOnboardingStepCompleted: (
-        stepKey: OnboardingStepKey,
-        productKey?: string
+        stepKey: OnboardingStepKey | SelfDrivingOnboardingStepId,
+        productKey?: string,
+        properties?: OnboardingEventProperties
     ) => {
         productKey: string | undefined
-        stepKey: OnboardingStepKey
+        properties: OnboardingEventProperties | undefined
+        stepKey: OnboardingStepKey | SelfDrivingOnboardingStepId
     }
     reportOnboardingStepSkipped: (
-        stepKey: OnboardingStepKey,
-        productKey?: string
+        stepKey: OnboardingStepKey | SelfDrivingOnboardingStepId,
+        productKey?: string,
+        properties?: OnboardingEventProperties
     ) => {
         productKey: string | undefined
-        stepKey: OnboardingStepKey
+        properties: OnboardingEventProperties | undefined
+        stepKey: OnboardingStepKey | SelfDrivingOnboardingStepId
     }
     reportOnboardingUseCaseSelected: (
         useCase: string,
@@ -2658,6 +2685,11 @@ export const eventUsageLogic = kea<eventUsageLogicType>([
             projectCount,
             failedCount,
         }),
+        reportFeatureFlagsBulkArchived: (archivedCount: number, pendingApprovalCount: number, failedCount: number) => ({
+            archivedCount,
+            pendingApprovalCount,
+            failedCount,
+        }),
         reportFeatureFlagScheduleSuccess: true,
         reportFeatureFlagScheduleFailure: (error) => ({ error }),
         reportInviteMembersButtonClicked: true,
@@ -2719,14 +2751,27 @@ export const eventUsageLogic = kea<eventUsageLogicType>([
         reportProductTourListViewed: true,
         reportProductUnsubscribed: (product: string) => ({ product }),
         reportSubscribedDuringOnboarding: (productKey: string) => ({ productKey }),
-        reportOnboardingStarted: (entrypoint: string) => ({ entrypoint }),
-        reportOnboardingStepCompleted: (stepKey: OnboardingStepKey, productKey?: string) => ({
-            stepKey,
-            productKey,
+        reportOnboardingStarted: (entrypoint: string, properties?: OnboardingEventProperties) => ({
+            entrypoint,
+            properties,
         }),
-        reportOnboardingStepSkipped: (stepKey: OnboardingStepKey, productKey?: string) => ({
+        reportOnboardingStepCompleted: (
+            stepKey: OnboardingStepKey | SelfDrivingOnboardingStepId,
+            productKey?: string,
+            properties?: OnboardingEventProperties
+        ) => ({
             stepKey,
             productKey,
+            properties,
+        }),
+        reportOnboardingStepSkipped: (
+            stepKey: OnboardingStepKey | SelfDrivingOnboardingStepId,
+            productKey?: string,
+            properties?: OnboardingEventProperties
+        ) => ({
+            stepKey,
+            productKey,
+            properties,
         }),
         reportOnboardingAIReportSubscribed: (role: string | null, reportKey: string, experimentArm: string | null) => ({
             role,
@@ -2738,7 +2783,10 @@ export const eventUsageLogic = kea<eventUsageLogicType>([
             reportKey,
             experimentArm,
         }),
-        reportOnboardingCompleted: (productKey: string) => ({ productKey }),
+        reportOnboardingCompleted: (productKey: string, properties?: OnboardingEventProperties) => ({
+            productKey,
+            properties,
+        }),
         reportOnboardingUseCaseSelected: (useCase: string, recommendedProducts: readonly string[]) => ({
             useCase,
             recommendedProducts,
@@ -3880,6 +3928,13 @@ export const eventUsageLogic = kea<eventUsageLogicType>([
                 failed_count: failedCount,
             })
         },
+        reportFeatureFlagsBulkArchived: ({ archivedCount, pendingApprovalCount, failedCount }) => {
+            posthog.capture('feature flags bulk archived', {
+                archived_count: archivedCount,
+                pending_approval_count: pendingApprovalCount,
+                failed_count: failedCount,
+            })
+        },
         reportFeatureFlagScheduleSuccess: () => {
             posthog.capture('feature flag scheduled')
         },
@@ -4118,26 +4173,29 @@ export const eventUsageLogic = kea<eventUsageLogicType>([
                 product_key: productKey,
             })
         },
-        reportOnboardingStarted: ({ entrypoint }) => {
+        reportOnboardingStarted: ({ entrypoint, properties }) => {
             posthog.capture('onboarding started', {
                 entry_point: entrypoint,
                 ...LEGACY_ONBOARDING_EVENT_PROPS,
+                ...properties,
             })
         },
-        reportOnboardingStepCompleted: ({ stepKey, productKey }) => {
+        reportOnboardingStepCompleted: ({ stepKey, productKey, properties }) => {
             posthog.capture('onboarding step completed', {
                 step_key: stepKey,
                 // Optional — only set when the caller knows which product owns the step.
                 // Lets dashboards split step funnels by product without joining elsewhere.
                 ...(productKey ? { product_key: productKey } : {}),
                 ...LEGACY_ONBOARDING_EVENT_PROPS,
+                ...properties,
             })
         },
-        reportOnboardingStepSkipped: ({ stepKey, productKey }) => {
+        reportOnboardingStepSkipped: ({ stepKey, productKey, properties }) => {
             posthog.capture('onboarding step skipped', {
                 step_key: stepKey,
                 ...(productKey ? { product_key: productKey } : {}),
                 ...LEGACY_ONBOARDING_EVENT_PROPS,
+                ...properties,
             })
         },
         reportOnboardingAIReportSubscribed: ({ role, reportKey, experimentArm }) => {
@@ -4156,10 +4214,11 @@ export const eventUsageLogic = kea<eventUsageLogicType>([
                 ...LEGACY_ONBOARDING_EVENT_PROPS,
             })
         },
-        reportOnboardingCompleted: ({ productKey }) => {
+        reportOnboardingCompleted: ({ productKey, properties }) => {
             posthog.capture('onboarding completed', {
                 product_key: productKey,
                 ...LEGACY_ONBOARDING_EVENT_PROPS,
+                ...properties,
             })
         },
         reportOnboardingUseCaseSelected: ({ useCase, recommendedProducts }) => {

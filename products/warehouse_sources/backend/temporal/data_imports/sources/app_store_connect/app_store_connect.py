@@ -3,10 +3,12 @@ import re
 import csv
 import gzip
 import time
+import hashlib
+import tempfile
 import dataclasses
 from collections.abc import Iterator
 from datetime import UTC, date, datetime, timedelta
-from typing import Any, Optional
+from typing import IO, Any, Optional
 from urllib.parse import urlsplit
 
 import jwt
@@ -14,6 +16,8 @@ import requests
 from structlog.types import FilteringBoundLogger
 
 from products.warehouse_sources.backend.temporal.data_imports.sources.app_store_connect.settings import (
+    ANALYTICS_GRANULARITY,
+    ANALYTICS_MAX_INSTANCES_PER_RUN,
     APP_STORE_CONNECT_ENDPOINTS,
     MAX_PAGE_SIZE,
     SALES_REPORT_END_OFFSET_DAYS,
@@ -45,6 +49,18 @@ REPORT_ACCEPT = "application/a-gzip"
 # Hard cap on pages walked for one collection (or one app's collection) so a pagination bug can't scan
 # forever. At 200 rows a page that is 400k rows.
 MAX_PAGES_PER_RESOURCE = 2000
+
+# Analytics segment downloads are presigned object-store URLs on Apple's storage, not the API origin,
+# and they expire about five minutes after the segments call. The Apple bearer token must never be
+# sent to them, and the host allowlist keeps a tampered URL from pointing the download at an
+# arbitrary or internal host.
+ANALYTICS_SEGMENT_HOST_SUFFIXES = (".amazonaws.com", ".apple.com", ".mzstatic.com")
+
+# In-memory cap while downloading one analytics segment; larger segments spool to disk so the
+# checksum can be verified before any row is parsed, without holding whole files in memory.
+ANALYTICS_SEGMENT_SPOOL_BYTES = 32 * 1024 * 1024
+
+ANALYTICS_ROWS_PER_BATCH = 2000
 
 _PEM_HEADER = "-----BEGIN PRIVATE KEY-----"
 _PEM_FOOTER = "-----END PRIVATE KEY-----"
@@ -86,6 +102,10 @@ class AppStoreConnectResumeConfig:
     next_url: str | None = None
     # Report streams bookmark: the next report date to fetch, as `YYYY-MM-DD`.
     report_date: str | None = None
+    # Analytics streams bookmark: the next instance processing date to fetch, as
+    # `YYYY-MM-DD`. Dates are walked ascending across every app, so no app bookmark is
+    # needed. Optional so states saved before this field existed still parse.
+    processing_date: str | None = None
 
 
 def _normalize_private_key(private_key: str) -> str:
@@ -138,11 +158,23 @@ class AppStoreConnectTokenProvider:
             ) from e
 
 
-def _make_session(private_key: str) -> requests.Session:
+def _make_session(private_key: str, capture: bool = True) -> requests.Session:
     # The private key itself is never sent — only the signature it produces — but redact it so a future
     # change can't leak it into a captured sample. Redirects stay off so a 3xx can't quietly forward a
     # bearer-token-bearing request to another host; `_get` treats any redirect as a failure.
-    return make_tracked_session(redact_values=(private_key,), allow_redirects=False)
+    # `capture=False` keeps a session's responses out of HTTP sample capture, for calls whose bodies
+    # carry values the name-based scrubbers can't recognise (the presigned analytics segment URLs).
+    return make_tracked_session(redact_values=(private_key,), allow_redirects=False, capture=capture)
+
+
+def _make_segment_download_session(presigned_query: str) -> requests.Session:
+    # The presigned query string is a short-lived credential: redact it so the request log
+    # line can't carry a usable signature, and keep the bulk report body out of sample capture.
+    return make_tracked_session(
+        redact_values=(presigned_query,) if presigned_query else (),
+        allow_redirects=False,
+        capture=False,
+    )
 
 
 def _get(
@@ -207,14 +239,25 @@ def _flatten_resource(resource: dict[str, Any]) -> dict[str, Any]:
     return row
 
 
+@dataclasses.dataclass(frozen=True, kw_only=True)
+class _Page:
+    """One JSON:API page. ``resources`` and ``included`` share a type, so construction is
+    keyword-only to keep a caller from silently swapping them."""
+
+    resources: list[dict[str, Any]]
+    included: list[dict[str, Any]]
+    next_url: str | None
+
+
 def _iter_pages(
     session: requests.Session,
     token_provider: AppStoreConnectTokenProvider,
     logger: FilteringBoundLogger,
     url: str,
     params: dict[str, Any] | None,
-) -> Iterator[tuple[list[dict[str, Any]], str | None]]:
-    """Walk a JSON:API collection, yielding each page's rows plus the next-page URL (``None`` at the end).
+) -> Iterator[_Page]:
+    """Walk a JSON:API collection, yielding each page's ``data`` and ``included`` resources plus the
+    next-page URL (``None`` at the end).
 
     ``params is None`` means ``url`` is already a fully-formed ``links.next`` — re-sending params there
     would duplicate the limit and cursor query args.
@@ -225,7 +268,7 @@ def _iter_pages(
     while True:
         body = _get(session, url, token_provider=token_provider, logger=logger, params=page_params).json()
         data = body.get("data") if isinstance(body, dict) else None
-        rows = [_flatten_resource(resource) for resource in (data or []) if isinstance(resource, dict)]
+        included = body.get("included") if isinstance(body, dict) else None
 
         links = body.get("links") if isinstance(body, dict) else None
         next_url = links.get("next") if isinstance(links, dict) else None
@@ -235,13 +278,50 @@ def _iter_pages(
             logger.warning(f"App Store Connect: page cap reached, truncating collection. url={url}, pages={pages}")
             next_url = None
 
-        yield rows, next_url
+        yield _Page(
+            resources=[resource for resource in (data or []) if isinstance(resource, dict)],
+            included=[resource for resource in (included or []) if isinstance(resource, dict)],
+            next_url=next_url,
+        )
 
         if not next_url:
             return
 
         url = next_url
         page_params = None
+
+
+def _page_rows(config: AppStoreConnectEndpointConfig, page: _Page) -> list[dict[str, Any]]:
+    """Rows for one page: the flattened ``data`` resources, or, for endpoints configured to read a
+    related resource off another collection's pages, the flattened ``included`` resources of that type.
+    """
+    if config.rows_from_included_type is None:
+        return [_flatten_resource(resource) for resource in page.resources]
+
+    # JSON:API full linkage guarantees every included resource is referenced from a primary
+    # resource's relationship linkage; that linkage is where each row's parent id comes from.
+    parent_ids: dict[str, str] = {}
+    for resource in page.resources:
+        relationships = resource.get("relationships")
+        if not isinstance(relationships, dict) or resource.get("id") is None:
+            continue
+        for relationship in relationships.values():
+            linkage = relationship.get("data") if isinstance(relationship, dict) else None
+            if (
+                isinstance(linkage, dict)
+                and linkage.get("type") == config.rows_from_included_type
+                and linkage.get("id") is not None
+            ):
+                parent_ids[str(linkage["id"])] = str(resource["id"])
+
+    rows: list[dict[str, Any]] = []
+    for resource in page.included:
+        if resource.get("type") != config.rows_from_included_type:
+            continue
+        row = _flatten_resource(resource)
+        row[config.included_parent_column] = parent_ids.get(str(resource.get("id")))
+        rows.append(row)
+    return rows
 
 
 def _load_resume(
@@ -256,8 +336,8 @@ def _list_app_ids(
     logger: FilteringBoundLogger,
 ) -> list[str]:
     app_ids: list[str] = []
-    for rows, _ in _iter_pages(session, token_provider, logger, f"{BASE_URL}/v1/apps", {}):
-        app_ids.extend(str(row["id"]) for row in rows if row.get("id"))
+    for page in _iter_pages(session, token_provider, logger, f"{BASE_URL}/v1/apps", {}):
+        app_ids.extend(str(resource["id"]) for resource in page.resources if resource.get("id"))
     return app_ids
 
 
@@ -274,13 +354,14 @@ def _get_collection(
     url = resumed_url or f"{BASE_URL}{config.path}"
     params: dict[str, Any] | None = None if resumed_url else dict(config.params)
 
-    for rows, next_url in _iter_pages(session, token_provider, logger, url, params):
+    for page in _iter_pages(session, token_provider, logger, url, params):
+        rows = _page_rows(config, page)
         if rows:
             yield rows
         # Save AFTER yielding so a crash re-fetches the page we just emitted rather than skipping it;
         # merge dedupes the re-pulled rows on the primary key.
-        if next_url:
-            manager.save_state(AppStoreConnectResumeConfig(next_url=next_url))
+        if page.next_url:
+            manager.save_state(AppStoreConnectResumeConfig(next_url=page.next_url))
 
 
 def _get_app_fanout(
@@ -311,14 +392,15 @@ def _get_app_fanout(
             url = f"{BASE_URL}{config.path.format(app_id=app_id)}"
             params = dict(config.params)
 
-        for rows, next_url in _iter_pages(session, token_provider, logger, url, params):
+        for page in _iter_pages(session, token_provider, logger, url, params):
+            rows = _page_rows(config, page)
             if rows:
                 for row in rows:
                     row["app_id"] = app_id
                 yield rows
 
-            if next_url:
-                manager.save_state(AppStoreConnectResumeConfig(app_id=app_id, next_url=next_url))
+            if page.next_url:
+                manager.save_state(AppStoreConnectResumeConfig(app_id=app_id, next_url=page.next_url))
             elif position + 1 < len(app_ids):
                 manager.save_state(AppStoreConnectResumeConfig(app_id=app_ids[position + 1]))
 
@@ -467,6 +549,374 @@ def _get_sales_report(
         )
 
 
+def _require_segment_url(url: str) -> str:
+    """Allow only https URLs on Apple's storage hosts for analytics segment downloads."""
+    try:
+        parts = urlsplit(url)
+    except Exception as e:
+        raise AppStoreConnectUrlError(f"Unparseable analytics segment URL: {url!r}") from e
+
+    hostname = parts.hostname or ""
+    if parts.scheme != "https" or not hostname.endswith(ANALYTICS_SEGMENT_HOST_SUFFIXES):
+        raise AppStoreConnectUrlError(f"Refusing to download an analytics segment from: {url!r}")
+    return url
+
+
+def _post_json(
+    session: requests.Session,
+    url: str,
+    *,
+    token_provider: AppStoreConnectTokenProvider,
+    logger: FilteringBoundLogger,
+    payload: dict[str, Any],
+    tolerate: tuple[int, ...] = (),
+) -> requests.Response:
+    _require_api_url(url)
+
+    def _send(token: str) -> requests.Response:
+        return session.post(
+            url,
+            json=payload,
+            headers={"Authorization": f"Bearer {token}", "Accept": "application/json"},
+            timeout=REQUEST_TIMEOUT_SECONDS,
+        )
+
+    response = _send(token_provider.token())
+    if response.status_code == 401:
+        response = _send(token_provider.token(force_refresh=True))
+
+    if 300 <= response.status_code < 400:
+        logger.error(f"App Store Connect unexpected redirect: status={response.status_code}, url={url}")
+        raise AppStoreConnectUrlError(f"Unexpected redirect from App Store Connect: {url!r}")
+
+    if response.status_code in tolerate:
+        return response
+
+    if not response.ok:
+        logger.error(
+            f"App Store Connect API error: status={response.status_code}, body={response.text[:500]}, url={url}"
+        )
+        response.raise_for_status()
+
+    return response
+
+
+def _ensure_report_request(
+    session: requests.Session,
+    token_provider: AppStoreConnectTokenProvider,
+    logger: FilteringBoundLogger,
+    app_id: str,
+) -> tuple[str | None, bool]:
+    """Reuse the app's active ONGOING analytics report request, creating one only if none exists.
+
+    Returns ``(request_id, created_now)``. Creating a request is the only call in this source that
+    mutates the customer's App Store Connect account, so it has to be idempotent: an existing active
+    request is always reused, and a request Apple stopped due to inactivity no longer generates
+    reports, so it doesn't count as active. Apple rejects a duplicate create with a 409, which
+    resolves by re-reading the list.
+    """
+    list_url = f"{BASE_URL}/v1/apps/{app_id}/analyticsReportRequests"
+
+    def _active_request_id() -> str | None:
+        body = _get(
+            session,
+            list_url,
+            token_provider=token_provider,
+            logger=logger,
+            params={"filter[accessType]": "ONGOING", "limit": MAX_PAGE_SIZE},
+        ).json()
+        data = body.get("data") if isinstance(body, dict) else None
+        for resource in data or []:
+            if not isinstance(resource, dict) or not resource.get("id"):
+                continue
+            attributes = resource.get("attributes")
+            if isinstance(attributes, dict) and attributes.get("stoppedDueToInactivity"):
+                continue
+            return str(resource["id"])
+        return None
+
+    existing = _active_request_id()
+    if existing:
+        return existing, False
+
+    payload = {
+        "data": {
+            "type": "analyticsReportRequests",
+            "attributes": {"accessType": "ONGOING"},
+            "relationships": {"app": {"data": {"type": "apps", "id": app_id}}},
+        }
+    }
+    response = _post_json(
+        session,
+        f"{BASE_URL}/v1/analyticsReportRequests",
+        token_provider=token_provider,
+        logger=logger,
+        payload=payload,
+        tolerate=(409,),
+    )
+    if response.status_code == 409:
+        # A concurrent sync (or a request the accessType filter hid) beat us to it.
+        return _active_request_id(), False
+
+    body = response.json()
+    data = body.get("data") if isinstance(body, dict) else None
+    request_id = data.get("id") if isinstance(data, dict) else None
+    return (str(request_id) if request_id else None), True
+
+
+def _find_analytics_report(
+    session: requests.Session,
+    token_provider: AppStoreConnectTokenProvider,
+    logger: FilteringBoundLogger,
+    config: AppStoreConnectEndpointConfig,
+    request_id: str,
+) -> str | None:
+    url = f"{BASE_URL}/v1/analyticsReportRequests/{request_id}/reports"
+    report_ids: dict[str, str] = {}
+    for page in _iter_pages(
+        session, token_provider, logger, url, {"filter[category]": config.analytics_report_category}
+    ):
+        for resource in page.resources:
+            row = _flatten_resource(resource)
+            if row.get("name") and row.get("id"):
+                report_ids[str(row["name"])] = str(row["id"])
+
+    for name in config.analytics_report_names:
+        if name in report_ids:
+            return report_ids[name]
+
+    logger.warning(
+        f"App Store Connect: no report named {config.analytics_report_names} under this request "
+        f"(endpoint={config.name}, available={sorted(report_ids)}). The account may not be entitled "
+        f"to this report, Apple may have renamed it, or the first reports may still be generating."
+    )
+    return None
+
+
+def _analytics_instances(
+    session: requests.Session,
+    token_provider: AppStoreConnectTokenProvider,
+    logger: FilteringBoundLogger,
+    report_id: str,
+    lower_bound: date | None,
+) -> list[tuple[str, date]]:
+    url = f"{BASE_URL}/v1/analyticsReports/{report_id}/instances"
+    instances: list[tuple[str, date]] = []
+    for page in _iter_pages(session, token_provider, logger, url, {"filter[granularity]": ANALYTICS_GRANULARITY}):
+        for resource in page.resources:
+            row = _flatten_resource(resource)
+            processing_date = _to_date(row.get("processingDate"))
+            if not row.get("id") or processing_date is None:
+                continue
+            # The lower bound is inclusive: an instance's rows can restate earlier data
+            # dates, and re-reading the boundary merges idempotently on the primary key.
+            if lower_bound is not None and processing_date < lower_bound:
+                continue
+            instances.append((str(row["id"]), processing_date))
+    instances.sort(key=lambda instance: instance[1])
+    return instances
+
+
+def _analytics_segments(
+    session: requests.Session,
+    token_provider: AppStoreConnectTokenProvider,
+    logger: FilteringBoundLogger,
+    instance_id: str,
+) -> list[dict[str, Any]]:
+    url = f"{BASE_URL}/v1/analyticsReportInstances/{instance_id}/segments"
+    segments: list[dict[str, Any]] = []
+    for page in _iter_pages(session, token_provider, logger, url, {}):
+        segments.extend(row for row in (_flatten_resource(resource) for resource in page.resources) if row.get("url"))
+    # Row keys carry the line's position within the instance, so segment order has to be
+    # deterministic across re-reads or the same key would name a different row each time.
+    segments.sort(key=lambda segment: str(segment.get("id")))
+    return segments
+
+
+def _download_segment(logger: FilteringBoundLogger, segment: dict[str, Any]) -> IO[bytes]:
+    """Download one segment to a spooled file, hashing as it streams.
+
+    The URL is presigned, so no Authorization header is attached: sending the Apple bearer token to
+    the storage host would hand it to a third party. The checksum's algorithm is undocumented (the
+    value is shaped like an MD5), so a mismatch is logged rather than fatal; failing hard on a wrong
+    algorithm guess would brick the table, and gzip's own CRC still rejects corrupted payloads at
+    decompression time.
+    """
+    url = _require_segment_url(str(segment["url"]))
+    spool = tempfile.SpooledTemporaryFile(max_size=ANALYTICS_SEGMENT_SPOOL_BYTES)
+    # Download-integrity check against Apple's checksum, not a cryptographic use; corrupted
+    # payloads are also rejected by the gzip CRC.
+    digest = hashlib.md5(usedforsecurity=False)  # nosemgrep
+
+    session = _make_segment_download_session(urlsplit(url).query)
+    response = session.get(url, stream=True, timeout=REPORT_TIMEOUT_SECONDS)
+    try:
+        if not response.ok:
+            logger.error(f"App Store Connect analytics segment download failed: status={response.status_code}")
+            response.raise_for_status()
+        for chunk in response.iter_content(chunk_size=1024 * 1024):
+            digest.update(chunk)
+            spool.write(chunk)
+    finally:
+        response.close()
+
+    expected = segment.get("checksum")
+    if expected and digest.hexdigest() != expected:
+        logger.warning(
+            f"App Store Connect: analytics segment checksum mismatch "
+            f"(expected={expected}, got={digest.hexdigest()}, sizeInBytes={segment.get('sizeInBytes')}). "
+            f"Continuing; the gzip CRC rejects genuinely corrupt payloads."
+        )
+
+    spool.seek(0)
+    return spool
+
+
+def _open_segment_text(spool: IO[bytes]) -> IO[str]:
+    # The transport can hand the payload over decompressed (a `Content-Encoding: gzip` body is
+    # unwrapped by urllib3), so sniff the magic bytes instead of assuming.
+    magic = spool.read(2)
+    spool.seek(0)
+    if magic == b"\x1f\x8b":
+        return io.TextIOWrapper(gzip.GzipFile(fileobj=spool, mode="rb"), encoding="utf-8-sig", errors="replace")
+    return io.TextIOWrapper(spool, encoding="utf-8-sig", errors="replace")
+
+
+def _iter_segment_rows(text: IO[str], processing_date: date, line_start: int) -> Iterator[dict[str, Any]]:
+    header_line = text.readline()
+    if not header_line.strip():
+        return
+
+    # Apple's segment objects are named `.csv.gz` but its docs describe the files only as
+    # delimited text, so sniff the delimiter from the header instead of assuming one.
+    delimiter = "\t" if "\t" in header_line else ","
+    columns = [_normalize_report_column(column) for column in next(csv.reader([header_line], delimiter=delimiter))]
+    processing_date_str = processing_date.isoformat()
+    line = line_start
+
+    for values in csv.reader(text, delimiter=delimiter):
+        if not any(value.strip() for value in values):
+            continue
+        row: dict[str, Any] = {
+            column: (values[index] if index < len(values) else None) for index, column in enumerate(columns)
+        }
+        row["processing_date"] = processing_date_str
+        # 1-based position within the instance, continuing across its segments. A published
+        # instance is immutable, so (app_id, processing_date, _line) stays a stable unique key
+        # and re-reading an instance merges instead of duplicating.
+        line += 1
+        row["_line"] = line
+        yield row
+
+
+def _get_analytics_report(
+    session: requests.Session,
+    segments_session: requests.Session,
+    config: AppStoreConnectEndpointConfig,
+    token_provider: AppStoreConnectTokenProvider,
+    logger: FilteringBoundLogger,
+    manager: ResumableSourceManager[AppStoreConnectResumeConfig],
+    should_use_incremental_field: bool,
+    db_incremental_field_last_value: Any,
+) -> Iterator[list[dict[str, Any]]]:
+    app_ids = _list_app_ids(session, token_provider, logger)
+    resume = _load_resume(manager)
+    resumed_date = _to_date(resume.processing_date) if resume is not None else None
+    watermark = _to_date(db_incremental_field_last_value) if should_use_incremental_field else None
+
+    lower_bound: date | None = None
+    for candidate in (watermark, resumed_date):
+        if candidate is not None and (lower_bound is None or candidate > lower_bound):
+            lower_bound = candidate
+
+    # Discover every app's report and instances up front, then walk processing dates in
+    # ascending order ACROSS apps. Yields are then globally date-ordered, so the pipeline's
+    # per-batch watermark checkpoint can never advance past an app whose older instances are
+    # still unfetched, and the walk can stop cleanly at the first gap or at the per-run cap:
+    # the watermark stands at the last date reached, and because the lower bound is inclusive
+    # the next run re-reads that boundary date in full and the merge dedupes it. Resume state
+    # is job-scoped (it survives retries of the same job, never the next scheduled run), so
+    # the watermark has to carry cross-run progress by itself.
+    instances_by_date: dict[date, list[tuple[str, str]]] = {}
+    for app_id in app_ids:
+        request_id, created_now = _ensure_report_request(session, token_provider, logger, app_id)
+        if created_now:
+            logger.info(
+                f"App Store Connect: created an ONGOING analytics report request for app {app_id}; "
+                f"Apple generates the first reports in 1-2 days. endpoint={config.name}"
+            )
+            continue
+        if request_id is None:
+            continue
+
+        report_id = _find_analytics_report(session, token_provider, logger, config, request_id)
+        if report_id is None:
+            # An unavailable report degrades this table for this app; other apps and tables
+            # are unaffected.
+            continue
+
+        for instance_id, processing_date in _analytics_instances(
+            session, token_provider, logger, report_id, lower_bound
+        ):
+            instances_by_date.setdefault(processing_date, []).append((app_id, instance_id))
+
+    instances_fetched = 0
+    for processing_date in sorted(instances_by_date):
+        for app_id, instance_id in instances_by_date[processing_date]:
+            if instances_fetched >= ANALYTICS_MAX_INSTANCES_PER_RUN:
+                # An incremental sync continues from the watermark next run. A full refresh
+                # has no watermark to continue from, so a cap-hit there means a truncated
+                # table until the backlog fits in one run.
+                logger.warning(
+                    f"App Store Connect: hit the per-run analytics instance cap at "
+                    f"{processing_date.isoformat()}; later dates are left for the next "
+                    f"incremental run. endpoint={config.name}"
+                )
+                manager.save_state(AppStoreConnectResumeConfig(processing_date=processing_date.isoformat()))
+                return
+
+            segments = _analytics_segments(segments_session, token_provider, logger, instance_id)
+            if not segments:
+                # The instance is listed but its files aren't ready. Stop the whole walk at
+                # this date so no newer date is emitted past the gap: the watermark then
+                # stays at or below this date, and the next run re-reads it once the files
+                # exist.
+                logger.info(
+                    f"App Store Connect: analytics instance has no segments yet, stopping the "
+                    f"walk at this date. endpoint={config.name}, app_id={app_id}, "
+                    f"processing_date={processing_date.isoformat()}"
+                )
+                manager.save_state(AppStoreConnectResumeConfig(processing_date=processing_date.isoformat()))
+                return
+
+            line = 0
+            batch: list[dict[str, Any]] = []
+            for segment in segments:
+                spool = _download_segment(logger, segment)
+                try:
+                    with _open_segment_text(spool) as text:
+                        for row in _iter_segment_rows(text, processing_date, line):
+                            row["app_id"] = app_id
+                            line = row["_line"]
+                            batch.append(row)
+                            if len(batch) >= ANALYTICS_ROWS_PER_BATCH:
+                                yield batch
+                                batch = []
+                finally:
+                    spool.close()
+            if batch:
+                yield batch
+
+            instances_fetched += 1
+
+        # The date is complete for every app, so a retried attempt of this job can start at
+        # the next one. Saved AFTER the date's rows are yielded, so a crash re-reads the
+        # date rather than skipping it; the merge dedupes the re-read.
+        manager.save_state(
+            AppStoreConnectResumeConfig(processing_date=(processing_date + timedelta(days=1)).isoformat())
+        )
+
+
 def check_credentials(issuer_id: str, key_id: str, private_key: str) -> tuple[int | None, str | None]:
     """Probe ``/v1/apps`` with a minted token.
 
@@ -510,6 +960,20 @@ def get_rows(
         yield from _get_collection(session, config, token_provider, logger, resumable_source_manager)
     elif config.kind == "app_fanout":
         yield from _get_app_fanout(session, config, token_provider, logger, resumable_source_manager)
+    elif config.kind == "analytics_report":
+        yield from _get_analytics_report(
+            session,
+            # Segment listings ride a capture-disabled session: their bodies carry presigned
+            # URLs whose query strings are short-lived credentials the name-based scrubbers
+            # can't recognise.
+            _make_session(private_key, capture=False),
+            config,
+            token_provider,
+            logger,
+            resumable_source_manager,
+            should_use_incremental_field,
+            db_incremental_field_last_value,
+        )
     else:  # "sales_report"
         yield from _get_sales_report(
             session,
@@ -559,7 +1023,8 @@ def app_store_connect_source(
         partition_mode="datetime" if config.partition_key else None,
         partition_format="month" if config.partition_key else None,
         partition_keys=[config.partition_key] if config.partition_key else None,
-        # Report streams walk dates oldest-first. Collections are full refreshes merged on a unique key,
-        # so their page order doesn't affect the result either way.
+        # Report streams walk dates oldest-first (analytics streams date-major across apps, so
+        # per-batch watermark checkpoints stay safe despite the fan-out), and collections are
+        # full refreshes merged on a unique key, so asc fits everything.
         sort_mode="asc",
     )

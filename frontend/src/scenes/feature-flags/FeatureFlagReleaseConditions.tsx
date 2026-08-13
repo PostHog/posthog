@@ -52,6 +52,7 @@ import {
     isDistinctIdFilter,
     withResolvedFlagLabels,
 } from './featureFlagReleaseConditionsLogic'
+import { MatchingActorsLink } from './MatchingActorsLink'
 import { getPropertySelectErrorMessages } from './propertySelectErrorMessages'
 
 function PropertyValueComponent({
@@ -506,6 +507,11 @@ export function FeatureFlagReleaseConditions({
                                                 <b>~{pluralize(receivingFlag, singularName, pluralName)}</b> -{' '}
                                                 <b>{rolloutPct}%</b>
                                             </span>
+                                            <MatchingActorsLink
+                                                properties={group.properties}
+                                                resolvedGroupTypeIndex={resolvedGroupTypeIndex}
+                                                targetName={pluralName}
+                                            />
                                         </div>
                                     )
                                 })()}

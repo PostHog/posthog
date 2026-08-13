@@ -6239,7 +6239,7 @@ describe("SessionService", () => {
       );
     });
 
-    it("queues a cloud steer when the sandbox lacks the capability", async () => {
+    it("forwards a cloud steer when cached capability metadata is missing", async () => {
       const service = getSessionService();
       mockSessionStoreSetters.getSessionByTaskId.mockReturnValue(
         createMockSession({
@@ -6250,19 +6250,24 @@ describe("SessionService", () => {
           steering: undefined,
         }),
       );
+      mockTrpcCloudTask.sendCommand.mutate.mockResolvedValue({
+        success: true,
+        result: { stopReason: "steered", steered: true },
+      });
 
       const prompt: ContentBlock[] = [{ type: "text", text: "steer me" }];
       const result = await service.sendPrompt("task-123", prompt, {
         steer: true,
       });
 
-      expect(result.stopReason).toBe("queued");
-      expect(mockSessionStoreSetters.enqueueMessage).toHaveBeenCalledWith(
-        "task-123",
-        "steer me",
-        prompt,
+      expect(result.stopReason).toBe("steered");
+      expect(mockSessionStoreSetters.enqueueMessage).not.toHaveBeenCalled();
+      expect(mockTrpcCloudTask.sendCommand.mutate).toHaveBeenCalledWith(
+        expect.objectContaining({
+          method: "user_message",
+          params: { content: "steer me", steer: true },
+        }),
       );
-      expect(mockTrpcCloudTask.sendCommand.mutate).not.toHaveBeenCalled();
     });
 
     it("kicks an SSE retry when queueing on a disconnected cloud session", async () => {

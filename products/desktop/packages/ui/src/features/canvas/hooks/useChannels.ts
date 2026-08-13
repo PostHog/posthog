@@ -61,11 +61,32 @@ export function useChannelMutations() {
   }, [queryClient]);
 
   const createMutation = useMutation({
-    mutationFn: async (name: string) => {
+    mutationFn: async ({ name, star }: { name: string; star: boolean }) => {
       if (!client) throw new Error("Not authenticated");
       // Resolve-or-create is idempotent server-side, so racing creators of the
       // same name converge on one channel.
-      return client.resolveTaskChannel(name);
+      // Names that reach here are already lowercase-dashed (the create form
+      // rejects anything else), so they match server-normalized names as typed.
+      // An unfetched list reads as undefined rather than "no such name", and
+      // starring a space the user had unstarred is worse than not starring a
+      // new one, so only a loaded list without the name earns the fallback.
+      const isNewToTheList = queryClient
+        .getQueryData<TaskChannel[]>(TASK_CHANNELS_QUERY_KEY)
+        ?.every((channel) => channel.name !== name);
+      const created = await client.resolveTaskChannel(name, { star });
+      if (!star || created.starred || !isNewToTheList) return created;
+      // TODO: delete once `star` on create is live on Cloud. A backend that
+      // predates it drops the flag and hands back an unstarred channel, so ask
+      // again through the star endpoint every version has. Resolving a channel
+      // that already existed is left alone either way — its star is the user's.
+      try {
+        await client.starTaskChannel(created.id, true);
+        return { ...created, starred: true };
+      } catch {
+        // The space exists either way, and the star is one click to fix, so a
+        // failure here isn't worth failing the create the user asked for.
+        return created;
+      }
     },
     onSuccess: (created) => {
       // Insert the created channel into the cache immediately so the sidebar
@@ -100,8 +121,8 @@ export function useChannelMutations() {
   });
 
   return {
-    createChannel: (name: string) =>
-      createMutation.mutateAsync(name).then(toChannel),
+    createChannel: (name: string, options: { star: boolean }) =>
+      createMutation.mutateAsync({ name, star: options.star }).then(toChannel),
     deleteChannel: (id: string) => deleteMutation.mutateAsync(id),
     renameChannel: (id: string, name: string) =>
       renameMutation.mutateAsync({ id, name }).then(toChannel),

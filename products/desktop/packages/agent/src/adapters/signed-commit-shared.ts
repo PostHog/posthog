@@ -32,7 +32,7 @@ export const SIGNED_COMMIT_TOOL_DESCRIPTION =
   "first (or pass `paths`), then call this instead of `git commit`/`git push` — those are " +
   "blocked because all commits must be signed. The commit is created via GitHub's API and " +
   "your local checkout is kept in sync. For a new branch, pass `branch` (prefixed with " +
-  "`posthog-code/`) and the tool creates it on the remote. Refuses while a merge/rebase/" +
+  "`posthog/`) and the tool creates it on the remote. Refuses while a merge/rebase/" +
   "cherry-pick is in progress, refuses staged files that copy base-branch content into the PR " +
   "(to bring the base branch in, use `git_signed_merge`), and refuses when the remote branch " +
   "has advanced past your checkout (e.g. a CI bot pushed) — sync it first, then retry.";
@@ -44,7 +44,7 @@ export const signedCommitToolSchema = {
     .string()
     .optional()
     .describe(
-      "Target branch; defaults to the current branch. Use a posthog-code/ prefix for new branches.",
+      "Target branch; defaults to the current branch. Use a posthog/ prefix for new branches.",
     ),
   paths: z
     .array(z.string())
@@ -184,13 +184,16 @@ export function runSignedCommitTool(
       // repository on resume. A task can also commit to sibling repositories by
       // passing `cwd`; persisting one of those branches here makes the next run
       // try to clone the task repository at a branch that only exists elsewhere.
-      if (ctx.cwd === ctx.taskRepositoryCwd) {
-        await reportTaskRunBranch({
-          taskId: ctx.taskId,
-          taskRunId: ctx.taskRunId,
-          branch: result.branch,
-        });
-      }
+      await reportTaskRunBranch({
+        taskId: ctx.taskId,
+        taskRunId: ctx.taskRunId,
+        repository: result.repository,
+        branch: result.branch,
+        // Only the task repository branch controls the next checkout. The
+        // reported head branch still lets PR webhooks bind commits made from a
+        // workspace root or a sibling repository to this run.
+        updateCheckoutBranch: ctx.cwd === ctx.taskRepositoryCwd,
+      });
       // The "commit hook": every pushed commit becomes a `commit` artefact on the signal
       // reports this task is associated with. Best-effort and awaited inside the tool's
       // try/catch-free success path — reportCommitArtefacts never throws, so a failed

@@ -62,6 +62,8 @@ jobs:
                         - 'ee/**'
                         - 'posthog/**'
                         - 'products/**'
+                        # the scan --excludes products/desktop (semgrep-desktop covers it)
+                        - '!products/desktop/**'
                         - 'services/llm-gateway/**'
                         - 'services/stripe-mock/**'
                         - '.semgrep/rules/security/**'
@@ -77,6 +79,7 @@ jobs:
                         - 'frontend/**'
                         - 'nodejs/**'
                         - 'services/agent-proxy/**'
+                        - 'services/integration-service/**'
                         - 'services/mcp/**'
                         - 'services/oauth-proxy/**'
                         - 'services/stripe-app/**'
@@ -283,7 +286,7 @@ jobs:
                       --metrics=off \
                       --verbose \
                       --timeout 300 \
-                      frontend/ nodejs/ services/agent-proxy/ services/mcp/ services/oauth-proxy/ services/stripe-app/
+                      frontend/ nodejs/ services/agent-proxy/ services/integration-service/ services/mcp/ services/oauth-proxy/ services/stripe-app/
 
     semgrep-products-frontend:
         needs: changes

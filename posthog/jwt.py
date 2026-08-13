@@ -18,6 +18,7 @@ class PosthogJwtAudience(Enum):
     EXPORT_RENDERER = "posthog:export_renderer"
     LIVESTREAM = "posthog:livestream"
     SHARING_PASSWORD_PROTECTED = "posthog:sharing_password_protected"
+    INTEGRATION_SERVICE = "posthog:integration_service"
 
 
 def signing_key_fingerprint(key: str) -> str:
@@ -32,9 +33,15 @@ def _verification_keys() -> list[str]:
     return [_signing_key(), *settings.JWT_SIGNING_KEY_FALLBACKS]
 
 
-def encode_jwt(payload: dict, expiry_delta: timedelta, audience: PosthogJwtAudience) -> str:
+def encode_jwt(
+    payload: dict, expiry_delta: timedelta, audience: PosthogJwtAudience, signing_key: str | None = None
+) -> str:
     """
-    Create a JWT ensuring that the correct audience and signing token is used
+    Create a JWT ensuring that the correct audience and signing token is used.
+
+    `signing_key` overrides the fleet-wide JWT_SIGNING_KEY with a per-audience key, so a
+    leak of one audience's key cannot mint tokens for another. New service-to-service
+    audiences should always pass one.
     """
     if not isinstance(audience, PosthogJwtAudience):
         raise Exception("Audience must be in the list of PostHog-supported audiences")
@@ -45,7 +52,7 @@ def encode_jwt(payload: dict, expiry_delta: timedelta, audience: PosthogJwtAudie
             "exp": datetime.now(tz=UTC) + expiry_delta,
             "aud": audience.value,
         },
-        _signing_key(),
+        signing_key or _signing_key(),
         algorithm=JWT_ALGORITHM,
     )
 

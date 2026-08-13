@@ -905,6 +905,12 @@ class TestTransientGrpcErrorDetection:
                 ),
                 False,
             ),
+            # A bare UNKNOWN status carrying Google's own auth-backend hiccup message is a confirmed
+            # transient backend incident, not a rejected credential — ride it out in-process.
+            (google_api_exceptions.Unknown("Authentication backend unknown error."), True),
+            # Any other UNKNOWN-status error must not be retried blindly — the status alone is too
+            # broad a signal, so only the specific known message is treated as transient.
+            (google_api_exceptions.Unknown("Some other unrelated backend failure."), False),
             # A different gapic error must not be treated as transient.
             (google_api_exceptions.PermissionDenied("PERMISSION_DENIED"), False),
             # Google Ads API errors carry no transient gRPC status — they route through the existing
@@ -1556,9 +1562,16 @@ class TestVersionDeclaration:
         assert source.default_version == "v25"
         assert set(source.supported_versions) == {"v23", "v24", "v25"}
 
+    def test_v23_deprecated_with_sunset_date(self):
+        # v23 is sunsetting (February 2027), so it must carry both the deprecation flag and the sunset
+        # date — the in-product banner shows the date and the v23→v25 repin migration is justified by it.
+        v23_deprecation = GoogleAdsSource().get_version_deprecation("v23")
+        assert v23_deprecation is not None
+        assert v23_deprecation.sunset_at == dt.date(2027, 2, 1)
+
     def test_v24_deprecated_default_is_not(self):
-        # v24 is the version the vendor is retiring, so it must carry the deprecation flag that drives
-        # the in-product warning; the current default (v25) must never be deprecated.
+        # v24 is also deprecated but has no announced sunset date yet, so it must carry the flag with a
+        # None sunset; the current default (v25) must never be deprecated.
         source = GoogleAdsSource()
         v24_deprecation = source.get_version_deprecation("v24")
         assert v24_deprecation is not None
@@ -1698,15 +1711,39 @@ class TestResourceSchemaInvariants:
 
 
 class TestConversionActionSegmentedStats:
-    def test_only_conversion_metrics_are_selected(self):
+    @pytest.mark.parametrize(
+        "alias",
+        [
+            "campaign_conversion_action_stats",
+            "ad_group_conversion_action_stats",
+            "keyword_conversion_action_stats",
+        ],
+    )
+    def test_only_conversion_metrics_are_selected(self, alias):
         # Google rejects a query that pairs segments.conversion_action with a non-conversion metric,
         # which would fail the whole table rather than drop a column. Keep the metric list to the
         # conversion family.
-        field_names = RESOURCE_SCHEMAS["campaign_conversion_action_stats"]["field_names"]
+        field_names = RESOURCE_SCHEMAS[alias]["field_names"]
         metrics = [f for f in field_names if f.startswith("metrics.")]
 
         assert metrics
         assert all("conversion" in metric for metric in metrics)
+
+
+class TestCriterionTablesReachNegatives:
+    # The keyword table is backed by keyword_view, which only ever returns positive, servable
+    # keywords. These criterion tables are the only way to reach negative keywords and other
+    # exclusions, and that reachability hinges on selecting the `negative` flag — without it the row
+    # can't be told apart from a positive target, defeating the table's reason to exist.
+    @pytest.mark.parametrize(
+        "alias, negative_field",
+        [
+            ("ad_group_criterion", "ad_group_criterion.negative"),
+            ("campaign_criterion", "campaign_criterion.negative"),
+        ],
+    )
+    def test_negative_flag_is_selected(self, alias, negative_field):
+        assert negative_field in RESOURCE_SCHEMAS[alias]["field_names"]
 
 
 class TestBreakdownStatsDefaultOff:
@@ -1719,6 +1756,8 @@ class TestBreakdownStatsDefaultOff:
         [
             "age_range_stats",
             "campaign_conversion_action_stats",
+            "ad_group_conversion_action_stats",
+            "keyword_conversion_action_stats",
             "campaign_hourly_stats",
             "detail_placement_stats",
             "gender_stats",
@@ -1726,6 +1765,8 @@ class TestBreakdownStatsDefaultOff:
             "location_stats",
             "product_group_stats",
             "user_location_stats",
+            "ad_group_criterion",
+            "campaign_criterion",
         ],
     )
     def test_breakdown_stats_are_opt_in_and_described(self, alias):

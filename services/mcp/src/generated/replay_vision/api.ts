@@ -44,6 +44,7 @@ export const visionActionsCreateBodySynthesisConfigOnePromptGuideMax = 500
 export const visionActionsCreateBodyAlertConfigOneFrequencyDefault = `on_breach`
 export const visionActionsCreateBodyAlertConfigOneMetricDefault = `count`
 export const visionActionsCreateBodyAlertConfigOneDirectionDefault = `above`
+export const visionActionsCreateBodyAlertConfigOneIncludeReasoningDefault = false
 
 export const VisionActionsCreateBody = /* @__PURE__ */ zod
     .object({
@@ -170,6 +171,12 @@ export const VisionActionsCreateBody = /* @__PURE__ */ zod
                     .describe(
                         "Rolling lookback window for on_breach conditions, ending at each check. Defaults to 1 day. every_match ignores it (each check covers what's new since the previous one).\n\n\* `1` - 1 day\n\* `3` - 3 days\n\* `7` - 7 days\n\* `14` - 14 days\n\* `30` - 30 days"
                     ),
+                include_reasoning: zod
+                    .boolean()
+                    .default(visionActionsCreateBodyAlertConfigOneIncludeReasoningDefault)
+                    .describe(
+                        "When true, each example line in the alert message includes the scanner's full reasoning for that observation, not just its verdict\/score\/tags. Useful when piping the message somewhere else to read or act on. Defaults to false."
+                    ),
             })
             .describe(
                 "The alert condition for mode='alert', applied after `selection` targeting. 'every_match'\nnotifies about each new match since the previous check; 'on_breach' compares a metric to a\nthreshold over a rolling window and notifies on the transition into breach."
@@ -244,6 +251,7 @@ export const visionActionsPartialUpdateBodySynthesisConfigOnePromptGuideMax = 50
 export const visionActionsPartialUpdateBodyAlertConfigOneFrequencyDefault = `on_breach`
 export const visionActionsPartialUpdateBodyAlertConfigOneMetricDefault = `count`
 export const visionActionsPartialUpdateBodyAlertConfigOneDirectionDefault = `above`
+export const visionActionsPartialUpdateBodyAlertConfigOneIncludeReasoningDefault = false
 
 export const VisionActionsPartialUpdateBody = /* @__PURE__ */ zod
     .object({
@@ -372,6 +380,12 @@ export const VisionActionsPartialUpdateBody = /* @__PURE__ */ zod
                     .describe(
                         "Rolling lookback window for on_breach conditions, ending at each check. Defaults to 1 day. every_match ignores it (each check covers what's new since the previous one).\n\n\* `1` - 1 day\n\* `3` - 3 days\n\* `7` - 7 days\n\* `14` - 14 days\n\* `30` - 30 days"
                     ),
+                include_reasoning: zod
+                    .boolean()
+                    .default(visionActionsPartialUpdateBodyAlertConfigOneIncludeReasoningDefault)
+                    .describe(
+                        "When true, each example line in the alert message includes the scanner's full reasoning for that observation, not just its verdict\/score\/tags. Useful when piping the message somewhere else to read or act on. Defaults to false."
+                    ),
             })
             .describe(
                 "The alert condition for mode='alert', applied after `selection` targeting. 'every_match'\nnotifies about each new match since the previous check; 'on_breach' compares a metric to a\nthreshold over a rolling window and notifies on the transition into breach."
@@ -492,6 +506,7 @@ export const VisionObservationsRetrieveParams = /* @__PURE__ */ zod.object({
 })
 
 export const VisionObservationsRetrieveQueryParams = /* @__PURE__ */ zod.object({
+    backfill_id: zod.string().optional().describe('Only observations dispatched by this backfill.'),
     date_from: zod
         .string()
         .optional()
@@ -509,6 +524,18 @@ export const VisionObservationsRetrieveQueryParams = /* @__PURE__ */ zod.object(
         .optional()
         .describe(
             'When true, return only observations that have a shared label (thumbs up or down); when false, only unlabeled observations.'
+        ),
+    max_score: zod
+        .number()
+        .optional()
+        .describe(
+            'Filter scorer observations to those scoring at or below this value. Rows with no numeric score (other scanner types, failed or in-flight runs) are excluded.'
+        ),
+    min_score: zod
+        .number()
+        .optional()
+        .describe(
+            'Filter scorer observations to those scoring at or above this value. Rows with no numeric score (other scanner types, failed or in-flight runs) are excluded.'
         ),
     order_by: zod
         .string()
@@ -534,7 +561,9 @@ export const VisionObservationsRetrieveQueryParams = /* @__PURE__ */ zod.object(
     triggered_by: zod
         .string()
         .optional()
-        .describe('Filter by trigger source (schedule, on_demand, or retry). Accepts a comma-separated list.'),
+        .describe(
+            'Filter by trigger source (schedule, on_demand, retry, or backfill). Accepts a comma-separated list.'
+        ),
     verdict: zod
         .string()
         .optional()
@@ -1016,6 +1045,7 @@ export const VisionScannersObservationsListParams = /* @__PURE__ */ zod.object({
 })
 
 export const VisionScannersObservationsListQueryParams = /* @__PURE__ */ zod.object({
+    backfill_id: zod.string().optional().describe('Only observations dispatched by this backfill.'),
     date_from: zod
         .string()
         .optional()
@@ -1035,6 +1065,18 @@ export const VisionScannersObservationsListQueryParams = /* @__PURE__ */ zod.obj
             'When true, return only observations that have a shared label (thumbs up or down); when false, only unlabeled observations.'
         ),
     limit: zod.number().optional().describe('Number of results to return per page.'),
+    max_score: zod
+        .number()
+        .optional()
+        .describe(
+            'Filter scorer observations to those scoring at or below this value. Rows with no numeric score (other scanner types, failed or in-flight runs) are excluded.'
+        ),
+    min_score: zod
+        .number()
+        .optional()
+        .describe(
+            'Filter scorer observations to those scoring at or above this value. Rows with no numeric score (other scanner types, failed or in-flight runs) are excluded.'
+        ),
     offset: zod.number().optional().describe('The initial index from which to return the results.'),
     order_by: zod
         .string()
@@ -1060,7 +1102,9 @@ export const VisionScannersObservationsListQueryParams = /* @__PURE__ */ zod.obj
     triggered_by: zod
         .string()
         .optional()
-        .describe('Filter by trigger source (schedule, on_demand, or retry). Accepts a comma-separated list.'),
+        .describe(
+            'Filter by trigger source (schedule, on_demand, retry, or backfill). Accepts a comma-separated list.'
+        ),
     verdict: zod
         .string()
         .optional()
@@ -1081,6 +1125,7 @@ export const VisionScannersObservationsRetrieveParams = /* @__PURE__ */ zod.obje
 })
 
 export const VisionScannersObservationsRetrieveQueryParams = /* @__PURE__ */ zod.object({
+    backfill_id: zod.string().optional().describe('Only observations dispatched by this backfill.'),
     date_from: zod
         .string()
         .optional()
@@ -1098,6 +1143,18 @@ export const VisionScannersObservationsRetrieveQueryParams = /* @__PURE__ */ zod
         .optional()
         .describe(
             'When true, return only observations that have a shared label (thumbs up or down); when false, only unlabeled observations.'
+        ),
+    max_score: zod
+        .number()
+        .optional()
+        .describe(
+            'Filter scorer observations to those scoring at or below this value. Rows with no numeric score (other scanner types, failed or in-flight runs) are excluded.'
+        ),
+    min_score: zod
+        .number()
+        .optional()
+        .describe(
+            'Filter scorer observations to those scoring at or above this value. Rows with no numeric score (other scanner types, failed or in-flight runs) are excluded.'
         ),
     order_by: zod
         .string()
@@ -1123,7 +1180,9 @@ export const VisionScannersObservationsRetrieveQueryParams = /* @__PURE__ */ zod
     triggered_by: zod
         .string()
         .optional()
-        .describe('Filter by trigger source (schedule, on_demand, or retry). Accepts a comma-separated list.'),
+        .describe(
+            'Filter by trigger source (schedule, on_demand, retry, or backfill). Accepts a comma-separated list.'
+        ),
     verdict: zod
         .string()
         .optional()
@@ -1143,6 +1202,7 @@ export const VisionScannersObservationsStatsRetrieveParams = /* @__PURE__ */ zod
 })
 
 export const VisionScannersObservationsStatsRetrieveQueryParams = /* @__PURE__ */ zod.object({
+    backfill_id: zod.string().optional().describe('Only observations dispatched by this backfill.'),
     date_from: zod
         .string()
         .optional()
@@ -1160,6 +1220,18 @@ export const VisionScannersObservationsStatsRetrieveQueryParams = /* @__PURE__ *
         .optional()
         .describe(
             'When true, return only observations that have a shared label (thumbs up or down); when false, only unlabeled observations.'
+        ),
+    max_score: zod
+        .number()
+        .optional()
+        .describe(
+            'Filter scorer observations to those scoring at or below this value. Rows with no numeric score (other scanner types, failed or in-flight runs) are excluded.'
+        ),
+    min_score: zod
+        .number()
+        .optional()
+        .describe(
+            'Filter scorer observations to those scoring at or above this value. Rows with no numeric score (other scanner types, failed or in-flight runs) are excluded.'
         ),
     recent_days: zod
         .number()
@@ -1185,7 +1257,9 @@ export const VisionScannersObservationsStatsRetrieveQueryParams = /* @__PURE__ *
     triggered_by: zod
         .string()
         .optional()
-        .describe('Filter by trigger source (schedule, on_demand, or retry). Accepts a comma-separated list.'),
+        .describe(
+            'Filter by trigger source (schedule, on_demand, retry, or backfill). Accepts a comma-separated list.'
+        ),
     verdict: zod
         .string()
         .optional()

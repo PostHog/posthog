@@ -266,6 +266,7 @@ from .close.source import CloseSource
 from .cloudability.source import CloudabilitySource
 from .cloudbeds.source import CloudbedsSource
 from .cloudflare.source import CloudflareSource
+from .cloudinary.source import CloudinarySource
 from .cloudsmith.source import CloudsmithSource
 from .cloudzero.source import CloudzeroSource
 from .clover.source import CloverSource
@@ -335,6 +336,7 @@ from .deel.source import DeelSource
 from .deepgram.source import DeepgramSource
 from .deepsource.source import DeepsourceSource
 from .deno_deploy.source import DenoDeploySource
+from .depot.source import DepotSource
 from .deputy.source import DeputySource
 from .descope.source import DescopeSource
 from .develocity.source import DevelocitySource
@@ -352,6 +354,7 @@ from .docuseal.source import DocusealSource
 from .docusign.source import DocusignSource
 from .dodopayments.source import DodoPaymentsSource
 from .doit.source import DoItSource
+from .dokploy.source import DokploySource
 from .dolibarr.source import DolibarrSource
 from .donorbox.source import DonorboxSource
 from .doorloop.source import DoorloopSource
@@ -437,6 +440,7 @@ from .fly_io.source import FlyIoSource
 from .formbricks.source import FormbricksSource
 from .fortnox.source import FortnoxSource
 from .fourthwall.source import FourthwallSource
+from .framer.source import FramerSource
 from .fred.source import FredSource
 from .freeagent.source import FreeAgentSource
 from .freightview.source import FreightviewSource
@@ -580,6 +584,7 @@ from .illumina_basespace.source import IlluminaBasespaceSource
 from .imagga.source import ImaggaSource
 from .imf_data.source import ImfDataSource
 from .impact.source import ImpactSource
+from .impact_partner.source import ImpactPartnerSource
 from .imperva.source import ImpervaSource
 from .incident_io.source import IncidentIoSource
 from .infisical.source import InfisicalSource
@@ -758,6 +763,7 @@ from .moodle.source import MoodleSource
 from .motherduck.source import MotherduckSource
 from .motion.source import MotionSource
 from .moxie.source import MoxieSource
+from .msg91.source import MSG91Source
 from .mssql.source import MSSQLSource
 from .mux.source import MuxSource
 from .my_hours.source import MyHoursSource
@@ -887,7 +893,8 @@ from .pivotal_tracker.source import PivotalTrackerSource
 from .piwik.source import PiwikSource
 from .plaid.source import PlaidSource
 from .plain.source import PlainSource
-from .planetscale.source import PlanetScaleSource
+from .planetscale_mysql.source import PlanetScaleMySQLSource
+from .planetscale_postgres.source import PlanetScalePostgresSource
 from .planhat.source import PlanhatSource
 from .planning_center.source import PlanningCenterSource
 from .platform_sh.source import PlatformShSource
@@ -998,6 +1005,7 @@ from .savvycal.source import SavvyCalSource
 from .scale_ai.source import ScaleAISource
 from .scaleway.source import ScalewaySource
 from .scalr.source import ScalrSource
+from .schematic.source import SchematicSource
 from .search_ads_360.source import SearchAds360Source
 from .sec_edgar.source import SecEdgarSource
 from .secoda.source import SecodaSource
@@ -1189,6 +1197,7 @@ from .umami.source import UmamiSource
 from .un_comtrade.source import UnComtradeSource
 from .unleash.source import UnleashSource
 from .unstructured.source import UnstructuredSource
+from .uploadcare.source import UploadcareSource
 from .uppromote.source import UpPromoteSource
 from .upstash.source import UpstashSource
 from .uptick.source import UptickSource
@@ -1227,6 +1236,7 @@ from .webflow.source import WebflowSource
 from .weights_and_biases.source import WeightsAndBiasesSource
 from .whatsapp_business_management.source import WhatsappBusinessManagementSource
 from .when_i_work.source import WhenIWorkSource
+from .whmcs.source import WHMCSSource
 from .who_gho.source import WhoGhoSource
 from .whop.source import WhopSource
 from .wikipedia_pageviews.source import WikipediaPageviewsSource

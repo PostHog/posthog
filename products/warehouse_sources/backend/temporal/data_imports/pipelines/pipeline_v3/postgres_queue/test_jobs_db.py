@@ -22,6 +22,7 @@ from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline
     LEASE_TABLE,
     STATUS_TABLE,
     STATUS_VIEW,
+    TAKEOVER_STALE_THRESHOLD_SECONDS,
     BatchQueue,
     PendingBatch,
     build_status_dual_write_sql,
@@ -423,12 +424,12 @@ async def _lease_count(conn: psycopg.AsyncConnection[Any], *, team_id: int = 1, 
     return int(row[0]) if row else 0
 
 
-async def _insert_backdated_executing(
-    conn: psycopg.AsyncConnection[Any], *, batch_id: str, age_seconds: int = 120, attempt: int = 1
+async def _write_backdated_status(
+    conn: psycopg.AsyncConnection[Any], *, batch_id: str, job_state: str, age_seconds: int, attempt: int = 1
 ) -> None:
     # Seed through the dual-write, then backdate both clocks, so the log and
     # the state columns stay consistent like they do under real writers.
-    await BatchQueue.update_status(conn, batch_id=batch_id, job_state="executing", attempt=attempt)
+    await BatchQueue.update_status(conn, batch_id=batch_id, job_state=job_state, attempt=attempt)
     await conn.execute(
         f"UPDATE {STATUS_TABLE} SET created_at = created_at - make_interval(secs => %s) WHERE batch_id = %s",
         [age_seconds, batch_id],
@@ -436,6 +437,14 @@ async def _insert_backdated_executing(
     await conn.execute(
         f"UPDATE {BATCH_TABLE} SET state_changed_at = state_changed_at - make_interval(secs => %s) WHERE id = %s",
         [age_seconds, batch_id],
+    )
+
+
+async def _insert_backdated_executing(
+    conn: psycopg.AsyncConnection[Any], *, batch_id: str, age_seconds: int = 120, attempt: int = 1
+) -> None:
+    await _write_backdated_status(
+        conn, batch_id=batch_id, job_state="executing", age_seconds=age_seconds, attempt=attempt
     )
 
 
@@ -1191,6 +1200,7 @@ class TestStateDualWrite:
 
     @pytest.mark.asyncio
     async def test_supersede_fails_columns_of_older_runs(self, conn, sync_conn):
+        # The old run was never claimed, so superseding it loses no load progress.
         old = await _insert_batch(conn, run_uuid="run-old", job_id="job-dw")
         current = await _insert_batch(conn, run_uuid="run-new", job_id="job-dw")
 
@@ -1199,6 +1209,51 @@ class TestStateDualWrite:
         assert superseded == 1
         assert (await _batch_state(conn, old))[0] == "failed"
         assert (await _batch_state(conn, current))[0] == "pending"
+
+    @pytest.mark.parametrize(
+        "job_state,age_seconds,expect_spared",
+        [
+            ("executing", 60, True),
+            ("succeeded", 60, True),
+            ("waiting_retry", 60, True),
+            ("executing", TAKEOVER_STALE_THRESHOLD_SECONDS + 60, False),
+            ("failed", 60, False),
+        ],
+    )
+    @pytest.mark.asyncio
+    async def test_supersede_spares_runs_with_recent_loader_progress(
+        self, conn, sync_conn, job_state, age_seconds, expect_spared
+    ):
+        # Regression guard for the timer-fired supersede storm: a run the loader is
+        # actively draining must not be failed by a newer attempt's first batch.
+        signal = await _insert_batch(conn, batch_index=0, run_uuid="run-old", job_id="job-dw")
+        sibling = await _insert_batch(conn, batch_index=1, run_uuid="run-old", job_id="job-dw")
+        current = await _insert_batch(conn, batch_index=0, run_uuid="run-new", job_id="job-dw")
+        await _write_backdated_status(conn, batch_id=signal, job_state=job_state, age_seconds=age_seconds)
+
+        superseded = BatchQueue.supersede_other_runs(sync_conn, job_id="job-dw", current_run_uuid="run-new")
+
+        if expect_spared:
+            assert superseded == 0
+            assert (await _batch_state(conn, sibling))[0] == "pending"
+        else:
+            assert superseded > 0
+            assert (await _batch_state(conn, sibling))[0] == "failed"
+        assert (await _batch_state(conn, current))[0] == "pending"
+
+    @pytest.mark.asyncio
+    async def test_supersede_judges_progress_per_run(self, conn, sync_conn):
+        # One live run must not shield a stalled sibling run of the same job.
+        live = await _insert_batch(conn, batch_index=0, run_uuid="run-live", job_id="job-dw")
+        stalled = await _insert_batch(conn, batch_index=0, run_uuid="run-stalled", job_id="job-dw")
+        await _insert_batch(conn, batch_index=0, run_uuid="run-new", job_id="job-dw")
+        await _write_backdated_status(conn, batch_id=live, job_state="executing", age_seconds=60)
+
+        superseded = BatchQueue.supersede_other_runs(sync_conn, job_id="job-dw", current_run_uuid="run-new")
+
+        assert superseded == 1
+        assert (await _batch_state(conn, live))[0] == "executing"
+        assert (await _batch_state(conn, stalled))[0] == "failed"
 
     @pytest.mark.asyncio
     async def test_fail_batches_for_job_fails_columns_across_runs(self, conn, sync_conn):

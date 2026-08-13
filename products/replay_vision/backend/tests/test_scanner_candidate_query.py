@@ -2,7 +2,7 @@ import datetime as dt
 
 import pytest
 from freezegun import freeze_time
-from posthog.test.base import ClickhouseTestMixin
+from posthog.test.base import ClickhouseTestMixin, _create_event
 
 from posthog.schema import EventPropertyFilter, PropertyOperator, RecordingPropertyFilter, RecordingsQuery
 
@@ -18,6 +18,8 @@ from products.replay_vision.backend.queries.scanner_candidate_query import (
     DEFAULT_CANDIDATE_LIMIT,
     FOCUSED_SURFACING_THRESHOLD,
     SETTLE_INTERVAL,
+    SWEEP_EVENTS_LOOKBACK,
+    BackfillCandidateQuery,
     ScannerCandidateQuery,
     surfacing_score_predicate,
 )
@@ -632,6 +634,56 @@ class TestScannerCandidateQueryAgainstClickHouse(ClickhouseTestMixin):
         results = self._run(team=team, last_swept_at=_NOW - dt.timedelta(hours=2))
         assert results == []
 
+    @pytest.mark.django_db
+    def test_events_lookback_bounds_positive_event_matching(self, team) -> None:
+        last_swept_at = _NOW - dt.timedelta(hours=1)
+        floor = last_swept_at - SWEEP_EVENTS_LOOKBACK
+        for session_id, event_ts in (
+            ("recent-event", floor + dt.timedelta(hours=1)),
+            ("old-event", floor - dt.timedelta(hours=1)),
+        ):
+            self._produce(team.id, session_id, _NOW - dt.timedelta(hours=8), _NOW - dt.timedelta(minutes=50))
+            _create_event(
+                team=team,
+                event="$pageview",
+                distinct_id="d1",
+                timestamp=event_ts,
+                properties={"$session_id": session_id},
+            )
+
+        query = RecordingsQuery(events=[{"id": "$pageview", "type": "events", "order": 0, "name": "$pageview"}])
+
+        narrow = self._run(team=team, query=query, last_swept_at=last_swept_at, events_lookback=SWEEP_EVENTS_LOOKBACK)
+        assert [r.session_id for r in narrow] == ["recent-event"]
+
+        full_width = self._run(team=team, query=query, last_swept_at=last_swept_at)
+        assert sorted(r.session_id for r in full_width) == ["old-event", "recent-event"]
+
+    @pytest.mark.django_db
+    def test_events_lookback_keeps_negative_filters_full_width(self, team) -> None:
+        last_swept_at = _NOW - dt.timedelta(hours=1)
+        old_ts = last_swept_at - SWEEP_EVENTS_LOOKBACK - dt.timedelta(hours=1)
+        for session_id, host in (("blocked", "internal.example.com"), ("kept", "app.example.com")):
+            self._produce(team.id, session_id, _NOW - dt.timedelta(hours=8), _NOW - dt.timedelta(minutes=50))
+            _create_event(
+                team=team,
+                event="$pageview",
+                distinct_id="d1",
+                timestamp=old_ts,
+                properties={"$session_id": session_id, "$host": host},
+            )
+
+        query = RecordingsQuery(
+            properties=[
+                EventPropertyFilter(
+                    key="$host", value=["internal.example.com"], operator=PropertyOperator.IS_NOT, type="event"
+                )
+            ]
+        )
+
+        results = self._run(team=team, query=query, last_swept_at=last_swept_at, events_lookback=SWEEP_EVENTS_LOOKBACK)
+        assert [r.session_id for r in results] == ["kept"]
+
     @staticmethod
     def _run(
         *,
@@ -642,6 +694,7 @@ class TestScannerCandidateQueryAgainstClickHouse(ClickhouseTestMixin):
         sampling_salt: str = "scanner-1",
         candidate_limit: int = DEFAULT_CANDIDATE_LIMIT,
         last_seen_session_id: str | None = None,
+        events_lookback: dt.timedelta | None = None,
     ):
         return ScannerCandidateQuery(
             team=team,
@@ -651,4 +704,79 @@ class TestScannerCandidateQueryAgainstClickHouse(ClickhouseTestMixin):
             sampling_salt=sampling_salt,
             candidate_limit=candidate_limit,
             last_seen_session_id=last_seen_session_id,
+            events_lookback=events_lookback,
         ).run()
+
+
+@freeze_time(_FROZEN_TIME)
+class TestBackfillCandidateQueryAgainstClickHouse(ClickhouseTestMixin):
+    def setup_method(self, _method) -> None:
+        sync_execute(TRUNCATE_SESSION_REPLAY_EVENTS_TABLE_SQL())
+
+    @staticmethod
+    def _produce(team_id: int, session_id: str, first: dt.datetime, last: dt.datetime, **kwargs) -> None:
+        kwargs.setdefault("active_milliseconds", 30_000)
+        produce_replay_summary(
+            team_id=team_id,
+            session_id=session_id,
+            first_timestamp=first.isoformat(),
+            last_timestamp=last.isoformat(),
+            **kwargs,
+        )
+
+    @staticmethod
+    def _query(*, team, window_start: dt.datetime, window_end: dt.datetime, **kwargs) -> BackfillCandidateQuery:
+        return BackfillCandidateQuery(
+            team=team,
+            query=kwargs.pop("query", RecordingsQuery()),
+            window_start=window_start,
+            window_end=window_end,
+            sampling_rate=kwargs.pop("sampling_rate", 1.0),
+            sampling_salt=kwargs.pop("sampling_salt", "scanner-1"),
+            **kwargs,
+        )
+
+    @pytest.mark.django_db
+    def test_rejects_inverted_window(self, team) -> None:
+        with pytest.raises(ValueError, match="window_start must be before window_end"):
+            self._query(team=team, window_start=_NOW, window_end=_NOW - dt.timedelta(days=1))
+
+    @pytest.mark.django_db
+    def test_descending_keyset_walk_partitions_the_enumerated_window(self, team) -> None:
+        window_end = _NOW - dt.timedelta(days=1)
+        window_start = window_end - dt.timedelta(days=7)
+        inside = [f"sess-{i}" for i in range(5)]
+        for i, session_id in enumerate(inside):
+            end = window_end - dt.timedelta(hours=6 * (i + 1))
+            self._produce(team.id, session_id, end - dt.timedelta(minutes=10), end)
+        # Same end time as sess-0: exercises the (end_time, session_id) tie-breaker.
+        tied_end = window_end - dt.timedelta(hours=6)
+        self._produce(team.id, "sess-tied", tied_end - dt.timedelta(minutes=10), tied_end)
+        # Outside the window on both sides: never enumerated, never walked.
+        self._produce(
+            team.id, "before-window", window_start - dt.timedelta(hours=2), window_start - dt.timedelta(hours=1)
+        )
+        self._produce(
+            team.id, "after-window", window_end + dt.timedelta(minutes=1), window_end + dt.timedelta(minutes=30)
+        )
+
+        assert self._query(team=team, window_start=window_start, window_end=window_end).count() == 6
+
+        walked: list[str] = []
+        cursor_end, cursor_sid = None, None
+        for _ in range(10):
+            batch = self._query(
+                team=team,
+                window_start=window_start,
+                window_end=window_end,
+                cursor_end_time=cursor_end,
+                cursor_session_id=cursor_sid,
+                candidate_limit=2,
+            ).run()
+            if not batch:
+                break
+            walked.extend(c.session_id for c in batch)
+            cursor_end, cursor_sid = batch[-1].session_end, batch[-1].session_id
+
+        # Newest-first, tie broken by descending session_id, every enumerated session exactly once.
+        assert walked == ["sess-tied", "sess-0", "sess-1", "sess-2", "sess-3", "sess-4"]

@@ -26,6 +26,7 @@ from structlog.types import FilteringBoundLogger
 
 from products.warehouse_sources.backend.temporal.data_imports.sources.checkout_com.checkout_com import (
     CheckoutComResumeConfig,
+    _error_details,
     _format_timestamp,
     _hosts,
     _make_auth,
@@ -147,7 +148,10 @@ def _list_reports(
             page_params["pagination_token"] = pagination_token
         response = session.get(f"{api_base}/reports", params=page_params, auth=auth, timeout=REQUEST_TIMEOUT_SECONDS)
         if not response.ok:
-            logger.error(f"Checkout.com API error: status={response.status_code}, url={api_base}/reports")
+            logger.error(
+                f"Checkout.com API error: status={response.status_code}, "
+                f"url={api_base}/reports, body={_error_details(response)}"
+            )
             response.raise_for_status()
         payload = response.json()
         data = payload.get("data") if isinstance(payload, dict) else None
@@ -353,8 +357,8 @@ def discover_report_types(environment: str, client_id: str, client_secret: str) 
     """Map table name -> report type for the report types visible to these credentials.
 
     Used by ``get_schemas``, which runs inline on API requests, so the listing is
-    bounded to the most recent pages. Raises on any API failure; the caller degrades
-    to the static schema catalog.
+    bounded to the most recent pages. Raises on any API failure; ``get_schemas``
+    decides which failures degrade to the static schema catalog.
     """
     hosts = _hosts(environment)
     auth = _make_auth(environment, client_id, client_secret)
