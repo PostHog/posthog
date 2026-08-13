@@ -168,7 +168,6 @@ class TestDashboardGroups(APIBaseTest):
         groups = list(dashboard.groups.order_by("position"))
         self.assertEqual([(group.name, group.position) for group in groups], [(None, 0), ("Acquisition", 1), (None, 2)])
         self.assertEqual([group.member_tiles.get().text.body for group in groups], ["Before", "Signups", "After"])
-        self.assertFalse(DashboardTile.objects.filter(dashboard=dashboard, dashboard_group__isnull=False).exists())
 
     def test_template_unknown_group_key_without_headers_stays_ungrouped(self) -> None:
         template = DashboardTemplate(

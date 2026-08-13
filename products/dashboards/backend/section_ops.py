@@ -31,7 +31,7 @@ def lock_dashboard(dashboard: Dashboard) -> Dashboard:
 
 
 def content_tiles_qs(dashboard: Dashboard) -> QuerySet[DashboardTile]:
-    return DashboardTile.objects.filter(dashboard=dashboard, dashboard_group__isnull=True).exclude(deleted=True)
+    return DashboardTile.objects.filter(dashboard=dashboard).exclude(deleted=True)
 
 
 def ordered_groups(dashboard: Dashboard) -> list[DashboardGroup]:
