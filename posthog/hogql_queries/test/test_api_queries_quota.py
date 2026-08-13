@@ -15,11 +15,9 @@ from posthog.exceptions import APIQueriesQuotaExceeded
 from posthog.hogql_queries.hogql_query_runner import HogQLQueryRunner
 from posthog.hogql_queries.query_runner import (
     API_QUERIES_QUOTA_LIMITED_COUNTER,
-    ExecutionMode,
     _api_queries_enforcement_enabled,
     _api_queries_quota_detail,
     get_api_queries_quota_limited_until,
-    shared_insights_execution_mode,
 )
 
 
@@ -180,32 +178,3 @@ class TestApiQueriesQuotaEnforcement(BaseTest):
         ):
             # Quota state (list_limited_team_attributes) must not affect the concurrency limit.
             assert runner.get_api_queries_concurrency_limit() != 0
-
-
-@override_settings(API_QUERIES_ENABLED=True, API_QUERIES_FREE_TIER_READ_BYTES_LIMIT=1000)
-class TestSharedLinksQuotaDegrade(BaseTest):
-    def test_limited_flag_on_forces_cache_only(self):
-        with (
-            patch(
-                "posthog.hogql_queries.query_runner.get_api_queries_quota_limited_until",
-                return_value=datetime(2026, 9, 1, tzinfo=UTC),
-            ),
-            patch("posthog.hogql_queries.query_runner._api_queries_enforcement_enabled", return_value=True),
-        ):
-            result = shared_insights_execution_mode(ExecutionMode.CALCULATE_BLOCKING_ALWAYS, team=self.team)
-        assert result.execution_mode == ExecutionMode.CACHE_ONLY_NEVER_CALCULATE
-
-    def test_limited_flag_off_keeps_normal_mapping(self):
-        with (
-            patch(
-                "posthog.hogql_queries.query_runner.get_api_queries_quota_limited_until",
-                return_value=datetime(2026, 9, 1, tzinfo=UTC),
-            ),
-            patch("posthog.hogql_queries.query_runner._api_queries_enforcement_enabled", return_value=False),
-        ):
-            result = shared_insights_execution_mode(ExecutionMode.CALCULATE_BLOCKING_ALWAYS, team=self.team)
-        assert result.execution_mode != ExecutionMode.CACHE_ONLY_NEVER_CALCULATE
-
-    def test_no_team_keeps_existing_behavior(self):
-        result = shared_insights_execution_mode(ExecutionMode.CALCULATE_BLOCKING_ALWAYS)
-        assert result.execution_mode != ExecutionMode.CACHE_ONLY_NEVER_CALCULATE

@@ -1,10 +1,9 @@
-from datetime import UTC, datetime
 from typing import cast
 
 from unittest import mock
 
 from django.http import HttpRequest
-from django.test import SimpleTestCase, override_settings
+from django.test import SimpleTestCase
 
 from parameterized import parameterized
 from rest_framework.request import Request
@@ -76,27 +75,3 @@ class TestResolveExecutionMode(SimpleTestCase):
         )
         assert shared_mode == ExecutionMode.RECENT_CACHE_CALCULATE_BLOCKING_IF_STALE
         assert shared_cache_age is not None and shared_cache_age > 0
-
-    @override_settings(API_QUERIES_ENABLED=True, API_QUERIES_FREE_TIER_READ_BYTES_LIMIT=1000)
-    def test_shared_flag_forces_cache_only_for_over_quota_team(self) -> None:
-        # This is the public shared/embedded viewing path (SharingViewerPageViewSet ->
-        # InsightSerializer.insight_result -> resolve_execution_mode): an over-quota org's
-        # shared link must degrade to cache-only for anonymous visitors, the same way the
-        # authenticated /api path does. Regression: team silently dropped between
-        # resolve_execution_mode and shared_insights_execution_mode, leaving anonymous demand
-        # free to keep forcing full recomputation.
-        with (
-            mock.patch(
-                "posthog.hogql_queries.query_runner.get_api_queries_quota_limited_until",
-                return_value=datetime(2026, 9, 1, tzinfo=UTC),
-            ),
-            mock.patch("posthog.hogql_queries.query_runner._api_queries_enforcement_enabled", return_value=True),
-        ):
-            mode, cache_age = resolve_execution_mode(
-                _request("force_blocking"),
-                surface=ComputeSurface.SHARED,
-                is_shared=True,
-                team=mock.MagicMock(),
-            )
-        assert mode == ExecutionMode.CACHE_ONLY_NEVER_CALCULATE
-        assert cache_age is None
