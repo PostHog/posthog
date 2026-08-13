@@ -49,9 +49,14 @@ import {
   TooltipTrigger,
 } from "@posthog/quill";
 import { ANALYTICS_EVENTS } from "@posthog/shared/analytics-events";
-import { ChannelItemHoverCard } from "@posthog/ui/features/canvas/components/ChannelItemHoverCard";
+import {
+  ChannelItemHoverCard,
+  SpaceHoverCard,
+} from "@posthog/ui/features/canvas/components/ChannelItemHoverCard";
+import type { ChannelActionItem } from "@posthog/ui/features/canvas/components/channelActions";
 import { channelGlyph } from "@posthog/ui/features/canvas/components/channelGlyph";
 import { RenameChannelModal } from "@posthog/ui/features/canvas/components/RenameChannelModal";
+import type { SpacePreviewPayload } from "@posthog/ui/features/canvas/components/SpacePreview";
 import {
   TaskRowContextMenu,
   type TaskRowMenuProps,
@@ -79,7 +84,10 @@ import {
   useSpaceTaskActionsContext,
 } from "@posthog/ui/features/canvas/hooks/useSpaceTaskActions";
 import { useStarredChannelSlots } from "@posthog/ui/features/canvas/hooks/useStarredChannelSlots";
-import { PERSONAL_CHANNEL_NAME } from "@posthog/ui/features/canvas/hooks/useTaskChannels";
+import {
+  PERSONAL_CHANNEL_LABEL,
+  PERSONAL_CHANNEL_NAME,
+} from "@posthog/ui/features/canvas/hooks/useTaskChannels";
 import { useIsChannelUnread } from "@posthog/ui/features/canvas/hooks/useUnreadChannels";
 import { useUnreadSessionCount } from "@posthog/ui/features/canvas/hooks/useUnreadSessionCount";
 import {
@@ -232,6 +240,15 @@ const SESSION_PREFETCH_DELAY_MS = 250;
  * of its own outranks it and stays muted under the keyboard while brightening
  * under the pointer.
  */
+/**
+ * What the keyboard calls the personal row before the channel list has loaded.
+ *
+ * The row is provisioned server-side with the first fetch, so until then it has
+ * no id to be identified by. The rendered row and the keyboard's flat node list
+ * both have to spell this, and they have to agree.
+ */
+const PERSONAL_ROW_VALUE = "personal-row";
+
 const ROW_LABEL_TONE =
   "text-muted-foreground group-hover/button:text-foreground group-data-highlighted/button:text-foreground";
 
@@ -453,17 +470,23 @@ const SpaceTaskRow = memo(function SpaceTaskRow({
   // The tree only lists sessions, so this is always the task menu. Rename is
   // the one item the space's own list has and this doesn't, because it edits in
   // place and there is no inline editor on a row the keyboard is walking.
-  const menu: TaskRowMenuProps = {
-    kind: "task",
-    id: item.id,
-    title: item.title,
-    isPinned: item.pinned,
-    // Ticks the space the session is already in, inside "File to…".
-    channelId: spaceId,
-    onAddToCommandCenter: actions.commandCenterAssigner(item.id),
-    onTogglePin: () => actions.togglePin(item),
-    onArchive: () => actions.archive(item),
-  };
+  //
+  // Memoized because it travels to the shared preview card as the trigger's
+  // payload, which is written to the card's store whenever its identity changes.
+  const menu: TaskRowMenuProps = useMemo(
+    () => ({
+      kind: "task",
+      id: item.id,
+      title: item.title,
+      isPinned: item.pinned,
+      // Ticks the space the session is already in, inside "File to…".
+      channelId: spaceId,
+      onAddToCommandCenter: actions.commandCenterAssigner(item.id),
+      onTogglePin: () => actions.togglePin(item),
+      onArchive: () => actions.archive(item),
+    }),
+    [item, spaceId, actions],
+  );
 
   const row = (
     <SpaceRowSurface
@@ -667,19 +690,6 @@ function SpaceTaskRows({
   );
 }
 
-// One actionable entry in a channel's menu, rendered the same whether it
-// surfaces in the hover "..." dropdown or the right-click context menu.
-type ChannelActionItem = {
-  key: string;
-  label: string;
-  icon: ReactNode;
-  onSelect: () => void;
-  variant?: "destructive";
-  disabled?: boolean;
-  // Draw a divider above this item to separate it from the previous group.
-  separatorBefore?: boolean;
-};
-
 // The channel actions (star, copy link, rename, delete) plus the rename-modal
 // state they drive. Single source of truth so the dropdown and context menus
 // stay in lockstep — add an action here and both surfaces pick it up.
@@ -757,41 +767,47 @@ function useChannelActions(channel: Channel): {
     }
   };
 
-  const actions: ChannelActionItem[] = [
-    {
-      key: "star",
-      label: isStarred ? `Unstar ${noun}` : `Star ${noun}`,
-      icon: <StarIcon size={14} weight={isStarred ? "fill" : "regular"} />,
-      onSelect: () => {
-        track(ANALYTICS_EVENTS.CHANNEL_ACTION, {
-          action_type: isStarred ? "unstar" : "star",
-          surface: "sidebar",
-          channel_id: channel.id,
-        });
-        toggleStar();
+  // Memoized because it travels to the shared preview card as the space
+  // trigger's payload, which is written to the card's store whenever its
+  // identity changes.
+  const actions: ChannelActionItem[] = useMemo(
+    () => [
+      {
+        key: "star",
+        label: isStarred ? `Unstar ${noun}` : `Star ${noun}`,
+        icon: <StarIcon size={14} weight={isStarred ? "fill" : "regular"} />,
+        onSelect: () => {
+          track(ANALYTICS_EVENTS.CHANNEL_ACTION, {
+            action_type: isStarred ? "unstar" : "star",
+            surface: "sidebar",
+            channel_id: channel.id,
+          });
+          toggleStar();
+        },
       },
-    },
-    {
-      key: "copy-link",
-      label: "Copy link",
-      icon: <LinkIcon size={14} />,
-      onSelect: () => void copyChannelLink(channel.id, "sidebar"),
-    },
-    {
-      key: "rename",
-      label: `Rename ${noun}…`,
-      icon: <PencilSimpleIcon size={14} />,
-      separatorBefore: true,
-      onSelect: () => setRenameOpen(true),
-    },
-    {
-      key: "delete",
-      label: `Delete ${noun}…`,
-      icon: <TrashIcon size={14} />,
-      variant: "destructive",
-      onSelect: () => setConfirmDeleteOpen(true),
-    },
-  ];
+      {
+        key: "copy-link",
+        label: "Copy link",
+        icon: <LinkIcon size={14} />,
+        onSelect: () => void copyChannelLink(channel.id, "sidebar"),
+      },
+      {
+        key: "rename",
+        label: `Rename ${noun}…`,
+        icon: <PencilSimpleIcon size={14} />,
+        separatorBefore: true,
+        onSelect: () => setRenameOpen(true),
+      },
+      {
+        key: "delete",
+        label: `Delete ${noun}…`,
+        icon: <TrashIcon size={14} />,
+        variant: "destructive",
+        onSelect: () => setConfirmDeleteOpen(true),
+      },
+    ],
+    [channel.id, isStarred, noun, toggleStar],
+  );
 
   return {
     actions,
@@ -960,7 +976,28 @@ const ChannelSection = memo(
       isDeleting,
     } = useChannelActions(channel);
 
+    // A boolean rather than the value itself, so a keypress re-renders only the
+    // two rows whose answer changed. The row's autocomplete value is the space
+    // id, which is what the keyboard's highlight holds.
+    const isHighlighted = useSpaceTreeStore(
+      (s) => s.highlightedValue === channel.id,
+    );
+
+    // What the shared card says about this space. Memoized because a new
+    // identity is written to the card's store again, and the counts change on
+    // every feed poll.
+    const preview: SpacePreviewPayload = useMemo(
+      () => ({
+        channel,
+        unreadSessions,
+        blockedSessions,
+        actions,
+      }),
+      [channel, unreadSessions, blockedSessions, actions],
+    );
+
     const glyph = channelGlyph(channel.name, {
+      personal: channel.channelType === "personal",
       size: 14,
       space: spacesLayout,
       weight: isUnread ? "bold" : undefined,
@@ -997,94 +1034,106 @@ const ChannelSection = memo(
         >
           {/* The "# name" opens the channel sidebar; the glyph doubles as the
             caret that opens the space's recent tasks below it. Right-clicking
-            opens the same actions as the "..." menu. */}
-          <ContextMenu>
-            <ContextMenuTrigger
-              render={
-                <SpaceRowSurface
-                  asOption={spacesLayout}
-                  optionValue={channel.id}
-                  // An open space hands the fill to the session under it: the row
-                  // you are in is the one the fill is for, and two of them stacked
-                  // reads as two selections.
-                  data-selected={(isActive && !expanded) || undefined}
-                  onClick={() => openChannel(channel)}
-                  {...focusProps}
-                  className={spacesLayout ? "pl-2" : undefined}
-                >
-                  {onToggleExpanded && (
-                    <SpaceDisclosure
-                      expanded={expanded}
-                      spaceName={channel.name}
-                      onToggle={() => onToggleExpanded(channel.id)}
-                    />
-                  )}
-                  {glyph}
-                  <OverflowTickerText
-                    reveal={reveal}
-                    className={cn(
-                      "text-[13px]",
-                      // mr-11 clears the two icon-xs hover buttons pinned at
-                      // right-1. It belongs on whatever ends the row's content —
-                      // put it on the name while the dot is there and the gap
-                      // opens between them, carrying the dot off to the buttons.
-                      !hasAttention && "group-hover/chan:mr-11",
-                      // Bold is unread's alone; full contrast is shared with the
-                      // channel you're in. Either way there's no hover brighten
-                      // left to do, so those rows skip it.
-                      isUnread ? "font-bold" : "font-medium",
-                      isUnread || isActive ? "text-foreground" : ROW_LABEL_TONE,
-                      menuOpen && !hasAttention && "mr-11",
-                    )}
+            opens the same actions as the "..." menu, and resting on it opens
+            the space's card — the same popup the sessions under it use, so
+            crossing between them swaps contents rather than reopening. */}
+          {/* Not on the space you are already in: opening it leaves the
+              highlight where it was, so the card would sit over the space it
+              just opened. */}
+          <SpaceHoverCard
+            space={preview}
+            highlighted={isHighlighted && !isActive}
+          >
+            <ContextMenu>
+              <ContextMenuTrigger
+                render={
+                  <SpaceRowSurface
+                    asOption={spacesLayout}
+                    optionValue={channel.id}
+                    // An open space hands the fill to the session under it: the row
+                    // you are in is the one the fill is for, and two of them stacked
+                    // reads as two selections.
+                    data-selected={(isActive && !expanded) || undefined}
+                    onClick={() => openChannel(channel)}
+                    {...focusProps}
+                    className={spacesLayout ? "pl-2" : undefined}
                   >
-                    {channel.name}
-                  </OverflowTickerText>
-                  {/* Both dots in one slot, so the hover margin belongs to the
-                      pair rather than to whichever of them happens to end the
-                      row. */}
-                  {hasAttention && (
-                    <span
+                    {onToggleExpanded && (
+                      <SpaceDisclosure
+                        expanded={expanded}
+                        spaceName={channel.name}
+                        onToggle={() => onToggleExpanded(channel.id)}
+                      />
+                    )}
+                    {glyph}
+                    <OverflowTickerText
+                      reveal={reveal}
                       className={cn(
-                        "flex shrink-0 items-center gap-1",
-                        "group-hover/chan:mr-11",
-                        menuOpen && "mr-11",
+                        "text-[13px]",
+                        // mr-11 clears the two icon-xs hover buttons pinned at
+                        // right-1. It belongs on whatever ends the row's content —
+                        // put it on the name while the dot is there and the gap
+                        // opens between them, carrying the dot off to the buttons.
+                        !hasAttention && "group-hover/chan:mr-11",
+                        // Bold is unread's alone; full contrast is shared with the
+                        // channel you're in. Either way there's no hover brighten
+                        // left to do, so those rows skip it.
+                        isUnread ? "font-bold" : "font-medium",
+                        isUnread || isActive
+                          ? "text-foreground"
+                          : ROW_LABEL_TONE,
+                        menuOpen && !hasAttention && "mr-11",
                       )}
                     >
-                      {/* Blue first, because the rows below are sorted with
+                      {channel.name}
+                    </OverflowTickerText>
+                    {/* Both dots in one slot, so the hover margin belongs to the
+                      pair rather than to whichever of them happens to end the
+                      row. */}
+                    {hasAttention && (
+                      <span
+                        className={cn(
+                          "flex shrink-0 items-center gap-1",
+                          "group-hover/chan:mr-11",
+                          menuOpen && "mr-11",
+                        )}
+                      >
+                        {/* Blue first, because the rows below are sorted with
                           what wants you at the top — the pair reads as a
                           summary of that list, in its order. */}
-                      <SpaceAttentionDot
-                        count={blockedSessions}
-                        tone="blocked"
-                        faded={expanded}
-                      />
-                      <SpaceAttentionDot
-                        count={unreadSessions}
-                        faded={expanded}
-                      />
-                    </span>
-                  )}
-                  {/* `!mr-0` undoes quill's `.quill-button kbd { margin-right: -4px }`,
+                        <SpaceAttentionDot
+                          count={blockedSessions}
+                          tone="blocked"
+                          faded={expanded}
+                        />
+                        <SpaceAttentionDot
+                          count={unreadSessions}
+                          faded={expanded}
+                        />
+                      </span>
+                    )}
+                    {/* `!mr-0` undoes quill's `.quill-button kbd { margin-right: -4px }`,
                   which is meant to let a shortcut hang into a button's own
                   padding. Here `ml-auto` takes every pixel of slack, so the
                   hang had nowhere to go and cut off the last 4px of the hint. */}
-                  {/* Dropped from the row rather than faded on hover: the label
+                    {/* Dropped from the row rather than faded on hover: the label
                   already reserves mr-11 for the buttons that replace the hint,
                   and a hint still taking part in the row's width and its gap
                   there is what cut a starred name shorter than an unstarred
                   one. */}
-                  {hotkeySlot != null && (
-                    <Kbd className="!mr-0 ml-auto shrink-0 opacity-50 group-hover/chan:hidden">
-                      {formatHotkey(`mod+${hotkeySlot}`)}
-                    </Kbd>
-                  )}
-                </SpaceRowSurface>
-              }
-            />
-            <ContextMenuContent>
-              <ChannelActionItems actions={actions} kind="context" />
-            </ContextMenuContent>
-          </ContextMenu>
+                    {hotkeySlot != null && (
+                      <Kbd className="!mr-0 ml-auto shrink-0 opacity-50 group-hover/chan:hidden">
+                        {formatHotkey(`mod+${hotkeySlot}`)}
+                      </Kbd>
+                    )}
+                  </SpaceRowSurface>
+                }
+              />
+              <ContextMenuContent>
+                <ChannelActionItems actions={actions} kind="context" />
+              </ContextMenuContent>
+            </ContextMenu>
+          </SpaceHoverCard>
           {/* Hover actions: the "+" dropdown (New task / New canvas) and the
             options menu. Stay visible while either is open. */}
           <div className="absolute top-1 right-1">
@@ -1237,7 +1286,14 @@ const ChannelSection = memo(
     prev.channel.id === next.channel.id &&
     prev.channel.name === next.channel.name &&
     prev.channel.starred === next.channel.starred &&
-    prev.channel.channelType === next.channel.channelType,
+    prev.channel.channelType === next.channel.channelType &&
+    prev.channel.createdBy?.uuid === next.channel.createdBy?.uuid &&
+    // By content: the poll hands out a new array even when the repos are the
+    // same, and the space's card draws them.
+    prev.channel.repositories.length === next.channel.repositories.length &&
+    prev.channel.repositories.every(
+      (repo, index) => repo === next.channel.repositories[index],
+    ),
 );
 
 // The user's private "#me" channel, pinned above the shared channel list.
@@ -1362,33 +1418,28 @@ const PersonalChannelRow = memo(function PersonalChannelRow({
     );
   };
 
-  // No glyph in the list of spaces: nothing else in that column carries one, and
-  // a lock on this row alone would start its name a glyph's width right of every
-  // other. `channelGlyph` keeps the lock for a private channel whatever the
-  // layout, so dropping it is this row's call. It still appears everywhere the
-  // space is named on its own — the back row, the breadcrumb.
-  const glyph = spacesLayout
-    ? null
-    : channelGlyph(PERSONAL_CHANNEL_NAME, {
-        size: 14,
-        weight: isUnread ? "bold" : undefined,
-        className: cn(
-          "shrink-0",
-          isUnread || isActive
-            ? "text-foreground"
-            : "text-muted-foreground group-hover/button:text-foreground",
-        ),
-      });
+  // The one row in the list that carries a glyph, and it earns the exception:
+  // this is the space nobody else can see, and the lock is the only thing that
+  // says so. Its name starts a glyph's width right of the others, which is the
+  // cost of marking it.
+  const glyph = channelGlyph(PERSONAL_CHANNEL_LABEL, {
+    personal: true,
+    size: 14,
+    weight: isUnread ? "bold" : undefined,
+    className: cn(
+      "shrink-0",
+      isUnread || isActive
+        ? "text-foreground"
+        : "text-muted-foreground group-hover/button:text-foreground",
+    ),
+  });
 
   return (
     <>
       <Box className="group/chan relative">
         <SpaceRowSurface
           asOption={spacesLayout}
-          // "me" is provisioned server-side with the first list fetch, so before
-          // it loads there is no id to identify the option by — its name is
-          // unique among spaces either way.
-          optionValue={meChannel?.id ?? PERSONAL_CHANNEL_NAME}
+          optionValue={meChannel?.id ?? PERSONAL_ROW_VALUE}
           data-selected={(isActive && !expanded) || undefined}
           onClick={openPersonalChannel}
           // "me" is a starred space among the others now, so it takes the same
@@ -1398,7 +1449,7 @@ const PersonalChannelRow = memo(function PersonalChannelRow({
           {onToggleExpanded && meChannel && (
             <SpaceDisclosure
               expanded={expanded}
-              spaceName={PERSONAL_CHANNEL_NAME}
+              spaceName={PERSONAL_CHANNEL_LABEL}
               onToggle={() => onToggleExpanded(meChannel.id)}
             />
           )}
@@ -1410,7 +1461,7 @@ const PersonalChannelRow = memo(function PersonalChannelRow({
               isUnread || isActive ? "text-foreground" : ROW_LABEL_TONE,
             )}
           >
-            {PERSONAL_CHANNEL_NAME}
+            {PERSONAL_CHANNEL_LABEL}
           </span>
           <span className="mt-[2px] flex shrink-0 items-center gap-1">
             <SpaceAttentionDot
@@ -1436,7 +1487,7 @@ const PersonalChannelRow = memo(function PersonalChannelRow({
                       <Button
                         variant="outline"
                         size="icon-xs"
-                        aria-label={`New in ${PERSONAL_CHANNEL_NAME}`}
+                        aria-label={`New in ${PERSONAL_CHANNEL_LABEL}`}
                         className={cn(
                           "gap-1 transition-opacity group-hover:border-border",
                           newMenuOpen
@@ -1623,7 +1674,10 @@ export function ChannelsList() {
   // stand between you and the row you already named, and an empty "Starred"
   // heading reads as a result that isn't there.
   const searchResults = channels.filter((c) => matches(c.name));
-  const meMatches = matches(PERSONAL_CHANNEL_NAME);
+  // Its old name too, so someone who still types "me" lands on it. A search
+  // alias, not a second identity: nothing else matches on the old name.
+  const meMatches =
+    matches(PERSONAL_CHANNEL_LABEL) || matches(PERSONAL_CHANNEL_NAME);
   const noMatches =
     normalizedQuery !== "" && !meMatches && !searchResults.length;
 
@@ -1664,9 +1718,7 @@ export function ChannelsList() {
   // A collapsed group or space renders no rows, so it contributes none.
   const collapsedSections = useSidebarStore((s) => s.collapsedSections);
   const toggleSection = useSidebarStore((s) => s.toggleSection);
-  // "me" is provisioned server-side with the first list fetch; before it loads
-  // it has no id to go by.
-  const meValue = me?.id ?? PERSONAL_CHANNEL_NAME;
+  const meValue = me?.id ?? PERSONAL_ROW_VALUE;
   const starredValue = sectionValue(STARRED_SECTION_ID);
   const channelsValue = sectionValue(CHANNELS_SECTION_ID);
   const spaceNodes = (

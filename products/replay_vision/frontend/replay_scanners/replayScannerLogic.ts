@@ -18,6 +18,7 @@ import { loaders } from 'kea-loaders'
 import { actionToUrl, beforeUnload, router, urlToAction } from 'kea-router'
 import { CombinedLocation } from 'kea-router/lib/utils'
 
+import api from 'lib/api'
 import { scrollToFormError } from 'lib/forms/scrollToFormError'
 import { lemonToast } from 'lib/lemon-ui/LemonToast'
 import { copyToClipboard } from 'lib/utils/copyToClipboard'
@@ -60,6 +61,12 @@ import {
     serializeSortParam,
 } from '../utils/urlParams'
 import { clampDurationFilter, durationFilterError } from './durationBounds'
+import {
+    ExperimentScannerContext,
+    parseExperimentScannerParams,
+    prefillScannerForExperiment,
+    reconcileVariantKeys,
+} from './experimentTargeting'
 import { clearScannerDraft, readScannerDraft, writeScannerDraft } from './scannerDraft'
 import {
     SCANNER_EDITOR_STEPS,
@@ -261,6 +268,7 @@ export interface replayScannerLogicValues {
     copyingAllObservations: boolean
     durationValidationError: string | null
     estimateRequestVersion: number
+    experimentContext: ExperimentScannerContext | null
     hasActiveObservationFilters: boolean
     hasObservationsInFlight: boolean
     hasUnsavedChanges: boolean
@@ -475,6 +483,9 @@ export interface replayScannerLogicActions {
         dateFrom: string | null
         dateTo: string | null
     }
+    setExperimentContext: (context: ExperimentScannerContext | null) => {
+        context: ExperimentScannerContext | null
+    }
     setObservationBackfillFilter: (value: string | null) => {
         value: string | null
     }
@@ -637,6 +648,7 @@ export const replayScannerLogic = kea<replayScannerLogicType>([
         loadScanner: true,
         loadScannerSuccess: (scanner: ReplayScanner) => ({ scanner }),
         loadScannerFailure: true,
+        setExperimentContext: (context: ExperimentScannerContext | null) => ({ context }),
         saveAffectedCohort: (tag?: string) => ({ tag }),
         setScannerType: (scannerType: ScannerType) => ({ scannerType }),
         startFromTemplate: (templateKey: string | null) => ({ templateKey }),
@@ -859,6 +871,12 @@ export const replayScannerLogic = kea<replayScannerLogicType>([
                 saveAffectedCohort: (_, { tag }) => tag ?? null,
                 saveAffectedCohortSuccess: () => null,
                 saveAffectedCohortFailure: () => null,
+            },
+        ],
+        experimentContext: [
+            null as ExperimentScannerContext | null,
+            {
+                setExperimentContext: (_, { context }) => context,
             },
         ],
         originalScanner: [
@@ -1309,9 +1327,49 @@ export const replayScannerLogic = kea<replayScannerLogicType>([
                     // strip the param so the URL matches what the user actually gets.
                     const templateKey =
                         !draft && urlTemplateKey && findScannerTemplate(urlTemplateKey) ? urlTemplateKey : null
+                    const experimentParams = parseExperimentScannerParams(router.values.searchParams)
+                    // Strip the params the wizard has now consumed so a reload doesn't re-run the prefill
+                    // over the user's edits: an unknown template that fell back to from-scratch (a valid
+                    // template stays), and the experiment deep-link params. One replace covers both and
+                    // preserves the URL hash, which a second back-to-back replace would drop.
+                    const nextParams = { ...router.values.searchParams }
                     if (urlTemplateKey && !templateKey) {
-                        const { template: _drop, ...rest } = router.values.searchParams
-                        router.actions.replace(router.values.location.pathname, rest)
+                        delete nextParams.template
+                    }
+                    if (experimentParams) {
+                        delete nextParams.experiment
+                        delete nextParams.variants
+                        delete nextParams.exposure
+                    }
+                    if (Object.keys(nextParams).length !== Object.keys(router.values.searchParams).length) {
+                        router.actions.replace(router.values.location.pathname, nextParams, router.values.hashParams)
+                    }
+                    if (experimentParams) {
+                        // An experiment deep link expresses fresh intent, so it outranks a saved
+                        // draft; restoringDraft guards persistDraft so the prefill can't clobber the
+                        // draft this user may already have for the next plain entry.
+                        cache.restoringDraft = true
+                        try {
+                            const experiment = await api.experiments.get(experimentParams.experimentId)
+                            const context: ExperimentScannerContext = {
+                                experiment,
+                                variantKeys: reconcileVariantKeys(experiment, experimentParams.variantKeys),
+                                useExposureFallback: experimentParams.useExposureFallback,
+                            }
+                            const prefilled = prefillScannerForExperiment(newScanner(templateKey), context)
+                            // Set the context only after the prefill is built, so a throw inside it
+                            // doesn't leave a dangling context that the next startFromTemplate re-applies.
+                            actions.setExperimentContext(context)
+                            actions.loadScannerSuccess(prefilled)
+                        } catch {
+                            // Clear any context a partial run left set before surfacing the failure.
+                            actions.setExperimentContext(null)
+                            lemonToast.error("Couldn't load the experiment. Set recording filters manually instead.")
+                            actions.loadScannerSuccess(newScanner(templateKey))
+                        } finally {
+                            cache.restoringDraft = false
+                        }
+                        return
                     }
                     cache.restoringDraft = true
                     try {
@@ -1349,6 +1407,8 @@ export const replayScannerLogic = kea<replayScannerLogicType>([
                 }
             },
 
+            // Changing type keeps the rest of the form: it spreads `current`, so an experiment
+            // prefill's name and query carry over untouched. Only the config is reset for the new type.
             setScannerType: ({ scannerType }) => {
                 const current = values.scanner
                 if (!current) {
@@ -1403,7 +1463,11 @@ export const replayScannerLogic = kea<replayScannerLogicType>([
             startFromTemplate: ({ templateKey }) => {
                 clearScannerDraft()
                 actions.setScannerDraftSavedAt(null)
-                actions.resetScanner(newScanner(templateKey))
+                // An experiment prefill (targeted query, scoped name) has to survive the template
+                // reset, so re-apply it when the wizard was entered from an experiment.
+                const base = newScanner(templateKey)
+                const context = values.experimentContext
+                actions.resetScanner(context ? prefillScannerForExperiment(base, context) : base)
             },
             discardScannerDraft: () => {
                 // Storage holds one draft, and it belongs to the new-scanner wizard.
@@ -1411,6 +1475,8 @@ export const replayScannerLogic = kea<replayScannerLogicType>([
                     clearScannerDraft()
                     actions.setScannerDraftSavedAt(null)
                 }
+                // Discarding ends the experiment flow; a scanner started next must not inherit it.
+                actions.setExperimentContext(null)
                 actions.resetScanner(values.originalScanner ?? newScanner(null))
             },
             scannerSaved: () => {
@@ -1420,6 +1486,9 @@ export const replayScannerLogic = kea<replayScannerLogicType>([
                 if (props.id === 'new') {
                     clearScannerDraft()
                     actions.setScannerDraftSavedAt(null)
+                    // The saved scanner's experiment association ends here; a new scanner started in
+                    // the same session must not re-apply this experiment's query and name.
+                    actions.setExperimentContext(null)
                 }
             },
 
@@ -1607,7 +1676,7 @@ export const replayScannerLogic = kea<replayScannerLogicType>([
             setObservationVerdictFilter: () => reloadObservationsAndStats(),
             setObservationTagFilter: () => reloadObservationsAndStats(),
             setObservationScoreRange: async (_, breakpoint) => {
-                // Typed into number inputs — debounce so each keystroke of "10" doesn't fire its own request.
+                // Typed into number inputs; debounce so each keystroke of "10" does not fire its own request.
                 await breakpoint(300)
                 reloadObservationsAndStats()
             },

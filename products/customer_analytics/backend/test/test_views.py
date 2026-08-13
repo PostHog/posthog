@@ -1966,6 +1966,38 @@ class TestCustomPropertySourceViewSet(APIBaseTest):
         assert body["column_property_map"] == {"plan": "plan_tier"}
         assert body["saved_query"] is None
 
+    @patch("products.customer_analytics.backend.presentation.views.views.report_user_action")
+    def test_mapping_lifecycle_emits_usage_events(self, report_user_action):
+        definition, schema = self._person_definition_and_schema()
+
+        created = self.client.post(
+            self.endpoint,
+            {
+                "definition": str(definition.id),
+                "external_data_schema": str(schema.id),
+                "column_property_map": {"plan": "plan_tier", "seats": "seat_count"},
+                "key_column": "distinct_id",
+            },
+            format="json",
+        )
+        assert created.status_code == status.HTTP_201_CREATED, created.content
+        source_id = created.json()["id"]
+
+        patched = self.client.patch(f"{self.endpoint}{source_id}/", {"is_enabled": False}, format="json")
+        assert patched.status_code == status.HTTP_200_OK
+        deleted = self.client.delete(f"{self.endpoint}{source_id}/")
+        assert deleted.status_code == status.HTTP_204_NO_CONTENT
+
+        assert [call.args[1] for call in report_user_action.call_args_list] == [
+            "warehouse property mapping created",
+            "warehouse property mapping updated",
+            "warehouse property mapping deleted",
+        ]
+        create_properties = report_user_action.call_args_list[0].args[2]
+        assert create_properties["target_type"] == TargetType.PERSON.value
+        assert create_properties["mapped_column_count"] == 2
+        assert create_properties["reads_warehouse_table"] is True
+
     def test_create_person_source_with_account_binding_is_rejected(self):
         definition, _schema = self._person_definition_and_schema()
 
@@ -2775,7 +2807,6 @@ class TestCalendarSyncViewSet(APIBaseTest):
 
 
 def _immediate_future():
-
     async def _done():
         return None
 

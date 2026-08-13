@@ -26,6 +26,7 @@ from parameterized import parameterized
 from prometheus_client import REGISTRY
 from rest_framework import status
 from rest_framework.relations import ManyRelatedField
+from rest_framework.response import Response
 
 from posthog import redis
 from posthog.api.cohort import BATCH_FLAG_EVALUATION_PAGE_ATTEMPTS, get_cohort_actors_for_feature_flag
@@ -36,6 +37,7 @@ from posthog.models.group.util import create_group
 from posthog.models.organization import Organization, OrganizationMembership
 from posthog.models.personal_api_key import PersonalAPIKey
 from posthog.models.project_secret_api_key import ProjectSecretAPIKey
+from posthog.models.team.extensions import get_or_create_team_extension
 from posthog.models.team.team import Team
 from posthog.models.utils import generate_random_token_personal, hash_key_value
 from posthog.test.db_context_capturing import capture_db_queries
@@ -64,6 +66,7 @@ from products.feature_flags.backend.models.feature_flag import (
     FeatureFlagDashboards,
     get_feature_flags_for_team_in_cache,
 )
+from products.feature_flags.backend.models.team_feature_flags_config import TeamFeatureFlagsConfig
 from products.feature_flags.backend.user_blast_radius import get_user_blast_radius, get_user_blast_radius_persons
 from products.product_analytics.backend.models.insight import Insight
 from products.product_tours.backend.models import ProductTour
@@ -5083,6 +5086,17 @@ class TestFeatureFlag(APIBaseTest, ClickhouseTestMixin):
         assert new_dashboard_id is not None
         self.assertNotEqual(new_dashboard_id, deleted_dashboard_id)
         self.assertTrue(Dashboard.objects.filter(id=new_dashboard_id, deleted=False).exists())
+
+    @parameterized.expand(["dashboard", "enrich_usage_dashboard"])
+    def test_dashboard_generating_endpoints_reject_a_deleted_flag(self, endpoint: str) -> None:
+        flag = FeatureFlag.objects.create(team=self.team, created_by=self.user, key="deleted-flag", deleted=True)
+
+        response = self.client.post(f"/api/projects/{self.team.id}/feature_flags/{flag.id}/{endpoint}")
+
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+        self.assertIn("has been deleted", response.json()["error"])
+        flag.refresh_from_db()
+        self.assertIsNone(flag.usage_dashboard_id)
 
     @patch("products.feature_flags.backend.flag_analytics.CACHE_BUCKET_SIZE", 10)
     def test_local_evaluation_billing_analytics_for_regular_feature_flag_list(self):
@@ -13203,6 +13217,38 @@ class TestFeatureFlagLimits(APIBaseTest):
         assert response.status_code == status.HTTP_400_BAD_REQUEST
         assert "Maximum of 2 feature flags allowed per team" in str(response.json())
 
+    @parameterized.expand(
+        [
+            ("override_raises_the_limit", 3, status.HTTP_201_CREATED, None),
+            ("override_lowers_the_limit", 1, status.HTTP_400_BAD_REQUEST, 1),
+            ("no_override_falls_back_to_global", None, status.HTTP_400_BAD_REQUEST, 2),
+        ]
+    )
+    def test_flag_limit_uses_the_teams_effective_limit(self, _name, override, expected_status, rejected_at_limit):
+        # Guards the wiring: check_flag_limits_for_team must read get_max_feature_flags_for_team,
+        # not settings.MAX_FEATURE_FLAGS_PER_TEAM directly. A regression that reverts to reading
+        # the global would pass every other test in this class (they all use the global) but
+        # ignore a per-team override in either direction.
+        self._create_flag("flag-1")
+        self._create_flag("flag-2")
+
+        config = get_or_create_team_extension(self.team, TeamFeatureFlagsConfig)
+        config.max_feature_flags_override = override
+        config.save(update_fields=["max_feature_flags_override"])
+
+        with self.settings(MAX_FEATURE_FLAGS_PER_TEAM=2):
+            response = self.client.post(
+                f"/api/projects/{self.team.id}/feature_flags",
+                {
+                    "key": "flag-3",
+                    "filters": {"groups": [{"rollout_percentage": 100, "properties": []}]},
+                },
+            )
+
+        assert response.status_code == expected_status
+        if rejected_at_limit is not None:
+            assert f"Maximum of {rejected_at_limit} feature flags allowed per team" in response.json()["detail"]
+
 
 class TestFeatureFlagVersions(APIBaseTest):
     def _create_flag_via_api(self, key="test-flag", **kwargs):
@@ -14071,3 +14117,93 @@ class TestFeatureFlagEvaluationReasons(APIBaseTest, ClickhouseTestMixin):
 
         self.assertEqual(response.status_code, status.HTTP_502_BAD_GATEWAY)
         self.assertIn("error", response.json())
+
+
+class TestFeatureFlagReplayLinkFollowsRename(APIBaseTest):
+    def _link_flag(self, team: Team, linked_flag: dict[str, Any]) -> None:
+        team.session_recording_linked_flag = linked_flag
+        team.save()
+
+    def _rename(self, flag: FeatureFlag, new_key: str) -> Response:
+        # The relink runs on transaction commit, which a TestCase never reaches on its own.
+        with self.captureOnCommitCallbacks(execute=True):
+            return self.client.patch(f"/api/projects/{self.team.id}/feature_flags/{flag.id}/", {"key": new_key})
+
+    def test_rename_outside_the_api_still_rewrites_the_stored_key(self) -> None:
+        # A rename from the Django admin or a shell never reaches FeatureFlagSerializer, so the
+        # relink hangs off the model signal instead.
+        flag = FeatureFlag.objects.create(team=self.team, created_by=self.user, key="replay-gate")
+        self._link_flag(self.team, {"id": flag.id, "key": "replay-gate"})
+
+        flag.key = "replay-gate-v2"
+        with self.captureOnCommitCallbacks(execute=True):
+            flag.save()
+
+        self.team.refresh_from_db()
+        assert self.team.session_recording_linked_flag == {"id": flag.id, "key": "replay-gate-v2"}
+
+    @parameterized.expand([("same_project", True, "replay-gate-v2"), ("other_project", False, "replay-gate")])
+    def test_rename_rewrites_stored_key_only_within_the_project(
+        self, _name: str, same_project: bool, expected_key: str
+    ) -> None:
+        # A sibling team can gate recording on a flag owned by another team in its project, so the
+        # lookup is project-scoped; a team in a different project holding the same id must not move.
+        flag = FeatureFlag.objects.create(team=self.team, created_by=self.user, key="replay-gate")
+        linking_team = Team.objects.create(
+            organization=self.organization, **({"project": self.team.project} if same_project else {})
+        )
+        self._link_flag(linking_team, {"id": flag.id, "key": "replay-gate"})
+
+        response = self._rename(flag, "replay-gate-v2")
+
+        assert response.status_code == status.HTTP_200_OK, response.content
+        linking_team.refresh_from_db()
+        assert linking_team.session_recording_linked_flag == {"id": flag.id, "key": expected_key}
+
+    def test_rename_rewrites_stored_key_for_the_flags_own_team_and_keeps_the_variant(self) -> None:
+        flag = FeatureFlag.objects.create(team=self.team, created_by=self.user, key="replay-gate")
+        self._link_flag(self.team, {"id": flag.id, "key": "replay-gate", "variant": "control"})
+
+        response = self._rename(flag, "replay-gate-v2")
+
+        assert response.status_code == status.HTTP_200_OK, response.content
+        self.team.refresh_from_db()
+        assert self.team.session_recording_linked_flag == {
+            "id": flag.id,
+            "key": "replay-gate-v2",
+            "variant": "control",
+        }
+
+    @patch("posthog.models.remote_config._update_team_remote_config")
+    def test_rename_refreshes_remote_config_for_a_relinked_sibling_team(self, mock_refresh: MagicMock) -> None:
+        # The flag's own team is refreshed by the FeatureFlag post_save receiver, but a sibling
+        # team that gates recording on the same flag only gets a fresh SDK payload if we save it.
+        flag = FeatureFlag.objects.create(team=self.team, created_by=self.user, key="replay-gate")
+        sibling_team = Team.objects.create(organization=self.organization, project=self.team.project)
+        self._link_flag(sibling_team, {"id": flag.id, "key": "replay-gate"})
+
+        response = self._rename(flag, "replay-gate-v2")
+
+        assert response.status_code == status.HTTP_200_OK, response.content
+        assert sibling_team.id in {call.args[0] for call in mock_refresh.call_args_list}
+
+    @parameterized.expand([("stored_key_already_matches",), ("links_a_different_flag",)])
+    @patch("posthog.models.remote_config._update_team_remote_config")
+    def test_rename_does_not_save_teams_it_has_nothing_to_change(self, scope: str, mock_refresh: MagicMock) -> None:
+        # Every team save enqueues a RemoteConfig sync, so a rewrite that changes nothing costs a
+        # write and a Celery task for no benefit.
+        flag = FeatureFlag.objects.create(team=self.team, created_by=self.user, key="replay-gate")
+        sibling_team = Team.objects.create(organization=self.organization, project=self.team.project)
+        if scope == "stored_key_already_matches":
+            self._link_flag(sibling_team, {"id": flag.id, "key": "replay-gate-v2"})
+        else:
+            other_flag = FeatureFlag.objects.create(team=self.team, created_by=self.user, key="other-gate")
+            self._link_flag(sibling_team, {"id": other_flag.id, "key": "other-gate"})
+        linked_flag_before = sibling_team.session_recording_linked_flag
+
+        response = self._rename(flag, "replay-gate-v2")
+
+        assert response.status_code == status.HTTP_200_OK, response.content
+        sibling_team.refresh_from_db()
+        assert sibling_team.session_recording_linked_flag == linked_flag_before
+        assert sibling_team.id not in {call.args[0] for call in mock_refresh.call_args_list}

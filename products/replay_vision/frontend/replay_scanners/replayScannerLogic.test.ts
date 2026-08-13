@@ -322,6 +322,27 @@ describe('replayScannerLogic', () => {
             expect(readScannerDraft(teamId)?.scanner.name).toBe('Drafted')
         })
 
+        it('preserves an existing draft when the wizard is entered from an experiment deep link', async () => {
+            // A deep link prefills a fresh scanner but must not wipe the draft the user already has;
+            // the prefill runs under restoringDraft so persistDraft can't clear it.
+            useMocks({
+                get: {
+                    '/api/projects/:team/experiments/:id/': () => [200, { id: 7, name: 'Checkout redesign' }],
+                },
+            })
+            const teamId = teamLogic.values.currentTeamId!
+            logic.actions.setScannerValues({ name: 'Drafted' })
+            expect(readScannerDraft(teamId)?.scanner.name).toBe('Drafted')
+            logic.unmount()
+
+            router.actions.push(urls.replayVisionScannerConfigure('new'), { experiment: '7' })
+            logic = replayScannerLogic({ id: 'new' })
+            logic.mount()
+            await expectLogic(logic).toFinishAllListeners()
+
+            expect(readScannerDraft(teamId)?.scanner.name).toBe('Drafted')
+        })
+
         it('discards back to the loaded baseline, so the leave guard stays disarmed', async () => {
             router.actions.push(urls.replayVisionScannerTemplate('new'), { template: 'dead_end' })
             logic.unmount()
@@ -739,6 +760,19 @@ describe('replayScannerLogic', () => {
             }).toFinishAllListeners()
             expect(router.values.searchParams.status).toBe('failed,succeeded')
             expect(String(router.values.searchParams.page)).toBe('3')
+        })
+
+        it('round-trips score bounds through the URL without swapping min and max', async () => {
+            await expectLogic(scannedLogic, () => {
+                scannedLogic.actions.setObservationScoreRange(3, 8)
+            }).toFinishAllListeners()
+            expect(String(router.values.searchParams.min_score)).toBe('3')
+            expect(String(router.values.searchParams.max_score)).toBe('8')
+
+            router.actions.push(urls.replayVision('sid'), { min_score: 7, max_score: 9 })
+            await expectLogic(scannedLogic).toFinishAllListeners()
+            expect(scannedLogic.values.observationMinScoreFilter).toBe(7)
+            expect(scannedLogic.values.observationMaxScoreFilter).toBe(9)
         })
 
         it('drops default state from the URL', async () => {
