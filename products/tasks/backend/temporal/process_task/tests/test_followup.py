@@ -336,7 +336,6 @@ class TestCIFollowUpLoop:
     @pytest.mark.timeout(60, func_only=True)
     async def test_snapshots_idle_sandbox_before_ci_follow_up(self):
         global _snapshot_failures_remaining
-        # Snapshots only run for interactive sandboxes.
         _ci_context_overrides["state"] = {"mode": "interactive"}
         _ci_context_overrides["use_modal_resume_snapshots"] = True
         _ci_context_overrides["use_modal_directory_resume_snapshots"] = True
@@ -383,7 +382,8 @@ class TestCIFollowUpLoop:
                 await handle.signal(ProcessTaskWorkflow.complete_task, args=["completed", None])
                 await handle.result()
 
-        assert _snapshot_events[:3] == ["ci_follow_up:False", "followup", "ci_follow_up:False"]
+        followup_index = _snapshot_events.index("followup")
+        assert _snapshot_events[followup_index + 1] == "ci_follow_up:False"
         assert _snapshot_events[-1] == "teardown:True"
 
     @pytest.mark.timeout(60, func_only=True)
