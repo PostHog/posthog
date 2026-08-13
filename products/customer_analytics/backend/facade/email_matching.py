@@ -19,6 +19,7 @@ logger = structlog.get_logger(__name__)
 
 _MATCH_SOURCE_PRIORITY = {"known_email": 0, "person_group": 1, "email_domain": 2}
 _RECALCULATION_TASK = "customer_analytics.recalculate_email_thread_account_links"
+_RECALCULATION_THREADS_TASK = "customer_analytics.recalculate_email_thread_account_links_for_threads"
 _RECALCULATION_LOCK_SECONDS = 15 * 60
 
 
@@ -36,20 +37,44 @@ def finish_email_thread_link_recalculation(team_id: int) -> None:
         schedule_email_thread_link_recalculation(team_id)
 
 
+def _enqueue_full_recalculation(team_id: int, cache_key: str) -> None:
+    try:
+        current_app.send_task(_RECALCULATION_TASK, args=[team_id])
+    except Exception:
+        cache.delete(cache_key)
+        logger.exception("email_thread_link_recalculation_enqueue_failed", team_id=team_id)
+
+
 def schedule_email_thread_link_recalculation(team_id: int) -> None:
     def enqueue() -> None:
         cache_key = _recalculation_cache_key(team_id)
-        if not cache.add(cache_key, "1", timeout=_RECALCULATION_LOCK_SECONDS):
-            dirty_cache_key = _recalculation_dirty_cache_key(team_id)
-            cache.set(dirty_cache_key, "1", timeout=_RECALCULATION_LOCK_SECONDS)
-            if not cache.get(cache_key) and cache.delete(dirty_cache_key):
-                schedule_email_thread_link_recalculation(team_id)
+        if cache.add(cache_key, "1", timeout=_RECALCULATION_LOCK_SECONDS):
+            _enqueue_full_recalculation(team_id, cache_key)
             return
+
+        dirty_cache_key = _recalculation_dirty_cache_key(team_id)
+        cache.set(dirty_cache_key, "1", timeout=_RECALCULATION_LOCK_SECONDS)
+        if cache.add(cache_key, "1", timeout=_RECALCULATION_LOCK_SECONDS):
+            cache.delete(dirty_cache_key)
+            _enqueue_full_recalculation(team_id, cache_key)
+
+    transaction.on_commit(enqueue)
+
+
+def schedule_email_thread_link_recalculation_for_threads(team_id: int, thread_ids: list[str]) -> None:
+    unique_thread_ids = list(dict.fromkeys(thread_ids))
+    if not unique_thread_ids:
+        return
+
+    def enqueue() -> None:
         try:
-            current_app.send_task(_RECALCULATION_TASK, args=[team_id])
+            current_app.send_task(_RECALCULATION_THREADS_TASK, args=[team_id, unique_thread_ids])
         except Exception:
-            cache.delete(cache_key)
-            logger.exception("email_thread_link_recalculation_enqueue_failed", team_id=team_id)
+            logger.exception(
+                "email_thread_link_recalculation_enqueue_failed",
+                team_id=team_id,
+                thread_ids=unique_thread_ids,
+            )
 
     transaction.on_commit(enqueue)
 

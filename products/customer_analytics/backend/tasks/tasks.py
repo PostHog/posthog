@@ -46,6 +46,19 @@ def recalculate_email_thread_account_links(team_id: int) -> None:
     finish_email_thread_link_recalculation(team_id)
 
 
+@shared_task(
+    name="customer_analytics.recalculate_email_thread_account_links_for_threads",
+    ignore_result=True,
+    autoretry_for=(Exception,),
+    max_retries=3,
+    retry_backoff=True,
+    retry_jitter=True,
+)
+@with_team_scope()
+def recalculate_email_thread_account_links_for_threads(team_id: int, thread_ids: list[str]) -> None:
+    recalculate_email_thread_links(team_id, thread_ids=thread_ids)
+
+
 # autoretry_for is load-bearing: bare max_retries kwargs without it are silently inert.
 @shared_task(
     name="customer_analytics.send_announcement",
