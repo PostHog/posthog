@@ -8,10 +8,13 @@ other query sites in `tools.py` deliberately stay on `events` directly via
 rationale).
 """
 
+import json
 from typing import cast
 
 from posthog.test.base import BaseTest
 from unittest.mock import MagicMock, patch
+
+from parameterized import parameterized
 
 from posthog.hogql import ast
 
@@ -169,6 +172,60 @@ class TestGetGenerationDetailRoutesThroughResolver(BaseTest):
             result = _get_detail_fn(state=_state(self.team.id), generation_id="not-a-uuid")
             assert "error" in result.lower()
             assert mock_resolver.call_count == 0
+
+
+class TestGetGenerationDetailTruncation(BaseTest):
+    """The heavy payload fields are snippet-capped by default and returned whole only on full=true.
+
+    Guards the context-cost regression: without the cap, a single deep-dive inlines the entire
+    prompt/response (tens of thousands of chars) into the agent's context on every subsequent turn.
+    """
+
+    _HEAVY_FIELDS = ("input", "output", "tools_available", "input_state", "output_state")
+
+    def _big_row(self, blob: str) -> list:
+        from datetime import datetime
+
+        return [
+            _VALID_GEN_ID,
+            "gpt-4o",  # model
+            "openai",  # provider
+            blob,  # input
+            blob,  # output
+            10,  # input_tokens
+            5,  # output_tokens
+            0.001,  # cost
+            0.4,  # latency
+            "trace-1",
+            "https://api.openai.com/v1/",
+            datetime(2026, 4, 27, 7, 0),
+            False,  # is_error
+            None,  # error
+            None,  # tools_called
+            None,  # tool_call_count
+            blob,  # tools_available
+            blob,  # input_state
+            blob,  # output_state
+        ]
+
+    @parameterized.expand([("default", False), ("full", True)])
+    @patch("posthog.hogql_queries.ai.ai_table_resolver.query_ai_events")
+    @patch("posthog.hogql.query.execute_hogql_query")
+    @patch(_RESOLVE_PATH, return_value={_VALID_GEN_ID: "trace-1"})
+    def test_heavy_fields_capped_unless_full(self, _name, full, _mock_lookup, mock_events, mock_resolver):
+        blob = "x" * 5_000
+        mock_resolver.return_value = _resolver_response([self._big_row(blob)])
+        mock_events.return_value = MagicMock(results=[])
+
+        result = json.loads(_get_detail_fn(state=_state(self.team.id), generation_id=_VALID_GEN_ID, full=full))
+
+        for field in self._HEAVY_FIELDS:
+            if full:
+                assert result[field] == blob
+            else:
+                assert result[field].startswith("x" * 2_000)
+                assert "[truncated 3000 of 5000 chars" in result[field]
+                assert len(result[field]) < len(blob)
 
 
 class TestGetGenerationTextReprRoutesThroughResolver(BaseTest):

@@ -71,6 +71,24 @@ _MAX_OPAQUE_ID_LENGTH = 255
 _MAX_TRACE_SAMPLE_IDS = 10
 _MAX_TRACE_SAMPLE_CHARS = 3_000
 _MAX_TRACE_DETAIL_CHARS = 12_000
+# Per-field cap for the heavy generation payloads (input/output/state/tools) in get_generation_detail.
+# These are the only unbounded fields the agent can pull, and they dominate context cost once inlined.
+_MAX_GENERATION_FIELD_CHARS = 2_000
+
+
+def _clip_generation_field(value: object, max_chars: int | None) -> str:
+    """Bound a heavy generation field, noting what was dropped so the agent can refetch if it needs to.
+
+    A max_chars of None disables clipping (the full=True path), preserving the raw payload verbatim.
+    """
+    text = str(value) if value else ""
+    if max_chars is None or len(text) <= max_chars:
+        return text
+    dropped = len(text) - max_chars
+    return (
+        f"{text[:max_chars]}… [truncated {dropped} of {len(text)} chars — "
+        f"call get_generation_detail again with full=true for the complete payload]"
+    )
 
 
 def _target_id_key(state: dict) -> str:
@@ -766,15 +784,25 @@ def sample_generation_details(
 def get_generation_detail(
     state: Annotated[dict, InjectedState],
     generation_id: str,
+    full: bool = False,
 ) -> str:
-    """Get full details for a single generation — no truncation.
+    """Get details for a single generation.
 
     Use this to deep-dive into a specific generation when the 500-char preview
     from sample_generation_details isn't enough to understand what happened.
-    Returns the complete input, output, all properties, and eval results.
+    Returns all metadata (model, tokens, cost, latency, eval results) losslessly.
+
+    The heavy payload fields (input, output, input_state, output_state, tools)
+    are truncated to a snippet by default — enough to tell what the generation
+    was doing without inlining tens of thousands of characters into context.
+    A truncation marker records the full length. Only when the snippet is
+    genuinely not enough, call again with full=true to get the complete,
+    untruncated payload for that same generation.
 
     Args:
         generation_id: The generation event UUID to look up
+        full: Return the complete untruncated input/output/state/tools payload
+            instead of the default snippet. Use sparingly — this can be very large.
     """
     team_id = state["team_id"]
 
@@ -891,12 +919,14 @@ def get_generation_detail(
             entry["score"] = er[4]
         evals.append(entry)
 
+    field_limit = None if full else _MAX_GENERATION_FIELD_CHARS
+
     result: dict = {
         "generation_id": str(row[0]) if row[0] else "",
         "model": str(row[1]) if row[1] else "",
         "provider": str(row[2]) if row[2] else "",
-        "input": str(row[3]) if row[3] else "",
-        "output": str(row[4]) if row[4] else "",
+        "input": _clip_generation_field(row[3], field_limit),
+        "output": _clip_generation_field(row[4], field_limit),
         "input_tokens": row[5],
         "output_tokens": row[6],
         "cost": row[7],
@@ -913,11 +943,11 @@ def get_generation_detail(
         result["tools_called"] = str(row[14])
         result["tool_call_count"] = row[15]
     if row[16]:  # tools_available
-        result["tools_available"] = str(row[16])
+        result["tools_available"] = _clip_generation_field(row[16], field_limit)
     if row[17]:  # input_state
-        result["input_state"] = str(row[17])
+        result["input_state"] = _clip_generation_field(row[17], field_limit)
     if row[18]:  # output_state
-        result["output_state"] = str(row[18])
+        result["output_state"] = _clip_generation_field(row[18], field_limit)
 
     return json.dumps(result, indent=2)
 
