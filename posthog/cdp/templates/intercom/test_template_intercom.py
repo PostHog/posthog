@@ -201,6 +201,29 @@ class TestTemplateIntercom(BaseHogFunctionTemplateTest):
             },
         )
 
+    def test_create_conflict_falls_back_to_search_when_id_not_in_message(self):
+        self.fetch_responses = {
+            "https://api.intercom.io/contacts/search": {
+                "status": 200,
+                "body": {"total_count": 0},
+            },
+            "https://api.intercom.io/contacts": {
+                "status": 409,
+                "body": {
+                    "type": "error.list",
+                    "errors": [{"code": "conflict", "message": "A contact matching those details already exists"}],
+                },
+            },
+        }
+
+        with pytest.raises(UncaughtHogVMException) as e:
+            self.run_function(inputs=self.create_inputs())
+
+        calls = self.get_mock_fetch_calls()
+        assert len(calls) == 3
+        assert calls[2][0] == "https://api.intercom.io/contacts/search"
+        assert "status 409" in e.value.message
+
     def test_function_errors_on_bad_status(self):
         self.fetch_responses = {
             "https://api.intercom.io/contacts/search": {

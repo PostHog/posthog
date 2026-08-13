@@ -94,7 +94,7 @@ if (user.body.total_count == 1) {
     })
 
     if (res.status == 409) {
-        let contactId := extractRegex(toString(res.body.errors.1.message ?? ''), 'id=([^\\s]+)')
+        let contactId := extractRegex(toString(res.body.errors.1.message ?? ''), 'id=([^\\\\s]+)')
 
         if (empty(contactId)) {
             user := fetch(f'https://{regions[inputs.oauth['app.region']]}/contacts/search', {
