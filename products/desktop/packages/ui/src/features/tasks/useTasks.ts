@@ -1,16 +1,12 @@
 import type { Schemas } from "@posthog/api-client";
 import type { Task } from "@posthog/shared/domain-types";
+import { useChannelsWorld } from "@posthog/ui/features/canvas/hooks/useChannelsWorld";
 import { keepPreviousData } from "@tanstack/react-query";
 import { useAuthenticatedQuery } from "../../hooks/useAuthenticatedQuery";
 import { useMeQuery } from "../auth/useMeQuery";
 import { taskKeys } from "./taskKeys";
+import { taskListRefetchIntervalMs } from "./taskListPollInterval";
 
-// Full-task polls are heavy (~630KB per response at 100 tasks — descriptions
-// and latest_run blobs included), and idle-poll churn was the app's largest
-// memory/CPU drain. The sidebar's primary freshness comes from the slim
-// summaries poll; full-task consumers are lookups where a minute of staleness
-// is invisible.
-const TASK_LIST_POLL_INTERVAL_MS = 60_000;
 // Summaries are slim and drive the sidebar's live status — keep them fresh.
 const TASK_SUMMARY_POLL_INTERVAL_MS = 30_000;
 // A task's slack origin and thread URL are set at creation and never change;
@@ -28,6 +24,7 @@ export function useTasks(
   options?: { enabled?: boolean },
 ) {
   const { data: currentUser } = useMeQuery();
+  const channelsWorld = useChannelsWorld();
   const createdBy = filters?.showAllUsers ? undefined : currentUser?.id;
   const internal = filters?.showInternal ? true : undefined;
 
@@ -41,7 +38,7 @@ export function useTasks(
       }) as unknown as Promise<Task[]>,
     {
       enabled: (options?.enabled ?? true) && !!currentUser?.id,
-      refetchInterval: TASK_LIST_POLL_INTERVAL_MS,
+      refetchInterval: taskListRefetchIntervalMs(filters, channelsWorld),
     },
   );
 }
