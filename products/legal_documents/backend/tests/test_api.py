@@ -871,6 +871,25 @@ class TestLegalDocumentReconciliation(APIBaseTest):
         self.assertTrue(self.document.signed_pdf_stored)
 
     @patch("products.legal_documents.backend.logic.pandadoc_client.PandaDocClient.get_document_status")
+    def test_reconcile_captures_the_signed_event_through_a_scoped_client(self, status_mock) -> None:
+        # The sweep runs in a Celery worker, where the global analytics client's
+        # background flush may never run before the process exits. Losing the signed
+        # event here would leave a working sweep indistinguishable from a broken one,
+        # since that event is what the outage was detected on.
+        status_mock.return_value = "document.completed"
+        with (
+            patch("products.legal_documents.backend.facade.api.ph_scoped_capture") as scoped_mock,
+            patch("products.legal_documents.backend.logic.posthoganalytics.capture") as global_mock,
+        ):
+            capture = scoped_mock.return_value.__enter__.return_value
+            with self._fake_pdf_pipeline(), self.captureOnCommitCallbacks(execute=True):
+                legal_api.reconcile_pending_signatures()
+
+        capture.assert_called_once()
+        self.assertEqual(capture.call_args.kwargs["event"], "legal document signed")
+        global_mock.assert_not_called()
+
+    @patch("products.legal_documents.backend.logic.pandadoc_client.PandaDocClient.get_document_status")
     def test_reconcile_skips_documents_older_than_lookback_window(self, status_mock) -> None:
         # Abandoned envelopes must not be polled forever — the sweep only looks at
         # rows created inside the lookback window, or it would hammer PandaDoc.

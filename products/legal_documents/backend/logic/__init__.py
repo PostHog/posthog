@@ -7,7 +7,7 @@ Called by facade/api.py — do not call from outside this module.
 
 from __future__ import annotations
 
-from collections.abc import Iterable
+from collections.abc import Callable, Iterable
 from datetime import timedelta
 from uuid import UUID
 
@@ -574,14 +574,25 @@ def fire_legal_document_submitted_event(document: LegalDocument, distinct_id: st
     _capture_lifecycle_event(document, SUBMITTED_EVENT, distinct_id)
 
 
-def fire_legal_document_signed_event(document: LegalDocument, distinct_id: str | None = None) -> None:
-    """Capture the signed milestone to PostHog for the same analytics funnel."""
-    _capture_lifecycle_event(document, SIGNED_EVENT, distinct_id)
+def fire_legal_document_signed_event(
+    document: LegalDocument, distinct_id: str | None = None, capture: Callable[..., None] | None = None
+) -> None:
+    """
+    Capture the signed milestone to PostHog for the same analytics funnel.
+
+    `capture` overrides the global client. The reconciliation sweep runs in a
+    Celery worker, where the global client's background flush may never run
+    before the process exits, so it passes a scoped client instead.
+    """
+    _capture_lifecycle_event(document, SIGNED_EVENT, distinct_id, capture)
 
 
-def _capture_lifecycle_event(document: LegalDocument, event_name: str, distinct_id: str | None) -> None:
+def _capture_lifecycle_event(
+    document: LegalDocument, event_name: str, distinct_id: str | None, capture: Callable[..., None] | None = None
+) -> None:
+    capture_event = capture or posthoganalytics.capture
     try:
-        posthoganalytics.capture(
+        capture_event(
             event=event_name,
             distinct_id=distinct_id or f"legal_document:{document.id}",
             properties={

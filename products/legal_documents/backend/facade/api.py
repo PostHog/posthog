@@ -8,6 +8,7 @@ output, and never leaks ORM instances or QuerySets across the boundary.
 
 from __future__ import annotations
 
+from collections.abc import Callable
 from uuid import UUID
 
 from django.db import transaction
@@ -16,6 +17,7 @@ import structlog
 
 from posthog.exceptions_capture import capture_exception
 from posthog.models.organization import Organization
+from posthog.ph_client import ph_scoped_capture
 
 from .. import logic
 from ..logic.pandadoc import (
@@ -247,7 +249,7 @@ def _mark_signed_and_schedule_archive(document: LegalDocument) -> LegalDocument:
     return document
 
 
-def _try_mark_signed_and_schedule_archive(document: LegalDocument) -> bool:
+def _try_mark_signed_and_schedule_archive(document: LegalDocument, capture: Callable[..., None] | None = None) -> bool:
     """
     Reconcile-only variant of `_mark_signed_and_schedule_archive`. The sweep's
     queryset snapshot can be stale by the time this runs, so it uses the
@@ -258,7 +260,7 @@ def _try_mark_signed_and_schedule_archive(document: LegalDocument) -> bool:
     if not logic.try_mark_signed_if_pending(document):
         return False
     logic.apply_baa_signed_side_effects(document)
-    logic.fire_legal_document_signed_event(document)
+    logic.fire_legal_document_signed_event(document, capture=capture)
     _schedule_pdf_archive(document)
     return True
 
@@ -302,17 +304,22 @@ def reconcile_pending_signatures() -> contracts.LegalDocumentReconcileResult:
     errors = 0
     pending_seen = 0
     signed_this_run: set[UUID] = set()
-    for document in logic.list_pending_signature_documents():
-        pending_seen += 1
-        try:
-            if logic.get_pandadoc_document_status(document) == logic.PANDADOC_COMPLETED_STATUS:
-                if _try_mark_signed_and_schedule_archive(document):
-                    newly_signed += 1
-                    signed_this_run.add(document.id)
-        except Exception as exc:
-            errors += 1
-            logger.exception("legal_document_reconcile_pending_row_failed", document_id=str(document.id))
-            capture_exception(exc, additional_properties={"legal_document_id": str(document.id)})
+    # One scoped client for the whole loop, not one per row: this runs in a Celery
+    # worker, where the global client's background flush may never run before the
+    # process exits, and the scoped client blocks for seconds on setup and flush.
+    # Losing these events would hide whether the sweep is recovering anything.
+    with ph_scoped_capture() as capture:
+        for document in logic.list_pending_signature_documents():
+            pending_seen += 1
+            try:
+                if logic.get_pandadoc_document_status(document) == logic.PANDADOC_COMPLETED_STATUS:
+                    if _try_mark_signed_and_schedule_archive(document, capture=capture):
+                        newly_signed += 1
+                        signed_this_run.add(document.id)
+            except Exception as exc:
+                errors += 1
+                logger.exception("legal_document_reconcile_pending_row_failed", document_id=str(document.id))
+                capture_exception(exc, additional_properties={"legal_document_id": str(document.id)})
 
     # The pending query is oldest-first and capped per run. When it fills the cap,
     # newer rows fall off this run's tail and wait for a later tick — surface the
