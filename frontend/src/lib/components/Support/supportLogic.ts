@@ -257,6 +257,7 @@ export interface supportLogicValues {
     sendSupportRequestTouches: Record<string, boolean>
     sendSupportRequestValidationErrors: DeepPartialMap<SupportFormFields, ValidationErrorType>
     showSendSupportRequestErrors: boolean
+    submitDisabledReason: string | undefined
     supportResponseTime: string | null
     title: string
 }
@@ -348,6 +349,9 @@ export interface supportLogicMeta {
     __keaTypeGenInternalSelectorTypes: {
         title: (arg: SupportFormFields) => string
         isBillingIssue: (sendSupportRequest: SupportFormFields) => boolean
+        submitDisabledReason: (
+            sendSupportRequestValidationErrors: DeepPartialMap<SupportFormFields, ValidationErrorType>
+        ) => string | undefined
         isErrorReport: (sendSupportRequest: SupportFormFields) => boolean
         supportResponseTime: (
             billing: BillingType | null,
@@ -433,7 +437,9 @@ export const supportLogic = kea<supportLogicType>([
             } as SupportFormFields,
             errors: ({ name, email, message }) => {
                 return {
-                    name: !values.user && !name ? 'Please enter your name' : undefined,
+                    // Trimmed like email: a name or message of only whitespace can't be replied to or
+                    // acted on, so it's no better than a blank field.
+                    name: !values.user && !name?.trim() ? 'Please enter your name' : undefined,
                     email: !values.user
                         ? !email.trim()
                             ? 'Please enter your email'
@@ -441,7 +447,7 @@ export const supportLogic = kea<supportLogicType>([
                               ? 'Please enter a valid email address'
                               : undefined
                         : undefined,
-                    message: !message ? 'Please enter a message' : undefined,
+                    message: !message?.trim() ? 'Please enter a message' : undefined,
                 }
             },
             submit: async (formValues) => {
@@ -462,6 +468,14 @@ export const supportLogic = kea<supportLogicType>([
         isBillingIssue: [
             (s) => [s.sendSupportRequest],
             (sendSupportRequest: SupportFormFields) => !!sendSupportRequest.billing_issue,
+        ],
+        // Names the first missing field so the Submit button says why it's blocked instead of
+        // swallowing the click. undefined when the form can be sent.
+        submitDisabledReason: [
+            (s) => [s.sendSupportRequestValidationErrors],
+            (validationErrors: DeepPartialMap<SupportFormFields, ValidationErrorType>): string | undefined =>
+                Object.values(validationErrors ?? {}).find((error): error is string => typeof error === 'string') ??
+                undefined,
         ],
         // A crash we surfaced ourselves. The error boundary offers to email an engineer, so this
         // earns a support exemption the same way a billing question does — see canCreateTicket.
@@ -531,9 +545,12 @@ export const supportLogic = kea<supportLogicType>([
             actions.updateUrlParams()
         },
         submitSupportTicket: async (formValues: SupportFormFields) => {
-            const { name, kind, message, exception_event } = formValues
+            const { kind, exception_event } = formValues
             // Trimmed before validating and sending: restore-by-email matches the stored trait
-            // exactly, so stray whitespace would make the ticket unrecoverable
+            // exactly, so stray whitespace would make the ticket unrecoverable. Name and message are
+            // trimmed too, so a whitespace-only entry can't slip past the send-path guards.
+            const name = formValues.name.trim()
+            const message = formValues.message.trim()
             const email = formValues.email.trim()
             const { ai_conversation_id, ai_trace_id, ai_feedback_rating } = formValues
 

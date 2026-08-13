@@ -348,4 +348,55 @@ describe('supportLogic', () => {
             expect(sendFailures()[0][1]).toMatchObject({ reason: 'invalid_email' })
         })
     })
+
+    describe('submit gating when logged out', () => {
+        let logic: ReturnType<typeof supportLogic.build>
+
+        const LOGGED_OUT_FIELDS: SupportFormFields = {
+            name: 'Jane',
+            email: 'jane@example.com',
+            kind: 'support',
+            billing_issue: false,
+            message: 'Help!',
+        }
+
+        beforeEach(() => {
+            window.POSTHOG_APP_CONTEXT = { current_user: null } as unknown as AppContext
+            initKeaTests()
+            logic = supportLogic.build()
+            logic.mount()
+        })
+
+        afterEach(() => {
+            logic?.unmount()
+            delete window.POSTHOG_APP_CONTEXT
+        })
+
+        // Guards the "Submit does nothing" symptom: the button now names the first missing field
+        // instead of swallowing the click.
+        it.each<[string, Partial<SupportFormFields>, string | undefined]>([
+            ['empty form', { name: '', email: '', message: '' }, 'Please enter your name'],
+            ['missing email', { name: 'Jane', email: '', message: 'Help!' }, 'Please enter your email'],
+            [
+                'malformed email',
+                { name: 'Jane', email: 'jane', message: 'Help!' },
+                'Please enter a valid email address',
+            ],
+            ['missing message', { name: 'Jane', email: 'jane@example.com', message: '' }, 'Please enter a message'],
+            ['complete form', LOGGED_OUT_FIELDS, undefined],
+        ])('for a %s, disables submit with %s', (_case, fields, reason) => {
+            logic.actions.setSendSupportRequestValues(fields)
+            expect(logic.values.submitDisabledReason).toBe(reason)
+        })
+
+        // A name or message of only whitespace can't be replied to or acted on, so it must be
+        // blocked just like a blank field rather than filing an unusable ticket.
+        it.each<[string, keyof SupportFormFields, string]>([
+            ['a whitespace-only name', 'name', 'Please enter your name'],
+            ['a whitespace-only message', 'message', 'Please enter a message'],
+        ])('blocks %s', (_case, field, reason) => {
+            logic.actions.setSendSupportRequestValues({ ...LOGGED_OUT_FIELDS, [field]: '   ' })
+            expect(Object.values(logic.values.sendSupportRequestValidationErrors)).toContain(reason)
+        })
+    })
 })

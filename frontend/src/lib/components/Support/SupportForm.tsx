@@ -20,13 +20,19 @@ const SUPPORT_TICKET_KIND_TO_PROMPT: Record<SupportTicketKind, string> = {
 }
 
 interface SupportFormProps {
+    /**
+     * Ties an external submit button to this form via its `form` attribute. Must be unique per rendered
+     * instance: `openSupportModal` mounts a fresh root on `document.body`, so a shared id lets a footer
+     * Submit resolve to whichever form is first in the DOM rather than the one the user typed into.
+     */
+    id?: string
     /** Overrides the message field label (e.g. "Anything to add?" for the PostHog AI ticket flow) */
     messageLabel?: string
     /** Overrides the message field placeholder */
     messagePlaceholder?: string
 }
 
-export function SupportForm({ messageLabel, messagePlaceholder }: SupportFormProps = {}): JSX.Element | null {
+export function SupportForm({ id, messageLabel, messagePlaceholder }: SupportFormProps = {}): JSX.Element | null {
     const { sendSupportRequest } = useValues(supportLogic)
     const { setSendSupportRequestValue } = useActions(supportLogic)
     const { objectStorageAvailable } = useValues(preflightLogic)
@@ -67,7 +73,7 @@ export function SupportForm({ messageLabel, messagePlaceholder }: SupportFormPro
         <Form
             logic={supportLogic}
             formKey="sendSupportRequest"
-            id="support-modal-form"
+            id={id}
             enableFormOnSubmit
             className="deprecated-space-y-4"
         >

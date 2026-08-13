@@ -1,5 +1,5 @@
 import { useActions, useValues } from 'kea'
-import { useEffect } from 'react'
+import { useEffect, useId } from 'react'
 import { createRoot } from 'react-dom/client'
 
 import { LemonButton } from '@posthog/lemon-ui'
@@ -13,10 +13,13 @@ import { SupportForm } from './SupportForm'
 import { supportLogic } from './supportLogic'
 
 function SupportModal({ onAfterClose }: { onAfterClose: () => void }): JSX.Element | null {
-    const { sendSupportRequest, isSupportFormOpen, title, isSendSupportRequestSubmitting } = useValues(supportLogic)
+    const { sendSupportRequest, isSupportFormOpen, title, isSendSupportRequestSubmitting, submitDisabledReason } =
+        useValues(supportLogic)
     const { closeSupportForm, resetSendSupportRequest } = useActions(supportLogic)
     const { isCloudOrDev } = useValues(preflightLogic)
     const { sidePanelAvailable } = useValues(sidePanelStateLogic)
+    // Unique per instance so the footer Submit can only ever target this form (see SupportForm's `id`)
+    const formId = useId()
 
     useEffect(() => {
         if (!isCloudOrDev) {
@@ -36,7 +39,7 @@ function SupportModal({ onAfterClose }: { onAfterClose: () => void }): JSX.Eleme
             footer={
                 <div className="flex items-center gap-2">
                     <LemonButton
-                        form="support-modal-form"
+                        form={formId}
                         type="secondary"
                         onClick={() => {
                             closeSupportForm()
@@ -46,11 +49,12 @@ function SupportModal({ onAfterClose }: { onAfterClose: () => void }): JSX.Eleme
                         Cancel
                     </LemonButton>
                     <LemonButton
-                        form="support-modal-form"
+                        form={formId}
                         htmlType="submit"
                         type="primary"
                         data-attr="submit"
                         loading={isSendSupportRequestSubmitting}
+                        disabledReason={submitDisabledReason}
                     >
                         Submit
                     </LemonButton>
@@ -59,7 +63,7 @@ function SupportModal({ onAfterClose }: { onAfterClose: () => void }): JSX.Eleme
             hasUnsavedInput={!!sendSupportRequest.message}
             onAfterClose={onAfterClose}
         >
-            <SupportForm />
+            <SupportForm id={formId} />
         </LemonModal>
     )
 }
