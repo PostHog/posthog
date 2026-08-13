@@ -55,10 +55,7 @@ def make_duckgres_conninfo(
                 "omit service_credential to use the dev duckgres defaults"
             )
         if not service_credential.credential_secret:
-            raise RuntimeError(
-                "service_credential carries no secret: the CP reused a live grant. "
-                "Mint with force_rotate=True (or refresh the credential) when you have no cached credential."
-            )
+            raise RuntimeError("service_credential carries no secret; mint or refresh returned an invalid response")
         connect = service_credential.connect
         return make_conninfo(
             host=connect.host,

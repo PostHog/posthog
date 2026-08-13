@@ -21,7 +21,7 @@ import { membersLogic } from 'scenes/organization/membersLogic'
 import { urls } from 'scenes/urls'
 
 import { tagsModel } from '~/models/tagsModel'
-import { dataNodeLogic } from '~/queries/nodes/DataNode/dataNodeLogic'
+import { DataNodeLogicProps, dataNodeLogic } from '~/queries/nodes/DataNode/dataNodeLogic'
 import { DataTable } from '~/queries/nodes/DataTable/DataTable'
 import { DataTableNode } from '~/queries/schema/schema-general'
 import { QueryContext, QueryContextColumn, QueryContextColumnComponent } from '~/queries/types'
@@ -31,20 +31,16 @@ import type {
     CustomPropertyDefinitionApi,
 } from 'products/customer_analytics/frontend/generated/api.schemas'
 
-import { ACCOUNTS_HOGQL_DATA_NODE_KEY } from '../../constants'
+import { ACCOUNTS_TABLE_DATA_NODE_KEY } from '../../constants'
 import { formatCustomPropertyValue } from '../../scenes/CustomerAnalyticsConfigurationScene/account/customPropertyTypes'
 import { AccountNotebooksExpansion } from './AccountNotebooksExpansion'
-import {
-    ACCOUNTS_NAME_COLUMN,
-    AccountColumnDisplayConfig,
-    LEGACY_ROLE_COLUMNS,
-    accountsColumnConfigLogic,
-} from './accountsColumnConfigLogic'
+import { AccountColumnDisplayConfig, LEGACY_ROLE_COLUMNS, accountsColumnConfigLogic } from './accountsColumnConfigLogic'
 import { AccountExpansionTab, accountsExpansionLogic } from './accountsExpansionLogic'
 import { accountsLogic, savingRoleKey } from './accountsLogic'
+import { accountsTableCell, isAccountsTableRow } from './accountsTableQuery'
 import { AccountsEvents } from './constants'
 
-// Shape the backend emits for the `name` column — see accounts_query_runner._calculate.
+// Shape the name renderer uses from the keyed AccountsTableRow identity fields.
 type AccountNameCell = { name: string; external_id: string | null; id: string }
 
 const COLUMN_WIDTHS = {
@@ -54,30 +50,20 @@ const COLUMN_WIDTHS = {
     relationship: '220px',
 } as const
 
-function getCellAt(record: unknown, names: string[], column: string): unknown {
-    if (!Array.isArray(record)) {
-        return undefined
-    }
-    const index = names.indexOf(column)
-    return index >= 0 ? record[index] : undefined
-}
-
 function useGetCell(): (record: unknown, column: string) => unknown {
-    const { visibleColumnNames } = useValues(accountsColumnConfigLogic)
-    return (record, column) => getCellAt(record, visibleColumnNames, column)
+    const { accountsTableQueryPlan } = useValues(accountsLogic)
+    return (record, column) =>
+        isAccountsTableRow(record) ? accountsTableCell(record, column, accountsTableQueryPlan) : undefined
 }
 
-function getNameCell(record: unknown, visibleColumnNames: string[]): AccountNameCell | undefined {
-    const value = getCellAt(record, visibleColumnNames, ACCOUNTS_NAME_COLUMN)
-    if (!value || typeof value !== 'object') {
+function getNameCell(record: unknown): AccountNameCell | undefined {
+    if (!isAccountsTableRow(record)) {
         return undefined
     }
-    const cell = value as Partial<AccountNameCell>
-    return typeof cell.id === 'string' && typeof cell.name === 'string' ? (cell as AccountNameCell) : undefined
+    return { id: record.id, name: record.name, external_id: record.externalId ?? null }
 }
 
-// Relationship cells arrive as the array of ACTIVE assignee user ids from the
-// `accounts.relationships.values` lazy join ([] when nobody holds the relationship).
+// Relationship cells carry active assignee user ids and use an empty array when unassigned.
 function parseAssignedUserIds(value: unknown): number[] {
     if (!Array.isArray(value)) {
         return []
@@ -86,10 +72,9 @@ function parseAssignedUserIds(value: unknown): number[] {
 }
 
 function NameCell({ record }: { record: unknown }): JSX.Element {
-    const { visibleColumnNames } = useValues(accountsColumnConfigLogic)
     const { isAccountExpanded } = useValues(accountsExpansionLogic)
     const { toggleAccountExpanded } = useActions(accountsExpansionLogic)
-    const cell = getNameCell(record, visibleColumnNames)
+    const cell = getNameCell(record)
     const name = cell?.name ?? ''
     const externalId = cell?.external_id ?? ''
     const accountId = cell?.id
@@ -136,12 +121,11 @@ function NameCell({ record }: { record: unknown }): JSX.Element {
 function TagsCell({ record }: { record: unknown }): JSX.Element {
     const { isTagsSaving, tagOverrides } = useValues(accountsLogic)
     const { updateAccountTags, addTagToFilter } = useActions(accountsLogic)
-    const { visibleColumnNames } = useValues(accountsColumnConfigLogic)
     const { tags: tagsAvailable } = useValues(tagsModel)
     const getCell = useGetCell()
     const raw = getCell(record, 'tag_names')
     const cellTags = Array.isArray(raw) ? (raw.filter((t) => typeof t === 'string') as string[]) : []
-    const accountId = getNameCell(record, visibleColumnNames)?.id
+    const accountId = getNameCell(record)?.id
     if (!accountId) {
         return cellTags.length > 0 ? <ObjectTags tags={cellTags} staticOnly /> : <span className="text-muted">—</span>
     }
@@ -174,11 +158,10 @@ function RelationshipCell({
     definition: AccountRelationshipDefinitionApi
 }): JSX.Element {
     const { isRoleSaving, relationshipOverrides } = useValues(accountsLogic)
-    const { visibleColumnNames } = useValues(accountsColumnConfigLogic)
     const { updateAccountRole } = useActions(accountsLogic)
     const { meFirstMembers } = useValues(membersLogic)
     const getCell = useGetCell()
-    const accountId = getNameCell(record, visibleColumnNames)?.id ?? ''
+    const accountId = getNameCell(record)?.id ?? ''
     const override = accountId ? relationshipOverrides[savingRoleKey(accountId, column)] : undefined
     const userIds = override ?? parseAssignedUserIds(getCell(record, column))
 
@@ -232,19 +215,18 @@ function RelationshipCell({
     )
 }
 
-// History cells arrive as [unix timestamp, value] pairs sorted ascending from the
-// `accounts.custom_properties_history.values` lazy join.
+// History points arrive in timestamp order from the Postgres runner.
 function parseHistoryPoints(raw: unknown): [number, number][] {
     if (!Array.isArray(raw)) {
         return []
     }
     const points: [number, number][] = []
     for (const entry of raw) {
-        if (!Array.isArray(entry) || entry.length < 2) {
+        if (typeof entry !== 'object' || entry === null || !('timestamp' in entry) || !('value' in entry)) {
             continue
         }
-        const timestamp = Number(entry[0])
-        const value = Number(entry[1])
+        const timestamp = Math.floor(Date.parse(String(entry.timestamp)) / 1000)
+        const value = Number(entry.value)
         if (Number.isFinite(timestamp) && Number.isFinite(value)) {
             points.push([timestamp, value])
         }
@@ -361,9 +343,8 @@ function CanonicalTimestampCell({
     value: string
     tab: AccountExpansionTab
 }): JSX.Element {
-    const { visibleColumnNames } = useValues(accountsColumnConfigLogic)
     const { openAccountTab } = useActions(accountsExpansionLogic)
-    const accountId = getNameCell(record, visibleColumnNames)?.id
+    const accountId = getNameCell(record)?.id
     const label = <TZLabel time={value} showSeconds={definition.display_type === 'datetime'} />
 
     if (!accountId) {
@@ -446,7 +427,7 @@ function SortableColumnHeader({ column, label }: { column: string; label: string
                     toggleSort(column)
                 }
             }}
-            data-attr={`accounts-hogql-sort-${column}`}
+            data-attr={`accounts-table-sort-${column}`}
         >
             {label}
             <SortingIndicator order={order} />
@@ -457,12 +438,20 @@ function SortableColumnHeader({ column, label }: { column: string; label: string
 // Per-column overrides for known visible columns. The `label` becomes the
 // header text (rendered inside `SortableColumnHeader`), `width` pins the
 // column width, and `render` provides the cell renderer. Any visible column
-// not in this map falls back to a sortable header with the raw column name
-// and DataTable's default cell rendering.
+// not in this map uses a sortable header and the direct keyed-cell renderer.
 type KnownColumnTemplate = {
     label?: string
     width?: string
     render?: QueryContextColumnComponent
+}
+
+function DefaultAccountCell({ record, column }: { record: unknown; column: string }): JSX.Element {
+    const getCell = useGetCell()
+    const value = getCell(record, column)
+    if (value === null || value === undefined || value === '') {
+        return <span className="text-muted">—</span>
+    }
+    return <span>{String(value)}</span>
 }
 
 const KNOWN_COLUMN_TEMPLATES: Record<string, KnownColumnTemplate> = {
@@ -516,7 +505,7 @@ function useContextColumns(): Record<string, QueryContextColumn> {
             columns[key] = {
                 renderTitle: () => <SortableColumnHeader column={key} label={label} />,
                 width: template?.width,
-                render: template?.render,
+                render: template?.render ?? (({ record }) => <DefaultAccountCell record={record} column={key} />),
             }
         }
         return columns
@@ -524,7 +513,6 @@ function useContextColumns(): Record<string, QueryContextColumn> {
 }
 
 function useExpandable(): QueryContext<DataTableNode>['expandable'] {
-    const { visibleColumnNames } = useValues(accountsColumnConfigLogic)
     const { expandedAccountIds } = useValues(accountsExpansionLogic)
     const { toggleAccountExpanded } = useActions(accountsExpansionLogic)
     return useMemo(
@@ -532,29 +520,29 @@ function useExpandable(): QueryContext<DataTableNode>['expandable'] {
             noIndent: true,
             expandedRowClassName: '[&>td]:overflow-visible!',
             isRowExpanded: ({ result }) => {
-                const cell = getNameCell(result, visibleColumnNames)
+                const cell = getNameCell(result)
                 return !!cell && expandedAccountIds.includes(cell.id)
             },
             onRowExpand: ({ result }) => {
-                const cell = getNameCell(result, visibleColumnNames)
+                const cell = getNameCell(result)
                 if (cell) {
                     toggleAccountExpanded(cell.id)
                 }
             },
             onRowCollapse: ({ result }) => {
-                const cell = getNameCell(result, visibleColumnNames)
+                const cell = getNameCell(result)
                 if (cell) {
                     toggleAccountExpanded(cell.id)
                 }
             },
             expandedRowRender: ({ result }) => {
-                const cell = getNameCell(result, visibleColumnNames)
+                const cell = getNameCell(result)
                 return cell ? (
                     <AccountNotebooksExpansion accountId={cell.id} externalId={cell.external_id ?? ''} />
                 ) : null
             },
         }),
-        [visibleColumnNames, expandedAccountIds, toggleAccountExpanded]
+        [expandedAccountIds, toggleAccountExpanded]
     )
 }
 
@@ -598,7 +586,7 @@ const SKELETON_COLUMNS: LemonTableColumns<{ key: number }> = [
     })),
 ]
 
-function AccountsHogQLSkeleton(): JSX.Element {
+function AccountsTableSkeleton(): JSX.Element {
     return (
         <LemonTable
             className="DataTable"
@@ -614,20 +602,25 @@ function AccountsHogQLSkeleton(): JSX.Element {
     )
 }
 
-export function AccountsHogQLTable(): JSX.Element {
-    const { accountsDataTableQuery, accountsQuerySource, tableRowsTransformer } = useValues(accountsLogic)
-    const { responseLoading, response } = useValues(dataNodeLogic)
+export function AccountsTable(): JSX.Element {
+    const { accountsDataTableQuery, accountsQuerySource, sortedRowsTransformer } = useValues(accountsLogic)
+    const { responseLoading, response } = useValues(
+        dataNodeLogic({
+            key: ACCOUNTS_TABLE_DATA_NODE_KEY,
+            query: accountsQuerySource ?? accountsDataTableQuery.source,
+        } as DataNodeLogicProps)
+    )
     const contextColumns = useContextColumns()
     const expandable = useExpandable()
     // A null source means the query is still waiting on the relationship
     // definitions — same skeleton as the initial fetch, not an empty table.
     if ((responseLoading || !accountsQuerySource) && !response) {
-        return <AccountsHogQLSkeleton />
+        return <AccountsTableSkeleton />
     }
     return (
         <div className="@container">
             <DataTable
-                uniqueKey="customer-analytics-accounts-hogql"
+                uniqueKey="customer-analytics-accounts-table"
                 query={accountsDataTableQuery}
                 setQuery={() => {
                     // Filters are owned by accountsLogic; column/sort changes from the DataTable are ignored on purpose.
@@ -635,8 +628,8 @@ export function AccountsHogQLTable(): JSX.Element {
                 context={{
                     columns: contextColumns,
                     expandable,
-                    dataTableRowsTransformer: tableRowsTransformer,
-                    dataNodeLogicKey: ACCOUNTS_HOGQL_DATA_NODE_KEY,
+                    dataTableRowsTransformer: sortedRowsTransformer,
+                    dataNodeLogicKey: ACCOUNTS_TABLE_DATA_NODE_KEY,
                     emptyStateHeading: 'There are no matching accounts for this query',
                     emptyStateDetail: 'Try adjusting the filters or refreshing',
                 }}

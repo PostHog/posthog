@@ -13,6 +13,7 @@ import {
     Tooltip,
 } from '@posthog/lemon-ui'
 
+import { EmptyMessage } from 'lib/components/EmptyMessage/EmptyMessage'
 import { IconPlayCircle } from 'lib/lemon-ui/icons'
 import { LemonMenu } from 'lib/lemon-ui/LemonMenu'
 import { debounce } from 'lib/utils/async'
@@ -539,6 +540,8 @@ export function SessionGroupSummary(): JSX.Element {
     const analyzedSessionsCount = sessionGroupSummary.session_ids.length
     const failedSessions = sessionGroupSummary.run_metadata?.failed_sessions ?? []
     const requestedSessionsCount = analyzedSessionsCount + failedSessions.length
+    // A run can legitimately find nothing, and there's nothing to filter or sort in that case
+    const hasPatterns = (summary.patterns?.length ?? 0) > 0
     return (
         <SceneContent>
             <SceneTitleSection
@@ -574,49 +577,60 @@ export function SessionGroupSummary(): JSX.Element {
                     <span className="hidden sm:inline">·</span>
                     <span>{new Date(sessionGroupSummary.created_at).toLocaleString()}</span>
                 </div>
-                <LemonMenu
-                    items={[
-                        {
-                            label: 'Sort by severity',
-                            icon: sortBy === 'severity' ? <IconCheck /> : undefined,
-                            onClick: () => setSortBy('severity'),
-                        },
-                        {
-                            label: 'Sort by session count',
-                            icon: sortBy === 'session_count' ? <IconCheck /> : undefined,
-                            onClick: () => setSortBy('session_count'),
-                        },
-                    ]}
-                >
-                    <LemonButton type="secondary" size="small" icon={<IconSort />}>
-                        {sortBy === 'severity' ? 'Sort by severity' : 'Sort by session count'}
-                    </LemonButton>
-                </LemonMenu>
+                {hasPatterns && (
+                    <LemonMenu
+                        items={[
+                            {
+                                label: 'Sort by severity',
+                                icon: sortBy === 'severity' ? <IconCheck /> : undefined,
+                                onClick: () => setSortBy('severity'),
+                            },
+                            {
+                                label: 'Sort by session count',
+                                icon: sortBy === 'session_count' ? <IconCheck /> : undefined,
+                                onClick: () => setSortBy('session_count'),
+                            },
+                        ]}
+                    >
+                        <LemonButton type="secondary" size="small" icon={<IconSort />}>
+                            {sortBy === 'severity' ? 'Sort by severity' : 'Sort by session count'}
+                        </LemonButton>
+                    </LemonMenu>
+                )}
             </div>
             <div className="space-y-4">
                 <PartialResultBanner failedSessions={failedSessions} analyzedSessionCount={analyzedSessionsCount} />
-                <FilterBar
-                    searchValue={searchValue}
-                    onSearchChange={setSearchValue}
-                    issueTypeFilters={issueTypeFilters}
-                    onIssueTypeFilterChange={handleIssueTypeFilterChange}
-                    filteredCount={filteredIssuesCount}
-                    totalCount={totalIssuesCount}
-                    issueTypeCounts={issueTypeCounts}
-                />
-                <div className="flex flex-col gap-2">
-                    {sortedPatterns.length === 0 && summary.patterns && summary.patterns.length > 0 ? (
-                        <p className="text-muted">No patterns match your search</p>
-                    ) : (
-                        sortedPatterns.map((pattern) => (
-                            <PatternCard
-                                key={pattern.pattern_id}
-                                pattern={pattern}
-                                onViewDetails={(event) => handleViewDetails(pattern, event)}
-                            />
-                        ))
-                    )}
-                </div>
+                {hasPatterns ? (
+                    <>
+                        <FilterBar
+                            searchValue={searchValue}
+                            onSearchChange={setSearchValue}
+                            issueTypeFilters={issueTypeFilters}
+                            onIssueTypeFilterChange={handleIssueTypeFilterChange}
+                            filteredCount={filteredIssuesCount}
+                            totalCount={totalIssuesCount}
+                            issueTypeCounts={issueTypeCounts}
+                        />
+                        <div className="flex flex-col gap-2">
+                            {sortedPatterns.length === 0 ? (
+                                <p className="text-muted">No patterns match your search</p>
+                            ) : (
+                                sortedPatterns.map((pattern) => (
+                                    <PatternCard
+                                        key={pattern.pattern_id}
+                                        pattern={pattern}
+                                        onViewDetails={(event) => handleViewDetails(pattern, event)}
+                                    />
+                                ))
+                            )}
+                        </div>
+                    </>
+                ) : (
+                    <EmptyMessage
+                        title="No patterns found"
+                        description={`We didn't find any recurring patterns across the ${analyzedSessionsCount} sessions analyzed. Try summarizing a different set of recordings.`}
+                    />
+                )}
             </div>
 
             <SessionGroupSummaryDetailsModal
