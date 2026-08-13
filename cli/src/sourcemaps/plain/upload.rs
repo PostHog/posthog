@@ -200,13 +200,8 @@ pub fn upload(args: &Args, existing_release: Option<&Release>) -> Result<()> {
     Ok(())
 }
 
-/// Build the upload payloads for `pairs`, carrying at most one payload per chunk id.
-///
-/// Event mode derives the chunk id from the pair's content, so a bundler that emits the same
-/// bytes twice produces one id twice: an entry point copied to a second name (a hashless alias
-/// next to `app-<hash>.js`, say) keeps the original's `sourceMappingURL`, which makes both
-/// copies identical down to the sourcemap they resolve to. Sending one id twice in a batch
-/// fails that batch, which aborts the whole upload.
+/// Build the upload payloads for `pairs`, at most one per chunk id. Event mode derives the id
+/// from content, so a hashless alias copied beside `app-<hash>.js` collides with its original.
 fn prepare_uploads(
     pairs: Vec<SourcePair>,
     release_mode: ReleaseMode,
@@ -242,9 +237,7 @@ mod tests {
 
     #[test]
     fn event_mode_uploads_one_payload_per_chunk_id() {
-        // Bundlers copy an entry point to a second, hashless name so it can be served from a
-        // stable URL. The copy keeps the original's sourceMappingURL, so the two files are
-        // byte-identical and share a sourcemap, which in event mode is one chunk id twice.
+        // The hashless copy keeps the original's sourceMappingURL, so both files are identical.
         let dir = tempfile::tempdir().expect("Failed to create temp dir");
         let entry = "console.log(\"hi\");\n//# sourceMappingURL=app-BKG53LDN.js.map\n";
         std::fs::write(dir.path().join("app-BKG53LDN.js"), entry).expect("Failed to write entry");

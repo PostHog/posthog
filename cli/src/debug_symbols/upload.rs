@@ -151,11 +151,8 @@ fn merge_uploads_prefer_dsym(
         .partition(|upload| upload.data.len() <= max_file_size);
     preferred_dsyms.extend(native_uploads);
     preferred_dsyms.extend(oversized_dsyms);
-    // Merges the same Mach-O UUID appearing both as a binary and in a dSYM bundle, or a dSYM
-    // UUID appearing in more than one bundle. ELF chunk_ids are lowercase (derived by
-    // `symbolic`) and Mach-O chunk_ids are uppercase (to match what the SDKs emit), so the two
-    // formats never collide, and casing must never be normalized because the SDK matches
-    // chunk_ids case-sensitively, per format.
+    // Casing must never be normalized here: the SDK matches chunk_ids case-sensitively, per
+    // format, and lowercase ELF ids never collide with uppercase Mach-O ones.
     dedup_uploads_by_chunk_id(preferred_dsyms)
 }
 

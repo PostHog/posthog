@@ -928,6 +928,7 @@ class Database(BaseModel):
         context: HogQLContext,
         include_only: set[str] | None = None,
         include_hidden_posthog_tables: bool = False,
+        include_fields: bool = True,
     ) -> dict[str, DatabaseSchemaTable]:
         from django.db.models import Prefetch  # noqa: PLC0415
 
@@ -968,13 +969,15 @@ class Database(BaseModel):
             if include_only and table_name not in include_only:
                 continue
 
-            field_input: dict[str, Any] = {}
-            table = self.get_table(table_name)
-            if isinstance(table, Table):
-                field_input = _schema_field_input(table)
+            fields_dict: dict[str, DatabaseSchemaField] = {}
+            if include_fields:
+                field_input: dict[str, Any] = {}
+                table = self.get_table(table_name)
+                if isinstance(table, Table):
+                    field_input = _schema_field_input(table)
 
-            fields = serialize_fields(field_input, context, table_name.split("."), table_type="posthog")
-            fields_dict = {field.name: field for field in fields}
+                fields = serialize_fields(field_input, context, table_name.split("."), table_type="posthog")
+                fields_dict = {field.name: field for field in fields}
             tables[table_name] = DatabaseSchemaPostHogTable(fields=fields_dict, id=table_name, name=table_name)
 
         # System tables
@@ -983,13 +986,15 @@ class Database(BaseModel):
             if include_only and table_key not in include_only:
                 continue
 
-            system_field_input: dict[str, Any] = {}
-            table = self.get_table(table_key)
-            if isinstance(table, Table):
-                system_field_input = _schema_field_input(table)
+            fields_dict = {}
+            if include_fields:
+                system_field_input: dict[str, Any] = {}
+                table = self.get_table(table_key)
+                if isinstance(table, Table):
+                    system_field_input = _schema_field_input(table)
 
-            fields = serialize_fields(system_field_input, context, table_key.split("."), table_type="posthog")
-            fields_dict = {field.name: field for field in fields}
+                fields = serialize_fields(system_field_input, context, table_key.split("."), table_type="posthog")
+                fields_dict = {field.name: field for field in fields}
             tables[table_key] = DatabaseSchemaSystemTable(fields=fields_dict, id=table_key, name=table_key)
 
         # Data Warehouse Tables and Views - Fetch all related data in one go
@@ -1081,15 +1086,17 @@ class Database(BaseModel):
                     continue
 
                 try:
-                    field_input = {}
-                    table = self.get_table(table_key)
-                    if isinstance(table, Table):
-                        field_input = table.fields
+                    fields_dict = {}
+                    if include_fields:
+                        field_input = {}
+                        table = self.get_table(table_key)
+                        if isinstance(table, Table):
+                            field_input = table.fields
 
-                    fields = serialize_fields(
-                        field_input, context, table_key.split("."), warehouse_table.columns, table_type="external"
-                    )
-                    fields_dict = {field.name: field for field in fields}
+                        fields = serialize_fields(
+                            field_input, context, table_key.split("."), warehouse_table.columns, table_type="external"
+                        )
+                        fields_dict = {field.name: field for field in fields}
 
                     # The table is also queryable by its raw underscore name, which is registered
                     # separately from the dotted `table_key`. Surface it so search matches either form.
@@ -1162,9 +1169,12 @@ class Database(BaseModel):
                         # Not built for this connection (unusable columns, or access-denied).
                         continue
 
-                    fields = serialize_fields(table.fields, context, table_key.split("."), table_type="external")
+                    dual_fields_dict: dict[str, DatabaseSchemaField] = {}
+                    if include_fields:
+                        fields = serialize_fields(table.fields, context, table_key.split("."), table_type="external")
+                        dual_fields_dict = {field.name: field for field in fields}
                     tables[table_key] = DatabaseSchemaDataWarehouseTable(
-                        fields={field.name: field for field in fields},
+                        fields=dual_fields_dict,
                         id=str(schema_row.id),
                         name=table_key,
                         schema=DatabaseSchemaSchema(
@@ -1199,8 +1209,10 @@ class Database(BaseModel):
             except QueryError:
                 continue
 
-            fields = serialize_fields(view.fields, context, view_name.split("."), table_type="external")
-            fields_dict = {field.name: field for field in fields}
+            fields_dict = {}
+            if include_fields:
+                fields = serialize_fields(view.fields, context, view_name.split("."), table_type="external")
+                fields_dict = {field.name: field for field in fields}
 
             if isinstance(view, RevenueAnalyticsBaseView):
                 tables[view_name] = DatabaseSchemaManagedViewTable(
