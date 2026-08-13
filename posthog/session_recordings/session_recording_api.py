@@ -8,7 +8,6 @@ import asyncio
 import builtins
 from collections.abc import Generator
 from contextlib import contextmanager
-from dataclasses import dataclass
 from json import JSONDecodeError
 from typing import Any, Literal, cast
 from urllib.parse import urlparse
@@ -68,6 +67,7 @@ from posthog.auth import (
     SharingPasswordProtectedAuthentication,
 )
 from posthog.clickhouse.query_tagging import Feature, Product, tag_queries
+from posthog.dataclasses import frozen
 from posthog.errors import ExposedCHQueryError
 from posthog.event_usage import report_user_action
 from posthog.exceptions import ClickHouseAtCapacity
@@ -517,7 +517,7 @@ class SessionRecordingBulkDeleteResponseSerializer(serializers.Serializer):
     )
 
 
-@dataclass(frozen=True, kw_only=True, slots=True)
+@frozen
 class RecordingsListingResult:
     recordings: list[SessionRecording]
     more_recordings_available: bool

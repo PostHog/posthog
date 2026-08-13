@@ -11,6 +11,8 @@ from datetime import datetime, timedelta
 from typing import TYPE_CHECKING, Any, Literal, NamedTuple, NoReturn, Optional, Self, cast
 from urllib.parse import parse_qs, urlencode, urlparse
 
+from posthog.dataclasses import frozen
+
 from products.workflows.backend.providers import MAILDEV_MOCK_DNS_RECORDS
 
 if TYPE_CHECKING:
@@ -2211,7 +2213,7 @@ class SlackIntegration:
         return config
 
 
-@dataclass(frozen=True, kw_only=True, slots=True)
+@frozen
 class SlackRequestSignature:
     signature: str
     timestamp: str
