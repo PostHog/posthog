@@ -702,13 +702,37 @@ class ReplayScannerFilter(django_filters.FilterSet):
             raise ValidationError({"created_by": f"Non-numeric value(s) {invalid}; user IDs must be integers."})
         return queryset.filter(created_by_id__in=tokens)
 
-    @staticmethod
-    def _filter_experiment_id(queryset: QuerySet[ReplayScanner], _name: str, value: str) -> QuerySet[ReplayScanner]:
+    def _filter_experiment_id(
+        self, queryset: QuerySet[ReplayScanner], _name: str, value: str
+    ) -> QuerySet[ReplayScanner]:
         # An int, not NumberFilter's Decimal, which the JSONField lookup can't serialize to JSON.
         # isdecimal, not isdigit: isdigit accepts characters like superscripts that int() rejects.
-        if not value.strip().isdecimal() or int(value) < 1:
+        # Cap at the Postgres bigint max the id column can hold: a larger value can't be a real PK,
+        # and feeding it to the id lookup below raises NumericValueOutOfRange (a 500) instead of a 400.
+        stripped = value.strip()
+        if not stripped.isdecimal() or not 1 <= int(stripped) <= 9223372036854775807:
             raise ValidationError({"experiment_id": "Must be a positive integer."})
-        return queryset.filter(experiment_targeting__experiment_id=int(value))
+        experiment_id = int(stripped)
+        # Gate on the caller's experiment access, mirroring validate_experiment_targeting and
+        # _can_view_targeted_experiment: without it, a scanner-viewer could pass ?experiment_id= to
+        # confirm (by match count and returned scanner names) that a scanner targets an experiment
+        # they can't otherwise see. An inaccessible or nonexistent id reads as no matches.
+        if not self._caller_accessible_experiments().filter(id=experiment_id).exists():
+            return queryset.none()
+        return queryset.filter(experiment_targeting__experiment_id=experiment_id)
+
+    def _caller_accessible_experiments(self) -> QuerySet[Experiment]:
+        # Reuse the viewset's resolved team and access control rather than reparsing the URL:
+        # view.team_id handles @current and token-derived teams, and user_access_control is already
+        # built. The scanner queryset is already scoped to this same team.
+        view = self.request.parser_context.get("view") if self.request else None
+        if view is None:
+            return Experiment.objects.none()
+        team_experiments = Experiment.objects.filter(team_id=view.team_id)
+        access = view.user_access_control
+        if access is None:
+            return team_experiments
+        return access.filter_queryset_by_access_level(team_experiments)
 
     @staticmethod
     def _filter_search(queryset: QuerySet[ReplayScanner], _name: str, value: str) -> QuerySet[ReplayScanner]:

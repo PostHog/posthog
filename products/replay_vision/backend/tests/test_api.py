@@ -786,7 +786,17 @@ class TestScannerExperimentTargeting(_VisionAPITestCase):
         self.assertEqual(resp.status_code, 200, resp.json())
         self.assertEqual([row["name"] for row in resp.json()["results"]], ["for-exp"])
 
-    @parameterized.expand([("superscript", "\u00b2"), ("zero", "0"), ("negative", "-1"), ("word", "abc")])
+    @parameterized.expand(
+        [
+            ("superscript", "\u00b2"),
+            ("zero", "0"),
+            ("negative", "-1"),
+            ("word", "abc"),
+            # One past the Postgres bigint max: feeding it to the id lookup would raise
+            # NumericValueOutOfRange (a 500) rather than the 400 a malformed filter should get.
+            ("above_bigint_max", "9223372036854775808"),
+        ]
+    )
     def test_list_filter_rejects_non_positive_integers(self, _name: str, value: str) -> None:
         resp = self.client.get(f"{self.scanners_url}?experiment_id={value}")
         self.assertEqual(resp.status_code, 400)
