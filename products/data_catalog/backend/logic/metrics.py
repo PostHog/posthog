@@ -369,3 +369,23 @@ def _reset_to_proposed(metric: Metric) -> None:
 def metrics_for_team(team: Team) -> QuerySet[Metric]:
     """Live (non-deleted) metrics for a team, newest first."""
     return Metric.objects.for_team(team.id).filter(deleted=False).order_by("-created_at")
+
+
+def approved_metric_names_for_team(team: Team, user: Optional[User]) -> list[str]:
+    """Names of the team's approved, non-drifted metrics, sorted, as the given caller may see them.
+
+    Team scoping alone would be broader than the `system.information_schema.metrics` read this
+    listing stands in for: that loader fails closed unless the caller holds `data_catalog` viewer
+    access, so a caller denied the resource must not receive the names here either. A ``user`` of
+    None is a trusted system/agent caller, as in ``_require_insight_viewer_access``.
+
+    Definitions are deliberately not part of the result, so the per-metric denied-table filtering the
+    information_schema loader applies has nothing to hide here.
+    """
+    if user is not None and not UserAccessControl(user=user, team=team).check_access_level_for_resource(
+        "data_catalog", "viewer"
+    ):
+        return []
+    approved = list(metrics_for_team(team).filter(status=MetricStatus.APPROVED).order_by("name"))
+    drifted = compute_drift(approved)
+    return [metric.name for metric in approved if not drifted[metric.id]]
