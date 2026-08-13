@@ -39,7 +39,9 @@ def has_negative_filters(team: Team, query: RecordingsQuery) -> bool:
 
 
 @tracer.start_as_current_span("excluded_session_ids")
-def excluded_session_ids(*, team: Team, query: RecordingsQuery, candidates: list[CandidateSession]) -> set[str]:
+def excluded_session_ids(
+    *, team: Team, query: RecordingsQuery, candidates: list[CandidateSession], scanner_id: str | None = None
+) -> set[str]:
     """Which of `candidates` carry an event that a negative filter excludes.
 
     Raises rather than returning a partial answer. The caller has already disabled the in-query
@@ -59,6 +61,8 @@ def excluded_session_ids(*, team: Team, query: RecordingsQuery, candidates: list
             team=team,
             query_type="ReplayVisionExcludedSessionsQuery",
             max_execution_time_seconds=_MAX_EXECUTION_SECONDS,
+            # Metered against the scanner's read budget like its candidate query.
+            scanner_id=scanner_id,
         )
         excluded.update(row[0] for row in rows)
     return excluded
