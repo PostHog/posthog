@@ -23,6 +23,7 @@ from posthog.rbac.user_access_control import UserAccessControl
 
 from products.product_analytics.backend.models.insight import Insight
 
+from ..facade.contracts import ApprovedMetricSummary
 from ..facade.enums import CreatedSource, MetricStatus
 from ..models import METRIC_NAME_REGEX, Metric
 from .analytics import (
@@ -393,15 +394,32 @@ def metrics_for_team(team: Team) -> QuerySet[Metric]:
 
 
 def approved_metric_names_for_team(team: Team, user: Optional[User]) -> list[str]:
-    """Names of the team's approved, non-drifted metrics, sorted, as the given caller may see them.
+    """Names of the team's approved, non-drifted metrics, sorted, as the given caller may see them."""
+    return [metric.name for metric in _approved_undrifted_metrics(team, user)]
 
-    Team scoping alone would be broader than the `system.information_schema.metrics` read this
-    listing stands in for: that loader fails closed unless the caller holds `data_catalog` viewer
+
+def approved_metric_summaries_for_team(team: Team, user: Optional[User]) -> list[ApprovedMetricSummary]:
+    """The same listing as `approved_metric_names_for_team`, plus the label and description.
+
+    For callers that have to decide whether a metric answers the question in front of them, which a
+    bare name rarely settles.
+    """
+    return [
+        ApprovedMetricSummary(name=metric.name, display_name=metric.display_name, description=metric.description)
+        for metric in _approved_undrifted_metrics(team, user)
+    ]
+
+
+def _approved_undrifted_metrics(team: Team, user: Optional[User]) -> list[Metric]:
+    """The team's approved, non-drifted metrics, sorted by name, as the given caller may see them.
+
+    Team scoping alone would be broader than the `system.information_schema.metrics` read these
+    listings stand in for: that loader fails closed unless the caller holds `data_catalog` viewer
     access, so a caller denied the resource must not receive the names here either. A ``user`` of
     None is a trusted system/agent caller, as in ``_require_insight_viewer_access``.
 
-    Definitions are deliberately not part of the result, so the per-metric denied-table filtering the
-    information_schema loader applies has nothing to hide here.
+    Definitions are deliberately not exposed to those callers, so the per-metric denied-table
+    filtering the information_schema loader applies has nothing to hide here.
     """
     if user is not None and not UserAccessControl(user=user, team=team).check_access_level_for_resource(
         "data_catalog", "viewer"
@@ -409,4 +427,4 @@ def approved_metric_names_for_team(team: Team, user: Optional[User]) -> list[str
         return []
     approved = list(metrics_for_team(team).filter(status=MetricStatus.APPROVED).order_by("name"))
     drifted = compute_drift(approved)
-    return [metric.name for metric in approved if not drifted[metric.id]]
+    return [metric for metric in approved if not drifted[metric.id]]

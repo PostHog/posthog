@@ -8,6 +8,7 @@ from rest_framework.exceptions import ValidationError
 
 from posthog.constants import AvailableFeature
 
+from products.data_catalog.backend.facade.contracts import ApprovedMetricSummary
 from products.data_catalog.backend.facade.enums import CreatedSource, MetricStatus
 from products.data_catalog.backend.logic import metrics
 from products.data_catalog.backend.logic.drift import compute_drift
@@ -15,6 +16,7 @@ from products.data_catalog.backend.logic.exceptions import MetricDrifted, Source
 from products.data_catalog.backend.logic.metrics import (
     approve_metric,
     approved_metric_names_for_team,
+    approved_metric_summaries_for_team,
     refresh_metric_from_insight,
     soft_delete_metric,
     update_metric,
@@ -533,6 +535,9 @@ class TestApprovedMetricSummaries(BaseTest):
         Insight.objects.filter(pk=insight.pk).update(query=_HOGQL_B)
 
         assert approved_metric_names_for_team(self.team, self.user) == ["mrr"]
+        assert approved_metric_summaries_for_team(self.team, self.user) == [
+            ApprovedMetricSummary(name="mrr", display_name="MRR", description="Monthly recurring revenue")
+        ]
 
     def test_names_are_withheld_from_a_caller_without_data_catalog_access(self) -> None:
         approved = upsert_metric(team=self.team, user=self.user, name="mrr", description="d", definition=_HOGQL_A)
@@ -542,4 +547,5 @@ class TestApprovedMetricSummaries(BaseTest):
         self.organization.save()
 
         assert approved_metric_names_for_team(self.team, self.user) == []
+        assert approved_metric_summaries_for_team(self.team, self.user) == []
         assert approved_metric_names_for_team(self.team, None) == ["mrr"]
