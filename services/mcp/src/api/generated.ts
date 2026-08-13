@@ -17087,8 +17087,8 @@ export namespace Schemas {
     export type ConversionGoalPatch = PartialConversionGoalFilter1 | PartialConversionGoalFilter2 | PartialConversionGoalFilter3;
 
     export interface ConversionGoalSummary {
-      /** Unique id of the goal (event name, action id, or DW goal id) */
-      id: string;
+      /** Id of the goal. Pass this to the explain, update and delete endpoints. */
+      conversion_goal_id: string;
       /** Display name of the conversion goal */
       name: string;
       /** Goal type: EventsNode (PostHog event), ActionsNode (PostHog action), or DataWarehouseNode (external table)
@@ -21103,6 +21103,9 @@ export namespace Schemas {
      * * `Uploadcare` - Uploadcare
      * * `WHMCS` - WHMCS
      * * `MSG91` - MSG91
+     * * `Depot` - Depot
+     * * `Schematic` - Schematic
+     * * `Dokploy` - Dokploy
      */
     export type ExternalDataSourceTypeEnum = typeof ExternalDataSourceTypeEnum[keyof typeof ExternalDataSourceTypeEnum];
 
@@ -22397,6 +22400,9 @@ export namespace Schemas {
       Uploadcare: 'Uploadcare',
       Whmcs: 'WHMCS',
       Msg91: 'MSG91',
+      Depot: 'Depot',
+      Schematic: 'Schematic',
+      Dokploy: 'Dokploy',
     } as const;
 
     /**
@@ -23704,7 +23710,10 @@ export namespace Schemas {
        * * `Cloudinary` - Cloudinary
        * * `Uploadcare` - Uploadcare
        * * `WHMCS` - WHMCS
-       * * `MSG91` - MSG91 */
+       * * `MSG91` - MSG91
+       * * `Depot` - Depot
+       * * `Schematic` - Schematic
+       * * `Dokploy` - Dokploy */
       source_type: ExternalDataSourceTypeEnum;
     }
 
@@ -25700,7 +25709,10 @@ export namespace Schemas {
        * * `Cloudinary` - Cloudinary
        * * `Uploadcare` - Uploadcare
        * * `WHMCS` - WHMCS
-       * * `MSG91` - MSG91 */
+       * * `MSG91` - MSG91
+       * * `Depot` - Depot
+       * * `Schematic` - Schematic
+       * * `Dokploy` - Dokploy */
       readonly source_type: ExternalDataSourceTypeEnum;
       /** Human-readable name to show in the picker (falls back to the source type). */
       readonly label: string;
@@ -33422,7 +33434,10 @@ export namespace Schemas {
        * * `Cloudinary` - Cloudinary
        * * `Uploadcare` - Uploadcare
        * * `WHMCS` - WHMCS
-       * * `MSG91` - MSG91 */
+       * * `MSG91` - MSG91
+       * * `Depot` - Depot
+       * * `Schematic` - Schematic
+       * * `Dokploy` - Dokploy */
       readonly source_type: ExternalDataSourceTypeEnum;
       /** 'direct' for pure live-query sources; 'warehouse' for synced sources with direct query enabled.
        *
@@ -34748,7 +34763,10 @@ export namespace Schemas {
        * * `Cloudinary` - Cloudinary
        * * `Uploadcare` - Uploadcare
        * * `WHMCS` - WHMCS
-       * * `MSG91` - MSG91 */
+       * * `MSG91` - MSG91
+       * * `Depot` - Depot
+       * * `Schematic` - Schematic
+       * * `Dokploy` - Dokploy */
       source_type: ExternalDataSourceTypeEnum;
       /** Connection credentials and a 'schemas' array. Keys depend on source_type. */
       payload: ExternalDataSourceCreatePayload;
@@ -36395,8 +36413,8 @@ export namespace Schemas {
     }
 
     export interface GoalExplanation {
-      /** Id of the explained conversion goal */
-      goal_id: string;
+      /** conversion_goal_id of the explained goal */
+      conversion_goal_id: string;
       /** Display name of the conversion goal */
       goal_name: string;
       /** Goal type: EventsNode (PostHog event), ActionsNode (PostHog action), or DataWarehouseNode (external table)
@@ -58582,6 +58600,11 @@ export namespace Schemas {
       name?: string;
     }
 
+    export interface PatchedReviewResolutionConfigSelect {
+      /** Set true to make these the single resolution criteria applied on the user's PRs. Only true is accepted — resolution criteria are single-active, so you switch by selecting a different skill, not by deactivating the current one. */
+      active?: boolean;
+    }
+
     /**
      * * `consider` - Consider
      * * `should_fix` - Should Fix
@@ -58603,13 +58626,15 @@ export namespace Schemas {
       stamphog_review_inbox_prs?: boolean;
       /** Review the user's pull requests when the trigger label is added on GitHub. On by default; turning it off makes the label trigger skip PRs this user authored. */
       review_labeled_prs?: boolean;
+      /** After a review of the user's pull requests is published, run the resolution stage: triage the PR's unresolved review threads, implement the worth-and-safe fixes on the PR branch, and reply on every thread. On by default; turning it off makes reviews stop at publishing. */
+      resolve_comments?: boolean;
       /** Minimum priority a validated finding needs to be published: 'consider' (default) publishes everything, 'should_fix' drops consider-level findings, 'must_fix' publishes only blocking issues.
        *
        * * `consider` - Consider
        * * `should_fix` - Should Fix
        * * `must_fix` - Must Fix */
       urgency_threshold?: UrgencyThresholdEnum;
-      /** Whether reviews can be started from this project's Code review page (the UI trigger is limited to the designated ReviewHog team while the product is in alpha). */
+      /** Whether reviews can be started from this project's Code review page (the UI trigger is limited to the designated ReviewHog teams while the product is in alpha). */
       readonly can_trigger_reviews?: boolean;
       /** Whether this project has at least one synced, enabled Stamphog repository. When false, the stamphog_review_inbox_prs toggle has nothing to act on and the UI renders it disabled with a pointer to connect the Stamphog GitHub App. */
       readonly stamphog_connected?: boolean;
@@ -67819,6 +67844,17 @@ export namespace Schemas {
       has_more: boolean;
     }
 
+    export interface ReviewResolutionConfig {
+      /** Name of the `review-hog-resolution-*` skill this row represents (the criteria's identity). */
+      skill_name: string;
+      /** Whether these criteria drive the resolution stage on the requesting user's PRs on this project. */
+      active: boolean;
+      /** The resolution skill's description, for display in the config UI. */
+      description: string;
+      /** The resolution skill's SKILL.md body, for the read-only skill viewer. */
+      body: string;
+    }
+
     export interface ReviewStateCounts {
       needs_review: number;
       clean: number;
@@ -67831,9 +67867,29 @@ export namespace Schemas {
       error: string;
     }
 
+    /**
+     * * `review` - review
+     * * `review_only` - review_only
+     * * `resolve_only` - resolve_only
+     */
+    export type RunModeEnum = typeof RunModeEnum[keyof typeof RunModeEnum];
+
+
+    export const RunModeEnum = {
+      Review: 'review',
+      ReviewOnly: 'review_only',
+      ResolveOnly: 'resolve_only',
+    } as const;
+
     export interface ReviewTriggerRequest {
       /** GitHub pull request URL to review, e.g. 'https://github.com/PostHog/posthog.com/pull/123'. The repository must be accessible to the project's GitHub App installation. */
       pr_url: string;
+      /** What to run on the pull request. 'review' (default) reviews it and, when the requesting user's resolve_comments setting is on, chains the resolution stage; 'review_only' reviews without resolving regardless of that setting; 'resolve_only' skips the review and only runs the resolution stage on the PR's existing unresolved review threads.
+       *
+       * * `review` - review
+       * * `review_only` - review_only
+       * * `resolve_only` - resolve_only */
+      run_mode?: RunModeEnum;
     }
 
     export interface ReviewTriggerResponse {
@@ -67850,13 +67906,15 @@ export namespace Schemas {
       stamphog_review_inbox_prs?: boolean;
       /** Review the user's pull requests when the trigger label is added on GitHub. On by default; turning it off makes the label trigger skip PRs this user authored. */
       review_labeled_prs?: boolean;
+      /** After a review of the user's pull requests is published, run the resolution stage: triage the PR's unresolved review threads, implement the worth-and-safe fixes on the PR branch, and reply on every thread. On by default; turning it off makes reviews stop at publishing. */
+      resolve_comments?: boolean;
       /** Minimum priority a validated finding needs to be published: 'consider' (default) publishes everything, 'should_fix' drops consider-level findings, 'must_fix' publishes only blocking issues.
        *
        * * `consider` - Consider
        * * `should_fix` - Should Fix
        * * `must_fix` - Must Fix */
       urgency_threshold?: UrgencyThresholdEnum;
-      /** Whether reviews can be started from this project's Code review page (the UI trigger is limited to the designated ReviewHog team while the product is in alpha). */
+      /** Whether reviews can be started from this project's Code review page (the UI trigger is limited to the designated ReviewHog teams while the product is in alpha). */
       readonly can_trigger_reviews: boolean;
       /** Whether this project has at least one synced, enabled Stamphog repository. When false, the stamphog_review_inbox_prs toggle has nothing to act on and the UI renders it disabled with a pointer to connect the Stamphog GitHub App. */
       readonly stamphog_connected: boolean;
@@ -71433,7 +71491,10 @@ export namespace Schemas {
        * * `Cloudinary` - Cloudinary
        * * `Uploadcare` - Uploadcare
        * * `WHMCS` - WHMCS
-       * * `MSG91` - MSG91 */
+       * * `MSG91` - MSG91
+       * * `Depot` - Depot
+       * * `Schematic` - Schematic
+       * * `Dokploy` - Dokploy */
       source_type: ExternalDataSourceTypeEnum;
       /** Connection details as flat keys for the source_type — the same fields the create flow accepts (host, port, password, API key, …). Checked against a live connection before being stored. */
       payload: SourceCredentialCreatePayload;
@@ -72769,7 +72830,10 @@ export namespace Schemas {
        * * `Cloudinary` - Cloudinary
        * * `Uploadcare` - Uploadcare
        * * `WHMCS` - WHMCS
-       * * `MSG91` - MSG91 */
+       * * `MSG91` - MSG91
+       * * `Depot` - Depot
+       * * `Schematic` - Schematic
+       * * `Dokploy` - Dokploy */
       source_type: ExternalDataSourceTypeEnum;
       /** Source config as flat keys. For source_type 'Custom': 'manifest_json' (a stringified RESTAPIConfig describing client.base_url, auth, and resources) plus the credential for the manifest's declared auth type — 'auth_token' (bearer), 'auth_api_key' (api_key), or 'auth_password' (http_basic). Secrets stay in these auth_* keys, never inline in the manifest. */
       payload?: SourcePreviewRequestPayload;
@@ -74095,7 +74159,10 @@ export namespace Schemas {
        * * `Cloudinary` - Cloudinary
        * * `Uploadcare` - Uploadcare
        * * `WHMCS` - WHMCS
-       * * `MSG91` - MSG91 */
+       * * `MSG91` - MSG91
+       * * `Depot` - Depot
+       * * `Schematic` - Schematic
+       * * `Dokploy` - Dokploy */
       source_type: ExternalDataSourceTypeEnum;
       /** Connection details as flat keys for the source_type (discover required fields with the wizard tool). Prefer references over raw secrets: pass {'credential_id': <id>} referencing the connection details the user stored via the connect-link page (discover ids with the stored_credentials endpoint) — they are merged in server-side and deleted once consumed. An already-connected OAuth integration can be passed via its id key instead (e.g. {'hubspot_integration_id': 123}). For source_type 'Custom' (a user-defined REST API) the keys are 'manifest_json' (a stringified RESTAPIConfig describing client.base_url, auth, and resources) plus the credential for the auth type the manifest declares — 'auth_token' (bearer), 'auth_api_key' (api_key), or 'auth_password' (http_basic); keep secrets in these auth_* keys, never inline in the manifest. A 'schemas' array is NOT required — all discovered tables are enabled automatically with sensible sync defaults. */
       payload?: SourceSetupPayload;
@@ -87115,6 +87182,11 @@ export namespace Schemas {
 
     export type MarketingAnalyticsExplainConversionGoalRetrieveParams = {
     /**
+     * conversion_goal_id of the goal to explain, as returned by the conversion_goals list endpoint.
+     * @minLength 1
+     */
+    conversion_goal_id: string;
+    /**
      * ISO start; defaults to 30 days ago
      * @nullable
      */
@@ -87124,11 +87196,6 @@ export namespace Schemas {
      * @nullable
      */
     date_to?: string | null;
-    /**
-     * Id of the conversion goal to explain (from list_conversion_goals).
-     * @minLength 1
-     */
-    goal_id: string;
     };
 
     export type MarketingAnalyticsSetupPlanRetrieveParams = {
