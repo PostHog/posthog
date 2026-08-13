@@ -4,7 +4,7 @@ import pytest
 from posthog.test.base import BaseTest
 from unittest.mock import patch
 
-from django.test import override_settings
+from django.test import SimpleTestCase, override_settings
 
 from parameterized import parameterized
 
@@ -17,6 +17,8 @@ from posthog.hogql_queries.query_runner import (
     API_QUERIES_QUOTA_LIMITED_COUNTER,
     _api_queries_enforcement_enabled,
     _api_queries_quota_detail,
+    _enforcement_flag_cache,
+    _format_data_size,
     get_api_queries_quota_limited_until,
 )
 
@@ -70,22 +72,65 @@ class TestGetApiQueriesQuotaLimitedUntil(BaseTest):
         assert get_api_queries_quota_limited_until(self.team) is None
 
 
-@override_settings(API_QUERIES_FREE_TIER_READ_BYTES_LIMIT=1000)
-class TestApiQueriesQuotaDetail(BaseTest):
+class TestApiQueriesQuotaDetail(SimpleTestCase):
     def test_detail_includes_usage_limit_and_reset(self):
-        increment_api_queries_bytes(str(self.organization.id), 2000)
-        limited_until = datetime(2026, 9, 1, tzinfo=UTC)
-        detail = _api_queries_quota_detail(self.team, limited_until)
-        assert "2,000" in detail
-        assert "1,000" in detail
-        assert "2026-09-01" in detail
+        detail = _api_queries_quota_detail(
+            used=62_500_000_000_000,
+            limit=50_000_000_000_000,
+            limited_until=datetime(2026, 9, 1, tzinfo=UTC),
+            project_timezone="UTC",
+        )
+        assert "62.5 TB" in detail
+        assert "50 TB" in detail
+        assert "September 1, 2026 (UTC)" in detail
         assert "Billing settings" in detail
+
+    def test_detail_renders_reset_in_project_timezone(self):
+        detail = _api_queries_quota_detail(
+            used=62_500_000_000_000,
+            limit=50_000_000_000_000,
+            limited_until=datetime(2026, 9, 1, tzinfo=UTC),
+            project_timezone="America/Los_Angeles",
+        )
+        assert "August 31, 2026 at 17:00 (America/Los_Angeles)" in detail
+
+    def test_detail_falls_back_to_utc_on_bad_timezone(self):
+        detail = _api_queries_quota_detail(
+            used=62_500_000_000_000,
+            limit=50_000_000_000_000,
+            limited_until=datetime(2026, 9, 1, tzinfo=UTC),
+            project_timezone="Not/AZone",
+        )
+        assert "September 1, 2026 (UTC)" in detail
+
+    @parameterized.expand(
+        [
+            ("terabytes_trimmed", 50_000_000_000_000, "50 TB"),
+            ("terabytes_fraction", 62_500_000_000_000, "62.5 TB"),
+            ("gigabytes", 500_000_000_000, "500 GB"),
+            ("small_values_stay_bytes", 999, "999 bytes"),
+        ]
+    )
+    def test_format_data_size(self, _name, bytes_count, expected):
+        assert _format_data_size(bytes_count) == expected
 
 
 class TestApiQueriesEnforcementEnabled(BaseTest):
+    def setUp(self):
+        super().setUp()
+        _enforcement_flag_cache.clear()
+
     def test_flag_on_returns_true(self):
         with patch("posthog.hogql_queries.query_runner.posthoganalytics.feature_enabled", return_value=True):
             assert _api_queries_enforcement_enabled(self.team) is True
+
+    def test_flag_result_is_cached_within_ttl(self):
+        with patch(
+            "posthog.hogql_queries.query_runner.posthoganalytics.feature_enabled", return_value=True
+        ) as mock_flag:
+            assert _api_queries_enforcement_enabled(self.team) is True
+            assert _api_queries_enforcement_enabled(self.team) is True
+        assert mock_flag.call_count == 1
 
     def test_flag_service_error_fails_open_to_false(self):
         with patch(
@@ -97,6 +142,10 @@ class TestApiQueriesEnforcementEnabled(BaseTest):
 
 @override_settings(API_QUERIES_ENABLED=True)
 class TestApiQueriesQuotaEnforcement(BaseTest):
+    def setUp(self):
+        super().setUp()
+        _enforcement_flag_cache.clear()
+
     def _runner(self):
         runner = HogQLQueryRunner(query=HogQLQuery(query="select 1"), team=self.team)
         runner.is_query_service = True
@@ -120,6 +169,7 @@ class TestApiQueriesQuotaEnforcement(BaseTest):
         assert after == before + 1
 
     def test_limited_flag_on_raises_402(self):
+        before = API_QUERIES_QUOTA_LIMITED_COUNTER.labels(surface="api", outcome="enforced")._value.get()
         with (
             patch(
                 "posthog.hogql_queries.query_runner.get_api_queries_quota_limited_until",
@@ -130,6 +180,8 @@ class TestApiQueriesQuotaEnforcement(BaseTest):
             with pytest.raises(APIQueriesQuotaExceeded) as exc_info:
                 self._runner()._enforce_api_queries_quota()
         assert exc_info.value.status_code == 402
+        after = API_QUERIES_QUOTA_LIMITED_COUNTER.labels(surface="api", outcome="enforced")._value.get()
+        assert after == before + 1
 
     def test_flag_service_error_fails_open_to_observe(self):
         with (
