@@ -14,13 +14,18 @@ from products.review_hog.backend.reviewer.models.issue_validation import IssueVa
 from products.review_hog.backend.reviewer.models.issues_review import Issue, IssuePriority, LineRange
 from products.review_hog.backend.reviewer.persistence import persist_findings, persist_verdict, upsert_review_report
 from products.review_hog.backend.reviewer.status_comment import (
+    RESOLUTION_SECTION_START,
+    _splice_resolution_section,
     ensure_status_comment,
     fail_status_comment,
     finalize_status_comment,
     maybe_refresh_status_comment,
     render_final_body,
     render_in_progress_body,
+    render_resolution_final_section,
+    render_resolution_progress_section,
     status_marker,
+    update_resolution_status_comment,
 )
 
 _MODULE = "products.review_hog.backend.reviewer.status_comment"
@@ -377,3 +382,88 @@ class TestFinalizeStatusComment(BaseTest):
         assert _patches(mock_request) == ["/repos/o/r/issues/comments/555"]
         body = mock_request.call_args.kwargs["json"]["body"]
         assert "couldn't finish this review" in body
+
+
+class TestResolutionSection:
+    def test_splice_appends_then_replaces_in_place(self) -> None:
+        # The section is edited into the shared status comment on every settled thread; a broken
+        # splice would either stack one section per update or eat the review's own body above it.
+        review_body = "### review outcome\n\nFound things.\n\n" + status_marker("rid")
+        first = _splice_resolution_section(
+            review_body, render_resolution_progress_section(done=0, total=3, fixed=0, left_for_you=0)
+        )
+        assert "### review outcome" in first
+        assert "Resolving comments: 0/3" in first
+
+        second = _splice_resolution_section(
+            first, render_resolution_progress_section(done=2, total=3, fixed=1, left_for_you=1)
+        )
+
+        assert "### review outcome" in second
+        assert status_marker("rid") in second
+        assert second.count(RESOLUTION_SECTION_START) == 1
+        assert "Resolving comments: 2/3 · 1 fixed, 1 left for you" in second
+        assert "0/3" not in second
+
+    def test_final_section_buckets_outcomes_and_names_failures(self) -> None:
+        # The closing tally is the PR author's durable record: already_fixed and obsolete collapse
+        # into one bucket, and threads the run could not handle must be named, never silent.
+        section = render_resolution_final_section(
+            outcomes={"fixed": 2, "wont_fix": 1, "already_fixed": 1, "obsolete": 1, "escalate": 1},
+            failed_turns=2,
+        )
+        assert "Resolved comments: 2 fixed, 1 declined, 2 already settled, 1 left for you" in section
+        assert "couldn't handle 2" in section
+
+
+@patch(_INTEGRATION)
+@patch(_PAGINATED)
+@patch(_REQUEST)
+class TestUpdateResolutionStatusComment(BaseTest):
+    def _report(self) -> ReviewReport:
+        report_id = upsert_review_report(team_id=self.team.id, repository="o/r", pr_url="u", pr_metadata=_pr_metadata())
+        return ReviewReport.objects.for_team(self.team.id).get(id=report_id)
+
+    def test_standalone_run_creates_the_comment_on_demand(
+        self, mock_request: MagicMock, mock_paginated: MagicMock, mock_integration: MagicMock
+    ) -> None:
+        # A standalone resolution targets a PR that never got a review comment — without the
+        # create-on-demand path the run has no GitHub-visible progress at all.
+        _wire_auth(mock_integration)
+        mock_paginated.return_value = iter([])
+        mock_request.return_value.json.return_value = {"id": 888}
+        report = self._report()
+
+        update_resolution_status_comment(
+            self.team.id, str(report.id), render_resolution_progress_section(done=0, total=3, fixed=0, left_for_you=0)
+        )
+
+        assert _posts(mock_request) == ["/repos/o/r/issues/123/comments"]
+        posted = next(c for c in mock_request.call_args_list if c.args[0] == "POST")
+        assert "Resolving comments: 0/3" in posted.kwargs["json"]["body"]
+        assert status_marker(str(report.id)) in posted.kwargs["json"]["body"]
+        report.refresh_from_db()
+        assert report.status_comment_id == 888
+
+    def test_chained_run_extends_the_existing_review_comment(
+        self, mock_request: MagicMock, mock_paginated: MagicMock, mock_integration: MagicMock
+    ) -> None:
+        # One ReviewHog voice per PR: the resolution section lands inside the review's comment via
+        # edit (no new comment, no notification), with the review's own body preserved above it.
+        _wire_auth(mock_integration)
+        report = self._report()
+        report.status_comment_id = 777
+        report.save(update_fields=["status_comment_id"])
+        get_response = MagicMock()
+        get_response.json.return_value = {"body": "### reviewed\n\n" + status_marker(str(report.id))}
+        mock_request.side_effect = [get_response, MagicMock()]
+
+        update_resolution_status_comment(
+            self.team.id, str(report.id), render_resolution_progress_section(done=1, total=3, fixed=1, left_for_you=0)
+        )
+
+        assert _posts(mock_request) == []
+        assert _patches(mock_request) == ["/repos/o/r/issues/comments/777"]
+        patched = mock_request.call_args_list[1].kwargs["json"]["body"]
+        assert "### reviewed" in patched
+        assert "Resolving comments: 1/3 · 1 fixed" in patched

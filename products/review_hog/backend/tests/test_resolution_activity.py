@@ -247,6 +247,7 @@ class TestResolutionPersistenceAndDelivery(BaseTest):
             patch(f"{_RESOLUTION}._installation_for", return_value=_mock_installation()),
             patch(f"{_RESOLUTION}._fetch_pr_metadata", return_value=_pr_metadata()),
             patch(f"{_RESOLUTION}.fetch_unresolved_threads", return_value=[thread]),
+            patch(f"{_RESOLUTION}.add_eyes_reaction"),
         ):
             return _prepare_run(
                 ResolveThreadsInput(
@@ -394,6 +395,80 @@ class TestResolutionPersistenceAndDelivery(BaseTest):
         assert report.status == ReviewReport.Status.IDLE
         note = ReviewReportArtefact.objects.for_team(self.team.id).get(report_id=report.id, type="note")
         assert "0 thread(s) triaged" in note.content
+        # No queued threads means no progress anchor — a total=0 run artefact would render this
+        # clean no-op as a crashed run once it aged past the staleness window.
+        assert (
+            not ReviewReportArtefact.objects.for_team(self.team.id)
+            .filter(report_id=report.id, type="resolution_run")
+            .exists()
+        )
+
+    def _prepare_with(self, threads: list[ReviewThread], eyes: Mock | None = None) -> object:
+        eyes = eyes if eyes is not None else Mock()
+        with (
+            patch(f"{_RESOLUTION}._installation_for", return_value=_mock_installation()),
+            patch(f"{_RESOLUTION}._fetch_pr_metadata", return_value=_pr_metadata()),
+            patch(f"{_RESOLUTION}.fetch_unresolved_threads", return_value=threads),
+            patch(f"{_RESOLUTION}.add_eyes_reaction", eyes),
+            patch(
+                f"{_RESOLUTION}.load_resolution_skill_for_run",
+                return_value=Mock(skill_name="review-hog-resolution-criteria", version=1),
+            ),
+        ):
+            return _prepare_run(self._input())
+
+    def test_prepare_anchors_the_run_and_marks_only_queued_threads(self) -> None:
+        # The run's progress anchor must list exactly the queued threads (progress counts verdicts
+        # against it, so a settled thread in the list would read as forever-unfinished work), and
+        # the 👀 queue marker must skip settled threads for the same reason.
+        report = self._report()
+        queued = ReviewThread(
+            thread_id="PRRT_1",
+            path="f.py",
+            comments=[ThreadComment(id=1, node_id="PRRC_1", author_login="greptile", author_is_bot=True, body="b")],
+        )
+        settled = ReviewThread(
+            thread_id="PRRT_2",
+            path="f.py",
+            comments=[ThreadComment(id=100, node_id="PRRC_2", author_login="greptile", author_is_bot=True, body="b")],
+        )
+        persist_thread_verdict(
+            team_id=self.team.id,
+            report_id=str(report.id),
+            verdict=_verdict("PRRT_2", outcome="wont_fix", reply_posted=True, resolved=True, commit_sha=None),
+        )
+        eyes = Mock()
+
+        prepared = self._prepare_with([queued, settled], eyes)
+
+        assert isinstance(prepared, _PreparedRun)
+        run_artefact = ReviewReportArtefact.objects.for_team(self.team.id).get(
+            report_id=report.id, type="resolution_run"
+        )
+        content = json.loads(run_artefact.content)
+        assert content["total"] == 1
+        assert content["thread_ids"] == ["PRRT_1"]
+        assert content["skipped"] == 1
+        assert eyes.call_args_list == [((), {"token": "token", "subject_id": "PRRC_1", "installation_id": "inst-1"})]
+
+    def test_reaction_failure_never_fails_prepare(self) -> None:
+        # A GitHub flake on the cosmetic queue marker must not cost the run (or the progress anchor,
+        # which is written first).
+        report = self._report()
+        thread = ReviewThread(
+            thread_id="PRRT_1",
+            path="f.py",
+            comments=[ThreadComment(id=1, node_id="PRRC_1", author_login="greptile", author_is_bot=True, body="b")],
+        )
+
+        prepared = self._prepare_with([thread], Mock(side_effect=RuntimeError("github flake")))
+
+        assert isinstance(prepared, _PreparedRun)
+        assert (
+            ReviewReportArtefact.objects.for_team(self.team.id)
+            .filter(report_id=report.id, type="resolution_run")
+            .exists()
+        )
 
 
 class TestFailedRunActivity(NonAtomicBaseTest):
@@ -429,6 +504,7 @@ class TestFailedRunActivity(NonAtomicBaseTest):
             patch(f"{_RESOLUTION}._delivery_auth", return_value=("token", "inst-1")),
             patch(f"{_RESOLUTION}._fetch_pr_metadata", return_value=_pr_metadata()),
             patch(f"{_RESOLUTION}.fetch_unresolved_threads", return_value=threads),
+            patch(f"{_RESOLUTION}.add_eyes_reaction"),
             patch(
                 f"{_RESOLUTION}.load_resolution_skill_for_run",
                 return_value=Mock(skill_name="review-hog-resolution-criteria", version=1),

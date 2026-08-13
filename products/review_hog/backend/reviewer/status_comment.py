@@ -7,6 +7,10 @@ edited, never re-posted: comment edits don't notify PR subscribers, while every 
 everyone. Progress renders from the same derivation the reviews API uses (`reviewer.progress`), so
 the PR comment and the UI can never disagree.
 
+The resolution stage shares the same comment (one ReviewHog voice per PR): its progress and closing
+tally live in a marker-delimited section spliced in by `update_resolution_status_comment`, which
+also creates the comment on demand for standalone resolution runs that never had a review.
+
 Every entry point here is best-effort by construction: a status comment must never fail, block, or
 retry a review, so all exceptions are swallowed after logging.
 """
@@ -110,6 +114,24 @@ def status_marker(report_id: str) -> str:
     return f"<!-- reviewhog:status:{report_id} -->"
 
 
+# Delimits the resolution stage's section within the status comment, so resolution updates splice
+# their part in place without touching the review's own body above it.
+RESOLUTION_SECTION_START = "<!-- reviewhog:resolution:start -->"
+RESOLUTION_SECTION_END = "<!-- reviewhog:resolution:end -->"
+
+# GitHub-facing labels for the resolution stage's thread outcomes, in display order.
+# already_fixed and obsolete collapse into one bucket — the distinction matters in the DB, not to
+# the PR author skimming a tally.
+_RESOLUTION_OUTCOME_LABELS = {
+    "fixed": "fixed",
+    "wont_fix": "declined",
+    "already_fixed": "already settled",
+    "obsolete": "already settled",
+    "escalate": "left for you",
+}
+_RESOLUTION_OUTCOME_ORDER = ("fixed", "declined", "already settled", "left for you")
+
+
 def report_deep_link(team_id: int, report_id: str) -> str:
     """The app URL opening this report's review drawer — the held-back "View them in PostHog" target.
 
@@ -204,6 +226,58 @@ def render_final_body(
     return "\n".join(lines)
 
 
+def render_resolution_progress_section(*, done: int, total: int, fixed: int, left_for_you: int) -> str:
+    """The resolving-state section: the run's counter plus the outcomes that matter mid-run."""
+    line = f"Resolving comments: {done}/{total}"
+    outcome_bits = [
+        bit for bit, count in ((f"{fixed} fixed", fixed), (f"{left_for_you} left for you", left_for_you)) if count
+    ]
+    if outcome_bits:
+        line += " · " + ", ".join(outcome_bits)
+    return "\n".join(
+        [
+            f"**{line}**",
+            "",
+            "<sub>Safe fixes are committed to the branch; every settled thread gets a reply. "
+            "This line updates as threads settle.</sub>",
+        ]
+    )
+
+
+def render_resolution_final_section(*, outcomes: dict[str, int], failed_turns: int) -> str:
+    """The run's closing tally, including the threads the run could not handle."""
+    counts: dict[str, int] = {}
+    for outcome, count in outcomes.items():
+        label = _RESOLUTION_OUTCOME_LABELS.get(outcome, outcome)
+        counts[label] = counts.get(label, 0) + count
+    bits = [f"{counts[label]} {label}" for label in _RESOLUTION_OUTCOME_ORDER if counts.get(label)]
+    line = "Resolved comments: " + (", ".join(bits) if bits else "no threads needed action")
+    if failed_turns:
+        line += f" · couldn't handle {failed_turns}"
+    return f"**{line}**"
+
+
+def render_resolution_failed_section(*, done: int, total: int) -> str:
+    """The crashed-run section, so a dead resolution never reads as forever in progress on the PR."""
+    return "\n".join(
+        [
+            f"**Couldn't finish resolving comments: stopped at {done}/{total}**",
+            "",
+            "<sub>The remaining threads were not touched. The next review or resolution run picks them up.</sub>",
+        ]
+    )
+
+
+def _splice_resolution_section(body: str, section: str) -> str:
+    """Replace (or append) the marker-delimited resolution section within a comment body."""
+    block = f"{RESOLUTION_SECTION_START}\n{section}\n{RESOLUTION_SECTION_END}"
+    if RESOLUTION_SECTION_START in body and RESOLUTION_SECTION_END in body:
+        head, _, rest = body.partition(RESOLUTION_SECTION_START)
+        _, _, tail = rest.partition(RESOLUTION_SECTION_END)
+        return f"{head.rstrip()}\n\n{block}{tail}"
+    return f"{body.rstrip()}\n\n{block}" if body.strip() else block
+
+
 def render_failed_body(report_id: str) -> str:
     return "\n".join(
         [
@@ -247,6 +321,18 @@ def _find_marker_comment(
         if marker in (comment.get("body") or ""):
             return comment.get("id")
     return None
+
+
+def _get_comment(owner: str, repo: str, comment_id: int, *, token: str, installation_id: str | None) -> str:
+    """The comment's current body — the resolution splice edits around the review's own text."""
+    response = github_api_request(
+        "GET",
+        f"/repos/{owner}/{repo}/issues/comments/{comment_id}",
+        token=token,
+        installation_id=installation_id,
+        endpoint="/repos/{owner}/{repo}/issues/comments/{comment_id}",
+    )
+    return response.json().get("body") or ""
 
 
 def _post_comment(
@@ -416,6 +502,52 @@ def fail_status_comment(team_id: int, report_id: str) -> None:
         _edit_and_stamp(team_id, report, render_failed_body(report_id))
     except Exception:
         logger.exception("Could not mark the ReviewHog status comment as failed")
+
+
+def update_resolution_status_comment(team_id: int, report_id: str, section: str) -> None:
+    """Splice the resolution stage's section into the report's status comment.
+
+    Chained runs extend the review's existing comment (edits don't notify PR subscribers, and one
+    ReviewHog voice per PR beats a second comment); standalone runs, where the PR never got a
+    review comment, create it on demand carrying just the resolution section. Best-effort like
+    every entry point here: a status edit must never fail or block a resolution run.
+    """
+    try:
+        report = ReviewReport.objects.for_team(team_id).filter(id=report_id).first()
+        if report is None or report.pr_number is None:
+            return
+        auth = _auth(team_id, report.repository)
+        if auth is None:
+            return
+        token, installation_id = auth
+        owner, repo = _split_repository(report.repository)
+        marker = status_marker(report_id)
+
+        comment_id = report.status_comment_id
+        if comment_id is None:
+            comment_id = _find_marker_comment(
+                owner, repo, report.pr_number, marker, token=token, installation_id=installation_id
+            )
+        body: str | None = None
+        if comment_id is not None:
+            try:
+                body = _get_comment(owner, repo, comment_id, token=token, installation_id=installation_id)
+            except GitHubAPIError as e:
+                if e.status != 404:
+                    raise
+                comment_id = None  # the stored comment was deleted on GitHub; post fresh
+        new_body = _splice_resolution_section(body if body is not None else marker, section)
+        if comment_id is not None:
+            _patch_comment(owner, repo, comment_id, new_body, token=token, installation_id=installation_id)
+        else:
+            comment_id = _post_comment(
+                owner, repo, report.pr_number, new_body, token=token, installation_id=installation_id
+            )
+        report.status_comment_id = comment_id
+        report.status_comment_edited_at = timezone.now()
+        report.save(update_fields=["status_comment_id", "status_comment_edited_at", "updated_at"])
+    except Exception:
+        logger.exception("Could not update the ReviewHog resolution status section; the run continues without it")
 
 
 def _edit_and_stamp(team_id: int, report: ReviewReport, body: str) -> None:
