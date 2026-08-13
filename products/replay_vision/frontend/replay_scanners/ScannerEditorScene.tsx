@@ -21,6 +21,7 @@ import { SceneContent } from '~/layout/scenes/components/SceneContent'
 import { SceneTitleSection } from '~/layout/scenes/components/SceneTitleSection'
 import { ProductKey } from '~/queries/schema/schema-general'
 
+import { CreditPriceNote } from '../components/PricingLink'
 import { ReplayVisionFeedbackButton } from '../components/ReplayVisionFeedbackButton'
 import { getReplayVisionEditDisabledReason } from '../utils/accessControl'
 import { ScannerTemplatePicker } from './components/ScannerTemplatePicker'
@@ -294,11 +295,7 @@ function ConfigureStep(): JSX.Element {
                     {namingVariant
                         ? 'Higher tiers tend to produce higher-quality observations, but cost more per observation.'
                         : 'Newer models tend to produce higher-quality observations, but cost more per observation.'}{' '}
-                    1 credit is $0.01.{' '}
-                    <Link to="https://posthog.com/replay-vision/pricing" target="_blank">
-                        Read more about pricing
-                    </Link>
-                    .
+                    <CreditPriceNote dataAttr="vision-pricing-link-model-picker" />
                 </div>
             </div>
 

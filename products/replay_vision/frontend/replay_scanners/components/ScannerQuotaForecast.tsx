@@ -5,6 +5,7 @@ import { LemonCard, Spinner, Tooltip } from '@posthog/lemon-ui'
 import { LemonLabel } from 'lib/lemon-ui/LemonLabel'
 
 import { NoBillingLimitNote } from '../../components/NoBillingLimitNote'
+import { CreditPriceNote } from '../../components/PricingLink'
 import { QuotaExhaustedNote } from '../../components/QuotaExhaustedNote'
 import { QuotaImminentBanner } from '../../components/QuotaImminentBanner'
 import { visionQuotaLogic } from '../../logics/visionQuotaLogic'
@@ -213,6 +214,10 @@ export function ScannerQuotaForecast({ scannerId }: Props): JSX.Element | null {
             ) : (
                 <div className="text-xs text-muted">Estimate unavailable. Try adjusting your filters.</div>
             )}
+
+            <div className="text-xs text-muted">
+                <CreditPriceNote dataAttr="vision-pricing-link-scanner-estimate" />
+            </div>
         </LemonCard>
     )
 }
