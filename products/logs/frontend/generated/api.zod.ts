@@ -1621,6 +1621,8 @@ export const LogsSamplingRulesReorderCreateBody = /* @__PURE__ */ zod.object({
         ),
 })
 
+export const logsServicesCreateBodyQueryOneServiceNameSearchMax = 200
+
 export const LogsServicesCreateBody = /* @__PURE__ */ zod.object({
     query: zod
         .object({
@@ -1654,6 +1656,13 @@ export const LogsServicesCreateBody = /* @__PURE__ */ zod.object({
                 .optional()
                 .describe('Restrict the aggregation to these service names.'),
             searchTerm: zod.string().optional().describe('Full-text search term to filter log bodies.'),
+            serviceNameSearch: zod
+                .string()
+                .max(logsServicesCreateBodyQueryOneServiceNameSearchMax)
+                .optional()
+                .describe(
+                    'Case-insensitive substring match on service name, applied before aggregation. Use to reach services beyond the response cap.'
+                ),
             filterGroup: zod
                 .array(
                     zod.object({
