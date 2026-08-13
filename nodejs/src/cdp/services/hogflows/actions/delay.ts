@@ -76,9 +76,11 @@ function instantFromHogValue(value: unknown): DateTime | null {
  * When to continue for a `delay_until` step: the instant its expression evaluates to, plus any offset,
  * clamped to `max_delay_duration` past the step's start. Returns null once that instant has passed.
  *
- * Re-evaluated on every wake rather than only on entry, so a stored date that moves while the run is
- * parked is honoured — the behaviour a clock-based `wait_until_condition` had, without needing a poll to
- * notice. Waking early is free; the step simply re-parks to the new instant.
+ * Re-evaluated on every wake rather than only on entry, so a stored date that moves *later* while the run
+ * is parked is honoured: the job wakes at the old, earlier instant and re-parks to the new one. A date
+ * that moves *earlier* is only noticed once the old instant passes, because the only wake for a parked
+ * delay is that stored instant — the subscription matcher never pulls a delay forward. Waking early is
+ * free; the step simply re-parks to the new instant.
  */
 async function scheduledAtFromInstant(
     action: Extract<HogFlowAction, { type: 'delay' }>,
