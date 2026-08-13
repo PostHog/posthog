@@ -47,14 +47,14 @@ function LoadedIssueEventsPanel(): JSX.Element {
             return
         }
 
-        const nextSelection = getListSelection(items, selectedEvent)
+        const nextSelection = getListSelection(items, selectedEvent, canLoadNextData)
         if (nextSelection !== selectedEvent) {
             selectEvent(nextSelection)
         }
         if (!nextSelection) {
             setMobileDetailOpen(false)
         }
-    }, [items, itemsLoading, selectEvent, selectedEvent, setMobileDetailOpen])
+    }, [items, itemsLoading, canLoadNextData, selectEvent, selectedEvent, setMobileDetailOpen])
 
     return (
         <IssueEventsLayout
@@ -94,8 +94,22 @@ function LoadedIssueEventsPanel(): JSX.Element {
     )
 }
 
-export function getListSelection(items: ErrorEventType[], selectedEvent: ErrorEventType | null): ErrorEventType | null {
-    return (selectedEvent ? items.find((item) => item.uuid === selectedEvent.uuid) : undefined) ?? items[0] ?? null
+export function getListSelection(
+    items: ErrorEventType[],
+    selectedEvent: ErrorEventType | null,
+    canLoadMore: boolean
+): ErrorEventType | null {
+    const matchedEvent = selectedEvent ? items.find((item) => item.uuid === selectedEvent.uuid) : undefined
+    if (matchedEvent) {
+        return matchedEvent
+    }
+    // The selection isn't on the loaded page, but a later page may still hold it — e.g. a
+    // timestamp-linked exception older than the first 100 rows. Keep it until the list is fully
+    // loaded rather than swapping in the newest event and rewriting the URL away from the link.
+    if (selectedEvent && canLoadMore) {
+        return selectedEvent
+    }
+    return items[0] ?? null
 }
 
 function IssueEventsLayout({
