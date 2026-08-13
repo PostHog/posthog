@@ -69,7 +69,6 @@ from products.replay_vision.backend.models.replay_scanner import (
     ScannerType,
 )
 from products.replay_vision.backend.queries import (
-    ESTIMATE_INTERACTIVE_MAX_EXECUTION_SECONDS,
     ESTIMATE_STALE_AFTER,
     MIN_SAMPLING_RATE,
     PREVIEW_ESTIMATE_BUDGET,
