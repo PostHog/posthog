@@ -1349,6 +1349,7 @@ DIRECT_ENGINE_BY_SOURCE_TYPE: dict[str, str] = {
     ExternalDataSourceType.REDSHIFT: "redshift",
     ExternalDataSourceType.CLICKHOUSE: "clickhouse",
     ExternalDataSourceType.CLICKHOUSECLOUD: "clickhouse",
+    ExternalDataSourceType.MOTHERDUCK: "motherduck",
 }
 
 
