@@ -1104,7 +1104,7 @@ class PostgresSource(SQLSource[PostgresSourceConfig], SSHTunnelMixin, ValidateDa
             return False, _HOST_IS_URL_ERROR
 
         valid_host, host_errors = self.is_database_host_valid(
-            config.host, team_id, using_ssh_tunnel=config.ssh_tunnel.enabled if config.ssh_tunnel else False
+            config.host, team_id, using_ssh_tunnel=self.ssh_tunnel_enabled(config)
         )
         if not valid_host:
             return valid_host, host_errors
