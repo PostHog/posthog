@@ -83,7 +83,9 @@ pub struct PropertyPlan {
 
 impl PropertyPlan {
     /// Splits the budget across workers so document size holds still when
-    /// concurrency changes.
+    /// concurrency changes. Every worker needs a key of its own, so the
+    /// floor is one each: a budget under the worker count delivers
+    /// `concurrency` keys per person, and traffic mode refuses it.
     pub fn new(prefix: String, keys_per_person: u64, concurrency: usize) -> Self {
         let keys_per_worker = (keys_per_person.max(1) / concurrency.max(1) as u64).max(1);
         Self {
@@ -320,10 +322,17 @@ mod tests {
             }
             assert_eq!(distinct.len(), 64, "concurrency={concurrency}");
         }
-        // A budget under the worker count still yields one key each rather
-        // than dividing to zero.
+        // Below the worker count the budget cannot be honoured: each
+        // worker still takes one key, so the person collects `concurrency`
+        // of them. Traffic mode rejects that configuration outright.
         let mut rng = rand::rngs::StdRng::seed_from_u64(13);
         let plan = PropertyPlan::new("p_".to_string(), 2, 8);
-        assert_eq!(plan.key(0, &mut rng), "p_0_0");
+        let mut distinct = std::collections::HashSet::new();
+        for worker_id in 0..8 {
+            for _ in 0..100 {
+                distinct.insert(plan.key(worker_id, &mut rng));
+            }
+        }
+        assert_eq!(distinct.len(), 8);
     }
 }

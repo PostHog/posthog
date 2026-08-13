@@ -73,6 +73,16 @@ fn validate_args(args: &TrafficArgs) -> Result<()> {
             args.probers
         );
     }
+    if args.property_keys_per_person < args.concurrency as u64 {
+        // Workers cannot share a key without racing the journal, so each
+        // holds at least one and a smaller budget would quietly deliver
+        // `concurrency` keys per person instead of what was asked for.
+        bail!(
+            "property_keys_per_person ({}) must be at least concurrency ({})",
+            args.property_keys_per_person,
+            args.concurrency
+        );
+    }
     if args.team_ids.is_empty() {
         bail!("team_ids must not be empty");
     }
@@ -916,6 +926,12 @@ mod tests {
             },
             TrafficArgs {
                 probers: 0,
+                ..valid.clone()
+            },
+            // Fewer keys than workers cannot be honoured: each worker
+            // needs its own, so the person would collect `concurrency`.
+            TrafficArgs {
+                property_keys_per_person: valid.concurrency as u64 - 1,
                 ..valid.clone()
             },
             TrafficArgs {
