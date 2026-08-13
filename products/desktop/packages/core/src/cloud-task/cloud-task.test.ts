@@ -3128,8 +3128,6 @@ describe("CloudTaskEngine", () => {
       );
     });
 
-    // A deploy-window 401 on the Django leg: the next attempt re-authenticates and succeeds,
-    // so the watcher must recover without surfacing the auth banner.
     const logFrame =
       'id: 7\ndata: {"type":"notification","timestamp":"2026-01-01T00:00:02Z","notification":{"jsonrpc":"2.0","method":"_posthog/console","params":{"sessionId":"run-1","level":"info","message":"after recovery"}}}\n\n';
     mockStreamFetch
@@ -3162,7 +3160,6 @@ describe("CloudTaskEngine", () => {
     expect(updates.some((u) => (u as { kind?: string }).kind === "error")).toBe(
       false,
     );
-    // The Django leg reconnects as itself: no stream_token re-mint on a 401.
     expect(mockStreamTokenFetch.mock.calls.length).toBe(1);
   });
 
@@ -3215,7 +3212,6 @@ describe("CloudTaskEngine", () => {
       retryable: true,
     });
 
-    // The budget retried several times before failing, and a failed watcher stops for good.
     expect(mockStreamFetch.mock.calls.length).toBeGreaterThan(2);
     const streamCallsAtFailure = mockStreamFetch.mock.calls.length;
     await vi.advanceTimersByTimeAsync(60_000);
