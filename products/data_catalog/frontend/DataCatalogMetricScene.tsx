@@ -43,7 +43,12 @@ import { SceneTitleSection } from '~/layout/scenes/components/SceneTitleSection'
 import { ScenePanel, ScenePanelActionsSection, ScenePanelInfoSection } from '~/layout/scenes/SceneLayout'
 import { InsightShortId, SidePanelTab } from '~/types'
 
-import { humanizeDefinitionKind, METRIC_DESCRIPTION_MAX_LENGTH, METRIC_MARKDOWN_MAX_LENGTH } from './common'
+import {
+    humanizeDefinitionKind,
+    METRIC_DESCRIPTION_MAX_LENGTH,
+    METRIC_MARKDOWN_MAX_LENGTH,
+    validateMetricName,
+} from './common'
 import { MetricMarkdownEditorField } from './components/MetricMarkdownEditorField'
 import { buildMetricRunPrompt, RunMetricWithAIButton } from './components/RunMetricWithAIButton'
 import {
@@ -78,6 +83,7 @@ export function DataCatalogMetricScene({ name }: DataCatalogMetricSceneLogicProp
         approveMetric,
         refreshMetricFromInsight,
         deleteMetric,
+        renameMetric,
         updateMetric,
         loadRunResult,
         setEditingDefinition,
@@ -130,9 +136,35 @@ export function DataCatalogMetricScene({ name }: DataCatalogMetricSceneLogicProp
     const confirmDelete = (): void => {
         LemonDialog.open({
             title: 'Delete metric?',
-            content: <div className="text-sm text-secondary">Deleting {metric.name} cannot be undone.</div>,
+            content: (
+                <div className="text-sm text-secondary">
+                    This deletes {metric.name} and makes its name available for a new metric. Queries and links that
+                    reference it will stop working.
+                </div>
+            ),
             primaryButton: { children: 'Delete', status: 'danger', onClick: deleteMetric },
             secondaryButton: { children: 'Cancel' },
+        })
+    }
+
+    const openRenameDialog = (): void => {
+        LemonDialog.openForm({
+            title: 'Rename metric',
+            initialValues: { name: metric.name },
+            content: (
+                <div className="flex flex-col gap-2">
+                    <div className="text-sm text-secondary">
+                        Anything that references this metric by name, like saved SQL queries, API calls, or links, will
+                        stop working until it is updated. The old name becomes available for a new metric.
+                        {isApproved && ' Renaming also sets the metric back to proposed, so it needs approving again.'}
+                    </div>
+                    <LemonField name="name" label="Name">
+                        <LemonInput data-attr="data-catalog-metric-rename-input" autoFocus />
+                    </LemonField>
+                </div>
+            ),
+            errors: { name: (value) => validateMetricName(value ?? '') },
+            onSubmit: ({ name: newName }) => renameMetric(newName),
         })
     }
 
@@ -180,6 +212,14 @@ export function DataCatalogMetricScene({ name }: DataCatalogMetricSceneLogicProp
                   onClick: loadRunResult,
                   disabledReason: metric.definition_kind ? undefined : 'This metric has no runnable definition yet',
               },
+        {
+            key: 'rename',
+            label: 'Rename',
+            icon: <IconPencil />,
+            onClick: openRenameDialog,
+            disabledReason: mutating ? 'Working' : undefined,
+            opensFloatingUi: true,
+        },
         ...(definitionSql
             ? [
                   {
