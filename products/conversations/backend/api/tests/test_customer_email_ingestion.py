@@ -122,6 +122,11 @@ class TestCustomerEmailIngestion(BaseTest):
         setup = self._start_google_setup()
         payload = self._valid_google_confirmation()
         payload["subject"] = "(PostHog Forwarding Confirmation - Receive Mail from csm@example.com"
+        payload["body-plain"] = (
+            "Confirm forwarding at https://mail.google.com/mail/vf-%5Blive_token%5D-value or reject it at "
+            "https://mail.google.com/mail/uf-live-token"
+        )
+        payload["stripped-text"] = payload["body-plain"]
         payload["message-headers"] = json.dumps(
             [
                 ["X-Mailgun-Spf", payload.pop("X-Mailgun-Spf")],
@@ -134,7 +139,7 @@ class TestCustomerEmailIngestion(BaseTest):
 
         assert response.status_code == 200
         setup.refresh_from_db()
-        assert setup.confirmation_action == "https://mail-settings.google.com/mail/vf-expected"
+        assert setup.confirmation_action == "https://mail.google.com/mail/vf-%5Blive_token%5D-value"
         assert setup.confirmation_received_at is not None
 
     @parameterized.expand(

@@ -15,8 +15,8 @@ from products.conversations.backend.services.email_thread_ingestion import Parse
 
 _GOOGLE_FORWARDING_SENDER = "forwarding-noreply@google.com"
 _GOOGLE_DKIM_DOMAIN = "google.com"
-_GOOGLE_CONFIRMATION_HOST = "mail-settings.google.com"
-_GOOGLE_CONFIRMATION_PATH_RE = re.compile(r"^/mail/vf-[A-Za-z0-9_-]+")
+_GOOGLE_CONFIRMATION_HOSTS = {"mail.google.com", "mail-settings.google.com"}
+_GOOGLE_CONFIRMATION_PATH_PREFIX = "/mail/vf-"
 _GOOGLE_FORWARDING_SUBJECT_RE = re.compile(
     r"^(?:(?:\(#\d+\)\s*)?Gmail|\([^\r\n]{1,100}) Forwarding Confirmation\s*-\s*Receive Mail from\s+"
     r"(?P<source>[^\s<>()]+@[^\s<>()]+)\)?\s*$",
@@ -44,11 +44,11 @@ def _validated_google_action(email: ParsedInboundEmail) -> str | None:
         if (
             parsed.scheme.lower() != "https"
             or parsed.hostname is None
-            or parsed.hostname.rstrip(".").lower() != _GOOGLE_CONFIRMATION_HOST
+            or parsed.hostname.rstrip(".").lower() not in _GOOGLE_CONFIRMATION_HOSTS
             or parsed.username is not None
             or parsed.password is not None
             or port not in (None, 443)
-            or not _GOOGLE_CONFIRMATION_PATH_RE.match(parsed.path)
+            or not parsed.path.startswith(_GOOGLE_CONFIRMATION_PATH_PREFIX)
         ):
             continue
         candidates.add(candidate)
