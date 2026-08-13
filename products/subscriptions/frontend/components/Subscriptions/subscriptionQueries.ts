@@ -1,6 +1,9 @@
 import { BreakPointFunction } from 'kea'
 
 import { getCurrentTeamId } from 'lib/utils/getAppContext'
+import { getInsightId } from 'scenes/insights/utils'
+
+import { InsightShortId } from '~/types'
 
 import { subscriptionsList } from 'products/subscriptions/frontend/generated/api'
 
@@ -19,6 +22,22 @@ export async function fetchHasSubscriptionForDashboard(
     breakpoint?: BreakPointFunction
 ): Promise<boolean> {
     const response = await subscriptionsList(String(getCurrentTeamId()), { dashboard: dashboardId, limit: 1 })
+    breakpoint?.()
+    return (response.count ?? 0) > 0
+}
+
+// Takes the short id because that is what the app carries around; the numeric id comes from the
+// mounted insight where there is one, and costs a lookup otherwise.
+export async function fetchHasSubscriptionForInsight(
+    insightShortId: InsightShortId,
+    breakpoint?: BreakPointFunction
+): Promise<boolean> {
+    const insightId = await getInsightId(insightShortId)
+    breakpoint?.()
+    if (!insightId) {
+        return false
+    }
+    const response = await subscriptionsList(String(getCurrentTeamId()), { insight: insightId, limit: 1 })
     breakpoint?.()
     return (response.count ?? 0) > 0
 }

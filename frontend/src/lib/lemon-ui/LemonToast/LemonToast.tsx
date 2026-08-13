@@ -218,16 +218,19 @@ export const lemonToast = {
         })
         return id
     },
-    /** `button` rides all three frames, so only pass one that also makes sense while pending and on failure. */
     promise(
         promise: Promise<any>,
-        messages: { pending: string | JSX.Element; success: string | JSX.Element; error: string | JSX.Element },
+        messages: {
+            pending: string | JSX.Element
+            /** A function is called when the promise settles, so it can read state that changed while it ran. */
+            success: string | JSX.Element | ((data?: string) => string | JSX.Element)
+            error: string | JSX.Element
+        },
         { button, ...toastOptions }: ToastOptionsWithButton = {}
     ): Promise<any> {
         // Promise toasts always get random IDs (unless explicitly provided) because
         // different operations often share identical pending text like "Saving..."
         const options = ensureToastId(toastOptions, 'promise')
-        // Without an id the button's onClick dismisses every toast on screen, not just this one.
         const id = options.toastId
         // see https://fkhadra.github.io/react-toastify/promise
         return toast.promise<string | undefined, ToastError>(
@@ -239,9 +242,9 @@ export const lemonToast = {
                 },
                 success: {
                     render: ({ data }) => {
-                        return (
-                            <ToastContent type="success" message={data || messages.success} button={button} id={id} />
-                        )
+                        const success =
+                            typeof messages.success === 'function' ? messages.success(data) : data || messages.success
+                        return <ToastContent type="success" message={success} button={button} id={id} />
                     },
                     icon: isChristmas() ? <IconGift className="text-green-600" /> : <IconCheckCircle />,
                 },
@@ -261,17 +264,6 @@ export const lemonToast = {
             },
             options
         )
-    },
-    /** Only safe while the toast is pending: updates apply 100ms late and would overwrite a settled state. */
-    updatePendingMessage(
-        id: number | string,
-        message: string | JSX.Element,
-        { button, ...toastOptions }: ToastOptionsWithButton = {}
-    ): void {
-        toast.update(id, {
-            render: <ToastContent type="info" message={message} button={button} id={id} />,
-            ...toastOptions,
-        } as UpdateOptions)
     },
     /** Restates the whole success frame: react-toastify defers updates 100ms and re-dispatches the pending content when given no render. */
     updateToSuccess(
@@ -293,8 +285,6 @@ export const lemonToast = {
             ...toastOptions,
         } as UpdateOptions)
     },
-    /** Whether the toast is still on screen. Updating a dismissed id is a silent no-op, so anything
-     * with a side effect attached to the update has to check this first. */
     isActive(id: number | string): boolean {
         return toast.isActive(id)
     },

@@ -1,7 +1,8 @@
 import { router } from 'kea-router'
 
 import { lemonToast } from 'lib/lemon-ui/LemonToast/LemonToast'
-import { urls } from 'scenes/urls'
+
+import { SubscriptionBaseProps, urlForSubscription } from './utils'
 
 export const SUBSCRIPTION_PREFILL_PARAMS = {
     param: 'prefill',
@@ -17,7 +18,7 @@ export type SubscriptionNudgeVia =
     | typeof SUBSCRIPTION_PREFILL_PARAMS.viaExport
 
 export function openSubscriptionFromNudge(
-    dashboardId: number,
+    target: SubscriptionBaseProps,
     { toastId, via, keepToast }: { toastId: string; via: SubscriptionNudgeVia; keepToast?: boolean }
 ): void {
     // A toast whose only content is the nudge has nothing left to offer once it is followed. One
@@ -25,7 +26,7 @@ export function openSubscriptionFromNudge(
     if (!keepToast) {
         lemonToast.dismiss(toastId)
     }
-    router.actions.push(urls.dashboardSubscription(dashboardId, 'new'), {
+    router.actions.push(urlForSubscription('new', target), {
         [SUBSCRIPTION_PREFILL_PARAMS.param]: SUBSCRIPTION_PREFILL_PARAMS.nudge,
         [SUBSCRIPTION_PREFILL_PARAMS.viaParam]: via,
     })

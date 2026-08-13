@@ -275,6 +275,7 @@ function InsightSceneMenuBarInner({ insightLogicProps }: { insightLogicProps: In
                                     startExport({
                                         export_format: ExporterFormat.PNG,
                                         insight: insight.id,
+                                        insightShortId: insight.short_id,
                                         export_context: exportContext,
                                     })
                                 }
@@ -289,6 +290,7 @@ function InsightSceneMenuBarInner({ insightLogicProps }: { insightLogicProps: In
                                 onClick={() =>
                                     startExport({
                                         export_format: ExporterFormat.CSV,
+                                        insightShortId: insight.short_id,
                                         export_context: exportContext,
                                     })
                                 }
@@ -303,6 +305,7 @@ function InsightSceneMenuBarInner({ insightLogicProps }: { insightLogicProps: In
                                 onClick={() =>
                                     startExport({
                                         export_format: ExporterFormat.XLSX,
+                                        insightShortId: insight.short_id,
                                         export_context: exportContext,
                                     })
                                 }

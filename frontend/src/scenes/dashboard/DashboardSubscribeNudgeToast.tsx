@@ -36,10 +36,13 @@ export function DashboardSubscribeNudgeToast({
                 size="small"
                 data-attr="dashboard-subscribe-nudge-toast-cta"
                 onClick={() =>
-                    openSubscriptionFromNudge(dashboardId, {
-                        toastId: dashboardSubscribeNudgeToastId(dashboardId),
-                        via: SUBSCRIPTION_PREFILL_PARAMS.viaToast,
-                    })
+                    openSubscriptionFromNudge(
+                        { dashboardId },
+                        {
+                            toastId: dashboardSubscribeNudgeToastId(dashboardId),
+                            via: SUBSCRIPTION_PREFILL_PARAMS.viaToast,
+                        }
+                    )
                 }
             >
                 Set up subscription

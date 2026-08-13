@@ -11,12 +11,6 @@ import { ToastButton } from 'lib/lemon-ui/LemonToast/LemonToast'
 import { PromiseTimeoutError, delay, withTimeout } from 'lib/utils/async'
 import { uuid } from 'lib/utils/dom'
 import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
-import {
-    ExportNudgeCandidate,
-    captureExportNudgeCheckFailed,
-    resolveExportNudgeEligibility,
-} from 'scenes/dashboard/dashboardExportNudgeLogic'
-import { ExportNudgeRenderer, claimExportNudgeMessage } from 'scenes/dashboard/DashboardExportNudgeToast'
 import type { SessionRecordingPlayerMode } from 'scenes/session-recordings/player/sessionRecordingPlayerLogic'
 import { urls } from 'scenes/urls'
 
@@ -33,6 +27,19 @@ import {
     SidePanelTab,
 } from '~/types'
 
+import {
+    ExportNudgeCandidate,
+    ExportNudgeSubject,
+    captureExportNudgeCheckFailed,
+    exportNudgeEventProperties,
+    lookUpExportNudge,
+    resolveExportNudgeEligibility,
+} from 'products/subscriptions/frontend/components/Subscriptions/exportNudge/exportNudgeLogic'
+import {
+    ExportNudgeMessage,
+    claimExportNudgeMessage,
+} from 'products/subscriptions/frontend/components/Subscriptions/exportNudge/ExportNudgeToast'
+
 const POLL_DELAY_MS = 10000
 // Long-running formats (e.g. MP4 session-replay renders) can take 30+ minutes,
 // so polling every 10s produces unhelpful timeout noise. Back off when the
@@ -40,6 +47,10 @@ const POLL_DELAY_MS = 10000
 const LONG_RUNNING_POLL_DELAY_MS = 30000
 // Cap on the eligibility check; it normally answers long before the export lands.
 const NUDGE_RESOLUTION_TIMEOUT_MS = 5000
+// A rejection reaches this file before react-toastify renders the frame it settled the toast into,
+// so a rewrite that lands first is overwritten by that render — leaving the export on
+// ExportAwaitingDownload's internal message. Waiting a beat puts ours last.
+const TOAST_SETTLE_MS = 150
 const EXPORT_PENDING_MESSAGE = 'Preparing export…'
 const EXPORT_COMPLETE_MESSAGE = 'Export complete!'
 
@@ -83,103 +94,109 @@ class ExportAwaitingDownload extends Error {
 // click anyway.
 const isUserActivationLive = (): boolean => navigator.userActivation?.isActive ?? true
 
-// A stalled or failed check must never hold up the export's own feedback.
-const settleNudgeCandidate = async (dashboardId: number | undefined): Promise<ExportNudgeCandidate | null> => {
-    if (!dashboardId) {
-        return null
+// Only a dashboard or a saved insight can be subscribed to, so every other export — a recording, a
+// heatmap, a cohort, a data table, a billing report — has no subject and is never nudged. An insight
+// exported from a surface that does not pass its short id has no subscription page to offer either.
+const exportNudgeSubject = (exportData: TriggerExportProps): ExportNudgeSubject | null => {
+    if (exportData.dashboard) {
+        return { kind: 'dashboard', dashboardId: exportData.dashboard }
     }
-    return await withTimeout(resolveExportNudgeEligibility(dashboardId), NUDGE_RESOLUTION_TIMEOUT_MS).catch((error) => {
-        if (error instanceof PromiseTimeoutError) {
-            // Every other failure reports its own step, so without this one a stalled check is
-            // indistinguishable from an exporter who was simply ineligible.
-            captureExportNudgeCheckFailed('timeout', { dashboard_id: dashboardId })
-        }
-        return null
-    })
+    if (exportData.insightShortId) {
+        return { kind: 'insight', insightShortId: exportData.insightShortId }
+    }
+    return null
 }
 
 interface ExportNudge {
-    /** Null once the dashboard has no nudge to give, or once the check fails or outruns its deadline. */
-    settled: Promise<ExportNudgeCandidate | null>
-    /**
-     * Claims where the nudge renders rather than when eligibility resolves, so an export that never
-     * renders one does not spend it. Memoized: the same nudge renders under both of a toast's
-     * headlines and must not count as two.
-     */
-    claim: (candidate: ExportNudgeCandidate | null) => ExportNudgeRenderer | null
-    /** Whether the exporter has followed the CTA, which retires the offer without closing the toast. */
-    accepted: () => boolean
+    /** The offer, ready to render under any headline. Null while there is nothing to offer. */
+    message: ExportNudgeMessage | null
+    /** Resolves to a subject worth offering once a check that had to run comes back, null otherwise. */
+    late: Promise<ExportNudgeCandidate | null>
 }
 
-const startExportNudge = (dashboardId: number | undefined, toastId: string): ExportNudge => {
-    let claimed = false
-    let accepted = false
-    let reportedMissingToast = false
-    let renderer: ExportNudgeRenderer | null = null
-    return {
-        settled: settleNudgeCandidate(dashboardId),
-        accepted: () => accepted,
-        claim: (resolved) => {
-            if (!resolved) {
-                return null
-            }
-            // Claiming spends the dashboard's one nudge and reports an exposure, so a toast the
-            // user dismissed in the meantime must not claim.
-            if (!lemonToast.isActive(toastId)) {
-                if (!claimed && !reportedMissingToast) {
-                    // Otherwise an eligible nudge dropped because its toast had already closed is
-                    // indistinguishable from an exporter who was simply ineligible.
-                    reportedMissingToast = true
-                    captureExportNudgeCheckFailed('toast-gone', { dashboard_id: resolved.dashboardId })
-                }
-                return null
-            }
-            if (!claimed) {
-                claimed = true
-                renderer = claimExportNudgeMessage(resolved, toastId, () => {
-                    accepted = true
-                })
-            }
-            return renderer
-        },
-    }
-}
+const NO_NUDGE: ExportNudge = { message: null, late: Promise.resolve(null) }
 
 /**
- * Folds the nudge into an export toast that has already settled, so a slow eligibility check never
- * delays the export's own feedback. The nudge renders the toast's secondary action itself rather
- * than showing it twice.
- *
- * Only an undelivered file holds the toast open. A secondary action is how the export still reaches
- * the user, so while one is present the toast waits to be clicked instead of closing on a timer;
- * with nothing left owed it closes on the container's usual schedule, offer or no offer.
+ * Both scenes load the subject's subscriptions to render the subscribe button's count badge, so most
+ * exports can answer eligibility on the spot and put the offer in their toast from the first frame.
+ * The rest start the check here and fold it in when the export settles.
  */
-const foldNudgeIntoToast = async (
+const startExportNudge = (exportData: TriggerExportProps, toastId: string): ExportNudge => {
+    const subject = exportNudgeSubject(exportData)
+    if (!subject) {
+        return NO_NUDGE
+    }
+    const lookup = lookUpExportNudge(subject)
+    if (lookup.status === 'ineligible') {
+        return NO_NUDGE
+    }
+    if (lookup.status === 'eligible') {
+        return { message: claimExportNudgeMessage(lookup.candidate, toastId), late: Promise.resolve(null) }
+    }
+    return { message: null, late: resolveLateNudge(subject) }
+}
+
+// A stalled or failed check must never hold up the export's own feedback.
+const resolveLateNudge = async (subject: ExportNudgeSubject): Promise<ExportNudgeCandidate | null> =>
+    await withTimeout(resolveExportNudgeEligibility(subject), NUDGE_RESOLUTION_TIMEOUT_MS).catch((error) => {
+        if (error instanceof PromiseTimeoutError) {
+            // Every other failure reports its own step, so without this one a stalled check is
+            // indistinguishable from an exporter who was simply ineligible.
+            captureExportNudgeCheckFailed('timeout', exportNudgeEventProperties(subject))
+        }
+        return null
+    })
+
+// Only an undelivered file holds a toast open. Where the export still owes the user something and
+// the offer is unanswered, the toast waits to be clicked instead of closing on a timer.
+const holdOpenFor = (message: ExportNudgeMessage | null, secondaryAction?: ToastButton): { autoClose?: false } =>
+    message && secondaryAction ? { autoClose: false } : {}
+
+const withNudge = (message: ExportNudgeMessage | null, headline: string): string | JSX.Element =>
+    message ? message(headline) : headline
+
+/**
+ * Folds a late offer into the toast the export has already settled into. Claiming happens here
+ * rather than when the check answers: it reports an exposure, so an export that never renders the
+ * offer — one that failed, or whose toast is already gone — must not spend it.
+ */
+const foldNudgeIntoSettledToast = async (
     nudge: ExportNudge,
     toastId: string,
     headline: string,
     secondaryAction?: ToastButton
 ): Promise<void> => {
-    const renderer = nudge.claim(await nudge.settled)
-    if (!renderer) {
+    const candidate = await nudge.late
+    if (!candidate) {
         return
     }
-    const holdOpen = secondaryAction ? { autoClose: false as const } : {}
-    if (nudge.accepted()) {
-        // Followed from the pending frame, so the export settles into its own message rather than
-        // asking a second time.
-        lemonToast.updateToSuccess(toastId, headline, { ...holdOpen, button: secondaryAction })
+    if (!lemonToast.isActive(toastId)) {
+        // Recorded, otherwise a nudge dropped because its toast had closed is indistinguishable
+        // from an exporter who was simply ineligible.
+        captureExportNudgeCheckFailed('toast-gone', exportNudgeEventProperties(candidate.subject))
         return
     }
-    lemonToast.updateToSuccess(toastId, renderer(headline, secondaryAction), holdOpen)
+    const message = claimExportNudgeMessage(candidate, toastId)
+    if (!message) {
+        return
+    }
+    lemonToast.updateToSuccess(toastId, message(headline), {
+        button: secondaryAction,
+        ...holdOpenFor(message, secondaryAction),
+    })
 }
 
-const showExportCompleteToast = async (dashboardId: number | undefined, onDownload: () => void): Promise<void> => {
+const showExportCompleteToast = async (asset: ExportedAssetType, onDownload: () => void): Promise<void> => {
     const toastId = 'export-complete-' + uuid()
     const downloadButton = { label: 'Download', action: onDownload }
-    // This is the only completion signal a polled export gets, so it is raised before the check.
-    lemonToast.success(EXPORT_COMPLETE_MESSAGE, { toastId, button: downloadButton })
-    await foldNudgeIntoToast(startExportNudge(dashboardId, toastId), toastId, EXPORT_COMPLETE_MESSAGE, downloadButton)
+    const nudge = startExportNudge(asset, toastId)
+    // This is the only completion signal a polled export gets, so it is raised before any check.
+    lemonToast.success(withNudge(nudge.message, EXPORT_COMPLETE_MESSAGE), {
+        toastId,
+        button: downloadButton,
+        ...holdOpenFor(nudge.message, downloadButton),
+    })
+    await foldNudgeIntoSettledToast(nudge, toastId, EXPORT_COMPLETE_MESSAGE, downloadButton)
 }
 
 // Generated by kea-typegen. Update if you're an agent, ignore if you're human.
@@ -445,8 +462,8 @@ export const exportsLogic = kea<exportsLogicType>([
                     const finished = latest
                     // Not awaited: the nudge check must not delay the other exports in this batch,
                     // nor the next poll.
-                    void showExportCompleteToast(finished.dashboard, () => actions.downloadExport(finished)).catch(
-                        (error) => posthog.captureException(error)
+                    void showExportCompleteToast(finished, () => actions.downloadExport(finished)).catch((error) =>
+                        posthog.captureException(error)
                     )
                 } else {
                     actions.removeFresh(fresh)
@@ -552,9 +569,7 @@ export const exportsLogic = kea<exportsLogicType>([
                     )
                         ? { label: 'View exports', action: () => actions.openSidePanel(SidePanelTab.Exports) }
                         : undefined
-                    // Started at kickoff so its round trip overlaps the export itself, but never
-                    // awaited by the export's own path.
-                    const nudge = startExportNudge(exportData.dashboard, exportToastId)
+                    const nudge = startExportNudge(exportData, exportToastId)
 
                     // Non-video exports (CSV/XLSX/PNG) run synchronously on the backend, so this
                     // request can block for a while. lemonToast.promise shows a spinner immediately
@@ -605,47 +620,22 @@ export const exportsLogic = kea<exportsLogicType>([
                         return 'Export started'
                     }
 
-                    const exportPromise = runExport()
-                    let exportSettled = false
-                    const markSettled = (): void => {
-                        exportSettled = true
-                    }
-                    // Registered before lemonToast.promise, so `exportSettled` is already true by
-                    // the time react-toastify queues the toast's own success or error render.
-                    void exportPromise.then(markSettled, markSettled)
-
-                    // A render takes seconds, so the pending frame is where the nudge has the most
-                    // time to be read. Fire-and-forget: the export's own feedback never waits on it.
-                    void nudge.settled
-                        .then((candidate) => {
-                            if (exportSettled) {
-                                return
-                            }
-                            const renderer = nudge.claim(candidate)
-                            if (renderer) {
-                                lemonToast.updatePendingMessage(
-                                    exportToastId,
-                                    renderer(EXPORT_PENDING_MESSAGE, viewExportsButton)
-                                )
-                            }
-                        })
-                        .catch((error) => posthog.captureException(error))
-
                     void (async () => {
                         try {
-                            // The nudge folds in under the headline the toast actually settled
-                            // on: "Export started" for an async render, "Export complete!" for a
-                            // synchronous one.
+                            // The settled headline is the promise's resolved value: "Export started"
+                            // for an async render, "Export complete!" for a synchronous one. It is
+                            // read when the toast settles, so an offer followed while the export ran
+                            // is already gone by then rather than being asked a second time.
                             const settledMessage: string = await lemonToast.promise(
-                                exportPromise,
+                                runExport(),
                                 {
-                                    pending: EXPORT_PENDING_MESSAGE,
-                                    success: EXPORT_COMPLETE_MESSAGE,
+                                    pending: withNudge(nudge.message, EXPORT_PENDING_MESSAGE),
+                                    success: (data) => withNudge(nudge.message, data || EXPORT_COMPLETE_MESSAGE),
                                     error: 'Export failed',
                                 },
                                 { toastId: exportToastId, button: viewExportsButton }
                             )
-                            await foldNudgeIntoToast(nudge, exportToastId, settledMessage, viewExportsButton)
+                            await foldNudgeIntoSettledToast(nudge, exportToastId, settledMessage, viewExportsButton)
                         } catch (error) {
                             if (error instanceof ExportAwaitingDownload) {
                                 // Content is ready but the auto-download would have been dropped,
@@ -655,10 +645,21 @@ export const exportsLogic = kea<exportsLogicType>([
                                     label: 'Download',
                                     action: () => actions.downloadExport(error.asset),
                                 }
-                                lemonToast.updateToSuccess(exportToastId, EXPORT_COMPLETE_MESSAGE, {
-                                    button: downloadButton,
-                                })
-                                await foldNudgeIntoToast(nudge, exportToastId, EXPORT_COMPLETE_MESSAGE, downloadButton)
+                                await delay(TOAST_SETTLE_MS)
+                                lemonToast.updateToSuccess(
+                                    exportToastId,
+                                    withNudge(nudge.message, EXPORT_COMPLETE_MESSAGE),
+                                    {
+                                        button: downloadButton,
+                                        ...holdOpenFor(nudge.message, downloadButton),
+                                    }
+                                )
+                                await foldNudgeIntoSettledToast(
+                                    nudge,
+                                    exportToastId,
+                                    EXPORT_COMPLETE_MESSAGE,
+                                    downloadButton
+                                )
                                 return
                             }
                             const apiError = error as { data?: APIErrorType }

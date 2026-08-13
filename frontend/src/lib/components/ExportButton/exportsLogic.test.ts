@@ -1,11 +1,19 @@
 import api from 'lib/api'
 import { lemonToast } from 'lib/lemon-ui/LemonToast'
-import { ExportNudgeCandidate, resolveExportNudgeEligibility } from 'scenes/dashboard/dashboardExportNudgeLogic'
-import { ExportNudgeRenderer, claimExportNudgeMessage } from 'scenes/dashboard/DashboardExportNudgeToast'
 
 import { sidePanelStateLogic } from '~/layout/navigation-3000/sidepanel/sidePanelStateLogic'
 import { initKeaTests } from '~/test/init'
-import { ExportedAssetType, ExporterFormat, SidePanelTab } from '~/types'
+import { ExportedAssetType, ExporterFormat, InsightShortId, SidePanelTab } from '~/types'
+
+import {
+    ExportNudgeCandidate,
+    lookUpExportNudge,
+    resolveExportNudgeEligibility,
+} from 'products/subscriptions/frontend/components/Subscriptions/exportNudge/exportNudgeLogic'
+import {
+    ExportNudgeMessage,
+    claimExportNudgeMessage,
+} from 'products/subscriptions/frontend/components/Subscriptions/exportNudge/ExportNudgeToast'
 
 import { downloadExportedAsset } from './exporter'
 import { exportsLogic, pickPollDelayMs } from './exportsLogic'
@@ -18,7 +26,6 @@ jest.mock('lib/lemon-ui/LemonToast', () => ({
         error: jest.fn(),
         dismiss: jest.fn(),
         promise: jest.fn((p) => p),
-        updatePendingMessage: jest.fn(),
         updateToSuccess: jest.fn(),
         isActive: jest.fn(() => true),
     },
@@ -27,20 +34,23 @@ jest.mock('./exporter', () => ({
     ...jest.requireActual('./exporter'),
     downloadExportedAsset: jest.fn(),
 }))
-// The eligibility rules themselves are covered by dashboardExportNudgeLogic's tests.
-jest.mock('scenes/dashboard/dashboardExportNudgeLogic', () => ({
+// The eligibility rules themselves are covered by exportNudgeLogic's tests.
+jest.mock('products/subscriptions/frontend/components/Subscriptions/exportNudge/exportNudgeLogic', () => ({
+    lookUpExportNudge: jest.fn(() => ({ status: 'unknown' })),
     resolveExportNudgeEligibility: jest.fn(async () => null),
     captureExportNudgeCheckFailed: jest.fn(),
+    exportNudgeEventProperties: jest.fn(() => ({})),
 }))
-jest.mock('scenes/dashboard/DashboardExportNudgeToast', () => ({
+jest.mock('products/subscriptions/frontend/components/Subscriptions/exportNudge/ExportNudgeToast', () => ({
     claimExportNudgeMessage: jest.fn(() => null),
 }))
 
-// exportsLogic.test.ts is not a .tsx file, so the nudge body stands in as an opaque element. It
-// echoes the headline it was rendered under, which is what distinguishes the toast's states, plus
-// the secondary action it was handed, which the nudge renders instead of ToastContent's slot.
-const NUDGE_RENDERER: ExportNudgeRenderer = (headline, secondaryAction) =>
-    `nudge:${headline}${secondaryAction ? ` +${secondaryAction.label}` : ''}` as unknown as JSX.Element
+// The nudge body stands in as an opaque element that echoes the headline it was rendered under,
+// which is what distinguishes the toast's states.
+const NUDGE_MESSAGE: ExportNudgeMessage = (headline) => `nudge:${headline}`
+
+const DASHBOARD_SUBJECT = { kind: 'dashboard' as const, dashboardId: 7 }
+const INSIGHT_SHORT_ID = '11' as InsightShortId
 
 const asset = (overrides: Partial<ExportedAssetType> = {}): ExportedAssetType => ({
     id: 1,
@@ -117,6 +127,7 @@ describe('exportsLogic', () => {
 
         beforeEach(() => {
             jest.clearAllMocks()
+            jest.mocked(lookUpExportNudge).mockReturnValue({ status: 'unknown' })
             jest.mocked(resolveExportNudgeEligibility).mockResolvedValue(null)
             jest.mocked(claimExportNudgeMessage).mockReturnValue(null)
             jest.mocked(lemonToast.isActive).mockReturnValue(true)
@@ -132,6 +143,9 @@ describe('exportsLogic', () => {
 
         // Let the fire-and-forget IIFE in the createExport loader run to settlement.
         const flush = (): Promise<void> => new Promise((resolve) => setTimeout(resolve, 0))
+        // The awaiting-download rewrite deliberately waits for react-toastify to render the frame
+        // the promise settled into, so that path needs more than a microtask.
+        const flushPastToastSettle = (): Promise<void> => new Promise((resolve) => setTimeout(resolve, 250))
 
         // A macrotask sentinel always loses to an already-settled promise, so a regression that
         // leaves the export toast pending reports UNSETTLED instead of timing the test out.
@@ -235,7 +249,6 @@ describe('exportsLogic', () => {
                 // Only a nudge earns a toast that sits there until answered; everything else keeps
                 // the settled toast react-toastify raised, which closes on its own.
                 expect(lemonToast.updateToSuccess).not.toHaveBeenCalled()
-                expect(lemonToast.updatePendingMessage).not.toHaveBeenCalled()
                 expect(logic.values.freshUndownloadedExports.map((a) => a.id)).toEqual(freshIds)
                 // selectedTab is persisted across kea contexts, so assert the open+tab combination.
                 expect(
@@ -246,22 +259,31 @@ describe('exportsLogic', () => {
         )
 
         it.each([
-            ['a dashboard export', 7, [[7]]],
-            ['an insight export', undefined, []],
-        ])('resolves the subscribe nudge for %s', async (_label, dashboard, expectedCalls) => {
+            ['a dashboard export', { dashboard: 7 }, [[{ kind: 'dashboard', dashboardId: 7 }]]],
+            [
+                'an insight export',
+                { insight: 11, insightShortId: INSIGHT_SHORT_ID },
+                [[{ kind: 'insight', insightShortId: INSIGHT_SHORT_ID }]],
+            ],
+            // A CSV of a data table, a recording render, a cohort: nothing to subscribe to.
+            ['an export of anything else', {}, []],
+        ])('resolves the subscribe nudge for %s', async (_label, exportSubject, expectedCalls) => {
             jest.spyOn(api.exports, 'create').mockResolvedValue(
-                asset({ id: 17, export_format: ExporterFormat.PNG, has_content: true, dashboard })
+                asset({ id: 17, export_format: ExporterFormat.PNG, has_content: true })
             )
 
-            logic.actions.createExport({ exportData: { export_format: ExporterFormat.PNG, dashboard } })
+            logic.actions.createExport({ exportData: { export_format: ExporterFormat.PNG, ...exportSubject } })
             await flush()
 
             expect(jest.mocked(resolveExportNudgeEligibility).mock.calls).toEqual(expectedCalls)
         })
 
         it('folds an eligible nudge into the toast a polled dashboard export completes with', async () => {
-            jest.mocked(resolveExportNudgeEligibility).mockResolvedValue({ dashboardId: 8 })
-            jest.mocked(claimExportNudgeMessage).mockReturnValue(NUDGE_RENDERER)
+            jest.mocked(resolveExportNudgeEligibility).mockResolvedValue({
+                subject: { kind: 'dashboard', dashboardId: 8 },
+                name: null,
+            })
+            jest.mocked(claimExportNudgeMessage).mockReturnValue(NUDGE_MESSAGE)
             const pending = asset({ id: 18, export_format: ExporterFormat.PNG, dashboard: 8 })
             const finished = asset({ id: 18, export_format: ExporterFormat.PNG, has_content: true, dashboard: 8 })
 
@@ -269,47 +291,47 @@ describe('exportsLogic', () => {
             logic.actions.loadExportsSuccess([finished])
             await flush()
 
-            expect(jest.mocked(resolveExportNudgeEligibility).mock.calls).toEqual([[8]])
+            expect(jest.mocked(resolveExportNudgeEligibility).mock.calls).toEqual([
+                [{ kind: 'dashboard', dashboardId: 8 }],
+            ])
             // The completion toast and its Download button are raised before the check runs, so a
             // slow check cannot delay the only signal a polled export gives.
             expect(lemonToast.success).toHaveBeenCalledWith(
                 'Export complete!',
                 expect.objectContaining({ button: expect.objectContaining({ label: 'Download' }) })
             )
-            // The nudge then folds into that same toast. The Download hand-off moves into the
-            // nudge's button row, so leaving it in the slot too would render it twice.
+            // The nudge then folds into that same toast, and the Download hand-off stays in the
+            // standard button slot. An undelivered file plus an unanswered offer holds it open.
             const toastId = jest.mocked(lemonToast.success).mock.calls.at(-1)![1]!.toastId
-            expect(lemonToast.updateToSuccess).toHaveBeenCalledWith(toastId, 'nudge:Export complete! +Download', {
+            expect(lemonToast.updateToSuccess).toHaveBeenCalledWith(toastId, 'nudge:Export complete!', {
+                button: expect.objectContaining({ label: 'Download' }),
                 autoClose: false,
             })
         })
 
-        it('carries the nudge on the pending frame and again once the export completes', async () => {
-            // A render takes seconds, and the nudge is meant to use them: a check that answers first
-            // rewrites the frame the user is already looking at, rather than waiting for the export.
-            jest.mocked(resolveExportNudgeEligibility).mockResolvedValue({ dashboardId: 7 })
-            jest.mocked(claimExportNudgeMessage).mockReturnValue(NUDGE_RENDERER)
-            let finishExport: (asset: ExportedAssetType) => void = () => {}
-            jest.spyOn(api.exports, 'create').mockReturnValue(
-                new Promise<ExportedAssetType>((resolve) => {
-                    finishExport = resolve
-                })
+        it('builds the toast with the offer already in it when eligibility needs no request', async () => {
+            // The scene has already loaded what the check needs, so the offer is in the first frame
+            // the user sees and the toast is never rewritten to add it.
+            jest.mocked(lookUpExportNudge).mockReturnValue({
+                status: 'eligible',
+                candidate: { subject: DASHBOARD_SUBJECT, name: 'Weekly numbers' },
+            })
+            jest.mocked(claimExportNudgeMessage).mockReturnValue(NUDGE_MESSAGE)
+            jest.spyOn(api.exports, 'create').mockResolvedValue(
+                asset({ id: 26, export_format: ExporterFormat.PNG, has_content: true, dashboard: 7 })
             )
 
             logic.actions.createExport({ exportData: { export_format: ExporterFormat.PNG, dashboard: 7 } })
             await flush()
 
-            const exportToastId = jest.mocked(lemonToast.promise).mock.calls[0][2]?.toastId
-            // A dashboard export renders synchronously, so its nudge row carries the CTA alone.
-            expect(lemonToast.updatePendingMessage).toHaveBeenCalledWith(exportToastId, 'nudge:Preparing export…')
-
-            finishExport(asset({ id: 26, export_format: ExporterFormat.PNG, has_content: true, dashboard: 7 }))
-            await flush()
-
-            // The nudge has to survive the pending → settled transition, and count as one claim
-            // even though it rendered into both frames. The file downloaded itself, so nothing is
-            // owed and the offer alone does not hold the toast open.
-            expect(lemonToast.updateToSuccess).toHaveBeenCalledWith(exportToastId, 'nudge:Export complete!', {})
+            const messages = jest.mocked(lemonToast.promise).mock.calls[0][1]
+            expect(messages.pending).toBe('nudge:Preparing export…')
+            // Evaluated when the toast settles, so an offer followed while the export ran is gone by
+            // then rather than being asked a second time.
+            expect(typeof messages.success).toBe('function')
+            expect((messages.success as (data?: string) => string)('Export complete!')).toBe('nudge:Export complete!')
+            expect(resolveExportNudgeEligibility).not.toHaveBeenCalled()
+            expect(lemonToast.updateToSuccess).not.toHaveBeenCalled()
             expect(claimExportNudgeMessage).toHaveBeenCalledTimes(1)
         })
 
@@ -323,7 +345,7 @@ describe('exportsLogic', () => {
                     resolveEligibility = resolve
                 })
             )
-            jest.mocked(claimExportNudgeMessage).mockReturnValue(NUDGE_RENDERER)
+            jest.mocked(claimExportNudgeMessage).mockReturnValue(NUDGE_MESSAGE)
             jest.spyOn(api.exports, 'create').mockResolvedValue(
                 asset({ id: 27, export_format: ExporterFormat.PNG, has_content: true, dashboard: 7 })
             )
@@ -338,24 +360,26 @@ describe('exportsLogic', () => {
 
             // The nudge then folds into that same toast rather than raising a second one, and is
             // claimed once.
-            resolveEligibility({ dashboardId: 7 })
+            resolveEligibility({ subject: DASHBOARD_SUBJECT, name: null })
             await flush()
 
             expect(claimExportNudgeMessage).toHaveBeenCalledTimes(1)
             expect(lemonToast.info).not.toHaveBeenCalled()
-            // The pending frame is long gone, and a rewrite of it would put the export back on
-            // "Preparing export…" after it finished.
-            expect(lemonToast.updatePendingMessage).not.toHaveBeenCalled()
+            // The file downloaded itself, so nothing is owed and the offer alone does not hold the
+            // toast open.
             expect(lemonToast.updateToSuccess).toHaveBeenCalledWith(
                 jest.mocked(lemonToast.promise).mock.calls[0][2]?.toastId,
                 'nudge:Export complete!',
-                {}
+                { button: undefined }
             )
         })
 
         it('does not claim the nudge for an export that failed', async () => {
-            jest.mocked(resolveExportNudgeEligibility).mockResolvedValue({ dashboardId: 9 })
-            jest.mocked(claimExportNudgeMessage).mockReturnValue(NUDGE_RENDERER)
+            jest.mocked(resolveExportNudgeEligibility).mockResolvedValue({
+                subject: { kind: 'dashboard', dashboardId: 9 },
+                name: null,
+            })
+            jest.mocked(claimExportNudgeMessage).mockReturnValue(NUDGE_MESSAGE)
             jest.spyOn(api.exports, 'create').mockRejectedValue(new Error('network down'))
 
             logic.actions.createExport({ exportData: { export_format: ExporterFormat.PNG, dashboard: 9 } })
@@ -371,8 +395,11 @@ describe('exportsLogic', () => {
             // check answers there may be nothing left to render into. Claiming anyway would report
             // an exposure and burn the dashboard's one nudge on a toast nobody saw.
             jest.mocked(lemonToast.isActive).mockReturnValue(false)
-            jest.mocked(resolveExportNudgeEligibility).mockResolvedValue({ dashboardId: 8 })
-            jest.mocked(claimExportNudgeMessage).mockReturnValue(NUDGE_RENDERER)
+            jest.mocked(resolveExportNudgeEligibility).mockResolvedValue({
+                subject: { kind: 'dashboard', dashboardId: 8 },
+                name: null,
+            })
+            jest.mocked(claimExportNudgeMessage).mockReturnValue(NUDGE_MESSAGE)
 
             logic.actions.addFresh(asset({ id: 28, export_format: ExporterFormat.PNG, dashboard: 8 }))
             logic.actions.loadExportsSuccess([
@@ -396,7 +423,7 @@ describe('exportsLogic', () => {
                 const downloadExportSpy = jest.spyOn(logic.actions, 'downloadExport')
 
                 logic.actions.createExport({ exportData: { export_format: ExporterFormat.CSV } })
-                await flush()
+                await flushPastToastSettle()
 
                 expect(jest.mocked(downloadExportedAsset)).not.toHaveBeenCalled()
                 expect(logic.values.freshUndownloadedExports.map((a) => a.id)).toEqual([15])
