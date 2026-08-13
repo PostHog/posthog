@@ -17,101 +17,130 @@ class TestDashboardGroups(APIBaseTest):
         self.dashboard_api = DashboardAPI(self.client, self.team, self.assertEqual)
         self.dashboard_id, _ = self.dashboard_api.create_dashboard({"name": "Grouped dashboard"})
 
-    def test_group_lifecycle_and_tile_membership(self) -> None:
-        create_response = self.client.post(
+    def _create_group(self, name: str | None, position: int | None = None) -> dict:
+        payload: dict = {"name": name}
+        if position is not None:
+            payload["position"] = position
+        response = self.client.post(
             f"/api/projects/{self.team.id}/dashboards/{self.dashboard_id}/groups/",
-            {"name": "Acquisition"},
+            payload,
         )
-        self.assertEqual(create_response.status_code, status.HTTP_201_CREATED)
-        group = create_response.json()
-        self.assertEqual(group["name"], "Acquisition")
-        self.assertEqual(group["layouts"]["sm"], {"x": 0, "y": 0, "w": 12, "h": 1})
+        self.assertEqual(response.status_code, status.HTTP_201_CREATED)
+        return response.json()
 
+    def test_first_group_wraps_existing_tiles_in_anonymous_section(self) -> None:
         _, dashboard = self.dashboard_api.create_text_tile(self.dashboard_id, text="Signups")
         tile_id = dashboard["tiles"][0]["id"]
-        move_response = self.client.post(
-            f"/api/projects/{self.team.id}/dashboards/{self.dashboard_id}/groups/move-tile/",
-            {"tile_id": tile_id, "group_id": group["id"]},
-        )
-        self.assertEqual(move_response.status_code, status.HTTP_200_OK)
-        self.assertEqual(move_response.json()["parent_group_id"], group["id"])
+        DashboardTile.objects.filter(id=tile_id).update(deleted=None)
 
-        dashboard_response = self.client.get(f"/api/projects/{self.team.id}/dashboards/{self.dashboard_id}/")
-        self.assertEqual(dashboard_response.status_code, status.HTTP_200_OK)
-        self.assertEqual(dashboard_response.json()["groups"][0]["member_tile_ids"], [tile_id])
-        self.assertEqual(len(dashboard_response.json()["tiles"]), 1)
+        named_group = self._create_group("Acquisition")
 
-        delete_response = self.client.post(
-            f"/api/projects/{self.team.id}/dashboards/{self.dashboard_id}/groups/delete/",
-            {"group_id": group["id"], "member_handling": "move_to_ungrouped"},
-        )
-        self.assertEqual(delete_response.status_code, status.HTTP_204_NO_CONTENT)
-        self.assertFalse(DashboardGroup.all_teams.filter(id=group["id"]).exists())
-        self.assertIsNone(DashboardTile.objects.get(id=tile_id).parent_group_id)
+        groups = list(DashboardGroup.all_teams.filter(dashboard_id=self.dashboard_id).order_by("position"))
+        self.assertEqual([(group.name, group.position) for group in groups], [(None, 0), ("Acquisition", 1)])
+        self.assertEqual(DashboardTile.objects.get(id=tile_id).parent_group_id, groups[0].id)
+        self.assertNotIn("tile_id", named_group)
+        self.assertNotIn("layouts", named_group)
 
-    def test_moving_a_group_moves_its_members(self) -> None:
-        group = self.client.post(
-            f"/api/projects/{self.team.id}/dashboards/{self.dashboard_id}/groups/",
-            {"name": "Acquisition"},
-        ).json()
+    def test_move_creates_and_removes_anonymous_sections(self) -> None:
+        source_group = self._create_group(None)
         _, dashboard = self.dashboard_api.create_text_tile(self.dashboard_id, text="Signups")
-        tile = dashboard["tiles"][0]
-        self.client.post(
-            f"/api/projects/{self.team.id}/dashboards/{self.dashboard_id}/groups/move-tile/",
-            {"tile_id": tile["id"], "group_id": group["id"], "layouts": {"sm": {"x": 0, "y": 1, "w": 12, "h": 2}}},
-        )
+        tile_id = dashboard["tiles"][0]["id"]
 
         response = self.client.post(
-            f"/api/projects/{self.team.id}/dashboards/{self.dashboard_id}/groups/update/",
-            {"group_id": group["id"], "layouts": {"sm": {"x": 0, "y": 5, "w": 12, "h": 1}}},
+            f"/api/projects/{self.team.id}/dashboards/{self.dashboard_id}/groups/move-tile/",
+            {"tile_id": tile_id, "create_at_position": 0},
         )
 
         self.assertEqual(response.status_code, status.HTTP_200_OK)
-        self.assertEqual(DashboardTile.objects.get(id=tile["id"]).layouts["sm"]["y"], 6)
+        payload = response.json()
+        self.assertEqual(payload["tile"]["parent_group_id"], payload["created_group"]["id"])
+        self.assertEqual(payload["deleted_group_ids"], [source_group["id"]])
+        self.assertEqual(
+            list(DashboardGroup.all_teams.filter(dashboard_id=self.dashboard_id).values_list("position", flat=True)),
+            [0],
+        )
+
+    def test_group_position_reorder_renumbers_sections(self) -> None:
+        first = self._create_group("First")
+        second = self._create_group("Second")
+
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/dashboards/{self.dashboard_id}/groups/update/",
+            {"group_id": second["id"], "position": 0},
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertEqual(
+            list(
+                DashboardGroup.all_teams.filter(dashboard_id=self.dashboard_id)
+                .order_by("position")
+                .values_list("id", "position")
+            ),
+            [(DashboardGroup._meta.pk.to_python(second["id"]), 0), (DashboardGroup._meta.pk.to_python(first["id"]), 1)],
+        )
+
+    def test_ungroup_keeps_tiles_and_converts_section_to_anonymous(self) -> None:
+        group = self._create_group("Acquisition")
+        _, dashboard = self.dashboard_api.create_text_tile(self.dashboard_id, text="Signups")
+        tile_id = dashboard["tiles"][0]["id"]
+        self.client.post(
+            f"/api/projects/{self.team.id}/dashboards/{self.dashboard_id}/groups/move-tile/",
+            {"tile_id": tile_id, "group_id": group["id"]},
+        )
+
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/dashboards/{self.dashboard_id}/groups/delete/",
+            {"group_id": group["id"], "member_handling": "ungroup"},
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_204_NO_CONTENT)
+        self.assertIsNone(DashboardGroup.all_teams.get(id=group["id"]).name)
+        self.assertEqual(
+            DashboardTile.objects.get(id=tile_id).parent_group_id, DashboardGroup._meta.pk.to_python(group["id"])
+        )
 
     def test_group_rejects_cross_dashboard_membership(self) -> None:
-        group_response = self.client.post(
-            f"/api/projects/{self.team.id}/dashboards/{self.dashboard_id}/groups/",
-            {"name": "Acquisition"},
-        )
+        group = self._create_group("Acquisition")
         other_dashboard_id, _ = self.dashboard_api.create_dashboard({"name": "Other"})
         _, other_dashboard = self.dashboard_api.create_text_tile(other_dashboard_id, text="Other tile")
 
         response = self.client.post(
             f"/api/projects/{self.team.id}/dashboards/{self.dashboard_id}/groups/move-tile/",
-            {"tile_id": other_dashboard["tiles"][0]["id"], "group_id": group_response.json()["id"]},
+            {"tile_id": other_dashboard["tiles"][0]["id"], "group_id": group["id"]},
         )
 
         self.assertEqual(response.status_code, status.HTTP_404_NOT_FOUND)
 
-    def test_template_remaps_group_membership(self) -> None:
+    def test_template_preserves_named_and_anonymous_section_order(self) -> None:
         template = DashboardTemplate(
             template_name="Grouped template",
             dashboard_description="",
             dashboard_filters={},
             tags=[],
             tiles=[
+                {"type": "TEXT", "body": "Before", "layouts": {"sm": {"x": 0, "y": 0, "w": 12, "h": 2}}},
                 {
                     "type": "GROUP",
                     "group_key": "acquisition",
                     "name": "Acquisition",
-                    "layouts": {"sm": {"x": 0, "y": 0, "w": 12, "h": 1}},
+                    "layouts": {"sm": {"x": 0, "y": 3, "w": 12, "h": 1}},
                 },
                 {
                     "type": "TEXT",
                     "group_key": "acquisition",
                     "body": "Signups",
-                    "layouts": {"sm": {"x": 0, "y": 1, "w": 12, "h": 2}},
+                    "layouts": {"sm": {"x": 0, "y": 4, "w": 12, "h": 2}},
                 },
+                {"type": "TEXT", "body": "After", "layouts": {"sm": {"x": 0, "y": 7, "w": 12, "h": 2}}},
             ],
         )
         dashboard = Dashboard.objects.create(team=self.team, name="From template")
 
         create_from_template(dashboard, template, self.user)
 
-        group = dashboard.groups.get()
-        self.assertEqual(group.name, "Acquisition")
-        self.assertEqual(group.member_tiles.get().text.body, "Signups")
+        groups = list(dashboard.groups.order_by("position"))
+        self.assertEqual([(group.name, group.position) for group in groups], [(None, 0), ("Acquisition", 1), (None, 2)])
+        self.assertEqual([group.member_tiles.get().text.body for group in groups], ["Before", "Signups", "After"])
 
     def test_template_rejects_unknown_group_membership(self) -> None:
         template = DashboardTemplate(

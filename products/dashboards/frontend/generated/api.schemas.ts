@@ -319,31 +319,11 @@ export type DashboardApiPersistedVariables = { [key: string]: unknown } | null
 
 export type DashboardApiTilesItem = { [key: string]: unknown }
 
-export interface TileLayoutBoxApi {
-    /** Column position in the dashboard grid (0-indexed). */
-    x?: number
-    /** Row position in the dashboard grid (0-indexed). */
-    y?: number
-    /** Width in grid columns. The desktop grid is 12 columns wide. */
-    w?: number
-    /** Height in grid rows. */
-    h?: number
-}
-
-export interface TileLayoutsApi {
-    /** Layout for the standard (desktop) breakpoint. The grid is 12 columns wide. */
-    sm?: TileLayoutBoxApi
-    /** Layout for the small (mobile) breakpoint. The grid is 1 column wide. */
-    xs?: TileLayoutBoxApi
-}
-
 export interface DashboardGroupApi {
     readonly id: string
-    readonly name: string
-    /** Grid tile ID for this group row. */
-    readonly tile_id: number
-    /** Grid layout for the group row. */
-    readonly layouts: TileLayoutsApi
+    /** @nullable */
+    readonly name: string | null
+    readonly position: number
     /** Content tile IDs assigned to this group. */
     readonly member_tile_ids: readonly number[]
     readonly created_at: string
@@ -1017,6 +997,24 @@ export interface CopyDashboardTileRequestApi {
     tileId: number
 }
 
+export interface TileLayoutBoxApi {
+    /** Column position in the dashboard grid (0-indexed). */
+    x?: number
+    /** Row position in the dashboard grid (0-indexed). */
+    y?: number
+    /** Width in grid columns. The desktop grid is 12 columns wide. */
+    w?: number
+    /** Height in grid rows. */
+    h?: number
+}
+
+export interface TileLayoutsApi {
+    /** Layout for the standard (desktop) breakpoint. The grid is 12 columns wide. */
+    sm?: TileLayoutBoxApi
+    /** Layout for the small (mobile) breakpoint. The grid is 1 column wide. */
+    xs?: TileLayoutBoxApi
+}
+
 export interface CreateTextTileRequestApi {
     /**
      * Markdown body for the text tile. Supports headings, lists, and inline formatting. Useful as a dashboard section heading, divider, or annotation between insights. Max 4000 characters.
@@ -1026,6 +1024,8 @@ export interface CreateTextTileRequestApi {
     body: string
     /** Optional grid layout per breakpoint. If omitted, the tile is placed at the bottom of the dashboard using the default size. Text tiles typically use a thin full-width banner (e.g. w=12, h=1). */
     layouts?: TileLayoutsApi
+    /** Section ID for the new tile. Omit to use the dashboard's default section. */
+    group_id?: string
     /**
      * Optional accent color name (e.g. 'blue', 'green', 'purple', 'black').
      * @maxLength 400
@@ -8951,24 +8951,27 @@ export interface DeleteTileRequestApi {
 
 export interface CreateDashboardGroupRequestApi {
     /**
-     * Name displayed in the dashboard group row.
-     * @minLength 1
+     * Optional section name. Null or an empty string creates an anonymous section.
      * @maxLength 400
+     * @nullable
      */
-    name: string
-    /** Optional grid layout for the group row. Group rows always span the desktop grid. */
-    layouts?: TileLayoutsApi
+    name?: string | null
+    /**
+     * Section position. Omit to append the section.
+     * @minimum 0
+     */
+    position?: number
 }
 
 /**
  * * `delete_tiles` - delete_tiles
- * * `move_to_ungrouped` - move_to_ungrouped
+ * * `ungroup` - ungroup
  */
 export type MemberHandlingEnumApi = (typeof MemberHandlingEnumApi)[keyof typeof MemberHandlingEnumApi]
 
 export const MemberHandlingEnumApi = {
     DeleteTiles: 'delete_tiles',
-    MoveToUngrouped: 'move_to_ungrouped',
+    Ungroup: 'ungroup',
 } as const
 
 export interface DeleteDashboardGroupRequestApi {
@@ -8977,33 +8980,47 @@ export interface DeleteDashboardGroupRequestApi {
     /** How to handle content tiles currently assigned to the group.
      *
      * * `delete_tiles` - delete_tiles
-     * * `move_to_ungrouped` - move_to_ungrouped */
+     * * `ungroup` - ungroup */
     member_handling: MemberHandlingEnumApi
 }
 
 export interface MoveDashboardTileToGroupRequestApi {
     /** Content tile ID to move. */
     tile_id: number
+    /** Destination section ID. */
+    group_id?: string
     /**
-     * Destination group ID, or null to move the tile to the ungrouped section.
-     * @nullable
+     * Create an anonymous section at this position and move the tile into it.
+     * @minimum 0
      */
-    group_id?: string | null
+    create_at_position?: number
     /** Optional new layout for the moved tile. */
     layouts?: TileLayoutsApi
+}
+
+export interface MoveDashboardTileToGroupResponseApi {
+    /** The moved dashboard tile. */
+    tile: DashboardTileApi
+    /** The anonymous section created for the move, or null. */
+    created_group: DashboardGroupApi | null
+    /** Anonymous source section IDs deleted after they became empty. */
+    deleted_group_ids: string[]
 }
 
 export interface UpdateDashboardGroupRequestApi {
     /** Dashboard group ID to update. */
     group_id: string
     /**
-     * New group name. Omit to keep the existing name.
-     * @minLength 1
+     * New section name. Null or an empty string converts the section to anonymous.
      * @maxLength 400
+     * @nullable
      */
-    name?: string
-    /** New grid layout for the group row. Omit to keep its current layout. */
-    layouts?: TileLayoutsApi
+    name?: string | null
+    /**
+     * New section position. Existing sections are renumbered around it.
+     * @minimum 0
+     */
+    position?: number
 }
 
 export interface MoveTileTileApi {
@@ -9040,7 +9057,7 @@ export const LayoutEnumApi = {
 
 export interface ReorderTilesRequestApi {
     /**
-     * Array of tile IDs in the desired display order (top to bottom, left to right).
+     * Tile IDs in the desired display order. The endpoint partitions the order by section and repacks each section independently.
      * @minItems 1
      */
     tile_order: number[]
@@ -9356,6 +9373,8 @@ export type AddDashboardWidgetRequestApi =
  * OpenAPI-only batch-add schema with widget_type-discriminated config shapes for agents.
  */
 export interface AddDashboardWidgetsBatchRequestOpenApiApi {
+    /** Section ID for the new widgets. Omit to use the dashboard's default section. */
+    group_id?: string
     /**
      * Widget tiles to add atomically. Supported widget_type values: activity_events_list, conversations_recent_tickets, error_tracking_list, experiment_results, experiments_list, logs_list, session_replay_list, survey_results. Use dashboard-widget-catalog-list for per-type config_schema documentation. (1–10 per request).
      * @minItems 1

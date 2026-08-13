@@ -97,7 +97,9 @@ def _pack_at_bottom(column_heights: list[int], width: int, height: int) -> dict[
     return {"x": best_x, "y": best_y, "w": w, "h": h}
 
 
-def collect_dashboard_sm_layouts_for_dashboard(dashboard: Any) -> list[dict[str, Any]]:
+def collect_dashboard_sm_layouts_for_dashboard(
+    dashboard: Any, *, parent_group_id: Any | None = None
+) -> list[dict[str, Any]]:
     """Existing ``sm`` layouts, plus a synthetic bottom placement for every tile that has
     no persisted layout, so widget placement counts the dashboard's true rendered height.
 
@@ -109,7 +111,10 @@ def collect_dashboard_sm_layouts_for_dashboard(dashboard: Any) -> list[dict[str,
     layoutless_count = 0
     # `deleted` is nullable with no default, so live tiles carry NULL — `filter(deleted=False)`
     # would miss them (NULL never equals False). Exclude only explicit deletes.
-    for layouts in dashboard.tiles.exclude(deleted=True).values_list("layouts", flat=True):
+    tiles = dashboard.tiles.exclude(deleted=True)
+    if dashboard.groups.exists():
+        tiles = tiles.filter(parent_group_id=parent_group_id)
+    for layouts in tiles.values_list("layouts", flat=True):
         if isinstance(layouts, str):
             try:
                 layouts = json.loads(layouts)

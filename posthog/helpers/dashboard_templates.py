@@ -492,6 +492,41 @@ def dashboard_template_from_creation_payload(template: dict[str, Any]) -> Dashbo
     )
 
 
+def _template_tile_y(template_tile: dict[str, Any]) -> int:
+    layouts = template_tile.get("layouts") or {}
+    sm = layouts.get("sm") or {}
+    y = sm.get("y", 0)
+    return y if isinstance(y, int) else 0
+
+
+def _template_tile_section_bucket(header_layouts: list[dict[str, Any]], template_tile: dict[str, Any]) -> int:
+    tile_y = _template_tile_y(template_tile)
+    return sum(_template_tile_y(header) <= tile_y for header in header_layouts)
+
+
+def partition_tiles_into_sections(
+    header_layouts: list[dict[str, Any]], tiles: list[dict[str, Any]]
+) -> list[dict[str, Any]]:
+    section_entries: list[dict[str, Any]] = [
+        {"header": header, "bucket": -1, "y": _template_tile_y(header)} for header in header_layouts
+    ]
+    anonymous_tiles_by_bucket: dict[int, list[dict[str, Any]]] = {}
+    for tile in tiles:
+        if tile.get("group_key") is not None:
+            continue
+        bucket = _template_tile_section_bucket(header_layouts, tile)
+        anonymous_tiles_by_bucket.setdefault(bucket, []).append(tile)
+    for bucket, anonymous_tiles in anonymous_tiles_by_bucket.items():
+        section_entries.append(
+            {
+                "header": None,
+                "bucket": bucket,
+                "y": min(_template_tile_y(tile) for tile in anonymous_tiles),
+            }
+        )
+    return sorted(section_entries, key=lambda section: (section["y"], section["header"] is None))
+
+
 def create_from_template(
     dashboard: Dashboard,
     template: DashboardTemplate,
@@ -522,9 +557,23 @@ def create_from_template(
         dashboard.tagged_items.create(tag_id=tag.id)
     dashboard.save()
 
+    group_tiles = [template_tile for template_tile in template_tiles if template_tile.get("type") == "GROUP"]
+    content_tiles = [template_tile for template_tile in template_tiles if template_tile.get("type") != "GROUP"]
+    sections = partition_tiles_into_sections(group_tiles, content_tiles)
+
     groups_by_key: dict[str, DashboardGroup] = {}
-    for template_tile in template_tiles:
-        if template_tile.get("type") != "GROUP":
+    anonymous_groups_by_bucket: dict[int, DashboardGroup] = {}
+    for position, section in enumerate(sections):
+        template_tile = section["header"]
+        if template_tile is None:
+            anonymous_groups_by_bucket[section["bucket"]] = DashboardGroup.all_teams.create(
+                dashboard=dashboard,
+                team=dashboard.team,
+                name=None,
+                position=position,
+                created_by=user,
+                last_modified_by=user,
+            )
             continue
         group_key = template_tile.get("group_key")
         if not group_key:
@@ -534,14 +583,9 @@ def create_from_template(
             dashboard=dashboard,
             team=dashboard.team,
             name=template_tile.get("name", "Group"),
+            position=position,
             created_by=user,
             last_modified_by=user,
-        )
-        DashboardTile.objects.create(
-            dashboard=dashboard,
-            team=dashboard.team,
-            dashboard_group=group,
-            layouts=template_tile.get("layouts") or {},
         )
         groups_by_key[group_key] = group
 
@@ -549,7 +593,11 @@ def create_from_template(
         tile_type = template_tile.get("type")
         if tile_type == "GROUP":
             continue
-        parent_group = groups_by_key.get(template_tile.get("group_key"))
+        group_key = template_tile.get("group_key")
+        parent_group = groups_by_key.get(group_key)
+        if group_key is None:
+            bucket = _template_tile_section_bucket(group_tiles, template_tile)
+            parent_group = anonymous_groups_by_bucket.get(bucket)
         if tile_type == "INSIGHT":
             query = template_tile.get("query", None)
             _create_tile_for_insight(
