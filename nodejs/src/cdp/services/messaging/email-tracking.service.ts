@@ -390,6 +390,7 @@ export class EmailTrackingService {
                 logEntries,
                 transientBounceRecipients,
                 hardBounceRecipients,
+                complainedRecipients,
                 deliveredRecipients,
             } = await this.sesWebhookHandler.handleWebhook({
                 body: parseJSON(req.body),
@@ -461,6 +462,12 @@ export class EmailTrackingService {
                     const parsedTeamId = teamId ? parseInt(teamId, 10) : NaN
                     if (parsedTeamId && !isNaN(parsedTeamId)) {
                         await this.emailSuppressionService.recordHardBounces(parsedTeamId, emailAddresses, diagnostic)
+                    }
+                }
+                for (const { teamId, emailAddresses } of complainedRecipients || []) {
+                    const parsedTeamId = teamId ? parseInt(teamId, 10) : NaN
+                    if (parsedTeamId && !isNaN(parsedTeamId)) {
+                        await this.emailSuppressionService.recordComplaints(parsedTeamId, emailAddresses)
                     }
                 }
             } catch (error) {

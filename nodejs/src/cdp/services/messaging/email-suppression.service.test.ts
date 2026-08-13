@@ -204,6 +204,62 @@ describe('EmailSuppressionService', () => {
         })
     })
 
+    describe('recordComplaints', () => {
+        beforeEach(() => {
+            // Threshold irrelevant — complaints suppress on the first hit, like hard bounces.
+            process.env.EMAIL_SUPPRESSION_TRANSIENT_BOUNCE_THRESHOLD = '5'
+        })
+
+        it('suppresses immediately with source=COMPLAINT', async () => {
+            const svc = new EmailSuppressionService(hub.postgres, emailSuppressionConfigFromEnv())
+            const email = 'reported-spam@example.com'
+            await svc.recordComplaints(team.id, [email])
+
+            expect(await readRow(email)).toMatchObject({
+                identifier: email,
+                source: 'COMPLAINT',
+                suppressed: true,
+                transient_bounce_count: 0,
+                deleted: false,
+            })
+        })
+
+        it('escalates an unsuppressed BOUNCE counter to a suppressed COMPLAINT', async () => {
+            const svc = new EmailSuppressionService(hub.postgres, emailSuppressionConfigFromEnv())
+            const email = 'complained-after-bounces@example.com'
+            await svc.recordTransientBounces(team.id, [email], 'temp')
+            expect(await readRow(email)).toMatchObject({ suppressed: false, source: 'BOUNCE' })
+
+            await svc.recordComplaints(team.id, [email])
+            expect(await readRow(email)).toMatchObject({ suppressed: true, source: 'COMPLAINT' })
+        })
+
+        it('does not override a MANUAL entry (user-managed rows are authoritative)', async () => {
+            const email = 'user-managed@example.com'
+            await hub.postgres.query(
+                PostgresUse.COMMON_WRITE,
+                `INSERT INTO posthog_messagesuppression
+                    (id, team_id, identifier, source, reason, transient_bounce_count,
+                     suppressed, suppressed_at, deleted, created_at, updated_at)
+                 VALUES (gen_random_uuid(), $1, $2, 'MANUAL', 'Manually added', 0,
+                     true, NOW(), false, NOW(), NOW())`,
+                [team.id, email],
+                'test-insert-manual'
+            )
+
+            const svc = new EmailSuppressionService(hub.postgres, emailSuppressionConfigFromEnv())
+            await svc.recordComplaints(team.id, [email])
+
+            const detail = await hub.postgres.query<{ source: string; reason: string }>(
+                PostgresUse.COMMON_READ,
+                `SELECT source, reason FROM posthog_messagesuppression WHERE team_id = $1 AND identifier = $2`,
+                [team.id, email],
+                'test-read-reason'
+            )
+            expect(detail.rows[0]).toMatchObject({ source: 'MANUAL', reason: 'Manually added' })
+        })
+    })
+
     describe('cache invalidation', () => {
         it("a write for one team does not evict another team's cached entries", async () => {
             // Guards against a regression from markForRefresh(touchedKeys) back to clear() — clear()

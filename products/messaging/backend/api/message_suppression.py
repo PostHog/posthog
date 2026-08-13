@@ -47,7 +47,7 @@ class MessageSuppressionSerializer(serializers.ModelSerializer):
                 "help_text": "Normalized recipient email address. Suppression is keyed on this value, per team."
             },
             "source": {
-                "help_text": "How the entry landed on the list: `BOUNCE` for automatic (bounce-driven), `MANUAL` for user-added via the UI/API."
+                "help_text": "How the entry landed on the list: `BOUNCE` for automatic (bounce-driven), `COMPLAINT` for automatic (spam-complaint-driven), `MANUAL` for user-added via the UI/API."
             },
             "reason": {
                 "help_text": "Human-readable reason for the suppression (e.g. 'Auto-suppressed after 5 consecutive soft bounces')."

@@ -9,6 +9,9 @@ class SuppressionSource(models.TextChoices):
     # Added automatically after an address repeatedly soft-bounced (see the transient
     # bounce handling in the SES webhook path).
     BOUNCE = "BOUNCE"
+    # Added automatically after the recipient reported an email as spam (an SES Complaint).
+    # Suppressed immediately, like a hard bounce, because it signals permanent intent.
+    COMPLAINT = "COMPLAINT"
     # Added by a user via the Suppression list tab / API.
     MANUAL = "MANUAL"
 
@@ -16,12 +19,14 @@ class SuppressionSource(models.TextChoices):
 class MessageSuppression(TeamScopedRootMixin, UUIDModel):
     """
     Per-team list of email addresses we should not send to because they can't (or shouldn't)
-    receive mail. Two ways an address lands here:
+    receive mail. Ways an address lands here:
 
     - Automatically, when it soft-bounces (`Transient`) on `transient_bounce_count` consecutive
       sends without a successful delivery in between. A single soft bounce is not enough — the
       recipient server may just be briefly down — so we count and only suppress once the count
       crosses a configurable threshold. Any successful delivery resets the count.
+    - Automatically and immediately, when it hard-bounces (`Permanent`) or the recipient reports
+      the email as spam (an SES `Complaint`). Both are definitive, so there is no counter.
     - Manually, when a user adds it in the Suppression list UI.
 
     The pre-send path consults this list (see the Node `EmailSuppressionService`) and skips

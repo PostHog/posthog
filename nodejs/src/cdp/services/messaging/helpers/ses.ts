@@ -556,6 +556,12 @@ export class SesWebhookHandler {
             emailAddresses: string[]
             diagnostic?: string
         }[]
+        // Spam complaints — recorded in the suppression list so future sends to the address are
+        // blocked. Continuing to mail an address that reported spam degrades shared sender reputation.
+        complainedRecipients?: {
+            teamId?: string
+            emailAddresses: string[]
+        }[]
         // Successful deliveries — reset the suppression counter so transient outages don't accumulate.
         // Timestamp is threaded through so the reset ignores an out-of-order delivery from an older send
         // arriving after a newer bounce.
@@ -651,6 +657,10 @@ export class SesWebhookHandler {
             teamId?: string
             emailAddresses: string[]
             diagnostic?: string
+        }[] = []
+        const complainedRecipients: {
+            teamId?: string
+            emailAddresses: string[]
         }[] = []
         const deliveredRecipients: {
             teamId?: string
@@ -810,6 +820,14 @@ export class SesWebhookHandler {
                 transientBounceRecipients.push({ teamId, emailAddresses: emails, diagnostic })
             }
 
+            // A spam complaint is permanent intent, so suppress the address immediately — same as a
+            // hard bounce, not the soft-bounce counter. Honoring abuse reports also protects the
+            // sending domain's shared reputation across every team's workflow email.
+            if (suppressionAllowed && rec.eventType === 'Complaint') {
+                const emails = rec.complaint.complainedRecipients.map((r) => r.emailAddress)
+                complainedRecipients.push({ teamId, emailAddresses: emails })
+            }
+
             // Successful delivery resets an address's soft-bounce counter — but only if newer than the
             // last-recorded bounce (checked at the SQL layer), so an out-of-order delivery from an
             // older send can't erase a fresh bounce.
@@ -828,6 +846,7 @@ export class SesWebhookHandler {
             logEntries,
             transientBounceRecipients,
             hardBounceRecipients,
+            complainedRecipients,
             deliveredRecipients,
         }
     }

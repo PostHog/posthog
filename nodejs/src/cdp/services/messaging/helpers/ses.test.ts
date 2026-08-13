@@ -555,7 +555,7 @@ describe('SesWebhookHandler', () => {
         expect(result.hardBounceRecipients).toBeUndefined()
     })
 
-    it('parses a raw Complaint event', async () => {
+    it('parses a raw Complaint event and surfaces the recipient for suppression', async () => {
         const body = [
             {
                 eventType: 'Complaint',
@@ -570,6 +570,9 @@ describe('SesWebhookHandler', () => {
         expect(result.status).toBe(200)
         expect(result.metrics?.[0].metricName).toBe('email_blocked')
         expect(result.metrics?.[0].distinctId).toBe('user-123')
+        // A complaint is permanent intent — the address must be routed to the suppression list,
+        // not merely counted as a metric.
+        expect(result.complainedRecipients).toEqual([{ teamId: '1', emailAddresses: ['to@example.com'] }])
     })
 
     it('returns 200 and no metrics if tracking code is missing from both carriers', async () => {
@@ -1016,11 +1019,20 @@ describe('SesWebhookHandler', () => {
                     mail: unsignedMail,
                     delivery: { timestamp: '2025-10-03T12:05:00Z', recipients: ['delivered@example.com'] },
                 },
+                {
+                    eventType: 'Complaint',
+                    mail: unsignedMail,
+                    complaint: {
+                        complainedRecipients: [{ emailAddress: 'complained@example.com' }],
+                        timestamp: '2025-10-03T12:06:00Z',
+                    },
+                },
             ]
             const result = await handler.handleWebhook({ body, headers: {} })
             expect(result.status).toBe(200)
             expect(result.transientBounceRecipients).toEqual([])
             expect(result.hardBounceRecipients).toEqual([])
+            expect(result.complainedRecipients).toEqual([])
             expect(result.deliveredRecipients).toEqual([])
             // Metrics are unaffected — engagement signal is still emitted for the parsed events.
             expect(result.metrics?.length).toBeGreaterThan(0)

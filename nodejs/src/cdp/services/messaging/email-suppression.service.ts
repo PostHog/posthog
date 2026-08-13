@@ -6,7 +6,7 @@ import { logger } from '~/common/utils/logger'
 
 const cdpEmailSuppressionTotal = new Counter({
     name: 'cdp_email_suppression_total',
-    help: 'Email suppression-list outcomes. `suppressed_hit` = a send skipped because the recipient is on the list; `transient_bounce` = a soft-bounce counter increment; `hard_bounce` = an address suppressed immediately after a permanent bounce.',
+    help: 'Email suppression-list outcomes. `suppressed_hit` = a send skipped because the recipient is on the list; `transient_bounce` = a soft-bounce counter increment; `hard_bounce` = an address suppressed immediately after a permanent bounce; `complaint` = an address suppressed immediately after a spam complaint.',
     labelNames: ['result'],
 })
 
@@ -218,6 +218,66 @@ export class EmailSuppressionService {
             this.lazyLoader.markForRefresh(identifiers.map((identifier) => toKey(teamId, identifier)))
         } catch (error) {
             logger.error('[EmailSuppression] Failed to record hard bounces', { teamId, error })
+        }
+    }
+
+    /**
+     * Record one or more spam complaints. Suppresses each address immediately — no threshold, no
+     * counter — because a complaint (the recipient hit "report spam") is permanent intent, and
+     * continuing to mail them degrades the sending domain's shared reputation. Manual entries are
+     * never touched. If a row already exists as an unsuppressed BOUNCE counter, this escalates it.
+     */
+    public async recordComplaints(teamId: number, emails: string[]): Promise<void> {
+        const identifiers = Array.from(new Set(emails.map(normalizeIdentifier).filter(Boolean)))
+        if (identifiers.length === 0) {
+            return
+        }
+
+        const reason = 'Auto-suppressed after a spam complaint'
+
+        // Params: teamId, reason, then one identifier per row.
+        const valueClauses: string[] = []
+        const params: (number | string | null)[] = [teamId, reason]
+        identifiers.forEach((identifier, i) => {
+            const p = params.length + 1 + i
+            valueClauses.push(`(gen_random_uuid(), $1, $${p}, 'COMPLAINT', $2, 0, true, NOW(), false, NOW(), NOW())`)
+        })
+        params.push(...identifiers)
+
+        const query = `
+            INSERT INTO posthog_messagesuppression
+                (id, team_id, identifier, source, reason, transient_bounce_count,
+                 suppressed, suppressed_at, deleted, created_at, updated_at)
+            VALUES ${valueClauses.join(', ')}
+            ON CONFLICT (team_id, identifier) DO UPDATE SET
+                -- Manual entries are authoritative; never override them.
+                suppressed = CASE
+                    WHEN posthog_messagesuppression.source = 'MANUAL' THEN posthog_messagesuppression.suppressed
+                    ELSE true END,
+                suppressed_at = CASE
+                    WHEN posthog_messagesuppression.source = 'MANUAL' THEN posthog_messagesuppression.suppressed_at
+                    WHEN posthog_messagesuppression.suppressed = false THEN NOW()
+                    ELSE posthog_messagesuppression.suppressed_at END,
+                reason = CASE
+                    WHEN posthog_messagesuppression.source = 'MANUAL' THEN posthog_messagesuppression.reason
+                    ELSE EXCLUDED.reason END,
+                source = CASE
+                    WHEN posthog_messagesuppression.source = 'MANUAL' THEN posthog_messagesuppression.source
+                    ELSE EXCLUDED.source END,
+                -- A recipient who complained un-deletes itself so the suppression takes effect.
+                deleted = CASE
+                    WHEN posthog_messagesuppression.source = 'MANUAL' THEN posthog_messagesuppression.deleted
+                    ELSE false END,
+                updated_at = NOW()
+        `
+
+        try {
+            await this.postgres.query(PostgresUse.COMMON_WRITE, query, params, 'recordComplaints')
+            cdpEmailSuppressionTotal.inc({ result: 'complaint' }, identifiers.length)
+            // Only invalidate the keys we touched — cross-team entries stay warm.
+            this.lazyLoader.markForRefresh(identifiers.map((identifier) => toKey(teamId, identifier)))
+        } catch (error) {
+            logger.error('[EmailSuppression] Failed to record complaints', { teamId, error })
         }
     }
 
