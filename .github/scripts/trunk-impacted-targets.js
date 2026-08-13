@@ -1312,10 +1312,10 @@ const PROTO_TREES = new Map([
     ['personhog', { crates: ['personhog-proto'], domains: [PYTHON, NODE] }],
 ])
 
-// A file sitting directly at proto/ configures every tree at once (buf's lint
-// and breaking-change settings), so it takes the union. A subdirectory the
-// table does not name has unknown consumers and widens, which is what makes
-// adding a tree without declaring it here safe rather than silent.
+// A file directly under proto/ is treated as impacting all trees, since it's not
+// scoped to a single proto subdirectory. A subdirectory the table does not name
+// has unknown consumers and widens, which is what makes adding a tree without
+// declaring it here safe rather than silent.
 function addProtoLanes(targets, context, file) {
     const segments = file.split('/')
     const trees =
