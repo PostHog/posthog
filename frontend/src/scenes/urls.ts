@@ -316,6 +316,7 @@ export const urls = {
             ? `/health/alerts?preset_kinds=${encodeURIComponent(presetKinds.join(','))}`
             : '/health/alerts',
     webAnalyticsBotAnalytics: (): string => '/web/bots',
+    webAnalyticsPagePerformance: (): string => '/web/page-performance',
     webAnalyticsHealth: (): string => '/web/health',
     webAnalyticsRecap: (): string => '/web/recap',
     pipelineStatus: (): string => '/health/pipeline-status',
