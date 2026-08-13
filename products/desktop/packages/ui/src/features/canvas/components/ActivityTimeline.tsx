@@ -279,16 +279,16 @@ export function ActivityTimeline({
 
   const openCommentThread = (payload: CommentEventPayload) => {
     if (!canOpenInPlace) return undefined;
-    const itemId = payload.scope === "task" ? task.id : payload.itemId;
+    const scope = payload.scope;
     if (
-      !itemId ||
-      (payload.scope !== "task" &&
-        payload.scope !== "task_artifact" &&
-        payload.scope !== "desktop_canvas")
+      scope !== "task" &&
+      scope !== "task_artifact" &&
+      scope !== "desktop_canvas"
     ) {
       return undefined;
     }
-    const scope = payload.scope;
+    const itemId = scope === "task" ? task.id : payload.itemId;
+    if (!itemId) return undefined;
     return () =>
       requestCommentFocus(task.id, { scope, itemId }, payload.rootCommentId);
   };

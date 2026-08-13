@@ -345,7 +345,6 @@ function eventLabel(
         </>
       );
     }
-    // Fallback wording; comment rows normally render through CommentEventRow.
     case "comment_added":
       return "Comment added";
     case "comment_state_changed":
@@ -939,11 +938,12 @@ function CommentEventDetail({
     COMMENT_EVENT_SCOPES.includes(payload.scope) && payload.itemId
       ? { scope: payload.scope as CommentScope, itemId: payload.itemId }
       : null;
-  const { data: comments, isLoading } = useCommentsQuery(target, taskId, {
+  const { data, isLoading } = useCommentsQuery(target, taskId, {
     live: false,
   });
-  const root = (comments ?? []).find((c) => c.id === payload.rootCommentId);
-  const replyCount = (comments ?? []).filter(
+  const comments = data ?? [];
+  const root = comments.find((c) => c.id === payload.rootCommentId);
+  const replyCount = comments.filter(
     (c) => c.source_comment === payload.rootCommentId,
   ).length;
   const context = root?.item_context as { anchor?: { quote?: unknown } } | null;
