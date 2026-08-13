@@ -66,7 +66,6 @@ class ExecuteSQLMCPTool(HogQLOutputParserMixin, MCPTool[ExecuteSQLMCPToolArgs]):
 
     async def execute(self, args: ExecuteSQLMCPToolArgs) -> str:
         query: AssistantHogQLQuery | HogQLQuery
-        taxonomy_warnings: list[HogQLNotice] = []
         if args.connectionId:
             # Queries targeting an external connection reference tables that aren't in the
             # default ClickHouse database, so the local parse/print HogQL validation step
@@ -96,11 +95,6 @@ class ExecuteSQLMCPTool(HogQLOutputParserMixin, MCPTool[ExecuteSQLMCPToolArgs]):
             variables = await self._abuild_query_variables(validated.query)
             query = HogQLQuery(query=validated.query, variables=variables) if variables else validated
 
-            # Warn (non-fatally) when the query references events/properties absent from the project
-            # taxonomy — the most common silent-wrong-answer surface for agents (e.g. `event = 'purchase'`
-            # returning 0 because the real event is `paid_bill`). The query still runs.
-            taxonomy_warnings = await self._get_taxonomy_warnings(query.query)
-
         insight_context = InsightContext(
             team=self._team,
             query=query,
@@ -114,9 +108,17 @@ class ExecuteSQLMCPTool(HogQLOutputParserMixin, MCPTool[ExecuteSQLMCPToolArgs]):
         if args.connectionId:
             return await execution
 
-        # The catalog read costs a round trip the agent is already paying for, so it rides alongside
-        # the query rather than in front of it.
-        results, canonical_metrics = await asyncio.gather(execution, self._canonical_metrics(args.query))
+        # Both reads hit Postgres in their own threads while ClickHouse runs the query, so neither
+        # adds a round trip to the critical path.
+        #
+        # Warn (non-fatally) when the query references events/properties absent from the project
+        # taxonomy — the most common silent-wrong-answer surface for agents (e.g. `event = 'purchase'`
+        # returning 0 because the real event is `paid_bill`). The query still runs.
+        results, taxonomy_warnings, canonical_metrics = await asyncio.gather(
+            execution,
+            self._get_taxonomy_warnings(query.query),
+            self._canonical_metrics(args.query),
+        )
         return _prepend_canonical_metrics(_prepend_taxonomy_warnings(results, taxonomy_warnings), canonical_metrics)
 
     async def _canonical_metrics(self, query: str) -> list[str]:
