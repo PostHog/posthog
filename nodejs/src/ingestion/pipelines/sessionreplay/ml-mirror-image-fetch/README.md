@@ -110,38 +110,49 @@ Each of these is numbered so a test can name the one it covers.
 
 ### What we never connect to
 
-32. The lane never opens a connection to a private, loopback, link-local, or otherwise non-public
-    address. Smokescreen enforces this in production, and `httpStaticLookup` enforces it when no
-    proxy is set.
-33. Whatever enforces it must check the resolution it connects with. Two separate resolutions of one
-    name is not a control, because the attacker owns the name and only needs the second to differ.
-34. A URL we already know we would refuse is dropped at the collector, before it reaches the topic:
-    a non-public host, a scheme other than HTTPS, a port the scheme does not own, or a URL past the
-    length limit.
-35. The scheme and the port are checked nowhere else. Smokescreen restricts which addresses are
-    reached, not which service on them, so these two rules are the only ones that do.
+32. The lane must never connect to a private address. This covers loopback, link-local, and every
+    other range that is not public. Smokescreen does this in production. `httpStaticLookup` does it
+    when no proxy is set.
+33. The check must use the same DNS answer as the connection.
+34. The collector drops a URL that a later check would refuse, so it never reaches the topic. It
+    drops four kinds: a host that is not public, a scheme that is not HTTPS, a port that the scheme
+    does not own, and a URL that is too long.
+35. Nothing else checks the scheme or the port. Smokescreen limits which addresses we reach. It does
+    not limit which service we reach at those addresses.
 
-**Requirement 33 is the one that is easy to get wrong.** Resolving a name ourselves, checking the
-address, and then handing the name to something that resolves it again looks like a defence and is
-not one. Both mechanisms we use avoid that. Smokescreen resolves the host and connects to what it
-resolved. `httpStaticLookup` hands the checked addresses to undici, which connects to those.
+**Rule 33 is the one that is easy to get wrong.** One name can give a different address each time
+someone looks it up. The attacker owns the name, so the attacker chooses those addresses. Now
+suppose we look up the name, check the address, and then hand the name to something that looks it up
+again. The second lookup can return an address we never saw. We connect to that one.
 
-Smokescreen is `PostHog/smokescreen`, a thin wrapper on `stripe/smokescreen`. Its ACL is open, which
-allows any domain, and its private-address blocking is on because the deployment passes no
-`--unsafe-allow-private-ranges`. The ACL says nothing about ports.
+So a check is only worth something when the thing that checks the address is also the thing that
+opens the connection. Both of ours work that way:
 
-**The two rules do different jobs.** The host part of requirement 34 repeats what the address check
-does later, and it earns its place by keeping the volume off the topic rather than by making the
-lane safe. The scheme and port part of it is requirement 35, and nothing else in the system performs
-that check.
+- Smokescreen looks up the name, checks what it got, and connects to that.
+- `httpStaticLookup` looks up the name, checks what it got, and hands those addresses to undici,
+  which connects to them.
 
-**Port and scheme are also the controls DNS cannot defeat.** An attacker who owns a name can point
-it at any address, but cannot change the port we dial or the scheme we speak.
+**Rule 34 does two jobs, and only one of them is about safety.** The host part repeats a check that
+happens again later, at connection time. It is there to keep work off the topic. The scheme and port
+part is different: rule 35 says nothing else performs it.
 
-**What stays possible.** A name the attacker controls, pointed at any public address, on 443. We
-connect and the outcome metric says whether something answered. Any scanner does this more cheaply,
-and the request carries our egress addresses rather than a customer's, so it is a reputation
-question rather than a disclosure one. The per-domain rate limit bounds it to one request a second.
+**A name the attacker owns can still reach any public address on port 443.** We connect, and the
+outcome metric shows whether something answered. Any port scanner learns the same thing for less
+effort. The cost to us is different. The request comes from our egress addresses, not from a
+customer. So this is a question of our reputation rather than of leaked data. The per-domain rate limit
+holds it to one request each second.
+
+### Smokescreen
+
+`PostHog/smokescreen` is a small wrapper around `stripe/smokescreen`. Two settings matter here.
+
+Its ACL is `action: open`, so it allows every domain. That is what this lane needs, because a
+customer's images can sit on any host.
+
+Its private-address blocking is on. The deployment passes no `--unsafe-allow-private-ranges`, and
+that flag is the only way to turn the blocking off.
+
+The ACL says nothing about ports, which is why rule 35 exists.
 
 ## How a message waits
 
