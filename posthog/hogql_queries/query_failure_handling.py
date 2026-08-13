@@ -5,7 +5,10 @@ from rest_framework.exceptions import APIException
 
 from posthog.hogql.constants import LimitContext
 
+from posthog.clickhouse.client.execute import KillSwitchLevel, get_kill_switch_level
+from posthog.errors import CHQueryErrorTooManyBytes
 from posthog.exceptions import (
+    ClickHouseBytesLimitExceeded,
     ClickHouseEstimatedQueryExecutionTimeTooLong,
     ClickHouseQueryMemoryLimitExceeded,
     ClickHouseQuerySizeExceeded,
@@ -21,6 +24,7 @@ FAILURE_KIND_EXCEPTIONS: dict[FailureKind, type[APIException]] = {
     "timeout": ClickHouseQueryTimeOut,
     "too_slow": ClickHouseEstimatedQueryExecutionTimeTooLong,
     "query_size": ClickHouseQuerySizeExceeded,
+    "too_many_bytes": ClickHouseBytesLimitExceeded,
 }
 
 
@@ -34,6 +38,10 @@ def classify_failure(error: Exception) -> Optional[FailureKind]:
         return "too_slow"
     if isinstance(error, ClickHouseQuerySizeExceeded):
         return "query_size"
+    if isinstance(error, CHQueryErrorTooManyBytes):
+        # Under an active kill switch the bytes cap is temporary cluster protection, so the
+        # failure says nothing about the query once the switch lifts.
+        return "too_many_bytes" if get_kill_switch_level() == KillSwitchLevel.OFF else None
     return None
 
 
