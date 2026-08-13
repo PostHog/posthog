@@ -29,8 +29,12 @@ def _record_ambiguity(*, team_id: int, source: str, candidate_count: int | None)
     )
 
 
+def normalize_emails(emails: list[str]) -> set[str]:
+    return {email.strip().lower() for email in emails if "@" in email}
+
+
 def match_accounts_for_emails(team: Team, emails: list[str]) -> dict[str, MatchedAccount]:
-    normalized_emails = sorted({email.strip().lower() for email in emails if "@" in email})
+    normalized_emails = sorted(normalize_emails(emails))
     if not normalized_emails:
         return {}
 

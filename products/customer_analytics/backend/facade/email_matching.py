@@ -9,7 +9,11 @@ from posthog.models.team import Team
 from products.conversations.backend.facade import api as conversations
 from products.conversations.backend.facade.types import EmailThreadAccountLinkInput
 from products.customer_analytics.backend.facade import contracts
-from products.customer_analytics.backend.logic.email_account_matching import match_accounts_for_emails
+from products.customer_analytics.backend.logic.email_account_matching import (
+    MatchedAccount,
+    match_accounts_for_emails,
+    normalize_emails,
+)
 
 logger = structlog.get_logger(__name__)
 
@@ -40,8 +44,7 @@ def schedule_email_thread_link_recalculation(team_id: int) -> None:
     transaction.on_commit(enqueue)
 
 
-def _match_email_accounts(team: Team, emails: list[str]) -> list[contracts.EmailAccountMatch]:
-    matches_by_email = match_accounts_for_emails(team, emails)
+def _dedupe_account_matches(matches_by_email: dict[str, MatchedAccount]) -> list[contracts.EmailAccountMatch]:
     matches_by_account_id: dict[str, contracts.EmailAccountMatch] = {}
     for email in sorted(matches_by_email):
         match = matches_by_email[email]
@@ -58,6 +61,10 @@ def _match_email_accounts(team: Team, emails: list[str]) -> list[contracts.Email
         ):
             matches_by_account_id[account_id] = candidate
     return list(matches_by_account_id.values())
+
+
+def _match_email_accounts(team: Team, emails: list[str]) -> list[contracts.EmailAccountMatch]:
+    return _dedupe_account_matches(match_accounts_for_emails(team, emails))
 
 
 def match_email_accounts(team_id: int, emails: list[str]) -> list[contracts.EmailAccountMatch]:
@@ -92,8 +99,18 @@ def recalculate_email_thread_links(
         if not threads:
             return processed
 
+        # One matcher pass per page, not per thread: participants and domains that recur
+        # across a customer's threads collapse into a single set of queries.
+        page_matches = match_accounts_for_emails(
+            team, [email for thread in threads for email in thread.participant_emails]
+        )
         for thread in threads:
-            matches = _match_email_accounts(team, thread.participant_emails)
+            thread_matches = {
+                email: page_matches[email]
+                for email in normalize_emails(thread.participant_emails)
+                if email in page_matches
+            }
+            matches = _dedupe_account_matches(thread_matches)
             conversations.replace_email_thread_account_links(
                 team_id,
                 thread.id,
