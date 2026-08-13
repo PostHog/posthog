@@ -420,30 +420,6 @@ class TestFindScannerCandidatesActivity:
         "properties": [{"key": "$host", "value": ["internal.example.com"], "operator": "is_not", "type": "event"}],
     }
 
-    @parameterized.expand([("negative_filters", True), ("positive_only", False)])
-    def test_in_query_blocklists_are_skipped_exactly_when_the_sweep_checks_itself(
-        self, _name: str, has_negative: bool
-    ) -> None:
-        # These two must agree. Skipping the in-query blocklist without running the scoped check
-        # would dispatch every excluded session in the batch.
-        scanner = _make_scanner(query=self._NEGATIVE_QUERY if has_negative else {"kind": "RecordingsQuery"})
-
-        with (
-            patch(
-                "products.replay_vision.backend.temporal.activities.find_scanner_candidates.ScannerCandidateQuery"
-            ) as MockQuery,
-            patch.object(excluded_sessions, "excluded_session_ids", return_value=set()) as mock_excluded,
-        ):
-            MockQuery.return_value.run.return_value = [
-                CandidateSession(session_id="sess-a", session_end=dt.datetime(2026, 5, 1, 10, 0, tzinfo=dt.UTC))
-            ]
-            find_scanner_candidates_activity(
-                FindScannerCandidatesInputs(scanner_id=scanner.id, team_id=scanner.team_id)
-            )
-
-        assert MockQuery.call_args.kwargs["skip_negative_blocklists"] is has_negative
-        assert mock_excluded.called is has_negative
-
     def test_fully_excluded_batch_still_advances_the_keyset(self) -> None:
         # Falling back to the last surviving candidate would leave the keyset where it was and refetch
         # the same excluded rows forever.
@@ -461,6 +437,7 @@ class TestFindScannerCandidatesActivity:
                 FindScannerCandidatesInputs(scanner_id=scanner.id, team_id=scanner.team_id)
             )
 
+        assert MockQuery.call_args.kwargs["skip_negative_blocklists"] is True
         assert result.candidates == []
         assert result.keyset_session_id == "blocked"
         assert result.keyset_end == fetched[0].session_end

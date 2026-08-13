@@ -534,12 +534,6 @@ class ReplayFiltersEventsSubQuery(SessionRecordingsListingBaseQuery):
     def get_negative_blocklist_query(self) -> ast.SelectQuery | None:
         return self._negative_blocklist_query()
 
-    def negative_properties(self) -> list[AnyPropertyFilter]:
-        """The filters that exclude sessions; empty means this query excludes nothing."""
-        if self._query.operand == "OR":
-            return []
-        return self._collect_negative_properties()
-
     def get_excluded_sessions_query(self, session_ids: list[str]) -> ast.SelectQuery | None:
         """Which of `session_ids` carry an event that a negative filter excludes.
 
@@ -557,14 +551,15 @@ class ReplayFiltersEventsSubQuery(SessionRecordingsListingBaseQuery):
         if where_expr is None:
             return None
 
-        where = self._where_predicates(where_expr, apply_timestamp_floor=False, apply_future_bound=False)
-        assert isinstance(where, ast.And)
-        where.exprs.append(
-            ast.CompareOperation(
-                op=ast.CompareOperationOp.In,
-                left=_event_session_id_field(),
-                right=ast.Constant(value=session_ids),
-            )
+        where = ast.And(
+            exprs=[
+                self._where_predicates(where_expr, apply_timestamp_floor=False, apply_future_bound=False),
+                ast.CompareOperation(
+                    op=ast.CompareOperationOp.In,
+                    left=_event_session_id_field(),
+                    right=ast.Constant(value=session_ids),
+                ),
+            ]
         )
         return ast.SelectQuery(
             select=[ast.Alias(alias="session_id", expr=_event_session_id_field())],
