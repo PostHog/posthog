@@ -14,6 +14,7 @@ import { logger } from "../../../shell/logger";
 import { useArchiveTask } from "../../archive/useArchiveTask";
 import { ChannelBreadcrumb } from "../../canvas/components/ChannelBreadcrumb";
 import { CopyThreadLinkButton } from "../../canvas/components/CopyThreadLinkButton";
+import { useChannelsLayout } from "../../canvas/hooks/useChannelsLayout";
 import { useMarkTaskActivityRead } from "../../canvas/hooks/useMarkTaskActivityRead";
 import {
   LazyCloudReviewPage as CloudReviewPage,
@@ -212,7 +213,7 @@ export function TaskDetail({
           leafLabel={task.title}
           editScopeKey={taskId}
           onRename={handleTitleEditSubmit}
-          trailing={trailing}
+          leafTrailing={trailing}
         />
       ) : (
         <Flex align="center" justify="between" gap="2" width="100%">
@@ -265,13 +266,19 @@ export function TaskDetail({
   const isCloud =
     workspace?.mode === "cloud" || task.latest_run?.environment === "cloud";
 
-  const isReviewOpen = reviewMode !== "closed";
-  const isExpanded = reviewMode === "expanded";
+  // Inside the spaces chrome the review renders in the shared right panel
+  // (WebsiteLayout), so the in-task pane stands down there.
+  const channelsLayout = useChannelsLayout();
+  const inChannelChrome = channelsLayout && Boolean(channelId);
+  const isReviewOpen = !inChannelChrome && reviewMode !== "closed";
+  const isExpanded = !inChannelChrome && reviewMode === "expanded";
 
+  // Keyed off the review mode rather than this pane, so a review open in the
+  // right panel keeps the diff queries it is drawing from.
   useEffect(() => {
-    if (isReviewOpen) return;
+    if (reviewMode !== "closed") return;
     clearGitReviewQueries();
-  }, [isReviewOpen]);
+  }, [reviewMode]);
 
   const containerRef = useRef<HTMLDivElement>(null);
   const [reviewWidth, setReviewWidth] = useState<number | null>(null);

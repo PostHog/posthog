@@ -1,0 +1,78 @@
+import { create } from "zustand";
+import { persist } from "zustand/middleware";
+
+/**
+ * Which panel the right column shows. `changes` is also opened from elsewhere,
+ * through reviewNavigationStore.
+ */
+export type RightPanelSide = "timeline" | "artifacts" | "comments" | "changes";
+
+/** What a session opens on before anyone touches its panel. */
+const DEFAULT_RIGHT_PANEL_SIDE: RightPanelSide = "timeline";
+
+export const RIGHT_PANEL_MIN_WIDTH = 280;
+const RIGHT_PANEL_DEFAULT_WIDTH = 340;
+
+interface RightPanelStore {
+  width: number;
+  isResizing: boolean;
+  /**
+   * The panel each session (or the sessionless fallback key) has open, so
+   * coming back to a session finds it as it was left. `null` is a panel someone
+   * closed; a missing entry is a session nobody has touched, which opens on the
+   * default. Not persisted, because this is within-run memory.
+   */
+  sideByKey: Record<string, RightPanelSide | null | undefined>;
+  setWidth: (width: number) => void;
+  setIsResizing: (isResizing: boolean) => void;
+  setSideForKey: (key: string, side: RightPanelSide | null) => void;
+}
+
+/**
+ * Which panel a session shows, given what it was left on. An open review mode
+ * wins, because every existing "open review" entry point (the command menu, PR
+ * links, diff toggles) sets it and expects the changes to appear; then an
+ * explicit choice, including the `null` of a panel someone closed; then the
+ * default, so opening a session lands on its timeline rather than on nothing.
+ */
+export function resolveRightPanelSide({
+  stored,
+  hasTask,
+  isReviewOpen,
+}: {
+  stored: RightPanelSide | null | undefined;
+  hasTask: boolean;
+  isReviewOpen: boolean;
+}): RightPanelSide | null {
+  if (hasTask && isReviewOpen) return "changes";
+  if (stored !== undefined) return stored;
+  return hasTask ? DEFAULT_RIGHT_PANEL_SIDE : null;
+}
+
+export const useRightPanelStore = create<RightPanelStore>()(
+  persist(
+    (set) => ({
+      width: RIGHT_PANEL_DEFAULT_WIDTH,
+      isResizing: false,
+      sideByKey: {},
+      setWidth: (width) =>
+        set({ width: Math.max(RIGHT_PANEL_MIN_WIDTH, width) }),
+      setIsResizing: (isResizing) => set({ isResizing }),
+      setSideForKey: (key, side) =>
+        set((state) => ({ sideByKey: { ...state.sideByKey, [key]: side } })),
+    }),
+    {
+      name: "right-panel",
+      partialize: (state) => ({ width: state.width }),
+      merge: (persisted, current) => {
+        const stored = (persisted ?? {}) as Partial<
+          Pick<RightPanelStore, "width">
+        >;
+        return {
+          ...current,
+          width: Math.max(RIGHT_PANEL_MIN_WIDTH, stored.width ?? current.width),
+        };
+      },
+    },
+  ),
+);

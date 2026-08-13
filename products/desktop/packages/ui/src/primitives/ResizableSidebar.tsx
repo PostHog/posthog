@@ -67,12 +67,26 @@ export const ResizableSidebar: React.FC<ResizableSidebarProps> = ({
   // re-registers the listeners with the post-close open/peek values, so the
   // closure state can't be trusted for the width restore.
   const dragEndedClosedRef = React.useRef(false);
+  // The panel's anchored edge in window coordinates — its left for a left-hand
+  // panel, its right for a right-hand one. Width is the pointer's distance from
+  // it, so a panel that doesn't start at the window edge still tracks the
+  // cursor. Captured on mousedown: resizing moves the far edge, never this one.
+  const boxRef = React.useRef<HTMLDivElement | null>(null);
+  const anchorRef = React.useRef(0);
 
   const handleMouseDown = (e: React.MouseEvent) => {
     e.preventDefault();
     dragOriginRef.current = open ? "docked" : "overlay";
     dragStartWidthRef.current = width;
     dragEndedClosedRef.current = false;
+    const rect = boxRef.current?.getBoundingClientRect();
+    anchorRef.current = rect
+      ? side === "left"
+        ? rect.left
+        : rect.right
+      : side === "left"
+        ? 0
+        : window.innerWidth;
     setIsResizing(true);
     document.body.style.cursor = "col-resize";
     document.body.style.userSelect = "none";
@@ -101,9 +115,12 @@ export const ResizableSidebar: React.FC<ResizableSidebarProps> = ({
     const handleMouseMove = (e: MouseEvent) => {
       if (!isResizing) return;
 
-      // Distance from the sidebar's window edge, regardless of side.
+      // Distance from the panel's own anchored edge, regardless of side, which
+      // is the width the pointer is asking for.
       const pointer =
-        side === "left" ? e.clientX : window.innerWidth - e.clientX;
+        side === "left"
+          ? e.clientX - anchorRef.current
+          : anchorRef.current - e.clientX;
       const maxWidth = window.innerWidth * 0.5;
       const clamped = Math.max(minWidth, Math.min(maxWidth, pointer));
 
@@ -153,7 +170,9 @@ export const ResizableSidebar: React.FC<ResizableSidebarProps> = ({
       }
       if (!open && peek) {
         const pointer =
-          side === "left" ? e.clientX : window.innerWidth - e.clientX;
+          side === "left"
+            ? e.clientX - anchorRef.current
+            : anchorRef.current - e.clientX;
         if (pointer > width + PEEK_CLOSE_MARGIN) onPeekLeave?.();
       }
     };
@@ -213,6 +232,7 @@ export const ResizableSidebar: React.FC<ResizableSidebarProps> = ({
 
   return (
     <Box
+      ref={boxRef}
       style={{
         width: open ? `${width}px` : "0",
         minWidth: open ? `${width}px` : "0",
