@@ -199,6 +199,60 @@ class TestBuildDatabaseRootNode(TestCase):
                 unpickler.find_class(module, name)
 
 
+def _catalog_node(names: list[str]) -> TableNode:
+    root = TableNode(name="root", children={})
+    for name in names:
+        node = root
+        for part in name.split("."):
+            node = node.children.setdefault(part, TableNode(name=part, children={}))
+        node.table = Table(fields={"id": StringDatabaseField(name="id")})
+    return root
+
+
+class TestUnknownTableSuggestions(TestCase):
+    @parameterized.expand(
+        [
+            (
+                "cross_namespace_candidate_is_not_suggested",
+                [],
+                ["stg_customer_orders"],
+                "warehouse.customer_orders",
+                "Unknown table `warehouse.customer_orders`.",
+            ),
+            (
+                "same_namespace_typo_is_suggested",
+                ["warehouse.customer_order"],
+                [],
+                "warehouse.customer_orders",
+                "Unknown table `warehouse.customer_orders`. Did you mean: warehouse.customer_order?",
+            ),
+            (
+                "unqualified_name_still_reaches_qualified_candidate",
+                ["warehouse.customer_orders"],
+                [],
+                "customer_orders",
+                "Unknown table `customer_orders`. Did you mean: warehouse.customer_orders?",
+            ),
+        ]
+    )
+    def test_suggestions_stay_within_the_namespace_the_author_named(
+        self,
+        _name: str,
+        warehouse_tables: list[str],
+        views: list[str],
+        missing_table: str,
+        expected_message: str,
+    ):
+        database = Database()
+        database._add_warehouse_tables(_catalog_node(warehouse_tables))
+        database._add_views(_catalog_node(views))
+
+        with self.assertRaises(QueryError) as error:
+            database.get_table(missing_table)
+
+        assert str(error.exception) == expected_message
+
+
 class TestDatabase(BaseTest, QueryMatchingTest):
     snapshot: Any
     allow_dual_schema_snapshots = True

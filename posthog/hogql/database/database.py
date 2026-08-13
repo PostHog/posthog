@@ -662,6 +662,9 @@ class Database(BaseModel):
         `get_all_table_names()` — the latter verifies each warehouse entry by
         calling `get_table()`, which would recurse back into this helper when
         a warehouse table fails to resolve.
+
+        A qualified name states which namespace the author meant, so candidates
+        outside it are dropped no matter how well the leaf scores.
         """
         import difflib
 
@@ -677,6 +680,10 @@ class Database(BaseModel):
         # catalog without being available on the source we actually queried.
         lowered = name.casefold()
         candidates = {c for c in candidates if c.casefold() != lowered}
+        prefix, dot, _ = name.rpartition(".")
+        if dot:
+            qualifier = f"{prefix.casefold()}."
+            candidates = {c for c in candidates if c.casefold().startswith(qualifier)}
         if not candidates:
             return []
         return difflib.get_close_matches(name, sorted(candidates), n=limit, cutoff=0.7)
