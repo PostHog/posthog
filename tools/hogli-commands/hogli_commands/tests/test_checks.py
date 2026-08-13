@@ -1627,6 +1627,15 @@ class TestWatchedModelsAllowance:
         assert {f.class_name for f in facade_class_imports(backend, "unrelated_product")} == {"DataWarehouseTable"}
         assert facade_model_crossings(backend, "unrelated_product") == []
 
+    def test_unlisted_class_stays_a_violation_on_an_allowance_product(self, tmp_path: Path) -> None:
+        # the allowance is keyed per class, so a listed product cannot grow a new crossing without a
+        # doctrine amendment — the rot vector a product-keyed list left wide open
+        facade = {"models.py": "from ..models.table import BrandNewModel\n__all__ = ['BrandNewModel']\n"}
+        sources = {"models/table.py": "class BrandNewModel:\n    pass\n"}
+        _, backend = _write_facade_product(tmp_path, name="warehouse_sources", facade_files=facade, sources=sources)
+        assert {f.class_name for f in facade_class_imports(backend, "warehouse_sources")} == {"BrandNewModel"}
+        assert facade_model_crossings(backend, "warehouse_sources") == []
+
     def test_allowance_is_scoped_to_the_model_package(self, tmp_path: Path) -> None:
         # a class defined outside backend/models/ gets no free pass even for an allowance product
         facade = {"models.py": "from ..logic.engine import Engine\n__all__ = ['Engine']\n"}
@@ -1693,7 +1702,7 @@ class TestWatchedModelsAllowance:
         import hogli_commands.product.isolation as isolation_module
 
         _seal_externally(monkeypatch)
-        monkeypatch.setattr(isolation_module, "MODEL_CROSSING_PRODUCTS", frozenset({"my_product"}))
+        monkeypatch.setattr(isolation_module, "MODEL_CROSSINGS", frozenset({("my_product", "Table")}))
         ctx = _make_product(tmp_path, scripts=_WITH_SCRIPT, isolated=True)
         (ctx.backend_dir / "facade" / "models.py").write_text("from ..models.table import Table\n__all__ = ['Table']\n")
         (ctx.backend_dir / "models").mkdir()

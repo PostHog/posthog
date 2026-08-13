@@ -108,7 +108,11 @@ There the class crosses for registration only, core drives only the registry's m
 **The watched-models allowance** is the one further, deliberately temporary exception, for products whose models are load-bearing substrate that core consumes at query time and cannot yet stop consuming (today only `warehouse_sources`, whose warehouse table/schema/source models core HogQL reads to build queryable tables).
 An allowance product's facade may hand out model classes defined under `backend/models/`, provided the whole model surface — `backend/models/` and `backend/migrations/` — stays in the `backend:contract-check` inputs, so any model or migration change still re-runs the full suite.
 That is the same soundness contract wiring locations have; what it does not buy is isolation — the coupling to core remains, `hogli product:lint` keeps a standing warning on it, and the direction of travel is still facade functions returning contracts.
-The list lives in `MODEL_CROSSING_PRODUCTS` (`tools/hogli-commands/hogli_commands/product/isolation.py`) and is frozen: adding an entry requires amending this section to name the crossing models and why converting them to contracts is not yet feasible.
+The list lives in `MODEL_CROSSINGS` (`tools/hogli-commands/hogli_commands/product/isolation.py`) and is keyed `(product, class)`, like the carve-outs above: a class that is not listed is a leak and blocks narrowing, so a product already on the list cannot grow a new crossing without a doctrine change.
+It only shrinks.
+Adding an entry requires amending this section to name the class and why it cannot yet be a contract.
+The bar is that some consumer needs ORM semantics a contract cannot express — relation traversal, queryset-typed downstream APIs like access-control filtering, row locking, or model behavior.
+A consumer that only reads fields, or that ends in `values_list`, is disqualifying: the remedy there is a facade function returning contracts, not an entry here.
 
 A behavioral class that fits no approved interface must not cross at all.
 Wrap it in a facade function returning contracts, or register a plain function (see the managed-view provider registry in `products/data_modeling/backend/facade/managed_viewset_hooks.py`).
