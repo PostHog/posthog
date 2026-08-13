@@ -493,6 +493,32 @@ class TestRecentReviewsAPI(APIBaseTest):
             "total": 2,
         }
 
+    def test_publish_window_stays_in_progress_and_reads_finalizing(self) -> None:
+        # On publishing runs finalize bumps run_count but defers the idle write to the publish
+        # stage, so the report is briefly ACTIVE with no in-flight findings. The row must keep
+        # reading in-progress ("finalizing", not a misread of the finished turn's working state as
+        # "deduplicating"), so the UI's poll survives until the published flag is real.
+        report = self._report(
+            pr_number=3,
+            acting_user=self.user,
+            status=ReviewReport.Status.ACTIVE,
+            head_sha="sha1",
+            completed_head_sha="sha1",
+        )
+
+        row = self.client.get(self.url).json()["results"][0]
+        assert row["pr_number"] == 3
+        assert row["in_progress"] is True
+        assert row["published"] is False
+        assert row["progress"] == {"review_stage": "finalizing", "done": None, "total": None}
+
+        # A resolution run holds the same ACTIVE-at-completed-head shape but with the head already
+        # published — that window keeps its pre-existing label (relabeling it is a separate change).
+        ReviewReport.objects.for_team(self.team.id).filter(id=report.id).update(published_head_sha="sha1")
+        row = self.client.get(self.url).json()["results"][0]
+        assert row["in_progress"] is True
+        assert row["progress"]["review_stage"] != "finalizing"
+
     def test_row_and_detail_anchor_to_the_completed_turn_during_a_re_review(self) -> None:
         # A re-review advances the live head_sha at turn START while run_count still points at the
         # previous turn — row stats and the detail's link-anchoring head must describe the COMPLETED
