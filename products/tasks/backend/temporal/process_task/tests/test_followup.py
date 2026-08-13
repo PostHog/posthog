@@ -363,6 +363,7 @@ class TestCIFollowUpLoop:
 
     @pytest.mark.timeout(60, func_only=True)
     async def test_refreshes_ci_snapshot_after_follow_up(self):
+        _ci_context_overrides["state"] = {"mode": "interactive"}
         _ci_context_overrides["use_modal_resume_snapshots"] = True
         _ci_context_overrides["use_modal_directory_resume_snapshots"] = True
         _pr_context_overrides["behavior"] = "unchanged"
