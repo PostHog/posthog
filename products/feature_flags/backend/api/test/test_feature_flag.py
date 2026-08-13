@@ -8,6 +8,7 @@ from posthog.test.base import (
     APIBaseTest,
     ClickhouseTestMixin,
     FuzzyInt,
+    _create_event,
     _create_person,
     flush_persons_and_events,
     snapshot_clickhouse_queries,
@@ -9063,11 +9064,23 @@ class TestCohortGenerationForFeatureFlag(APIBaseTest, ClickhouseTestMixin):
         self.assertEqual(history.error_code, CohortErrorCode.UNKNOWN)
 
 
+def _create_active_person(*args, **kwargs):
+    # Flag sizing counts persons active in the recent window, so every person a sizing test relies
+    # on needs a recent event. Wrap person creation to emit one $pageview per person.
+    person = _create_person(*args, **kwargs)
+    team = kwargs.get("team")
+    team_id = kwargs.get("team_id") or (team.pk if team else None)
+    distinct_ids = kwargs.get("distinct_ids") or []
+    if distinct_ids:
+        _create_event(team_id=team_id, event="$pageview", distinct_id=distinct_ids[0])
+    return person
+
+
 class TestBlastRadius(ClickhouseTestMixin, APIBaseTest):
     @snapshot_clickhouse_queries
     def test_user_blast_radius(self):
         for i in range(10):
-            _create_person(
+            _create_active_person(
                 team_id=self.team.pk,
                 distinct_ids=[f"person{i}"],
                 properties={"group": f"{i}"},
@@ -9149,7 +9162,7 @@ class TestBlastRadius(ClickhouseTestMixin, APIBaseTest):
 
     def test_user_blast_radius_with_flag_dependency(self):
         for i in range(10):
-            _create_person(
+            _create_active_person(
                 team_id=self.team.pk,
                 distinct_ids=[f"person{i}"],
                 properties={"group": f"{i}"},
@@ -9185,7 +9198,7 @@ class TestBlastRadius(ClickhouseTestMixin, APIBaseTest):
 
     def test_user_blast_radius_with_flag_dependency_and_person_property(self):
         for i in range(10):
-            _create_person(
+            _create_active_person(
                 team_id=self.team.pk,
                 distinct_ids=[f"person{i}"],
                 properties={"group": f"{i}"},
@@ -9331,7 +9344,7 @@ class TestBlastRadius(ClickhouseTestMixin, APIBaseTest):
     @freeze_time("2024-01-11")
     def test_user_blast_radius_with_relative_date_filters(self):
         for i in range(8):
-            _create_person(
+            _create_active_person(
                 team_id=self.team.pk,
                 distinct_ids=[f"person{i}"],
                 properties={"group": f"{i}", "created_at": f"2023-0{i + 1}-04"},
@@ -9384,7 +9397,7 @@ class TestBlastRadius(ClickhouseTestMixin, APIBaseTest):
 
     def test_user_blast_radius_with_zero_selected_users(self):
         for i in range(5):
-            _create_person(
+            _create_active_person(
                 team_id=self.team.pk,
                 distinct_ids=[f"person{i}"],
                 properties={"group": f"{i}"},
@@ -9414,7 +9427,7 @@ class TestBlastRadius(ClickhouseTestMixin, APIBaseTest):
 
     def test_user_blast_radius_with_all_selected_users(self):
         for i in range(5):
-            _create_person(
+            _create_active_person(
                 team_id=self.team.pk,
                 distinct_ids=[f"person{i}"],
                 properties={"group": f"{i}"},
@@ -9435,7 +9448,7 @@ class TestBlastRadius(ClickhouseTestMixin, APIBaseTest):
         # person_distinct_id2 table and must be joined via pdi. Filtering by distinct_id
         # in a release condition should match the persons that own that distinct_id.
         for i in range(5):
-            _create_person(
+            _create_active_person(
                 team_id=self.team.pk,
                 distinct_ids=[f"person{i}"],
                 properties={"group": f"{i}"},
@@ -9466,12 +9479,12 @@ class TestBlastRadius(ClickhouseTestMixin, APIBaseTest):
     def test_user_blast_radius_with_distinct_id_filter_multiple_distinct_ids_per_person(self):
         # A single person can own multiple distinct_ids; filtering by any one should still
         # count that person exactly once.
-        _create_person(
+        _create_active_person(
             team_id=self.team.pk,
             distinct_ids=["alias-a", "alias-b"],
             properties={"group": "0"},
         )
-        _create_person(
+        _create_active_person(
             team_id=self.team.pk,
             distinct_ids=["other"],
             properties={"group": "1"},
@@ -9503,7 +9516,7 @@ class TestBlastRadius(ClickhouseTestMixin, APIBaseTest):
     def test_user_blast_radius_with_single_cohort(self):
         # Just to shake things up, we're using integers for the group property
         for i in range(10):
-            _create_person(
+            _create_active_person(
                 team_id=self.team.pk,
                 distinct_ids=[f"person{i}"],
                 properties={"group": i},
@@ -9569,7 +9582,7 @@ class TestBlastRadius(ClickhouseTestMixin, APIBaseTest):
     @snapshot_clickhouse_queries
     def test_user_blast_radius_with_multiple_precalculated_cohorts(self):
         for i in range(10):
-            _create_person(
+            _create_active_person(
                 team_id=self.team.pk,
                 distinct_ids=[f"person{i}"],
                 properties={"group": f"{i}"},
@@ -9646,7 +9659,7 @@ class TestBlastRadius(ClickhouseTestMixin, APIBaseTest):
     @snapshot_clickhouse_queries
     def test_user_blast_radius_with_multiple_static_cohorts(self):
         for i in range(10):
-            _create_person(
+            _create_active_person(
                 team_id=self.team.pk,
                 distinct_ids=[f"person{i}"],
                 properties={"group": f"{i}"},
@@ -9970,17 +9983,17 @@ class TestBlastRadius(ClickhouseTestMixin, APIBaseTest):
 
     def test_user_blast_radius_with_integer_property_values(self):
         """Test that integer property values are correctly normalized to strings for matching"""
-        _create_person(
+        _create_active_person(
             distinct_ids=["p1"],
             team_id=self.team.pk,
             properties={"age": 25, "score": 100},
         )
-        _create_person(
+        _create_active_person(
             distinct_ids=["p2"],
             team_id=self.team.pk,
             properties={"age": "25", "score": "100"},
         )
-        _create_person(
+        _create_active_person(
             distinct_ids=["p3"],
             team_id=self.team.pk,
             properties={"age": 30, "score": 200},
@@ -10154,12 +10167,12 @@ class TestBlastRadius(ClickhouseTestMixin, APIBaseTest):
             },
         )
 
-        _create_person(
+        _create_active_person(
             distinct_ids=["p1"],
             team_id=self.team.pk,
             properties={"email": "user@posthog.com"},
         )
-        _create_person(
+        _create_active_person(
             distinct_ids=["p2"],
             team_id=self.team.pk,
             properties={"email": "user@example.com"},
@@ -10487,7 +10500,7 @@ class TestBlastRadius(ClickhouseTestMixin, APIBaseTest):
             "2.1.0",
         ]
         for version in versions:
-            _create_person(
+            _create_active_person(
                 team_id=self.team.pk,
                 distinct_ids=[f"person_{version}"],
                 properties={"app_version": version},
@@ -10705,7 +10718,7 @@ class TestBlastRadius(ClickhouseTestMixin, APIBaseTest):
             "1.0.0",
         ]
         for version in versions:
-            _create_person(
+            _create_active_person(
                 team_id=self.team.pk,
                 distinct_ids=[f"person_{version}"],
                 properties={"app_version": version},
@@ -10775,7 +10788,7 @@ class TestBlastRadius(ClickhouseTestMixin, APIBaseTest):
 
         # Create persons in organizations
         for i, version in enumerate(versions):
-            _create_person(
+            _create_active_person(
                 team_id=self.team.pk,
                 distinct_ids=[f"person_{i}"],
                 properties={"$group_0": f"org-{version}"},
@@ -10814,7 +10827,7 @@ class TestBlastRadius(ClickhouseTestMixin, APIBaseTest):
         )
 
         for i in range(10):
-            _create_person(
+            _create_active_person(
                 team_id=self.team.pk,
                 distinct_ids=[f"person{i}"],
                 properties={"plan": "pro" if i < 6 else "free"},
@@ -10875,7 +10888,7 @@ class TestBlastRadius(ClickhouseTestMixin, APIBaseTest):
 
     def test_user_blast_radius_pure_person_condition_has_no_group_counts(self):
         for i in range(5):
-            _create_person(
+            _create_active_person(
                 team_id=self.team.pk,
                 distinct_ids=[f"person{i}"],
                 properties={"plan": "pro" if i < 3 else "free"},
@@ -10955,7 +10968,7 @@ class TestBlastRadius(ClickhouseTestMixin, APIBaseTest):
         )
 
         for i in range(8):
-            _create_person(
+            _create_active_person(
                 team_id=self.team.pk,
                 distinct_ids=[f"person{i}"],
                 properties={"plan": "pro" if i < 5 else "free"},
@@ -11032,7 +11045,7 @@ class TestBlastRadius(ClickhouseTestMixin, APIBaseTest):
 
     def test_user_blast_radius_no_error_fields_for_successful_queries(self):
         for i in range(3):
-            _create_person(
+            _create_active_person(
                 team_id=self.team.pk,
                 distinct_ids=[f"person{i}"],
                 properties={"plan": "pro"},

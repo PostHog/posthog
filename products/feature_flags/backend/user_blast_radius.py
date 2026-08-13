@@ -1,9 +1,11 @@
 from collections.abc import Iterator
 from contextlib import contextmanager
 from dataclasses import dataclass
+from datetime import timedelta
 from typing import Optional
 
 from django.core.exceptions import ObjectDoesNotExist
+from django.utils import timezone
 
 from rest_framework.exceptions import ValidationError
 
@@ -29,6 +31,11 @@ from products.cohorts.backend.models.cohort import Cohort
 class BlastRadiusResult:
     affected: int
     total: int
+
+
+# Window for the flag-sizing denominator. An all-time person count is inflated by anonymous,
+# one-shot persons that never return; a recent-activity window drops them and is defensible.
+RECENTLY_ACTIVE_DAYS = 30
 
 
 # ClickHouse codes for "this literal can't be parsed as the column's type": 6 CANNOT_PARSE_TEXT,
@@ -141,6 +148,29 @@ def get_user_blast_radius_persons(
             return _get_person_blast_radius_persons(team, cleaned_filter, cursor=cursor)
 
 
+def recently_active_persons_count(team: Team) -> int:
+    """Count distinct persons active in the last RECENTLY_ACTIVE_DAYS days.
+
+    This is the flag-sizing denominator. It replaces an all-time person count so anonymous churn
+    does not inflate the audience shown to a flag author (see RECENTLY_ACTIVE_DAYS). `uniq` is an
+    estimate, which matches the "~" the sizing panel already renders.
+    """
+    from posthog.hogql import ast
+    from posthog.hogql.parser import parse_select
+    from posthog.hogql.query import execute_hogql_query
+
+    cutoff = timezone.now() - timedelta(days=RECENTLY_ACTIVE_DAYS)
+    query = parse_select(
+        "SELECT uniq(person_id) FROM events WHERE timestamp >= {cutoff}",
+        placeholders={"cutoff": ast.Constant(value=cutoff)},
+    )
+
+    tag_queries(product=Product.FEATURE_FLAGS, feature=Feature.QUERY)
+    response = execute_hogql_query(query=query, team=team)
+
+    return response.results[0][0] if response.results else 0
+
+
 def _get_person_blast_radius(team: Team, filter: Filter) -> BlastRadiusResult:
     """Calculate blast radius for person-based feature flags using HogQL."""
     from posthog.hogql.query import execute_hogql_query
@@ -149,7 +179,7 @@ def _get_person_blast_radius(team: Team, filter: Filter) -> BlastRadiusResult:
 
     if len(properties) == 0:
         # No filters means all persons are affected
-        total_users = team.persons_seen_so_far
+        total_users = recently_active_persons_count(team)
         return BlastRadiusResult(affected=total_users, total=total_users)
 
     # Build the SELECT query - property_to_expr handles all properties including cohorts
@@ -163,7 +193,7 @@ def _get_person_blast_radius(team: Team, filter: Filter) -> BlastRadiusResult:
     )
 
     total_count = response.results[0][0] if response.results else 0
-    total_users = team.persons_seen_so_far
+    total_users = recently_active_persons_count(team)
     blast_radius = min(total_count, total_users)
 
     return BlastRadiusResult(affected=blast_radius, total=total_users)
