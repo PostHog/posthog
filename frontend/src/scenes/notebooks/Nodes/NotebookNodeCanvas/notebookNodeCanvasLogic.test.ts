@@ -175,11 +175,12 @@ describe('notebookNodeCanvasLogic', () => {
         expect(tasksApi.tasksRetrieve).toHaveBeenCalledWith(String(MOCK_TEAM_ID), task.id)
     })
 
-    it('does not regenerate a saved canvas when its node also keeps the original prompt', async () => {
+    it('waits for an explicit action before updating a saved canvas from its prompt', async () => {
+        const prompt = 'Add a weekly signups chart split by plan'
         logic = notebookNodeCanvasLogic({
             id: canvas.id,
             nodeId: 'node-1',
-            prompt: 'The original request',
+            prompt,
             isEditable: true,
             updateAttributes: jest.fn(),
         })
@@ -190,6 +191,22 @@ describe('notebookNodeCanvasLogic', () => {
         expect(canvasApi.canvasesCreate).not.toHaveBeenCalled()
         expect(tasksApi.tasksCreate).not.toHaveBeenCalled()
         expect(tasksApi.tasksRunCreate).not.toHaveBeenCalled()
+
+        logic.actions.createFromPrompt()
+        await waitFor(() => expect(tasksApi.tasksRunCreate).toHaveBeenCalledTimes(1))
+
+        expect(canvasApi.canvasesCreate).not.toHaveBeenCalled()
+        expect(tasksApi.tasksCreate).toHaveBeenCalledWith(
+            String(MOCK_TEAM_ID),
+            expect.objectContaining({
+                channel: canvas.channel,
+                description: expect.stringContaining(prompt),
+            })
+        )
+        expect(canvasApi.canvasesPartialUpdate).toHaveBeenCalledWith(String(MOCK_TEAM_ID), canvas.id, {
+            context: prompt,
+            generation_task_id: task.id,
+        })
     })
 
     it('does not create a prompt-only canvas without edit access', async () => {

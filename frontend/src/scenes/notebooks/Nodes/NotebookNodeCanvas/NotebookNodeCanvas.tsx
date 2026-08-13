@@ -2,7 +2,7 @@ import { useActions, useValues } from 'kea'
 import { router } from 'kea-router'
 import { useEffect } from 'react'
 
-import { LemonBanner, LemonButton, LemonInput, LemonTag, LemonTextArea } from '@posthog/lemon-ui'
+import { LemonBanner, LemonButton, LemonCollapse, LemonTag, LemonTextArea } from '@posthog/lemon-ui'
 
 import { wasNotebookNodeJustInserted } from 'lib/components/MarkdownNotebook/freshlyInserted'
 import { NotFound } from 'lib/components/NotFound'
@@ -16,7 +16,7 @@ import { urls } from 'scenes/urls'
 import { NotebookNodeAttributeProperties, NotebookNodeProps, NotebookNodeType } from '../../types'
 import { notebookNodeLogic } from '../notebookNodeLogic'
 import { CanvasArtifactFrame } from './CanvasArtifactFrame'
-import { CANVAS_COMPONENT_PATH, getCanvasNameFromPrompt, notebookNodeCanvasLogic } from './notebookNodeCanvasLogic'
+import { getCanvasNameFromPrompt, notebookNodeCanvasLogic } from './notebookNodeCanvasLogic'
 
 const EmptyStateMessage = ({ children }: { children: React.ReactNode }): JSX.Element => (
     <div className="flex-1 flex items-center justify-center p-4 text-center text-secondary">{children}</div>
@@ -76,14 +76,16 @@ const Component = ({ attributes, updateAttributes }: NotebookNodeProps<NotebookN
     }, [canvas])
 
     if (creatingCanvas) {
-        return <EmptyStateMessage>The agent is creating this canvas.</EmptyStateMessage>
+        return <EmptyStateMessage>{id ? 'Updating this canvas.' : 'Creating this canvas.'}</EmptyStateMessage>
     }
 
     if (canvasCreationError) {
         return (
             <EmptyStateMessage>
                 <div className="deprecated-space-y-2">
-                    <div>Couldn't create the canvas: {canvasCreationError}</div>
+                    <div>
+                        Couldn't {id ? 'update' : 'create'} the canvas: {canvasCreationError}
+                    </div>
                     {isEditable ? (
                         <LemonButton type="primary" onClick={() => createFromPrompt()} loading={creatingCanvas}>
                             Try again
@@ -213,12 +215,6 @@ const Settings = ({
         updateAttributes,
     })
     const {
-        canvasLoading,
-        nameValue,
-        contextValue,
-        hasMetaChanges,
-        agentInstruction,
-        askingAgent,
         sourceLoading,
         sourceCode,
         hasSourceChanges,
@@ -227,184 +223,122 @@ const Settings = ({
         publishDiagnostics,
         creatingCanvas,
     } = useValues(logic)
-    const {
-        discardSourceChanges,
-        loadSource,
-        setEditedCode,
-        publishSource,
-        setEditedName,
-        setEditedContext,
-        saveCanvasMeta,
-        setAgentInstruction,
-        askAgent,
-        createFromPrompt,
-    } = useActions(logic)
-
-    useEffect(() => {
-        if (id) {
-            loadSource()
-        }
-        // oxlint-disable-next-line exhaustive-deps
-    }, [id])
+    const { discardSourceChanges, loadSource, setEditedCode, publishSource, createFromPrompt } = useActions(logic)
 
     const publishInFlight = publishResultLoading || isBuilding
 
     return (
         <div className="p-3 deprecated-space-y-2">
             <div className="flex-1">
-                <LemonLabel info="The original request stays with this notebook block. A prompt without a canvas ID creates a new canvas.">
-                    Prompt
-                </LemonLabel>
+                <LemonLabel>Prompt</LemonLabel>
                 <LemonTextArea
                     value={prompt}
                     onChange={(value) => updateAttributes({ prompt: value || undefined })}
-                    placeholder="Describe the canvas to create, for example: a spinning 3D globe showing signups by country."
-                    minRows={id ? 3 : 8}
+                    placeholder="Describe what you want this canvas to show."
+                    minRows={6}
                     autoFocus={wasNotebookNodeJustInserted(attributes.nodeId)}
                 />
             </div>
+            <LemonButton
+                type="primary"
+                onClick={() => createFromPrompt()}
+                loading={creatingCanvas}
+                disabledReason={
+                    creatingCanvas
+                        ? id
+                            ? 'Updating the canvas'
+                            : 'Creating the canvas'
+                        : !prompt.trim()
+                          ? 'Add a prompt first'
+                          : undefined
+                }
+            >
+                {id ? 'Update canvas' : 'Create canvas'}
+            </LemonButton>
             {id ? (
-                <>
-                    <div className="flex gap-2">
-                        <div className="flex-1">
-                            <LemonLabel>Canvas ID</LemonLabel>
-                            <LemonInput
-                                value={id}
-                                onChange={(value) => updateAttributes({ id: value })}
-                                placeholder="Canvas UUID"
-                            />
-                        </div>
-                        <div className="flex-1">
-                            <LemonLabel>Channel ID</LemonLabel>
-                            <LemonInput
-                                value={attributes.channelId ?? ''}
-                                onChange={(value) => updateAttributes({ channelId: value || undefined })}
-                                placeholder="Channel UUID (optional)"
-                            />
-                        </div>
-                    </div>
-                    <div className="flex-1">
-                        <LemonLabel>Name</LemonLabel>
-                        <LemonInput value={nameValue} onChange={setEditedName} placeholder="Canvas name" />
-                    </div>
-                    <div className="flex-1">
-                        <LemonLabel info="What this canvas should show. The agent reads these instructions whenever it builds or updates the canvas.">
-                            Agent instructions
-                        </LemonLabel>
-                        <LemonTextArea
-                            value={contextValue}
-                            onChange={setEditedContext}
-                            placeholder="Describe what this canvas should show, for example: a weekly growth overview with signups, activation, and top referrers."
-                            minRows={3}
-                        />
-                    </div>
-                    <LemonButton
-                        type="secondary"
-                        onClick={() => saveCanvasMeta()}
-                        loading={canvasLoading}
-                        disabledReason={canvasLoading ? 'Saving' : !hasMetaChanges ? 'No changes to save' : undefined}
-                    >
-                        Save name and instructions
-                    </LemonButton>
-                    <div className="flex-1">
-                        <LemonLabel info="Starts an agent task in the canvas's channel. The agent edits the canvas source and publishes a new build; the rendered page updates when it lands.">
-                            Ask the agent
-                        </LemonLabel>
-                        <LemonTextArea
-                            value={agentInstruction}
-                            onChange={setAgentInstruction}
-                            placeholder="Describe the change, for example: add a weekly signups chart split by plan."
-                            minRows={2}
-                        />
-                    </div>
-                    <LemonButton
-                        type="primary"
-                        onClick={() => askAgent()}
-                        loading={askingAgent}
-                        disabledReason={
-                            askingAgent
-                                ? 'Starting the agent'
-                                : !agentInstruction.trim()
-                                  ? 'Describe the change first'
-                                  : undefined
+                <LemonCollapse
+                    size="small"
+                    onChange={(activeKey) => {
+                        if (activeKey === 'source') {
+                            loadSource()
                         }
-                    >
-                        Send to agent
-                    </LemonButton>
-                    <LemonLabel info="Publishing creates a new source version and rebuilds the page. The rendered canvas updates when the build is ready.">
-                        Source ({CANVAS_COMPONENT_PATH})
-                    </LemonLabel>
-                    {sourceLoading && !sourceCode ? (
-                        <LemonSkeleton className="h-24 w-full" />
-                    ) : (
-                        <CodeEditorResizeable
-                            language="typescript"
-                            value={sourceCode}
-                            onChange={(value) => setEditedCode(value ?? '')}
-                            minHeight={160}
-                            embedded
-                        />
-                    )}
-                    {publishDiagnostics.length > 0 ? (
-                        <LemonBanner type="error">
-                            <div className="deprecated-space-y-1">
-                                {publishDiagnostics.map((diagnostic) => (
-                                    <div
-                                        key={`${diagnostic.code}:${diagnostic.path}:${diagnostic.line}:${diagnostic.message}`}
-                                        className="text-xs"
-                                    >
-                                        <LemonTag type={diagnostic.severity === 'error' ? 'danger' : 'warning'}>
-                                            {diagnostic.severity}
-                                        </LemonTag>{' '}
-                                        {diagnostic.message}
-                                        {diagnostic.path ? (
-                                            <span className="text-muted">
-                                                {' '}
-                                                ({diagnostic.path}
-                                                {diagnostic.line ? `:${diagnostic.line}` : ''})
-                                            </span>
+                    }}
+                    panels={[
+                        {
+                            key: 'source',
+                            header: 'Source',
+                            content: (
+                                <div className="deprecated-space-y-2">
+                                    {sourceLoading && !sourceCode ? (
+                                        <LemonSkeleton className="h-24 w-full" />
+                                    ) : (
+                                        <CodeEditorResizeable
+                                            language="typescript"
+                                            value={sourceCode}
+                                            onChange={(value) => setEditedCode(value ?? '')}
+                                            minHeight={160}
+                                            embedded
+                                        />
+                                    )}
+                                    {publishDiagnostics.length > 0 ? (
+                                        <LemonBanner type="error">
+                                            <div className="deprecated-space-y-1">
+                                                {publishDiagnostics.map((diagnostic) => (
+                                                    <div
+                                                        key={`${diagnostic.code}:${diagnostic.path}:${diagnostic.line}:${diagnostic.message}`}
+                                                        className="text-xs"
+                                                    >
+                                                        <LemonTag
+                                                            type={
+                                                                diagnostic.severity === 'error' ? 'danger' : 'warning'
+                                                            }
+                                                        >
+                                                            {diagnostic.severity}
+                                                        </LemonTag>{' '}
+                                                        {diagnostic.message}
+                                                        {diagnostic.path ? (
+                                                            <span className="text-muted">
+                                                                {' '}
+                                                                ({diagnostic.path}
+                                                                {diagnostic.line ? `:${diagnostic.line}` : ''})
+                                                            </span>
+                                                        ) : null}
+                                                    </div>
+                                                ))}
+                                            </div>
+                                        </LemonBanner>
+                                    ) : null}
+                                    <div className="flex items-center gap-2">
+                                        <LemonButton
+                                            type="primary"
+                                            onClick={() => publishSource()}
+                                            loading={publishInFlight}
+                                            disabledReason={
+                                                publishInFlight
+                                                    ? 'A publish is already in progress'
+                                                    : !hasSourceChanges
+                                                      ? 'No changes to publish'
+                                                      : undefined
+                                            }
+                                        >
+                                            Publish changes
+                                        </LemonButton>
+                                        <LemonButton
+                                            onClick={discardSourceChanges}
+                                            disabledReason={!hasSourceChanges ? 'No changes to discard' : undefined}
+                                        >
+                                            Discard
+                                        </LemonButton>
+                                        {isBuilding ? (
+                                            <span className="text-secondary text-xs">Building the canvas…</span>
                                         ) : null}
                                     </div>
-                                ))}
-                            </div>
-                        </LemonBanner>
-                    ) : null}
-                    <div className="flex items-center gap-2">
-                        <LemonButton
-                            type="primary"
-                            onClick={() => publishSource()}
-                            loading={publishInFlight}
-                            disabledReason={
-                                publishInFlight
-                                    ? 'A publish is already in progress'
-                                    : !hasSourceChanges
-                                      ? 'No changes to publish'
-                                      : undefined
-                            }
-                        >
-                            Publish changes
-                        </LemonButton>
-                        <LemonButton
-                            onClick={discardSourceChanges}
-                            disabledReason={!hasSourceChanges ? 'No changes to discard' : undefined}
-                        >
-                            Discard
-                        </LemonButton>
-                        {isBuilding ? <span className="text-secondary text-xs">Building the canvas…</span> : null}
-                    </div>
-                </>
-            ) : (
-                <LemonButton
-                    type="primary"
-                    onClick={() => createFromPrompt()}
-                    loading={creatingCanvas}
-                    disabledReason={
-                        creatingCanvas ? 'Creating the canvas' : !prompt.trim() ? 'Add a prompt first' : undefined
-                    }
-                >
-                    Create canvas
-                </LemonButton>
-            )}
+                                </div>
+                            ),
+                        },
+                    ]}
+                />
+            ) : null}
         </div>
     )
 }
