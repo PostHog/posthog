@@ -10,6 +10,8 @@ const run = (id: string, overrides: Partial<VisionActionRunListApi> = {}): Visio
     id,
     status: 'completed',
     scheduled_at: '2026-01-01T09:00:00Z',
+    window_start: null,
+    window_end: null,
     observation_count: 3,
     error_reason: '',
     is_recovery: false,
