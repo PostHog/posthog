@@ -8,14 +8,15 @@ code is written against. Where the code and this file disagree, one of them is a
 
 ## The model
 
-| Part               | What it is                                                                                                                       |
-| ------------------ | -------------------------------------------------------------------------------------------------------------------------------- |
-| Frontier           | The topic `session_replay_image_fetch`. It holds the URLs waiting to be fetched.                                                 |
-| Back queue         | The URLs of one registrable domain. The topic key is the domain, so a partition holds whole back queues.                         |
-| Crawl history      | The Redis record of the URLs this lane has finished with, whatever the outcome. It answers the URL-seen test.                    |
-| Host budget        | The rate limit, connection limit, and circuit breaker for one registrable domain.                                                |
-| Hop budget         | The number of moves one URL may make before the lane gives up.                                                                   |
-| Registrable domain | The operator boundary, from the public suffix list. `example.com` for `img1.cdn.example.com`, but `myapp.vercel.app` for itself. |
+| Part               | What it is                                                                                                                                  |
+| ------------------ | ------------------------------------------------------------------------------------------------------------------------------------------- |
+| Frontier           | The topic `session_replay_image_fetch`. It holds the URLs waiting to be fetched.                                                            |
+| Back queue         | The URLs of one registrable domain. The topic key is the domain, so a partition holds whole back queues.                                    |
+| Pass               | The fetching for one Kafka poll batch. Every back queue in the batch runs at the same time, and wall time bounds the pass rather than work. |
+| Crawl history      | The Redis record of the URLs this lane has finished with, whatever the outcome. It answers the URL-seen test.                               |
+| Host budget        | The rate limit, connection limit, and circuit breaker for one registrable domain.                                                           |
+| Hop budget         | The number of moves one URL may make before the lane gives up.                                                                              |
+| Registrable domain | The operator boundary, from the public suffix list. `example.com` for `img1.cdn.example.com`, but `myapp.vercel.app` for itself.            |
 
 A redirect to another domain is a new candidate URL. It goes back through the frontier rather than
 being fetched in place, because the budget that governs it belongs to whichever consumer owns that
@@ -32,8 +33,8 @@ domain's partition.
 | Redirects followed without republishing | one fetch                                         | 3          |
 | Response bytes                          | one response                                      | 2 MB       |
 | Request timeout                         | one URL, redirects included                       | 10 seconds |
-| Pass deadline                           | one batch                                         | 20 seconds |
-| Pass wall time, worst case              | one batch                                         | 30 seconds |
+| Pass deadline                           | one pass                                          | 20 seconds |
+| Pass wall time, worst case              | one pass                                          | 30 seconds |
 | Domains tracked                         | pod                                               | 20000      |
 
 Every back queue runs at the same time. This is how the pod reaches its limit rather than a
@@ -43,6 +44,12 @@ use 300.
 Only a request holding a socket counts as in flight. A URL waiting for its domain's rate limit
 holds nothing, so it is not counted. A wait between the hops of one redirect chain is counted,
 because the request is already open.
+
+The pass deadline decides whether a request starts. It never decides how long that request may
+take. A request cut short by the pass clock would time out through no fault of the site, and the
+budget would read that as the site failing. So a request that starts just inside the deadline still
+gets its whole timeout, and one pass can run to the deadline plus one request timeout. That is the
+worst case in the table, and it stays well inside Kafka's `max.poll.interval.ms` of 300 seconds.
 
 ## Requirements
 
