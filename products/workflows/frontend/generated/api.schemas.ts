@@ -290,6 +290,15 @@ export interface UserBasicApi {
 }
 
 /**
+ * * `broadcast` - Broadcast
+ */
+export type HogFlowKindEnumApi = (typeof HogFlowKindEnumApi)[keyof typeof HogFlowKindEnumApi]
+
+export const HogFlowKindEnumApi = {
+    Broadcast: 'broadcast',
+} as const
+
+/**
  * Mixin for serializers to add user access control fields
  */
 export interface HogFlowMinimalApi {
@@ -302,6 +311,7 @@ export interface HogFlowMinimalApi {
     readonly created_at: string
     readonly created_by: UserBasicApi
     readonly updated_at: string
+    readonly kind: HogFlowKindEnumApi | null
     readonly trigger: unknown
     readonly trigger_masking: unknown
     readonly conversion: unknown
@@ -547,6 +557,10 @@ export interface HogFlowApi {
     readonly created_at: string
     readonly created_by: UserBasicApi
     readonly updated_at: string
+    /** UX discriminator for workflows built by a purpose-built surface. 'broadcast' marks a one-time or scheduled email send (batch trigger + one email action) managed via the broadcasts UI; null for ordinary workflows. Doesn't affect execution. Filterable on the list endpoint via ?kind=broadcast.
+     *
+     * * `broadcast` - Broadcast */
+    kind?: HogFlowKindEnumApi | null
     readonly trigger: unknown
     /** Optional dedup/throttle on an already-matched trigger: {hash: <HogQL template>, ttl: <seconds, 60-94608000>, threshold?: <int>}. Without threshold: fire once per hash, then suppress repeats within ttl (hash '{person.id}' = once per person per ttl). With threshold N: fire once per N matches of the same hash — a sampler, the 1st then every Nth. Throttles an already-qualifying trigger; it doesn't decide who enters. Server compiles bytecode from hash; omit to disable. */
     trigger_masking?: HogFlowMaskingApi | null
@@ -623,6 +637,10 @@ export interface PatchedHogFlowApi {
     readonly created_at?: string
     readonly created_by?: UserBasicApi
     readonly updated_at?: string
+    /** UX discriminator for workflows built by a purpose-built surface. 'broadcast' marks a one-time or scheduled email send (batch trigger + one email action) managed via the broadcasts UI; null for ordinary workflows. Doesn't affect execution. Filterable on the list endpoint via ?kind=broadcast.
+     *
+     * * `broadcast` - Broadcast */
+    kind?: HogFlowKindEnumApi | null
     readonly trigger?: unknown
     /** Optional dedup/throttle on an already-matched trigger: {hash: <HogQL template>, ttl: <seconds, 60-94608000>, threshold?: <int>}. Without threshold: fire once per hash, then suppress repeats within ttl (hash '{person.id}' = once per person per ttl). With threshold N: fire once per N matches of the same hash — a sampler, the 1st then every Nth. Throttles an already-qualifying trigger; it doesn't decide who enters. Server compiles bytecode from hash; omit to disable. */
     trigger_masking?: HogFlowMaskingApi | null
@@ -1417,6 +1435,11 @@ export type HogFlowsListParams = {
     created_by?: string
     id?: string
     /**
+     * * `broadcast` - Broadcast
+     * @nullable
+     */
+    kind?: HogFlowsListKind
+    /**
      * Number of results to return per page.
      */
     limit?: number
@@ -1436,6 +1459,12 @@ export type HogFlowsListParams = {
     status?: HogFlowsListStatus
     updated_at?: string
 }
+
+export type HogFlowsListKind = (typeof HogFlowsListKind)[keyof typeof HogFlowsListKind] | null
+
+export const HogFlowsListKind = {
+    Broadcast: 'broadcast',
+} as const
 
 export type HogFlowsListStatus = (typeof HogFlowsListStatus)[keyof typeof HogFlowsListStatus]
 

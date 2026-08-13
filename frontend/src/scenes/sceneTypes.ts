@@ -204,6 +204,7 @@ export enum Scene {
     Endpoint = 'Endpoint',
     Workflow = 'Workflow',
     Workflows = 'Workflows',
+    Broadcast = 'Broadcast',
     Wizard = 'Wizard',
     EarlyAccessFeature = 'EarlyAccessFeature',
     EndpointsScene = 'EndpointsScene',
@@ -415,6 +416,7 @@ export const sceneToAccessControlResourceType: Partial<Record<Scene, AccessContr
     // Workflows
     [Scene.Workflow]: AccessControlResourceType.Workflow,
     [Scene.Workflows]: AccessControlResourceType.Workflow,
+    [Scene.Broadcast]: AccessControlResourceType.Workflow,
 
     // Product Tours
     [Scene.ProductTour]: AccessControlResourceType.ProductTour,

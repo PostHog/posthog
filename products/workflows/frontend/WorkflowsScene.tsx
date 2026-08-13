@@ -25,6 +25,7 @@ import { ProductIntentContext, ProductKey } from '~/queries/schema/schema-genera
 import { AccessControlLevel, AccessControlResourceType, Breadcrumb } from '~/types'
 
 import type { FeatureFlagsSet } from '../../../frontend/src/lib/logic/featureFlagLogic'
+import { BroadcastsTable } from './Broadcasts/BroadcastsTable'
 import { MessageChannels } from './Channels/MessageChannels'
 import { optOutCategoriesLogic } from './OptOuts/optOutCategoriesLogic'
 import { OptOutScene } from './OptOuts/OptOutScene'
@@ -36,7 +37,15 @@ import { WorkflowsReputation } from './Workflows/Reputation/WorkflowsReputation'
 import { WorkflowsTable } from './Workflows/WorkflowsTable'
 import { workflowsEmailSuspensionLogic } from './workflowsEmailSuspensionLogic'
 
-const WORKFLOW_SCENE_TABS = ['workflows', 'library', 'channels', 'opt-outs', 'suppression', 'reputation'] as const
+const WORKFLOW_SCENE_TABS = [
+    'workflows',
+    'broadcasts',
+    'library',
+    'channels',
+    'opt-outs',
+    'suppression',
+    'reputation',
+] as const
 export type WorkflowsSceneTab = (typeof WORKFLOW_SCENE_TABS)[number]
 
 export type WorkflowsSceneProps = {
@@ -214,6 +223,12 @@ export function WorkflowsScene(props: WorkflowsSceneProps = {}): JSX.Element {
             link: urls.workflows(),
         },
         {
+            label: 'Broadcasts',
+            key: 'broadcasts',
+            content: <BroadcastsTable />,
+            link: urls.workflows('broadcasts'),
+        },
+        {
             label: 'Library',
             key: 'library',
             content: (
@@ -288,6 +303,21 @@ export function WorkflowsScene(props: WorkflowsSceneProps = {}): JSX.Element {
                                     size="small"
                                 >
                                     New workflow
+                                </LemonButton>
+                            </AccessControlAction>
+                        )}
+                        {currentTab === 'broadcasts' && (
+                            <AccessControlAction
+                                resourceType={AccessControlResourceType.Workflow}
+                                minAccessLevel={AccessControlLevel.Editor}
+                            >
+                                <LemonButton
+                                    data-attr="new-broadcast"
+                                    to={urls.broadcastNew()}
+                                    type="primary"
+                                    size="small"
+                                >
+                                    New broadcast
                                 </LemonButton>
                             </AccessControlAction>
                         )}

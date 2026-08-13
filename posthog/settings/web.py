@@ -590,6 +590,7 @@ SPECTACULAR_SETTINGS = {
         "ExperimentMetricKindEnum": "products.ai_observability.backend.models.score_definitions.ScoreDefinition.Kind",
         "EvaluationTargetEnum": "products.ai_observability.backend.models.evaluations.EvaluationTarget",
         "IntegrationKindEnum": "posthog.models.integration.Integration.IntegrationKind",
+        "HogFlowKindEnum": "products.workflows.backend.models.hog_flow.hog_flow.HogFlow.Kind",
         "TicketStatusEnum": "products.conversations.backend.models.constants.Status",
         # Shared by Ticket.priority and TicketViewFilters.priority (same choice set).
         "TicketPriorityEnum": "products.conversations.backend.models.constants.Priority",

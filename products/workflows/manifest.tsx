@@ -27,11 +27,21 @@ export const manifest: ProductManifest = {
             iconType: 'workflows',
             projectBased: true,
         },
+        Broadcast: {
+            import: () => import('./frontend/Broadcasts/BroadcastScene'),
+            name: 'Broadcast',
+            iconType: 'workflows',
+            projectBased: true,
+        },
     },
     routes: {
         // URL: [Scene, SceneKey]
         '/workflows': ['Workflows', 'workflows'],
         '/workflows/:tab': ['Workflows', 'workflows'],
+        // Broadcast routes must precede '/workflows/:id/:tab': kea-router matches routes in
+        // declaration order, so the literal 'broadcasts' segment only wins if it's listed first.
+        '/workflows/broadcasts/new': ['Broadcast', 'broadcast'],
+        '/workflows/broadcasts/:id': ['Broadcast', 'broadcast'],
         '/workflows/:id/:tab': ['Workflow', 'workflowTab'],
         '/workflows/library/templates/:id': ['WorkflowsLibraryTemplate', 'workflowsLibraryTemplate'],
         '/workflows/library/templates/new': ['WorkflowsLibraryTemplate', 'workflowsLibraryTemplate'],
@@ -42,6 +52,9 @@ export const manifest: ProductManifest = {
     },
     urls: {
         workflows: (tab?: WorkflowsSceneTab): string => `/workflows${tab ? `/${tab}` : ''}`,
+        broadcasts: (): string => '/workflows/broadcasts',
+        broadcastNew: (): string => '/workflows/broadcasts/new',
+        broadcast: (id: string): string => `/workflows/broadcasts/${id}`,
         workflow: (id: string, tab: string): string => `/workflows/${id}/${tab}`,
         workflowNew: (): string => '/workflows/new/workflow',
         workflowsLibraryMessage: (id: string): string => `/workflows/library/messages/${id}`,
