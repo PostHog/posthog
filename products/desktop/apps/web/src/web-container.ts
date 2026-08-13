@@ -246,7 +246,9 @@ import {
   ACTIVE_VIEW_PROVIDER,
   type IActiveView,
   type INotificationSettings,
+  type ISpeechNotifySettings,
   NOTIFICATION_SETTINGS_PROVIDER,
+  SPEECH_NOTIFY_SETTINGS,
 } from "@posthog/ui/features/notifications/identifiers";
 import { notificationsUiModule } from "@posthog/ui/features/notifications/notifications.module";
 import { OnboardingGithubConnectClient } from "@posthog/ui/features/onboarding/githubConnectClientImpl";
@@ -309,6 +311,7 @@ import {
   webActiveView,
   webNotificationSettings,
   webNotifications,
+  webSpeechNotifySettings,
 } from "./web-notifications";
 import { WebOAuthFlowService } from "./web-oauth-flow";
 import { webDiffWorkerFactory, webReviewHost } from "./web-review-host";
@@ -403,6 +406,7 @@ interface WebBindings {
   [NOTIFICATIONS_SERVICE]: INotifications;
   [NOTIFICATION_SETTINGS_PROVIDER]: INotificationSettings;
   [ACTIVE_VIEW_PROVIDER]: IActiveView;
+  [SPEECH_NOTIFY_SETTINGS]: ISpeechNotifySettings;
   [REPORT_MODEL_RESOLVER]: ReportModelResolver;
 }
 
@@ -817,6 +821,9 @@ container
   .bind(NOTIFICATION_SETTINGS_PROVIDER)
   .toConstantValue(webNotificationSettings);
 container.bind(ACTIVE_VIEW_PROVIDER).toConstantValue(webActiveView);
+container
+  .bind(SPEECH_NOTIFY_SETTINGS)
+  .toConstantValue(webSpeechNotifySettings);
 
 // ── Inbox: resolve the default cloud-run model from the LLM gateway ──
 // Host capability consumed by UI hooks (canvas/home/inbox) that create cloud

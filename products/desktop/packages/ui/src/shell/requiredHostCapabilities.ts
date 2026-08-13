@@ -7,6 +7,7 @@ import { CONNECTIVITY_CLIENT } from "@posthog/ui/features/connectivity/connectiv
 import { FEATURE_FLAGS } from "@posthog/ui/features/feature-flags/identifiers";
 import { GIT_CACHE_KEY_PROVIDER } from "@posthog/ui/features/git-interaction/gitCacheProvider";
 import { UPDATES_CLIENT } from "@posthog/ui/features/updates/updatesClient";
+import { SPEECH_NOTIFY_SETTINGS } from "@posthog/ui/features/notifications/identifiers";
 import { DIFF_WORKER_FACTORY } from "@posthog/ui/shell/diffWorkerHost";
 
 /**
@@ -64,6 +65,10 @@ export const REQUIRED_HOST_CAPABILITIES: readonly HostCapabilityRequirement[] =
     {
       token: DIFF_WORKER_FACTORY,
       description: "diff computation worker for review/diffs",
+    },
+    {
+      token: SPEECH_NOTIFY_SETTINGS,
+      description: "spoken-notification preferences",
     },
     {
       token: REPORT_MODEL_RESOLVER,

@@ -6,6 +6,7 @@ import type {
 import type {
   IActiveView,
   INotificationSettings,
+  ISpeechNotifySettings,
   NotificationSettings,
 } from "@posthog/ui/features/notifications/identifiers";
 import { useSettingsStore } from "@posthog/ui/features/settings/settingsStore";
@@ -73,6 +74,22 @@ export const webNotificationSettings: INotificationSettings = {
       completionVolume: s.completionVolume,
       scaleSoundWithTaskLength: s.scaleSoundWithTaskLength,
       customSounds: s.customSounds,
+    };
+  },
+};
+
+// Spoken notifications are routed by the shared SpeechNotifier. Keep this
+// separate from the toast/native notification settings because they have
+// independent user controls.
+export const webSpeechNotifySettings: ISpeechNotifySettings = {
+  get() {
+    const s = useSettingsStore.getState();
+    return {
+      enabled: s.spokenNotifications,
+      needsInput: s.spokenNotifyNeedsInput,
+      completion: s.spokenNotifyCompletion,
+      progress: s.spokenNotifyProgress,
+      focusMode: s.spokenFocusMode,
     };
   },
 };
