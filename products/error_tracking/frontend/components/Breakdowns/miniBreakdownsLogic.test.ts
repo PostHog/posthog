@@ -12,7 +12,7 @@ import { initKeaTests } from '~/test/init'
 
 import { errorTrackingIssueSceneLogic } from '../../scenes/ErrorTrackingIssueScene/errorTrackingIssueSceneLogic'
 import { ERROR_TRACKING_ISSUE_SCENE_LOGIC_KEY, issueFiltersLogic } from '../IssueFilters/issueFiltersLogic'
-import { BREAKDOWN_DETAILS_LIMIT, BREAKDOWN_PRESETS } from './consts'
+import { BREAKDOWN_DETAILS_LIMIT, BREAKDOWN_PRESETS, MAX_SELECTED_EVENT_BREAKDOWN_PROPERTIES } from './consts'
 import {
     buildBreakdownProperties,
     getSelectedEventBreakdownProperties,
@@ -94,6 +94,19 @@ describe('miniBreakdownsLogic', () => {
         const latestBreakdownQuery = jest.mocked(api.query).mock.calls.at(-1)?.[0] as ErrorTrackingBreakdownsQuery
         expect(latestBreakdownQuery.breakdownProperties).toEqual(
             breakdowns.values.breakdownProperties.map(({ property }) => property)
+        )
+    })
+
+    it('caps the breakdown properties auto-derived from the selected event', () => {
+        const properties = Object.fromEntries(
+            Array.from({ length: MAX_SELECTED_EVENT_BREAKDOWN_PROPERTIES + 5 }, (_, index) => [
+                `custom_prop_${String(index).padStart(2, '0')}`,
+                'value',
+            ])
+        )
+
+        expect(getSelectedEventBreakdownProperties(properties, false)).toHaveLength(
+            MAX_SELECTED_EVENT_BREAKDOWN_PROPERTIES
         )
     })
 

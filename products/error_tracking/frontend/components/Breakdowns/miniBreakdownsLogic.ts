@@ -20,7 +20,14 @@ import { getCoreFilterDefinition } from '~/taxonomy/helpers'
 import { errorTrackingBreakdownsQuery } from '../../queries'
 import { errorTrackingIssueSceneLogic } from '../../scenes/ErrorTrackingIssueScene/errorTrackingIssueSceneLogic'
 import { ERROR_TRACKING_ISSUE_SCENE_LOGIC_KEY, issueFiltersLogic } from '../IssueFilters/issueFiltersLogic'
-import { BREAKDOWN_DETAILS_LIMIT, BREAKDOWN_PRESETS, BreakdownPreset, BreakdownsEvents, LIMIT_ITEMS } from './consts'
+import {
+    BREAKDOWN_DETAILS_LIMIT,
+    BREAKDOWN_PRESETS,
+    BreakdownPreset,
+    BreakdownsEvents,
+    LIMIT_ITEMS,
+    MAX_SELECTED_EVENT_BREAKDOWN_PROPERTIES,
+} from './consts'
 
 export interface MiniBreakdownsLogicProps {
     issueId: string
@@ -47,6 +54,7 @@ export function getSelectedEventBreakdownProperties(
         .filter(([, value]) => value === null || ['string', 'number', 'boolean'].includes(typeof value))
         .map(([property]) => ({ property, title: getBreakdownPropertyTitle(property) }))
         .sort((left, right) => left.title.localeCompare(right.title, undefined, { sensitivity: 'base' }))
+        .slice(0, MAX_SELECTED_EVENT_BREAKDOWN_PROPERTIES)
 }
 
 export function getBreakdownForPropertyFromResponse(
