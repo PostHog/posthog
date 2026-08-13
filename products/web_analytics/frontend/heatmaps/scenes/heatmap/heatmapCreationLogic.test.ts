@@ -7,6 +7,7 @@ import { sessionPlayerModalLogic } from 'scenes/session-recordings/player/modal/
 import { initKeaTests } from '~/test/init'
 
 import { getBackgroundStepBlockReason, getPageStepBlockReason, heatmapCreationLogic } from './heatmapCreationLogic'
+import { heatmapLogic } from './heatmapLogic'
 
 describe('heatmapCreationLogic', () => {
     beforeEach(() => {
@@ -71,6 +72,45 @@ describe('heatmapCreationLogic', () => {
             ).toBe(expected)
         }
     )
+
+    it('does not block a page URL that contains a query string', async () => {
+        const logic = heatmapCreationLogic
+        logic.mount()
+        await expectLogic(logic).toFinishAllListeners()
+
+        logic.actions.setDisplayUrl('https://example.com/pricing?plan=business')
+        await expectLogic(logic).toFinishAllListeners()
+
+        expect(logic.values.pageStepBlockReason).toBeNull()
+    })
+
+    it('clears the page block reason from the live edit while the committed URL is still a wildcard', async () => {
+        const logic = heatmapCreationLogic
+        logic.mount()
+        await expectLogic(logic).toFinishAllListeners()
+
+        logic.actions.setDisplayUrl('https://example.com/*')
+        expect(logic.values.pageStepBlockReason).toBe('Enter a valid page URL to continue')
+
+        heatmapLogic({ id: 'new' }).actions.setPageUrlDraft('https://example.com/pricing')
+        expect(logic.values.pageStepBlockReason).toBeNull()
+
+        await expectLogic(logic).toFinishAllListeners()
+    })
+
+    it('commits an uncommitted page URL edit and advances when continuing from the page step', async () => {
+        const logic = heatmapCreationLogic
+        logic.mount()
+        await expectLogic(logic).toFinishAllListeners()
+
+        // A live edit that never reached the committed value (the select can drop it on blur).
+        heatmapLogic({ id: 'new' }).actions.setPageUrlDraft('https://example.com/pricing')
+        logic.actions.continueFromPage()
+        await expectLogic(logic).toFinishAllListeners()
+
+        expect(logic.values.displayUrl).toBe('https://example.com/pricing')
+        expect(logic.values.currentStep).toBe('background')
+    })
 
     it('allows creation when the readiness check returns zero matching interactions', async () => {
         const logic = heatmapCreationLogic

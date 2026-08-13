@@ -25,9 +25,19 @@ import { heatmapLogic } from './heatmapLogic'
 
 export function HeatmapNewSceneLegacy(): JSX.Element {
     const logic = heatmapLogic({ id: 'new' })
-    const { loading, displayUrl, isDisplayUrlValid, type, name, dataUrl, isBrowserUrlAuthorized, displayUrlIsPattern } =
-        useValues(logic)
-    const { setDisplayUrl, setType, setName, createHeatmap } = useActions(logic)
+    const {
+        loading,
+        displayUrl,
+        isDisplayUrlValid,
+        pageUrlDraft,
+        isPageUrlDraftValid,
+        pageUrlDraftIsPattern,
+        type,
+        name,
+        dataUrl,
+        isBrowserUrlAuthorized,
+    } = useValues(logic)
+    const { setDisplayUrl, setPageUrlDraft, setType, setName, createHeatmap } = useActions(logic)
     const { topUrls, topUrlsLoading, noPageviews } = useValues(heatmapsBrowserLogic)
 
     const debouncedOnNameChange = useDebouncedCallback((name: string) => {
@@ -69,6 +79,7 @@ export function HeatmapNewSceneLegacy(): JSX.Element {
                     loading={topUrlsLoading}
                     value={displayUrl ? [displayUrl] : []}
                     onChange={(next) => setDisplayUrl(next[0] ?? '')}
+                    onInputChange={setPageUrlDraft}
                     options={(topUrls ?? []).map(({ url }) => ({
                         key: url,
                         label: url,
@@ -82,8 +93,8 @@ export function HeatmapNewSceneLegacy(): JSX.Element {
                     popoverClassName="max-w-0"
                     data-attr="heatmap-new-page-url"
                 />
-                {displayUrl && !isDisplayUrlValid ? (
-                    displayUrlIsPattern ? (
+                {pageUrlDraft && !isPageUrlDraftValid ? (
+                    pageUrlDraftIsPattern ? (
                         <LemonBanner type="error" className="mt-2">
                             The page URL can't contain wildcards. Add wildcards to the heatmap data URL below instead.
                         </LemonBanner>
@@ -144,9 +155,9 @@ export function HeatmapNewSceneLegacy(): JSX.Element {
                         onClick={() => createHeatmap()}
                         loading={false}
                         disabledReason={
-                            !displayUrl
+                            !pageUrlDraft.trim()
                                 ? 'URL is required'
-                                : !isDisplayUrlValid
+                                : !isPageUrlDraftValid
                                   ? 'Enter a valid URL'
                                   : !!dataUrl && !isBrowserUrlAuthorized
                                     ? 'Authorize the URL first'

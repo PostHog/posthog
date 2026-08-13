@@ -25,7 +25,7 @@ import {
 } from 'products/web_analytics/frontend/generated/api'
 import type { SavedHeatmapRequestApi } from 'products/web_analytics/frontend/generated/api.schemas'
 
-import { heatmapsBrowserLogic, isUrlPattern } from '../../components/heatmapsBrowserLogic'
+import { heatmapsBrowserLogic } from '../../components/heatmapsBrowserLogic'
 import { heatmapsSceneLogic } from '../heatmaps/heatmapsSceneLogic'
 
 const DEFAULT_HEATMAP_NAME = 'Untitled heatmap'
@@ -61,11 +61,17 @@ function getCreationFailureCategory(error: unknown): 'validation' | 'permission'
     return 'unknown'
 }
 
-function isValidPageUrl(url: string | null): boolean {
+// A page URL renders one concrete page, so `*` — the only placeholder heatmapUrlPatternToRegex
+// expands — is the sole wildcard here. Other regex-significant characters (notably `?` and `&`
+// in a query string) are ordinary URL syntax and stay valid; only the data URL treats them as a
+// pattern.
+export const pageUrlHasWildcard = (url: string): boolean => url.includes('*')
+
+export function isValidPageUrl(url: string | null): boolean {
     if (!url) {
         return true
     }
-    if (isUrlPattern(url)) {
+    if (pageUrlHasWildcard(url)) {
         return false
     }
     try {
@@ -176,6 +182,9 @@ export interface heatmapLogicActions {
     }
     createHeatmap: (context?: HeatmapCreationContext | null) => {
         context: HeatmapCreationContext | null
+    }
+    commitPageUrlDraft: () => {
+        value: true
     }
     creationCompleted: (shortId: string) => {
         shortId: string
@@ -326,6 +335,7 @@ export const heatmapLogic = kea<heatmapLogicType>([
         snapshotSavedBlockConsentModals: (value: boolean) => ({ value }),
         setPageUrlDraft: (value: string) => ({ value }),
         applyPageUrlDraft: true,
+        commitPageUrlDraft: true,
         setUserAccessLevel: (level: AccessControlLevel | null) => ({ level }),
     }),
     reducers({
@@ -507,6 +517,8 @@ export const heatmapLogic = kea<heatmapLogicType>([
             }
             cache.creatingHeatmap = true
             actions.setLoading(true)
+            // Commit any page-URL edit still sitting in the field so we create with what the user sees.
+            actions.commitPageUrlDraft()
             try {
                 const data: SavedHeatmapRequestApi = {
                     name: values.name || DEFAULT_HEATMAP_NAME,
@@ -582,6 +594,14 @@ export const heatmapLogic = kea<heatmapLogicType>([
                 actions.regenerateScreenshot()
             }
         },
+        // Push a live page-URL edit into the committed value without any save side effects, for the
+        // creation flow where LemonInputSelect may not commit the typed value on its own.
+        commitPageUrlDraft: () => {
+            const next = values.pageUrlDraft.trim()
+            if (next && next !== values.displayUrl) {
+                actions.setDisplayUrl(next)
+            }
+        },
         setScreenshotLoaded: ({ screenshotLoaded }) => {
             if (screenshotLoaded) {
                 posthog.capture('in-app heatmap screenshot loaded', { width: values.widthOverride })
@@ -612,12 +632,15 @@ export const heatmapLogic = kea<heatmapLogicType>([
     })),
     selectors({
         isDisplayUrlValid: [(s) => [s.displayUrl], (displayUrl: string | null) => isValidPageUrl(displayUrl)],
-        displayUrlIsPattern: [(s) => [s.displayUrl], (displayUrl: string | null) => isUrlPattern(displayUrl ?? '')],
+        displayUrlIsPattern: [
+            (s) => [s.displayUrl],
+            (displayUrl: string | null) => pageUrlHasWildcard(displayUrl ?? ''),
+        ],
         isPageUrlDraftValid: [
             (s) => [s.pageUrlDraft],
             (pageUrlDraft: string) => isValidPageUrl(pageUrlDraft.trim() || null),
         ],
-        pageUrlDraftIsPattern: [(s) => [s.pageUrlDraft], (pageUrlDraft: string) => isUrlPattern(pageUrlDraft)],
+        pageUrlDraftIsPattern: [(s) => [s.pageUrlDraft], (pageUrlDraft: string) => pageUrlHasWildcard(pageUrlDraft)],
         desiredNumericWidth: [
             (s) => [s.widthOverride, s.containerWidth],
             (widthOverride: number, containerWidth: number | null) => {

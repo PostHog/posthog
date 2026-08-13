@@ -170,8 +170,8 @@ function MatchingDataReadiness(): JSX.Element {
 
 function ChoosePageStep(): JSX.Element {
     const logic = heatmapLogic({ id: 'new' })
-    const { displayUrl, isDisplayUrlValid, displayUrlIsPattern, dataUrl } = useValues(logic)
-    const { setDisplayUrl } = useActions(logic)
+    const { displayUrl, pageUrlDraft, isPageUrlDraftValid, pageUrlDraftIsPattern, dataUrl } = useValues(logic)
+    const { setDisplayUrl, setPageUrlDraft } = useActions(logic)
     const { topUrls, topUrlsLoading, noPageviews } = useValues(heatmapsBrowserLogic)
     const { pageStepBlockReason } = useValues(heatmapCreationLogic)
     const { continueFromPage } = useActions(heatmapCreationLogic)
@@ -197,6 +197,7 @@ function ChoosePageStep(): JSX.Element {
                         loading={topUrlsLoading}
                         value={displayUrl ? [displayUrl] : []}
                         onChange={(next) => setDisplayUrl(next[0] ?? '')}
+                        onInputChange={setPageUrlDraft}
                         options={(topUrls ?? []).map(({ url }) => ({
                             key: url,
                             label: url,
@@ -210,8 +211,8 @@ function ChoosePageStep(): JSX.Element {
                         popoverClassName="max-w-0"
                         data-attr="heatmap-new-page-url"
                     />
-                    {displayUrl && !isDisplayUrlValid ? (
-                        displayUrlIsPattern ? (
+                    {pageUrlDraft && !isPageUrlDraftValid ? (
+                        pageUrlDraftIsPattern ? (
                             <LemonBanner type="error" className="mt-2">
                                 The page URL can't contain wildcards. Add wildcards to the heatmap data URL below.
                             </LemonBanner>

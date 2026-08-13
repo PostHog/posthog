@@ -172,7 +172,9 @@ export interface heatmapCreationLogicValues {
     displayUrl: string | null // heatmapLogic
     isBrowserUrlValid: boolean // heatmapLogic
     isDisplayUrlValid: boolean // heatmapLogic
+    isPageUrlDraftValid: boolean // heatmapLogic
     loading: boolean // heatmapLogic
+    pageUrlDraft: string // heatmapLogic
     type: HeatmapType // heatmapLogic
     currentPagePreflight: PagePreflight | null // heatmapsBrowserLogic
     preflightMessage: string | null // heatmapsBrowserLogic
@@ -210,6 +212,9 @@ export interface heatmapCreationLogicActions {
         launch: boolean | undefined
         url: string
     } // authorizedUrlsLogic
+    commitPageUrlDraft: () => {
+        value: true
+    } // heatmapLogic
     creationCompleted: (shortId: string) => {
         shortId: string
     } // heatmapLogic
@@ -321,6 +326,8 @@ export interface heatmapCreationLogicMeta {
     __keaTypeGenInternalSelectorTypes: {
         effectiveDataUrl: (dataUrl: string | null, displayUrl: string | null) => string | null
         pageStepBlockReason: (
+            pageUrlDraft: string,
+            isPageUrlDraftValid: boolean,
             displayUrl: string | null,
             isDisplayUrlValid: boolean,
             dataUrl: string | null,
@@ -375,7 +382,9 @@ export const heatmapCreationLogic = kea<heatmapCreationLogicType>([
                 'displayUrl',
                 'isBrowserUrlValid',
                 'isDisplayUrlValid',
+                'isPageUrlDraftValid',
                 'loading',
+                'pageUrlDraft',
                 'type',
             ],
             teamLogic,
@@ -391,7 +400,7 @@ export const heatmapCreationLogic = kea<heatmapCreationLogicType>([
         ],
         actions: [
             heatmapLogic({ id: 'new' }),
-            ['creationCompleted', 'setDataUrl', 'setDisplayUrl', 'setType'],
+            ['commitPageUrlDraft', 'creationCompleted', 'setDataUrl', 'setDisplayUrl', 'setType'],
             authorizedUrlsLogic,
             ['addUrl'],
             heatmapsBrowserLogic,
@@ -537,19 +546,31 @@ export const heatmapCreationLogic = kea<heatmapCreationLogicType>([
                 dataUrl?.trim() || displayUrl?.trim() || null,
         ],
         pageStepBlockReason: [
-            (s) => [s.displayUrl, s.isDisplayUrlValid, s.dataUrl, s.isBrowserUrlValid],
+            (s) => [
+                s.pageUrlDraft,
+                s.isPageUrlDraftValid,
+                s.displayUrl,
+                s.isDisplayUrlValid,
+                s.dataUrl,
+                s.isBrowserUrlValid,
+            ],
             (
+                pageUrlDraft: string,
+                isPageUrlDraftValid: boolean,
                 displayUrl: string | null,
                 isDisplayUrlValid: boolean,
                 dataUrl: string | null,
                 isBrowserUrlValid: boolean
-            ): string | null =>
-                getPageStepBlockReason({
-                    displayUrl,
-                    isDisplayUrlValid,
+            ): string | null => {
+                // Gate on the live edit so Continue tracks what the field shows, not a stale committed value.
+                const draft = pageUrlDraft.trim()
+                return getPageStepBlockReason({
+                    displayUrl: draft || displayUrl,
+                    isDisplayUrlValid: draft ? isPageUrlDraftValid : isDisplayUrlValid,
                     dataUrl,
                     isDataUrlValid: isBrowserUrlValid,
-                }),
+                })
+            },
         ],
         isDisplayUrlAuthorized: [
             (s) => [s.displayUrl, s.checkUrlIsAuthorized],
@@ -644,6 +665,8 @@ export const heatmapCreationLogic = kea<heatmapCreationLogicType>([
                 }
             },
             continueFromPage: () => {
+                // Commit any uncommitted edit so the rest of the wizard uses the URL the field shows.
+                actions.commitPageUrlDraft()
                 if (values.pageStepBlockReason) {
                     return
                 }
