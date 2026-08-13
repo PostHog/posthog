@@ -1465,6 +1465,7 @@ export enum SessionRecordingSidebarTab {
     NETWORK_WATERFALL = 'network-waterfall',
     LINKED_ISSUES = 'linked-issues',
     SESSIONS = 'sessions',
+    OBSERVATIONS = 'observations',
 }
 
 export enum SessionRecordingSidebarStacking {
@@ -1616,6 +1617,8 @@ export interface ActionFilter extends EntityFilter {
     days?: string[] // TODO: why was this added here?
     operator?: FilterLogicalOperator | null
     nestedFilters?: EntityFilter[] | null
+    /** Replay-only. When true, matches sessions that do NOT contain any event matching this entity */
+    negation?: boolean
 }
 
 export const isGroupFilter = (filter: EntityFilter): filter is ActionFilter => filter.type === EntityTypes.GROUPS
@@ -2652,6 +2655,10 @@ export interface DashboardBasicType extends WithAccessControl {
     tags?: string[]
     /** Project-tree folder the dashboard is filed under, e.g. 'Unfiled/Dashboards'. Empty string is the project root; null means no file system entry. */
     folder?: string | null
+    /** Null when the dashboard was never filed, which is the case that cannot be moved. */
+    file_system_id?: string | null
+    /** Unlike `folder`, keeps the dashboard's own name as the last segment, which a move needs to compute the destination. */
+    file_system_path?: string | null
     /** Purely local value to determine whether the dashboard should be highlighted, e.g. as a fresh duplicate. */
     _highlight?: boolean
     /**
@@ -5320,6 +5327,8 @@ export enum HogQLMathType {
 }
 export enum GroupMathType {
     UniqueGroup = 'unique_group',
+    FirstTimeForGroup = 'first_time_for_group',
+    FirstMatchingEventForGroup = 'first_matching_event_for_group',
 }
 
 export enum ExperimentMetricMathType {
@@ -5926,8 +5935,17 @@ export interface EffectiveAccessControlEntry {
     effective_access_level: AccessControlLevel | null
     inherited_access_level: AccessControlLevel | null
     inherited_access_level_reason: InheritedAccessLevelReason | null
+    /** What applies when no rule exists anywhere. Only returned by the defaults endpoint. */
+    system_default_access_level?: AccessControlLevel
     minimum: AccessControlLevel
     maximum: AccessControlLevel
+}
+
+export interface ObjectRuleResource {
+    resource: APIScopeObject
+    available_access_levels: AccessControlLevel[]
+    /** Levels below this are rejected by the backend, so the pickers offer them disabled. */
+    minimum_access_level: AccessControlLevel
 }
 
 export interface AccessControlDefaultsResponse {
@@ -5936,6 +5954,9 @@ export interface AccessControlDefaultsResponse {
     can_edit: boolean
     project_access_level: AccessControlLevel
     resource_access_levels: Record<string, EffectiveAccessControlEntry>
+    /** Resources supporting object-level rules, derived server-side from viewset registration,
+     * each with the levels a rule on it accepts. */
+    object_rule_resources: ObjectRuleResource[]
 }
 
 export interface AccessControlRolesResponse {
@@ -7054,6 +7075,8 @@ export enum SidePanelTab {
     Discussion = 'discussion',
     Exports = 'exports',
     AccessControl = 'access-control',
+    /** Access detail for one member or role. Opened programmatically from access control settings. */
+    AccessDetail = 'access-detail',
     Info = 'info',
 }
 
@@ -7273,6 +7296,7 @@ export type HogFunctionConfigurationContextId =
     | 'experiment-alerts'
     | 'logs-alerting'
     | 'health-alerts'
+    | 'batch-export-alerts'
 
 export type HogFunctionSubTemplateIdType =
     | 'early-access-feature-enrollment'
@@ -7293,6 +7317,7 @@ export type HogFunctionSubTemplateIdType =
     | 'logs-alert-errored'
     | 'health-check-firing'
     | 'health-check-resolved'
+    | 'batch-export-run-failed'
 
 export type HogFunctionConfigurationType = Omit<
     HogFunctionType,

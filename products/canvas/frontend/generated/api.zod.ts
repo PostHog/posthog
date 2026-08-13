@@ -369,6 +369,15 @@ export const CanvasesPublishCreateBody = /* @__PURE__ */ zod
     .describe('Payload for publishing a complete canvas source project.')
 
 /**
+ * Queue a build for the current source version without changing source or metadata.
+ */
+export const CanvasesPublishCurrentVersionCreateBody = /* @__PURE__ */ zod.object({
+    expected_current_version_id: zod
+        .uuid()
+        .describe('Current source version to publish. A changed head returns a 409 version_conflict.'),
+})
+
+/**
  * Move the canvas's head back to an existing source version and rebuild it.
  */
 export const CanvasesRevertCreateBody = /* @__PURE__ */ zod

@@ -628,6 +628,11 @@ export interface CanvasSourcePublishApi {
     expected_current_version_id?: string | null
 }
 
+export interface CanvasPublishCurrentVersionApi {
+    /** Current source version to publish. A changed head returns a 409 version_conflict. */
+    expected_current_version_id: string
+}
+
 /**
  * Payload for reverting the canvas's head to an existing source version.
  */

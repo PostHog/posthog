@@ -144,6 +144,24 @@ export interface DataNodeLogicProps {
 export const AUTOLOAD_INTERVAL = 30000
 const LOAD_MORE_ROWS_LIMIT = 10000
 
+const VALID_REFRESH_TYPES: ReadonlySet<RefreshType> = new Set([
+    'async',
+    'async_except_on_cache_miss',
+    'blocking',
+    'force_async',
+    'force_blocking',
+    'force_cache',
+    'lazy_async',
+])
+
+// Guards against callers that wire `loadData` straight to an event handler, so a React
+// MouseEvent (or any other non-RefreshType value) never reaches the query request body.
+function sanitizeRefreshType(refresh: unknown): RefreshType | undefined {
+    return typeof refresh === 'string' && VALID_REFRESH_TYPES.has(refresh as RefreshType)
+        ? (refresh as RefreshType)
+        : undefined
+}
+
 const concurrencyController = new ConcurrencyController(1)
 const webAnalyticsConcurrencyController = new ConcurrencyController(6)
 const webAnalyticsPreAggConcurrencyController = new ConcurrencyController(6)
@@ -914,7 +932,7 @@ export const dataNodeLogic = kea<dataNodeLogicType>([
             alreadyRunningQueryId?: string,
             overrideQuery?: DataNode<Record<string, any>>
         ) => ({
-            refresh,
+            refresh: sanitizeRefreshType(refresh),
             queryId: alreadyRunningQueryId || uuid(),
             pollOnly: !!alreadyRunningQueryId,
             overrideQuery,

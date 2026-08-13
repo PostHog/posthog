@@ -1,6 +1,7 @@
 import { DateTime } from 'luxon'
 import { Counter } from 'prom-client'
 
+import { HogFlow } from '~/cdp/schema/hogflow'
 import { InternalFetchService } from '~/common/services/internal-fetch'
 import { instrumentFn } from '~/common/tracing/tracing-utils'
 import { logger, serializeError } from '~/common/utils/logger'
@@ -8,7 +9,6 @@ import { captureException } from '~/common/utils/posthog'
 import { UUIDT } from '~/common/utils/utils'
 
 import { HealthCheckResult, HealthCheckResultError, HealthCheckResultOk, PluginsServerConfig, Team } from '../../types'
-import { HogFlow } from '../schema/hogflow'
 import type { CyclotronV2DequeuedJob, CyclotronV2JobInit, CyclotronV2Worker } from '../services/cyclotron-v2'
 import {
     BatchResolverState,
@@ -267,7 +267,7 @@ export class CdpCyclotronWorkerBatchResolve extends CdpConsumerBase<PluginsServe
         const pageTruncated = eligibleIds.length < page.ids.length
 
         const defaultVariables = mergeDefaultVariables(hogFlow.variables, state.variables)
-        const invocations = eligibleIds.map((id) =>
+        const builtInvocations: CyclotronJobInvocationHogFlow[] = eligibleIds.map((id) =>
             isAccountAudience
                 ? buildAccountHogFlowInvocation({
                       siteUrl: this.config.SITE_URL,
@@ -288,20 +288,28 @@ export class CdpCyclotronWorkerBatchResolve extends CdpConsumerBase<PluginsServe
                   })
         )
 
-        // Queue the `running` rows before serializing: queueLifecycleRow stamps
-        // `state.firstScheduledAt` on the invocation, and the terminal row written after the
-        // run wakes needs to inherit it — otherwise it records the wake time and wins the
-        // ReplacingMergeTree collapse, mislabeling when the run started.
-        for (const invocation of invocations) {
+        // Batch-built invocations skip the event-triggered pipeline entirely, so
+        // trigger_masking has to be applied here explicitly — otherwise a workflow
+        // with a masking TTL re-enrolls the same audience on every scheduled run.
+        const { masked, notMasked, release } = await this.hogMasker.filterByMasking(builtInvocations)
+
+        // Only the unmasked runs get a lifecycle row: a masked one is never enqueued, so a
+        // `running` row for it would sit in the invocations list forever with no terminal row.
+        //
+        // Queued before serializing, because queueLifecycleRow stamps `state.firstScheduledAt`
+        // on the invocation and the terminal row written after the run wakes has to inherit it —
+        // otherwise that row records the wake time and wins the ReplacingMergeTree collapse,
+        // mislabeling when the run started.
+        for (const invocation of notMasked) {
             this.invocationResultsService.invocationResultsRowsService.queueLifecycleRow(invocation, 'running')
         }
 
-        const children: CyclotronV2JobInit[] = invocations.map(invocationToV2JobInit)
+        const children: CyclotronV2JobInit[] = notMasked.map((invocation) => invocationToV2JobInit(invocation))
 
         const newState: BatchResolverState = {
             ...state,
             cursor: page.cursor,
-            totalEnqueued: state.totalEnqueued + children.length,
+            totalEnqueued: state.totalEnqueued + eligibleIds.length,
             pagesProcessed: state.pagesProcessed + 1,
             attempts: 0, // reset on successful page commit
         }
@@ -319,21 +327,42 @@ export class CdpCyclotronWorkerBatchResolve extends CdpConsumerBase<PluginsServe
                 },
             })
         } catch (err) {
-            // The commit is atomic with the state advance, so a failure replays this page from
-            // the same cursor. Drop the rows we optimistically queued above or the replay
-            // double-writes them.
+            // The mask claims are already in Redis, but the page didn't commit — the
+            // stall-recovery replay of this cursor would see the whole page as masked
+            // and silently drop it. Undo the claims so the replay re-enrolls cleanly.
+            await release()
+            // Same reasoning for the lifecycle rows queued above: the replay re-queues them,
+            // so leaving these would write each run's `running` row twice.
             this.invocationResultsService.invocationResultsRowsService.dropQueuedRowsFor(
-                invocations.map((invocation) => invocation.id)
+                notMasked.map((invocation) => invocation.id)
             )
             throw err
         }
 
+        // Queued only after a successful commit: a failed page is replayed, so metrics
+        // emitted for it would double-count once the replay re-evaluates masking.
+        if (masked.length) {
+            this.hogFunctionMonitoringService.queueAppMetrics(
+                masked.map((item) => ({
+                    team_id: item.teamId,
+                    app_source_id: item.functionId,
+                    metric_kind: 'other',
+                    metric_name: 'masked',
+                    count: 1,
+                    app_source_version: { id: item.hogFlow.id, version: item.hogFlow.version },
+                })),
+                'hog_flow'
+            )
+        }
+
         // Mirrors the `triggered` metric the realtime trigger path emits per invocation, so
         // batch runs count towards "workflows started" (and the derived in-progress count).
+        // Masked runs are excluded: counting one as started would leave it in progress forever,
+        // since it never runs and so never records a terminal `succeeded`.
         // Keyed on the batch job id like every other metric a batch run emits; `instance_id`
         // is left unset because this is a run-level, not a step-level, metric.
         this.hogFunctionMonitoringService.queueAppMetrics(
-            invocations.map((invocation) => ({
+            notMasked.map((invocation) => ({
                 team_id: invocation.teamId,
                 app_source_id: invocation.parentRunId ?? hogFlow.id,
                 metric_kind: 'other' as const,
@@ -352,7 +381,7 @@ export class CdpCyclotronWorkerBatchResolve extends CdpConsumerBase<PluginsServe
 
         logger.info(
             '📝',
-            `${this.name} - processed page for batch ${state.batchJobId}: ${children.length} ${isAccountAudience ? 'accounts' : 'persons'} (${newState.totalEnqueued} total, ${newState.pagesProcessed} pages)`
+            `${this.name} - processed page for batch ${state.batchJobId}: ${children.length} ${isAccountAudience ? 'accounts' : 'persons'} enqueued, ${masked.length} masked (${newState.totalEnqueued} total resolved, ${newState.pagesProcessed} pages)`
         )
     }
 

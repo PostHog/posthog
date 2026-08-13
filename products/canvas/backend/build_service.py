@@ -508,6 +508,37 @@ def publish_source_project(
     return canvas, version, build, first_publish
 
 
+def publish_current_source_version(
+    canvas: Canvas,
+    expected_current_version_id: str | UUID,
+    *,
+    user: User | None = None,
+    was_impersonated: bool = False,
+) -> tuple[Canvas, CanvasBuild]:
+    """Queue a build for the current source version without changing source or metadata."""
+    with transaction.atomic(), team_scope(canvas.team_id):
+        canvas = _claim_canvas_head(
+            canvas,
+            has_expected_version=True,
+            expected_version_id=expected_current_version_id,
+        )
+        if canvas.current_source_version_id is None:
+            raise CanvasVersionConflict(None)
+        version = CanvasSourceVersion.objects.for_team(canvas.team_id).get(
+            pk=canvas.current_source_version_id,
+            canvas_id=canvas.id,
+        )
+        build = _queue_build(version)
+    _log_canvas_activity(
+        canvas,
+        user=user,
+        was_impersonated=was_impersonated,
+        activity="published",
+        detail=Detail(name=canvas.name),
+    )
+    return canvas, build
+
+
 def revert_to_version(
     canvas: Canvas,
     version_id: str | UUID,

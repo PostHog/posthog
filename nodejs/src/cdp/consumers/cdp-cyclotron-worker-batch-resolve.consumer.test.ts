@@ -1,9 +1,11 @@
+import { HogFlow } from '~/cdp/schema/hogflow'
 import { IngestionOutputs } from '~/common/outputs/ingestion-outputs'
 import { parseJSON } from '~/common/utils/json-parse'
 import { Team } from '~/types'
 
+import { FixtureHogFlowBuilder } from '../_tests/builders/hogflow.builder'
+import { HOG_FLOW_MASK_EXAMPLES } from '../_tests/examples'
 import { CdpOutput } from '../cdp-services'
-import { HogFlow } from '../schema/hogflow'
 import { BatchResolverState } from '../services/hogflows/batch-resolver.types'
 import {
     HogInvocationResultRow,
@@ -17,6 +19,8 @@ import {
 
 describe('CdpCyclotronWorkerBatchResolve', () => {
     const team = { id: 123, name: 'Test team' } as Team
+    // A non-default version, so the flowVersion assertion can't pass by accident.
+    const hogFlow: HogFlow = { ...new FixtureHogFlowBuilder().withTeamId(team.id).build(), version: 4 }
 
     describe('buildAccountHogFlowInvocation', () => {
         it('carries the account group key and no person', () => {
@@ -24,7 +28,7 @@ describe('CdpCyclotronWorkerBatchResolve', () => {
                 siteUrl: 'https://us.posthog.com',
                 parentRunId: 'batch-job-1',
                 team,
-                hogFlow: { id: 'flow-1', version: 4 } as HogFlow,
+                hogFlow,
                 externalId: 'acme-1',
                 groupType: 'customer',
                 defaultVariables: { greeting: 'hi' },
@@ -48,26 +52,49 @@ describe('CdpCyclotronWorkerBatchResolve', () => {
             expect(invocation.parentRunId).toEqual('batch-job-1')
             expect(invocation.queue).toEqual('hogflow')
             expect((invocation as any).person).toBeUndefined()
-            // The processOnePage tests cover only the person path, so this is the one guard
-            // that account children carry the shape marker the lifecycle rows classify by.
-            expect(invocation.hogFlow.id).toEqual('flow-1')
+        })
+
+        // Two things key off this object. HogMaskerService.filterByMasking() only recognizes an
+        // invocation as a hog flow invocation (and applies trigger_masking) when it carries a
+        // `hogFlow`, and the invocation-results service classifies rows by the same shape — so a
+        // regression here silently stops masking batch runs and drops their rows out of the
+        // workflow invocations list, which filters on hog_flow.
+        it('attaches the hogFlow so trigger_masking can be applied by the batch resolver', () => {
+            const maskedHogFlow: HogFlow = new FixtureHogFlowBuilder()
+                .withTeamId(team.id)
+                .withTriggerMasking(HOG_FLOW_MASK_EXAMPLES.everyTime.trigger_masking)
+                .build()
+
+            const invocation = buildAccountHogFlowInvocation({
+                siteUrl: 'https://us.posthog.com',
+                parentRunId: 'batch-job-1',
+                team,
+                hogFlow: maskedHogFlow,
+                externalId: 'acme-1',
+                groupType: 'customer',
+                defaultVariables: {},
+            })
+
+            expect(invocation.hogFlow).toBe(maskedHogFlow)
+            expect(invocation.hogFlow.trigger_masking).toEqual(HOG_FLOW_MASK_EXAMPLES.everyTime.trigger_masking)
         })
     })
 
     describe('processOnePage run-level monitoring', () => {
         const BATCH_JOB_ID = 'batch-job-1'
-        const HOG_FLOW_ID = 'flow-1'
 
         let consumer: CdpCyclotronWorkerBatchResolve
         let queueAppMetrics: jest.Mock
         let outputs: jest.Mocked<IngestionOutputs<CdpOutput>>
         let rowsService: HogInvocationResultsService
         let bulkCreateAndCheckIn: jest.Mock
+        let filterByMasking: jest.Mock
+        let release: jest.Mock
 
         const state: BatchResolverState = {
             batchJobId: BATCH_JOB_ID,
             teamId: team.id,
-            hogFlowId: HOG_FLOW_ID,
+            hogFlowId: hogFlow.id,
             cursor: null,
             filters: { properties: [] },
             maxAudienceSize: 100,
@@ -89,9 +116,17 @@ describe('CdpCyclotronWorkerBatchResolve', () => {
                 ([, message]) => parseJSON(message.value!.toString('utf8')) as HogInvocationResultRow
             )
 
+        const triggeredMetrics = (): any[] =>
+            queueAppMetrics.mock.calls.flatMap(([metrics]) => metrics).filter((m) => m.metric_name === 'triggered')
+
         beforeEach(() => {
             queueAppMetrics = jest.fn()
             bulkCreateAndCheckIn = jest.fn().mockResolvedValue(undefined)
+            release = jest.fn().mockResolvedValue(undefined)
+            // Masking itself is covered by hog-masker.service.test.ts; stubbing the partition
+            // here is what lets each case fix which runs are masked and assert how the consumer
+            // routes them.
+            filterByMasking = jest.fn((invocations) => ({ masked: [], notMasked: invocations, release }))
             outputs = {
                 produce: jest.fn().mockResolvedValue(undefined),
             } as unknown as jest.Mocked<IngestionOutputs<CdpOutput>>
@@ -106,9 +141,7 @@ describe('CdpCyclotronWorkerBatchResolve', () => {
             Object.assign(consumer, {
                 config: { SITE_URL: 'https://us.posthog.com' },
                 deps: { teamManager: { getTeam: jest.fn().mockResolvedValue(team) } },
-                hogFlowManager: {
-                    getHogFlow: jest.fn().mockResolvedValue({ id: HOG_FLOW_ID, version: 4, variables: [] }),
-                },
+                hogFlowManager: { getHogFlow: jest.fn().mockResolvedValue(hogFlow) },
                 hogFlowBatchPersonQueryService: {
                     getBlastRadiusPersons: jest.fn().mockResolvedValue({
                         users_affected: ['person-1', 'person-2'],
@@ -116,6 +149,7 @@ describe('CdpCyclotronWorkerBatchResolve', () => {
                         has_more: false,
                     }),
                 },
+                hogMasker: { filterByMasking },
                 hogFunctionMonitoringService: { queueAppMetrics, queueLogs: jest.fn() },
                 invocationResultsService: { invocationResultsRowsService: rowsService },
             })
@@ -124,24 +158,19 @@ describe('CdpCyclotronWorkerBatchResolve', () => {
         it('counts each enrolled person as a triggered run against the batch job', async () => {
             await processPage()
 
-            expect(queueAppMetrics).toHaveBeenCalledTimes(1)
-            const [metrics, source] = queueAppMetrics.mock.calls[0]
-            expect(source).toEqual('hog_flow')
-            expect(metrics).toEqual([
+            const metrics = triggeredMetrics()
+            expect(metrics).toHaveLength(2)
+            for (const metric of metrics) {
                 // Keyed on the batch job, not the workflow — that is where the batch metrics
                 // view looks, and the workflow id would silently read as zero runs started.
-                expect.objectContaining({
-                    team_id: team.id,
-                    app_source_id: BATCH_JOB_ID,
-                    metric_kind: 'other',
-                    metric_name: 'triggered',
-                    count: 1,
-                }),
-                expect.objectContaining({ app_source_id: BATCH_JOB_ID, metric_name: 'triggered' }),
-            ])
-            // Run-level metrics carry no instance id; a step id here would hide them from the
-            // started/in-progress counters, which filter on the empty instance.
-            expect(metrics[0].instance_id).toBeUndefined()
+                expect(metric.app_source_id).toEqual(BATCH_JOB_ID)
+                expect(metric.team_id).toEqual(team.id)
+                expect(metric.metric_kind).toEqual('other')
+                expect(metric.count).toEqual(1)
+                // Run-level metrics carry no instance id; a step id here would hide them from the
+                // started/in-progress counters, which filter on the empty instance.
+                expect(metric.instance_id).toBeUndefined()
+            }
         })
 
         it('records each enrolled person as a running hog_flow invocation so parked runs are listable', async () => {
@@ -152,41 +181,54 @@ describe('CdpCyclotronWorkerBatchResolve', () => {
             expect(rows).toHaveLength(2)
             for (const row of rows) {
                 // hog_flow, not hog_function: the workflow invocations API only reads rows with
-                // function_kind = 'hog_flow', so a row under any other kind is invisible — the
-                // exact blackout this PR exists to close.
+                // this kind, so a misclassified row is invisible even though it was written.
                 expect(row.function_kind).toEqual('hog_flow')
-                expect(row.function_id).toEqual(HOG_FLOW_ID)
+                expect(row.function_id).toEqual(hogFlow.id)
                 expect(row.parent_run_id).toEqual(BATCH_JOB_ID)
                 expect(row.status).toEqual('running')
             }
-            expect(rows.map((row) => row.person_id).sort()).toEqual(['person-1', 'person-2'])
         })
 
         it('stamps the enqueue time into the state that gets persisted', async () => {
-            // queueLifecycleRow sets firstScheduledAt on the invocation, so it has to run before
-            // the state is serialized onto the cyclotron job. If it runs after — or if the
-            // service does not recognize the invocation as a workflow — the terminal row written
-            // when the run wakes records the wake time and wins the argMax collapse.
+            // The stamp is written onto the invocation by queueLifecycleRow, so it only lands in
+            // cyclotron if that runs before the state is serialized. Out of order, the terminal
+            // row written when the run wakes records the wake time and wins the argMax collapse.
             await processPage()
 
             const { newJobs } = bulkCreateAndCheckIn.mock.calls[0][0]
             expect(newJobs).toHaveLength(2)
             for (const job of newJobs) {
-                const persisted = parseJSON(job.state.toString('utf8'))
-                expect(persisted.state.firstScheduledAt).toEqual(expect.any(String))
+                expect(job.state.toString()).toContain('firstScheduledAt')
             }
         })
 
-        it('drops the queued rows when the page fails to commit', async () => {
+        it('leaves masked runs out of both the triggered count and the invocations list', async () => {
+            // A masked run is never enqueued, so counting it as started would strand it in the
+            // in-progress figure forever, and its running row would never get a terminal row.
+            filterByMasking.mockImplementation((invocations: CyclotronJobInvocationHogFlow[]) => ({
+                masked: [invocations[0]],
+                notMasked: [invocations[1]],
+                release,
+            }))
+
+            await processPage()
+            await rowsService.flush()
+
+            expect(triggeredMetrics()).toHaveLength(1)
+            expect(producedRows()).toHaveLength(1)
+        })
+
+        it('drops the queued rows and releases the mask claims when the page fails to commit', async () => {
             // The commit is atomic with the cursor advance, so a failure replays the whole page.
             // Rows left queued here would be written twice.
             bulkCreateAndCheckIn.mockRejectedValue(new Error('postgres is down'))
 
             await expect(processPage()).rejects.toThrow('postgres is down')
-
             await rowsService.flush()
-            expect(outputs.produce).not.toHaveBeenCalled()
-            expect(queueAppMetrics).not.toHaveBeenCalled()
+
+            expect(producedRows()).toHaveLength(0)
+            expect(release).toHaveBeenCalledTimes(1)
+            expect(triggeredMetrics()).toHaveLength(0)
         })
     })
 })

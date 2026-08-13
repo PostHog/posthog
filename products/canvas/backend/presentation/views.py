@@ -1,9 +1,9 @@
-from typing import Any
+from typing import Any, cast
 from uuid import UUID
 
 from django.conf import settings
 from django.core.exceptions import ValidationError as DjangoValidationError
-from django.db.models import QuerySet
+from django.db.models import Q, QuerySet
 from django.utils import timezone
 
 from drf_spectacular.types import OpenApiTypes
@@ -33,6 +33,7 @@ from products.canvas.backend.presentation.serializers import (
     CanvasDraftSerializer,
     CanvasPromoteSerializer,
     CanvasPublishConflictSerializer,
+    CanvasPublishCurrentVersionSerializer,
     CanvasRevertSerializer,
     CanvasSerializer,
     CanvasSourceDraftResponseSerializer,
@@ -107,12 +108,24 @@ class CanvasViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
         "partial_update",
         "destroy",
         "publish",
+        "publish_current_version",
         "edit",
         "draft",
         "promote",
         "revert",
         "build_action",
     ]
+
+    _CREATOR_ONLY_ACTIONS = {
+        "partial_update",
+        "destroy",
+        "publish",
+        "edit",
+        "draft",
+        "promote",
+        "revert",
+        "build_action",
+    }
 
     @extend_schema(
         parameters=[
@@ -126,13 +139,35 @@ class CanvasViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
 
     def safely_get_queryset(self, queryset: QuerySet) -> QuerySet:
         queryset = queryset.filter(team_id=self.team_id, deleted=False)
-        # Channels are per-user for the personal kind: the facade's visibility
-        # rule makes a canvas filed into someone else's personal channel
-        # invisible (and unwritable) to everyone but its owner, for list and
-        # every detail action alike. The create() check alone is not enough —
-        # DRF resolves all detail actions off this queryset.
         user = self._request_user()
-        queryset = queryset.filter(tasks_facade.visible_channels_q(user.id if user else None, relation="channel"))
+        is_sandbox_authenticated = self._is_sandbox_authenticated(self.request)
+        if is_sandbox_authenticated:
+            sandbox_task_id = self._sandbox_task_id(self.request)
+            if sandbox_task_id is None:
+                return queryset.none()
+            public_canvas_q = tasks_facade.visible_channels_q(None, relation="channel")
+            if user is None:
+                queryset = (
+                    queryset.filter(public_canvas_q)
+                    if self.action in self.scope_object_read_actions
+                    else queryset.none()
+                )
+            else:
+                actor_canvas_q = Q(created_by_id=user.id) & tasks_facade.visible_channels_q(user.id, relation="channel")
+                queryset = queryset.filter(
+                    public_canvas_q | actor_canvas_q
+                    if self.action in self.scope_object_read_actions
+                    else actor_canvas_q
+                )
+        else:
+            # Channels are per-user for the personal kind: the facade's visibility
+            # rule makes a canvas filed into someone else's personal channel
+            # invisible (and unwritable) to everyone but its owner.
+            queryset = queryset.filter(tasks_facade.visible_channels_q(user.id if user else None, relation="channel"))
+        if not is_sandbox_authenticated and self.action in self._CREATOR_ONLY_ACTIONS:
+            if user is None:
+                return queryset.none()
+            queryset = queryset.filter(created_by_id=user.id)
         if self.action == "list":
             channel_id = self.request.query_params.get("channel")
             if channel_id:
@@ -146,7 +181,10 @@ class CanvasViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
     @extend_schema(
         operation_id="canvases_create",
         request=CanvasCreateSerializer,
-        responses={201: CanvasSerializer},
+        responses={
+            201: CanvasSerializer,
+            403: OpenApiResponse(description="The sandbox token is not bound to this task or space."),
+        },
     )
     def create(self, request: Request, *args: Any, **kwargs: Any) -> Response:
         """Create a new, empty canvas in a channel; give it source by publishing a project."""
@@ -158,6 +196,14 @@ class CanvasViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
         # someone else's personal channel must be refused here too.
         if not tasks_facade.channel_exists(self.team_id, channel_id, user.id if user else None):
             return Response({"detail": "Channel not found in this team."}, status=status.HTTP_400_BAD_REQUEST)
+        sandbox_task_id = self._sandbox_task_id(request)
+        if self._is_sandbox_authenticated(request) and (
+            sandbox_task_id is None or not tasks_facade.task_is_in_channel(sandbox_task_id, self.team_id, channel_id)
+        ):
+            return Response(
+                {"detail": "This sandbox can create canvases only in its task's space."},
+                status=status.HTTP_403_FORBIDDEN,
+            )
         canvas = Canvas.objects.create(
             team_id=self.team_id,
             channel_id=channel_id,
@@ -168,7 +214,7 @@ class CanvasViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
             # the two at birth so the client can show the run on the
             # canvas and nest the task under it — composer-initiated
             # generations have no client-side create to record it.
-            generation_task_id=self._sandbox_task_id(request),
+            generation_task_id=sandbox_task_id,
         )
         self._log_canvas_activity(canvas, "created", Detail(name=canvas.name))
         self._report_canvas_action(
@@ -321,6 +367,44 @@ class CanvasViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
         payload.is_valid(raise_exception=True)
         diagnostics = validate_source_project(payload.validated_data["project"])
         return Response({"valid": not has_errors(diagnostics), "diagnostics": diagnostics})
+
+    @extend_schema(
+        operation_id="canvases_publish_current_version_create",
+        request=CanvasPublishCurrentVersionSerializer,
+        responses={
+            200: CanvasBuildSerializer,
+            409: OpenApiResponse(
+                response=CanvasPublishConflictSerializer,
+                description="The canvas moved past expected_current_version_id.",
+            ),
+            429: OpenApiResponse(description="The team's build capacity is exhausted; retry shortly."),
+        },
+    )
+    @action(methods=["POST"], detail=True, url_path="publish-current-version")
+    def publish_current_version(self, request: Request, *args: Any, **kwargs: Any) -> Response:
+        """Queue a build for the current source version without changing source or metadata."""
+        canvas = self.get_object()
+        payload = CanvasPublishCurrentVersionSerializer(data=request.data)
+        payload.is_valid(raise_exception=True)
+        try:
+            canvas, build = build_service.publish_current_source_version(
+                canvas,
+                payload.validated_data["expected_current_version_id"],
+                user=self._request_user(),
+                was_impersonated=is_impersonated(request),
+            )
+        except build_service.CanvasVersionConflict as conflict:
+            return _conflict_response(conflict)
+        except build_service.CanvasBuildCapacityExceeded:
+            return _capacity_response()
+        self._report_canvas_action(
+            "canvas published",
+            canvas,
+            version_id=str(build.source_version_id),
+            first_publish=False,
+            is_sandbox_publish=self._sandbox_task_id(request) is not None,
+        )
+        return Response(CanvasBuildSerializer(build).data)
 
     @extend_schema(
         operation_id="canvases_publish_create",
@@ -788,21 +872,14 @@ class CanvasViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
             return None
 
     def _sandbox_task_id(self, request: Request) -> UUID | None:
-        """The calling task's id when this is a sandbox-stamped MCP call for a
-        task in this team; None for human/app saves. The task sandbox stamps
-        every MCP call with an X-PostHog-Task-Id header, but the header alone
-        is forgeable, so two checks bind it to a real sandbox run: the request
-        must carry an OAuth token minted under a sandbox app (those tokens are
-        only created server-side), and the task must have been created by the
-        requesting user (the sandbox authenticates with the task creator's
-        credentials)."""
+        """Return the calling sandbox's task when its header matches the OAuth binding."""
         task_id = self._request_task_id(request)
         if task_id is None or not self._is_sandbox_authenticated(request):
             return None
-        user = self._request_user()
-        if user is None or not tasks_facade.task_owned_by_user(task_id, self.team_id, user.id):
+        authenticator = cast(OAuthAccessTokenAuthentication, request.successful_authenticator)
+        if authenticator.access_token.sandbox_task_id != task_id:
             return None
-        return task_id
+        return task_id if tasks_facade.task_exists(task_id, self.team_id) else None
 
     def _announce_canvas_created(self, task_id: UUID | None, user: User | None, canvas: Canvas) -> None:
         """Announce a canvas's first publish in the generating task's thread.
@@ -822,10 +899,20 @@ class CanvasViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
 
     @staticmethod
     def _is_sandbox_authenticated(request: Request) -> bool:
-        """True when the request bears an OAuth token minted under a sandbox app —
-        the credential a task sandbox (via the MCP server) calls this API with."""
+        """True when the request bears an OAuth token minted for a task sandbox —
+        the credential a task sandbox (via the MCP server) calls this API with.
+
+        The sandbox apps also issue the desktop app's interactive grants, so the application
+        alone does not prove sandbox origin. Server-minted tokens carry either a task binding
+        or the internal provenance scope. An unbound server token must still fail closed rather
+        than inherit its user's Canvas visibility.
+        """
         authenticator = request.successful_authenticator
         if not isinstance(authenticator, OAuthAccessTokenAuthentication):
             return False
-        application = authenticator.access_token.application
+        access_token = authenticator.access_token
+        scopes = set((access_token.scope or "").split())
+        if access_token.sandbox_task_id is None and "internal_run:read" not in scopes:
+            return False
+        application = access_token.application
         return application is not None and application.client_id in SANDBOX_OAUTH_APP_CLIENT_IDS

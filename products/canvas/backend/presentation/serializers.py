@@ -349,6 +349,12 @@ class CanvasSourceEditSerializer(serializers.Serializer):
     )
 
 
+class CanvasPublishCurrentVersionSerializer(serializers.Serializer):
+    expected_current_version_id = serializers.UUIDField(
+        help_text="Current source version to publish. A changed head returns a 409 version_conflict."
+    )
+
+
 class CanvasSourcePublishResponseSerializer(serializers.Serializer):
     """Result of a successful source-project publish."""
 

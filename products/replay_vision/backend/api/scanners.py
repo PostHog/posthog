@@ -1,3 +1,4 @@
+import json
 from typing import Any, NoReturn, cast
 
 from django.db import IntegrityError
@@ -68,9 +69,10 @@ from products.replay_vision.backend.models.replay_scanner import (
     ScannerType,
 )
 from products.replay_vision.backend.queries import (
-    ESTIMATE_INTERACTIVE_MAX_EXECUTION_SECONDS,
     ESTIMATE_STALE_AFTER,
     MIN_SAMPLING_RATE,
+    PREVIEW_ESTIMATE_BUDGET,
+    SAVE_ESTIMATE_BUDGET,
     estimate_scanner_session_volume,
     project_monthly_observations,
     refresh_scanner_estimate,
@@ -94,8 +96,9 @@ from products.replay_vision.backend.tag_suggestions import SuggestionError, sugg
 # Date is set by the schedule at trigger time, not by the user — strip on save.
 _QUERY_FIELDS_TO_STRIP = ("date_from", "date_to")
 
-# Size caps enforced at the write boundary; scanner_config is copied into every observation's snapshot.
+# Size caps enforced at the write boundary; scanner_config and query are copied into every observation's snapshot.
 _MAX_DESCRIPTION_LENGTH = 1_000
+_MAX_QUERY_BYTES = 50_000
 
 logger = structlog.get_logger(__name__)
 
@@ -140,7 +143,7 @@ def _scanner_lifecycle_properties(scanner: ReplayScanner) -> dict[str, Any]:
 def _refresh_estimate_fail_soft(scanner: ReplayScanner) -> None:
     # The estimate is advisory — never fail a scanner save over it, and keep the save's latency tail short.
     try:
-        refresh_scanner_estimate(scanner, max_execution_seconds=ESTIMATE_INTERACTIVE_MAX_EXECUTION_SECONDS)
+        refresh_scanner_estimate(scanner, budget=SAVE_ESTIMATE_BUDGET)
     except Exception:
         logger.exception("replay_vision.estimate_refresh_failed", scanner_id=str(scanner.id))
 
@@ -481,6 +484,10 @@ class ReplayScannerSerializer(UserAccessControlSerializerMixin, serializers.Mode
             raise serializers.ValidationError({"query": "Recording filter is invalid."})
         # Persist exactly what the user sent (validated), minus the date keys the schedule controls.
         attrs["query"] = {k: v for k, v in attrs["query"].items() if k not in _QUERY_FIELDS_TO_STRIP}
+        if len(json.dumps(attrs["query"], separators=(",", ":")).encode()) > _MAX_QUERY_BYTES:
+            raise serializers.ValidationError(
+                {"query": f"Recording filter is too large. Keep it under {_MAX_QUERY_BYTES // 1000} KB."}
+            )
 
     def to_representation(self, instance: ReplayScanner) -> dict[str, Any]:
         data = super().to_representation(instance)
@@ -1628,7 +1635,10 @@ class ReplayScannerViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, vi
         recordings_query = RecordingsQuery.model_validate(query_dict)
 
         estimate = estimate_scanner_session_volume(
-            team=self.team, query=recordings_query, sampling_mode=body.validated_data["sampling_mode"]
+            team=self.team,
+            query=recordings_query,
+            sampling_mode=body.validated_data["sampling_mode"],
+            budget=PREVIEW_ESTIMATE_BUDGET,
         )
         observations_per_month = project_monthly_observations(estimate, sampling_rate)
         credits_per_observation = observation_credits_for_model(body.validated_data["model"])
