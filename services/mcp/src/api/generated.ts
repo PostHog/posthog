@@ -39427,11 +39427,6 @@ export namespace Schemas {
       Unknown: 'unknown',
     } as const;
 
-    export interface SummaryOutcome {
-      description?: string | null;
-      success?: boolean | null;
-    }
-
     export interface SessionRecordingType {
       active_seconds?: number | null;
       /** calculated on the backend so that we can sort by it, definition may change over time */
@@ -39474,7 +39469,6 @@ export namespace Schemas {
       start_time: string;
       start_url?: string | null;
       summary?: string | null;
-      summary_outcome?: SummaryOutcome | null;
       /** Whether this recording has been viewed by you already. */
       viewed: boolean;
       /** user ids of other users who have viewed this recording */
@@ -47193,20 +47187,6 @@ export namespace Schemas {
       Summary: 'summary',
     } as const;
 
-    /**
-     * Initial goal and session outcome coming from LLM.
-     */
-    export interface Outcome {
-      /**
-         * @minLength 1
-         * @maxLength 10000
-         * @nullable
-         */
-      description?: string | null;
-      /** @nullable */
-      success?: boolean | null;
-    }
-
     export interface OutdatedTrafficAlert {
       /** Outdated version handling significant traffic. */
       version: string;
@@ -50074,24 +50054,6 @@ export namespace Schemas {
       results: ScoreDefinition[];
     }
 
-    export interface SessionGroupSummaryMinimal {
-      readonly id: string;
-      /** Title of the group session summary */
-      readonly title: string;
-      readonly session_count: number;
-      readonly created_at: string;
-      readonly created_by: UserBasic;
-    }
-
-    export interface PaginatedSessionGroupSummaryMinimalList {
-      count: number;
-      /** @nullable */
-      next?: string | null;
-      /** @nullable */
-      previous?: string | null;
-      results: SessionGroupSummaryMinimal[];
-    }
-
     /**
      * Read-only serializer for Integration info embedded in external references
      */
@@ -50178,8 +50140,6 @@ export namespace Schemas {
       readonly ongoing: boolean;
       /** @nullable */
       readonly activity_score: number | null;
-      readonly has_summary: boolean;
-      readonly summary_outcome: Outcome | null;
       /** Load external references (linked issues) for this recording */
       readonly external_references: readonly SessionRecordingExternalReferencesItem[];
       /** Whether this recording matched the filters of the listing query that returned it. False only when a recording requested via session_recording_id was included despite not matching the filters. */
@@ -50661,79 +50621,6 @@ export namespace Schemas {
       /** @nullable */
       previous?: string | null;
       results: SignalSourceConfig[];
-    }
-
-    /**
-     * Headline outcome from the summary: `{success: bool, description: string}` or null if the summary did not record one. Useful for quickly classifying a session as success/failure.
-     * @nullable
-     */
-    export type SingleSessionSummaryMinimalSessionOutcome = {
-      readonly success?: boolean;
-      readonly description?: string;
-    } | null;
-
-    /**
-     * Optional context passed to the summary at generation time (e.g. `focus_area`).
-     * @nullable
-     */
-    export type SingleSessionSummaryMinimalExtraSummaryContext = {
-      readonly focus_area?: string;
-    } | null;
-
-    /**
-     * Lightweight projection for list endpoints — omits the full `summary` JSON (~50 KB per row).
-     */
-    export interface SingleSessionSummaryMinimal {
-      readonly id: string;
-      /** Session replay ID */
-      readonly session_id: string;
-      /**
-         * Distinct ID of the session's user
-         * @nullable
-         */
-      readonly distinct_id: string | null;
-      /**
-         * Session start time
-         * @nullable
-         */
-      readonly session_start_time: string | null;
-      /**
-         * Session duration in seconds
-         * @nullable
-         */
-      readonly session_duration: number | null;
-      /**
-         * Headline outcome from the summary: `{success: bool, description: string}` or null if the summary did not record one. Useful for quickly classifying a session as success/failure.
-         * @nullable
-         */
-      readonly session_outcome: SingleSessionSummaryMinimalSessionOutcome;
-      /** Number of exception event IDs surfaced by this summary (capped at 100). */
-      readonly exception_count: number;
-      /** True if the summary surfaced any exception events. */
-      readonly has_exceptions: boolean;
-      /**
-         * LLM model identifier that generated this summary, if recorded in run metadata.
-         * @nullable
-         */
-      readonly model_used: string | null;
-      /** True if the summary was produced with video-based visual confirmation (the rasterized-recording path). */
-      readonly visual_confirmation: boolean;
-      /**
-         * Optional context passed to the summary at generation time (e.g. `focus_area`).
-         * @nullable
-         */
-      readonly extra_summary_context: SingleSessionSummaryMinimalExtraSummaryContext;
-      readonly created_at: string;
-      readonly created_by: UserBasic | null;
-    }
-
-    export interface PaginatedSingleSessionSummaryMinimalList {
-      count: number;
-      /** @nullable */
-      next?: string | null;
-      /** @nullable */
-      previous?: string | null;
-      results: SingleSessionSummaryMinimal[];
     }
 
     export interface SnapshotHistoryEntry {
@@ -59053,26 +58940,6 @@ export namespace Schemas {
       archived?: boolean;
     }
 
-    export interface PatchedSessionGroupSummary {
-      readonly id?: string;
-      /** Title of the group session summary */
-      readonly title?: string;
-      /**
-         * List of session replay IDs included in this group summary
-         * @items.maxLength 200
-         */
-      readonly session_ids?: readonly string[];
-      /** Group summary in JSON format (EnrichedSessionGroupSummaryPatternsList schema) */
-      readonly summary?: unknown;
-      /** Additional context passed to the summary (ExtraSummaryContext schema) */
-      readonly extra_summary_context?: unknown;
-      /** Summary run metadata (SessionSummaryRunMeta schema) */
-      readonly run_metadata?: unknown;
-      readonly created_at?: string;
-      readonly created_by?: UserBasic;
-      readonly team?: number;
-    }
-
     export type PatchedSessionRecordingExternalReferencesItem = { [key: string]: unknown };
 
     export interface PatchedSessionRecording {
@@ -59118,8 +58985,6 @@ export namespace Schemas {
       readonly ongoing?: boolean;
       /** @nullable */
       readonly activity_score?: number | null;
-      readonly has_summary?: boolean;
-      readonly summary_outcome?: Outcome | null;
       /** Load external references (linked issues) for this recording */
       readonly external_references?: readonly PatchedSessionRecordingExternalReferencesItem[];
       /** Whether this recording matched the filters of the listing query that returned it. False only when a recording requested via session_recording_id was included despite not matching the filters. */
@@ -59186,21 +59051,6 @@ export namespace Schemas {
       /** Return whether this is a synthetic playlist */
       readonly is_synthetic?: boolean;
       _create_in_folder?: string;
-    }
-
-    /**
-     * Team-defined tags layered on top of the fixed taxonomy, as a {name: description} map. Names must be lowercase snake_case (max 60 chars), descriptions max 200 chars, max 15 entries.
-     */
-    export type PatchedSessionSummariesConfigCustomTags = {[key: string]: string};
-
-    export interface PatchedSessionSummariesConfig {
-      /**
-         * Free-form description of the team's product, used to tailor AI-generated single-session replay summaries. Injected into the system prompt of every summary generated for this team via the replay page.
-         * @maxLength 10000
-         */
-      product_context?: string;
-      /** Team-defined tags layered on top of the fixed taxonomy, as a {name: description} map. Names must be lowercase snake_case (max 60 chars), descriptions max 200 chars, max 15 entries. */
-      custom_tags?: PatchedSessionSummariesConfigCustomTags;
     }
 
     /**
@@ -69177,26 +69027,6 @@ export namespace Schemas {
       policies?: ToolPolicyEntry[];
     }
 
-    export interface SessionGroupSummary {
-      readonly id: string;
-      /** Title of the group session summary */
-      readonly title: string;
-      /**
-         * List of session replay IDs included in this group summary
-         * @items.maxLength 200
-         */
-      readonly session_ids: readonly string[];
-      /** Group summary in JSON format (EnrichedSessionGroupSummaryPatternsList schema) */
-      readonly summary: unknown;
-      /** Additional context passed to the summary (ExtraSummaryContext schema) */
-      readonly extra_summary_context: unknown;
-      /** Summary run metadata (SessionSummaryRunMeta schema) */
-      readonly run_metadata: unknown;
-      readonly created_at: string;
-      readonly created_by: UserBasic;
-      readonly team: number;
-    }
-
     export interface SessionRecordingBulkDeleteRequest {
       /**
          * Session IDs of the recordings to delete (max 100 per call).
@@ -69252,35 +69082,6 @@ export namespace Schemas {
     export const SessionReplayListWidgetTypeEnum = {
       SessionReplayList: 'session_replay_list',
     } as const;
-
-    export interface SessionSummaries {
-      /**
-         * List of session IDs to summarize (max 300)
-         * @minItems 1
-         * @maxItems 300
-         */
-      session_ids: string[];
-      /**
-         * Optional focus area for the summarization
-         * @maxLength 500
-         */
-      focus_area?: string;
-    }
-
-    /**
-     * Team-defined tags layered on top of the fixed taxonomy, as a {name: description} map. Names must be lowercase snake_case (max 60 chars), descriptions max 200 chars, max 15 entries.
-     */
-    export type SessionSummariesConfigCustomTags = {[key: string]: string};
-
-    export interface SessionSummariesConfig {
-      /**
-         * Free-form description of the team's product, used to tailor AI-generated single-session replay summaries. Injected into the system prompt of every summary generated for this team via the replay page.
-         * @maxLength 10000
-         */
-      product_context?: string;
-      /** Team-defined tags layered on top of the fixed taxonomy, as a {name: description} map. Names must be lowercase snake_case (max 60 chars), descriptions max 200 chars, max 15 entries. */
-      custom_tags?: SessionSummariesConfigCustomTags;
-    }
 
     export interface SetAllServersEnabled {
       /** True enables every MCP server for the team; false disables them all. Applies to every registered server and becomes the default for untouched and future catalog servers. */
@@ -70173,65 +69974,6 @@ export namespace Schemas {
       slack_notification_min_priority?: AutonomyPriorityEnum | BlankEnum | null;
       readonly created_at: string;
       readonly updated_at: string;
-    }
-
-    /**
-     * Full LLM-generated summary JSON. Contains `segments` (chronological journey segments), `key_actions` (per-segment events with `abandonment` / `confusion` / `exception` flags — the structured source of session-level problems), `segment_outcomes`, and `session_outcome`. Video-based runs additionally include a `sentiment` block.
-     */
-    export type SingleSessionSummarySummary = { [key: string]: unknown };
-
-    /**
-     * Optional context passed to the summary at generation time (e.g. `focus_area`).
-     * @nullable
-     */
-    export type SingleSessionSummaryExtraSummaryContext = {
-      readonly focus_area?: string;
-    } | null;
-
-    /**
-     * `SessionSummaryRunMeta` — model used, whether video-based visual confirmation was applied, and visual-confirmation event-to-asset mappings.
-     * @nullable
-     */
-    export type SingleSessionSummaryRunMetadata = { [key: string]: unknown } | null;
-
-    /**
-     * Full session summary, including the generated `summary` JSON content.
-     */
-    export interface SingleSessionSummary {
-      readonly id: string;
-      /** Session replay ID */
-      readonly session_id: string;
-      /**
-         * Distinct ID of the session's user
-         * @nullable
-         */
-      readonly distinct_id: string | null;
-      /**
-         * Session start time
-         * @nullable
-         */
-      readonly session_start_time: string | null;
-      /**
-         * Session duration in seconds
-         * @nullable
-         */
-      readonly session_duration: number | null;
-      /** Full LLM-generated summary JSON. Contains `segments` (chronological journey segments), `key_actions` (per-segment events with `abandonment` / `confusion` / `exception` flags — the structured source of session-level problems), `segment_outcomes`, and `session_outcome`. Video-based runs additionally include a `sentiment` block. */
-      readonly summary: SingleSessionSummarySummary;
-      /** Event IDs (capped at 100) where exceptions occurred during the session — extracted from the summary for searchability. */
-      readonly exception_event_ids: readonly string[];
-      /**
-         * Optional context passed to the summary at generation time (e.g. `focus_area`).
-         * @nullable
-         */
-      readonly extra_summary_context: SingleSessionSummaryExtraSummaryContext;
-      /**
-         * `SessionSummaryRunMeta` — model used, whether video-based visual confirmation was applied, and visual-confirmation event-to-asset mappings.
-         * @nullable
-         */
-      readonly run_metadata: SingleSessionSummaryRunMetadata;
-      readonly created_at: string;
-      readonly created_by: UserBasic | null;
     }
 
     export interface SlackChannel {
@@ -74715,6 +74457,15 @@ export namespace Schemas {
       team_id: number;
       /** Whether this team's SDKs receive the slim $feature_flag_called event shape (omitting fields only needed for experiments) instead of the full legacy shape. */
       minimal_flag_called_events: boolean;
+      /**
+         * Per-team override for the maximum number of feature flags this team may create, or null when the team uses the global default.
+         * @nullable
+         */
+      max_feature_flags_override: number | null;
+      /** The flag-count limit actually enforced for this team: the override when one is set, otherwise the global MAX_FEATURE_FLAGS_PER_TEAM setting. */
+      effective_max_feature_flags: number;
+      /** Number of feature flags the team has today, excluding soft-deleted ones, counted the same way the limit is enforced. */
+      feature_flag_count: number;
     }
 
     export interface StaffTeamConfigListResponse {
@@ -74725,8 +74476,15 @@ export namespace Schemas {
     export interface StaffTeamConfigMutation {
       /** Team id to update. Exactly one team per request. */
       team_id: number;
-      /** New value for the team's minimal_flag_called_events setting. Only set true after confirming that team's SDK versions support the slim $feature_flag_called event shape. */
-      minimal_flag_called_events: boolean;
+      /** New value for the team's minimal_flag_called_events setting. Omit to leave it unchanged. Only set true after confirming that team's SDK versions support the slim $feature_flag_called event shape. */
+      minimal_flag_called_events?: boolean;
+      /**
+         * New per-team flag-count limit (1-20,000). Send null to clear the override so the team falls back to the global default. Omit to leave it unchanged.
+         * @minimum 1
+         * @maximum 20000
+         * @nullable
+         */
+      max_feature_flags_override?: number | null;
     }
 
     export interface StaffTeamResult {
@@ -74742,6 +74500,11 @@ export namespace Schemas {
       organization_name: string;
       /** Project id the team belongs to. */
       project_id: number;
+      /**
+         * Project root team id when this team is an environment, or null when it is the root. The flag limit is set on the root, so a team with this set cannot take an override.
+         * @nullable
+         */
+      parent_team_id: number | null;
     }
 
     export interface StaffTeamSearchResponse {
@@ -88751,17 +88514,6 @@ export namespace Schemas {
       HogFlow: 'hog_flow',
     } as const;
 
-    export type SessionGroupSummariesListParams = {
-    /**
-     * Number of results to return per page.
-     */
-    limit?: number;
-    /**
-     * The initial index from which to return the results.
-     */
-    offset?: number;
-    };
-
     export type SessionRecordingExternalReferencesListParams = {
     /**
      * Number of results to return per page.
@@ -89064,62 +88816,6 @@ export namespace Schemas {
      */
     offset?: number;
     };
-
-    export type SingleSessionSummariesListParams = {
-    /**
-     * Filter to summaries triggered by a specific user, identified by `User.uuid`.
-     */
-    created_by?: string;
-    /**
-     * Inclusive lower bound on `created_at`, accepts relative shorthand like `-7d`.
-     */
-    date_from?: string;
-    /**
-     * Inclusive upper bound on `created_at`, accepts relative shorthand like `-1d`.
-     */
-    date_to?: string;
-    /**
-     * Filter to summaries for a single user (the session's `distinct_id`).
-     */
-    distinct_id?: string;
-    /**
-     * When true, only summaries that surfaced one or more exception events; when false, only summaries without exceptions.
-     */
-    has_exceptions?: boolean;
-    /**
-     * When true, only summaries produced via the video-based visual-confirmation workflow.
-     */
-    has_visual_confirmation?: boolean;
-    /**
-     * Number of results to return per page.
-     */
-    limit?: number;
-    /**
-     * The initial index from which to return the results.
-     */
-    offset?: number;
-    /**
-     * Ordering field, defaults to `-created_at` (most recent first). Allowed: `created_at`, `session_start_time`, `session_duration` (prefix with `-` for descending).
-     */
-    order?: string;
-    /**
-     * Filter by the summary's recorded `session_outcome.success` field. `success` for true, `failure` for false, `unknown` for summaries without an outcome.
-     */
-    outcome?: SingleSessionSummariesListOutcome;
-    /**
-     * Comma-separated list of session IDs to restrict the result to (uses the `(team, session_id)` index).
-     */
-    session_ids?: string;
-    };
-
-    export type SingleSessionSummariesListOutcome = typeof SingleSessionSummariesListOutcome[keyof typeof SingleSessionSummariesListOutcome];
-
-
-    export const SingleSessionSummariesListOutcome = {
-      Failure: 'failure',
-      Success: 'success',
-      Unknown: 'unknown',
-    } as const;
 
     export type StamphogDigestChannelsListParams = {
     /**
