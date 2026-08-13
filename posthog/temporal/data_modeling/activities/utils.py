@@ -50,6 +50,10 @@ CONSECUTIVE_FAILURES_TO_SUSPEND = 5
 
 SUSPENSION_ENFORCEMENT_FLAG = "data-modeling-suspend-failing-nodes"
 
+# Opens the error a data quality gate writes when it stops a publish. Shared so the job rows those
+# blocks produce stay recognizable to the suspension counter below.
+QUALITY_BLOCKED_ERROR_PREFIX = "Not published:"
+
 # The test before adding a marker is "was the query denied the chance to fail on its own merits",
 # NOT "was this our fault" - a query that exhausts memory is one we do want suspended.
 EXTERNALLY_ABORTED_MARKERS = (
@@ -60,6 +64,8 @@ EXTERNALLY_ABORTED_MARKERS = (
     "QueueEmpty: ",  # no root node to start from, so the graph was refused rather than the query
     "Preempted: ",
     ABANDONED_ERROR,
+    # the query ran and produced rows; only the publish was refused
+    QUALITY_BLOCKED_ERROR_PREFIX,
 )
 
 

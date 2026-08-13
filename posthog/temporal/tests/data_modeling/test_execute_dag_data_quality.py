@@ -15,8 +15,11 @@ from posthog.temporal.data_modeling.activities.get_dag_structure import DAG as D
 from posthog.temporal.data_modeling.workflows.execute_dag import ExecuteDAGInputs, ExecuteDAGResult, ExecuteDAGWorkflow
 from posthog.temporal.tests.data_modeling.test_execute_dag_workflow import (
     MockMaterializeViewWorkflow,
+    _mock_workflow_should_block_on_quality,
     _mock_workflow_should_fail,
+    _mock_workflow_should_self_audit,
     stub_preempt_dag_run,
+    stub_record_skipped_data_modeling_jobs,
 )
 
 from products.data_quality.backend.facade.contracts import MATERIALIZATION_GATE_ACTIVITY_NAME
@@ -24,6 +27,13 @@ from products.data_quality.backend.facade.contracts import MATERIALIZATION_GATE_
 pytestmark = [pytest.mark.asyncio, pytest.mark.django_db]
 
 _suite_runs_started: list[dict] = []
+
+_MOCK_STATE = (
+    _suite_runs_started,
+    _mock_workflow_should_fail,
+    _mock_workflow_should_block_on_quality,
+    _mock_workflow_should_self_audit,
+)
 
 
 @temporal_workflow.defn(name="data-quality-run-suite")
@@ -37,11 +47,11 @@ class MockCheckSuiteWorkflow:
 class TestPostMaterializationChecks:
     @pytest.fixture(autouse=True)
     def reset_mock_state(self):
-        _suite_runs_started.clear()
-        _mock_workflow_should_fail.clear()
+        for state in _MOCK_STATE:
+            state.clear()
         yield
-        _suite_runs_started.clear()
-        _mock_workflow_should_fail.clear()
+        for state in _MOCK_STATE:
+            state.clear()
 
     async def _run_dag(
         self,
@@ -49,6 +59,7 @@ class TestPostMaterializationChecks:
         node_ids: list[str],
         *,
         ephemeral_node_ids: list[str] | None = None,
+        edges: list[tuple[str, str]] | None = None,
         register_suite: bool = True,
         checks_needed: bool = True,
     ) -> ExecuteDAGResult:
@@ -59,7 +70,7 @@ class TestPostMaterializationChecks:
             return DAGPlan(
                 nodes=executable,
                 executable_nodes=executable,
-                edges=[],
+                edges=edges or [],
                 ephemeral_nodes=ephemeral_node_ids or [],
             )
 
@@ -76,7 +87,12 @@ class TestPostMaterializationChecks:
                 env.client,
                 task_queue="test-queue",
                 workflows=workflows,
-                activities=[stub_preempt_dag_run, stub_get_dag_structure, stub_materialization_gate],
+                activities=[
+                    stub_preempt_dag_run,
+                    stub_get_dag_structure,
+                    stub_materialization_gate,
+                    stub_record_skipped_data_modeling_jobs,
+                ],
                 workflow_runner=temporalio.worker.UnsandboxedWorkflowRunner(),
             ):
                 return await env.client.execute_workflow(
@@ -119,3 +135,29 @@ class TestPostMaterializationChecks:
 
         assert result.successful_nodes == 1
         assert result.failed_nodes == 0
+
+    async def test_a_node_that_audited_itself_is_not_swept_again(self, ateam) -> None:
+        # The child already ran this node's checks. Handing it to the sweep too runs every check a
+        # second time, against data the gate has already passed.
+        audited, unaudited = str(uuid.uuid4()), str(uuid.uuid4())
+        _mock_workflow_should_self_audit.add(audited)
+
+        await self._run_dag(ateam.pk, [audited, unaudited])
+
+        assert len(_suite_runs_started) == 1
+        assert _suite_runs_started[0]["node_ids"] == [unaudited]
+
+    async def test_a_blocked_publish_stops_its_descendants_and_leaves_the_sweep(self, ateam) -> None:
+        # The blocked node's table still serves the previous version, so a child that runs anyway
+        # publishes a model built on data its parent refused to publish.
+        blocked, downstream = str(uuid.uuid4()), str(uuid.uuid4())
+        _mock_workflow_should_block_on_quality.add(blocked)
+
+        result = await self._run_dag(ateam.pk, [blocked, downstream], edges=[(blocked, downstream)])
+
+        assert result.failed_nodes == 1
+        assert result.skipped_nodes == 1
+        skipped = next(node for node in result.node_results if node.skipped)
+        assert skipped.node_id == downstream
+        assert skipped.skip_reason == f"Upstream node {blocked} failed data quality checks"
+        assert _suite_runs_started == []

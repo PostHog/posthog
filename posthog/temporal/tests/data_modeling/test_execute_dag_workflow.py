@@ -495,6 +495,8 @@ class TestExecuteDAGWorkflow:
 
 _mock_workflow_calls: list[str] = []
 _mock_workflow_should_fail: set[str] = set()
+_mock_workflow_should_block_on_quality: set[str] = set()
+_mock_workflow_should_self_audit: set[str] = set()
 _recorded_skipped_nodes: list[RecordSkippedDataModelingJobsInputs] = []
 
 
@@ -510,11 +512,14 @@ class MockMaterializeViewWorkflow:
         _mock_workflow_calls.append(inputs.node_id)
         if inputs.node_id in _mock_workflow_should_fail:
             raise temporalio.exceptions.ApplicationError(f"Node {inputs.node_id} failed")
+        blocked = inputs.node_id in _mock_workflow_should_block_on_quality
         return MaterializeViewWorkflowResult(
             job_id="test-job",
             node_id=inputs.node_id,
             rows_materialized=100,
             duration_seconds=1.0,
+            quality_blocking_failures=1 if blocked else None,
+            quality_audited=blocked or inputs.node_id in _mock_workflow_should_self_audit,
         )
 
 

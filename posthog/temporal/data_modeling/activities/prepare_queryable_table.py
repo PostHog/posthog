@@ -57,16 +57,17 @@ class PrepareQueryableTableResult:
     total_storage_mib: float | None
 
 
-@dataclasses.dataclass
+@dataclasses.dataclass(frozen=False)
 class StageQueryableFilesResult:
     # The staged (not yet published) timestamped queryable folder.
     folder_path: str
 
 
-@dataclasses.dataclass
+# Not frozen: a dataclass cannot be, while the one it extends is not.
+@dataclasses.dataclass(frozen=False)
 class PublishQueryableTableInputs(PrepareQueryableTableInputs):
     # The folder a prior stage activity produced; publishing repoints the table at it.
-    folder_path: str = ""
+    folder_path: str
 
 
 async def _stage_files(inputs: PrepareQueryableTableInputs, saved_query: DataWarehouseSavedQuery, logger) -> str:

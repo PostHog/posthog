@@ -22,9 +22,10 @@ if TYPE_CHECKING:
 def build_staged_database(team: "Team", saved_query_id: str | UUID, staged_queryable_folder: str) -> Database | None:
     """A database whose subject table reads the staged folder instead of the published one.
 
-    Returns None when the subject has no materialized table to repoint -- the first
-    materialization, or a subject that no longer resolves. The caller then audits through the
-    live view definition, which computes the same content the staged files hold.
+    Returns None when there is no materialized table to repoint -- the first materialization, or a
+    subject that no longer resolves. The caller must not fall back to the unmodified database: that
+    reads the live view, which recomputes from upstreams that may have moved since the refresh, so
+    its verdict describes data the publish would not produce.
     """
     summary = data_modeling_facade.get_saved_query_summary(team.pk, saved_query_id)
     if summary is None:

@@ -57,7 +57,10 @@ from products.data_modeling.backend.facade.models import DataModelingJobEngine
 from products.data_quality.backend.facade.contracts import (
     CHECK_SUITE_WORKFLOW_NAME,
     QUALITY_AUDIT_GATE,
+    QUALITY_AUDIT_SKIP,
     QUALITY_AUDIT_WARN,
+    QualityAuditMode,
+    is_quality_audit_mode,
 )
 from products.data_quality.backend.facade.enums import SuiteRunTrigger
 
@@ -235,6 +238,7 @@ class MaterializeViewWorkflow(PostHogWorkflow):
                 #
                 # Write-audit-publish: quality_audit comes from the materialize activity's recorded
                 # result (default "skip" for pre-deploy histories), so branching on it is replay-safe.
+                quality_audit = self._audit_mode(materialize_result, inputs)
                 prepare_inputs = PrepareQueryableTableInputs(
                     team_id=inputs.team_id,
                     job_id=job_id,
@@ -243,7 +247,7 @@ class MaterializeViewWorkflow(PostHogWorkflow):
                     file_uris=materialize_result.file_uris,
                     row_count=materialize_result.row_count,
                 )
-                if materialize_result.quality_audit == QUALITY_AUDIT_GATE:
+                if quality_audit == QUALITY_AUDIT_GATE:
                     stage_result: StageQueryableFilesResult = await temporalio.workflow.execute_activity(
                         stage_queryable_files_activity,
                         prepare_inputs,
@@ -319,8 +323,9 @@ class MaterializeViewWorkflow(PostHogWorkflow):
                 # None for in-flight runs on the pre-deploy activity version — treat that as "not needed".
                 await self._maybe_enrich_view_semantics(inputs, succeed_result)
 
-                if materialize_result.quality_audit == QUALITY_AUDIT_WARN:
-                    await self._start_warn_suite(inputs, job_id, materialize_result)
+                quality_audited = quality_audit == QUALITY_AUDIT_GATE
+                if quality_audit == QUALITY_AUDIT_WARN:
+                    quality_audited = await self._start_warn_suite(inputs, job_id, materialize_result)
 
                 # after the main workflow succeeds, collect shadow stats for comparison
                 if duckgres_shadow_handle is not None:
@@ -355,8 +360,8 @@ class MaterializeViewWorkflow(PostHogWorkflow):
                     node_id=inputs.node_id,
                     rows_materialized=materialize_result.row_count,
                     duration_seconds=duration_seconds,
-                    quality_blocking_failures=0 if materialize_result.quality_audit == QUALITY_AUDIT_GATE else None,
-                    quality_audited=materialize_result.quality_audit in (QUALITY_AUDIT_WARN, QUALITY_AUDIT_GATE),
+                    quality_blocking_failures=0 if quality_audit == QUALITY_AUDIT_GATE else None,
+                    quality_audited=quality_audited,
                 )
             except Exception as e:
                 # handle failure
@@ -467,8 +472,12 @@ class MaterializeViewWorkflow(PostHogWorkflow):
         inputs: MaterializeViewWorkflowInputs,
         job_id: str,
         materialize_result: MaterializeViewResult,
-    ) -> None:
-        """Fire-and-forget the subject's checks against the just-published data."""
+    ) -> bool:
+        """Fire-and-forget the subject's checks against the just-published data.
+
+        Returns whether a suite is running for this job. False sends the node back to the DAG's
+        post-run sweep, so a child that never started still gets its checks from there.
+        """
         try:
             await temporalio.workflow.start_child_workflow(
                 CHECK_SUITE_WORKFLOW_NAME,
@@ -488,12 +497,33 @@ class MaterializeViewWorkflow(PostHogWorkflow):
                 "Data quality checks already running for this job, skipping",
                 extra=inputs.properties_to_log,
             )
+            return True
         except Exception as e:
             capture_exception(e)
             temporalio.workflow.logger.warning(
                 "Could not start the data quality check suite",
                 extra={"error": str(e), **inputs.properties_to_log},
             )
+            return False
+        return True
+
+    def _audit_mode(
+        self, materialize_result: MaterializeViewResult, inputs: MaterializeViewWorkflowInputs
+    ) -> QualityAuditMode:
+        """The audit mode to act on, treating anything this version does not know as ``skip``.
+
+        The value is read off a recorded activity result, so a history written by a newer deploy
+        can name a mode that does not exist here. Publishing ungated is the safe reading of a
+        stranger: it is what every run did before the gate existed.
+        """
+        mode = materialize_result.quality_audit
+        if is_quality_audit_mode(mode):
+            return mode
+        temporalio.workflow.logger.warning(
+            f"Unknown data quality audit mode {mode!r}, publishing without a gate",
+            extra=inputs.properties_to_log,
+        )
+        return QUALITY_AUDIT_SKIP
 
     async def _maybe_enrich_view_semantics(
         self,

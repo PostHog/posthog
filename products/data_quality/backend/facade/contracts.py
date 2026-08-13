@@ -5,7 +5,7 @@ Frozen, framework-free values other products need. No Django imports.
 """
 
 from dataclasses import dataclass, field
-from typing import Any
+from typing import Any, Literal, TypeGuard
 
 CHECK_SUITE_WORKFLOW_NAME = "data-quality-run-suite"
 
@@ -15,9 +15,21 @@ MATERIALIZATION_GATE_ACTIVITY_NAME = "data-quality-materialization-gate"
 # skip: no runnable checks (or the product flag is off) -- zero overhead, the old path.
 # warn: run checks after publish, fire-and-forget.
 # gate: audit staged data before the publish pointer flip; blocking failures stop the publish.
-QUALITY_AUDIT_SKIP = "skip"
-QUALITY_AUDIT_WARN = "warn"
-QUALITY_AUDIT_GATE = "gate"
+QualityAuditMode = Literal["skip", "warn", "gate"]
+
+QUALITY_AUDIT_SKIP: QualityAuditMode = "skip"
+QUALITY_AUDIT_WARN: QualityAuditMode = "warn"
+QUALITY_AUDIT_GATE: QualityAuditMode = "gate"
+
+
+def is_quality_audit_mode(value: str) -> TypeGuard[QualityAuditMode]:
+    """Whether a value crossing the Temporal boundary is a mode this code knows.
+
+    A workflow reads the mode off a recorded activity result, so a history written by another
+    deploy can carry a value this version never defined. The caller decides what to do with a
+    stranger; nothing here may assume the string is one of ours.
+    """
+    return value in (QUALITY_AUDIT_SKIP, QUALITY_AUDIT_WARN, QUALITY_AUDIT_GATE)
 
 
 @dataclass(frozen=True)

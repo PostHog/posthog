@@ -77,6 +77,24 @@ def run_check(
     return replace(outcome, became_failing=became_failing)
 
 
+def record_unrunnable_check(
+    check: DataQualityCheck,
+    suite_run: DataQualitySuiteRun,
+    team: Team,
+    reason: str,
+) -> CheckOutcome:
+    """Persist an errored run for a check the caller could not execute at all.
+
+    The suite still owes every check in it a run row: a check that silently produces nothing
+    reads, in the health state and the API, exactly like a check that passed.
+    """
+    outcome = CheckOutcome(status=CheckRunStatus.ERRORED, error=reason)
+    with team_scope(team.id):
+        _record_run(check, suite_run, outcome, datetime.now(UTC), duration_ms=0)
+        _update_check(check, outcome)
+    return outcome
+
+
 def _execute(check: DataQualityCheck, team: Team, database: "Database | None" = None) -> CheckOutcome:
     # A hard-deleted subject nulls the FK; there is no id left to resolve.
     if check.subject_uuid is None:

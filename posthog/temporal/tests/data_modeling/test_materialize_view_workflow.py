@@ -21,6 +21,8 @@ from posthog.temporal.data_modeling.workflows.materialize_view import (
     MaterializeViewWorkflowInputs,
 )
 
+from products.data_quality.backend.facade.contracts import QualityAuditMode
+
 pytestmark = pytest.mark.asyncio
 
 WORKFLOW_MODULE = "posthog.temporal.data_modeling.workflows.materialize_view"
@@ -30,7 +32,7 @@ def _inputs() -> MaterializeViewWorkflowInputs:
     return MaterializeViewWorkflowInputs(team_id=7, dag_id="dag-1", node_id="node-1")
 
 
-def _materialize_result(quality_audit: str) -> MaterializeViewResult:
+def _materialize_result(quality_audit: QualityAuditMode) -> MaterializeViewResult:
     return MaterializeViewResult(
         node_id="node-1",
         node_name="orders",
@@ -101,6 +103,51 @@ class TestQualityGateBranching:
         started = [call.args[0].__name__ for call in execute_activity.await_args_list]
         assert "publish_queryable_table_activity" in started
         assert "succeed_materialization_activity" in started
+
+
+class TestWarnSuite:
+    @pytest.mark.parametrize(
+        "start_child,expected_audited",
+        [
+            (AsyncMock(), True),
+            (AsyncMock(side_effect=WorkflowAlreadyStartedError("id", "type")), True),
+            (AsyncMock(side_effect=RuntimeError("task queue is gone")), False),
+        ],
+    )
+    async def test_a_suite_that_never_started_sends_the_node_back_to_the_sweep(
+        self, start_child, expected_audited
+    ) -> None:
+        # quality_audited is what removes a node from the DAG's post-run sweep. Reporting it off
+        # the configured mode rather than the outcome loses the node's checks for that refresh.
+        activity_results = [
+            False,  # duckgres shadow check
+            "job-1",  # create job
+            _materialize_result("warn"),
+            PrepareQueryableTableResult(storage_delta_mib=None, total_storage_mib=None),  # prepare
+            None,  # succeed
+        ]
+        execute_activity = AsyncMock(side_effect=activity_results)
+        info = MagicMock()
+        info.parent = None
+        with ExitStack() as stack:
+            stack.enter_context(patch.object(temporalio.workflow, "execute_activity", new=execute_activity))
+            stack.enter_context(patch.object(temporalio.workflow, "start_child_workflow", new=start_child))
+            stack.enter_context(patch.object(temporalio.workflow, "info", return_value=info))
+            stack.enter_context(patch.object(temporalio.workflow, "now", return_value=dt.datetime(2026, 8, 1)))
+            stack.enter_context(patch.object(temporalio.workflow, "logger"))
+            stack.enter_context(patch(f"{WORKFLOW_MODULE}.capture_exception"))
+            for metric in (
+                "get_node_finished_metric",
+                "get_node_duration_metric",
+                "get_node_rows_materialized_metric",
+                "get_node_storage_delta_mib_metric",
+                "get_node_total_storage_mib_metric",
+            ):
+                stack.enter_context(patch(f"{WORKFLOW_MODULE}.{metric}"))
+            result = await MaterializeViewWorkflow().run(_inputs())
+
+        assert result.quality_audited is expected_audited
+        assert result.quality_blocking_failures is None
 
 
 class TestRunStagedAudit:

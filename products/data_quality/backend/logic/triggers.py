@@ -9,7 +9,7 @@ from collections.abc import Iterable
 
 from products.data_modeling.backend.facade import api as data_modeling_facade
 
-from ..facade.contracts import QUALITY_AUDIT_GATE, QUALITY_AUDIT_SKIP, QUALITY_AUDIT_WARN
+from ..facade.contracts import QUALITY_AUDIT_GATE, QUALITY_AUDIT_SKIP, QUALITY_AUDIT_WARN, QualityAuditMode
 from ..facade.enums import CheckSeverity
 from .flags import is_data_quality_checks_enabled_for_team_id
 
@@ -39,7 +39,7 @@ def materialization_checks_needed(team_id: int, node_ids: Iterable["str | uuid.U
     )
 
 
-def materialization_audit_mode(team_id: int, saved_query_id: "str | uuid.UUID") -> str:
+def materialization_audit_mode(team_id: int, saved_query_id: "str | uuid.UUID") -> QualityAuditMode:
     """How a materialization of this view should treat its checks.
 
     ``gate`` requires both the team setting and at least one error-severity check: warn-severity

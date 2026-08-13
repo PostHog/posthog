@@ -10,12 +10,12 @@ from posthog.sync import database_sync_to_async_pool
 
 from products.data_modeling.backend.facade.models import DataModelingJob, DataModelingJobStatus, Node
 
-from .utils import update_node_system_properties
+from .utils import QUALITY_BLOCKED_ERROR_PREFIX, update_node_system_properties
 
 LOGGER = get_logger(__name__)
 
 
-@dataclasses.dataclass
+@dataclasses.dataclass(frozen=False)
 class QualityBlockMaterializationInputs:
     team_id: int
     node_id: str
@@ -38,7 +38,7 @@ class QualityBlockMaterializationInputs:
 def _quality_error(inputs: QualityBlockMaterializationInputs) -> str:
     checks = "check" if inputs.blocking_failures == 1 else "checks"
     return (
-        f"Not published: {inputs.blocking_failures} data quality {checks} failed. "
+        f"{QUALITY_BLOCKED_ERROR_PREFIX} {inputs.blocking_failures} data quality {checks} failed. "
         "The previous version keeps serving until the checks pass."
     )
 
@@ -70,8 +70,9 @@ async def quality_block_materialization_activity(inputs: QualityBlockMaterializa
 
     A quality block is a data-content verdict, not an infrastructure failure: the job and node are
     marked failed so the run history is honest, but none of ``fail_materialization_activity``'s
-    recovery runs -- no schedule pause, no revert, and crucially no suspension counter, because the
-    fix is upstream data, not this node's query.
+    recovery runs -- no schedule pause and no revert, because the fix is upstream data, not this
+    node's query. The failed job it leaves behind carries ``QUALITY_BLOCKED_ERROR_PREFIX``, which
+    keeps it out of the consecutive-failure run that suspends a node.
     """
     bind_contextvars(team_id=inputs.team_id)
     logger = LOGGER.bind()
