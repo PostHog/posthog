@@ -13,28 +13,6 @@
             "description": "How to handle content tiles currently assigned to the group.\n\n* `delete_tiles` - delete_tiles\n* `move_to_ungrouped` - move_to_ungrouped",
             "enum": ["delete_tiles", "move_to_ungrouped"],
             "type": "string"
-        },
-        "xs": {
-            "description": "Layout for the small (mobile) breakpoint. The grid is 1 column wide.",
-            "properties": {
-                "h": {
-                    "description": "Height in grid rows.",
-                    "type": "number"
-                },
-                "w": {
-                    "description": "Width in grid columns. The desktop grid is 12 columns wide.",
-                    "type": "number"
-                },
-                "x": {
-                    "description": "Column position in the dashboard grid (0-indexed).",
-                    "type": "number"
-                },
-                "y": {
-                    "description": "Row position in the dashboard grid (0-indexed).",
-                    "type": "number"
-                }
-            },
-            "type": "object"
         }
     },
     "required": ["id", "group_id", "member_handling"],
