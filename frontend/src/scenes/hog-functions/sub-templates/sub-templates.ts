@@ -615,6 +615,13 @@ function notificationVariants({
     ]
 }
 
+// batch_export_name is user-controlled and error can embed whatever the destination returned, so
+// both get the same Slack escaping + bounds as the other producer-controlled notification fields
+// (a raw value could smuggle <!channel> mentions or <url|text> masked links into the message).
+// The error bound matches the backend's 1000-char truncation of the property.
+const BATCH_EXPORT_NAME_SLACK = `{${slackEscapeExpr('event.properties.batch_export_name')}}`
+const BATCH_EXPORT_ERROR_SLACK = `{${slackEscapeExpr('event.properties.error', 1000)}}`
+
 export const HOG_FUNCTION_SUB_TEMPLATES: Record<HogFunctionSubTemplateIdType, HogFunctionSubTemplateType[]> = {
     'mcp-tool-error': notificationVariants({
         subTemplateId: 'mcp-tool-error',
@@ -1654,12 +1661,14 @@ export const HOG_FUNCTION_SUB_TEMPLATES: Record<HogFunctionSubTemplateIdType, Ho
                             type: 'section',
                             text: {
                                 type: 'mrkdwn',
-                                text: '*{event.properties.batch_export_name}* ({event.properties.destination_type}) failed to export data for {event.properties.data_interval_start} – {event.properties.data_interval_end}.',
+                                // data_interval_start is null for backfill runs covering everything
+                                // up to the end date ("beginning of time" in the backfills UI)
+                                text: `*${BATCH_EXPORT_NAME_SLACK}* ({event.properties.destination_type}) failed to export data for {event.properties.data_interval_start ? event.properties.data_interval_start : 'the beginning of time'} – {event.properties.data_interval_end}.`,
                             },
                         },
                         {
                             type: 'section',
-                            text: { type: 'mrkdwn', text: '*Error:* {event.properties.error}' },
+                            text: { type: 'mrkdwn', text: `*Error:* ${BATCH_EXPORT_ERROR_SLACK}` },
                         },
                         {
                             type: 'context',
@@ -1679,7 +1688,7 @@ export const HOG_FUNCTION_SUB_TEMPLATES: Record<HogFunctionSubTemplateIdType, Ho
                     ],
                 },
                 text: {
-                    value: "Batch export '{event.properties.batch_export_name}' failed: {event.properties.error}",
+                    value: `Batch export '${BATCH_EXPORT_NAME_SLACK}' failed: ${BATCH_EXPORT_ERROR_SLACK}`,
                 },
             },
         },
