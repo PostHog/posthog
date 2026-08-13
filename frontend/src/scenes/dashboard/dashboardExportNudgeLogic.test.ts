@@ -208,15 +208,19 @@ describe('dashboardExportNudgeLogic', () => {
             expect(claimExportNudgeMessage(CANDIDATE, TOAST_ID)).toBeNull()
         })
 
-        it('the CTA dismisses the toast and routes to the prefilled new-subscription form', () => {
-            const renderer = claimExportNudgeMessage(CANDIDATE, TOAST_ID)
+        it('the CTA routes to the prefilled new-subscription form and reports acceptance', () => {
+            const onAccept = jest.fn()
+            const renderer = claimExportNudgeMessage(CANDIDATE, TOAST_ID, onAccept)
             render(renderer!('Export complete!'))
 
             fireEvent.click(screen.getByText('Set up recurring updates'))
 
-            expect(dismiss).toHaveBeenCalledWith(TOAST_ID)
             expect(router.values.location.pathname).toMatch(new RegExp(`/dashboard/${DASHBOARD_ID}/subscriptions/new$`))
             expect(router.values.searchParams).toMatchObject({ prefill: 'nudge', via: 'export' })
+            expect(onAccept).toHaveBeenCalled()
+            // The toast is the export's own: closing it would strand a download that has not been
+            // taken yet, or one whose button has not appeared yet because the render is still running.
+            expect(dismiss).not.toHaveBeenCalled()
         })
 
         it('keeps the toast up when the secondary action fires', () => {

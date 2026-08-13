@@ -12,7 +12,8 @@ export type ExportNudgeRenderer = (headline: string, secondaryAction?: ToastButt
 /** Claims the nudge once; the returned renderer may be called for each toast state. */
 export function claimExportNudgeMessage(
     candidate: ExportNudgeCandidate | null,
-    toastId: string
+    toastId: string,
+    onAccept?: () => void
 ): ExportNudgeRenderer | null {
     if (!candidate || !claimExportNudge(candidate.dashboardId)) {
         return null
@@ -32,12 +33,17 @@ export function claimExportNudgeMessage(
                     type="primary"
                     size="small"
                     data-attr="dashboard-export-nudge-toast-cta"
-                    onClick={() =>
+                    onClick={() => {
+                        onAccept?.()
+                        // The toast is the export's own, and while the render is still running its
+                        // download button has not appeared yet. Closing it here would leave the
+                        // finished file with nowhere to be claimed from.
                         openSubscriptionFromNudge(candidate.dashboardId, {
                             toastId,
                             via: SUBSCRIPTION_PREFILL_PARAMS.viaExport,
+                            keepToast: true,
                         })
-                    }
+                    }}
                 >
                     Set up recurring updates
                 </LemonButton>

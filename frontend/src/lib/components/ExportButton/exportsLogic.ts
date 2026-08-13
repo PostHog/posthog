@@ -107,14 +107,18 @@ interface ExportNudge {
      * headlines and must not count as two.
      */
     claim: (candidate: ExportNudgeCandidate | null) => ExportNudgeRenderer | null
+    /** Whether the exporter has followed the CTA, which retires the offer without closing the toast. */
+    accepted: () => boolean
 }
 
 const startExportNudge = (dashboardId: number | undefined, toastId: string): ExportNudge => {
     let claimed = false
+    let accepted = false
     let reportedMissingToast = false
     let renderer: ExportNudgeRenderer | null = null
     return {
         settled: settleNudgeCandidate(dashboardId),
+        accepted: () => accepted,
         claim: (resolved) => {
             if (!resolved) {
                 return null
@@ -132,7 +136,9 @@ const startExportNudge = (dashboardId: number | undefined, toastId: string): Exp
             }
             if (!claimed) {
                 claimed = true
-                renderer = claimExportNudgeMessage(resolved, toastId)
+                renderer = claimExportNudgeMessage(resolved, toastId, () => {
+                    accepted = true
+                })
             }
             return renderer
         },
@@ -151,9 +157,21 @@ const foldNudgeIntoToast = async (
     secondaryAction?: ToastButton
 ): Promise<void> => {
     const renderer = nudge.claim(await nudge.settled)
-    if (renderer) {
-        lemonToast.updateToSuccess(toastId, renderer(headline, secondaryAction), { autoClose: false })
+    if (!renderer) {
+        return
     }
+    if (nudge.accepted()) {
+        // Followed from the pending frame, so the export settles into its own message rather than
+        // asking a second time. A download still waiting to be taken holds the toast open; anything
+        // else has already been delivered and can close on the container's schedule.
+        lemonToast.updateToSuccess(
+            toastId,
+            headline,
+            secondaryAction ? { button: secondaryAction, autoClose: false } : {}
+        )
+        return
+    }
+    lemonToast.updateToSuccess(toastId, renderer(headline, secondaryAction), { autoClose: false })
 }
 
 const showExportCompleteToast = async (dashboardId: number | undefined, onDownload: () => void): Promise<void> => {

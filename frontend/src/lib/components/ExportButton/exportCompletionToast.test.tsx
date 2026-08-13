@@ -11,6 +11,7 @@ import { claimExportNudgeMessage } from 'scenes/dashboard/DashboardExportNudgeTo
 import { initKeaTests } from '~/test/init'
 import { ExportedAssetType, ExporterFormat } from '~/types'
 
+import { downloadExportedAsset } from './exporter'
 import { exportsLogic } from './exportsLogic'
 
 jest.mock('./exporter', () => ({
@@ -43,13 +44,13 @@ describe('export completion toast', () => {
 
     beforeEach(() => {
         jest.clearAllMocks()
-        jest.mocked(claimExportNudgeMessage).mockImplementation((candidate) =>
+        jest.mocked(claimExportNudgeMessage).mockImplementation((candidate, _toastId, onAccept) =>
             candidate
                 ? (headline, secondaryAction) => (
                       <span>
                           <span>{headline}</span>
                           <span className="nudge-button-row">
-                              <button>{NUDGE_CTA}</button>
+                              <button onClick={() => onAccept?.()}>{NUDGE_CTA}</button>
                               {secondaryAction && <button>{secondaryAction.label}</button>}
                           </span>
                       </span>
@@ -76,6 +77,9 @@ describe('export completion toast', () => {
         cleanup()
         logic.unmount()
         jest.useRealTimers()
+        // jsdom ships no userActivation, which the export reads as a live gesture. Any test that
+        // pins it has to hand that default back.
+        delete (window.navigator as any).userActivation
     })
 
     it('leaves unrelated toasts alone when View exports is clicked', async () => {
@@ -173,5 +177,52 @@ describe('export completion toast', () => {
         expect(screen.getAllByText(NUDGE_CTA)).toHaveLength(1)
         expect(document.querySelectorAll('.Toastify__toast')).toHaveLength(1)
         expectButtonRow()
+    })
+
+    it('leaves the finished download reachable when the nudge is followed mid-export', async () => {
+        // A render that outlives the click's activation hands the file over on a Download button
+        // instead of downloading it outright, which is the case the CTA could strand.
+        Object.defineProperty(window.navigator, 'userActivation', {
+            value: { isActive: false },
+            configurable: true,
+        })
+        jest.mocked(resolveExportNudgeEligibility).mockResolvedValue({ dashboardId: 7, dashboardName: 'Weekly' })
+        let finishExport: (asset: ExportedAssetType) => void = () => {}
+        jest.mocked(api.exports.create).mockReturnValue(
+            new Promise<ExportedAssetType>((resolve) => {
+                finishExport = resolve
+            })
+        )
+
+        render(<ToastContainer />)
+        logic.actions.createExport({ exportData: { export_format: ExporterFormat.PNG, dashboard: 7 } })
+        await act(async () => {
+            await jest.advanceTimersByTimeAsync(500)
+        })
+
+        act(() => {
+            screen.getByText(NUDGE_CTA).click()
+        })
+
+        finishExport({
+            id: 31,
+            export_format: ExporterFormat.PNG,
+            has_content: true,
+            filename: 'dashboard.png',
+            created_at: '2026-05-11T19:00:00Z',
+            dashboard: 7,
+        } as ExportedAssetType)
+        await act(async () => {
+            await jest.advanceTimersByTimeAsync(SETTLE_MS)
+        })
+
+        // Dismissing on the CTA would take the button the file arrives on with it.
+        expect(screen.getByText('Export complete!')).toBeTruthy()
+        expect(screen.queryByText(NUDGE_CTA)).toBeNull()
+
+        act(() => {
+            screen.getByText('Download').click()
+        })
+        expect(downloadExportedAsset).toHaveBeenCalled()
     })
 })

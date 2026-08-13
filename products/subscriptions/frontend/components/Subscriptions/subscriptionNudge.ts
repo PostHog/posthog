@@ -18,9 +18,13 @@ export type SubscriptionNudgeVia =
 
 export function openSubscriptionFromNudge(
     dashboardId: number,
-    { toastId, via }: { toastId: string; via: SubscriptionNudgeVia }
+    { toastId, via, keepToast }: { toastId: string; via: SubscriptionNudgeVia; keepToast?: boolean }
 ): void {
-    lemonToast.dismiss(toastId)
+    // A toast whose only content is the nudge has nothing left to offer once it is followed. One
+    // shared with an export still carries that export's download, which dismissing would discard.
+    if (!keepToast) {
+        lemonToast.dismiss(toastId)
+    }
     router.actions.push(urls.dashboardSubscription(dashboardId, 'new'), {
         [SUBSCRIPTION_PREFILL_PARAMS.param]: SUBSCRIPTION_PREFILL_PARAMS.nudge,
         [SUBSCRIPTION_PREFILL_PARAMS.viaParam]: via,
