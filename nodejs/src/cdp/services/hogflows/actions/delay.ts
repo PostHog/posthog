@@ -98,23 +98,29 @@ async function scheduledAtFromInstant(
 
     const globals = { ...invocation.filterGlobals, variables: invocation.state.variables }
     const { execResult, error } = await execHog(config.bytecode, { globals })
-    if (error || execResult?.error) {
-        throw new Error(`Could not read the date to wait for: ${String(error ?? execResult?.error)}`)
-    }
+    const evaluationError = error ?? execResult?.error
 
-    // A resumed invocation rebuilds its globals from stored state, which can arrive without the event
-    // properties the expression reads. Re-evaluating is still worth attempting on every wake, because it is
-    // what lets a stored date that moved while parked be honoured — but it must not strand a run that
-    // already resolved once, so fall back to the instant recorded on the first park.
+    // A resumed invocation rebuilds its globals from stored state, which can arrive without the event or
+    // person properties the expression reads — so evaluation can error (a missing global raises) or yield a
+    // non-date on wake even though it resolved on entry. Re-evaluating is still worth attempting every wake,
+    // because it is what lets a stored date that moved while parked be honoured — but it must not strand a
+    // run that already resolved once, so an unusable evaluation falls back to the instant recorded on the
+    // first park before giving up.
     const previous = invocation.state.currentAction?.delayUntilAt
-    const instant = instantFromHogValue(execResult?.result) ?? (previous ? DateTime.fromISO(previous) : null)
+    const instant =
+        (evaluationError ? null : instantFromHogValue(execResult?.result)) ??
+        (previous ? DateTime.fromISO(previous, { zone: 'UTC' }) : null)
     if (!instant) {
         // Marked so the run aborts rather than falling through to the next step. on_error defaults to
         // 'continue', which for a "N days before X" message means sending it with nothing to be before.
         if (invocation.state.currentAction) {
             invocation.state.currentAction.delayUntilUnresolved = true
         }
-        throw new Error('The date to wait for did not evaluate to a date')
+        throw new Error(
+            evaluationError
+                ? `Could not read the date to wait for: ${String(evaluationError)}`
+                : 'The date to wait for did not evaluate to a date'
+        )
     }
     if (invocation.state.currentAction) {
         invocation.state.currentAction.delayUntilAt = instant.toISO() ?? undefined

@@ -99,10 +99,10 @@ describe('DelayHandler with delay_until', () => {
     const EXPIRY_BYTECODE = ['_H', 1, 32, 'trial_expiration_at', 32, 'properties', 32, 'person', 1, 3]
     const NOW = '2025-01-01T00:00:00.000Z'
 
-    const runDelay = async (
+    const buildDelay = (
         config: Record<string, any>,
         personProperties: Record<string, any> = {}
-    ): Promise<ActionHandlerResult> => {
+    ): { invocation: ReturnType<typeof createExampleHogFlowInvocation>; action: any } => {
         const hogFlow = new FixtureHogFlowBuilder()
             .withWorkflow({
                 actions: {
@@ -118,6 +118,14 @@ describe('DelayHandler with delay_until', () => {
             id: action.id,
             startedAtTimestamp: DateTime.fromISO(NOW).toMillis(),
         }
+        return { invocation, action }
+    }
+
+    const runDelay = async (
+        config: Record<string, any>,
+        personProperties: Record<string, any> = {}
+    ): Promise<ActionHandlerResult> => {
+        const { invocation, action } = buildDelay(config, personProperties)
         return await new DelayHandler().execute({ invocation, action, result: {} as any })
     }
 
@@ -214,6 +222,32 @@ describe('DelayHandler with delay_until', () => {
         await expect(
             runDelay({ delay_until: { expression: 'person.properties.x', bytecode_error: 'boom' } })
         ).rejects.toThrow('Could not read the date to wait for: boom')
+    })
+
+    // A resume can rebuild globals without the person the expression reads, so the read raises rather than
+    // returning null. The instant stored on the first park must still carry the run, not strand it.
+    it('falls back to the saved instant when the expression errors on a resume', async () => {
+        const { invocation, action } = buildDelay(delayUntil())
+        invocation.state.currentAction!.delayUntilAt = '2025-01-08T00:00:00.000Z'
+        delete (invocation.filterGlobals as any).person
+
+        const result = await new DelayHandler().execute({ invocation, action, result: {} as any })
+
+        expect(result.scheduledAt?.toISO()).toBe(DateTime.fromISO('2025-01-08T00:00:00.000Z').toUTC().toISO())
+        expect(invocation.state.currentAction!.delayUntilUnresolved).toBeUndefined()
+    })
+
+    // With no saved instant to fall back on, the wait cannot resolve at all. It must mark itself unresolved
+    // so the run aborts — otherwise on_error's default of continuing sends the message with nothing to be
+    // before.
+    it('marks the wait unresolved when the expression errors and no instant was saved', async () => {
+        const { invocation, action } = buildDelay(delayUntil())
+        delete (invocation.filterGlobals as any).person
+
+        await expect(new DelayHandler().execute({ invocation, action, result: {} as any })).rejects.toThrow(
+            'Could not read the date to wait for'
+        )
+        expect(invocation.state.currentAction!.delayUntilUnresolved).toBe(true)
     })
 
     it('still delays by a fixed duration when that is what is configured', async () => {
