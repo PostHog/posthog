@@ -129,12 +129,6 @@ tools:
         param_overrides:
             channel:
                 description: Only return canvases in this channel (channel id).
-    canvas-report-error-create:
-        operation: canvases_report_error_create
-        enabled: false
-    canvas-request-fix-create:
-        operation: canvases_request_fix_create
-        enabled: false
     canvas-promote-create:
         operation: canvases_promote_create
         enabled: true
@@ -192,6 +186,12 @@ tools:
             Queue a build for the canvas's current source version without changing its source or metadata. Any project
             member can use this in a public space. Pass the current_version_id read from canvas-source-retrieve. A stale
             value returns a 409 version_conflict.
+    canvas-report-error-create:
+        operation: canvases_report_error_create
+        enabled: false
+    canvas-request-fix-create:
+        operation: canvases_request_fix_create
+        enabled: false
     canvas-source-retrieve:
         operation: canvases_source_retrieve
         enabled: true
