@@ -327,14 +327,7 @@ intents:
 
     cohorts:
         description: 'User cohort management'
-        capabilities:
-            [
-                event_ingestion,
-                property_definitions,
-                property_values,
-                celery_workers,
-                celery_scheduler,
-            ]
+        capabilities: [event_ingestion, property_definitions, property_values, celery_workers, celery_scheduler]
 
     pipelines:
         description: 'Data pipeline transformations and destinations'
