@@ -298,10 +298,12 @@ export interface marketingAnalyticsLogicActions {
         args_0?:
             | {
                   force?: boolean
+                  shallow?: boolean
               }
             | undefined
     ) => {
         force?: boolean
+        shallow?: boolean
     } // sourceManagementLogic
     loadSources: () => {
         value: true
