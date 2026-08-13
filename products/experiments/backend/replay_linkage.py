@@ -48,15 +48,21 @@ def validate_experiment_exposure_access(
     access — so the experiment's own object-level check must run here, matching what the
     experiment surfaces enforce for the same information.
 
-    Passes when there is no real viewer to evaluate: background jobs and composition callers
-    run userless, and service-token principals are synthetic users outside object-level RBAC
-    (gated by API scope and project membership instead). An unknown experiment also passes —
-    there is no object to protect, and :func:`exposed_distinct_ids_select` reports it as a
-    ValidationError.
+    Refuses userless callers outright: a background job's output can reach viewers this check
+    never evaluated (the playlist counting task caches match counts that any playlist viewer
+    can read), so running the filter without a viewer can leak experiment data to viewers the
+    experiment denies. A background consumer must supply the principal on whose behalf it
+    runs, or not use the filter. Service-token principals and anonymous shared-link viewers
+    are non-User principals outside object-level RBAC and pass; they are gated by API scope
+    plus project membership, and by the sharing publish gate, respectively. An unknown
+    experiment also passes, because there is no object to protect and
+    :func:`exposed_distinct_ids_select` reports it as a ValidationError.
 
     Returns True, or raises UserAccessControlError (the query-runner access contract).
     """
-    if user is None or not isinstance(user, User):
+    if user is None:
+        raise UserAccessControlError("experiment", "viewer", resource_id=str(experiment_id))
+    if not isinstance(user, User):
         return True
     experiment = Experiment.objects.filter(id=experiment_id, team=team, deleted=False).first()
     if experiment is None:

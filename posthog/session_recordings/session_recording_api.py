@@ -1875,7 +1875,14 @@ def list_recordings_from_query(
             if prepend_recording:
                 recordings.append(prepend_recording)
 
-    if all_session_ids:
+    if all_session_ids and query.experiment_exposure is not None:
+        # The exposure filter only exists as a join in the ClickHouse query, so the persisted
+        # Postgres shortcut below would return these sessions unfiltered and skip the
+        # experiment access check with them. Route every requested id through ClickHouse
+        # instead; a persisted recording that has left ClickHouse can't be verified as an
+        # exposed person's and so stays out of the list.
+        remaining_session_ids = list(all_session_ids)
+    elif all_session_ids:
         with timer("load_persisted_recordings"), tracer.start_as_current_span("load_persisted_recordings"):
             # If we specify the session ids (like from pinned recordings) we can optimise by only going to Postgres
             sorted_session_ids = sorted(all_session_ids)
