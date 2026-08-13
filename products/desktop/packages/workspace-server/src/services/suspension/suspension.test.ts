@@ -1,6 +1,10 @@
+import path from "node:path";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 const mockGetAutoSuspendEnabled = vi.hoisted(() => vi.fn(() => true));
+const mockGetAllWorktreeLocations = vi.hoisted(() =>
+  vi.fn(() => ["/tmp/worktrees"]),
+);
 const mockGetMaxActiveWorktrees = vi.hoisted(() => vi.fn(() => 5));
 const mockGetAutoSuspendAfterDays = vi.hoisted(() => vi.fn(() => 7));
 const mockCaptureRun = vi.hoisted(() => vi.fn(() => ({ success: true })));
@@ -50,6 +54,7 @@ vi.mock("node:fs/promises", () => {
   return { default: fns, ...fns };
 });
 
+import { rm } from "node:fs/promises";
 import type { IWorkspaceSettings } from "@posthog/platform/workspace-settings";
 import { createMockArchiveRepository } from "@posthog/workspace-server/db/repositories/archive-repository.mock";
 import { createMockRepositoryRepository } from "@posthog/workspace-server/db/repositories/repository-repository.mock";
@@ -84,7 +89,7 @@ function createMocks() {
     setMaxActiveWorktrees: vi.fn(),
     setAutoSuspendAfterDays: vi.fn(),
     getWorktreeLocation: () => "/tmp/worktrees",
-    getAllWorktreeLocations: () => ["/tmp/worktrees"],
+    getAllWorktreeLocations: mockGetAllWorktreeLocations,
     setWorktreeLocation: vi.fn(),
   } as unknown as IWorkspaceSettings;
   const logger = {
@@ -134,6 +139,7 @@ function makeService(mocks: ReturnType<typeof createMocks>) {
 function seedWorktreeWorkspace(
   mocks: ReturnType<typeof createMocks>,
   overrides: Partial<Workspace> = {},
+  worktreePath?: string,
 ) {
   const ws = mocks.workspaceRepo.create({
     taskId: overrides.taskId ?? "task-1",
@@ -150,7 +156,7 @@ function seedWorktreeWorkspace(
   mocks.worktreeRepo.create({
     workspaceId: resolved.id,
     name: `wt-${resolved.taskId}`,
-    path: `/tmp/worktrees/wt-${resolved.taskId}/repo`,
+    path: worktreePath ?? `/tmp/worktrees/wt-${resolved.taskId}/repo`,
   });
   return resolved;
 }
@@ -164,6 +170,7 @@ describe("SuspensionService", () => {
     mockGetAutoSuspendEnabled.mockImplementation(() => true);
     mockGetMaxActiveWorktrees.mockImplementation(() => 5);
     mockGetAutoSuspendAfterDays.mockImplementation(() => 7);
+    mockGetAllWorktreeLocations.mockImplementation(() => ["/tmp/worktrees"]);
     mocks = createMocks();
     service = makeService(mocks);
   });
@@ -318,6 +325,49 @@ describe("SuspensionService", () => {
         expect(suspended[0].reason).toBe("inactivity");
       },
     );
+  });
+
+  describe("worktree cleanup on suspend", () => {
+    it.each([
+      {
+        label: "removes the parent directory of a managed worktree",
+        worktreePath: "/tmp/worktrees/wt-task-1/repo",
+        locations: ["/tmp/worktrees"],
+        removesParent: true,
+      },
+      {
+        label: "removes the parent directory under a legacy location",
+        worktreePath: "/tmp/legacy-worktrees/wt-task-1/repo",
+        locations: ["/tmp/worktrees", "/tmp/legacy-worktrees"],
+        removesParent: true,
+      },
+      {
+        label: "leaves the parent directory of an adopted external worktree",
+        worktreePath: "/repos/external-checkouts/wt-task-1/repo",
+        locations: ["/tmp/worktrees"],
+        removesParent: false,
+      },
+      {
+        label: "leaves a sibling directory sharing the base path prefix",
+        worktreePath: "/tmp/worktrees-old/wt-task-1/repo",
+        locations: ["/tmp/worktrees"],
+        removesParent: false,
+      },
+    ])("$label", async ({ worktreePath, locations, removesParent }) => {
+      mockGetAllWorktreeLocations.mockReturnValue(locations);
+      seedWorktreeWorkspace(mocks, {}, worktreePath);
+
+      await service.suspendTask("task-1", "manual");
+
+      if (removesParent) {
+        expect(vi.mocked(rm)).toHaveBeenCalledWith(
+          path.dirname(worktreePath),
+          expect.objectContaining({ recursive: true }),
+        );
+      } else {
+        expect(vi.mocked(rm)).not.toHaveBeenCalled();
+      }
+    });
   });
 
   describe("withRollback", () => {

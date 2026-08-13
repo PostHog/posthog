@@ -50,7 +50,10 @@ import {
   captureWorktreeCheckpoint,
   restoreWorktreeFromCheckpoint,
 } from "../worktree-checkpoint/worktree-checkpoint";
-import { deriveWorktreePath as deriveWorktreePathFromBase } from "../worktree-path/worktree-path";
+import {
+  deriveWorktreePath as deriveWorktreePathFromBase,
+  isWorktreePathManaged,
+} from "../worktree-path/worktree-path";
 import { getCurrentBranchName } from "../worktree-query/worktree-query";
 import { recoverArchiveDetailsFromLogs } from "./archive-recovery";
 import { ARCHIVE_FILE_WATCHER, ARCHIVE_SESSION_CANCELLER } from "./identifiers";
@@ -306,11 +309,13 @@ export class ArchiveService {
                 logger: this.log,
               });
               await manager.deleteWorktree(worktreePath);
-              const worktreeBasePath =
-                this.workspaceSettings.getWorktreeLocation();
-              const parentDir = path.dirname(worktreePath);
-              if (worktreePath.startsWith(worktreeBasePath)) {
-                await forceRemove(parentDir);
+              if (
+                isWorktreePathManaged(
+                  worktreePath,
+                  this.workspaceSettings.getAllWorktreeLocations(),
+                )
+              ) {
+                await forceRemove(path.dirname(worktreePath));
               }
             } catch (error) {
               this.log.warn(
@@ -465,11 +470,13 @@ export class ArchiveService {
                 restoredWorktreeName,
               );
               await manager.deleteWorktree(worktreePath);
-              const worktreeBasePath =
-                this.workspaceSettings.getWorktreeLocation();
-              const parentDir = path.dirname(worktreePath);
-              if (worktreePath.startsWith(worktreeBasePath)) {
-                await forceRemove(parentDir);
+              if (
+                isWorktreePathManaged(
+                  worktreePath,
+                  this.workspaceSettings.getAllWorktreeLocations(),
+                )
+              ) {
+                await forceRemove(path.dirname(worktreePath));
               }
             }
           },

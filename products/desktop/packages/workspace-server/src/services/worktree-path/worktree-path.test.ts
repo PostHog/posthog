@@ -2,7 +2,7 @@ import fsp from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
-import { deriveWorktreePath } from "./worktree-path";
+import { deriveWorktreePath, isWorktreePathManaged } from "./worktree-path";
 
 const REPO = "/repos/posthog";
 const REPO_NAME = "posthog";
@@ -55,5 +55,57 @@ describe("deriveWorktreePath", () => {
     expect(deriveWorktreePath(tmpDir, "/a/b/other-repo", "feat")).toBe(
       path.join(tmpDir, "feat", "other-repo"),
     );
+  });
+});
+
+describe("isWorktreePathManaged", () => {
+  const BASE = path.resolve("/data/worktrees");
+  const LEGACY = path.resolve("/data/legacy-worktrees");
+
+  it.each([
+    {
+      label: "path inside the base",
+      candidate: path.join(BASE, "wt", "repo"),
+      bases: [BASE],
+      expected: true,
+    },
+    {
+      label: "path equal to the base",
+      candidate: BASE,
+      bases: [BASE],
+      expected: true,
+    },
+    {
+      label: "path inside a legacy base",
+      candidate: path.join(LEGACY, "wt", "repo"),
+      bases: [BASE, LEGACY],
+      expected: true,
+    },
+    {
+      label: "path outside every base",
+      candidate: path.resolve("/repos/checkout/wt"),
+      bases: [BASE, LEGACY],
+      expected: false,
+    },
+    {
+      label: "sibling directory sharing the base as a string prefix",
+      candidate: path.resolve("/data/worktrees-old/wt/repo"),
+      bases: [BASE],
+      expected: false,
+    },
+    {
+      label: "base with a trailing separator",
+      candidate: path.join(BASE, "wt", "repo"),
+      bases: [BASE + path.sep],
+      expected: true,
+    },
+    {
+      label: "unnormalized dot segments in the path",
+      candidate: [BASE, "..", "worktrees", "wt"].join(path.sep),
+      bases: [BASE],
+      expected: true,
+    },
+  ])("$label -> $expected", ({ candidate, bases, expected }) => {
+    expect(isWorktreePathManaged(candidate, bases)).toBe(expected);
   });
 });

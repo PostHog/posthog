@@ -38,7 +38,10 @@ import {
   captureWorktreeCheckpoint,
   restoreWorktreeFromCheckpoint,
 } from "../worktree-checkpoint/worktree-checkpoint";
-import { deriveWorktreePath as deriveWorktreePathFromBase } from "../worktree-path/worktree-path";
+import {
+  deriveWorktreePath as deriveWorktreePathFromBase,
+  isWorktreePathManaged,
+} from "../worktree-path/worktree-path";
 import { getCurrentBranchName } from "../worktree-query/worktree-query";
 import {
   SUSPENSION_FILE_WATCHER,
@@ -317,10 +320,13 @@ export class SuspensionService extends TypedEventEmitter<SuspensionServiceEvents
   ): Promise<void> {
     const manager = this.createWorktreeManager(folderPath);
     await manager.deleteWorktree(worktreePath);
-    const worktreeBasePath = this.workspaceSettings.getWorktreeLocation();
-    const parentDir = path.dirname(worktreePath);
-    if (worktreePath.startsWith(worktreeBasePath)) {
-      await forceRemove(parentDir);
+    if (
+      isWorktreePathManaged(
+        worktreePath,
+        this.workspaceSettings.getAllWorktreeLocations(),
+      )
+    ) {
+      await forceRemove(path.dirname(worktreePath));
     }
   }
 

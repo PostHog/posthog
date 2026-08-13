@@ -20,3 +20,14 @@ export function deriveWorktreePath(
   if (fs.existsSync(legacyFormatPath)) return legacyFormatPath;
   return newFormatPath;
 }
+
+export function isWorktreePathManaged(
+  worktreePath: string,
+  worktreeBasePaths: string[],
+): boolean {
+  const resolved = path.resolve(worktreePath);
+  return worktreeBasePaths.some((basePath) => {
+    const base = path.resolve(basePath);
+    return resolved === base || resolved.startsWith(base + path.sep);
+  });
+}

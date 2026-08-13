@@ -133,6 +133,7 @@ async function withTestContext(
   };
   const workspaceSettings = {
     getWorktreeLocation: () => testWorktreeBasePath,
+    getAllWorktreeLocations: () => [testWorktreeBasePath],
   };
   const scopedLogger = {
     debug: vi.fn(),
@@ -351,6 +352,7 @@ describe("ArchiveService integration", () => {
         const archived = await ctx.service.archiveTask(ctx.archiveInput());
 
         expect(await pathExists(worktreePath)).toBe(false);
+        expect(await pathExists(path.dirname(worktreePath))).toBe(false);
         expect(ctx.archiveRepo.findAll()).toHaveLength(1);
         expect(archived.checkpointId).toBeTruthy();
 
@@ -481,6 +483,42 @@ describe("ArchiveService integration", () => {
 
         expect(archived.checkpointId).toBeTruthy();
         expect(await pathExists(legacyPath)).toBe(false);
+      }));
+
+    it("archive leaves the parent directory of an adopted external worktree intact", () =>
+      withTestContext({}, async (ctx) => {
+        const externalParent = await fs.mkdtemp(
+          path.join(os.tmpdir(), "external-parent-"),
+        );
+        try {
+          const externalWorktreePath = path.join(externalParent, "adopted-wt");
+          ctx.git(`worktree add "${externalWorktreePath}" HEAD --detach`);
+          await fs.writeFile(
+            path.join(externalParent, "sibling.txt"),
+            "keep me",
+          );
+
+          const workspace = ctx.workspaceRepo.create({
+            taskId: TASK_ID,
+            repositoryId: ctx.repoId,
+            mode: "worktree",
+          });
+          ctx.worktreeRepo.create({
+            workspaceId: workspace.id,
+            name: "adopted-wt",
+            path: externalWorktreePath,
+          });
+
+          await ctx.service.archiveTask(ctx.archiveInput());
+
+          expect(await pathExists(externalWorktreePath)).toBe(false);
+          expect(await pathExists(externalParent)).toBe(true);
+          expect(
+            await pathExists(path.join(externalParent, "sibling.txt")),
+          ).toBe(true);
+        } finally {
+          await fs.rm(externalParent, { recursive: true, force: true });
+        }
       }));
 
     it("archive succeeds when worktree was deleted externally", () =>
