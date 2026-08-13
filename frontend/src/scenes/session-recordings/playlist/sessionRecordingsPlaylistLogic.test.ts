@@ -1332,6 +1332,75 @@ describe('sessionRecordingsPlaylistLogic', () => {
         })
     })
 
+    describe('superseding or unmounting an in-flight load', () => {
+        afterEach(() => {
+            jest.restoreAllMocks()
+        })
+
+        it('abandons the load instead of failing on unmounted values reads', async () => {
+            let resolveList: (value: unknown) => void = () => {}
+            const pendingList = new Promise((resolve) => {
+                resolveList = resolve
+            })
+            const listSpy = jest
+                .spyOn(api.recordings, 'list')
+                .mockImplementation(() => pendingList as ReturnType<typeof api.recordings.list>)
+
+            const embeddedLogic = sessionRecordingsPlaylistLogic({ logicKey: 'unmount-mid-load' })
+            embeddedLogic.mount()
+
+            // afterMount kicks off a load; wait for it to get past the debounce and issue the request
+            while (listSpy.mock.calls.length === 0) {
+                await new Promise((resolve) => setTimeout(resolve, 25))
+            }
+
+            embeddedLogic.unmount()
+            resolveList({ results: [], has_next: false })
+
+            await expectLogic(embeddedLogic)
+                .toFinishAllListeners()
+                .toNotHaveDispatchedActions(['loadSessionRecordingsFailure'])
+        })
+
+        it('still reports a superseded fetch, with the filters the request was built from', async () => {
+            let resolveList: (value: unknown) => void = () => {}
+            const pendingList = new Promise((resolve) => {
+                resolveList = resolve
+            })
+            const listSpy = jest
+                .spyOn(api.recordings, 'list')
+                .mockImplementationOnce(() => pendingList as ReturnType<typeof api.recordings.list>)
+                .mockImplementation(
+                    () =>
+                        Promise.resolve({ results: [], has_next: false } as unknown) as ReturnType<
+                            typeof api.recordings.list
+                        >
+                )
+
+            const supersededLogic = sessionRecordingsPlaylistLogic({ logicKey: 'superseded-mid-load' })
+            supersededLogic.mount()
+
+            // afterMount kicks off a load; wait for it to get past the debounce and issue the request
+            while (listSpy.mock.calls.length === 0) {
+                await new Promise((resolve) => setTimeout(resolve, 25))
+            }
+
+            // supersede the in-flight load, then let its stale response land
+            supersededLogic.actions.setFilters({ filter_test_accounts: true })
+            resolveList({ results: [], has_next: false })
+
+            await expectLogic(supersededLogic)
+                .toDispatchActions([
+                    (action) =>
+                        action.type === supersededLogic.actionTypes.reportRecordingsListFetched &&
+                        action.payload.filters.filter_test_accounts !== true,
+                ])
+                .toFinishAllListeners()
+
+            supersededLogic.unmount()
+        })
+    })
+
     describe('convertUniversalFiltersToRecordingsQuery', () => {
         it('passes the visited_page filter as a recording property', () => {
             const result = convertUniversalFiltersToRecordingsQuery({
