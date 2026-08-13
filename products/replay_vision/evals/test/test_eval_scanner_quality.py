@@ -4,15 +4,23 @@ import time
 import random
 import asyncio
 import datetime as dt
+from pathlib import Path
 from typing import Any
 
 import pytest
 
 from products.posthog_ai.eval_harness.scorers.contract import Score, Scorer
+from products.replay_vision.backend.temporal.activities.call_scanner_provider import apply_known_freeform_tags
+from products.replay_vision.backend.temporal.scanners import ClassifierScanner
 from products.replay_vision.backend.temporal.types import ScannerSnapshot
 from products.replay_vision.evals import collector
-from products.replay_vision.evals.collector import _parse_ts, build_llm_inputs, order_candidates
-from products.replay_vision.evals.dataset import GoldenCase
+from products.replay_vision.evals.collector import (
+    _VideoAsset,
+    asset_is_recorded_video,
+    build_llm_inputs,
+    order_candidates,
+)
+from products.replay_vision.evals.dataset import GoldenCase, GoldenDataset, ensure_dataset_fresh, parse_utc
 from products.replay_vision.evals.eval_scanner_quality import build_case
 from products.replay_vision.evals.scorers import (
     LabeledOutcome,
@@ -25,7 +33,9 @@ from products.replay_vision.evals.scorers import (
 
 def _eval(scorer: Scorer, output: dict[str, Any] | None, expected: dict[str, Any] | None) -> Score:
     # eval_async is the entrypoint the harness dispatches through.
-    return asyncio.run(scorer.eval_async(output, expected))
+    score = asyncio.run(scorer.eval_async(output, expected))
+    assert isinstance(score, Score)
+    return score
 
 
 def _monitor_output(verdict: str) -> dict[str, Any]:
@@ -240,10 +250,57 @@ def test_order_candidates_puts_labeled_first_per_type() -> None:
     assert ordered == order_candidates(candidates, random.Random(42))
 
 
-def test_parse_ts_rejects_naive_timestamps() -> None:
+def test_parse_utc_rejects_naive_timestamps() -> None:
     with pytest.raises(ValueError, match="no timezone"):
-        _parse_ts("2026-08-01T12:00:00")
-    assert _parse_ts("2026-08-01T12:00:00+12:00") == dt.datetime(2026, 8, 1, 0, 0, 0, tzinfo=dt.UTC)
+        parse_utc("2026-08-01T12:00:00")
+    assert parse_utc("2026-08-01T12:00:00+12:00") == dt.datetime(2026, 8, 1, 0, 0, 0, tzinfo=dt.UTC)
+
+
+@pytest.mark.parametrize("age_days,fresh", [(0, True), (29, True), (31, False)])
+def test_ensure_dataset_fresh_enforces_consent_ttl(age_days: int, fresh: bool) -> None:
+    created = (dt.datetime.now(dt.UTC) - dt.timedelta(days=age_days)).isoformat()
+    dataset = GoldenDataset(created_at=created, host="https://us.posthog.com", project_id=2, cases=[])
+    if fresh:
+        ensure_dataset_fresh(dataset, Path("/tmp/dataset"))
+    else:
+        with pytest.raises(RuntimeError, match="re-run collect.py"):
+            ensure_dataset_fresh(dataset, Path("/tmp/dataset"))
+
+
+def test_apply_known_freeform_tags_only_touches_freeform_classifiers() -> None:
+    freeform = ClassifierScanner(prompt="x", tags=["a"], allow_freeform_tags=True)
+    tagged = apply_known_freeform_tags(freeform, ["search_error"])
+    assert isinstance(tagged, ClassifierScanner)
+    assert tagged.known_freeform_tags == ["search_error"]
+    # A fixed-vocab classifier rejects freeform output, so injecting tags there would break its validation.
+    fixed = ClassifierScanner(prompt="x", tags=["a"], allow_freeform_tags=False)
+    assert apply_known_freeform_tags(fixed, ["search_error"]) is fixed
+    assert apply_known_freeform_tags(freeform, []) is freeform
+
+
+def test_asset_is_recorded_video_rejects_rerasterized_assets() -> None:
+    asset = _VideoAsset(asset_id=1, created_at=dt.datetime(2026, 8, 1, tzinfo=dt.UTC))
+    assert asset_is_recorded_video(asset, {"completed_at": "2026-08-01T00:00:01+00:00"})
+    assert not asset_is_recorded_video(asset, {"completed_at": "2026-07-31T23:59:59+00:00"})
+    assert not asset_is_recorded_video(asset, {"completed_at": None})
+
+
+def test_known_freeform_tags_ranks_recent_observations_only() -> None:
+    now = dt.datetime.now(dt.UTC)
+
+    def observation(days_ago: int, model_output: dict[str, Any] | None) -> dict[str, Any]:
+        return {
+            "created_at": (now - dt.timedelta(days=days_ago)).isoformat(),
+            "scanner_result": {"model_output": model_output},
+        }
+
+    observations = [
+        observation(1, {"tags_freeform": ["Search Error", "slow page"]}),
+        observation(2, {"tags_freeform": ["search_error"]}),
+        observation(60, {"tags_freeform": ["ancient_tag"]}),
+        observation(0, None),
+    ]
+    assert collector._known_freeform_tags(observations) == ["search_error", "slow_page"]
 
 
 _SESSION_START = "2026-08-01T12:00:00+12:00"
@@ -286,6 +343,20 @@ class _FakeApi:
                 [],
                 [],
             ],
+            [
+                "file_uploaded",
+                "2026-08-01T12:02:10+12:00",
+                "",
+                [],
+                [],
+                "w1",
+                "https://example.com/b",
+                None,
+                "00000000-0000-0000-0000-00000000000c",
+                [],
+                [],
+                [],
+            ],
         ]
 
 
@@ -306,6 +377,27 @@ def test_event_offsets_do_not_depend_on_local_timezone(monkeypatch: pytest.Monke
     assert utc_offsets == nz_offsets
     assert utc_offsets["00000000-0000-0000-0000-00000000000a"] == 10_000
     assert utc_offsets["00000000-0000-0000-0000-00000000000b"] == 70_000
+
+
+class _DefinitionsApi(_FakeApi):
+    def __init__(self) -> None:
+        self.definition_requests = 0
+
+    def paginate(self, path: str, params: dict[str, Any] | None = None, max_items: int | None = None) -> Any:
+        self.definition_requests += 1
+        yield {"name": "file_uploaded", "description": "User uploaded a file"}
+
+
+def test_build_llm_inputs_carries_prompt_context() -> None:
+    api = _DefinitionsApi()
+    lookup = collector.EventDescriptionLookup(api)  # type: ignore[arg-type]
+    for _ in range(2):
+        inputs = build_llm_inputs(api, 2, "sess-1", product_context="Acme sells anvils", event_descriptions=lookup)  # type: ignore[arg-type]
+        assert inputs is not None
+        assert inputs.product_context == "Acme sells anvils"
+        assert inputs.event_descriptions == {"file_uploaded": "User uploaded a file"}
+    # The description cache spans sessions, so the second build must not refetch.
+    assert api.definition_requests == 1
 
 
 class _PagedApi:

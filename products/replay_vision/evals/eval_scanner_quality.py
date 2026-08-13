@@ -26,11 +26,19 @@ from products.posthog_ai.eval_harness.harness.context import EvalContext
 from products.posthog_ai.eval_harness.harness.requirements import SuiteKind
 from products.posthog_ai.eval_harness.one_shot import OneShotPrivateEval
 from products.replay_vision.backend.prompt_evaluation import primary_outcome
-from products.replay_vision.backend.temporal.activities.call_scanner_provider import run_scan
+from products.replay_vision.backend.temporal.activities.call_scanner_provider import apply_known_freeform_tags, run_scan
 from products.replay_vision.backend.temporal.errors import ScannerFailureError
 from products.replay_vision.backend.temporal.gemini import gemini_api_key
-from products.replay_vision.evals.dataset import DATASET_ENV_VAR, GoldenCase, dataset_root, load_dataset
+from products.replay_vision.backend.temporal.scanners import scanner_from_snapshot
+from products.replay_vision.evals.dataset import (
+    DATASET_ENV_VAR,
+    GoldenCase,
+    dataset_root,
+    ensure_dataset_fresh,
+    load_dataset,
+)
 from products.replay_vision.evals.scorers import (
+    SUMMARY_FIELDS,
     LabeledOutcome,
     OutputStability,
     ScanCompleted,
@@ -43,7 +51,6 @@ SUITE_KIND = SuiteKind.ONE_SHOT
 logger = structlog.get_logger(__name__)
 
 _MAX_PROCESSING_WAIT_SECONDS = 300
-_SUMMARY_FIELDS = ("title", "summary", "intent", "outcome", "friction_points", "keywords")
 
 
 def build_case(golden: GoldenCase) -> BaseEvalCase:
@@ -81,7 +88,7 @@ def build_case(golden: GoldenCase) -> BaseEvalCase:
     elif golden.scanner_type == "summarizer":
         if golden.label_is_correct is not False:
             expected["summary_alignment"] = {
-                "reference": {field: golden.recorded_output.get(field) for field in _SUMMARY_FIELDS}
+                "reference": {field: golden.recorded_output.get(field) for field in SUMMARY_FIELDS}
             }
     return BaseEvalCase(
         # The full case id: UUIDv7 ids collected in the same minute share their first characters,
@@ -133,12 +140,16 @@ async def _scan_task(
 ) -> dict[str, Any]:
     golden = golden_by_case_id[case.metadata["case_id"]]
     llm_inputs = await asyncio.to_thread(golden.load_inputs, root)
+    # Rebuild the scanner the way production does, tag vocabulary included, so a freeform classifier
+    # is scored on its prompt rather than on missing context.
+    scanner = apply_known_freeform_tags(scanner_from_snapshot(golden.snapshot), golden.known_freeform_tags)
     client = RawGenAIClient(api_key=gemini_api_key())
     uploaded = await asyncio.to_thread(_upload_video, client, golden.video_path(root))
     try:
         try:
             result = await run_scan(
                 snapshot=golden.snapshot,
+                scanner=scanner,
                 llm_inputs=llm_inputs,
                 team_name=golden.team_name,
                 file_uri=uploaded.uri or "",
@@ -180,7 +191,9 @@ async def eval_scanner_quality(ctx: EvalContext) -> None:
     if not gemini_api_key():
         raise RuntimeError("Set GEMINI_API_KEY (or REPLAY_VISION_GEMINI_API_KEY) to run replay-vision scans")
 
-    golden_cases = load_dataset(root).cases
+    dataset = load_dataset(root)
+    ensure_dataset_fresh(dataset, root)
+    golden_cases = dataset.cases
     missing = [g.case_id for g in golden_cases if not (g.video_path(root).exists() and g.inputs_path(root).exists())]
     if missing:
         raise RuntimeError(f"Dataset at {root} is missing files for cases {missing[:5]}; re-run collect.py")
@@ -188,7 +201,8 @@ async def eval_scanner_quality(ctx: EvalContext) -> None:
     cases = [build_case(golden) for golden in golden_cases]
     golden_by_case_id = {case.metadata["case_id"]: golden for case, golden in zip(cases, golden_cases)}
     # A collision here would silently score one observation against another session's video.
-    assert len(golden_by_case_id) == len(golden_cases), "duplicate case_id in dataset"
+    if len(golden_by_case_id) != len(golden_cases):
+        raise RuntimeError(f"Dataset at {root} contains duplicate case ids; re-collect into a clean directory")
     await OneShotPrivateEval(
         experiment_name="replay-vision-scanner-quality",
         cases=cases,

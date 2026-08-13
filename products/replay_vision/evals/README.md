@@ -20,8 +20,10 @@ POSTHOG_API_KEY=... python -m products.replay_vision.evals.collect \
 ```
 
 Selection is per scanner type: human-labeled observations first (thumbs up/down carry ground truth), then a seeded uniform sample of unlabeled ones.
-Only sessions whose rasterized MP4 still exists are collectable: the system assets expire after 90 days, and the warehouse copy of the exports table lags up to a day, so very fresh observations are skipped.
-Re-running the collector is idempotent per case: completed cases are reused, half-written ones are re-collected, and the manifest is merged with previously collected cases that are still valid on disk.
+Only observations whose original rasterized MP4 still exists are collectable: the system assets expire after 90 days, a session re-rasterized after that is a different video than the one behind the recorded output (so those are skipped too), and the warehouse copy of the exports table lags up to a day, so very fresh observations are skipped.
+Each case also captures the prompt context the production scan carried: the project's product context (Max core memory needs a full-access personal key; otherwise the project description is used), the session's custom-event descriptions, and, for freeform classifiers, the known-tag vocabulary.
+Re-running the collector is idempotent per case: completed cases are reused as-is, half-written ones are re-collected, and the manifest is merged with previously collected cases that are still valid on disk.
+After a collector change that alters what a case captures, collect into a fresh directory so reused cases don't keep the old shape.
 
 ## Running the suite
 
@@ -56,6 +58,7 @@ Use `--trials N` for variance on Gemini nondeterminism and `--eval <case-substri
 The dataset contains real session recordings and event data.
 
 - Keep it in a local or internal location only; never commit it, upload it, or reference its contents in PRs.
+- A dataset expires 30 days after its last collection: the suite refuses to run it, because the consent verification (and the recordings themselves) can lapse after collection. Re-running collect.py re-verifies consent and refreshes the manifest.
 - The suite is `OneShotPrivateEval`: results stay in the local `eval_harness/logs/` directory and are not sent to Braintrust.
 - `summary_alignment` sends the recorded and fresh session summaries to the LLM judge (`gpt-5.4` via the internal LLM gateway); besides the Gemini scans themselves, this is the only path where dataset-derived content leaves the machine.
 - Collecting from projects other than PostHog's own requires a data-governance decision first; see the product's consent gating (`backend/consent.py`) and note that customer-facing copy does not cover internal reuse today.

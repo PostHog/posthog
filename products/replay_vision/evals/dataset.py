@@ -8,6 +8,7 @@ A dataset is a plain directory, never committed to the repo (it contains real se
 """
 
 import os
+import datetime as dt
 from pathlib import Path
 from typing import Any
 
@@ -19,6 +20,18 @@ DATASET_ENV_VAR = "REPLAY_VISION_EVAL_DATASET"
 MANIFEST_NAME = "manifest.json"
 VIDEO_NAME = "video.mp4"
 INPUTS_NAME = "inputs.json"
+# Production re-checks AI data-processing consent right before every generation; for the eval the only
+# check happens when collect.py runs, so bound how long that verification (and the collected recordings
+# themselves) may be trusted.
+DATASET_MAX_AGE_DAYS = 30
+
+
+def parse_utc(raw: Any) -> dt.datetime:
+    """Parse an ISO timestamp into UTC; a naive string would silently shift by this machine's timezone, so reject it."""
+    parsed = dt.datetime.fromisoformat(str(raw))
+    if parsed.tzinfo is None:
+        raise ValueError(f"timestamp {raw!r} has no timezone; expected an offset-aware ISO string")
+    return parsed.astimezone(dt.UTC)
 
 
 class GoldenCase(BaseModel, frozen=True):
@@ -33,6 +46,10 @@ class GoldenCase(BaseModel, frozen=True):
     team_name: str
     snapshot: ScannerSnapshot
     recorded_output: dict[str, Any] = Field(description="scanner_result.model_output at collection time.")
+    known_freeform_tags: list[str] = Field(
+        default_factory=list,
+        description="Tag vocabulary a freeform classifier scans with, captured at collection time.",
+    )
     label_is_correct: bool | None = None
     label_feedback: str = ""
     collected_at: str
@@ -64,6 +81,16 @@ def dataset_root() -> Path | None:
 
 def load_dataset(root: Path) -> GoldenDataset:
     return GoldenDataset.model_validate_json((root / MANIFEST_NAME).read_text())
+
+
+def ensure_dataset_fresh(dataset: GoldenDataset, root: Path) -> None:
+    """Refuse to scan a dataset whose consent verification has lapsed (see DATASET_MAX_AGE_DAYS)."""
+    age = dt.datetime.now(dt.UTC) - parse_utc(dataset.created_at)
+    if age > dt.timedelta(days=DATASET_MAX_AGE_DAYS):
+        raise RuntimeError(
+            f"Dataset at {root} was collected {age.days} days ago (limit {DATASET_MAX_AGE_DAYS}); "
+            "re-run collect.py, which re-verifies AI data-processing consent"
+        )
 
 
 def save_dataset(root: Path, dataset: GoldenDataset) -> None:

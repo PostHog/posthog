@@ -11,6 +11,7 @@ import time
 import asyncio
 import functools
 from collections import Counter
+from collections.abc import Iterable
 from dataclasses import dataclass
 from datetime import timedelta
 from typing import Any, TypeVar
@@ -142,24 +143,23 @@ async def _call_scanner_provider(inputs: CallScannerProviderInputs) -> ScannerCa
 async def run_scan(
     *,
     snapshot: ScannerSnapshot,
+    scanner: BaseScanner,
     llm_inputs: ScannerLlmInputs,
     team_name: str,
     file_uri: str,
     mime_type: str,
     team_id: int,
     trace_id: str | None = None,
-    scanner: BaseScanner | None = None,
 ) -> ScannerCallOutput:
     """Run the scanner conversation over an already-uploaded video, independent of where the inputs came from.
 
     The activity path above loads the snapshot and inputs from the observation row and Redis; the golden-dataset
     eval suite (products/replay_vision/evals) feeds this same function from files on disk so prompt changes are
-    tested against the exact production pipeline. The production activity checks AI data-processing consent
+    tested against the exact production pipeline. `scanner` is required (no snapshot fallback) so no caller can
+    silently skip the known-freeform-tags injection. The production activity checks AI data-processing consent
     before calling this; any other caller must do the same before recording data reaches the provider (the eval
-    suite is covered because dataset collection is consent-gated).
+    suite is covered because dataset collection is consent-gated and time-boxed).
     """
-    scanner = scanner if scanner is not None else scanner_from_snapshot(snapshot)
-
     preamble_text = scanner.preamble(
         team_name=team_name,
         session_metadata=llm_inputs.metadata.as_prompt_dict(),
@@ -259,6 +259,13 @@ def _is_taglike(slug: str) -> bool:
     )
 
 
+def apply_known_freeform_tags(scanner: BaseScanner, tags: list[str]) -> BaseScanner:
+    """No-op unless `scanner` is a freeform-emitting classifier and there are tags to inject."""
+    if not tags or not isinstance(scanner, ClassifierScanner) or not scanner.allow_freeform_tags:
+        return scanner
+    return scanner.model_copy(update={"known_freeform_tags": tags})
+
+
 async def _inject_known_freeform_tags(scanner: BaseScanner, inputs: CallScannerProviderInputs) -> BaseScanner:
     """Give a freeform-emitting classifier the freeform tags it recently coined, so it reuses established
     names instead of inventing synonyms per scan. Best effort: a lookup failure must not fail the scan."""
@@ -269,9 +276,20 @@ async def _inject_known_freeform_tags(scanner: BaseScanner, inputs: CallScannerP
     except Exception:
         logger.warning("replay_vision.call_scanner_provider.known_freeform_tags_failed", exc_info=True)
         return scanner
-    if not known:
-        return scanner
-    return scanner.model_copy(update={"known_freeform_tags": known})
+    return apply_known_freeform_tags(scanner, known)
+
+
+def rank_freeform_tags(tag_lists: Iterable[Any]) -> list[str]:
+    """Slug-normalized freeform tags ranked most frequent first, capped to bound prompt size."""
+    counts: Counter[str] = Counter()
+    for tags in tag_lists:
+        if not isinstance(tags, list):
+            continue
+        # Stored values are already slugified at emission; re-slugify so nothing unnormalized reaches the prompt.
+        counts.update(slug for tag in tags if isinstance(tag, str) and _is_taglike(slug := slugify_tag(tag)))
+    # Alphabetical tie-break so equal-count tags keep a stable order across scans.
+    ranked = sorted(counts.items(), key=lambda item: (-item[1], item[0]))
+    return [tag for tag, _ in ranked[:_KNOWN_FREEFORM_TAGS_MAX]]
 
 
 def _load_known_freeform_tags(observation_id: UUID, team_id: int) -> list[str]:
@@ -293,15 +311,7 @@ def _load_known_freeform_tags(observation_id: UUID, team_id: int) -> list[str]:
         .order_by("-created_at")
         .values_list("scanner_result__model_output__tags_freeform", flat=True)[:_KNOWN_FREEFORM_TAGS_MAX_ROWS]
     )
-    counts: Counter[str] = Counter()
-    for tags in recent:
-        if not isinstance(tags, list):
-            continue
-        # Stored values are already slugified at emission; re-slugify so nothing unnormalized reaches the prompt.
-        counts.update(slug for tag in tags if isinstance(tag, str) and _is_taglike(slug := slugify_tag(tag)))
-    # Alphabetical tie-break so equal-count tags keep a stable order across scans.
-    ranked = sorted(counts.items(), key=lambda item: (-item[1], item[0]))
-    return [tag for tag, _ in ranked[:_KNOWN_FREEFORM_TAGS_MAX]]
+    return rank_freeform_tags(recent)
 
 
 def _load_snapshot(observation_id: UUID, team_id: int) -> ScannerSnapshot:
@@ -711,4 +721,4 @@ async def _delete_video_cache(cache_client: GoogleGenAIClient, name: str) -> Non
         logger.info("replay_vision.video_cache.delete_failed", error=str(e))
 
 
-__all__ = ["call_scanner_provider_activity", "run_scan"]
+__all__ = ["apply_known_freeform_tags", "call_scanner_provider_activity", "rank_freeform_tags", "run_scan"]

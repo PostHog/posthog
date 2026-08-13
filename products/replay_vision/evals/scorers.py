@@ -15,7 +15,8 @@ from products.replay_vision.backend.prompt_evaluation import classify_outcome, p
 
 _OUTCOME_SCORES = {"kept": 1.0, "fixed": 1.0, "regressed": 0.0, "still_wrong": 0.0}
 
-_SUMMARY_FIELDS = ("title", "summary", "intent", "outcome", "friction_points", "keywords")
+# The summarizer output fields the judge compares; build_case snapshots the same fields as the reference.
+SUMMARY_FIELDS = ("title", "summary", "intent", "outcome", "friction_points", "keywords")
 
 
 def _spec(expected: dict[str, Any] | None, name: str) -> dict[str, Any] | None:
@@ -159,7 +160,7 @@ class SummaryAlignment(JudgedScorer):
         model_output = (output or {}).get("model_output")
         if not model_output:
             return Score(name=self._name(), score=0.0, metadata={"reason": "scan produced no output"})
-        candidate = {field: model_output.get(field) for field in _SUMMARY_FIELDS}
+        candidate = {field: model_output.get(field) for field in SUMMARY_FIELDS}
         return {
             "output": json.dumps(candidate, indent=2),
             "expected": json.dumps(spec.get("reference"), indent=2),

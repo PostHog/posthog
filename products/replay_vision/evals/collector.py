@@ -5,7 +5,8 @@ against any project the key can read: the replay-vision scanner/observation endp
 selection, the synced ``postgres.posthog_exportedasset`` warehouse table locates each session's
 rasterized MP4 (system assets are invisible to the exports list endpoint), the exports content
 endpoint downloads the bytes, and HogQL queries mirroring ``fetch_session_events`` rebuild each
-session's ``ScannerLlmInputs``.
+session's ``ScannerLlmInputs``. The core-memory, project, and event-definition endpoints rebuild
+the prompt context (``product_context``, ``event_descriptions``) the production preamble carries.
 """
 
 import os
@@ -21,6 +22,11 @@ import structlog
 from posthog.dataclasses import frozen
 from posthog.session_recordings.queries.session_replay_events import DEFAULT_EVENT_FIELDS
 
+from products.replay_vision.backend.temporal.activities.call_scanner_provider import (
+    _KNOWN_FREEFORM_TAGS_DAYS,
+    _KNOWN_FREEFORM_TAGS_MAX_ROWS,
+    rank_freeform_tags,
+)
 from products.replay_vision.backend.temporal.activities.ensure_session_asset import (
     _EXPORT_FORMAT,
     _MOUSE_TAIL,
@@ -35,8 +41,20 @@ from products.replay_vision.backend.temporal.activities.fetch_session_events imp
     _MAX_TOTAL_EVENT_ROWS,
     _process_events,
 )
+from products.replay_vision.backend.temporal.team_context import (
+    sanitize_product_context,
+    select_event_descriptions,
+    session_custom_event_names,
+)
 from products.replay_vision.backend.temporal.types import EventTable, ScannerLlmInputs, ScannerSnapshot, SessionMetadata
-from products.replay_vision.evals.dataset import MANIFEST_NAME, GoldenCase, GoldenDataset, load_dataset, save_dataset
+from products.replay_vision.evals.dataset import (
+    MANIFEST_NAME,
+    GoldenCase,
+    GoldenDataset,
+    load_dataset,
+    parse_utc,
+    save_dataset,
+)
 
 logger = structlog.get_logger(__name__)
 
@@ -44,6 +62,7 @@ logger = structlog.get_logger(__name__)
 # observations often have no findable asset yet; we over-fetch candidates and skip those.
 _ASSET_LOOKUP_CHUNK = 100
 _OBSERVATION_PAGE = 100
+_EVENT_DEFINITION_NAMES_CHUNK = 100
 
 
 class PostHogApi:
@@ -113,25 +132,26 @@ def order_candidates(candidates: list[dict[str, Any]], rng: random.Random) -> di
     return ordered
 
 
-def _parse_ts(raw: Any) -> dt.datetime:
-    # Normalize to UTC to match the UTC-native datetimes the production ClickHouse fetch produces.
-    # The queries pin their timestamp columns to UTC via toTimeZone; a naive string would make
-    # astimezone assume this machine's timezone and silently shift every offset, so reject it.
-    parsed = dt.datetime.fromisoformat(str(raw))
-    if parsed.tzinfo is None:
-        raise ValueError(f"timestamp {raw!r} has no timezone; expected an offset-aware ISO string")
-    return parsed.astimezone(dt.UTC)
+@frozen
+class _VideoAsset:
+    asset_id: int
+    created_at: dt.datetime
 
 
-def lookup_video_assets(api: PostHogApi, team_id: int, session_ids: list[str]) -> dict[str, int]:
-    """Map session id to the id of its system rasterized-MP4 asset, for sessions that still have one."""
-    found: dict[str, int] = {}
+def lookup_video_assets(api: PostHogApi, team_id: int, session_ids: list[str]) -> dict[str, _VideoAsset]:
+    """Map session id to its system rasterized-MP4 asset, for sessions that still have one.
+
+    min(id) mirrors ensure_session_asset's oldest-first get-or-create, so this is the asset the
+    production scans actually watched, for as long as it lives.
+    """
+    found: dict[str, _VideoAsset] = {}
     for start in range(0, len(session_ids), _ASSET_LOOKUP_CHUNK):
         chunk = session_ids[start : start + _ASSET_LOOKUP_CHUNK]
-        # max(id) picks the newest export: the oldest is the closest to its 90-day expiry.
         rows = api.hogql(
             """
-            SELECT JSONExtractString(toString(export_context), 'session_recording_id') AS sid, max(id) AS asset_id
+            SELECT JSONExtractString(toString(export_context), 'session_recording_id') AS sid,
+                   min(id) AS asset_id,
+                   argMin(toTimeZone(created_at, 'UTC'), id) AS asset_created_at
             FROM postgres.posthog_exportedasset
             WHERE team_id = {team_id}
               AND export_format = {export_format}
@@ -154,12 +174,19 @@ def lookup_video_assets(api: PostHogApi, team_id: int, session_ids: list[str]) -
                 "session_ids": chunk,
             },
         )
-        for sid, asset_id in rows:
-            found[str(sid)] = int(asset_id)
+        for sid, asset_id, created_raw in rows:
+            found[str(sid)] = _VideoAsset(asset_id=int(asset_id), created_at=parse_utc(created_raw))
     return found
 
 
-# toTimeZone pins the timestamps to UTC regardless of the project timezone, so _parse_ts never
+def asset_is_recorded_video(asset: _VideoAsset, observation: dict[str, Any]) -> bool:
+    """An asset created after the observation completed is a re-rasterization from after the original
+    expired: not the video behind recorded_output, so the case would score the wrong footage."""
+    completed_raw = observation.get("completed_at")
+    return bool(completed_raw) and asset.created_at <= parse_utc(completed_raw)
+
+
+# toTimeZone pins the timestamps to UTC regardless of the project timezone, so parse_utc never
 # sees a value it would have to guess a timezone for.
 _METADATA_QUERY = """
 SELECT distinct_id, toTimeZone(start_time, 'UTC') AS start_time, toTimeZone(end_time, 'UTC') AS end_time,
@@ -216,7 +243,50 @@ def _fetch_events(api: PostHogApi, session_id: str, start: dt.datetime, end: dt.
     return _SessionEvents(columns=list(fields), rows=rows, truncated=truncated)
 
 
-def build_llm_inputs(api: PostHogApi, team_id: int, session_id: str) -> ScannerLlmInputs | None:
+class EventDescriptionLookup:
+    """API-backed twin of team_context.fetch_event_descriptions, cached across sessions in one run."""
+
+    def __init__(self, api: PostHogApi) -> None:
+        self._api = api
+        self._cache: dict[str, str] = {}
+
+    def for_session(self, columns: list[str], rows: list[list[Any]]) -> dict[str, str]:
+        names = session_custom_event_names(columns, rows)
+        missing = [name for name in names if name not in self._cache]
+        for start in range(0, len(missing), _EVENT_DEFINITION_NAMES_CHUNK):
+            chunk = missing[start : start + _EVENT_DEFINITION_NAMES_CHUNK]
+            # Pre-cache the whole chunk as undescribed so names the API doesn't return are not refetched.
+            self._cache.update(dict.fromkeys(chunk, ""))
+            for definition in self._api.paginate(
+                f"/api/projects/{self._api.project_id}/event_definitions/",
+                {"names": ",".join(chunk), "limit": _EVENT_DEFINITION_NAMES_CHUNK},
+            ):
+                self._cache[str(definition.get("name") or "")] = str(definition.get("description") or "")
+        return select_event_descriptions(names, self._cache)
+
+
+def fetch_product_context_via_api(api: PostHogApi) -> str:
+    """Product context the way production builds it: Max core memory, then the project's product description."""
+    text = ""
+    try:
+        results = api.get_json(f"/api/projects/{api.project_id}/core_memory/").get("results") or []
+        text = str(results[0].get("text") or "").strip() if results else ""
+    except requests.HTTPError as exc:
+        # Core memory is an INTERNAL-scope endpoint, unreadable with a scoped personal key; degrade to the fallback.
+        logger.warning("collector.core_memory_unreadable", error=str(exc))
+    if not text:
+        text = str(api.get_json(f"/api/projects/{api.project_id}/").get("product_description") or "").strip()
+    return sanitize_product_context(text)
+
+
+def build_llm_inputs(
+    api: PostHogApi,
+    team_id: int,
+    session_id: str,
+    *,
+    product_context: str = "",
+    event_descriptions: EventDescriptionLookup | None = None,
+) -> ScannerLlmInputs | None:
     """Rebuild the ScannerLlmInputs production stashed in Redis, from the query API instead of ClickHouse."""
     metadata_rows = api.hogql(_METADATA_QUERY, {"session_id": session_id})
     if not metadata_rows:
@@ -224,7 +294,7 @@ def build_llm_inputs(api: PostHogApi, team_id: int, session_id: str) -> ScannerL
     (distinct_id, start_raw, end_raw, clicks, keypresses, mouse, active_ms, console_errors, first_url) = metadata_rows[
         0
     ]
-    start, end = _parse_ts(start_raw), _parse_ts(end_raw)
+    start, end = parse_utc(start_raw), parse_utc(end_raw)
     duration_seconds = (end - start).total_seconds()
 
     fetched = _fetch_events(api, session_id, start, end)
@@ -233,7 +303,7 @@ def build_llm_inputs(api: PostHogApi, team_id: int, session_id: str) -> ScannerL
     # _process_events needs real datetimes to compute per-event offsets from session start.
     timestamp_index = fetched.columns.index("timestamp")
     for row in fetched.rows:
-        row[timestamp_index] = _parse_ts(row[timestamp_index])
+        row[timestamp_index] = parse_utc(row[timestamp_index])
     # HogQL surfaces `properties.$window_id` as a bare `$window_id` column, matching production's runner output.
     columns = [column.removeprefix("properties.") for column in fetched.columns]
     processed = _process_events(columns, fetched.rows, session_start=start)
@@ -249,6 +319,10 @@ def build_llm_inputs(api: PostHogApi, team_id: int, session_id: str) -> ScannerL
         event_timestamps=processed.event_timestamps,
         navigation=processed.navigation,
         navigation_dropped=processed.navigation_dropped,
+        product_context=product_context,
+        event_descriptions=event_descriptions.for_session(processed.columns, processed.rows)
+        if event_descriptions
+        else {},
         distinct_id=str(distinct_id) if distinct_id else None,
         metadata=SessionMetadata(
             start_time=start,
@@ -265,6 +339,18 @@ def build_llm_inputs(api: PostHogApi, team_id: int, session_id: str) -> ScannerL
     )
 
 
+def _known_freeform_tags(observations: list[dict[str, Any]]) -> list[str]:
+    """Approximate the tag vocabulary production injects at scan time (recent window, ranked by frequency);
+    the vocabulary each recorded scan actually saw is not reconstructable after the fact."""
+    cutoff = dt.datetime.now(dt.UTC) - dt.timedelta(days=_KNOWN_FREEFORM_TAGS_DAYS)
+    recent = [
+        ((observation.get("scanner_result") or {}).get("model_output") or {}).get("tags_freeform")
+        for observation in observations
+        if observation.get("created_at") and parse_utc(observation["created_at"]) >= cutoff
+    ]
+    return rank_freeform_tags(recent[:_KNOWN_FREEFORM_TAGS_MAX_ROWS])
+
+
 def _fetch_candidates(
     api: PostHogApi, scanner_ids: list[str] | None, max_observations_per_scanner: int
 ) -> list[dict[str, Any]]:
@@ -272,20 +358,40 @@ def _fetch_candidates(
     for scanner in api.paginate(f"/api/projects/{api.project_id}/vision/scanners/", {"limit": 100}):
         if scanner_ids and scanner["id"] not in scanner_ids:
             continue
-        observations = api.paginate(
-            f"/api/projects/{api.project_id}/vision/scanners/{scanner['id']}/observations/",
-            {"status": "succeeded", "limit": _OBSERVATION_PAGE},
-            max_items=max_observations_per_scanner,
+        observations = list(
+            api.paginate(
+                f"/api/projects/{api.project_id}/vision/scanners/{scanner['id']}/observations/",
+                {"status": "succeeded", "limit": _OBSERVATION_PAGE},
+                max_items=max_observations_per_scanner,
+            )
         )
+        known_tags = _known_freeform_tags(observations) if scanner["scanner_type"] == "classifier" else []
         for observation in observations:
             if not (observation.get("scanner_result") or {}).get("model_output"):
                 continue
-            candidates.append({"observation": observation, "scanner": scanner, "scanner_type": scanner["scanner_type"]})
+            candidates.append(
+                {
+                    "observation": observation,
+                    "scanner": scanner,
+                    "scanner_type": scanner["scanner_type"],
+                    "known_freeform_tags": known_tags,
+                }
+            )
     return candidates
 
 
+@frozen
+class _SourceProject:
+    """Per-run context of the project being collected from, shared by every case."""
+
+    team_id: int
+    team_name: str
+    product_context: str
+    event_descriptions: EventDescriptionLookup
+
+
 def _write_case(
-    api: PostHogApi, root: Path, candidate: dict[str, Any], asset_id: int, team_id: int, team_name: str
+    api: PostHogApi, root: Path, candidate: dict[str, Any], asset_id: int, source: _SourceProject
 ) -> GoldenCase | None:
     observation = candidate["observation"]
     scanner = candidate["scanner"]
@@ -296,10 +402,11 @@ def _write_case(
         scanner_name=scanner["name"],
         scanner_type=scanner["scanner_type"],
         session_id=observation["session_id"],
-        team_id=team_id,
-        team_name=team_name,
+        team_id=source.team_id,
+        team_name=source.team_name,
         snapshot=ScannerSnapshot.model_validate(observation["scanner_snapshot"]),
         recorded_output=observation["scanner_result"]["model_output"],
+        known_freeform_tags=candidate.get("known_freeform_tags") or [],
         label_is_correct=label.get("is_correct"),
         label_feedback=label.get("feedback") or "",
         collected_at=dt.datetime.now(dt.UTC).isoformat(),
@@ -312,7 +419,13 @@ def _write_case(
         except Exception:
             logger.warning("collector.reused_case_invalid", case_id=case.case_id)
 
-    inputs = build_llm_inputs(api, team_id, case.session_id)
+    inputs = build_llm_inputs(
+        api,
+        source.team_id,
+        case.session_id,
+        product_context=source.product_context,
+        event_descriptions=source.event_descriptions,
+    )
     if inputs is None:
         logger.warning("collector.no_events_for_session", session_id=case.session_id)
         return None
@@ -372,7 +485,12 @@ def collect(
     if int(environment["project_id"]) != project_id:
         raise RuntimeError(f"Environment {team_id} belongs to project {environment['project_id']}, not {project_id}")
     _check_ai_consent(api, environment)
-    team_name = str(environment.get("name", ""))
+    source = _SourceProject(
+        team_id=team_id,
+        team_name=str(environment.get("name", "")),
+        product_context=fetch_product_context_via_api(api),
+        event_descriptions=EventDescriptionLookup(api),
+    )
     rng = random.Random(seed)
 
     candidates = _fetch_candidates(api, scanner_ids, max_observations_per_scanner)
@@ -393,10 +511,11 @@ def collect(
             if collected >= per_type:
                 break
             session_id = candidate["observation"]["session_id"]
-            if session_id not in assets:
+            asset = assets.get(session_id)
+            if asset is None or not asset_is_recorded_video(asset, candidate["observation"]):
                 continue
             try:
-                case = _write_case(api, output, candidate, assets[session_id], team_id, team_name)
+                case = _write_case(api, output, candidate, asset.asset_id, source)
             except requests.HTTPError as exc:
                 logger.warning("collector.case_failed", observation_id=candidate["observation"]["id"], error=str(exc))
                 continue
