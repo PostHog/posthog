@@ -1534,6 +1534,38 @@ export interface ScannerCreatorsResponseApi {
 }
 
 /**
+ * Body of POST /vision/scanners/draft/ — the user's goal, stated in their own words.
+ */
+export interface DraftScannerRequestApi {
+    /**
+     * What the user wants to accomplish, e.g. 'find out where users get stuck during onboarding'.
+     * @maxLength 2000
+     */
+    goal: string
+}
+
+/**
+ * An AI-drafted scanner configuration, ready to seed the creation wizard. Nothing is persisted.
+ */
+export interface DraftScannerResponseApi {
+    /** Drafted scanner name. */
+    name: string
+    /** Drafted one-sentence description. */
+    description: string
+    /** The scanner type the draft picked for the goal.
+     *
+     * * `monitor` - Monitor
+     * * `classifier` - Classifier
+     * * `scorer` - Scorer
+     * * `summarizer` - Summarizer */
+    scanner_type: ScannerTypeEnumApi
+    /** Type-specific config for the drafted `scanner_type`; always includes `prompt`. */
+    scanner_config: unknown
+    /** Why the draft picked this scanner type and configuration, addressed to the user. */
+    rationale: string
+}
+
+/**
  * Body of POST /vision/scanners/estimate/ — a proposed, unsaved scanner config.
  */
 export interface EstimateRequestApi {
