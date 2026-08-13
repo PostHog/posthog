@@ -619,6 +619,37 @@ describe('AI observability persisted preferences', () => {
         secondLogic.unmount()
     })
 
+    it('keeps notebook date filters separate from the saved scene timeframe', () => {
+        const savedSceneLogic = aiObservabilitySharedLogic()
+        savedSceneLogic.mount()
+        savedSceneLogic.actions.setDates('-30d', null)
+        savedSceneLogic.unmount()
+
+        const notebookLogic = aiObservabilitySharedLogic({ logicKey: 'notebook-node' })
+        notebookLogic.mount()
+        expect(notebookLogic.values.dateFilter).toEqual({ dateFrom: '-1h', dateTo: null })
+        notebookLogic.actions.setDates('-7d', null)
+        notebookLogic.unmount()
+
+        const remountedSceneLogic = aiObservabilitySharedLogic()
+        remountedSceneLogic.mount()
+        expect(remountedSceneLogic.values.dateFilter).toEqual({ dateFrom: '-30d', dateTo: null })
+        remountedSceneLogic.unmount()
+    })
+
+    it('drops invalid URL dates without replacing the saved scene timeframe', () => {
+        router.actions.push(urls.aiObservabilityTraces())
+        const logic = aiObservabilitySharedLogic()
+        logic.mount()
+        logic.actions.setDates('-30d', null)
+
+        router.actions.push(urls.aiObservabilityTraces(), { date_from: 'not-a-date' })
+
+        expect(logic.values.dateFilter).toEqual({ dateFrom: '-30d', dateTo: null })
+        expect(router.values.searchParams.date_from).toBe('-30d')
+        logic.unmount()
+    })
+
     it('persists selected dashboard across remount', () => {
         const firstLogic = aiObservabilityDashboardLogic()
         firstLogic.mount()

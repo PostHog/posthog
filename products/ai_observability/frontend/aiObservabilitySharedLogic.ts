@@ -20,6 +20,7 @@ import type { ProductSetupStatus } from 'lib/components/ProductEmptyState/types'
 import { SetupTaskId, globalSetupLogic } from 'lib/components/ProductSetup'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { trackedActionToUrl } from 'lib/logic/scenes/trackedActionToUrl'
+import { isValidRelativeOrAbsoluteDate } from 'lib/utils/dateFilters'
 import { objectsEqual } from 'lib/utils/objects'
 import { projectLogic } from 'scenes/projectLogic'
 import { sceneLogic } from 'scenes/sceneLogic'
@@ -274,7 +275,7 @@ export type aiObservabilitySharedLogicType = MakeLogicType<
 export const aiObservabilitySharedLogic = kea<aiObservabilitySharedLogicType>([
     path(['products', 'ai_observability', 'frontend', 'aiObservabilitySharedLogic']),
     props({} as AIObservabilitySharedLogicProps),
-    key((props: AIObservabilitySharedLogicProps) => `${props?.personId || 'aiObservabilityScene'}`),
+    key((props: AIObservabilitySharedLogicProps) => props.logicKey || props.personId || 'aiObservabilityScene'),
     connect(() => ({
         // Mount the parser-recipe logic so a team's custom recipes reach the trace-rendering
         // normalizer on any AI observability page, not just the settings scene.
@@ -319,18 +320,29 @@ export const aiObservabilitySharedLogic = kea<aiObservabilitySharedLogicType>([
         applyUrlState: (state: ApplyUrlStatePayload) => state,
     }),
 
-    reducers({
-        dateFilter: [
-            {
-                dateFrom: INITIAL_EVENTS_DATE_FROM,
-                dateTo: INITIAL_DATE_TO,
-            },
-            buildAiObservabilityStorageConfig('events.dateFilter'),
-            {
-                setDates: (_, { dateFrom, dateTo }) => ({ dateFrom, dateTo }),
-                applyUrlState: (_, { dateFrom, dateTo }) => ({ dateFrom, dateTo }),
-            },
-        ],
+    reducers(({ props }) => ({
+        dateFilter: props.logicKey
+            ? [
+                  {
+                      dateFrom: INITIAL_EVENTS_DATE_FROM,
+                      dateTo: INITIAL_DATE_TO,
+                  },
+                  {
+                      setDates: (_, { dateFrom, dateTo }) => ({ dateFrom, dateTo }),
+                      applyUrlState: (_, { dateFrom, dateTo }) => ({ dateFrom, dateTo }),
+                  },
+              ]
+            : [
+                  {
+                      dateFrom: INITIAL_EVENTS_DATE_FROM,
+                      dateTo: INITIAL_DATE_TO,
+                  },
+                  buildAiObservabilityStorageConfig('events.dateFilter'),
+                  {
+                      setDates: (_, { dateFrom, dateTo }) => ({ dateFrom, dateTo }),
+                      applyUrlState: (_, { dateFrom, dateTo }) => ({ dateFrom, dateTo }),
+                  },
+              ],
 
         dashboardDateFilter: [
             {
@@ -394,7 +406,7 @@ export const aiObservabilitySharedLogic = kea<aiObservabilitySharedLogicType>([
                 applyUrlState: (state, { searchQuery }) => searchQuery ?? state,
             },
         ],
-    }),
+    })),
 
     loaders(() => ({
         hasSentAiEvent: {
@@ -506,8 +518,20 @@ export const aiObservabilitySharedLogic = kea<aiObservabilitySharedLogicType>([
             const { filters, date_from, date_to, filter_test_accounts, trace_search } = searchParams
 
             const parsedFilters = isAnyPropertyFilters(filters) ? filters : []
-            const hasDateFromOverride = applyEventDateParams && typeof date_from === 'string' && date_from.length > 0
-            const hasDateToOverride = applyEventDateParams && typeof date_to === 'string' && date_to.length > 0
+            const hasDateFromParam = applyEventDateParams && typeof date_from === 'string' && date_from.length > 0
+            const hasDateToParam = applyEventDateParams && typeof date_to === 'string' && date_to.length > 0
+            const hasDateFromOverride =
+                applyEventDateParams &&
+                typeof date_from === 'string' &&
+                date_from.length > 0 &&
+                isValidRelativeOrAbsoluteDate(date_from)
+            const hasDateToOverride =
+                applyEventDateParams &&
+                typeof date_to === 'string' &&
+                date_to.length > 0 &&
+                isValidRelativeOrAbsoluteDate(date_to)
+            const hasInvalidDateParam =
+                (hasDateFromParam && !hasDateFromOverride) || (hasDateToParam && !hasDateToOverride)
             const hasDateOverride = hasDateFromOverride || hasDateToOverride
             const newDateFrom = hasDateOverride
                 ? hasDateFromOverride
@@ -529,7 +553,7 @@ export const aiObservabilitySharedLogic = kea<aiObservabilitySharedLogicType>([
             const testAccountsChanged = filterTestAccountsValue !== values.shouldFilterTestAccounts
             const searchQueryChanged = newSearchQuery !== values.searchQuery
 
-            if (filtersChanged || datesChanged || testAccountsChanged || searchQueryChanged) {
+            if (filtersChanged || datesChanged || testAccountsChanged || searchQueryChanged || hasInvalidDateParam) {
                 // Dispatch a single batched action so actionToUrl produces one URL
                 // change instead of up to 3 separate ones. The actionToUrl handler
                 // for applyUrlState rewrites the shared params and drops stale

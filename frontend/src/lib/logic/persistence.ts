@@ -1,4 +1,4 @@
-import { getCurrentTeamIdOrNone } from 'lib/utils/getAppContext'
+import { getCurrentTeamId } from 'lib/utils/getAppContext'
 
 interface TeamScopedPersistenceConfig {
     persist: true
@@ -11,8 +11,7 @@ interface TeamScopedStorageConfig {
 }
 
 const getTeamStoragePrefix = (): string => {
-    const teamId = getCurrentTeamIdOrNone()
-    return teamId ? `${teamId}__` : ''
+    return `${getCurrentTeamId()}__`
 }
 
 export const buildTeamScopedPersistenceConfig = (prefix: string = ''): TeamScopedPersistenceConfig => ({
