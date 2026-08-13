@@ -1,18 +1,22 @@
+import { HogFlow } from '~/cdp/schema/hogflow'
 import { Team } from '~/types'
 
+import { FixtureHogFlowBuilder } from '../_tests/builders/hogflow.builder'
+import { HOG_FLOW_MASK_EXAMPLES } from '../_tests/examples'
 import { CyclotronJobInvocationHogFlow } from '../types'
 import { buildAccountHogFlowInvocation } from './cdp-cyclotron-worker-batch-resolve.consumer'
 
 describe('buildAccountHogFlowInvocation', () => {
     const team = { id: 123, name: 'Test team' } as Team
+    // A non-default version, so the flowVersion assertion can't pass by accident.
+    const hogFlow: HogFlow = { ...new FixtureHogFlowBuilder().withTeamId(team.id).build(), version: 4 }
 
     it('carries the account group key and no person', () => {
         const invocation = buildAccountHogFlowInvocation({
             siteUrl: 'https://us.posthog.com',
             parentRunId: 'batch-job-1',
             team,
-            hogFlowId: 'flow-1',
-            flowVersion: 4,
+            hogFlow,
             externalId: 'acme-1',
             groupType: 'customer',
             defaultVariables: { greeting: 'hi' },
@@ -36,5 +40,28 @@ describe('buildAccountHogFlowInvocation', () => {
         expect(invocation.parentRunId).toEqual('batch-job-1')
         expect(invocation.queue).toEqual('hogflow')
         expect((invocation as any).person).toBeUndefined()
+    })
+
+    // HogMaskerService.filterByMasking() only recognizes an invocation as a hog flow
+    // invocation (and applies trigger_masking) when it carries a `hogFlow` object — if this
+    // regresses, trigger_masking silently stops applying to batch-triggered runs again.
+    it('attaches the hogFlow so trigger_masking can be applied by the batch resolver', () => {
+        const maskedHogFlow: HogFlow = new FixtureHogFlowBuilder()
+            .withTeamId(team.id)
+            .withTriggerMasking(HOG_FLOW_MASK_EXAMPLES.everyTime.trigger_masking)
+            .build()
+
+        const invocation = buildAccountHogFlowInvocation({
+            siteUrl: 'https://us.posthog.com',
+            parentRunId: 'batch-job-1',
+            team,
+            hogFlow: maskedHogFlow,
+            externalId: 'acme-1',
+            groupType: 'customer',
+            defaultVariables: {},
+        })
+
+        expect(invocation.hogFlow).toBe(maskedHogFlow)
+        expect(invocation.hogFlow.trigger_masking).toEqual(HOG_FLOW_MASK_EXAMPLES.everyTime.trigger_masking)
     })
 })
