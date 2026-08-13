@@ -548,14 +548,16 @@ class ReplayFiltersEventsSubQuery(SessionRecordingsListingBaseQuery):
             group_by=[_event_session_id_field()],
         )
 
-    def get_negative_blocklist_query(self, ingested_after: Optional[datetime] = None) -> ast.SelectQuery | None:
+    def get_negative_blocklist_query(
+        self, ingested_after: Optional[datetime] = None, *, drop_future_bound: bool = False
+    ) -> ast.SelectQuery | None:
         """Sessions to exclude because some event matches a negative filter's inverted form.
 
         With `ingested_after`, the scan is bounded by `inserted_at` (arrival time) instead of the
         query's date range — arrival is monotone, so repeated scans with an advancing watermark
         cover every event exactly, including late arrivals whose own timestamp is old.
         """
-        return self._negative_blocklist_query(ingested_after=ingested_after)
+        return self._negative_blocklist_query(ingested_after=ingested_after, drop_future_bound=drop_future_bound)
 
     def negative_properties(self) -> list[AnyPropertyFilter]:
         """The query's negative filters, i.e. what the blocklist is built from; empty means no blocklist."""
@@ -631,19 +633,35 @@ class ReplayFiltersEventsSubQuery(SessionRecordingsListingBaseQuery):
         return max(bounds) if bounds else None
 
     def _where_predicates(
-        self, where_expr: ast.Expr | list[ast.Expr] | None, apply_timestamp_floor: bool = True
+        self,
+        where_expr: ast.Expr | list[ast.Expr] | None,
+        for_exclusion: bool = False,
+        drop_future_bound: bool = False,
     ) -> ast.Expr:
+        """Shared predicates for an events sub-scan.
+
+        `for_exclusion` marks a scan that builds a blocklist rather than selecting sessions, so a
+        caller-supplied floor is not applied: narrowing an exclusion would under-exclude.
+
+        `drop_future_bound` additionally removes the `timestamp <= now()` cap, and only a blocklist
+        that is checkpointed and reused should ask for it. Senders choose the timestamp, so a
+        future-dated event is skipped by the scan that sees it arrive; a scan re-run from scratch each
+        time picks it up once the clock catches up, but one that checkpoints on arrival never will.
+        """
         exprs: list[ast.Expr] = [
             ast.Call(
                 name="notEmpty",
                 args=[_event_session_id_field()],
             ),
-            ast.CompareOperation(
-                op=ast.CompareOperationOp.LtEq,
-                left=ast.Field(chain=["timestamp"]),
-                right=ast.Call(name="now", args=[]),
-            ),
         ]
+        if not drop_future_bound:
+            exprs.append(
+                ast.CompareOperation(
+                    op=ast.CompareOperationOp.LtEq,
+                    left=ast.Field(chain=["timestamp"]),
+                    right=ast.Call(name="now", args=[]),
+                )
+            )
 
         if isinstance(where_expr, ast.Expr):
             exprs.append(where_expr)
@@ -652,7 +670,7 @@ class ReplayFiltersEventsSubQuery(SessionRecordingsListingBaseQuery):
 
         # TRICKY: we're adding a buffer to the date range to ensure we get all the events
         # you can start sending us events before the session starts
-        events_date_from = self._events_date_from(apply_floor=apply_timestamp_floor)
+        events_date_from = self._events_date_from(apply_floor=not for_exclusion)
         if events_date_from is not None:
             exprs.append(
                 ast.CompareOperation(
@@ -758,7 +776,9 @@ class ReplayFiltersEventsSubQuery(SessionRecordingsListingBaseQuery):
             negative_props += [p for p in self.cohort_properties if is_negative_prop(p)]
         return negative_props
 
-    def _negative_blocklist_query(self, ingested_after: Optional[datetime] = None) -> ast.SelectQuery | None:
+    def _negative_blocklist_query(
+        self, ingested_after: Optional[datetime] = None, *, drop_future_bound: bool = False
+    ) -> ast.SelectQuery | None:
         """Returns session IDs that should be EXCLUDED because they contain events
         matching at least one inverted negative condition.
 
@@ -787,7 +807,7 @@ class ReplayFiltersEventsSubQuery(SessionRecordingsListingBaseQuery):
         # Any event matching any positive condition → session goes in blocklist
         where_expr = ast.Or(exprs=inverted_exprs) if len(inverted_exprs) > 1 else inverted_exprs[0]
 
-        where = self._where_predicates(where_expr, apply_timestamp_floor=False)
+        where = self._where_predicates(where_expr, for_exclusion=True, drop_future_bound=drop_future_bound)
         if ingested_after is not None:
             if not isinstance(where, ast.And):
                 # Dropping this bound silently would turn a delta scan into an unbounded one.

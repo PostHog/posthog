@@ -187,7 +187,7 @@ def _scan(
 
     for builder in _builders(team, scan_query):
         # Built to sit inside a globalNotIn, but already a complete SELECT of session ids standalone.
-        blocklist = builder.get_negative_blocklist_query(ingested_after=ingested_after)
+        blocklist = builder.get_negative_blocklist_query(ingested_after=ingested_after, drop_future_bound=True)
         if blocklist is None:
             continue
         rows = _execute_candidate_query(

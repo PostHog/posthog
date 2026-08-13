@@ -204,6 +204,29 @@ class TestRefreshBlockedSessions:
 
 class TestBlockedSessionsAgainstClickHouse(ClickhouseTestMixin):
     @pytest.mark.django_db
+    def test_future_dated_event_still_blocks(self, team) -> None:
+        # Senders choose the timestamp. Capping the exclusion scan at now() would skip this event on the
+        # only delta that sees it, and the watermark would then move past its arrival for good.
+        query = _negative_query()
+        fingerprint = _fingerprint(team, query)
+        _create_event(
+            team=team,
+            event="$pageview",
+            distinct_id="d1",
+            timestamp=dt.datetime.now(dt.UTC) + dt.timedelta(hours=2),
+            properties={"$session_id": "future-sess", "$host": "internal.example.com"},
+        )
+
+        assert refresh_blocked_sessions(
+            scanner_id="scanner-1",
+            team=team,
+            query=query,
+            fingerprint=fingerprint,
+            last_swept_at=dt.datetime.now(dt.UTC),
+        )
+        assert blocked_subset("scanner-1", ["future-sess"]) == {"future-sess"}
+
+    @pytest.mark.django_db
     def test_delta_catches_late_arriving_event_with_old_timestamp(self, team) -> None:
         query = _negative_query()
         fingerprint = _fingerprint(team, query)
