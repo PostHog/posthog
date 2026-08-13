@@ -5518,23 +5518,14 @@ export type IntegrationKind = (typeof INTEGRATION_KINDS)[number]
 // `class SlackIntegrationScope(StrEnum)` in posthog/schema.py.
 export enum SlackIntegrationScope {
     APP_MENTIONS_READ = 'app_mentions:read',
-    ASSISTANT_WRITE = 'assistant:write',
-    CANVASES_WRITE = 'canvases:write',
     CHANNELS_HISTORY = 'channels:history',
-    CHANNELS_MANAGE = 'channels:manage',
     CHANNELS_READ = 'channels:read',
     CHAT_WRITE = 'chat:write',
     CHAT_WRITE_CUSTOMIZE = 'chat:write.customize',
-    COMMANDS = 'commands',
-    FILES_READ = 'files:read',
-    FILES_WRITE = 'files:write',
     GROUPS_HISTORY = 'groups:history',
     GROUPS_READ = 'groups:read',
-    IM_HISTORY = 'im:history',
     LINKS_READ = 'links:read',
     LINKS_WRITE = 'links:write',
-    MPIM_HISTORY = 'mpim:history',
-    MPIM_READ = 'mpim:read',
     REACTIONS_READ = 'reactions:read',
     REACTIONS_WRITE = 'reactions:write',
     TEAM_READ = 'team:read',
@@ -5544,13 +5535,28 @@ export enum SlackIntegrationScope {
 
 export const SLACK_INTEGRATION_SCOPES = Object.values(SlackIntegrationScope)
 
-// Nothing is pending Slack app-directory review right now, so there is no in-review list.
-// To stage a scope that Slack hasn't approved yet, reintroduce a `SlackIntegrationScopeInReview`
-// enum here holding only the pending entries, re-export it from schema-general.ts, and have
-// `POSTHOG_SLACK_SCOPE` (posthog/models/integration.py) and `useSlackRequiredScopes` append it on
-// DEV/local only — requesting an unapproved scope anywhere else fails with `invalid_scope`.
-// The enum cannot be left empty between rounds: JSON Schema rejects a zero-length `enum`, so
-// `hogli build:schema` fails on it.
+// Scopes requested up front only where the workspace admin has already approved a wider grant.
+// A Slack workspace with app approval turned on treats a request for scopes beyond the approved
+// set as a brand new approval request, so an install that once succeeded with the always-on list
+// bounces to Slack's "request submitted" screen when we ask for more. We request these only on the
+// internal DEV instance (settings.CLOUD_DEPLOYMENT == "DEV", surfaced as preflight.region ===
+// Region.DEV) and local dev, where the PostHog Slack app manifest lists them and the artifact and
+// slash-command features that need them are exercised. Everywhere else the features check each scope
+// at point of use (posthog/helpers/slack_scopes.py) and degrade when it is absent. Move an entry
+// into SlackIntegrationScope once it is safe to request on every workspace.
+export enum SlackIntegrationScopeInReview {
+    ASSISTANT_WRITE = 'assistant:write',
+    CANVASES_WRITE = 'canvases:write',
+    CHANNELS_MANAGE = 'channels:manage',
+    COMMANDS = 'commands',
+    FILES_READ = 'files:read',
+    FILES_WRITE = 'files:write',
+    IM_HISTORY = 'im:history',
+    MPIM_HISTORY = 'mpim:history',
+    MPIM_READ = 'mpim:read',
+}
+
+export const SLACK_INTEGRATION_SCOPES_IN_REVIEW = Object.values(SlackIntegrationScopeInReview)
 
 export interface IntegrationType {
     id: number

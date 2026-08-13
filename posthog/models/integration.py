@@ -58,7 +58,7 @@ from posthog.models.user import User
 from posthog.models.utils import IntegrityError, generate_random_oauth_access_token, generate_random_oauth_refresh_token
 from posthog.plugins.plugin_server_api import reload_integrations_on_workers
 from posthog.rbac.decorators import field_access_control
-from posthog.schema_enums import SlackIntegrationScope
+from posthog.schema_enums import SlackIntegrationScope, SlackIntegrationScopeInReview
 from posthog.scopes import get_oauth_scopes_supported
 from posthog.security.url_validation import is_url_allowed
 from posthog.sync import database_sync_to_async
@@ -726,10 +726,23 @@ class OauthConfig:
 # StrEnum declared in posthog/schema.py (generated from the SlackIntegrationScope enum in
 # frontend/src/types.ts via `hogli build:schema`), so widening it on either side stays in sync.
 #
-# Every scope here is approved for the public Cloud app, so the same list is requested on every
-# instance. Staging a scope Slack hasn't approved needs a DEV/local-only branch again — see the
-# note by SlackIntegrationScope in frontend/src/types.ts.
-POSTHOG_SLACK_SCOPE = ",".join(scope.value for scope in SlackIntegrationScope)
+# On the internal DEV instance (CLOUD_DEPLOYMENT="DEV") and local development (settings.DEBUG)
+# we also request the in-review scopes — the Slack app manifest in those setups lists them and
+# the artifact and slash-command features that need them are exercised there. US/EU/self-hosted
+# stay on the always-on list: a workspace with app approval turned on treats a request for scopes
+# beyond the approved set as a new approval request, so widening the always-on list bounces an
+# install that once succeeded to Slack's "request submitted" screen. Features that need an
+# in-review scope check it at point of use (posthog/helpers/slack_scopes.py) and degrade when it
+# is absent. Evaluated at module import; tests that need a different value should
+# `@override_settings(...)` *before* importing this module (or `importlib.reload` it after).
+def _build_posthog_slack_scope() -> str:
+    scopes = [scope.value for scope in SlackIntegrationScope]
+    if settings.DEBUG or get_instance_region() == "DEV":
+        scopes.extend(scope.value for scope in SlackIntegrationScopeInReview)
+    return ",".join(scopes)
+
+
+POSTHOG_SLACK_SCOPE = _build_posthog_slack_scope()
 
 
 def _salesforce_instance_host(instance_url: str | None) -> str | None:

@@ -82,15 +82,42 @@ def update_db_field_value(field, model_id, value):
     cursor.execute(f"update posthog_integration set {field}='{value}' where id='{model_id}';")
 
 
-def test_slack_oauth_requests_the_recently_approved_scopes_on_every_instance():
-    # These waited on Slack app-directory review and were only requested on DEV/local. They're
-    # approved now, so every instance asks for them — the features behind them (DM assistant,
-    # canvas and file artifact delivery, inbox channel creation) are dark without them.
-    from posthog.models.integration import POSTHOG_SLACK_SCOPE
+STAGED_SLACK_SCOPES = {
+    "assistant:write",
+    "canvases:write",
+    "channels:manage",
+    "commands",
+    "files:read",
+    "files:write",
+    "im:history",
+    "mpim:history",
+    "mpim:read",
+}
 
-    requested = set(POSTHOG_SLACK_SCOPE.split(","))
 
-    assert {"assistant:write", "im:history", "canvases:write", "files:write", "channels:manage"} <= requested
+@parameterized.expand(
+    [
+        ("us_region", False, "US", False),
+        ("eu_region", False, "EU", False),
+        ("self_hosted", False, None, False),
+        ("dev_region", False, "DEV", True),
+        ("local_debug", True, "US", True),
+    ]
+)
+def test_slack_oauth_scope_stages_unapproved_scopes(_name, debug, region, expects_staged):
+    # A workspace with app approval turned on treats a request for scopes beyond the approved set
+    # as a new approval request, so the staged scopes must stay off every production instance.
+    # Requesting them widened the always-on set and bounced approval-gated installs to Slack's
+    # "request submitted" screen (#78389). They're requested only on DEV/local, where the features
+    # behind them are exercised.
+    from posthog.models.integration import _build_posthog_slack_scope
+
+    with override_settings(DEBUG=debug, CLOUD_DEPLOYMENT=region):
+        requested = set(_build_posthog_slack_scope().split(","))
+
+    assert "app_mentions:read" in requested
+    assert (STAGED_SLACK_SCOPES <= requested) is expects_staged
+    assert requested.isdisjoint(STAGED_SLACK_SCOPES) is not expects_staged
 
 
 class TestIntegrationModel(BaseTest):

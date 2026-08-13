@@ -1,16 +1,29 @@
-import { SLACK_INTEGRATION_SCOPES } from '~/types'
+import { useValues } from 'kea'
+import { useMemo } from 'react'
+
+import { preflightLogic } from 'scenes/PreflightCheck/preflightLogic'
+
+import { Region, SLACK_INTEGRATION_SCOPES, SLACK_INTEGRATION_SCOPES_IN_REVIEW } from '~/types'
 
 /**
  * Required Slack OAuth scopes for the current PostHog instance.
  *
- * Every scope PostHog requests is approved for the public app, so this is the same list
- * on every instance. If a future scope has to wait on Slack review, this is where the
- * DEV-only union goes back — see the note by ``SlackIntegrationScope`` in ``~/types``.
+ * On the DEV instance and local dev the PostHog Slack app manifest lists the in-review
+ * scopes, so we both request them at install and compare against them here. Anywhere
+ * else (US / EU / self-hosted) we stay on the always-on list, so a workspace that already
+ * approved that list is not bounced to Slack's re-approval screen.
  *
  * Used by both the settings-side ``SlackIntegration`` connect/manage UI and the OAuth
  * landing page's status hook so the two surfaces always agree on what "fully scoped"
  * means.
  */
 export function useSlackRequiredScopes(): string[] {
-    return [...SLACK_INTEGRATION_SCOPES]
+    const { preflight, isDev } = useValues(preflightLogic)
+    return useMemo(
+        () =>
+            isDev || preflight?.region === Region.DEV
+                ? [...SLACK_INTEGRATION_SCOPES, ...SLACK_INTEGRATION_SCOPES_IN_REVIEW]
+                : [...SLACK_INTEGRATION_SCOPES],
+        [isDev, preflight?.region]
+    )
 }
