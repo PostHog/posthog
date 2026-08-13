@@ -37,6 +37,7 @@ class LegalDocumentReconcileResult:
 
     newly_signed: int
     archives_requeued: int
+    errors: int
 
 
 @dataclass(frozen=True)

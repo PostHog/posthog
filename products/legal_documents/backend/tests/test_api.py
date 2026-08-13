@@ -12,6 +12,7 @@ from django.db import IntegrityError
 from django.test import override_settings
 from django.utils import timezone
 
+from celery.exceptions import Retry
 from parameterized import parameterized
 from rest_framework import status
 
@@ -595,12 +596,16 @@ class TestLegalDocumentPandaDocWebhook(APIBaseTest):
             patch(
                 "products.legal_documents.backend.logic.pandadoc_client.PandaDocClient.stream_document",
                 side_effect=pandadoc_module.PandaDocError("network boom"),
-            ),
+            ) as stream_mock,
             patch("products.legal_documents.backend.logic.object_storage.write_stream") as write_mock,
         ):
-            response = self._post_raw(body, self._sign(body))
+            # Celery runs eagerly in tests, and autoretry_for re-raises as Retry once
+            # every attempt is exhausted, the same pattern as the task's real retry behavior.
+            with self.assertRaises(Retry), self.captureOnCommitCallbacks(execute=True):
+                response = self._post_raw(body, self._sign(body))
 
         self.assertEqual(response.status_code, status.HTTP_200_OK)
+        stream_mock.assert_called_once_with(document_id="doc_123")
         write_mock.assert_not_called()
         self.document.refresh_from_db()
         self.assertEqual(self.document.status, "signed")
@@ -885,6 +890,107 @@ class TestLegalDocumentReconciliation(APIBaseTest):
         result = legal_api.reconcile_pending_signatures()
 
         self.assertEqual(result.newly_signed, 0)
+        self.document.refresh_from_db()
+        self.assertEqual(self.document.status, "submitted_for_signature")
+
+    @patch("products.legal_documents.backend.logic.pandadoc_client.PandaDocClient.get_document_status")
+    def test_reconcile_continues_past_a_row_that_raises(self, status_mock) -> None:
+        # Each org can only hold one DPA (unique constraint), so the extra pending
+        # rows live in separate orgs. list_pending_signature_documents orders
+        # oldest-first, so pin created_at explicitly to make the middle row deterministic.
+        middle_org = Organization.objects.create(name="Middle Co")
+        last_org = Organization.objects.create(name="Last Co")
+        middle = LegalDocument.objects.create(
+            organization=middle_org,
+            document_type="DPA",
+            company_name="Middle Co",
+            company_address="Elsewhere",
+            representative_email="middle@other.example",
+            pandadoc_document_id="doc_middle",
+            created_by=self.user,
+        )
+        last = LegalDocument.objects.create(
+            organization=last_org,
+            document_type="DPA",
+            company_name="Last Co",
+            company_address="Elsewhere",
+            representative_email="last@other.example",
+            pandadoc_document_id="doc_last",
+            created_by=self.user,
+        )
+        now = timezone.now()
+        LegalDocument.objects.filter(id=self.document.id).update(created_at=now - timedelta(minutes=2))
+        LegalDocument.objects.filter(id=middle.id).update(created_at=now - timedelta(minutes=1))
+        LegalDocument.objects.filter(id=last.id).update(created_at=now)
+
+        def status_side_effect(*, document_id):
+            if document_id == "doc_middle":
+                raise RuntimeError("unexpected PandaDoc client bug")
+            return "document.completed"
+
+        status_mock.side_effect = status_side_effect
+
+        with self._fake_pdf_pipeline(), self.captureOnCommitCallbacks(execute=True):
+            result = legal_api.reconcile_pending_signatures()
+
+        self.assertEqual(result.newly_signed, 2)
+        self.assertEqual(result.errors, 1)
+        self.document.refresh_from_db()
+        middle.refresh_from_db()
+        last.refresh_from_db()
+        self.assertEqual(self.document.status, "signed")
+        self.assertEqual(middle.status, "submitted_for_signature")
+        self.assertEqual(last.status, "signed")
+
+    @patch("products.legal_documents.backend.logic.pandadoc_client.PandaDocClient.get_document_status")
+    def test_reconcile_schedules_archive_once_for_newly_signed_row(self, status_mock) -> None:
+        status_mock.return_value = "document.completed"
+        with (
+            patch("products.legal_documents.backend.tasks.tasks.archive_signed_legal_document_pdf.delay") as delay_mock,
+            self.captureOnCommitCallbacks(execute=True),
+        ):
+            result = legal_api.reconcile_pending_signatures()
+
+        self.assertEqual(result.newly_signed, 1)
+        self.assertEqual(result.archives_requeued, 0)
+        delay_mock.assert_called_once_with(str(self.document.id))
+
+    def test_reconcile_skips_side_effects_for_concurrently_signed_row(self) -> None:
+        # A webhook can sign the row between the reconcile loop reading its queryset
+        # snapshot and processing it. BAA side effects include emailing org owners,
+        # so re-running them here would send a second email for a signature the
+        # webhook already handled.
+        self.document.document_type = "BAA"
+        self.document.save(update_fields=["document_type"])
+        self.organization.is_ai_data_processing_approved = True
+        self.organization.save(update_fields=["is_ai_data_processing_approved"])
+
+        def status_side_effect(*, document_id):  # noqa: ARG001
+            LegalDocument.objects.filter(id=self.document.id).update(status=LegalDocument.Status.SIGNED)
+            return "document.completed"
+
+        with patch(
+            "products.legal_documents.backend.logic.pandadoc_client.PandaDocClient.get_document_status",
+            side_effect=status_side_effect,
+        ):
+            result = legal_api.reconcile_pending_signatures()
+
+        self.assertEqual(result.newly_signed, 0)
+        self.assertEqual(result.errors, 0)
+        self.organization.refresh_from_db()
+        self.assertTrue(self.organization.is_ai_data_processing_approved)
+
+    def test_reconcile_leaves_pending_document_alone_when_pandadoc_unreachable(self) -> None:
+        from products.legal_documents.backend.logic import pandadoc as pandadoc_module
+
+        with patch(
+            "products.legal_documents.backend.logic.pandadoc_client.PandaDocClient.get_document_status",
+            side_effect=pandadoc_module.PandaDocError("network boom"),
+        ):
+            result = legal_api.reconcile_pending_signatures()
+
+        self.assertEqual(result.newly_signed, 0)
+        self.assertEqual(result.errors, 0)
         self.document.refresh_from_db()
         self.assertEqual(self.document.status, "submitted_for_signature")
 

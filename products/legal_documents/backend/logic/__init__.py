@@ -7,6 +7,7 @@ Called by facade/api.py — do not call from outside this module.
 
 from __future__ import annotations
 
+from collections.abc import Iterable
 from datetime import timedelta
 from uuid import UUID
 
@@ -142,6 +143,21 @@ def mark_document_signed(document: LegalDocument) -> LegalDocument:
     return document
 
 
+def try_mark_signed_if_pending(document: LegalDocument) -> bool:
+    """
+    Conditional UPDATE that re-asserts the row was still `submitted_for_signature`
+    before flipping it to `signed`. The reconciliation sweep holds a queryset
+    snapshot that can go stale between the PandaDoc poll and this call. A
+    concurrent `document.completed` webhook may have already signed the row.
+    Losing that race must skip the caller's side effects (BAA opt-out email)
+    rather than re-fire them, so the caller only proceeds when this returns True.
+    """
+    updated = LegalDocument.objects.filter(id=document.id, status=LegalDocument.Status.SUBMITTED_FOR_SIGNATURE).update(
+        status=LegalDocument.Status.SIGNED, updated_at=timezone.now()
+    )
+    return updated == 1
+
+
 def mark_signed_pdf_stored(document: LegalDocument) -> LegalDocument:
     document.signed_pdf_stored = True
     document.save(update_fields=["signed_pdf_stored", "updated_at"])
@@ -176,15 +192,24 @@ def list_pending_signature_documents() -> QuerySet[LegalDocument]:
     )
 
 
-def list_signed_documents_missing_pdf() -> QuerySet[LegalDocument]:
+def list_signed_documents_missing_pdf(exclude_ids: Iterable[UUID] = ()) -> QuerySet[LegalDocument]:
     """
     Signed rows whose PDF never made it to object storage — the background
     archive job failed every retry. The reconciliation task re-enqueues these.
+    Capped like `list_pending_signature_documents` so a large backlog can't make
+    one sweep run long enough to overlap the next tick. `exclude_ids` lets the
+    caller skip rows it just signed and already scheduled an archive for in the
+    same sweep, so the same document doesn't get `.delay()`'d twice.
     """
-    return LegalDocument.objects.filter(
-        status=LegalDocument.Status.SIGNED,
-        signed_pdf_stored=False,
-    ).exclude(pandadoc_document_id="")
+    return (
+        LegalDocument.objects.filter(
+            status=LegalDocument.Status.SIGNED,
+            signed_pdf_stored=False,
+        )
+        .exclude(pandadoc_document_id="")
+        .exclude(id__in=list(exclude_ids))
+        .order_by("created_at")[:_RECONCILE_MAX_PER_RUN]
+    )
 
 
 def get_pandadoc_document_status(document: LegalDocument) -> str | None:

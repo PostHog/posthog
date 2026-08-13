@@ -12,6 +12,9 @@ from uuid import UUID
 
 from django.db import transaction
 
+import structlog
+
+from posthog.exceptions_capture import capture_exception
 from posthog.models.organization import Organization
 
 from .. import logic
@@ -22,6 +25,8 @@ from ..logic.pandadoc import (
 from ..models import LegalDocument
 from . import contracts
 from .enums import LegalDocumentStatus
+
+logger = structlog.get_logger(__name__)
 
 
 class LegalDocumentPdfArchiveFailed(Exception):
@@ -242,6 +247,22 @@ def _mark_signed_and_schedule_archive(document: LegalDocument) -> LegalDocument:
     return document
 
 
+def _try_mark_signed_and_schedule_archive(document: LegalDocument) -> bool:
+    """
+    Reconcile-only variant of `_mark_signed_and_schedule_archive`. The sweep's
+    queryset snapshot can be stale by the time this runs, so it uses the
+    conditional-update helper instead of an unconditional save. A document a
+    concurrent webhook already signed loses the race and its side effects are
+    skipped rather than re-fired.
+    """
+    if not logic.try_mark_signed_if_pending(document):
+        return False
+    logic.apply_baa_signed_side_effects(document)
+    logic.fire_legal_document_signed_event(document)
+    _schedule_pdf_archive(document)
+    return True
+
+
 def _schedule_pdf_archive(document: LegalDocument) -> None:
     # Local import breaks the facade ⇄ tasks import cycle (tasks import the facade).
     from ..tasks.tasks import archive_signed_legal_document_pdf  # noqa: PLC0415
@@ -271,19 +292,40 @@ def reconcile_pending_signatures() -> contracts.LegalDocumentReconcileResult:
     still think is out for signature and marks the completed ones — recovering
     dropped, throttled, or 204'd `document.completed` webhooks and clearing the
     backlog. Also re-enqueues the archive for signed rows whose PDF never landed.
+
+    Each row is processed independently: `list_pending_signature_documents` is
+    ordered oldest-first, so one row that deterministically errors (a bad
+    PandaDoc response, a DB hiccup) must not block every row behind it on every
+    15-minute tick.
     """
     newly_signed = 0
+    errors = 0
+    signed_this_run: set[UUID] = set()
     for document in logic.list_pending_signature_documents():
-        if logic.get_pandadoc_document_status(document) == logic.PANDADOC_COMPLETED_STATUS:
-            _mark_signed_and_schedule_archive(document)
-            newly_signed += 1
+        try:
+            if logic.get_pandadoc_document_status(document) == logic.PANDADOC_COMPLETED_STATUS:
+                if _try_mark_signed_and_schedule_archive(document):
+                    newly_signed += 1
+                    signed_this_run.add(document.id)
+        except Exception as exc:
+            errors += 1
+            logger.exception("legal_document_reconcile_pending_row_failed", document_id=str(document.id))
+            capture_exception(exc, additional_properties={"legal_document_id": str(document.id)})
 
+    # Rows this run just signed and already scheduled an archive for above.
+    # excluding them here is what keeps the archive from being `.delay()`'d twice.
     archives_requeued = 0
-    for document in logic.list_signed_documents_missing_pdf():
-        _schedule_pdf_archive(document)
-        archives_requeued += 1
+    for document in logic.list_signed_documents_missing_pdf(exclude_ids=signed_this_run):
+        try:
+            _schedule_pdf_archive(document)
+            archives_requeued += 1
+        except Exception as exc:
+            errors += 1
+            logger.exception("legal_document_reconcile_archive_row_failed", document_id=str(document.id))
+            capture_exception(exc, additional_properties={"legal_document_id": str(document.id)})
 
     return contracts.LegalDocumentReconcileResult(
         newly_signed=newly_signed,
         archives_requeued=archives_requeued,
+        errors=errors,
     )
