@@ -231,16 +231,19 @@ export const signalTeamConfigLogic = kea<signalTeamConfigLogicType>([
                 clearDraftBaseBranch: () => '',
             },
         ],
-        // The daily-limit input's draft, re-anchored to the server value whenever one arrives so
-        // an unsaved edit never survives a reload or another client's save.
+        // The daily-limit input's draft. Seeded from the server once on first load (see the
+        // loadTeamConfigSuccess listener) and re-anchored only when its own save settles, so saving
+        // an unrelated setting on this shared singleton logic never wipes an unsaved edit.
         draftMaxReportsPerDay: [
             null as number | null,
             {
                 // A cleared number LemonInput emits NaN, which is never a valid draft — treat it as
                 // null ("no limit") so the field can be reset to unlimited.
                 setDraftMaxReportsPerDay: (_, { value }) => (value != null && Number.isNaN(value) ? null : value),
-                loadTeamConfigSuccess: (_, { teamConfig }) => teamConfig?.max_reports_per_day ?? null,
-                patchTeamConfigSuccess: (_, { teamConfig }) => teamConfig?.max_reports_per_day ?? null,
+                patchTeamConfigSuccess: (state, { teamConfig, payload }) =>
+                    payload?.patch && 'max_reports_per_day' in payload.patch
+                        ? (teamConfig?.max_reports_per_day ?? null)
+                        : state,
             },
         ],
     }),
@@ -356,6 +359,14 @@ export const signalTeamConfigLogic = kea<signalTeamConfigLogicType>([
                     return
                 }
                 actions.patchTeamConfig({ max_reports_per_day: values.draftMaxReportsPerDay })
+            },
+            loadTeamConfigSuccess: ({ teamConfig }) => {
+                // Seed the draft from the server only on the first load, so a later reload (e.g. the
+                // one triggered when an unrelated setting's save fails) can't wipe an unsaved edit.
+                if (!cache.maxReportsDraftSeeded) {
+                    cache.maxReportsDraftSeeded = true
+                    actions.setDraftMaxReportsPerDay(teamConfig?.max_reports_per_day ?? null)
+                }
             },
             patchTeamConfigSuccess: ({ payload }) => {
                 captureSettled(true)

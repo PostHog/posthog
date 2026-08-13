@@ -130,6 +130,38 @@ describe('signalTeamConfigLogic', () => {
         expect(logic.values.maxReportsPerDay).toBeNull()
     })
 
+    it('keeps an unsaved daily limit draft when an unrelated setting is saved', async () => {
+        await mountWith({})
+        logic.actions.setDraftMaxReportsPerDay(7)
+        // Saving a different field on this shared singleton logic must not re-anchor the draft.
+        logic.actions.patchTeamConfig({ autostart_enabled: false })
+        await expectLogic(logic).toFinishAllListeners()
+        expect(logic.values.draftMaxReportsPerDay).toBe(7)
+    })
+
+    it('keeps an unsaved daily limit draft when an unrelated save fails and reloads', async () => {
+        const serverConfig: SignalTeamConfig = {
+            id: 'cfg-1',
+            autostart_enabled: true,
+            default_autostart_priority: 'P4',
+            autostart_base_branches: {},
+        }
+        useMocks({
+            get: { '/api/projects/:team_id/signals/config/': () => [200, serverConfig] },
+            post: { '/api/projects/:team_id/signals/config/': () => [500, { detail: 'Failed to save' }] },
+        })
+        initKeaTests()
+        logic = signalTeamConfigLogic()
+        logic.mount()
+        await expectLogic(logic).toFinishAllListeners()
+
+        logic.actions.setDraftMaxReportsPerDay(7)
+        // The failed patch triggers a reload; the reseed guard must not clobber the unsaved draft.
+        logic.actions.patchTeamConfig({ autostart_enabled: false })
+        await expectLogic(logic).toFinishAllListeners()
+        expect(logic.values.draftMaxReportsPerDay).toBe(7)
+    })
+
     it('treats a cleared (NaN) daily limit input as unlimited', async () => {
         await mountWith({})
         logic.actions.setDraftMaxReportsPerDay(5)
