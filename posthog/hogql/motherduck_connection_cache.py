@@ -18,11 +18,12 @@ import threading
 from collections import OrderedDict
 from collections.abc import Iterator
 from contextlib import AbstractContextManager, contextmanager
-from dataclasses import dataclass
 from time import monotonic
 from typing import TYPE_CHECKING
 
 from posthog.hogql.direct_query_metrics import DIRECT_CONNECTION_CACHE_TOTAL
+
+from posthog.dataclasses import frozen
 
 if TYPE_CHECKING:
     import duckdb
@@ -42,7 +43,7 @@ MOTHERDUCK_CONNECTION_CACHE_MAX_PER_THREAD = 4
 MOTHERDUCK_LIVENESS_PROBE_TIMEOUT_SECONDS = 5
 
 
-@dataclass
+@frozen
 class _Entry:
     cm: AbstractContextManager[duckdb.DuckDBPyConnection]
     connection: duckdb.DuckDBPyConnection
