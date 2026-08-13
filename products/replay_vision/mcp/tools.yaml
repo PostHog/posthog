@@ -7,7 +7,15 @@
 category: Replay vision
 feature: replay_vision
 url_prefix: /replay-vision
-ui_apps: {}
+ui_apps:
+    inline-scan:
+        type: detail
+        view_prop: data
+    vision-observation-list:
+        type: list
+        detail_tool: vision-observations-retrieve
+        item_name_field: session_id
+        entity_label: observation
 tools:
     vision-actions-create:
         operation: vision_actions_create
@@ -193,6 +201,7 @@ tools:
     vision-observations-list:
         operation: vision_observations_list
         enabled: true
+        ui_app: vision-observation-list
         scopes:
             - replay_scanner:read
             - session_recording:read
@@ -416,6 +425,7 @@ tools:
     vision-scanners-inline-scan-create:
         operation: vision_scanners_inline_scan_create
         enabled: true
+        ui_app: inline-scan
         scopes:
             - replay_scanner:write
             - session_recording:read
@@ -494,6 +504,7 @@ tools:
     vision-scanners-observations-list:
         operation: vision_scanners_observations_list
         enabled: true
+        ui_app: vision-observation-list
         scopes:
             - replay_scanner:read
             - session_recording:read

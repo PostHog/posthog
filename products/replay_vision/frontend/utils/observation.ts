@@ -30,6 +30,18 @@ export function readReasoning(obs: ReplayObservationApi): string | null {
     return typeof raw === 'string' && raw ? raw : null
 }
 
+/** Summarizer output: the one-line headline. */
+export function readTitle(obs: ReplayObservationApi): string | null {
+    const raw = readModelOutput(obs)?.title
+    return typeof raw === 'string' && raw ? raw : null
+}
+
+/** Summarizer output: the narrative body. */
+export function readSummary(obs: ReplayObservationApi): string | null {
+    const raw = readModelOutput(obs)?.summary
+    return typeof raw === 'string' && raw ? raw : null
+}
+
 function readStringArray(value: unknown): string[] {
     if (!Array.isArray(value)) {
         return []
