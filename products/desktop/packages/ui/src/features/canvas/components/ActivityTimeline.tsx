@@ -1,4 +1,8 @@
 import { FileTextIcon, ScrollIcon } from "@phosphor-icons/react";
+import type {
+  ArtifactPayload,
+  CommentEventPayload,
+} from "@posthog/core/canvas/activityEvents";
 import {
   type ActivityRow,
   buildActivityTimeline,
@@ -21,6 +25,8 @@ import type {
 } from "@posthog/shared/domain-types";
 import {
   ActivityEventRow,
+  ArtifactEventDetail,
+  CommentEventRow,
   CommentRow,
   CommentStateRow,
   CREATED_BADGE,
@@ -257,6 +263,36 @@ export function ActivityTimeline({
       );
   };
 
+  const openArtifactTab = usePanelLayoutStore((state) => state.openArtifactTab);
+  const openArtifact = (payload: ArtifactPayload) => {
+    if (!canOpenInPlace || !payload.runId || !payload.artifactId) {
+      return undefined;
+    }
+    const runId = payload.runId;
+    return () =>
+      openArtifactTab(task.id, {
+        runId,
+        artifactId: payload.artifactId,
+        name: payload.name,
+      });
+  };
+
+  const openCommentThread = (payload: CommentEventPayload) => {
+    if (!canOpenInPlace) return undefined;
+    const itemId = payload.scope === "task" ? task.id : payload.itemId;
+    if (
+      !itemId ||
+      (payload.scope !== "task" &&
+        payload.scope !== "task_artifact" &&
+        payload.scope !== "desktop_canvas")
+    ) {
+      return undefined;
+    }
+    const scope = payload.scope;
+    return () =>
+      requestCommentFocus(task.id, { scope, itemId }, payload.rootCommentId);
+  };
+
   const hasTranscript = useHasTranscriptListener(task.id);
   const requestScrollToMessage = useThreadNavigationStore(
     (state) => state.requestScrollToMessage,
@@ -322,6 +358,22 @@ export function ActivityTimeline({
           />
         );
       case "event": {
+        if (
+          row.event.kind === "comment_added" ||
+          row.event.kind === "comment_state_changed"
+        ) {
+          return (
+            <CommentEventRow
+              connectedAbove={connectedAbove}
+              connectedBelow={connectedBelow}
+              event={row.event}
+              author={row.message.author ?? null}
+              timestamp={row.message.created_at}
+              taskId={task.id}
+              onOpenThread={openCommentThread(row.event.payload)}
+            />
+          );
+        }
         // A canvas or pull request announcement keeps its card, as the row's detail: every
         // row in the panel opens the same way.
         const artifactRow = messageRows.get(row.message.id);
@@ -338,6 +390,12 @@ export function ActivityTimeline({
                 <ThreadArtifactCard
                   artifact={artifactRow.artifact}
                   openInPlaceTaskId={canOpenInPlace ? task.id : undefined}
+                />
+              ) : row.event.kind === "artifact_created" ||
+                row.event.kind === "artifact_revised" ? (
+                <ArtifactEventDetail
+                  payload={row.event.payload}
+                  onOpen={openArtifact(row.event.payload)}
                 />
               ) : undefined
             }

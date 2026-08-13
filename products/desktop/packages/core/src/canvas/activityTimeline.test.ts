@@ -301,6 +301,7 @@ describe("activity events", () => {
         name: "Artifact",
         artifactType: "",
         version: 1,
+        runId: null,
       },
     });
   });
@@ -395,6 +396,55 @@ describe("commits pushed", () => {
       parseActivityEvent({
         event: "commits_pushed",
         payload: { run_id: "run-1", commits: [{ subject: "no sha" }] },
+      }),
+    ).toBeNull();
+  });
+});
+
+describe("comment events", () => {
+  it("reads identity-only comment events, and drops one with no thread to open", () => {
+    expect(
+      parseActivityEvent({
+        event: "comment_added",
+        payload: {
+          comment_id: "c-1",
+          root_comment_id: "c-1",
+          scope: "task_artifact",
+          item_id: "artifact-1",
+        },
+      }),
+    ).toEqual({
+      kind: "comment_added",
+      payload: {
+        commentId: "c-1",
+        rootCommentId: "c-1",
+        scope: "task_artifact",
+        itemId: "artifact-1",
+        targetName: null,
+      },
+    });
+    expect(
+      parseActivityEvent({
+        event: "comment_state_changed",
+        payload: {
+          comment_id: "c-2",
+          root_comment_id: "c-1",
+          scope: "task",
+          item_id: "task-1",
+          state: "resolved",
+        },
+      }),
+    ).toMatchObject({
+      kind: "comment_state_changed",
+      payload: { rootCommentId: "c-1", state: "resolved" },
+    });
+    expect(
+      parseActivityEvent({ event: "comment_added", payload: {} }),
+    ).toBeNull();
+    expect(
+      parseActivityEvent({
+        event: "comment_state_changed",
+        payload: { root_comment_id: "c-1", state: "archived" },
       }),
     ).toBeNull();
   });

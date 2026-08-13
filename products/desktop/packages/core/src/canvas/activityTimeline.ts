@@ -230,6 +230,10 @@ function eventIdentity(
       return `${event.payload.artifactId}:${event.payload.version}`;
     case "canvas_created":
       return event.payload.name;
+    // One row per comment id: the backend emits roots and state changes only.
+    case "comment_added":
+    case "comment_state_changed":
+      return event.payload.commentId;
     case "pr_created":
     case "pr_merged":
     case "pr_closed":
