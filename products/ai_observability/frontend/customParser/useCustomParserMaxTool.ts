@@ -2,6 +2,7 @@ import { useActions, useValues } from 'kea'
 import { useCallback, useMemo } from 'react'
 
 import { lemonToast } from '@posthog/lemon-ui'
+import { handleCreateParserRecipeCall, sampleForContext } from '@posthog/llm-normalizer'
 
 import { useMaxTool } from 'scenes/max/useMaxTool'
 import { teamLogic } from 'scenes/teamLogic'
@@ -11,8 +12,6 @@ import type { AttachedContextItem } from 'products/posthog_ai/frontend/api/types
 
 import { llmAnalyticsParserRecipesCreate } from '../generated/api'
 import { parserRecipesLogic } from '../settings/parserRecipesLogic'
-import { sampleForContext } from './sampleForContext'
-import { handleCreateParserRecipeCall } from './validateRecipe'
 
 const MAX_EXISTING_RECIPES_CONTEXT_LENGTH = 4000
 

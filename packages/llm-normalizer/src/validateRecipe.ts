@@ -1,6 +1,6 @@
 import { parse as parseYaml } from 'yaml'
 
-import { compileRecipe, mergeRecipes, RecipeNormalizer, RunOutcome, StoredRecipe } from '../normalizer'
+import { compileRecipe, mergeRecipes, RecipeNormalizer, RunOutcome, StoredRecipe } from './normalizer'
 
 export interface RecipeValidationSample {
     input: unknown

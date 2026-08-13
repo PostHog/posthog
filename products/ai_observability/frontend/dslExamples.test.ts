@@ -2,12 +2,13 @@ import * as fs from 'fs'
 import * as path from 'path'
 import { parse as parseYaml } from 'yaml'
 
-import { compileRecipe } from './compile/compiler'
-import { RecipeNormalizer } from './recipeNormalizer'
+import { compileRecipe, RecipeNormalizer } from '@posthog/llm-normalizer'
 
 // The examples file is the DSL reference embedded in the create_ai_trace_parser tool prompt;
 // running every documented example against the real compiler keeps the prompt from drifting.
-const EXAMPLES_PATH = path.resolve(__dirname, '../../../backend/prompts/parser_recipe_examples.yaml')
+// The test lives next to the yaml (not in the normalizer package) because the prompt is
+// owned by this product's backend.
+const EXAMPLES_PATH = path.resolve(__dirname, '../backend/prompts/parser_recipe_examples.yaml')
 
 interface ExampleCase {
     input: unknown

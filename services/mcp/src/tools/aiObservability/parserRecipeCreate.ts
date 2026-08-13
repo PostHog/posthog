@@ -1,10 +1,9 @@
 import { z } from 'zod'
 
+import { mergeRecipes, RecipeNormalizer, type StoredRecipe, validateRecipeAgainstSample } from '@posthog/llm-normalizer'
+
 import { getPostHogClient } from '@/lib/posthog'
 import type { Context, ToolBase } from '@/tools/types'
-
-import { validateRecipeAgainstSample } from 'products/ai_observability/frontend/customParser/validateRecipe'
-import { mergeRecipes, RecipeNormalizer, type StoredRecipe } from 'products/ai_observability/frontend/normalizer'
 
 // Mirrors MAX_SOURCE_LENGTH on the ParserRecipe model.
 const MAX_SOURCE_LENGTH = 100_000
