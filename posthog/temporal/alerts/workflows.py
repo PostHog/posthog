@@ -115,11 +115,11 @@ class AlertEvaluationDispatcherWorkflow(PostHogWorkflow):
             self._pending_or_in_flight_alert_ids.add(alert.alert_id)
 
     @temporalio.workflow.run
-    async def run(self, inputs: AlertEvaluationDispatcherInputs | None = None) -> None:
-        if inputs:
-            self._pending_by_organization = inputs.pending_by_organization or {}
-            self._pending_or_in_flight_alert_ids = set(inputs.pending_alert_ids or [])
-            self._organization_cursor = inputs.organization_cursor
+    async def run(self, dispatcher_inputs: AlertEvaluationDispatcherInputs | None = None) -> None:
+        if dispatcher_inputs:
+            self._pending_by_organization = dispatcher_inputs.pending_by_organization or {}
+            self._pending_or_in_flight_alert_ids = set(dispatcher_inputs.pending_alert_ids or [])
+            self._organization_cursor = dispatcher_inputs.organization_cursor
 
         while True:
             await temporalio.workflow.wait_condition(
