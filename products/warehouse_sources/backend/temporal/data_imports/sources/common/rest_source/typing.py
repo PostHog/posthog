@@ -227,6 +227,13 @@ class ResolvedParam:
 class ResponseAction(TypedDict, total=False):
     status_code: Optional[int | str]
     content: Optional[str]
+    # Match on a value inside the parsed JSON body rather than on raw text. ``json_field`` is a
+    # dotted path from the body root (e.g. ``"code"``, ``"error.type"``) and the action matches when
+    # the value there is one of ``json_values``. For an API that answers HTTP 200 and carries the
+    # outcome in the body: substring matching on the serialized body would depend on the API's
+    # whitespace and on the value not appearing elsewhere in the payload.
+    json_field: Optional[str]
+    json_values: Optional[list[Any]]
     # One of:
     #  - "ignore" — treat the matched response as a valid empty page and stop pagination.
     #  - "retry"  — raise a retryable error so the request is re-issued (for an HTTP-200 body-level
