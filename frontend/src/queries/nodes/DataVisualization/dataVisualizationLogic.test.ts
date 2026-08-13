@@ -375,6 +375,44 @@ describe('dataVisualizationLogic', () => {
         })
     })
 
+    it('moves a scatter plot onto a numeric x-axis when the selected one has no coordinates', async () => {
+        dataNodeLogic({ key: testKey, query: defaultQuery.source, dataNodeCollectionId }).actions.setResponse({
+            columns: ['country', 'session_duration', 'revenue'],
+            types: [
+                ['country', 'String'],
+                ['session_duration', 'Int64'],
+                ['revenue', 'Float64'],
+            ],
+            results: [['US', 120, 42.5]],
+        })
+
+        // Auto put the string column on the x-axis and both numeric columns on the y-axis.
+        await expectLogic(logic).toMatchValues({ selectedXAxis: 'country' })
+
+        logic.actions.setVisualizationType(ChartDisplayType.ScatterPlot)
+
+        await expectLogic(logic).toMatchValues({
+            selectedXAxis: 'session_duration',
+            selectedYAxis: [expect.objectContaining({ name: 'revenue' })],
+        })
+    })
+
+    it('keeps a numeric x-axis when a scatter plot is picked', async () => {
+        dataNodeLogic({ key: testKey, query: defaultQuery.source, dataNodeCollectionId }).actions.setResponse({
+            columns: ['session_duration', 'revenue'],
+            types: [
+                ['session_duration', 'Int64'],
+                ['revenue', 'Float64'],
+            ],
+            results: [[120, 42.5]],
+        })
+
+        logic.actions.updateXSeries('revenue')
+        logic.actions.setVisualizationType(ChartDisplayType.ScatterPlot)
+
+        await expectLogic(logic).toMatchValues({ selectedXAxis: 'revenue' })
+    })
+
     it('auto-fills 2d heatmap columns when selecting auto on heatmap data', async () => {
         dataNodeLogic({ key: testKey, query: defaultQuery.source, dataNodeCollectionId }).actions.setResponse({
             columns: ['region', 'segment', 'count'],

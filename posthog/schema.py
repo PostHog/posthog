@@ -285,6 +285,7 @@ from posthog.schema_enums import (
     WebVitalsMetricBand as WebVitalsMetricBand,
     WebVitalsPercentile as WebVitalsPercentile,
     WindowDays as WindowDays,
+    XScale as XScale,
     YAxisPosition as YAxisPosition,
     YAxisScaleType as YAxisScaleType,
 )
@@ -2576,6 +2577,26 @@ class SamplingRate(BaseModel):
     )
     denominator: float | None = None
     numerator: float
+
+
+class ScatterChartSettings(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    xScale: XScale | None = Field(
+        default=None,
+        description=(
+            "X-axis scale. A `logarithmic` axis can't place a non-positive value, so those points are dropped."
+        ),
+    )
+    xStartAtZero: bool | None = Field(
+        default=None,
+        description=(
+            "Whether the X axis should start at zero. Off by default, because pinning"
+            " either axis of two independent measures to zero squashes the correlation"
+            " into a corner."
+        ),
+    )
 
 
 class SessionData(BaseModel):
@@ -14694,6 +14715,7 @@ class ChartSettings(BaseModel):
         description=("Per-breakdown-value color customizations. Keyed by the raw breakdown column value."),
     )
     rightYAxisSettings: YAxisSettings | None = None
+    scatter: ScatterChartSettings | None = None
     seriesBreakdownColumn: str | None = None
     showLegend: bool | None = None
     showNullsAsZero: bool | None = None
