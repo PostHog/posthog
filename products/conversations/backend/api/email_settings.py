@@ -44,6 +44,7 @@ from products.conversations.backend.models import (
 from products.conversations.backend.models.team_conversations_email_config import (
     MAX_CUSTOMER_COMMUNICATION_CHANNELS_PER_TEAM,
     MAX_EMAIL_CONFIGS_PER_TEAM,
+    MAX_PENDING_CUSTOMER_COMMUNICATION_CHANNELS_PER_OWNER,
 )
 from products.conversations.backend.permissions import IsConversationsAdmin
 
@@ -525,13 +526,33 @@ class EmailConnectView(APIView):
                 if kind == EmailChannelKind.CUSTOMER_COMMUNICATION:
                     _release_expired_customer_email_reservation(from_email=from_email)
 
-                current_count = EmailChannel.objects.filter(team=team, kind=kind).count()
+                channels = EmailChannel.objects.filter(team=team, kind=kind)
+                if kind == EmailChannelKind.CUSTOMER_COMMUNICATION:
+                    current_count = channels.exclude(
+                        connection_status=EmailChannelConnectionStatus.CONFIRMATION_EXPIRED
+                    ).count()
+                    pending_owner_count = channels.filter(
+                        owner=owner,
+                        connection_status=EmailChannelConnectionStatus.PENDING_CONFIRMATION,
+                    ).count()
+                else:
+                    current_count = channels.count()
+                    pending_owner_count = 0
+
                 max_channels = (
                     MAX_EMAIL_CONFIGS_PER_TEAM
                     if kind == EmailChannelKind.SUPPORT
                     else MAX_CUSTOMER_COMMUNICATION_CHANNELS_PER_TEAM
                 )
-                if current_count >= max_channels:
+                if pending_owner_count >= MAX_PENDING_CUSTOMER_COMMUNICATION_CHANNELS_PER_OWNER:
+                    failure = Response(
+                        {
+                            "error": f"You can have up to {MAX_PENDING_CUSTOMER_COMMUNICATION_CHANNELS_PER_OWNER} "
+                            "email addresses awaiting confirmation. Finish or disconnect one before adding another."
+                        },
+                        status=400,
+                    )
+                elif current_count >= max_channels:
                     channel_name = "support" if kind == EmailChannelKind.SUPPORT else "customer communication"
                     failure = Response(
                         {"error": f"Maximum of {max_channels} {channel_name} email addresses per team."},

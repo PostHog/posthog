@@ -379,6 +379,72 @@ class TestEmailChannelPermissions(BaseTest):
         assert replacement.owner_id == self.user.id
         assert replacement.connection_status == EmailChannelConnectionStatus.PENDING_CONFIRMATION
 
+    @patch(
+        "products.conversations.backend.api.email_settings.MAX_PENDING_CUSTOMER_COMMUNICATION_CHANNELS_PER_OWNER",
+        1,
+    )
+    @patch(
+        "products.conversations.backend.api.email_settings.get_instance_setting",
+        return_value="mg.posthog.com",
+    )
+    def test_member_cannot_exhaust_team_quota_with_pending_channels(self, _mock_setting: MagicMock) -> None:
+        EmailChannel.objects.create(
+            team=self.team,
+            kind=EmailChannelKind.CUSTOMER_COMMUNICATION,
+            owner=self.user,
+            inbound_token="pending-token",
+            from_email="pending@example.com",
+            from_name="Pending",
+            domain="example.com",
+            connection_status=EmailChannelConnectionStatus.PENDING_CONFIRMATION,
+        )
+
+        response = self.client.post(
+            "/api/conversations/v1/email/connect",
+            {
+                "from_email": "another@example.com",
+                "from_name": "Another address",
+                "kind": EmailChannelKind.CUSTOMER_COMMUNICATION,
+                "owner_id": self.user.id,
+            },
+            content_type="application/json",
+        )
+
+        assert response.status_code == 400
+        assert "awaiting confirmation" in response.json()["error"]
+        assert EmailChannel.objects.filter(team=self.team).count() == 1
+
+    @patch("products.conversations.backend.api.email_settings.MAX_CUSTOMER_COMMUNICATION_CHANNELS_PER_TEAM", 1)
+    @patch(
+        "products.conversations.backend.api.email_settings.get_instance_setting",
+        return_value="mg.posthog.com",
+    )
+    def test_expired_customer_channels_do_not_count_toward_team_limit(self, _mock_setting: MagicMock) -> None:
+        EmailChannel.objects.create(
+            team=self.team,
+            kind=EmailChannelKind.CUSTOMER_COMMUNICATION,
+            owner=self.user,
+            inbound_token="expired-token-for-limit",
+            from_email="expired@example.com",
+            from_name="Expired",
+            domain="example.com",
+            connection_status=EmailChannelConnectionStatus.CONFIRMATION_EXPIRED,
+        )
+
+        response = self.client.post(
+            "/api/conversations/v1/email/connect",
+            {
+                "from_email": "new@example.com",
+                "from_name": "New address",
+                "kind": EmailChannelKind.CUSTOMER_COMMUNICATION,
+                "owner_id": self.user.id,
+            },
+            content_type="application/json",
+        )
+
+        assert response.status_code == 200
+        assert EmailChannel.objects.filter(team=self.team).count() == 2
+
     @patch("products.conversations.backend.api.email_settings.mailgun_add_domain")
     @patch(
         "products.conversations.backend.api.email_settings.get_instance_setting",
