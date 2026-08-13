@@ -36,9 +36,9 @@ const makeTextTile = (body: string, color: InsightColor | null = null): Dashboar
 export const Template: Story = {
     render: () => {
         return (
-            <div className="flex flex-wrap gap-2">
+            <div className="flex flex-wrap gap-2 rounded-lg border-2 border-dashed p-4 shadow-sm">
                 <div>
-                    <h5>basic text</h5>
+                    <h5 className="mb-1 font-semibold uppercase tracking-wide">basic text</h5>
                     <TextCard
                         className="react-grid-item react-draggable cssTransforms react-resizable min-h-60 min-w-[15rem]"
                         textTile={makeTextTile('basic text')}
@@ -46,7 +46,7 @@ export const Template: Story = {
                     />
                 </div>
                 <div>
-                    <h5>markdown text</h5>
+                    <h5 className="mb-1 font-semibold uppercase tracking-wide">markdown text</h5>
                     <TextCard
                         className="react-grid-item react-draggable cssTransforms react-resizable min-h-60 min-w-[15rem]"
                         textTile={makeTextTile('# a title \n\n **formatted** _text_')}
@@ -54,7 +54,7 @@ export const Template: Story = {
                     />
                 </div>
                 <div>
-                    <h5>Long text</h5>
+                    <h5 className="mb-1 font-semibold uppercase tracking-wide">Long text</h5>
                     <TextCard
                         className="react-grid-item react-draggable cssTransforms react-resizable min-h-60 min-w-[15rem]"
                         style={{ height: '250px', width: '300px' }}
@@ -65,7 +65,7 @@ export const Template: Story = {
                     />
                 </div>
                 <div>
-                    <h5>with resize handles</h5>
+                    <h5 className="mb-1 font-semibold uppercase tracking-wide">with resize handles</h5>
                     <TextCard
                         className="react-grid-item react-draggable cssTransforms react-resizable min-h-60 min-w-[15rem]"
                         showResizeHandles={true}
@@ -74,7 +74,7 @@ export const Template: Story = {
                     />
                 </div>
                 <div className="w-full h-[200px]">
-                    <h5>Large Card</h5>
+                    <h5 className="mb-1 font-semibold uppercase tracking-wide">Large Card</h5>
                     <TextCard
                         className="h-full w-full react-grid-item react-draggable cssTransforms react-resizable"
                         textTile={makeTextTile('basic text')}
@@ -92,7 +92,7 @@ export const WordArt: Story = {
             '\n\n'
         )
         return (
-            <div className="max-w-160">
+            <div className="max-w-160 rounded-lg border-2 border-dashed p-4 shadow-sm">
                 <TextCard
                     textTile={makeTextTile(`# Every word art style\n\n${body}`)}
                     placement={DashboardPlacement.Dashboard}
