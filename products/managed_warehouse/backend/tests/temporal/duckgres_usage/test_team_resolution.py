@@ -15,8 +15,9 @@ from decimal import Decimal
 import pytest
 
 from posthog.models import Organization, Team
-from posthog.temporal.duckgres_usage.client import StorageRow, UsageRow
-from posthog.temporal.duckgres_usage.team_resolution import resolve_billing_teams
+
+from products.managed_warehouse.backend.temporal.duckgres_usage.client import StorageRow, UsageRow
+from products.managed_warehouse.backend.temporal.duckgres_usage.team_resolution import resolve_billing_teams
 
 pytestmark = pytest.mark.django_db
 

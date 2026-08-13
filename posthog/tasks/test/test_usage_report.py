@@ -86,7 +86,10 @@ from products.cdp.backend.models.plugin import Plugin, PluginConfig
 from products.dashboards.backend.models.dashboard import Dashboard
 from products.data_modeling.backend.facade.models import DataWarehouseSavedQuery
 from products.feature_flags.backend.models.feature_flag import FeatureFlag
-from products.managed_warehouse.backend.facade.models import DuckgresDailyStorageUsage, DuckgresDailyUsage
+from products.managed_warehouse.backend.facade.testing import (
+    create_duckgres_daily_storage_usage,
+    create_duckgres_daily_usage,
+)
 from products.replay_vision.backend.models.replay_scanner import ReplayScanner, ScannerModel, ScannerType
 from products.warehouse_sources.backend.facade.models import (
     DataWarehouseTable,
@@ -2907,7 +2910,7 @@ class TestExternalDataSyncUsageReport(ClickhouseDestroyTablesMixin, TestCase, Cl
 @freeze_time("2026-07-09T00:01:00Z")
 class TestManagedWarehouseUsageReport(ClickhouseDestroyTablesMixin, TestCase, ClickhouseTestMixin):
     """The gathers read the day-keyed staging table maintained by the duckgres
-    poller (posthog/temporal/duckgres_usage/). Billable compute scalar:
+    poller (products/managed_warehouse/backend/temporal/duckgres_usage/). Billable compute scalar:
     cpu_seconds + memory_seconds/8, floored; endpoint queries are a separate
     product split by query_source."""
 
@@ -2936,7 +2939,7 @@ class TestManagedWarehouseUsageReport(ClickhouseDestroyTablesMixin, TestCase, Cl
         cpu_seconds: int = 0,
         memory_seconds: int = 0,
     ) -> None:
-        DuckgresDailyUsage.objects.create(
+        create_duckgres_daily_usage(
             date=date,
             organization_id=team.organization_id,
             team_id=team.pk,
@@ -2955,8 +2958,7 @@ class TestManagedWarehouseUsageReport(ClickhouseDestroyTablesMixin, TestCase, Cl
         self._setup_teams()
 
         period = get_previous_day(at=now())
-        period_start, period_end = period
-        report_day = period_start.date()
+        report_day = period.start.date()
 
         # Team 3: two worker sizes fold into one scalar:
         # (3600 + 1800) + (28800 + 7200) / 8 = 5400 + 4500 = 9900
@@ -2969,7 +2971,7 @@ class TestManagedWarehouseUsageReport(ClickhouseDestroyTablesMixin, TestCase, Cl
         # Org 2 only has usage OUTSIDE the period — must not leak in.
         self._usage(self.org_2_team_3, report_day - timedelta(days=1), cpu_seconds=999, memory_seconds=999)
 
-        all_reports = _get_all_org_reports(period_start, period_end)
+        all_reports = _get_all_org_reports(period=period)
 
         org_1_report = _get_full_org_usage_report_as_dict(
             _get_full_org_usage_report(all_reports[str(self.org_1.id)], get_instance_metadata(period))
@@ -2997,27 +2999,26 @@ class TestManagedWarehouseUsageReport(ClickhouseDestroyTablesMixin, TestCase, Cl
         self._setup_teams()
 
         period = get_previous_day(at=now())
-        period_start, period_end = period
-        report_day = period_start.date()
+        report_day = period.start.date()
 
         # 360000 GiB-seconds = 386547056640000 byte-seconds
         # -> // (10^9 * 3600) = 107.37... -> 107 GB-hours (floor, decimal GB)
-        DuckgresDailyStorageUsage.objects.create(
+        create_duckgres_daily_storage_usage(
             date=report_day, organization_id=self.org_1.id, team_id=3, gib_seconds=Decimal("360000")
         )
         # The 27-digit-tail value from the live server: 9e15 byte-seconds
         # -> exactly 2500 GB-hours. Exactness matters: a float64 round-trip
         # of this value would still land on 2500, but the fold must not rely
         # on that luck — it recovers integer byte-seconds first.
-        DuckgresDailyStorageUsage.objects.create(
+        create_duckgres_daily_storage_usage(
             date=report_day, organization_id=self.org_1.id, team_id=4, gib_seconds=Decimal("8381903.171539306640625")
         )
         # Outside the period — must not leak in.
-        DuckgresDailyStorageUsage.objects.create(
+        create_duckgres_daily_storage_usage(
             date=report_day - timedelta(days=1), organization_id=self.org_2.id, team_id=5, gib_seconds=Decimal("999999")
         )
 
-        all_reports = _get_all_org_reports(period_start, period_end)
+        all_reports = _get_all_org_reports(period=period)
         org_1_report = _get_full_org_usage_report_as_dict(
             _get_full_org_usage_report(all_reports[str(self.org_1.id)], get_instance_metadata(period))
         )
@@ -5199,8 +5200,8 @@ class TestSendUsage(LicensedTestMixin, ClickhouseDestroyTablesMixin, APIBaseTest
         return {
             "customer": {
                 "billing_period": {
-                    "current_period_start": "2021-10-01T00:00:00Z",
-                    "current_period_end": "2021-10-31T00:00:00Z",
+                    "current_period.start": "2021-10-01T00:00:00Z",
+                    "current_period.end": "2021-10-31T00:00:00Z",
                 },
                 "usage_summary": {
                     "events": {"usage": 10000, "limit": None},

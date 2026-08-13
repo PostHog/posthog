@@ -239,3 +239,81 @@ def setup_duckgres_session(
     extensions: tuple[str, ...] = ("ducklake", "httpfs", "delta"),
 ) -> None:
     storage.setup_duckgres_session(conn, extensions)
+
+
+# --- billing usage reads (the duckgres usage mirror) ---------------------------
+# The daily usage report reads the mirror the duckgres poller maintains
+# (backend/temporal/duckgres_usage/). Plain aggregated rows cross the boundary,
+# never the model classes.
+
+ENDPOINTS_QUERY_SOURCE = "endpoints"
+
+
+def duckgres_compute_rows_for_period(begin: date, end: date, *, endpoints: bool) -> list[dict]:
+    """Duckgres compute usage folded to the billable scalar, per team.
+
+    The billable unit is cpu_seconds + memory_seconds / 8 (the RFC's 1:8 rate
+    ratio: $0.025/GiB-hr = $0.20/8), floored so fractions under-charge. Endpoint
+    queries (query_source="endpoints") are a separate product.
+    """
+    from django.db.models import Sum  # noqa: PLC0415
+
+    from products.managed_warehouse.backend.models import DuckgresDailyUsage  # noqa: PLC0415
+
+    queryset = DuckgresDailyUsage.objects.filter(date__gte=begin, date__lte=end)
+    if endpoints:
+        queryset = queryset.filter(query_source=ENDPOINTS_QUERY_SOURCE)
+    else:
+        queryset = queryset.exclude(query_source=ENDPOINTS_QUERY_SOURCE)
+    return [
+        {"team_id": row["team_id"], "total": (row["total_cpu_seconds"] * 8 + row["total_memory_seconds"]) // 8}
+        for row in queryset.values("team_id").annotate(
+            total_cpu_seconds=Sum("cpu_seconds"), total_memory_seconds=Sum("memory_seconds")
+        )
+    ]
+
+
+def duckgres_storage_gb_hour_rows_for_period(begin: date, end: date) -> list[dict]:
+    """Duckgres storage usage folded to billable decimal-GB hours, per team.
+
+    The unit conversion is the whole point of this function, and it mixes binary
+    and decimal on purpose:
+
+    - duckgres meters in **GiB-seconds** (GiB = 2^30 bytes — a binary unit),
+      served as an exact decimal (integer byte-seconds / 2^30, up to 30
+      fractional digits).
+    - billing PRICES storage in **decimal GB** (GB = 10^9 bytes; $/GB-month,
+      100 GB free tier). Snowflake/BigQuery/etc. all price decimal GB, and our
+      calculator + free tier are decimal.
+
+    So the GiB->GB conversion is pinned here and only here. Getting the binary
+    vs decimal base wrong is a silent ~7.4% billing error, so keep it explicit.
+    """
+    from fractions import Fraction  # noqa: PLC0415
+
+    from django.db.models import Sum  # noqa: PLC0415
+
+    from products.managed_warehouse.backend.models import DuckgresDailyStorageUsage  # noqa: PLC0415
+
+    out = []
+    for row in (
+        DuckgresDailyStorageUsage.objects.filter(date__gte=begin, date__lte=end)
+        .values("team_id")
+        .annotate(total_gib_seconds=Sum("gib_seconds"))
+    ):
+        # GiB-seconds -> billable decimal-GB-hours, in three exact steps:
+        #
+        #   1. GiB-seconds  x 2^30   ->  byte-seconds   recover duckgres's integer byte-seconds.
+        #                                               Fraction (not Decimal) so it's exact: Decimal's
+        #                                               28-digit context would round the 30-digit tail.
+        #   2. byte-seconds / 10^9   ->  GB-seconds     10^9 bytes = 1 *decimal* GB, the priced unit.
+        #   3. GB-seconds   / 3600   ->  GB-hours       3600 s = 1 hour.
+        #
+        # Steps 2 and 3 are a single floor-division by (10^9 * 3600) so any fraction
+        # under-charges. Worked example (the closed-day case in the tests):
+        #   360000 GiB-s  x 2^30            = 386_547_056_640_000 byte-s
+        #                 // (10^9 * 3600)  = 107.37...  ->  107 GB-hours
+        byte_seconds = int(Fraction(row["total_gib_seconds"]) * (2**30))
+        gb_hours = byte_seconds // (10**9 * 3600)
+        out.append({"team_id": row["team_id"], "total": gb_hours})
+    return out

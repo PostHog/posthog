@@ -23,8 +23,8 @@ so the whole withhold/proceed matrix is unit-testable without a database.
 import datetime as dt
 import dataclasses
 
-from posthog.temporal.duckgres_usage.client import UsageResponse
-from posthog.temporal.duckgres_usage.team_resolution import ResolvedTeams
+from products.managed_warehouse.backend.temporal.duckgres_usage.client import UsageResponse
+from products.managed_warehouse.backend.temporal.duckgres_usage.team_resolution import ResolvedTeams
 
 
 class DuckgresWatermarkHole(Exception):

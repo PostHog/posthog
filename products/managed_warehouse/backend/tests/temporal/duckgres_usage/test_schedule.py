@@ -15,11 +15,12 @@ from unittest.mock import AsyncMock, MagicMock, patch
 
 from temporalio.client import ScheduleOverlapPolicy
 
-from posthog.temporal.duckgres_usage.workflow import (
+from posthog.temporal.schedule import create_poll_duckgres_usage_schedule
+
+from products.managed_warehouse.backend.temporal.duckgres_usage.workflow import (
     POLL_DUCKGRES_USAGE_SCHEDULE_ID as SCHEDULE_ID,
     POLL_DUCKGRES_USAGE_WORKFLOW,
 )
-from posthog.temporal.schedule import create_poll_duckgres_usage_schedule
 
 
 async def _capture_schedule() -> dict:
@@ -69,7 +70,7 @@ async def test_schedule_input_round_trips_through_json() -> None:
     assert isinstance(raw_input, dict)
     assert json.loads(json.dumps(raw_input)) == raw_input
 
-    from posthog.temporal.duckgres_usage.types import PollDuckgresUsageInputs
+    from products.managed_warehouse.backend.temporal.duckgres_usage.types import PollDuckgresUsageInputs
 
     PollDuckgresUsageInputs(**raw_input)
 

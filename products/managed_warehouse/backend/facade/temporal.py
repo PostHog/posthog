@@ -11,6 +11,15 @@ temporal activity modules.
 
 from products.managed_warehouse.backend.temporal import ACTIVITIES, WORKFLOWS
 from products.managed_warehouse.backend.temporal.compaction_types import DucklakeCompactionInput
+from products.managed_warehouse.backend.temporal.duckgres_usage import (
+    ACTIVITIES as DUCKGRES_USAGE_ACTIVITIES,
+    WORKFLOWS as DUCKGRES_USAGE_WORKFLOWS,
+)
+from products.managed_warehouse.backend.temporal.duckgres_usage.types import PollDuckgresUsageInputs
+from products.managed_warehouse.backend.temporal.duckgres_usage.workflow import (
+    POLL_DUCKGRES_USAGE_SCHEDULE_ID,
+    POLL_DUCKGRES_USAGE_WORKFLOW,
+)
 from products.managed_warehouse.backend.temporal.ducklake_copy_data_imports_workflow import (
     DataImportsDuckLakeCopyInputs,
     DuckLakeCopyDataImportsWorkflow,
@@ -27,6 +36,11 @@ from products.managed_warehouse.backend.temporal.types import DataModelingDuckLa
 
 __all__ = [
     "ACTIVITIES",
+    "DUCKGRES_USAGE_ACTIVITIES",
+    "DUCKGRES_USAGE_WORKFLOWS",
+    "POLL_DUCKGRES_USAGE_SCHEDULE_ID",
+    "POLL_DUCKGRES_USAGE_WORKFLOW",
+    "PollDuckgresUsageInputs",
     "WORKFLOWS",
     "DataImportsDuckLakeCopyInputs",
     "DataModelingDuckLakeCopyInputs",

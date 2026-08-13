@@ -18,7 +18,7 @@ no knowledge of duckgres's bucket width.
 
 import datetime as dt
 
-from posthog.temporal.duckgres_usage.acking import day_boundary_ack
+from products.managed_warehouse.backend.temporal.duckgres_usage.acking import day_boundary_ack
 
 EPOCH = dt.datetime(1, 1, 1, tzinfo=dt.UTC)
 

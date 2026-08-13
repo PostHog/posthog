@@ -10,9 +10,9 @@ import datetime as dt
 
 import pytest
 
-from posthog.temporal.duckgres_usage.anomalies import detect_anomalies
-from posthog.temporal.duckgres_usage.client import UsageResponse
-from posthog.temporal.duckgres_usage.team_resolution import ResolvedTeams
+from products.managed_warehouse.backend.temporal.duckgres_usage.anomalies import detect_anomalies
+from products.managed_warehouse.backend.temporal.duckgres_usage.client import UsageResponse
+from products.managed_warehouse.backend.temporal.duckgres_usage.team_resolution import ResolvedTeams
 
 LOW = dt.datetime(2026, 7, 5, 23, 59, 59, tzinfo=dt.UTC)
 HIGH = dt.datetime(2026, 7, 7, 12, 39, tzinfo=dt.UTC)

@@ -21,9 +21,8 @@ from django.db import transaction
 
 import structlog
 
-from posthog.temporal.duckgres_usage.client import UsageResponse
-
-from products.managed_warehouse.backend.facade.models import DuckgresDailyStorageUsage, DuckgresDailyUsage
+from products.managed_warehouse.backend.models import DuckgresDailyStorageUsage, DuckgresDailyUsage
+from products.managed_warehouse.backend.temporal.duckgres_usage.client import UsageResponse
 
 logger = structlog.get_logger(__name__)
 
