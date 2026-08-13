@@ -8,15 +8,23 @@ from django.utils import timezone
 from parameterized import parameterized
 
 from posthog.models.comment import Comment
+from posthog.models.user import User
 
 from products.conversations.backend.models import (
     EMAIL_THREAD_COMMENT_SCOPE,
+    EmailChannel,
+    EmailChannelKind,
     EmailThread,
     EmailThreadMessage,
     EmailThreadMessageDirection,
     EmailThreadParticipant,
     EmailThreadParticipantKind,
     Ticket,
+)
+from products.conversations.backend.services.email_thread_ingestion import (
+    EmailAddress,
+    ParsedInboundEmail,
+    _upsert_participants,
 )
 from products.conversations.backend.services.email_threads import delete_email_thread
 
@@ -222,3 +230,45 @@ class TestEmailThreadPersistence(BaseTest):
         assert not EmailThreadParticipant.objects.for_team(self.team.id).filter(thread_id=thread.id).exists()
         assert not Comment.objects.filter(id__in=[message.comment_id, orphaned_content.id]).exists()
         assert Comment.objects.filter(id=unrelated.id).exists()
+
+    def test_member_with_mixed_case_email_is_classified_internal(self) -> None:
+        # SCIM and invite flows store User.email verbatim, so a member can carry uppercase
+        # characters while parsed inbound addresses always arrive lowercased. The classification
+        # must still recognize them as internal rather than persist them as a customer.
+        member = User.objects.create_and_join(self.organization, "colleague@example.com", None)
+        User.objects.filter(id=member.id).update(email="Colleague@Example.com")
+
+        channel = EmailChannel.objects.create(
+            team=self.team,
+            kind=EmailChannelKind.CUSTOMER_COMMUNICATION,
+            owner=self.user,
+            inbound_token="mixed-case-member-token",
+            from_email="support@example.com",
+            from_name="Support",
+            domain="example.com",
+        )
+        thread = self._create_thread()
+        email = ParsedInboundEmail(
+            message_id="<root@example.com>",
+            in_reply_to=None,
+            references=(),
+            sent_at=timezone.now(),
+            sender=EmailAddress(name="Customer", email="customer@example.com"),
+            to_recipients=(EmailAddress(name="", email="support@example.com"),),
+            cc_recipients=(EmailAddress(name="Colleague", email="colleague@example.com"),),
+            subject="Quarterly planning",
+            body_plain="Hello",
+            stripped_text="Hello",
+            sender_authenticated=True,
+            dkim_passed=True,
+            dkim_signing_domains=("example.com",),
+            capture_address="inbox@example.com",
+            attachments=(),
+        )
+
+        _upsert_participants(team_id=self.team.id, thread=thread, channel=channel, email=email)
+
+        participant = EmailThreadParticipant.objects.for_team(self.team.id).get(
+            thread=thread, email="colleague@example.com"
+        )
+        assert participant.kind == EmailThreadParticipantKind.INTERNAL

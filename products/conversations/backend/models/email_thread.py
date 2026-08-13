@@ -57,6 +57,7 @@ class EmailThreadMessage(TeamScopedRootMixin, UUIDModel):
     sender_name = models.CharField(max_length=400, default="", blank=True)
     to_recipients = models.JSONField(default=list, blank=True)
     cc_recipients = models.JSONField(default=list, blank=True)
+    sender_authenticated = models.BooleanField(default=False, db_default=False)
     direction = models.CharField(max_length=16, choices=EmailThreadMessageDirection.choices)
     source_type = models.CharField(max_length=64)
     source_id = models.CharField(max_length=512)
