@@ -288,18 +288,14 @@ class TestMotherDuckAdapterExecute(BaseTest):
                 MotherDuckAdapter().execute(request)
 
     def test_failed_connect_surfaces_its_translated_message(self):
-        from contextlib import contextmanager
-
         from posthog.hogql.direct_sql.motherduck_adapter import MotherDuckAdapter
 
         from products.warehouse_sources.backend.facade.source_management import MotherDuckConnectionError
 
-        @contextmanager
-        def failing_cache(token, database):
-            raise MotherDuckConnectionError("Invalid MotherDuck token.")
-            yield  # pragma: no cover
-
         request = self._request("SELECT 1")
-        with patch("posthog.hogql.direct_sql.motherduck_adapter.cached_motherduck_connection", failing_cache):
+        with patch(
+            "posthog.hogql.direct_sql.motherduck_adapter.cached_motherduck_connection",
+            side_effect=MotherDuckConnectionError("Invalid MotherDuck token."),
+        ):
             with self.assertRaisesRegex(ExposedHogQLError, "Invalid MotherDuck token."):
                 MotherDuckAdapter().execute(request)
