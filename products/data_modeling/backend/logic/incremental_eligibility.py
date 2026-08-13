@@ -18,6 +18,20 @@ from typing import TYPE_CHECKING, Optional
 
 from posthog.hogql import ast
 from posthog.hogql.context import HogQLContext
+from posthog.hogql.database.models import (
+    BooleanDatabaseField,
+    DateDatabaseField,
+    DateTimeDatabaseField,
+    DecimalDatabaseField,
+    FloatArrayDatabaseField,
+    FloatDatabaseField,
+    IntegerDatabaseField,
+    StringArrayDatabaseField,
+    StringDatabaseField,
+    StringJSONDatabaseField,
+    StructDatabaseField,
+    UUIDDatabaseField,
+)
 from posthog.hogql.errors import ExposedHogQLError
 from posthog.hogql.parser import parse_select
 from posthog.hogql.property import has_aggregation
@@ -64,16 +78,29 @@ _CONSTANT_TYPE_LABELS: dict[type, str] = {
     ast.AggregateStateType: "aggregate",
 }
 
-# Types that cannot serve as a watermark. Booleans, arrays, and maps have no "highest value so
-# far" for the next run to start from. Strings are excluded as a product call: lexicographic order
-# is arbitrary for most string columns, so offering them invites keys that silently miss rows.
-# Unknown types stay, since a wrong exclusion hides a working column while a wrong inclusion just
-# fails validation.
-_NON_KEY_TYPE_LABELS = {"boolean", "array", "tuple", "map", "interval", "aggregate", "string"}
+# Types that cannot serve as a watermark. Booleans, arrays, maps, and JSON have no "highest value
+# so far" for the next run to start from. Strings are excluded as a product call: lexicographic
+# order is arbitrary for most string columns, so offering them invites keys that silently miss
+# rows. UUIDs are excluded because only v7 is time-ordered and the column type cannot tell
+# versions apart — a v4 watermark jumps around and misses rows. Unknown types stay, since a wrong
+# exclusion hides a working column while a wrong inclusion just fails validation.
+_NON_KEY_TYPE_LABELS = {
+    "boolean",
+    "array",
+    "tuple",
+    "map",
+    "interval",
+    "aggregate",
+    "string",
+    "uuid",
+    "json",
+    "struct",
+}
 
 # The unique key has looser needs: it only has to identify a row, so any equatable type works —
-# and it MUST admit strings, since every GROUP BY column (event names, ids) has to be coverable.
-_NON_UNIQUE_KEY_TYPE_LABELS = {"array", "tuple", "map", "interval", "aggregate"}
+# and it MUST admit strings and booleans, since every GROUP BY column (event names, ids, flags)
+# has to be coverable. UUIDs qualify too: equality is exactly what they are for.
+_NON_UNIQUE_KEY_TYPE_LABELS = {"array", "tuple", "map", "interval", "aggregate", "json", "struct"}
 
 
 @dataclass(frozen=True, kw_only=True)
@@ -225,11 +252,38 @@ def _key_candidates(selects: list[ast.SelectQuery]) -> list[str]:
     return [name for name in dict.fromkeys(ordered) if name in common]
 
 
+# Ordered because of subclassing: MapStringDatabaseField extends StringJSONDatabaseField, and the
+# json/array string variants must be recognized before plain StringDatabaseField.
+_DATABASE_FIELD_LABELS: list[tuple[type, str]] = [
+    (DateTimeDatabaseField, "datetime"),
+    (DateDatabaseField, "date"),
+    (IntegerDatabaseField, "integer"),
+    (DecimalDatabaseField, "decimal"),
+    (FloatDatabaseField, "float"),
+    (BooleanDatabaseField, "boolean"),
+    (UUIDDatabaseField, "uuid"),
+    (StringJSONDatabaseField, "json"),
+    (StringArrayDatabaseField, "array"),
+    (FloatArrayDatabaseField, "array"),
+    (StructDatabaseField, "struct"),
+    (StringDatabaseField, "string"),
+]
+
+
+def _database_field_label(database_field: object) -> Optional[str]:
+    for field_class, label in _DATABASE_FIELD_LABELS:
+        if isinstance(database_field, field_class):
+            return label
+    return None
+
+
 def _key_candidate_types(selects: list[ast.SelectQuery], database: "Database") -> dict[str, str]:
     """Coarse type labels for the picker's type tags, from the resolved AST.
 
-    Reads the first branch only: a union whose branches disagree on a column's type is already a
-    modeling problem, and the first branch is where the candidate order comes from too.
+    A raw table column resolves to its schema DatabaseField, which is the reliable source; only
+    computed expressions need the constant-type route. Reads the first branch only: a union whose
+    branches disagree on a column's type is already a modeling problem, and the first branch is
+    where the candidate order comes from too.
     """
     context = HogQLContext(team_id=None, database=database)
     labels: dict[str, str] = {}
@@ -240,11 +294,17 @@ def _key_candidate_types(selects: list[ast.SelectQuery], database: "Database") -
         expr = item.expr if isinstance(item, ast.Alias) else item
         if expr.type is None:
             continue
-        try:
-            constant_type = expr.type.resolve_constant_type(context)
-        except Exception:
-            continue
-        label = _CONSTANT_TYPE_LABELS.get(type(constant_type))
+        label: Optional[str] = None
+        if isinstance(expr.type, ast.FieldType):
+            try:
+                label = _database_field_label(expr.type.resolve_database_field(context))
+            except Exception:
+                label = None
+        if label is None:
+            try:
+                label = _CONSTANT_TYPE_LABELS.get(type(expr.type.resolve_constant_type(context)))
+            except Exception:
+                label = None
         if label is not None:
             labels[name] = label
     return labels

@@ -30,10 +30,12 @@ const REFRESH_MODE_OPTIONS: LemonRadioOption<RefreshMode>[] = [
     },
 ]
 
+const INCREMENTAL_KEY_LABEL = 'Incremental column'
 const INCREMENTAL_KEY_HELP =
-    "A column whose value grows as rows arrive, like a timestamp or an ID. Each run reads only rows at or after the last run's highest value."
+    "The column that tracks which rows are new: its value grows as rows arrive, like a timestamp or a sequential ID. Each run reads only rows at or after the last run's highest value."
+const UNIQUE_KEY_LABEL = 'Unique key'
 const UNIQUE_KEY_HELP =
-    'Rows that match on these columns are updated in place. Include every column the query groups by. Values here can never be empty.'
+    'The columns that together identify a row, like a primary key. Rows that match on them are updated in place. Include every column the query groups by. Values here can never be empty.'
 const LOOKBACK_HELP =
     "How far back before the last run's highest value to read again, so rows that arrive late are picked up."
 
@@ -199,15 +201,15 @@ export function IncrementalConfigOptions({
     }
 
     return (
-        <div className="mt-2 deprecated-space-y-2">
+        <div className="mt-4 deprecated-space-y-4">
             <RefreshModeRadio
                 incremental={draft.enabled}
                 onChange={(enabled) => onChange({ enabled })}
                 dataAttr="materialization-refresh-mode"
             />
             {draft.enabled && (
-                <div className="deprecated-space-y-2">
-                    <LemonField.Pure label="Track new rows by" help={INCREMENTAL_KEY_HELP}>
+                <div className="mt-4 deprecated-space-y-4">
+                    <LemonField.Pure label={INCREMENTAL_KEY_LABEL} help={INCREMENTAL_KEY_HELP}>
                         <IncrementalKeyInput
                             check={check}
                             value={draft.incrementalKey}
@@ -215,7 +217,7 @@ export function IncrementalConfigOptions({
                             dataAttr="materialization-incremental-key"
                         />
                     </LemonField.Pure>
-                    <LemonField.Pure label="Columns that identify a row" help={UNIQUE_KEY_HELP}>
+                    <LemonField.Pure label={UNIQUE_KEY_LABEL} help={UNIQUE_KEY_HELP}>
                         <UniqueKeyInput
                             check={check}
                             value={draft.uniqueKey}
@@ -261,8 +263,8 @@ export function IncrementalConfigFields({ check }: IncrementalConfigFieldsProps)
                         dataAttr="sql-editor-save-view-refresh-mode"
                     />
                     {value && (
-                        <div className="mt-2 deprecated-space-y-2">
-                            <LemonField name="incrementalKey" label="Track new rows by" help={INCREMENTAL_KEY_HELP}>
+                        <div className="mt-4 deprecated-space-y-4">
+                            <LemonField name="incrementalKey" label={INCREMENTAL_KEY_LABEL} help={INCREMENTAL_KEY_HELP}>
                                 {({ value: key, onChange: onKeyChange }) => (
                                     <IncrementalKeyInput
                                         check={check}
@@ -272,11 +274,7 @@ export function IncrementalConfigFields({ check }: IncrementalConfigFieldsProps)
                                     />
                                 )}
                             </LemonField>
-                            <LemonField
-                                name="incrementalUniqueKey"
-                                label="Columns that identify a row"
-                                help={UNIQUE_KEY_HELP}
-                            >
+                            <LemonField name="incrementalUniqueKey" label={UNIQUE_KEY_LABEL} help={UNIQUE_KEY_HELP}>
                                 {({ value: uniqueKey, onChange: onUniqueKeyChange }) => (
                                     <UniqueKeyInput
                                         check={check}

@@ -311,10 +311,14 @@ class TestStarExpansion:
         assert "c" not in result.key_candidates
 
     def test_key_candidates_carry_coarse_types(self) -> None:
-        result = self._check("SELECT event, timestamp FROM events")
+        # Raw table columns must resolve through their schema DatabaseField: the constant-type
+        # route alone left most of the events table untagged.
+        result = self._check("SELECT event, timestamp, uuid, properties FROM events")
 
         assert result.key_candidate_types["timestamp"] == "datetime"
         assert result.key_candidate_types["event"] == "string"
+        assert result.key_candidate_types["uuid"] == "uuid"
+        assert result.key_candidate_types["properties"] == "json"
 
     @parameterized.expand(
         [
@@ -322,6 +326,8 @@ class TestStarExpansion:
             ("array", "SELECT timestamp, [1, 2] AS xs FROM events", "xs"),
             ("tuple", "SELECT timestamp, (1, 2) AS pair FROM events", "pair"),
             ("string", "SELECT timestamp, event FROM events", "event"),
+            ("uuid", "SELECT timestamp, uuid FROM events", "uuid"),
+            ("json", "SELECT timestamp, properties FROM events", "properties"),
         ]
     )
     def test_columns_that_cannot_track_new_rows_are_not_key_candidates(
@@ -332,17 +338,23 @@ class TestStarExpansion:
         assert column not in result.key_candidates
         assert "timestamp" in result.key_candidates
 
-    def test_strings_stay_available_for_the_unique_key(self) -> None:
+    def test_strings_and_uuids_stay_available_for_the_unique_key(self) -> None:
         # A grouped query's unique key must cover every GROUP BY column, and those are often
-        # strings - excluding them here would make such queries impossible to configure.
+        # strings - excluding them here would make such queries impossible to configure. UUIDs
+        # identify rows, which is equality, so they qualify too.
         result = self._check(
-            "SELECT toStartOfDay(timestamp) AS day, event, count() AS c FROM events GROUP BY day, event"
+            "SELECT toStartOfDay(timestamp) AS day, event, any(uuid) AS id, count() AS c "
+            "FROM events GROUP BY day, event"
         )
 
         assert "event" not in result.key_candidates
         assert "event" in result.unique_key_candidates
         assert "day" in result.unique_key_candidates
         assert "c" not in result.unique_key_candidates
+
+        flat = self._check("SELECT timestamp, uuid FROM events")
+        assert "uuid" in flat.unique_key_candidates
+        assert "uuid" not in flat.key_candidates
 
     def test_without_a_database_types_are_unknown_and_nothing_is_filtered(self) -> None:
         result = check_incremental_eligibility("SELECT timestamp, flag FROM events", None)

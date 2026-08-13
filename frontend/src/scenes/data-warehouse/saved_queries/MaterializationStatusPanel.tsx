@@ -195,9 +195,9 @@ export function MaterializationStatusPanel({ viewId, kind = 'view' }: Materializ
     const incrementalDraftError = !incrementalDraft.enabled
         ? undefined
         : !incrementalDraft.incrementalKey
-          ? 'Select the column that tracks new rows'
+          ? 'Select the incremental column'
           : incrementalDraft.uniqueKey.length === 0
-            ? 'Select at least one column that identifies a row'
+            ? 'Select at least one unique key column'
             : undefined
     const lastRunMode = savedQuery?.incremental_state?.last_run_mode
     const materializationAccessReason = getAccessControlDisabledReason(

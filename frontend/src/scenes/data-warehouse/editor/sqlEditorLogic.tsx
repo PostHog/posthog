@@ -2306,12 +2306,10 @@ export const sqlEditorLogic = kea<sqlEditorLogicType>([
                         viewName: validateSavedQueryName,
                         dagId: (dagId) => (multiDagEnabled && !dagId ? 'Please select a DAG' : undefined),
                         incrementalKey: (key, { incrementalEnabled, materializeAfterSave: materialize }) =>
-                            incrementalEnabled && materialize && !key
-                                ? 'Select the column that tracks new rows'
-                                : undefined,
+                            incrementalEnabled && materialize && !key ? 'Select the incremental column' : undefined,
                         incrementalUniqueKey: (uniqueKey, { incrementalEnabled, materializeAfterSave: materialize }) =>
                             incrementalEnabled && materialize && !uniqueKey?.length
-                                ? 'Select at least one column that identifies a row'
+                                ? 'Select at least one unique key column'
                                 : undefined,
                     },
                     onSubmit: async ({
