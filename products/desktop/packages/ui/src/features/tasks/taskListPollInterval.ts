@@ -7,13 +7,27 @@ export interface TaskListHookFilters {
   showInternal?: boolean;
 }
 
+function isUnfiltered(filters: TaskListHookFilters | undefined): boolean {
+  return !filters?.repository && !filters?.showInternal;
+}
+
+export function isAllUsersTaskList(
+  filters: TaskListHookFilters | undefined,
+): boolean {
+  return Boolean(filters?.showAllUsers) && isUnfiltered(filters);
+}
+
+export function isPlainMineTaskList(
+  filters: TaskListHookFilters | undefined,
+): boolean {
+  return !filters?.showAllUsers && isUnfiltered(filters);
+}
+
 export function taskListRefetchIntervalMs(
   filters: TaskListHookFilters | undefined,
   allUsersListMounted: boolean,
 ): number {
-  const plainMineList =
-    !filters?.repository && !filters?.showAllUsers && !filters?.showInternal;
-  return plainMineList && allUsersListMounted
+  return isPlainMineTaskList(filters) && allUsersListMounted
     ? TASK_LIST_FALLBACK_POLL_INTERVAL_MS
     : TASK_LIST_POLL_INTERVAL_MS;
 }

@@ -6,7 +6,12 @@ import { useAuthenticatedQuery } from "../../hooks/useAuthenticatedQuery";
 import { useMeQuery } from "../auth/useMeQuery";
 import { useAllUsersTaskPollStore } from "./allUsersTaskPollStore";
 import { taskKeys } from "./taskKeys";
-import { taskListRefetchIntervalMs } from "./taskListPollInterval";
+import {
+  isAllUsersTaskList,
+  isPlainMineTaskList,
+  type TaskListHookFilters,
+  taskListRefetchIntervalMs,
+} from "./taskListPollInterval";
 
 // Summaries are slim and drive the sidebar's live status — keep them fresh.
 const TASK_SUMMARY_POLL_INTERVAL_MS = 30_000;
@@ -17,11 +22,7 @@ const TASK_SUMMARY_POLL_INTERVAL_MS = 30_000;
 const SLACK_TASK_POLL_INTERVAL_MS = 5 * 60_000;
 
 export function useTasks(
-  filters?: {
-    repository?: string;
-    showAllUsers?: boolean;
-    showInternal?: boolean;
-  },
+  filters?: TaskListHookFilters,
   options?: { enabled?: boolean },
 ) {
   const { data: currentUser } = useMeQuery();
@@ -29,19 +30,19 @@ export function useTasks(
   const internal = filters?.showInternal ? true : undefined;
   const enabled = (options?.enabled ?? true) && !!currentUser?.id;
 
-  const isAllUsersList =
-    enabled &&
-    !!filters?.showAllUsers &&
-    !filters?.repository &&
-    !filters?.showInternal;
+  const registersAllUsersList = enabled && isAllUsersTaskList(filters);
   const register = useAllUsersTaskPollStore((s) => s.register);
   const unregister = useAllUsersTaskPollStore((s) => s.unregister);
   useEffect(() => {
-    if (!isAllUsersList) return;
+    if (!registersAllUsersList) return;
     register();
     return () => unregister();
-  }, [isAllUsersList, register, unregister]);
-  const allUsersListMounted = useAllUsersTaskPollStore((s) => s.observers > 0);
+  }, [registersAllUsersList, register, unregister]);
+
+  const plainMineList = isPlainMineTaskList(filters);
+  const allUsersListMounted = useAllUsersTaskPollStore(
+    (s) => plainMineList && s.observers > 0,
+  );
 
   return useAuthenticatedQuery(
     taskKeys.list({ repository: filters?.repository, createdBy, internal }),
