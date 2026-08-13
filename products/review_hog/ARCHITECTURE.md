@@ -321,6 +321,12 @@ session** per chunk via the sibling helpers `start_sandbox_session` / `continue_
 `run_oneshot_review(...)` in `backend/reviewer/sandbox/direct_llm.py` (same call shape minus
 `repository`/`branch`; one gateway Messages call, structured outputs, no sandbox).
 
+Every sandbox opened here lands in the `posthog-sandbox-self-driving` Modal app rather than the default one,
+because its tasks carry `origin_product=REVIEW_HOG` (see `SELF_DRIVING_ORIGIN_PRODUCTS` in
+`products/tasks/backend/logic/services/sandbox.py`). ReviewHog owns no sandbox code, so this needs nothing here:
+the app is resolved inside the Tasks provisioning activity. Same image and resources as any other run — the split
+only separates the fleet's Modal cost from user-driven runs.
+
 `run_sandbox_review(team_id, user_id, repository, branch, prompt, system_prompt, model_to_validate, step_name) -> Model | None`:
 
 1. Does **not** own concurrency — the caller bounds it: each fan-out child workflow wraps its per-unit sandbox
