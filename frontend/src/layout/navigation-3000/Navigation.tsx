@@ -198,7 +198,10 @@ export function Navigation({
                                     order and the accessibility tree, or keyboard and screen-reader
                                     users can operate them invisibly. The side panel stays outside the
                                     wrapper: it renders beside the takeover and must stay usable. */}
-                                <div className="contents" inert={sceneTakeoverActive || undefined}>
+                                {/* The attribute rides a spread with the empty-string form: React 18's
+                                    types lack `inert`, and its runtime serializes `inert={false}` to a
+                                    string, which is still inert (presence-based attribute). */}
+                                <div className="contents" {...(sceneTakeoverActive ? { inert: '' } : {})}>
                                     {!sceneMenuBarEnabled && !sceneConfig?.hideProjectNotice && (
                                         <div
                                             className={cn({
