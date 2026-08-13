@@ -37,7 +37,7 @@ describe('playerSidebarLogic', () => {
         logic.actions.setDefaultTab(SessionRecordingSidebarTab.OVERVIEW)
         router.actions.push('/replay', {
             sessionRecordingId: 'abc',
-            tab: SessionRecordingSidebarTab.OVERVIEW,
+            sidebarTab: SessionRecordingSidebarTab.OVERVIEW,
         })
         await expectLogic(logic).toMatchValues({ selectedTab: SessionRecordingSidebarTab.OVERVIEW })
 
@@ -57,33 +57,31 @@ describe('playerSidebarLogic', () => {
         expect(router.values.searchParams).toHaveProperty('sidebarTab', SessionRecordingSidebarTab.OVERVIEW)
     })
 
-    it("leaves the host scene's own tab param alone", () => {
-        // A scene that embeds the player and reads `tab` itself, such as the experiment recordings
-        // tab, used to lose its value to the sidebar here. It then resolved the sidebar tab it found
-        // back to its own default, throwing the viewer out of the recording they were watching.
-        router.actions.push('/experiments/123', { tab: 'recordings', sessionRecordingId: 'abc' })
+    // The host's tab is left alone whatever it holds. Claiming it by value instead reproduced the
+    // bug the namespacing fixes, because scenes like the replay scanner use these same words.
+    it.each([
+        ['a word the sidebar never uses', 'recordings'],
+        ['a word the sidebar also uses', SessionRecordingSidebarTab.OVERVIEW],
+    ])("leaves the host scene's tab param alone when it holds %s", (_, hostTab) => {
+        router.actions.push('/replay-vision/1', { tab: hostTab, sessionRecordingId: 'abc' })
 
         logic.actions.setTab(SessionRecordingSidebarTab.INSPECTOR)
 
         expect(router.values.searchParams).toEqual({
-            tab: 'recordings',
+            tab: hostTab,
             sessionRecordingId: 'abc',
             sidebarTab: SessionRecordingSidebarTab.INSPECTOR,
         })
     })
 
-    it('reads a sidebar tab shared under the pre-namespace param and rewrites it namespaced', async () => {
-        router.actions.push('/replay', {
+    it("does not take a host scene's tab as the viewer's pick", async () => {
+        router.actions.push('/replay-vision/1', {
+            tab: SessionRecordingSidebarTab.OBSERVATIONS,
             sessionRecordingId: 'abc',
-            tab: SessionRecordingSidebarTab.NETWORK_WATERFALL,
         })
 
-        await expectLogic(logic).toMatchValues({ selectedTab: SessionRecordingSidebarTab.NETWORK_WATERFALL })
-        // Taking the old param as a pick re-dispatches it, which rewrites the URL under the
-        // namespaced key so the link stops carrying a `tab` that a host scene would try to read.
-        expect(router.values.searchParams).toEqual({
-            sessionRecordingId: 'abc',
-            sidebarTab: SessionRecordingSidebarTab.NETWORK_WATERFALL,
-        })
+        // Reading it would both open a tab the link never asked for and outrank every later host
+        // default, since `selectedTab` wins over `defaultTab` for the rest of the session.
+        await expectLogic(logic).toMatchValues({ selectedTab: null })
     })
 })
