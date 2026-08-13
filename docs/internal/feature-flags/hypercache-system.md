@@ -113,7 +113,7 @@ flags_hypercache = HyperCache(
 )
 ```
 
-The `_get_feature_flags_for_service` function fetches all flags for a team (including inactive, but excluding deleted and encrypted remote config flags) and returns the cache payload. The Rust service filters out inactive flags at request time via `filtered_out_flag_ids`.
+The `_get_feature_flags_for_service` function fetches all flags for a team (including inactive, but excluding deleted and encrypted remote config flags), then returns a cache payload trimmed to the flags worth caching. The Rust service filters out inactive flags at request time via `filtered_out_flag_ids`.
 
 Because that filtering happens before the matcher reads `filters`, an inactive flag can never affect a response, so the payload keeps only evaluable flags plus the inactive flags that another flag's dependency conditions reference.
 A referenced entry is load-bearing: the matcher pre-seeds its id as false, so a dependent with `flag_evaluates_to: false` on a disabled flag still matches instead of missing a dependency.
