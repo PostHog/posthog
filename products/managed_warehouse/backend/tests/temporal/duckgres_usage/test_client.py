@@ -14,7 +14,7 @@ from typing import Any
 import pytest
 from unittest.mock import MagicMock, patch
 
-from posthog.temporal.duckgres_usage.client import (
+from products.managed_warehouse.backend.temporal.duckgres_usage.client import (
     DuckgresBillingAPIError,
     DuckgresBillingNotConfigured,
     ack_usage,
@@ -77,7 +77,7 @@ def duckgres_configured(settings) -> None:
 
 @pytest.mark.usefixtures("duckgres_configured")
 class TestFetchUsage:
-    @patch("posthog.temporal.duckgres_usage.client.internal_requests")
+    @patch("products.managed_warehouse.backend.temporal.duckgres_usage.client.internal_requests")
     def test_parses_rows_and_watermarks(self, mock_requests: MagicMock) -> None:
         mock_requests.request.return_value = _response(200, USAGE_BODY)
 
@@ -100,7 +100,7 @@ class TestFetchUsage:
         assert second.cpu == Decimal("1.5")
         assert second.mem_gib == Decimal("0.5")
 
-    @patch("posthog.temporal.duckgres_usage.client.internal_requests")
+    @patch("products.managed_warehouse.backend.temporal.duckgres_usage.client.internal_requests")
     def test_parses_storage_rows(self, mock_requests: MagicMock) -> None:
         mock_requests.request.return_value = _response(200, USAGE_BODY)
 
@@ -113,7 +113,7 @@ class TestFetchUsage:
         assert row.team_id == 42  # storage serves team_id as a JSON number
         assert row.gib_seconds == Decimal("360000")
 
-    @patch("posthog.temporal.duckgres_usage.client.internal_requests")
+    @patch("products.managed_warehouse.backend.temporal.duckgres_usage.client.internal_requests")
     def test_gib_seconds_survive_exactly_never_float(self, mock_requests: MagicMock) -> None:
         # duckgres serves exact-decimal GiB-seconds with up to ~27 fractional
         # digits (byte-seconds / 2^30). float64 keeps ~16 significant digits,
@@ -131,7 +131,7 @@ class TestFetchUsage:
 
         assert result.storage_rows[0].gib_seconds == Decimal("8381903.171539306640625")
 
-    @patch("posthog.temporal.duckgres_usage.client.internal_requests")
+    @patch("products.managed_warehouse.backend.temporal.duckgres_usage.client.internal_requests")
     def test_missing_storage_key_means_no_storage_rows(self, mock_requests: MagicMock) -> None:
         # A server without the storage metric has no storage array; the client must not require it.
         body = {k: v for k, v in USAGE_BODY.items() if k != "storage"}
@@ -141,7 +141,7 @@ class TestFetchUsage:
 
         assert result.storage_rows == []
 
-    @patch("posthog.temporal.duckgres_usage.client.internal_requests")
+    @patch("products.managed_warehouse.backend.temporal.duckgres_usage.client.internal_requests")
     def test_sends_internal_secret_header_to_usage_url(self, mock_requests: MagicMock) -> None:
         mock_requests.request.return_value = _response(200, USAGE_BODY)
 
@@ -153,7 +153,7 @@ class TestFetchUsage:
         headers = mock_requests.request.call_args.kwargs["headers"]
         assert headers["X-Duckgres-Internal-Secret"] == "shh"
 
-    @patch("posthog.temporal.duckgres_usage.client.internal_requests")
+    @patch("products.managed_warehouse.backend.temporal.duckgres_usage.client.internal_requests")
     def test_surfaces_unparseable_rows_instead_of_dropping_silently(self, mock_requests: MagicMock) -> None:
         body = {
             **USAGE_BODY,
@@ -170,7 +170,7 @@ class TestFetchUsage:
         assert result.unparsed_row_sample is not None
         assert result.unparsed_row_sample["team_id"] == "not-a-team"
 
-    @patch("posthog.temporal.duckgres_usage.client.internal_requests")
+    @patch("products.managed_warehouse.backend.temporal.duckgres_usage.client.internal_requests")
     def test_empty_window_returns_no_rows(self, mock_requests: MagicMock) -> None:
         body = {
             "watermark_low": "2026-07-07T00:00:00Z",
@@ -184,7 +184,7 @@ class TestFetchUsage:
         assert result.rows == []
         assert result.watermark_low == result.watermark_high
 
-    @patch("posthog.temporal.duckgres_usage.client.internal_requests")
+    @patch("products.managed_warehouse.backend.temporal.duckgres_usage.client.internal_requests")
     def test_negative_measure_is_dropped_as_invalid_not_unparsed(self, mock_requests: MagicMock) -> None:
         # A row that parses fine but carries a negative measure is impossible usage.
         # It's dropped and counted as `invalid_value` (ack proceeds), NOT `unparsed`
@@ -205,7 +205,7 @@ class TestFetchUsage:
         assert result.invalid_value_row_sample["cpu_seconds"] == -5
         assert result.unparsed_row_count == 0  # parseable-but-impossible is NOT an unparsed row
 
-    @patch("posthog.temporal.duckgres_usage.client.internal_requests")
+    @patch("products.managed_warehouse.backend.temporal.duckgres_usage.client.internal_requests")
     def test_nan_measure_is_dropped_as_invalid(self, mock_requests: MagicMock) -> None:
         # NaN survives Decimal() (it's a valid Decimal), so it must be caught by the
         # finite check, not the parse. json.loads parses the NaN token to a float.
@@ -223,7 +223,7 @@ class TestFetchUsage:
         assert result.invalid_value_row_count == 1
         assert result.unparsed_row_count == 0
 
-    @patch("posthog.temporal.duckgres_usage.client.internal_requests")
+    @patch("products.managed_warehouse.backend.temporal.duckgres_usage.client.internal_requests")
     def test_negative_storage_is_dropped_as_invalid(self, mock_requests: MagicMock) -> None:
         body = {
             "watermark_low": "2026-07-06T00:00:00Z",
@@ -246,7 +246,7 @@ class TestFetchUsage:
         assert result.invalid_value_row_count == 1
         assert result.unparsed_row_count == 0
 
-    @patch("posthog.temporal.duckgres_usage.client.internal_requests")
+    @patch("products.managed_warehouse.backend.temporal.duckgres_usage.client.internal_requests")
     def test_missing_usage_key_is_flagged_not_read_as_empty(self, mock_requests: MagicMock) -> None:
         # A response with no usage array at all is a shape violation, not a quiet
         # window — flag it so the caller withholds the ack rather than reading it as
@@ -259,7 +259,7 @@ class TestFetchUsage:
         assert result.rows == []
         assert result.usage_missing is True
 
-    @patch("posthog.temporal.duckgres_usage.client.internal_requests")
+    @patch("products.managed_warehouse.backend.temporal.duckgres_usage.client.internal_requests")
     def test_null_usage_key_is_flagged_as_missing(self, mock_requests: MagicMock) -> None:
         raw = '{"watermark_low": "2026-07-06T00:00:00Z", "watermark_high": "2026-07-07T00:00:00Z", "usage": null}'
         mock_requests.request.return_value = _response(200, raw_text=raw)
@@ -268,7 +268,7 @@ class TestFetchUsage:
 
         assert result.usage_missing is True
 
-    @patch("posthog.temporal.duckgres_usage.client.internal_requests")
+    @patch("products.managed_warehouse.backend.temporal.duckgres_usage.client.internal_requests")
     def test_empty_usage_array_is_not_flagged_as_missing(self, mock_requests: MagicMock) -> None:
         # A present-but-empty array is a legitimate quiet window — NOT a shape
         # violation, so the ack is free to proceed.
@@ -280,7 +280,7 @@ class TestFetchUsage:
         assert result.rows == []
         assert result.usage_missing is False
 
-    @patch("posthog.temporal.duckgres_usage.client.internal_requests")
+    @patch("products.managed_warehouse.backend.temporal.duckgres_usage.client.internal_requests")
     def test_malformed_storage_container_is_flagged(self, mock_requests: MagicMock) -> None:
         # storage present but not a list (a dict here) is malformed — flag it so the
         # caller withholds the ack, distinct from an absent storage key.
@@ -292,7 +292,7 @@ class TestFetchUsage:
         assert result.storage_rows == []
         assert result.storage_malformed is True
 
-    @patch("posthog.temporal.duckgres_usage.client.internal_requests")
+    @patch("products.managed_warehouse.backend.temporal.duckgres_usage.client.internal_requests")
     def test_absent_storage_key_is_not_malformed(self, mock_requests: MagicMock) -> None:
         # An absent storage key is legitimate (servers without the storage metric), so
         # it must NOT be flagged as malformed.
@@ -304,7 +304,7 @@ class TestFetchUsage:
         assert result.storage_rows == []
         assert result.storage_malformed is False
 
-    @patch("posthog.temporal.duckgres_usage.client.internal_requests")
+    @patch("products.managed_warehouse.backend.temporal.duckgres_usage.client.internal_requests")
     def test_empty_storage_array_is_not_malformed(self, mock_requests: MagicMock) -> None:
         body = {**USAGE_BODY, "storage": []}
         mock_requests.request.return_value = _response(200, body)
@@ -313,7 +313,7 @@ class TestFetchUsage:
 
         assert result.storage_malformed is False
 
-    @patch("posthog.temporal.duckgres_usage.client.internal_requests")
+    @patch("products.managed_warehouse.backend.temporal.duckgres_usage.client.internal_requests")
     def test_raises_on_http_error(self, mock_requests: MagicMock) -> None:
         mock_requests.request.return_value = _response(500, {"error": "boom"})
 
@@ -323,7 +323,7 @@ class TestFetchUsage:
 
 @pytest.mark.usefixtures("duckgres_configured")
 class TestAckUsage:
-    @patch("posthog.temporal.duckgres_usage.client.internal_requests")
+    @patch("products.managed_warehouse.backend.temporal.duckgres_usage.client.internal_requests")
     def test_posts_watermark_as_rfc3339(self, mock_requests: MagicMock) -> None:
         mock_requests.request.return_value = _response(200, {"acked": True})
 
@@ -336,7 +336,7 @@ class TestAckUsage:
         headers = mock_requests.request.call_args.kwargs["headers"]
         assert headers["X-Duckgres-Internal-Secret"] == "shh"
 
-    @patch("posthog.temporal.duckgres_usage.client.internal_requests")
+    @patch("products.managed_warehouse.backend.temporal.duckgres_usage.client.internal_requests")
     def test_raises_on_http_error(self, mock_requests: MagicMock) -> None:
         mock_requests.request.return_value = _response(400, {"error": "beyond latest closed bucket"})
 

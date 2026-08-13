@@ -24,15 +24,14 @@ from unittest.mock import AsyncMock, MagicMock, patch
 from asgiref.sync import sync_to_async
 
 from posthog.models import Organization, Team
-from posthog.temporal.duckgres_usage.activities import ack_duckgres_usage, poll_duckgres_usage
-from posthog.temporal.duckgres_usage.client import StorageRow, UsageResponse, UsageRow
-from posthog.temporal.duckgres_usage.types import PollDuckgresUsageInputs
 
-from products.managed_warehouse.backend.facade.models import (
-    DuckgresDailyStorageUsage,
-    DuckgresDailyUsage,
-    DuckgresUsageCursor,
+from products.managed_warehouse.backend.models import DuckgresDailyStorageUsage, DuckgresDailyUsage, DuckgresUsageCursor
+from products.managed_warehouse.backend.temporal.duckgres_usage.activities import (
+    ack_duckgres_usage,
+    poll_duckgres_usage,
 )
+from products.managed_warehouse.backend.temporal.duckgres_usage.client import StorageRow, UsageResponse, UsageRow
+from products.managed_warehouse.backend.temporal.duckgres_usage.types import PollDuckgresUsageInputs
 
 ORG = "018f0000-0000-0000-0000-000000000000"
 TEAM_ID = 42
@@ -115,10 +114,14 @@ def create_cursor(last_acked: dt.datetime) -> None:
 def _patched(response):
     """Poll never acks, so no ack_usage patch — just config, response, capture, logger."""
     return (
-        patch("posthog.temporal.duckgres_usage.activities.is_configured", return_value=True),
-        patch("posthog.temporal.duckgres_usage.activities.fetch_usage", return_value=response),
-        patch("posthog.temporal.duckgres_usage.activities.capture_exception"),
-        patch("posthog.temporal.duckgres_usage.activities.logger", MagicMock(ainfo=AsyncMock())),
+        patch("products.managed_warehouse.backend.temporal.duckgres_usage.activities.is_configured", return_value=True),
+        patch(
+            "products.managed_warehouse.backend.temporal.duckgres_usage.activities.fetch_usage", return_value=response
+        ),
+        patch("products.managed_warehouse.backend.temporal.duckgres_usage.activities.capture_exception"),
+        patch(
+            "products.managed_warehouse.backend.temporal.duckgres_usage.activities.logger", MagicMock(ainfo=AsyncMock())
+        ),
     )
 
 
@@ -191,8 +194,10 @@ async def test_no_ack_watermark_when_nothing_closed(activity_environment) -> Non
 @pytest.mark.asyncio
 async def test_skips_when_not_configured(activity_environment) -> None:
     with (
-        patch("posthog.temporal.duckgres_usage.activities.is_configured", return_value=False),
-        patch("posthog.temporal.duckgres_usage.activities.fetch_usage") as mock_fetch,
+        patch(
+            "products.managed_warehouse.backend.temporal.duckgres_usage.activities.is_configured", return_value=False
+        ),
+        patch("products.managed_warehouse.backend.temporal.duckgres_usage.activities.fetch_usage") as mock_fetch,
     ):
         result = await activity_environment.run(poll_duckgres_usage, PollDuckgresUsageInputs())
 
@@ -321,7 +326,7 @@ async def test_two_families_two_days_persist_and_offer_ack_of_closed_day(activit
 
 @pytest.mark.asyncio
 async def test_ack_activity_acks_the_parsed_watermark(activity_environment) -> None:
-    with patch("posthog.temporal.duckgres_usage.activities.ack_usage") as mock_ack:
+    with patch("products.managed_warehouse.backend.temporal.duckgres_usage.activities.ack_usage") as mock_ack:
         await activity_environment.run(ack_duckgres_usage, DAY_6_END.isoformat())
 
     mock_ack.assert_called_once_with(DAY_6_END)

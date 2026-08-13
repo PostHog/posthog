@@ -19,8 +19,15 @@ from temporalio import workflow
 from temporalio.common import RetryPolicy
 
 from posthog.temporal.common.base import PostHogWorkflow
-from posthog.temporal.duckgres_usage.activities import ack_duckgres_usage, poll_duckgres_usage
-from posthog.temporal.duckgres_usage.types import PollDuckgresUsageInputs, PollDuckgresUsageResult
+
+from products.managed_warehouse.backend.temporal.duckgres_usage.activities import (
+    ack_duckgres_usage,
+    poll_duckgres_usage,
+)
+from products.managed_warehouse.backend.temporal.duckgres_usage.types import (
+    PollDuckgresUsageInputs,
+    PollDuckgresUsageResult,
+)
 
 POLL_DUCKGRES_USAGE_WORKFLOW = "poll-duckgres-usage"
 POLL_DUCKGRES_USAGE_SCHEDULE_ID = "poll-duckgres-usage-schedule"

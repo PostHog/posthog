@@ -37,14 +37,25 @@ from temporalio import activity
 from posthog.exceptions_capture import capture_exception
 from posthog.sync import database_sync_to_async
 from posthog.temporal.common.heartbeat import Heartbeater
-from posthog.temporal.duckgres_usage.acking import day_boundary_ack
-from posthog.temporal.duckgres_usage.anomalies import detect_anomalies
-from posthog.temporal.duckgres_usage.client import UsageResponse, ack_usage, fetch_usage, is_configured
-from posthog.temporal.duckgres_usage.mirror import count_out_of_window_rows, replace_window
-from posthog.temporal.duckgres_usage.team_resolution import ResolvedTeams, resolve_billing_teams
-from posthog.temporal.duckgres_usage.types import PollDuckgresUsageInputs, PollDuckgresUsageResult
 
-from products.managed_warehouse.backend.facade.models import DuckgresUsageCursor
+from products.managed_warehouse.backend.models import DuckgresUsageCursor
+from products.managed_warehouse.backend.temporal.duckgres_usage.acking import day_boundary_ack
+from products.managed_warehouse.backend.temporal.duckgres_usage.anomalies import detect_anomalies
+from products.managed_warehouse.backend.temporal.duckgres_usage.client import (
+    UsageResponse,
+    ack_usage,
+    fetch_usage,
+    is_configured,
+)
+from products.managed_warehouse.backend.temporal.duckgres_usage.mirror import count_out_of_window_rows, replace_window
+from products.managed_warehouse.backend.temporal.duckgres_usage.team_resolution import (
+    ResolvedTeams,
+    resolve_billing_teams,
+)
+from products.managed_warehouse.backend.temporal.duckgres_usage.types import (
+    PollDuckgresUsageInputs,
+    PollDuckgresUsageResult,
+)
 
 logger = structlog.get_logger(__name__)
 

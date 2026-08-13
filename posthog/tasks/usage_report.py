@@ -53,7 +53,7 @@ from products.dashboards.backend.models.dashboard import Dashboard
 from products.data_modeling.backend.facade.models import DataWarehouseSavedQuery
 from products.error_tracking.backend.facade import api as error_tracking_api
 from products.feature_flags.backend.models.feature_flag import FeatureFlag
-from products.managed_warehouse.backend.facade.models import DuckgresDailyStorageUsage, DuckgresDailyUsage
+from products.managed_warehouse.backend.facade import api as managed_warehouse_api
 from products.replay_vision.backend.billing import (
     get_replay_vision_credits_by_team,
     get_replay_vision_observations_by_team,
@@ -225,7 +225,7 @@ class UsageReportCounters:
     rows_synced_in_period: int
     free_historical_rows_synced_in_period: int
 
-    # Managed Data Warehouse (staged from duckgres by posthog/temporal/duckgres_usage/)
+    # Managed Data Warehouse (staged from duckgres by products/managed_warehouse/backend/temporal/duckgres_usage/)
     managed_warehouse_compute_seconds_in_period: int
     managed_warehouse_endpoints_compute_seconds_in_period: int
     managed_warehouse_storage_gb_hours_in_period: int
@@ -2123,85 +2123,28 @@ def get_teams_with_rows_exported_in_period(begin: datetime, end: datetime) -> li
     )
 
 
-ENDPOINTS_QUERY_SOURCE = "endpoints"
-
-
-def _managed_warehouse_compute_rows(begin: datetime, end: datetime, *, endpoints: bool) -> list:
-    """Fold duckgres compute usage to the billable scalar, per team.
-
-    Reads the day-keyed usage mirror the duckgres poller maintains
-    (posthog/temporal/duckgres_usage/). The billable unit is
-    cpu_seconds + memory_seconds / 8 (the RFC's 1:8 rate ratio:
-    $0.025/GiB-hr = $0.20/8), floored so fractions under-charge. Endpoint
-    queries (query_source="endpoints") are a separate product.
-    """
-    queryset = DuckgresDailyUsage.objects.filter(date__gte=begin.date(), date__lte=end.date())
-    if endpoints:
-        queryset = queryset.filter(query_source=ENDPOINTS_QUERY_SOURCE)
-    else:
-        queryset = queryset.exclude(query_source=ENDPOINTS_QUERY_SOURCE)
-    return [
-        {"team_id": row["team_id"], "total": (row["total_cpu_seconds"] * 8 + row["total_memory_seconds"]) // 8}
-        for row in queryset.values("team_id").annotate(
-            total_cpu_seconds=Sum("cpu_seconds"), total_memory_seconds=Sum("memory_seconds")
-        )
-    ]
+# The managed-warehouse gathers read the duckgres usage mirror through the product's
+# facade — plain aggregated rows cross the boundary, never the model classes. The
+# billable-unit folding (the compute 1:8 ratio, the GiB->GB storage conversion) lives
+# with the product in facade/api.py; core keeps only the retry/logging wrappers.
 
 
 @timed_log()
 @retry(tries=QUERY_RETRIES, delay=QUERY_RETRY_DELAY, backoff=QUERY_RETRY_BACKOFF)
 def get_teams_with_managed_warehouse_compute_seconds_in_period(begin: datetime, end: datetime) -> list:
-    return _managed_warehouse_compute_rows(begin, end, endpoints=False)
+    return managed_warehouse_api.duckgres_compute_rows_for_period(begin.date(), end.date(), endpoints=False)
 
 
 @timed_log()
 @retry(tries=QUERY_RETRIES, delay=QUERY_RETRY_DELAY, backoff=QUERY_RETRY_BACKOFF)
 def get_teams_with_managed_warehouse_endpoints_compute_seconds_in_period(begin: datetime, end: datetime) -> list:
-    return _managed_warehouse_compute_rows(begin, end, endpoints=True)
+    return managed_warehouse_api.duckgres_compute_rows_for_period(begin.date(), end.date(), endpoints=True)
 
 
 @timed_log()
 @retry(tries=QUERY_RETRIES, delay=QUERY_RETRY_DELAY, backoff=QUERY_RETRY_BACKOFF)
 def get_teams_with_managed_warehouse_storage_gb_hours_in_period(begin: datetime, end: datetime) -> list:
-    """Managed-warehouse storage, folded to billable decimal-GB hours.
-
-    The unit conversion is the whole point of this function, and it mixes binary
-    and decimal on purpose:
-
-    - duckgres meters in **GiB-seconds** (GiB = 2^30 bytes — a binary unit),
-      served as an exact decimal (integer byte-seconds / 2^30, up to 30
-      fractional digits).
-    - billing PRICES storage in **decimal GB** (GB = 10^9 bytes; $/GB-month,
-      100 GB free tier). Snowflake/BigQuery/etc. all price decimal GB, and our
-      calculator + free tier are decimal.
-
-    So the GiB->GB conversion is pinned here and only here. Getting the binary
-    vs decimal base wrong is a silent ~7.4% billing error, so keep it explicit.
-    """
-    from fractions import Fraction  # noqa: PLC0415
-
-    out = []
-    for row in (
-        DuckgresDailyStorageUsage.objects.filter(date__gte=begin.date(), date__lte=end.date())
-        .values("team_id")
-        .annotate(total_gib_seconds=Sum("gib_seconds"))
-    ):
-        # GiB-seconds -> billable decimal-GB-hours, in three exact steps:
-        #
-        #   1. GiB-seconds  x 2^30   ->  byte-seconds   recover duckgres's integer byte-seconds.
-        #                                               Fraction (not Decimal) so it's exact: Decimal's
-        #                                               28-digit context would round the 30-digit tail.
-        #   2. byte-seconds / 10^9   ->  GB-seconds     10^9 bytes = 1 *decimal* GB, the priced unit.
-        #   3. GB-seconds   / 3600   ->  GB-hours       3600 s = 1 hour.
-        #
-        # Steps 2 and 3 are a single floor-division by (10^9 * 3600) so any fraction
-        # under-charges. Worked example (the closed-day case in the tests):
-        #   360000 GiB-s  x 2^30            = 386_547_056_640_000 byte-s
-        #                 // (10^9 * 3600)  = 107.37...  ->  107 GB-hours
-        byte_seconds = int(Fraction(row["total_gib_seconds"]) * (2**30))
-        gb_hours = byte_seconds // (10**9 * 3600)
-        out.append({"team_id": row["team_id"], "total": gb_hours})
-    return out
+    return managed_warehouse_api.duckgres_storage_gb_hour_rows_for_period(begin.date(), end.date())
 
 
 @timed_log()
@@ -3218,7 +3161,7 @@ def _get_all_usage_data_as_team_rows(period_start: datetime, period_end: datetim
 def billable_teams_queryset() -> QuerySet[Team]:
     """Teams that count for usage/billing — the single source of truth shared by the
     usage-report gather and the duckgres team resolver
-    (`posthog.temporal.duckgres_usage.team_resolution`), so the resolver can't elect a
+    (`products.managed_warehouse.backend.temporal.duckgres_usage.team_resolution`), so the resolver can't elect a
     team the gather refuses to bill. Excludes internal-metrics orgs (unbilled by
     design) and demo projects."""
     return Team.objects.exclude(Q(organization__for_internal_metrics=True) | Q(is_demo=True))

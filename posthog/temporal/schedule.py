@@ -48,8 +48,6 @@ from posthog.temporal.alerts.schedule import (
 )
 from posthog.temporal.common.client import async_connect
 from posthog.temporal.common.schedule import a_create_schedule, a_delete_schedule, a_schedule_exists, a_update_schedule
-from posthog.temporal.duckgres_usage.types import PollDuckgresUsageInputs
-from posthog.temporal.duckgres_usage.workflow import POLL_DUCKGRES_USAGE_SCHEDULE_ID, POLL_DUCKGRES_USAGE_WORKFLOW
 from posthog.temporal.experiments.schedule import (
     create_experiment_regular_metrics_schedules,
     create_experiment_saved_metrics_schedules,
@@ -98,7 +96,12 @@ from products.error_tracking.backend.facade.temporal import (
 )
 from products.experiments.backend.temporal.schedule import create_experiment_precompute_canary_schedule
 from products.exports.backend.temporal.subscriptions.types import ScheduleAllSubscriptionsWorkflowInputs
-from products.managed_warehouse.backend.facade.temporal import DucklakeCompactionInput
+from products.managed_warehouse.backend.facade.temporal import (
+    POLL_DUCKGRES_USAGE_SCHEDULE_ID,
+    POLL_DUCKGRES_USAGE_WORKFLOW,
+    DucklakeCompactionInput,
+    PollDuckgresUsageInputs,
+)
 from products.replay_vision.backend.temporal.estimates import create_replay_vision_estimates_schedule
 from products.replay_vision.backend.temporal.gemini_cleanup_sweep import (
     create_replay_vision_gemini_cleanup_sweep_schedule,

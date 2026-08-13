@@ -32,7 +32,7 @@ from collections.abc import Callable
 from decimal import Decimal
 from typing import TypeVar
 
-from posthog.temporal.duckgres_usage.client import StorageRow, UsageRow
+from products.managed_warehouse.backend.temporal.duckgres_usage.client import StorageRow, UsageRow
 
 _Row = TypeVar("_Row", UsageRow, StorageRow)
 _ComputeKey = tuple[str, dt.date, int, str, Decimal, Decimal]

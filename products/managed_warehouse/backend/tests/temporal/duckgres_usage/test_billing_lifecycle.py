@@ -28,11 +28,11 @@ from asgiref.sync import sync_to_async
 from posthog.models import Organization, Team
 from posthog.sync import database_sync_to_async
 from posthog.tasks.usage_report import get_teams_with_managed_warehouse_compute_seconds_in_period
-from posthog.temporal.duckgres_usage.activities import poll_duckgres_usage
-from posthog.temporal.duckgres_usage.client import UsageResponse, UsageRow
-from posthog.temporal.duckgres_usage.types import PollDuckgresUsageInputs
 
-from products.managed_warehouse.backend.facade.models import DuckgresDailyUsage
+from products.managed_warehouse.backend.models import DuckgresDailyUsage
+from products.managed_warehouse.backend.temporal.duckgres_usage.activities import poll_duckgres_usage
+from products.managed_warehouse.backend.temporal.duckgres_usage.client import UsageResponse, UsageRow
+from products.managed_warehouse.backend.temporal.duckgres_usage.types import PollDuckgresUsageInputs
 
 ORG = "018f0000-0000-0000-0000-000000000001"
 DAY = dt.date(2026, 7, 6)
@@ -62,10 +62,16 @@ def _response(rows: list[UsageRow], watermark_high: dt.datetime) -> UsageRespons
 async def _poll(response: UsageResponse, activity_environment):
     """Run the real poll activity with only the duckgres HTTP client mocked."""
     with (
-        patch("posthog.temporal.duckgres_usage.activities.is_configured", return_value=True),
-        patch("posthog.temporal.duckgres_usage.activities.fetch_usage", return_value=response),
-        patch("posthog.temporal.duckgres_usage.activities.capture_exception") as mock_capture,
-        patch("posthog.temporal.duckgres_usage.activities.logger", MagicMock(ainfo=AsyncMock())),
+        patch("products.managed_warehouse.backend.temporal.duckgres_usage.activities.is_configured", return_value=True),
+        patch(
+            "products.managed_warehouse.backend.temporal.duckgres_usage.activities.fetch_usage", return_value=response
+        ),
+        patch(
+            "products.managed_warehouse.backend.temporal.duckgres_usage.activities.capture_exception"
+        ) as mock_capture,
+        patch(
+            "products.managed_warehouse.backend.temporal.duckgres_usage.activities.logger", MagicMock(ainfo=AsyncMock())
+        ),
     ):
         result = await activity_environment.run(poll_duckgres_usage, PollDuckgresUsageInputs())
     return result, mock_capture
@@ -262,7 +268,8 @@ async def test_storage_family_remaps_and_bills_exact_decimal_gb_hours(activity_e
     row remaps and the REAL storage gather converts it to billable decimal-GB
     hours exactly (the binary→decimal step is a ~7.4% billing error if wrong)."""
     from posthog.tasks.usage_report import get_teams_with_managed_warehouse_storage_gb_hours_in_period
-    from posthog.temporal.duckgres_usage.client import StorageRow
+
+    from products.managed_warehouse.backend.temporal.duckgres_usage.client import StorageRow
 
     await _make_org_with_teams(701)
 

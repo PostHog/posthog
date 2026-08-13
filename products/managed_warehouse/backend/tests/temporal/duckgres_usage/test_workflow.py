@@ -16,8 +16,11 @@ from temporalio.contrib.pydantic import pydantic_data_converter
 from temporalio.testing import WorkflowEnvironment
 from temporalio.worker import Worker
 
-from posthog.temporal.duckgres_usage.types import PollDuckgresUsageInputs, PollDuckgresUsageResult
-from posthog.temporal.duckgres_usage.workflow import PollDuckgresUsageWorkflow
+from products.managed_warehouse.backend.temporal.duckgres_usage.types import (
+    PollDuckgresUsageInputs,
+    PollDuckgresUsageResult,
+)
+from products.managed_warehouse.backend.temporal.duckgres_usage.workflow import PollDuckgresUsageWorkflow
 
 ACK_WATERMARK = "2026-07-06T23:59:59+00:00"
 ORG_A = "018f0000-0000-0000-0000-00000000000a"

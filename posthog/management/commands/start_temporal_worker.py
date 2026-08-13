@@ -64,10 +64,6 @@ from posthog.temporal.dlq_replay import (
     ACTIVITIES as DLQ_REPLAY_ACTIVITIES,
     WORKFLOWS as DLQ_REPLAY_WORKFLOWS,
 )
-from posthog.temporal.duckgres_usage import (
-    ACTIVITIES as DUCKGRES_USAGE_ACTIVITIES,
-    WORKFLOWS as DUCKGRES_USAGE_WORKFLOWS,
-)
 from posthog.temporal.event_screenshots import (
     ACTIVITIES as EVENT_SCREENSHOTS_ACTIVITIES,
     WORKFLOWS as EVENT_SCREENSHOTS_WORKFLOWS,
@@ -220,6 +216,8 @@ from products.logs.backend.temporal.retention_entitlements import (
 )
 from products.managed_warehouse.backend.facade.temporal import (
     ACTIVITIES as DUCKLAKE_COPY_ACTIVITIES,
+    DUCKGRES_USAGE_ACTIVITIES,
+    DUCKGRES_USAGE_WORKFLOWS,
     WORKFLOWS as DUCKLAKE_COPY_WORKFLOWS,
 )
 from products.notebooks.backend.facade.temporal import (
