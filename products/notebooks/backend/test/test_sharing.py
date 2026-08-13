@@ -394,6 +394,8 @@ class TestFilterNotebookContentForSharing(TestCase):
 class _SliceCountingStr(str):
     """A string that reports how many characters slicing has copied out of it and its slices."""
 
+    _counter: list[int]
+
     def __new__(cls, value: str, counter: list[int] | None = None) -> "_SliceCountingStr":
         instance = super().__new__(cls, value)
         instance._counter = [0] if counter is None else counter
