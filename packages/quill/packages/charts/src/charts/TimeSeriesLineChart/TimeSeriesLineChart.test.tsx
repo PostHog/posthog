@@ -514,7 +514,7 @@ describe('TimeSeriesLineChart', () => {
     })
 
     describe('interactive legend', () => {
-        it('lists the raw series (not derived trend lines) and toggles one off on click', () => {
+        it('lists the raw series (not derived trend lines) and isolates one on click', () => {
             const { container, chart } = renderHogChart(
                 <TimeSeriesLineChart
                     series={MULTI_SERIES}
@@ -533,8 +533,13 @@ describe('TimeSeriesLineChart', () => {
 
             // A + B + trend-of-A are all drawn before any toggle.
             expect(chart.seriesCount).toBe(3)
+            // Isolating A keeps its derived trend line, and drops B.
             fireEvent.click(buttons()[0])
-            // Hiding A also suppresses its trend line, leaving only B.
+            expect(getHogChart(container).seriesCount).toBe(2)
+
+            // Meta-clicking A instead hides it, and its trend line with it, leaving only B.
+            fireEvent.click(buttons()[0])
+            fireEvent.click(buttons()[0], { metaKey: true })
             expect(getHogChart(container).seriesCount).toBe(1)
         })
     })
