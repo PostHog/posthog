@@ -689,7 +689,6 @@ class TestEnrichCdcRows:
             primary_keys=["id"],
             cdc_write_mode=cdc_write_mode,
             team_id="2",
-            batch_index=0,
         )
 
     def test_resolution_drops_applied_rows_and_returns_the_new_position(self):
@@ -727,7 +726,6 @@ class TestEnrichCdcRows:
             primary_keys=["id"],
             cdc_write_mode="incremental_merge",
             team_id="2",
-            batch_index=0,
         )
 
         assert result.num_rows == 2

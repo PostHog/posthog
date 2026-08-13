@@ -237,7 +237,6 @@ def _resolve_cdc_positions(
     primary_keys: list[str],
     cdc_write_mode: str | None,
     team_id: str,
-    batch_index: int,
 ) -> tuple[pa.Table, int | None]:
     """Drop rows this lane's table has already applied.
 
@@ -258,13 +257,6 @@ def _resolve_cdc_positions(
     for reason, dropped in (("superseded", stats.superseded), ("duplicate_key", stats.duplicate_key)):
         if dropped:
             CDC_SEQ_GUARD_ROWS_DROPPED_TOTAL.labels(team_id=team_id, reason=reason).inc(dropped)
-            logger.debug(
-                "cdc_seq_guard_dropped_rows",
-                reason=reason,
-                dropped=dropped,
-                watermark=watermark,
-                batch_index=batch_index,
-            )
 
     return pa_table, batch_max_seq(pa_table)
 
@@ -900,7 +892,6 @@ def _process_message_reported(
                 primary_keys=primary_keys or [],
                 cdc_write_mode=cdc_write_mode,
                 team_id=team_id_str,
-                batch_index=export_signal.batch_index,
             )
 
         if existing_delta_table is not None:
