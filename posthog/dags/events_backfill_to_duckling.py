@@ -335,7 +335,7 @@ def _mint_backfill_service_credential(target: DucklingTarget) -> ServiceCredenti
             principal="dagster:events-backfill",
             force_rotate=False,
         )
-        if not credential.rotated or not credential.password:
+        if not credential.rotated or not credential.credential_secret:
             # CP reused a live grant but hands us no plaintext — we hold
             # nothing, so we are in the "nothing usable exists" case: rotate.
             credential = mint_service_credential(
@@ -344,16 +344,16 @@ def _mint_backfill_service_credential(target: DucklingTarget) -> ServiceCredenti
                 principal="dagster:events-backfill",
                 force_rotate=True,
             )
-        if not credential.password:
+        if not credential.credential_secret:
             raise ServiceCredentialUnavailable(
                 f"service credential for org={target.organization_id} team={target.team_id} "
-                "carries no password even after force_rotate"
+                "carries no credential_secret even after force_rotate"
             )
         logger.info(
             "duckling_service_credential_minted",
             team_id=target.team_id,
             organization_id=target.organization_id,
-            username=credential.username,
+            credential_id=credential.credential_id,
             rotated=credential.rotated,
             expires_at=credential.expires_at.isoformat(),
         )

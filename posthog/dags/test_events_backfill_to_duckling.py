@@ -1582,10 +1582,10 @@ class TestDuckgresSessionServiceCredential:
         sslmode="require",
     )
 
-    def _credential(self, password: str, *, rotated: bool = True, expires_at: datetime | None = None):
+    def _credential(self, credential_secret: str, *, rotated: bool = True, expires_at: datetime | None = None):
         return ServiceCredential(
-            username="posthog_team_2_rw",
-            password=password,
+            credential_id="svc_test_events_backfill",
+            credential_secret=credential_secret,
             expires_at=expires_at or self._FRESH_EXPIRY,
             rotated=rotated,
             connect=self._CONNECT,
@@ -1626,7 +1626,7 @@ class TestDuckgresSessionServiceCredential:
         assert mock_mint.call_args_list[1].kwargs["force_rotate"] is True
         # ...and the connect uses the ESCALATED credential (the one with a
         # password), not the empty reuse response.
-        assert mock_connect.call_args_list[0].kwargs["service_credential"].password == "escalated"
+        assert mock_connect.call_args_list[0].kwargs["service_credential"].credential_secret == "escalated"
 
     @patch("posthog.dags.events_backfill_to_duckling.mint_service_credential")
     @patch("posthog.dags.events_backfill_to_duckling._connect_duckgres")
