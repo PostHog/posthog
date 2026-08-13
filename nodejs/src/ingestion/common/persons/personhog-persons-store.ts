@@ -14,6 +14,7 @@ import { Properties } from '~/plugin-scaffold'
 import { InternalPerson, PropertiesLastOperation, PropertiesLastUpdatedAt } from '~/types'
 
 import { EventOps, applyEventPropertyUpdates, computeOpsScalarUpdates, foldOps, refineEventOps } from './person-update'
+import { lifecycleOpIdFromEvent } from './person-uuid'
 import { FlushResult, MergePersonsRequest, MergePersonsResult, PersonsStore } from './persons-store'
 import { BatchBoundPersonsStore, PersonsStoreForBatch } from './persons-store-for-batch'
 
@@ -347,7 +348,12 @@ export class PersonhogPersonsStore implements PersonsStore {
                 sources: request.sources,
                 eventSet: request.eventOps.set,
                 eventSetOnce: request.eventOps.setOnce,
-                opId: request.opId,
+                // Event uuids are client-supplied and the saga's op keyspace is
+                // global, so a raw uuid from one team could collide with
+                // another team's recorded op and fail its merge. The uuidv5
+                // derivation scopes the op per team and matches the id the
+                // Postgres world stamps on its lifecycle marks for this event.
+                opId: lifecycleOpIdFromEvent(request.teamId, request.opId),
                 allowIdentifiedSources: request.allowIdentifiedSources,
                 moveLimit:
                     request.mergeMode.type === 'SYNC' ? this.options.syncMergeMoveLimit : request.mergeMode.limit,

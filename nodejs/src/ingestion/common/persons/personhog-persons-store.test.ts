@@ -7,6 +7,7 @@ import { InternalPerson } from '~/types'
 
 import { createDefaultSyncMergeMode } from './person-merge-types'
 import { extractEventOps } from './person-update'
+import { lifecycleOpIdFromEvent } from './person-uuid'
 import { PersonhogPendingRpcError, PersonhogPersonsStore } from './personhog-persons-store'
 
 describe('PersonhogPersonsStore', () => {
@@ -252,8 +253,15 @@ describe('PersonhogPersonsStore', () => {
             expect(result.survivor?.properties).toEqual({ plan: 'merged' })
             // The store owns the saga's move-limit policy: SYNC mode sends
             // its configured guard, and the event ops carry the property sets.
+            // The op id is team-scoped, never the raw client-supplied event
+            // uuid, so one team's uuid cannot collide with another team's op.
             expect(repository.mergePersons).toHaveBeenCalledWith(
-                expect.objectContaining({ moveLimit: 10_000, eventSet: { plan: 'pro' }, eventSetOnce: {} }),
+                expect.objectContaining({
+                    moveLimit: 10_000,
+                    eventSet: { plan: 'pro' },
+                    eventSetOnce: {},
+                    opId: lifecycleOpIdFromEvent(1, 'event-uuid'),
+                }),
                 expect.any(String)
             )
 
