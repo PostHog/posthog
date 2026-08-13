@@ -22,7 +22,6 @@ from products.replay_vision.backend.models.replay_scanner_prompt_suggestion impo
 from products.replay_vision.backend.prompt_evaluation import (
     EVALUATE_PROMPT_SUGGESTION_EXECUTION_TIMEOUT,
     EVALUATION_SESSION_CAP,
-    EVALUATION_SESSION_DEFAULT,
     build_running_evaluation,
     classify_outcome,
     evaluation_supported,
@@ -435,8 +434,9 @@ class TestPromptEvaluationApi(_VisionAPITestCase):
         self.assertEqual(resp.json()["evaluation"]["total"], 1)
         client.start_workflow.assert_awaited_once()
         self.assertIn(str(suggestion.id), client.start_workflow.await_args.kwargs["id"])
-        # Without an explicit session_limit the test runs the small default, not the full cap.
-        self.assertEqual(client.start_workflow.await_args.args[1].session_limit, EVALUATION_SESSION_DEFAULT)
+        # The workflow gets the admitted count, not the raw default: ratings added after the
+        # budget check must not widen the run past what was charged for.
+        self.assertEqual(client.start_workflow.await_args.args[1].session_limit, 1)
         # No edited config posted, so the run tests the stored suggestion.
         self.assertIsNone(client.start_workflow.await_args.args[1].config_override)
         # Receipt ids are keyed on started_at, so the run must carry the stamp it was started with rather
@@ -444,6 +444,19 @@ class TestPromptEvaluationApi(_VisionAPITestCase):
         suggestion.refresh_from_db()
         assert suggestion.evaluation is not None
         self.assertEqual(client.start_workflow.await_args.args[1].started_at, suggestion.evaluation["started_at"])
+
+    def test_evaluate_bounds_the_run_to_the_admitted_session_count(self) -> None:
+        # An explicit limit above the rated count is admitted (and budget-checked) at the rated
+        # count; the workflow must not select more if extra ratings land before it runs.
+        self._create_rated()
+        suggestion = self._create_pending_suggestion()
+        connect_patch, client = self._mock_temporal()
+        with connect_patch:
+            resp = self.client.post(self._url(suggestion.id), {"session_limit": 5}, format="json")
+
+        self.assertEqual(resp.status_code, 200, resp.json())
+        self.assertEqual(resp.json()["evaluation"]["total"], 1)
+        self.assertEqual(client.start_workflow.await_args.args[1].session_limit, 1)
 
     def test_evaluate_passes_edited_config_to_workflow(self) -> None:
         self._create_rated()

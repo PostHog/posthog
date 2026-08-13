@@ -469,7 +469,9 @@ class ReplayScannerPromptSuggestionViewSet(
                 EvaluatePromptSuggestionInputs(  # type: ignore[arg-type]
                     suggestion_id=suggestion.id,
                     team_id=scanner.team_id,
-                    session_limit=session_limit,
+                    # The admitted count, not the raw request limit: sessions rated between this
+                    # admission and the select activity must not widen the run past what was budgeted.
+                    session_limit=planned,
                     config_override=edited_config,
                     started_at=started_at,
                 ),
