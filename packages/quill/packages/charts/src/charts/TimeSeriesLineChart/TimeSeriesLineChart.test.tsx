@@ -200,6 +200,22 @@ describe('TimeSeriesLineChart', () => {
             expect(pick(...ticks)).toBe(expected)
         })
 
+        // Same rule as the goal line below, for the other overlay positioned off the value scale.
+        // The bound truncates the drawn line, but a label is DOM-positioned, so without a guard the
+        // clipped point still prints its number over the title and legend. The point sitting exactly
+        // on the bound keeps its label.
+        it('hides a value label for a point above the bounded window', () => {
+            const { chart } = renderHogChart(
+                <TimeSeriesLineChart
+                    series={OFFSET_SERIES}
+                    labels={LABELS}
+                    theme={THEME}
+                    config={{ yAxis: { max: 60 }, valueLabels: true }}
+                />
+            )
+            expect(chart.valueLabels().map((l) => l.text)).toEqual(['50', '60'])
+        })
+
         // A goal line pushed outside a bounded window must drop out, not paint over the axis gutter.
         it('hides a goal line that falls outside the bounded window', () => {
             const { chart } = renderHogChart(
