@@ -1,0 +1,5 @@
+{
+  "add": {"tone": "positive", "label": "Added"},
+  "edit": {"tone": "neutral", "label": "Updated"},
+  "remove": {"tone": "critical", "label": "Removed"}
+}

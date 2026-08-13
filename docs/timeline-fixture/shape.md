@@ -5,3 +5,4 @@ The fixture uses small, human-readable records so a timeline can show additions,
 - `commit_id` identifies a change.
 - `files` records the paths touched by that change.
 - `kind` describes whether the change adds, edits, or removes a file.
+- File order is stable so snapshots do not change between runs.
