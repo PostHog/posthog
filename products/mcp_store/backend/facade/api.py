@@ -14,6 +14,7 @@ import structlog
 from products.mcp_store.backend.agents import (
     built_in_agent_key_for_task_origin,
     create_gateway_agent_token,
+    credential_owner_eligible,
     get_built_in_agent,
     is_builtin_agent_enforcement_enabled,
 )
@@ -185,9 +186,13 @@ def get_installations_for_sandbox(
     Generic tasks retain the legacy team-shared installation behavior. A
     server-stamped built-in agent task gets only the credentials explicitly
     delegated through its service-account grants by ``credential_owner_id``,
-    the person the run acts for, and only while the gateway server stays
-    enabled for the team. Grants are personal, so an agent task without a
-    credential owner gets no Store installations at all. Origin alone is not
+    the person whose credentials the run may borrow (not necessarily the user
+    it acts as), and only while the gateway server stays enabled for the team.
+    Grants are personal, so an agent task without a credential owner gets no
+    Store installations at all, and the owner's eligibility (active user with
+    current effective team access) is re-checked on every call, so an
+    offboarded owner's grants stop mounting even though the grant rows
+    persist. Origin alone is not
     trusted: the persisted task agent key must match the origin mapping. A
     mapped origin without that marker gets no MCP Store installations. Built-in agent
     handling is gated per team on the `mcp-gateway` rollout flag; teams
@@ -224,6 +229,15 @@ def get_installations_for_sandbox(
         installations: list[MCPServerInstallation]
         if agent_key is not None:
             if agent_account is None or credential_owner_id is None:
+                installations = []
+            elif not credential_owner_eligible(credential_owner_id, team_id):
+                # Grants survive offboarding, so an owner who was deactivated
+                # or lost team access since delegating mounts nothing.
+                logger.warning(
+                    "Refusing MCP installations for an ineligible credential owner",
+                    team_id=team_id,
+                    task_origin=task_origin,
+                )
                 installations = []
             else:
                 access_rows = list(
