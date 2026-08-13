@@ -201,7 +201,7 @@ describe('workflowAgentContext', () => {
         const instructionValues = (items: ReturnType<typeof buildWorkflowAgentContext>): string[] =>
             items.filter((item) => item.type === 'instructions').map((item) => item.value as string)
 
-        it('pins the open email action and attaches the template tools while the editor is open', () => {
+        it('pins the open email action via the editor state and attaches the template tools', () => {
             const items = buildWorkflowAgentContext(
                 workflowWith({ actions: emailActions({ subject: 'Hi' }) }),
                 'flow-1',
@@ -209,9 +209,15 @@ describe('workflowAgentContext', () => {
                 'e1'
             )
 
-            const pinned = instructionValues(items).find((value) => value.includes("action 'e1'"))
+            // The pointer rides the editor-state item (never text-deduplicated); the instruction
+            // stays static and points at it.
+            const state = items.find((item) => item.type === 'hog_flow_editor_state')
+            expect(JSON.parse(state?.value as string).editing_email_action_id).toBe('e1')
+            const pinned = instructionValues(items).find((value) => value.includes('email editor open'))
             expect(pinned).toBeTruthy()
+            expect(pinned).toContain('editing_email_action_id')
             expect(pinned).toContain('workflows-patch-action-email')
+            expect(pinned).not.toContain('e1')
             // The dedicated attached item, not the passing mention inside a base tool's description.
             expect(
                 instructionValues(items).some((value) => value.startsWith('MCP tool workflows-patch-email-template'))
@@ -223,6 +229,33 @@ describe('workflowAgentContext', () => {
             expect(instructionValues(items).some((value) => value.startsWith('Skill designing-email-templates'))).toBe(
                 true
             )
+        })
+
+        it('reopening an email re-points the agent through a value that is never deduplicated (A, B, A)', () => {
+            // Instructions dedupe per task by exact text, so a varying id inside one would be pruned
+            // on the reopen and the agent would stay pointed at the previously opened action.
+            const actions = [
+                ...emailActions({ subject: 'A' }),
+                { ...emailActions({ subject: 'B' })[0], id: 'e2' },
+            ] as HogFlow['actions']
+            const workflow = workflowWith({ actions })
+
+            const openA = buildWorkflowAgentContext(workflow, 'flow-1', templatesById, 'e1')
+            const openB = buildWorkflowAgentContext(workflow, 'flow-1', templatesById, 'e2')
+            const reopenA = buildWorkflowAgentContext(workflow, 'flow-1', templatesById, 'e1')
+
+            const stateId = (items: ReturnType<typeof buildWorkflowAgentContext>): string =>
+                JSON.parse(items.find((item) => item.type === 'hog_flow_editor_state')?.value as string)
+                    .editing_email_action_id
+            expect(stateId(openA)).toBe('e1')
+            expect(stateId(openB)).toBe('e2')
+            expect(stateId(reopenA)).toBe('e1')
+
+            const pinText = (items: ReturnType<typeof buildWorkflowAgentContext>): string | undefined =>
+                instructionValues(items).find((value) => value.includes('email editor open'))
+            // Identical static text across opens: dedup can prune repeats without losing the pointer.
+            expect(pinText(openA)).toBe(pinText(openB))
+            expect(pinText(openB)).toBe(pinText(reopenA))
         })
 
         it('never places an unsafe action id into trusted instructions (prompt injection)', () => {

@@ -104,27 +104,26 @@ export function isEditingEmailAction(workflow: HogFlow | null, searchParams: Rec
 }
 
 // Attached while the email takeover is open on a saved workflow, so "this email" resolves to the
-// action the user is actually looking at instead of the agent guessing between email steps.
-function buildEmailEditingContextItems(
-    workflow: HogFlow | null,
-    id: string,
-    editingEmailActionId: string | null
-): AttachedContextItem[] {
-    if (id === 'new' || !findEmailAction(workflow, editingEmailActionId)) {
-        return []
-    }
+// action the user is actually looking at instead of the agent guessing between email steps. The
+// caller gates on findEmailAction; every item here is static text.
+function buildEmailEditingContextItems(): AttachedContextItem[] {
     return [
         {
             type: 'instructions',
             hidden: true,
             dismissGroup: EMAIL_EDITING_DISMISS_GROUP,
+            // Deliberately static: instructions dedupe per task by exact text, so a varying id here
+            // would be pruned on a reopen (open A, open B, reopen A leaves B's pin as the newest
+            // surviving text). The pointer rides the editor-state item instead, whose value changes
+            // and therefore always re-sends - and no untrusted string enters trusted context at all.
             value:
-                `The user has the email editor open for action '${editingEmailActionId}' in workflow ${id}. ` +
-                `This supersedes any earlier email-editing instruction in this conversation. ` +
-                `Requests about "this email" mean that action's config.inputs.email.value. For content and ` +
-                `layout changes prefer workflows-patch-action-email with design operations targeting that ` +
-                `action; use workflows-patch with update_action on it for other fields. The open editor ` +
-                `reloads external edits live, so the user sees applied changes immediately.`,
+                `The user has the email editor open. The hog_flow_editor_state item's ` +
+                `editing_email_action_id field names the open action; the latest editor state wins over ` +
+                `anything earlier in the conversation. Requests about "this email" mean that action's ` +
+                `config.inputs.email.value. For content and layout changes prefer ` +
+                `workflows-patch-action-email with design operations targeting that action; use ` +
+                `workflows-patch with update_action on it for other fields. The open editor reloads ` +
+                `external edits live, so the user sees applied changes immediately.`,
         },
         {
             type: 'skill',
@@ -238,9 +237,18 @@ const DESIGN_ELIDED_MARKER =
  */
 export function serializeWorkflowEditorState(
     workflow: HogFlow,
-    hogFunctionTemplatesById: Record<string, HogFunctionTemplateType>
+    hogFunctionTemplatesById: Record<string, HogFunctionTemplateType>,
+    editingEmailActionId: string | null = null
 ): string {
-    const prepared = redactWorkflowSecretInputs(workflow, hogFunctionTemplatesById)
+    const prepared = redactWorkflowSecretInputs(workflow, hogFunctionTemplatesById) as HogFlow & {
+        editing_email_action_id?: string
+    }
+    // The open-email pointer travels here rather than in the trusted instruction: this value
+    // changes across reopens so it is never deduplicated away, and the id (allowlisted upstream)
+    // stays out of trusted-instruction text.
+    if (editingEmailActionId) {
+        prepared.editing_email_action_id = editingEmailActionId
+    }
     for (const action of prepared.actions ?? []) {
         const email = emailValueOf(action)
         // Steps without a design keep their html, because it is the only body they have.
@@ -287,14 +295,21 @@ export function buildWorkflowAgentContext(
             dismissGroup: EDITOR_STATE_DISMISS_GROUP,
         })
     }
+    const editingEmail = id !== 'new' && !!findEmailAction(workflow, editingEmailActionId)
     if (workflow) {
         items.push({
             type: 'hog_flow_editor_state',
             hidden: true,
             dismissGroup: EDITOR_STATE_DISMISS_GROUP,
-            value: serializeWorkflowEditorState(workflow, hogFunctionTemplatesById),
+            value: serializeWorkflowEditorState(
+                workflow,
+                hogFunctionTemplatesById,
+                editingEmail ? editingEmailActionId : null
+            ),
         })
     }
-    items.push(...buildEmailEditingContextItems(workflow, id, editingEmailActionId))
+    if (editingEmail) {
+        items.push(...buildEmailEditingContextItems())
+    }
     return items
 }
