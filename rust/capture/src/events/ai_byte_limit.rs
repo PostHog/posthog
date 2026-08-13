@@ -13,6 +13,9 @@ use crate::config::CaptureMode;
 use crate::prometheus::report_dropped_events;
 use crate::v0_request::{DataType, ProcessedEvent};
 
+/// Flat allowance for the `CapturedEvent` envelope fields not in `data`.
+const ENVELOPE_WEIGHT_BYTES: usize = 512;
+
 /// The `DataType` this helper should charge bytes against for `mode`, or
 /// `None` if `mode` should never be byte-limited (see module doc).
 fn ai_lane_target(mode: CaptureMode) -> Option<DataType> {
@@ -38,7 +41,15 @@ pub fn drop_ai_byte_limited(
         if e.metadata.data_type != target {
             return true;
         }
-        let weight = e.event.data.len().min(u32::MAX as usize) as u32;
+        // Approximate wire size: the serialized payload plus a flat allowance
+        // for the `CapturedEvent` envelope and JSON-escaping of `data`. The
+        // budget is a coarse abuse guard, not an exact byte accountant.
+        let weight = e
+            .event
+            .data
+            .len()
+            .saturating_add(ENVELOPE_WEIGHT_BYTES)
+            .min(u32::MAX as usize) as u32;
         match limiter.check(&e.event.token, weight) {
             ByteLimitDecision::Within => true,
             ByteLimitDecision::Exceeded => {
@@ -131,7 +142,8 @@ mod tests {
 
     #[test]
     fn mixed_batch_drops_only_over_budget_ai_events_under_events_mode() {
-        let l = limiter(10, 20);
+        // Burst 600 admits one enveloped AI event (~517 B) but not two.
+        let l = limiter(10, 600);
         let mut events = vec![
             event_of(DataType::AiEvents, "t", "u", &"x".repeat(5)), // fits
             event_of(DataType::AnalyticsMain, "t", "u", &"x".repeat(99)), // untouched

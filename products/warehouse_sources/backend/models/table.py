@@ -2,10 +2,12 @@ import csv
 import sys
 import time
 import subprocess
+from collections.abc import Iterable
 from io import StringIO
 from typing import TYPE_CHECKING, Any, NotRequired, Optional, TypedDict, cast
 from uuid import UUID
 
+from django.core.exceptions import ValidationError
 from django.db import models
 from django.db.models import Q
 from django.utils import timezone
@@ -324,6 +326,46 @@ class DataWarehouseTable(CreatedMetaFields, UpdatedMetaFields, UUIDTModel, Delet
 
     class Meta:
         db_table = "posthog_datawarehousetable"
+
+    def save(self, *args: Any, internally_computed_url_pattern: bool = False, **kwargs: Any) -> None:
+        if not internally_computed_url_pattern:
+            self._reject_client_supplied_url_pattern_change(kwargs.get("update_fields"))
+        super().save(*args, **kwargs)
+
+    def clean(self) -> None:
+        # Django admin's changeform validates via full_clean() (form.is_valid() -> clean()) before
+        # ModelAdmin.save_model() ever calls save() - and unlike DRF's perform_update, save_model
+        # doesn't translate a save()-raised ValidationError into a form error, so it would surface
+        # as an unhandled 500. Running the same check here lets admin catch it as a normal field
+        # error. save()'s check stays the enforcement of record for every other caller (DRF, a
+        # management command, a future endpoint), since nothing but ModelForm calls full_clean().
+        super().clean()
+        self._reject_client_supplied_url_pattern_change(update_fields=None)
+
+    def _reject_client_supplied_url_pattern_change(self, update_fields: Iterable[str] | None) -> None:
+        """Block a url_pattern change on a table with no credential, unless the caller declares the
+        new value was computed by PostHog's own code rather than taken from request input.
+
+        A table with no credential is read by ClickHouse under the cluster's own S3 role rather than
+        a key the team supplied, so its url_pattern is only safe because PostHog chose it. Pipeline
+        syncs, saved-query materialization, and the direct-connection upsert helpers all legitimately
+        rewrite this field on such tables using values they compute themselves; those call
+        ``save(internally_computed_url_pattern=True)`` to say so. Every other caller, present or
+        future, is refused by default rather than trusted to have remembered a check elsewhere.
+        """
+        if self._state.adding:
+            return
+        if update_fields is not None and "url_pattern" not in update_fields:
+            return
+        prior = type(self).raw_objects.filter(pk=self.pk).values_list("credential_id", "url_pattern").first()
+        if prior is None:
+            return
+        prior_credential_id, prior_url_pattern = prior
+        if prior_credential_id is None and prior_url_pattern != self.url_pattern:
+            raise ValidationError(
+                "This table has no credential, so its URL is only safe because PostHog set it. "
+                "Add an access key and secret before pointing it at a different location."
+            )
 
     @property
     def name_chain(self) -> list[str]:
@@ -988,4 +1030,6 @@ def acreate_datawarehousetable(**kwargs):
 
 @database_sync_to_async
 def asave_datawarehousetable(table: DataWarehouseTable) -> None:
-    table.save()
+    # Saved-query materialization is the only caller: it computes url_pattern itself from the
+    # backing DataWarehouseSavedQuery rather than taking it from request input.
+    table.save(internally_computed_url_pattern=True)

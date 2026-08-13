@@ -43,6 +43,56 @@ export type MlMirrorConfig = {
      * both the scrub consumer lane AND ref-aware downstream readers must be live first.
      */
     SESSION_RECORDING_ML_IMAGE_SCRUB_PRODUCER_ENABLED: boolean
+
+    /**
+     * Collect the URLs of remote images as well, so the fetch lane can download them later.
+     *
+     * Enabling changes the mirrored JSONL shape a second time: a remote image's `src` carries an
+     * `imageurl:<pseudoTeam>:<hash>` ref instead of the grey placeholder. The prefix differs from
+     * the image lane's `image:` on purpose, because this hash names the URL rather than the bytes
+     * behind it. Nothing fetches those URLs yet, so every such ref is dangling, and a dangling ref
+     * renders as the same placeholder it replaced. What this buys is the measurement of how many
+     * URLs and how many distinct hosts real traffic carries.
+     */
+    SESSION_RECORDING_ML_URL_COLLECTION_ENABLED: boolean
+
+    /**
+     * Send the collected URLs to the fetch topic.
+     *
+     * This flag is separate from the collection flag, because the two steps have different risks.
+     * Collection changes only the mirrored data. A produce puts original, unscrubbed URLs onto a
+     * Kafka topic, so the fetch topic is as sensitive as the raw replay topic. Turn this flag on
+     * only after the topic exists with the retention that section 2.5 of the plan gives it.
+     *
+     * The flag does nothing unless SESSION_RECORDING_ML_URL_COLLECTION_ENABLED is also on, because
+     * the anonymizer collects no URLs until then.
+     */
+    SESSION_RECORDING_ML_URL_PRODUCER_ENABLED: boolean
+
+    /**
+     * While true the fetch lane sends no outbound request. It reads the topic, dedupes, writes the
+     * ledger and reports the metrics, which is the phase 0 measurement: how many requests the
+     * fetcher would offer, and how many of those dedup away before one is needed.
+     *
+     * Turning it off makes this deployment send requests to customer sites, so it stays on until
+     * those numbers have been read and the per-site budget has been sized against them.
+     */
+    SESSION_RECORDING_ML_IMAGE_FETCH_DRY_RUN: boolean
+    SESSION_RECORDING_ML_IMAGE_FETCH_GROUP_ID: string
+    SESSION_RECORDING_ML_IMAGE_FETCH_BATCH_SIZE: number
+    /** A URL older than this is dropped, so a lane with a backlog sheds work rather than fetching stale work. */
+    SESSION_RECORDING_ML_IMAGE_FETCH_MAX_AGE_MS: number
+    /** Capacity of the per-pod seen-ref cache that sits in front of the Redis ledger. */
+    SESSION_RECORDING_ML_IMAGE_FETCH_DEDUP_MAX_REFS: number
+    /** Bounds one round trip to the sighting store, including waiting for a pooled connection, so a Redis stall cannot hold the poll loop. */
+    SESSION_RECORDING_ML_IMAGE_FETCH_REDIS_TIMEOUT_MS: number
+
+    /**
+     * Capacity of the mirror's produced-URL ref cache, which bounds re-produces onto the fetch
+     * topic. Tunable for the same reason as its image-lane twin below: it trades memory for topic
+     * volume, so a mirror memory incident must be able to shed it without a code deploy.
+     */
+    SESSION_RECORDING_ML_URL_PRODUCED_REF_CACHE_MAX: number
     SESSION_RECORDING_ML_IMAGE_SCRUB_GROUP_ID: string
     SESSION_RECORDING_ML_IMAGE_SCRUB_PREFIX: string
     SESSION_RECORDING_ML_IMAGE_SCRUB_SIDECAR_URL: string
@@ -110,6 +160,15 @@ export function getDefaultMlMirrorConfig(): MlMirrorConfig {
         SESSION_RECORDING_ML_REDIS_HOST: '',
         SESSION_RECORDING_ML_REDIS_PORT: 6379,
         SESSION_RECORDING_ML_IMAGE_SCRUB_PRODUCER_ENABLED: false,
+        SESSION_RECORDING_ML_URL_COLLECTION_ENABLED: false,
+        SESSION_RECORDING_ML_URL_PRODUCER_ENABLED: false,
+        SESSION_RECORDING_ML_IMAGE_FETCH_DRY_RUN: true,
+        SESSION_RECORDING_ML_IMAGE_FETCH_GROUP_ID: 'session-replay-ml-image-fetch',
+        SESSION_RECORDING_ML_IMAGE_FETCH_BATCH_SIZE: 500,
+        SESSION_RECORDING_ML_IMAGE_FETCH_MAX_AGE_MS: 6 * 60 * 60 * 1000,
+        SESSION_RECORDING_ML_IMAGE_FETCH_DEDUP_MAX_REFS: 500_000,
+        SESSION_RECORDING_ML_IMAGE_FETCH_REDIS_TIMEOUT_MS: 5_000,
+        SESSION_RECORDING_ML_URL_PRODUCED_REF_CACHE_MAX: 500_000,
         SESSION_RECORDING_ML_IMAGE_SCRUB_GROUP_ID: 'session-replay-ml-image-scrub',
         SESSION_RECORDING_ML_IMAGE_SCRUB_PREFIX: 'scrubbed-images',
         // 127.0.0.1, not localhost: the sidecar binds IPv4 loopback, and localhost can resolve to ::1 first.

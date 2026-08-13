@@ -24,6 +24,7 @@ import {
   createRuntimeMcpServers,
   createRuntimeMcpStdioServers,
   type PiRpcClient,
+  type PiRuntimeExtension,
 } from "../pi/rpc-client";
 import { piRpcCommandSchema, type RpcCommand } from "../pi/rpc-transport";
 import { PiRuntime } from "../pi/runtime";
@@ -528,6 +529,13 @@ export class PiAgentServer {
       ...createRuntimeMcpStdioServers(localTools ? [localTools] : []),
     };
 
+    const extensions: PiRuntimeExtension[] = [];
+    if (!this.config.repositoryPath) {
+      extensions.push("repository-tools");
+    }
+    if (this.config.autoPublish === true && this.config.createPr !== false) {
+      extensions.push("auto-publish");
+    }
     const client = createPiRpcClient({
       cliPath: this.config.piRpcHostPath,
       cwd,
@@ -542,7 +550,7 @@ export class PiAgentServer {
           this.config.apiUrl,
         ),
       },
-      channelMode: !this.config.repositoryPath,
+      extensions,
     });
     const runtime = new PiRuntime(client);
     const unsubscribeConversation = runtime.onConversationEvent((event) =>
@@ -704,13 +712,14 @@ export class PiAgentServer {
       typeof params.content === "string" ? params.content : "",
       artifacts,
     );
-    return this.dispatchUserMessage(
+    const result = await this.dispatchUserMessage(
       runtime,
       message.content,
       message.images,
       typeof params.messageId === "string" ? params.messageId : randomUUID(),
       params.steer === true,
     );
+    return result;
   }
 
   private async prepareUserMessage(

@@ -49,7 +49,6 @@ from products.replay_vision.backend.api.trigger import (
 )
 from products.replay_vision.backend.billing import observation_credits_case, observation_credits_for_model
 from products.replay_vision.backend.digest import provision_scanner_digest
-from products.replay_vision.backend.feature_flag import ReplayVisionEnabledPermission, is_replay_vision_actions_enabled
 from products.replay_vision.backend.feedback_themes import cached_feedback_themes
 from products.replay_vision.backend.impact import (
     DEFAULT_IMPACT_WINDOW_DAYS,
@@ -528,9 +527,7 @@ class ReplayScannerSerializer(UserAccessControlSerializerMixin, serializers.Mode
             self._reraise_unique_name_violation(e)
         _refresh_estimate_fail_soft(scanner)
         # Every scanner starts with a built-in daily digest so the overview has a summary to show.
-        # Flag-gated so teams without the actions feature don't accrue synthesis runs they can't see.
-        if is_replay_vision_actions_enabled(user, team):
-            provision_scanner_digest(scanner, user)
+        provision_scanner_digest(scanner, user)
         report_user_action(
             user,
             "replay_vision_scanner_created",
@@ -613,13 +610,12 @@ class _ScannerOrderByFilter(OrderByFilter):
             if organization_id is None:
                 return qs.order_by(self._tiebreaker)
             period = current_period_bounds(organization_id)
-            period_start, period_end = period.start, period.end
             spend = (
                 ReplayObservation.objects.filter(
                     scanner_id=OuterRef("pk"),
                     status=ObservationStatus.SUCCEEDED,
-                    created_at__gte=period_start,
-                    created_at__lt=period_end,
+                    created_at__gte=period.start,
+                    created_at__lt=period.end,
                 )
                 .order_by()
                 .values("scanner_id")
@@ -1190,7 +1186,6 @@ class ReplayScannerViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, vi
         "bulk_observe",
         "inline_scan",
     ]
-    permission_classes = [ReplayVisionEnabledPermission]
     serializer_class = ReplayScannerSerializer
     queryset = ReplayScanner.objects.all()
     filter_backends = [DjangoFilterBackend]

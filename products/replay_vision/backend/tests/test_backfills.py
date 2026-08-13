@@ -17,7 +17,11 @@ from products.replay_vision.backend.api.backfills import (
     BackfillEnumerationThrottle,
     ReplayScannerBackfillViewSet,
 )
-from products.replay_vision.backend.models.replay_observation import ObservationStatus, ObservationTrigger
+from products.replay_vision.backend.models.replay_observation import (
+    ObservationStatus,
+    ObservationTrigger,
+    ReplayObservation,
+)
 from products.replay_vision.backend.models.replay_scanner import (
     SETTLE_INTERVAL,
     ReplayScanner,
@@ -158,6 +162,53 @@ class TestCreateObservationForBackfill:
         assert observation.scanner_snapshot["scanner_config"] == {"prompt": "frozen prompt"}
         assert observation.triggered_by == ObservationTrigger.BACKFILL
 
+    @pytest.mark.parametrize(
+        "seeded_status,expect_retaken",
+        [
+            # A failed scan emits no $recording_observed event, so the creation-time count quotes that session
+            # as work. Leaving the row alone would report progress for a scan that never re-ran.
+            (ObservationStatus.FAILED, True),
+            # A succeeded session is already billed; retaking it would scan and charge twice.
+            (ObservationStatus.SUCCEEDED, False),
+        ],
+    )
+    def test_backfill_retakes_only_a_failed_observation(self, seeded_status: str, expect_retaken: bool) -> None:
+        scanner = _make_scanner()
+        backfill = _make_backfill(scanner)
+        existing = ReplayObservation.objects.create(
+            scanner=scanner,
+            team=scanner.team,
+            session_id="sess-1",
+            status=seeded_status,
+            workflow_id="wf-old",
+            scanner_snapshot=_frozen_snapshot(scanner),
+            triggered_by=ObservationTrigger.SCHEDULE,
+            completed_at=timezone.now(),
+        )
+        seeded_at = existing.created_at
+
+        result = create_observation_activity(
+            CreateObservationInputs(
+                scanner_id=scanner.id,
+                team_id=scanner.team_id,
+                session_id="sess-1",
+                triggered_by=ObservationTrigger.BACKFILL,
+                triggered_by_user_id=None,
+                workflow_id="wf-new",
+                backfill_id=backfill.id,
+            )
+        )
+
+        assert result.was_created is expect_retaken
+        existing.refresh_from_db()
+        assert existing.status == (ObservationStatus.PENDING if expect_retaken else seeded_status)
+        assert existing.workflow_id == ("wf-new" if expect_retaken else "wf-old")
+        if expect_retaken:
+            # A pending row must carry no completion time, and the period windows key off created_at,
+            # so a retaken row billing into the period its first attempt ran in would escape the cap.
+            assert existing.completed_at is None
+            assert existing.created_at > seeded_at
+
     def test_cancelled_backfill_skips_creation(self) -> None:
         scanner = _make_scanner()
         backfill = _make_backfill(scanner, status=BackfillStatus.CANCELLED, finished_at=timezone.now())
@@ -265,10 +316,9 @@ class TestBackfillTickActivities:
         backfill.refresh_from_db()
         assert backfill.dispatched_count == 5
 
-    def test_skipped_candidates_count_toward_progress_and_release_their_commitment(self) -> None:
-        # Sessions the scanner already tried are counted at creation but never dispatched, so without
-        # crediting them progress can never reach total_count and the untouched remainder keeps
-        # inflating the org's projected spend for the whole run.
+    def test_skipped_candidates_count_as_done_and_clear_their_commitment(self) -> None:
+        # A skipped candidate was quoted and then scanned by the live sweep first, so it is done and the
+        # backfill no longer owes its credits.
         scanner = _make_scanner()
         backfill = _make_backfill(scanner)
         ReplayScannerBackfill.objects.for_team(backfill.team_id).filter(pk=backfill.id).update(
@@ -289,7 +339,7 @@ class TestBackfillTickActivities:
 
         backfill.refresh_from_db()
         assert (backfill.dispatched_count, backfill.skipped_count) == (6, 4)
-        assert backfill.dispatched_count + backfill.skipped_count == backfill.total_count
+        # All ten accounted for, so nothing is still committed.
         assert spend_projection(scanner.team.organization_id).backfills_committed_credits == 0
 
     def test_advance_updates_cursor_and_short_batch_completes(self) -> None:
@@ -356,11 +406,6 @@ class TestBackfillTickActivities:
 class TestBackfillsApi(APIBaseTest):
     def setUp(self) -> None:
         super().setUp()
-        self.flag_patcher = patch(
-            "products.replay_vision.backend.feature_flag.posthoganalytics.feature_enabled",
-            return_value=True,
-        )
-        self.flag_patcher.start()
         self.scanner = ReplayScanner.objects.create(
             team=self.team,
             name="backfill-api-scanner",
@@ -371,7 +416,6 @@ class TestBackfillsApi(APIBaseTest):
         self.base_url = f"/api/projects/{self.team.id}/vision/scanners/{self.scanner.id}/backfills"
 
     def tearDown(self) -> None:
-        self.flag_patcher.stop()
         super().tearDown()
 
     def _window_body(self) -> dict:

@@ -120,6 +120,45 @@ class TestTikTokAdsSource:
 
     @parameterized.expand(
         [
+            ("system_error", 50000, "System error"),
+            ("rate_limited", 40100, "Requests made too frequently"),
+            ("maintenance", 60001, "The system is in maintenance"),
+        ]
+    )
+    def test_retryable_paginator_error_matches_get_retryable_errors(self, name, api_code, message):
+        """A mid-pagination TikTok error the paginator already classifies as transient must
+        match get_retryable_errors, otherwise Temporal's outer retry reports it as a bug on
+        every attempt instead of logging a warning."""
+        paginator = TikTokAdsPaginator()
+        mock_response = Mock()
+        mock_response.status_code = 200
+        mock_response.json.return_value = {"code": api_code, "message": message, "data": {}}
+
+        with pytest.raises(TikTokAdsAPIError) as exc_info:
+            paginator.update_state(mock_response)
+
+        error_message = str(exc_info.value)
+        patterns = self.source.get_retryable_errors()
+        assert any(pattern in error_message for pattern in patterns), (
+            f"TikTok retryable error '{error_message}' does not match any retryable pattern"
+        )
+
+    def test_non_retryable_paginator_error_does_not_match_get_retryable_errors(self):
+        """A non-retryable paginator error must not be swallowed as a benign retryable one."""
+        paginator = TikTokAdsPaginator()
+        mock_response = Mock()
+        mock_response.status_code = 200
+        mock_response.json.return_value = {"code": 40001, "message": "The advertiser doesn't exist", "data": {}}
+
+        with pytest.raises(ValueError) as exc_info:
+            paginator.update_state(mock_response)
+
+        error_message = str(exc_info.value)
+        patterns = self.source.get_retryable_errors()
+        assert not any(pattern in error_message for pattern in patterns)
+
+    @parameterized.expand(
+        [
             ("connection_reset", RequestsConnectionError("Connection reset by peer")),
             ("timeout", Timeout("Read timed out")),
             ("base_request_exception", RequestException("DNS lookup failed")),

@@ -29,7 +29,6 @@ The template lives in `frontend/src/scenes/experiments/replayVisionScanner.ts` a
 - `backend/quota.py` — monthly quota accounting.
 - `backend/embeddings.py` — the embedding identity shared by the write and search sides.
 - `backend/max_tools.py` — Max AI tools (draft a scanner prompt, digest summaries, semantic search over observations).
-- `backend/feature_flag.py` — `replay-vision` flag check + permission.
 - `backend/admin.py` — Django admin registrations.
 - `backend/temporal/vision_actions/` + `backend/api/vision_actions.py` — scheduled follow-up actions over observations (under active development).
 - `frontend/` — kea-first scenes and logics for the scanner management UI.

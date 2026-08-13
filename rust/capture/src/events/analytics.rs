@@ -1408,11 +1408,12 @@ mod tests {
         use crate::sinks::kafka::{test_topics, KafkaSinkBase};
         use crate::sinks::producer::MockKafkaProducer;
 
-        // 300-byte burst: the ~160-byte event fits, the ~680-byte one exceeds
-        // the burst outright (InsufficientCapacity), so the result is timing-independent.
+        // 800-byte burst: the enveloped small event (~672 B) fits, the large
+        // one exceeds the burst outright (InsufficientCapacity), so the result
+        // is timing-independent.
         let limiter = Some(Arc::new(ByteRateLimiter::new(
-            NonZeroU32::new(300).unwrap(),
-            NonZeroU32::new(300).unwrap(),
+            NonZeroU32::new(800).unwrap(),
+            NonZeroU32::new(800).unwrap(),
             None,
         )));
 
@@ -1480,9 +1481,10 @@ mod tests {
         use crate::sinks::kafka::{test_topics, KafkaSinkBase};
         use crate::sinks::producer::MockKafkaProducer;
 
+        // 800-byte burst: the enveloped small event fits, the large one exceeds it outright.
         let limiter = Some(Arc::new(ByteRateLimiter::new(
-            NonZeroU32::new(300).unwrap(),
-            NonZeroU32::new(300).unwrap(),
+            NonZeroU32::new(800).unwrap(),
+            NonZeroU32::new(800).unwrap(),
             None,
         )));
 

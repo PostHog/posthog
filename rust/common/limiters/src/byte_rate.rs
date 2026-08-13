@@ -68,20 +68,40 @@ fn parse_overrides(raw: Option<String>) -> HashMap<String, Arc<KeyedLimiter>> {
             );
             continue;
         };
-        if burst.get() < 8_388_608 {
+        let ps = if ps.get() > ByteRateLimiter::RATE_CEILING {
+            warn!(
+                entry,
+                per_second = ps.get(),
+                "AI byte limit override per_second exceeds 1e9; clamping so it still enforces"
+            );
+            NonZeroU32::new(ByteRateLimiter::RATE_CEILING).unwrap()
+        } else {
+            ps
+        };
+        let burst = if burst.get() < ByteRateLimiter::BURST_FLOOR {
             warn!(
                 entry,
                 burst = burst.get(),
                 "AI byte limit override burst is below the 8 MiB max AI event size; \
-                 large AI events for this token will always be dropped"
+                 clamping up so legitimate large AI events aren't always dropped"
             );
-        }
+            NonZeroU32::new(ByteRateLimiter::BURST_FLOOR).unwrap()
+        } else {
+            burst
+        };
         map.insert(token.trim().to_string(), build(ps, burst));
     }
     map
 }
 
 impl ByteRateLimiter {
+    /// Max AI event size; a burst below this can never admit a full-size event.
+    pub const BURST_FLOOR: u32 = 8_388_608;
+
+    /// governor computes the replenish interval as `1e9 / per_second` ns, which
+    /// truncates to 0 (no limiting) above 1e9, so rates are capped here.
+    pub const RATE_CEILING: u32 = 1_000_000_000;
+
     pub fn new(per_second: NonZeroU32, burst: NonZeroU32, overrides: Option<String>) -> Self {
         ByteRateLimiter {
             default: build(per_second, burst),
@@ -218,21 +238,30 @@ mod tests {
 
     #[test]
     fn malformed_override_entries_are_skipped() {
-        // "bad" has no '='; "x=notnum" has a non-numeric spec; both ignored,
-        // "ok=15:15" parsed. No panic.
-        let l = limiter(1_000, 10_000, Some("bad,x=notnum,ok=15:15, "));
-        assert_eq!(l.check("ok", 10), ByteLimitDecision::Within);
-        assert_eq!(l.check("ok", 10), ByteLimitDecision::Exceeded);
+        // "bad" (no '=') and "x=notnum" (non-numeric) are skipped without
+        // panic; "ok" is parsed and applied. Its 8 MiB burst admits a 20 KB
+        // event the default 10 KB burst would reject, so a passing check proves
+        // the override took effect rather than falling back to the default.
+        let l = limiter(1_000, 10_000, Some("bad,x=notnum,ok=1000:8388608, "));
+        assert_eq!(l.check("ok", 20_000), ByteLimitDecision::Within);
+        assert_eq!(l.check("other", 20_000), ByteLimitDecision::Exceeded);
     }
 
     #[test]
-    fn override_burst_below_the_8mib_floor_still_parses() {
-        // Below the floor is a footgun (large AI events for this token will
-        // always be dropped) but not a parse error: the override still
-        // builds, it just warns.
+    fn override_burst_below_the_8mib_floor_is_clamped_up() {
+        // A sub-floor burst is clamped up to 8 MiB so a full-size AI event can
+        // still fit — otherwise this token's large events would always drop.
         let l = limiter(1_000, 10_000, Some("small=1000:100"));
-        assert_eq!(l.check("small", 50), ByteLimitDecision::Within);
-        assert_eq!(l.check("small", 100), ByteLimitDecision::Exceeded);
+        assert_eq!(l.check("small", 8_388_608), ByteLimitDecision::Within);
+    }
+
+    #[test]
+    fn override_rate_above_1e9_is_clamped_so_it_still_enforces() {
+        // governor truncates the replenish interval to 0 above 1e9, which would
+        // disable limiting for this token; the clamp keeps enforcement on.
+        let l = limiter(1_000, 10_000, Some("fast=2000000000:8388608"));
+        assert_eq!(l.check("fast", 8_388_608), ByteLimitDecision::Within);
+        assert_eq!(l.check("fast", 8_388_608), ByteLimitDecision::Exceeded);
     }
 
     #[test]
@@ -241,10 +270,10 @@ mod tests {
         // close to its full burst stays well below "fresh" (fully recovered)
         // for long enough that retain_recent must not evict it, regardless of
         // scheduling jitter in this test.
-        let l = limiter(1, 10_000, Some("big=1:1000000"));
+        let l = limiter(1, 10_000, Some("big=1:8388608"));
         // Populate both the default limiter and the override limiter's dashmap.
         assert_eq!(l.check("tok", 9_000), ByteLimitDecision::Within);
-        assert_eq!(l.check("big", 900_000), ByteLimitDecision::Within);
+        assert_eq!(l.check("big", 8_000_000), ByteLimitDecision::Within);
 
         l.clean_state_once();
 
@@ -252,7 +281,7 @@ mod tests {
         // spent should still be reflected, on both the default and override
         // limiter.
         assert_eq!(l.check("tok", 9_000), ByteLimitDecision::Exceeded);
-        assert_eq!(l.check("big", 900_000), ByteLimitDecision::Exceeded);
+        assert_eq!(l.check("big", 8_000_000), ByteLimitDecision::Exceeded);
     }
 
     #[tokio::test]

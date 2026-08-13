@@ -18,6 +18,7 @@ import { type DataNodeLogicProps, dataNodeLogic } from '~/queries/nodes/DataNode
 import type { DataTableRow } from '~/queries/nodes/DataTable/dataTableLogic'
 import {
     AccountsQuery,
+    AccountsTableMetric,
     AccountsTableQuery,
     DataNode,
     DataTableNode,
@@ -212,6 +213,7 @@ export interface accountsLogicValues {
     selectColumns: string[] // accountsColumnConfigLogic
     visibleColumnNames: string[] // accountsColumnConfigLogic
     overviewMetrics: string[] // accountsOverviewTilesLogic
+    overviewPostgresMetrics: AccountsTableMetric[] // accountsOverviewTilesLogic
     tileFilter: TileFilter | null // accountsOverviewTilesLogic
     mineOnly: boolean // customerAnalyticsSceneLogic
     listHasMoreData: boolean // dataNodeLogic
@@ -235,7 +237,7 @@ export interface accountsLogicValues {
     isRoleSaving: (accountId: string, column: string) => boolean
     isTagsSaving: (accountId: string) => boolean
     listPaginated: boolean
-    metricsQuery: AccountsQuery | null
+    metricsQuery: AccountsQuery | AccountsTableQuery | null
     postgresAccountsEnabled: boolean
     relationshipOverrides: Record<string, number[]>
     savingRoles: Record<string, true>
@@ -511,6 +513,8 @@ export interface accountsLogicMeta {
         ) => ((rows: DataTableRow[]) => DataTableRow[]) | undefined
         metricsQuery: (
             overviewMetrics: string[],
+            overviewPostgresMetrics: AccountsTableMetric[],
+            accountsTableQueryPlanInput: BuildAccountsTableQueryPlanInput,
             searchQuery: string,
             tagsFilter: string[],
             allRolesUnassigned: boolean,
@@ -520,7 +524,7 @@ export interface accountsLogicMeta {
             customPropertyFilters: AccountCustomPropertyFilter[],
             customPropertyDefinitionsById: Record<string, CustomPropertyDefinitionApi>,
             relationshipDefinitionsLoaded: boolean
-        ) => AccountsQuery | null
+        ) => AccountsQuery | AccountsTableQuery | null
     }
 }
 
@@ -554,7 +558,7 @@ export const accountsLogic = kea<accountsLogicType>([
                 'columnDisplay',
             ],
             accountsOverviewTilesLogic,
-            ['metrics as overviewMetrics', 'tileFilter'],
+            ['metrics as overviewMetrics', 'postgresMetrics as overviewPostgresMetrics', 'tileFilter'],
             customerAnalyticsSceneLogic,
             ['mineOnly'],
             dataNodeLogic({ key: ACCOUNTS_HOGQL_DATA_NODE_KEY } as DataNodeLogicProps),
@@ -1042,6 +1046,8 @@ export const accountsLogic = kea<accountsLogicType>([
         metricsQuery: [
             (s) => [
                 s.overviewMetrics,
+                s.overviewPostgresMetrics,
+                s.accountsTableQueryPlanInput,
                 s.searchQuery,
                 s.tagsFilter,
                 s.allRolesUnassigned,
@@ -1054,6 +1060,8 @@ export const accountsLogic = kea<accountsLogicType>([
             ],
             (
                 overviewMetrics: string[],
+                overviewPostgresMetrics: AccountsTableMetric[],
+                accountsTableQueryPlanInput: BuildAccountsTableQueryPlanInput,
                 searchQuery: string,
                 tagsFilter: string[],
                 allRolesUnassigned: boolean,
@@ -1063,9 +1071,28 @@ export const accountsLogic = kea<accountsLogicType>([
                 customPropertyFilters: AccountCustomPropertyFilter[],
                 customPropertyDefinitionsById: Record<string, CustomPropertyDefinitionApi>,
                 relationshipDefinitionsLoaded: boolean
-            ): AccountsQuery | null => {
+            ): AccountsQuery | AccountsTableQuery | null => {
                 if (overviewMetrics.length === 0 || !relationshipDefinitionsLoaded) {
                     return null
+                }
+                const postgresPlan = buildAccountsTableQueryPlan({
+                    ...accountsTableQueryPlanInput,
+                    querySelectColumns: [],
+                    visibleColumnNames: [],
+                    sortOrder: null,
+                    canSortClientSide: true,
+                })
+                if (postgresPlan && overviewPostgresMetrics.length === overviewMetrics.length) {
+                    return {
+                        ...postgresPlan.query,
+                        columns: [],
+                        metrics: overviewPostgresMetrics,
+                        sort: undefined,
+                        tags: {
+                            ...CUSTOMER_ANALYTICS_DEFAULT_QUERY_TAGS,
+                            name: 'customer_analytics_accounts_overview',
+                        },
+                    }
                 }
                 const source: AccountsQuery = {
                     kind: NodeKind.AccountsQuery,
