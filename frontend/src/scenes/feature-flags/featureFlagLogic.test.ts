@@ -277,6 +277,33 @@ describe('featureFlagLogic', () => {
 
             featureFlagsLogic.unmount()
         })
+
+        it('keeps an in-progress rollout edit when the background refresh lands', async () => {
+            // The user moves the rollout slider before the silent refresh responds. The refresh
+            // must reconcile only active/version, never replace the edited filters.
+            logic.actions.setFeatureFlagFilters(
+                { ...MOCK_FEATURE_FLAG.filters, groups: [{ properties: [], rollout_percentage: 100, variant: null }] },
+                null
+            )
+            expect(logic.values.featureFlag.filters.groups[0].rollout_percentage).toBe(100)
+            expect(logic.values.hasUnsavedChanges).toBe(true)
+
+            logic.actions.refreshFeatureFlagSuccess({
+                ...MOCK_FEATURE_FLAG,
+                active: false,
+                version: 7,
+                filters: {
+                    ...MOCK_FEATURE_FLAG.filters,
+                    groups: [{ properties: [], rollout_percentage: 0, variant: null }],
+                },
+            } as FeatureFlagType)
+
+            // Edit survives; only active/version follow the server; the unsaved-changes guard stays on.
+            expect(logic.values.featureFlag.filters.groups[0].rollout_percentage).toBe(100)
+            expect(logic.values.featureFlag.active).toBe(false)
+            expect(logic.values.featureFlag.version).toBe(7)
+            expect(logic.values.hasUnsavedChanges).toBe(true)
+        })
     })
 
     describe('saveFeatureFlag error handling', () => {

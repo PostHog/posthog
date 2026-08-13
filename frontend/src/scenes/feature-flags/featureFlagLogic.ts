@@ -2114,6 +2114,15 @@ export const featureFlagLogic = kea<featureFlagLogicType>([
                         ? (indexToVariantKeyFeatureFlagPayloads(cleanFlag(featureFlag)) as FeatureFlagType)
                         : null
                 },
+                refreshFeatureFlagSuccess: (state, { featureFlagRefresh }) => {
+                    // Sync the saved-state baseline's `active`/`version` with the server, but keep
+                    // the rest of the baseline. Replacing it would clear the unsaved-changes guard,
+                    // so an in-progress edit would stop warning on navigate-away.
+                    if (!state || !featureFlagRefresh) {
+                        return state
+                    }
+                    return { ...state, active: featureFlagRefresh.active, version: featureFlagRefresh.version }
+                },
             },
         ],
         featureFlag: [
@@ -2121,6 +2130,16 @@ export const featureFlagLogic = kea<featureFlagLogicType>([
             {
                 setFeatureFlag: (_, { featureFlag }) => {
                     return featureFlag
+                },
+                refreshFeatureFlagSuccess: (state, { featureFlagRefresh }) => {
+                    // This background refresh only exists to correct a stale cached `active`.
+                    // Merge just `active`/`version` from the server instead of replacing the whole
+                    // flag, so edits made between the cache paint and this response landing (e.g.
+                    // the rollout slider) survive the reconcile.
+                    if (!state || !featureFlagRefresh) {
+                        return state
+                    }
+                    return { ...state, active: featureFlagRefresh.active, version: featureFlagRefresh.version }
                 },
                 setFeatureFlagFilters: (state, { filters }) => {
                     if (!state) {
@@ -3581,11 +3600,14 @@ export const featureFlagLogic = kea<featureFlagLogicType>([
             }
         },
         refreshFeatureFlagSuccess: ({ featureFlagRefresh }) => {
-            // Reconcile the cache-painted flag with the freshly fetched server state, and keep
-            // the list cache in sync so the two views agree.
+            // The featureFlag/originalFeatureFlag reducers already reconciled `active`/`version`
+            // from the fetched flag. Mirror that onto the list cache so both views agree.
             if (featureFlagRefresh) {
-                actions.setFeatureFlag(featureFlagRefresh)
-                actions.updateFlag(featureFlagRefresh)
+                actions.updateFlag({
+                    ...values.featureFlag,
+                    active: featureFlagRefresh.active,
+                    version: featureFlagRefresh.version,
+                })
             }
         },
         updateFeatureFlagArchivedSuccess: ({ featureFlagActiveUpdate }) => {
@@ -3698,7 +3720,6 @@ export const featureFlagLogic = kea<featureFlagLogicType>([
             if (!template || !values.featureFlag) {
                 return
             }
-            const templateValues = template.getValues(values.featureFlag)
 
             const defaultConfig = await resolveDefaultReleaseConditions(
                 values.defaultReleaseConditions,
@@ -3707,6 +3728,9 @@ export const featureFlagLogic = kea<featureFlagLogicType>([
             // Bail if the logic unmounted or applyTemplate was re-invoked while release conditions
             // were loading — otherwise the reads below hit a store path that no longer exists and kea throws.
             breakpoint()
+            // Read the flag after the await, not before: an edit made while release conditions were
+            // loading would otherwise be overwritten by a pre-await snapshot.
+            const templateValues = template.getValues(values.featureFlag)
             const defaultGroups =
                 defaultConfig?.enabled && defaultConfig.default_groups?.length > 0 ? defaultConfig.default_groups : []
             const templateGroups = templateValues.filters?.groups ?? []
