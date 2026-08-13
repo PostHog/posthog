@@ -208,6 +208,8 @@ from products.growth.backend.temporal import (
 )
 from products.logs.backend.facade.temporal import (
     ACTIVITIES as LOGS_ALERTING_ACTIVITIES,
+    VOLUME_TICK_ACTIVITIES as LOGS_VOLUME_TICK_ACTIVITIES,
+    VOLUME_TICK_WORKFLOWS as LOGS_VOLUME_TICK_WORKFLOWS,
     WORKFLOWS as LOGS_ALERTING_WORKFLOWS,
 )
 from products.logs.backend.temporal.retention_entitlements import (
@@ -498,6 +500,13 @@ _task_queue_specs = [
         settings.LOGS_ALERTING_TASK_QUEUE,
         LOGS_ALERTING_WORKFLOWS,
         LOGS_ALERTING_ACTIVITIES,
+    ),
+    # Dedicated queue, never merged with alerting: the tick becomes the scan-heavy
+    # rollup writer and must not share pods with the latency-sensitive alert checks.
+    (
+        settings.LOGS_VOLUME_TICK_TASK_QUEUE,
+        LOGS_VOLUME_TICK_WORKFLOWS,
+        LOGS_VOLUME_TICK_ACTIVITIES,
     ),
     (
         settings.STAMPHOG_TASK_QUEUE,
