@@ -431,6 +431,38 @@ class TestBackfillUsageScannerId(_VisionQuotaTestCase):
         assert orphan.scanner_id is None
 
 
+class TestRebackfillUsageScannerId(_VisionQuotaTestCase):
+    def test_rebackfill_attributes_receipts_across_batches_and_leaves_orphans_null(self) -> None:
+        import uuid
+        import importlib
+
+        from django.apps import apps as django_apps
+        from django.db import connection
+
+        observations = [
+            self._make_observation(status=ObservationStatus.SUCCEEDED, completed_at=timezone.now()) for _ in range(3)
+        ]
+        ReplayObservationUsage.objects.filter(observation_id__in=[o.id for o in observations]).update(scanner_id=None)
+        orphan = ReplayObservationUsage.objects.create(
+            organization_id=self.organization.id,
+            observation_id=uuid.uuid4(),
+            observation_created_at=timezone.now(),
+        )
+
+        migration = importlib.import_module(
+            "products.replay_vision.backend.migrations.0073_rebackfill_usage_scanner_id"
+        )
+        # BATCH_SIZE=1 forces one keyset iteration per receipt, exercising the pagination loop.
+        with patch.object(migration, "BATCH_SIZE", 1):
+            with connection.schema_editor(atomic=False) as schema_editor:
+                migration.rebackfill_scanner_id(django_apps, schema_editor)
+
+        for observation in observations:
+            assert ReplayObservationUsage.objects.get(observation_id=observation.id).scanner_id == self.scanner.id
+        orphan.refresh_from_db()
+        assert orphan.scanner_id is None
+
+
 class TestScannerBudgetBlocked(SimpleTestCase):
     @parameterized.expand(
         [

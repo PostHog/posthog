@@ -643,20 +643,18 @@ def _register_prepared_parquet_files(
                         psql.SQL(", ").join(psql.Identifier(column) for column in partition_columns),
                     )
                 )
-            # DuckLake flushes file and column stats at statement commit, so one call per file bounds each batch.
-            for landing_path in landing_paths:
-                _raise_if_duckgres_cancel_requested(cancel_requested)
-                conn.execute(
-                    psql.SQL(
-                        "CALL ducklake_add_data_files({}, {}, {}, schema => {}, "
-                        "allow_missing => true, hive_partitioning => true)"
-                    ).format(
-                        psql.Literal("ducklake"),
-                        psql.Literal(registration_names.shadow_name),
-                        psql.Literal(landing_path),
-                        psql.Literal(schema_name),
-                    )
+            _raise_if_duckgres_cancel_requested(cancel_requested)
+            conn.execute(
+                psql.SQL(
+                    "CALL ducklake_add_data_files({}, {}, {}, schema => {}, "
+                    "allow_missing => true, hive_partitioning => true)"
+                ).format(
+                    psql.Literal("ducklake"),
+                    psql.Literal(registration_names.shadow_name),
+                    parquet_glob,
+                    psql.Literal(schema_name),
                 )
+            )
 
         with _stage_timer(stage="verify", team_id=inputs.team_id, schema_id=inputs.metadata.source_schema_id):
             _raise_if_duckgres_cancel_requested(cancel_requested)
