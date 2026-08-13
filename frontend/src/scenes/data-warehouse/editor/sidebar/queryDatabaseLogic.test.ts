@@ -1,6 +1,9 @@
+import { expectLogic } from 'kea-test-utils'
+
 import { newInternalTab } from 'lib/utils/newInternalTab'
 import { databaseTableListLogic } from 'scenes/data-management/database/databaseTableListLogic'
 
+import { performQuery } from '~/queries/query'
 import { initKeaTests } from '~/test/init'
 
 import {
@@ -12,6 +15,7 @@ import {
 } from './queryDatabaseLogic'
 
 jest.mock('lib/utils/newInternalTab')
+jest.mock('~/queries/query')
 
 describe('queryDatabaseLogic', () => {
     it('groups direct connection tables into schema folders', () => {
@@ -287,14 +291,82 @@ describe('queryDatabaseLogic', () => {
         })
     })
 
+    describe('lazy schema hydration', () => {
+        let logic: ReturnType<typeof queryDatabaseLogic.build>
+        let dbLogic: ReturnType<typeof databaseTableListLogic.build>
+
+        const findTableNode = (): any =>
+            logic.values.treeData
+                .find((item) => item.record?.type === 'sources')
+                ?.children?.find((child) => child.id === 'source-posthog')
+                ?.children?.find((child) => child.id === 'table-events')
+
+        beforeEach(async () => {
+            initKeaTests()
+            // Earlier tests persist expanded folders; a restored expansion would trigger hydration
+            // before the assertions below stage their own state.
+            localStorage.clear()
+            ;(performQuery as jest.Mock).mockResolvedValue({ tables: {}, joins: [] })
+            logic = queryDatabaseLogic()
+            logic.mount()
+            dbLogic = databaseTableListLogic.findMounted()! as ReturnType<typeof databaseTableListLogic.build>
+            await expectLogic(dbLogic).toFinishAllListeners()
+            dbLogic.actions.loadDatabaseSuccess({
+                tables: { events: { id: 'events', name: 'events', type: 'posthog', fields: {} } },
+                joins: [],
+            })
+            dbLogic.actions.setDatabaseFieldsComplete(false)
+        })
+
+        afterEach(() => {
+            logic.unmount()
+            jest.clearAllMocks()
+        })
+
+        it('renders a hydration placeholder, hydrates on expand, then shows the columns', async () => {
+            const placeholder = findTableNode()?.children?.[0]
+            expect(placeholder?.type).toEqual('loading-indicator')
+            expect(placeholder?.record?.pendingTableName).toEqual('events')
+
+            logic.actions.toggleFolderOpen('table-events', false)
+            await expectLogic(dbLogic).toFinishAllListeners()
+
+            expect(performQuery).toHaveBeenCalledWith(expect.objectContaining({ tables: ['events'] }))
+
+            dbLogic.actions.hydrateTableFieldsSuccess(['events'], {
+                events: {
+                    id: 'events',
+                    name: 'events',
+                    type: 'posthog',
+                    fields: { uuid: { name: 'uuid', hogql_value: 'uuid', type: 'string', schema_valid: true } },
+                } as any,
+            })
+
+            const columnNames = findTableNode()?.children?.map((child: any) => child.name)
+            expect(columnNames).toEqual(['uuid'])
+        })
+
+        it('shows an error node when hydrating a table failed', () => {
+            dbLogic.actions.hydrateTableFieldsStart(['events'])
+            dbLogic.actions.hydrateTableFieldsFailure(['events'])
+
+            const errorNode = findTableNode()?.children?.[0]
+            expect(errorNode?.record?.type).toEqual('fields-load-error')
+        })
+    })
+
     describe('direct connection state', () => {
         let logic: ReturnType<typeof queryDatabaseLogic.build>
 
-        beforeEach(() => {
+        beforeEach(async () => {
             initKeaTests()
+            ;(performQuery as jest.Mock).mockResolvedValue({ tables: {}, joins: [] })
             logic = queryDatabaseLogic()
             logic.mount()
-            databaseTableListLogic.findMounted()?.actions.setConnection('source-id')
+            const databaseLogic = databaseTableListLogic.findMounted()!
+            await expectLogic(databaseLogic).toFinishAllListeners()
+            databaseLogic.actions.setConnection('source-id')
+            ;(performQuery as jest.Mock).mockClear()
         })
 
         afterEach(() => {
@@ -326,6 +398,48 @@ describe('queryDatabaseLogic', () => {
             expect(newInternalTab).toHaveBeenCalledWith(
                 expect.stringContaining('/data-management/sources/managed-source-id/schemas')
             )
+        })
+
+        it('hydrates a table restored as expanded in the displayed direct-connection tree', async () => {
+            const databaseLogic = databaseTableListLogic.findMounted()!
+            databaseLogic.actions.loadDatabaseSuccess({
+                tables: {
+                    'public.accounts': {
+                        id: 'accounts',
+                        name: 'public.accounts',
+                        type: 'data_warehouse',
+                        fields: {},
+                        source: {
+                            id: 'source-id',
+                            status: 'Running',
+                            source_type: 'Postgres',
+                            prefix: '',
+                            access_method: 'direct',
+                        },
+                    },
+                },
+                joins: [],
+            } as any)
+            databaseLogic.actions.setDatabaseFieldsComplete(false)
+            ;(performQuery as jest.Mock).mockResolvedValueOnce({
+                tables: {
+                    'public.accounts': {
+                        id: 'accounts',
+                        name: 'public.accounts',
+                        type: 'data_warehouse',
+                        fields: {
+                            id: { name: 'id', hogql_value: 'id', type: 'string', schema_valid: true },
+                        },
+                    },
+                },
+                joins: [],
+            })
+
+            logic.actions.setExpandedFolders(['schema-public', 'table-public.accounts'], 'source-id')
+            await expectLogic(databaseLogic).toFinishAllListeners()
+
+            expect(performQuery).toHaveBeenCalledWith(expect.objectContaining({ tables: ['public.accounts'] }))
+            expect(databaseLogic.values.database?.tables['public.accounts'].fields).toHaveProperty('id')
         })
     })
 })
