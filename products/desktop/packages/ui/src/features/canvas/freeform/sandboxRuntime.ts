@@ -13,7 +13,7 @@ import {
 
 // Builds the HTML document loaded into the freeform-canvas sandbox iframe.
 //
-// Security notes (see docs/canvas-freeform-react-plan.md):
+// Security notes (see docs/CANVAS-FREEFORM-REACT-PLAN.md):
 //   - The iframe is mounted with sandbox="allow-scripts" and NO
 //     allow-same-origin, so this document runs at a null origin: it cannot read
 //     the host's cookies/storage or touch the host DOM. That is also why all
@@ -236,10 +236,18 @@ export function buildSandboxDocument(
       // render its STORED result from the insights endpoint (not a fresh /query/
       // run). Pass the date picker's window to re-scope it:
       // \`ph.loadInsight("AbC123", { dateRange: { date_from, date_to } })\`.
+      // A SQL insight's \`{variables.x}\` placeholders are set per call, keyed by
+      // code name: \`ph.loadInsight("AbC123", { variables: { product: "surveys" } })\`
+      // — so one saved insight serves a whole board. The host REJECTS a variable the
+      // insight doesn't use, rather than quietly falling back to its saved value.
       // Returns \`{ columns, results }\` — SAME shape as ph.query: a trends-style
       // insight returns SERIES OBJECTS, a SQL insight returns ROWS.
       loadInsight: (shortId, opts) =>
-        call("loadInsight", { shortId, dateRange: opts && opts.dateRange }),
+        call("loadInsight", {
+          shortId,
+          dateRange: opts && opts.dateRange,
+          variables: opts && opts.variables,
+        }),
       // Run a query. Pass a TYPED query node (\`{ kind: "TrendsQuery", … }\`) for
       // UI-matching numbers (preferred), or an inline HogQL string (escape hatch).
       // Edit mode only; rejected by the host in view mode.

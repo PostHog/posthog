@@ -2,10 +2,18 @@
 
 Bulk payment objects come from ``POST /payments/search`` (the one server-side
 listing surface; ``GET /payments`` only looks up by reference). The search
-request supports ``query``, ``from``/``to`` and ``limit`` (max 1000) but no
-documented page cursor, so listing walks the time range and recursively splits
-any window that fills a whole page; a window returning fewer than ``limit``
-rows is provably complete.
+request requires a non-empty ``query`` and supports ``from``/``to`` and
+``limit`` (max 1000) but no documented page cursor, so listing walks the time
+range and recursively splits any window that fills a whole page; a window
+returning fewer than ``limit`` rows is provably complete. Documented search
+coverage is roughly the previous 90 days, which sets how far back a first sync
+reaches; the endpoint serves older payments too, so a configured ``start_date``
+reaching further back is honoured rather than clamped forward.
+
+A sync bounds its own API usage with per-run call budgets. Hitting one leaves the
+range incomplete, so it raises: returning would report the schema ``Completed``
+over months holding no rows. Each fully-drained window is checkpointed, so the
+retry resumes where the budget ran out.
 
 ``payment_actions``, ``customers`` and ``instruments`` have no listing
 endpoints at all, so their syncs walk the same payment windows and fan out to
@@ -23,6 +31,7 @@ from structlog.types import FilteringBoundLogger
 
 from products.warehouse_sources.backend.temporal.data_imports.sources.checkout_com.checkout_com import (
     CheckoutComResumeConfig,
+    _error_details,
     _format_timestamp,
     _hosts,
     _make_auth,
@@ -39,9 +48,18 @@ PAYMENTS_ENDPOINTS = ("payments", "payment_actions", "customers", "instruments")
 
 # The search endpoint caps `limit` at 1000.
 SEARCH_PAGE_LIMIT = 1000
+# The search endpoint rejects a request without a non-empty `query` as unprocessable
+# (422), and Checkout.com documents no match-all expression, so the widest valid
+# filter is a predicate every payment satisfies. Comparisons use the colon-prefixed
+# form (`field:>=value`) to match the documented `field:value` grammar; a bare
+# `amount>=0` appears in no official example.
+SEARCH_MATCH_ALL_QUERY = "amount:>=0"
+# Checkout.com documents payments search as covering roughly the previous 90 days, so this
+# is how far back a first sync reaches when nothing else says otherwise. It is a default,
+# not a limit: the endpoint serves well past its documented window, so a configured
+# `start_date` reaching further back is honoured rather than clamped forward.
+SEARCH_HORIZON = timedelta(days=90)
 REQUEST_TIMEOUT_SECONDS = 120
-# How far back the first (non-incremental) sync reaches when no start date is configured.
-DEFAULT_BACKFILL_DAYS = 365
 # A window that still fills a whole page at this span can't be split further; anything
 # past it is yielded with an error log rather than silently truncated.
 MIN_WINDOW = timedelta(seconds=1)
@@ -57,6 +75,19 @@ MAX_SEARCH_WINDOW = timedelta(days=90)
 MAX_SEARCH_REQUESTS_PER_SYNC = 2_000
 MAX_FANOUT_LOOKUPS_PER_SYNC = 10_000
 FANOUT_CHUNK_SIZE = 500
+
+# Stable marker so the source can classify a budget stop as retryable rather than a bug.
+SYNC_BUDGET_EXCEEDED_MARKER = "Checkout.com sync hit its per-run API budget"
+
+
+class CheckoutComSyncBudgetExceeded(Exception):
+    """A sync stopped at its per-run API call budget before covering its whole range.
+
+    Raised rather than returned. Returning cleanly reported the schema `Completed` with no
+    error while the range past the cut-off held no rows at all, so the gap was invisible:
+    `last_synced_at` moved, the table did not. Every window completed before the budget ran
+    out is checkpointed, so the retry resumes there instead of redoing the run.
+    """
 
 
 class _SyncBudget:
@@ -107,7 +138,7 @@ def _resolve_start(
     configured = _to_datetime(start_date) if start_date else None
     if configured is not None:
         return configured
-    return now - timedelta(days=DEFAULT_BACKFILL_DAYS)
+    return now - SEARCH_HORIZON
 
 
 def _search_payments(
@@ -118,13 +149,17 @@ def _search_payments(
     logger: FilteringBoundLogger,
 ) -> list[dict[str, Any]]:
     body = {
+        "query": SEARCH_MATCH_ALL_QUERY,
         "from": _format_timestamp(window.start),
         "to": _format_timestamp(window.end),
         "limit": SEARCH_PAGE_LIMIT,
     }
     response = session.post(f"{api_base}/payments/search", json=body, auth=auth, timeout=REQUEST_TIMEOUT_SECONDS)
     if not response.ok:
-        logger.error(f"Checkout.com API error: status={response.status_code}, url={api_base}/payments/search")
+        logger.error(
+            f"Checkout.com API error: status={response.status_code}, "
+            f"url={api_base}/payments/search, body={_error_details(response)}"
+        )
         response.raise_for_status()
     payload = response.json()
     data = payload.get("data") if isinstance(payload, dict) else None
@@ -202,7 +237,9 @@ def _fanout_get(
     if response.status_code == 404:
         return None
     if not response.ok:
-        logger.error(f"Checkout.com API error: status={response.status_code}, url={url}")
+        logger.error(
+            f"Checkout.com API error: status={response.status_code}, url={url}, body={_error_details(response)}"
+        )
         response.raise_for_status()
     payload = response.json()
     return payload if isinstance(payload, dict | list) else None
@@ -299,7 +336,6 @@ def _get_rows(
         resume.search_window_to if resume is not None else None,
         now,
     )
-
     seen_ids: set[str] = set()
     chunk: list[dict[str, Any]] = []
     for window, payments in _iter_bounded_payment_windows(session, auth, hosts["api"], start, now, logger, budget):
@@ -334,13 +370,13 @@ def _get_rows(
             # next scheduled sync re-covers it (merge dedupes overlapping rows).
             break
         resumable_source_manager.save_state(CheckoutComResumeConfig(search_window_to=_format_timestamp(window.end)))
-    if budget.exhausted:
-        logger.warning(
-            "Checkout.com sync hit its per-run API budget; continuing from the last complete window next run",
-            schema=schema_name,
-        )
     if chunk:
         yield chunk
+    if budget.exhausted:
+        raise CheckoutComSyncBudgetExceeded(
+            f"{SYNC_BUDGET_EXCEEDED_MARKER} for {schema_name} before reaching "
+            f"{_format_timestamp(now)}; the range past the last complete window holds no rows yet"
+        )
 
 
 def checkout_com_payments_source(

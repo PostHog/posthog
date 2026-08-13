@@ -41,6 +41,7 @@ const scanner = (overrides: Partial<ReplayScannerApi> = {}): ReplayScannerApi =>
         id: '00000000-0000-0000-0000-00000000000a',
         name: 'Scanner',
         description: '',
+        tags: [],
         scanner_type: 'monitor',
         scanner_config: { prompt: 'Did the user struggle?' },
         query: null,
@@ -72,6 +73,7 @@ const scanners = {
             credits_this_month: 1250,
             observations_this_month: 1250,
             description: 'Flags sessions where the user hesitated at payment.',
+            tags: ['checkout', 'core flows'],
             scanner_type: 'monitor',
             sampling_rate: 1,
             created_by: alice,
@@ -127,6 +129,8 @@ const quota: VisionQuotaApi = {
     remaining: 7600,
     exhausted: false,
     projected_monthly_credits: 5200,
+    scanners_monthly_credits: 5200,
+    backfills_committed_credits: 0,
     free_monthly_credits: 2500,
     period_start: '2026-05-01T00:00:00Z',
     period_end: '2026-06-01T00:00:00Z',
@@ -445,11 +449,11 @@ const meta: Meta = {
         viewMode: 'story',
         mockDate: '2026-05-12',
         pageUrl: urls.replayVision(),
-        featureFlags: [FEATURE_FLAGS.REPLAY_VISION],
     },
     decorators: [
         mswDecorator({
             get: {
+                '/api/projects/:team_id/tags/': ['checkout', 'core flows'],
                 '/api/projects/:team_id/vision/scanners/': scanners,
                 '/api/projects/:team_id/vision/scanners/stats/': scannerStats,
                 '/api/projects/:team_id/vision/scanners/creators/': { creators: [alice, bob] },
@@ -487,6 +491,27 @@ export default meta
 
 export const ScannersList: StoryObj = {}
 
+// Zero scanners: snapshot-covers the table empty state and its docs link, which no other story renders.
+export const ScannersListEmpty: StoryObj = {
+    decorators: [
+        mswDecorator({
+            get: {
+                '/api/projects/:team_id/vision/scanners/': { count: 0, next: null, previous: null, results: [] },
+                '/api/projects/:team_id/vision/scanners/stats/': {
+                    total: 0,
+                    enabled: 0,
+                    by_type: {
+                        monitor: { enabled: 0, total: 0 },
+                        classifier: { enabled: 0, total: 0 },
+                        scorer: { enabled: 0, total: 0 },
+                        summarizer: { enabled: 0, total: 0 },
+                    },
+                } satisfies ScannerStatsResponseApi,
+            },
+        }),
+    ],
+}
+
 export const UsageTab: StoryObj = {
     parameters: { pageUrl: `${urls.replayVision()}?tab=usage` },
 }
@@ -508,6 +533,24 @@ export const ScannerConfiguration: StoryObj = {
     parameters: { pageUrl: `${urls.replayVision(summarizerScanner.id)}?tab=configuration` },
 }
 
+// Test arms of the model tier-naming experiment: models labeled by capability tier instead of
+// provider names.
+export const ScannerConfigurationTierNames: StoryObj = {
+    parameters: {
+        pageUrl: `${urls.replayVision(summarizerScanner.id)}?tab=configuration`,
+        featureFlags: { [FEATURE_FLAGS.REPLAY_VISION_MODEL_TIER_NAMING_EXPERIMENT]: 'test' },
+    },
+}
+
+export const ScannerConfigurationLiteStandardPro: StoryObj = {
+    parameters: {
+        pageUrl: `${urls.replayVision(summarizerScanner.id)}?tab=configuration`,
+        featureFlags: {
+            [FEATURE_FLAGS.REPLAY_VISION_MODEL_TIER_NAMING_EXPERIMENT]: 'lite-standard-pro',
+        },
+    },
+}
+
 // Renders the pending recommendation's diff and change cards plus the rating list.
 export const ScannerCalibration: StoryObj = {
     parameters: { pageUrl: `${urls.replayVision(summarizerScanner.id)}?tab=calibration` },
@@ -516,7 +559,6 @@ export const ScannerCalibration: StoryObj = {
 export const ScannerDigests: StoryObj = {
     parameters: {
         pageUrl: `${urls.replayVision(summarizerScanner.id)}?tab=actions`,
-        featureFlags: [FEATURE_FLAGS.REPLAY_VISION, FEATURE_FLAGS.REPLAY_VISION_ACTIONS],
     },
 }
 
@@ -528,6 +570,22 @@ export const ScannerEditorConfigure: StoryObj = {
     parameters: { pageUrl: urls.replayVisionScannerConfigure(summarizerScanner.id) },
 }
 
+export const ScannerEditorConfigureTierNames: StoryObj = {
+    parameters: {
+        pageUrl: urls.replayVisionScannerConfigure(summarizerScanner.id),
+        featureFlags: { [FEATURE_FLAGS.REPLAY_VISION_MODEL_TIER_NAMING_EXPERIMENT]: 'test' },
+    },
+}
+
+export const ScannerEditorConfigureLiteStandardPro: StoryObj = {
+    parameters: {
+        pageUrl: urls.replayVisionScannerConfigure(summarizerScanner.id),
+        featureFlags: {
+            [FEATURE_FLAGS.REPLAY_VISION_MODEL_TIER_NAMING_EXPERIMENT]: 'lite-standard-pro',
+        },
+    },
+}
+
 export const ScannerEditorTriggers: StoryObj = {
     parameters: { pageUrl: urls.replayVisionScannerTriggers(summarizerScanner.id) },
 }
@@ -535,7 +593,6 @@ export const ScannerEditorTriggers: StoryObj = {
 export const ActionEditorAlert: StoryObj = {
     parameters: {
         pageUrl: urls.replayVisionActionNew(summarizerScanner.id, 'alert'),
-        featureFlags: [FEATURE_FLAGS.REPLAY_VISION, FEATURE_FLAGS.REPLAY_VISION_ACTIONS],
     },
 }
 
@@ -543,14 +600,12 @@ export const ActionEditorAlert: StoryObj = {
 export const ActionEditorDigest: StoryObj = {
     parameters: {
         pageUrl: urls.replayVisionActionEdit(digestAction.id),
-        featureFlags: [FEATURE_FLAGS.REPLAY_VISION, FEATURE_FLAGS.REPLAY_VISION_ACTIONS],
     },
 }
 
 export const ActionDetail: StoryObj = {
     parameters: {
         pageUrl: urls.replayVisionAction(digestAction.id),
-        featureFlags: [FEATURE_FLAGS.REPLAY_VISION, FEATURE_FLAGS.REPLAY_VISION_ACTIONS],
     },
 }
 
@@ -563,6 +618,7 @@ export const StartupProgramCap: StoryObj = {
     decorators: [
         mswDecorator({
             get: {
+                '/api/projects/:team_id/tags/': ['checkout', 'core flows'],
                 '/api/projects/:team_id/vision/scanners/': scanners,
                 '/api/projects/:team_id/vision/scanners/stats/': scannerStats,
                 '/api/projects/:team_id/vision/quota/': { ...quota, credit_limit: null, remaining: null },

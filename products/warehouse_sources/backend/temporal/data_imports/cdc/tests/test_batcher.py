@@ -8,6 +8,7 @@ from parameterized import parameterized
 
 from products.warehouse_sources.backend.temporal.data_imports.cdc.batcher import (
     CDC_OP_COLUMN,
+    CDC_SEQ_COLUMN,
     CDC_TIMESTAMP_COLUMN,
     DELETED_AT_COLUMN,
     DELETED_COLUMN,
@@ -646,3 +647,61 @@ class TestEnrichToastOmittedRows:
 
         assert result.column("big")[0].as_py() is None
         assert result.column(TOAST_OMITTED_COLUMN)[0].as_py() == ["big"]
+
+
+def _pg_position_to_seq(position: str) -> int:
+    from products.warehouse_sources.backend.temporal.data_imports.sources.postgres.cdc.position import PgLSN
+
+    return PgLSN.deserialize(position).value
+
+
+class TestSeqColumn:
+    def test_seq_column_emitted_with_converter(self):
+        batcher = ChangeEventBatcher(position_to_seq=_pg_position_to_seq)
+        batcher.add(_make_event(op="I", position="0/100"))
+        batcher.add(_make_event(op="U", position="0/200"))
+        table = batcher.flush()["users"]
+
+        assert table.schema.field(CDC_SEQ_COLUMN).type == pa.int64()
+        assert table.column(CDC_SEQ_COLUMN).to_pylist() == [0x100, 0x200]
+
+    def test_seq_column_absent_without_converter(self):
+        batcher = ChangeEventBatcher()
+        batcher.add(_make_event(op="I", position="0/100"))
+        table = batcher.flush()["users"]
+
+        assert CDC_SEQ_COLUMN not in table.column_names
+
+    def test_source_column_named_like_seq_wins_and_append_is_skipped(self):
+        # A user column literally named _ph_cdc_seq must pass through with its own
+        # values; the engine seq append is skipped rather than shadowing it.
+        batcher = ChangeEventBatcher(position_to_seq=_pg_position_to_seq)
+        batcher.add(_make_event(op="I", position="0/100", columns={"id": 1, CDC_SEQ_COLUMN: 42}))
+        table = batcher.flush()["users"]
+
+        assert table.column_names.count(CDC_SEQ_COLUMN) == 1
+        assert table.column(CDC_SEQ_COLUMN).to_pylist() == [42]
+        # Not last: the caller's strip-by-last-field rule must not remove it.
+        assert table.schema.field(table.num_columns - 1).name != CDC_SEQ_COLUMN
+
+    def test_seq_survives_enrichment_untouched(self):
+        # Seq is CDC metadata: DELETE/TOAST enrichment must never fill or copy it.
+        batcher = ChangeEventBatcher(position_to_seq=_pg_position_to_seq)
+        batcher.add(
+            _make_event(
+                op="U",
+                position="0/100",
+                columns={"id": 1, "name": "Alice"},
+                omitted_columns=frozenset({"big"}),
+            )
+        )
+        batcher.add(_make_event(op="D", position="0/200", columns={"id": 1}))
+        table = batcher.flush()["users"]
+
+        enriched = enrich_toast_omitted_rows(table, ["id"])
+        enriched = enrich_delete_rows(enriched, ["id"])
+
+        assert enriched.column(CDC_SEQ_COLUMN).to_pylist() == [0x100, 0x200]
+        # The DELETE row copied `name` from the preceding update, proving
+        # enrichment ran while seq stayed per-event.
+        assert enriched.column("name")[1].as_py() == "Alice"
