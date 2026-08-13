@@ -47,8 +47,27 @@ export type ChannelPreviewPayload =
   | ({ kind: "item" } & ChannelItemPreviewPayload)
   | ({ kind: "space" } & SpacePreviewPayload);
 
+/**
+ * The shared card, and who currently owns it.
+ *
+ * Ownership matters because the card is one popup and two things move it. A
+ * keyboard-opened card belongs to the row the highlight is on, and that row
+ * takes it away again when the highlight leaves — but only while it still owns
+ * it. Without that, arrowing on after the pointer had moved the card elsewhere
+ * closed the card out from under the pointer.
+ */
+interface ChannelPreviewCard {
+  handle: PreviewCard.Handle<ChannelPreviewPayload>;
+  /** Open on a row the keyboard has settled on, and claim the card for it. */
+  openFromKeyboard: (triggerId: string) => void;
+  /** Close, but only if the keyboard's card is still this row's. */
+  closeFromKeyboard: (triggerId: string) => void;
+  /** The pointer is driving now; the keyboard no longer owns what it opened. */
+  releaseKeyboard: () => void;
+}
+
 const ChannelItemPreviewHandleContext =
-  createContext<PreviewCard.Handle<ChannelPreviewPayload> | null>(null);
+  createContext<ChannelPreviewCard | null>(null);
 
 /**
  * One hover card for every session row in the sidebar, rather than one per row.
@@ -79,8 +98,29 @@ export function ChannelItemPreviewCardProvider({
     handle.close();
   }, [handle]);
 
+  // Which row's keypress the open card belongs to, if any.
+  const keyboardTrigger = useRef<string | null>(null);
+  const card = useMemo<ChannelPreviewCard>(
+    () => ({
+      handle,
+      openFromKeyboard: (triggerId) => {
+        keyboardTrigger.current = triggerId;
+        handle.open(triggerId);
+      },
+      closeFromKeyboard: (triggerId) => {
+        if (keyboardTrigger.current !== triggerId) return;
+        keyboardTrigger.current = null;
+        handle.close();
+      },
+      releaseKeyboard: () => {
+        keyboardTrigger.current = null;
+      },
+    }),
+    [handle],
+  );
+
   return (
-    <ChannelItemPreviewHandleContext.Provider value={handle}>
+    <ChannelItemPreviewHandleContext.Provider value={card}>
       {children}
       {/* Controlled so the card survives its own submenu: "File to…" opens in a
           portal outside the card, and the pointer moving there reads as leaving
@@ -143,27 +183,28 @@ export function ChannelItemPreviewCardProvider({
  * Opens the shared card on a row the keyboard has settled on, and takes it away
  * again the moment the highlight moves — a card still open once the highlight
  * has gone points at the wrong row.
+ *
+ * "Takes it away" only where the keyboard's card is still this row's. The
+ * pointer moves the same popup between rows without telling the row that opened
+ * it, so a highlight leaving after that would otherwise close a card the
+ * pointer is sitting on.
  */
 function useKeyboardPreview(
-  handle: PreviewCard.Handle<ChannelPreviewPayload> | null,
+  card: ChannelPreviewCard | null,
   triggerId: string,
   highlighted: boolean,
 ): void {
-  const openedByKeyboard = useRef(false);
-
   useEffect(() => {
-    if (!handle || !highlighted) return;
-    const timer = setTimeout(() => {
-      handle.open(triggerId);
-      openedByKeyboard.current = true;
-    }, KEYBOARD_OPEN_DELAY_MS);
+    if (!card || !highlighted) return;
+    const timer = setTimeout(
+      () => card.openFromKeyboard(triggerId),
+      KEYBOARD_OPEN_DELAY_MS,
+    );
     return () => {
       clearTimeout(timer);
-      if (!openedByKeyboard.current) return;
-      openedByKeyboard.current = false;
-      handle.close();
+      card.closeFromKeyboard(triggerId);
     };
-  }, [handle, highlighted, triggerId]);
+  }, [card, highlighted, triggerId]);
 }
 
 /**
@@ -185,7 +226,7 @@ export function ChannelItemHoverCard({
   highlighted?: boolean;
   children: ReactNode;
 }) {
-  const handle = useContext(ChannelItemPreviewHandleContext);
+  const card = useContext(ChannelItemPreviewHandleContext);
   // The card reads the row it is over off the active trigger, so what the row
   // has to say travels as the trigger's payload. Kept stable, because a new
   // identity writes it to the card's store again.
@@ -196,16 +237,22 @@ export function ChannelItemHoverCard({
   // Ours rather than Base UI's own, because opening from the keyboard means
   // naming the trigger to open.
   const triggerId = useId();
-  useKeyboardPreview(handle, triggerId, highlighted);
-  const row = <div className="flex min-w-0">{children}</div>;
+  useKeyboardPreview(card, triggerId, highlighted);
+  const row = (
+    // Pointing at any row hands the card to the pointer, so the row the
+    // keyboard opened it on stops trying to close it.
+    <div className="flex min-w-0" onPointerEnter={card?.releaseKeyboard}>
+      {children}
+    </div>
+  );
 
   // No provider, no card. A row still has its right-click menu, and every fact
   // the card names is on the row itself.
-  if (!handle) return row;
+  if (!card) return row;
 
   return (
     <PreviewCard.Trigger
-      handle={handle}
+      handle={card.handle}
       payload={payload}
       id={triggerId}
       delay={OPEN_DELAY_MS}
@@ -221,16 +268,21 @@ export function ChannelItemHoverCard({
  *
  * The same handle as the session rows on purpose: a space and the sessions
  * under it are one list to the pointer, so crossing between them swaps the
- * card's contents instead of closing one popup and opening another.
+ * card's contents instead of closing one popup and opening another. It opens on
+ * the keyboard's highlight the way they do, too — walking the tree shows the
+ * same card whichever kind of row the highlight lands on.
  */
 export function SpaceHoverCard({
   space,
+  highlighted = false,
   children,
 }: {
   space: SpacePreviewPayload;
+  /** The keyboard is on this row, which opens the card as hovering does. */
+  highlighted?: boolean;
   children: ReactNode;
 }) {
-  const handle = useContext(ChannelItemPreviewHandleContext);
+  const card = useContext(ChannelItemPreviewHandleContext);
   // Stable for the reason a session row's is: a new identity writes the payload
   // to the card's store again. The caller memoizes what it passes.
   const payload = useMemo(
@@ -238,13 +290,18 @@ export function SpaceHoverCard({
     [space],
   );
   const triggerId = useId();
-  const row = <div className="flex min-w-0">{children}</div>;
+  useKeyboardPreview(card, triggerId, highlighted);
+  const row = (
+    <div className="flex min-w-0" onPointerEnter={card?.releaseKeyboard}>
+      {children}
+    </div>
+  );
 
-  if (!handle) return row;
+  if (!card) return row;
 
   return (
     <PreviewCard.Trigger
-      handle={handle}
+      handle={card.handle}
       payload={payload}
       id={triggerId}
       delay={OPEN_DELAY_MS}

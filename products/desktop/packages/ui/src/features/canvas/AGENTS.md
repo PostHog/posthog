@@ -77,7 +77,8 @@ The root `AGENTS.md` architecture rules still apply.
   `TaskRowMenuProps`, so the facts and the actions can't drift.
   Rename is the one item the tree drops, because it edits in place and there is
   no inline editor on a row the keyboard is walking.
-  The card also opens on the keyboard's highlight, 350ms after it lands.
+  The card also opens on the keyboard's highlight, 350ms after it lands — on a space row as well as a session one, so walking the tree shows the same card whichever kind of row the highlight lands on.
+  The row that opened it is the only one that may take it away (`openFromKeyboard` / `closeFromKeyboard` on the provider, released the moment a pointer enters any row): the pointer moves the same popup between rows without telling the row that opened it, so an unconditional close on the next keypress reached across and shut a card the pointer was on.
   Rows read that highlight from `spaceTreeStore` as a boolean
   (`highlightedValue === item.key`) so a keypress re-renders two rows, and the
   list still writes it to a ref as well, because the arrow handlers read the

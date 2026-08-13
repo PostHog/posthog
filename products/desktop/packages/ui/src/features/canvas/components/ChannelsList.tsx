@@ -964,6 +964,13 @@ const ChannelSection = memo(
       isDeleting,
     } = useChannelActions(channel);
 
+    // A boolean rather than the value itself, so a keypress re-renders only the
+    // two rows whose answer changed. The row's autocomplete value is the space
+    // id, which is what the keyboard's highlight holds.
+    const isHighlighted = useSpaceTreeStore(
+      (s) => s.highlightedValue === channel.id,
+    );
+
     // What the shared card says about this space. Memoized because a new
     // identity is written to the card's store again, and the counts change on
     // every feed poll.
@@ -1017,7 +1024,13 @@ const ChannelSection = memo(
             opens the same actions as the "..." menu, and resting on it opens
             the space's card — the same popup the sessions under it use, so
             crossing between them swaps contents rather than reopening. */}
-          <SpaceHoverCard space={preview}>
+          {/* Not on the space you are already in: opening it leaves the
+              highlight where it was, so the card would sit over the space it
+              just opened. */}
+          <SpaceHoverCard
+            space={preview}
+            highlighted={isHighlighted && !isActive}
+          >
             <ContextMenu>
               <ContextMenuTrigger
                 render={
