@@ -418,7 +418,6 @@ class TaskSerializer(DataclassSerializer):
     slack_thread_references = SlackThreadReferenceSerializer(many=True, read_only=True)
     runtime = serializers.ChoiceField(
         choices=tasks_facade.TaskRuntime.choices,
-        read_only=True,
         help_text="Agent protocol and harness used for this task's runs.",
     )
 

@@ -792,6 +792,16 @@ describe('Tool Filtering - Feature Flags', () => {
         expect(on).not.toContain('notebooks-partial-update')
     })
 
+    it('project-bluebird gates canvas tools', () => {
+        const off = getToolsForFeatures({ featureFlags: { 'project-bluebird': false } })
+        expect(off).not.toContain('canvas-create')
+        expect(off).not.toContain('canvas-source-retrieve')
+
+        const on = getToolsForFeatures({ featureFlags: { 'project-bluebird': true } })
+        expect(on).toContain('canvas-create')
+        expect(on).toContain('canvas-source-retrieve')
+    })
+
     it('revamped-py-notebooks flag swaps the notebook surface without duplicates', () => {
         // Flag ON: the cell tools take over create/read/edit — the model never sees two
         // tools for the same job. Flag OFF: only the legacy surface.
@@ -840,6 +850,7 @@ describe('Tool Filtering - Feature Flags', () => {
                 'user-interviews',
                 'customer-analytics-csp',
                 'notebooks-collaboration',
+                'project-bluebird',
                 'revamped-py-notebooks',
                 'tasks',
                 'dashboard-widgets',
@@ -861,7 +872,7 @@ describe('Tool Filtering - Feature Flags', () => {
                 'posthog-connect',
             ])
         )
-        expect(flags).toHaveLength(29)
+        expect(flags).toHaveLength(30)
     })
 
     it('every loops tool is gated on the loops flag', () => {

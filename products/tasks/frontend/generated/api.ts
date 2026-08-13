@@ -31,9 +31,7 @@ import type {
     LoopsTriggerCreateBodyOne,
     LoopsTriggerCreateBodyThree,
     LoopsTriggerCreateBodyTwo,
-    PaginatedChannelDTOListApi,
     PaginatedChannelFeedMessageDTOListApi,
-    PaginatedChannelInstructionsDTOListApi,
     PaginatedLoopDTOListApi,
     PaginatedSandboxCustomImageDTOListApi,
     PaginatedSandboxEnvironmentDTOListApi,
@@ -73,7 +71,6 @@ import type {
     TaskAutomationWriteApi,
     TaskAutomationsListParams,
     TaskChannelsFeedListParams,
-    TaskChannelsListParams,
     TaskCommentDetailApi,
     TaskCommentsResponseApi,
     TaskCreateApi,
@@ -840,32 +837,16 @@ export const taskAutomationsRunCreate = async (
     })
 }
 
-export const getTaskChannelsListUrl = (projectId: string, params?: TaskChannelsListParams) => {
-    const normalizedParams = new URLSearchParams()
-
-    Object.entries(params || {}).forEach(([key, value]) => {
-        if (value !== undefined) {
-            normalizedParams.append(key, value === null ? 'null' : String(value))
-        }
-    })
-
-    const stringifiedParams = normalizedParams.toString()
-
-    return stringifiedParams.length > 0
-        ? `/api/projects/${projectId}/task_channels/?${stringifiedParams}`
-        : `/api/projects/${projectId}/task_channels/`
+export const getTaskChannelsListUrl = (projectId: string) => {
+    return `/api/projects/${projectId}/task_channels/`
 }
 
 /**
  * All live public channels plus the requester's personal #me channel (created on first list).
  * @summary List channels
  */
-export const taskChannelsList = async (
-    projectId: string,
-    params?: TaskChannelsListParams,
-    options?: RequestInit
-): Promise<PaginatedChannelDTOListApi> => {
-    return apiMutator<PaginatedChannelDTOListApi>(getTaskChannelsListUrl(projectId, params), {
+export const taskChannelsList = async (projectId: string, options?: RequestInit): Promise<ChannelDTOApi[]> => {
+    return apiMutator<ChannelDTOApi[]>(getTaskChannelsListUrl(projectId), {
         ...options,
         method: 'GET',
     })
@@ -1157,14 +1138,11 @@ export const taskChannelsInstructionsVersionsRetrieve = async (
     projectId: string,
     id: string,
     options?: RequestInit
-): Promise<PaginatedChannelInstructionsDTOListApi> => {
-    return apiMutator<PaginatedChannelInstructionsDTOListApi>(
-        getTaskChannelsInstructionsVersionsRetrieveUrl(projectId, id),
-        {
-            ...options,
-            method: 'GET',
-        }
-    )
+): Promise<ChannelInstructionsDTOApi[]> => {
+    return apiMutator<ChannelInstructionsDTOApi[]>(getTaskChannelsInstructionsVersionsRetrieveUrl(projectId, id), {
+        ...options,
+        method: 'GET',
+    })
 }
 
 export const getTaskChannelsStarCreateUrl = (projectId: string, id: string) => {

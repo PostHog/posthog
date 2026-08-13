@@ -400,6 +400,26 @@ class TestAssistantContextManager(BaseTest):
         self.assertIn("````markdown", result)
         mock_from_short_id.assert_not_called()
 
+    @parameterized.expand([(True, True), (False, False)])
+    def test_markdown_notebook_context_gates_canvas_creation_instructions(
+        self, flag_enabled: bool, should_include: bool
+    ) -> None:
+        notebook = MaxNotebookContext(
+            id="hjH8ysXW",
+            name="Rando notebook",
+            insertion_placeholder_block_id="placeholder-id",
+            insertion_placeholder_marker="Thinking...",
+            markdown_with_insertion_placeholder="# Rando notebook\n\nThinking...",
+        )
+
+        with patch(
+            "ee.hogai.context.context.has_project_bluebird_feature_flag", return_value=flag_enabled
+        ) as mock_feature_flag:
+            result = self.context_manager._format_markdown_notebook_context(notebook)
+
+        self.assertEqual('<BlueBird id="<canvas uuid>"' in result, should_include)
+        mock_feature_flag.assert_called_once_with(self.team, self.user)
+
     async def test_format_ui_context_with_events(self):
         # Create mock events
         event1 = MaxEventContext(id="1", name="page_view")

@@ -47327,15 +47327,6 @@ export namespace Schemas {
       results: ChangeRequest[];
     }
 
-    export interface PaginatedChannelDTOList {
-      count: number;
-      /** @nullable */
-      next?: string | null;
-      /** @nullable */
-      previous?: string | null;
-      results: ChannelDTO[];
-    }
-
     export interface PaginatedChannelFeedMessageDTOList {
       count: number;
       /** @nullable */
@@ -47343,15 +47334,6 @@ export namespace Schemas {
       /** @nullable */
       previous?: string | null;
       results: ChannelFeedMessageDTO[];
-    }
-
-    export interface PaginatedChannelInstructionsDTOList {
-      count: number;
-      /** @nullable */
-      next?: string | null;
-      /** @nullable */
-      previous?: string | null;
-      results: ChannelInstructionsDTO[];
     }
 
     export interface PaginatedClickhouseEventList {
@@ -51575,7 +51557,7 @@ export namespace Schemas {
        *
        * * `acp` - ACP
        * * `pi` - Pi */
-      readonly runtime: RuntimeEnum;
+      runtime: RuntimeEnum;
       /** @nullable */
       repository: string | null;
       repositories: string[];
@@ -89040,17 +89022,6 @@ export namespace Schemas {
     };
 
     export type TaskAutomationsListParams = {
-    /**
-     * Number of results to return per page.
-     */
-    limit?: number;
-    /**
-     * The initial index from which to return the results.
-     */
-    offset?: number;
-    };
-
-    export type TaskChannelsListParams = {
     /**
      * Number of results to return per page.
      */

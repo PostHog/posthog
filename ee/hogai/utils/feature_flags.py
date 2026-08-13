@@ -44,6 +44,16 @@ def has_task_tool_feature_flag(team: Team, user: User) -> bool:
     )
 
 
+def has_project_bluebird_feature_flag(team: Team, user: User) -> bool:
+    return feature_enabled_or_false(
+        "project-bluebird",
+        str(user.distinct_id),
+        groups={"organization": str(team.organization_id)},
+        group_properties={"organization": {"id": str(team.organization_id)}},
+        send_feature_flag_events=False,
+    )
+
+
 def has_conversation_topic_feature_flag(team: Team, user: User) -> bool:
     return feature_enabled_or_false(
         "posthog-ai-web-analytics-nudge",

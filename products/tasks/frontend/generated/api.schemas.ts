@@ -1176,15 +1176,6 @@ export interface ChannelDTOApi {
     starred?: boolean
 }
 
-export interface PaginatedChannelDTOListApi {
-    count: number
-    /** @nullable */
-    next?: string | null
-    /** @nullable */
-    previous?: string | null
-    results: ChannelDTOApi[]
-}
-
 /**
  * Request body for creating (resolve-or-create) or renaming a public channel.
  */
@@ -1325,15 +1316,6 @@ export interface PatchedChannelInstructionsWriteApi {
      * @nullable
      */
     base_version?: number | null
-}
-
-export interface PaginatedChannelInstructionsDTOListApi {
-    count: number
-    /** @nullable */
-    next?: string | null
-    /** @nullable */
-    previous?: string | null
-    results: ChannelInstructionsDTOApi[]
 }
 
 /**
@@ -1590,7 +1572,7 @@ export interface TaskDetailDTOApi {
      *
      * * `acp` - ACP
      * * `pi` - Pi */
-    readonly runtime: RuntimeEnumApi
+    runtime: RuntimeEnumApi
     /** @nullable */
     repository: string | null
     repositories: string[]
@@ -4203,17 +4185,6 @@ export type TaskActivityListParams = {
 }
 
 export type TaskAutomationsListParams = {
-    /**
-     * Number of results to return per page.
-     */
-    limit?: number
-    /**
-     * The initial index from which to return the results.
-     */
-    offset?: number
-}
-
-export type TaskChannelsListParams = {
     /**
      * Number of results to return per page.
      */

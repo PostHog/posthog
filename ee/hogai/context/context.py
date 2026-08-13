@@ -34,6 +34,7 @@ from ee.hogai.context.dashboard.context import DashboardContext, DashboardInsigh
 from ee.hogai.context.insight.context import InsightContext
 from ee.hogai.context.notebook.prompts import ROOT_NOTEBOOKS_CONTEXT_PROMPT
 from ee.hogai.core.mixins import AssistantContextMixin
+from ee.hogai.utils.feature_flags import has_project_bluebird_feature_flag
 from ee.hogai.utils.helpers import find_start_message, find_start_message_idx, insert_messages_before_start
 from ee.hogai.utils.prompt import format_prompt_string
 from ee.hogai.utils.types.base import AssistantMessageUnion, BaseStateWithMessages
@@ -417,6 +418,17 @@ class AssistantContextManager(AssistantContextMixin):
         response_marker = _sanitize_inline_prompt_value(notebook.insertion_placeholder_marker or "Thinking...")
         markdown = (notebook.markdown_with_insertion_placeholder or "")[:NOTEBOOK_MARKDOWN_MAX_LENGTH]
         fence = _markdown_fence_for(markdown)
+        canvas_instructions = (
+            [
+                (
+                    '- `<BlueBird id="<canvas uuid>" prompt="<original request>" />` embeds a saved canvas inline. '
+                    "Keep the prompt so the notebook preserves why it was created. Omit `id` to create a new canvas "
+                    "from the prompt; never invent an id."
+                )
+            ]
+            if has_project_bluebird_feature_flag(self._team, self._user)
+            else []
+        )
 
         return "\n".join(
             [
@@ -460,11 +472,7 @@ class AssistantContextManager(AssistantContextMixin):
                     "prop in their block header. Keep the titles already there, and give any tag you add a short "
                     "one saying what it shows, so a reader can skim the notebook without opening each block."
                 ),
-                (
-                    '- `<BlueBird id="<canvas uuid>" prompt="<original request>" />` embeds a saved canvas inline. '
-                    "Keep the prompt so the notebook preserves why it was created. Omit `id` to create a new canvas "
-                    "from the prompt; never invent an id."
-                ),
+                *canvas_instructions,
                 (
                     "When the current user asks you to change broad notebook content, use notebook tools against "
                     "the current notebook instead of explaining how the user could do it. "

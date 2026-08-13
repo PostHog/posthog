@@ -7,6 +7,7 @@
 category: Canvas
 feature: canvas
 url_prefix: /
+feature_flag: project-bluebird
 ui_apps: {}
 tools:
     canvas-builds-retrieve:
@@ -41,7 +42,9 @@ tools:
         description: >
             Create a new, empty canvas in a channel. Returns the canvas's id and (null) `current_version_id`; give it
             source by publishing a project with canvas-publish-create. Only create a canvas when no existing one is the
-            intended target — list them with canvas-list first.
+            intended target — list them with canvas-list first. To ask the agent to build a new canvas from a markdown
+            notebook, insert `<BlueBird prompt="<original request>" />`. Keep the prompt when adding the returned canvas
+            id so the notebook preserves why it was created.
         param_overrides:
             channel_id:
                 description:

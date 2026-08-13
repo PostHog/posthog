@@ -37,22 +37,32 @@ jest.mock('./MarkdownNotebookEntityPicker', () => ({
 // Mirrors how MarkdownNotebook composes its menu, so the assertions cover the list a user sees
 // rather than the registry alone: built-in commands are not registry entries, so a node hidden
 // from the registry can still reach the menu through a built-in that inserts the same tag.
-function getInsertCommandsByLabel(featureFlags: FeatureFlagsSet, label: string): { key: string; category: string }[] {
+function getNotebookInsertCommands(featureFlags: FeatureFlagsSet): {
+    commands: ReturnType<typeof buildInsertCommands>
+    replaceNodeWithInsertedComponent: jest.Mock
+} {
     const noop = (): void => {}
-    const commands = omitInsertCommands(
-        buildInsertCommands(
-            mergeMarkdownNotebookRegistries(
-                getMarkdownNotebookDefaultRegistry(),
-                getMarkdownRegistryForFeatureFlags(featureFlags)
-            ),
-            noop,
-            noop,
-            noop,
-            noop,
-            noop
+    const replaceNodeWithInsertedComponent = jest.fn()
+    const commands = buildInsertCommands(
+        mergeMarkdownNotebookRegistries(
+            getMarkdownNotebookDefaultRegistry(),
+            getMarkdownRegistryForFeatureFlags(featureFlags)
         ),
-        getHiddenInsertCommandKeysForFeatureFlags(featureFlags)
+        replaceNodeWithInsertedComponent,
+        noop,
+        noop,
+        noop,
+        noop
     )
+
+    return {
+        commands: omitInsertCommands(commands, getHiddenInsertCommandKeysForFeatureFlags(featureFlags)),
+        replaceNodeWithInsertedComponent,
+    }
+}
+
+function getInsertCommandsByLabel(featureFlags: FeatureFlagsSet, label: string): { key: string; category: string }[] {
+    const { commands } = getNotebookInsertCommands(featureFlags)
 
     return commands
         .filter((command) => command.label === label)
@@ -97,6 +107,27 @@ describe('markdownNotebookRegistry', () => {
                 expectedCommands
             )
         })
+    })
+
+    it('offers BlueBird behind its flag with the prompt controls open', () => {
+        const featureFlags = { [FEATURE_FLAGS.PROJECT_BLUEBIRD]: true }
+        const { commands, replaceNodeWithInsertedComponent } = getNotebookInsertCommands(featureFlags)
+        const blueBirdCommand = commands.find((command) => command.label === 'BlueBird')
+
+        expect(blueBirdCommand).not.toBeUndefined()
+        blueBirdCommand?.run('target-node')
+        expect(replaceNodeWithInsertedComponent).toHaveBeenCalledWith(
+            'target-node',
+            expect.objectContaining({
+                tagName: 'BlueBird',
+                props: expect.objectContaining({ showFilters: true }),
+            })
+        )
+        expect(getInsertCommandsByLabel(featureFlags, 'BlueBird')).toEqual([
+            { key: 'component-BlueBird', category: 'PostHog' },
+        ])
+        expect(getInsertCommandsByLabel({}, 'BlueBird')).toEqual([])
+        expect(getMarkdownRegistryForFeatureFlags({}).components.BlueBird.ViewComponent).toBeTruthy()
     })
 
     it('does not make real notebook nodes mutually exclusive in markdown notebooks', () => {

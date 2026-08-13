@@ -243,8 +243,13 @@ export const MARKDOWN_NODE_DEFINITIONS: {
     {
         tagName: 'BlueBird',
         category: 'PostHog',
+        label: 'BlueBird',
         insertCommand: {
             aliases: ['canvas', 'bluebird'],
+            defaultProps: () => ({
+                ...getDefaultPropsForNodeType(NotebookNodeType.Canvas),
+                showFilters: true,
+            }),
         },
     },
     { tagName: 'Canvas', category: 'PostHog' },
@@ -306,7 +311,7 @@ export const NOTEBOOK_MARKDOWN_REGISTRY: NotebookComponentRegistry = createMarkd
 ])
 
 // Node tags that only appear in the markdown insert menu when their feature flag is on.
-// Only insertion is gated — rendering of already-inserted nodes is never gated.
+// Only insertion is gated - rendering of already-inserted nodes is never gated.
 export function getMarkdownRegistryForFeatureFlags(featureFlags: FeatureFlagsSet): NotebookComponentRegistry {
     const hiddenTags: string[] = []
     if (!featureFlags[FEATURE_FLAGS.REVAMPED_PY_NOTEBOOKS]) {

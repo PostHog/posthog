@@ -18,7 +18,6 @@ import {
     TaskChannelsInstructionsRetrieveParams,
     TaskChannelsInstructionsUpdateBody,
     TaskChannelsInstructionsUpdateParams,
-    TaskChannelsListQueryParams,
     TaskChannelsRetrieveParams,
     TasksCreateBody,
     TasksListQueryParams,
@@ -115,20 +114,17 @@ const channelInstructionsUpdate = (): ToolBase<
     },
 })
 
-const ChannelListSchema = TaskChannelsListQueryParams
+const ChannelListSchema = z.object({})
 
-const channelList = (): ToolBase<typeof ChannelListSchema, Schemas.PaginatedChannelDTOList> => ({
+const channelList = (): ToolBase<typeof ChannelListSchema, Schemas.ChannelDTO[]> => ({
     name: 'channel-list',
     schema: ChannelListSchema,
+    // eslint-disable-next-line no-unused-vars
     handler: async (context: Context, params: z.infer<typeof ChannelListSchema>) => {
         const projectId = await context.stateManager.getProjectId()
-        const result = await context.api.request<Schemas.PaginatedChannelDTOList>({
+        const result = await context.api.request<Schemas.ChannelDTO[]>({
             method: 'GET',
             path: `/api/projects/${encodeURIComponent(String(projectId))}/task_channels/`,
-            query: {
-                limit: params.limit,
-                offset: params.offset,
-            },
         })
         return result
     },

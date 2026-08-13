@@ -15,6 +15,7 @@ import {
 } from 'kea'
 import { loaders } from 'kea-loaders'
 import { router } from 'kea-router'
+import posthog from 'posthog-js'
 
 import { lemonToast } from '@posthog/lemon-ui'
 
@@ -38,8 +39,8 @@ import type {
     CanvasSourcePublishResponseApi,
     CanvasSourceResponseApi,
 } from 'products/canvas/frontend/generated/api.schemas'
-import { taskChannelsList, tasksCreate, tasksRunCreate } from 'products/tasks/frontend/generated/api'
-import { TaskExecutionModeEnumApi } from 'products/tasks/frontend/generated/api.schemas'
+import { taskChannelsList, tasksCreate, tasksRetrieve, tasksRunCreate } from 'products/tasks/frontend/generated/api'
+import { TaskExecutionModeEnumApi, type TaskDetailDTOApi } from 'products/tasks/frontend/generated/api.schemas'
 
 import { CanvasCapabilities, parseCanvasCapabilities } from './canvasArtifactBridge'
 import { buildCanvasGenerationPrompt } from './canvasGenerationPrompt'
@@ -91,6 +92,7 @@ export interface notebookNodeCanvasLogicValues {
     editedCode: string | null
     editedContext: string | null
     editedName: string | null
+    generationError: string | null
     hasMetaChanges: boolean
     hasSourceChanges: boolean
     isBuilding: boolean
@@ -138,6 +140,9 @@ export interface notebookNodeCanvasLogicActions {
     }
     discardSourceChanges: () => {
         value: true
+    }
+    generationFailed: (error: string) => {
+        error: string
     }
     loadBuilds: () => any
     loadBuildsFailure: (
@@ -232,8 +237,12 @@ export interface notebookNodeCanvasLogicActions {
     setRuntimeError: (error: string | null) => {
         error: string | null
     }
-    watchGeneration: (canvasId: string) => {
+    watchGeneration: (
+        canvasId: string,
+        taskId: string
+    ) => {
         canvasId: string
+        taskId: string
     }
 }
 
@@ -271,6 +280,7 @@ export const notebookNodeCanvasLogic: LogicWrapper<notebookNodeCanvasLogicType> 
         createFromPrompt: true,
         createFromPromptSuccess: (canvasId: string, taskId: string) => ({ canvasId, taskId }),
         createFromPromptFailure: (error: string) => ({ error }),
+        generationFailed: (error: string) => ({ error }),
         setRuntimeError: (error: string | null) => ({ error }),
         setEditedCode: (code: string) => ({ code }),
         setEditedName: (name: string) => ({ name }),
@@ -282,7 +292,7 @@ export const notebookNodeCanvasLogic: LogicWrapper<notebookNodeCanvasLogicType> 
         buildFinished: true,
         discardSourceChanges: true,
         resetDataAccessApproval: true,
-        watchGeneration: (canvasId: string) => ({ canvasId }),
+        watchGeneration: (canvasId: string, taskId: string) => ({ canvasId, taskId }),
     }),
     loaders(({ props, values }) => ({
         canvas: [
@@ -343,6 +353,14 @@ export const notebookNodeCanvasLogic: LogicWrapper<notebookNodeCanvasLogicType> 
                 createFromPrompt: () => null,
                 createFromPromptSuccess: () => null,
                 createFromPromptFailure: (_, { error }) => error,
+            },
+        ],
+        generationError: [
+            null as string | null,
+            {
+                askAgent: () => null,
+                createFromPrompt: () => null,
+                generationFailed: (_, { error }) => error,
             },
         ],
         canvasMissing: [
@@ -499,10 +517,10 @@ export const notebookNodeCanvasLogic: LogicWrapper<notebookNodeCanvasLogicType> 
                         let channelId = props.channelId
                         if (!channelId) {
                             const channels = await taskChannelsList(String(values.currentTeamId))
-                            channelId = channels.results.find((channel) => channel.channel_type === 'personal')?.id
+                            channelId = channels.find((channel) => channel.channel_type === 'personal')?.id
                         }
                         if (!channelId) {
-                            throw new Error("Couldn't find your personal channel")
+                            throw new Error("Couldn't find a personal channel. Refresh and try again.")
                         }
                         canvas = await canvasesCreate(String(values.currentTeamId), {
                             name: getCanvasNameFromPrompt(instruction),
@@ -524,7 +542,7 @@ export const notebookNodeCanvasLogic: LogicWrapper<notebookNodeCanvasLogicType> 
                     description: prompt,
                     channel: canvas.channel,
                 })
-                await canvasesPartialUpdate(String(values.currentTeamId), canvas.id, {
+                const updatedCanvas = await canvasesPartialUpdate(String(values.currentTeamId), canvas.id, {
                     context: instruction,
                     generation_task_id: task.id,
                 })
@@ -532,13 +550,15 @@ export const notebookNodeCanvasLogic: LogicWrapper<notebookNodeCanvasLogicType> 
                     mode: TaskExecutionModeEnumApi.Background,
                     pending_user_message: prompt,
                 })
+                actions.loadCanvasSuccess(updatedCanvas)
                 actions.createFromPromptSuccess(canvas.id, task.id)
-                actions.watchGeneration(canvas.id)
                 lemonToast.success('The agent is building this canvas', {
                     button: { label: 'View task', action: () => router.actions.push(urls.taskDetail(task.id)) },
                 })
             } catch (error) {
-                actions.createFromPromptFailure(error instanceof Error ? error.message : String(error))
+                const errorObject = error instanceof Error ? error : new Error(String(error))
+                posthog.captureException(errorObject, { action: 'create notebook canvas from prompt' })
+                actions.createFromPromptFailure(errorObject.message)
             } finally {
                 cache.initializingFromPrompt = false
             }
@@ -613,12 +633,11 @@ export const notebookNodeCanvasLogic: LogicWrapper<notebookNodeCanvasLogicType> 
                     mode: TaskExecutionModeEnumApi.Background,
                     pending_user_message: prompt,
                 })
-                await canvasesPartialUpdate(String(values.currentTeamId), props.id, {
+                const updatedCanvas = await canvasesPartialUpdate(String(values.currentTeamId), props.id, {
                     generation_task_id: task.id,
                 })
+                actions.loadCanvasSuccess(updatedCanvas)
                 actions.askAgentSuccess(task.id)
-                actions.watchGeneration(canvas.id)
-                actions.loadCanvas()
                 lemonToast.success('The agent is updating this canvas', {
                     button: { label: 'View task', action: () => router.actions.push(urls.taskDetail(task.id)) },
                 })
@@ -627,13 +646,29 @@ export const notebookNodeCanvasLogic: LogicWrapper<notebookNodeCanvasLogicType> 
                 lemonToast.error(`Couldn't start the agent: ${error instanceof Error ? error.message : String(error)}`)
             }
         },
-        watchGeneration: async ({ canvasId }, breakpoint) => {
-            // Watch for the agent's publish so the rendered page swaps in without a
-            // manual refresh. Bounded; a run that outlives the poll just needs a reload.
+        loadCanvasSuccess: ({ canvas }) => {
+            if (canvas.generation_task_id && !canvas.published_build_id) {
+                actions.watchGeneration(canvas.id, canvas.generation_task_id)
+            }
+        },
+        watchGeneration: async ({ canvasId, taskId }, breakpoint) => {
             const initialBuildId = values.builds?.published_build_id ?? null
             for (let attempt = 0; attempt < AGENT_POLL_MAX_ATTEMPTS; attempt++) {
-                await breakpoint(AGENT_POLL_INTERVAL_MS)
-                const builds = await canvasesBuildsRetrieve(String(values.currentTeamId), canvasId)
+                if (attempt > 0) {
+                    await breakpoint(AGENT_POLL_INTERVAL_MS)
+                }
+                let builds: CanvasBuildsResponseApi
+                let task: TaskDetailDTOApi
+                try {
+                    const [loadedBuilds, loadedTask] = await Promise.all([
+                        canvasesBuildsRetrieve(String(values.currentTeamId), canvasId),
+                        tasksRetrieve(String(values.currentTeamId), taskId),
+                    ])
+                    builds = loadedBuilds
+                    task = loadedTask
+                } catch {
+                    continue
+                }
                 breakpoint()
                 actions.loadBuildsSuccess(builds)
                 if (builds.published_build_id && builds.published_build_id !== initialBuildId) {
@@ -642,7 +677,22 @@ export const notebookNodeCanvasLogic: LogicWrapper<notebookNodeCanvasLogicType> 
                     lemonToast.success('The agent updated this canvas')
                     return
                 }
+                if (task.latest_run?.status === 'failed' || task.latest_run?.status === 'cancelled') {
+                    actions.generationFailed(
+                        task.latest_run.error_message?.trim()
+                            ? `Couldn't build this canvas: ${task.latest_run.error_message}`
+                            : "Couldn't build this canvas. Try again."
+                    )
+                    return
+                }
+                if (task.latest_run?.status === 'completed' && !builds.current_version_id) {
+                    actions.generationFailed('The generation task finished without publishing the canvas. Try again.')
+                    return
+                }
             }
+            actions.generationFailed(
+                'Canvas generation is taking longer than expected. Open the generation task to check its progress.'
+            )
         },
     })),
     afterMount(({ actions, props }) => {

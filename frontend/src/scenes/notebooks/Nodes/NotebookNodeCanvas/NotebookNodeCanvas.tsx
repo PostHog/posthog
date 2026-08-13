@@ -4,6 +4,7 @@ import { useEffect } from 'react'
 
 import { LemonBanner, LemonButton, LemonInput, LemonTag, LemonTextArea } from '@posthog/lemon-ui'
 
+import { wasNotebookNodeJustInserted } from 'lib/components/MarkdownNotebook/freshlyInserted'
 import { NotFound } from 'lib/components/NotFound'
 import { JSONContent } from 'lib/components/RichContentEditor/types'
 import { LemonLabel } from 'lib/lemon-ui/LemonLabel'
@@ -41,6 +42,7 @@ const Component = ({ attributes, updateAttributes }: NotebookNodeProps<NotebookN
         artifactUrl,
         capabilities,
         runtimeError,
+        generationError,
         creatingCanvas,
         canvasCreationError,
         dataAccessApproved,
@@ -94,7 +96,7 @@ const Component = ({ attributes, updateAttributes }: NotebookNodeProps<NotebookN
 
     if (!id) {
         if (!prompt.trim()) {
-            return <EmptyStateMessage>Add a canvas ID or prompt in the block settings.</EmptyStateMessage>
+            return <EmptyStateMessage>Add a prompt in the block settings.</EmptyStateMessage>
         }
         return (
             <EmptyStateMessage>
@@ -124,12 +126,34 @@ const Component = ({ attributes, updateAttributes }: NotebookNodeProps<NotebookN
     }
 
     if (!artifactUrl) {
+        const generationTaskId = canvas?.generation_task_id
+        if (generationError) {
+            return (
+                <EmptyStateMessage>
+                    <div className="deprecated-space-y-2">
+                        <div>{generationError}</div>
+                        <div className="flex justify-center gap-2">
+                            {isEditable ? (
+                                <LemonButton type="primary" onClick={() => createFromPrompt()} loading={creatingCanvas}>
+                                    Try again
+                                </LemonButton>
+                            ) : null}
+                            {generationTaskId ? (
+                                <LemonButton onClick={() => router.actions.push(urls.taskDetail(generationTaskId))}>
+                                    View generation task
+                                </LemonButton>
+                            ) : null}
+                        </div>
+                    </div>
+                </EmptyStateMessage>
+            )
+        }
         const buildInProgress = builds?.builds.some(
             (build) => build.build_status === 'queued' || build.build_status === 'building'
         )
         return (
             <EmptyStateMessage>
-                {canvas?.generation_task_id
+                {generationTaskId
                     ? 'This canvas has no published build yet. Open the generation task to check its progress.'
                     : buildInProgress
                       ? 'This canvas is still building. Check back in a moment.'
@@ -235,29 +259,30 @@ const Settings = ({
                     value={prompt}
                     onChange={(value) => updateAttributes({ prompt: value || undefined })}
                     placeholder="Describe the canvas to create, for example: a spinning 3D globe showing signups by country."
-                    minRows={3}
+                    minRows={id ? 3 : 8}
+                    autoFocus={wasNotebookNodeJustInserted(attributes.nodeId)}
                 />
-            </div>
-            <div className="flex gap-2">
-                <div className="flex-1">
-                    <LemonLabel>Canvas ID</LemonLabel>
-                    <LemonInput
-                        value={id ?? ''}
-                        onChange={(value) => updateAttributes({ id: value })}
-                        placeholder="Canvas UUID"
-                    />
-                </div>
-                <div className="flex-1">
-                    <LemonLabel>Channel ID</LemonLabel>
-                    <LemonInput
-                        value={attributes.channelId ?? ''}
-                        onChange={(value) => updateAttributes({ channelId: value || undefined })}
-                        placeholder="Channel UUID (optional)"
-                    />
-                </div>
             </div>
             {id ? (
                 <>
+                    <div className="flex gap-2">
+                        <div className="flex-1">
+                            <LemonLabel>Canvas ID</LemonLabel>
+                            <LemonInput
+                                value={id}
+                                onChange={(value) => updateAttributes({ id: value })}
+                                placeholder="Canvas UUID"
+                            />
+                        </div>
+                        <div className="flex-1">
+                            <LemonLabel>Channel ID</LemonLabel>
+                            <LemonInput
+                                value={attributes.channelId ?? ''}
+                                onChange={(value) => updateAttributes({ channelId: value || undefined })}
+                                placeholder="Channel UUID (optional)"
+                            />
+                        </div>
+                    </div>
                     <div className="flex-1">
                         <LemonLabel>Name</LemonLabel>
                         <LemonInput value={nameValue} onChange={setEditedName} placeholder="Canvas name" />

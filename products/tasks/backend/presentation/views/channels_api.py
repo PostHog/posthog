@@ -70,6 +70,7 @@ class ChannelViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
     permission_classes = [IsAuthenticated, APIScopePermission]
     scope_object = "task"
     serializer_class = ChannelSerializer
+    pagination_class = None
     # GET /instructions/ and /context_generation/ are reads; the PUT/PATCH/DELETE
     # method mappings resolve to their own action names, so they go in the write
     # bucket by name.

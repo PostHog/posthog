@@ -1,6 +1,7 @@
 import { MOCK_TEAM_ID } from 'lib/api.mock'
 
 import { waitFor } from '@testing-library/react'
+import posthog from 'posthog-js'
 
 import { initKeaTests } from '~/test/init'
 
@@ -66,21 +67,17 @@ describe('notebookNodeCanvasLogic', () => {
 
     beforeEach(() => {
         initKeaTests()
-        jest.spyOn(tasksApi, 'taskChannelsList').mockResolvedValue({
-            count: 1,
-            next: null,
-            previous: null,
-            results: [
-                {
-                    id: 'channel-me',
-                    name: 'me',
-                    channel_type: 'personal',
-                    github_integration: null,
-                    repositories: [],
-                    created_at: '2026-08-11T12:00:00Z',
-                },
-            ],
-        })
+        jest.mocked(posthog.captureException).mockClear()
+        jest.spyOn(tasksApi, 'taskChannelsList').mockResolvedValue([
+            {
+                id: 'channel-me',
+                name: 'me',
+                channel_type: 'personal',
+                github_integration: null,
+                repositories: [],
+                created_at: '2026-08-11T12:00:00Z',
+            },
+        ])
         jest.spyOn(canvasApi, 'canvasesCreate').mockResolvedValue(canvas)
         jest.spyOn(canvasApi, 'canvasesRetrieve').mockResolvedValue(canvas)
         jest.spyOn(canvasApi, 'canvasesBuildsRetrieve').mockResolvedValue({
@@ -94,6 +91,7 @@ describe('notebookNodeCanvasLogic', () => {
         })
         jest.spyOn(canvasApi, 'canvasesSourceRetrieve').mockResolvedValue(source)
         jest.spyOn(tasksApi, 'tasksCreate').mockResolvedValue(task)
+        jest.spyOn(tasksApi, 'tasksRetrieve').mockResolvedValue(task)
         jest.spyOn(tasksApi, 'tasksRunCreate').mockResolvedValue(task)
     })
 
@@ -145,7 +143,36 @@ describe('notebookNodeCanvasLogic', () => {
             mode: TaskExecutionModeEnumApi.Background,
             pending_user_message: expect.stringContaining(canvas.id),
         })
+        expect(logic.values.canvas?.generation_task_id).toBe(task.id)
         expect(canvasApi.canvasesCreate).toHaveBeenCalledTimes(1)
+    })
+
+    it('surfaces a failed generation task before the canvas has source', async () => {
+        const failedCanvas = { ...canvas, generation_task_id: task.id }
+        jest.mocked(canvasApi.canvasesRetrieve).mockResolvedValueOnce(failedCanvas)
+        jest.mocked(tasksApi.tasksRetrieve).mockResolvedValueOnce({
+            ...task,
+            latest_run: {
+                status: 'failed',
+                error_message: 'SANDBOX_JWT_PRIVATE_KEY setting is required',
+            },
+        } as TaskDetailDTOApi)
+        logic = notebookNodeCanvasLogic({
+            id: canvas.id,
+            nodeId: 'node-1',
+            prompt: 'Make a spinning 3D globe',
+            isEditable: true,
+            updateAttributes: jest.fn(),
+        })
+        logic.mount()
+
+        await waitFor(() =>
+            expect(logic.values.generationError).toBe(
+                "Couldn't build this canvas: SANDBOX_JWT_PRIVATE_KEY setting is required"
+            )
+        )
+
+        expect(tasksApi.tasksRetrieve).toHaveBeenCalledWith(String(MOCK_TEAM_ID), task.id)
     })
 
     it('does not regenerate a saved canvas when its node also keeps the original prompt', async () => {
@@ -181,6 +208,28 @@ describe('notebookNodeCanvasLogic', () => {
         expect(canvasApi.canvasesCreate).not.toHaveBeenCalled()
         expect(tasksApi.tasksCreate).not.toHaveBeenCalled()
         expect(logic.values.canvasCreationError).toBe('You need edit access to create this canvas.')
+    })
+
+    it('reports a failed prompt-only canvas creation', async () => {
+        jest.mocked(tasksApi.taskChannelsList).mockResolvedValueOnce([])
+        logic = notebookNodeCanvasLogic({
+            id: '',
+            nodeId: 'node-1',
+            prompt: 'Make a spinning 3D globe',
+            isEditable: true,
+            updateAttributes: jest.fn(),
+        })
+        logic.mount()
+
+        logic.actions.createFromPrompt()
+
+        await waitFor(() =>
+            expect(logic.values.canvasCreationError).toBe("Couldn't find a personal channel. Refresh and try again.")
+        )
+        expect(posthog.captureException).toHaveBeenCalledWith(expect.any(Error), {
+            action: 'create notebook canvas from prompt',
+        })
+        expect(canvasApi.canvasesCreate).not.toHaveBeenCalled()
     })
 
     it('keeps an edit made while a source reload is in flight', async () => {

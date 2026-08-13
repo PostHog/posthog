@@ -2175,7 +2175,10 @@ class TestTaskAPI(BaseTaskAPITest):
         self.assertEqual(task.archived_at, original_archived_at)
 
     @patch("products.tasks.backend.temporal.client.execute_task_processing_workflow")
+    @override_settings(DEBUG=True)
     def test_run_endpoint_triggers_workflow(self, mock_workflow):
+        self.user.last_name = "User"
+        self.user.save(update_fields=["last_name"])
         task = self.create_task()
 
         response = self.client.post(f"/api/projects/@current/tasks/{task.id}/run/")

@@ -70,7 +70,7 @@ Type | Description
 `ph-person` | Person profile embed
 `ph-cohort` | Cohort embed
 `ph-feature-flag` | Feature flag embed
-`ph-canvas` | Saved canvas embed (markdown tag `<BlueBird id="…" prompt="…" />`; omit `id` to create one)
+`ph-canvas` | Published canvas embed (markdown tag `<Canvas id="…" />`)
 `codeBlock` | Code snippet
 
 ### Key Relationships
