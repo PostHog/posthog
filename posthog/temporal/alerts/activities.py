@@ -378,7 +378,13 @@ async def record_failed_evaluation(inputs: RecordFailedEvaluationActivityInputs)
                     .select_related("insight", "team", "threshold")
                     .get(id=inputs.alert_id)
                 )
-                alert_check, should_notify = add_alert_check(alert, None, None, {"message": inputs.message})
+                # This activity retries, and add_alert_check always writes a fresh row and advances
+                # next_check_at. If a prior attempt committed but its result never reached the
+                # workflow, next_check_at is already in the future — treat the failure as recorded
+                # so a retry doesn't leave a duplicate errored check for the same cadence.
+                if alert.next_check_at is not None and alert.next_check_at > datetime.now(UTC):
+                    return RecordFailedEvaluationResult()
+                alert_check, should_notify = add_alert_check(alert, None, None, {"message": inputs.error_message})
         except AlertConfiguration.DoesNotExist:
             logger.warning("Alert gone before its failure could be recorded", alert_id=inputs.alert_id)
             return RecordFailedEvaluationResult()

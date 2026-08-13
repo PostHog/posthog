@@ -35,6 +35,7 @@ from posthog.temporal.alerts.types import (
     RecordFailedEvaluationActivityInputs,
 )
 from posthog.temporal.common.base import PostHogWorkflow
+from posthog.temporal.common.errors import MAX_ERROR_MESSAGE_CHARS, truncate_for_temporal_payload, unwrap_temporal_cause
 
 with temporalio.workflow.unsafe.imports_passed_through():
     from django.conf import settings
@@ -160,18 +161,21 @@ class CheckAlertWorkflow(PostHogWorkflow):
                     retry_policy=timeouts.evaluate_retry_policy,
                 )
             except Exception as evaluation_error:
-                # evaluate_alert re-raises transient ClickHouse errors for the retry policy above.
-                # When those attempts run out, or a timeout cuts the chain short, no AlertCheck
-                # exists and next_check_at is still in the past, so the one-minute sweep would
-                # start the whole chain again. Recording the failure caps a permanently failing
-                # alert at one chain per cadence period and tells its owner.
-                #
-                # These activities need no workflow.patched guard: before them this path issued no
-                # command between the failed activity and the workflow failing, so every history
-                # that reaches here is closed, and an open execution can only arrive in a workflow
-                # task it has yet to complete, where the commands are new rather than replayed.
-                # Adding a command earlier in this path would break that and would need a patch.
-                await self._record_failed_evaluation(inputs, timeouts, evaluation_error)
+                # Transient ClickHouse errors re-raise so the retry policy can get past a busy
+                # cluster. Once those run out no AlertCheck exists and next_check_at is still in the
+                # past, so record the failure to stop the sweep restarting the chain forever. Set
+                # the state first so the SLO completion event still attributes this as errored.
+                # (No workflow.patched guard needed: this only runs on the path that fails the
+                # workflow, so no open execution has already replayed past it.)
+                new_state = AlertState.ERRORED
+                try:
+                    await self._record_failed_evaluation(inputs, timeouts, evaluation_error)
+                except Exception:
+                    # A failure while recording must not replace the original evaluation error: the
+                    # bare raise below still re-raises evaluation_error, not this one.
+                    temporalio.workflow.logger.warning(
+                        "alerts.record_failed_evaluation_failed", extra={"alert_id": inputs.alert_id}
+                    )
                 raise
             new_state = evaluation.new_state
 
@@ -235,9 +239,14 @@ class CheckAlertWorkflow(PostHogWorkflow):
         evaluation_error: BaseException,
     ) -> None:
         """Write the errored AlertCheck the failed evaluation never got to write, then notify."""
+        # Unwrap Temporal's ActivityError plumbing to the underlying reason the owner sees in the
+        # error email, and bound it so a large trace can't blow the payload limit or the DB row.
+        cause = unwrap_temporal_cause(evaluation_error)
+        message = cause.message if cause is not None else str(evaluation_error)
+        message = truncate_for_temporal_payload(message, MAX_ERROR_MESSAGE_CHARS)
         recorded = await temporalio.workflow.execute_activity(
             record_failed_evaluation,
-            RecordFailedEvaluationActivityInputs(alert_id=inputs.alert_id, message=str(evaluation_error)),
+            RecordFailedEvaluationActivityInputs(alert_id=inputs.alert_id, error_message=message),
             start_to_close_timeout=dt.timedelta(minutes=1),
             retry_policy=ALERT_PREPARE_RETRY_POLICY,
         )

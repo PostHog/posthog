@@ -214,7 +214,9 @@ def classify_query_error(e: Exception) -> QueryErrorCategory:
     if isinstance(e, ServerException):
         return look_up_clickhouse_error_code_meta(e).get_category()
 
-    if isinstance(e, (ClickHouseAtCapacity, ConcurrencyLimitExceeded)):
+    # Cluster-wide / per-user memory pressure is transient capacity, not a problem with this query,
+    # so it classifies with the other rate-limited capacity errors. Checked before its parent below.
+    if isinstance(e, (ClickHouseAtCapacity, ConcurrencyLimitExceeded, ClickHouseClusterMemoryLimitExceeded)):
         return QueryErrorCategory.RATE_LIMITED
 
     if isinstance(

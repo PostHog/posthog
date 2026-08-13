@@ -27,10 +27,6 @@ if TYPE_CHECKING:
 
 
 INSIGHT_ALERT_POLICY = AlertPolicy(
-    # No escalation to BROKEN: an insight alert that fails every check stays ERRORED and keeps
-    # being checked. Turning this on takes more than a number here, because InsightAlertState has
-    # no BROKEN member for apply_outcome to map back to, and snapshot_from_alert derives the
-    # counter from the state rather than persisting it, so it cannot climb past 2.
     max_consecutive_failures=None,
     notify_error_on_every_failure=False,
     renotify_while_firing=True,

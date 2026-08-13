@@ -60,8 +60,7 @@ class EvaluateAlertActivityInputs:
 @dataclasses.dataclass(frozen=True)
 class RecordFailedEvaluationActivityInputs:
     alert_id: str
-    # Why the evaluation never produced a result, taken from the Temporal failure message.
-    message: str
+    error_message: str
 
 
 @dataclasses.dataclass(frozen=True)
