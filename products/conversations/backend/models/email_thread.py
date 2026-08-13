@@ -45,7 +45,7 @@ class EmailThreadMessage(TeamScopedRootMixin, UUIDModel):
     thread = models.ForeignKey("conversations.EmailThread", on_delete=models.CASCADE, related_name="messages")
     comment = models.OneToOneField(
         "posthog.Comment",
-        on_delete=models.PROTECT,
+        on_delete=models.RESTRICT,
         db_constraint=False,
         related_name="email_thread_message",
     )

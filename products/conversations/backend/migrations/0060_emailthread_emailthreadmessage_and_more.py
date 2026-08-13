@@ -65,7 +65,7 @@ class Migration(migrations.Migration):
                     "comment",
                     models.OneToOneField(
                         db_constraint=False,
-                        on_delete=django.db.models.deletion.PROTECT,
+                        on_delete=django.db.models.deletion.RESTRICT,
                         related_name="email_thread_message",
                         to="posthog.comment",
                     ),

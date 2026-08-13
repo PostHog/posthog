@@ -168,6 +168,25 @@ class TestEmailThreadPersistence(BaseTest):
         with self.assertRaises(IntegrityError), transaction.atomic():
             self._create_thread()
 
+    def test_team_deletion_removes_messages_and_their_comment_bodies(self) -> None:
+        team_id = self.team.id
+        thread = self._create_thread()
+        message = self._create_message(
+            thread,
+            source_id="provider-1",
+            message_id="<root@example.com>",
+            sent_at=timezone.now(),
+        )
+        comment_id = message.comment_id
+
+        # The message's comment FK must not block the team cascade: both rows are collected by
+        # the same delete, so RESTRICT clears rather than raising ProtectedError.
+        self.team.delete()
+
+        # The team row is gone, so scope by the captured id without re-resolving it.
+        assert not EmailThreadMessage.objects.for_team(team_id, canonical=True).filter(id=message.id).exists()
+        assert not Comment.objects.filter(id=comment_id).exists()
+
     def test_delete_service_removes_envelopes_participants_and_all_thread_comments(self) -> None:
         thread = self._create_thread()
         message = self._create_message(
