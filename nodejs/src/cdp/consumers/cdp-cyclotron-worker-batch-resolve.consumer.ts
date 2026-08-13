@@ -288,21 +288,7 @@ export class CdpCyclotronWorkerBatchResolve extends CdpConsumerBase<PluginsServe
         // Batch-built invocations skip the event-triggered pipeline entirely, so
         // trigger_masking has to be applied here explicitly — otherwise a workflow
         // with a masking TTL re-enrolls the same audience on every scheduled run.
-        const { masked, notMasked } = await this.hogMasker.filterByMasking(builtInvocations)
-
-        if (masked.length) {
-            this.hogFunctionMonitoringService.queueAppMetrics(
-                masked.map((item) => ({
-                    team_id: item.teamId,
-                    app_source_id: item.functionId,
-                    metric_kind: 'other',
-                    metric_name: 'masked',
-                    count: 1,
-                    app_source_version: { id: item.hogFlow.id, version: item.hogFlow.version },
-                })),
-                'hog_flow'
-            )
-        }
+        const { masked, notMasked, release } = await this.hogMasker.filterByMasking(builtInvocations)
 
         const children: CyclotronV2JobInit[] = notMasked.map((invocation) => invocationToV2JobInit(invocation))
 
@@ -317,14 +303,38 @@ export class CdpCyclotronWorkerBatchResolve extends CdpConsumerBase<PluginsServe
             newState.pendingTerminal = 'completed'
         }
 
-        await job.bulkCreateAndCheckIn({
-            newJobs: children,
-            selfDisposition: {
-                kind: 'reschedule',
-                scheduledAt: new Date(),
-                state: serializeResolverState(newState),
-            },
-        })
+        try {
+            await job.bulkCreateAndCheckIn({
+                newJobs: children,
+                selfDisposition: {
+                    kind: 'reschedule',
+                    scheduledAt: new Date(),
+                    state: serializeResolverState(newState),
+                },
+            })
+        } catch (err) {
+            // The mask claims are already in Redis, but the page didn't commit — the
+            // stall-recovery replay of this cursor would see the whole page as masked
+            // and silently drop it. Undo the claims so the replay re-enrolls cleanly.
+            await release()
+            throw err
+        }
+
+        // Queued only after a successful commit: a failed page is replayed, so metrics
+        // emitted for it would double-count once the replay re-evaluates masking.
+        if (masked.length) {
+            this.hogFunctionMonitoringService.queueAppMetrics(
+                masked.map((item) => ({
+                    team_id: item.teamId,
+                    app_source_id: item.functionId,
+                    metric_kind: 'other',
+                    metric_name: 'masked',
+                    count: 1,
+                    app_source_version: { id: item.hogFlow.id, version: item.hogFlow.version },
+                })),
+                'hog_flow'
+            )
+        }
 
         if (pageTruncated) {
             this.emitTruncationLog(newState)
