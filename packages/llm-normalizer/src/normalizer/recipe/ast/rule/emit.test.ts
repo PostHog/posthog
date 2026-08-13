@@ -1,4 +1,5 @@
 import { CompatMessage } from '../../../../types'
+import { ExecutionBudget } from '../../runtime/budget'
 import { Scope } from '../../scope'
 import { Pattern } from '../predicate'
 import { Rule } from './base'
@@ -11,6 +12,7 @@ function engineReturning(message: CompatMessage | null): DispatchEngine {
     return {
         dispatch: jest.fn(),
         coercer: { buildMessage: jest.fn().mockReturnValue(message), stamp: jest.fn() },
+        budget: new ExecutionBudget(),
     }
 }
 

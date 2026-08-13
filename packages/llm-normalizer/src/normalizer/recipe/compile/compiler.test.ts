@@ -1,10 +1,11 @@
 import { CompatMessage } from '../../../types'
 import { DispatchEngine, NO_MATCH } from '../ast/rule'
+import { ExecutionBudget } from '../runtime/budget'
 import { SlotCoercer } from '../runtime/coercion'
 import { Scope } from '../scope'
 import { compileRecipe } from './compiler'
 
-const ENGINE: DispatchEngine = { dispatch: () => NO_MATCH, coercer: new SlotCoercer() }
+const ENGINE: DispatchEngine = { dispatch: () => NO_MATCH, coercer: new SlotCoercer(), budget: new ExecutionBudget() }
 const INPUT = { name: 'Ada', items: ['a', 'b'] }
 
 // Compile a one-rule recipe and produce its message, so we can observe how the

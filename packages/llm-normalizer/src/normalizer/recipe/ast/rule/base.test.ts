@@ -1,4 +1,5 @@
 import { CompatMessage } from '../../../../types'
+import { ExecutionBudget } from '../../runtime/budget'
 import { Scope } from '../../scope'
 import { FollowupSpec } from '../../spec/emitSpec'
 import { LiteralExpr } from '../expr'
@@ -16,7 +17,7 @@ class TestRule extends Rule {
 const scope = Scope.forNode({ role: 'user' }, 'user')
 
 function engineBuilding(build: DispatchEngine['coercer']['buildMessage']): DispatchEngine {
-    return { dispatch: jest.fn(), coercer: { buildMessage: build, stamp: jest.fn() } }
+    return { dispatch: jest.fn(), coercer: { buildMessage: build, stamp: jest.fn() }, budget: new ExecutionBudget() }
 }
 
 describe('Rule.buildFollowups', () => {

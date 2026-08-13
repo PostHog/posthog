@@ -2,6 +2,7 @@ import { CompatMessage } from '../../../types'
 import { DispatchEngine, DispatchResult, NO_MATCH, Rule } from '../ast/rule'
 import { Scope } from '../scope'
 import { Recipe } from '../spec/recipe'
+import { ExecutionBudget } from './budget'
 import { SlotCoercer } from './coercion'
 
 export { NO_MATCH } from '../ast/rule'
@@ -17,6 +18,7 @@ const MAX_DEPTH = 10
 
 export class RecipePipeline implements DispatchEngine {
     readonly coercer = new SlotCoercer()
+    readonly budget = new ExecutionBudget()
     private readonly recipes: Recipe[]
 
     constructor(recipes: Iterable<Recipe>) {
@@ -24,6 +26,7 @@ export class RecipePipeline implements DispatchEngine {
     }
 
     run(input: unknown, defaultRole: string): RunOutcome {
+        this.budget.reset()
         const matched = this.matchRecipes(input, defaultRole, 0)
         if (matched !== NO_MATCH) {
             return { messages: matched, recognized: true }
@@ -45,6 +48,7 @@ export class RecipePipeline implements DispatchEngine {
                 `RecipeNormalizer: delegation exceeded max depth (${MAX_DEPTH}) — a recipe likely delegates to itself`
             )
         }
+        this.budget.chargeOperations(1)
         for (const recipe of this.recipes) {
             for (const rule of recipe.rules) {
                 const result = this.applyRule(rule, input, inheritedRole, depth)
@@ -63,6 +67,7 @@ export class RecipePipeline implements DispatchEngine {
         const role = Scope.forNode(input, inheritedRole).role
         const content =
             isPlainObject(input) && typeof input.content === 'string' ? input.content : stringifyContent(input)
+        this.budget.chargeMessages(1)
         return [{ role, content }]
     }
 

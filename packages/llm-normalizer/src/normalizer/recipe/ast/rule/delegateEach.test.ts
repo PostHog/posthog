@@ -1,4 +1,5 @@
 import { CompatMessage } from '../../../../types'
+import { ExecutionBudget } from '../../runtime/budget'
 import { Scope } from '../../scope'
 import { LiteralExpr } from '../expr'
 import { Pattern } from '../predicate'
@@ -6,6 +7,7 @@ import { DelegateEachRule } from './delegateEach'
 import { DispatchEngine, NO_MATCH } from './dispatch'
 
 const scope = Scope.forNode({ role: 'user' }, 'user')
+const budget = new ExecutionBudget()
 
 describe('DelegateEachRule', () => {
     it('dispatches each element and concatenates the messages', () => {
@@ -13,7 +15,7 @@ describe('DelegateEachRule', () => {
             .fn()
             .mockReturnValueOnce([{ role: 'user', content: 'a' }])
             .mockReturnValueOnce([{ role: 'user', content: 'b' }])
-        const engine: DispatchEngine = { dispatch, coercer: { buildMessage: jest.fn(), stamp: jest.fn() } }
+        const engine: DispatchEngine = { dispatch, coercer: { buildMessage: jest.fn(), stamp: jest.fn() }, budget }
 
         const rule = new DelegateEachRule(new Pattern({}), [], new LiteralExpr(['x', 'y']), null)
         expect(rule.produce(scope, engine, false, 0)).toEqual([
@@ -27,6 +29,7 @@ describe('DelegateEachRule', () => {
         const engine: DispatchEngine = {
             dispatch: jest.fn().mockReturnValue([{ role: 'assistant (tool result)', content: 'r' }]),
             coercer: { buildMessage: jest.fn(), stamp },
+            budget,
         }
         const rule = new DelegateEachRule(new Pattern({}), [], new LiteralExpr(['x']), {
             toolCallId: new LiteralExpr('parent'),
@@ -42,14 +45,18 @@ describe('DelegateEachRule', () => {
             .fn()
             .mockReturnValueOnce(NO_MATCH)
             .mockReturnValueOnce([{ role: 'user', content: 'kept' }])
-        const engine: DispatchEngine = { dispatch, coercer: { buildMessage: jest.fn(), stamp: jest.fn() } }
+        const engine: DispatchEngine = { dispatch, coercer: { buildMessage: jest.fn(), stamp: jest.fn() }, budget }
 
         const rule = new DelegateEachRule(new Pattern({}), [], new LiteralExpr(['skip', 'keep']), null)
         expect(rule.produce(scope, engine, false, 0)).toEqual([{ role: 'user', content: 'kept' }])
     })
 
     it('returns nothing for a non-array source', () => {
-        const engine: DispatchEngine = { dispatch: jest.fn(), coercer: { buildMessage: jest.fn(), stamp: jest.fn() } }
+        const engine: DispatchEngine = {
+            dispatch: jest.fn(),
+            coercer: { buildMessage: jest.fn(), stamp: jest.fn() },
+            budget,
+        }
         const rule = new DelegateEachRule(new Pattern({}), [], new LiteralExpr('not an array'), null)
         expect(rule.produce(scope, engine, false, 0)).toEqual([])
         expect(engine.dispatch).not.toHaveBeenCalled()

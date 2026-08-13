@@ -67,6 +67,28 @@ describe('custom parser validation', () => {
             expect(verdict.error).toContain('failed while running against the sample')
         })
 
+        it('rejects a recipe that expands the sample past the runtime work budget', () => {
+            const expanding = `
+rules:
+    - on:
+          acme_kind: q
+      emit:
+          content: ''
+      followups:
+          - from: $.acme_items
+            each:
+                role: user
+                content: $.text
+`
+            const verdict = validateRecipeAgainstSample(expanding, [], {
+                ...sample,
+                input: { acme_kind: 'q', acme_items: Array.from({ length: 30_000 }, () => ({ text: 'x' })) },
+            })
+
+            expect(verdict.valid).toBe(false)
+            expect(verdict.error).toContain('budget')
+        })
+
         it('accepts a recipe whose rules match the elements of an array input', () => {
             // Top-level arrays are unwrapped by a built-in rule; elements re-match all recipes.
             const verdict = validateRecipeAgainstSample(MATCHING_RECIPE, [], {

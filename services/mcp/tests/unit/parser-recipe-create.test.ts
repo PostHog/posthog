@@ -181,6 +181,20 @@ describe('llma-parser-recipe-create handler', () => {
         expect(result).toEqual({ valid: true, recipe_id: 'recipe-span' })
     })
 
+    it('reports a saved team recipe that blows up on the event as a verdict, not an exception', async () => {
+        // A self-delegating recipe compiles but trips the runtime's depth guard. It is already
+        // installed, so it throws during the pre-recognition pass, before the candidate is judged.
+        const selfDelegating = 'rules:\n    - on:\n          acme_kind: q\n      delegate: $\n'
+        const request = vi.fn().mockResolvedValueOnce({ results: [{ id: 'recipe-bad', source: selfDelegating }] })
+        const { context } = createContext({ events: [generationEvent()], request })
+
+        const result = await parserRecipeCreate().handler(context, baseParams)
+
+        expect(result.valid).toBe(false)
+        expect(result.error).toContain("team's existing recipes failed")
+        expect(request).toHaveBeenCalledTimes(1)
+    })
+
     it('reports a persistence failure as valid-but-unsaved so the agent does not rewrite', async () => {
         const request = vi.fn().mockResolvedValueOnce({ results: [] }).mockRejectedValueOnce(new Error('500 from API'))
         const { context } = createContext({ events: [generationEvent()], request })

@@ -14,7 +14,15 @@ export interface MessageBuilder {
     stamp(message: CompatMessage, emit: EmitSpec, scope: Scope): CompatMessage
 }
 
+// Charged as work happens so a runaway recipe trips a ceiling instead of the process;
+// ExecutionBudget is the implementation.
+export interface WorkBudget {
+    chargeOperations(count: number): void
+    chargeMessages(count: number): void
+}
+
 export interface DispatchEngine {
     dispatch(input: unknown, inheritedRole: string, depth: number): DispatchResult
     readonly coercer: MessageBuilder
+    readonly budget: WorkBudget
 }

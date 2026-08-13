@@ -18,6 +18,7 @@ export abstract class Rule {
             if (followup.kind === 'static') {
                 const msg = engine.coercer.buildMessage(followup.emit, scope, /* allowDrop */ true)
                 if (msg) {
+                    engine.budget.chargeMessages(1)
                     messages.push(msg)
                 }
                 continue
@@ -26,9 +27,12 @@ export abstract class Rule {
             if (!Array.isArray(arr)) {
                 continue
             }
+            // Charged up front so an expansion over a huge array trips before it is walked.
+            engine.budget.chargeOperations(arr.length)
             for (const item of arr) {
                 const msg = engine.coercer.buildMessage(followup.each, scope.withInput(item))
                 if (msg) {
+                    engine.budget.chargeMessages(1)
                     messages.push(msg)
                 }
             }

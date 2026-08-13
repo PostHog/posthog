@@ -120,9 +120,20 @@ export const parserRecipeCreateHandler: ToolBase<typeof schema, ParserRecipeCrea
     // Recompute recognition the way the browser does, so validation only demands the
     // sides that are currently unrecognized. The whole (possibly multi-MB) trace is
     // deserialized once here and discarded — the same order of work the browser does.
-    const normalizer = new RecipeNormalizer(mergeRecipes(teamRecipes))
-    const inputRecognized = normalizer.normalizeMessages(input, 'user', tools).recognized
-    const outputRecognized = outputRecognizedByDefault || normalizer.normalizeMessages(output, 'assistant').recognized
+    let inputRecognized: boolean
+    let outputRecognized: boolean
+    try {
+        const normalizer = new RecipeNormalizer(mergeRecipes(teamRecipes))
+        inputRecognized = normalizer.normalizeMessages(input, 'user', tools).recognized
+        outputRecognized = outputRecognizedByDefault || normalizer.normalizeMessages(output, 'assistant').recognized
+    } catch (error) {
+        // An already-saved team recipe blew the runtime's depth or work budget on this event.
+        // That is a defect in that recipe, not in the candidate — say so instead of 500ing.
+        return {
+            valid: false,
+            error: `the team's existing recipes failed on this event: ${error instanceof Error ? error.message : String(error)}`,
+        }
+    }
 
     const verdict = validateRecipeAgainstSample(params.yaml_source, teamRecipes, {
         input,

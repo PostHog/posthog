@@ -15,6 +15,10 @@ export class EmitRule extends Rule {
     }
     produce(scope: Scope, engine: DispatchEngine, allowDrop: boolean): CompatMessage[] {
         const message = engine.coercer.buildMessage(this.emit, scope, allowDrop)
-        return message ? [message] : []
+        if (!message) {
+            return []
+        }
+        engine.budget.chargeMessages(1)
+        return [message]
     }
 }
