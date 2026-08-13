@@ -12,12 +12,20 @@ credential (`UserViewSet.get_queryset` filters everyone else down to themselves)
 user's existing settings - top level for scalars, one level deep for the per-project/per-org maps -
 so a partial body never clobbers unrelated preferences.
 
-Requires a **staff, non-impersonating** credential, and checks that up front:
+Requires a **staff, non-impersonating** credential, and checks all three preconditions up front
+because they surface as indistinguishable 403s at PATCH time:
 
 - Non-staff credentials get HTTP 403 on any UUID other than `@me`.
 - Impersonated sessions are blocked even for their own user: `/api/users/` is in
   `IMPERSONATION_BLOCKED_PATHS`, so every non-idempotent request during impersonation is rejected
   with `impersonation_path_blocked`. Log out of impersonation and use your own staff session or key.
+- With `--session-id`, the session must be inside its sensitive-action window. Writing notification
+  settings isn't in `time_sensitive_allow_if_only_fields`, so `TimeSensitiveActionPermission`
+  requires a session younger than `SESSION_SENSITIVE_ACTIONS_AGE` (2h) and otherwise 403s with
+  `sensitive_action_required_reauth` - the re-auth modal the UI shows. Prefer
+  `--personal-api-key`: the permission returns early for non-session auth, so keys never hit this.
+  Re-authenticating rotates the session key (`session.cycle_key()`), deliberately invalidating a
+  cookie copied beforehand, so a re-auth means copying the new `sessionid`.
 
 Writing to someone's account while they aren't present is a support action, not a routine one -
 have the user's explicit request on record first. Every write therefore needs --reason, which is
@@ -124,6 +132,9 @@ AUTO_SELECT_KEYS = frozenset(
 )
 
 MIN_REASON_LENGTH = 10
+
+# Warn rather than refuse this close to the window closing - a short list may still finish.
+SENSITIVE_WINDOW_WARN_SECONDS = 300
 
 
 # Setting kinds. Booleans are driven by --enable/--disable; numbers take a --value (or fall back
@@ -424,11 +435,11 @@ def read_emails(positional: list[str], emails_file: Optional[str]) -> list[str]:
     return emails
 
 
-def verify_staff_credential(session: requests.Session, host: str) -> str:
-    """Fail fast unless the credential is staff and not impersonating.
+def verify_staff_credential(session: requests.Session, host: str, *, session_auth: bool) -> str:
+    """Fail fast unless the credential is staff, not impersonating, and able to act.
 
-    Both restrictions live in front of /api/users/, and the resulting 403s are opaque, so check
-    once here rather than letting every PATCH fail.
+    All three restrictions live in front of /api/users/ and surface as indistinguishable 403s, so
+    check them once here rather than letting every PATCH fail with an opaque body.
     """
     response = request_with_retries(session, "GET", f"{host}/api/users/@me/")
     if response.status_code != 200:
@@ -448,8 +459,49 @@ def verify_staff_credential(session: requests.Session, host: str) -> str:
             "own settings (/api/users/@me/). Editing other users needs a staff credential."
         )
     email = str(me.get("email") or "unknown")
+    if session_auth:
+        check_sensitive_window(me, email)
     log(f"Authenticated as staff user {printable(email)}")
     return email
+
+
+def check_sensitive_window(me: dict[str, Any], email: str) -> None:
+    """Refuse a session whose sensitive-action window has closed, before any PATCH goes out.
+
+    Writing notification settings is a sensitive action, so TimeSensitiveActionPermission requires
+    a session younger than SESSION_SENSITIVE_ACTIONS_AGE and 403s with
+    `sensitive_action_required_reauth` otherwise - the same re-auth modal the UI shows. Personal API
+    keys skip the check entirely (the permission returns early for non-session auth), which is why
+    this only applies to --session-id. The window is reported by the API as
+    `sensitive_session_expires_at`; a null value means no window at all, usually a pending step-up.
+    """
+    raw_expiry = me.get("sensitive_session_expires_at")
+    reauth_advice = (
+        "Prefer --personal-api-key, which isn't subject to this window at all. Otherwise "
+        "re-authenticate in the browser and copy the NEW sessionid: re-auth calls "
+        "session.cycle_key(), specifically so a cookie copied beforehand stops working."
+    )
+    if not raw_expiry:
+        raise PostHogScriptError(
+            f"{printable(email)}'s session has no sensitive-action window, so every write would 403 "
+            f"with sensitive_action_required_reauth. Usually a pending step-up re-auth. {reauth_advice}"
+        )
+    try:
+        expires_at = datetime.datetime.fromisoformat(str(raw_expiry))
+    except ValueError as err:
+        raise PostHogScriptError(f"Could not parse sensitive_session_expires_at {printable(str(raw_expiry))}") from err
+
+    remaining = (expires_at - datetime.datetime.now(datetime.UTC)).total_seconds()
+    if remaining <= 0:
+        raise PostHogScriptError(
+            f"{printable(email)}'s sensitive-action window closed at {expires_at.isoformat()}, so "
+            f"every write would 403 with sensitive_action_required_reauth. {reauth_advice}"
+        )
+    if remaining < SENSITIVE_WINDOW_WARN_SECONDS:
+        log(
+            f"WARNING: sensitive-action window closes in {int(remaining // 60)}m "
+            f"({expires_at.isoformat()}). Long runs will start 403ing partway through."
+        )
 
 
 def resolve_user(session: requests.Session, host: str, email: str) -> dict[str, Any]:
@@ -671,8 +723,20 @@ def parse_args() -> argparse.Namespace:
         return args
 
     args.host = resolve_host(args.host or os.environ.get("POSTHOG_HOST") or "https://us.posthog.com")
-    args.personal_api_key = args.personal_api_key or os.environ.get("POSTHOG_PERSONAL_API_KEY")
-    args.session_id = args.session_id or os.environ.get("POSTHOG_SESSION_ID")
+
+    # An explicit flag beats the ambient environment. Falling back to `flag or env` would let a
+    # POSTHOG_PERSONAL_API_KEY that happens to be exported (CI, a dev sandbox) silently take over a
+    # run where the operator deliberately passed --session-id, so the credential actually used
+    # wouldn't be the one they chose. main() logs which one wins.
+    explicit_key = args.personal_api_key is not None
+    explicit_session = args.session_id is not None
+    if explicit_key and explicit_session:
+        parser.error("pass either --personal-api-key or --session-id, not both")
+    if explicit_session:
+        args.personal_api_key = None
+    elif not explicit_key:
+        args.personal_api_key = os.environ.get("POSTHOG_PERSONAL_API_KEY")
+        args.session_id = os.environ.get("POSTHOG_SESSION_ID")
 
     if not args.emails and not args.emails_file:
         parser.error("provide at least one email positionally or via --emails-file")
@@ -747,10 +811,12 @@ def main() -> int:
 
     session = requests.Session()
     if args.personal_api_key:
+        log("Credential: personal API key (not subject to the sensitive-action re-auth window)")
         session.headers["Authorization"] = f"Bearer {args.personal_api_key}"
     else:
+        log("Credential: browser session cookie (subject to the sensitive-action re-auth window)")
         setup_session_auth(session, args.host, args.session_id)
-    acting_email = verify_staff_credential(session, args.host)
+    acting_email = verify_staff_credential(session, args.host, session_auth=not args.personal_api_key)
     started_at = datetime.datetime.now(datetime.UTC).isoformat()
 
     scope_desc = f" scope={args.scope}" if args.scope else ""
@@ -861,7 +927,9 @@ def main() -> int:
     forbidden = status_counts.get("403", 0)
     if forbidden:
         log(
-            f"  {forbidden} forbidden (HTTP 403): the credential lost staff access mid-run, or an "
+            f"  {forbidden} forbidden (HTTP 403): most likely sensitive_action_required_reauth - a "
+            "session's sensitive-action window closing mid-run (see the message above; use "
+            "--personal-api-key to avoid it). Otherwise the credential lost staff access, or an "
             "impersonation session was started - /api/users/ rejects writes while impersonating."
         )
     for failure in failures[:20]:
