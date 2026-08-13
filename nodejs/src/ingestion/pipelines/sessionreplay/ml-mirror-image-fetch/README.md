@@ -196,6 +196,30 @@ and that flag is the only way to turn the blocking off.
 
 The ACL says nothing about ports, which is why rule 35 exists.
 
+### robots.txt
+
+36. The lane reads robots.txt for the origin of a URL. An origin is a scheme, a host, and a port
+    together. One registrable domain holds many origins, so one answer does not cover them all.
+37. The lane caches a robots.txt answer for 24 hours. RFC 9309 sets that ceiling. A rule a site adds
+    today then takes effect tomorrow rather than in a month.
+38. A 404 or a 410 means the origin serves no robots.txt. The lane may fetch every URL on it.
+39. Any other 4xx means the origin refused the request, and the lane treats it as a disallow for the
+    whole origin. This covers 401, 403, and 451. RFC 9309 groups these with the codes that allow, so
+    this rule is stricter than the standard. An origin that refuses robots.txt usually refuses the
+    images as well, and each of those would return a forbidden outcome.
+40. A 429 is neither a refusal nor an answer. The origin asked for fewer requests. The lane treats it
+    as unreachable. Google makes the same exception.
+41. A 5xx, a timeout, or a connection error means the origin is unreachable. The lane must then treat
+    every URL on that origin as disallowed. The lane holds the origin for one hour, and each further
+    failure doubles the hold. A URL held this way stays unrecorded, so it comes back.
+42. A cached answer may outlive its 24 hours while the origin is unreachable. RFC 9309 allows this. A
+    hold then uses the last answer the lane has, when it has one.
+43. A URL that robots.txt disallows is an answer. It goes into the crawl history, as a 404 does, so it
+    stops coming back.
+44. The lane matches its own product token and the `*` group. It also counts the URLs that the common
+    AI training tokens would have blocked. It acts on none of those counts, so phase 0 can measure
+    what the stricter reading would cost.
+
 ## How a message waits
 
 Kafka has no delayed delivery. The delay belongs to the topic, not to the message, because a
