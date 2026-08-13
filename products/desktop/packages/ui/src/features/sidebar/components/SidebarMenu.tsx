@@ -223,9 +223,10 @@ function SidebarMenuComponent() {
             allPinned,
             runningCount: bulkActions.runningCount,
             stopsCloudSandbox: bulkActions.stopsCloudSandbox,
-            channels: bulkActions.channels.map(({ id, name }) => ({
+            channels: bulkActions.channels.map(({ id, name, starred }) => ({
               id,
               name,
+              starred,
             })),
           });
         if (!result.action) return;
