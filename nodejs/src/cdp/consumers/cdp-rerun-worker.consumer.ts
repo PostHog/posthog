@@ -2,12 +2,11 @@ import { ClickHouseClient, createClient as createClickHouseClient } from '@click
 import https from 'https'
 import { Counter } from 'prom-client'
 
-import { parseJSON } from '~/common/utils/json-parse'
 import { logger } from '~/common/utils/logger'
 import { captureException } from '~/common/utils/posthog'
 
 import { HealthCheckResult, HealthCheckResultError, HealthCheckResultOk, PluginsServerConfig } from '../../types'
-import { RERUN_PAGE_ERROR_BACKOFF_MAX_MS, RERUN_QUEUE_NAME, RerunJobState } from '../rerun/rerun-job.types'
+import { RERUN_PAGE_ERROR_BACKOFF_MAX_MS, RERUN_QUEUE_NAME, parseRerunJobState } from '../rerun/rerun-job.types'
 import { RerunJobQueues, RerunPaginatorService } from '../rerun/rerun-paginator.service'
 import { CyclotronV2Worker } from '../services/cyclotron-v2'
 import { CyclotronV2DequeuedJob } from '../services/cyclotron-v2/types'
@@ -162,7 +161,7 @@ export class CdpRerunWorkerConsumer extends CdpConsumerBase<PluginsServerConfig>
             return
         }
 
-        const state = this.parseState(job)
+        const state = parseRerunJobState(job.state)
         if (!state) {
             logger.error('Rerun job has malformed state — failing', { job_id: job.id })
             counterRerunJobsAcked.labels('malformed').inc()
@@ -219,17 +218,6 @@ export class CdpRerunWorkerConsumer extends CdpConsumerBase<PluginsServerConfig>
             await job.fail()
         } finally {
             clearInterval(heartbeat)
-        }
-    }
-
-    private parseState(job: CyclotronV2DequeuedJob): RerunJobState | null {
-        if (!job.state) {
-            return null
-        }
-        try {
-            return parseJSON(job.state.toString('utf8')) as RerunJobState
-        } catch {
-            return null
         }
     }
 }

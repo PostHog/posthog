@@ -4,6 +4,7 @@ import { Counter, Gauge } from 'prom-client'
 
 import { logger } from '~/common/utils/logger'
 
+import { RERUN_QUEUE_NAME, parseRerunJobState } from '../../rerun/rerun-job.types'
 import { CYCLOTRON_INVOCATION_JOB_QUEUES, CyclotronJobInvocationHogFlow } from '../../types'
 import { v2JobToInvocation } from '../job-queue/job-queue-postgres-v2'
 import { HogInvocationResultsService } from '../monitoring/hog-invocation-results.service'
@@ -69,6 +70,21 @@ const queueDepthGauge = new Gauge({
     labelNames: ['queue'],
 })
 
+// Depth alone stays flat when a queue is served but not draining (one job starves
+// the rest at a low batch size). These two catch that: how long the oldest job has
+// waited, and how many times the busiest running job has re-dequeued/rescheduled.
+const queueOldestAvailableAgeGauge = new Gauge({
+    name: 'cdp_cyclotron_v2_queue_oldest_available_age_seconds',
+    help: 'Age in seconds of the oldest dequeueable (available, scheduled<=now) job per queue',
+    labelNames: ['queue'],
+})
+
+const queueMaxRunningTransitionsGauge = new Gauge({
+    name: 'cdp_cyclotron_v2_queue_max_running_transition_count',
+    help: 'Highest transition_count among running jobs per queue',
+    labelNames: ['queue'],
+})
+
 interface PoisonRow {
     id: string
     team_id: number
@@ -86,6 +102,18 @@ interface PoisonRow {
     action_id: string | null
     janitor_touch_count: number
     transition_count: number
+}
+
+// The columns needed to give up on a wrapper/meta poison pill: `state` +
+// `created` let the rerun path rebuild a terminal wrapper row before the delete.
+// pg returns `created` as an ISO string here, same as PoisonRow.
+interface WrapperPoisonRow {
+    id: string
+    team_id: number
+    queue_name: string
+    created: string
+    state: Buffer | null
+    janitor_touch_count: number
 }
 
 export class CyclotronV2Janitor {
@@ -163,7 +191,8 @@ export class CyclotronV2Janitor {
             : await this.failPoisonPills()
 
         const stalled = await this.resetStalledJobs()
-        const depths = await this.measureQueueDepths()
+        // Two independent read-only measures — run them together.
+        const [depths] = await Promise.all([this.measureQueueDepths(), this.measureRunningTransitionCounts()])
 
         janitorRunCounter.inc()
 
@@ -350,32 +379,53 @@ export class CyclotronV2Janitor {
 
     /**
      * Give up on poisoned wrapper/meta jobs — anything not on an invocation queue (rerun,
-     * batch-resolve, any future meta queue) — by deleting them with no replay record. See the
-     * rationale in recordAndDeletePoisonPills. A wrapper is not a replayable invocation, so there is
-     * nothing meaningful to record; dropping it is safe and self-healing (its work is re-derived on
-     * the next run).
+     * batch-resolve, any future meta queue). A wrapper is not a replayable invocation, so there is
+     * no give-up record to autodrain; dropping it is safe and self-healing (its work is re-derived
+     * on the next run). See the rationale in recordAndDeletePoisonPills.
+     *
+     * One wrapper does have a user-visible surface: a rerun wrapper's progress is read from its
+     * `hog_invocation_results` row by rerun_job_id, and the Invocations tab shows it as `running`.
+     * Deleting the cyclotron row with no terminal write leaves that row stuck on `running` forever
+     * (the reported symptom). So a terminal `failed` wrapper row is recorded before the delete;
+     * other meta queues have no such surface and are dropped untraced, as before.
      */
     private async dropWrapperPoisonPills(heartbeatCutoff: Date): Promise<number> {
-        // Bound the delete to cleanupBatchSize and pick rows via FOR UPDATE SKIP
-        // LOCKED, mirroring the genuine-poison-pill path below. This runs first in
-        // the tick: an unbounded delete could both lock a large row set and block on
-        // a row a worker/other janitor holds, stalling the whole tick before genuine
-        // pills get recorded. Skipping locked rows and capping the batch keeps the
-        // wrapper drain from starving the rest of the sweep — leftovers drain next tick.
+        // Select first (rather than DELETE ... RETURNING) so a rerun wrapper's terminal row can be
+        // written before its cyclotron row is gone. Bounded + FOR UPDATE SKIP LOCKED for the same
+        // reasons as before: an unbounded delete could lock a large row set or block on a row a
+        // worker/other janitor holds, stalling the whole tick; leftovers drain next tick.
+        const selected = await this.pool.query<WrapperPoisonRow>(
+            `SELECT id, team_id, queue_name, created, state, janitor_touch_count
+             FROM cyclotron_jobs
+             WHERE status = 'running'
+               AND queue_name <> ALL($1::text[])
+               AND COALESCE(last_heartbeat, $2) <= $2
+               AND janitor_touch_count >= $3
+             ORDER BY last_transition ASC
+             LIMIT $4
+             FOR UPDATE SKIP LOCKED`,
+            [INVOCATION_QUEUE_NAMES, heartbeatCutoff, this.maxTouchCount, this.cleanupBatchSize]
+        )
+
+        if (selected.rows.length === 0) {
+            return 0
+        }
+
+        await this.recordRerunWrapperFailures(selected.rows)
+
+        // Re-assert the full poison predicate: the FOR UPDATE lock is released when the SELECT's
+        // implicit transaction commits, so between SELECT and here a worker could have re-dequeued a
+        // row and stamped a fresh heartbeat. The predicate then no longer matches, so we don't
+        // delete an actively-running job. RETURNING reflects the rows actually removed.
+        const ids = selected.rows.map((r) => r.id)
         const deleted = await this.pool.query<{ id: string }>(
             `DELETE FROM cyclotron_jobs
-             WHERE id IN (
-                 SELECT id FROM cyclotron_jobs
-                 WHERE status = 'running'
-                   AND queue_name <> ALL($1::text[])
-                   AND COALESCE(last_heartbeat, $2) <= $2
-                   AND janitor_touch_count >= $3
-                 ORDER BY last_transition ASC
-                 LIMIT $4
-                 FOR UPDATE SKIP LOCKED
-             )
+             WHERE id = ANY($1::uuid[])
+               AND status = 'running'
+               AND COALESCE(last_heartbeat, $2) <= $2
+               AND janitor_touch_count >= $3
              RETURNING id`,
-            [INVOCATION_QUEUE_NAMES, heartbeatCutoff, this.maxTouchCount, this.cleanupBatchSize]
+            [ids, heartbeatCutoff, this.maxTouchCount]
         )
         const count = deleted.rows.length
         if (count > 0) {
@@ -386,6 +436,53 @@ export class CyclotronV2Janitor {
             })
         }
         return count
+    }
+
+    /**
+     * Record a terminal `failed` wrapper row for each poisoned rerun wrapper about to be dropped, so
+     * the Invocations tab flips from `running` to `failed` instead of hanging. Best-effort: a
+     * malformed state row or a produce failure must never block the delete or crash the sweep — the
+     * cyclotron row is dropped either way. Gated on a wired results service (and, inside it, on
+     * HOG_INVOCATION_RESULTS_ENABLED); when the surface is off no `running` row exists to resolve.
+     */
+    private async recordRerunWrapperFailures(rows: WrapperPoisonRow[]): Promise<void> {
+        if (!this.invocationResults) {
+            return
+        }
+
+        let queued = 0
+        for (const row of rows) {
+            if (row.queue_name !== RERUN_QUEUE_NAME) {
+                continue
+            }
+            const state = parseRerunJobState(row.state)
+            if (!state) {
+                continue
+            }
+            this.invocationResults.queueRerunWrapperRow({
+                teamId: row.team_id,
+                parentFunctionKind: state.function_kind,
+                functionId: state.function_id,
+                rerunJobId: row.id,
+                status: 'failed',
+                pagesProcessed: state.progress.pages_processed ?? 0,
+                filter: state.request.filter,
+                scheduledAt: new Date(row.created),
+                error: new Error(
+                    `poison pill: rerun stalled and reset ${row.janitor_touch_count} times without completing`
+                ),
+            })
+            queued++
+        }
+
+        if (queued === 0) {
+            return
+        }
+        try {
+            await this.invocationResults.flush()
+        } catch (err) {
+            logger.error('CyclotronV2Janitor failed to flush rerun wrapper failure rows', { error: String(err) })
+        }
     }
 
     // Turn a raw poisoned row into a hog flow invocation the results service can
@@ -469,8 +566,11 @@ export class CyclotronV2Janitor {
     }
 
     async measureQueueDepths(): Promise<Map<string, number>> {
-        const result = await this.pool.query<{ queue_name: string; count: string }>(
-            `SELECT queue_name, COUNT(*) as count
+        // oldest_age_seconds shares the depth query's scan (same predicate).
+        const result = await this.pool.query<{ queue_name: string; count: string; oldest_age_seconds: string | null }>(
+            `SELECT queue_name,
+                    COUNT(*) as count,
+                    EXTRACT(EPOCH FROM (NOW() - MIN(scheduled)))::float8 AS oldest_age_seconds
              FROM cyclotron_jobs
              WHERE status = 'available' AND scheduled <= NOW()
              GROUP BY queue_name`
@@ -481,9 +581,26 @@ export class CyclotronV2Janitor {
             const count = parseInt(row.count, 10)
             depths.set(row.queue_name, count)
             queueDepthGauge.labels({ queue: row.queue_name }).set(count)
+            queueOldestAvailableAgeGauge
+                .labels({ queue: row.queue_name })
+                .set(row.oldest_age_seconds ? parseFloat(row.oldest_age_seconds) : 0)
         }
 
         return depths
+    }
+
+    // Reads `running` rows, not the available set queried in measureQueueDepths.
+    async measureRunningTransitionCounts(): Promise<void> {
+        const result = await this.pool.query<{ queue_name: string; max_transition_count: number | null }>(
+            `SELECT queue_name, MAX(transition_count) AS max_transition_count
+             FROM cyclotron_jobs
+             WHERE status = 'running'
+             GROUP BY queue_name`
+        )
+
+        for (const row of result.rows) {
+            queueMaxRunningTransitionsGauge.labels({ queue: row.queue_name }).set(row.max_transition_count ?? 0)
+        }
     }
 
     isRunning(): boolean {

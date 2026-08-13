@@ -15,6 +15,7 @@
  *   - Observable: the wrapper row in cyclotron_jobs surfaces in-flight
  *     reruns + their progress via the same machinery as every other job.
  */
+import { parseJSON } from '~/common/utils/json-parse'
 
 export const RERUN_QUEUE_NAME = 'rerun'
 
@@ -106,6 +107,18 @@ export interface RerunJobState {
     function_id: string
     request: RerunRequest
     progress: RerunJobProgress
+}
+
+/** Decode a cyclotron job's `state` blob into a RerunJobState — null if absent or undecodable. */
+export const parseRerunJobState = (state: Buffer | null | undefined): RerunJobState | null => {
+    if (!state) {
+        return null
+    }
+    try {
+        return parseJSON(state.toString('utf8')) as RerunJobState
+    } catch {
+        return null
+    }
 }
 
 /** Hard cap on rows fetched per rerun page (also caps a by-IDs request slice). */

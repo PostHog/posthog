@@ -3,6 +3,7 @@ import { v7 as uuidv7 } from 'uuid'
 
 import { parseJSON } from '~/common/utils/json-parse'
 
+import { RerunJobState } from '../../rerun/rerun-job.types'
 import { HogInvocationResultsService } from '../monitoring/hog-invocation-results.service'
 import { CyclotronV2Janitor, JANITOR_POISON_PILL_ERROR_KIND } from './janitor'
 import { CyclotronV2Manager } from './manager'
@@ -2194,6 +2195,68 @@ describe('Cyclotron V2', () => {
                 await expect(queryJob(id)).rejects.toThrow()
             }
         )
+
+        it('records a terminal failed wrapper row before dropping a poisoned rerun wrapper', async () => {
+            // The reported symptom: a stalled rerun wrapper is poison-dropped, and with no terminal
+            // write its `hog_invocation_results` row is stuck on `running` forever on the Invocations
+            // tab. Guards that a `failed` wrapper row is produced before the cyclotron row is deleted.
+            const wrapperId = uuidv7()
+            const functionId = uuidv7()
+            const state: RerunJobState = {
+                function_kind: 'hog_function',
+                function_id: functionId,
+                request: { filter: { window_start: '2026-08-01T00:00:00Z', window_end: '2026-08-02T00:00:00Z' } },
+                progress: { queued: 5, skipped: 0, cursor: null, done: false, pages_processed: 3 },
+            }
+            await insertRawJob({
+                id: wrapperId,
+                function_id: functionId,
+                queue_name: 'rerun',
+                status: 'running',
+                lock_id: uuidv7(),
+                last_heartbeat: new Date(Date.now() - 60_000),
+                janitor_touch_count: 3,
+                state: Buffer.from(JSON.stringify(state)),
+            })
+
+            const { service, produce } = createRealResults()
+            const janitor = createJanitor({ stallTimeoutMs: 1_000, maxTouchCount: 2 }, service)
+            await janitor.runOnce()
+            await janitor.stop()
+
+            // Cyclotron row gone, but a terminal failed wrapper row was produced first.
+            expect(await totalJobCount()).toBe(0)
+            expect(produce).toHaveBeenCalledTimes(1)
+            const row = parseProducedResult(produce)
+            expect(row.invocation_id).toBe(wrapperId)
+            expect(row.function_kind).toBe('hog_function_rerun')
+            expect(row.status).toBe('failed')
+            expect(row.attempts).toBe(3)
+        })
+
+        it('drops a poisoned rerun wrapper with undecodable state without recording (no crash)', async () => {
+            // A rerun wrapper whose state blob is corrupt can't be surfaced — the drop must still
+            // happen safely rather than throwing and stalling the sweep.
+            const wrapperId = uuidv7()
+            await insertRawJob({
+                id: wrapperId,
+                function_id: uuidv7(),
+                queue_name: 'rerun',
+                status: 'running',
+                lock_id: uuidv7(),
+                last_heartbeat: new Date(Date.now() - 60_000),
+                janitor_touch_count: 3,
+                state: Buffer.from('not-json'),
+            })
+
+            const { service, produce } = createRealResults()
+            const janitor = createJanitor({ stallTimeoutMs: 1_000, maxTouchCount: 2 }, service)
+            await janitor.runOnce()
+            await janitor.stop()
+
+            expect(await totalJobCount()).toBe(0)
+            expect(produce).not.toHaveBeenCalled()
+        })
 
         it('measureQueueDepths returns correct counts per queue', async () => {
             await insertRawJob({ id: uuidv7(), queue_name: 'queue-a', status: 'available' })
