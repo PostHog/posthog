@@ -49,9 +49,7 @@ class DuckDBPrinter(PostgresPrinter):
         self._jsonpath_placeholders: dict[str, str] = {}
 
     def _print_table_sql(self, table) -> str:
-        if hasattr(table, "to_printed_duckdb"):
-            return table.to_printed_duckdb(self.context)
-        return super()._print_table_sql(table)
+        return self._print_table(table)
 
     def _print_table(self, table) -> str:
         if hasattr(table, "to_printed_duckdb"):
