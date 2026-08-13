@@ -115,8 +115,7 @@ _CROSS_ENGINE_REF_ERROR_FOR_PYTHON = (
 # Covers both kinds of local frame: one a Python cell bound, and one a SQL cell left behind when
 # reading a Python dataframe rerouted it to the sandbox. Neither is reachable from a warehouse.
 _LOCAL_FRAME_REF_ERROR = (
-    "You can't refer to the local dataframe '{name}' from a cell pointing to a warehouse connection. "
-    "Set this cell's source to PostHog to read it."
+    "You can't query the local dataframe '{name}' because this cell points to a data source other than PostHog."
 )
 
 
