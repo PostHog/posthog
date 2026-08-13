@@ -3751,3 +3751,36 @@ the model/effort is brand-new, add it to the registry in **both** repos (`utils.
 gateway model list in `@posthog/agent`) or startup validation rejects it on one side.
 
 ---
+
+## Resolution-stage visibility & cycle guard (grilled 2026-08-13)
+
+Motivated by the first prod day: a resolution on a user's PR (#80527) showed no progress anywhere, and #78061's
+resolution died silently at sandbox checkout. Decisions, in one PR:
+
+- **Busy-guard, both directions.** Starting a review (UI, label, trigger API) is refused while the PR's
+  `resolve-pr` workflow runs ("Still resolving comments from the last review"); starting a standalone resolution
+  is refused while `review-pr` runs. Chained hand-off exempt (fires post-publish by construction). Explicit check
+  on the two deterministic workflow ids — Temporal same-id joining can't see across workflows (ADR 0001; blocked,
+  not queued — queueing machinery isn't worth it yet).
+- **Resolving progress derives from the artefact stream, not new columns.** At prepare, the run appends a
+  work-list artefact (total, skipped); the reviews API counts the run's thread-verdict artefacts against it.
+  Row shows "Resolving comments · 6/10 · 5 fixed, 1 needs you"; crashed runs go quiet and age out via the
+  existing staleness window, mirroring review progress. Rejected: mutable stats block on the report (second
+  writer, stale stats on crash).
+- **Same GitHub status comment, extended.** Chained runs edit the review's existing status comment with a
+  resolving section + final tally; standalone runs create the comment on demand via the same machinery
+  (edits don't notify — one ReviewHog voice per PR).
+- **Failure is visible.** UI: work-list artefact present + activity stale + no closing run-note ⇒ "Resolution
+  didn't finish · stopped at N/M". GitHub: partial failures flow into the final tally ("couldn't handle 2");
+  hard crashes get a best-effort failure edit (reusing the review's `fail_status_comment` pattern). Closes the
+  silent-death mode observed on #78061.
+- **👀 reaction marks queued threads.** Added right after work-list classification, triage-queued threads only
+  (so 👀 = "in this run's queue"), best-effort, and left in place afterwards (removal doubles API calls for no
+  real gain). Reactions send no notifications. Rejected: placeholder "working on it" comments — double
+  notifications, and a crashed run leaves broken promises.
+- **Not doing:** re-review-after-fixes dispatch (the loop's job, separately costed); prohibiting re-review after
+  a _finished_ cycle (already safe: same-id review starts join the running workflow).
+
+Vocabulary added to CONTEXT.md: **Review cycle**, **Busy-guard**. ADR: `adr/0001-resolution-is-a-separate-workflow.md`
+(kept resolution a separate workflow after challenging it — standalone mode, failure isolation, independent
+versioning outweigh the manual seam).
