@@ -1702,6 +1702,9 @@ export interface eventUsageLogicActions {
     reportPersonSplit: (merge_count: number) => {
         merge_count: number
     }
+    reportPersonalIntegrationConnectClicked: (kind: string) => {
+        kind: string
+    }
     reportPersonsJoinModeUpdated: (mode: string) => {
         mode: string
     }
@@ -2105,6 +2108,7 @@ export const eventUsageLogic = kea<eventUsageLogicType>([
         reportTimeToSeeData: (payload: TimeToSeeDataPayload) => ({ payload }),
         reportGroupTypeDetailDashboardCreated: () => ({}),
         reportIntegrationConnectClicked: (integration: string, kind: string) => ({ integration, kind }),
+        reportPersonalIntegrationConnectClicked: (kind: string) => ({ kind }),
         reportGroupPropertyUpdated: (
             action: 'added' | 'updated' | 'removed',
             totalProperties: number,
@@ -2990,6 +2994,12 @@ export const eventUsageLogic = kea<eventUsageLogicType>([
         },
         reportIntegrationConnectClicked: ({ integration, kind }) => {
             posthog.capture('integration_connect_clicked', { integration, integration_kind: kind })
+        },
+        // Personal integrations are a separate table with their own connect surface, so they get
+        // their own event: saved insights already count `integration_connect_clicked` unfiltered and
+        // would silently start including personal links.
+        reportPersonalIntegrationConnectClicked: ({ kind }) => {
+            posthog.capture('personal integration connect clicked', { integration_kind: kind })
         },
         reportDashboardLoadingTime: async ({ loadingMilliseconds, dashboardId }) => {
             posthog.capture('dashboard loading time', { loadingMilliseconds, dashboardId })
