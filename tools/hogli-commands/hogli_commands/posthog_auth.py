@@ -1,7 +1,4 @@
-"""Shared PostHog API auth for hogli commands: a bearer token, without minting anything by hand.
-
-Centralizes the one decision (how a hogli command gets an authenticated caller identity against
-a PostHog host) so no command reimplements it, the way `github_auth` does for github.com.
+"""Shared PostHog API auth for hogli commands, the way `github_auth` does for github.com.
 
     from hogli_commands import posthog_auth
 
@@ -15,23 +12,17 @@ Three sources, in order:
 2. A cached OAuth credential for that host, refreshed silently when the access token has aged out.
 3. An interactive browser login, on a tty only.
 
-The OAuth path asks the user for nothing but a click. PostHog's own authorization server does the
-rest: the client self-registers via Dynamic Client Registration (RFC 7591), and the code comes back
-to an ephemeral port on 127.0.0.1 (RFC 8252 native-app flow, with PKCE). There is deliberately no
-personal API key in this path — a key would carry `<scope>:write` on every non-privileged scope,
-where a token minted here carries exactly the scopes its caller asked for and is revocable from
-Settings → Connected applications.
-
-RFC 8628 device flow is NOT used: PostHog does not advertise that grant. For a machine with no
-browser (a devbox over ssh), `login(open_browser=False)` prints the URL and reads the redirect back
-instead — same flow, moved out of band.
+The browser path is the RFC 8252 native-app flow: the client self-registers via Dynamic Client
+Registration (RFC 7591), and the code comes back to an ephemeral port on 127.0.0.1 with PKCE.
+RFC 8628 device flow is not used because PostHog does not advertise that grant; for a machine with
+no browser, `login(open_browser=False)` prints the URL so the code arrives out of band.
 
 Credentials are cached per host at ``~/.config/posthog/oauth/<host>.json`` with mode 0600,
 alongside the registered client, so one login serves every hogli command on that host.
 
 Nothing here opens a browser off a tty. A piped or agent-driven caller with no cached credential
 gets ``AuthError`` carrying exit code 78 (sysexits ``EX_CONFIG``), so it can branch on the code
-rather than on message text, and tell its human to run one command.
+rather than on message text.
 """
 
 from __future__ import annotations
@@ -86,8 +77,6 @@ _DONE_PAGE = b"""<!doctype html><meta charset=utf-8><title>hogli</title>
 
 
 class AuthError(Exception):
-    """Auth that could not be completed, phrased as something the reader can act on."""
-
     def __init__(self, message: str, *, exit_code: int = EXIT_NOT_CONFIGURED) -> None:
         super().__init__(message)
         self.message = message
@@ -98,12 +87,12 @@ class AuthError(Exception):
 class Credential:
     """One host's cached OAuth state: the self-registered client, plus the tokens it minted.
 
-    Three scope tuples, narrowest first. ``granted`` is what the server said it issued, not what
-    was asked for, because /authorize clamps a request to the client's ceiling and a token can come
-    back narrower than the ask. ``registered`` is that ceiling, so a caller needing a scope outside
-    it needs a new client rather than just new consent. ``requested`` is what we asked the server to
-    register, a superset of ``registered`` when the server stripped something, kept so a scope the
-    server refuses is not re-requested on every call.
+    Three scope tuples, narrowest first, because /authorize clamps a request to the client's
+    ceiling. ``granted`` is what the server said it issued, which can be narrower than the ask.
+    ``registered`` is that ceiling, so a caller needing a scope outside it needs a new client
+    rather than new consent. ``requested`` is what we asked to register, a superset of
+    ``registered`` when the server stripped something, kept so a refused scope is not re-requested
+    on every call.
     """
 
     host: str
@@ -144,10 +133,9 @@ def _normalize_host(host: str) -> str:
 
 
 def _cache_path(host: str) -> Path:
-    """One file per host, named after it.
+    """One file per host, so us, eu and a local stack can hold credentials at once.
 
-    Two hosts can hold credentials at once (us, eu, a local stack), and the name has to survive
-    being a filename, so keep only unreserved characters.
+    Only unreserved characters survive into the name, since the host has to be a valid filename.
     """
     slug = "".join(char if char.isalnum() else "-" for char in urlparse(host).netloc or host)
     return _CACHE_ROOT / f"{slug}.json"
@@ -156,9 +144,8 @@ def _cache_path(host: str) -> Path:
 def load(host: str = DEFAULT_HOST) -> Credential | None:
     """The cached credential for a host, or None when absent or unreadable.
 
-    A cache file that can't be parsed is treated as absent rather than fatal: it is derived state,
-    and re-authorizing is always available. A missing field is the same case — an older hogli may
-    have written a narrower shape.
+    An unparseable file, or one missing a field because an older hogli wrote a narrower shape, is
+    treated as absent rather than fatal: it is derived state, and re-authorizing is always there.
     """
     path = _cache_path(_normalize_host(host))
     try:
@@ -184,8 +171,8 @@ def save(credential: Credential) -> None:
     """Persist a credential, readable only by its owner.
 
     Written to a temp file and renamed so a concurrent reader sees either the old file or the new
-    one, never a half-written one. The 0600 mode is set at open() rather than after, so the token
-    is never briefly world-readable on disk.
+    one, never a half-written one. Mode 0600 is set at open() rather than after, so the token is
+    never briefly world-readable on disk.
     """
     path = _cache_path(credential.host)
     path.parent.mkdir(parents=True, exist_ok=True, mode=0o700)
@@ -214,11 +201,9 @@ def forget(host: str = DEFAULT_HOST) -> bool:
 def key_in_env() -> tuple[str, str] | None:
     """The variable holding a personal API key and the key itself, or None when neither is set.
 
-    Returns both so no caller re-derives which variable won: `status` reports the source, and a
-    second scan would disagree with this one about whether a whitespace-only value counts.
-
-    ``POSTHOG_AUTH_HEADER`` holds a whole ``Bearer <key>`` header value, so strip the scheme
-    rather than sending it twice.
+    Returns both so `status` does not re-derive which variable won, since a second scan could
+    disagree with this one about whether a whitespace-only value counts. ``POSTHOG_AUTH_HEADER``
+    holds a whole ``Bearer <key>`` header value, so the scheme is stripped rather than sent twice.
     """
     for var in KEY_ENV_VARS:
         raw = (os.environ.get(var) or "").strip()
@@ -481,7 +466,7 @@ def _post(
     json_body: dict[str, Any] | None = None,
     form_body: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
-    """One unauthenticated POST to an OAuth endpoint, with the failure phrased for a reader."""
+    """One unauthenticated POST to an OAuth endpoint."""
     try:
         response = requests.post(url, json=json_body, data=form_body, timeout=_HTTP_TIMEOUT_SECONDS)
     except requests.RequestException as exc:
@@ -503,12 +488,20 @@ def _post(
     return body
 
 
+class _RedirectServer(http.server.HTTPServer):
+    """Carries the redirect's query from the handler back to the waiting login."""
+
+    query: dict[str, list[str]] | None = None
+
+
 class _Handler(http.server.BaseHTTPRequestHandler):
     """Captures the one redirect we are waiting for and ignores everything else.
 
     A browser also asks for /favicon.ico and may prefetch, so a handler that treated any request
     as the callback would end the wait on the wrong one. Only the registered path counts.
     """
+
+    server: _RedirectServer
 
     # Without this the read blocks forever on a socket that connects and sends nothing, and the
     # single-threaded server never returns to check the login deadline.
@@ -519,7 +512,7 @@ class _Handler(http.server.BaseHTTPRequestHandler):
         if parsed.path != _REDIRECT_PATH:
             self.send_error(404)
             return
-        self.server.query = parse_qs(parsed.query)  # type: ignore[attr-defined]
+        self.server.query = parse_qs(parsed.query)
         self.send_response(200)
         self.send_header("Content-Type", "text/html; charset=utf-8")
         self.send_header("Content-Length", str(len(_DONE_PAGE)))
@@ -538,8 +531,7 @@ class _CallbackServer:
     """
 
     def __init__(self) -> None:
-        self._server = http.server.HTTPServer(("127.0.0.1", 0), _Handler)
-        self._server.query = None  # type: ignore[attr-defined]
+        self._server = _RedirectServer(("127.0.0.1", 0), _Handler)
         self.redirect_uri = f"http://127.0.0.1:{self._server.server_port}{_REDIRECT_PATH}"
 
     def __enter__(self) -> _CallbackServer:
@@ -565,12 +557,11 @@ class _CallbackServer:
     def _await_code(self, *, state: str) -> str:
         deadline = time.monotonic() + _LOGIN_TIMEOUT_SECONDS
         self._server.timeout = 1.0
-        while self._server.query is None:  # type: ignore[attr-defined]
+        while self._server.query is None:
             if time.monotonic() > deadline:
                 raise AuthError("Timed out waiting for the browser to come back.", exit_code=1)
             self._server.handle_request()
-        query: dict[str, list[str]] = self._server.query  # type: ignore[attr-defined]
-        return _code_from(query, state=state)
+        return _code_from(self._server.query, state=state)
 
 
 def _code_from(query: dict[str, list[str]], *, state: str) -> str:
@@ -580,7 +571,7 @@ def _code_from(query: dict[str, list[str]], *, state: str) -> str:
         raise AuthError(f"Authorization was refused: {error[0]}{f' ({described})' if described else ''}")
     # Without this the flow would accept a code from an authorization request we never made.
     if not secrets.compare_digest((query.get("state") or [""])[0], state):
-        raise AuthError("The redirect carried the wrong state — start the login again.")
+        raise AuthError("The redirect carried the wrong state. Start the login again.")
     code = (query.get("code") or [""])[0]
     if not code:
         raise AuthError("The redirect carried no authorization code.")
@@ -588,11 +579,7 @@ def _code_from(query: dict[str, list[str]], *, state: str) -> str:
 
 
 def redact(credential: Credential) -> Credential:
-    """A copy safe to print: identifiers and scopes kept, secrets replaced.
-
-    Exists so `auth:posthog:status` can render a credential without a caller having to remember
-    which fields are secret.
-    """
+    """A copy safe to print, so a caller rendering a credential need not track which fields are secret."""
     return replace(
         credential, access_token="<redacted>", refresh_token="<redacted>" if credential.refresh_token else None
     )

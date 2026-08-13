@@ -1,4 +1,4 @@
-"""`hogli auth:posthog:*` — sign hogli in to a PostHog host, once, for every command.
+"""`hogli auth:posthog:*`, which signs hogli in to a PostHog host once, for every command.
 
 Separate from `posthog_auth` so importing the shared token helper costs no click machinery: a
 command that just needs a token imports the module, not this surface.
@@ -18,9 +18,8 @@ import click
 
 from hogli_commands import posthog_auth
 
-# Enough to read this repo's CI health, which is what asks for a login today. A command needing
-# more passes its own scopes to `posthog_auth.token`, which re-authorizes on demand — so this is a
-# starting point, not the ceiling for everything hogli will ever read.
+# Enough to read CI health, which is what asks for a login today. Not a ceiling: a command needing
+# more passes its own scopes to `posthog_auth.token`, which re-authorizes on demand.
 _DEFAULT_SCOPES = ("engineering_analytics:read",)
 
 _HOST_OPTION = click.option(
