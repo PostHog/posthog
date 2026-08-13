@@ -53,6 +53,7 @@ import type {
     ReviewIssuePriorityEnumApi,
     ReviewPerspectiveStatItemApi,
     ReviewRecentReviewApi,
+    ReviewResolutionStatusApi,
     UrgencyThresholdEnumApi,
 } from 'products/review_hog/frontend/generated/api.schemas'
 import { ReviewHogReviewsListScope, RunModeEnumApi } from 'products/review_hog/frontend/generated/api.schemas'
@@ -395,6 +396,17 @@ function progressLabel(review: ReviewRecentReviewApi): string {
     }
 }
 
+/** "Resolving comments · 6/10 · 5 fixed, 1 needs you" — the live resolution run's row label. */
+function resolutionLabel(resolution: ReviewResolutionStatusApi): string {
+    const outcomes = [
+        resolution.fixed > 0 ? `${resolution.fixed} fixed` : null,
+        resolution.needs_attention > 0
+            ? `${resolution.needs_attention} need${resolution.needs_attention === 1 ? 's' : ''} you`
+            : null,
+    ].filter(Boolean)
+    return `Resolving comments · ${resolution.done}/${resolution.total}${outcomes.length ? ` · ${outcomes.join(', ')}` : ''}`
+}
+
 /** A first review still running: no findings to expand into yet, just the live stage. */
 function RunningReviewRow({ review }: { review: ReviewRecentReviewApi }): JSX.Element {
     const { reviewsScope } = useValues(reviewHogSettingsLogic)
@@ -418,7 +430,11 @@ function RunningReviewRow({ review }: { review: ReviewRecentReviewApi }): JSX.El
                         </>
                     )}
                     <span className="text-tertiary">·</span>
-                    <span className="whitespace-nowrap font-medium text-warning">{progressLabel(review)}</span>
+                    <span className="whitespace-nowrap font-medium text-warning">
+                        {review.resolution?.resolution_status === 'resolving'
+                            ? resolutionLabel(review.resolution)
+                            : progressLabel(review)}
+                    </span>
                 </div>
             </div>
             <LemonButton size="small" type="secondary" to={review.github_url} targetBlank sideIcon={<IconExternal />}>
@@ -456,11 +472,19 @@ function RecentReviewRow({ review }: { review: ReviewRecentReviewApi }): JSX.Ele
                 <div className="min-w-0 flex-1">
                     <div className="flex items-center gap-2">
                         <span className="truncate text-sm font-semibold">{reviewTitle(review)}</span>
-                        {review.in_progress && (
+                        {review.resolution?.resolution_status === 'resolving' ? (
+                            <LemonTag type="warning" size="small" className="inline-flex items-center gap-1">
+                                <Spinner className="text-xs" /> {resolutionLabel(review.resolution)}
+                            </LemonTag>
+                        ) : review.in_progress ? (
                             <LemonTag type="warning" size="small" className="inline-flex items-center gap-1">
                                 <Spinner className="text-xs" /> Re-reviewing · {progressLabel(review)}
                             </LemonTag>
-                        )}
+                        ) : review.resolution?.resolution_status === 'stopped' ? (
+                            <LemonTag type="muted" size="small">
+                                Resolution didn't finish · stopped at {review.resolution.done}/{review.resolution.total}
+                            </LemonTag>
+                        ) : null}
                         {!review.published && (
                             <LemonTag type="muted" size="small">
                                 Not published
@@ -654,13 +678,16 @@ function RecentReviewsSection(): JSX.Element | null {
  * in alpha).
  */
 function TriggerReviewSection(): JSX.Element | null {
-    const { settings, triggerPrUrl, triggeringReview } = useValues(reviewHogSettingsLogic)
+    const { settings, triggerPrUrl, triggeringReview, triggerUrlResolving } = useValues(reviewHogSettingsLogic)
     const { setTriggerPrUrl, submitTriggerReview } = useActions(reviewHogSettingsLogic)
 
     if (!settings?.can_trigger_reviews) {
         return null
     }
     const noUrlReason = !triggerPrUrl.trim() ? 'Paste a pull request URL first' : undefined
+    // Mirrors the server-side busy-guard for PRs visible in the list; pasted URLs outside it still
+    // get the same refusal from the trigger endpoint.
+    const resolvingReason = triggerUrlResolving ? 'Still resolving comments from the last review' : undefined
     const inFlightReason = triggeringReview ? 'A run is already starting…' : undefined
     return (
         <section className="flex flex-col gap-4">
@@ -685,10 +712,10 @@ function TriggerReviewSection(): JSX.Element | null {
                     type="primary"
                     htmlType="submit"
                     loading={triggeringReview}
-                    disabledReason={noUrlReason}
+                    disabledReason={noUrlReason ?? resolvingReason}
                     sideAction={{
                         icon: <IconChevronDown />,
-                        disabledReason: noUrlReason ?? inFlightReason,
+                        disabledReason: noUrlReason ?? resolvingReason ?? inFlightReason,
                         dropdown: {
                             placement: 'bottom-end',
                             overlay: (
