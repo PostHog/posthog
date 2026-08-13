@@ -147,7 +147,9 @@ clearing it.
 32. The lane must never connect to a private address. This covers loopback, link-local, and every
     other range that is not public. Smokescreen does this in production. `httpStaticLookup` does it
     when no proxy is set.
-33. The check must use the same DNS answer as the connection.
+33. The check must use the same DNS answer as the connection. An attacker who owns a name can give
+    a different address on every lookup. Code that resolves a name, checks the address, then hands
+    the name to something that resolves it again has checked one address and connected to another.
 34. The collector drops a URL that a later check would refuse, so it never reaches the topic. It
     drops four kinds: a host that is not public, a scheme that is not HTTPS, a port that the scheme
     does not own, and a URL that is too long.
@@ -155,33 +157,22 @@ clearing it.
     The network layer performs none of them. Smokescreen limits which addresses we reach, not which
     service we reach at those addresses.
 
-**Rule 33 is the one that is easy to get wrong.** One name can give a different address each time
-someone looks it up. The attacker owns the name, so the attacker chooses those addresses. Now
-suppose we look up the name, check the address, and then hand the name to something that looks it up
-again. The second lookup can return an address we never saw. We connect to that one.
+Neither implementation passes a name onward, which is what satisfies rule 33. Smokescreen resolves
+the name, checks what it got, and connects to that. `httpStaticLookup` resolves the name, checks
+what it got, and hands those addresses to undici, which connects to them.
 
-So a check is only worth something when the thing that checks the address is also the thing that
-opens the connection. Both of ours work that way:
+The lane repeats the collector's checks because nothing below the lane performs them. Smokescreen
+sees an address, not a scheme, a port, or a name, so the collector and the lane are the only two
+places these run and the two must agree. Both allow HTTPS on the scheme's own port and nothing else.
 
-- Smokescreen looks up the name, checks what it got, and connects to that.
-- `httpStaticLookup` looks up the name, checks what it got, and hands those addresses to undici,
-  which connects to them.
+The host check is the one that needs both layers. An address check at connect time refuses a private
+address, so it covers `169.254.169.254`. It cannot refuse `wiki.corp`, because that name looks
+ordinary and its DNS answer can be a public address. Only a check on the name itself refuses that.
 
-**The lane repeats the collector's checks because nothing below the lane performs them.**
-Smokescreen sees an address, not a scheme, a port, or a name. So the collector and the lane are the
-only two places these run, and the two must agree. Both allow HTTPS on the scheme's own port and
-nothing else.
-
-The host check is the one worth stating plainly. An address check at connect time refuses a private
-address, so it covers `169.254.169.254`. It cannot refuse `wiki.corp`, because the name looks
-ordinary and its DNS answer can be a public address. Only a check on the name itself refuses that,
-and the collector and the lane both perform one.
-
-**A name the attacker owns can still reach any public address on port 443.** We connect, and the
-outcome metric shows whether something answered. Any port scanner learns the same thing for less
-effort. The cost to us is different. The request comes from our egress addresses, not from a
-customer. So this is a question of our reputation rather than of leaked data. The per-domain rate limit
-holds it to one request each second.
+A name the attacker owns can still reach any public address on port 443, and the outcome metric
+shows whether something answered. Any port scanner learns the same thing for less effort, so the
+cost to us is our reputation rather than leaked data: the request leaves our egress addresses, not a
+customer's. The per-domain rate limit holds it to one request each second.
 
 ### Smokescreen
 
