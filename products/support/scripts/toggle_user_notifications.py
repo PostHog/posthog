@@ -22,10 +22,22 @@ because they surface as indistinguishable 403s at PATCH time:
 - With `--session-id`, the session must be inside its sensitive-action window. Writing notification
   settings isn't in `time_sensitive_allow_if_only_fields`, so `TimeSensitiveActionPermission`
   requires a session younger than `SESSION_SENSITIVE_ACTIONS_AGE` (2h) and otherwise 403s with
-  `sensitive_action_required_reauth` - the re-auth modal the UI shows. Prefer
-  `--personal-api-key`: the permission returns early for non-session auth, so keys never hit this.
-  Re-authenticating rotates the session key (`session.cycle_key()`), deliberately invalidating a
-  cookie copied beforehand, so a re-auth means copying the new `sessionid`.
+  `sensitive_action_required_reauth` - the re-auth modal the UI shows.
+
+**Use a personal API key with the All access (`*`) preset.** Two separate mechanisms make a copied
+session cookie a dead end for writes, and neither is a freshness problem:
+
+- Session-risk detection scores each request's User-Agent against the baseline the browser
+  established (`posthog/session/risk.py`). A non-browser client scores `UA_CHANGE` ->
+  `RiskTier.MEDIUM` -> step-up required, on its first request, which nulls the sensitive-action
+  window. Re-authenticating clears the flag but rotates the session key, so the replacement cookie
+  trips the same check. Replaying the browser's User-Agent would be evading the control rather than
+  satisfying it. Where the `session-risk-step-up` flag is off (e.g. self-hosted) session auth still
+  works, which is why `--session-id` remains supported.
+- `user:write` cannot be granted to a personal API key at all: the scope picker disables it
+  (`disabledActions` on the `user` entry in `frontend/src/lib/scopes.tsx`), because the scope was
+  designed for reading your own user object. `*` short-circuits the scope check in
+  `APIScopePermission`, so All access is the only key that can do this. Revoke it after the run.
 
 Writing to someone's account while they aren't present is a support action, not a routine one -
 have the user's explicit request on record first. Every write therefore needs --reason, which is
@@ -57,7 +69,7 @@ POSTHOG_PROJECT_ID is ignored. Some settings are scoped to a project or organiza
 --scope instead.
 
 Usage:
-  export POSTHOG_PERSONAL_API_KEY=phx_...   # staff key, needs user:read and user:write
+  export POSTHOG_PERSONAL_API_KEY=phx_...   # staff key, All access (*) preset - see above
   python products/support/scripts/toggle_user_notifications.py --list-settings
   python products/support/scripts/toggle_user_notifications.py \\
       a@example.com b@example.com --setting all_weekly_digest_disabled --disable --dry-run
@@ -69,9 +81,9 @@ Usage:
 
 --host accepts a full instance URL or the PostHog Cloud region shorthands us/eu.
 
-When a personal API key can't be created, pass a browser session instead: --session-id (env
-POSTHOG_SESSION_ID) with the value of the `sessionid` cookie from devtools. It must be your own
-staff session - an impersonated one cannot write to /api/users/ at all.
+--session-id (env POSTHOG_SESSION_ID) takes the `sessionid` cookie from devtools. It must be your
+own staff session - an impersonated one cannot write to /api/users/ at all - and on PostHog Cloud
+expect it to work for --dry-run but not for writes, per the session-risk note above.
 """
 
 import os
@@ -466,25 +478,36 @@ def verify_staff_credential(session: requests.Session, host: str, *, session_aut
 
 
 def check_sensitive_window(me: dict[str, Any], email: str) -> None:
-    """Refuse a session whose sensitive-action window has closed, before any PATCH goes out.
+    """Refuse a session that can't perform a sensitive action, before any PATCH goes out.
 
     Writing notification settings is a sensitive action, so TimeSensitiveActionPermission requires
     a session younger than SESSION_SENSITIVE_ACTIONS_AGE and 403s with
     `sensitive_action_required_reauth` otherwise - the same re-auth modal the UI shows. Personal API
     keys skip the check entirely (the permission returns early for non-session auth), which is why
     this only applies to --session-id. The window is reported by the API as
-    `sensitive_session_expires_at`; a null value means no window at all, usually a pending step-up.
+    `sensitive_session_expires_at`, and is null when a step-up re-auth is pending.
+
+    Expect null wherever the session-risk step-up is enabled, because this script trips it: the
+    device axis in posthog/session/risk.py compares the request's User-Agent against the baseline
+    the browser established, so a non-browser client scores UA_CHANGE -> RiskTier.MEDIUM -> step-up,
+    on its very first request. Re-authenticating doesn't help - it clears the flag but rotates the
+    session key, and the replacement cookie trips the same check again. Replaying the browser's
+    User-Agent to look like the browser would be evading a control, not configuring one; use an
+    All access key instead.
     """
     raw_expiry = me.get("sensitive_session_expires_at")
-    reauth_advice = (
-        "Prefer --personal-api-key, which isn't subject to this window at all. Otherwise "
-        "re-authenticate in the browser and copy the NEW sessionid: re-auth calls "
-        "session.cycle_key(), specifically so a cookie copied beforehand stops working."
+    key_advice = (
+        "Use --personal-api-key with the All access (*) preset: keys aren't subject to this window "
+        "or to session-risk scoring. Note user:write can't be granted to a key - the scope picker "
+        "disables it (disabledActions in frontend/src/lib/scopes.tsx) - so All access is the only "
+        "key that works here. Revoke it once you're done."
     )
     if not raw_expiry:
         raise PostHogScriptError(
             f"{printable(email)}'s session has no sensitive-action window, so every write would 403 "
-            f"with sensitive_action_required_reauth. Usually a pending step-up re-auth. {reauth_advice}"
+            f"with sensitive_action_required_reauth. A step-up re-auth is pending, most likely "
+            f"tripped by this script's own User-Agent (see session-risk detection). Re-authenticating "
+            f"and copying the new cookie will not fix it. {key_advice}"
         )
     try:
         expires_at = datetime.datetime.fromisoformat(str(raw_expiry))
@@ -495,7 +518,7 @@ def check_sensitive_window(me: dict[str, Any], email: str) -> None:
     if remaining <= 0:
         raise PostHogScriptError(
             f"{printable(email)}'s sensitive-action window closed at {expires_at.isoformat()}, so "
-            f"every write would 403 with sensitive_action_required_reauth. {reauth_advice}"
+            f"every write would 403 with sensitive_action_required_reauth. {key_advice}"
         )
     if remaining < SENSITIVE_WINDOW_WARN_SECONDS:
         log(
@@ -703,7 +726,8 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument(
         "--personal-api-key",
         default=None,
-        help="Staff personal API key (phx_...) with user:read and user:write (env: POSTHOG_PERSONAL_API_KEY)",
+        help="Staff personal API key (phx_...) created with the All access (*) preset; user:write "
+        "cannot be granted to a key (env: POSTHOG_PERSONAL_API_KEY)",
     )
     parser.add_argument(
         "--session-id",
@@ -928,9 +952,9 @@ def main() -> int:
     if forbidden:
         log(
             f"  {forbidden} forbidden (HTTP 403): most likely sensitive_action_required_reauth - a "
-            "session's sensitive-action window closing mid-run (see the message above; use "
-            "--personal-api-key to avoid it). Otherwise the credential lost staff access, or an "
-            "impersonation session was started - /api/users/ rejects writes while impersonating."
+            "session's sensitive-action window closing mid-run, or session-risk step-up tripping "
+            "(use an All access personal API key to avoid both). Otherwise the credential lost staff "
+            "access, or an impersonation session was started - /api/users/ rejects writes then."
         )
     for failure in failures[:20]:
         log(f"  FAILED: {printable(failure)}")
