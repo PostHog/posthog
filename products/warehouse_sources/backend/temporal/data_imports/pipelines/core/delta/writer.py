@@ -14,6 +14,7 @@ from posthog.exceptions_capture import capture_exception
 from posthog.sync import database_sync_to_async_pool
 
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.core.arrow_utils import (
+    MISSING_PRIMARY_KEYS_ERROR,
     MissingPrimaryKeysException,
     align_incoming_decimals_to_delta,
     first_per_pk_table,
@@ -355,6 +356,18 @@ class DeltaWriter:
                 n = normalize_column_name(x)
                 if n in py_table_column_names:
                     normalized_primary_keys.append(n)
+
+            if not normalized_primary_keys:
+                # None of the configured primary key columns survived into this batch (e.g. a stale
+                # persisted key name that no longer matches the source's columns). Left unguarded, the
+                # unpartitioned path below joins an empty predicate_ops into "" and hands delta-rs an
+                # empty predicate, which its SQL parser rejects with an opaque "Expected: an expression,
+                # found: EOF" — and the partitioned path would merge on partition alone, matching rows
+                # that were never actually the same record. Fail clearly instead of either.
+                raise MissingPrimaryKeysException(
+                    f"{MISSING_PRIMARY_KEYS_ERROR}: none of {list(primary_keys)!r} were found in the "
+                    f"synced data (columns: {py_table_column_names!r})"
+                )
 
             predicate_ops = _merge_predicate_ops(normalized_primary_keys)
 

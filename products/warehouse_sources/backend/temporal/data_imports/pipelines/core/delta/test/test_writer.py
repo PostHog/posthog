@@ -13,6 +13,7 @@ import pyarrow.compute as pc
 from parameterized import parameterized
 
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.core.arrow_utils import (
+    MissingPrimaryKeysException,
     SchemaColumnTypeChangedException,
     evolve_pyarrow_schema,
     first_per_pk_table,
@@ -337,6 +338,26 @@ class TestLegacyDltTableReconciliation:
         final = result.to_pyarrow_table()
         assert final.num_rows == 3
         assert set(final.column("id").to_pylist()) == {1, 2, 3}
+
+    @pytest.mark.asyncio
+    async def test_incremental_merge_raises_when_primary_key_column_missing_from_batch(self, tmp_path: Path) -> None:
+        """A configured primary key that no longer matches any column in the batch (e.g. a stale
+        persisted key name after the source's schema changed) must fail clearly instead of building
+        an empty merge predicate — delta-rs rejects an empty predicate with an opaque
+        "sql parser error: Expected: an expression, found: EOF" DeltaError."""
+        delta_path = str(tmp_path / "table")
+        deltalake.write_deltalake(delta_path, pa.table({"id": [1, 2], "name": ["a", "b"]}))
+
+        helper = make_local_table_ref(delta_path)
+        batch = pa.table({"name": ["c"]})
+
+        with pytest.raises(MissingPrimaryKeysException):
+            await DeltaWriter(helper).write(
+                data=batch,
+                write_type="incremental",
+                should_overwrite_table=False,
+                primary_keys=["id"],
+            )
 
 
 class TestAppendDecimalReconciliation:
