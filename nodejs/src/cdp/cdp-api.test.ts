@@ -1730,6 +1730,7 @@ describe('CDP API', () => {
                         capturedPostHogEvents: [],
                         warehouseWebhookPayloads: [],
                         messageAssets: [],
+                        conversionWatchers: [],
                     })
                 )
         })

@@ -285,6 +285,7 @@ describe('Hogflow Executor', () => {
                 capturedPostHogEvents: [],
                 warehouseWebhookPayloads: [],
                 messageAssets: [],
+                conversionWatchers: [],
                 invocation: {
                     state: {
                         actionStepCount: 1,
