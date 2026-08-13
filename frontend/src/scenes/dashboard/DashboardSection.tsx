@@ -19,6 +19,8 @@ interface DashboardSectionProps {
     onDelete: (memberHandling: 'delete_tiles' | 'ungroup') => void
     tileCount: number
     sectionCount: number
+    sectionRef: (element: HTMLElement | null) => void
+    highlighted: boolean
     overlay: ReactNode
 }
 
@@ -35,16 +37,20 @@ export function DashboardSection({
     onDelete,
     tileCount,
     sectionCount,
+    sectionRef,
+    highlighted,
     overlay,
 }: DashboardSectionProps): JSX.Element {
+    let sectionClassName = 'relative mb-4'
+    if (group) {
+        sectionClassName += " rounded border bg-surface-tertiary [[theme='dark']_&]:bg-surface-secondary border-primary"
+    }
+    if (highlighted) {
+        sectionClassName += ' border-accent bg-accent-highlight-secondary'
+    }
+
     return (
-        <section
-            className={
-                group
-                    ? "relative mb-4 rounded border border-primary bg-surface-tertiary [[theme='dark']_&]:bg-surface-secondary"
-                    : 'relative mb-4'
-            }
-        >
+        <section ref={sectionRef} className={sectionClassName}>
             {group && (
                 <DashboardSectionHeader
                     group={group}

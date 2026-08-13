@@ -716,7 +716,8 @@ export interface dashboardLogicActions {
         action: DashboardLoadAction
     }
     moveDashboardTileToGroup: (payload: {
-        groupId: string
+        createAtPosition?: number
+        groupId?: string
         layouts: {
             sm: {
                 h: number
@@ -727,7 +728,8 @@ export interface dashboardLogicActions {
         }
         tileId: number
     }) => {
-        groupId: string
+        createAtPosition?: number | undefined
+        groupId?: string | undefined
         layouts: {
             sm: {
                 h: number
@@ -1479,8 +1481,15 @@ export const dashboardLogic = kea<dashboardLogicType>([
         toggleDashboardSectionCollapsed: (groupId: string) => ({ groupId }),
         moveDashboardTileToGroup: (payload: {
             tileId: number
-            groupId: string
+            groupId?: string
+            createAtPosition?: number
             layouts: { sm: { x: number; y: number; w: number; h: number } }
+        }) => payload,
+        reconcileDashboardTileGroupMove: (payload: {
+            tile: DashboardTile
+            optimisticGroupId?: string
+            createdGroup: DashboardGroupApi | null
+            deletedGroupIds: string[]
         }) => payload,
         renameDashboardGroup: (groupId: string, name: string) => ({ groupId, name }),
         updateDashboardGroupPosition: (groupId: string, position: number) => ({ groupId, position }),
@@ -2160,6 +2169,103 @@ export const dashboardLogic = kea<dashboardLogicType>([
                         tile.id === tileId ? { ...tile, parent_group_id: groupId } : tile
                     ),
                 }),
+                moveDashboardTileToGroup: (state, { tileId, groupId, createAtPosition, layouts }) => {
+                    if (!state) {
+                        return state
+                    }
+                    const optimisticGroupId = groupId ?? `optimistic-section-${tileId}`
+                    let groups = state.groups ?? []
+                    if (!groupId) {
+                        const position = createAtPosition ?? groups.length
+                        groups = [
+                            ...groups.map((group) => ({
+                                ...group,
+                                position: group.position >= position ? group.position + 1 : group.position,
+                            })),
+                            {
+                                id: optimisticGroupId,
+                                name: null,
+                                position,
+                                member_tile_ids: [tileId],
+                                created_at: '',
+                                created_by: null,
+                                last_modified_at: '',
+                                last_modified_by: null,
+                            },
+                        ].sort((a, b) => a.position - b.position)
+                    }
+                    return {
+                        ...state,
+                        groups,
+                        tiles: state.tiles.map((tile) =>
+                            tile.id === tileId
+                                ? { ...tile, parent_group_id: optimisticGroupId, layouts: { sm: layouts.sm } }
+                                : tile
+                        ),
+                    }
+                },
+                reconcileDashboardTileGroupMove: (
+                    state,
+                    { tile, optimisticGroupId, createdGroup, deletedGroupIds }
+                ) => {
+                    if (!state) {
+                        return state
+                    }
+                    const removedGroupIds = new Set(deletedGroupIds)
+                    let groups = (state.groups ?? []).filter(
+                        (group) => group.id !== optimisticGroupId && !removedGroupIds.has(group.id)
+                    )
+                    if (createdGroup) {
+                        groups = [...groups, createdGroup].sort((a, b) => a.position - b.position)
+                    }
+                    return {
+                        ...state,
+                        groups,
+                        tiles: state.tiles.map((currentTile) => (currentTile.id === tile.id ? tile : currentTile)),
+                    }
+                },
+                renameDashboardGroup: (state, { groupId, name }) =>
+                    state
+                        ? {
+                              ...state,
+                              groups: state.groups?.map((group) => (group.id === groupId ? { ...group, name } : group)),
+                          }
+                        : state,
+                updateDashboardGroupPosition: (state, { groupId, position }) => {
+                    if (!state?.groups) {
+                        return state
+                    }
+                    const movedGroup = state.groups.find((group) => group.id === groupId)
+                    if (!movedGroup) {
+                        return state
+                    }
+                    const groups = state.groups.filter((group) => group.id !== groupId)
+                    groups.splice(Math.max(0, Math.min(position, groups.length)), 0, movedGroup)
+                    return {
+                        ...state,
+                        groups: groups.map((group, nextPosition) => ({ ...group, position: nextPosition })),
+                    }
+                },
+                deleteDashboardGroup: (state, { groupId, memberHandling }) => {
+                    if (!state) {
+                        return state
+                    }
+                    if (memberHandling === 'ungroup') {
+                        return {
+                            ...state,
+                            groups: state.groups?.map((group) =>
+                                group.id === groupId ? { ...group, name: null } : group
+                            ),
+                        }
+                    }
+                    return {
+                        ...state,
+                        groups: state.groups
+                            ?.filter((group) => group.id !== groupId)
+                            .map((group, position) => ({ ...group, position })),
+                        tiles: state.tiles.filter((tile) => tile.parent_group_id !== groupId),
+                    }
+                },
                 removeTile: (state, { tile }) => {
                     // Optimistically drop the tile so the grid reflows immediately; the loader rolls back on failure.
                     return {
@@ -3488,14 +3594,20 @@ export const dashboardLogic = kea<dashboardLogicType>([
                 actions.createDashboardGroupFinished()
             }
         },
-        moveDashboardTileToGroup: async ({ tileId, groupId, layouts }) => {
+        moveDashboardTileToGroup: async ({ tileId, groupId, createAtPosition, layouts }) => {
             try {
-                await dashboardsGroupsMoveTileCreate(String(values.currentTeamId), props.id, {
+                const destination = groupId ? { group_id: groupId } : { create_at_position: createAtPosition }
+                const response = await dashboardsGroupsMoveTileCreate(String(values.currentTeamId), props.id, {
                     tile_id: tileId,
-                    group_id: groupId,
+                    ...destination,
                     layouts,
                 })
-                actions.loadDashboard({ action: DashboardLoadAction.Update })
+                actions.reconcileDashboardTileGroupMove({
+                    tile: response.tile as DashboardTile,
+                    optimisticGroupId: groupId ? undefined : `optimistic-section-${tileId}`,
+                    createdGroup: response.created_group,
+                    deletedGroupIds: response.deleted_group_ids,
+                })
             } catch {
                 actions.loadDashboard({ action: DashboardLoadAction.Update })
                 lemonToast.error('Could not move tile. Try again.')
@@ -3507,7 +3619,6 @@ export const dashboardLogic = kea<dashboardLogicType>([
                     group_id: groupId,
                     name,
                 })
-                actions.loadDashboard({ action: DashboardLoadAction.Update })
             } catch {
                 actions.loadDashboard({ action: DashboardLoadAction.Update })
                 lemonToast.error('Could not rename group. Try again.')
@@ -3519,7 +3630,6 @@ export const dashboardLogic = kea<dashboardLogicType>([
                     group_id: groupId,
                     position,
                 })
-                actions.loadDashboard({ action: DashboardLoadAction.Update })
             } catch {
                 actions.loadDashboard({ action: DashboardLoadAction.Update })
                 lemonToast.error('Could not move section. Try again.')
@@ -3531,7 +3641,6 @@ export const dashboardLogic = kea<dashboardLogicType>([
                     group_id: groupId,
                     member_handling: memberHandling,
                 })
-                actions.loadDashboard({ action: DashboardLoadAction.Update })
             } catch {
                 actions.loadDashboard({ action: DashboardLoadAction.Update })
                 lemonToast.error('Could not delete group. Try again.')
