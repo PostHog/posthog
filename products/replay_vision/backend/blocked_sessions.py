@@ -29,7 +29,7 @@ from posthog.session_recordings.queries.sub_queries.events_subquery import (
     ReplayFiltersEventsSubQuery,
     test_accounts_only_query,
 )
-from posthog.session_recordings.queries.utils import expand_test_account_filters, is_cohort_property
+from posthog.session_recordings.queries.utils import expand_test_account_filters, is_cohort_property, is_group_property
 
 from products.replay_vision.backend.fingerprint import config_fingerprint
 from products.replay_vision.backend.queries.scanner_candidate_query import _PARTITION_LOOKBACK, _execute_candidate_query
@@ -97,13 +97,14 @@ def blocklist_fingerprint(team: Team, query: RecordingsQuery) -> str | None:
     Test-account filters are team config that changes independently of the scanner, so they are part
     of the identity: editing either invalidates the stored set and forces a rebuild.
 
-    A negative cohort filter returns None, which keeps the scanner on the in-query blocklist. Cohort
-    membership moves on its own, without emitting events, so adding a person to an excluded cohort
-    would never show up in an arrival-time delta and their existing sessions would be dispatched. The
-    in-query form re-evaluates the cohort on every sweep and does not have that gap.
+    A negative cohort or group filter returns None, which keeps the scanner on the in-query blocklist.
+    Both resolve against state that moves on its own: cohort membership changes, and a group property
+    is rewritten by `$groupidentify`. Neither emits an event on the session, so an arrival-time delta
+    would never see it and the already-ingested sessions would be dispatched. The in-query form
+    re-evaluates on every sweep and does not have that gap.
     """
     negative_props = [prop for builder in _builders(team, query) for prop in builder.negative_properties()]
-    if any(is_cohort_property(prop) for prop in negative_props):
+    if any(is_cohort_property(prop) or is_group_property(prop) for prop in negative_props):
         return None
     negative = [prop.model_dump(exclude_none=True) for prop in negative_props]
     if not negative:
@@ -152,6 +153,28 @@ def refresh_blocked_sessions(
     except Exception:
         logger.exception("replay_vision.blocked_sessions_refresh_failed", scanner_id=scanner_id)
         return False
+
+
+def block_arrivals_since(*, scanner_id: str, team: Team, query: RecordingsQuery, since: dt.datetime) -> None:
+    """Fold in disqualifying events that arrived since `since`, without moving the watermark.
+
+    The main refresh reads the events table before the candidate query does, so an event landing
+    between the two would be missing from the set while its session is already a candidate. The
+    candidate keyset then advances past that session and no later delta can help. This top-up covers
+    only that gap, so it reads seconds of arrivals rather than the watermark's full trailing window.
+    """
+    session_ids = _scan(scanner_id, team, query, ingested_after=since)
+    if not session_ids:
+        return
+    sessions_key = _SESSIONS_KEY.format(scanner_id=scanner_id)
+    client = _redis()
+    pipe = client.pipeline(transaction=True)
+    pipe.zadd(sessions_key, dict.fromkeys(session_ids, dt.datetime.now(dt.UTC).timestamp()))
+    pipe.expire(sessions_key, _KEY_TTL_SECONDS)
+    pipe.zcard(sessions_key)
+    entry_count = pipe.execute()[-1]
+    # Keep the recorded size honest, or the next `blocked_subset` would read this growth as eviction.
+    client.hset(_META_KEY.format(scanner_id=scanner_id), "entry_count", entry_count)
 
 
 def blocked_subset(scanner_id: str, session_ids: list[str]) -> set[str]:

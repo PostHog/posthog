@@ -68,6 +68,7 @@ def find_scanner_candidates_activity(inputs: FindScannerCandidatesInputs) -> Fin
     # With negative filters, prefer the incrementally-maintained blocked set over the in-query
     # blocklists; any store problem falls back to the legacy (always-correct) in-query path.
     fingerprint = blocked_sessions.blocklist_fingerprint(scanner.team, query)
+    store_read_at = timezone.now()
     use_blocked_store = fingerprint is not None and blocked_sessions.refresh_blocked_sessions(
         scanner_id=str(scanner.id),
         team=scanner.team,
@@ -93,6 +94,11 @@ def find_scanner_candidates_activity(inputs: FindScannerCandidatesInputs) -> Fin
     fetched = candidate_query.run()
     candidates = fetched
     if use_blocked_store:
+        # The candidate read happened after the store read, so anything that arrived in between is
+        # not in the set yet and its session is about to move past the keyset.
+        blocked_sessions.block_arrivals_since(
+            scanner_id=str(scanner.id), team=scanner.team, query=query, since=store_read_at
+        )
         blocked = blocked_sessions.blocked_subset(str(scanner.id), [c.session_id for c in fetched])
         candidates = [c for c in fetched if c.session_id not in blocked]
     # A full batch means there may be more past the keyset; the next sweep resumes from the last row.

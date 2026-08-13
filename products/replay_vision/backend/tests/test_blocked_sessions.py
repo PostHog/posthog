@@ -62,6 +62,20 @@ class TestBlocklistFingerprint:
         )
         assert blocklist_fingerprint(team, query) is None
 
+    def test_negative_group_filter_stays_on_the_in_query_path(self, team) -> None:
+        # $groupidentify rewrites a group property without emitting an event on the session, so an
+        # arrival-time delta would never see the change and those sessions would be dispatched.
+        from posthog.schema import GroupPropertyFilter
+
+        query = RecordingsQuery(
+            properties=[
+                GroupPropertyFilter(
+                    key="plan", value=["enterprise"], operator=PropertyOperator.IS_NOT, group_type_index=0
+                )
+            ]
+        )
+        assert blocklist_fingerprint(team, query) is None
+
     def test_changes_with_negative_filter_value(self, team) -> None:
         assert blocklist_fingerprint(team, _negative_query("a.example.com")) != blocklist_fingerprint(
             team, _negative_query("b.example.com")

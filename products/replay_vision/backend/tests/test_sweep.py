@@ -10,6 +10,7 @@ from temporalio.exceptions import ApplicationError, WorkflowAlreadyStartedError
 
 from posthog.models import Organization, Team
 
+from products.replay_vision.backend import blocked_sessions
 from products.replay_vision.backend.models.replay_observation import (
     ObservationStatus,
     ObservationTrigger,
@@ -471,6 +472,34 @@ class TestFindScannerCandidatesActivity:
         _, query_kwargs = MockQuery.call_args
         assert query_kwargs["skip_negative_blocklists"] is False
         mock_store.blocked_subset.assert_not_called()
+
+    def test_arrivals_between_the_two_reads_still_block(self) -> None:
+        # The store is read before the candidate query, so an event landing in between is missing from
+        # the set while its session is already a candidate and about to pass the keyset.
+        scanner = _make_scanner(query=self._NEGATIVE_QUERY)
+        fetched = [
+            CandidateSession(session_id="late-blocked", session_end=dt.datetime(2026, 5, 1, 10, 0, tzinfo=dt.UTC))
+        ]
+
+        with (
+            patch(
+                "products.replay_vision.backend.temporal.activities.find_scanner_candidates.ScannerCandidateQuery"
+            ) as MockQuery,
+            patch.object(blocked_sessions, "blocklist_fingerprint", return_value="fp"),
+            patch.object(blocked_sessions, "refresh_blocked_sessions", return_value=True),
+            patch.object(blocked_sessions, "block_arrivals_since") as mock_topup,
+            patch.object(blocked_sessions, "blocked_subset", return_value={"late-blocked"}) as mock_subset,
+        ):
+            MockQuery.return_value.run.return_value = fetched
+            result = find_scanner_candidates_activity(
+                FindScannerCandidatesInputs(scanner_id=scanner.id, team_id=scanner.team_id)
+            )
+
+        # The top-up must run before the membership check, or it cannot affect this tick's decision.
+        assert mock_topup.called and mock_subset.called
+        assert result.candidates == []
+        # The keyset still covers the fetched row, so dropping it does not stall the walk.
+        assert result.keyset_session_id == "late-blocked"
 
     def test_raises_non_retryable_on_malformed_query(self) -> None:
         scanner = _make_scanner()
