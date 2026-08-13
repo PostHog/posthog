@@ -254,8 +254,8 @@ __all__ = [
     "soft_delete_task",
     "start_task_run",
     "task_accessible_for_run_view",
+    "task_channel_id",
     "task_exists",
-    "task_is_in_channel",
     "task_ids_with_pr_url_subquery",
     "task_run_has_slack_mapping",
     "task_run_is_terminal",
@@ -758,8 +758,9 @@ def task_exists(task_id: str | UUID, team_id: int) -> bool:
     return Task.objects.filter(id=task_id, team_id=team_id, deleted=False).exists()
 
 
-def task_is_in_channel(task_id: str | UUID, team_id: int, channel_id: str | UUID) -> bool:
-    return Task.objects.filter(id=task_id, team_id=team_id, channel_id=channel_id, deleted=False).exists()
+def task_channel_id(task_id: str | UUID, team_id: int) -> UUID | None:
+    """The channel a (non-deleted) task is filed in, or None."""
+    return Task.objects.filter(id=task_id, team_id=team_id, deleted=False).values_list("channel_id", flat=True).first()
 
 
 def task_owned_by_user(task_id: str | UUID, team_id: int, user_id: int) -> bool:

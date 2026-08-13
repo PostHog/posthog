@@ -14261,6 +14261,8 @@ export namespace Schemas {
       readonly created_by: UserBasic;
       readonly created_at: string;
       readonly updated_at: string;
+      /** Canonical link to the canvas in the PostHog app. The only valid way to link to a canvas — share this when pointing a user at it; never construct a canvas URL. */
+      readonly url: string;
     }
 
     /**
@@ -14739,6 +14741,8 @@ export namespace Schemas {
       published_build_id: string | null;
       /** When the canvas was created. */
       created_at: string;
+      /** Canonical link to the canvas in the PostHog app. The only valid way to link to a canvas — share this when pointing a user at it; never construct a canvas URL. */
+      readonly url: string;
     }
 
     /**

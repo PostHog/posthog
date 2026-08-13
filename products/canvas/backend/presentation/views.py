@@ -197,13 +197,16 @@ class CanvasViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
         if not tasks_facade.channel_exists(self.team_id, channel_id, user.id if user else None):
             return Response({"detail": "Channel not found in this team."}, status=status.HTTP_400_BAD_REQUEST)
         sandbox_task_id = self._sandbox_task_id(request)
-        if self._is_sandbox_authenticated(request) and (
-            sandbox_task_id is None or not tasks_facade.task_is_in_channel(sandbox_task_id, self.team_id, channel_id)
-        ):
-            return Response(
-                {"detail": "This sandbox can create canvases only in its task's space."},
-                status=status.HTTP_403_FORBIDDEN,
-            )
+        if self._is_sandbox_authenticated(request):
+            task_channel_id = tasks_facade.task_channel_id(sandbox_task_id, self.team_id) if sandbox_task_id else None
+            if task_channel_id != channel_id:
+                # Naming the right channel lets the agent recover in one step
+                # and tell the user where the canvas will actually land.
+                hint = f' Use the task\'s channel "{task_channel_id}".' if task_channel_id else ""
+                return Response(
+                    {"detail": f"This sandbox can create canvases only in its task's space.{hint}"},
+                    status=status.HTTP_403_FORBIDDEN,
+                )
         canvas = Canvas.objects.create(
             team_id=self.team_id,
             channel_id=channel_id,
