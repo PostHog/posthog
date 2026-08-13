@@ -286,7 +286,6 @@ export const notebookNodeGenUILogic: LogicWrapper<notebookNodeGenUILogicType> = 
                 const generationPrompt = buildGenUIGenerationPrompt({
                     canvasId: canvas.id,
                     name: canvas.name,
-                    channelId: canvas.channel,
                     instruction,
                     frames: props.frames,
                     missingFrames: props.missingFrames,
@@ -294,7 +293,7 @@ export const notebookNodeGenUILogic: LogicWrapper<notebookNodeGenUILogicType> = 
                 })
                 const task = await tasksCreate(String(values.currentTeamId), {
                     title: `${canvas.current_version_id ? 'Update' : 'Build'} notebook visualization "${canvas.name}"`,
-                    description: generationPrompt,
+                    description: instruction,
                     channel: canvas.channel,
                 })
                 const updatedCanvas = await canvasesPartialUpdate(String(values.currentTeamId), canvas.id, {
