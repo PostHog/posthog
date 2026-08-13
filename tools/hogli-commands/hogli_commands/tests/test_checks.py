@@ -1643,6 +1643,13 @@ class TestWatchedModelsAllowance:
             (["backend/facade/**", "backend/models/**"], {"backend/migrations/"}),
             # models forgotten entirely -> the crossing classes' definitions are unwatched
             (["backend/facade/**"], {"backend/migrations/", "backend/models/"}),
+            # a single model file is not the whole surface -> every other model file is unwatched
+            (["backend/facade/**", "backend/models/table.py", "backend/migrations/**"], {"backend/models/"}),
+            # a negation carving files out of the surface breaks whole-surface coverage
+            (
+                ["backend/facade/**", "backend/models/**", "backend/migrations/**", "!backend/models/secret.py"],
+                {"backend/models/"},
+            ),
         ],
     )
     def test_model_surface_coverage(self, tmp_path: Path, turbo_inputs: list[str], expected: set[str]) -> None:

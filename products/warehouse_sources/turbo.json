@@ -12,6 +12,7 @@
                 "backend/temporal/data_imports/naming_convention.py",
                 "backend/temporal/data_imports/pipelines/core/consts.py",
                 "backend/temporal/data_imports/sources/generated_configs/**",
+                "backend/temporal/data_imports/sources/clickhouse/**",
                 "backend/temporal/data_imports/sources/common/**",
                 "backend/temporal/data_imports/sources/google_search_console/**",
                 "backend/temporal/data_imports/sources/mysql/**",
