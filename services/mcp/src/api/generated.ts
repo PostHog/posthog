@@ -49668,6 +49668,12 @@ export namespace Schemas {
          * @maxLength 1000
          */
       description?: string;
+      /**
+         * Organizational tags for this scanner. Distinct from a classifier's tag vocabulary in scanner_config. Tags cannot contain commas.
+         * @maxItems 32
+         * @items.maxLength 255
+         */
+      tags?: string[];
       /** What the scanner does: monitor, classifier, scorer, or summarizer.
        *
        * * `monitor` - Monitor
@@ -58877,6 +58883,12 @@ export namespace Schemas {
          * @maxLength 1000
          */
       description?: string;
+      /**
+         * Organizational tags for this scanner. Distinct from a classifier's tag vocabulary in scanner_config. Tags cannot contain commas.
+         * @maxItems 32
+         * @items.maxLength 255
+         */
+      tags?: string[];
       /** What the scanner does: monitor, classifier, scorer, or summarizer.
        *
        * * `monitor` - Monitor
@@ -90057,6 +90069,10 @@ export namespace Schemas {
      * Case-insensitive substring match across name, description, and the prompt in scanner_config.
      */
     search?: string;
+    /**
+     * Filter to scanners carrying at least one of the given tags (comma-separated).
+     */
+    tags?: string;
     };
 
     export type VisionScannersImpactRetrieveParams = {
