@@ -810,6 +810,8 @@ jobs:
                         - 'posthog/temporal/common/**'
                         - 'posthog/management/commands/start_temporal_worker.py'
                         - 'posthog/clickhouse/migrations/**'
+                        - pyproject.toml
+                        - bin/temporal-django-worker
                       logsVolumeTick:
                         - 'products/logs/backend/**'
                         - 'products/apm/backend/logic/grid.py'
@@ -817,8 +819,6 @@ jobs:
                         - 'posthog/temporal/common/**'
                         - 'posthog/management/commands/start_temporal_worker.py'
                         - 'posthog/clickhouse/migrations/**'
-                        - pyproject.toml
-                        - bin/temporal-django-worker
                         - pyproject.toml
                         - bin/temporal-django-worker
                       dataModeling:
