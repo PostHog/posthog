@@ -48,9 +48,6 @@ const ENTITY_KIND_LABELS: Record<string, string> = {
     classifier: 'Classifier',
     scorer: 'Scorer',
     summarizer: 'Summarizer',
-    llm_judge: 'LLM judge',
-    hog: 'Hog',
-    sentiment: 'Sentiment',
 }
 
 function entityKindLabel(kind: string): string {
@@ -76,7 +73,7 @@ function resolveAgentStatus(
     return 'watching'
 }
 
-/** One individually switchable thing inside a source: a scanner, an evaluation, a signal type. */
+/** One individually switchable thing inside a source: a scanner or a signal type. */
 interface RosterEntity {
     id: string
     name: string
@@ -208,9 +205,6 @@ interface ExpansionProps {
     onToggleEntity: (entityId: string) => void
     onConfigureFilters?: () => void
     onRetryData: () => void
-    /** AI observability only: the periodic digest, which is its own signal stream, not a master. */
-    onToggleReports?: () => void
-    reportsEnabled?: boolean
 }
 
 function ToolDataStatus({
@@ -278,8 +272,6 @@ function Expansion({
     onToggleEntity,
     onConfigureFilters,
     onRetryData,
-    onToggleReports,
-    reportsEnabled,
 }: ExpansionProps): JSX.Element {
     const [filter, setFilter] = useState('')
     const { entities } = state
@@ -321,25 +313,6 @@ function Expansion({
             ) : tool ? (
                 <ToolDataStatus agent={agent} status={tool.dataStatus} onRetry={onRetryData} />
             ) : null}
-
-            {onToggleReports && (
-                <div className="flex items-start gap-2">
-                    <LemonSwitch
-                        size="small"
-                        className="mt-0.5"
-                        checked={!!reportsEnabled}
-                        onChange={onToggleReports}
-                        aria-label="Summary reports"
-                    />
-                    <div className="min-w-0">
-                        <div className="text-xs font-medium text-default">Summary reports</div>
-                        <p className="mb-0 text-xs text-secondary">
-                            File one report for each evaluation, on a schedule or after a set number of new results.
-                            This is separate from the individual results below.
-                        </p>
-                    </div>
-                </div>
-            )}
 
             {onConfigureFilters && (
                 <div className="flex items-center gap-2">
@@ -436,8 +409,6 @@ interface AgentRowProps {
     onEnableTool: (tool: SourceToolStatus) => void
     onConfigureFilters?: () => void
     onRetryData: () => void
-    onToggleReports?: () => void
-    reportsEnabled?: boolean
 }
 
 const AgentRow = memo(function AgentRow({
@@ -452,8 +423,6 @@ const AgentRow = memo(function AgentRow({
     onEnableTool,
     onConfigureFilters,
     onRetryData,
-    onToggleReports,
-    reportsEnabled,
 }: AgentRowProps): JSX.Element {
     const { armed, loading, requiresSetup, syncStatus, entities } = state
     const status = resolveAgentStatus(armed, syncStatus)
@@ -539,8 +508,6 @@ const AgentRow = memo(function AgentRow({
                     onToggleEntity={(entityId) => onToggleEntity(agent.source, entityId)}
                     onConfigureFilters={onConfigureFilters}
                     onRetryData={onRetryData}
-                    onToggleReports={onToggleReports}
-                    reportsEnabled={reportsEnabled}
                 />
             )}
         </div>
@@ -564,9 +531,6 @@ export function AgentsRoster(): JSX.Element {
         errorTrackingTypeStates,
         visionScanners,
         visionScannersLoading,
-        evaluations,
-        evaluationsLoading,
-        signalEmittingEvaluationIds,
         isSessionAnalysisToggling,
         isConversationsToggling,
         isEvalReportsToggling,
@@ -587,13 +551,10 @@ export function AgentsRoster(): JSX.Element {
         toggleErrorTracking,
         toggleErrorTrackingType,
         toggleEvalReports,
-        toggleEvaluationSignals,
         toggleCiSignals,
         toggleAnomalyInvestigation,
         toggleHealthChecks,
         toggleScannerSignals,
-        setAllScannerSignals,
-        setEvaluationSignals,
         initiateDataWarehouseSourceToggle,
         enableSourceTool,
         openSessionAnalysisSetup,
@@ -612,18 +573,6 @@ export function AgentsRoster(): JSX.Element {
                 enabled: scanner.emits_signals ?? false,
             })),
         [visionScanners]
-    )
-
-    const evaluationEntities = useMemo(
-        (): RosterEntity[] =>
-            (evaluations ?? []).map((evaluation) => ({
-                id: evaluation.id,
-                name: evaluation.name,
-                detail: evaluation.description || undefined,
-                kind: evaluation.evaluation_type,
-                enabled: signalEmittingEvaluationIds.includes(evaluation.id),
-            })),
-        [evaluations, signalEmittingEvaluationIds]
     )
 
     const errorTrackingEntities = useMemo(
@@ -689,14 +638,10 @@ export function AgentsRoster(): JSX.Element {
                 case 'llm_analytics':
                     return {
                         ...base,
-                        // No master switch here, so the row is on when anything under it is: an
-                        // allowlisted evaluation, or the periodic digest.
-                        armed: !!evalReportsConfig?.enabled || evaluationEntities.some((e) => e.enabled),
+                        armed: !!evalReportsConfig?.enabled,
                         loading: isEvalReportsToggling,
                         requiresSetup: false,
                         syncStatus: null,
-                        entities: evaluationEntities,
-                        entitiesLoading: evaluations === null && evaluationsLoading,
                     }
                 case 'analytics':
                     return {
@@ -745,9 +690,6 @@ export function AgentsRoster(): JSX.Element {
             sessionAnalysisConfig,
             isSessionAnalysisToggling,
             evalReportsConfig,
-            evaluationEntities,
-            evaluations,
-            evaluationsLoading,
             isEvalReportsToggling,
             anomalyInvestigationConfig,
             isAnomalyInvestigationToggling,
@@ -784,7 +726,7 @@ export function AgentsRoster(): JSX.Element {
                     toggleSessionAnalysis()
                     return
                 case 'llm_analytics':
-                    // Switched per evaluation, plus the digest, both in the expanded list.
+                    toggleEvalReports()
                     return
                 case 'analytics':
                     toggleAnomalyInvestigation()
@@ -804,11 +746,6 @@ export function AgentsRoster(): JSX.Element {
             }
         },
         [
-            scannerEntities,
-            setAllScannerSignals,
-            evaluationEntities,
-            evalReportsConfig,
-            setEvaluationSignals,
             toggleErrorTracking,
             toggleConversations,
             toggleSessionAnalysis,
@@ -824,13 +761,11 @@ export function AgentsRoster(): JSX.Element {
         (source: AgentRosterSource, entityId: string) => {
             if (source === 'replay_vision') {
                 toggleScannerSignals(entityId)
-            } else if (source === 'llm_analytics') {
-                toggleEvaluationSignals(entityId)
             } else if (source === 'error_tracking') {
                 toggleErrorTrackingType(entityId as SignalSourceType)
             }
         },
-        [toggleScannerSignals, toggleEvaluationSignals, toggleErrorTrackingType]
+        [toggleScannerSignals, toggleErrorTrackingType]
     )
 
     const visibleGroups = AGENT_ROSTER_GROUPS.map((group) => ({
@@ -873,8 +808,6 @@ export function AgentsRoster(): JSX.Element {
                                     agent.source === 'session_replay' ? openSessionAnalysisSetup : undefined
                                 }
                                 onRetryData={loadToolDataEvents}
-                                onToggleReports={agent.source === 'llm_analytics' ? toggleEvalReports : undefined}
-                                reportsEnabled={!!evalReportsConfig?.enabled}
                             />
                         ))}
                     </div>
