@@ -2433,7 +2433,11 @@ class HedgeboxMatrix(Matrix):
             existing_table.deleted_at = None
             if existing_table.created_by_id is None:
                 existing_table.created_by = user
-            existing_table.save()
+            # url_pattern is computed above from source_team_id/table_name, not request input, and
+            # credential is a real value from get_or_create_datawarehouse_credential (never None) -
+            # but the guard reads the row's prior DB state, so a stale credential-less row from
+            # before this function existed would still trip it without this declared explicitly.
+            existing_table.save(internally_computed_url_pattern=True)
             return
 
         DataWarehouseTable.objects.create(
