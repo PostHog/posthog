@@ -69,6 +69,7 @@ export default defineConfig(({ mode }) => {
                 public: resolve(__dirname, 'src/assets'),
                 // Required for production builds — @posthog/icons is in the pnpm store, not node_modules root
                 '@posthog/icons': resolve(__dirname, 'node_modules/@posthog/icons'),
+                '@posthog/llm-normalizer': resolve(__dirname, 'node_modules/@posthog/llm-normalizer'),
                 // These @tiptap packages live only in frontend/node_modules, which products/*/frontend
                 // files can't reach by walking up from their own directory. Alias each package
                 // individually: a blanket '@tiptap' prefix would also rewrite the imports *inside*
