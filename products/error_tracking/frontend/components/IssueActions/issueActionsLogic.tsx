@@ -5,6 +5,7 @@ import api from 'lib/api'
 import { tryShowMCPHint } from 'lib/components/MCPHint/mcpHintLogic'
 import { SetupTaskId, globalSetupLogic } from 'lib/components/ProductSetup'
 import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
+import { chunk } from 'lib/utils/arrays'
 import { BehavioralFilterKey } from 'scenes/cohorts/CohortFilters/types'
 import { createCohortFormData } from 'scenes/cohorts/cohortUtils'
 
@@ -17,6 +18,10 @@ import type {
     ErrorTrackingIssueStatus,
 } from '../../../../../frontend/src/queries/schema/schema-general'
 import { pendingFingerprintIssueStateUpdateLogic } from '../../logics/pendingFingerprintIssueStateUpdateLogic'
+
+// Cap how many source issues a single merge request locks at once. A bulk selection is split
+// into batches so no one request holds row locks across the whole selection.
+const MERGE_BATCH_SIZE = 25
 
 const pendingUpdateActions = ():
     | NonNullable<ReturnType<typeof pendingFingerprintIssueStateUpdateLogic.findMounted>>['asyncActions']
@@ -183,7 +188,12 @@ export const issueActionsLogic = kea<issueActionsLogicType>([
                         'mergeIssues',
                         async () => {
                             posthog.capture('error_tracking_issue_merged', { primary: firstId })
-                            await api.errorTracking.mergeInto(firstId, otherIds)
+                            // Merge in batches so a large selection is not one long lock-held request that
+                            // contends with the background auto-merge and times out. Each batch is a merge
+                            // into the same primary, so splitting the request keeps the result unchanged.
+                            for (const batch of chunk(otherIds, MERGE_BATCH_SIZE)) {
+                                await api.errorTracking.mergeInto(firstId, batch)
+                            }
                         },
                         async () => pendingUpdateActions()?.captureMergePendingUpdates(firstId, otherIds)
                     )

@@ -650,7 +650,20 @@ export const errorTrackingIssueSceneLogic = kea<errorTrackingIssueSceneLogicType
     loaders(({ values, actions, props }) => ({
         issue: {
             setIssue: ({ issue }) => issue,
-            loadIssue: async () => await api.errorTracking.getIssue(props.id, props.fingerprint),
+            loadIssue: async () => {
+                try {
+                    return await api.errorTracking.getIssue(props.id, props.fingerprint)
+                } catch (error: any) {
+                    // A source issue removed by a merge 404s on refetch. This logic can stay mounted
+                    // from the issues list (clicking a title mounts it and never unmounts), so a bulk
+                    // merge that succeeded would otherwise surface a misleading "Issue not found" toast.
+                    // Settle empty instead; the 308 redirect for a merged fingerprint still rethrows.
+                    if (error?.status === 404) {
+                        return null
+                    }
+                    throw error
+                }
+            },
             createExternalReference: async ({ integrationId, config }) => {
                 if (values.issue) {
                     const response = await api.errorTracking.createExternalReference(props.id, integrationId, config)

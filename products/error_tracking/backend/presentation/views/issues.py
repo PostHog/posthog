@@ -6,7 +6,7 @@ import structlog
 import posthoganalytics
 from drf_spectacular.utils import OpenApiResponse
 from rest_framework import request, serializers, status, viewsets
-from rest_framework.exceptions import NotFound, ValidationError
+from rest_framework.exceptions import APIException, NotFound, ValidationError
 from rest_framework.response import Response
 
 from posthog.api.documentation import extend_schema, extend_schema_field
@@ -31,6 +31,13 @@ from products.error_tracking.backend.presentation.views.external_references impo
 IssueNotFoundError = facade_api.IssueNotFoundError
 
 logger = structlog.get_logger(__name__)
+
+
+class MergeConflictError(APIException):
+    status_code = status.HTTP_409_CONFLICT
+    default_detail = "The merge could not complete because the issues changed at the same time. Please try again."
+    default_code = "merge_conflict"
+
 
 # Statuses a client may set. Deprecated archived/pending_release values are rejected
 # by being absent from the choices; reads of legacy rows still pass through.
@@ -231,6 +238,8 @@ class ErrorTrackingIssueViewSet(TeamAndOrgViewSetMixin, ForbidDestroyModel, view
             raise NotFound("Issue not found")
         if merge_result == issues_facade.ErrorTrackingIssueMergeResult.STALE_FINGERPRINTS:
             raise ValidationError("Issue fingerprints changed before merge. Please retry.")
+        if merge_result == issues_facade.ErrorTrackingIssueMergeResult.RETRYABLE:
+            raise MergeConflictError()
         return Response({"success": merge_result == issues_facade.ErrorTrackingIssueMergeResult.MERGED})
 
     @validated_request(

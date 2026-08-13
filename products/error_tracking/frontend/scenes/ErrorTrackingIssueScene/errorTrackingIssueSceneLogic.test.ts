@@ -93,6 +93,30 @@ describe('errorTrackingIssueSceneLogic', () => {
         })
     })
 
+    // A source issue removed by a merge 404s on refetch. This logic can stay mounted from the
+    // issues list, so a 404 must settle empty rather than fail and toast "Issue not found".
+    it('settles the issue loader empty when the issue was merged away (404)', async () => {
+        useMocks({
+            get: {
+                '/api/environments/:team_id/error_tracking/issues/:id/': () => [404, { detail: 'Issue not found' }],
+                '/api/environments/:team_id/error_tracking/issues/:id/fingerprints/': [],
+                '/api/projects/:team_id/signals/reports/': () => [500, { detail: 'ClickHouse is unhappy' }],
+            },
+            post: {
+                '/api/environments/:team_id/query/': { results: [] },
+            },
+        })
+        const goneLogic = errorTrackingIssueSceneLogic({ id: 'merged-away' })
+        goneLogic.mount()
+
+        await expectLogic(goneLogic)
+            .toDispatchActions(['loadIssue', 'loadIssueSuccess'])
+            .toNotHaveDispatchedActions(['loadIssueFailure'])
+            .toMatchValues({ issue: null, issueLoading: false })
+
+        goneLogic.unmount()
+    })
+
     // A malformed `timestamp` URL param used to be stored and fed to getNarrowDateRange, where
     // dayjs().toISOString() threw a RangeError and crashed the whole scene on mount. It must now
     // be ignored so the scene falls back to the valid server-provided timestamp.

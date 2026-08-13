@@ -4,7 +4,7 @@ from freezegun import freeze_time
 from posthog.test.base import APIBaseTest, ClickhouseTestMixin
 from unittest.mock import ANY, Mock, patch
 
-from django.db import connection
+from django.db import OperationalError, connection
 from django.test.utils import CaptureQueriesContext
 
 from boto3 import resource
@@ -300,6 +300,24 @@ class TestErrorTracking(APIBaseTest):
         )
 
         assert response.status_code == 404
+        assert ErrorTrackingIssue.objects.filter(id=source.id).exists()
+        assert ErrorTrackingIssueFingerprintV2.objects.get(fingerprint="fingerprint_source").issue_id == source.id
+
+    def test_issue_merge_returns_conflict_on_database_contention(self):
+        target = self.create_issue(fingerprints=["fingerprint_target"])
+        source = self.create_issue(fingerprints=["fingerprint_source"])
+
+        with patch(
+            "products.error_tracking.backend.models.update_error_tracking_issue_fingerprints",
+            side_effect=OperationalError("deadlock detected"),
+        ):
+            response = self.client.post(
+                f"/api/environments/{self.team.id}/error_tracking/issues/{target.id}/merge",
+                data={"ids": [source.id]},
+            )
+
+        # A deadlock or statement timeout is a retryable 409, not a 500, and nothing was merged.
+        assert response.status_code == status.HTTP_409_CONFLICT
         assert ErrorTrackingIssue.objects.filter(id=source.id).exists()
         assert ErrorTrackingIssueFingerprintV2.objects.get(fingerprint="fingerprint_source").issue_id == source.id
 

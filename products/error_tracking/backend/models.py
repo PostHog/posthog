@@ -7,7 +7,7 @@ from uuid import UUID
 from django.conf import settings
 from django.contrib.postgres.fields import ArrayField
 from django.core.validators import MaxValueValidator, MinValueValidator
-from django.db import models, transaction
+from django.db import OperationalError, models, transaction
 
 import structlog
 from django_deprecate_fields import deprecate_field
@@ -46,6 +46,10 @@ class ErrorTrackingIssueMergeResult(StrEnum):
     STALE_ISSUES = "stale_issues"
     # A guarded fingerprint no longer belongs to the issue observed before the merge transaction.
     STALE_FINGERPRINTS = "stale_fingerprints"
+    # The merge transaction hit a deadlock, lock timeout, or statement timeout under concurrent
+    # contention (the background auto-merge competes for the same fingerprint rows). Nothing was
+    # merged and the client can retry, so this is a retryable outcome rather than a 500.
+    RETRYABLE = "retryable"
 
 
 class ErrorTrackingIssue(UUIDTModel):
@@ -91,45 +95,57 @@ class ErrorTrackingIssue(UUIDTModel):
         if not source_issue_ids:
             return ErrorTrackingIssueMergeResult.NO_SOURCE_ISSUES
 
-        with transaction.atomic():
-            existing_source_issue_ids = _lock_merge_issues(
-                team_id=team_id, target_issue_id=target_issue_id, source_issue_ids=source_issue_ids
-            )
-            if existing_source_issue_ids is None:
-                return ErrorTrackingIssueMergeResult.STALE_ISSUES
-            if not existing_source_issue_ids:
-                return ErrorTrackingIssueMergeResult.NO_SOURCE_ISSUES
-            if expected_fingerprint_issue_ids is not None and not _lock_expected_fingerprint_issue_ids(
-                team_id=team_id, expected_fingerprint_issue_ids=expected_fingerprint_issue_ids
-            ):
-                return ErrorTrackingIssueMergeResult.STALE_FINGERPRINTS
+        try:
+            with transaction.atomic():
+                existing_source_issue_ids = _lock_merge_issues(
+                    team_id=team_id, target_issue_id=target_issue_id, source_issue_ids=source_issue_ids
+                )
+                if existing_source_issue_ids is None:
+                    return ErrorTrackingIssueMergeResult.STALE_ISSUES
+                if not existing_source_issue_ids:
+                    return ErrorTrackingIssueMergeResult.NO_SOURCE_ISSUES
+                if expected_fingerprint_issue_ids is not None and not _lock_expected_fingerprint_issue_ids(
+                    team_id=team_id, expected_fingerprint_issue_ids=expected_fingerprint_issue_ids
+                ):
+                    return ErrorTrackingIssueMergeResult.STALE_FINGERPRINTS
 
-            locked_source_fingerprints = list(
-                ErrorTrackingIssueFingerprintV2.objects.select_for_update()
-                .filter(team_id=team_id, issue_id__in=existing_source_issue_ids)
-                .order_by("fingerprint", "id")
-            )
+                locked_source_fingerprints = list(
+                    ErrorTrackingIssueFingerprintV2.objects.select_for_update()
+                    .filter(team_id=team_id, issue_id__in=existing_source_issue_ids)
+                    .order_by("fingerprint", "id")
+                )
 
-            overrides = update_error_tracking_issue_fingerprints(
+                overrides = update_error_tracking_issue_fingerprints(
+                    team_id=team_id,
+                    issue_id=target_issue_id,
+                    fingerprints=[fingerprint.fingerprint for fingerprint in locked_source_fingerprints],
+                )
+
+                # Reassign spike events from merged issues before deleting them
+                ErrorTrackingSpikeEvent.objects.filter(team_id=team_id, issue_id__in=existing_source_issue_ids).update(
+                    issue_id=target_issue_id
+                )
+                # Read source assignees before the delete cascades their assignment rows away
+                _adopt_source_assignee_on_merge(
+                    team_id=team_id, target_issue_id=target_issue_id, source_issue_ids=existing_source_issue_ids
+                )
+                ErrorTrackingIssue.objects.filter(team_id=team_id, id__in=existing_source_issue_ids).delete()
+
+                _sync_error_tracking_issue_changes_on_commit(
+                    team_id=team_id, issue_ids=[target_issue_id], overrides=overrides
+                )
+                return ErrorTrackingIssueMergeResult.MERGED
+        except OperationalError:
+            # Deadlock, lock timeout, or statement timeout while contending with the background
+            # auto-merge for the same rows. The transaction rolled back, so the client can retry.
+            logger.warning(
+                "error_tracking_issue_merge_retryable",
                 team_id=team_id,
-                issue_id=target_issue_id,
-                fingerprints=[fingerprint.fingerprint for fingerprint in locked_source_fingerprints],
+                target_issue_id=str(target_issue_id),
+                source_issue_count=len(source_issue_ids),
+                exc_info=True,
             )
-
-            # Reassign spike events from merged issues before deleting them
-            ErrorTrackingSpikeEvent.objects.filter(team_id=team_id, issue_id__in=existing_source_issue_ids).update(
-                issue_id=target_issue_id
-            )
-            # Read source assignees before the delete cascades their assignment rows away
-            _adopt_source_assignee_on_merge(
-                team_id=team_id, target_issue_id=target_issue_id, source_issue_ids=existing_source_issue_ids
-            )
-            ErrorTrackingIssue.objects.filter(team_id=team_id, id__in=existing_source_issue_ids).delete()
-
-            _sync_error_tracking_issue_changes_on_commit(
-                team_id=team_id, issue_ids=[target_issue_id], overrides=overrides
-            )
-            return ErrorTrackingIssueMergeResult.MERGED
+            return ErrorTrackingIssueMergeResult.RETRYABLE
 
     def split(self, fingerprints: list[dict]) -> list["ErrorTrackingIssue"]:
         team_id = self.team_id
@@ -287,8 +303,12 @@ def _adopt_source_assignee_on_merge(*, team_id: int, target_issue_id: UUID, sour
     if user_id is None and role_id is None:
         return
 
-    ErrorTrackingIssueAssignment.objects.create(
-        team_id=team_id, issue_id=target_issue_id, user_id=user_id, role_id=role_id
+    # get_or_create keeps a concurrent assign to the target (a new OneToOne assignment row that
+    # commits between the exists() check above and this insert) from raising IntegrityError. When
+    # the target already has an assignee we leave it untouched.
+    ErrorTrackingIssueAssignment.objects.get_or_create(
+        issue_id=target_issue_id,
+        defaults={"team_id": team_id, "user_id": user_id, "role_id": role_id},
     )
 
 
