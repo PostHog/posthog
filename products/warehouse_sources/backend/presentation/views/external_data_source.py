@@ -63,6 +63,7 @@ from posthog.rate_limit import (
 )
 from posthog.rbac.access_control_api_mixin import AccessControlViewSetMixin
 from posthog.rbac.user_access_control import UserAccessControlSerializerMixin, access_level_satisfied_for_resource
+from posthog.utils import str_to_bool
 
 from products.cdp.backend.facade.api import HogFunctionSerializer
 from products.cdp.backend.facade.models import HogFunction
@@ -1206,6 +1207,7 @@ class ExternalDataSourceSerializers(UserAccessControlSerializerMixin, serializer
                     instance.team_id,
                     instance.access_method,
                     api_version=effective_api_version,
+                    cdc_enabled=str_to_bool(validated_job_inputs.get("cdc_enabled", False)),
                 )
             elif isinstance(source, CustomSource):
                 # Pass the source being updated so an integration-backed OAuth2 source can only validate
@@ -3097,7 +3099,10 @@ class ExternalDataSourceViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixi
         access_method = request.data.get("access_method", ExternalDataSource.AccessMethod.WAREHOUSE)
         if isinstance(source, (PostgresSource, MySQLSource)):
             credentials_valid, credentials_error = source.validate_credentials_for_access_method(
-                cast(Any, source_config), self.team_id, access_method
+                cast(Any, source_config),
+                self.team_id,
+                access_method,
+                cdc_enabled=str_to_bool(request.data.get("cdc_enabled", False)),
             )
         elif isinstance(source, CustomSource):
             # Schema discovery for an as-yet-uncreated source: an integration-backed manifest may only use

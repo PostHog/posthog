@@ -5,6 +5,7 @@ from posthog.schema import ReleaseStatus, SourceFieldInputConfig
 
 from products.warehouse_sources.backend.temporal.data_imports.sources.postgres.source import (
     _HOST_UNREACHABLE_ERROR,
+    _INVALID_USER_OR_PASSWORD,
     PostgresSource,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.supabase.source import SupabaseSource
@@ -144,3 +145,70 @@ def test_non_direct_host_failure_uses_postgres_error(host):
 
     assert success is False
     assert error == "postgres error"
+
+
+@pytest.mark.parametrize(
+    "host",
+    [
+        "db.abcdefghijklmnop.supabase.co",
+        "DB.ABCDEFGH.SUPABASE.CO",
+        "  db.abcdefgh.supabase.co  ",
+    ],
+)
+def test_direct_host_fast_fails_for_standard_sync(host):
+    # A standard sync can never use the IPv6-only direct host, so reject it up front — without the
+    # timeout-length connection attempt — and spell out the pooler host and postgres.<ref> username.
+    config = mock.MagicMock(host=host)
+
+    with mock.patch.object(PostgresSource, "validate_credentials") as super_validate:
+        success, error = SupabaseSource().validate_credentials_for_access_method(
+            config, team_id=1, access_method="warehouse", cdc_enabled=False
+        )
+
+    super_validate.assert_not_called()
+    assert success is False
+    assert error is not None
+    assert "pooler.supabase.com" in error
+    # The pooler username is case-sensitive, so the ref must be lowercased even when typed in caps.
+    assert "postgres.abcdefgh" in error
+
+
+def test_direct_host_is_attempted_for_cdc():
+    # CDC needs the direct host plus the IPv4 add-on, so the connection must still run — a valid
+    # CDC setup would be wrongly blocked if the fast-fail fired here.
+    config = mock.MagicMock(host="db.abcdefghijklmnop.supabase.co")
+
+    with mock.patch.object(PostgresSource, "validate_credentials", return_value=(True, None)) as super_validate:
+        success, error = SupabaseSource().validate_credentials_for_access_method(
+            config, team_id=1, access_method="warehouse", cdc_enabled=True
+        )
+
+    super_validate.assert_called_once()
+    assert success is True
+    assert error is None
+
+
+def test_pooler_bad_password_names_username_requirement():
+    # On the pooler a rejected password is usually a plain `postgres` username instead of
+    # `postgres.<project-ref>`; the bare Postgres message never says so.
+    config = mock.MagicMock(host="aws-0-us-east-1.pooler.supabase.com")
+
+    with mock.patch.object(PostgresSource, "validate_credentials", return_value=(False, _INVALID_USER_OR_PASSWORD)):
+        success, error = SupabaseSource().validate_credentials(config, team_id=1)
+
+    assert success is False
+    assert error is not None
+    assert error != _INVALID_USER_OR_PASSWORD
+    assert "postgres.<project-ref>" in error
+
+
+def test_non_pooler_bad_password_is_left_unchanged():
+    # The pooler-username hint must not leak onto direct or third-party hosts, where a plain
+    # `postgres` username is correct.
+    config = mock.MagicMock(host="db.example.com")
+
+    with mock.patch.object(PostgresSource, "validate_credentials", return_value=(False, _INVALID_USER_OR_PASSWORD)):
+        success, error = SupabaseSource().validate_credentials(config, team_id=1)
+
+    assert success is False
+    assert error == _INVALID_USER_OR_PASSWORD

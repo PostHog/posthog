@@ -463,5 +463,6 @@ class MySQLSource(SQLSource[MySQLSourceConfig], SSHTunnelMixin, ValidateDatabase
         access_method: str,
         schema_name: Optional[str] = None,
         api_version: str | None = None,
+        cdc_enabled: bool = False,
     ) -> tuple[bool, str | None]:
         return self.validate_credentials(config, team_id, schema_name=schema_name, api_version=api_version)

@@ -92,10 +92,14 @@ _INVALID_CREDENTIALS_ERROR = (
     "this source, then re-enable the sync."
 )
 
+# The validate-path message for a rejected username/password. Named so subclasses can recognise it
+# and swap in provider-specific guidance (e.g. Supabase's pooler-username requirement).
+_INVALID_USER_OR_PASSWORD = "Invalid user or password"
+
 PostgresErrors = {
-    "password authentication failed for user": "Invalid user or password",
+    "password authentication failed for user": _INVALID_USER_OR_PASSWORD,
     # libpq reports a bad password via SCRAM with a different wording than the line above.
-    "error received from server in SCRAM exchange: Wrong password": "Invalid user or password",
+    "error received from server in SCRAM exchange: Wrong password": _INVALID_USER_OR_PASSWORD,
     # Supabase/Supavisor poolers report a missing tenant/user during credential validation with
     # "FATAL: (ENOTFOUND) tenant/user <user> not found" — the project is paused/deleted or the
     # pooler username/host is wrong. `get_non_retryable_errors` already handles this on the
@@ -1154,6 +1158,7 @@ class PostgresSource(SQLSource[PostgresSourceConfig], SSHTunnelMixin, ValidateDa
         access_method: str,
         schema_name: Optional[str] = None,
         api_version: str | None = None,
+        cdc_enabled: bool = False,
     ) -> tuple[bool, str | None]:
         return self.validate_credentials(config, team_id, schema_name=schema_name, api_version=api_version)
 
