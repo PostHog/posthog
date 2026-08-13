@@ -23,6 +23,9 @@ from posthog.hogql.parser import parse_select
 
 from posthog.hogql_queries.utils.query_date_range import QueryDateRange
 from posthog.models.team.team import Team
+from posthog.models.user import User
+from posthog.rbac.user_access_control import UserAccessControl, UserAccessControlError
+from posthog.synthetic_user import SyntheticUser
 
 from products.experiments.backend.hogql_queries.base_query_utils import experiment_window
 from products.experiments.backend.hogql_queries.cuped_config import CupedQueryConfig
@@ -31,6 +34,32 @@ from products.experiments.backend.hogql_queries.experiment_query_builder import 
 from products.experiments.backend.hogql_queries.experiment_query_context import ExperimentQueryContext
 from products.experiments.backend.hogql_queries.exposure_query_logic import get_entity_key
 from products.experiments.backend.models.experiment import Experiment
+
+
+def validate_experiment_exposure_access(team: Team, user: User | None, experiment_id: int) -> bool:
+    """Refuse the ``experiment_exposure`` filter for viewers denied the experiment it names.
+
+    The filter reveals experiment data through replay surfaces (which recordings belong to
+    exposed persons, and to which variant), but recordings endpoints only enforce replay-level
+    access — so the experiment's own object-level check must run here, matching what the
+    experiment surfaces enforce for the same information.
+
+    Passes when there is no real viewer to evaluate: background jobs and composition callers
+    run userless, and service-token principals are synthetic users outside object-level RBAC
+    (gated by API scope and project membership instead). An unknown experiment also passes —
+    there is no object to protect, and :func:`exposed_distinct_ids_select` reports it as a
+    ValidationError.
+
+    Returns True, or raises UserAccessControlError (the query-runner access contract).
+    """
+    if user is None or user.is_anonymous or isinstance(user, SyntheticUser):
+        return True
+    experiment = Experiment.objects.filter(id=experiment_id, team=team, deleted=False).first()
+    if experiment is None:
+        return True
+    if not UserAccessControl(user=user, team=team).check_access_level_for_object(experiment, required_level="viewer"):
+        raise UserAccessControlError("experiment", "viewer", resource_id=str(experiment_id))
+    return True
 
 
 def exposed_distinct_ids_select(team: Team, *, experiment_id: int, variant: str | None) -> ast.SelectQuery:

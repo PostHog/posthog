@@ -892,6 +892,14 @@ class SessionRecordingViewSet(
 
     sharing_enabled_actions = ["retrieve", "snapshots", "snapshot_file"]
 
+    def dangerously_get_required_scopes(self, request: Request, view: Any) -> list[str] | None:
+        # Scope parity with the experiments API: the experiment_exposure filter reads
+        # experiment data through the recordings list, so a token needs experiment:read on
+        # top of the replay scope. The result replaces the default, so both are listed.
+        if getattr(view, "action", None) == "list" and request.query_params.get("experiment_exposure"):
+            return ["session_recording:read", "experiment:read"]
+        return None
+
     def get_serializer_class(self) -> type[serializers.Serializer]:
         if isinstance(self.request.successful_authenticator, SharingAccessTokenAuthentication):
             return SessionRecordingSharedSerializer
@@ -2009,6 +2017,7 @@ def _load_recording_if_matches_filters(
     session_id: str,
     query: RecordingsQuery,
     team: Team,
+    user: User | None,
     allow_event_property_expansion: bool,
 ) -> SessionRecording | None:
     """
@@ -2033,6 +2042,7 @@ def _load_recording_if_matches_filters(
     ch_query_result = SessionRecordingListFromQuery(
         query=prepend_check_query,
         team=team,
+        user=user,
         hogql_query_modifiers=None,
         allow_event_property_expansion=allow_event_property_expansion,
     ).run()
@@ -2109,6 +2119,7 @@ def list_recordings_from_query(
                 session_recording_id_to_prepend,
                 query,
                 team,
+                user,
                 allow_event_property_expansion,
             )
             if prepend_recording is None:
@@ -2165,6 +2176,7 @@ def list_recordings_from_query(
             query_result = SessionRecordingListFromQuery(
                 query=query_for_list,
                 team=team,
+                user=user,
                 hogql_query_modifiers=None,
                 allow_event_property_expansion=allow_event_property_expansion,
                 session_ids_to_exclude=session_ids_to_exclude,
