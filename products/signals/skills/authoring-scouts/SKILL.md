@@ -169,6 +169,27 @@ Confirm the watched event/entity exists and has the shape you assumed, run the *
 This loop is free and instant — refine the body against what you find, re-run the queries, repeat, until the scout's logic holds up on real data.
 This is where the real iteration happens.
 
+### Verify each prescribed query two-sided
+
+A query written into a scout body runs unattended forever, so a wrong one fails silently rather than loudly.
+Two failure modes matter, and running the query once distinguishes neither of them from a correct result:
+
+- **It matches everything.** A guard or exclusion query whose join has no real predicate matches every candidate, so the scout drops every candidate and files nothing. An empty inbox reads as a quiet surface, not as a broken query.
+- **It matches nothing.** The same guard with a wrong column, a wrong-cased value, or half the data missing matches nobody, so the scout files everything — including what the guard existed to exclude.
+
+So test each prescribed query against **both** controls before it goes in the body: an entity you know it should match, and one you know it should not.
+Record those controls next to the query (in the body, or in a bundled reference) so the next author re-checks the query after a schema change instead of re-deriving it.
+
+Two things to check specifically:
+
+- **A join needs a confirmed predicate.** Look the join up in `system.information_schema.relationships` before prescribing it: two tables with no accepted relationship cannot be joined directly, and a join written without an `ON` predicate is a cross join that matches everything.
+  `persons` and `groups` are the classic trap — a person-to-group association only exists through `$group_0` on `events` or an explicit membership table, never between those two tables.
+- **Split data needs every slice.** When one entity type lives in several tables (per-region, per-source, live plus archive), a query over one of them is a guard with a hole in it.
+  Cover them all, or say in the body which slice the query is blind to.
+
+Record the heaviest query's **measured** duration and rows read, from a real execution rather than an estimate.
+That gives the next author a budget to compare against when the query slows down, and it tells a run whether a timeout is new or expected.
+
 Only once you're happy with the body do you spend an actual run.
 `posthog:scout-run-now {"id": <config_id>}` dispatches one run of the scout immediately, regardless of its schedule (find the `id` via `-config-list`).
 This is the **initial real run** — the scout executing end-to-end in the harness, writing scratchpad memory and (with the default `emit=true`) writing reports to the inbox.
@@ -214,6 +235,7 @@ Keep the two in sync when the scout config / run / scratchpad surfaces change.
 - A named, cheap **signal-vs-noise discriminator** anchored near the top.
 - A **quick close-out** so a quiet run is cheap (don't pay for deep exploration when the watched surface is at baseline or absent).
 - 2–4 concrete **explore patterns** with the actual queries/tools to run — starting points, not a rigid checklist.
+- Every prescribed query **verified two-sided** — one entity it should match, one it should not — with each join predicate confirmed against `system.information_schema.relationships` and its measured cost recorded beside it.
 - **Disqualifiers** listing this project's known noise (single-user quirks, dev-env bursts, allowlisted entities).
 - A **Decide** section calibrated against the report contract — author 1:1 only for a finding the scout would own end-to-end, set `suggested_reviewers`, and write memory instead when a candidate is below the bar.
 - **Save-memory** guidance using the scratchpad prefixes so the scout gets smarter each run.
