@@ -80,6 +80,8 @@ The link is rejected if `url` is missing, is not a `github.com` URL, or does not
 
 Open an existing task. Optionally jump to a specific run.
 
+An **https** bridge also exists for links sent outside the app (e.g. comment Slack DMs): `<instance>/code/task/<taskId>` resolves to a web interstitial in PostHog Cloud, which fires this scheme (or offers the desktop-app download).
+
 | Segment | Required | Description |
 |---|---|---|
 | `<taskId>` | Yes | Task ID |

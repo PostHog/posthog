@@ -130,7 +130,10 @@ class TestCommentSlackDm(CommentActivityTestCase):
 
         self._record_activity(self._comment(), [self.author.id])
 
-        fallback = self.slack_client.chat_postMessage.call_args.kwargs["text"]
+        call = self.slack_client.chat_postMessage.call_args
+        # A top-level text next to attachments renders as message body, duplicating the heading.
+        assert "text" not in call.kwargs
+        fallback = call.kwargs["attachments"][0]["fallback"]
         assert fallback == "&lt;@U-ATTACKER&gt; mentioned you on &lt;https://example.com|click me&gt;"
 
     def test_no_dm_when_the_user_opted_out(self):
