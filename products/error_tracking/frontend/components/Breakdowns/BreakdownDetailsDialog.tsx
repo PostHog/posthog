@@ -7,7 +7,7 @@ import type { PieChartConfig, Series } from '@posthog/quill-charts'
 import { useChartTheme } from 'lib/charts/hooks'
 import { Button, Dialog, DialogBody, DialogContent, DialogHeader, DialogTitle, Skeleton, Text } from 'lib/ui/quill'
 import { humanFriendlyLargeNumber } from 'lib/utils/numbers'
-import { BREAKDOWN_NULL_DISPLAY, isNullBreakdown } from 'scenes/insights/utils'
+import { BREAKDOWN_NULL_DISPLAY, BREAKDOWN_OTHER_DISPLAY, isNullBreakdown } from 'scenes/insights/utils'
 
 import { PropertyOperator } from '~/types'
 
@@ -35,7 +35,9 @@ export function BreakdownDetailsDialog(): JSX.Element {
         selectedBreakdownProperty?.property ?? ''
     )
     const selectBreakdownValue = (item: BreakdownSinglePropertyStat): void => {
-        if (!selectedBreakdownProperty) {
+        // "Other" is a synthetic bucket for values beyond the query limit, not a real property
+        // value, so filtering exactly on its label would match no exceptions.
+        if (!selectedBreakdownProperty || item.label === BREAKDOWN_OTHER_DISPLAY) {
             return
         }
         applyPropertyFilter(
@@ -127,7 +129,12 @@ export function BreakdownDetailsDialog(): JSX.Element {
                                         <button
                                             key={`${item.label}:${index}`}
                                             type="button"
-                                            className="flex h-8 w-full items-center justify-between gap-3 border-b border-primary px-1 text-left hover:bg-fill-button-tertiary-hover focus-visible:ring-2 focus-visible:ring-primary"
+                                            disabled={item.label === BREAKDOWN_OTHER_DISPLAY}
+                                            className={`flex h-8 w-full items-center justify-between gap-3 border-b border-primary px-1 text-left ${
+                                                item.label === BREAKDOWN_OTHER_DISPLAY
+                                                    ? 'cursor-default'
+                                                    : 'hover:bg-fill-button-tertiary-hover focus-visible:ring-2 focus-visible:ring-primary'
+                                            }`}
                                             onClick={() => selectBreakdownValue(item)}
                                         >
                                             <Text size="xs" className="min-w-0 truncate" title={item.label}>
