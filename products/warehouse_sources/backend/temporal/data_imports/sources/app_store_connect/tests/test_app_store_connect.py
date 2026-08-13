@@ -600,7 +600,9 @@ def _analytics_api(
     return _FakeAnalyticsApi(bodies, segment_payloads=segment_payloads)
 
 
-def _collect_analytics(api: _FakeAnalyticsApi, manager: _FakeManager, **kwargs: Any) -> list[dict[str, Any]]:
+def _collect_analytics(
+    api: _FakeAnalyticsApi, manager: _FakeManager, endpoint: str = "analytics_app_sessions", **kwargs: Any
+) -> list[dict[str, Any]]:
     session = MagicMock()
     session.get.side_effect = api.get
     session.post.side_effect = api.post
@@ -614,7 +616,7 @@ def _collect_analytics(api: _FakeAnalyticsApi, manager: _FakeManager, **kwargs: 
             key_id="KEY123",
             private_key=PRIVATE_KEY_PEM,
             vendor_number=None,
-            endpoint="analytics_app_sessions",
+            endpoint=endpoint,
             logger=MagicMock(),
             resumable_source_manager=manager,
             **kwargs,
@@ -730,6 +732,33 @@ class TestAnalyticsReportStreams:
         )
 
         assert _collect_analytics(api, _FakeManager()) == []
+
+    # Names and categories Apple actually publishes for each stream, written independently of
+    # settings.py. A stream whose configured name drifts from Apple's resource resolves nothing and
+    # lands an empty table — the silent gap that left three streams unsynced.
+    @parameterized.expand(
+        [
+            ("analytics_app_sessions", "App Sessions Standard", "APP_USAGE"),
+            ("analytics_app_store_downloads", "App Downloads Standard", "COMMERCE"),
+            ("analytics_installations_deletions", "App Store Installation and Deletion Standard", "APP_USAGE"),
+            ("analytics_discovery_engagement", "App Store Discovery and Engagement Standard", "APP_STORE_ENGAGEMENT"),
+            ("analytics_app_crashes", "App Crashes", "APP_USAGE"),
+            ("analytics_app_store_preorders", "App Store Pre-Orders Standard", "COMMERCE"),
+            ("analytics_app_clip_usage", "App Clip Usage Standard", "APP_USAGE"),
+        ]
+    )
+    def test_stream_resolves_apples_published_report_name(self, endpoint: str, name: str, category: str) -> None:
+        payload = _gzip_csv("Date,Sessions\n2026-08-01,5\n")
+        api = _analytics_api(
+            reports=[_resource("analyticsReports", "REP1", name=name, category=category)],
+            instances=[_instance("I1", "2026-08-01")],
+            segments_by_instance={"I1": [_segment("S1", "https://r.s3.amazonaws.com/1", payload)]},
+            segment_payloads={"https://r.s3.amazonaws.com/1": payload},
+        )
+
+        rows = _collect_analytics(api, _FakeManager(), endpoint=endpoint)
+
+        assert len(rows) == 1
 
     def test_instance_without_segments_stops_the_walk_at_that_date(self) -> None:
         # Emitting a later date past a not-ready gap would let the table watermark advance

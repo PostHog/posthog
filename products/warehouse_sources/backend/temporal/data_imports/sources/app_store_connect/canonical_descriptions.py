@@ -272,7 +272,7 @@ CANONICAL_DESCRIPTIONS: CanonicalDescriptions = {
     "analytics_app_store_downloads": {
         "description": (
             "How many times people download the app on the App Store, including redownloads and "
-            "updates, from Apple's App Store Downloads analytics report."
+            "updates, from Apple's App Downloads analytics report."
         ),
         "docs_url": "https://developer.apple.com/documentation/analytics-reports/app-download",
         "columns": {
@@ -290,8 +290,8 @@ CANONICAL_DESCRIPTIONS: CanonicalDescriptions = {
     },
     "analytics_installations_deletions": {
         "description": (
-            "How many times users install and delete the app, from Apple's App Store Installations "
-            "and Deletions analytics report. Covers users who opted in to sharing data."
+            "How many times users install and delete the app, from Apple's App Store Installation "
+            "and Deletion analytics report. Covers users who opted in to sharing data."
         ),
         "docs_url": "https://developer.apple.com/documentation/analytics-reports/app-installs",
         "columns": {
@@ -345,7 +345,7 @@ CANONICAL_DESCRIPTIONS: CanonicalDescriptions = {
     },
     "analytics_app_store_preorders": {
         "description": (
-            "Pre-orders placed and canceled for the app, from Apple's App Store Pre-orders analytics report."
+            "Pre-orders placed and canceled for the app, from Apple's App Store Pre-Orders analytics report."
         ),
         "docs_url": "https://developer.apple.com/documentation/analytics-reports/app-store-pre-order",
         "columns": {
