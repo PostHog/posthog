@@ -19,11 +19,12 @@ export function firstErroredScannerStep(errors: {
     name?: unknown
     scanner_config?: unknown
     sampling_rate?: unknown
+    credit_limit?: unknown
 }): ScannerEditorStep | null {
     if (errors.name || errors.scanner_config) {
         return 'configure'
     }
-    if (errors.sampling_rate) {
+    if (errors.sampling_rate || errors.credit_limit) {
         return 'triggers'
     }
     return null
