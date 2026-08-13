@@ -13,7 +13,7 @@ from posthog.models.integration import Integration
 from posthog.models.organization import OrganizationMembership
 from posthog.models.team import Team
 
-from products.review_hog.backend.temporal.client import start_review_pr_workflow
+from products.review_hog.backend.temporal.client import start_resolution_workflow, start_review_pr_workflow
 from products.review_hog.backend.temporal.types import TRIGGER_LABEL
 
 logger = logging.getLogger(__name__)
@@ -34,6 +34,16 @@ class ReviewHogTriggerRequestSerializer(serializers.Serializer):
         required=False,
         default=True,
         help_text="Whether to post the review back to the PR. Defaults true (the label trigger publishes).",
+    )
+
+
+class ReviewHogResolveRequestSerializer(serializers.Serializer):
+    repo = serializers.CharField(
+        help_text="GitHub repository, in 'owner/name' form; must be on the allowlist (e.g. 'PostHog/posthog').",
+    )
+    pr_number = serializers.IntegerField(
+        min_value=1,
+        help_text="Pull request whose unresolved review threads to settle.",
     )
 
 
@@ -85,7 +95,8 @@ def _resolve_run_user_id(team_id: int) -> int | None:
 
 
 class ReviewHogTriggerViewSet(viewsets.ViewSet):
-    """Shared-secret-gated trigger that starts a ReviewHog review for a PR.
+    """Shared-secret-gated triggers that start ReviewHog runs for a PR: `trigger` (a review, which
+    can chain the resolution stage) and `resolve` (a standalone resolution run).
 
     Unscoped (no team in the URL): the team and run user are resolved server-side from settings, and CI
     authenticates with the `REVIEWHOG_TRIGGER_TOKEN` shared secret — no session or API key. The first
@@ -110,42 +121,17 @@ class ReviewHogTriggerViewSet(viewsets.ViewSet):
             return Response({"error": "Invalid trigger token"}, status=status.HTTP_403_FORBIDDEN)
         return None
 
-    @extend_schema(
-        request=ReviewHogTriggerRequestSerializer,
-        responses={
-            202: OpenApiResponse(response=ReviewHogTriggerResponseSerializer, description="Review run started"),
-            400: OpenApiResponse(
-                response=ReviewHogTriggerErrorSerializer, description="Invalid body or unresolved run user"
-            ),
-            403: OpenApiResponse(
-                response=ReviewHogTriggerErrorSerializer, description="Missing/invalid token or disallowed repo"
-            ),
-            503: OpenApiResponse(response=ReviewHogTriggerErrorSerializer, description="Trigger team not configured"),
-        },
-        summary="Trigger a ReviewHog PR review",
-        description=(
-            "Start a single-turn ReviewHog review for a pull request and (by default) publish it back to "
-            "the PR. Authenticated with the REVIEWHOG_TRIGGER_TOKEN shared secret in the Authorization "
-            "header. Non-blocking: returns the Temporal workflow id immediately while the review runs in "
-            "the worker."
-        ),
-    )
-    @action(detail=False, methods=["POST"], url_path="trigger")
-    def trigger(self, request: Request) -> Response:
-        auth_error = self._authenticate(request)
-        if auth_error is not None:
-            return auth_error
+    def _run_gates(self, repo: str) -> tuple[int, int] | Response:
+        """The shared trigger gates: repo allowlist → configured team → authorized run user.
 
-        serializer = ReviewHogTriggerRequestSerializer(data=request.data)
-        serializer.is_valid(raise_exception=True)
-        repo: str = serializer.validated_data["repo"]
-        pr_number: int = serializer.validated_data["pr_number"]
-        publish: bool = serializer.validated_data["publish"]
-
+        Returns `(team_id, user_id)` when every gate passes, else the error `Response` to return.
+        (Shared-secret auth runs before body validation in each action, so it is not part of this.)
+        """
         if repo.lower() not in ALLOWED_REPOS:
             return Response({"error": f"Repository {repo} is not allowed"}, status=status.HTTP_403_FORBIDDEN)
 
-        team_id = settings.REVIEWHOG_TEAM_ID
+        # First configured team = the one label-triggered runs execute and publish under.
+        team_id = settings.REVIEWHOG_TEAM_IDS[0] if settings.REVIEWHOG_TEAM_IDS else None
         if not team_id:
             return Response({"error": "ReviewHog team is not configured"}, status=status.HTTP_503_SERVICE_UNAVAILABLE)
 
@@ -169,14 +155,106 @@ class ReviewHogTriggerViewSet(viewsets.ViewSet):
                 {"error": "Configured run user is not an active member of the team's organization"},
                 status=status.HTTP_400_BAD_REQUEST,
             )
+        return team_id, user_id
+
+    @extend_schema(
+        request=ReviewHogTriggerRequestSerializer,
+        responses={
+            202: OpenApiResponse(response=ReviewHogTriggerResponseSerializer, description="Review run started"),
+            400: OpenApiResponse(
+                response=ReviewHogTriggerErrorSerializer, description="Invalid body or unresolved run user"
+            ),
+            403: OpenApiResponse(
+                response=ReviewHogTriggerErrorSerializer, description="Missing/invalid token or disallowed repo"
+            ),
+            503: OpenApiResponse(response=ReviewHogTriggerErrorSerializer, description="Trigger team not configured"),
+        },
+        summary="Trigger a ReviewHog PR review",
+        description=(
+            "Start a single-turn ReviewHog review for a pull request and (by default) publish it back to "
+            "the PR. A published review chains into the resolution stage when the PR author's "
+            "resolve_comments setting is on (the default). Authenticated with the REVIEWHOG_TRIGGER_TOKEN "
+            "shared secret in the Authorization header. Non-blocking: returns the Temporal workflow id "
+            "immediately while the review runs in the worker."
+        ),
+    )
+    @action(detail=False, methods=["POST"], url_path="trigger")
+    def trigger(self, request: Request) -> Response:
+        auth_error = self._authenticate(request)
+        if auth_error is not None:
+            return auth_error
+
+        serializer = ReviewHogTriggerRequestSerializer(data=request.data)
+        serializer.is_valid(raise_exception=True)
+        repo: str = serializer.validated_data["repo"]
+        pr_number: int = serializer.validated_data["pr_number"]
+        publish: bool = serializer.validated_data["publish"]
+
+        gates = self._run_gates(repo)
+        if isinstance(gates, Response):
+            return gates
+        team_id, user_id = gates
 
         # Forks are rejected server-side in the workflow's fetch activity (and by the Action gate); the
-        # endpoint stays free of GitHub I/O and returns immediately.
+        # endpoint stays free of GitHub I/O and returns immediately. Reviewing includes resolving:
+        # whether the run chains the resolution stage is the PR author's `resolve_comments` setting
+        # (default on), not a caller flag.
         pr_url = f"https://github.com/{repo}/pull/{pr_number}"
         workflow_id = start_review_pr_workflow(
-            pr_url=pr_url, team_id=team_id, user_id=user_id, publish=publish, trigger_source=TRIGGER_LABEL
+            pr_url=pr_url,
+            team_id=team_id,
+            user_id=user_id,
+            publish=publish,
+            trigger_source=TRIGGER_LABEL,
         )
         logger.info(f"ReviewHog trigger started workflow {workflow_id} for {repo}#{pr_number} (publish={publish})")
+        return Response(
+            ReviewHogTriggerResponseSerializer({"workflow_id": workflow_id, "status": "started"}).data,
+            status=status.HTTP_202_ACCEPTED,
+        )
+
+    @extend_schema(
+        request=ReviewHogResolveRequestSerializer,
+        responses={
+            202: OpenApiResponse(response=ReviewHogTriggerResponseSerializer, description="Resolution run started"),
+            400: OpenApiResponse(
+                response=ReviewHogTriggerErrorSerializer, description="Invalid body or unresolved run user"
+            ),
+            403: OpenApiResponse(
+                response=ReviewHogTriggerErrorSerializer, description="Missing/invalid token or disallowed repo"
+            ),
+            503: OpenApiResponse(response=ReviewHogTriggerErrorSerializer, description="Trigger team not configured"),
+        },
+        summary="Trigger the ReviewHog resolution stage on a PR",
+        description=(
+            "Start a standalone resolution run for a pull request: triage every unresolved review thread "
+            "(human- or bot-authored), implement the worth-and-safe asks directly on the PR branch, reply "
+            "on each thread, and resolve settled bot threads. Works on PRs that never had a ReviewHog "
+            "review. Same shared-secret auth as the review trigger; non-blocking."
+        ),
+    )
+    @action(detail=False, methods=["POST"], url_path="resolve")
+    def resolve(self, request: Request) -> Response:
+        auth_error = self._authenticate(request)
+        if auth_error is not None:
+            return auth_error
+
+        serializer = ReviewHogResolveRequestSerializer(data=request.data)
+        serializer.is_valid(raise_exception=True)
+        repo: str = serializer.validated_data["repo"]
+        pr_number: int = serializer.validated_data["pr_number"]
+
+        gates = self._run_gates(repo)
+        if isinstance(gates, Response):
+            return gates
+        team_id, user_id = gates
+
+        # Fork/closed gates run server-side in the workflow's prepare step (they need GitHub I/O).
+        pr_url = f"https://github.com/{repo}/pull/{pr_number}"
+        workflow_id = start_resolution_workflow(
+            pr_url=pr_url, team_id=team_id, user_id=user_id, trigger_source=TRIGGER_LABEL
+        )
+        logger.info(f"ReviewHog resolve trigger started workflow {workflow_id} for {repo}#{pr_number}")
         return Response(
             ReviewHogTriggerResponseSerializer({"workflow_id": workflow_id, "status": "started"}).data,
             status=status.HTTP_202_ACCEPTED,
