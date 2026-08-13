@@ -3,21 +3,30 @@ import type { McpUiResourceCsp } from "@modelcontextprotocol/ext-apps/app-bridge
 const DEFAULT_CSP =
   "default-src 'none'; script-src 'self' 'unsafe-inline'; style-src 'self' 'unsafe-inline'; img-src 'self' data:; media-src 'self' data:; connect-src 'none'; object-src 'none'; frame-src 'none'; form-action 'none'; base-uri 'none'";
 
-// Sources arrive as full origins (`https://mcp.us.posthog.com`), so `/` has to
-// survive: `https:mcp.us.posthog.com` is not a source expression, and a browser
-// drops the whole entry as invalid. Spaces, semicolons and quotes are still
-// stripped, which is what stops a declared domain from injecting a directive.
-export function sanitizeDomain(domain: string): string {
-  return domain.replace(/[^a-zA-Z0-9.*:/-]/g, "");
+// The `ui.csp` fields are named `*Domains`, but what a server puts in them is a
+// CSP source expression: an origin carrying a scheme, like
+// `https://cdn.jsdelivr.net` or `wss://api.example.com`, optionally with a
+// wildcard subdomain, a port, or a path.
+const CSP_SOURCE =
+  /^(?:[a-zA-Z][a-zA-Z0-9+.-]*:\/\/)?(?:\*|(?:\*\.)?[a-zA-Z0-9-]+(?:\.[a-zA-Z0-9-]+)*)(?::(?:\d+|\*))?(?:\/[^\s"';,]*)?$/;
+
+// A declaration that is not a source expression is dropped whole, rather than
+// having its offending characters removed so that it fits. Editing it down can
+// produce a valid origin the server never declared (`example .com` becomes
+// `example.com`), and the spec lets a host restrict what was declared but not
+// widen it. Dropping keeps that decision visible instead of guessing at intent.
+function cspSources(declared: string[] | undefined): string[] {
+  return declared?.filter((source) => CSP_SOURCE.test(source)) ?? [];
 }
 
 export function buildCspString(csp?: McpUiResourceCsp): string {
   if (!csp) return DEFAULT_CSP;
 
-  const resourceDomains = csp.resourceDomains?.length
-    ? csp.resourceDomains.map(sanitizeDomain).join(" ")
-    : "";
+  const resourceDomains = cspSources(csp.resourceDomains).join(" ");
   const resourceSuffix = resourceDomains ? ` ${resourceDomains}` : "";
+  const connectDomains = cspSources(csp.connectDomains).join(" ");
+  const frameDomains = cspSources(csp.frameDomains).join(" ");
+  const baseUriDomains = cspSources(csp.baseUriDomains).join(" ");
 
   const directives: string[] = [
     "default-src 'none'",
@@ -27,10 +36,8 @@ export function buildCspString(csp?: McpUiResourceCsp): string {
     "form-action 'none'",
   ];
 
-  if (csp.connectDomains?.length) {
-    directives.push(
-      `connect-src ${csp.connectDomains.map(sanitizeDomain).join(" ")}`,
-    );
+  if (connectDomains) {
+    directives.push(`connect-src ${connectDomains}`);
   } else {
     directives.push("connect-src 'none'");
   }
@@ -44,18 +51,14 @@ export function buildCspString(csp?: McpUiResourceCsp): string {
     directives.push("media-src 'self' data:");
   }
 
-  if (csp.frameDomains?.length) {
-    directives.push(
-      `frame-src ${csp.frameDomains.map(sanitizeDomain).join(" ")}`,
-    );
+  if (frameDomains) {
+    directives.push(`frame-src ${frameDomains}`);
   } else {
     directives.push("frame-src 'none'");
   }
 
-  if (csp.baseUriDomains?.length) {
-    directives.push(
-      `base-uri ${csp.baseUriDomains.map(sanitizeDomain).join(" ")}`,
-    );
+  if (baseUriDomains) {
+    directives.push(`base-uri ${baseUriDomains}`);
   } else {
     directives.push("base-uri 'none'");
   }

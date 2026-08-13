@@ -4,37 +4,42 @@ import {
   buildCspMetaTag,
   buildCspString,
   escapeAttr,
-  sanitizeDomain,
 } from "./mcp-app-csp";
 
-describe("sanitizeDomain", () => {
-  it("passes through valid domains", () => {
-    expect(sanitizeDomain("example.com")).toBe("example.com");
-    expect(sanitizeDomain("*.example.com")).toBe("*.example.com");
-    expect(sanitizeDomain("example.com:8080")).toBe("example.com:8080");
-  });
-
-  it("keeps a full origin intact", () => {
-    // Stripping the slashes here left 'https:cdn.example.com', which a browser
-    // rejects as an invalid source and ignores — blocking the whole domain.
-    expect(sanitizeDomain("https://cdn.example.com")).toBe(
-      "https://cdn.example.com",
+describe("declared origins", () => {
+  it.each([
+    "example.com",
+    "*.example.com",
+    "example.com:8080",
+    "https://cdn.example.com",
+    "https://*.cloudflare.com",
+    "wss://api.example.com",
+    "http://localhost:8787",
+  ])("reaches the policy intact: %j", (source) => {
+    expect(buildCspString({ resourceDomains: [source] })).toContain(
+      `script-src 'self' 'unsafe-inline' ${source}`,
     );
   });
 
-  it("strips injection characters", () => {
-    // Semicolons, quotes, and spaces are stripped; * is allowed (CSP wildcard)
-    expect(sanitizeDomain("' unsafe-eval; script-src *;")).toBe(
-      "unsafe-evalscript-src*",
-    );
-    expect(sanitizeDomain('" onload=alert(1)')).toBe("onloadalert1");
-    expect(sanitizeDomain("example.com; frame-ancestors *")).toBe(
-      "example.comframe-ancestors*",
+  it.each([
+    "' unsafe-eval; script-src *;",
+    '" onload=alert(1)',
+    "example .com",
+    "'self'",
+    "https:",
+  ])("is dropped rather than edited to fit: %j", (source) => {
+    // Editing it down to fit would grant an origin nobody declared.
+    expect(buildCspString({ resourceDomains: [source] })).toContain(
+      "script-src 'self' 'unsafe-inline';",
     );
   });
 
-  it("strips whitespace", () => {
-    expect(sanitizeDomain("example .com")).toBe("example.com");
+  it("keeps the origins declared beside an invalid one", () => {
+    expect(
+      buildCspString({
+        resourceDomains: ["https://cdn.example.com", "example .com"],
+      }),
+    ).toContain("script-src 'self' 'unsafe-inline' https://cdn.example.com;");
   });
 });
 
@@ -110,14 +115,11 @@ describe("buildCspString", () => {
     expect(result).toContain("base-uri example.com");
   });
 
-  it("sanitizes domains with injection attempts", () => {
+  it("drops a domain that tries to inject a directive", () => {
     const result = buildCspString({
       connectDomains: ["example.com; script-src 'unsafe-eval'"],
     });
-    // After sanitization, the semicolons, quotes, and spaces are stripped
-    // so the domain can't inject new CSP directives
-    expect(result).toContain("connect-src example.comscript-srcunsafe-eval");
-    // The injected directive should not appear as a separate CSP directive
+    expect(result).toContain("connect-src 'none'");
     expect(result).not.toMatch(/;\s*script-src\s+'unsafe-eval'/);
   });
 });
