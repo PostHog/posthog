@@ -1118,7 +1118,6 @@ class DashboardTileSerializer(serializers.ModelSerializer):
             # Denormalization for HogQL printing; combined with depth=1, leaving it
             # in expands `team` into a full nested Team dict on every tile response.
             "team",
-            "dashboard_group",
             "parent_group",
         ]
         read_only_fields = ["id", "insight"]
@@ -1767,7 +1766,6 @@ class DashboardSerializer(DashboardMetadataSerializer):
                 group_map[source_group.id] = copied_group
             existing_tiles = (
                 DashboardTile.objects.filter(dashboard=existing_dashboard)
-                .filter(dashboard_group__isnull=True)
                 .exclude(deleted=True)
                 .select_related("insight", "text", "button_tile", "widget", "parent_group")
             )
@@ -3182,7 +3180,7 @@ class DashboardsViewSet(
         serializer = MoveDashboardTileToGroupRequestSerializer(data=request.data)
         serializer.is_valid(raise_exception=True)
         tile = get_object_or_404(
-            DashboardTile.objects.filter(dashboard=dashboard, dashboard_group__isnull=True),
+            DashboardTile.objects.filter(dashboard=dashboard),
             id=serializer.validated_data["tile_id"],
         )
         user = cast(User, request.user)

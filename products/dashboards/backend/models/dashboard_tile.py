@@ -85,14 +85,6 @@ class DashboardTile(models.Model):
         null=True,
         db_index=False,
     )
-    dashboard_group = models.OneToOneField(
-        "dashboards.DashboardGroup",
-        on_delete=models.CASCADE,
-        related_name="tile",
-        null=True,
-        db_index=False,
-        db_constraint=False,
-    )
     parent_group = models.ForeignKey(
         "dashboards.DashboardGroup",
         on_delete=models.PROTECT,
@@ -151,9 +143,7 @@ class DashboardTile(models.Model):
                 condition=Q(("widget__isnull", False)),
             ),
             models.CheckConstraint(
-                condition=build_unique_relationship_check(
-                    ("insight", "text", "button_tile", "widget", "dashboard_group")
-                ),
+                condition=build_unique_relationship_check(("insight", "text", "button_tile", "widget")),
                 name="dash_tile_exactly_one_related_object",
             ),
         ]
@@ -194,23 +184,14 @@ class DashboardTile(models.Model):
         related_fields = sum(
             map(
                 bool,
-                [
-                    getattr(self, relation)
-                    for relation in ("insight", "text", "button_tile", "widget", "dashboard_group")
-                ],
+                [getattr(self, relation) for relation in ("insight", "text", "button_tile", "widget")],
             )
         )
         if related_fields != 1:
-            raise ValidationError(
-                "Can only set exactly one of insight, text, button_tile, widget, or dashboard_group for this tile"
-            )
+            raise ValidationError("Can only set exactly one of insight, text, button_tile, or widget for this tile")
 
-        if self.dashboard_group_id is not None and self.parent_group_id is not None:
-            raise ValidationError("Dashboard group tiles cannot belong to another group")
-
-        for group in (self.dashboard_group, self.parent_group):
-            if group is not None and group.dashboard_id != self.dashboard_id:
-                raise ValidationError("Dashboard groups and tiles must belong to the same dashboard")
+        if self.parent_group is not None and self.parent_group.dashboard_id != self.dashboard_id:
+            raise ValidationError("Dashboard groups and tiles must belong to the same dashboard")
 
         if self.insight is None and (
             self.filters_hash is not None
@@ -321,7 +302,6 @@ class DashboardTile(models.Model):
                 "text",
                 "button_tile",
                 "widget",
-                "dashboard_group",
                 "parent_group",
                 "insight__created_by",
                 "insight__last_modified_by",
@@ -331,7 +311,6 @@ class DashboardTile(models.Model):
             )
             .prefetch_related("text__dashboard_tiles", "button_tile__dashboard_tiles", "widget__dashboard_tiles")
             .exclude(dashboard__deleted=True, deleted=True)
-            .filter(dashboard_group__isnull=True)
             .filter(Q(insight__deleted=False) | Q(insight__isnull=True))
             .order_by("insight__order")
         )
