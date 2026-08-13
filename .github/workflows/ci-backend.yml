@@ -1864,7 +1864,9 @@ jobs:
               with:
                   name: migrated-schema
                   path: schema.sql.gz
-                  retention-days: 90
+                  # Consumers only ever take the newest artifact, so a longer window just
+                  # adds pages to the artifacts listing that db:download-schema walks.
+                  retention-days: 7
 
             - name: Save schema to Actions cache for PR shards
               # Kept as the exact merge-base key that every consumer's restore-keys falls back to.

@@ -425,6 +425,21 @@ class TestPostgresSourceNonRetryableErrors:
         is_non_retryable = any(pattern in error_msg for pattern in non_retryable.keys())
         assert is_non_retryable, f"Permanent error should be non-retryable: {error_msg}"
 
+    def test_connect_timeout_surfaces_actionable_message(self, source):
+        # A persistently timing-out connect stays non-retryable, but must surface firewall/reachability
+        # guidance rather than the bare "connection timeout expired" driver text. Mirror the finalizer's
+        # first-match selection (external_data_job.py) so a future reorder that shadows it with an
+        # earlier None-valued timeout key is caught.
+        error_msg = "connection timeout expired"
+        matches = [
+            friendly
+            for pattern, friendly in source.get_non_retryable_errors().items()
+            if error_message_matches(error_msg, [pattern])
+        ]
+        assert matches, "connect timeout must be classified non-retryable"
+        assert matches[0] is not None, "connect timeout must surface an actionable message, not raw driver text"
+        assert "firewall" in matches[0].lower()
+
     @pytest.mark.parametrize(
         "error_msg",
         [
@@ -1330,6 +1345,32 @@ class TestPostgresSourceRetryableErrors:
         non_retryable = source.get_non_retryable_errors()
         is_non_retryable = any(pattern in error_msg for pattern in non_retryable.keys())
         assert not is_non_retryable, f"Connection-limit error should not be non-retryable: {error_msg}"
+
+    @pytest.mark.parametrize(
+        "error_msg",
+        [
+            # psycopg's own message when libpq finds the socket already gone (e.g. the setup
+            # commit at the end of `get_connection`). `_connect_with_dropped_retry` already
+            # retries this in-process on the read/sync connect path; this is the
+            # whole-activity-retry fallback for when a sustained outage (e.g. a saturated pooler)
+            # outlasts that bounded budget.
+            "the connection is lost",
+            "OperationalError: the connection is lost",
+            # Supavisor's transaction-mode pooler checkout timeout, surfaced as a generic XX000
+            # InternalError_ rather than the libpq/PgBouncer wordings above.
+            "(ECHECKOUTTIMEOUT) unable to check out connection from the pool after 60000ms in Transaction mode",
+        ],
+    )
+    def test_connection_dropped_is_classified_retryable(self, source, error_msg):
+        retryable = source.get_retryable_errors()
+        is_retryable = any(pattern.lower() in error_msg.lower() for pattern in retryable)
+        assert is_retryable, f"Connection-dropped error should be classified retryable: {error_msg}"
+
+    def test_connection_dropped_is_not_also_non_retryable(self, source):
+        error_msg = "the connection is lost"
+        non_retryable = source.get_non_retryable_errors()
+        is_non_retryable = any(pattern in error_msg for pattern in non_retryable.keys())
+        assert not is_non_retryable, f"Connection-dropped error should not be non-retryable: {error_msg}"
 
 
 def _raise_eof() -> None:

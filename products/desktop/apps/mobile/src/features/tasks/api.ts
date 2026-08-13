@@ -4,6 +4,7 @@ import type {
   StoredLogEntry,
   Task,
   TaskRun,
+  TaskRunArtifact,
 } from "@posthog/shared";
 import { fetch } from "expo/fetch";
 import {
@@ -173,6 +174,36 @@ export async function presignTaskRunArtifact(
 
   const data = (await response.json()) as { url: string };
   return data.url;
+}
+
+/** Hides or restores every version of a file on the run, returning the updated manifest. */
+export async function dismissTaskRunArtifacts(
+  taskId: string,
+  runId: string,
+  artifactIds: string[],
+  dismissed: boolean,
+): Promise<TaskRunArtifact[]> {
+  const baseUrl = getBaseUrl();
+  const projectId = getProjectId();
+
+  const response = await authedFetch(
+    `${baseUrl}/api/projects/${projectId}/tasks/${taskId}/runs/${runId}/artifacts/dismiss/`,
+    {
+      method: "POST",
+      body: JSON.stringify({ artifact_ids: artifactIds, dismissed }),
+    },
+  );
+
+  if (!response.ok) {
+    throw new HttpError(
+      response.status,
+      response.statusText,
+      "Failed to update artifact",
+    );
+  }
+
+  const data = (await response.json()) as { artifacts?: TaskRunArtifact[] };
+  return data.artifacts ?? [];
 }
 
 export async function cancelRun(

@@ -31,6 +31,7 @@ from posthog.models.comment import Comment, CommentSlackThread
 from posthog.models.comment.comment import TICKET_COMMENT_SCOPES, activity_log_scope_for
 from posthog.models.comment.slack_thread import DISCUSSIONS_SLACK_SYNC_FLAG
 from posthog.models.comment.utils import (
+    DESKTOP_COMMENT_SCOPES,
     build_comment_item_url,
     comment_scope_display_name,
     produce_discussion_mention_events,
@@ -123,11 +124,7 @@ class CommentSlackThreadRefSerializer(serializers.Serializer):
 
 
 def _capture_task_comment_action(comment: Comment, mentions: list[int], team: Team) -> None:
-    if (
-        comment.scope not in {"task", "task_artifact", "desktop_canvas"}
-        or not comment.created_by
-        or not comment.created_by.distinct_id
-    ):
+    if comment.scope not in DESKTOP_COMMENT_SCOPES or not comment.created_by or not comment.created_by.distinct_id:
         return
 
     context = comment.item_context if isinstance(comment.item_context, dict) else {}
@@ -184,7 +181,7 @@ def _record_task_comment_activity(
     activity_at: datetime | None = None,
     include_relationship_recipients: bool = True,
 ) -> None:
-    if comment.scope not in {"task", "task_artifact", "desktop_canvas"}:
+    if comment.scope not in DESKTOP_COMMENT_SCOPES:
         return
 
     owner_id = None
@@ -228,7 +225,7 @@ def _record_task_comment_activity(
 def _mentions_allowed_for_comment_target(
     *, team_id: int, scope: str, item_id: str | None, item_context: dict | None
 ) -> bool:
-    if scope not in {"task", "task_artifact", "desktop_canvas"}:
+    if scope not in DESKTOP_COMMENT_SCOPES:
         return True
     task_id = item_id if scope == "task" else (item_context or {}).get("taskId")
     if not task_id:
@@ -484,7 +481,8 @@ class CommentSerializer(serializers.ModelSerializer):
         comment = super().create(validated_data)
 
         if mentions:
-            send_discussions_mentioned.delay(comment.id, mentions, slug)
+            if comment.scope not in DESKTOP_COMMENT_SCOPES:
+                send_discussions_mentioned.delay(comment.id, mentions, slug)
             produce_discussion_mention_events(comment, mentions, slug)
             send_mention_notifications(comment, mentions, slug)
         _record_task_comment_activity(comment, mentions)
@@ -524,7 +522,8 @@ class CommentSerializer(serializers.ModelSerializer):
                 updated_instance = super().update(locked_instance, validated_data)
 
         if mentions:
-            send_discussions_mentioned.delay(updated_instance.id, mentions, slug)
+            if updated_instance.scope not in DESKTOP_COMMENT_SCOPES:
+                send_discussions_mentioned.delay(updated_instance.id, mentions, slug)
             produce_discussion_mention_events(updated_instance, mentions, slug)
             send_mention_notifications(updated_instance, mentions, slug)
             _record_task_comment_activity(

@@ -413,7 +413,7 @@ class TestStripeSource:
         assert client._last_request_method == "get"
 
 
-def _run_nested_get_rows(nested_method, parent_objects=None, parent_has_nested=None):
+def _run_nested_get_rows(nested_method, parent_objects=None, parent_has_nested=None, resumable_source_manager=None):
     if parent_objects is None:
         parent_objects = [{"id": "cus_ok1"}, {"id": "cus_gone"}, {"id": "cus_ok2"}]
     parent = StripeResource(method=lambda **kwargs: _list_object(parent_objects))
@@ -426,7 +426,8 @@ def _run_nested_get_rows(nested_method, parent_objects=None, parent_has_nested=N
         parent_has_nested=parent_has_nested,
     )
 
-    resumable_source_manager = MagicMock()
+    if resumable_source_manager is None:
+        resumable_source_manager = MagicMock()
     resumable_source_manager.can_resume.return_value = False
 
     with (
@@ -526,6 +527,26 @@ class TestStripeNestedResourceGetRows:
         # cus_zero is skipped entirely — no API call, no rows.
         assert called_for == ["cus_credit", "cus_owed"]
         assert {row["customer"] for row in rows} == {"cus_credit", "cus_owed"}
+
+    def test_sparse_sweep_checkpoints_by_parent_count(self):
+        # A nested resource where no parent has data (CustomerPaymentMethod over customers with no
+        # stored payment method) never fills a chunk, so the row-driven checkpoint never fires and
+        # a killed run restarted the whole customer walk. Position must be recorded by parents
+        # walked, regardless of how few rows come back.
+        def nested_method(customer=None, params=None):
+            return _list_object([])
+
+        manager = MagicMock()
+        with patch.object(stripe_module, "NESTED_SWEEP_CHECKPOINT_PARENTS", 3):
+            rows = _run_nested_get_rows(
+                nested_method,
+                parent_objects=[{"id": f"cus_{i}"} for i in range(8)],
+                resumable_source_manager=manager,
+            )
+
+        assert rows == []
+        # Checkpointed after the 3rd and 6th parent; the 7th and 8th are still in flight.
+        assert [call.args[0].starting_after for call in manager.save_state.call_args_list] == ["cus_2", "cus_5"]
 
     def test_query_param_service_receives_parent_in_params(self):
         # Flat Stripe services with a required filter (e.g. entitlements.active_entitlements.list)

@@ -34,7 +34,7 @@ from posthog.models import (
 )
 from posthog.models.activity_logging.activity_log import ActivityLog
 from posthog.models.comment import Comment
-from posthog.models.comment.utils import build_comment_item_url
+from posthog.models.comment.utils import DESKTOP_COMMENT_SCOPES, build_comment_item_url
 from posthog.models.messaging import MessagingRecord, get_email_hashes
 from posthog.models.scoping import with_team_scope
 from posthog.models.utils import UUIDT
@@ -1498,6 +1498,9 @@ def send_discussions_mentioned(comment_id: str, mentioned_user_ids: list[int], s
         tag("task", "send_discussions_mentioned")
 
         comment = Comment.objects.select_related("created_by", "team").get(id=comment_id)
+
+        if comment.scope in DESKTOP_COMMENT_SCOPES:
+            return
 
         if not is_email_available(with_absolute_urls=True):
             logger.warning("Skipping discussions mentioned email: email service not available")
