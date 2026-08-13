@@ -897,46 +897,33 @@ class TestSQLV2RunOnAConnection(APIBaseTest):
         run.refresh_from_db()
         self.assertEqual(run.status, NotebookNodeRun.Status.FAILED)
 
+    @parameterized.expand([("python_frame", False), ("duckdb_node_frame", True)])
     @patch("products.notebooks.backend.presentation.views.notebook.start_sql_v2_run_workflow")
     @patch("products.notebooks.backend.presentation.views.notebook.enqueue_direct_run")
-    def test_local_frame_reference_never_reroutes_a_connection_run_to_the_sandbox(
-        self, mock_enqueue, mock_start, _mock_enabled
+    def test_a_local_frame_never_reroutes_a_connection_run_to_the_sandbox(
+        self, _name, from_duckdb_run, mock_enqueue, mock_start, _mock_enabled
     ):
-        # Without the guard this takes Journey 5's DuckDB reroute, where the sandbox would run
-        # the query against a kernel frame instead of the warehouse the user picked.
-        response = self._post(
-            code="select * from new_events",
-            refs={"new_events": {"node_id": "node-py", "kind": "local"}},
-            connection_id=str(self.source_id),
-        )
+        # Without the guard this takes Journey 5's DuckDB reroute, where the sandbox would run the
+        # query against a kernel frame instead of the warehouse the user picked. A SQL node whose
+        # last run was duckdb left its result in that same namespace, so it takes the same guard.
+        if from_duckdb_run:
+            with team_scope(self.team.id):
+                NotebookNodeRun.objects.create(
+                    team=self.team,
+                    notebook=self.notebook,
+                    node_id="node-duck",
+                    code="select * from new_events",
+                    node_type=NotebookNodeRun.NodeType.DUCKDB,
+                    status=NotebookNodeRun.Status.DONE,
+                )
+            refs = {"sql_df": {"node_id": "node-duck"}}
+            code = "select * from sql_df"
+        else:
+            refs = {"new_events": {"node_id": "node-py", "kind": "local"}}
+            code = "select * from new_events"
+        response = self._post(code=code, refs=refs, connection_id=str(self.source_id))
         self.assertEqual(response.status_code, 400)
-        self.assertIn("Python dataframe", response.json()["detail"])
-        mock_start.assert_not_called()
-        mock_enqueue.assert_not_called()
-
-    @patch("products.notebooks.backend.presentation.views.notebook.start_sql_v2_run_workflow")
-    @patch("products.notebooks.backend.presentation.views.notebook.enqueue_direct_run")
-    def test_duckdb_node_reference_never_reroutes_a_connection_run_to_the_sandbox(
-        self, mock_enqueue, mock_start, _mock_enabled
-    ):
-        # A SQL node that last ran on DuckDB left its result in the sandbox, so it is subject to
-        # the same guard as a Python frame — and must say so rather than claim it never ran.
-        with team_scope(self.team.id):
-            NotebookNodeRun.objects.create(
-                team=self.team,
-                notebook=self.notebook,
-                node_id="node-duck",
-                code="select * from new_events",
-                node_type=NotebookNodeRun.NodeType.DUCKDB,
-                status=NotebookNodeRun.Status.DONE,
-            )
-        response = self._post(
-            code="select * from sql_df",
-            refs={"sql_df": {"node_id": "node-duck"}},
-            connection_id=str(self.source_id),
-        )
-        self.assertEqual(response.status_code, 400)
-        self.assertIn("compute sandbox", response.json()["detail"])
+        self.assertIn("local dataframe", response.json()["detail"])
         mock_start.assert_not_called()
         mock_enqueue.assert_not_called()
 

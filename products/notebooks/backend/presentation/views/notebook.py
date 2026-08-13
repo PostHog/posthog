@@ -112,14 +112,11 @@ _CROSS_ENGINE_REF_ERROR_FOR_PYTHON = (
     "'{name}' ran on a warehouse connection, and Python cells can only read PostHog results. "
     "Re-run '{name}' on PostHog to use it here."
 )
+# Covers both kinds of local frame: one a Python cell bound, and one a SQL cell left behind when
+# reading a Python dataframe rerouted it to the sandbox. Neither is reachable from a warehouse.
 _LOCAL_FRAME_REF_ERROR = (
-    "'{name}' is a Python dataframe, so only a cell running on PostHog can read it. "
-    "Switch this cell to PostHog to use it."
-)
-# A SQL cell that reads a Python dataframe runs in the sandbox, so its own result lands there too.
-_SANDBOX_FRAME_REF_ERROR = (
-    "'{name}' last ran in the compute sandbox, so only a cell running on PostHog can read it. "
-    "Switch this cell to PostHog to use it."
+    "You can't refer to the local dataframe '{name}' from a cell pointing to a warehouse connection. "
+    "Set this cell's source to PostHog to read it."
 )
 
 
@@ -1210,13 +1207,11 @@ class NotebookViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, ForbidD
         cross_engine_error = _CROSS_ENGINE_REF_ERROR_FOR_PYTHON if node_type == "python" else _CROSS_ENGINE_REF_ERROR
         refs: dict[str, SQLV2Ref] = {}
         for name, spec in ref_specs.items():
-            is_python_frame = spec["kind"] == "local"
-            if is_python_frame or spec["node_id"] in kernel_frame_nodes:
+            if spec["kind"] == "local" or spec["node_id"] in kernel_frame_nodes:
                 # A kernel frame lives in the sandbox, which only reaches PostHog's own data — a
                 # connection run can't be rerouted there, so mark it unusable instead.
-                local_error = _LOCAL_FRAME_REF_ERROR if is_python_frame else _SANDBOX_FRAME_REF_ERROR
                 refs[name] = (
-                    SQLV2Ref(kind="hogql", node_id=None, unavailable_reason=local_error.format(name=name))
+                    SQLV2Ref(kind="hogql", node_id=None, unavailable_reason=_LOCAL_FRAME_REF_ERROR.format(name=name))
                     if connection_id is not None
                     else SQLV2Ref(kind="local")
                 )
