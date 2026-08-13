@@ -33,6 +33,7 @@ from products.data_warehouse.backend.logic.data_load.service import (
     get_discover_schemas_schedule,
     get_sync_schedule,
     pause_external_data_schedule,
+    trigger_external_data_workflow,
     unpause_external_data_schedule,
 )
 from products.warehouse_sources.backend.facade.models import ExternalDataSchema, ExternalDataSource
@@ -459,6 +460,27 @@ def test_bulk_update_edj_mixed_skip_fail_and_success():
     assert [sid for sid, _ in failures] == [str(broken.id)]
     assert create_mock.call_count == 0
     assert update_mock.call_count == 3
+
+
+def test_manual_trigger_clears_the_failure_backoff():
+    # Reload/resync go through this function. Without the reset, a schema deep into its backoff
+    # window would ignore the run the user just asked for and stay broken until the window expired.
+    team = _sync_team()
+    schema = _make_schema(team, _make_source(team))
+    ExternalDataSchema.objects.filter(id=schema.id).update(
+        consecutive_failures=9, last_failed_at=dt.datetime.now(dt.UTC)
+    )
+
+    with (
+        patch(f"{SERVICE}.sync_connect", MagicMock()),
+        patch(f"{SERVICE}.trigger_schedule") as trigger_mock,
+    ):
+        trigger_external_data_workflow(schema)
+
+    trigger_mock.assert_called_once()
+    schema.refresh_from_db()
+    assert schema.consecutive_failures == 0
+    assert schema.last_failed_at is None
 
 
 # --- pause/unpause: a schedule whose backing workflow already completed (e.g. deleted by a
