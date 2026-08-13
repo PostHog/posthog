@@ -1,4 +1,4 @@
-import { MOCK_DEFAULT_BASIC_USER, MOCK_DEFAULT_TEAM } from '~/lib/api.mock'
+import { MOCK_DEFAULT_BASIC_USER, MOCK_DEFAULT_TEAM, MOCK_DEFAULT_USER } from '~/lib/api.mock'
 
 import { lemonToast } from '@posthog/lemon-ui'
 
@@ -27,8 +27,16 @@ import type {
     MCPServerInstallationApi,
     MCPServerTemplateApi,
     MCPServiceAccountApi,
+    UserBasicApi,
 } from '../generated/api.schemas'
 import { CONNECTED_SERVERS_FILTER, GATEWAY_MEMBERS_PAGE_SIZE, mcpGatewayLogic } from './mcpGatewayLogic'
+
+const YOU: UserBasicApi = {
+    id: MOCK_DEFAULT_USER.id,
+    uuid: MOCK_DEFAULT_USER.uuid,
+    email: MOCK_DEFAULT_USER.email,
+    hedgehog_config: null,
+}
 
 jest.mock('../generated/api', () => ({
     mcpGatewayConfigApplyPresetCreate: jest.fn(),
@@ -386,6 +394,7 @@ describe('mcpGatewayLogic', () => {
             servers: [
                 {
                     id: 'linear-id',
+                    shared_by: YOU,
                     name: 'Linear',
                     description: '',
                     icon_key: '',
@@ -421,7 +430,21 @@ describe('mcpGatewayLogic', () => {
         const server = gatewayServer({ id: 'linear-id' })
         logic.actions.loadServiceAccountsSuccess([account])
         logic.actions.loadServersSuccess([server])
-        mockServiceAccountAccess.mockResolvedValue({ ...account, server_ids: ['linear-id'] })
+        mockServiceAccountAccess.mockResolvedValue({
+            ...account,
+            server_ids: ['linear-id'],
+            servers: [
+                {
+                    id: 'linear-id',
+                    shared_by: YOU,
+                    name: 'Linear',
+                    description: '',
+                    icon_key: '',
+                    icon_domain: '',
+                    connection_state: 'ready' as const,
+                },
+            ],
+        })
         const pendingReload = deferred<Awaited<ReturnType<typeof mcpGatewayServersList>>>()
         mockServersList.mockClear()
         mockServersList.mockReturnValue(pendingReload.promise)

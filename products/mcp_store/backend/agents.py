@@ -158,12 +158,25 @@ def get_built_in_agent(team_id: int, agent_key: str) -> MCPServiceAccount | None
     return next(account for account in sync_built_in_agents(team) if account.handle == spec.handle)
 
 
-def create_gateway_agent_token(account: MCPServiceAccount) -> str:
-    payload = {"service_account_id": str(account.id), "team_id": account.team_id}
+@dataclass(frozen=True, kw_only=True)
+class GatewayAgentPrincipal:
+    """Who a gateway agent token authenticates as: the agent, plus the person
+    whose MCP grants the run may use."""
+
+    account: MCPServiceAccount
+    credential_owner_id: int
+
+
+def create_gateway_agent_token(account: MCPServiceAccount, *, credential_owner_id: int) -> str:
+    payload = {
+        "service_account_id": str(account.id),
+        "team_id": account.team_id,
+        "user_id": credential_owner_id,
+    }
     return GATEWAY_AGENT_TOKEN_PREFIX + signing.dumps(payload, salt=GATEWAY_AGENT_TOKEN_SALT)
 
 
-def resolve_gateway_agent_token(token: str) -> MCPServiceAccount | None:
+def resolve_gateway_agent_token(token: str) -> GatewayAgentPrincipal | None:
     if not token.startswith(GATEWAY_AGENT_TOKEN_PREFIX):
         return None
     signed_value = token.removeprefix(GATEWAY_AGENT_TOKEN_PREFIX)
@@ -179,14 +192,19 @@ def resolve_gateway_agent_token(token: str) -> MCPServiceAccount | None:
         return None
     account_id = payload.get("service_account_id")
     team_id = payload.get("team_id")
-    if not account_id or not isinstance(team_id, int):
+    credential_owner_id = payload.get("user_id")
+    # Grants are per person, so a token that names no credential owner can
+    # authorize nothing. Tokens minted before the claim existed resolve to
+    # nothing and expire within GATEWAY_AGENT_TOKEN_MAX_AGE_SECONDS.
+    if not account_id or not isinstance(team_id, int) or not isinstance(credential_owner_id, int):
         return None
     try:
         # TeamScopeError: the token can outlive its team — treat a deleted team
         # like any other invalid token instead of erroring at the auth layer.
-        return MCPServiceAccount.objects.for_team(team_id).get(
+        account = MCPServiceAccount.objects.for_team(team_id).get(
             id=account_id,
             handle__in=built_in_agent_handles(),
         )
     except (MCPServiceAccount.DoesNotExist, TeamScopeError, ValueError):
         return None
+    return GatewayAgentPrincipal(account=account, credential_owner_id=credential_owner_id)
