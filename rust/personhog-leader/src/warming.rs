@@ -768,6 +768,112 @@ mod tests {
         max_backoff: Duration::from_secs(5),
     };
 
+    fn warm_test_person() -> CachedPerson {
+        CachedPerson {
+            id: 42,
+            uuid: "00000000-0000-0000-0000-000000000042".to_string(),
+            team_id: 1,
+            properties: b"{}".to_vec(),
+            created_at: 0,
+            version: 1,
+            is_identified: false,
+            is_deleted: false,
+            last_seen_at: None,
+            approx_bytes: crate::cache::approx_person_bytes(2),
+        }
+    }
+
+    /// The coordination loop cancels a warm by dropping its future, which
+    /// never reaches code after an await point — so the cleanup lives in
+    /// `WarmCleanup::drop`, and this pins that it runs. A surviving build
+    /// pins memory for a partition this pod never serves; a surviving mark
+    /// outlives re-acquisition, because the next warm only overwrites
+    /// marks past the writer's committed offset by then, and redirects a
+    /// later cache miss to a superseded changelog offset.
+    #[test]
+    fn dropping_an_armed_cleanup_clears_the_build_and_its_marks() {
+        let cache = PartitionedCache::new(1 << 20);
+        let dirty_index = DirtyIndex::new(1_000);
+        let key = PersonCacheKey {
+            team_id: 1,
+            person_id: 42,
+        };
+
+        cache.begin_warm_partition(0);
+        {
+            let _cleanup = WarmCleanup {
+                cache: &cache,
+                dirty_index: &dirty_index,
+                partition: 0,
+                armed: true,
+            };
+            dirty_index.mark(
+                key.clone(),
+                DirtyMark {
+                    version: 1,
+                    offset: 7,
+                    partition: 0,
+                },
+            );
+            cache.warm_put(0, key.clone(), warm_test_person());
+        }
+
+        assert!(
+            dirty_index.get(&key).is_none(),
+            "a cancelled warm must clear the marks it seeded"
+        );
+        assert_eq!(
+            cache.usage_bytes(),
+            0,
+            "a cancelled warm must leave no build in flight"
+        );
+        assert!(!cache.has_partition(0), "nothing may have published");
+    }
+
+    /// The mirror: once the warm publishes, the marks and the cache are
+    /// the partition's serving state rather than warm residue, so the
+    /// disarmed guard must leave both alone.
+    #[test]
+    fn dropping_a_disarmed_cleanup_leaves_the_published_partition_alone() {
+        let cache = PartitionedCache::new(1 << 20);
+        let dirty_index = DirtyIndex::new(1_000);
+        let key = PersonCacheKey {
+            team_id: 1,
+            person_id: 42,
+        };
+
+        cache.begin_warm_partition(0);
+        {
+            let mut cleanup = WarmCleanup {
+                cache: &cache,
+                dirty_index: &dirty_index,
+                partition: 0,
+                armed: true,
+            };
+            dirty_index.mark(
+                key.clone(),
+                DirtyMark {
+                    version: 1,
+                    offset: 7,
+                    partition: 0,
+                },
+            );
+            cache.warm_put(0, key.clone(), warm_test_person());
+            cleanup.armed = false;
+            cache.publish_warmed_partition(0);
+        }
+
+        assert!(
+            dirty_index.get(&key).is_some(),
+            "a published partition keeps its marks"
+        );
+        assert!(cache.has_partition(0), "the partition stays published");
+        assert!(matches!(
+            cache.get(0, &key),
+            crate::cache::CacheLookup::Found(_)
+        ));
+    }
+
     #[test]
     fn resolve_uses_committed_minus_lookback() {
         assert_eq!(resolve_start_offset(Some(500), 0, 100), 400);
