@@ -529,6 +529,7 @@ class TestTaskActivityClock(TestCase):
             )
 
         task.refresh_from_db()
+        assert task.last_activity_at is not None
         self.assertGreater(task.last_activity_at, STALE_ACTIVITY_AT)
         self.assertEqual(task.updated_at, STALE_ACTIVITY_AT)
 
@@ -550,6 +551,7 @@ class TestTaskActivityClock(TestCase):
         run.save(update_fields=update_fields)
 
         task.refresh_from_db()
+        assert task.last_activity_at is not None
         self.assertEqual(task.last_activity_at > STALE_ACTIVITY_AT, expected_move)
 
     def test_the_clock_never_runs_backwards(self):
