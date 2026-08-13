@@ -229,6 +229,20 @@ class TestTaskRunArtefacts(BaseTest):
             assert artefact.task_id is None
             assert artefact.created_by_id is None
 
+    def test_custom_agent_report_is_stamped_first_visible_at_creation(self):
+        # Born READY without passing through transition_to, so creation must stamp first_visible_at
+        # or the daily report limit would never count custom-agent reports.
+        persisted = create_custom_agent_ready_report(
+            team_id=self.team.id,
+            final_report=self._final_report(),
+            repo_selection=RepoSelectionResult(repository="acme/repo", reason="r"),
+            task_id=None,
+            agent_identifier=("billing", "anomaly_scan"),
+        )
+
+        report = SignalReport.objects.get(id=persisted.report_id)
+        assert report.first_visible_at is not None
+
 
 class TestAssociatedTaskRunsFilter(BaseTest):
     """`SignalReport.associated_task_runs_filter` matches a TaskRun whose task is associated with
