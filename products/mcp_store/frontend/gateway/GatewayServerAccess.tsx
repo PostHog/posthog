@@ -16,7 +16,7 @@ import { dayjs } from 'lib/dayjs'
 
 import { defaultAgentGrantPolicy, isPolicyStateAllowedByCeiling } from './gatewayPolicyUtils'
 import { AgentToolPolicyState, gatewayServerLogic } from './gatewayServerLogic'
-import { RemoveAllSharesButton, toProfileUser } from './gatewayUtils'
+import { AgentGrantScopeControl, RemoveAllSharesButton, toProfileUser } from './gatewayUtils'
 import { agentServerAccessKey, mcpGatewayLogic, memberServerAccessKey } from './mcpGatewayLogic'
 
 const AGENT_POLICY_OPTIONS = [
@@ -153,8 +153,9 @@ export function GatewayAccessSection(): JSX.Element | null {
                 </LemonButton>
             </div>
             <div className="text-sm text-secondary">
-                Sharing is personal. Only your agents use your {server.name} connection, and each teammate shares their
-                own.
+                You share your own {server.name} connection, and each teammate shares theirs. Pick whether an agent uses
+                it only for your runs or for every agent run in this project. Teammates can't use the connection
+                directly, but agents can act through it on their runs.
             </div>
 
             {server.agents.length === 0 ? (
@@ -182,9 +183,16 @@ export function GatewayAccessSection(): JSX.Element | null {
                                         <span className="font-mono">{agent.handle}</span>
                                         {sharedByYou
                                             ? ' · shared by you'
-                                            : ` · shared by ${agent.user.first_name || agent.user.email}`}
+                                            : ` · shared ${agent.scope === 'team' ? 'to the team ' : ''}by ${agent.user.first_name || agent.user.email}`}
                                     </div>
                                 </div>
+                                {sharedByYou && (
+                                    <AgentGrantScopeControl
+                                        accountId={agent.service_account_id}
+                                        serverId={server.id}
+                                        scope={agent.scope}
+                                    />
+                                )}
                                 {sharedByYou ? (
                                     <LemonButton
                                         size="xsmall"
