@@ -67,6 +67,7 @@ DUCKLAKE_DATA_IMPORTS_REGISTRATION_WORKFLOW_FLAG = "ducklake-data-imports-regist
 DATA_IMPORTS_GENERATIONS_PREFIX = "_imports"
 DUCKLAKE_REGISTER_STAGE_DURATION_METRIC = "ducklake_register_data_imports_stage_duration"
 S3_COPY_BATCH_SIZE = 16
+DUCKLAKE_REGISTRATION_BATCH_SIZE = 16
 _PARQUET_FILE_GLOB = "**/*.[pP][aA][rR][qQ][uU][eE][tT]"
 _DUCKGRES_CANCEL_MARGIN = dt.timedelta(minutes=1)
 _DUCKGRES_CANCEL_MAX_ATTEMPTS = 10
@@ -643,9 +644,13 @@ def _register_prepared_parquet_files(
                         psql.SQL(", ").join(psql.Identifier(column) for column in partition_columns),
                     )
                 )
-            # DuckLake flushes file and column stats at statement commit, so one call per file bounds each batch.
-            for landing_path in landing_paths:
+            # DuckLake flushes file and column stats at statement commit, so keep each autocommit bounded.
+            for batch_start in range(0, len(landing_paths), DUCKLAKE_REGISTRATION_BATCH_SIZE):
                 _raise_if_duckgres_cancel_requested(cancel_requested)
+                landing_path_batch = landing_paths[batch_start : batch_start + DUCKLAKE_REGISTRATION_BATCH_SIZE]
+                parquet_paths = psql.SQL("[{}]").format(
+                    psql.SQL(", ").join(psql.Literal(path) for path in landing_path_batch)
+                )
                 conn.execute(
                     psql.SQL(
                         "CALL ducklake_add_data_files({}, {}, {}, schema => {}, "
@@ -653,7 +658,7 @@ def _register_prepared_parquet_files(
                     ).format(
                         psql.Literal("ducklake"),
                         psql.Literal(registration_names.shadow_name),
-                        psql.Literal(landing_path),
+                        parquet_paths,
                         psql.Literal(schema_name),
                     )
                 )
