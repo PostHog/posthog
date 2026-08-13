@@ -24,6 +24,7 @@ import type {
 } from "./types";
 
 export type PiRpcEvent = AgentSessionEvent | PiExtensionEvent;
+export type PiRuntimeExtension = "repository-tools" | "auto-publish";
 
 type PiRpcEventListener = (event: PiRpcEvent) => void;
 
@@ -47,12 +48,12 @@ export interface PiRpcProviderOptions {
   baseUrl?: string;
 }
 
-interface PiRpcBootstrap {
+export interface PiRpcBootstrap {
   providerOptions: PiRpcProviderOptions;
   runtimeMcpServers?: PiRuntimeMcpServers;
   mcpToolPolicies?: McpToolPolicy[];
   projectTrusted?: boolean;
-  channelMode?: boolean;
+  extensions?: PiRuntimeExtension[];
 }
 
 type RpcClientProcessAccess = {
@@ -428,7 +429,7 @@ export type PiRpcClientOptions = Pick<
   runtimeMcpServers?: PiRuntimeMcpServers;
   mcpToolPolicies?: McpToolPolicy[];
   projectTrusted?: boolean;
-  channelMode?: boolean;
+  extensions?: PiRuntimeExtension[];
 };
 
 export function createPiRpcClient(options: PiRpcClientOptions): PiRpcClient {
@@ -438,7 +439,7 @@ export function createPiRpcClient(options: PiRpcClientOptions): PiRpcClient {
     runtimeMcpServers,
     mcpToolPolicies,
     projectTrusted,
-    channelMode,
+    extensions,
     ...rpcOptions
   } = options;
   const args = sessionFile ? ["--session-file", sessionFile] : [];
@@ -457,7 +458,7 @@ export function createPiRpcClient(options: PiRpcClientOptions): PiRpcClient {
       runtimeMcpServers,
       mcpToolPolicies,
       projectTrusted: projectTrusted ?? false,
-      channelMode: channelMode === true,
+      extensions,
     } satisfies PiRpcBootstrap,
   );
 }

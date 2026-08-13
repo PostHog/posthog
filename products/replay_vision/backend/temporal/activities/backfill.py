@@ -18,7 +18,7 @@ from posthog.sync import database_sync_to_async
 from posthog.temporal.common.client import async_connect
 
 from products.replay_vision.backend.enqueue_claims import claim_enqueue_slot_prefix
-from products.replay_vision.backend.models.replay_observation import ReplayObservation
+from products.replay_vision.backend.models.replay_observation import ObservationStatus, ReplayObservation
 from products.replay_vision.backend.models.replay_scanner_backfill import (
     ACTIVE_BACKFILL_STATUSES,
     BackfillStatus,
@@ -156,16 +156,25 @@ def find_backfill_candidates_activity(inputs: FindBackfillCandidatesInputs) -> F
         candidate_limit=inputs.candidate_limit,
     ).run()
 
-    # Dedup at creation only collides with a *running* apply, so without this a re-run over an
-    # already-scanned window pays for a child workflow per session just to no-op.
-    already_observed = set(
+    # Succeeded only, matching the `$recording_observed` event the creation-time count excludes on.
+    # Postgres rather than that count's fail-soft ClickHouse read, whose hiccup would report every session
+    # unobserved and turn the retake path below into real re-scans and real charges.
+    succeeded_at = dict(
         ReplayObservation.objects.filter(
             team_id=inputs.team_id,
             scanner_id=backfill.scanner_id,
+            status=ObservationStatus.SUCCEEDED,
             session_id__in=[c.session_id for c in candidates],
-        ).values_list("session_id", flat=True)
+        ).values_list("session_id", "completed_at")
     )
-    dispatchable = [c for c in candidates if c.session_id not in already_observed]
+    dispatchable = [c for c in candidates if c.session_id not in succeeded_at]
+    # Only sessions the live sweep reached after this backfill was quoted were in its total, so only those
+    # count as work done; earlier successes were already excluded at creation.
+    overtaken = {
+        session_id
+        for session_id, completed in succeeded_at.items()
+        if completed is not None and completed > backfill.created_at
+    }
 
     # Claim a slot per dispatchable candidate before the workflow starts its children: a started
     # child is invisible to the row-count caps until it persists its observation, so successive
@@ -196,7 +205,7 @@ def find_backfill_candidates_activity(inputs: FindBackfillCandidatesInputs) -> F
     # `dispatched_count` could never reach `total_count` on a window this scanner has already partly tried,
     # which strands progress short of complete and leaves phantom credits in the org's projected spend.
     walked_through = candidates.index(walked_to) + 1 if walked_to is not None else 0
-    skipped = walked_through - admitted
+    skipped = sum(1 for c in candidates[:walked_through] if c.session_id in overtaken)
 
     return FindBackfillCandidatesOutput(
         started_from_cursor_end_time=backfill.cursor_end_time,

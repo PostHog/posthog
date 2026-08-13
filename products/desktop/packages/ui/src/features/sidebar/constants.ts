@@ -32,7 +32,7 @@ export const CUSTOMIZABLE_NAV_ITEMS = [
   },
   {
     id: "configure",
-    label: "Configure",
+    label: "Settings",
     analyticsId: "configure",
     defaultVisible: true,
   },

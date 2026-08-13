@@ -5226,6 +5226,79 @@ class TestRetention(RetentionBaseQueryVariantComparisonMixin, ClickhouseTestMixi
             expected_first_ever_counts,
         )
 
+    @snapshot_clickhouse_queries
+    def test_retention_first_ever_single_scan_filters_by_event_name_only(self):
+        # Pins the single-scan WHERE shape for first-ever retention: event-name filters only, no
+        # property or action-step matchers. ClickHouse evaluates WHERE matchers per row separately
+        # from the aggregate conditions that already check them, which makes large scans materially
+        # slower; a reintroduction shows up as a snapshot diff.
+        _create_person(team_id=self.team.pk, distinct_ids=["person1"])
+        _create_person(team_id=self.team.pk, distinct_ids=["person2"])
+        _create_events(
+            self.team,
+            [
+                ("person1", _date(0), {"$current_url": "https://example.com/dash"}),
+                ("person1", _date(2), {"$current_url": "https://example.com/dash"}),
+                # person2's first act_a misses the URL step, so first-ever excludes them
+                ("person2", _date(0), {"$current_url": "https://example.com/other"}),
+            ],
+            event="act_a",
+        )
+        _create_events(
+            self.team,
+            [("person1", _date(0), {"plan": "pro"}), ("person2", _date(1), {"plan": "free"})],
+            event="signup",
+        )
+        flush_persons_and_events()
+
+        action = Action.objects.create(
+            team=self.team,
+            name="act_a on dash",
+            steps_json=[{"event": "act_a", "url": "/dash", "url_matching": "contains"}],
+        )
+
+        # Same entity on both sides: the WHERE collapses to the flat event-name filter.
+        result_same_action = self.run_query(
+            query={
+                "dateRange": {"date_from": _date(0), "date_to": _date(4)},
+                "retentionFilter": {
+                    "retentionType": "retention_first_ever_occurrence",
+                    "totalIntervals": 5,
+                    "targetEntity": {"id": action.id, "type": TREND_FILTER_TYPE_ACTIONS},
+                    "returningEntity": {"id": action.id, "type": TREND_FILTER_TYPE_ACTIONS},
+                },
+            }
+        )
+        self.assertEqual(
+            pluck(result_same_action, "values", "count"),
+            [
+                [1, 0, 1, 0, 0],
+                [0, 0, 0, 0, 0],
+                [0, 0, 0, 0, 0],
+                [0, 0, 0, 0, 0],
+                [0, 0, 0, 0, 0],
+            ],
+        )
+
+        # Different entities plus a breakdown (which forces the single scan): the WHERE keeps the
+        # per-role name branches with the window bound on the return side, still matcher-free.
+        result_diff_breakdown = self.run_query(
+            query={
+                "dateRange": {"date_from": _date(0), "date_to": _date(4)},
+                "retentionFilter": {
+                    "retentionType": "retention_first_ever_occurrence",
+                    "totalIntervals": 5,
+                    "targetEntity": {"id": "signup", "type": "events"},
+                    "returningEntity": {"id": "act_a", "type": "events"},
+                },
+                "breakdownFilter": {"breakdowns": [{"type": "hogql", "property": "properties.plan"}]},
+            }
+        )
+        pro_rows = [r for r in result_diff_breakdown if r.get("breakdown_value") == "pro"]
+        free_rows = [r for r in result_diff_breakdown if r.get("breakdown_value") == "free"]
+        self.assertEqual(pluck(pro_rows, "values", "count")[0], [1, 0, 1, 0, 0])
+        self.assertEqual(pluck(free_rows, "values", "count")[1], [1, 0, 0, 0, 0])
+
     def test_cohort_filter_optimization_with_property_filter(self):
         """Test that cohort filters in properties trigger LEFTJOIN optimization"""
         cohort = Cohort.objects.create(

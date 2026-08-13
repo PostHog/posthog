@@ -4271,7 +4271,7 @@ class TestPrinter(BaseTest):
         # Should contain subquery with argMax for deduplication
         # String literals are parameterized, so check for structure instead
         self.assertIn("argMax", printed)
-        self.assertIn("in(events.uuid", printed)
+        self.assertIn("globalIn(events.uuid", printed)
         self.assertIn("SELECT argMax(events.uuid", printed)
         self.assertIn(f"FROM {self._events_table_ref()} WHERE", printed)
         self.assertIn("GROUP BY", printed)
@@ -4843,12 +4843,46 @@ class TestPrinter(BaseTest):
         )
         assert expected in printed, f"expected {expected} in:\n{printed}"
 
-    def test_events_in_subquery_not_promoted(self):
-        # Non-sessions case: no cross-cluster hazard, keep plain in.
-        printed = self._select(
-            "SELECT uuid FROM events WHERE event IN (SELECT event FROM events WHERE timestamp > now() - toIntervalDay(1))"
-        )
+    @parameterized.expand(
+        [
+            (
+                "in_events_subquery",
+                "SELECT uuid FROM events WHERE event IN (SELECT event FROM events WHERE timestamp > now() - toIntervalDay(1))",
+                "globalIn(",
+            ),
+            (
+                "not_in_events_subquery",
+                "SELECT event FROM events WHERE person_id NOT IN (SELECT person_id FROM events WHERE event = 'signup')",
+                "globalNotIn(",
+            ),
+            (
+                "nested_events_subquery",
+                "SELECT event FROM events WHERE distinct_id IN (SELECT distinct_id FROM (SELECT distinct_id FROM events WHERE event = 'signup'))",
+                "globalIn(",
+            ),
+            (
+                "nullable_left_not_in_keeps_rows_on_null",
+                "SELECT event FROM events WHERE nullIf(event, '') NOT IN (SELECT event FROM events WHERE event = 'signup')",
+                "ifNull(globalNotIn(",
+            ),
+        ]
+    )
+    def test_sharded_in_subqueries_promoted_to_global(self, _name, select, expected):
+        # A per-shard re-executed IN-subquery over a sharded table costs shard-count times
+        # the subquery; GLOBAL IN builds the set once and ships it.
+        printed = self._select(select)
+        assert expected in printed, f"expected {expected} in:\n{printed}"
+
+    @parameterized.expand(
+        [
+            ("non_sharded_subquery", "SELECT event FROM events WHERE person_id IN (SELECT id FROM persons)"),
+            ("constant_tuple", "SELECT event FROM events WHERE event IN ('signup', 'login')"),
+        ]
+    )
+    def test_non_sharded_in_right_hand_sides_stay_plain(self, _name, select):
+        printed = self._select(select)
         assert "globalIn" not in printed, f"did not expect globalIn in:\n{printed}"
+        assert "globalNotIn" not in printed, f"did not expect globalNotIn in:\n{printed}"
 
     @parameterized.expand(
         [

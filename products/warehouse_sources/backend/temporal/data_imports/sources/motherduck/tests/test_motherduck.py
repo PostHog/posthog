@@ -1,3 +1,5 @@
+import os
+
 import pytest
 from unittest.mock import MagicMock, patch
 
@@ -128,6 +130,14 @@ class TestMotherDuck:
         assert mock_connect.call_args.args[0] == "md:my_db?motherduck_token=md-token"
         # DuckDB shares this process, so it must not size itself against the whole host.
         assert mock_connect.call_args.kwargs["config"] == DUCKDB_LOCAL_CONFIG
+
+    def test_connect_uses_a_writable_home_directory(self):
+        # Regression: DuckDB defaults extension/secrets storage to `~/.duckdb`, which raised
+        # `IOException: Failed to create directory "/root/.duckdb": Permission denied` in a
+        # worker container where the real home directory isn't writable.
+        home_directory = DUCKDB_LOCAL_CONFIG["home_directory"]
+        os.makedirs(home_directory, exist_ok=True)
+        assert os.access(home_directory, os.W_OK)
 
     def test_connect_closes_on_exit(self, impl):
         with patch(_CONNECT_PATH) as mock_connect:

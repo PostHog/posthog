@@ -471,6 +471,14 @@ export const PromptInput = forwardRef<EditorHandle, PromptInputProps>(
                 enableCommands ? insertSlashCommand : undefined
               }
             />
+            {/* Direct flex children, not wrapped in a span: an inline wrapper
+                builds a line box whose leading pushes the trigger a pixel below
+                the toolbar's other buttons. The model chip renders before the
+                mode chip so its open menu stays anchored in place while a
+                harness switch changes which permission modes exist (and how
+                wide their labels are). */}
+            {modelSelector}
+            {reasoningSelector}
             {onModeChange && (
               <ModeSelector
                 modeOption={modeOption}
@@ -481,11 +489,6 @@ export const PromptInput = forwardRef<EditorHandle, PromptInputProps>(
                 canvas={canvas}
               />
             )}
-            {/* Direct flex children, not wrapped in a span: an inline wrapper
-                builds a line box whose leading pushes the trigger a pixel below
-                the toolbar's other buttons. */}
-            {modelSelector}
-            {reasoningSelector}
             {isBashMode && (
               <Text className="font-mono text-(--blue-9) text-[13px]">
                 ! bash

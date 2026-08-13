@@ -14,7 +14,9 @@ materializes at once (an Arrow record-batch reader rather than a full fetch).
 
 from __future__ import annotations
 
+import os
 import re
+import tempfile
 import collections
 from collections.abc import Iterator
 from contextlib import contextmanager
@@ -70,7 +72,14 @@ DEFAULT_MOTHERDUCK_FETCH_SIZE = 5_000
 
 # DuckDB otherwise sizes itself against the whole host (80% of RAM, one thread per core), which is
 # the wrong budget for a library sharing a worker with the rest of the import pipeline.
-DUCKDB_LOCAL_CONFIG: dict[str, Any] = {"memory_limit": "2GB", "threads": 2}
+#
+# `home_directory` overrides where DuckDB persists extensions/secrets, which otherwise defaults to
+# `~/.duckdb` — unwritable in a locked-down worker container regardless of who owns the process.
+DUCKDB_LOCAL_CONFIG: dict[str, Any] = {
+    "memory_limit": "2GB",
+    "threads": 2,
+    "home_directory": os.path.join(tempfile.gettempdir(), "posthog-duckdb-home"),
+}
 
 # The database name is interpolated into the `md:` connection string, so anything outside this
 # allowlist could smuggle extra connection parameters in alongside the token.

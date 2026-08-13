@@ -1,5 +1,7 @@
 import shlex
+import asyncio
 import logging
+import threading
 from dataclasses import dataclass
 from typing import Any
 
@@ -7,6 +9,7 @@ from django.conf import settings
 from django.utils import timezone
 
 from temporalio import activity
+from temporalio.exceptions import ApplicationError
 
 from posthog.models.user_integration import ReauthorizationRequired
 from posthog.temporal.common.utils import asyncify
@@ -30,7 +33,15 @@ from products.tasks.backend.logic.services.connection_token import (
     get_primary_sandbox_jwt_kid,
     get_sandbox_jwt_public_key,
 )
-from products.tasks.backend.logic.services.sandbox import ExecutionResult, Sandbox, SandboxConfig, SandboxTemplate
+from products.tasks.backend.logic.services.sandbox import (
+    ExecutionResult,
+    Sandbox,
+    SandboxBase,
+    SandboxConfig,
+    SandboxTemplate,
+    get_sandbox_class,
+    sandbox_repo_path,
+)
 from products.tasks.backend.logic.services.sandbox_usage import measure_sandbox_cpu_usage, open_sandbox_session
 from products.tasks.backend.models import SandboxSnapshot, Task, TaskRun
 from products.tasks.backend.temporal.metrics import (
@@ -62,6 +73,8 @@ from products.tasks.backend.temporal.process_task.utils import (
 from .get_task_processing_context import TaskProcessingContext
 
 logger = logging.getLogger(__name__)
+SANDBOX_CREATION_CANCELLATION_WAIT_SECONDS = 10
+SANDBOX_CREATION_HEARTBEAT_SECONDS = 1
 
 NETWORK_RESTRICTED_AGENT_ENV = {
     "CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC": "1",
@@ -92,6 +105,8 @@ class PrepareSandboxForRepositoryOutput:
     snapshot_kind: str = SNAPSHOT_KIND_FILESYSTEM
     snapshot_mount_path: str | None = None
     snapshot_source: str = "none"
+    sandbox_creation_timeout_seconds: int = 300
+    sandbox_creation_cancellable: bool = False
 
 
 @dataclass
@@ -137,6 +152,35 @@ class CheckoutBranchInSandboxInput:
     github_token: str
     shallow_clone: bool
     used_snapshot: bool
+
+
+def _prepare_posthog_desktop_cloud_task(ctx: TaskProcessingContext, sandbox: SandboxBase, repository: str) -> None:
+    """Build Desktop workspace exports from the task's checked-out source.
+
+    The dev-stack image warms pnpm's content-addressed store but deliberately does
+    not retain checkout-specific node_modules or dist directories. Prepare only the
+    internal PostHog checkout that uses that image, after its final branch is in place.
+    """
+    if (
+        ctx.custom_image_name != DEV_STACK_IMAGE_NAME
+        or repository.casefold() != "posthog/posthog"
+        or sandbox.config.image_fallback
+    ):
+        return
+
+    repo_path = f"{sandbox_repo_path(repository)}/products/desktop"
+    emit_agent_log(ctx.run_id, "debug", "Preparing Desktop workspace dependencies")
+    result = sandbox.execute(
+        f"cd {shlex.quote(repo_path)} && pnpm bootstrap:cloud-task",
+        timeout_seconds=10 * 60,
+    )
+    if result.exit_code != 0:
+        output = (result.stderr or result.stdout)[-2_000:]
+        raise ApplicationError(
+            f"Failed to prepare Desktop workspace: {output}",
+            type="DesktopCloudTaskBootstrapError",
+            non_retryable=True,
+        )
 
 
 @dataclass
@@ -538,6 +582,7 @@ def prepare_sandbox_for_repository(input: PrepareSandboxForRepositoryInput) -> P
             custom_image_name=ctx.custom_image_name if ctx.use_modal_vm_sandbox else None,
         )
 
+        sandbox_class = get_sandbox_class()
         return PrepareSandboxForRepositoryOutput(
             sandbox_name=get_sandbox_name_for_task(ctx.task_id),
             repository=repository,
@@ -554,12 +599,13 @@ def prepare_sandbox_for_repository(input: PrepareSandboxForRepositoryInput) -> P
             snapshot_kind=snapshot_kind,
             snapshot_mount_path=snapshot_mount_path,
             snapshot_source=snapshot_source,
+            sandbox_creation_timeout_seconds=sandbox_class.creation_timeout_seconds,
+            sandbox_creation_cancellable=sandbox_class.supports_creation_cancellation,
         )
 
 
-@activity.defn
 @asyncify
-def create_sandbox_for_repository(input: CreateSandboxForRepositoryInput) -> CreateSandboxForRepositoryOutput:
+def _create_sandbox_for_repository(input: CreateSandboxForRepositoryInput) -> CreateSandboxForRepositoryOutput:
     ctx = input.context
     prepared = input.prepared
 
@@ -709,6 +755,62 @@ def create_sandbox_for_repository(input: CreateSandboxForRepositoryInput) -> Cre
 
 
 @activity.defn
+async def create_sandbox_for_repository(input: CreateSandboxForRepositoryInput) -> CreateSandboxForRepositoryOutput:
+    sandbox_class = get_sandbox_class()
+    if not sandbox_class.supports_creation_cancellation:
+        return await _create_sandbox_for_repository(input)
+
+    cancel_event = threading.Event()
+    creation_after_cancellation: CreateSandboxForRepositoryOutput | None = None
+    cancellation: asyncio.CancelledError | None = None
+
+    with sandbox_class.creation_cancellation_scope(cancel_event):
+        creation_task = asyncio.create_task(_create_sandbox_for_repository(input))
+        try:
+            while True:
+                activity.heartbeat()
+                try:
+                    return await asyncio.wait_for(
+                        asyncio.shield(creation_task), timeout=SANDBOX_CREATION_HEARTBEAT_SECONDS
+                    )
+                except TimeoutError:
+                    continue
+        except asyncio.CancelledError as error:
+            cancellation = error
+            cancel_event.set()
+            # sync_to_async cannot stop its worker thread, so wait for the provider operation
+            # to exit before Temporal can retry this activity against the same sandbox name.
+            try:
+                creation_after_cancellation = await asyncio.wait_for(
+                    asyncio.shield(creation_task), timeout=SANDBOX_CREATION_CANCELLATION_WAIT_SECONDS
+                )
+            except TimeoutError:
+                logger.exception(
+                    "sandbox_creation_cancellation_wait_timed_out",
+                    extra={"run_id": input.context.run_id},
+                )
+            except Exception as error:
+                logger.debug(
+                    "sandbox_creation_stopped_after_cancellation",
+                    extra={"run_id": input.context.run_id, "error_type": type(error).__name__},
+                )
+
+    if creation_after_cancellation is not None:
+        sandbox = await asyncio.to_thread(Sandbox.get_by_id, creation_after_cancellation.sandbox_id)
+        try:
+            await asyncio.to_thread(sandbox.destroy)
+        finally:
+            await asyncio.to_thread(
+                TaskRun.clear_sandbox_connection_state_atomic,
+                input.context.run_id,
+                creation_after_cancellation.sandbox_id,
+            )
+
+    assert cancellation is not None
+    raise cancellation
+
+
+@activity.defn
 @asyncify
 def clone_repository_in_sandbox(input: CloneRepositoryInSandboxInput) -> CloneRepositoryInSandboxOutput:
     ctx = input.context
@@ -752,6 +854,13 @@ def clone_repository_in_sandbox(input: CloneRepositoryInSandboxInput) -> CloneRe
 
         if clone_result.exit_code != 0:
             raise RuntimeError(f"Failed to clone repository {input.repository}: {clone_result.stderr}")
+
+        # A fresh single-repository run checks its requested branch out in the next
+        # activity. Resumes clone that branch directly, and multi-repo runs do not run
+        # the checkout activity, so prepare them here once their final source exists.
+        will_checkout_later = len(ctx.repositories) == 1 and bool(ctx.branch) and not is_resume
+        if not will_checkout_later:
+            _prepare_posthog_desktop_cloud_task(ctx, sandbox, input.repository)
 
         return CloneRepositoryInSandboxOutput(clone_ms=clone_timer.elapsed_ms)
 
@@ -837,6 +946,8 @@ def checkout_branch_in_sandbox(input: CheckoutBranchInSandboxInput) -> CheckoutB
         if result.exit_code != 0:
             logger.warning("Branch checkout failed", extra={"branch": input.branch, "stderr": result.stderr})
             raise RuntimeError(f"Failed to checkout branch {input.branch}")
+
+        _prepare_posthog_desktop_cloud_task(ctx, sandbox, input.repository)
 
         return CheckoutBranchInSandboxOutput(checkout_ms=checkout_timer.elapsed_ms)
 

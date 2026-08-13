@@ -67,7 +67,7 @@ test.describe('Signup', () => {
             await route.continue()
         })
 
-        const email = `new_user+${Math.floor(Math.random() * 10000)}@posthog.com`
+        const email = `new_user-${Math.floor(Math.random() * 10000)}@posthog.com`
         await startSignupFlow(page, email, VALID_PASSWORD)
         await page.locator('[data-attr=signup-name]').fill('Alice Bob')
         await expect(page.locator('[data-attr=signup-name]')).toHaveValue('Alice Bob')
@@ -88,7 +88,7 @@ test.describe('Signup', () => {
 
     test('Can submit the signup form multiple times if there is a generic email set', async ({ page }) => {
         let signupRequestBody: string | null = null
-        const email = `new_user+generic_error_test_${Math.floor(Math.random() * 10000)}@posthog.com`
+        const email = `new_user-generic_error_test_${Math.floor(Math.random() * 10000)}@posthog.com`
 
         await page.route('/api/signup/', async (route) => {
             signupRequestBody = route.request().postData()
@@ -122,7 +122,7 @@ test.describe('Signup', () => {
         await submitEmailAndExpectExistingAccount(page, email)
 
         // Update email to generic email and retry
-        const newEmail = `new_user+${Math.floor(Math.random() * 10000)}@posthog.com`
+        const newEmail = `new_user-${Math.floor(Math.random() * 10000)}@posthog.com`
         await startSignupFlow(page, newEmail, VALID_PASSWORD)
         await page.locator('[data-attr=signup-name]').fill('Alice Bob')
         await expect(page.locator('[data-attr=signup-name]')).toHaveValue('Alice Bob')
@@ -196,7 +196,7 @@ test.describe('Signup', () => {
         // Start signup with next parameter
         await page.goto('/signup?next=/custom_path')
 
-        const email = `new_user+${Math.floor(Math.random() * 10000)}@posthog.com`
+        const email = `new_user-${Math.floor(Math.random() * 10000)}@posthog.com`
         await startSignupFlow(page, email, VALID_PASSWORD)
         await page.locator('[data-attr=signup-name]').fill('Alice Bob')
         await expect(page.locator('[data-attr=signup-name]')).toHaveValue('Alice Bob')

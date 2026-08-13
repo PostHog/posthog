@@ -1,3 +1,4 @@
+import { artifactFilesListKey } from "@posthog/core/sessions/artifactFilesListKey";
 import type { TaskRunArtifact } from "@posthog/shared";
 import {
   ArrowSquareOut,
@@ -26,7 +27,18 @@ export function TaskArtifacts({ taskId, runId, enabled }: TaskArtifactsProps) {
   const { data: artifacts } = useTaskArtifacts(taskId, runId, enabled);
   const [preview, setPreview] = useState<TaskRunArtifact | null>(null);
   const [sharingId, setSharingId] = useState<string | null>(null);
-  const [collapsed, setCollapsed] = useState(false);
+  const fileListKey = artifactFilesListKey(
+    runId,
+    (artifacts ?? []).map((artifact) => artifact.name ?? ""),
+  );
+  const [collapse, setCollapse] = useState({
+    collapsed: false,
+    key: fileListKey,
+  });
+  if (collapse.key !== fileListKey) {
+    setCollapse({ collapsed: false, key: fileListKey });
+  }
+  const collapsed = collapse.collapsed;
 
   const shareArtifact = useCallback(
     async (artifact: TaskRunArtifact): Promise<void> => {
@@ -53,7 +65,7 @@ export function TaskArtifacts({ taskId, runId, enabled }: TaskArtifactsProps) {
   return (
     <View className="mx-4 mb-2 rounded-lg border border-gray-5 bg-gray-2 p-3">
       <Pressable
-        onPress={() => setCollapsed((value) => !value)}
+        onPress={() => setCollapse({ collapsed: !collapsed, key: fileListKey })}
         hitSlop={6}
         accessibilityRole="button"
         accessibilityLabel={`Files (${artifacts.length})`}

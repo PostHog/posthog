@@ -828,7 +828,7 @@ class TestOrganizationFeatureFlagCopy(APIBaseTest, QueryMatchingTest):
         # Linked instances must be overridden for a soft-deleted flag
         self.assertEqual(flag_response["experiment_set"], [])
         self.assertEqual(flag_response["surveys"], [])
-        self.assertNotEqual(flag_response["usage_dashboard"], existing_deleted_flag.usage_dashboard.id)
+        self.assertIsNone(flag_response["usage_dashboard"])
         self.assertEqual(flag_response["analytics_dashboards"], [])
 
         # target_project_2 should have failed: soft-deleted flag is still referenced

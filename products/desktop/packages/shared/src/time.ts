@@ -117,6 +117,29 @@ export function formatDaySeparatorLabel(
   return `${weekday}, ${month} ${day}${year}`;
 }
 
+/**
+ * The compact form of `formatDaySeparatorLabel`, for a sidebar column with no
+ * room for "Wednesday, May 20th": the recent days by name, then a short date.
+ *
+ * Both read the same `getLocalDayDiff`, so the two can differ in how verbosely
+ * they name a day but never in which day a timestamp falls on.
+ */
+export function formatShortDayLabel(
+  timestamp: number | string | Date,
+  now: Date = new Date(),
+): string {
+  const date = new Date(timestamp);
+  const days = getLocalDayDiff(date, now);
+  if (days <= 0) return "Today";
+  if (days === 1) return "Yesterday";
+  if (days < 7) return date.toLocaleDateString(undefined, { weekday: "long" });
+  return date.toLocaleDateString(undefined, {
+    month: "short",
+    day: "numeric",
+    year: date.getFullYear() === now.getFullYear() ? undefined : "numeric",
+  });
+}
+
 export function getRelativeDateGroup(
   timestamp: number | string,
 ): string | null {

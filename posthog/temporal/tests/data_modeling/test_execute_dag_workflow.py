@@ -178,7 +178,7 @@ class TestGetDagStructureActivity:
         await database_sync_to_async(suspended_node.save)()
 
         inputs = GetDAGStructureInputs(team_id=ateam.pk, dag_id=str(adag.id))
-        with unittest.mock.patch.object(gds, "_is_suspension_enforced", return_value=enforced):
+        with unittest.mock.patch.object(gds, "is_suspension_enforced", return_value=enforced):
             dag = await activity_environment.run(get_dag_structure_activity, inputs)
 
         assert dag.suspended_nodes["clickhouse"] == ([str(suspended_node.id)] if enforced else [])
