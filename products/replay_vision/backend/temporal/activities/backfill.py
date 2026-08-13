@@ -150,6 +150,7 @@ def find_backfill_candidates_activity(inputs: FindBackfillCandidatesInputs) -> F
         sampling_rate=snapshot.sampling_rate,
         # Same salt as the live sweep, so a sampled scanner backfills the same deterministic bucket it scans live.
         sampling_salt=str(backfill.scanner_id),
+        scanner_id=str(backfill.scanner_id),
         sampling_mode=snapshot.sampling_mode,
         cursor_end_time=backfill.cursor_end_time,
         cursor_session_id=backfill.cursor_session_id or None,
