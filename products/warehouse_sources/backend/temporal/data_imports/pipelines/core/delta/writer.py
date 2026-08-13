@@ -18,6 +18,7 @@ from products.warehouse_sources.backend.temporal.data_imports.pipelines.core.arr
     align_incoming_decimals_to_delta,
     first_per_pk_table,
     normalize_column_name,
+    raise_on_nullability_drift,
     realign_decimal_buffers,
 )
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.core.consts import PARTITION_KEY
@@ -337,6 +338,11 @@ class DeltaWriter:
             # column (e.g. decimal128(38, 32)) overflows that cast on larger values. Align to the
             # stored types up front so the merge cast is a no-op, or raise a clean reset signal.
             data = align_incoming_decimals_to_delta(data, delta_table.schema())
+
+            # A source that starts emitting nulls in a column the table created non-nullable is a
+            # schema change under the table; neither deltalite nor delta-rs can relax it in place, so
+            # raise the same reset signal to get the table fully re-synced.
+            raise_on_nullability_drift(data, delta_table.schema())
 
             existing_delta_table = delta_table
 

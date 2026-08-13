@@ -15,7 +15,11 @@ from posthog.schema import (
     AccountsTableAccountField,
     AccountsTableAccountFieldColumn,
     AccountsTableAccountIdFilter,
+    AccountsTableAggregateMetric,
+    AccountsTableAggregation,
     AccountsTableAssignedToFilter,
+    AccountsTableCountMetric,
+    AccountsTableCountThresholdMetric,
     AccountsTableCustomPropertyColumn,
     AccountsTableCustomPropertyFilter,
     AccountsTableCustomPropertyHistoryColumn,
@@ -29,6 +33,7 @@ from posthog.schema import (
     AccountsTableSortDirection,
     AccountsTableTagsColumn,
     AccountsTableTagsFilter,
+    AccountsTableThresholdOperator,
     AccountsTableUnassignedFilter,
 )
 
@@ -43,6 +48,7 @@ from products.customer_analytics.backend.hogql_queries.accounts_table_query_runn
     ACCOUNTS_TABLE_MAX_COLUMNS,
     ACCOUNTS_TABLE_MAX_FILTER_VALUES,
     ACCOUNTS_TABLE_MAX_FILTERS,
+    ACCOUNTS_TABLE_MAX_METRICS,
     ACCOUNTS_TABLE_MAX_PAGE_SIZE,
     ACCOUNTS_TABLE_MAX_STRING_LENGTH,
     AccountsTableQueryRunner,
@@ -162,6 +168,78 @@ class TestAccountsTableQueryRunner(BaseTest):
         }
         assert empty_row.customPropertyHistory == {str(numeric_definition.id): []}
 
+    def test_calculates_typed_metrics_against_the_filtered_account_set(self) -> None:
+        definition = create_custom_property_definition(
+            team_id=self.team.id,
+            name="MRR",
+            display_type=DisplayType.CURRENCY,
+        )
+        high = create_account(team_id=self.team.id, name="High")
+        low = create_account(team_id=self.team.id, name="Low")
+        create_account(team_id=self.team.id, name="Unset")
+        CustomPropertyValue.objects.unscoped().create(
+            team=self.team,
+            account=high,
+            definition=definition,
+            value_num=20,
+        )
+        CustomPropertyValue.objects.unscoped().create(
+            team=self.team,
+            account=low,
+            definition=definition,
+            value_num=5,
+        )
+        column = AccountsTableCustomPropertyColumn(definitionId=str(definition.id))
+
+        response = self._run(
+            AccountsTableQuery(
+                columns=[],
+                filters=[],
+                metrics=[
+                    AccountsTableCountMetric(),
+                    AccountsTableAggregateMetric(
+                        aggregation=AccountsTableAggregation.SUM,
+                        column=column,
+                        scale=12,
+                    ),
+                    AccountsTableAggregateMetric(
+                        aggregation=AccountsTableAggregation.AVG,
+                        column=column,
+                    ),
+                    AccountsTableAggregateMetric(
+                        aggregation=AccountsTableAggregation.MIN,
+                        column=column,
+                    ),
+                    AccountsTableAggregateMetric(
+                        aggregation=AccountsTableAggregation.MAX,
+                        column=column,
+                    ),
+                ],
+            )
+        )
+        remaining_response = self._run(
+            AccountsTableQuery(
+                columns=[],
+                filters=[],
+                metrics=[
+                    AccountsTableAggregateMetric(
+                        aggregation=AccountsTableAggregation.MEDIAN,
+                        column=column,
+                    ),
+                    AccountsTableCountThresholdMetric(
+                        column=column,
+                        operator=AccountsTableThresholdOperator.GT,
+                        value=10,
+                    ),
+                ],
+            )
+        )
+
+        assert response.results == []
+        assert response.metricsResults == [3, 300.0, 12.5, 5.0, 20.0]
+        assert remaining_response.results == []
+        assert remaining_response.metricsResults == [12.5, 1]
+
     def test_hydrates_custom_properties_with_bounded_queries(self) -> None:
         definition = create_custom_property_definition(
             team_id=self.team.id,
@@ -192,9 +270,17 @@ class TestAccountsTableQueryRunner(BaseTest):
 
         assert {row.custom_properties[definition.id] for row in page.rows} == {0.0, 1.0, 2.0}
 
-    def test_caps_selected_columns_and_page_size(self) -> None:
+    def test_caps_selected_columns_metrics_and_page_size(self) -> None:
         with self.assertRaises(ValidationError):
             self._run(AccountsTableQuery(columns=[AccountsTableTagsColumn()] * (ACCOUNTS_TABLE_MAX_COLUMNS + 1)))
+
+        with self.assertRaises(ValidationError):
+            self._run(
+                AccountsTableQuery(
+                    columns=[],
+                    metrics=[AccountsTableCountMetric()] * (ACCOUNTS_TABLE_MAX_METRICS + 1),
+                )
+            )
 
         response = self._run(AccountsTableQuery(columns=[], limit=ACCOUNTS_TABLE_MAX_PAGE_SIZE + 1))
 

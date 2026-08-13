@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import uuid
 import dataclasses
-from collections.abc import Callable, Iterable
+from collections.abc import Callable, Iterable, Mapping
 from datetime import UTC, datetime, timedelta
 from typing import Any, cast
 from urllib.parse import quote
@@ -146,6 +146,7 @@ from products.warehouse_sources.backend.facade.source_management import (
     filter_integration_accounts,
     get_cdc_adapter,
     get_primary_key_columns,
+    purge_buffer_prefix,
     repair_cdc_source,
     source_requires_ssl,
     source_type_supports_cdc,
@@ -170,6 +171,9 @@ logger = structlog.get_logger(__name__)
 
 REFRESH_SCHEMAS_FALLBACK_ERROR_MESSAGE = "Could not fetch schemas from source."
 RESERVED_SOURCE_NAME_MESSAGE = "This source name is reserved by PostHog."
+INVALID_CREDENTIALS_FALLBACK_MESSAGE = (
+    "We couldn't validate those credentials. Check they're correct and have the required access, then try again."
+)
 
 REFRESH_SCHEMAS_EXPECTED_ERROR_MESSAGES = {
     "timeout": "Connection timed out while fetching schemas from the source.",
@@ -1220,7 +1224,7 @@ class ExternalDataSourceSerializers(UserAccessControlSerializerMixin, serializer
                     source_config, instance.team_id, api_version=effective_api_version
                 )
             if not credentials_valid:
-                raise ValidationError(credentials_error or "Invalid credentials")
+                raise ValidationError(credentials_error or INVALID_CREDENTIALS_FALLBACK_MESSAGE)
             if instance.is_direct_query:
                 discovered_schemas = source.get_schemas(
                     source_config, instance.team_id, api_version=effective_api_version
@@ -3107,7 +3111,7 @@ class ExternalDataSourceViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixi
         if not credentials_valid:
             return Response(
                 status=status.HTTP_400_BAD_REQUEST,
-                data={"message": credentials_error or "Invalid credentials"},
+                data={"message": credentials_error or INVALID_CREDENTIALS_FALLBACK_MESSAGE},
             )
 
         try:
@@ -3244,10 +3248,29 @@ class ExternalDataSourceViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixi
                 data={"message": "No tables found for this source. Check the credentials and permissions."},
             )
 
+        # Same best-effort per-table scope probe the schema picker runs, so one-shot setup doesn't
+        # enable tables the credentials can only ever 403 on. Transient failure falls back to
+        # "available", which is the pre-probe behavior.
+        try:
+            setup_permissions = source.get_endpoint_permissions(
+                source_config, self.team_id, [schema.name for schema in source_schemas]
+            )
+        except Exception as e:
+            capture_exception(e, {"source_type": source_type, "team_id": self.team_id})
+            setup_permissions = {}
+
+        # Some sources report a probe that couldn't run as a per-table reason rather than raising
+        # (Stripe does this so the picker can render one row per failure). Setup has no such UI: a
+        # blanket denial would silently create a source with every table off. Credentials that
+        # genuinely read nothing are already rejected by validate_credentials above, so read
+        # "everything denied" as an unreliable probe and keep the polling defaults.
+        if setup_permissions and all(setup_permissions.get(schema.name) for schema in source_schemas):
+            setup_permissions = {}
+
         # Build the schemas array server-side so the caller never has to. We've already validated
         # config + credentials above, so `_create_external_data_source` skips that second gate
         # (`skip_credential_validation`) to avoid a duplicate live credential round-trip.
-        payload["schemas"] = build_default_schemas(source_schemas)
+        payload["schemas"] = build_default_schemas(source_schemas, permission_errors=setup_permissions)
 
         response = self._create_external_data_source(
             request,
@@ -3266,7 +3289,7 @@ class ExternalDataSourceViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixi
 
         if response.status_code == status.HTTP_201_CREATED and isinstance(source, WebhookSource):
             webhook_result = self._auto_register_webhook(
-                source, source_config, str(response.data["id"]), source_schemas
+                source, source_config, str(response.data["id"]), source_schemas, permission_errors=setup_permissions
             )
             if webhook_result is not None:
                 response.data["webhook"] = webhook_result
@@ -3423,6 +3446,7 @@ class ExternalDataSourceViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixi
         source_config: Config,
         source_id: str,
         source_schemas: list[SourceSchema],
+        permission_errors: Mapping[str, str | None] | None = None,
     ) -> dict | None:
         """Best-effort webhook auto-registration for one-shot setup.
 
@@ -3434,12 +3458,22 @@ class ExternalDataSourceViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixi
         """
         # Tables marked `should_sync_default=False` need explicit opt-in even when webhook-capable —
         # one-shot setup must not force-enable what the schema picker would leave off (the same
-        # contract `build_default_schemas` honors).
-        webhook_capable = {s.name for s in source_schemas if s.supports_webhooks and s.should_sync_default}
+        # contract `build_default_schemas` honors). A table the credentials can't read is excluded
+        # for the same reason: a webhook can't deliver rows the connection was denied.
+        denied = {name for name, reason in (permission_errors or {}).items() if reason}
+        webhook_capable = {
+            s.name for s in source_schemas if s.supports_webhooks and s.should_sync_default and s.name not in denied
+        }
         if not webhook_capable or source.webhook_template is None:
             return None
 
         instance = ExternalDataSource.objects.get(pk=source_id, team_id=self.team_id)
+        # Registration can't succeed on a connection whose grants exclude webhook management, and
+        # one-shot setup has no manual-fallback UI to fall back into: leave the polling defaults.
+        blocked_reason = self._webhook_creation_blocked_reason(source, instance)
+        if blocked_reason is not None:
+            return {"success": False, "webhook_url": None, "error": blocked_reason, "pending_inputs": []}
+
         eligible_schemas = list(
             ExternalDataSchema.objects.filter(source=instance, team_id=self.team_id, name__in=webhook_capable).exclude(
                 deleted=True
@@ -3544,7 +3578,7 @@ class ExternalDataSourceViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixi
             return (
                 Response(
                     status=status.HTTP_400_BAD_REQUEST,
-                    data={"message": credentials_error or "Invalid credentials"},
+                    data={"message": credentials_error or INVALID_CREDENTIALS_FALLBACK_MESSAGE},
                 ),
                 None,
             )
@@ -3936,18 +3970,20 @@ class ExternalDataSourceViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixi
         if not cdc_config.enabled:
             return Response(status=status.HTTP_200_OK, data={"success": True, "already_disabled": True})
 
-        # Cancel running jobs for this source's CDC schemas — one holding the slot fails
-        # pg_drop_replication_slot. Scope to CDC schemas so we don't cancel unrelated
-        # incremental/full-refresh syncs on the same source. Read before the sync_type reset
-        # below, while these schemas are still marked CDC.
-        cdc_schema_ids = list(
+        # Read the CDC schemas before the sync_type reset below, while they're still
+        # marked CDC. Scoped so we don't touch unrelated incremental/full-refresh syncs.
+        cdc_schemas = list(
             ExternalDataSchema.objects.filter(
                 source=instance,
                 sync_type=ExternalDataSchema.SyncType.CDC,
             )
             .exclude(deleted=True)
-            .values_list("id", flat=True)
+            .select_related("table")
         )
+        # Disabling cancels jobs, drops the slot, purges buffered change data, and resets
+        # every CDC schema — editor on the source isn't enough when a table is locked below it.
+        self._assert_can_write_schemas(cdc_schemas)
+        cdc_schema_ids = [schema.id for schema in cdc_schemas]
         running_jobs = ExternalDataJob.objects.filter(
             pipeline_id=instance.pk,
             team_id=instance.team_id,
@@ -3974,6 +4010,11 @@ class ExternalDataSourceViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixi
         except Exception as e:
             logger.exception("Failed engine-side CDC cleanup during disable_cdc", exc_info=e)
             capture_exception(e, {"source_id": str(instance.id)})
+
+        # Drop each schema's S3 change buffer: the shadow lane's files are raw customer
+        # change data with no consumer once CDC is off, and nothing else expires them.
+        for schema_id in cdc_schema_ids:
+            purge_buffer_prefix(instance.team_id, str(schema_id), logger)
 
         with transaction.atomic():
             # Clear any broken marker (recovery contract): leaving a stale cdc_broken in
@@ -4645,6 +4686,8 @@ class ExternalDataSourceViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixi
                 },
             )
 
+        blocked_reason = self._webhook_creation_blocked_reason(source, instance)
+
         hog_function = HogFunction.objects.filter(
             team=self.team,
             type="warehouse_source_webhook",
@@ -4655,7 +4698,11 @@ class ExternalDataSourceViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixi
         if not hog_function:
             return Response(
                 status=status.HTTP_200_OK,
-                data={"supports_webhooks": True, "exists": False},
+                data={
+                    "supports_webhooks": True,
+                    "exists": False,
+                    "auto_creation_blocked_reason": blocked_reason,
+                },
             )
 
         webhook_url = get_webhook_url(hog_function.id)
@@ -4698,8 +4745,21 @@ class ExternalDataSourceViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixi
                 "inputs": webhook_inputs,
                 "external_status": dataclasses.asdict(external_status) if external_status else None,
                 "missing_events": missing_events,
+                "auto_creation_blocked_reason": blocked_reason,
             },
         )
+
+    def _webhook_creation_blocked_reason(self, source: WebhookSource, instance: ExternalDataSource) -> str | None:
+        """Ask the source whether this connection can never create the provider-side webhook.
+        Best-effort: an unparseable config or a source-side failure leaves the button offered,
+        which is the behavior before the check existed."""
+        if not instance.job_inputs:
+            return None
+        try:
+            return source.webhook_creation_blocked_reason(source.parse_config(instance.job_inputs), self.team_id)
+        except Exception as e:
+            capture_exception(e)
+            return None
 
     @action(methods=["POST"], detail=True)
     def create_webhook(self, request: Request, *args: Any, **kwargs: Any) -> Response:
@@ -4719,6 +4779,11 @@ class ExternalDataSourceViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixi
                 status=status.HTTP_400_BAD_REQUEST,
                 data={"message": "This source type does not support webhooks"},
             )
+
+        # A connection known to lack the grant can't be fixed by trying. The hog function is still
+        # minted below so manual setup has a URL to paste; only the doomed provider round-trip (one
+        # call per repository, for GitHub) is skipped.
+        blocked_reason = self._webhook_creation_blocked_reason(source, instance)
 
         effective_api_version = source.resolve_api_version(instance.api_version)
         try:
@@ -4759,6 +4824,17 @@ class ExternalDataSourceViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixi
             return Response(
                 status=status.HTTP_400_BAD_REQUEST,
                 data={"message": hog_fn_result.error},
+            )
+
+        if blocked_reason is not None:
+            return Response(
+                status=status.HTTP_200_OK,
+                data={
+                    "success": False,
+                    "webhook_url": hog_fn_result.webhook_url,
+                    "error": blocked_reason,
+                    "pending_inputs": [],
+                },
             )
 
         result = create_and_register_webhook(

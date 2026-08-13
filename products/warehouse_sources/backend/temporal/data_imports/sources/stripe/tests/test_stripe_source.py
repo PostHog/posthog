@@ -1,10 +1,13 @@
 import functools
+from pathlib import Path
 from types import SimpleNamespace
 from typing import Any, cast
 
 import pytest
 from unittest import mock
 from unittest.mock import MagicMock, patch
+
+from django.conf import settings
 
 import orjson
 import stripe as stripe_lib
@@ -69,7 +72,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.stripe.set
     NON_PARTITIONED_ENDPOINTS,
     WEBHOOK_ONLY_ENDPOINTS,
 )
-from products.warehouse_sources.backend.temporal.data_imports.sources.stripe.source import StripeSource
+from products.warehouse_sources.backend.temporal.data_imports.sources.stripe.source import PERMISSIONS, StripeSource
 from products.warehouse_sources.backend.temporal.data_imports.sources.stripe.stripe import (
     DEFAULT_LIMIT,
     SUBSCRIPTION_PAGE_LIMIT,
@@ -1395,3 +1398,20 @@ class TestCreateWebhookPermissionErrorCopy:
 
         assert result.success is False
         assert expected_phrase in (result.error or "")
+
+
+class TestStripeAppManifestCoversSourcePermissions:
+    # Regression test: PERMISSIONS drives the pre-filled restricted-key form, while the Stripe app
+    # manifest drives what an OAuth connection is granted. The two drifted twice (rak_webhook_write
+    # in April, rak_coupon_read in July), each time leaving OAuth users unable to create a webhook
+    # or import coupons while the key path worked. The manifest is the checked-in source of truth
+    # for the OAuth grant, so it must cover every scope the source asks a key for.
+    def test_every_source_permission_is_requested_by_the_app(self):
+        manifest_path = Path(settings.BASE_DIR) / "services" / "stripe-app" / "stripe-app.json"
+        granted = {entry["permission"] for entry in orjson.loads(manifest_path.read_bytes())["permissions"]}
+
+        # A restricted-key scope is the app permission name with a `rak_` prefix.
+        required = {permission.removeprefix("rak_") for permission in PERMISSIONS}
+
+        assert required, "PERMISSIONS is empty, so this assertion would pass vacuously"
+        assert required - granted == set()

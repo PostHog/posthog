@@ -14,7 +14,7 @@
  * - products/<product>/skills/<skill>/ markdown
  *
  * Produces:
- * - products/<product>/frontend/agentContext.generated.ts
+ * - products/<product>/frontend/generated/agentContext.ts
  *
  * Run via hogli: `hogli build:openapi-scene-tool-context` (also runs as part of
  * `build:openapi`, after `build:openapi-mcp-tools` which produces the tool
@@ -49,6 +49,7 @@ interface SkillSourceConfig {
 }
 
 interface SceneContextConfig {
+    /** Generated frontend files belong under products/<product>/frontend/generated/. */
     output: string
     tools: ToolSourceConfig[]
     skills: SkillSourceConfig[]
@@ -56,7 +57,7 @@ interface SceneContextConfig {
 
 const CONFIGS: SceneContextConfig[] = [
     {
-        output: 'products/workflows/frontend/agentContext.generated.ts',
+        output: 'products/workflows/frontend/generated/agentContext.ts',
         tools: [
             {
                 constName: 'WORKFLOWS_MCP_TOOLS',

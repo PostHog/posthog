@@ -818,7 +818,8 @@ class TestErrorTracking(APIBaseTest):
         assert symbol_set_upload_response["presigned_url"]["fields"]["key"] == symbol_set.storage_ptr
         assert symbol_set.last_used is None
 
-    def test_bulk_start_upload_skips_uploaded_symbol_sets(self) -> None:
+    @patch("products.error_tracking.backend.presentation.views.symbol_sets.posthoganalytics.capture")
+    def test_bulk_start_upload_skips_uploaded_symbol_sets(self, patched_capture: Mock) -> None:
         release = ErrorTrackingRelease.objects.create(
             team=self.team,
             hash_id="test-release",
@@ -869,6 +870,16 @@ class TestErrorTracking(APIBaseTest):
         assert new_symbol_set.release_id == release.id
         assert new_symbol_set.last_used is None
         assert id_map[str(new_chunk_id)]["symbol_set_id"] == str(new_symbol_set.id)
+
+        assert patched_capture.call_args.args[0] == "error_tracking_symbol_set_upload_started"
+        assert patched_capture.call_args.kwargs["properties"] == {
+            "team_id": self.team.id,
+            "endpoint": "bulk_start_upload",
+            "force": False,
+            "skip_on_conflict": False,
+            "total_chunks": 2,
+            "chunks_skipped": 1,
+        }
 
     @parameterized.expand(
         [
@@ -1301,7 +1312,7 @@ class TestIssueStateSync(ClickhouseTestMixin, APIBaseTest):
 
         return sync_execute(
             """
-            SELECT fingerprint, issue_id, issue_name, issue_status, assigned_user_id, assigned_role_id
+            SELECT fingerprint, issue_id, issue_name, issue_status, assigned_user_id, assigned_role_id, issue_severity
             FROM error_tracking_fingerprint_issue_state FINAL
             WHERE team_id = %(team_id)s AND is_deleted = 0
             ORDER BY fingerprint
@@ -1387,6 +1398,18 @@ class TestIssueStateSync(ClickhouseTestMixin, APIBaseTest):
         rows = self._get_issue_state_rows()
         assert len(rows) == 1
         assert rows[0][3] == "resolved"  # issue_status
+
+    def test_severity_change_syncs(self):
+        issue = self._create_issue(fingerprints=["fp_1"])
+
+        self.client.patch(
+            f"/api/environments/{self.team.id}/error_tracking/issues/{issue.id}",
+            data={"severity": "high"},
+        )
+
+        rows = self._get_issue_state_rows()
+        assert len(rows) == 1
+        assert rows[0][6] == "high"
 
     def test_bulk_status_change_syncs(self):
         issue_one = self._create_issue(fingerprints=["fp_one"])

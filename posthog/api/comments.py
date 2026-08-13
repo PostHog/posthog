@@ -1,6 +1,5 @@
 from datetime import datetime, timedelta
 from typing import TYPE_CHECKING, Any, cast
-from uuid import UUID
 
 from django.core import exceptions as django_exceptions
 from django.db import transaction
@@ -21,6 +20,7 @@ from posthog.api.forbid_destroy_model import ForbidDestroyModel
 from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.api.shared import UserBasicSerializer
 from posthog.api.utils import ClassicBehaviorBooleanFieldSerializer, action
+from posthog.comment.access import task_comment_target_is_accessible
 from posthog.event_usage import groups
 from posthog.exceptions import Conflict
 from posthog.helpers.slack_thread_mirror import post_comment_to_slack_thread, slack_author_from_user
@@ -238,44 +238,6 @@ def _mentions_allowed_for_comment_target(
     return task_comment_mentions_allowed(team_id=team_id, task_id=task_id)
 
 
-def _task_comment_target_is_accessible(
-    *, team_id: int, user_id: int | None, task_id: str, scope: str, item_id: str | None
-) -> bool:
-    from products.tasks.backend.facade.api import task_comment_target_is_accessible  # noqa: PLC0415
-
-    if scope != "desktop_canvas":
-        return task_comment_target_is_accessible(
-            team_id=team_id,
-            user_id=user_id,
-            task_id=task_id,
-            scope=scope,
-            item_id=item_id,
-        )
-    if not task_comment_target_is_accessible(
-        team_id=team_id,
-        user_id=user_id,
-        task_id=task_id,
-        scope="task",
-        item_id=task_id,
-    ):
-        return False
-
-    from products.canvas.backend.comment_access import canvas_belongs_to_task  # noqa: PLC0415
-
-    try:
-        parsed_task_id = UUID(task_id)
-    except ValueError:
-        return False
-    if not item_id:
-        return False
-    return canvas_belongs_to_task(
-        team_id=team_id,
-        user_id=user_id,
-        canvas_id=item_id,
-        task_id=parsed_task_id,
-    )
-
-
 class CommentSerializer(serializers.ModelSerializer):
     def _extract_mentions_from_rich_content(self, rich_content: dict | None) -> list[int]:
         if not rich_content:
@@ -456,7 +418,7 @@ class CommentSerializer(serializers.ModelSerializer):
         target_context = data.get("item_context", instance.item_context if instance else None) or {}
         if target_scope in {"task", "task_artifact", "desktop_canvas"}:
             task_id = target_item_id if target_scope == "task" else target_context.get("taskId")
-            if not _task_comment_target_is_accessible(
+            if not task_comment_target_is_accessible(
                 team_id=self.context["get_team"]().id,
                 user_id=request.user.id,
                 task_id=task_id or "",
@@ -881,7 +843,7 @@ class CommentViewSet(TeamAndOrgViewSetMixin, ForbidDestroyModel, viewsets.ModelV
             return
         item_context = comment.item_context if isinstance(comment.item_context, dict) else {}
         task_id = comment.item_id if comment.scope == "task" else item_context.get("taskId")
-        if not _task_comment_target_is_accessible(
+        if not task_comment_target_is_accessible(
             team_id=self.team_id,
             user_id=self.request.user.id,
             task_id=task_id or "",
@@ -896,7 +858,7 @@ class CommentViewSet(TeamAndOrgViewSetMixin, ForbidDestroyModel, viewsets.ModelV
         comment = get_object_or_404(queryset, **{self.lookup_field: lookup_value})
         if comment.scope in {"task", "task_artifact", "desktop_canvas"}:
             task_id = comment.item_id if comment.scope == "task" else (comment.item_context or {}).get("taskId")
-            if not _task_comment_target_is_accessible(
+            if not task_comment_target_is_accessible(
                 team_id=self.team_id,
                 user_id=self.request.user.id,
                 task_id=task_id or "",
@@ -952,7 +914,7 @@ class CommentViewSet(TeamAndOrgViewSetMixin, ForbidDestroyModel, viewsets.ModelV
             elif scope in {"task", "task_artifact", "desktop_canvas"}:
                 task_id = params.get("task_id")
                 item_id = params.get("item_id")
-                if not _task_comment_target_is_accessible(
+                if not task_comment_target_is_accessible(
                     team_id=self.team_id,
                     user_id=self.request.user.id,
                     task_id=task_id or "",
