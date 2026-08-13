@@ -9,14 +9,14 @@ from posthog.hogql import ast
 
 from posthog.models.team.team import Team
 
-from products.warehouse_sources.backend.facade.models import ExternalDataSource
+from products.warehouse_sources.backend.facade.contracts import RevenueSource
 
 
 @dataclass
 class SourceHandle:
     type: Literal["events", "stripe"]
     team: Team
-    source: Optional[ExternalDataSource] = None
+    source: Optional[RevenueSource] = None
     event: Optional[RevenueAnalyticsEventItem] = None
 
 
@@ -42,7 +42,7 @@ def view_prefix_for_event(event: str) -> str:
     return f"revenue_analytics.events.{re.sub(r'[^a-zA-Z0-9]', '_', event)}"
 
 
-def view_prefix_for_source(source: ExternalDataSource) -> str:
+def view_prefix_for_source(source: RevenueSource) -> str:
     if not source.prefix:
         return source.source_type.lower()
     prefix = source.prefix.strip("_")
