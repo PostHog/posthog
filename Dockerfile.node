@@ -86,6 +86,27 @@ RUN NODE_OPTIONS="--max-old-space-size=16384" bin/turbo --filter=@posthog/nodejs
 
 
 #
+# GeoIP fallback stage: fetch a copy of the GeoIP database to bundle in the image
+#
+# Only read when the mounted database is unreadable, so a wedged mount degrades to slightly stale
+# geo data instead of taking the service down. Kept in its own stage so the fetch stays out of the
+# nodejs build's layer cache.
+#
+FROM debian:bookworm-slim AS fetch-geoip-db
+WORKDIR /code
+RUN apt-get update && \
+    apt-get install -y --no-install-recommends \
+    "ca-certificates" \
+    "curl" \
+    "brotli" \
+    && \
+    rm -rf /var/lib/apt/lists/* && \
+    mkdir share && \
+    ( curl -sL "https://mmdbcdn.posthog.net/" --http1.1 --fail --retry 5 --retry-delay 10 --retry-all-errors | brotli --decompress --output=./share/GeoLite2-City.mmdb ) && \
+    chmod 644 ./share/GeoLite2-City.mmdb
+
+
+#
 # Runtime stage: Minimal image with only nodejs runtime dependencies
 #
 FROM node:24.13.0-bookworm-slim
@@ -154,10 +175,15 @@ COPY --from=nodejs-build --chown=posthog:posthog /code/common/replay-headless/pa
 COPY --from=nodejs-build --chown=posthog:posthog /code/nodejs/assets /code/nodejs/assets
 COPY --from=nodejs-build --chown=posthog:posthog /code/nodejs/bin /code/nodejs/bin
 
+# Deliberately shipped without the GeoLite2-City.json metadata sidecar that accompanies the mounted
+# database, so the hourly refresh can tell the two apart.
+COPY --from=fetch-geoip-db --chown=posthog:posthog /code/share/GeoLite2-City.mmdb /code/share/GeoLite2-City.mmdb
+
 
 # Setup ENV
 ENV NODE_ENV=production \
-    BUILD_LIBRDKAFKA=0
+    BUILD_LIBRDKAFKA=0 \
+    MMDB_FALLBACK_FILE_LOCATION=/code/share/GeoLite2-City.mmdb
 
 # Expose the port from which we serve OpenMetrics data
 EXPOSE 8001

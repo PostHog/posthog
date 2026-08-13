@@ -92,7 +92,7 @@ export async function createHub(config: Partial<PluginsServerConfig> = {}): Prom
 
     const groupTypeManager = new GroupTypeManager(groupRepository, teamManager)
 
-    const geoipService = new GeoIPService(serverConfig.MMDB_FILE_LOCATION)
+    const geoipService = new GeoIPService(serverConfig.MMDB_FILE_LOCATION, serverConfig.MMDB_FALLBACK_FILE_LOCATION)
     await geoipService.get()
     const encryptedFields = new EncryptedFields(serverConfig.ENCRYPTION_SALT_KEYS)
     const integrationManager = new IntegrationManagerService(pubSub, postgres, encryptedFields)

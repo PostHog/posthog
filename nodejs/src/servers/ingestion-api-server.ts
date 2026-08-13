@@ -108,6 +108,7 @@ export type IngestionApiServerConfig = BaseServerConfig &
         | 'CLOUD_DEPLOYMENT'
         | 'ENCRYPTION_SALT_KEYS'
         | 'MMDB_FILE_LOCATION'
+        | 'MMDB_FALLBACK_FILE_LOCATION'
         | 'CAPTURE_INTERNAL_URL'
         | 'LAZY_LOADER_DEFAULT_BUFFER_MS'
         | 'LAZY_LOADER_MAX_SIZE'
@@ -239,7 +240,7 @@ export class IngestionApiServer implements NodeServer {
         const teamManager = new TeamManager(this.postgres, { loaderRetry: DEFAULT_LOADER_RETRY })
 
         // 2. Ingestion + CDP shared services (geoip, repos, encryption)
-        const geoipService = new GeoIPService(this.config.MMDB_FILE_LOCATION)
+        const geoipService = new GeoIPService(this.config.MMDB_FILE_LOCATION, this.config.MMDB_FALLBACK_FILE_LOCATION)
         await geoipService.get()
 
         const personhogClient = createPersonHogClient(this.config)

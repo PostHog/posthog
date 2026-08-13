@@ -84,6 +84,7 @@ export type ErrorTrackingServerConfig = BaseServerConfig &
         | 'CLOUD_DEPLOYMENT'
         | 'ENCRYPTION_SALT_KEYS'
         | 'MMDB_FILE_LOCATION'
+        | 'MMDB_FALLBACK_FILE_LOCATION'
         | 'CAPTURE_INTERNAL_URL'
         | 'HEALTHCHECK_MAX_STALE_SECONDS'
         | 'KAFKA_HEALTHCHECK_SECONDS'
@@ -165,7 +166,7 @@ export class ErrorTrackingServer implements NodeServer {
         const teamManager = new TeamManager(this.postgres, { loaderRetry: DEFAULT_LOADER_RETRY })
 
         // 2. Services needed by ErrorTrackingConsumer and HogTransformer
-        const geoipService = new GeoIPService(this.config.MMDB_FILE_LOCATION)
+        const geoipService = new GeoIPService(this.config.MMDB_FILE_LOCATION, this.config.MMDB_FALLBACK_FILE_LOCATION)
         await geoipService.get()
 
         const personhogClient = createPersonHogClient(this.config)

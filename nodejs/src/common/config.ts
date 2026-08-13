@@ -183,6 +183,7 @@ export type CommonConfig = BaseServerConfig & {
     CAPTURE_INTERNAL_URL: string
     CAPTURE_CONFIG_REDIS_HOST: string | null
     MMDB_FILE_LOCATION: string
+    MMDB_FALLBACK_FILE_LOCATION: string
     LAZY_LOADER_DEFAULT_BUFFER_MS: number
     LAZY_LOADER_MAX_SIZE: number
     INTERNAL_API_BASE_URL: string
@@ -363,6 +364,9 @@ export function getDefaultCommonConfig(): CommonConfig {
             : 'http://localhost:8010/capture',
         CAPTURE_CONFIG_REDIS_HOST: null,
         MMDB_FILE_LOCATION: '../share/GeoLite2-City.mmdb',
+        // Read only when MMDB_FILE_LOCATION is unreadable. Set by the production image to the copy
+        // baked into it; empty everywhere else, which leaves GeoIP disabled on a failed load.
+        MMDB_FALLBACK_FILE_LOCATION: '',
         LAZY_LOADER_DEFAULT_BUFFER_MS: 10,
         LAZY_LOADER_MAX_SIZE: 100_000,
         INTERNAL_API_BASE_URL: isProdEnv()

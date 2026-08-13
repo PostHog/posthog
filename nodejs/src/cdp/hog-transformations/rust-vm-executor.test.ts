@@ -25,7 +25,7 @@ describe('RustVmExecutor', () => {
     beforeEach(() => {
         jest.clearAllMocks()
         resetHogvmNodeModuleCacheForTests()
-        executor = new RustVmExecutor({ mmdbPath: '/dev/null' })
+        executor = new RustVmExecutor({ resolveMmdbPath: () => '/dev/null' })
     })
 
     it('executes the invocation bytecode against its globals and returns a finished result', () => {

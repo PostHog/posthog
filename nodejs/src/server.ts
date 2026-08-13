@@ -476,7 +476,7 @@ export class PluginServer implements NodeServer {
         integrationManager: IntegrationManagerService
         internalCaptureService: InternalCaptureService
     }> {
-        const geoipService = new GeoIPService(this.config.MMDB_FILE_LOCATION)
+        const geoipService = new GeoIPService(this.config.MMDB_FILE_LOCATION, this.config.MMDB_FALLBACK_FILE_LOCATION)
         await geoipService.get()
 
         const personhogClient = createPersonHogClient(this.config)

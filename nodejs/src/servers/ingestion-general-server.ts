@@ -96,6 +96,7 @@ export type IngestionGeneralServerConfig = BaseServerConfig &
         | 'CLOUD_DEPLOYMENT'
         | 'ENCRYPTION_SALT_KEYS'
         | 'MMDB_FILE_LOCATION'
+        | 'MMDB_FALLBACK_FILE_LOCATION'
         | 'CAPTURE_INTERNAL_URL'
         | 'LAZY_LOADER_DEFAULT_BUFFER_MS'
         | 'LAZY_LOADER_MAX_SIZE'
@@ -212,7 +213,7 @@ export class IngestionGeneralServer implements NodeServer {
         await this.pubsub.start()
 
         // 2. Ingestion + CDP shared services (geoip, repos, encryption)
-        const geoipService = new GeoIPService(this.config.MMDB_FILE_LOCATION)
+        const geoipService = new GeoIPService(this.config.MMDB_FILE_LOCATION, this.config.MMDB_FALLBACK_FILE_LOCATION)
         await geoipService.get()
 
         const personhogClient = createPersonHogClient(this.config)

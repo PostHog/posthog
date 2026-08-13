@@ -1,5 +1,7 @@
 import { Reader } from '@maxmind/geoip2-node'
 import fs from 'fs/promises'
+import { tmpdir } from 'os'
+import { join } from 'path'
 
 import { PluginsServerConfig } from '~/types'
 
@@ -9,6 +11,7 @@ import { GeoIPService, GeoIp, MMDB_LOAD_TIMEOUT_MS, MmdbLoadTimeoutError } from 
 describe('GeoIp', () => {
     let service: GeoIPService
     let config: PluginsServerConfig
+    let primaryLocation: string | undefined
 
     jest.setTimeout(1000)
 
@@ -17,9 +20,14 @@ describe('GeoIp', () => {
         service = new GeoIPService(config.MMDB_FILE_LOCATION)
     })
 
-    afterEach(() => {
+    afterEach(async () => {
         jest.restoreAllMocks()
         jest.useRealTimers()
+        if (primaryLocation) {
+            await fs.rm(primaryLocation, { force: true })
+            await fs.rm(primaryLocation.replace('.mmdb', '.json'), { force: true })
+            primaryLocation = undefined
+        }
     })
 
     const commonCheck = (geoip: GeoIp) => {
@@ -57,6 +65,48 @@ describe('GeoIp', () => {
             const assertion = expect(promise).rejects.toThrow(MmdbLoadTimeoutError)
             await jest.advanceTimersByTimeAsync(MMDB_LOAD_TIMEOUT_MS)
             await assertion
+        })
+    })
+
+    describe('fallback', () => {
+        // A copy of the configured file, standing in for the one bundled in the production image
+        const fallbackLocation = () => config.MMDB_FILE_LOCATION
+
+        it('should serve lookups from the fallback if the configured MMDB is missing', async () => {
+            service = new GeoIPService('non-existent-file.mmdb', fallbackLocation())
+
+            commonCheck(await service.get())
+            expect(service.loadedFileLocation).toEqual(fallbackLocation())
+        })
+
+        it('should serve lookups from the fallback instead of failing startup if the read hangs', async () => {
+            jest.useFakeTimers()
+            const realOpen = Reader.open
+            jest.spyOn(Reader, 'open').mockImplementation((location, ...args) =>
+                location === 'wedged-mount.mmdb' ? new Promise<never>(() => {}) : realOpen(location, ...args)
+            )
+            service = new GeoIPService('wedged-mount.mmdb', fallbackLocation())
+
+            const promise = service.get()
+            await jest.advanceTimersByTimeAsync(MMDB_LOAD_TIMEOUT_MS)
+
+            commonCheck(await promise)
+            expect(service.loadedFileLocation).toEqual(fallbackLocation())
+        })
+
+        it('should move back onto the configured MMDB once it is readable again', async () => {
+            primaryLocation = join(tmpdir(), `geoip-recovered-mount-${process.pid}.mmdb`)
+            service = new GeoIPService(primaryLocation, fallbackLocation())
+            commonCheck(await service.get())
+            expect(service.loadedFileLocation).toEqual(fallbackLocation())
+
+            // The mount recovered
+            await fs.copyFile(fallbackLocation(), primaryLocation)
+            await fs.writeFile(primaryLocation.replace('.mmdb', '.json'), JSON.stringify({ date: '2025-01-01' }))
+            await service['backgroundRefreshMmdb']()
+
+            expect(service.loadedFileLocation).toEqual(primaryLocation)
+            commonCheck(await service.get())
         })
     })
 

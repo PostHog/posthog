@@ -29,10 +29,15 @@ export const rustVmExecutionDuration = new Histogram({
 })
 
 export class RustVmExecutor {
-    constructor(private options: { mmdbPath: string }) {}
+    /**
+     * `resolveMmdbPath` is called on the first execution rather than up front: the addon opens the
+     * file with a blocking read and no timeout, so it must be pointed at the database the
+     * GeoIPService has already read successfully, never at a mount that turned out to be wedged.
+     */
+    constructor(private options: { resolveMmdbPath: () => string }) {}
 
     private getModule(): HogvmNodeModule | null {
-        return loadHogvmNodeModule({ mmdbPath: this.options.mmdbPath })
+        return loadHogvmNodeModule({ mmdbPath: this.options.resolveMmdbPath() })
     }
 
     /**

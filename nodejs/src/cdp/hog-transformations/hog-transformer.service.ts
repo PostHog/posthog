@@ -82,7 +82,9 @@ export class HogTransformerService implements HogTransformer {
         private config: HogTransformerConfig
     ) {
         this.rustVmExecutor = config.hogRustVmExecutionEnabled
-            ? new RustVmExecutor({ mmdbPath: config.mmdbFileLocation })
+            ? new RustVmExecutor({
+                  resolveMmdbPath: () => this.geoipService.loadedFileLocation ?? config.mmdbFileLocation,
+              })
             : null
     }
 
