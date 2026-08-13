@@ -35,10 +35,6 @@ export function claimExportNudgeMessage(
                     data-attr="dashboard-export-nudge-toast-cta"
                     onClick={() => {
                         onAccept?.()
-                        // The subscription form opens over this toast, and the toast container
-                        // renders above modals. Both keep their buttons bottom right, where the
-                        // toast wins the hit test and the form's own actions cannot be clicked.
-                        lemonToast.move(toastId, 'bottom-left')
                         // The toast is the export's own, and while the render is still running its
                         // download button has not appeared yet. Closing it here would leave the
                         // finished file with nowhere to be claimed from.

@@ -1,5 +1,5 @@
 import posthog from 'posthog-js'
-import { toast, type ToastOptions, type ToastPosition, type UpdateOptions } from 'react-toastify'
+import { toast, type ToastOptions, type UpdateOptions } from 'react-toastify'
 
 import { IconCheckCircle, IconInfo, IconWarning, IconX } from '@posthog/icons'
 
@@ -297,13 +297,6 @@ export const lemonToast = {
      * with a side effect attached to the update has to check this first. */
     isActive(id: number | string): boolean {
         return toast.isActive(id)
-    },
-    /**
-     * Moves one toast to another corner. The container sits above modals, so a toast that outlives
-     * the click which opened one can cover the buttons in the corner the modal puts its actions in.
-     */
-    move(id: number | string, position: ToastPosition): void {
-        toast.update(id, { position } as UpdateOptions)
     },
     dismiss(id?: number | string): void {
         // If a toast was created in this tick but hasn't been registered yet (due to
