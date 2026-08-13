@@ -568,7 +568,8 @@ class ReviewPRWorkflow:
             )
 
             workflow.logger.info("STAGE 7/7 · Publish review")
-            if publishes_to_pr:
+            # The pr_number check is implied by the gate; restated so mypy narrows it to int.
+            if publishes_to_pr and meta.pr_number is not None:
                 publish_result = await workflow.execute_activity(
                     publish_review_activity,
                     PublishInput(
