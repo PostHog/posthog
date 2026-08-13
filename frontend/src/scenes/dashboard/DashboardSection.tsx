@@ -1,5 +1,5 @@
 import clsx from 'clsx'
-import { ComponentProps, ReactNode } from 'react'
+import { ComponentProps, PointerEvent, ReactNode } from 'react'
 import { Responsive as ReactGridLayout } from 'react-grid-layout'
 import { GridBackground } from 'react-grid-layout/extras'
 
@@ -18,6 +18,9 @@ export interface DashboardSectionProps {
     tileCount: number
     children: ReactNode
     overlay: ReactNode
+    sectionRef?: (element: HTMLElement | null) => void
+    highlighted?: boolean
+    onSectionPointerDown?: (event: PointerEvent<HTMLDivElement>) => void
     gridProps: ComponentProps<typeof ReactGridLayout>
     gridBackgroundProps: ComponentProps<typeof GridBackground> | null
     onToggle: () => void
@@ -34,6 +37,9 @@ export function DashboardSection({
     tileCount,
     children,
     overlay,
+    sectionRef,
+    highlighted = false,
+    onSectionPointerDown,
     gridProps,
     gridBackgroundProps,
     onToggle,
@@ -43,9 +49,11 @@ export function DashboardSection({
 }: DashboardSectionProps): JSX.Element {
     return (
         <section
+            ref={sectionRef}
             className={clsx(
                 'relative mb-4',
-                group && "rounded border bg-surface-tertiary [[theme='dark']_&]:bg-surface-secondary border-primary"
+                group && "rounded border bg-surface-tertiary [[theme='dark']_&]:bg-surface-secondary border-primary",
+                highlighted && 'border-accent bg-accent-highlight-secondary'
             )}
         >
             {group && (
@@ -59,6 +67,7 @@ export function DashboardSection({
                     onRename={onRename}
                     onMove={onMove}
                     onDelete={onDelete}
+                    onSectionPointerDown={onSectionPointerDown}
                 />
             )}
             {!collapsed && (

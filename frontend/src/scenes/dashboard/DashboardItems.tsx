@@ -27,6 +27,7 @@ import {
 } from 'scenes/dashboard/dashboardUtils'
 import { continueDragGestureInEditMode, continueResizeGestureInEditMode } from 'scenes/dashboard/editLayoutGesture'
 import { InsertTileOverlay } from 'scenes/dashboard/InsertTileOverlay'
+import { DEFAULT_INSERTED_TILE_SIZE } from 'scenes/dashboard/tileLayouts'
 import { useSurveyLinkedInsights } from 'scenes/surveys/hooks/useSurveyLinkedInsights'
 import { getBestSurveyOpportunityFunnel } from 'scenes/surveys/utils/opportunityDetection'
 import { urls } from 'scenes/urls'
@@ -36,11 +37,12 @@ import { insightsModel } from '~/models/insightsModel'
 import { DashboardLayoutSize, DashboardMode, DashboardPlacement, DashboardType } from '~/types'
 
 import { DashboardSection } from './DashboardSection'
-import { sectionDisplayName } from './dashboardSections'
+import { isPersistedSectionKey, sectionDisplayName } from './dashboardSections'
 import { DashboardButtonTileItem } from './items/DashboardButtonTileItem'
 import { DashboardErrorTileItem } from './items/DashboardErrorTileItem'
 import { DashboardTextItem } from './items/DashboardTextItem'
 import { MoveToSectionMenu } from './MoveToSectionMenu'
+import { useCrossSectionDrag, type DashboardDropTarget } from './useCrossSectionDrag'
 
 const DRAG_AUTO_SCROLL_THRESHOLD = 100
 const DRAG_AUTO_SCROLL_SPEED = 50
@@ -247,6 +249,64 @@ export function DashboardItems({ showCreateAnomalyAlertButton }: DashboardItemsP
         DashboardPlacement.Builtin,
     ].includes(placement)
 
+    const handleCrossSectionTileDrop = useCallback(
+        (tileId: number, target: Exclude<DashboardDropTarget, null>, event: MouseEvent): void => {
+            const targetSection =
+                target.type === 'section' ? sections.find((section) => section.key === target.sectionKey) : null
+            const targetLayouts = targetSection ? (sectionLayouts[targetSection.key]?.sm ?? []) : []
+            const sourceLayout = Object.values(sectionLayouts)
+                .flatMap((layouts) => layouts.sm ?? [])
+                .find((layout) => layout.i === String(tileId))
+            const w = sourceLayout?.w ?? DEFAULT_INSERTED_TILE_SIZE.w
+            const h = sourceLayout?.h ?? DEFAULT_INSERTED_TILE_SIZE.h
+            const sectionMaxY = Math.max(0, ...targetLayouts.map((layout) => layout.y + layout.h))
+            const x = Math.max(
+                0,
+                Math.min(
+                    BREAKPOINT_COLUMN_COUNTS.sm - w,
+                    Math.floor((event.clientX / Math.max(gridWidth, 1)) * BREAKPOINT_COLUMN_COUNTS.sm)
+                )
+            )
+            const layouts = { sm: { x, y: sectionMaxY, w, h } }
+            if (targetSection?.group && isPersistedSectionKey(targetSection.key)) {
+                moveDashboardTileToGroup({ tileId, groupId: targetSection.group.id, layouts })
+                return
+            }
+            const position =
+                target.type === 'gap'
+                    ? (sections[target.position]?.group?.position ?? dashboard?.groups?.length ?? 0)
+                    : Math.max(0, targetSection ? sections.indexOf(targetSection) : 0)
+            moveDashboardTileToGroup({ tileId, createAtPosition: position, layouts })
+        },
+        [dashboard?.groups?.length, gridWidth, moveDashboardTileToGroup, sectionLayouts, sections]
+    )
+
+    const handleCrossSectionSectionDrop = useCallback(
+        (groupId: string, renderedPosition: number): void => {
+            const groups = dashboard?.groups ?? []
+            const from = groups.find((group) => group.id === groupId)?.position
+            if (from == null) {
+                return
+            }
+            const targetSection = sections[renderedPosition]
+            let to = targetSection?.group?.position ?? groups.length
+            if (from < to) {
+                to -= 1
+            }
+            if (to !== from) {
+                updateDashboardGroupPosition(groupId, to)
+            }
+        },
+        [dashboard?.groups, sections, updateDashboardGroupPosition]
+    )
+
+    const crossSectionDrag = useCrossSectionDrag({
+        sections,
+        disabled: isMobileView || !layoutEditMode || !isEditablePlacement,
+        onTileDrop: handleCrossSectionTileDrop,
+        onSectionDrop: handleCrossSectionSectionDrop,
+    })
+
     const canEnterEditModeFromEdge =
         !!dashboard && canEditDashboard && !layoutEditMode && !isMobileView && isEditablePlacement
 
@@ -415,11 +475,22 @@ export function DashboardItems({ showCreateAnomalyAlertButton }: DashboardItemsP
         }
     }, [dashboard?.id, reportDashboardTileRepositioned, effectiveZoom, flushPendingLayouts])
 
-    const handleDragStart = useCallback(() => {
-        interactionInProgress.current = true
-        scrollContainerRef.current = document.getElementById('main-content')
-        scrollContainerRectRef.current = scrollContainerRef.current?.getBoundingClientRect() ?? null
-    }, [])
+    const handleDragStart = useCallback(
+        (_layout: unknown, _oldItem: unknown, newItem: { i: string } | null) => {
+            interactionInProgress.current = true
+            scrollContainerRef.current = document.getElementById('main-content')
+            scrollContainerRectRef.current = scrollContainerRef.current?.getBoundingClientRect() ?? null
+            if (!newItem) {
+                return
+            }
+            const tileId = Number.parseInt(newItem.i, 10)
+            const sourceSection = sections.find((section) => section.tiles.some((tile) => tile.id === tileId))
+            if (sourceSection) {
+                crossSectionDrag.startTileDrag(tileId, sourceSection.key)
+            }
+        },
+        [crossSectionDrag, sections]
+    )
 
     const handleDrag = useCallback(
         (_layout: unknown, _oldItem: unknown, _newItem: unknown, _placeholder: unknown, e: unknown) => {
@@ -432,13 +503,16 @@ export function DashboardItems({ showCreateAnomalyAlertButton }: DashboardItemsP
                 scrollAnimationRef.current = null
             }
 
+            const mouseEvent = e as MouseEvent
+            crossSectionDrag.updateDrag(mouseEvent)
+
             const scrollContainer = scrollContainerRef.current
             const containerRect = scrollContainerRectRef.current
             if (!scrollContainer || !containerRect) {
                 return
             }
 
-            const mouseY = (e as MouseEvent).clientY
+            const mouseY = mouseEvent.clientY
 
             let scrollSpeed = 0
             if (mouseY < containerRect.top + DRAG_AUTO_SCROLL_THRESHOLD) {
@@ -462,27 +536,43 @@ export function DashboardItems({ showCreateAnomalyAlertButton }: DashboardItemsP
                 scrollAnimationRef.current = requestAnimationFrame(scroll)
             }
         },
-        []
+        [crossSectionDrag]
     )
 
-    const handleDragStop = useCallback(() => {
-        if (scrollAnimationRef.current) {
-            cancelAnimationFrame(scrollAnimationRef.current)
-            scrollAnimationRef.current = null
-        }
-        scrollContainerRef.current = null
-        scrollContainerRectRef.current = null
-        if (dragEndTimeout.current) {
-            window.clearTimeout(dragEndTimeout.current)
-        }
-        dragEndTimeout.current = window.setTimeout(() => {
-            isDragging.current = false
-        }, 250)
-        flushPendingLayouts()
-        if (dashboard?.id) {
-            reportDashboardTileRepositioned(dashboard.id, 'moved', effectiveZoom)
-        }
-    }, [dashboard?.id, reportDashboardTileRepositioned, effectiveZoom, flushPendingLayouts])
+    const handleDragStop = useCallback(
+        (
+            _layout: unknown,
+            _oldItem: unknown,
+            _newItem: { i: string } | null,
+            _placeholder: unknown,
+            event: MouseEvent
+        ) => {
+            if (scrollAnimationRef.current) {
+                cancelAnimationFrame(scrollAnimationRef.current)
+                scrollAnimationRef.current = null
+            }
+            scrollContainerRef.current = null
+            scrollContainerRectRef.current = null
+            if (dragEndTimeout.current) {
+                window.clearTimeout(dragEndTimeout.current)
+            }
+            dragEndTimeout.current = window.setTimeout(() => {
+                isDragging.current = false
+            }, 250)
+            const moved = crossSectionDrag.finishDrag(event)
+            if (!moved) {
+                flushPendingLayouts()
+            } else {
+                // The source grid still owns the tile; flushing would persist it in the old section.
+                interactionInProgress.current = false
+                pendingLayouts.current = null
+            }
+            if (dashboard?.id) {
+                reportDashboardTileRepositioned(dashboard.id, 'moved', effectiveZoom)
+            }
+        },
+        [crossSectionDrag, dashboard?.id, reportDashboardTileRepositioned, effectiveZoom, flushPendingLayouts]
+    )
 
     return (
         <div className="dashboard-items-wrapper" ref={containerRef as RefObject<HTMLDivElement>}>
@@ -502,14 +592,35 @@ export function DashboardItems({ showCreateAnomalyAlertButton }: DashboardItemsP
                             !layoutEditMode &&
                             collapsedDashboardSectionIds.includes(section.group.id)
                         const isLastSection = sectionIndex === sections.length - 1
+                        const draggableGroupId = layoutEditMode ? section.group?.id : undefined
                         return (
                             <Fragment key={section.key}>
+                                {crossSectionDrag.dropTarget?.type === 'gap' &&
+                                    crossSectionDrag.dropTarget.position === sectionIndex && (
+                                        <div className="h-0.5 bg-accent my-3 rounded-full" />
+                                    )}
                                 <DashboardSection
                                     group={section.isNamed ? section.group : null}
                                     collapsed={collapsed}
                                     canEdit={canEditDashboard && isEditablePlacement}
                                     groupCount={groupCount}
                                     tileCount={section.tiles.length}
+                                    sectionRef={(element) => crossSectionDrag.registerSection(section.key, element)}
+                                    highlighted={
+                                        crossSectionDrag.dropTarget?.type === 'section' &&
+                                        crossSectionDrag.dropTarget.sectionKey === section.key
+                                    }
+                                    onSectionPointerDown={
+                                        draggableGroupId
+                                            ? (event) => {
+                                                  if ((event.target as HTMLElement).closest('button, input, a')) {
+                                                      return
+                                                  }
+                                                  event.preventDefault()
+                                                  crossSectionDrag.startSectionDrag(draggableGroupId, event.nativeEvent)
+                                              }
+                                            : undefined
+                                    }
                                     onToggle={() => section.group && toggleDashboardSectionCollapsed(section.group.id)}
                                     onRename={(name) => section.group && renameDashboardGroup(section.group.id, name)}
                                     onMove={(position) =>
@@ -795,6 +906,10 @@ export function DashboardItems({ showCreateAnomalyAlertButton }: DashboardItemsP
                             </Fragment>
                         )
                     })}
+                    {crossSectionDrag.dropTarget?.type === 'gap' &&
+                        crossSectionDrag.dropTarget.position === sections.length && (
+                            <div className="h-0.5 bg-accent my-3 rounded-full" />
+                        )}
                 </div>
             )}
             {dashboardStreaming && (

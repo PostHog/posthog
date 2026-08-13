@@ -61,3 +61,7 @@ export const Anonymous: Story = {
 export const Collapsed: Story = {
     args: { collapsed: true },
 }
+
+export const Highlighted: Story = {
+    args: { highlighted: true },
+}
