@@ -180,11 +180,11 @@ export interface heatmapLogicActions {
     changeCaptureMethod: (type: HeatmapType) => {
         type: HeatmapType
     }
-    createHeatmap: (context?: HeatmapCreationContext | null) => {
-        context: HeatmapCreationContext | null
-    }
     commitPageUrlDraft: () => {
         value: true
+    }
+    createHeatmap: (context?: HeatmapCreationContext | null) => {
+        context: HeatmapCreationContext | null
     }
     creationCompleted: (shortId: string) => {
         shortId: string
