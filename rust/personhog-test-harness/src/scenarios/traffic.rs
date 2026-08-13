@@ -141,7 +141,8 @@ pub async fn run(args: TrafficArgs) -> Result<()> {
         shutdown_signal().await;
         return Ok(());
     }
-    let client = HarnessClient::connect(&args.router_url).await?;
+    let client =
+        HarnessClient::connect_with_channels(&args.router_url, args.router_channels).await?;
     let identity = IdentityClient::connect(&args.identity_url).await?;
     let lifecycle = LifecycleClient::connect(&args.identity_url).await?;
     let pool = PgPool::connect(&args.persons_db_url)
@@ -799,7 +800,7 @@ async fn shutdown_signal() {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::cli::DEFAULT_KEYS_PER_PERSON;
+    use crate::cli::{DEFAULT_KEYS_PER_PERSON, DEFAULT_ROUTER_CHANNELS};
 
     /// Needs the CI gate's etcd; run explicitly with `--ignored`.
     #[tokio::test]
@@ -844,6 +845,7 @@ mod tests {
             chaos_etcd_namespace: None,
             router_url: "http://localhost:1".to_string(),
             identity_url: "http://localhost:2".to_string(),
+            router_channels: DEFAULT_ROUTER_CHANNELS,
             enabled: true,
             team_ids: vec![900_101],
             hostile_team_id: 900_102,
