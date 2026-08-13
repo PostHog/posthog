@@ -16,8 +16,9 @@ from posthog.storage.object_storage import object_storage_client
 logger = structlog.get_logger(__name__)
 
 # Marks a Redis value as an S3 pointer record rather than a blob (split-format magic or legacy
-# raw JSON). Pods that predate this format read a pointer as a cache miss, the same
-# rolling-deploy behavior the split format shipped with.
+# raw JSON). During a rolling deploy, pods running older code can't parse pointer records and
+# treat them as cache misses, so an entry written by a new pod may be recomputed once by an old
+# one. Accepted: deploys are quick.
 S3_POINTER_MAGIC = b"PHQCS3\x00"
 
 QueryCacheS3Mode = Literal["off", "shadow", "on"]
