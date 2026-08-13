@@ -173,7 +173,7 @@ export function SidebarNavSection({
     configure: (depth) => (
       <ConfigureItem
         depth={depth}
-        onClick={withNavTrack("configure", () => openSettings("agents"), depth)}
+        onClick={withNavTrack("configure", () => openSettings(), depth)}
       />
     ),
     loops: (depth) => (

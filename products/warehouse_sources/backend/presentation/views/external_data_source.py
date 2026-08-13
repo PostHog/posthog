@@ -477,7 +477,7 @@ DIRECT_QUERY_UNSUPPORTED_SOURCE_MESSAGE = (
     "Direct query mode is currently supported only for Postgres, MySQL, Snowflake, Redshift, and ClickHouse sources."
 )
 # Engines surfaced on a direct connection's `connection_metadata.engine` (duckdb backs direct Postgres).
-DIRECT_CONNECTION_ENGINE_CHOICES = ["duckdb", "postgres", "mysql", "snowflake", "redshift", "clickhouse"]
+DIRECT_CONNECTION_ENGINE_CHOICES = ["duckdb", "postgres", "mysql", "snowflake", "redshift", "clickhouse", "motherduck"]
 
 
 def count_active_sources(team_id: int, source_type: str) -> int:
@@ -3239,8 +3239,13 @@ class ExternalDataSourceViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixi
                 data={"message": f"Source type '{source_type}' does not support one-shot setup."},
             )
         except Exception as e:
-            capture_exception(e, {"source_type": source_type, "team_id": self.team_id})
-            return Response(status=status.HTTP_400_BAD_REQUEST, data={"message": str(e)})
+            # Credentials validated above can still fail here — `get_schemas` opens its own
+            # connection — so classify via the source's non-retryable-error map, same as `create`,
+            # `database_schema`, and `refresh_schemas`, instead of surfacing the raw driver error.
+            error_message, is_expected_source_error = _classify_refresh_schemas_error(source, e)
+            if not is_expected_source_error:
+                capture_exception(e, {"source_type": source_type, "team_id": self.team_id})
+            return Response(status=status.HTTP_400_BAD_REQUEST, data={"message": error_message})
 
         if not source_schemas:
             return Response(
