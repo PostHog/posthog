@@ -42644,6 +42644,8 @@ export namespace Schemas {
          * @minimum 0
          */
       cooldown_minutes?: number;
+      /** Blocked local time windows when the alert must not run. Times use the project timezone. Null disables quiet hours. */
+      schedule_restriction?: AlertScheduleRestriction | null;
       /**
          * ISO 8601 timestamp until which the alert is snoozed. Set to null to unsnooze.
          * @nullable
@@ -56837,6 +56839,8 @@ export namespace Schemas {
          * @minimum 0
          */
       cooldown_minutes?: number;
+      /** Blocked local time windows when the alert must not run. Times use the project timezone. Null disables quiet hours. */
+      schedule_restriction?: AlertScheduleRestriction | null;
       /**
          * ISO 8601 timestamp until which the alert is snoozed. Set to null to unsnooze.
          * @nullable
