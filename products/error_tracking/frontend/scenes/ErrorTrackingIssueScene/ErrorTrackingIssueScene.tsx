@@ -68,7 +68,7 @@ export const scene: SceneExport<ErrorTrackingIssueSceneLogicProps> = {
 }
 
 export function ErrorTrackingIssueScene(): JSX.Element {
-    const { issue, issueId, lastSeen, initialEventTimestamp, mobileDetailOpen } =
+    const { issue, issueId, lastSeen, initialEventTimestamp, selectedEvent, mobileDetailOpen } =
         useValues(errorTrackingIssueSceneLogic)
     const { updateAssignee, updateStatus, updateName, setMobileDetailOpen } = useActions(errorTrackingIssueSceneLogic)
     const { isWindowLessThan } = useWindowSize()
@@ -126,7 +126,7 @@ export function ErrorTrackingIssueScene(): JSX.Element {
                                                         ...getIssueReplayDateRange(
                                                             issue.first_seen,
                                                             lastSeen,
-                                                            initialEventTimestamp
+                                                            selectedEvent?.timestamp ?? initialEventTimestamp
                                                         ),
                                                         filter_group: getIssueReplayFilterGroup(issue.id),
                                                     })
@@ -166,7 +166,7 @@ export function ErrorTrackingIssueScene(): JSX.Element {
                                                         ...getIssueReplayDateRange(
                                                             issue.first_seen,
                                                             lastSeen,
-                                                            initialEventTimestamp
+                                                            selectedEvent?.timestamp ?? initialEventTimestamp
                                                         ),
                                                         filter_group: getIssueReplayFilterGroup(issue.id),
                                                     }}
