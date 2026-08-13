@@ -570,14 +570,6 @@ _plain_decimal_st = st.tuples(st.integers(min_value=0, max_value=9999), st.integ
 
 @st.composite
 def _bare_klog_st(draw: st.DrawFn) -> str:
-    # A klog date-time with no severity letter in front. The klog mask requires the
-    # letter, so this stays literal and must not be pulled into an ISO timestamp pivot.
-    header = draw(_klog_header_st())
-    return header[1:]
-
-
-@st.composite
-def _bare_klog_st(draw: st.DrawFn) -> str:
     # A klog date-time with no severity letter in front. The klog mask requires that
     # letter, so this stays literal and must not be pulled into an ISO timestamp pivot.
     return draw(_klog_header_st())[1:]
