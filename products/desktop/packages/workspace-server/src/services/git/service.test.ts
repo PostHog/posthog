@@ -115,10 +115,10 @@ describe("GitService", () => {
         patch: undefined,
       },
     ]);
-    expect(execGhMock).toHaveBeenCalledWith([
-      "api",
-      `repos/posthog/code/commits/${"a".repeat(40)}`,
-    ]);
+    expect(execGhMock).toHaveBeenCalledWith(
+      ["api", `repos/posthog/code/commits/${"a".repeat(40)}`],
+      { timeoutMs: 10_000 },
+    );
   });
 
   it("returns no commit files for an unknown sha, and never queries with a malformed one", async () => {

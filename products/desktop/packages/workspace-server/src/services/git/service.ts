@@ -1264,10 +1264,12 @@ export class GitService extends TypedEventEmitter<GitCloneEvents> {
     if (!/^[0-9a-f]{7,40}$/i.test(sha)) return [];
 
     const [owner, repoName] = parts;
-    const result = await execGh([
-      "api",
-      `repos/${owner}/${repoName}/commits/${sha}`,
-    ]);
+    // A stalled fetch would otherwise hang this call forever, holding the expanded
+    // commit row on a permanent skeleton with no error the query can recover from.
+    const result = await execGh(
+      ["api", `repos/${owner}/${repoName}/commits/${sha}`],
+      { timeoutMs: 10_000 },
+    );
 
     if (result.exitCode !== 0) {
       if (/HTTP 404\b/.test(`${result.stderr} ${result.error ?? ""}`)) {
