@@ -1570,7 +1570,7 @@ export const SETTINGS_MAP: SettingSection[] = [
                 title: 'GitHub integration',
                 description: 'Connect GitHub to link issues and pull requests with PostHog insights.',
                 docsUrl: 'https://posthog.com/docs/error-tracking/integrations',
-                component: <GitHub.SettingsSection />,
+                component: <GitHub.SettingsSection connectSurface="settings" />,
                 keywords: ['github', 'git', 'repository', 'issue', 'pr'],
             },
             {

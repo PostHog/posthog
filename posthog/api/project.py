@@ -123,6 +123,7 @@ from products.notifications.backend.facade.api import (
 from products.signals.backend.models import SignalSourceConfig
 
 from ee.api.rbac.access_control import AccessControlViewSetMixin
+from ee.api.rbac.access_control_settings import AccessControlSettingsViewSetMixin
 
 logger = structlog.get_logger(__name__)
 
@@ -1022,6 +1023,10 @@ class ProjectBackwardCompatSerializer(
     def validate_test_account_filters(value: object) -> list[dict[str, object]]:
         return TeamSerializer.validate_test_account_filters(value)
 
+    @staticmethod
+    def validate_path_cleaning_filters(value: object) -> object:
+        return TeamSerializer.validate_path_cleaning_filters(value)
+
     def validate_proactive_tasks_enabled(self, value: bool | None) -> bool | None:
         return TeamSerializer.validate_proactive_tasks_enabled(cast(TeamSerializer, self), value)
 
@@ -1317,7 +1322,9 @@ class ProjectBackwardCompatSerializer(
         ),
     ),
 )
-class ProjectViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, viewsets.ModelViewSet):
+class ProjectViewSet(
+    TeamAndOrgViewSetMixin, AccessControlSettingsViewSetMixin, AccessControlViewSetMixin, viewsets.ModelViewSet
+):
     """
     Projects for the current organization.
     """

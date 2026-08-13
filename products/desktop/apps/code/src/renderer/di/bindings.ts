@@ -214,6 +214,10 @@ import {
   type McpSandboxProxyUrlProvider,
 } from "@posthog/ui/features/mcp-apps/identifiers";
 import {
+  MISSION_CONTROL_CLIENT,
+  type MissionControlClient,
+} from "@posthog/ui/features/mission-control/identifiers";
+import {
   NAVIGATION_TASK_BINDER,
   type NavigationTaskBinder,
 } from "@posthog/ui/features/navigation/taskBinder";
@@ -296,6 +300,7 @@ export interface RendererBindings {
   [CONNECTIVITY_CLIENT]: ConnectivityClient;
   [BROWSER_TABS_CLIENT]: BrowserTabsClient;
   [DISCORD_PRESENCE_CLIENT]: DiscordPresenceClient;
+  [MISSION_CONTROL_CLIENT]: MissionControlClient;
   [SHELL_CLIENT]: ShellClient;
   [FOCUS_CONTROLLER_DEPS]: FocusControllerDeps;
   [DIFF_WORKER_FACTORY]: DiffWorkerFactory;

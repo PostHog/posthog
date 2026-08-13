@@ -96,13 +96,25 @@ from products.tasks.backend.logic.services.sandbox import (
 )
 from products.tasks.backend.models import SandboxSnapshot
 
-from .sandbox import AgentServerResult, ExecutionResult, ExecutionStream, SandboxConfig, SandboxStatus, SandboxTemplate
+from .sandbox import (
+    AgentServerResult,
+    ExecutionResult,
+    ExecutionStream,
+    SandboxConfig,
+    SandboxStatus,
+    SandboxTemplate,
+    SandboxWorkload,
+)
 
 logger = logging.getLogger(__name__)
 
 DEFAULT_MODAL_APP_NAME = "posthog-sandbox-default"
 NOTEBOOK_MODAL_APP_NAME = "posthog-sandbox-notebook"
 STREAMLIT_MODAL_APP_NAME = "posthog-sandbox-streamlit"
+# Self-driving runs boot the same default image as a user's task, so only the app separates them.
+# Images and snapshots are workspace-scoped in Modal, not app-scoped, so a box here still restores
+# a snapshot baked under the default app.
+SELF_DRIVING_MODAL_APP_NAME = "posthog-sandbox-self-driving"
 
 SANDBOX_BASE_IMAGE = "ghcr.io/posthog/posthog-sandbox-base"
 SANDBOX_NOTEBOOK_IMAGE = "ghcr.io/posthog/posthog-sandbox-notebook"
@@ -222,21 +234,18 @@ def _resource_create_kwargs(config: SandboxConfig) -> dict[str, object]:
     ``(request, limit)`` tuple form so the box is billed at ``max(request, actual)`` and can burst
     up to the limit; otherwise emit the flat scalar, which makes request == limit (fixed size).
 
-    The burstable request floor comes from ``cpu_request_cores`` / ``memory_request_mb`` (defaulting
-    to the small floor in ``sandbox_config``). The request is clamped to the limit so it never
-    exceeds it when the configured size is at or below the requested floor.
+    The burstable request floors come from the config's ``effective_*_request`` properties — the
+    same values the usage ledger records — so what Modal reserves and what pricing bills can't
+    diverge.
     """
     cpu_limit = float(config.cpu_cores)
     memory_limit_mb = int(config.memory_gb * 1024)
     if not config.burstable_resources:
         return {"cpu": cpu_limit, "memory": memory_limit_mb}
 
-    cpu_value = (min(float(config.cpu_request_cores), cpu_limit), cpu_limit)
-    if config.is_vm:
-        return {"cpu": cpu_value, "memory": memory_limit_mb}
     return {
-        "cpu": cpu_value,
-        "memory": (min(int(config.memory_request_mb), memory_limit_mb), memory_limit_mb),
+        "cpu": (config.effective_cpu_request_cores, cpu_limit),
+        "memory": (config.effective_memory_request_mb, memory_limit_mb),
     }
 
 
@@ -629,12 +638,14 @@ class ModalSandbox(SandboxBase):
     provision_diagnostics: SandboxProvisionDiagnostics | None
     DEFAULT_APP_NAME = DEFAULT_MODAL_APP_NAME
     NOTEBOOK_APP_NAME = NOTEBOOK_MODAL_APP_NAME
+    STREAMLIT_APP_NAME = STREAMLIT_MODAL_APP_NAME
+    SELF_DRIVING_APP_NAME = SELF_DRIVING_MODAL_APP_NAME
 
     def __init__(self, sandbox: modal.Sandbox, config: SandboxConfig, sandbox_url: str | None = None):
         self.id = sandbox.object_id
         self.config = config
         self._sandbox = sandbox
-        self._app = type(self)._get_app_for_template(config.template)
+        self._app = type(self)._get_app_for_config(config)
         self._sandbox_url = sandbox_url
         self.provision_diagnostics = None
 
@@ -644,22 +655,37 @@ class ModalSandbox(SandboxBase):
         return self._sandbox_url
 
     @classmethod
-    def _get_default_app(cls) -> modal.App:
-        return modal.App.lookup(cls.DEFAULT_APP_NAME, create_if_missing=True)
+    def _template_app_name(cls, template: SandboxTemplate) -> str | None:
+        """App a template owns outright, or None when it shares the general-purpose apps.
+
+        Notebook and Streamlit boxes are their own products with their own images, so they stay
+        in their own app whatever the workload — neither is ever self-driving.
+        """
+        if template == SandboxTemplate.NOTEBOOK_BASE:
+            return cls.NOTEBOOK_APP_NAME
+        if template == SandboxTemplate.STREAMLIT_BASE:
+            return cls.STREAMLIT_APP_NAME
+        return None
 
     @classmethod
     def _get_app_for_template(cls, template: SandboxTemplate) -> modal.App:
-        if template == SandboxTemplate.NOTEBOOK_BASE:
-            return modal.App.lookup(cls.NOTEBOOK_APP_NAME, create_if_missing=True)
-        if template == SandboxTemplate.STREAMLIT_BASE:
-            return modal.App.lookup(STREAMLIT_MODAL_APP_NAME, create_if_missing=True)
-        return cls._get_default_app()
+        """App for a template alone, ignoring workload. For image builds, where the built image
+        is visible to every app in the workspace and so has no workload of its own."""
+        return modal.App.lookup(cls._template_app_name(template) or cls.DEFAULT_APP_NAME, create_if_missing=True)
+
+    @classmethod
+    def _get_app_for_config(cls, config: SandboxConfig) -> modal.App:
+        """App that owns this sandbox: the template's when it has one, otherwise the workload's."""
+        app_name = cls._template_app_name(config.template)
+        if app_name is None and config.workload == SandboxWorkload.SELF_DRIVING:
+            app_name = cls.SELF_DRIVING_APP_NAME
+        return modal.App.lookup(app_name or cls.DEFAULT_APP_NAME, create_if_missing=True)
 
     @classmethod
     def create(cls, config: SandboxConfig) -> ModalSandbox:
         try:
             modal.enable_output()
-            app = cls._get_app_for_template(config.template)
+            app = cls._get_app_for_config(config)
             base_image = _get_template_image(config.template)
             custom_image_bare: modal.Image | None = None
             custom_image: modal.Image | None = None
@@ -867,7 +893,10 @@ class ModalSandbox(SandboxBase):
             if modal_output is not None:
                 sandbox.provision_diagnostics = summarize_modal_output(modal_output.getvalue())
 
-            logger.info(f"Created sandbox {sandbox.id} for {config.name}")
+            logger.info(
+                f"Created sandbox {sandbox.id} for {config.name}",
+                extra={"modal_app": getattr(app, "name", None), "workload": config.workload.value},
+            )
 
             return sandbox
 
@@ -1684,6 +1713,14 @@ class ModalSandbox(SandboxBase):
             raise SandboxCleanupError(
                 f"Failed to destroy sandbox: {e}", {"sandbox_id": self.id, "error": str(e)}, cause=e
             )
+
+    def read_cpu_usage_usec(self) -> int | None:
+        cpu_stat = self._sandbox.filesystem.read_text("/sys/fs/cgroup/cpu.stat")
+        for line in cpu_stat.splitlines():
+            key, _, value = line.partition(" ")
+            if key == "usage_usec":
+                return int(value)
+        return None
 
     def is_running(self) -> bool:
         return self.get_status() == SandboxStatus.RUNNING

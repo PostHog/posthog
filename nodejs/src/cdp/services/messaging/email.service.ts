@@ -530,7 +530,13 @@ export class EmailService {
                   Html: {
                       Data: maybeAddPreheaderToEmail(
                           trackingEnabled
-                              ? addTrackingToEmail(params.html, result.invocation, this.trackingCodeSigner, isTest)
+                              ? addTrackingToEmail(
+                                    params.html,
+                                    result.invocation,
+                                    this.trackingCodeSigner,
+                                    isTest,
+                                    'ses'
+                                )
                               : params.html,
                           params.preheader
                       ),

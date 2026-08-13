@@ -429,7 +429,7 @@ class TestModalSandboxAgentServer:
         mock_modal_sandbox.create_connect_token.return_value = mock_credentials
 
         config = SandboxConfig(name="test-sandbox")
-        with patch.object(ModalSandbox, "_get_app_for_template", return_value=MagicMock()):
+        with patch.object(ModalSandbox, "_get_app_for_config", return_value=MagicMock()):
             return ModalSandbox(sandbox=mock_modal_sandbox, config=config)
 
     @pytest.fixture(autouse=True)
@@ -1042,6 +1042,19 @@ class TestModalSandboxCommandEscaping:
             assert shlex.quote(mode) in command
 
 
+class TestModalSandboxResourceUsage:
+    def test_reads_cgroup_cpu_usage(self):
+        sandbox = ModalSandbox.__new__(ModalSandbox)
+        sandbox.id = "sb-usage"
+        sandbox.config = SandboxConfig(name="usage")
+        sandbox._sandbox = MagicMock()
+        sandbox._sandbox.filesystem.read_text.return_value = "usage_usec 12345678\nuser_usec 10000000\n"
+
+        assert sandbox.read_cpu_usage_usec() == 12_345_678
+
+        sandbox._sandbox.filesystem.read_text.assert_called_once_with("/sys/fs/cgroup/cpu.stat")
+
+
 class TestModalSandboxAgentServerStartupHelpers:
     def _make_sandbox(self) -> Any:
         sandbox = ModalSandbox.__new__(ModalSandbox)
@@ -1148,7 +1161,7 @@ class TestModalSandboxCreateAllowlist:
         mock_sb.object_id = "sb-created"
         with (
             patch("products.tasks.backend.logic.services.modal_sandbox.modal.enable_output"),
-            patch.object(ModalSandbox, "_get_app_for_template", return_value=MagicMock()),
+            patch.object(ModalSandbox, "_get_app_for_config", return_value=MagicMock()),
             patch("products.tasks.backend.logic.services.modal_sandbox._get_template_image", return_value=MagicMock()),
             patch(
                 "products.tasks.backend.logic.services.modal_sandbox.modal.Sandbox.create", return_value=mock_sb
@@ -1200,7 +1213,7 @@ class TestModalSandboxCreateImageFallback:
 
         with (
             patch("products.tasks.backend.logic.services.modal_sandbox.modal.enable_output"),
-            patch.object(ModalSandbox, "_get_app_for_template", return_value=MagicMock()),
+            patch.object(ModalSandbox, "_get_app_for_config", return_value=MagicMock()),
             patch(
                 "products.tasks.backend.logic.services.modal_sandbox._get_template_image",
                 return_value=MagicMock(name="base"),
@@ -1270,7 +1283,7 @@ class TestModalSandboxCreateImageFallback:
 
         with (
             patch("products.tasks.backend.logic.services.modal_sandbox.modal.enable_output"),
-            patch.object(ModalSandbox, "_get_app_for_template", return_value=MagicMock()),
+            patch.object(ModalSandbox, "_get_app_for_config", return_value=MagicMock()),
             patch(
                 "products.tasks.backend.logic.services.modal_sandbox._get_template_image",
                 return_value=MagicMock(name="base"),
@@ -1408,7 +1421,7 @@ class TestLaunchDevStackBootstrap:
             snapshot_restored=snapshot_restored,
             **({"snapshot_kind": snapshot_kind} if snapshot_kind is not None else {}),
         )
-        with patch.object(ModalSandbox, "_get_app_for_template", return_value=MagicMock()):
+        with patch.object(ModalSandbox, "_get_app_for_config", return_value=MagicMock()):
             return ModalSandbox(sandbox=mock_modal_sandbox, config=config)
 
     @pytest.mark.parametrize(
@@ -1542,14 +1555,14 @@ class TestResourceCreateKwargs:
         # Reserve the explicitly requested floor, burst up to the configured limit.
         assert kwargs == {"cpu": (2.0, 8.0), "memory": (4096, 16384)}
 
-    def test_vm_runtime_pins_memory_but_keeps_cpu_elastic(self):
+    def test_vm_runtime_uses_equal_memory_request_and_limit(self):
         config = SandboxConfig(name="t", cpu_cores=4, memory_gb=16, burstable_resources=True, vm_runtime=True)
 
         kwargs = _resource_create_kwargs(config)
 
-        assert kwargs == {"cpu": (0.5, 4.0), "memory": 16384}
+        assert kwargs == {"cpu": (0.5, 4.0), "memory": (16384, 16384)}
 
-    def test_vm_template_pins_memory_but_keeps_cpu_elastic(self):
+    def test_vm_template_uses_equal_memory_request_and_limit(self):
         config = SandboxConfig(
             name="t",
             cpu_cores=4,
@@ -1560,7 +1573,7 @@ class TestResourceCreateKwargs:
 
         kwargs = _resource_create_kwargs(config)
 
-        assert kwargs == {"cpu": (0.5, 4.0), "memory": 16384}
+        assert kwargs == {"cpu": (0.5, 4.0), "memory": (16384, 16384)}
 
     def test_explicit_request_floor_is_clamped_to_limit(self):
         # A request floor above the configured limit is clamped down to the limit.
@@ -1586,7 +1599,7 @@ class TestModalSandboxCreateSnapshot:
         mock_modal_sandbox.poll.return_value = None  # None => still running
 
         config = SandboxConfig(name="test-sandbox")
-        with patch.object(ModalSandbox, "_get_app_for_template", return_value=MagicMock()):
+        with patch.object(ModalSandbox, "_get_app_for_config", return_value=MagicMock()):
             return ModalSandbox(sandbox=mock_modal_sandbox, config=config)
 
     def test_create_snapshot_success(self, mock_sandbox: Any):

@@ -41,6 +41,7 @@ path = "ee"
 depends_on = [
     "products.cohorts",
     "posthog",
+    "products.access_control",
     "products.actions",
     "products.alerts",
     "products.cdp",
@@ -236,6 +237,7 @@ depends_on = [
     "products.mcp_analytics",
     "products.notifications",
     "products.product_analytics",
+    "products.conversations",
     "products.surveys",
 ]
 layer = "modules"
@@ -424,6 +426,7 @@ depends_on = [
     "products.cohorts",
     "ee",
     "posthog",
+    "products.alerts",
     "products.approvals",
     "products.dashboards",
     "products.early_access_features",
@@ -702,6 +705,9 @@ depends_on = [
     "products.feature_flags",
     "products.notebooks",
     "products.product_analytics",
+    # Facade-only: Replay Vision authorizes signal emission per scanner rather than through a
+    # SignalSourceConfig row, so onboarding has to ask it whether any scanner is emitting.
+    "products.replay_vision",
     "products.skills",
     "products.surveys",
     "products.tasks",

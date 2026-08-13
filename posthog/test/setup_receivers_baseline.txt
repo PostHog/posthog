@@ -99,6 +99,7 @@ post_delete:products.signals.backend.receivers.tombstone_report_embedding_on_har
 post_delete:products.slack_app.backend.signals.invalidate_repo_list_on_user_github_change
 post_delete:products.surveys.backend.models.survey_changed
 post_delete:products.tasks.backend.models.delete_task_session_object
+post_delete:products.tasks.backend.search_index.channel_deleted
 post_delete:products.workflows.backend.models.hog_flow.hog_flow.hog_flow_deleted
 post_init:posthog.storage.gateway_credential_signal_handlers._snapshot_oauth
 post_init:posthog.storage.gateway_credential_signal_handlers._snapshot_secret_key
@@ -204,6 +205,10 @@ post_save:products.slack_app.backend.signals.onboard_slack_inbox_on_install
 post_save:products.surveys.backend.models.survey_changed
 post_save:products.tasks.backend.models.project_task_created_activity
 post_save:products.tasks.backend.models.track_task_run_completion
+post_save:products.tasks.backend.search_index.channel_saved
+post_save:products.tasks.backend.search_index.task_artifact_saved
+post_save:products.tasks.backend.search_index.task_run_saved
+post_save:products.tasks.backend.search_index.task_saved
 post_save:products.workflows.backend.models.hog_flow.hog_flow.action_saved_for_hog_flows
 post_save:products.workflows.backend.models.hog_flow.hog_flow.hog_flow_saved
 post_save:products.workflows.backend.models.hog_flow.hog_flow.team_saved_for_hog_flows
@@ -221,6 +226,7 @@ pre_delete:posthog.storage.team_llm_gateway_policy_signal_handlers._clear_cache_
 pre_delete:products.alerts.backend.activity_logging.cleanup_alert_hog_functions
 pre_delete:products.alerts.backend.activity_logging.handle_alert_subscription_delete
 pre_delete:products.managed_migrations.backend.activity_logging.handle_batch_import_delete
+pre_delete:products.tasks.backend.models.clear_channel_repositories_on_github_integration_delete
 pre_delete:products.tasks.backend.team_deletion.cancel_task_workflows_on_team_delete
 pre_save:posthog.models.event_ingestion_restriction_config.capture_old_restriction_type
 pre_save:posthog.models.organization.organization_about_to_be_created

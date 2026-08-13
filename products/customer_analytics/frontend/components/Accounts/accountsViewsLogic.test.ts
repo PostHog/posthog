@@ -5,6 +5,7 @@ import { expectLogic } from 'kea-test-utils'
 import { userLogic } from 'scenes/userLogic'
 
 import { useMocks } from '~/mocks/jest'
+import { AccountsTableCustomPropertyOperator } from '~/queries/schema/schema-general'
 import { initKeaTests } from '~/test/init'
 
 import { ColumnConfigurationApi } from 'products/product_analytics/frontend/generated/api.schemas'
@@ -79,7 +80,16 @@ describe('accountsViewsLogic', () => {
                 tags: ['enterprise'],
                 unassigned: false,
                 assignedTo: [1, 2, 3],
-                tileFilter: { tileId: 't1', expression: 'mrr > 100' },
+                tileFilter: {
+                    tileId: 't1',
+                    expression: 'mrr > 100',
+                    filter: {
+                        kind: 'custom_property',
+                        definitionId: '11111111-2222-3333-4444-555555555555',
+                        operator: AccountsTableCustomPropertyOperator.GreaterThan,
+                        values: [100],
+                    },
+                },
             },
         })
         await expectLogic(logic, () => logic.actions.applyView(view)).toFinishAllListeners()
@@ -93,7 +103,16 @@ describe('accountsViewsLogic', () => {
         expect(accountsOverviewTilesLogic.values.tiles).toEqual([
             { id: 't1', label: 'Accounts', metric: { type: 'count' } },
         ])
-        expect(accountsOverviewTilesLogic.values.tileFilter).toEqual({ tileId: 't1', expression: 'mrr > 100' })
+        expect(accountsOverviewTilesLogic.values.tileFilter).toEqual({
+            tileId: 't1',
+            expression: 'mrr > 100',
+            filter: {
+                kind: 'custom_property',
+                definitionId: '11111111-2222-3333-4444-555555555555',
+                operator: AccountsTableCustomPropertyOperator.GreaterThan,
+                values: [100],
+            },
+        })
         expect(logic.values.currentViewId).toEqual('view-1')
     })
 
