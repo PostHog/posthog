@@ -4,25 +4,31 @@ import { router, urlToAction } from 'kea-router'
 
 import { objectsEqual } from 'lib/utils/objects'
 
-import { ApiConfig } from '~/lib/api'
+import { ApiConfig, ApiError } from '~/lib/api'
 import { lemonToast } from '~/lib/lemon-ui/LemonToast/LemonToast'
 import { PaginationManual } from '~/lib/lemon-ui/PaginationControl'
 import { trackedActionToUrl } from '~/lib/logic/scenes/trackedActionToUrl'
 import { urls } from '~/scenes/urls'
 
 import { communitySkillsInstallCreate, communitySkillsList, communitySkillsVoteCreate } from './generated/api'
+import { TrustTierEnumApi } from './generated/api.schemas'
 import type { CommunitySkillListApi, PaginatedCommunitySkillListListApi } from './generated/api.schemas'
 
 export const COMMUNITY_SKILLS_PER_PAGE = 30
 
-export type CommunitySkillTrustTier = 'official' | 'verified' | 'community'
+const TRUST_TIERS = Object.values(TrustTierEnumApi)
 
 export interface CommunitySkillFilters {
     page: number
     search: string
     order_by: string
     tag: string
-    trust_tier: CommunitySkillTrustTier | ''
+    trust_tier: TrustTierEnumApi | ''
+}
+
+// Filters can arrive from the URL, so anything that isn't a known tier falls back to "all tiers".
+function cleanTrustTier(value: unknown): TrustTierEnumApi | '' {
+    return TRUST_TIERS.find((tier) => tier === value) ?? ''
 }
 
 function cleanFilters(values: Partial<CommunitySkillFilters>): CommunitySkillFilters {
@@ -31,7 +37,7 @@ function cleanFilters(values: Partial<CommunitySkillFilters>): CommunitySkillFil
         search: String(values.search || ''),
         order_by: values.order_by || '-install_count',
         tag: String(values.tag || ''),
-        trust_tier: (values.trust_tier as CommunitySkillTrustTier) || '',
+        trust_tier: cleanTrustTier(values.trust_tier),
     }
 }
 
@@ -223,11 +229,11 @@ export const communitySkillsLogic = kea<communitySkillsLogicType>([
             { results: [], count: 0 } as PaginatedCommunitySkillListListApi,
             {
                 loadSkills: async ({ debounce }, breakpoint) => {
-                    // Always breakpoint so a slower in-flight request can't overwrite newer results;
-                    // the delay only debounces rapid filter/search changes.
+                    // The delay debounces typing and filter changes. Mount and URL entry pass
+                    // debounce=false so the first load isn't held back by it.
                     await breakpoint(debounce ? 300 : 0)
                     const { filters } = values
-                    return await communitySkillsList(String(ApiConfig.getCurrentTeamId()), {
+                    const response = await communitySkillsList(String(ApiConfig.getCurrentTeamId()), {
                         search: filters.search,
                         order_by: filters.order_by,
                         tag: filters.tag,
@@ -235,6 +241,9 @@ export const communitySkillsLogic = kea<communitySkillsLogicType>([
                         offset: Math.max(0, (filters.page - 1) * COMMUNITY_SKILLS_PER_PAGE),
                         limit: COMMUNITY_SKILLS_PER_PAGE,
                     })
+                    // Discard this response if newer filters started another load while it was in flight.
+                    breakpoint()
+                    return response
                 },
             },
         ],
@@ -288,7 +297,8 @@ export const communitySkillsLogic = kea<communitySkillsLogicType>([
                 router.actions.push(urls.skill(newName || slug))
             } catch (e) {
                 console.error('Failed to install community skill', e)
-                lemonToast.error('Failed to install skill — a skill with that name may already exist.')
+                const detail = e instanceof ApiError ? e.detail : null
+                lemonToast.error(detail || 'Could not install the skill. Try again in a moment.')
                 actions.installSkillFailure(slug)
             }
         },
@@ -299,7 +309,8 @@ export const communitySkillsLogic = kea<communitySkillsLogicType>([
                 actions.toggleVoteSuccess(slug, result)
             } catch (e) {
                 console.error('Failed to vote on community skill', e)
-                lemonToast.error('Failed to register your vote')
+                const detail = e instanceof ApiError ? e.detail : null
+                lemonToast.error(detail || 'Could not save your vote. Try again in a moment.')
                 actions.toggleVoteFailure(slug)
             }
         },
@@ -320,12 +331,12 @@ export const communitySkillsLogic = kea<communitySkillsLogicType>([
         [urls.communitySkills()]: (_, searchParams) => {
             const newFilters = cleanFilters(searchParams)
             if (!objectsEqual(values.filters, newFilters)) {
-                actions.setFilters(newFilters, false)
+                actions.setFilters(newFilters, false, false)
             }
         },
     })),
 
     afterMount(({ actions }) => {
-        actions.loadSkills()
+        actions.loadSkills(false)
     }),
 ])

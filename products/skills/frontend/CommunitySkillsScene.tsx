@@ -6,6 +6,7 @@ import { Link } from '@posthog/lemon-ui'
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { LemonInput } from 'lib/lemon-ui/LemonInput'
 import { LemonSelect } from 'lib/lemon-ui/LemonSelect'
+import { LemonSkeleton } from 'lib/lemon-ui/LemonSkeleton'
 import { LemonTag, LemonTagType } from 'lib/lemon-ui/LemonTag'
 import { PaginationControl } from 'lib/lemon-ui/PaginationControl'
 import { usePagination } from 'lib/lemon-ui/PaginationControl/usePagination'
@@ -13,7 +14,8 @@ import { SceneExport } from 'scenes/sceneTypes'
 
 import { ProductKey } from '~/queries/schema/schema-general'
 
-import { CommunitySkillTrustTier, communitySkillsLogic } from './communitySkillsLogic'
+import { communitySkillsLogic } from './communitySkillsLogic'
+import { TrustTierEnumApi } from './generated/api.schemas'
 import type { CommunitySkillListApi } from './generated/api.schemas'
 import { SkillsSceneShell } from './SkillsSceneShell'
 
@@ -23,15 +25,43 @@ export const scene: SceneExport = {
     productKey: ProductKey.AI_OBSERVABILITY,
 }
 
-const TRUST_TIER_TAG: Record<CommunitySkillTrustTier, { label: string; type: LemonTagType }> = {
+const SKILL_GRID_CLASSES = 'grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-4'
+
+const TRUST_TIER_TAG: Record<TrustTierEnumApi, { label: string; type: LemonTagType }> = {
     official: { label: 'Official', type: 'success' },
     verified: { label: 'Verified', type: 'completion' },
     community: { label: 'Community', type: 'default' },
 }
 
-function TrustTierBadge({ tier }: { tier: CommunitySkillTrustTier }): JSX.Element {
+// GitHub usernames are alphanumeric with single inner hyphens, up to 39 characters.
+const GITHUB_HANDLE = /^[a-zA-Z0-9](?:-?[a-zA-Z0-9]){0,38}$/
+
+// The registry stores github_url and author_handle without checking either, so anything we turn
+// into a link has to be validated here before a user is invited to click it.
+function githubSourceUrl(url: string): string | null {
+    try {
+        const parsed = new URL(url)
+        return parsed.protocol === 'https:' && parsed.hostname === 'github.com' ? parsed.toString() : null
+    } catch {
+        return null
+    }
+}
+
+function TrustTierBadge({ tier }: { tier: TrustTierEnumApi }): JSX.Element {
     const config = TRUST_TIER_TAG[tier] ?? TRUST_TIER_TAG.community
     return <LemonTag type={config.type}>{config.label}</LemonTag>
+}
+
+// author_handle is the contributor's GitHub username (from the skill's PR/frontmatter).
+function AuthorHandle({ handle }: { handle: string }): JSX.Element {
+    if (!GITHUB_HANDLE.test(handle)) {
+        return <span>@{handle}</span>
+    }
+    return (
+        <Link to={`https://github.com/${handle}`} target="_blank">
+            @{handle}
+        </Link>
+    )
 }
 
 function CommunitySkillCard({ skill }: { skill: CommunitySkillListApi }): JSX.Element {
@@ -39,12 +69,13 @@ function CommunitySkillCard({ skill }: { skill: CommunitySkillListApi }): JSX.El
     const { installSkill, toggleVote } = useActions(communitySkillsLogic)
     const installing = !!installingSlugs[skill.slug]
     const voting = !!votingSlugs[skill.slug]
+    const sourceUrl = skill.github_url ? githubSourceUrl(skill.github_url) : null
 
     return (
         <div className="flex flex-col gap-2 border rounded p-4 bg-bg-light h-full">
             <div className="flex items-start justify-between gap-2">
                 <h3 className="font-semibold m-0">{skill.name}</h3>
-                <TrustTierBadge tier={skill.trust_tier as CommunitySkillTrustTier} />
+                <TrustTierBadge tier={skill.trust_tier} />
             </div>
             <p className="text-muted text-sm grow line-clamp-3">{skill.description}</p>
             <div className="flex flex-wrap gap-1">
@@ -57,14 +88,9 @@ function CommunitySkillCard({ skill }: { skill: CommunitySkillListApi }): JSX.El
             <div className="flex items-center justify-between gap-2 pt-2 border-t">
                 <div className="flex flex-wrap items-center gap-x-3 gap-y-1 text-muted text-xs">
                     <span>{skill.install_count} installs</span>
-                    {skill.author_handle ? (
-                        // author_handle is the contributor's GitHub username (from the skill's PR/frontmatter).
-                        <Link to={`https://github.com/${skill.author_handle}`} target="_blank">
-                            @{skill.author_handle}
-                        </Link>
-                    ) : null}
-                    {skill.github_url ? (
-                        <Link to={skill.github_url} target="_blank" className="flex items-center gap-1">
+                    {skill.author_handle ? <AuthorHandle handle={skill.author_handle} /> : null}
+                    {sourceUrl ? (
+                        <Link to={sourceUrl} target="_blank" className="flex items-center gap-1">
                             <IconGithub /> View on GitHub
                         </Link>
                     ) : null}
@@ -97,6 +123,30 @@ function CommunitySkillCard({ skill }: { skill: CommunitySkillListApi }): JSX.El
     )
 }
 
+function CommunitySkillsGrid({ skills, loading }: { skills: CommunitySkillListApi[]; loading: boolean }): JSX.Element {
+    if (loading && skills.length === 0) {
+        return (
+            <div className={SKILL_GRID_CLASSES}>
+                {Array.from({ length: 6 }, (_, index) => (
+                    <LemonSkeleton key={index} className="h-40 w-full" />
+                ))}
+            </div>
+        )
+    }
+
+    if (skills.length === 0) {
+        return <div className="text-muted text-center p-8">No community skills match your filters yet.</div>
+    }
+
+    return (
+        <div className={SKILL_GRID_CLASSES}>
+            {skills.map((skill) => (
+                <CommunitySkillCard key={skill.slug} skill={skill} />
+            ))}
+        </div>
+    )
+}
+
 export function CommunitySkillsScene(): JSX.Element {
     return <SkillsSceneShell activeTab="community" content={<CommunitySkillsContent />} />
 }
@@ -117,9 +167,9 @@ function CommunitySkillsContent(): JSX.Element {
                     onChange={(search) => setFilters({ search })}
                     className="grow max-w-100"
                 />
-                <LemonSelect
+                <LemonSelect<TrustTierEnumApi | ''>
                     value={filters.trust_tier}
-                    onChange={(trust_tier) => setFilters({ trust_tier: trust_tier as CommunitySkillTrustTier | '' })}
+                    onChange={(trust_tier) => setFilters({ trust_tier })}
                     options={[
                         { value: '', label: 'All tiers' },
                         { value: 'official', label: 'Official' },
@@ -139,15 +189,7 @@ function CommunitySkillsContent(): JSX.Element {
                 />
             </div>
 
-            {displaySkills.length === 0 && !skillsLoading ? (
-                <div className="text-muted text-center p-8">No community skills match your filters yet.</div>
-            ) : (
-                <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-4">
-                    {displaySkills.map((skill) => (
-                        <CommunitySkillCard key={skill.slug} skill={skill} />
-                    ))}
-                </div>
-            )}
+            <CommunitySkillsGrid skills={displaySkills} loading={skillsLoading} />
 
             <PaginationControl {...paginationState} nouns={['skill', 'skills']} />
         </div>
