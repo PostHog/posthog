@@ -9,6 +9,8 @@ const mocks = vi.hoisted(() => ({
     name: string;
     channelType: "public" | "personal";
     starred: boolean;
+    repositories: string[];
+    createdBy: null;
   }[],
   tasks: [] as {
     id: string;
@@ -130,18 +132,24 @@ const ME = {
   name: "me",
   channelType: "personal" as const,
   starred: false,
+  repositories: [],
+  createdBy: null,
 };
 const ENG = {
   id: "eng-id",
   name: "engineering",
   channelType: "public" as const,
   starred: false,
+  repositories: [],
+  createdBy: null,
 };
 const DESIGN = {
   id: "design-id",
   name: "design",
   channelType: "public" as const,
   starred: false,
+  repositories: [],
+  createdBy: null,
 };
 
 function renderList() {

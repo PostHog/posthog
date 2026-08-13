@@ -227,6 +227,11 @@ function getMarkdownNodeOptions(tagName: string): CreatePostHogWidgetNodeOptions
     return nodeType ? KNOWN_NODES[nodeType] : null
 }
 
+// A code cell's `filters` panel is its code editor, and the shell leaves that panel closed
+// unless the node carries `showFilters`. A cell the user just inserted holds no code and no
+// result, so without this it renders as an empty box with nothing to type into.
+const CODE_CELL_EDITOR_OPEN_PROPS: NotebookComponentProps = { showFilters: true }
+
 export const MARKDOWN_NODE_DEFINITIONS: {
     tagName: string
     category: string
@@ -251,7 +256,11 @@ export const MARKDOWN_NODE_DEFINITIONS: {
         label: 'Python',
         insertCommand: {
             aliases: ['python', 'py'],
-            defaultProps: () => ({ ...getDefaultPropsForNodeType(NotebookNodeType.PythonV2), nodeId: uuid() }),
+            defaultProps: () => ({
+                ...getDefaultPropsForNodeType(NotebookNodeType.PythonV2),
+                ...CODE_CELL_EDITOR_OPEN_PROPS,
+                nodeId: uuid(),
+            }),
         },
     },
     { tagName: 'DuckSQL', category: 'SQL', label: 'SQL (DuckDB)' },
@@ -273,7 +282,11 @@ export const MARKDOWN_NODE_DEFINITIONS: {
             // New cells get a durable nodeId up front: parsed markdown block ids are content
             // fingerprints, so without a persisted id every prop change (running the cell
             // writes runId/result) would orphan the cell's run history and cross-cell refs.
-            defaultProps: () => ({ ...getDefaultPropsForNodeType(NotebookNodeType.SQLV2), nodeId: uuid() }),
+            defaultProps: () => ({
+                ...getDefaultPropsForNodeType(NotebookNodeType.SQLV2),
+                ...CODE_CELL_EDITOR_OPEN_PROPS,
+                nodeId: uuid(),
+            }),
         },
     },
     { tagName: 'RecordingPlaylist', category: 'Data', label: 'Session recordings' },
