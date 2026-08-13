@@ -60,6 +60,12 @@ _MASKING_INSTRUCTIONS = [
     # Timestamp must precede the number catch-all: \b never matches between a digit and
     # a letter, so "12T08" and "397557Z" in ISO-8601 bodies would survive \b\d+\b intact.
     MaskingInstruction(r"\b\d{4}-\d{2}-\d{2}[T ]\d{2}:\d{2}:\d{2}(?:[.,]\d+)?(?:Z|[+-]\d{2}:?\d{2})?", "timestamp"),
+    # klog / glog headers ("I0812 15:41:23.951822") carry no year and no separators, so the
+    # ISO pattern misses them and the date survives as a literal. The severity letter stays
+    # outside the mask, since it is content rather than a variable. The form gets its own
+    # placeholder: folded into <timestamp>, every ISO pivot would also accept a bare
+    # "NNNN HH:MM:SS" pair, such as a count followed by a time of day.
+    MaskingInstruction(r"(?<=\b[IWEF])\d{4} \d{2}:\d{2}:\d{2}(?:\.\d+)?", "klogtime"),
     MaskingInstruction(r"\b[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}\b", "uuid"),
     # A dotted quad after "<letter>/" is a version, not an address ("Chrome/139.0.0.0"), and
     # a \b-bounded match claims it as an <ip>. The guard keys on the letter so an address in
@@ -92,6 +98,7 @@ _PLACEHOLDER_PATTERNS = {
     "<*>": r"\S+",
     "<num>": r"\d+",
     "<timestamp>": r"\d{4}-\d{2}-\d{2}[T ]\d{2}:\d{2}:\d{2}(?:[.,]\d+)?(?:Z|[+-]\d{2}:?\d{2})?",
+    "<klogtime>": r"\d{4} \d{2}:\d{2}:\d{2}(?:\.\d+)?",
     "<uuid>": r"[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}",
     "<ip>": r"\d{1,3}\.\d{1,3}\.\d{1,3}\.\d{1,3}",
     "<version>": r"\d+(?:\.\d+)+",
