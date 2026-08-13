@@ -3,7 +3,9 @@ import posthoganalytics
 
 # Mirrors openai._base_client.DEFAULT_CONNECTION_LIMITS / anthropic._base_client.DEFAULT_CONNECTION_LIMITS.
 # Inlined rather than imported because both SDKs expose these via private `_base_client` modules.
-_PROVIDER_DEFAULT_LIMITS = httpx.Limits(max_connections=1000, max_keepalive_connections=100, keepalive_expiry=5.0)
+# Callers that pass their own `transport` must hand these to the transport instead: httpx applies
+# client-level limits only to the transport it builds itself, and silently ignores them otherwise.
+PROVIDER_DEFAULT_LIMITS = httpx.Limits(max_connections=1000, max_keepalive_connections=100, keepalive_expiry=5.0)
 
 
 def _tag_response(response: httpx.Response) -> None:
@@ -28,7 +30,7 @@ def tagged_http_client(
 ) -> httpx.Client:
     return httpx.Client(
         event_hooks={"response": [_tag_response]},
-        limits=_PROVIDER_DEFAULT_LIMITS,
+        limits=PROVIDER_DEFAULT_LIMITS,
         follow_redirects=follow_redirects,
         timeout=timeout if timeout is not None else httpx.Timeout(connect=5.0, read=600, write=600, pool=600),
         transport=transport,

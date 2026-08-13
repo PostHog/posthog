@@ -125,6 +125,20 @@ class TestOpenAICompatibleAdapter:
         assert mock_openai.call_args.kwargs["base_url"] == ALLOWED_BASE_URL
 
     @patch(OPENAI_PATCH_TARGET)
+    def test_list_models_handles_endpoints_that_omit_created(self, mock_openai):
+        # Endpoints are free to leave `created` out, and the SDK turns that into None. Sorting
+        # those raises a TypeError that the adapter would swallow into an empty model list.
+        undated, dated = MagicMock(), MagicMock()
+        undated.id, undated.created = "no-timestamp", None
+        dated.id, dated.created = "timestamped", 1700000000
+        mock_openai.return_value.models.list.return_value = [undated, dated]
+
+        assert OpenAICompatibleAdapter.list_models("test-key", base_url=ALLOWED_BASE_URL) == [
+            "timestamped",
+            "no-timestamp",
+        ]
+
+    @patch(OPENAI_PATCH_TARGET)
     def test_list_models_without_key_returns_empty(self, mock_openai):
         assert OpenAICompatibleAdapter.list_models(None, base_url=ALLOWED_BASE_URL) == []
         mock_openai.assert_not_called()
