@@ -4,6 +4,7 @@
         "backend:test": "pytest -c ../../pytest.ini --rootdir ../.. backend/ -v --tb=short"
     },
     "dependencies": {
+        "gpt-tokenizer": "3.4.0",
         "kea": "catalog:",
         "kea-loaders": "catalog:",
         "kea-router": "catalog:",

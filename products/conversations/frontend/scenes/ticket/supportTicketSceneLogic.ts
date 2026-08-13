@@ -60,6 +60,7 @@ import type { FeatureFlagsSet } from '../../../../../frontend/src/lib/logic/feat
 import type { TeamPublicType, TeamType } from '../../../../../frontend/src/types'
 import { assigneeSelectLogic } from '../../components/Assignee'
 import type { Assignee, TicketAssignee } from '../../components/Assignee'
+import { commentToChatMessage } from '../../components/Chat/chatTranscript'
 import { supportTicketCounterLogic } from '../../supportTicketCounterLogic'
 import { priorityOptions } from '../../types'
 import type {
@@ -1051,58 +1052,7 @@ export const supportTicketSceneLogic = kea<supportTicketSceneLogicType>([
                 const showAiNotes = !!featureFlags[FEATURE_FLAGS.PRODUCT_SUPPORT_AI_NOTES]
                 return messages
                     .filter((message) => showAiNotes || !isAiPrivateNote(message))
-                    .map((message) => {
-                        const authorType = message.item_context?.author_type || 'customer'
-                        let displayName = 'Anonymous user'
-                        if (message.created_by) {
-                            displayName =
-                                [message.created_by.first_name, message.created_by.last_name]
-                                    .filter(Boolean)
-                                    .join(' ') ||
-                                message.created_by.email ||
-                                'Support'
-                        } else if (authorType === 'AI') {
-                            displayName = 'PostHog Assistant'
-                        } else {
-                            // Per-message author identity (e.g. Zendesk import stores each comment's own
-                            // author) takes precedence over the ticket-level requester, so a reply from a
-                            // second requester or an agent shows the real name instead of the ticket owner.
-                            const messageAuthorName =
-                                message.item_context?.author_name ||
-                                message.item_context?.author_email ||
-                                message.item_context?.slack_author_name ||
-                                message.item_context?.teams_author_name ||
-                                message.item_context?.teams_author_email ||
-                                message.item_context?.email_from_name
-                            if (messageAuthorName) {
-                                displayName = messageAuthorName
-                            } else if (authorType === 'customer') {
-                                displayName =
-                                    ticket?.person?.properties?.name ||
-                                    ticket?.person?.properties?.email ||
-                                    ticket?.anonymous_traits?.name ||
-                                    ticket?.anonymous_traits?.email ||
-                                    'Anonymous user'
-                            } else {
-                                // Staff message with no resolvable author (e.g. deleted ex-agent).
-                                displayName = 'Support'
-                            }
-                        }
-
-                        return {
-                            id: message.id,
-                            content: message.content || '',
-                            richContent: message.rich_content,
-                            authorType: authorType === 'support' ? 'human' : authorType,
-                            authorName: displayName,
-                            createdBy: message.created_by,
-                            createdAt: message.created_at,
-                            isPrivate: message.item_context?.is_private || false,
-                            version: message.version,
-                            emailDeliveryStatus: message.item_context?.email_delivery_status,
-                            fromZendesk: message.item_context?.from_zendesk === true,
-                        }
-                    })
+                    .map((message) => commentToChatMessage(message, ticket))
             },
         ],
         eventsQuery: [
