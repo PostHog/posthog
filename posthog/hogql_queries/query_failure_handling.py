@@ -5,7 +5,7 @@ from rest_framework.exceptions import APIException
 
 from posthog.hogql.constants import LimitContext
 
-from posthog.clickhouse.client.execute import KillSwitchLevel, get_kill_switch_level
+from posthog.clickhouse.client.execute import KillSwitchLevel, get_kill_switch_level, get_team_kill_switch_level
 from posthog.errors import CHQueryErrorTooManyBytes
 from posthog.exceptions import (
     ClickHouseBytesLimitExceeded,
@@ -28,7 +28,7 @@ FAILURE_KIND_EXCEPTIONS: dict[FailureKind, type[APIException]] = {
 }
 
 
-def classify_failure(error: Exception) -> Optional[FailureKind]:
+def classify_failure(error: Exception, team_id: Optional[int] = None) -> Optional[FailureKind]:
     """Return the failure kind for errors that will repeat on retry, None for everything else."""
     if isinstance(error, ClickHouseQueryMemoryLimitExceeded):
         return "memory_limit" if error.is_per_query_limit else None
@@ -39,9 +39,13 @@ def classify_failure(error: Exception) -> Optional[FailureKind]:
     if isinstance(error, ClickHouseQuerySizeExceeded):
         return "query_size"
     if isinstance(error, CHQueryErrorTooManyBytes):
-        # Under an active kill switch the bytes cap is temporary cluster protection, so the
-        # failure says nothing about the query once the switch lifts.
-        return "too_many_bytes" if get_kill_switch_level() == KillSwitchLevel.OFF else None
+        # Under an active kill switch (global or team-scoped) the bytes cap is temporary
+        # cluster protection, so the failure says nothing about the query once it lifts.
+        if get_kill_switch_level() != KillSwitchLevel.OFF:
+            return None
+        if team_id is not None and get_team_kill_switch_level(team_id) != KillSwitchLevel.OFF:
+            return None
+        return "too_many_bytes"
     return None
 
 

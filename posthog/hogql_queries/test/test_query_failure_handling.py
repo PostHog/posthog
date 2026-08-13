@@ -80,6 +80,20 @@ class TestQueryFailureHandling(SimpleTestCase):
         with patch("posthog.hogql_queries.query_failure_handling.get_kill_switch_level", return_value=level):
             assert classify_failure(error) is None
 
+    @parameterized.expand([("light", KillSwitchLevel.LIGHT), ("full", KillSwitchLevel.FULL)])
+    def test_too_many_bytes_not_classified_under_team_kill_switch(self, _name, level):
+        error = wrap_clickhouse_query_error(ServerException("Limit for bytes to read exceeded", code=307))
+        with patch("posthog.hogql_queries.query_failure_handling.get_team_kill_switch_level", return_value=level):
+            assert classify_failure(error, team_id=42) is None
+
+    def test_too_many_bytes_classified_when_no_switch_covers_team(self):
+        error = wrap_clickhouse_query_error(ServerException("Limit for bytes to read exceeded", code=307))
+        with patch(
+            "posthog.hogql_queries.query_failure_handling.get_team_kill_switch_level",
+            return_value=KillSwitchLevel.OFF,
+        ):
+            assert classify_failure(error, team_id=42) == "too_many_bytes"
+
     @parameterized.expand(
         [
             ("interactive", None, BUDGET_INTERACTIVE),

@@ -2080,7 +2080,7 @@ class QueryRunner(ABC, Generic[Q, R, CR]):
                         capture_exception(exc)
                     if self._query_failure_caching_enabled:
                         # Transient error classes classify to None and are never recorded.
-                        failure_kind = classify_failure(exc)
+                        failure_kind = classify_failure(exc, self.team.pk)
                         if failure_kind is not None:
                             QueryCache(team_id=self.team.pk, cache_key=cache_key).record_failure(
                                 failure_kind, str(exc), budget=budget_for_limit_context(self.limit_context)
