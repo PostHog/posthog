@@ -81,7 +81,7 @@ class TestDirectDuckgresQuery(APIBaseTest):
     @staticmethod
     def _connection_with_result(rows: list[tuple[object, ...]], type_code: int = 23) -> tuple[MagicMock, MagicMock]:
         cursor = MagicMock()
-        cursor.fetchall.return_value = rows
+        cursor.fetchmany.return_value = rows
         column = MagicMock(type_code=type_code)
         column.name = "value"
         cursor.description = [column]
@@ -140,7 +140,7 @@ class TestDirectDuckgresQuery(APIBaseTest):
         self.assertIsNone(response.error)
         self.assertEqual(response.results, [])
         self.assertEqual(response.columns, [])
-        cursor.fetchall.assert_not_called()
+        cursor.fetchmany.assert_not_called()
         self.assertEqual(
             connect.call_args.kwargs["options"], "-c default_transaction_read_only=on -c statement_timeout=12000"
         )
@@ -159,13 +159,56 @@ class TestDirectDuckgresQuery(APIBaseTest):
         make_conninfo.assert_not_called()
         connect.assert_not_called()
 
+    @patch("posthog.hogql.direct_sql.duckgres_adapter.make_duckgres_conninfo")
+    @patch("posthog.hogql.direct_sql.duckgres_adapter.psycopg.connect")
+    def test_hides_missing_warehouse_configuration(self, connect, make_conninfo) -> None:
+        source = self._managed_source()
+        make_conninfo.side_effect = ValueError("No DuckgresServer configured for organization secret-org")
+
+        with self.assertRaisesMessage(ExposedHogQLError, "Managed warehouse is unavailable"):
+            HogQLQueryExecutor(
+                query="SELECT 1", team=self.team, connection_id=str(source.id), send_raw_query=True
+            ).execute()
+
+        connect.assert_not_called()
+
     @patch("posthog.hogql.direct_sql.duckgres_adapter.make_duckgres_conninfo", return_value="fresh-conninfo")
     @patch("posthog.hogql.direct_sql.duckgres_adapter.psycopg.connect")
-    def test_maps_driver_errors_to_a_single_safe_message(self, connect, _make_conninfo) -> None:
+    def test_hides_connection_details(self, connect, _make_conninfo) -> None:
         source = self._managed_source()
-        connect.side_effect = psycopg.OperationalError("query failed\nprivate driver detail")
+        connect.side_effect = psycopg.OperationalError(
+            "could not connect to host=private.internal\nprivate driver detail"
+        )
+
+        with self.assertRaisesMessage(ExposedHogQLError, "Could not connect to the managed warehouse"):
+            HogQLQueryExecutor(
+                query="SELECT 1", team=self.team, connection_id=str(source.id), send_raw_query=True
+            ).execute()
+
+    @patch("posthog.hogql.direct_sql.duckgres_adapter.make_duckgres_conninfo", return_value="fresh-conninfo")
+    @patch("posthog.hogql.direct_sql.duckgres_adapter.psycopg.connect")
+    def test_maps_query_errors_to_a_single_message(self, connect, _make_conninfo) -> None:
+        source = self._managed_source()
+        connection, cursor = self._connection_with_result([])
+        cursor.execute.side_effect = psycopg.ProgrammingError("query failed\nprivate driver detail")
+        connect.return_value.__enter__.return_value = connection
 
         with self.assertRaisesMessage(ExposedHogQLError, "query failed"):
             HogQLQueryExecutor(
                 query="SELECT 1", team=self.team, connection_id=str(source.id), send_raw_query=True
             ).execute()
+
+    @patch("posthog.hogql.direct_sql.duckgres_adapter.DIRECT_DUCKGRES_MAX_ROWS", 3)
+    @patch("posthog.hogql.direct_sql.duckgres_adapter.make_duckgres_conninfo", return_value="fresh-conninfo")
+    @patch("posthog.hogql.direct_sql.duckgres_adapter.psycopg.connect")
+    def test_rejects_raw_results_over_the_row_cap(self, connect, _make_conninfo) -> None:
+        source = self._managed_source()
+        connection, cursor = self._connection_with_result([(1,), (2,), (3,), (4,)])
+        connect.return_value.__enter__.return_value = connection
+
+        with self.assertRaisesMessage(ExposedHogQLError, "Add a LIMIT clause"):
+            HogQLQueryExecutor(
+                query="SELECT value FROM large_table", team=self.team, connection_id=str(source.id), send_raw_query=True
+            ).execute()
+
+        cursor.fetchmany.assert_called_once_with(4)

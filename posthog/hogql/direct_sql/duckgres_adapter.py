@@ -4,6 +4,7 @@ import psycopg
 from opentelemetry import trace
 
 from posthog.hogql.constants import HogQLDialect
+from posthog.hogql.direct_query_metrics import DIRECT_QUERY_ROW_CAP_EXCEEDED_TOTAL, observe_direct_query
 from posthog.hogql.direct_sql.adapter import DirectQueryRequest, DirectQueryResult
 from posthog.hogql.direct_sql.pgwire import (
     LenientDirectPostgresDateLoader,
@@ -21,6 +22,14 @@ if TYPE_CHECKING:
 
 DIRECT_DUCKGRES_CONNECT_TIMEOUT_SECONDS = 15
 DIRECT_DUCKGRES_DEFAULT_STATEMENT_TIMEOUT_SECONDS = 600
+DIRECT_DUCKGRES_MAX_ROWS = 1_000_000
+DIRECT_DUCKGRES_ROW_CAP_ERROR = (
+    f"Managed warehouse query returned more than {DIRECT_DUCKGRES_MAX_ROWS:,} rows. Add a LIMIT clause."
+)
+MANAGED_WAREHOUSE_UNAVAILABLE_ERROR = "Managed warehouse is unavailable. Contact support if the problem persists."
+MANAGED_WAREHOUSE_CONNECTION_ERROR = (
+    "Could not connect to the managed warehouse. Try again, and contact support if the problem persists."
+)
 
 
 def make_duckgres_conninfo(*, team_id: int, organization_id: str) -> str:
@@ -29,6 +38,14 @@ def make_duckgres_conninfo(*, team_id: int, organization_id: str) -> str:
     )
 
     return make_conninfo(team_id=team_id, organization_id=organization_id)
+
+
+def _fetch_capped_duckgres_rows(cursor: psycopg.Cursor) -> list:
+    rows = cursor.fetchmany(DIRECT_DUCKGRES_MAX_ROWS + 1)
+    if len(rows) > DIRECT_DUCKGRES_MAX_ROWS:
+        DIRECT_QUERY_ROW_CAP_EXCEEDED_TOTAL.labels(dialect="duckgres").inc()
+        raise ExposedHogQLError(DIRECT_DUCKGRES_ROW_CAP_ERROR)
+    return list(rows)
 
 
 class DuckgresRawAdapter:
@@ -51,16 +68,26 @@ class DuckgresRawAdapter:
         span.set_attribute("source_id", str(request.source.id))
 
         try:
-            with request.timings.measure("duckgres_execute"):
-                with request.timings.measure("duckgres_connect", emit_span=True):
-                    connection_context = psycopg.connect(
-                        make_duckgres_conninfo(
-                            team_id=request.team.pk,
-                            organization_id=str(request.team.organization_id),
-                        ),
-                        connect_timeout=DIRECT_DUCKGRES_CONNECT_TIMEOUT_SECONDS,
-                        options=(f"-c default_transaction_read_only=on -c statement_timeout={statement_timeout_ms}"),
-                    )
+            with request.timings.measure("duckgres_execute"), observe_direct_query("duckgres"):
+                try:
+                    with request.timings.measure("duckgres_connect", emit_span=True):
+                        connection_context = psycopg.connect(
+                            make_duckgres_conninfo(
+                                team_id=request.team.pk,
+                                organization_id=str(request.team.organization_id),
+                            ),
+                            connect_timeout=DIRECT_DUCKGRES_CONNECT_TIMEOUT_SECONDS,
+                            options=(
+                                f"-c default_transaction_read_only=on -c statement_timeout={statement_timeout_ms}"
+                            ),
+                        )
+                except ValueError as error:
+                    span.set_attribute("error_type", error.__class__.__name__)
+                    raise ExposedHogQLError(MANAGED_WAREHOUSE_UNAVAILABLE_ERROR) from error
+                except psycopg.Error as error:
+                    span.set_attribute("error_type", error.__class__.__name__)
+                    raise ExposedHogQLError(MANAGED_WAREHOUSE_CONNECTION_ERROR) from error
+
                 with connection_context as connection:
                     with request.timings.measure("duckgres_session_setup"):
                         connection.execute("USE ducklake")
@@ -72,7 +99,7 @@ class DuckgresRawAdapter:
                             )
                         description = cursor.description or []
                         with request.timings.measure("duckgres_query_fetch"):
-                            results = cursor.fetchall() if description else []
+                            results = _fetch_capped_duckgres_rows(cursor) if description else []
         except (psycopg.Error, ExposedHogQLError) as error:
             span.set_attribute("error_type", error.__class__.__name__)
             if request.debug:
