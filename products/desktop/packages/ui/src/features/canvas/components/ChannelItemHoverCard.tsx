@@ -5,6 +5,10 @@ import {
   ChannelItemPreview,
   type ChannelItemPreviewPayload,
 } from "@posthog/ui/features/canvas/components/ChannelItemPreview";
+import {
+  SpacePreview,
+  type SpacePreviewPayload,
+} from "@posthog/ui/features/canvas/components/SpacePreview";
 import type { TaskRowMenuProps } from "@posthog/ui/features/canvas/components/TaskRowMenu";
 import {
   createContext,
@@ -33,8 +37,18 @@ const CLOSE_DELAY_MS = 100;
  */
 const KEYBOARD_OPEN_DELAY_MS = 350;
 
+/**
+ * What the sidebar's one card can be showing. A space and a session are
+ * different cards, but they are the same popup being moved between rows: the
+ * pointer crosses from a space to a session inside it without either card
+ * re-waiting its open delay, which is the whole reason the handle is shared.
+ */
+export type ChannelPreviewPayload =
+  | ({ kind: "item" } & ChannelItemPreviewPayload)
+  | ({ kind: "space" } & SpacePreviewPayload);
+
 const ChannelItemPreviewHandleContext =
-  createContext<PreviewCard.Handle<ChannelItemPreviewPayload> | null>(null);
+  createContext<PreviewCard.Handle<ChannelPreviewPayload> | null>(null);
 
 /**
  * One hover card for every session row in the sidebar, rather than one per row.
@@ -56,7 +70,7 @@ export function ChannelItemPreviewCardProvider({
   children: ReactNode;
 }) {
   const [handle] = useState(() =>
-    PreviewCard.createHandle<ChannelItemPreviewPayload>(),
+    PreviewCard.createHandle<ChannelPreviewPayload>(),
   );
   const [open, setOpen] = useState(false);
   const [submenuOpen, setSubmenuOpen] = useState(false);
@@ -100,11 +114,21 @@ export function ChannelItemPreviewCardProvider({
                     />
                   }
                 >
-                  <ChannelItemPreview
-                    payload={payload}
-                    onAction={close}
-                    onSubmenuOpenChange={setSubmenuOpen}
-                  />
+                  {payload.kind === "space" ? (
+                    <SpacePreview payload={payload} onAction={close} />
+                  ) : (
+                    <ChannelItemPreview
+                      // Keyed on the row, so crossing to another one unmounts
+                      // the card rather than reusing it — which is what lowers
+                      // the submenu flag. Base UI reports no close on unmount,
+                      // and a flag left raised pins `open || submenuOpen` true
+                      // on a card nothing can then dismiss.
+                      key={payload.item.key}
+                      payload={payload}
+                      onAction={close}
+                      onSubmenuOpenChange={setSubmenuOpen}
+                    />
+                  )}
                 </PreviewCard.Popup>
               </PreviewCard.Positioner>
             </PreviewCard.Portal>
@@ -121,7 +145,7 @@ export function ChannelItemPreviewCardProvider({
  * has gone points at the wrong row.
  */
 function useKeyboardPreview(
-  handle: PreviewCard.Handle<ChannelItemPreviewPayload> | null,
+  handle: PreviewCard.Handle<ChannelPreviewPayload> | null,
   triggerId: string,
   highlighted: boolean,
 ): void {
@@ -165,7 +189,10 @@ export function ChannelItemHoverCard({
   // The card reads the row it is over off the active trigger, so what the row
   // has to say travels as the trigger's payload. Kept stable, because a new
   // identity writes it to the card's store again.
-  const payload = useMemo(() => ({ item, menu }), [item, menu]);
+  const payload = useMemo(
+    () => ({ kind: "item" as const, item, menu }),
+    [item, menu],
+  );
   // Ours rather than Base UI's own, because opening from the keyboard means
   // naming the trigger to open.
   const triggerId = useId();
@@ -174,6 +201,45 @@ export function ChannelItemHoverCard({
 
   // No provider, no card. A row still has its right-click menu, and every fact
   // the card names is on the row itself.
+  if (!handle) return row;
+
+  return (
+    <PreviewCard.Trigger
+      handle={handle}
+      payload={payload}
+      id={triggerId}
+      delay={OPEN_DELAY_MS}
+      closeDelay={CLOSE_DELAY_MS}
+      render={row}
+    />
+  );
+}
+
+/**
+ * A space row that shows the shared preview card while it is pointed at, with
+ * the space's own card in it rather than a session's.
+ *
+ * The same handle as the session rows on purpose: a space and the sessions
+ * under it are one list to the pointer, so crossing between them swaps the
+ * card's contents instead of closing one popup and opening another.
+ */
+export function SpaceHoverCard({
+  space,
+  children,
+}: {
+  space: SpacePreviewPayload;
+  children: ReactNode;
+}) {
+  const handle = useContext(ChannelItemPreviewHandleContext);
+  // Stable for the reason a session row's is: a new identity writes the payload
+  // to the card's store again. The caller memoizes what it passes.
+  const payload = useMemo(
+    () => ({ kind: "space" as const, ...space }),
+    [space],
+  );
+  const triggerId = useId();
+  const row = <div className="flex min-w-0">{children}</div>;
+
   if (!handle) return row;
 
   return (

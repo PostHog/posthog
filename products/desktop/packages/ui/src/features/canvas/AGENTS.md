@@ -101,6 +101,11 @@ The root `AGENTS.md` architecture rules still apply.
   Two things keep that working: a row's payload has to stay referentially stable
   (memoize the `menu`), and a surface that lists rows has to sit under the
   provider, or its rows get no card at all.
+- **A space has a card too, on the same handle.** `SpaceHoverCard` is a trigger on the one popup the session rows use, so crossing from a space to a session under it swaps the card's contents instead of closing one popup and opening another. The payload is a discriminated union (`ChannelPreviewPayload`), and `kind` picks `SpacePreview` or `ChannelItemPreview`.
+  It shows who has been working in the space, what it is wired to, and the counts the row draws as dots: the creator leads the avatar group wearing a crown, then whoever ran the newest sessions.
+  The people are not a membership list — the backend has none. They come from `useSpaceOverview`, off the same `space-tree-tasks` page the tree's rows are built from, which the row's own hover prefetch has already warmed, so the card costs no request.
+  The group is `reverse`d, so each face tucks behind the one after it — which puts the creator's right corner under its neighbour, so the crown goes on its left corner instead.
+  `useChannelActions` memoizes its action list, and `ChannelSection` memoizes the payload, because both travel to the card's store on every identity change. Its memo comparator also compares `repositories` by content — the channel list is polled and hands out a new array each time.
 - **The card names the row's marks rather than inventing a second scale.**
   It spells out the dot's own label and the badges' (`taskDot`, `taskBadges`),
   and shows the last thing the agent said.
@@ -111,6 +116,12 @@ The root `AGENTS.md` architecture rules still apply.
   this window has the session, otherwise the closing prose a cloud run persists
   to `latest_run.output.final_message`.
   Neither costs a request.
+- **The card's badges are buttons where they point somewhere; the row's never are.** A row is a `<button>`, so its badges stay spans — the card isn't, so a badge carrying a `url` opens it externally and is underlined, dotted, to say so.
+  `taskBadges` sets the url on the PR badges, and on the origin badge for Slack — the one origin that hands back a place to go (`slack_thread_url` off the run's state), rather than just naming itself.
+  A PR's url reaches the badge by two routes: a cloud run's `pr_url`, or the one the host cached against the task, which `getTaskPrStatus` returns alongside the state so a local PR is clickable too.
+- **The card's `Item`s are `flex-nowrap`, and neither card has a gutter.** quill's `Item` wraps, and a message with a url in it has a min-content wider than the card, which dropped the whole text column onto a line of its own and out past the card's edge.
+  `min-w-0` on the `ItemContent` and `break-words` on the message keep it inside. The `Crowded` story is that case.
+  A row's mark rides beside the title rather than in an `ItemMedia` column: one glyph on one line does not earn an indent down the whole height of the card.
 - **A row's own colour utilities outrank quill's highlight styling.** quill
   brings a highlighted option's contents to `--foreground` with
   `.quill-autocomplete__item[data-highlighted] *`, but that rule lives in the

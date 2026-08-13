@@ -36,6 +36,7 @@ import {
   taskDot,
 } from "@posthog/ui/features/sidebar/components/items/taskStatusVocabulary";
 import { SidebarItem } from "@posthog/ui/features/sidebar/components/SidebarItem";
+import { SESSION_ROW_ATTRIBUTE } from "@posthog/ui/features/sidebar/useMarqueeSelection";
 import {
   type DragEvent,
   type ReactNode,
@@ -139,8 +140,10 @@ export function ChannelItemRow({
   item,
   channelId,
   isActive,
+  isSelected = false,
   actions,
   isEditing = false,
+  onClick,
   showPinBadge = true,
   onRename,
   onAddToCommandCenter,
@@ -151,8 +154,12 @@ export function ChannelItemRow({
   /** The space this row is listed under, ticked in the menu's "File to…". */
   channelId?: string;
   isActive: boolean;
+  /** Part of a multi-session selection, so the row shows as picked. */
+  isSelected?: boolean;
   actions: ChannelItemActions;
   isEditing?: boolean;
+  /** Takes over the row's click, e.g. to modifier-click a selection. Falls back to opening it. */
+  onClick?: (e: React.MouseEvent) => void;
   /** False under a "Pinned" header, which says it for every row beneath it. */
   showPinBadge?: boolean;
   /** Puts the row into inline-rename mode. Absent for canvases. */
@@ -241,9 +248,13 @@ export function ChannelItemRow({
         // A non-string label opts out of SidebarItem's truncation tooltip.
         label={<span>{item.title}</span>}
         isActive={isActive}
+        isSelected={isSelected}
+        // Lets a drag-selection find the row and its session; canvases are not
+        // selectable, so they stay unmarked and the marquee passes over them.
+        {...(item.kind === "task" ? { [SESSION_ROW_ATTRIBUTE]: item.id } : {})}
         draggable={item.kind === "task"}
         onDragStart={handleDragStart}
-        onClick={() => actions.open(item)}
+        onClick={(e) => (onClick ? onClick(e) : actions.open(item))}
         endContent={
           <span className={TRAILING_CLASS}>
             {/* Badges take the timestamp's slot on a task row: the row's

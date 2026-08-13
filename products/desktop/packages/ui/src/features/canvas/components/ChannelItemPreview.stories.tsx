@@ -52,7 +52,7 @@ function run(overrides: Partial<TaskRun>): TaskRun {
   };
 }
 
-function task(latestRun: TaskRun): Task {
+function task(latestRun: TaskRun, overrides: Partial<Task> = {}): Task {
   return {
     id: "task-1",
     task_number: 41,
@@ -63,10 +63,15 @@ function task(latestRun: TaskRun): Task {
     updated_at: "2026-07-17T12:00:00.000Z",
     origin_product: "user_created",
     latest_run: latestRun,
+    ...overrides,
   };
 }
 
-function item(latestRun: TaskRun): ChannelItemModel {
+function item(
+  latestRun: TaskRun,
+  overrides: Partial<ChannelItemModel> = {},
+  taskOverrides: Partial<Task> = {},
+): ChannelItemModel {
   return {
     key: "task:task-1",
     kind: "task",
@@ -90,7 +95,8 @@ function item(latestRun: TaskRun): ChannelItemModel {
     authorName: null,
     authorUuid: "user-uuid",
     templateId: null,
-    task: task(latestRun),
+    task: task(latestRun, taskOverrides),
+    ...overrides,
   };
 }
 
@@ -133,4 +139,28 @@ export const Finished: Story = {
 /** A sandbox coming up: the dot spins and there is nothing said yet. */
 export const Starting: Story = {
   args: { item: item(run({ status: "queued", output: null })) },
+};
+
+/**
+ * The widest the card gets: a title that wraps, a full message, and both an
+ * origin and a PR badge, each pointing somewhere. Every line still has to start
+ * in the title's column.
+ */
+export const Crowded: Story = {
+  args: {
+    item: item(
+      run({
+        output: {
+          final_message:
+            "That's exactly what's on the branch now — light mode animated, dark mode the static white mark. Nothing further to change; https://github.com/PostHog/posthog/pull/80979 covers the rest of it.",
+          pr_url: "https://github.com/posthog/posthog/pull/1",
+        },
+        state: {
+          slack_thread_url: "https://example.slack.com/archives/C1/p1",
+        },
+      }),
+      { title: "Fix loading screen logo color in dark mode" },
+      { origin_product: "slack" },
+    ),
+  },
 };
