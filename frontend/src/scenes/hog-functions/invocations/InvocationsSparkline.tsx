@@ -1,3 +1,4 @@
+import { useValues } from 'kea'
 import { useCallback, useMemo, useState } from 'react'
 
 import { IconChevronDown } from '@posthog/icons'
@@ -16,8 +17,9 @@ import { getColorVar } from 'lib/colors'
 import { dayjs } from 'lib/dayjs'
 import { cn } from 'lib/utils/css-classes'
 import { humanFriendlyNumber } from 'lib/utils/numbers'
+import { teamLogic } from 'scenes/teamLogic'
 
-import { SparklineData } from './hogInvocationsLogic'
+import { projectTimezoneOf, SparklineData } from './hogInvocationsLogic'
 
 interface InvocationsSparklineProps {
     data: SparklineData | null
@@ -31,6 +33,11 @@ export function InvocationsSparkline({
     onDateRangeChange,
 }: InvocationsSparklineProps): JSX.Element | null {
     const [collapsed, setCollapsed] = useState(false)
+    const { currentTeam } = useValues(teamLogic)
+    // Buckets are cut in the project's timezone, so label them there too: in the viewer's zone a
+    // project-local day can read as the day before. Resolved the same way the buckets are, or the
+    // labels would fall back to UTC while the team is still loading and the bars would not.
+    const projectTimezone = projectTimezoneOf(currentTeam)
 
     const dates = useMemo(() => data?.dates ?? [], [data?.dates])
 
@@ -48,9 +55,9 @@ export function InvocationsSparkline({
     const theme = useChartTheme()
     const config = useChartConfig<TimeSeriesBarChartConfig>(
         () => ({
-            xAxis: { tickFormatter: createXAxisTickCallback({ allDays: dates, timezone: dayjs.tz.guess() }) },
+            xAxis: { tickFormatter: createXAxisTickCallback({ allDays: dates, timezone: projectTimezone }) },
         }),
-        [dates]
+        [dates, projectTimezone]
     )
 
     const onDateRangeZoom = useCallback(
@@ -97,7 +104,9 @@ export function InvocationsSparkline({
                                     hideZeroRows
                                     sortedByValue
                                     valueFormatter={(value) => humanFriendlyNumber(value)}
-                                    labelFormatter={(label) => dayjs(label).format('D MMM YYYY HH:mm')}
+                                    labelFormatter={(label) =>
+                                        dayjs(label).tz(projectTimezone).format('D MMM YYYY HH:mm')
+                                    }
                                 />
                             )}
                         />
