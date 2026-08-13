@@ -139,11 +139,10 @@ def write_blob(*, team_id: int, cache_key: str, serialized: bytes, mode: QueryCa
     object_key = f"{settings.OBJECT_STORAGE_S3_QUERY_CACHE_FOLDER}/{team_id}/{cache_key}"
     try:
         payload = zstd.compress(serialized)
-        # The ttl_days tag drives S3 lifecycle rules, which are garbage collection only: the Redis
-        # pointer's TTL is what expires the entry. A new ttl_days value still needs a matching
-        # lifecycle rule first, or its objects are never deleted; see
-        # docs/internal/workflows/s3-query-cache-setup.md.
-        extras = {"Tagging": f"ttl_days={settings.CACHED_RESULTS_TTL_DAYS}&cache_type=query_data&team_id={team_id}"}
+        # The bucket's flat lifecycle rule garbage-collects blobs after CACHED_RESULTS_TTL_DAYS;
+        # the Redis pointer's TTL is what actually expires the entry. Tags are for attribution
+        # only. See docs/internal/workflows/s3-query-cache-setup.md.
+        extras = {"Tagging": f"cache_type=query_data&team_id={team_id}"}
         with S3_WRITE_DURATION.time():
             object_storage_client().write(bucket=bucket, key=object_key, content=payload, extras=extras)
     except Exception:
