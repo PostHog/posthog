@@ -22,7 +22,7 @@ import { mergeValueDomains, type GoalLineConfig } from '../../utils/goal-lines'
 import { useTimeSeriesTooltipConfig, type XAxisConfig, type YAxisConfig } from '../../utils/use-axis-formatters'
 import { BarChart } from '../BarChart/BarChart'
 import { useTrendLineSeries, type TrendLineConfig } from '../utils/use-derived-series'
-import { useGoalLines, useTimeSeries } from '../utils/use-time-series'
+import { useGoalLines, useTimeSeries, useValueBounds } from '../utils/use-time-series'
 import type { ValueLabelsConfig } from '../utils/use-value-labels'
 
 export interface TimeSeriesBarChartConfig {
@@ -143,6 +143,7 @@ export function TimeSeriesBarChart<Meta = unknown>({
         () => mergeValueDomains(valueDomain, goalLineDomain),
         [valueDomain, goalLineDomain]
     )
+    const valueBounds = useValueBounds(primaryYAxis)
 
     const trendSeries = useTrendLineSeries(visibleSeries, trendLines)
 
@@ -169,6 +170,7 @@ export function TimeSeriesBarChart<Meta = unknown>({
         bars: {
             divergingStack,
             valueDomain: resolvedValueDomain,
+            valueBounds,
             fillStyle,
             bandPadding,
             minBarSize,
