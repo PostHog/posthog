@@ -2666,6 +2666,31 @@ def append_task_run_log(
     return _task_run_detail_to_dto(run)
 
 
+def clear_task_run_conversation(
+    run_id: str | UUID, task_id: str | UUID, team_id: int
+) -> tuple[Literal["cleared", "not_found", "not_terminal"], contracts.TaskRunDetailDTO | None]:
+    """Write a `/clear` boundary into a finished run's log, for the next run to resume from.
+
+    Only for a finished run: a live one has a sandbox that owns the clear (and a writer
+    streaming into the same log object, which this read-modify-write append would race),
+    so the caller sends `/clear` to it as an ordinary message instead.
+    """
+    run = _get_visible_run(run_id, task_id, team_id)
+    if run is None:
+        return "not_found", None
+    with transaction.atomic():
+        # Hold the row lock across the append: resume_task_run_in_cloud locks this same
+        # row to flip a finished run back to QUEUED, so locking here keeps the terminal
+        # check true while the boundary is written, and serializes concurrent clears so
+        # the dedup in emit_conversation_cleared holds. The block writes nothing to
+        # Postgres; the lock is mutual exclusion only.
+        run = _task_run_queryset().select_for_update(of=("self",)).get(pk=run.pk)
+        if not run.is_terminal:
+            return "not_terminal", None
+        run.emit_conversation_cleared()
+    return "cleared", _task_run_detail_to_dto(run)
+
+
 def ensure_task_run_session(run_id: str | UUID) -> UUID:
     with transaction.atomic():
         run = TaskRun.objects.select_for_update(of=("self",)).select_related("task__team").get(id=run_id)
