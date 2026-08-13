@@ -1,3 +1,5 @@
+import re
+import random
 from typing import cast
 
 from posthog.test.base import BaseTest, ClickhouseTestMixin
@@ -213,6 +215,22 @@ class TestChainSplitting(SimpleTestCase):
         # position when a match fails and re-reads the rest of the run, which costs time quadratic in
         # an attribute run the event sender controls. These cases pin the parse that scan has to keep.
         assert list(iter_attributes(source)) == expected
+
+    def test_attribute_parsing_matches_the_regex_it_replaced(self) -> None:
+        # The scan replaced a regex that had parsed every stored chain until now, so any input that
+        # parses differently changes how existing events read. A hand-picked set missed a real case
+        # once already: a value that ends where the next one begins (`x="v""k="1""`) left the key's
+        # leading quote behind, which turned junk into the reserved `nth-child` key and made
+        # `int()` raise on a stored event.
+        replaced_regex = re.compile(r"(?P<attribute>(?P<key>.*?)\=\"(?P<value>.*?[^\\])\")", re.MULTILINE)
+        alphabet = ["a", "b", "=", '"', "\\", ";", " ", "1", "-", "n"]
+        generator = random.Random(1234)
+
+        for _ in range(5000):
+            source = "".join(generator.choice(alphabet) for _ in range(generator.randint(0, 18)))
+            expected = [(m.group("key"), m.group("value")) for m in replaced_regex.finditer(source)]
+
+            assert list(iter_attributes(source)) == expected, source
 
     def test_oversized_chain_is_truncated_rather_than_parsed_whole(self) -> None:
         segments = MAX_ELEMENTS_CHAIN_LENGTH // (len(SEGMENT) + 1)

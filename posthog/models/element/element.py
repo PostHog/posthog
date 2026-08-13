@@ -52,22 +52,21 @@ def iter_attributes(source: str) -> Iterator[tuple[str, str]]:
     run's length for an element that holds no `="` at all, which is a shape the sender controls.
     `str.find` jumps straight to the next candidate instead, so the whole run is read once.
     """
-    index = 0
+    # `key_start` is where the previous pair ended, and the key is everything from there. `search`
+    # runs ahead of it over `="` pairs that turn out to have no value, so that text lands in the key
+    # rather than being dropped, which is where the regex's leftmost match would have started too.
+    key_start = 0
+    search = 0
     while True:
-        equals = source.find('="', index)
+        equals = source.find('="', search)
         if equals < 0:
             return
-        # The key runs back to the previous attribute's closing quote, matching what the lazy
-        # key of the original single regex consumed.
-        key_start = equals
-        while key_start > index and source[key_start - 1] != '"':
-            key_start -= 1
         value_match = _ATTRIBUTE_VALUE_REGEX.match(source, equals + 2)
         if value_match is None:
-            index = equals + 2
+            search = equals + 2
             continue
         yield source[key_start:equals], value_match.group(1)
-        index = value_match.end()
+        key_start = search = value_match.end()
 
 
 def _split_chain(chain: str) -> list[str]:
