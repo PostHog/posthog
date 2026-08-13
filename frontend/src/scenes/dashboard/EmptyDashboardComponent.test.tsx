@@ -65,10 +65,10 @@ describe('EmptyDashboardComponent', () => {
         cleanup()
     })
 
-    function renderEmptyState(opts: { widgetsEnabled?: boolean } = {}): {
+    function renderEmptyState(opts: { widgetsEnabled?: boolean; canEdit?: boolean } = {}): {
         logic: ReturnType<typeof dashboardLogic.build>
     } {
-        const { widgetsEnabled = false } = opts
+        const { widgetsEnabled = false, canEdit = true } = opts
 
         featureFlagLogic.actions.setFeatureFlags([FEATURE_FLAGS.DASHBOARD_WIDGETS], {
             [FEATURE_FLAGS.DASHBOARD_WIDGETS]: widgetsEnabled,
@@ -79,7 +79,7 @@ describe('EmptyDashboardComponent', () => {
 
         render(
             <BindLogic logic={dashboardLogic} props={{ id: MOCK_DASHBOARD.id, dashboard: MOCK_DASHBOARD }}>
-                <EmptyDashboardComponent loading={false} canEdit={true} />
+                <EmptyDashboardComponent loading={false} canEdit={canEdit} />
             </BindLogic>
         )
 
@@ -102,6 +102,14 @@ describe('EmptyDashboardComponent', () => {
         await userEvent.click(document.querySelector('[data-attr="dashboard-add-graph-header"]')!)
 
         expect(addInsightToDashboardLogic.values.addInsightToDashboardModalVisible).toBe(true)
+
+        logic.unmount()
+    })
+
+    it('disables the dropdown when the user cannot edit the dashboard', () => {
+        const { logic } = renderEmptyState({ canEdit: false })
+
+        expect(document.querySelector('[data-attr="dashboard-add-dropdown"]')).toHaveAttribute('aria-disabled', 'true')
 
         logic.unmount()
     })

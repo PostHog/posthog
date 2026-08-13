@@ -85,7 +85,8 @@ function DashboardEmptyActions({
                                         />
                                     ),
                                 },
-                                disabled: false,
+                                disabled: !canEdit,
+                                disabledReason: canEdit ? null : DASHBOARD_CANNOT_EDIT_MESSAGE,
                                 'data-attr': 'dashboard-add-dropdown',
                             }}
                         >

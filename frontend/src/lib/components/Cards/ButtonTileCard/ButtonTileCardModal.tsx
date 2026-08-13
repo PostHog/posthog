@@ -116,7 +116,7 @@ export function ButtonTileCardModal({
                     </Field>
                     <div>
                         <h4 className="mb-2">Preview</h4>
-                        <div className="rounded bg-surface-secondary p-3">
+                        <div className="pointer-events-none rounded bg-surface-secondary p-3">
                             <ButtonTileCard
                                 buttonTile={previewTile}
                                 placement={DashboardPlacement.Dashboard}
