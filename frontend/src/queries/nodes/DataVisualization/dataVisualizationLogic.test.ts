@@ -397,7 +397,7 @@ describe('dataVisualizationLogic', () => {
         })
     })
 
-    it('keeps a numeric x-axis when a scatter plot is picked', async () => {
+    it('keeps a numeric x-axis and drops it from the y-series when a scatter plot is picked', async () => {
         dataNodeLogic({ key: testKey, query: defaultQuery.source, dataNodeCollectionId }).actions.setResponse({
             columns: ['session_duration', 'revenue'],
             types: [
@@ -410,7 +410,43 @@ describe('dataVisualizationLogic', () => {
         logic.actions.updateXSeries('revenue')
         logic.actions.setVisualizationType(ChartDisplayType.ScatterPlot)
 
-        await expectLogic(logic).toMatchValues({ selectedXAxis: 'revenue' })
+        // The numeric x is kept, but must be removed from the y-series so it doesn't plot against itself.
+        await expectLogic(logic).toMatchValues({
+            selectedXAxis: 'revenue',
+            selectedYAxis: [expect.objectContaining({ name: 'session_duration' })],
+        })
+    })
+
+    it('re-resolves a scatter x-axis when an all-numeric query changes columns', async () => {
+        const dataNode = dataNodeLogic({ key: testKey, query: defaultQuery.source, dataNodeCollectionId })
+        dataNode.actions.setResponse({
+            columns: ['a', 'b'],
+            types: [
+                ['a', 'Int64'],
+                ['b', 'Int64'],
+            ],
+            results: [[1, 2]],
+        })
+
+        logic.actions.setVisualizationType(ChartDisplayType.ScatterPlot)
+        await expectLogic(logic).toMatchValues({ selectedXAxis: 'a' })
+
+        // Editing the query to add another numeric column re-runs the columns subscription. Without an
+        // explicit scatter resolution there, x would be left null and every point would drop.
+        dataNode.actions.setResponse({
+            columns: ['a', 'b', 'c'],
+            types: [
+                ['a', 'Int64'],
+                ['b', 'Int64'],
+                ['c', 'Int64'],
+            ],
+            results: [[1, 2, 3]],
+        })
+
+        await expectLogic(logic).toMatchValues({
+            selectedXAxis: 'a',
+            selectedYAxis: [expect.objectContaining({ name: 'b' }), expect.objectContaining({ name: 'c' })],
+        })
     })
 
     it('auto-fills 2d heatmap columns when selecting auto on heatmap data', async () => {
