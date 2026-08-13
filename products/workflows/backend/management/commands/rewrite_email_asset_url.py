@@ -4,7 +4,7 @@ from dataclasses import dataclass
 from typing import Any, Final
 
 from django.core.management.base import BaseCommand, CommandError
-from django.db import models, transaction
+from django.db import models
 from django.db.models.functions import Cast
 from django.utils import timezone
 
@@ -199,7 +199,8 @@ class Command(BaseCommand):
 
         # One row per save, never bulk_update: the post_save signal is what publishes
         # reload-hog-flows / reload-hog-functions to the workers, which otherwise keep serving the
-        # old blob from their cache.
-        with transaction.atomic():
-            row.save(update_fields=[*changed_fields, *timestamp_fields])
+        # old blob from their cache. The save runs in autocommit (no wrapping transaction) so the
+        # UPDATE commits before the receiver publishes; otherwise a worker could re-read the
+        # pre-commit row and cache the old blob for another TTL.
+        row.save(update_fields=[*changed_fields, *timestamp_fields])
         return occurrences
