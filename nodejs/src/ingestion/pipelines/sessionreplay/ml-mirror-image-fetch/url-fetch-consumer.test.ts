@@ -1,9 +1,9 @@
 import { Message } from 'node-rdkafka'
 
 import { FetchCandidate } from './collected-urls-record'
+import { CrawlHistoryReadResult, CrawlHistoryStore, crawlHistoryKey } from './crawl-history'
 import { AttemptOutcome, FetchPass } from './fetch-runner'
 import { UrlFetchConsumer } from './url-fetch-consumer'
-import { SightingReadResult, SightingStore, sightingKey } from './url-sightings'
 
 const TEAM = '0123456789abcdef0123456789abcdef'
 const OTHER_TEAM = 'fedcba9876543210fedcba9876543210'
@@ -16,7 +16,7 @@ function ref(name: string, team: string = TEAM): string {
     return `imageurl:${team}:${hash(name)}`
 }
 
-class FakeSightings implements SightingStore {
+class FakeCrawlHistory implements CrawlHistoryStore {
     public readonly stored = new Map<string, number>()
     public readFailure: Error | null = null
     public writeFailure: Error | null = null
@@ -26,7 +26,7 @@ class FakeSightings implements SightingStore {
     public partialReadFailures = new Set<string>()
     public reads = 0
 
-    read(keys: string[]): Promise<SightingReadResult> {
+    read(keys: string[]): Promise<CrawlHistoryReadResult> {
         this.reads++
         if (this.readFailure) {
             return Promise.reject(this.readFailure)
@@ -89,18 +89,18 @@ function url(name: string, host = 'cdn.example.com'): { ref: string; url: string
 }
 
 describe('UrlFetchConsumer', () => {
-    let sightings: FakeSightings
+    let crawlHistory: FakeCrawlHistory
     let consumer: UrlFetchConsumer
 
     const build = (dedupMaxRefs = 1000): UrlFetchConsumer =>
-        new UrlFetchConsumer(sightings, {
+        new UrlFetchConsumer(crawlHistory, {
             maxAgeMs: 6 * 60 * 60 * 1000,
             dedupMaxRefs,
             dryRun: true,
         })
 
     beforeEach(() => {
-        sightings = new FakeSightings()
+        crawlHistory = new FakeCrawlHistory()
         consumer = build()
     })
 
@@ -109,7 +109,7 @@ describe('UrlFetchConsumer', () => {
     it.each([NaN, 0, -1])('refuses to start with an age limit of %p', (maxAgeMs) => {
         // The knob arrives from env, where a typo parses to NaN. A NaN limit makes every comparison
         // false, so the lane silently stops shedding a backlog instead of failing.
-        expect(() => new UrlFetchConsumer(sightings, { maxAgeMs, dedupMaxRefs: 10, dryRun: true })).toThrow(
+        expect(() => new UrlFetchConsumer(crawlHistory, { maxAgeMs, dedupMaxRefs: 10, dryRun: true })).toThrow(
             'SESSION_RECORDING_ML_IMAGE_FETCH_MAX_AGE_MS'
         )
     })
@@ -117,33 +117,33 @@ describe('UrlFetchConsumer', () => {
     it('writes one ledger entry per URL it would fetch', async () => {
         await consumer.handleBatch([record([url('a'), url('b')])], NOW)
 
-        expect([...sightings.stored.keys()].map(hashOf).sort()).toEqual([hash('a'), hash('b')])
+        expect([...crawlHistory.stored.keys()].map(hashOf).sort()).toEqual([hash('a'), hash('b')])
     })
 
     it('does not re-record a URL another pod already reached', async () => {
-        sightings.stored.set(sightingKey(TEAM, hash('a')), NOW - 1000)
+        crawlHistory.stored.set(crawlHistoryKey(TEAM, hash('a')), NOW - 1000)
 
         await consumer.handleBatch([record([url('a'), url('b')])], NOW)
 
         // 'a' keeps the earlier entry rather than being counted and written again, which is what
-        // makes the ledger measure the hit rate instead of the sighting rate.
-        expect(sightings.stored.get(sightingKey(TEAM, hash('a')))).toBe(NOW - 1000)
-        expect(sightings.stored.get(sightingKey(TEAM, hash('b')))).toBe(NOW)
+        // makes the ledger measure the hit rate instead of the rate of first arrivals.
+        expect(crawlHistory.stored.get(crawlHistoryKey(TEAM, hash('a')))).toBe(NOW - 1000)
+        expect(crawlHistory.stored.get(crawlHistoryKey(TEAM, hash('b')))).toBe(NOW)
     })
 
     it('collapses a repeated URL inside one batch into a single ledger write', async () => {
         await consumer.handleBatch([record([url('a')]), record([url('a')]), record([url('a')])], NOW)
 
-        expect([...sightings.stored.keys()]).toEqual([sightingKey(TEAM, hash('a'))])
+        expect([...crawlHistory.stored.keys()]).toEqual([crawlHistoryKey(TEAM, hash('a'))])
     })
 
     it('does not consult the store for a URL this pod already handled', async () => {
         await consumer.handleBatch([record([url('a')])], NOW)
-        const readsAfterFirst = sightings.reads
+        const readsAfterFirst = crawlHistory.reads
 
         await consumer.handleBatch([record([url('a')])], NOW)
 
-        expect(sightings.reads).toBe(readsAfterFirst)
+        expect(crawlHistory.reads).toBe(readsAfterFirst)
     })
 
     it('drops a URL older than the age limit without recording it', async () => {
@@ -151,7 +151,7 @@ describe('UrlFetchConsumer', () => {
 
         await consumer.handleBatch([record([url('a')], { capturedAtMs: sevenHoursAgo })], NOW)
 
-        expect(sightings.stored.size).toBe(0)
+        expect(crawlHistory.stored.size).toBe(0)
     })
 
     it.each([
@@ -162,7 +162,7 @@ describe('UrlFetchConsumer', () => {
     ])('drops %s without throwing', async (_name, message) => {
         await expect(consumer.handleBatch([message], NOW)).resolves.toBeUndefined()
 
-        expect(sightings.stored.size).toBe(0)
+        expect(crawlHistory.stored.size).toBe(0)
     })
 
     it.each([
@@ -182,19 +182,19 @@ describe('UrlFetchConsumer', () => {
     ])('rejects %s while keeping the rest of the record', async (_name, bad) => {
         await consumer.handleBatch([record([bad as ReturnType<typeof url>, url('good')])], NOW)
 
-        expect([...sightings.stored.keys()].map(hashOf)).toEqual([hash('good')])
+        expect([...crawlHistory.stored.keys()].map(hashOf)).toEqual([hash('good')])
     })
 
     it('does not mark the pod cache for a URL whose write failed', async () => {
-        sightings.partialWriteFailures.add(sightingKey(TEAM, hash('a')))
+        crawlHistory.partialWriteFailures.add(crawlHistoryKey(TEAM, hash('a')))
 
         await consumer.handleBatch([record([url('a')])], NOW)
-        const readsAfterFirst = sightings.reads
+        const readsAfterFirst = crawlHistory.reads
         await consumer.handleBatch([record([url('a')])], NOW)
 
-        // The URL is in no durable store, so the next sighting has to reach the store again rather
+        // The URL is in no durable store, so the next arrival has to reach the store again rather
         // than be suppressed locally and vanish from the measurement.
-        expect(sightings.reads).toBe(readsAfterFirst + 1)
+        expect(crawlHistory.reads).toBe(readsAfterFirst + 1)
     })
 
     it('rejects a host outside the domain the record is keyed by', async () => {
@@ -204,7 +204,7 @@ describe('UrlFetchConsumer', () => {
             NOW
         )
 
-        expect([...sightings.stored.keys()].map(hashOf)).toEqual([hash('good')])
+        expect([...crawlHistory.stored.keys()].map(hashOf)).toEqual([hash('good')])
     })
 
     it('drops a record carrying more URLs than any producer sends', async () => {
@@ -212,34 +212,34 @@ describe('UrlFetchConsumer', () => {
 
         await consumer.handleBatch([record(many)], NOW)
 
-        expect(sightings.stored.size).toBe(0)
+        expect(crawlHistory.stored.size).toBe(0)
     })
 
     it('holds back a URL whose dedup read failed, rather than treating it as new', async () => {
         // Treating it as new would fetch it. A store outage would then make every batch send the
         // full un-deduped volume at customer sites, because our own store is down.
-        sightings.partialReadFailures.add(sightingKey(TEAM, hash('a')))
+        crawlHistory.partialReadFailures.add(crawlHistoryKey(TEAM, hash('a')))
 
         await consumer.handleBatch([record([url('a'), url('b')])], NOW)
 
-        expect([...sightings.stored.keys()].map(hashOf)).toEqual([hash('b')])
+        expect([...crawlHistory.stored.keys()].map(hashOf)).toEqual([hash('b')])
     })
 
     it('survives a store read failure without stalling the partition', async () => {
-        sightings.readFailure = new Error('redis down')
+        crawlHistory.readFailure = new Error('redis down')
 
         await expect(consumer.handleBatch([record([url('a')])], NOW)).resolves.toBeUndefined()
-        expect(sightings.stored.size).toBe(0)
+        expect(crawlHistory.stored.size).toBe(0)
     })
 
     it('survives a store write failure', async () => {
-        sightings.writeFailure = new Error('redis down')
+        crawlHistory.writeFailure = new Error('redis down')
 
         await expect(consumer.handleBatch([record([url('a')])], NOW)).resolves.toBeUndefined()
     })
 
     it('refuses to leave dry run without a way to send the requests', () => {
-        expect(() => new UrlFetchConsumer(sightings, { maxAgeMs: 1000, dedupMaxRefs: 10, dryRun: false })).toThrow(
+        expect(() => new UrlFetchConsumer(crawlHistory, { maxAgeMs: 1000, dedupMaxRefs: 10, dryRun: false })).toThrow(
             'fetch runner'
         )
     })
@@ -256,15 +256,15 @@ describe('UrlFetchConsumer', () => {
                 Promise.resolve(candidates.map((candidate) => ({ candidate, outcome: outcomes[candidate.urlHash] }))),
         }
         const fetching = new UrlFetchConsumer(
-            sightings,
+            crawlHistory,
             { maxAgeMs: 6 * 60 * 60 * 1000, dedupMaxRefs: 1000, dryRun: false },
             runner
         )
 
         await fetching.handleBatch([record([url('done'), url('gone'), url('later'), url('slow')])], NOW)
 
-        // A sighting is what stops this lane from ever looking at a URL again, so one is written for
+        // A crawl history entry is what stops this lane from ever looking at a URL again, so one is written for
         // a URL that was answered and withheld from a URL that only ran out of time.
-        expect([...sightings.stored.keys()].map(hashOf).sort()).toEqual([hash('done'), hash('gone')])
+        expect([...crawlHistory.stored.keys()].map(hashOf).sort()).toEqual([hash('done'), hash('gone')])
     })
 })

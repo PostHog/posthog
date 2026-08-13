@@ -43,9 +43,9 @@ export interface FetchRunnerOptions {
 /**
  * Outcomes that will not change if the same URL is tried again.
  *
- * Only these record a sighting. A URL shed by the budget, or lost to a timeout, is left unrecorded
- * so the next session that refers to it tries again. A sighting written for one of those would
- * suppress the URL for the whole sighting TTL because a site was busy for a moment.
+ * Only these write a crawl history entry. A URL shed by the budget, or lost to a timeout, is left unrecorded
+ * so the next session that refers to it tries again. An entry written for one of those would
+ * suppress the URL for the whole crawl history TTL because a site was busy for a moment.
  */
 const TERMINAL_OUTCOMES: ReadonlySet<AttemptOutcome> = new Set<AttemptOutcome>([
     'ok',
@@ -134,9 +134,9 @@ export class FetchRunner implements FetchPass {
         const deadlineMs = Date.now() + this.options.batchBudgetMs
         const byDomain = new Map<string, FetchCandidate[]>()
         for (const candidate of candidates) {
-            const queue = byDomain.get(candidate.domain)
-            if (queue) {
-                queue.push(candidate)
+            const backQueue = byDomain.get(candidate.domain)
+            if (backQueue) {
+                backQueue.push(candidate)
             } else {
                 byDomain.set(candidate.domain, [candidate])
             }
@@ -193,13 +193,16 @@ export class FetchRunner implements FetchPass {
         // hundreds of thousands of URLs to a single domain, and both `push(...array)` and
         // `concat` of that size exceed the argument limit of `Function.apply`.
         const attempts: FetchAttempt[] = []
-        await Promise.all(entries.map(([domain, queue]) => this.runDomain(domain, queue, deadlineMs, attempts)))
+        await Promise.all(
+            entries.map(([domain, backQueue]) => this.runBackQueue(domain, backQueue, deadlineMs, attempts))
+        )
         return attempts
     }
 
-    private async runDomain(
+    /** One back queue: the crawler term for the per-host queue that a politeness limit is applied to. */
+    private async runBackQueue(
         domain: string,
-        queue: FetchCandidate[],
+        backQueue: FetchCandidate[],
         deadlineMs: number,
         attempts: FetchAttempt[]
     ): Promise<void> {
@@ -207,20 +210,20 @@ export class FetchRunner implements FetchPass {
         // A refusal is a property of the domain, so it applies to every URL still queued for it
         // rather than only to the one that asked.
         const shedRemaining = (reason: ShedReason): void => {
-            while (next < queue.length) {
-                attempts.push({ candidate: queue[next++], outcome: reason })
+            while (next < backQueue.length) {
+                attempts.push({ candidate: backQueue[next++], outcome: reason })
                 ImageFetchRequestMetrics.incOutcome(reason)
             }
         }
 
         const worker = async (): Promise<void> => {
-            while (next < queue.length) {
+            while (next < backQueue.length) {
                 const grant = this.budget.take(domain, Date.now(), deadlineMs)
                 if (!grant.granted) {
                     shedRemaining(grant.reason)
                     return
                 }
-                const candidate = queue[next++]
+                const candidate = backQueue[next++]
                 ImageFetchRequestMetrics.observeBudgetWait(grant.waitMs / 1000)
                 if (grant.waitMs > 0) {
                     await delay(grant.waitMs)
@@ -229,7 +232,7 @@ export class FetchRunner implements FetchPass {
             }
         }
 
-        const workers = Math.min(this.options.maxConcurrentPerDomain, queue.length)
+        const workers = Math.min(this.options.maxConcurrentPerDomain, backQueue.length)
         await Promise.all(Array.from({ length: workers }, () => worker()))
     }
 
@@ -264,7 +267,7 @@ export class FetchRunner implements FetchPass {
 
         if (!acquire(candidate.domain)) {
             // Reachable because redirects into this domain take slots the worker pool does not know
-            // about. It says the domain is busy now, so no sighting is written for it.
+            // about. It says the domain is busy now, so nothing is written to the crawl history for it.
             ImageFetchRequestMetrics.incOutcome('connection_limit')
             return { candidate, outcome: 'connection_limit' }
         }
@@ -364,7 +367,7 @@ export class FetchRunner implements FetchPass {
         }
         const grant = this.budget.take(domain, Date.now(), deadlineMs)
         if (!grant.granted) {
-            // Deferred rather than refused, so no sighting is written. Every refusal reason here
+            // Deferred rather than refused, so nothing is written to the crawl history. Every refusal reason here
             // is about this moment rather than about the URL.
             return 'defer'
         }

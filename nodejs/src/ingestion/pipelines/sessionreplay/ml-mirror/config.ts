@@ -84,7 +84,7 @@ export type MlMirrorConfig = {
     SESSION_RECORDING_ML_IMAGE_FETCH_MAX_AGE_MS: number
     /** Capacity of the per-pod seen-ref cache that sits in front of the Redis ledger. */
     SESSION_RECORDING_ML_IMAGE_FETCH_DEDUP_MAX_REFS: number
-    /** Bounds one round trip to the sighting store, including waiting for a pooled connection, so a Redis stall cannot hold the poll loop. */
+    /** Bounds one round trip to the crawl history, including waiting for a pooled connection, so a Redis stall cannot hold the poll loop. */
     SESSION_RECORDING_ML_IMAGE_FETCH_REDIS_TIMEOUT_MS: number
 
     /**
@@ -119,7 +119,7 @@ export type MlMirrorConfig = {
      *
      * A batch can hold more URLs for one domain than a polite rate carries in this time. What the
      * pass does not reach is left unrecorded, so the next session that refers to it offers it again.
-     * The value sits well inside Kafka's max.poll.interval.ms of 300s, which the sighting round
+     * The value sits well inside Kafka's max.poll.interval.ms of 300s, which the crawl history round
      * trips share.
      */
     SESSION_RECORDING_ML_IMAGE_FETCH_REQUEST_BUDGET_MS: number

@@ -1,11 +1,11 @@
-import { SightingRedis, SightingRedisPool, UrlSightings } from './url-sightings'
+import { CrawlHistory, CrawlHistoryRedis, CrawlHistoryRedisPool } from './crawl-history'
 
 /** Above one round trip's key limit, so every test crosses a chunk boundary. */
 const KEYS = Array.from({ length: 600 }, (_value, index) => `k${index}`)
 
 type ExecResult = [Error | null, unknown][] | null
 
-class FakeClient implements SightingRedis {
+class FakeClient implements CrawlHistoryRedis {
     public readonly pipelined: string[] = []
     constructor(
         private readonly behavior: {
@@ -33,7 +33,7 @@ class FakeClient implements SightingRedis {
     }
 }
 
-function poolOf(client: FakeClient): SightingRedisPool {
+function poolOf(client: FakeClient): CrawlHistoryRedisPool {
     return {
         acquire: () => Promise.resolve(client),
         release: () => Promise.resolve(),
@@ -41,9 +41,9 @@ function poolOf(client: FakeClient): SightingRedisPool {
     }
 }
 
-describe('UrlSightings', () => {
-    const build = (client: FakeClient, budgetMs = 60_000): UrlSightings =>
-        new UrlSightings(poolOf(client), 1_000, budgetMs)
+describe('CrawlHistory', () => {
+    const build = (client: FakeClient, budgetMs = 60_000): CrawlHistory =>
+        new CrawlHistory(poolOf(client), 1_000, budgetMs)
 
     it('reports the index of every key that exists, across chunk boundaries', async () => {
         // The one place a silent mistake is possible: the caller maps these indexes back onto its

@@ -227,7 +227,7 @@ describe('FetchRunner', () => {
         ['breaker_open', false],
         ['deadline', false],
     ])('treats %s as terminal: %s', (outcome, terminal) => {
-        // A terminal outcome writes a sighting, which is the one thing that stops this lane from
+        // A terminal outcome writes a crawl history entry, which is the one thing that stops this lane from
         // ever looking at the URL again. A transient one must not.
         expect(isTerminal(outcome as FetchOutcome)).toBe(terminal)
     })

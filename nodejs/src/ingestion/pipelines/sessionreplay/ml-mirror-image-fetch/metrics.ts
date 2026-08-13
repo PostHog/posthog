@@ -68,7 +68,7 @@ export class ImageFetchConsumerMetrics {
     })
     private static readonly storeErrors = new Counter({
         name: 'ml_image_fetch_consumer_store_errors_total',
-        help: 'Sighting-store keys that failed, by operation. A failed read makes the lane treat a known URL as new, so the measured hit rate understates the real one. A failed write leaves the URL unrecorded, so the next pod to see it counts it again',
+        help: 'Crawl-history keys that failed, by operation. A failed read makes the lane treat a known URL as new, so the measured hit rate understates the real one. A failed write leaves the URL unrecorded, so the next pod to see it counts it again',
         labelNames: ['operation'],
     })
     private static readonly batchDuration = new Histogram({

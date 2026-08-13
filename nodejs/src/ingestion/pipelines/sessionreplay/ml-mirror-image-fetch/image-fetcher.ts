@@ -48,7 +48,7 @@ export interface ImageFetchOptions {
      * for the request, and the new domain has its own budget and its own breaker.
      *
      * `defer` says the target is fine but cannot be reached now. It has to be told apart from
-     * `refuse`, because the caller records a sighting for a refusal and none for a deferral.
+     * `refuse`, because the caller records a refusal in the crawl history and none for a deferral.
      *
      * `remainingMs` is what is left of this request. A wait longer than that has to `defer`.
      */

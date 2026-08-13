@@ -3,11 +3,11 @@ import { KAFKA_SESSION_REPLAY_IMAGE_FETCH } from '~/common/config/kafka-topics'
 import { KafkaConsumer, KafkaConsumerConfig } from '~/common/kafka/consumer/consumer-v1'
 import { createRedisPoolFromConfig } from '~/common/utils/db/redis'
 import { logger } from '~/common/utils/logger'
+import { CrawlHistory } from '~/ingestion/pipelines/sessionreplay/ml-mirror-image-fetch/crawl-history'
 import { FetchRunner } from '~/ingestion/pipelines/sessionreplay/ml-mirror-image-fetch/fetch-runner'
 import { HostBudget } from '~/ingestion/pipelines/sessionreplay/ml-mirror-image-fetch/host-budget'
 import { HttpImageFetcher } from '~/ingestion/pipelines/sessionreplay/ml-mirror-image-fetch/image-fetcher'
 import { UrlFetchConsumer } from '~/ingestion/pipelines/sessionreplay/ml-mirror-image-fetch/url-fetch-consumer'
-import { UrlSightings } from '~/ingestion/pipelines/sessionreplay/ml-mirror-image-fetch/url-sightings'
 import { resolveMlMirrorRedisConnection } from '~/ingestion/pipelines/sessionreplay/ml-mirror/config'
 
 import { RedisPool } from '../types'
@@ -74,7 +74,7 @@ export function buildImageFetchConsumerConfig(config: IngestionSessionReplayMlMi
 export class IngestionSessionReplayMlImageFetchServer implements NodeServer {
     readonly lifecycle: ServerLifecycle
     private config: IngestionSessionReplayMlMirrorServerConfig
-    private sightingPool?: RedisPool
+    private crawlHistoryPool?: RedisPool
 
     constructor(config: Partial<IngestionSessionReplayMlMirrorServerConfig> = {}) {
         this.config = buildMlMirrorServerConfig(config)
@@ -113,7 +113,7 @@ export class IngestionSessionReplayMlImageFetchServer implements NodeServer {
             throw new Error('SESSION_RECORDING_ML_REDIS_HOST must be set for the image-fetch consumer')
         }
         const redisTimeoutMs = this.config.SESSION_RECORDING_ML_IMAGE_FETCH_REDIS_TIMEOUT_MS
-        this.sightingPool = createRedisPoolFromConfig({
+        this.crawlHistoryPool = createRedisPoolFromConfig({
             // The lane's own command timeout, not the mirror's 200ms: one round trip here carries a
             // whole chunk of keys rather than a single per-session command.
             connection: { ...connection, options: { ...connection.options, commandTimeout: redisTimeoutMs } },
@@ -121,10 +121,10 @@ export class IngestionSessionReplayMlImageFetchServer implements NodeServer {
             poolMaxSize: this.config.REDIS_POOL_MAX_SIZE,
             acquireTimeoutMillis: redisTimeoutMs,
         })
-        const sightings = new UrlSightings(this.sightingPool, redisTimeoutMs, STORE_BATCH_BUDGET_MS)
+        const crawlHistory = new CrawlHistory(this.crawlHistoryPool, redisTimeoutMs, STORE_BATCH_BUDGET_MS)
 
         const fetchConsumer = new UrlFetchConsumer(
-            sightings,
+            crawlHistory,
             {
                 maxAgeMs: this.config.SESSION_RECORDING_ML_IMAGE_FETCH_MAX_AGE_MS,
                 dedupMaxRefs: this.config.SESSION_RECORDING_ML_IMAGE_FETCH_DEDUP_MAX_REFS,
@@ -150,7 +150,7 @@ export class IngestionSessionReplayMlImageFetchServer implements NodeServer {
     private getCleanupResources(): CleanupResources {
         return {
             kafkaProducers: [],
-            redisPools: this.sightingPool ? [this.sightingPool] : [],
+            redisPools: this.crawlHistoryPool ? [this.crawlHistoryPool] : [],
         }
     }
 }

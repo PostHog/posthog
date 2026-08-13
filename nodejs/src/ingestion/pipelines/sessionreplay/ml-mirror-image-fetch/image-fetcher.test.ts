@@ -141,9 +141,9 @@ describe('HttpImageFetcher', () => {
         expect(fetchStreamedMock).toHaveBeenCalledTimes(1)
     })
 
-    it('defers a redirect whose target has no budget left, so no sighting is written for it', async () => {
+    it('defers a redirect whose target has no budget left, so nothing is written to the crawl history for it', async () => {
         // `bad_redirect` is terminal. A CDN in cooldown would otherwise suppress every image behind
-        // it for the sighting TTL, because the budget of a moment was read as a property of the URL.
+        // it for the crawl history TTL, because the budget of a moment was read as a property of the URL.
         fetchStreamedMock.mockResolvedValue(respond(302, { location: 'https://cdn.example.net/a.png' }))
 
         const result = await new HttpImageFetcher().fetch('https://cdn.example.com/a.png', {

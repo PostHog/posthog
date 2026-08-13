@@ -1,27 +1,28 @@
 import { Pool } from 'generic-pool'
 
 /**
- * Sightings live under their own prefix, separate from the fetch results a later lane will write.
+ * The URL-seen test of this crawler: the record of which image URLs this lane has finished with.
  *
- * Two stores rather than one outcome value, because they answer different questions and only one of
- * them may suppress a request. A sighting says this lane has handled a URL, which is what the phase
- * 0 dedup measurement counts. It says nothing about bytes, because none were downloaded. Sharing a
- * keyspace would leave whoever enables fetching with 30 days of entries that look like completed
- * work, and every URL behind them would be skipped with no error and no metric to show it.
+ * It answers one question, asked before every fetch. Has this lane handled this URL already? An
+ * entry means yes, whatever the answer was, so a URL the site refused is recorded alongside one it
+ * served. The entry says nothing about the bytes, which live under their own keys once a later lane
+ * writes them. One keyspace for both would leave whoever enables fetching with a month of entries
+ * that look like completed downloads, and every URL behind them would be skipped with no error.
  */
-const SIGHTING_PREFIX = 'imgfetch:seen'
+const CRAWL_HISTORY_PREFIX = 'imgfetch:seen'
 
 /**
- * Long enough that the key count converges on the distinct-URL count of the window, which is the
- * number that sizes the Redis. Short enough that sightings cannot outlive the phase that wrote them.
+ * The recrawl interval. Long enough that the key count converges on the distinct-URL count of the
+ * window, which is the number that sizes the Redis. Short enough that an entry cannot outlive the
+ * phase that wrote it.
  */
-export const SIGHTING_TTL_SECONDS = 30 * 24 * 60 * 60
+export const CRAWL_HISTORY_TTL_SECONDS = 30 * 24 * 60 * 60
 
 /** Bounds one round trip. A poll batch can carry thousands of URLs, and one pipeline holding all of them times out as a unit. */
 const MAX_KEYS_PER_ROUND_TRIP = 256
 
-export function sightingKey(pseudoTeam: string, urlHash: string): string {
-    return `${SIGHTING_PREFIX}:${pseudoTeam}:${urlHash}`
+export function crawlHistoryKey(pseudoTeam: string, urlHash: string): string {
+    return `${CRAWL_HISTORY_PREFIX}:${pseudoTeam}:${urlHash}`
 }
 
 function chunk<T>(items: T[], size: number): T[][] {
@@ -32,7 +33,7 @@ function chunk<T>(items: T[], size: number): T[][] {
     return out
 }
 
-export interface SightingReadResult {
+export interface CrawlHistoryReadResult {
     /** Indexes of the keys that were already recorded. */
     known: Set<number>
     /** Indexes whose read did not complete. The caller knows nothing about these, which is not the same as knowing they are absent. */
@@ -43,7 +44,7 @@ export interface SightingReadResult {
  * The two commands this store issues. Narrower than `Redis` so a test supplies exactly these, and a
  * command added here has to be added to the fake before it compiles.
  */
-export interface SightingRedis {
+export interface CrawlHistoryRedis {
     mget(...keys: string[]): Promise<(string | null)[]>
     pipeline(): {
         set(key: string, value: string, expiryMode: 'EX', seconds: number): unknown
@@ -52,11 +53,11 @@ export interface SightingRedis {
 }
 
 /** The three pool operations this store uses. Narrow so a test needs no cast to supply them. */
-export type SightingRedisPool = Pick<Pool<SightingRedis>, 'acquire' | 'release' | 'destroy'>
+export type CrawlHistoryRedisPool = Pick<Pool<CrawlHistoryRedis>, 'acquire' | 'release' | 'destroy'>
 
 /** What the consumer needs of the store, so its tests exercise the real contract rather than a cast. */
-export interface SightingStore {
-    read(keys: string[]): Promise<SightingReadResult>
+export interface CrawlHistoryStore {
+    read(keys: string[]): Promise<CrawlHistoryReadResult>
     record(keys: string[], nowMs: number, ttlSeconds: number): Promise<{ failed: Set<number> }>
 }
 
@@ -71,14 +72,14 @@ export interface SightingStore {
  * runs past Kafka's max.poll.interval.ms gets the pod evicted mid-batch, and the partition is then
  * replayed by a pod that will take just as long, so offered load rises while throughput falls.
  */
-export class UrlSightings implements SightingStore {
+export class CrawlHistory implements CrawlHistoryStore {
     constructor(
-        private readonly pool: SightingRedisPool,
+        private readonly pool: CrawlHistoryRedisPool,
         private readonly commandTimeoutMs: number,
         private readonly batchBudgetMs: number
     ) {}
 
-    public async read(keys: string[]): Promise<SightingReadResult> {
+    public async read(keys: string[]): Promise<CrawlHistoryReadResult> {
         const known = new Set<number>()
         const failed = new Set<number>()
         await this.forEachChunk(keys, {
@@ -126,7 +127,7 @@ export class UrlSightings implements SightingStore {
     private async forEachChunk(
         keys: string[],
         handlers: {
-            onChunk: (client: SightingRedis, batch: string[], base: number) => Promise<void>
+            onChunk: (client: CrawlHistoryRedis, batch: string[], base: number) => Promise<void>
             onChunkFailed: (batch: string[], base: number) => void
         }
     ): Promise<void> {
@@ -156,7 +157,7 @@ export class UrlSightings implements SightingStore {
      * A connection whose command was abandoned is destroyed rather than returned, because its reply
      * is still in flight and would be read as the answer to whichever command borrowed it next.
      */
-    private async withClient(run: (client: SightingRedis) => Promise<void>): Promise<void> {
+    private async withClient(run: (client: CrawlHistoryRedis) => Promise<void>): Promise<void> {
         const client = await this.pool.acquire()
         let timer: NodeJS.Timeout | undefined
         try {
@@ -164,7 +165,7 @@ export class UrlSightings implements SightingStore {
                 run(client),
                 new Promise<never>((_resolve, reject) => {
                     timer = setTimeout(
-                        () => reject(new Error('sighting store command timed out')),
+                        () => reject(new Error('crawl history command timed out')),
                         this.commandTimeoutMs
                     )
                     timer.unref()

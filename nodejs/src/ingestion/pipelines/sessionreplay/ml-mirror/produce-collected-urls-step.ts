@@ -11,7 +11,7 @@ import { RefDedupCache } from '~/ingestion/pipelines/sessionreplay/shared/ref-de
 /**
  * The same trade as the image lane's cache, at a much lower cost per entry: a record here holds a
  * ref of approximately 60 bytes and no image bytes. A ref that this cache drops before its next
- * sighting produces a second time, which costs topic volume and one more ledger read in the
+ * arrival produces a second time, which costs topic volume and one more ledger read in the
  * fetcher, but never correctness. The fetcher dedupes on the same ref again.
  */
 const PRODUCED_REF_CACHE_MAX = 500_000

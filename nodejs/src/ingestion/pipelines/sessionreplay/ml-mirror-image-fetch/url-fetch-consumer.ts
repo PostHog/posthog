@@ -4,15 +4,15 @@ import { logger } from '~/common/utils/logger'
 import { RefDedupCache } from '~/ingestion/pipelines/sessionreplay/shared/ref-dedup-cache'
 
 import { FetchCandidate, parseCollectedUrlsRecord } from './collected-urls-record'
+import { CRAWL_HISTORY_TTL_SECONDS, CrawlHistoryStore, crawlHistoryKey } from './crawl-history'
 import { FetchPass, isTerminal } from './fetch-runner'
 import { ImageFetchConsumerMetrics, UrlDropReason } from './metrics'
-import { SIGHTING_TTL_SECONDS, SightingStore, sightingKey } from './url-sightings'
 
 export interface UrlFetchConsumerOptions {
     /** A URL older than this is dropped rather than fetched, so a backlog sheds work instead of downloading stale work. */
     maxAgeMs: number
     dedupMaxRefs: number
-    /** While true no request leaves this process. Everything else, including the sighting write, still runs. */
+    /** While true no request leaves this process. Everything else, including the crawl history write, still runs. */
     dryRun: boolean
 }
 
@@ -31,7 +31,7 @@ export class UrlFetchConsumer {
     private readonly seenRefs: RefDedupCache
 
     constructor(
-        private readonly sightings: SightingStore,
+        private readonly crawlHistory: CrawlHistoryStore,
         private readonly options: UrlFetchConsumerOptions,
         /** Absent in dry run, which is why the dry run sends nothing. No flag is read per URL. */
         private readonly runner?: FetchPass
@@ -103,7 +103,7 @@ export class UrlFetchConsumer {
         }
         const handled = this.runner ? await this.fetchAll(this.runner, fetchable) : fetchable
         if (handled.length > 0) {
-            await this.recordSightings(handled, nowMs)
+            await this.recordFetched(handled, nowMs)
         }
 
         if (dedupedInBatch > 0) {
@@ -148,13 +148,13 @@ export class UrlFetchConsumer {
         if (candidates.length === 0) {
             return []
         }
-        const keys = candidates.map((candidate) => sightingKey(candidate.pseudoTeam, candidate.urlHash))
+        const keys = candidates.map((candidate) => crawlHistoryKey(candidate.pseudoTeam, candidate.urlHash))
         let result
         try {
-            result = await this.sightings.read(keys)
+            result = await this.crawlHistory.read(keys)
         } catch (error) {
             ImageFetchConsumerMetrics.incStoreError('read', keys.length)
-            logger.warn('🌐', 'ml_image_fetch_sighting_read_failed', { count: keys.length, error: String(error) })
+            logger.warn('🌐', 'ml_image_fetch_crawl_history_read_failed', { count: keys.length, error: String(error) })
             return []
         }
         if (result.failed.size > 0) {
@@ -167,19 +167,19 @@ export class UrlFetchConsumer {
     }
 
     /**
-     * The pod cache is marked only for a URL whose sighting was stored. A URL held locally but
+     * The pod cache is marked only for a URL whose crawl history entry was stored. A URL held locally but
      * absent from the shared store is invisible to every other pod and to this one after a restart,
      * so marking it before the write is confirmed would drop it from the measurement and, later,
      * from fetching.
      */
-    private async recordSightings(candidates: FetchCandidate[], nowMs: number): Promise<void> {
-        const keys = candidates.map((candidate) => sightingKey(candidate.pseudoTeam, candidate.urlHash))
+    private async recordFetched(candidates: FetchCandidate[], nowMs: number): Promise<void> {
+        const keys = candidates.map((candidate) => crawlHistoryKey(candidate.pseudoTeam, candidate.urlHash))
         let failed: Set<number>
         try {
-            failed = (await this.sightings.record(keys, nowMs, SIGHTING_TTL_SECONDS)).failed
+            failed = (await this.crawlHistory.record(keys, nowMs, CRAWL_HISTORY_TTL_SECONDS)).failed
         } catch (error) {
             ImageFetchConsumerMetrics.incStoreError('write', keys.length)
-            logger.warn('🌐', 'ml_image_fetch_sighting_write_failed', { count: keys.length, error: String(error) })
+            logger.warn('🌐', 'ml_image_fetch_crawl_history_write_failed', { count: keys.length, error: String(error) })
             return
         }
         if (failed.size > 0) {
