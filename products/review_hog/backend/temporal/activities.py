@@ -377,7 +377,7 @@ class PublishResult:
     review_url: str | None = None
 
 
-@dataclass
+@dataclass(frozen=True)
 class RemoveTriggerLabelInput:
     team_id: int
     owner: str
