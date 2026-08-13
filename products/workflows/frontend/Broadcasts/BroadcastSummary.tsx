@@ -28,8 +28,13 @@ export function BroadcastSummary(): JSX.Element {
     const { broadcast, broadcastId, name, audienceProperties, email, scheduleSummary, batchJobs, batchJobsLoading } =
         useValues(broadcastWizardLogic)
 
-    const logicKey = `broadcast-${broadcastId}`
-    // Mounting with force params here pins the metrics query to this broadcast; EmailMetricsSummary
+    // Email metrics from a batch send are attributed to the batch job, not the flow (see
+    // `parentRunId ?? functionId` in the plugin server's email service), so a flow-scoped query
+    // returns zeros for every broadcast. Key the logic by the run so it remounts once runs load.
+    const latestBatchJobId = batchJobs[0]?.id
+    const metricsSourceId = latestBatchJobId ?? broadcastId
+    const logicKey = `broadcast-${metricsSourceId}`
+    // Mounting with force params here pins the metrics query to this run; EmailMetricsSummary
     // reads the same keyed logic below.
     useValues(
         appMetricsLogic({
@@ -38,7 +43,7 @@ export function BroadcastSummary(): JSX.Element {
             loadOnChanges: true,
             forceParams: {
                 appSource: 'hog_flow',
-                appSourceId: broadcastId ?? undefined,
+                appSourceId: metricsSourceId ?? undefined,
                 breakdownBy: 'metric_name',
                 dateFrom: '-30d',
                 interval: 'day',
@@ -115,7 +120,9 @@ export function BroadcastSummary(): JSX.Element {
                 </div>
 
                 <div className="flex flex-col gap-2">
-                    <h2 className="m-0 text-lg font-semibold">Performance (last 30 days)</h2>
+                    <h2 className="m-0 text-lg font-semibold">
+                        {latestBatchJobId ? 'Performance (latest send)' : 'Performance (last 30 days)'}
+                    </h2>
                     <EmailMetricsSummary logicKey={logicKey} />
                 </div>
 
