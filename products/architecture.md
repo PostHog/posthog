@@ -105,6 +105,11 @@ A model cannot be narrowed: whatever interface it presents, the object still car
 Two core registries are keyed by model class identity and are explicit, sanctioned exceptions: the team-extension registry and the file-system unfiled registry (`FileSystemSyncMixin`).
 There the class crosses for registration only, core drives only the registry's mixin methods, and the model's module must stay in the product's contract-check inputs.
 
+**The watched-models allowance** is the one further, deliberately temporary exception, for products whose models are load-bearing substrate that core consumes at query time and cannot yet stop consuming (today only `warehouse_sources`, whose warehouse table/schema/source models core HogQL reads to build queryable tables).
+An allowance product's facade may hand out model classes defined under `backend/models/`, provided the whole model surface — `backend/models/` and `backend/migrations/` — stays in the `backend:contract-check` inputs, so any model or migration change still re-runs the full suite.
+That is the same soundness contract wiring locations have; what it does not buy is isolation — the coupling to core remains, `hogli product:lint` keeps a standing warning on it, and the direction of travel is still facade functions returning contracts.
+The list lives in `MODEL_CROSSING_PRODUCTS` (`tools/hogli-commands/hogli_commands/product/isolation.py`) and is frozen: adding an entry requires amending this section to name the crossing models and why converting them to contracts is not yet feasible.
+
 A behavioral class that fits no approved interface must not cross at all.
 Wrap it in a facade function returning contracts, or register a plain function (see the managed-view provider registry in `products/data_modeling/backend/facade/managed_viewset_hooks.py`).
 A product whose facade hands out unapproved behavior is not soundly isolated: it loses `backend:contract-check` and pays the full suite until fixed.

@@ -26,8 +26,10 @@ from hogli_commands.product.checks import (
     validate_tach_references,
 )
 from hogli_commands.product.isolation import (
+    MODEL_SURFACE_PREFIXES,
     facade_carveout_modules,
     facade_class_imports,
+    facade_model_crossings,
     has_narrowed_turbo_inputs,
     permanent_interface_modules,
     routes_in_turbo_inputs,
@@ -35,6 +37,7 @@ from hogli_commands.product.isolation import (
     uncovered_permanent_modules,
     unqualified_permanent_modules,
     unwatched_garages,
+    unwatched_model_surface,
 )
 
 # ---------------------------------------------------------------------------
@@ -1602,6 +1605,60 @@ class TestFacadeClassImports:
         assert {f.class_name for f in facade_class_imports(backend, "unrelated_product")} == {
             "TeamCustomerAnalyticsConfig"
         }
+
+
+class TestWatchedModelsAllowance:
+    _FACADE = {"models.py": "from ..models.table import DataWarehouseTable\n__all__ = ['DataWarehouseTable']\n"}
+    _SOURCES = {"models/table.py": "class DataWarehouseTable:\n    pass\n"}
+
+    def test_model_reexport_is_a_tracked_crossing_not_a_leak_for_an_allowance_product(self, tmp_path: Path) -> None:
+        # if this classification breaks, warehouse_sources' model re-exports re-arm the leak block
+        # and the restored narrowing silently forfeits (skip inert).
+        _, backend = _write_facade_product(
+            tmp_path, name="warehouse_sources", facade_files=self._FACADE, sources=self._SOURCES
+        )
+        assert facade_class_imports(backend, "warehouse_sources") == []
+        assert {c.class_name for c in facade_model_crossings(backend, "warehouse_sources")} == {"DataWarehouseTable"}
+
+    def test_model_reexport_stays_a_violation_for_a_product_not_on_the_allowance_list(self, tmp_path: Path) -> None:
+        _, backend = _write_facade_product(
+            tmp_path, name="unrelated_product", facade_files=self._FACADE, sources=self._SOURCES
+        )
+        assert {f.class_name for f in facade_class_imports(backend, "unrelated_product")} == {"DataWarehouseTable"}
+        assert facade_model_crossings(backend, "unrelated_product") == []
+
+    def test_allowance_is_scoped_to_the_model_package(self, tmp_path: Path) -> None:
+        # a class defined outside backend/models/ gets no free pass even for an allowance product
+        facade = {"models.py": "from ..logic.engine import Engine\n__all__ = ['Engine']\n"}
+        sources = {"logic/engine.py": "class Engine:\n    pass\n"}
+        _, backend = _write_facade_product(tmp_path, name="warehouse_sources", facade_files=facade, sources=sources)
+        assert {f.class_name for f in facade_class_imports(backend, "warehouse_sources")} == {"Engine"}
+
+    @pytest.mark.parametrize(
+        "turbo_inputs, expected",
+        [
+            # models + migrations watched -> covered
+            (["backend/facade/**", "backend/models/**", "backend/migrations/**"], set()),
+            # migrations forgotten -> a data migration would skip the suite
+            (["backend/facade/**", "backend/models/**"], {"backend/migrations/"}),
+            # models forgotten entirely -> the crossing classes' definitions are unwatched
+            (["backend/facade/**"], {"backend/migrations/", "backend/models/"}),
+        ],
+    )
+    def test_model_surface_coverage(self, tmp_path: Path, turbo_inputs: list[str], expected: set[str]) -> None:
+        sources = {**self._SOURCES, "migrations/0001_initial.py": ""}
+        product_dir, _ = _write_facade_product(
+            tmp_path, name="warehouse_sources", facade_files=self._FACADE, sources=sources, turbo_inputs=turbo_inputs
+        )
+        assert unwatched_model_surface(product_dir) == expected
+
+    def test_model_surface_inputs_count_as_narrowing_only_when_passed(self, tmp_path: Path) -> None:
+        # the restored warehouse_sources turbo.json must register as narrowed — otherwise the skip
+        # is silently inert forever — but only via the allowance, never for arbitrary products.
+        inputs = ["backend/facade/**", "backend/models/**", "backend/migrations/**"]
+        product_dir, _ = _write_facade_product(tmp_path, turbo_inputs=inputs)
+        assert has_narrowed_turbo_inputs(product_dir) is False
+        assert has_narrowed_turbo_inputs(product_dir, model_surface=MODEL_SURFACE_PREFIXES) is True
 
 
 class TestUnwatchedGarages:

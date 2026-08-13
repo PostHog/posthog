@@ -698,10 +698,11 @@ class IsolationChainCheck(ProductCheck):
         # a leak there is guidance, not breakage. Once narrowed, the same leak means core can reach an
         # unsanctioned class the suite may not re-test — a hard error. See products/architecture.md
         # § Wiring couplings.
+        def format_facade_imports(imports) -> str:
+            return "; ".join(f"{v.class_name} (from {v.source_path}, via facade/{v.facade_module})" for v in imports)
+
         if facade_violations:
-            detail = "; ".join(
-                f"{v.class_name} (from {v.source_path}, via facade/{v.facade_module})" for v in facade_violations
-            )
+            detail = format_facade_imports(facade_violations)
             remedies = (
                 "move it to a garage (backend/hogql_queries/, backend/max_tools.py, backend/temporal/, "
                 "backend/tasks.py) if it implements a core-owned base; move it to facade/contracts.py "
@@ -716,6 +717,27 @@ class IsolationChainCheck(ProductCheck):
                     f"facade re-exports class(es) from outside the wiring locations: {detail}. The skip is "
                     f"inert while un-narrowed, but narrowing is blocked until this is fixed — {remedies}"
                 )
+
+        # The watched-models allowance (MODEL_CROSSING_PRODUCTS). Crossing model classes are
+        # sanctioned interim debt, so they never block narrowing — but the debt stays visible as a
+        # standing warning, and a narrowed product must keep the whole model surface watched or the
+        # skip is unsound (a model or migration change core observes would run no Django suite).
+        if status.model_crossings:
+            crossing_detail = format_facade_imports(status.model_crossings)
+            result.warnings.append(
+                f"facade hands out Django model class(es) under the watched-models allowance: {crossing_detail}. "
+                "Sanctioned interim debt (products/architecture.md § Wiring couplings) — the model surface stays "
+                "in the contract-check inputs so the skip is sound; convert crossings to facade contracts to "
+                "retire the allowance entry"
+            )
+        if has_narrowed and status.uncovered_model_surface:
+            surface_globs = ", ".join(location_input_glob(p) for p in status.uncovered_model_surface)
+            result.issues.append(
+                "turbo.json narrows contract-check inputs but omits the watched-models surface "
+                f"{', '.join(status.uncovered_model_surface)} — the facade hands out model classes under the "
+                f"watched-models allowance, so a change there would skip the Django suite. Add the matching "
+                f"input(s) ({surface_globs})"
+            )
 
         # Earned but not turned on: a fully sealed, eligible product that already carries
         # 'backend:contract-check' (real facade, tach interface, no legacy leaks, presentation
@@ -823,7 +845,9 @@ class IsolationChainCheck(ProductCheck):
             # fixed, so it wins; the co-firing mismatch issues still print in the lint output.
             # An unqualified permanent exposure is a defect in the tach.toml marker itself, so point
             # there; it takes precedence because it's the most fundamental of these issues.
-            turbo_omission = has_narrowed and (status.unwatched_garages or status.uncovered_carveout_modules)
+            turbo_omission = has_narrowed and (
+                status.unwatched_garages or status.uncovered_carveout_modules or status.uncovered_model_surface
+            )
             if status.unqualified_permanent_exposures:
                 result.file = "tach.toml"
             elif needs_turn_on or routes_unwatched or turbo_omission:
