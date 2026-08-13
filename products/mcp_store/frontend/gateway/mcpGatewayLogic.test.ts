@@ -23,6 +23,7 @@ import {
 } from '../generated/api'
 import type {
     GatewayMemberSummaryApi,
+    MCPAgentGrantScopeEnumApi,
     MCPGatewayServerApi,
     MCPServerInstallationApi,
     MCPServerTemplateApi,
@@ -145,6 +146,33 @@ function serverTemplate(overrides: Partial<MCPServerTemplateApi>): MCPServerTemp
         icon_domain: '',
         category: 'dev',
         ...overrides,
+    }
+}
+
+function serviceAccountWithShare(scope: MCPAgentGrantScopeEnumApi): MCPServiceAccountApi {
+    return {
+        id: 'account-id',
+        name: 'Scout agent',
+        description: '',
+        handle: 'posthog-scout',
+        agent_key: 'scout',
+        status: 'active',
+        server_ids: ['server-id'],
+        servers: [
+            {
+                id: 'server-id',
+                shared_by: YOU,
+                scope,
+                name: 'Test server',
+                description: '',
+                icon_key: '',
+                icon_domain: '',
+                connection_state: 'ready',
+            },
+        ],
+        last_active_at: null,
+        created_at: '2026-01-01T00:00:00Z',
+        updated_at: '2026-01-01T00:00:00Z',
     }
 }
 
@@ -395,6 +423,7 @@ describe('mcpGatewayLogic', () => {
                 {
                     id: 'linear-id',
                     shared_by: YOU,
+                    scope: 'personal' as const,
                     name: 'Linear',
                     description: '',
                     icon_key: '',
@@ -412,12 +441,13 @@ describe('mcpGatewayLogic', () => {
         mockServiceAccountAccess.mockResolvedValue(updatedAccount)
 
         await expectLogic(logic, () => {
-            logic.actions.setAgentServerAccess(account.id, 'linear-id', true, policies)
+            logic.actions.setAgentServerAccess(account.id, 'linear-id', true, 'personal', policies)
         }).toFinishAllListeners()
 
         expect(mockServiceAccountAccess).toHaveBeenCalledWith(String(MOCK_DEFAULT_TEAM.id), account.id, {
             gateway_server_id: 'linear-id',
             enabled: true,
+            scope: 'personal',
             policies,
         })
         expect(logic.values.agentServerAccessLoadingKeys).toEqual(new Set())
@@ -437,6 +467,7 @@ describe('mcpGatewayLogic', () => {
                 {
                     id: 'linear-id',
                     shared_by: YOU,
+                    scope: 'personal' as const,
                     name: 'Linear',
                     description: '',
                     icon_key: '',
@@ -666,5 +697,24 @@ describe('mcpGatewayLogic', () => {
         })
         expect(logic.values.memberCount).toBe(101)
         expect(logic.values.members).toEqual([secondPageMember])
+    })
+
+    // The endpoint defaults an omitted scope back to personal, so a share sent without
+    // one silently demotes a team share.
+    it.each([
+        ['team' as const, 'team'],
+        [undefined, 'personal'],
+    ])('sends scope %s as %s when sharing a server with an agent', async (requested, expected) => {
+        mockServiceAccountAccess.mockResolvedValue(serviceAccountWithShare(expected as MCPAgentGrantScopeEnumApi))
+
+        await expectLogic(logic, () => {
+            logic.actions.setAgentServerAccess('account-id', 'server-id', true, requested)
+        }).toFinishAllListeners()
+
+        expect(mockServiceAccountAccess).toHaveBeenCalledWith(String(MOCK_DEFAULT_TEAM.id), 'account-id', {
+            gateway_server_id: 'server-id',
+            enabled: true,
+            scope: expected,
+        })
     })
 })

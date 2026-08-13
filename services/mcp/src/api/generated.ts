@@ -36132,6 +36132,18 @@ export namespace Schemas {
     }
 
     /**
+     * * `personal` - Personal
+     * * `team` - Team
+     */
+    export type MCPAgentGrantScopeEnum = typeof MCPAgentGrantScopeEnum[keyof typeof MCPAgentGrantScopeEnum];
+
+
+    export const MCPAgentGrantScopeEnum = {
+      Personal: 'personal',
+      Team: 'team',
+    } as const;
+
+    /**
      * * `active` - Active
      * * `paused` - Paused
      */
@@ -36151,6 +36163,11 @@ export namespace Schemas {
       service_account_id: string;
       /** The member whose connection the agent uses. */
       user: UserBasic;
+      /** 'personal' lets the agent use this connection only when working for the member who shared it. 'team' lets it use the connection for the whole project's agent runs.
+       *
+       * * `personal` - Personal
+       * * `team` - Team */
+      scope: MCPAgentGrantScopeEnum;
       /** Agent display name. */
       name: string;
       /** Agent identity handle, e.g. posthog-support. */
@@ -44141,6 +44158,7 @@ export namespace Schemas {
       Blocked: 'blocked',
     } as const;
 
+    export const MCPAuditEventGrantScope = {...MCPAgentGrantScopeEnum,...BlankEnum,} as const
     export interface MCPAuditEvent {
       readonly id: string;
       readonly created_at: string;
@@ -44161,6 +44179,13 @@ export namespace Schemas {
       readonly actor_service_account: AuditActorServiceAccount | null;
       /** Denormalized actor label (email or handle) that survives deletion. */
       readonly actor_label: string;
+      /** Member whose connection an agent call used. Null for member calls and for owners whose account has since been deleted. */
+      readonly credential_owner: UserBasic | null;
+      /** Scope of the agent grant the call used. Blank for member calls.
+       *
+       * * `personal` - Personal
+       * * `team` - Team */
+      readonly grant_scope: typeof MCPAuditEventGrantScope[keyof typeof MCPAuditEventGrantScope];
     }
 
     /**
@@ -44809,6 +44834,11 @@ export namespace Schemas {
       id: string;
       /** The member whose connection the agent uses. */
       shared_by: UserBasic;
+      /** 'personal' lets the agent use this connection only when working for the member who shared it. 'team' lets it use the connection for the whole project's agent runs.
+       *
+       * * `personal` - Personal
+       * * `team` - Team */
+      scope: MCPAgentGrantScopeEnum;
       /** Server display name. */
       name: string;
       /** Server description. */
@@ -69135,6 +69165,11 @@ export namespace Schemas {
       gateway_server_id: string;
       /** True shares the caller's own connection with the agent, false removes the caller's share. */
       enabled: boolean;
+      /** Applies to the caller's own share, and only alongside enabled=true. 'personal' lets the agent use the connection when it works for the caller. 'team' lets it use the connection for the whole project's agent runs, including runs nobody started. It never lets another person use the connection. Defaults to personal, so re-sharing without this field resets the caller's share to personal.
+       *
+       * * `personal` - Personal
+       * * `team` - Team */
+      scope?: MCPAgentGrantScopeEnum;
       /** Only valid with enabled=false. Removes every member's share of this server with this agent, along with the agent's tool policies for it. Project admins only. */
       all?: boolean;
       /**
