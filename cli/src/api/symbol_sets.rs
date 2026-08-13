@@ -45,6 +45,29 @@ pub struct SymbolSetUpload {
     pub content_hash: Option<String>,
 }
 
+/// Coalesce uploads that share a chunk_id, keeping the first occurrence.
+///
+/// The bulk-start endpoint rejects a batch carrying the same chunk id twice
+/// (`invalid_chunk_ids`), and rejects it before it checks which chunks it already has,
+/// so a repeat is fatal even when both copies were uploaded by an earlier run. Producers
+/// must therefore hand over distinct ids. A shared id means the sources are the same
+/// symbol set, so keeping one covers every file that carries it.
+pub fn dedup_uploads_by_chunk_id(uploads: Vec<SymbolSetUpload>) -> Vec<SymbolSetUpload> {
+    let mut seen = std::collections::HashSet::new();
+    let mut deduped = Vec::with_capacity(uploads.len());
+    for upload in uploads {
+        if seen.insert(upload.chunk_id.clone()) {
+            deduped.push(upload);
+        } else {
+            warn!(
+                "Duplicate chunk id {} across symbol sets; keeping the first",
+                upload.chunk_id
+            );
+        }
+    }
+    deduped
+}
+
 /// Per-run tally of what an upload actually did. Without it a run that skipped
 /// every chunk is indistinguishable from one that uploaded every chunk, since
 /// both just exit zero.

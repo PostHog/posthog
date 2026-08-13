@@ -15,7 +15,7 @@ const WRAPPER_JS_SIZE_THRESHOLD_BYTES: usize = 2048;
 use crate::{
     api::{
         releases::Release,
-        symbol_sets::{self, SymbolSetUpload},
+        symbol_sets::{self, dedup_uploads_by_chunk_id, SymbolSetUpload},
     },
     invocation_context::context,
     sourcemaps::{
@@ -25,7 +25,7 @@ use crate::{
         content::MinifiedSourceFile,
         inject::get_release_for_maps,
         plain::inject::is_javascript_file,
-        source_pairs::read_pairs,
+        source_pairs::{read_pairs, SourcePair},
     },
     utils::files::{delete_files, FileSelection},
 };
@@ -149,14 +149,7 @@ pub fn upload(args: &Args, existing_release: Option<&Release>) -> Result<()> {
     }
     let empty_skipped = empty_pairs.len();
 
-    // Payload preparation (serialization + zstd compression) is CPU-bound,
-    // so spread it across cores.
-    let release_mode = args.release_mode;
-    let uploads = valid_pairs
-        .into_par_iter()
-        .map(|pair| pair.into_upload(release_mode))
-        .collect::<Result<Vec<SymbolSetUpload>>>()
-        .context("While preparing files for upload")?;
+    let uploads = prepare_uploads(valid_pairs, args.release_mode)?;
 
     let file_count = uploads.len();
     let total_bytes: usize = uploads.iter().map(|u| u.data.len()).sum();
@@ -207,6 +200,28 @@ pub fn upload(args: &Args, existing_release: Option<&Release>) -> Result<()> {
     Ok(())
 }
 
+/// Build the upload payloads for `pairs`, carrying at most one payload per chunk id.
+///
+/// Event mode derives the chunk id from the pair's content, so a bundler that emits the same
+/// bytes twice produces one id twice: an entry point copied to a second name (a hashless alias
+/// next to `app-<hash>.js`, say) keeps the original's `sourceMappingURL`, which makes both
+/// copies identical down to the sourcemap they resolve to. Sending one id twice in a batch
+/// fails that batch, which aborts the whole upload.
+fn prepare_uploads(
+    pairs: Vec<SourcePair>,
+    release_mode: ReleaseMode,
+) -> Result<Vec<SymbolSetUpload>> {
+    // Payload preparation (serialization + zstd compression) is CPU-bound,
+    // so spread it across cores.
+    let uploads = pairs
+        .into_par_iter()
+        .map(|pair| pair.into_upload(release_mode))
+        .collect::<Result<Vec<SymbolSetUpload>>>()
+        .context("While preparing files for upload")?;
+
+    Ok(dedup_uploads_by_chunk_id(uploads))
+}
+
 fn remove_sourcemap_references(paths: Vec<PathBuf>) -> Result<()> {
     for path in paths {
         let mut source = MinifiedSourceFile::load(&path)
@@ -218,4 +233,42 @@ fn remove_sourcemap_references(paths: Vec<PathBuf>) -> Result<()> {
         }
     }
     Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::{sourcemaps::inject::inject_pairs, utils::files::FileSelection};
+
+    #[test]
+    fn event_mode_uploads_one_payload_per_chunk_id() {
+        // Bundlers copy an entry point to a second, hashless name so it can be served from a
+        // stable URL. The copy keeps the original's sourceMappingURL, so the two files are
+        // byte-identical and share a sourcemap, which in event mode is one chunk id twice.
+        let dir = tempfile::tempdir().expect("Failed to create temp dir");
+        let entry = "console.log(\"hi\");\n//# sourceMappingURL=app-BKG53LDN.js.map\n";
+        std::fs::write(dir.path().join("app-BKG53LDN.js"), entry).expect("Failed to write entry");
+        std::fs::write(dir.path().join("app.js"), entry).expect("Failed to write hashless copy");
+        std::fs::write(
+            dir.path().join("app-BKG53LDN.js.map"),
+            r#"{"version":3,"sources":["app.ts"],"sourcesContent":["console.log('hi')\n"],"mappings":"AAAA,QAAQ,IAAI,IAAI","names":[]}"#,
+        )
+        .expect("Failed to write sourcemap");
+
+        let selection = FileSelection::from_roots(vec![dir.path().to_path_buf()])
+            .include(vec![])
+            .expect("Failed to build selection")
+            .exclude(vec![])
+            .expect("Failed to build selection");
+        let pairs = read_pairs(selection.into_iter().filter(is_javascript_file), &None);
+        assert_eq!(pairs.len(), 2);
+
+        let injected = inject_pairs(pairs, None).expect("Failed to inject pairs");
+        let chunk_ids: Vec<_> = injected.iter().map(|pair| pair.get_chunk_id()).collect();
+        assert_eq!(chunk_ids[0], chunk_ids[1]);
+
+        let uploads =
+            prepare_uploads(injected, ReleaseMode::Event).expect("Failed to prepare uploads");
+        assert_eq!(uploads.len(), 1);
+    }
 }
