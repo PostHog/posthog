@@ -947,10 +947,12 @@ def _chain_attribute_order(key: str) -> str:
 
 
 # A semicolon separates elements only outside a quoted attribute value — an inline
-# style="display: flex; gap: 4px" carries its own. split_chain_regex in
-# posthog/models/element/element.py draws the boundary the same way.
-_WITHIN_ELEMENT = r'(?:[^;"]|"[^"]*")*?'
-_WHOLE_ELEMENTS = r'(?:(?:[^;"]|"[^"]*")*;)*'
+# style="display: flex; gap: 4px" carries its own. Quotes inside a value are escaped
+# as \" (see _escape in posthog/models/element/element.py), so an escaped quote must
+# not close the span. split_chain_regex draws the boundary the same way.
+_QUOTED_VALUE = r'"(?:\\.|[^"])*"'
+_WITHIN_ELEMENT = r'(?:[^;"]|' + _QUOTED_VALUE + r")*?"
+_WHOLE_ELEMENTS = r'(?:(?:[^;"]|' + _QUOTED_VALUE + r")*;)*"
 
 
 def build_selector_regex(selector: Selector) -> str:
@@ -975,7 +977,9 @@ def build_selector_regex(selector: Selector) -> str:
             regex += _WITHIN_ELEMENT
             for key, value in sorted(tag.ch_attributes.items(), key=lambda kv: _chain_attribute_order(kv[0])):
                 regex += rf'{re.escape(key)}="{re.escape(str(value))}"' + _WITHIN_ELEMENT
-        regex += r'([-_a-zA-Z0-9\.:"= \[\]\(\)\{\}\',]*?)?($|;|:([^;^\s]*(;|$|\s)))'
+        # The rest of the element can carry characters no allowlist anticipates
+        # (classes like w-1/2 or !mt-0), so skip anything within the element.
+        regex += _WITHIN_ELEMENT + r"($|;|:([^;^\s]*(;|$|\s)))"
         if tag.direct_descendant:
             regex += r".*"
     if regex:

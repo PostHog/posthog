@@ -942,6 +942,18 @@ class TestSelectorRegexMatching(SimpleTestCase):
                 [Element(tag_name="button", attr_id="submit", attributes={"attr__type": "button"})],
                 True,
             ),
+            (
+                "an escaped quote inside an attribute value does not end the quoted span",
+                'div[title="hi"]',
+                [Element(tag_name="div", attributes={"attr__data-x": 'a"b', "attr__title": "hi"})],
+                True,
+            ),
+            (
+                "a sibling class the selector does not name may carry any character",
+                ".flex",
+                [Element(tag_name="div", attr_class=["flex", "w-1/2"])],
+                True,
+            ),
         ]
     )
     def test_selector_matches_elements_chain(self, _name, selector, elements, expected):
