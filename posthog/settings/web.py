@@ -286,12 +286,17 @@ SOCIAL_AUTH_PIPELINE = (
     "social_core.pipeline.social_auth.auth_allowed",
     "ee.api.authentication.social_auth_allowed",
     "social_core.pipeline.social_auth.social_user",
+    # Must stay ahead of association/provisioning so a mismatched re-auth identity is rejected first
+    "posthog.api.authentication.social_reauth",
     "social_core.pipeline.social_auth.associate_by_email",
     "posthog.api.signup.social_create_user",
     "social_core.pipeline.social_auth.associate_user",
     "social_core.pipeline.social_auth.load_extra_data",
     "social_core.pipeline.user.user_details",
     "posthog.api.authentication.social_login_notification",
+    # Must stay last: it grants the step-up window, so every step that can still refuse the re-auth
+    # has to have run first
+    "posthog.api.authentication.social_reauth_complete",
 )
 
 SOCIAL_AUTH_STRATEGY = "social_django.strategy.DjangoStrategy"
