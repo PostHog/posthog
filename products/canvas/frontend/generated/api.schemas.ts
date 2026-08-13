@@ -92,6 +92,8 @@ export interface CanvasApi {
     readonly created_by: UserBasicApi
     readonly created_at: string
     readonly updated_at: string
+    /** Canonical link to the canvas in the PostHog app. The only valid way to link to a canvas — share this when pointing a user at it; never construct a canvas URL. */
+    readonly url: string
 }
 
 export interface PaginatedCanvasListApi {
@@ -566,6 +568,8 @@ export interface CanvasSummaryApi {
     published_build_id: string | null
     /** When the canvas was created. */
     created_at: string
+    /** Canonical link to the canvas in the PostHog app. The only valid way to link to a canvas — share this when pointing a user at it; never construct a canvas URL. */
+    readonly url: string
 }
 
 /**
@@ -631,6 +635,87 @@ export interface CanvasSourcePublishApi {
 export interface CanvasPublishCurrentVersionApi {
     /** Current source version to publish. A changed head returns a 409 version_conflict. */
     expected_current_version_id: string
+}
+
+/**
+ * Payload for reporting a runtime error observed while rendering a canvas build.
+ */
+export interface CanvasReportErrorApi {
+    /** Id of the build that was rendering when the error occurred. */
+    build_id: string
+    /**
+     * Error class name only, for example TypeError. Values that are not a plain class-name identifier are recorded as 'unknown'. Full error messages and stack traces must stay client-side.
+     * @maxLength 64
+     */
+    error_type: string
+}
+
+/**
+ * * `filed` - filed
+ * * `duplicate` - duplicate
+ * * `no_authoring_task` - no_authoring_task
+ * * `skipped` - skipped
+ */
+export type ReportOutcomeEnumApi = (typeof ReportOutcomeEnumApi)[keyof typeof ReportOutcomeEnumApi]
+
+export const ReportOutcomeEnumApi = {
+    Filed: 'filed',
+    Duplicate: 'duplicate',
+    NoAuthoringTask: 'no_authoring_task',
+    Skipped: 'skipped',
+} as const
+
+/**
+ * Outcome of filing a canvas error report.
+ */
+export interface CanvasErrorReportResultApi {
+    /** filed: a new report row was written. duplicate: this build and error type were already reported. no_authoring_task: the canvas has no linked task to notify. skipped: thread updates are unavailable.
+     *
+     * * `filed` - filed
+     * * `duplicate` - duplicate
+     * * `no_authoring_task` - no_authoring_task
+     * * `skipped` - skipped */
+    report_outcome: ReportOutcomeEnumApi
+}
+
+/**
+ * Payload for asking the canvas's authoring agent to fix a failing build or runtime error.
+ */
+export interface CanvasRequestFixApi {
+    /** Id of the failing or erroring build the fix should address. */
+    build_id: string
+    /**
+     * Error class from the runtime report, when fixing a runtime error. Omit for a failed build; its diagnostics are read server-side.
+     * @maxLength 64
+     */
+    error_type?: string
+}
+
+/**
+ * * `signaled` - signaled
+ * * `new_run` - new_run
+ * * `already_queued` - already_queued
+ */
+export type DispatchOutcomeEnumApi = (typeof DispatchOutcomeEnumApi)[keyof typeof DispatchOutcomeEnumApi]
+
+export const DispatchOutcomeEnumApi = {
+    Signaled: 'signaled',
+    NewRun: 'new_run',
+    AlreadyQueued: 'already_queued',
+} as const
+
+/**
+ * Outcome of dispatching a canvas fix to the authoring agent.
+ */
+export interface CanvasFixRequestResultApi {
+    /** signaled: the task's live run received the request. new_run: a fresh agent run was started. already_queued: a fix run was already starting, so no new run was created.
+     *
+     * * `signaled` - signaled
+     * * `new_run` - new_run
+     * * `already_queued` - already_queued */
+    dispatch_outcome: DispatchOutcomeEnumApi
+    /** The authoring task the fix was routed to. */
+    task_id: string
 }
 
 /**

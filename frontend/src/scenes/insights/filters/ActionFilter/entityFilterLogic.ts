@@ -220,6 +220,7 @@ export interface entityFilterLogicActions {
               math_property?: string | null | undefined
               math_property_type?: TaxonomicFilterGroupType | null | undefined
               name?: string | null | undefined
+              negation?: boolean | undefined
               nestedFilters?: EntityFilter[] | null | undefined
               operator?: FilterLogicalOperator | null | undefined
               optionalInFunnel?: boolean | undefined
@@ -242,6 +243,7 @@ export interface entityFilterLogicActions {
               math_property?: string | null | undefined
               math_property_type?: TaxonomicFilterGroupType | null | undefined
               name?: string | null | undefined
+              negation?: boolean | undefined
               nestedFilters?: EntityFilter[] | null | undefined
               operator?: FilterLogicalOperator | null | undefined
               optionalInFunnel?: boolean | undefined
@@ -265,6 +267,7 @@ export interface entityFilterLogicActions {
               math_property?: string | null | undefined
               math_property_type?: TaxonomicFilterGroupType | null | undefined
               name?: string | null | undefined
+              negation?: boolean | undefined
               nestedFilters?: EntityFilter[] | null | undefined
               operator?: FilterLogicalOperator | null | undefined
               optionalInFunnel?: boolean | undefined
@@ -288,6 +291,7 @@ export interface entityFilterLogicActions {
               math_property?: string | null | undefined
               math_property_type?: TaxonomicFilterGroupType | null | undefined
               name?: string | null | undefined
+              negation?: boolean | undefined
               nestedFilters?: EntityFilter[] | null | undefined
               operator?: FilterLogicalOperator | null | undefined
               optionalInFunnel?: boolean | undefined

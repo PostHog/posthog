@@ -11,6 +11,7 @@ a per-recipient sent marker to store.
 """
 
 from collections.abc import Callable, Mapping
+from urllib.parse import urlencode
 from uuid import UUID
 
 from django.conf import settings
@@ -24,7 +25,7 @@ from posthog.models.comment import Comment
 from posthog.models.integration import Integration, SlackIntegration
 from posthog.models.organization import OrganizationMembership
 from posthog.models.team import Team
-from posthog.models.user import User
+from posthog.models.user import NOTIFICATION_DEFAULTS, User
 from posthog.models.user_integration import UserIntegration
 from posthog.user_permissions import UserPermissions
 
@@ -34,7 +35,6 @@ from products.tasks.backend.models import Task, TaskCommentActivity
 
 logger = structlog.get_logger(__name__)
 
-# Opt-in: having linked a Slack account is not consent to have your comments forwarded into it.
 SLACK_DM_SETTING = "task_comments_slack_dm"
 
 # Slack allows 3000 characters per section; a DM that long is unreadable, and the link to the full
@@ -59,7 +59,7 @@ _HEADINGS: Mapping[str, str] = {
 
 
 def send_comment_slack_dms(*, team_id: int, comment_id: UUID, task_id: UUID, recipients: Mapping[int, str]) -> None:
-    """DM each recipient who opted in, can still see the comment, and has linked Slack.
+    """DM each recipient who has not opted out, can still see the comment, and has linked Slack.
 
     ``recipients`` is the map ``comment_activity`` just projected: user id to activity kind.
     """
@@ -73,11 +73,10 @@ def send_comment_slack_dms(*, team_id: int, comment_id: UUID, task_id: UUID, rec
     if skip_reason:
         return _skip(comment_id, skip_reason)
 
-    # Cheapest gate first: most comments have no opted-in recipient, and this keeps the flag call
-    # (a network hop) off that path.
+    # Resolve preferences before the flag call so explicit opt-outs avoid its network hop.
     wanted = _recipients_wanting_dms(team_id=team_id, comment=comment, recipients=recipients)
     if not wanted:
-        return _skip(comment_id, "no_opted_in_recipient")
+        return _skip(comment_id, "no_enabled_recipient")
 
     integrations = list(
         Integration.objects.filter(team_id=team_id, kind=Integration.IntegrationKind.SLACK)
@@ -191,25 +190,24 @@ def _skip_reason(comment: Comment) -> str | None:
 
 
 def _recipients_wanting_dms(*, team_id: int, comment: Comment, recipients: Mapping[int, str]) -> dict[int, str]:
-    """Narrow the Activity recipients to the ones who asked to be DMed.
+    """Narrow the Activity recipients to the ones who have not disabled DMs.
 
     ``THREAD_REPLY`` narrows further: the Activity feed notifies every thread participant, but the
     DM says "replied to your comment", so only the thread's author gets one.
     """
-    # Read the raw partial settings rather than the merged `notification_settings` property: the
-    # setting is opt-in, so an absent key means off and there's no default to merge in.
-    opted_in = {
+    enabled = {
         user_id
         for user_id, partial in User.objects.filter(id__in=list(recipients), is_active=True).values_list(
             "id", "partial_notification_settings"
         )
-        if isinstance(partial, dict) and partial.get(SLACK_DM_SETTING) is True
+        if not isinstance(partial, dict)
+        or partial.get(SLACK_DM_SETTING, NOTIFICATION_DEFAULTS["task_comments_slack_dm"]) is True
     }
-    if not opted_in:
+    if not enabled:
         return {}
 
     root_author_id: int | None = None
-    if any(kind == TaskCommentActivity.Kind.THREAD_REPLY for uid, kind in recipients.items() if uid in opted_in):
+    if any(kind == TaskCommentActivity.Kind.THREAD_REPLY for uid, kind in recipients.items() if uid in enabled):
         root_author_id = (
             Comment.objects.filter(team_id=team_id, id=comment.source_comment_id or comment.id)
             .values_list("created_by_id", flat=True)
@@ -218,7 +216,7 @@ def _recipients_wanting_dms(*, team_id: int, comment: Comment, recipients: Mappi
 
     wanted: dict[int, str] = {}
     for user_id, kind in recipients.items():
-        if user_id not in opted_in:
+        if user_id not in enabled:
             continue
         if kind == TaskCommentActivity.Kind.THREAD_REPLY and user_id != root_author_id:
             continue
@@ -337,6 +335,14 @@ def _author_name(comment: Comment) -> str:
     return f"{author.first_name} {author.last_name}".strip() or author.email or "Someone"
 
 
+def _bridge_url(*, comment: Comment, task: Task) -> str:
+    params = {"comment": str(comment.source_comment_id or comment.id)}
+    if comment.scope in _LOCATIONS and comment.item_id:
+        params["scope"] = comment.scope
+        params["item"] = comment.item_id
+    return f"{settings.SITE_URL}/code/task/{task.id}?{urlencode(params)}"
+
+
 def _message(
     *,
     kind: str,
@@ -345,7 +351,7 @@ def _message(
     organization_id: str | UUID | None,
     slack_user_id_by_email: Callable[[str], str | None] | None = None,
 ) -> tuple[str, list[dict]]:
-    url = f"{settings.SITE_URL}/project/{task.team_id}/tasks/{task.id}"
+    url = _bridge_url(comment=comment, task=task)
     title = task.title or "a task"
     author = _author_name(comment)
     template = _HEADINGS.get(kind, _HEADINGS[TaskCommentActivity.Kind.MENTION])

@@ -93,6 +93,8 @@ function channel(over: Partial<Channel> = {}): Channel {
     name: "eng",
     channelType: "public",
     starred: false,
+    repositories: [],
+    createdBy: null,
     ...over,
   };
 }

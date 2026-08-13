@@ -5,7 +5,7 @@ from django.http.response import JsonResponse
 
 import structlog
 from rest_framework import status
-from rest_framework.exceptions import APIException
+from rest_framework.exceptions import APIException, ValidationError
 from rest_framework.response import Response
 
 from posthog.clickhouse.query_tagging import get_query_tags
@@ -83,6 +83,12 @@ class ClickHouseEstimatedQueryExecutionTimeTooLong(APIException):
 
 class ClickHouseQuerySizeExceeded(APIException):
     default_detail = "Query size exceeded."
+
+
+class ClickHouseBytesLimitExceeded(ValidationError):
+    # A fresh TOO_MANY_BYTES surfaces as ValidationError(str(error), "too_many_bytes") in the
+    # query API, so the breaker's replay must produce the same status and machine code.
+    default_code = "too_many_bytes"
 
 
 class ClickHouseQueryTimeOut(APIException):

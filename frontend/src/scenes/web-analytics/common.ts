@@ -98,6 +98,15 @@ export enum TileId {
     BOT_AI_REFERRALS = 'BOT_AI_REFERRALS',
     BOT_AI_ENGAGEMENT = 'BOT_AI_ENGAGEMENT',
     BOT_CRAWLERS = 'BOT_CRAWLERS',
+
+    AI_REFERRALS_TREND = 'AI_REFERRALS_TREND',
+    AI_REFERRALS_BY_ENGINE = 'AI_REFERRALS_BY_ENGINE',
+    AI_LANDING_PAGES = 'AI_LANDING_PAGES',
+    AI_CRAWLERS_TREND = 'AI_CRAWLERS_TREND',
+    AI_CRAWLERS = 'AI_CRAWLERS',
+    AI_CRAWLED_PAGES = 'AI_CRAWLED_PAGES',
+
+    PAGE_PERFORMANCE_TABLE = 'PAGE_PERFORMANCE_TABLE',
 }
 
 export enum ProductTab {
@@ -109,6 +118,7 @@ export enum ProductTab {
     HEALTH = 'health',
     LIVE = 'live',
     BOT_ANALYTICS = 'bots',
+    PAGE_PERFORMANCE = 'page-performance',
 }
 
 export type DeviceType = 'Desktop' | 'Mobile'
@@ -181,6 +191,15 @@ export const loadPriorityMap: Record<TileId, number> = {
     [TileId.BOT_AI_REFERRALS]: 5,
     [TileId.BOT_AI_ENGAGEMENT]: 6,
     [TileId.BOT_CRAWLERS]: 7,
+
+    [TileId.AI_REFERRALS_TREND]: 3,
+    [TileId.AI_REFERRALS_BY_ENGINE]: 4,
+    [TileId.AI_LANDING_PAGES]: 5,
+    [TileId.AI_CRAWLERS_TREND]: 7,
+    [TileId.AI_CRAWLERS]: 8,
+    [TileId.AI_CRAWLED_PAGES]: 9,
+
+    [TileId.PAGE_PERFORMANCE_TABLE]: 1,
 }
 
 // To enable a tile here, you must update the QueryRunner to support it
@@ -253,6 +272,13 @@ export const TILE_LABELS: Record<TileId, string> = {
     [TileId.BOT_AI_REFERRALS]: 'AI referral traffic',
     [TileId.BOT_AI_ENGAGEMENT]: 'AI referral engagement',
     [TileId.BOT_CRAWLERS]: 'Crawlers',
+    [TileId.AI_REFERRALS_TREND]: 'AI referrals over time',
+    [TileId.AI_REFERRALS_BY_ENGINE]: 'AI referrals by engine',
+    [TileId.AI_LANDING_PAGES]: 'Landing pages from AI',
+    [TileId.AI_CRAWLERS_TREND]: 'AI crawler activity over time',
+    [TileId.AI_CRAWLERS]: 'AI crawlers',
+    [TileId.AI_CRAWLED_PAGES]: 'Pages AI crawlers read',
+    [TileId.PAGE_PERFORMANCE_TABLE]: 'Page performance',
 }
 
 export interface BaseTile {

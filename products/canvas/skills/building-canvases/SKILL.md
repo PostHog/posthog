@@ -70,6 +70,11 @@ Save once per requested change, when the canvas is ready — not after every mic
 staged a draft, end your reply by saying a draft is ready to preview and promote; the
 `validating-and-publishing-canvases` skill covers the draft → build → preview → promote flow.
 
+End your reply by naming the channel the canvas is in and linking it with the `url` field the
+canvas tools return (`canvas-create`, `canvas-list`, and the publish/source responses carry it).
+That field is the only valid link to a canvas — never construct one yourself; guessed URLs
+(project pages, web routes) do not resolve.
+
 ## Source-project shape
 
 - Keep `index.html` as the entry shell returned by the source tool.

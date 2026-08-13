@@ -19179,6 +19179,10 @@
                     "description": "Optional direct external data source id for schema introspection",
                     "type": "string"
                 },
+                "includeFields": {
+                    "description": "When false, skip serializing each table's fields (`fields` comes back empty). Defaults to true.",
+                    "type": "boolean"
+                },
                 "kind": {
                     "const": "DatabaseSchemaQuery",
                     "type": "string"
@@ -19189,6 +19193,13 @@
                 },
                 "response": {
                     "$ref": "#/definitions/DatabaseSchemaQueryResponse"
+                },
+                "tables": {
+                    "description": "Only serialize these tables (keys as returned in the response, e.g. `events` or `zendesk.groups`). Omit for all tables.",
+                    "items": {
+                        "type": "string"
+                    },
+                    "type": "array"
                 },
                 "tags": {
                     "$ref": "#/definitions/QueryLogTags"
@@ -25651,7 +25662,13 @@
                 "Cloudinary",
                 "Uploadcare",
                 "WHMCS",
-                "MSG91"
+                "MSG91",
+                "Depot",
+                "Schematic",
+                "Dokploy",
+                "RakutenAdvertising",
+                "Zitadel",
+                "DeelFlows"
             ],
             "type": "string"
         },
@@ -46634,6 +46651,10 @@
                     },
                     "type": "array"
                 },
+                "experiment_exposure": {
+                    "$ref": "#/definitions/RecordingsQueryExperimentExposureFilter",
+                    "description": "Only sessions of persons exposed to this experiment, each ending at or after the person's first exposure as the experiment's exposure criteria count it. Resolved server-side from the experiment, so it links sessions even when the exposure events themselves carry no session id (e.g. server-side SDKs). Composes with the query's date range like any other filter, so set date_from to the experiment's start (or earlier) to cover the full run: the default window only reaches back a few days."
+                },
                 "filter_test_accounts": {
                     "type": "boolean"
                 },
@@ -46709,6 +46730,21 @@
                 }
             },
             "required": ["kind"],
+            "type": "object"
+        },
+        "RecordingsQueryExperimentExposureFilter": {
+            "additionalProperties": false,
+            "properties": {
+                "experiment_id": {
+                    "$ref": "#/definitions/integer",
+                    "description": "Experiment whose exposed persons' sessions to show. Must belong to the environment the query runs in."
+                },
+                "variant": {
+                    "description": "Narrow to persons exposed to this variant. Defaults to all of the experiment's variants.",
+                    "type": "string"
+                }
+            },
+            "required": ["experiment_id"],
             "type": "object"
         },
         "RecordingsQueryResponse": {
@@ -48366,25 +48402,6 @@
                 },
                 "summary": {
                     "type": "string"
-                },
-                "summary_outcome": {
-                    "anyOf": [
-                        {
-                            "additionalProperties": false,
-                            "properties": {
-                                "description": {
-                                    "type": ["string", "null"]
-                                },
-                                "success": {
-                                    "type": ["boolean", "null"]
-                                }
-                            },
-                            "type": "object"
-                        },
-                        {
-                            "type": "null"
-                        }
-                    ]
                 },
                 "viewed": {
                     "description": "Whether this recording has been viewed by you already.",
