@@ -43,8 +43,12 @@ export interface issueFilterPreviewLogicActions {
         operator: PropertyOperator
         value: boolean | number | string | null
     } // issueFiltersLogic
-    setDateRange: (dateRange: DateRange) => {
+    setDateRange: (
+        dateRange: DateRange,
+        fromPreview?: boolean
+    ) => {
         dateRange: DateRange
+        fromPreview: boolean
     } // issueFiltersLogic
     setFilterGroup: (
         filterGroup: UniversalFiltersGroup,
@@ -179,6 +183,8 @@ export const issueFilterPreviewLogic = kea<issueFilterPreviewLogicType>([
                 pushDateRangeHistory: (history, { dateRange }) => [...history, dateRange],
                 popDateRangeHistory: (history) => history.slice(0, -1),
                 clearFilterHistory: () => [],
+                // A manual date change (not from a preview) invalidates the undo stack.
+                setDateRange: (history, { fromPreview }) => (fromPreview ? history : []),
             },
         ],
         filterGroupHistory: [
@@ -188,6 +194,8 @@ export const issueFilterPreviewLogic = kea<issueFilterPreviewLogicType>([
                 popFilterGroupHistory: (history) => history.slice(0, -1),
                 clearFilterHistory: () => [],
                 clearNonDateFilters: () => [],
+                // A manual filter edit (not from a preview) invalidates the undo stack.
+                setFilterGroup: (history, { filterAddedFromPreview }) => (filterAddedFromPreview ? history : []),
             },
         ],
     }),
@@ -224,7 +232,7 @@ export const issueFilterPreviewLogic = kea<issueFilterPreviewLogicType>([
     listeners(({ actions, values }) => ({
         applyDateRangeFilter: ({ dateRange }) => {
             actions.pushDateRangeHistory(values.dateRange)
-            actions.setDateRange(dateRange)
+            actions.setDateRange(dateRange, true)
         },
         applyPropertyFilter: ({ key, value, operator }) => {
             actions.pushFilterGroupHistory(values.filterGroup)
@@ -234,10 +242,10 @@ export const issueFilterPreviewLogic = kea<issueFilterPreviewLogicType>([
             const previousDateRange = values.dateRangeHistory.at(-1)
             const previousFilterGroup = values.filterGroupHistory.at(-1)
             if (values.activePreview === 'time' && previousDateRange) {
-                actions.setDateRange(previousDateRange)
+                actions.setDateRange(previousDateRange, true)
                 actions.popDateRangeHistory()
             } else if (values.activePreview === 'properties' && previousFilterGroup) {
-                actions.setFilterGroup(previousFilterGroup)
+                actions.setFilterGroup(previousFilterGroup, 1)
                 actions.popFilterGroupHistory()
             }
         },

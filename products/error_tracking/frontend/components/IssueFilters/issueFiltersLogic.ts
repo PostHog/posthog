@@ -55,8 +55,12 @@ export interface issueFiltersLogicActions {
         operator: PropertyOperator
         value: boolean | number | string | null
     }
-    setDateRange: (dateRange: DateRange) => {
+    setDateRange: (
+        dateRange: DateRange,
+        fromPreview?: boolean
+    ) => {
         dateRange: DateRange
+        fromPreview: boolean
     }
     setFilterGroup: (
         filterGroup: UniversalFiltersGroup,
@@ -116,7 +120,7 @@ export const issueFiltersLogic = kea<issueFiltersLogicType>([
             operator: PropertyOperator = PropertyOperator.Exact,
             openConfig: boolean = true
         ) => ({ key, value, operator, openConfig }),
-        setDateRange: (dateRange: DateRange) => ({ dateRange }),
+        setDateRange: (dateRange: DateRange, fromPreview: boolean = false) => ({ dateRange, fromPreview }),
         setSearchInput: (searchInput: string) => ({ searchInput }),
         setSearchQuery: (searchQuery: string) => ({ searchQuery }),
         setFilterGroup: (filterGroup: UniversalFiltersGroup, filterAddedFromPreview: number = 0) => ({

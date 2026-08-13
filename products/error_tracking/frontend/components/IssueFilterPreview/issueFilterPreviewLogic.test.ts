@@ -46,6 +46,39 @@ describe('issueFilterPreviewLogic', () => {
         filters.unmount()
     })
 
+    it('drops the undo stack when a filter changes manually after a preview', () => {
+        initKeaTests()
+        const filters = issueFiltersLogic({ logicKey: ERROR_TRACKING_ISSUE_SCENE_LOGIC_KEY })
+        const preview = issueFilterPreviewLogic()
+        filters.mount()
+        preview.mount()
+
+        // Time preview followed by a manual date change must not be undoable back to the pre-preview range.
+        preview.actions.applyDateRangeFilter({
+            date_from: '2024-01-01T00:00:00.000Z',
+            date_to: '2024-01-01T01:00:00.000Z',
+        })
+        const manualDateRange = { date_from: '-30d', date_to: null }
+        filters.actions.setDateRange(manualDateRange)
+        expect(preview.values.dateRangeHistory).toEqual([])
+        expect(preview.values.canUndoActivePreview).toBe(false)
+        preview.actions.undoActivePreview()
+        expect(filters.values.dateRange).toEqual(manualDateRange)
+
+        // Property preview followed by a manual filter edit must not be undoable back to the pre-preview group.
+        preview.actions.setActivePreview('properties')
+        preview.actions.applyPropertyFilter('$browser', 'Chrome')
+        const manualFilterGroup = filters.values.filterGroup
+        filters.actions.setFilterGroup(manualFilterGroup)
+        expect(preview.values.filterGroupHistory).toEqual([])
+        expect(preview.values.canUndoActivePreview).toBe(false)
+        preview.actions.undoActivePreview()
+        expect(filters.values.filterGroup).toEqual(manualFilterGroup)
+
+        preview.unmount()
+        filters.unmount()
+    })
+
     it('resets every issue filter and clears preview history', () => {
         initKeaTests()
         const filters = issueFiltersLogic({ logicKey: ERROR_TRACKING_ISSUE_SCENE_LOGIC_KEY })
