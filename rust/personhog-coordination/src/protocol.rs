@@ -15,7 +15,7 @@ use std::time::Duration;
 
 use assignment_coordination::util::compute_required_handoffs;
 
-use crate::strategy::AssignmentStrategy;
+use crate::strategy::{AssignmentStrategy, Member};
 use crate::types::{
     HandoffPhase, HandoffState, PodDrainedAck, PodWarmedAck, RegisteredPod, RegisteredRouter,
     RouterFreezeAck,
@@ -58,10 +58,10 @@ pub struct RebalancePlan {
 pub fn plan_rebalance<S: AssignmentStrategy + ?Sized>(
     strategy: &S,
     current: &HashMap<u32, String>,
-    active_pods: &[String],
+    members: &[Member],
     total_partitions: u32,
 ) -> RebalancePlan {
-    let desired = strategy.compute_assignments(current, active_pods, total_partitions);
+    let desired = strategy.compute_assignments(current, members, total_partitions);
     let moves = compute_required_handoffs(current, &desired);
     let moved: HashSet<u32> = moves.iter().map(|(p, _, _)| *p).collect();
 
@@ -99,7 +99,7 @@ pub fn plan_partial_rebalance<S: AssignmentStrategy + ?Sized>(
     strategy: &S,
     current: &HashMap<u32, String>,
     in_flight: &[HandoffState],
-    active_pods: &[String],
+    members: &[Member],
     total_partitions: u32,
 ) -> RebalancePlan {
     let pinned: HashSet<u32> = in_flight.iter().map(|h| h.partition).collect();
@@ -107,7 +107,7 @@ pub fn plan_partial_rebalance<S: AssignmentStrategy + ?Sized>(
     for handoff in in_flight {
         effective.insert(handoff.partition, handoff.new_owner.clone());
     }
-    let mut plan = plan_rebalance(strategy, &effective, active_pods, total_partitions);
+    let mut plan = plan_rebalance(strategy, &effective, members, total_partitions);
     plan.handoffs.retain(|h| !pinned.contains(&h.partition));
     plan.desired
         .retain(|partition, _| !pinned.contains(partition));
@@ -451,11 +451,7 @@ mod tests {
     fn pinned_partitions_are_never_planned() {
         let current: HashMap<u32, String> = (0..4).map(|p| (p, "pod-a".to_string())).collect();
         let in_flight = [handoff(0, Some("pod-a"), "pod-b")];
-        let active = [
-            "pod-a".to_string(),
-            "pod-b".to_string(),
-            "pod-c".to_string(),
-        ];
+        let active = Member::active_all(&["pod-a", "pod-b", "pod-c"]);
 
         let plan =
             plan_partial_rebalance(&StickyBalancedStrategy, &current, &in_flight, &active, 4);
@@ -487,7 +483,7 @@ mod tests {
             handoff(0, Some("pod-a"), "pod-b"),
             handoff(1, Some("pod-a"), "pod-b"),
         ];
-        let active = ["pod-a".to_string(), "pod-b".to_string()];
+        let active = Member::active_all(&["pod-a", "pod-b"]);
 
         let plan =
             plan_partial_rebalance(&StickyBalancedStrategy, &current, &in_flight, &active, 4);
