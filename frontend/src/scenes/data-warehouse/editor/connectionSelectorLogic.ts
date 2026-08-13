@@ -27,6 +27,7 @@ import type { ExternalDataSource } from '../../../types'
 
 export const POSTHOG_WAREHOUSE = '__posthog_warehouse__'
 export const LOADING_CONNECTIONS = '__loading_connections__'
+const MANAGED_WAREHOUSE_SOURCE_PREFIX = 'managed_warehouse'
 // A direct-connection menu item's value is this prefix + the source type (e.g. '...:Postgres').
 export const ADD_DIRECT_CONNECTION_PREFIX = '__add_direct_connection__:'
 export const CONFIGURE_SOURCES = '__configure_sources__'
@@ -87,6 +88,9 @@ function getConnectionEngine(
 
 export function getConnectionOptionLabel(source: ExternalDataSourceConnectionOptionApi): string {
     const engine = getConnectionEngine(source)
+    if (source.prefix === MANAGED_WAREHOUSE_SOURCE_PREFIX && engine === 'duckdb') {
+        return 'PostHog (Managed warehouse)'
+    }
     const isSynced = source.access_method === 'warehouse'
     // Prefer the user-set description, then the prefix; fall back to the source type name (never the raw UUID).
     const name = source.description || source.prefix || source.source_type || source.id
