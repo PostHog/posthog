@@ -176,6 +176,6 @@ ENV NODE_ENV=production \
 # Validate runtime dependencies
 RUN chrome-headless-shell --version && ffmpeg -version
 
-EXPOSE 6740
+EXPOSE 6738
 
 CMD ["node", "nodejs/dist/session-replay/recording-rasterizer/index.js"]

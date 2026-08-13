@@ -90,6 +90,7 @@ class ErrorTrackingSuppressionRuleUpdateRequestSerializer(serializers.Serializer
 
 class ErrorTrackingSuppressionRuleViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
     scope_object = "error_tracking"
+    scope_object_write_actions = ["create", "update", "partial_update", "destroy", "reorder"]
     serializer_class = ErrorTrackingSuppressionRuleSerializer
 
     def list(self, request, *args, **kwargs) -> Response:
@@ -119,6 +120,7 @@ class ErrorTrackingSuppressionRuleViewSet(TeamAndOrgViewSetMixin, viewsets.Gener
             raise NotFound()
         posthoganalytics.capture(
             "error_tracking_suppression_rule_edited",
+            distinct_id=request.user.pk,
             groups=groups(self.team.organization, self.team),
         )
         return Response({"ok": True}, status=status.HTTP_204_NO_CONTENT)
@@ -142,6 +144,7 @@ class ErrorTrackingSuppressionRuleViewSet(TeamAndOrgViewSetMixin, viewsets.Gener
             raise NotFound()
         posthoganalytics.capture(
             "error_tracking_suppression_rule_deleted",
+            distinct_id=request.user.pk,
             groups=groups(self.team.organization, self.team),
         )
         return Response(status=status.HTTP_204_NO_CONTENT)
@@ -164,6 +167,7 @@ class ErrorTrackingSuppressionRuleViewSet(TeamAndOrgViewSetMixin, viewsets.Gener
             raise ValidationError(str(err)) from err
         posthoganalytics.capture(
             "error_tracking_suppression_rule_created",
+            distinct_id=request.user.pk,
             groups=groups(self.team.organization, self.team),
         )
         return Response(self.get_serializer(rule).data, status=status.HTTP_201_CREATED)

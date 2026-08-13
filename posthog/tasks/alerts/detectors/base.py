@@ -31,7 +31,7 @@ class BaseDetector(ABC):
 
     def __init__(self, config: dict[str, Any]):
         self.config = config
-        self.preprocessing_config = config.get("preprocessing", {})
+        self.preprocessing_config = config.get("preprocessing") or {}
         self.training_offset: int = config.get("training_offset_n", self.DEFAULT_TRAINING_OFFSET)
 
     @abstractmethod

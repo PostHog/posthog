@@ -774,6 +774,20 @@ export function teamActivityDescriber(logItem: ActivityLogItem, asNotification?:
         return { description: null }
     }
 
+    if (logItem.activity === 'email_sending_suspended' || logItem.activity === 'email_sending_unsuspended') {
+        const wasSuspended = logItem.activity === 'email_sending_suspended'
+        const reason = logItem.detail?.context?.reason as string | undefined
+        return {
+            description: (
+                <>
+                    <strong className="ph-no-capture">{userNameForLogItem(logItem)}</strong>{' '}
+                    {wasSuspended ? 'suspended' : 're-enabled'} workflow email sending on {nameAndLink(logItem)}
+                    {wasSuspended && reason ? <> (reason: {reason})</> : null}
+                </>
+            ),
+        }
+    }
+
     if (logItem.activity == 'changed' || logItem.activity == 'updated') {
         let changes: Description[] = []
         let changeSuffix: Description = <>on {nameAndLink(logItem)}</>

@@ -9,10 +9,6 @@ from posthog.schema import (
     SourceFieldInputConfigType,
 )
 
-from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline.typings import (
-    SourceInputs,
-    SourceResponse,
-)
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.base import FieldType, ResumableSource
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.canonical_descriptions import (
     CanonicalDescriptions,
@@ -21,6 +17,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common.mix
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.registry import SourceRegistry
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.schema import SourceSchema
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.typings import SourceInputs, SourceResponse
 from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.plausible import (
     PlausibleSourceConfig,
 )
@@ -61,6 +58,11 @@ class PlausibleSource(ResumableSource[PlausibleSourceConfig, PlausibleResumeConf
             # missing-site cases are 401/403/404 and handled above). Retrying resends the same
             # request, so stop. Match the status text, not the self-hosted URL, which varies.
             "400 Client Error": "Plausible rejected the request for this site. Check that the site domain is correct and that your Plausible account can access its stats, then reconnect.",
+            # `is_database_host_valid` raises this when the self-hosted Host doesn't resolve via
+            # DNS — a hostname the customer typed wrong or one that's no longer publicly reachable.
+            # Deterministic and permanent until the Host is corrected, so stop retrying. Match the
+            # stable prefix, not the customer's hostname that follows it.
+            "Couldn't resolve the host": "The Plausible host could not be resolved via DNS. Check that it's spelled correctly and reachable from the public internet, then reconnect.",
         }
 
     @property

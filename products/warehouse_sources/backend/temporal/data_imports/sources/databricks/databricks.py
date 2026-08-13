@@ -23,10 +23,6 @@ from databricks.sdk.core import (
 )
 from structlog.types import FilteringBoundLogger
 
-from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline.typings import (
-    SourceInputs,
-    SourceResponse,
-)
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.mixins import log_connection_open
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.sql import BacktickIdentifierQuoter
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.sql.implementation import (
@@ -45,6 +41,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common.sql
     ParamStyle,
     SelectQueryBuilder,
 )
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.typings import SourceInputs, SourceResponse
 from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.databricks import (
     DatabricksSourceConfig,
 )

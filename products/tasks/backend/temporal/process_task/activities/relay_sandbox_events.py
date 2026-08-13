@@ -97,17 +97,17 @@ class RelaySandboxEventsInput:
 
 @activity.defn
 @close_db_connections
-async def relay_sandbox_events(input: RelaySandboxEventsInput) -> None:
-    await _relay_sandbox_events(input, finalize_stream_on_exit=True)
+async def relay_sandbox_events(input: RelaySandboxEventsInput) -> bool:
+    return await _relay_sandbox_events(input, finalize_stream_on_exit=True)
 
 
 @activity.defn
 @close_db_connections
-async def relay_sandbox_events_deferred_completion(input: RelaySandboxEventsInput) -> None:
-    await _relay_sandbox_events(input, finalize_stream_on_exit=False)
+async def relay_sandbox_events_deferred_completion(input: RelaySandboxEventsInput) -> bool:
+    return await _relay_sandbox_events(input, finalize_stream_on_exit=False)
 
 
-async def _relay_sandbox_events(input: RelaySandboxEventsInput, *, finalize_stream_on_exit: bool) -> None:
+async def _relay_sandbox_events(input: RelaySandboxEventsInput, *, finalize_stream_on_exit: bool) -> bool:
     """Long-running activity that relays SSE events from a sandbox agent to a Redis stream.
 
     Connects to the sandbox's GET /events SSE endpoint and writes each event
@@ -169,7 +169,7 @@ async def _relay_sandbox_events(input: RelaySandboxEventsInput, *, finalize_stre
         )
 
     try:
-        await _relay_loop(
+        return await _relay_loop(
             events_url=events_url,
             headers=headers,
             params=params,
@@ -199,7 +199,7 @@ async def _relay_sandbox_events(input: RelaySandboxEventsInput, *, finalize_stre
         # harness). Exit quietly — logger and Redis are already unusable here,
         # so touching them would cascade into "I/O on closed file" noise.
         if "cannot schedule new futures after shutdown" in str(e):
-            return
+            return False
         logger.exception("relay_sandbox_events_failed", run_id=input.run_id, error=str(e))
         await redis_stream.mark_error(str(e)[:500])
         # The stream now carries an error sentinel — a retried attempt would
@@ -322,7 +322,7 @@ async def _relay_loop(
     slack_thread_context: dict[str, Any] | None = None,
     is_agent_design_enabled: bool = False,
     finalize_stream_on_exit: bool = True,
-) -> None:
+) -> bool:
     """Connect to sandbox SSE and relay events to Redis. Reconnects on transient failures."""
     reconnect_count = 0
 
@@ -490,14 +490,21 @@ async def _relay_loop(
                                 await _flush_pending_text(workflow_handle, pending_text_parts, last_text_flush)
                                 if finalize_stream_on_exit:
                                     await redis_stream.mark_complete()
-                                return
+                                return False
 
-                    # SSE stream ended normally (sandbox closed connection)
-                    await _flush_pending_text(workflow_handle, pending_text_parts, last_text_flush)
-                    if finalize_stream_on_exit:
-                        await redis_stream.mark_complete()
-                    logger.info("relay_sandbox_events_stream_closed", run_id=run_id)
-                    return
+                    # A clean HTTP close does not prove the sandbox stopped. Reconnect before
+                    # declaring it gone; proxies and agent-server restarts can close a healthy stream.
+                    reconnect_count += 1
+                    agent_active[0] = False
+                    pending_text_parts.clear()
+                    final_message_tracker.reset()
+                    logger.warning(
+                        "relay_sandbox_events_stream_closed",
+                        run_id=run_id,
+                        reconnect_count=reconnect_count,
+                    )
+                    if reconnect_count <= MAX_RECONNECT_ATTEMPTS:
+                        await asyncio.sleep(min(reconnect_count * 2, 10))
 
             except httpx.ReadTimeout:
                 reconnect_count += 1
@@ -522,8 +529,8 @@ async def _relay_loop(
                         run_id=run_id,
                         status_code=status,
                     )
-                    await redis_stream.mark_error(f"Sandbox returned HTTP {status}")
-                    return
+                    await _mark_sandbox_error_best_effort(redis_stream, run_id, f"Sandbox returned HTTP {status}")
+                    return True
                 # 5xx — transient server error, worth retrying
                 reconnect_count += 1
                 agent_active[0] = False  # missed-end_of_turn guard (see ReadTimeout above)
@@ -554,9 +561,12 @@ async def _relay_loop(
                 await asyncio.sleep(min(reconnect_count * 2, 10))
 
         # Exhausted reconnect attempts
-        await redis_stream.mark_error(
-            f"Lost connection to sandbox after {MAX_RECONNECT_ATTEMPTS} reconnection attempts"
+        await _mark_sandbox_error_best_effort(
+            redis_stream,
+            run_id,
+            f"Lost connection to sandbox after {MAX_RECONNECT_ATTEMPTS} reconnection attempts",
         )
+        return True
     finally:
         stop_heartbeat.set()
         heartbeat_task.cancel()
@@ -564,6 +574,17 @@ async def _relay_loop(
             await heartbeat_task
         except asyncio.CancelledError:
             pass
+
+
+async def _mark_sandbox_error_best_effort(redis_stream: TaskRunRedisStream, run_id: str, message: str) -> None:
+    try:
+        await redis_stream.mark_error(message)
+    except Exception as error:
+        logger.exception(
+            "relay_sandbox_events_mark_error_failed",
+            run_id=run_id,
+            error=str(error),
+        )
 
 
 def _is_session_update(event_data: dict) -> bool:
@@ -592,8 +613,24 @@ _GENERATION_SESSION_UPDATE_SUBTYPES = frozenset(
 )
 
 
+def _pi_conversation_event(event_data: dict) -> dict | None:
+    if event_data.get("type") != "pi_event":
+        return None
+    event = event_data.get("event")
+    return event if isinstance(event, dict) else None
+
+
 def _is_active_agent_update(event_data: dict) -> bool:
-    """True only for session/update events where the agent is actively generating."""
+    """True only for events where the agent is actively generating."""
+    pi_event = _pi_conversation_event(event_data)
+    if pi_event is not None:
+        return pi_event.get("type") in {
+            "assistant_message_chunk",
+            "assistant_thought_chunk",
+            "tool_call_started",
+            "tool_call_updated",
+            "user_message",
+        }
     if not _is_session_update(event_data):
         return False
     update = (event_data.get("notification", {}).get("params") or {}).get("update") or {}
@@ -675,13 +712,21 @@ def _tool_args_preview(raw_input: Any) -> str | None:
 
 
 def _extract_agent_message_text(event_data: dict) -> str | None:
-    """Text delta from an ACP agent_message_chunk session/update, else None."""
+    """Text from an agent message event, else None."""
+    pi_event = _pi_conversation_event(event_data)
+    if pi_event is not None and pi_event.get("type") == "assistant_message_chunk":
+        content = pi_event.get("content")
+        if isinstance(content, dict) and content.get("type") == "text":
+            text = content.get("text")
+            return text if isinstance(text, str) else None
+        return None
+
     notification = event_data.get("notification", {})
     if notification.get("method") != "session/update":
         return None
     params = notification.get("params") or {}
     update = params.get("update") or {}
-    if update.get("sessionUpdate") != "agent_message_chunk":
+    if update.get("sessionUpdate") not in {"agent_message", "agent_message_chunk"}:
         return None
     content = update.get("content")
     if not isinstance(content, dict):
@@ -730,7 +775,11 @@ def _is_keepalive_event(event_data: dict) -> bool:
     return event_data.get("type") == "keepalive"
 
 
-_is_end_of_turn = is_turn_complete
+def _is_end_of_turn(event_data: dict) -> bool:
+    pi_event = _pi_conversation_event(event_data)
+    if pi_event is not None:
+        return pi_event.get("type") == "turn_completed"
+    return is_turn_complete(event_data)
 
 
 async def _emit_agentsh_events(sandbox_id: str, run_id: str, last_ts_ns: list[int]) -> None:

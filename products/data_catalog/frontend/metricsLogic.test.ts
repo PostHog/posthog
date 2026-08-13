@@ -1,5 +1,8 @@
+import { router } from 'kea-router'
+
 import { ApiError } from 'lib/api'
 import { lemonToast } from 'lib/lemon-ui/LemonToast/LemonToast'
+import { urls } from 'scenes/urls'
 
 import { initKeaTests } from '~/test/init'
 import { expectLogic } from '~/test/keaTestUtils'
@@ -115,6 +118,26 @@ describe('metricsLogic', () => {
         expect(logic.values.allMetrics.map((metric) => metric.name)).toContain('monthly_active_users')
     })
 
+    it('creates a markdown metric as a stub and routes to the metric page to author it', async () => {
+        ;(dataCatalogMetricsCreate as jest.Mock).mockResolvedValue(
+            buildMetric({ id: 'metric-4', name: 'mrr', definition_kind: null })
+        )
+
+        logic.actions.openNewMetricModal()
+        logic.actions.setNewMetricForm({
+            name: 'mrr',
+            description: 'Monthly recurring revenue',
+            definitionType: 'markdown',
+        })
+        logic.actions.createMetric()
+        await expectLogic(logic).toFinishAllListeners()
+
+        const body = (dataCatalogMetricsCreate as jest.Mock).mock.calls.at(-1)?.[1]
+        expect(body.definition).toBeUndefined()
+        expect(router.values.location.pathname).toContain(urls.dataCatalogMetric('mrr'))
+        expect(router.values.searchParams.edit).toEqual('definition')
+    })
+
     it('does not create a SQL metric from the modal', async () => {
         logic.actions.openNewMetricModal()
         logic.actions.setNewMetricForm({
@@ -138,5 +161,26 @@ describe('metricsLogic', () => {
         await expectLogic(logic).toFinishAllListeners()
 
         expect(logic.values.allMetrics).toHaveLength(0)
+    })
+
+    it('creates a metric from an insight with the short id and no definition', async () => {
+        ;(dataCatalogMetricsCreate as jest.Mock).mockResolvedValue(
+            buildMetric({ id: 'metric-3', name: 'from_insight', source_insight_short_id: 'abc123' })
+        )
+
+        logic.actions.openMetricFromInsightModal()
+        logic.actions.createMetricFromInsight({
+            name: 'from_insight',
+            display_name: '',
+            description: 'Snapshotted from an insight',
+            source_insight_short_id: 'abc123',
+        })
+        await expectLogic(logic).toFinishAllListeners()
+
+        const body = (dataCatalogMetricsCreate as jest.Mock).mock.calls.at(-1)?.[1]
+        expect(body.source_insight_short_id).toEqual('abc123')
+        expect(body.definition).toBeUndefined()
+        expect(logic.values.metricFromInsightModalOpen).toEqual(false)
+        expect(logic.values.allMetrics.map((metric) => metric.name)).toContain('from_insight')
     })
 })

@@ -13,6 +13,7 @@ import { createdAtColumn } from 'lib/lemon-ui/LemonTable/columnUtils'
 import { LemonTableLink } from 'lib/lemon-ui/LemonTable/LemonTableLink'
 import { LemonTag } from 'lib/lemon-ui/LemonTag'
 import { Tooltip } from 'lib/lemon-ui/Tooltip'
+import { urls } from 'scenes/urls'
 
 import { ProductKey } from '~/queries/schema/schema-general'
 
@@ -63,7 +64,12 @@ export function MetricsTab(): JSX.Element {
     const confirmDelete = (metric: DataCatalogMetricApi): void => {
         LemonDialog.open({
             title: 'Delete metric?',
-            content: <div className="text-sm text-secondary">Deleting {metric.name} cannot be undone.</div>,
+            content: (
+                <div className="text-sm text-secondary">
+                    This deletes {metric.name} and makes its name available for a new metric. Queries and links that
+                    reference it will stop working.
+                </div>
+            ),
             primaryButton: {
                 children: 'Delete',
                 type: 'primary',
@@ -94,6 +100,7 @@ export function MetricsTab(): JSX.Element {
             dataIndex: 'name',
             render: (_, metric) => (
                 <LemonTableLink
+                    to={urls.dataCatalogMetric(metric.name)}
                     title={metric.display_name || metric.name}
                     // Render descriptions with images disabled so a stored image URL can't beacon other viewers.
                     description={

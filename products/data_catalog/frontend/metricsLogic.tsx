@@ -36,7 +36,6 @@ export interface NewMetricForm {
     description: string
     unit: string
     definitionType: NewMetricDefinitionType
-    markdown: string
     sourceInsightShortId: string
 }
 
@@ -46,7 +45,6 @@ export const EMPTY_NEW_METRIC_FORM: NewMetricForm = {
     description: '',
     unit: '',
     definitionType: 'sql',
-    markdown: '',
     sourceInsightShortId: '',
 }
 
@@ -55,14 +53,15 @@ export interface SavedInsightOption {
     label: string
 }
 
-const MARKDOWN_DEFINITION_KIND = 'MarkdownDefinition'
+export interface MetricFromInsightRequest {
+    name: string
+    display_name: string
+    description: string
+    source_insight_short_id: string
+}
 
 function projectId(): string {
     return String(ApiConfig.getCurrentTeamId())
-}
-
-function buildMarkdownDefinition(markdown: string): Record<string, unknown> {
-    return { kind: MARKDOWN_DEFINITION_KIND, markdown }
 }
 
 function apiErrorDetail(error: unknown): string | null {
@@ -77,6 +76,7 @@ export interface metricsLogicValues {
     filters: MetricsFilters
     insightSearch: string
     isCreatingMetric: boolean
+    metricFromInsightModalOpen: boolean
     metrics: DataCatalogMetricApi[]
     newMetricForm: NewMetricForm
     newMetricModalOpen: boolean
@@ -90,11 +90,17 @@ export interface metricsLogicActions {
     approveMetric: (name: string) => {
         name: string
     }
+    closeMetricFromInsightModal: () => {
+        value: true
+    }
     closeNewMetricModal: () => {
         value: true
     }
     createMetric: () => {
         value: true
+    }
+    createMetricFromInsight: (request: MetricFromInsightRequest) => {
+        request: MetricFromInsightRequest
     }
     deleteMetric: (name: string) => {
         name: string
@@ -140,6 +146,9 @@ export interface metricsLogicActions {
         payload?: {
             value: true
         }
+    }
+    openMetricFromInsightModal: () => {
+        value: true
     }
     openNewMetricModal: () => {
         value: true
@@ -202,6 +211,9 @@ export const metricsLogic = kea<metricsLogicType>([
         refreshMetricFromInsight: (name: string) => ({ name }),
         deleteMetric: (name: string) => ({ name }),
         setActionInFlight: (name: string, inFlight: boolean) => ({ name, inFlight }),
+        openMetricFromInsightModal: true,
+        closeMetricFromInsightModal: true,
+        createMetricFromInsight: (request: MetricFromInsightRequest) => ({ request }),
     }),
     loaders(({ values }) => ({
         allMetrics: [
@@ -264,6 +276,13 @@ export const metricsLogic = kea<metricsLogicType>([
                 setCreatingMetric: (_, { creating }) => creating,
             },
         ],
+        metricFromInsightModalOpen: [
+            false,
+            {
+                openMetricFromInsightModal: () => true,
+                closeMetricFromInsightModal: () => false,
+            },
+        ],
         actionsInFlight: [
             {} as Record<string, boolean>,
             {
@@ -315,12 +334,13 @@ export const metricsLogic = kea<metricsLogicType>([
             }
             const form = values.newMetricForm
             if (form.definitionType === 'sql') {
-                // SQL metrics are defined from the SQL editor, so the else branch below only handles markdown.
                 lemonToast.error('Create SQL metrics from the SQL editor.')
                 return
             }
             actions.setCreatingMetric(true)
             try {
+                // A markdown metric is created as a stub; its definition is authored on the
+                // metric page, where the editor has room.
                 const created = await dataCatalogMetricsCreate(projectId(), {
                     name: form.name,
                     display_name: form.display_name || undefined,
@@ -328,16 +348,45 @@ export const metricsLogic = kea<metricsLogicType>([
                     unit: form.unit || undefined,
                     ...(form.definitionType === 'insight'
                         ? { source_insight_short_id: form.sourceInsightShortId }
-                        : { definition: buildMarkdownDefinition(form.markdown) }),
+                        : {}),
                     created_source: 'user',
                 })
                 actions.loadMetricsSuccess([created, ...values.allMetrics])
                 actions.closeNewMetricModal()
                 lemonToast.success('Metric created')
+                if (form.definitionType === 'markdown') {
+                    router.actions.push(urls.dataCatalogMetric(created.name), { edit: 'definition' })
+                }
             } catch (error) {
                 lemonToast.error(
                     apiErrorDetail(error) || 'Could not create the metric. Check the fields and try again.'
                 )
+            } finally {
+                actions.setCreatingMetric(false)
+            }
+        },
+        createMetricFromInsight: async ({ request }) => {
+            if (values.isCreatingMetric) {
+                return
+            }
+            actions.setCreatingMetric(true)
+            try {
+                const created = await dataCatalogMetricsCreate(projectId(), {
+                    name: request.name,
+                    display_name: request.display_name || undefined,
+                    description: request.description,
+                    source_insight_short_id: request.source_insight_short_id,
+                })
+                actions.loadMetricsSuccess([created, ...values.allMetrics])
+                actions.closeMetricFromInsightModal()
+                lemonToast.success('Metric created from insight', {
+                    button: {
+                        label: 'View metric',
+                        action: () => router.actions.push(urls.dataCatalogMetric(created.name)),
+                    },
+                })
+            } catch (error) {
+                lemonToast.error(apiErrorDetail(error) || 'Could not create the metric from this insight. Try again.')
             } finally {
                 actions.setCreatingMetric(false)
             }

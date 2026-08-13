@@ -1,14 +1,10 @@
 import { useActions, useValues } from 'kea'
 
 import { IconSparkles } from '@posthog/icons'
-import { LemonBanner, LemonButton, SpinnerOverlay } from '@posthog/lemon-ui'
+import { LemonBanner, LemonButton } from '@posthog/lemon-ui'
 
-import { NotFound } from 'lib/components/NotFound'
-import { FEATURE_FLAGS } from 'lib/constants'
 import { LemonTabs } from 'lib/lemon-ui/LemonTabs'
-import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { useAttachedLogic } from 'lib/logic/scenes/useAttachedLogic'
-import { appLogic } from 'scenes/appLogic'
 import { SceneExport } from 'scenes/sceneTypes'
 import { urls } from 'scenes/urls'
 
@@ -22,11 +18,12 @@ import { visionQuotaLogic } from '../logics/visionQuotaLogic'
 import { getReplayVisionEditDisabledReason } from '../utils/accessControl'
 import { formatCreditsRange } from '../utils/credits'
 import { quotaBannerState } from '../utils/quotaProjection'
+import { ScannerBackfillsTab } from './components/ScannerBackfillsTab'
+import { ScannerCalibrationTab } from './components/ScannerCalibrationTab'
 import { ScannerConfigReadonly } from './components/ScannerConfigReadonly'
 import { ScannerDigestCard } from './components/ScannerDigestCard'
 import { ScannerObservationsTable } from './components/ScannerObservationsTable'
 import { ScannerOverview } from './components/ScannerOverview'
-import { ScannerQualityTab } from './components/ScannerQualityTab'
 import { ScannerRunTab } from './components/ScannerRunTab'
 import { VisionActionsTab } from './components/VisionActionsTab'
 import { replayScannerLogic } from './replayScannerLogic'
@@ -41,22 +38,11 @@ export const scene: SceneExport = {
 export function ReplayScannerSceneComponent(): JSX.Element {
     const { scannerId, activeTab } = useValues(replayScannerSceneLogic)
     const { setActiveTab } = useActions(replayScannerSceneLogic)
-    const { featureFlags, receivedFeatureFlags } = useValues(featureFlagLogic)
-    const { featureFlagsTimedOut } = useValues(appLogic)
-    const actionsTabEnabled = !!featureFlags[FEATURE_FLAGS.REPLAY_VISION_ACTIONS]
 
     const scannerLogic = replayScannerLogic({ id: scannerId })
     useAttachedLogic(scannerLogic, replayScannerSceneLogic)
 
     const { scanner, scannerLoading } = useValues(scannerLogic)
-
-    if (!featureFlags[FEATURE_FLAGS.REPLAY_VISION]) {
-        // Flags load asynchronously, so wait for them before deciding the page doesn't exist.
-        if (!receivedFeatureFlags && !featureFlagsTimedOut) {
-            return <SpinnerOverlay sceneLevel />
-        }
-        return <NotFound object="page" />
-    }
 
     if (scannerLoading || !scanner) {
         return (
@@ -74,14 +60,14 @@ export function ReplayScannerSceneComponent(): JSX.Element {
                 resourceType={{ type: 'replay_vision' }}
                 actions={
                     <>
-                        {activeTab !== ReplayScannerTab.Quality && (
+                        {activeTab !== ReplayScannerTab.Calibration && (
                             <LemonButton
                                 type="secondary"
                                 size="small"
                                 icon={<IconSparkles />}
-                                tooltip="Rate scanner results and apply PostHog AI config recommendations in the Quality tab"
-                                onClick={() => setActiveTab(ReplayScannerTab.Quality)}
-                                data-attr="replay-vision-open-quality-tab"
+                                tooltip="Rate scanner results and apply PostHog AI config recommendations in the Calibration tab"
+                                onClick={() => setActiveTab(ReplayScannerTab.Calibration)}
+                                data-attr="replay-vision-open-calibration-tab"
                             >
                                 Improve scanner
                             </LemonButton>
@@ -114,9 +100,7 @@ export function ReplayScannerSceneComponent(): JSX.Element {
                         label: 'Overview',
                         content: (
                             <div className="flex flex-col gap-6">
-                                {actionsTabEnabled && (
-                                    <ScannerDigestCard scannerId={scannerId} scannerName={scanner.name || ''} />
-                                )}
+                                <ScannerDigestCard scannerId={scannerId} scannerName={scanner.name || ''} />
                                 <ScannerOverview scannerId={scannerId} />
                             </div>
                         ),
@@ -132,16 +116,21 @@ export function ReplayScannerSceneComponent(): JSX.Element {
                         content: <ScannerRunTab scannerId={scannerId} />,
                     },
                     {
+                        key: ReplayScannerTab.Backfills,
+                        label: 'Backfills',
+                        content: <ScannerBackfillsTab scannerId={scannerId} />,
+                    },
+                    {
                         key: ReplayScannerTab.Configuration,
                         label: 'Configuration',
                         content: <ScannerConfigReadonly scanner={scanner} />,
                     },
                     {
-                        key: ReplayScannerTab.Quality,
-                        label: 'Quality',
-                        content: <ScannerQualityTab scannerId={scannerId} />,
+                        key: ReplayScannerTab.Calibration,
+                        label: 'Calibration',
+                        content: <ScannerCalibrationTab scannerId={scannerId} />,
                     },
-                    actionsTabEnabled && {
+                    {
                         key: ReplayScannerTab.Actions,
                         label: 'Digests and alerts',
                         content: (
@@ -159,7 +148,7 @@ export function ReplayScannerSceneComponent(): JSX.Element {
 
 // Assumes block-only overage policy; revisit when `usage_based` ships so we don't scare metered orgs.
 function QuotaBanner(): JSX.Element | null {
-    const { quota } = useValues(visionQuotaLogic)
+    const { quota, onFreePlan } = useValues(visionQuotaLogic)
     const state = quotaBannerState(quota)
     if (!state.kind) {
         return null
@@ -167,8 +156,12 @@ function QuotaBanner(): JSX.Element | null {
     return (
         <LemonBanner type="warning">
             {state.kind === 'exhausted'
-                ? `Monthly spend limit reached: ${formatCreditsRange(state.quota.credits_used, state.quota.credit_limit ?? 0)}. New observations are paused until ${state.resetsOn}.`
-                : `You've used ${formatCreditsRange(state.quota.credits_used, state.quota.credit_limit ?? 0)} this month. New observations will pause once you hit the limit. Resets ${state.resetsOn}.`}
+                ? `${
+                      onFreePlan ? 'Free credits used up' : 'Monthly spend limit reached'
+                  }: ${formatCreditsRange(state.quota.credits_used, state.quota.credit_limit ?? 0)}. New observations are paused until ${state.resetsOn}.`
+                : onFreePlan
+                  ? `You've used ${Math.round(state.quota.credits_used).toLocaleString('en-US')} of your ${Math.round(state.quota.credit_limit ?? 0).toLocaleString('en-US')} free credits this month. New observations will pause once they run out. Resets ${state.resetsOn}.`
+                  : `You've used ${formatCreditsRange(state.quota.credits_used, state.quota.credit_limit ?? 0)} this month. New observations will pause once you hit the limit. Resets ${state.resetsOn}.`}
         </LemonBanner>
     )
 }

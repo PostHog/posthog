@@ -524,6 +524,24 @@ def _expr_to_compare_op(
                 left=ast.Call(name="toString", args=[expr]),
                 right=ast.Constant(value=f"%{single_value}%"),
             )
+    elif operator in (PropertyOperator.STARTS_WITH, PropertyOperator.NOT_STARTS_WITH):
+        single_value = value[0] if isinstance(value, list) and len(value) == 1 else value
+        return ast.CompareOperation(
+            op=ast.CompareOperationOp.ILike
+            if operator == PropertyOperator.STARTS_WITH
+            else ast.CompareOperationOp.NotILike,
+            left=ast.Call(name="toString", args=[expr]),
+            right=ast.Constant(value=f"{single_value}%"),
+        )
+    elif operator in (PropertyOperator.ENDS_WITH, PropertyOperator.NOT_ENDS_WITH):
+        single_value = value[0] if isinstance(value, list) and len(value) == 1 else value
+        return ast.CompareOperation(
+            op=ast.CompareOperationOp.ILike
+            if operator == PropertyOperator.ENDS_WITH
+            else ast.CompareOperationOp.NotILike,
+            left=ast.Call(name="toString", args=[expr]),
+            right=ast.Constant(value=f"%{single_value}"),
+        )
     elif operator == PropertyOperator.ICONTAINS_MULTI:
         # Always expect multiple values for multi-contains operator
         if isinstance(value, list):
@@ -947,6 +965,8 @@ def property_to_expr(
                     operator == PropertyOperator.NOT_ICONTAINS
                     or operator == PropertyOperator.NOT_REGEX
                     or operator == PropertyOperator.IS_NOT
+                    or operator == PropertyOperator.NOT_STARTS_WITH
+                    or operator == PropertyOperator.NOT_ENDS_WITH
                 ):
                     return ast.And(exprs=exprs)
                 return ast.Or(exprs=exprs)
@@ -1028,6 +1048,8 @@ def property_to_expr(
             PropertyOperator.NOT_BETWEEN,
             PropertyOperator.ICONTAINS,
             PropertyOperator.NOT_ICONTAINS,
+            # starts_with/ends_with intentionally excluded: no ClickHouse anchored multi-search
+            # primitive exists, so multi-value use falls through to per-value ILIKE scans below.
         ):
             if len(value) == 0:
                 return ast.Constant(value=1)
@@ -1112,6 +1134,8 @@ def property_to_expr(
                     operator == PropertyOperator.NOT_ICONTAINS
                     or operator == PropertyOperator.NOT_REGEX
                     or operator == PropertyOperator.IS_NOT
+                    or operator == PropertyOperator.NOT_STARTS_WITH
+                    or operator == PropertyOperator.NOT_ENDS_WITH
                 ):
                     return ast.And(exprs=exprs)
                 return ast.Or(exprs=exprs)
@@ -1179,6 +1203,8 @@ def property_to_expr(
                     operator == PropertyOperator.IS_NOT
                     or operator == PropertyOperator.NOT_ICONTAINS
                     or operator == PropertyOperator.NOT_REGEX
+                    or operator == PropertyOperator.NOT_STARTS_WITH
+                    or operator == PropertyOperator.NOT_ENDS_WITH
                 ):
                     return ast.And(exprs=exprs)
                 return ast.Or(exprs=exprs)
@@ -1240,6 +1266,78 @@ def property_to_expr(
 
     raise NotImplementedError(
         f"property_to_expr not implemented for filter type {type(property).__name__} and {property.type}"
+    )
+
+
+def bound_property_to_expr(property: Property, expr: ast.Expr, team: Team) -> ast.Expr:
+    """Apply a property filter's operator and value to a caller-supplied expression, instead of
+    resolving the filter's key to a table field. Backs the column-bound `{filters(...)}` placeholder,
+    where the query author maps filter keys onto their own columns. Mirrors `property_to_expr`'s
+    multi-value handling, without the events-table special cases that don't apply to bound columns."""
+    operator = cast(Optional[PropertyOperator], property.operator) or PropertyOperator.EXACT
+    value = property.value
+
+    if property.key and GROUP_KEY_PATTERN.match(str(property.key)):
+        value = _stringify_group_key_value(value)
+
+    if isinstance(value, list) and operator not in (
+        PropertyOperator.BETWEEN,
+        PropertyOperator.NOT_BETWEEN,
+        PropertyOperator.ICONTAINS,
+        PropertyOperator.NOT_ICONTAINS,
+    ):
+        if len(value) == 0:
+            return ast.Constant(value=1)
+        if len(value) == 1:
+            value = value[0]
+        elif operator in (
+            PropertyOperator.EXACT,
+            PropertyOperator.IS_NOT,
+            PropertyOperator.IN_,
+            PropertyOperator.NOT_IN,
+        ):
+            op = (
+                ast.CompareOperationOp.In
+                if operator in (PropertyOperator.EXACT, PropertyOperator.IN_)
+                else ast.CompareOperationOp.NotIn
+            )
+            return ast.CompareOperation(
+                op=op,
+                left=clone_expr(expr),
+                right=ast.Tuple(exprs=[ast.Constant(value=v) for v in value]),
+            )
+        else:
+            exprs = [
+                bound_property_to_expr(
+                    Property(
+                        type=property.type,
+                        key=property.key,
+                        operator=property.operator,
+                        group_type_index=property.group_type_index,
+                        value=v,
+                    ),
+                    expr,
+                    team,
+                )
+                for v in value
+            ]
+            if (
+                operator == PropertyOperator.IS_NOT
+                or operator == PropertyOperator.NOT_ICONTAINS
+                or operator == PropertyOperator.NOT_REGEX
+                or operator == PropertyOperator.NOT_STARTS_WITH
+                or operator == PropertyOperator.NOT_ENDS_WITH
+            ):
+                return ast.And(exprs=exprs)
+            return ast.Or(exprs=exprs)
+
+    return _expr_to_compare_op(
+        expr=clone_expr(expr),
+        value=value,
+        operator=operator,
+        property=property,
+        is_json_field=False,
+        team=team,
     )
 
 
@@ -1526,6 +1624,8 @@ def operator_is_negative(operator: PropertyOperator) -> bool:
         PropertyOperator.IS_NOT,
         PropertyOperator.NOT_ICONTAINS,
         PropertyOperator.NOT_ICONTAINS_MULTI,
+        PropertyOperator.NOT_STARTS_WITH,
+        PropertyOperator.NOT_ENDS_WITH,
         PropertyOperator.NOT_REGEX,
         PropertyOperator.IS_NOT_SET,
         PropertyOperator.NOT_BETWEEN,

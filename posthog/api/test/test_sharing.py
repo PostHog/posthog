@@ -25,14 +25,16 @@ from posthog.api.sharing import (
 )
 from posthog.constants import AvailableFeature
 from posthog.models import ActivityLog, OrganizationMembership
+from posthog.models.data_color_theme import DataColorTheme
 from posthog.models.filters.filter import Filter
 from posthog.models.share_password import SharePassword
 from posthog.models.sharing_configuration import SharingConfiguration
 from posthog.models.user import User
 
+from products.alerts.backend.models.alert import AlertConfiguration
 from products.dashboards.backend.access import DashboardAccessMethod
 from products.dashboards.backend.models.dashboard import Dashboard
-from products.dashboards.backend.models.dashboard_tile import DashboardTile
+from products.dashboards.backend.models.dashboard_tile import ButtonTile, DashboardTile, Text
 from products.dashboards.backend.models.dashboard_widget import DashboardWidget
 from products.data_modeling.backend.facade.models import DataWarehouseSavedQuery
 from products.exports.backend.models.exported_asset import ExportedAsset, get_render_access_token
@@ -1525,6 +1527,54 @@ class TestExportCacheKeyFlow(APIBaseTest):
         mock_calculate.assert_called_once()
 
 
+class TestSharedAdhocQueryExport(APIBaseTest):
+    """The /exporter page for an insight-less PNG asset (export_context.source) must inline the
+    pre-computed query result — the anonymous page can't authenticate against the query API."""
+
+    _SOURCE_QUERY = {"kind": "InsightVizNode", "source": {"kind": "TrendsQuery", "series": [{"event": "$pageview"}]}}
+
+    def _create_asset(self) -> ExportedAsset:
+        return ExportedAsset.objects.create(
+            team=self.team,
+            export_format=ExportedAsset.ExportFormat.PNG,
+            created_by=self.user,
+            export_context={"source": self._SOURCE_QUERY},
+        )
+
+    @patch("posthog.api.sharing.process_query_dict")
+    @patch("posthog.api.sharing.render_template")
+    def test_exporter_page_inlines_query_and_results(self, mock_render_template, mock_process_query):
+        mock_render_template.return_value = HttpResponse("<html></html>")
+        mock_process_query.return_value = {"results": [{"count": 42}], "cache_key": "abc"}
+        asset = self._create_asset()
+
+        response = self.client.get(f"/exporter?token={get_render_access_token(asset)}")
+        assert response.status_code == 200
+
+        exported_data = json.loads(mock_render_template.call_args[1]["context"]["exported_data"])
+        assert exported_data["query"] == self._SOURCE_QUERY
+        assert exported_data["query_results"] == {"results": [{"count": 42}], "cache_key": "abc"}
+        # The read must be attributed to the export owner so warehouse access control resolves.
+        assert mock_process_query.call_args[1]["user"] == self.user
+
+    @parameterized.expand(
+        [
+            ("query_raises", Exception("boom"), None),
+            ("query_returns_error", None, {"error": "boom"}),
+        ]
+    )
+    @patch("posthog.api.sharing.process_query_dict")
+    def test_exporter_page_404s_when_query_cannot_be_calculated(
+        self, _name, side_effect, return_value, mock_process_query
+    ):
+        mock_process_query.side_effect = side_effect
+        mock_process_query.return_value = return_value
+        asset = self._create_asset()
+
+        response = self.client.get(f"/exporter?token={get_render_access_token(asset)}")
+        assert response.status_code == 404
+
+
 class TestSharedCohortInlining(APIBaseTest):
     @mock_exporter_template
     def test_shared_insight_inlines_referenced_cohort_names(self):
@@ -1658,6 +1708,52 @@ class TestSharedCohortInlining(APIBaseTest):
         assert widget_data["widget_type"] == "error_tracking_list"
         assert widget_data["config"]["limit"] == 10
         assert "created_by" not in widget_data
+
+    @mock_exporter_template
+    def test_shared_dashboard_omits_authorship_of_dashboard_and_tiles(self):
+        dashboard = Dashboard.objects.create(team=self.team, name="dash", created_by=self.user)
+        insight = Insight.objects.create(
+            team=self.team,
+            name="Pageviews",
+            query={"kind": "TrendsQuery", "series": [{"kind": "EventsNode", "event": "$pageview"}]},
+            created_by=self.user,
+            last_modified_by=self.user,
+        )
+        AlertConfiguration.objects.create(
+            team=self.team, insight=insight, name="High pageviews", enabled=True, created_by=self.user
+        )
+        DashboardTile.objects.create(dashboard=dashboard, team_id=self.team.id, insight=insight)
+        text = Text.objects.create(team=self.team, body="Read me", created_by=self.user, last_modified_by=self.user)
+        DashboardTile.objects.create(dashboard=dashboard, team_id=self.team.id, text=text)
+        button = ButtonTile.objects.create(
+            team=self.team,
+            url="https://example.com",
+            text="Open docs",
+            created_by=self.user,
+            last_modified_by=self.user,
+        )
+        DashboardTile.objects.create(dashboard=dashboard, team_id=self.team.id, button_tile=button)
+        DataColorTheme.objects.create(team=self.team, name="Brand", colors=["#000000"], created_by=self.user)
+
+        config = SharingConfiguration.objects.create(team=self.team, dashboard=dashboard, enabled=True)
+        response = self.client.get(f"/shared/{config.access_token}")
+        assert response.status_code == 200
+
+        body = response.content.decode()
+        assert self.user.email not in body
+
+        exported = self._parse_exported_data(body)
+        exported_dashboard = exported["dashboard"]
+        assert "created_by" not in exported_dashboard
+        for tile in exported_dashboard["tiles"]:
+            for tile_content in (tile.get("insight"), tile.get("text"), tile.get("button_tile")):
+                if tile_content is not None:
+                    assert "created_by" not in tile_content
+                    assert "last_modified_by" not in tile_content
+            if tile.get("insight") is not None:
+                assert tile["insight"]["alerts"] == []
+        for theme in exported["themes"]:
+            assert "created_by" not in theme
 
 
 class TestSharingResourceEditChecks(APIBaseTest):

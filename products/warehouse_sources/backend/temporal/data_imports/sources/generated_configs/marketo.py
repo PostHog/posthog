@@ -6,4 +6,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common imp
 
 @config.config
 class MarketoSourceConfig(config.Config):
-    pass
+    munchkin_id: str
+    client_id: str
+    client_secret: str
+    start_date: str | None = None

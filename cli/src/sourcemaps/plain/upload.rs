@@ -1,6 +1,7 @@
 use std::{path::PathBuf, time::Instant};
 
 use anyhow::{Context, Result};
+use rayon::iter::{IntoParallelIterator, ParallelIterator};
 use serde_json::json;
 use tracing::{debug, info, warn};
 
@@ -18,7 +19,9 @@ use crate::{
     },
     invocation_context::context,
     sourcemaps::{
-        args::{FileSelectionArgs, ReleaseArgs, UploadConcurrencyArgs, UploadConflictArgs},
+        args::{
+            FileSelectionArgs, ReleaseArgs, ReleaseMode, UploadConcurrencyArgs, UploadConflictArgs,
+        },
         content::MinifiedSourceFile,
         inject::get_release_for_maps,
         plain::inject::is_javascript_file,
@@ -59,6 +62,19 @@ pub struct Args {
     /// DEPRECATED - this flag is a no-op. Use top-level `--skip-ssl-verification` instead.
     #[arg(long)]
     pub skip_ssl_verification: bool,
+
+    /// How the release is associated with exceptions. `symbol-set` (the default) stamps the
+    /// release id onto the uploaded symbol sets: the previous behavior. EXPERIMENTAL `event`
+    /// leaves symbol sets unbound; the chunks already carry the release id in their injected
+    /// snippet, so the release is resolved per event rather than per symbol set. Also settable
+    /// via `POSTHOG_RELEASE_MODE`.
+    #[arg(
+        long,
+        env = "POSTHOG_RELEASE_MODE",
+        value_enum,
+        default_value = "symbol-set"
+    )]
+    pub release_mode: ReleaseMode,
 }
 
 pub fn upload_cmd(args: &Args) -> Result<()> {
@@ -85,8 +101,12 @@ pub fn upload(args: &Args, existing_release: Option<&Release>) -> Result<()> {
         .collect::<Vec<_>>();
     info!("Found {} chunks to upload", pairs.len());
 
-    // Reuse the pre-resolved release if available, otherwise fetch or create one
-    let created_release_id = if let Some(r) = existing_release {
+    // Reuse the pre-resolved release if available, otherwise fetch or create one. Skipped entirely
+    // in event mode: inject already put the release id inside the chunks, and resolving one here
+    // would only serve to stamp it onto the symbol sets, which is the binding event mode avoids.
+    let created_release_id = if args.release_mode == ReleaseMode::Event {
+        None
+    } else if let Some(r) = existing_release {
         Some(r.id.to_string())
     } else {
         let cwd = std::env::current_dir()?;
@@ -129,9 +149,12 @@ pub fn upload(args: &Args, existing_release: Option<&Release>) -> Result<()> {
     }
     let empty_skipped = empty_pairs.len();
 
+    // Payload preparation (serialization + zstd compression) is CPU-bound,
+    // so spread it across cores.
+    let release_mode = args.release_mode;
     let uploads = valid_pairs
-        .into_iter()
-        .map(TryInto::try_into)
+        .into_par_iter()
+        .map(|pair| pair.into_upload(release_mode))
         .collect::<Result<Vec<SymbolSetUpload>>>()
         .context("While preparing files for upload")?;
 
@@ -150,7 +173,7 @@ pub fn upload(args: &Args, existing_release: Option<&Release>) -> Result<()> {
     );
 
     let started_at = Instant::now();
-    let upload_result = symbol_sets::upload_with_retry_and_concurrency(
+    let (summary, upload_result) = symbol_sets::upload_with_retry_and_concurrency(
         uploads,
         args.batch_size,
         args.release.skip_release_on_fail,
@@ -167,6 +190,7 @@ pub fn upload(args: &Args, existing_release: Option<&Release>) -> Result<()> {
         ("duration_ms", json!(duration_ms)),
         ("success", json!(upload_result.is_ok())),
     ];
+    props.extend(summary.telemetry_props());
     if let Err(ref e) = upload_result {
         props.push(("error", json!(format!("{:#}", e))));
     }

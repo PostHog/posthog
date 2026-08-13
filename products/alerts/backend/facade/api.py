@@ -1,4 +1,5 @@
 import uuid
+from collections.abc import Collection
 from datetime import datetime, timedelta
 from typing import Literal
 from zoneinfo import ZoneInfo
@@ -28,7 +29,8 @@ from products.alerts.backend.destinations import (
     soft_delete_all_alert_destinations,
 )
 from products.alerts.backend.email_notifications import send_alert_email
-from products.alerts.backend.models.alert import AlertConfiguration
+from products.alerts.backend.insight_alert_state_machine import apply_snooze
+from products.alerts.backend.models.alert import AlertCheck, AlertConfiguration
 
 logger = structlog.get_logger(__name__)
 
@@ -51,6 +53,18 @@ def get_alert_team_id(alert_id: uuid.UUID) -> int | None:
     # snooze_alert_from_slack below, not from this lookup.
     # nosemgrep: idor-lookup-without-team
     return AlertConfiguration.objects.filter(id=alert_id).values_list("team_id", flat=True).first()
+
+
+def insight_ids_with_alerts(insight_ids: Collection[int]) -> set[int]:
+    """Which of the given insights have at least one alert configured.
+
+    Lets callers outside this product treat "an alert points at this insight" as a signal that
+    something depends on it, without importing the model.
+    """
+    # Caller-supplied ids that are already team-scoped by the caller's own query; this only maps
+    # ids to ids and returns no row data.
+    # nosemgrep: idor-lookup-without-team
+    return set(AlertConfiguration.objects.filter(insight_id__in=insight_ids).values_list("insight_id", flat=True))
 
 
 def snooze_alert_from_slack(
@@ -125,7 +139,17 @@ def snooze_alert_from_slack(
             return "disabled"
 
         with ActingUserContext(user):
-            locked_alert.snooze(until=snoozed_until)
+            state_fields = apply_snooze(locked_alert)
+            locked_alert.snoozed_until = snoozed_until
+            locked_alert.save(update_fields=[*state_fields, "snoozed_until"])
+            AlertCheck.objects.create(
+                alert_configuration=locked_alert,
+                calculated_value=None,
+                condition=locked_alert.condition,
+                targets_notified={},
+                state=locked_alert.state,
+                error=None,
+            )
 
     return "snoozed"
 
@@ -140,6 +164,7 @@ __all__ = [
     "build_alert_destination_config",
     "create_alert_destination_hog_functions",
     "get_alert_team_id",
+    "insight_ids_with_alerts",
     "snooze_alert_from_slack",
     "soft_delete_alert_destinations",
     "soft_delete_all_alert_destinations",
