@@ -32,6 +32,7 @@ from oauth2_provider.views import (
     UserInfoView,
 )
 from oauth2_provider.views.mixins import OAuthLibMixin
+from oauthlib.common import Request as OauthlibRequest
 from oauthlib.oauth2 import InvalidGrantError
 from redis.exceptions import RedisError
 from rest_framework import serializers, status
@@ -56,7 +57,7 @@ from posthog.api.oauth.client_assertion import (
     resolve_client_assertion,
     verify_client_assertion,
 )
-from posthog.api.oauth.client_auth import client_credentials_from_basic_auth, verify_client_secret
+from posthog.api.oauth.client_auth import verify_client_secret
 from posthog.api.oauth.mcp_resource_scopes import build_oauth_mcp_consent_context
 from posthog.helpers.impersonation import get_original_user_from_session, is_impersonated_session
 from posthog.middleware import is_read_only_impersonation
@@ -1966,34 +1967,39 @@ class OAuthIntrospectTokenView(ClientProtectedScopedResourceView):
             return True, request
         return super().verify_request(request)
 
+    def authenticate_client(self, request):
+        """Authenticate the client and record which application was verified.
+
+        The base mixin returns only a bool and discards the oauthlib request that holds the
+        verified ``client``, so the ownership check would otherwise have to re-derive the
+        caller's identity from request fields. Those fields lie: an ``Authorization: Basic``
+        header or a ``client_id`` body param can name any client without proving anything,
+        while authentication may have succeeded through an entirely different credential. The
+        only trustworthy identity is the one the validator bound to the request during
+        verification, so capture it here for get_token_response to read back.
+        """
+        core = self.get_oauthlib_core()
+        uri, http_method, body, headers = core._extract_params(request)
+        oauth_request = OauthlibRequest(uri, http_method, body, headers)
+        if not core.server.request_validator.authenticate_client(oauth_request):
+            return False
+        request.oauth_authenticated_client = oauth_request.client
+        return True
+
     def _client_credentials_client_id(self, request) -> str | None:
-        """The identity that authenticated this request via client credentials, or None.
+        """The effective_client_id the server verified via client credentials, or None.
 
         None means the request reached us through the bearer-token path instead (self-
-        introspection or the `introspection` scope): ClientProtectedResourceMixin.dispatch
-        only sets `resource_owner` on that path, since a successful `authenticate_client`
-        (the client-credentials path) skips it entirely. The identity is read back rather
-        than re-verified, because dispatch already proved this request holds a valid secret,
-        or a signature-verified `private_key_jwt` assertion, for it. A CIMD client identifies
-        itself through the assertion's `sub` rather than `client_id`, since it has no opaque
-        client_id to send.
+        introspection or the `introspection` scope), where ClientProtectedResourceMixin.dispatch
+        sets `resource_owner` rather than authenticating a client. On the client-credentials
+        path the identity comes only from the application the validator actually verified (see
+        authenticate_client), never from unverified request headers or body params.
         """
         if hasattr(request, "resource_owner"):
             return None
 
-        credentials = client_credentials_from_basic_auth(request)
-        if credentials is not None:
-            return credentials[0]
-
-        assertion = resolve_client_assertion(
-            request.POST.get("client_assertion") or "",
-            request.POST.get("client_assertion_type") or "",
-            request.POST.get("client_id") or "",
-        )
-        if assertion is not None:
-            return assertion[1]
-
-        return request.POST.get("client_id") or None
+        client = getattr(request, "oauth_authenticated_client", None)
+        return client.effective_client_id if client is not None else None
 
     def get_token_response(self, request, token_value=None):
         """

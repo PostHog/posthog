@@ -3431,6 +3431,41 @@ class TestOAuthAPI(APIBaseTest):
         self.assertFalse(data["active"])
         self.assertEqual(len(data), 1)
 
+    @parameterized.expand(["access_token", "refresh_token"])
+    @override_settings(SITE_URL="https://us.posthog.com")
+    def test_introspection_ignores_a_spoofed_basic_auth_header(self, token_type):
+        # Assertion auth short-circuits before the Basic header is ever validated, so a caller
+        # can authenticate as itself with a signed assertion while stapling a Basic header
+        # naming another client. The ownership check must bind to the verified assertion
+        # identity, not the unverified header, or the caller reads that other client's token.
+        access_token, refresh_token = self._create_access_and_refresh_tokens()
+        token = access_token if token_type == "access_token" else refresh_token
+
+        app, _grant, private_key = self._create_private_key_jwt_app_and_grant()
+        assertion, jwks = self._signed_assertion_and_jwks(app, private_key)
+
+        with (
+            patch(
+                "posthog.api.oauth.client_assertion.fetch_client_json_document",
+                return_value=(jwks, None),
+            ),
+            patch("posthog.api.oauth.views.enqueue_cimd_refresh_if_stale"),
+        ):
+            response = self.post(
+                "/oauth/introspect/",
+                {
+                    "token": token.token,
+                    "client_assertion_type": CLIENT_ASSERTION_TYPE_JWT_BEARER,
+                    "client_assertion": assertion,
+                },
+                headers={"Authorization": self.get_basic_auth_header("test_confidential_client_id", "anything")},
+            )
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        data = response.json()
+        self.assertFalse(data["active"])
+        self.assertEqual(len(data), 1)
+
     def _create_token_pair_for_app(
         self, app: OAuthApplication, *, scope: str = "openid"
     ) -> tuple[OAuthAccessToken, OAuthRefreshToken]:
