@@ -180,7 +180,7 @@ A `delay` waits either a fixed span or until a date carried by the person or the
 ```
 
 - **Exactly one of `delay_duration` and `delay_until`.** Both together are rejected; so is neither.
-- `expression` is HogQL resolving to a datetime. An ISO string, a `HogDateTime`, and unix seconds all resolve to the same instant, so a stored date works whichever shape the customer set it in.
+- `expression` is HogQL resolving to a datetime. An ISO string, a `HogDateTime`, and unix seconds all resolve to the same instant, so a stored date works whichever shape the customer set it in. A bare number is read as **seconds**: a millisecond timestamp (what `Date.now()` and most SDKs produce) is rejected rather than read as a date tens of thousands of years out. Divide it by 1000 in the expression, or store the date as an ISO string.
 - `offset` shifts that instant and is **signed**: `^-?\d*\.?\d+[dhms]$`. `-1d` is a day before the date, `2h` is two hours after. Omit it to wait for the date itself. Keep the arithmetic here rather than in the expression, so the builder can still read the step back as a property plus an offset.
 - `max_delay_duration` caps how far past the step's start the wait may run (default `30d`, same duration rules as above). It exists so a far-future date cannot park a run indefinitely.
 - **Never send `bytecode`.** The server compiles the expression at save time and discards anything the client sent. A broken expression fails the save with the parse error.
