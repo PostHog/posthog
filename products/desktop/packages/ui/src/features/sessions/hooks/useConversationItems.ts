@@ -29,11 +29,9 @@ function createCache(): Cache {
 /**
  * Builds conversation items incrementally — each event is parsed once and
  * completed turns are reused by reference, so a streamed token costs work
- * proportional to the active turn rather than the whole thread. Builders and
- * results are kept per conversation in an LRU-bounded map, so switching tasks
- * and back returns the cached result instead of re-parsing the whole thread.
- * Results are memoized on the (events, pending, debug) triple so unrelated
- * re-renders don't re-derive.
+ * proportional to the active turn rather than the whole thread. Persistent
+ * builders live in a ref; results are memoized on the (events, pending, debug)
+ * triple so unrelated re-renders don't re-derive.
  */
 export function useConversationItems(
   conversationKey: string,
