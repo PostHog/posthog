@@ -41,7 +41,7 @@ export function ChatThreadFooter({
 }: ChatThreadFooterProps) {
   const showDebugLogs = useSettingsStore((s) => s.debugLogsCloudRuns);
   const eventFooterState = useConversationItems(
-    taskId ?? "",
+    taskId,
     events,
     isPromptPending,
     {

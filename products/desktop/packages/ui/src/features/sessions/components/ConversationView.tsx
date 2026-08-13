@@ -147,7 +147,7 @@ export function ConversationView({
     lastTurnInfo,
     isCompacting,
     completedToolCallCount,
-  } = useConversationItems(taskId ?? "", events, isPromptPending, {
+  } = useConversationItems(taskId, events, isPromptPending, {
     showDebugLogs,
   });
 
