@@ -2106,6 +2106,38 @@ class TestTaskAPI(BaseTaskAPITest):
         response = self.client.get("/api/projects/@current/tasks/?archived=foo")
         self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
 
+    @parameterized.expand(
+        [
+            ("default", "", ["Filed later", "Still running"]),
+            ("created", "?ordering=-created_at", ["Filed later", "Still running"]),
+            ("activity", "?ordering=-last_activity_at", ["Still running", "Filed later"]),
+        ]
+    )
+    def test_list_tasks_ordering(self, _name, query, expected_titles):
+        # The page is cut server-side, so a surface showing the newest few can only surface a
+        # long-running session if the server orders by activity — sorting the page it got back
+        # never reaches the session that fell off it.
+        old = self.create_task("Still running")
+        Task.objects.filter(id=old.id).update(
+            created_at=django_timezone.now() - timedelta(days=3),
+            last_activity_at=django_timezone.now(),
+        )
+        recent = self.create_task("Filed later")
+        Task.objects.filter(id=recent.id).update(
+            created_at=django_timezone.now() - timedelta(hours=1),
+            last_activity_at=django_timezone.now() - timedelta(hours=1),
+        )
+
+        response = self.client.get(f"/api/projects/@current/tasks/{query}")
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertEqual([task["title"] for task in response.json()["results"]], expected_titles)
+
+    def test_list_tasks_rejects_unknown_ordering(self):
+        self.create_task("Task 1")
+
+        response = self.client.get("/api/projects/@current/tasks/?ordering=title")
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+
     def test_retrieve_archived_task_still_works(self):
         task = self.create_task("Archived")
         task.archived = True

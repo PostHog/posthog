@@ -78,6 +78,13 @@ export interface Task {
   description: string;
   created_at: string;
   updated_at: string;
+  /**
+   * When something last happened *in* the session: a thread message either way, or a run
+   * starting, streaming, or finishing. `updated_at` says when the task row was last written,
+   * which a session can leave untouched while it runs for hours — so this is the timestamp a
+   * "recent activity" order has to read. Empty on responses that predate the field.
+   */
+  last_activity_at?: string;
   created_by?: UserBasic | null;
   origin_product: string;
   repository?: string | null; // Format: "organization/repository" (e.g., "posthog/posthog-js")

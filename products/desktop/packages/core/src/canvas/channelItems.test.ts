@@ -103,6 +103,36 @@ describe("buildChannelItems", () => {
     expect(item.title).toBe("Untitled task");
   });
 
+  // `ts` used to come off `updated_at`, which only moves when the task row itself is written.
+  // A session that ran all week therefore sorted where it was filed, and "recent activity"
+  // came out identical to "date created".
+  it("ranks a session by its activity, not by when its row was last written", () => {
+    const items = build({
+      feedTasks: [
+        task({
+          id: "still-running",
+          created_at: new Date(1_000).toISOString(),
+          updated_at: new Date(1_000).toISOString(),
+          last_activity_at: new Date(9_000).toISOString(),
+        }),
+        task({
+          id: "filed-later",
+          created_at: new Date(5_000).toISOString(),
+          updated_at: new Date(5_000).toISOString(),
+          last_activity_at: new Date(5_000).toISOString(),
+        }),
+      ],
+    });
+    expect(sortChannelItems(items, "recent").map((i) => i.id)).toEqual([
+      "still-running",
+      "filed-later",
+    ]);
+    expect(sortChannelItems(items, "created").map((i) => i.id)).toEqual([
+      "filed-later",
+      "still-running",
+    ]);
+  });
+
   it("treats an unparseable updated_at as epoch rather than NaN", () => {
     const [item] = build({
       feedTasks: [task({ updated_at: "not a date" })],

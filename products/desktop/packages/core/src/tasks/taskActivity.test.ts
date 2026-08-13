@@ -51,6 +51,20 @@ describe("taskActivityTimestamp", () => {
       new Date("2026-01-04T00:00:00Z").getTime(),
     );
   });
+
+  // `updated_at` only moves when the task row itself is written, so a session that has been
+  // running for days still reports the moment it was filed. Reading it in preference to
+  // `last_activity_at` is what made "recent activity" come out in creation order.
+  it("prefers the backend's activity stamp over the row's write time", () => {
+    const task = makeTask({
+      updated_at: "2026-01-02T00:00:00Z",
+      last_activity_at: "2026-01-09T00:00:00Z",
+    });
+
+    expect(taskActivityTimestamp(task, "updated")).toBe(
+      new Date("2026-01-09T00:00:00Z").getTime(),
+    );
+  });
 });
 
 describe("filterAndSortTasks", () => {

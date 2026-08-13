@@ -309,6 +309,13 @@ class Task(DeletedMetaFields, models.Model):
 
     created_at = models.DateTimeField(default=django_timezone.now)
     updated_at = models.DateTimeField(auto_now=True)
+    # When something last happened *in* the task: a thread message either way, or a run
+    # starting, streaming, or finishing. `updated_at` answers a different question — when
+    # the task row itself was last written — and a session can run for hours without any
+    # write landing on this row, which is why sorting a session list by it reads as
+    # created-order. Nullable only for rows written outside the ORM; every path that
+    # creates a task through Django stamps it.
+    last_activity_at = models.DateTimeField(default=django_timezone.now, null=True, blank=True)
     ci_prompt = models.TextField(
         blank=True,
         null=True,
@@ -336,6 +343,8 @@ class Task(DeletedMetaFields, models.Model):
             models.Index(fields=["team", "-created_at", "-id"], name="posthog_task_team_created_idx"),
             models.Index(fields=["team", "created_by", "-created_at", "-id"], name="posthog_task_team_creator_idx"),
             models.Index(fields=["channel", "-created_at"], name="posthog_task_channel_feed_idx"),
+            models.Index(fields=["team", "-last_activity_at", "-id"], name="posthog_task_team_activity_idx"),
+            models.Index(fields=["channel", "-last_activity_at"], name="posthog_task_chan_activity_idx"),
             models.Index(fields=["loop"], name="posthog_task_loop_idx"),
         ]
 
@@ -1298,6 +1307,25 @@ class TaskPin(models.Model):
         db_table = "posthog_task_pin"
         constraints = [models.UniqueConstraint(fields=["user", "task"], name="task_pin_user_task_unique")]
         indexes = [models.Index(fields=["user", "-pinned_at"], name="task_pin_user_pinned_idx")]
+
+
+def bump_task_activity(*, team_id: int, task_id: uuid.UUID | str, at: datetime) -> None:
+    """Move a task's activity clock forward to ``at``, newest-wins.
+
+    A guarded ``UPDATE`` rather than a ``save()``: it must not drag ``updated_at`` along
+    (that field answers when the task row was last edited), and the ``WHERE`` is what keeps
+    a retried Temporal activity or a slow writer from pulling the clock backwards.
+    """
+    Task.objects.filter(team_id=team_id, id=task_id).filter(
+        models.Q(last_activity_at__isnull=True) | models.Q(last_activity_at__lt=at)
+    ).update(last_activity_at=at)
+
+
+@receiver(post_save, sender=TaskThreadMessage)
+def bump_task_activity_on_thread_message(sender, instance: "TaskThreadMessage", created: bool, **kwargs) -> None:
+    """A message in the thread is activity on the task, whoever wrote it."""
+    if created:
+        bump_task_activity(team_id=instance.team_id, task_id=instance.task_id, at=instance.created_at)
 
 
 @receiver(post_save, sender=Task)
@@ -3172,6 +3200,26 @@ def delete_task_session_object(sender: type[TaskSession], instance: TaskSession,
             )
 
     transaction.on_commit(delete_object)
+
+
+# Run fields whose write means the agent did something a reader would call activity.
+# Everything else a run carries (branch, model, the sandbox session it is attached to) is
+# bookkeeping, and bumping the task for it would put a session back at the top of the list
+# with nothing new in it to read.
+RUN_ACTIVITY_FIELDS = frozenset({"status", "stage", "output", "artifacts", "completed_at", "error_message"})
+
+
+@receiver(post_save, sender=TaskRun)
+def bump_task_activity_on_run(sender, instance: TaskRun, created: bool, update_fields=None, **kwargs) -> None:
+    """Keep the task's activity clock following its runs — the signal a live session gives off.
+
+    A signal rather than calls at each transition: runs are written from the API, the webhook
+    handlers, the sandbox relay, and several Temporal activities, and a session that looks idle
+    in the list because one of those paths forgot to bump is the bug this exists to fix.
+    """
+    if not created and update_fields is not None and not (RUN_ACTIVITY_FIELDS & set(update_fields)):
+        return
+    bump_task_activity(team_id=instance.team_id, task_id=instance.task_id, at=django_timezone.now())
 
 
 @receiver(post_save, sender=TaskRun)
