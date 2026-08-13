@@ -894,6 +894,12 @@ export const TasksListQueryParams = /* @__PURE__ */ zod.object({
         .min(tasksListQueryOffsetMin)
         .default(tasksListQueryOffsetDefault)
         .describe('The initial index from which to return the results.'),
+    ordering: zod
+        .enum(['-created_at', '-last_activity_at'])
+        .optional()
+        .describe(
+            "Sort order. '-last_activity_at' is newest activity first, where activity means a thread message or a run starting, streaming, or finishing. Defaults to '-created_at'.\n\n\* `-created_at` - -created_at\n\* `-last_activity_at` - -last_activity_at"
+        ),
     organization: zod.string().min(1).optional().describe('Filter by repository organization'),
     origin_product: zod.string().min(1).optional().describe('Filter by origin product'),
     repository: zod.string().min(1).optional().describe('Filter by repository name (can include org\/repo format)'),
