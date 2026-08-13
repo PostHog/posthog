@@ -895,6 +895,78 @@ class TestEmitObservationEventActivity:
         properties = capture.call_args.kwargs["properties"]
         assert properties["credits"] == observation_credits_for_model(observation.scanner_snapshot["model"])
 
+    def test_event_carries_indexed_and_named_group_keys(self) -> None:
+        # `$group_N` is what group analytics filters and breaks down on; `$groups` is what a webhook or alert
+        # consumer reads. Ingestion derives one from the other only when it processes a person profile, which
+        # this event doesn't, so both have to be written here.
+        scanner = _make_scanner()
+        observation = _make_observation(scanner, session_group_keys={"0": "acme-inc", "2": "proj-9"})
+        inputs = EmitObservationEventInputs(
+            observation_id=observation.id,
+            model_output=MonitorOutput(verdict="yes", reasoning="ok", confidence=0.9),
+        )
+
+        with (
+            patch(
+                "products.replay_vision.backend.temporal.activities.emit_observation_event.capture_internal"
+            ) as capture,
+            patch(
+                "products.replay_vision.backend.temporal.activities.emit_observation_event.get_group_types_for_project",
+                return_value=[
+                    {"group_type_index": 0, "group_type": "organization"},
+                    {"group_type_index": 2, "group_type": "project"},
+                ],
+            ),
+        ):
+            _emit_event(inputs)
+
+        properties = capture.call_args.kwargs["properties"]
+        assert properties["$group_0"] == "acme-inc"
+        assert properties["$group_2"] == "proj-9"
+        assert properties["$groups"] == {"organization": "acme-inc", "project": "proj-9"}
+
+    def test_event_omits_group_properties_when_the_session_carried_none(self) -> None:
+        # Observations scanned before group keys were resolved leave the column null; they must still emit.
+        scanner = _make_scanner()
+        observation = _make_observation(scanner, session_group_keys=None)
+        inputs = EmitObservationEventInputs(
+            observation_id=observation.id,
+            model_output=MonitorOutput(verdict="yes", reasoning="ok", confidence=0.9),
+        )
+
+        with patch(
+            "products.replay_vision.backend.temporal.activities.emit_observation_event.capture_internal"
+        ) as capture:
+            _emit_event(inputs)
+
+        properties = capture.call_args.kwargs["properties"]
+        assert "$groups" not in properties
+        assert not [key for key in properties if key.startswith("$group_")]
+
+    def test_event_keeps_indexed_group_keys_when_group_types_are_unavailable(self) -> None:
+        # Losing the names costs a nicety; losing `$group_N` would cost the group attribution entirely.
+        scanner = _make_scanner()
+        observation = _make_observation(scanner, session_group_keys={"0": "acme-inc"})
+        inputs = EmitObservationEventInputs(
+            observation_id=observation.id,
+            model_output=MonitorOutput(verdict="yes", reasoning="ok", confidence=0.9),
+        )
+
+        with (
+            patch(
+                "products.replay_vision.backend.temporal.activities.emit_observation_event.capture_internal"
+            ) as capture,
+            patch(
+                "products.replay_vision.backend.temporal.activities.emit_observation_event.get_group_types_for_project",
+                side_effect=RuntimeError("personhog down"),
+            ),
+        ):
+            _emit_event(inputs)
+
+        properties = capture.call_args.kwargs["properties"]
+        assert properties["$group_0"] == "acme-inc"
+        assert "$groups" not in properties
+
 
 def _counter_value(metric_name: str, **labels: str) -> float:
     return REGISTRY.get_sample_value(metric_name, labels) or 0.0
