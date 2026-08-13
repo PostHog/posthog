@@ -55,7 +55,7 @@ export interface replayVisionScanWidgetLogicMeta {
     key: string
     __keaTypeGenInternalSelectorTypes: {
         latestPerSession: (observations: ReplayObservationApi[]) => ReplayObservationApi[]
-        pendingCount: (latestPerSession: any, arg: string[]) => number
+        pendingCount: (latestPerSession: ReplayObservationApi[], arg: string[]) => number
     }
 }
 
