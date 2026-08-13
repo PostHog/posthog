@@ -197,6 +197,7 @@ async def test_start_agent_server_uses_captured_sandbox_event_ingest_flag(mocker
         origin_product="support_reply",
         mcp_builtin_agent_key="support",
         mcp_credential_owner_id=17,
+        mcp_gateway_server_allowlist=["srv-1"],
     )
     task_queryset = mocker.patch(
         "products.tasks.backend.temporal.process_task.activities.start_agent_server.Task.objects.select_related"
@@ -246,6 +247,7 @@ async def test_start_agent_server_uses_captured_sandbox_event_ingest_flag(mocker
         origin_product="support_reply",
         task_agent_key="support",
         credential_owner_id=17,
+        allowed_gateway_server_ids=["srv-1"],
     )
     sandbox.start_agent_server.assert_called_once()
     assert sandbox.start_agent_server.call_args.kwargs["event_ingest_token"] == "event-ingest-token"
@@ -270,6 +272,7 @@ async def test_start_agent_server_forwards_imported_and_relayed_mcp_servers(mock
         origin_product="user_created",
         mcp_builtin_agent_key=None,
         mcp_credential_owner_id=None,
+        mcp_gateway_server_allowlist=None,
     )
     mocker.patch(
         "products.tasks.backend.temporal.process_task.activities.start_agent_server.create_oauth_access_token_for_run",
@@ -327,6 +330,7 @@ async def test_start_agent_server_passes_initial_permission_mode(mocker) -> None
         origin_product="user_created",
         mcp_builtin_agent_key=None,
         mcp_credential_owner_id=None,
+        mcp_gateway_server_allowlist=None,
     )
     mocker.patch(
         "products.tasks.backend.temporal.process_task.activities.start_agent_server.create_oauth_access_token_for_run",

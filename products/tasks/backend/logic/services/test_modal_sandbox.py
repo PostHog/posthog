@@ -1,3 +1,6 @@
+import shutil
+from pathlib import Path
+
 import pytest
 from unittest.mock import MagicMock
 
@@ -8,10 +11,13 @@ from products.tasks.backend.constants import (
 )
 from products.tasks.backend.logic.services.modal_sandbox import (
     DEFAULT_MODAL_APP_NAME,
+    LOCAL_MODAL_NOTEBOOK_KERNEL_DIR,
+    LOCAL_MODAL_NOTEBOOK_KERNEL_MODULE,
     NOTEBOOK_MODAL_APP_NAME,
     SELF_DRIVING_MODAL_APP_NAME,
     STREAMLIT_MODAL_APP_NAME,
     ModalSandbox,
+    _prepare_local_modal_build_context,
 )
 from products.tasks.backend.logic.services.sandbox import (
     SELF_DRIVING_ORIGIN_PRODUCTS,
@@ -211,3 +217,20 @@ class TestSelfDrivingWorkloadMapping:
         # The set is held as strings to keep the sandbox layer model-free, so a renamed or
         # removed OriginProduct would otherwise silently drop that product out of the fleet.
         assert SELF_DRIVING_ORIGIN_PRODUCTS <= {choice.value for choice in Task.OriginProduct}
+
+
+class TestLocalModalBuildContext:
+    def test_notebook_context_carries_the_baked_kernel_package(self):
+        # DEBUG builds the notebook image from this trimmed context, not the repo root, so a
+        # Dockerfile COPY whose source is missing here fails the build and no notebook
+        # sandbox starts. The registry path in production never exercises it.
+        _prepare_local_modal_build_context.cache_clear()
+        _dockerfile_path, context_dir = _prepare_local_modal_build_context(SandboxTemplate.NOTEBOOK_BASE)
+        try:
+            root = Path(context_dir)
+            assert (root / LOCAL_MODAL_NOTEBOOK_KERNEL_MODULE).is_file()
+            assert (root / LOCAL_MODAL_NOTEBOOK_KERNEL_DIR / "server.py").is_file()
+            assert not (root / LOCAL_MODAL_NOTEBOOK_KERNEL_DIR / "__pycache__").exists()
+        finally:
+            shutil.rmtree(context_dir, ignore_errors=True)
+            _prepare_local_modal_build_context.cache_clear()
