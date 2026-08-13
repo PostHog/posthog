@@ -38,8 +38,10 @@ class CohortPropertyGroupsSubQuery(SessionRecordingsListingBaseQuery):
 
         # Hand the cohort filter off to ReplayFiltersEventsSubQuery when we can.
         # That path filters against the events table (so events whose person_id isn't
-        # in person_distinct_id2 are still considered), but only for AND queries — OR-operand
-        # cohort filtering stays here to preserve its OR-between-cohorts semantics.
+        # in person_distinct_id2 are still considered), but only for AND queries. OR-operand cohort
+        # filtering stays here: positive cohorts keep their any-of semantics. Negated cohorts under OR
+        # are a known remaining gap — this subquery OR's them in, so a positive branch can re-admit a
+        # session the exclusion should drop, unlike event/person/group negatives which always AND.
         if poe_is_active(self._team) and self._query.operand != "OR" and is_anonymous_cohort_fix_enabled(self._team):
             return None
 

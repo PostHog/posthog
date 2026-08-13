@@ -690,8 +690,8 @@ class ReplayFiltersEventsSubQuery(SessionRecordingsListingBaseQuery):
         """True when this subquery should handle cohort filters instead of CohortPropertyGroupsSubQuery.
 
         Scoped to PoE teams with the feature flag enabled, and only for operand=AND. Non-PoE and
-        OR-operand cohort queries keep using the separate cohort subquery, which preserves their
-        distinct OR-between-cohorts semantics.
+        OR-operand cohort queries keep using the separate cohort subquery (see cohort_subquery.py
+        for the OR-operand negated-cohort caveat).
         """
         return bool(
             self._team.person_on_events_mode
@@ -722,9 +722,7 @@ class ReplayFiltersEventsSubQuery(SessionRecordingsListingBaseQuery):
         (e.g. "host is not internal IP" → blocklist contains only internal IP sessions).
         This avoids hitting the LIMIT on high-traffic teams with millions of event-sessions.
 
-        The blocklist is AND'd into the main query regardless of the query operand: a session is
-        excluded if any of its events matches any inverted negative, so every exclusion still applies
-        under a "match any" (OR) query.
+        This runs regardless of the query operand, so an exclusion still applies under "match any" (OR).
         """
         negative_props = self._collect_negative_properties()
         if not negative_props:
