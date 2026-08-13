@@ -80,7 +80,8 @@ const USER_AGENT = 'PostHogSessionReplayBot/1.0 (+https://posthog.com/docs/sessi
 const REQUEST_HEADERS: Record<string, string> = {
     'user-agent': USER_AGENT,
     accept: 'image/*',
-    // Identity, because the byte limit counts the bytes that arrive, and a compressed body expands past it.
+    // Every type this lane accepts is compressed already, so gzip saves the origin almost nothing,
+    // and the byte limit can count what arrives rather than what a decoder would produce from it.
     'accept-encoding': 'identity',
 }
 
