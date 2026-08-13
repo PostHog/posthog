@@ -56,18 +56,20 @@ function ActivityHeader({
         {/* Nothing spells out "Activity" any more, so the strip carries the name.
             The list fills the row's 32px and drops quill's 3px inset so the
             line-variant indicator (bottom: 0 of the list) lands on the row's
-            bottom border, the way the left pane's tabs underline does. */}
+            bottom border, the way the left pane's tabs underline does.
+            The z-10 lifts the indicator above the active trigger, whose
+            opaque rounded background (quill: trigger z-1, indicator z-0)
+            otherwise covers the underline's top edge and leaves its ends
+            poking out as rounded-looking nubs. The underscores are escaped
+            because Tailwind turns bare underscores in arbitrary variants
+            into spaces, so the unescaped form matches nothing. */}
         <TabsList
           variant="line"
           aria-label="Activity"
-          className="h-[31px] gap-0.5 p-0"
+          className="h-[31px] gap-0.5 p-0 [&_.quill-tabs\_\_indicator]:z-10"
         >
           {ACTIVITY_TABS.map((t) => (
-            <TabsTrigger
-              key={t.key}
-              value={t.key}
-              className="rounded-none px-2.5"
-            >
+            <TabsTrigger key={t.key} value={t.key} className="px-2.5">
               <span className="font-medium text-[13px]">{t.label}</span>
             </TabsTrigger>
           ))}
