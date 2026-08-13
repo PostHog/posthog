@@ -132,6 +132,14 @@ def _dispatch_pull_request_event(
     return handle_pull_request_event(payload)
 
 
+def _dispatch_pull_request_review_event(
+    request: HttpRequest, event_type: str, payload: dict[str, Any], delivery_id: str
+) -> HttpResponse:
+    from products.tasks.backend.facade.webhooks import handle_pull_request_review_event
+
+    return handle_pull_request_review_event(payload)
+
+
 def _dispatch_installation_event(
     request: HttpRequest, event_type: str, payload: dict[str, Any], delivery_id: str
 ) -> HttpResponse:
@@ -163,6 +171,9 @@ GITHUB_WEBHOOK_HANDLERS: dict[str, list[tuple[str, GithubWebhookHandler]]] = {
     "pull_request": [
         ("tasks_pr_backstop", _dispatch_pull_request_event),
         ("loops", _dispatch_loop_triggers),
+    ],
+    "pull_request_review": [
+        ("tasks_pr_review", _dispatch_pull_request_review_event),
     ],
     "installation": [
         ("installation_lifecycle", _dispatch_installation_event),
