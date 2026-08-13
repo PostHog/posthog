@@ -118,21 +118,27 @@ class TestExcludedSessions(ClickhouseTestMixin):
 
         assert excluded == {"staging"}
 
+    # pytest's own parametrize, not parameterized.expand, which does not compose with fixtures.
+    @pytest.mark.parametrize(
+        "operator,operand,expected",
+        [
+            (PropertyOperator.EXACT, FilterLogicalOperator.AND_, False),
+            (PropertyOperator.IS_NOT, FilterLogicalOperator.AND_, True),
+            # Under OR the in-query blocklist does not apply either, so neither must this.
+            (PropertyOperator.IS_NOT, FilterLogicalOperator.OR_, False),
+        ],
+    )
     @pytest.mark.django_db
-    def test_only_negative_and_operand_queries_produce_an_exclusion(self, team) -> None:
-        # Turning the in-query blocklist off is unconditional, so this is what decides whether
-        # anything replaces it. Under OR the blocklist does not apply either, so neither must this.
-        cases = [
-            ("positive_only", PropertyOperator.EXACT, FilterLogicalOperator.AND_, False),
-            ("negative", PropertyOperator.IS_NOT, FilterLogicalOperator.AND_, True),
-            ("or_operand", PropertyOperator.IS_NOT, FilterLogicalOperator.OR_, False),
-        ]
-        for name, operator, operand, expected in cases:
-            query = RecordingsQuery(
-                properties=[EventPropertyFilter(key="$host", value=["x.example.com"], operator=operator, type="event")],
-                operand=operand,
-            )
-            assert bool(_query_for(team, query).excluded_sessions_queries(["s1"])) is expected, name
+    def test_only_negative_and_operand_queries_produce_an_exclusion(
+        self, operator: PropertyOperator, operand: FilterLogicalOperator, expected: bool, team
+    ) -> None:
+        # Turning the in-query blocklist off is unconditional, so this decides what replaces it.
+        query = RecordingsQuery(
+            properties=[EventPropertyFilter(key="$host", value=["x.example.com"], operator=operator, type="event")],
+            operand=operand,
+        )
+
+        assert bool(_query_for(team, query).excluded_sessions_queries(["s1"])) is expected
 
     @pytest.mark.django_db
     def test_no_candidates_asks_nothing(self, team) -> None:
