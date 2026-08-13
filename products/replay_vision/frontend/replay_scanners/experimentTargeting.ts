@@ -1,13 +1,23 @@
+import { isUniversalGroupFilterLike } from 'lib/components/UniversalFilters/utils'
 import {
     getExperimentVariants,
     getExposureFallbackFilter,
     getViewRecordingFiltersForVariant,
 } from 'scenes/experiments/utils'
-import { convertUniversalFiltersToRecordingsQuery } from 'scenes/session-recordings/filters/recordingsQueryConversions'
+import {
+    convertUniversalFiltersToRecordingsQuery,
+    recordingsQueryToUniversalFilters,
+} from 'scenes/session-recordings/filters/recordingsQueryConversions'
 import { DEFAULT_RECORDING_FILTERS } from 'scenes/session-recordings/playlist/sessionRecordingsPlaylistLogic'
 
 import { RecordingsQuery } from '~/queries/schema/schema-general'
-import { Experiment, FilterLogicalOperator, UniversalFiltersGroupValue } from '~/types'
+import {
+    Experiment,
+    FilterLogicalOperator,
+    RecordingUniversalFilters,
+    UniversalFiltersGroup,
+    UniversalFiltersGroupValue,
+} from '~/types'
 
 import type { ReplayScanner } from './types'
 
@@ -103,7 +113,7 @@ export function buildExperimentScannerQuery(
     useExposureFallback: boolean
 ): RecordingsQuery {
     const exposureFilter = buildExperimentExposureFilter(experiment, variantKeys, useExposureFallback)
-    const converted = convertUniversalFiltersToRecordingsQuery({
+    return toScannerQuery({
         ...DEFAULT_RECORDING_FILTERS,
         filter_test_accounts: experiment.exposure_criteria?.filterTestAccounts ?? false,
         filter_group: {
@@ -116,8 +126,84 @@ export function buildExperimentScannerQuery(
             ],
         },
     })
-    // Only the dimensions the Triggers editor persists; the rest (dates, order, session ids) are
-    // playlist concerns the scanner model strips or never stores.
+}
+
+/**
+ * True for a filter the experiment targeting compiled: it references the experiment's flag key,
+ * either as the `$feature/<flag_key>` variant property (fallback filter, or a property on a
+ * custom exposure event) or as a `$feature_flag` property on the default exposure event. User
+ * filters on the same flag are indistinguishable by design; the variant selector owns flag
+ * targeting while the experiment link is attached.
+ */
+function isManagedExposureFilter(value: UniversalFiltersGroupValue, experiment: Experiment): boolean {
+    if (isUniversalGroupFilterLike(value)) {
+        return false
+    }
+    const variantProperty = `$feature/${experiment.feature_flag_key}`
+    if ('key' in value && value.key === variantProperty) {
+        return true
+    }
+    if ('type' in value && (value.type === 'events' || value.type === 'actions')) {
+        const properties = ('properties' in value ? value.properties : undefined) ?? []
+        return properties.some((property) => {
+            if (!property || typeof property !== 'object' || !('key' in property)) {
+                return false
+            }
+            if (property.key === variantProperty) {
+                return true
+            }
+            if (property.key !== '$feature_flag' || !('value' in property)) {
+                return false
+            }
+            return Array.isArray(property.value)
+                ? property.value.includes(experiment.feature_flag_key)
+                : property.value === experiment.feature_flag_key
+        })
+    }
+    return false
+}
+
+/**
+ * Swaps the managed exposure filter in an existing scanner query for one targeting `variantKeys`,
+ * keeping every other filter the user added. The managed filter is recognized by the experiment's
+ * flag key (see `isManagedExposureFilter`); if the user removed it, the new one is inserted at
+ * the front.
+ */
+export function replaceExperimentExposureFilter(
+    query: RecordingsQuery | null,
+    context: ExperimentScannerContext
+): RecordingsQuery {
+    const exposureFilter = buildExperimentExposureFilter(
+        context.experiment,
+        context.variantKeys,
+        context.useExposureFallback
+    )
+    const universal = recordingsQueryToUniversalFilters(query)
+    // Forced to AND: a recordings query has a single operand across its whole flattened filter
+    // tree, so an OR group would make the exposure filter optional and match unexposed sessions.
+    const swapIn = (group: UniversalFiltersGroup): UniversalFiltersGroup => ({
+        ...group,
+        type: FilterLogicalOperator.And,
+        values: [
+            ...(exposureFilter ? [exposureFilter] : []),
+            ...group.values.filter((value) => !isManagedExposureFilter(value, context.experiment)),
+        ],
+    })
+    const [first, ...rest] = universal.filter_group.values
+    const filterGroup: UniversalFiltersGroup =
+        first !== undefined && isUniversalGroupFilterLike(first)
+            ? { ...universal.filter_group, type: FilterLogicalOperator.And, values: [swapIn(first), ...rest] }
+            : swapIn(universal.filter_group)
+    return toScannerQuery({ ...universal, filter_group: filterGroup })
+}
+
+/**
+ * Converts editor-shaped universal filters to the scanner's persisted query, keeping only the
+ * dimensions the Triggers editor writes; the rest (dates, order, session ids) are playlist
+ * concerns the scanner model strips or never stores.
+ */
+function toScannerQuery(universal: RecordingUniversalFilters): RecordingsQuery {
+    const converted = convertUniversalFiltersToRecordingsQuery(universal)
     return {
         kind: converted.kind,
         events: converted.events,
