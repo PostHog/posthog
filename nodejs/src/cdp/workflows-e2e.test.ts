@@ -582,11 +582,10 @@ describe('Workflows E2E (postgres-v2)', () => {
             }, 10000)
         })
 
-        it('surfaces a missing date as a step error rather than parking forever', async () => {
-            // The step raises, so the run does not sit parked on a date it can never resolve. What happens
-            // next is the step's own error handling, which for a delay defaults to continuing - so this
-            // asserts the error is raised, not that the next step is prevented. Preventing it needs an
-            // explicit on_error choice, which is a product decision rather than something to hard-code here.
+        it('aborts instead of sending when the date cannot be worked out', async () => {
+            // The outcome that matters: a "before it expires" message must not go out for someone with no
+            // expiry. on_error defaults to 'continue', which would do exactly that, so an unresolvable date
+            // aborts the run regardless of that setting.
             await workflowWaitingUntil()
             await triggerWorkflow(createGlobals({ properties: {} } as any))
 
@@ -594,6 +593,7 @@ describe('Workflows E2E (postgres-v2)', () => {
                 const jobs = await queryCyclotronJobs()
                 expect(jobs.filter((j: any) => j[statusColumn] !== 'available')).toHaveLength(1)
             }, 10000)
+            expect(mockFetch).not.toHaveBeenCalled()
         })
     })
 

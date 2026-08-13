@@ -107,8 +107,11 @@ async function scheduledAtFromInstant(
     const previous = invocation.state.currentAction?.delayUntilAt
     const instant = instantFromHogValue(execResult?.result) ?? (previous ? DateTime.fromISO(previous) : null)
     if (!instant) {
-        // Continuing here would fire the next step immediately, which for a "before X happens" reminder is
-        // worse than surfacing it: the step fails and its own error handling decides whether to go on.
+        // Marked so the run aborts rather than falling through to the next step. on_error defaults to
+        // 'continue', which for a "N days before X" message means sending it with nothing to be before.
+        if (invocation.state.currentAction) {
+            invocation.state.currentAction.delayUntilUnresolved = true
+        }
         throw new Error('The date to wait for did not evaluate to a date')
     }
     if (invocation.state.currentAction) {

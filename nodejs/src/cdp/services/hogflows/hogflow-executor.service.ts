@@ -302,6 +302,16 @@ export class HogFlowExecutorService {
                     timestamp: DateTime.now(),
                     message: `Workflow is aborting due to ${actionIdForLogging(lastExecutedAction)} error handling setting being set to abort on error`,
                 })
+            } else if (result.invocation.state.currentAction?.delayUntilUnresolved) {
+                // A delay that cannot work out when to continue overrides on_error's default of carrying
+                // on: the next step would run immediately, which is the one outcome the wait exists to
+                // prevent. See delayUntilUnresolved.
+                shouldAbortAfterError = true
+                logs.push({
+                    level: 'info',
+                    timestamp: DateTime.now(),
+                    message: `Workflow is aborting because ${actionIdForLogging(lastExecutedAction)} could not work out the date to wait for`,
+                })
             }
         }
 
