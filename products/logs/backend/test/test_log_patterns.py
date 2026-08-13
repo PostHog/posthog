@@ -12,6 +12,7 @@ from hypothesis import (
 from parameterized import parameterized
 
 from products.logs.backend.log_patterns import (
+    _HOST_SUFFIXES,
     _MASKING_INSTRUCTIONS,
     _PLACEHOLDER_PATTERNS,
     LogSample,
@@ -401,9 +402,26 @@ _version_st = st.lists(st.integers(min_value=0, max_value=9999), min_size=2, max
     lambda parts: ".".join(map(str, parts))
 )
 _decimal_context_st = st.sampled_from(["duration_ms=", "ratio=", "load ", "p95="])
+_label_st = st.text("abcdefghijklmnopqrstuvwxyz0123456789", min_size=1, max_size=12)
+# A label that is itself a host suffix would make a "code path" strategy generate a real
+# hostname, so it is excluded from both strategies below.
+_non_suffix_label_st = _label_st.filter(lambda label: label not in _HOST_SUFFIXES)
+
+
+@st.composite
+def _fqdn_st(draw: st.DrawFn) -> str:
+    labels = draw(st.lists(_non_suffix_label_st, min_size=1, max_size=3))
+    return ".".join([*labels, draw(st.sampled_from(_HOST_SUFFIXES))])
+
+
+@st.composite
+def _dotted_code_path_st(draw: st.DrawFn) -> str:
+    return ".".join(draw(st.lists(_non_suffix_label_st, min_size=2, max_size=4)))
+
+
 _slash_version_st = st.tuples(_product_st, _version_st).map(lambda t: f"{t[0]}/{t[1]}")
 _variable_token_st = st.one_of(
-    _uuid_st, _hex_0x_st, _hex_bare_st, _num_st, _timestamp_st(), _ipv4_st, _slash_version_st
+    _uuid_st, _hex_0x_st, _hex_bare_st, _num_st, _timestamp_st(), _ipv4_st, _slash_version_st, _fqdn_st()
 )
 
 
@@ -501,6 +519,7 @@ _CONFUSABLE_PAIRS = [
     ("ip_vs_five_octets", _ipv4_st, _five_octet_st),
     ("ip_vs_versioned_quad", _ipv4_st, _versioned_quad_st),
     ("version_vs_plain_decimal", _slash_version_st, _plain_decimal_st),
+    ("host_vs_dotted_code_path", _fqdn_st(), _dotted_code_path_st()),
 ]
 
 
@@ -615,3 +634,38 @@ class TestVersionMaskProperties(TestCase):
         second = mine_patterns([_sample(line.format(version_b))])
 
         assert pattern_fingerprint(first[0].pattern) == pattern_fingerprint(second[0].pattern)
+
+
+class TestHostMaskProperties(TestCase):
+    """The cases above pin specific hostnames; these hold the rule over every shape of name.
+
+    The host mask is a trade: it has to catch any real domain while leaving dotted code
+    paths alone, and only the whole input space shows whether the suffix list draws that
+    line in the right place.
+    """
+
+    @given(fqdn=_fqdn_st())
+    @settings(max_examples=300, deadline=None)
+    def test_any_hostname_collapses_to_one_placeholder(self, fqdn: str) -> None:
+        patterns = mine_patterns([_sample(f"upstream {fqdn} refused")])
+
+        # exact template: the whole name is consumed, not partly masked and partly literal
+        assert patterns[0].pattern == "upstream <host> refused"
+
+    @given(path=_dotted_code_path_st())
+    @settings(max_examples=300, deadline=None)
+    def test_dotted_paths_without_a_host_suffix_stay_literal(self, path: str) -> None:
+        patterns = mine_patterns([_sample(f"handler in {path} module")])
+
+        assert "<host>" not in patterns[0].pattern
+
+    @given(host_a=_fqdn_st(), host_b=_fqdn_st())
+    @settings(max_examples=300, deadline=None)
+    def test_lines_differing_only_by_hostname_share_a_fingerprint(self, host_a: str, host_b: str) -> None:
+        # This is what the mask is for. The patterns diff and the pattern list both key on
+        # the fingerprint, so two hostnames that fingerprint apart show up as two templates.
+        line = '{{"authority":"{}","upstream_cluster":"capture"}}'
+        a = mine_patterns([_sample(line.format(host_a))])
+        b = mine_patterns([_sample(line.format(host_b))])
+
+        assert pattern_fingerprint(a[0].pattern) == pattern_fingerprint(b[0].pattern)
