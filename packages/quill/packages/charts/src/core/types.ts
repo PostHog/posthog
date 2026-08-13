@@ -318,9 +318,11 @@ export interface YAxis {
 }
 
 /** Built-in legend config for the multi-series charts. The chart renders a {@link Legend} and,
- *  when interactive, owns the toggled-off state — clicking a row hides that series (no draw, no
- *  scale contribution, no tooltip) and the axes rescale, matching the classic insight legend.
- *  Pass `hiddenKeys` + `onToggleSeries` to control the state yourself instead. */
+ *  when interactive, owns the toggled-off state. A plain click isolates the clicked series — every
+ *  other row is hidden (no draw, no scale contribution, no tooltip) and the axes rescale into the
+ *  freed space — and clicking the isolated row again restores all; ⌘/Ctrl-click (or Shift-click)
+ *  toggles one series in or out. Pass `hiddenKeys` + `onToggleSeries` to control the state
+ *  yourself instead, and `onSetHiddenSeries` alongside them to keep isolating. */
 export interface ChartLegendConfig {
     /** Render the legend. Default false. */
     show?: boolean
@@ -330,11 +332,12 @@ export interface ChartLegendConfig {
     align?: 'start' | 'center' | 'end'
     /** Gap in px between the legend and the plot. */
     gap?: number
-    /** Clicking a legend item hides/shows its series. Default true when the legend is shown;
-     *  set false for a static, read-only legend. */
+    /** Legend rows respond to clicks — isolate, or toggle with ⌘/Ctrl. Default true when the legend
+     *  is shown; set false for a static, read-only legend. */
     interactive?: boolean
-    /** Controlled hidden-series keys. Provide together with `onToggleSeries` to own the state;
-     *  omit for chart-managed (uncontrolled) toggling. */
+    /** Controlled hidden-series keys. Provide together with `onToggleSeries` to own the state, plus
+     *  `onSetHiddenSeries` for the bulk actions — without it a controlled legend can't isolate and a
+     *  plain click falls back to toggling. Omit all three for chart-managed (uncontrolled) state. */
     hiddenKeys?: string[]
     /** Initial hidden keys for the chart-managed (uncontrolled) state. Ignored when `hiddenKeys`
      *  is set (controlled). */
@@ -349,8 +352,8 @@ export interface ChartLegendConfig {
     /** Maps a legend row's key to the identity its visibility is actually stored against. Rows that
      *  map to the same group share one visibility bit, so isolating keeps the whole group visible,
      *  "only this one is visible" is judged per group, and a legend with one group has nothing to
-     *  isolate. Trends needs this: comparing to the previous period puts a series' current and
-     *  previous rows on one `resultCustomizations` key. Defaults to the row's own key. */
+     *  isolate. A chart comparing two periods needs this when it stores one visibility bit for a
+     *  series' current and previous rows. Defaults to the row's own key. */
     visibilityGroupKey?: (rowKey: string) => string
     /** Wrap each rendered legend row — receives the default row node, its item, and that row's
      *  {@link LegendItemControls} (visibility state plus toggle/isolate/hide-all actions), and

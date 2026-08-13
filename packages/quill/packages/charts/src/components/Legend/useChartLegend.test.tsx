@@ -10,6 +10,12 @@ const THEME: ChartTheme = { colors: ['#1f77b4', '#ff7f0e', '#2ca02c'] }
 const PLAIN = { additive: false }
 const ADDITIVE = { additive: true }
 
+let captured: LegendItemControls | null = null
+const captureOne = (node: ReactNode, _item: LegendItem, controls: LegendItemControls): ReactNode => {
+    captured = controls
+    return node
+}
+
 const SERIES: Series[] = [
     { key: 'a', label: 'A', data: [1, 2, 3] },
     { key: 'b', label: 'B', data: [4, 5, 6] },
@@ -70,6 +76,20 @@ describe('useChartLegend', () => {
         expect(result.current.legendProps.hiddenKeys).toEqual([])
     })
 
+    it('hides every series through toggleAll, then restores them all', () => {
+        const { result } = renderHook(() => useChartLegend(SERIES, THEME, { show: true, renderItem: captureOne }))
+        const controls = (): LegendItemControls => {
+            result.current.legendProps.renderItem!(null, result.current.legendProps.items[0])
+            return captured!
+        }
+
+        act(() => controls().toggleAll())
+        expect(result.current.legendProps.hiddenKeys).toEqual(['a', 'b', 'c'])
+
+        act(() => controls().toggleAll())
+        expect(result.current.legendProps.hiddenKeys).toEqual([])
+    })
+
     it('toggles a series off then back on in uncontrolled mode, keeping it in the legend', () => {
         const { result } = renderHook(() => useChartLegend(SERIES, THEME, { show: true }))
 
@@ -123,8 +143,11 @@ describe('useChartLegend', () => {
 
     describe('rows that share a visibility group', () => {
         // Trends' compare mode: 'a' and 'b' are one series' current and previous rows, so they share
-        // one stored visibility bit and must count as one series to isolate against.
-        const visibilityGroupKey = (key: string): string => (key === 'b' ? 'a' : key)
+        // one stored visibility bit and must count as one series to isolate against. The group key is
+        // deliberately not also a row key, so hiding "the other rows" and hiding "the other groups"
+        // can be told apart.
+        const GROUP_BY_ROW: Record<string, string> = { a: 'ab', b: 'ab', c: 'c' }
+        const visibilityGroupKey = (key: string): string => GROUP_BY_ROW[key]
 
         it('keeps the whole group visible when one of its rows is isolated', () => {
             const { result } = renderHook(() => useChartLegend(SERIES, THEME, { show: true, visibilityGroupKey }))
@@ -139,6 +162,13 @@ describe('useChartLegend', () => {
             act(() => result.current.legendProps.onItemClick!('a', PLAIN))
             act(() => result.current.legendProps.onItemClick!('a', PLAIN))
             expect(result.current.legendProps.hiddenKeys).toEqual([])
+        })
+
+        it('hides every row of a group when a row outside it is isolated', () => {
+            const { result } = renderHook(() => useChartLegend(SERIES, THEME, { show: true, visibilityGroupKey }))
+
+            act(() => result.current.legendProps.onItemClick!('c', PLAIN))
+            expect(result.current.legendProps.hiddenKeys).toEqual(['a', 'b'])
         })
 
         it('reads the isolated group as the only visible one', () => {
