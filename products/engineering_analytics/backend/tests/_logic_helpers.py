@@ -68,6 +68,14 @@ def _ago_with_duration(days: int, duration_seconds: int) -> tuple[str, str]:
     return started_at.strftime(fmt), updated_at.strftime(fmt)
 
 
+def _ago_offset_with_duration(days: int, offset_seconds: int, duration_seconds: int) -> tuple[str, str]:
+    """Like ``_ago_with_duration`` but shifted forward, so several runs can share one round anchor."""
+    started_at = timezone.now() - timedelta(days=days) + timedelta(seconds=offset_seconds)
+    updated_at = started_at + timedelta(seconds=duration_seconds)
+    fmt = "%Y-%m-%d %H:%M:%S"
+    return started_at.strftime(fmt), updated_at.strftime(fmt)
+
+
 def _job_row(
     job_id: int,
     run_id: int,
