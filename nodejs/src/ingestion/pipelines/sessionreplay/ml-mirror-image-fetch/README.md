@@ -71,8 +71,8 @@ Each of these is numbered so a test can name the one it covers.
 6. The lane follows a redirect that stays on the same domain, up to the limit.
 7. The lane publishes a redirect that leaves the domain back to the frontier, keyed by the new
    domain.
-8. Every redirect target passes the same checks the first candidate passed. See "What we never
-   connect to".
+8. Every redirect target passes the same checks the first candidate passed. See "Security: what we
+   never connect to".
 9. The lane never follows a redirect from HTTPS to plain HTTP.
 10. A republished message carries the original ref. The recording points at that ref, and a hash of
     the redirect target matches nothing.
@@ -88,7 +88,7 @@ Each of these is numbered so a test can name the one it covers.
 14. A retry is a publish to a delay topic. The lane does not sleep and try again in place.
 15. Every message carries the earliest time to try again.
 
-### What the lane learns about a site
+### Host budget: what the lane learns about a site
 
 16. One network failure for a domain applies to every URL queued for that domain in the same pass.
 17. A `Retry-After` header holds the whole domain for the period it names.
@@ -107,24 +107,29 @@ Each of these is numbered so a test can name the one it covers.
     is fixed.
 24. A URL the lane gives up on goes into the crawl history, so it stops coming back.
 
-**Rule 21 covers the URLs the lane handled.** The fetch pass answers with an outcome for every URL,
-so a throw out of the pass is a defect in our own code rather than an answer about a URL. The
-consumer counts that throw, drops the batch, and commits it. A replay would meet the same defect on
-every read and stop the partition rather than recover it.
+**Keeping one record uncommitted means restarting the pod.** Kafka commits one offset for each
+partition, and that offset is a high water mark. Committing it commits every record below it, so a
+consumer cannot hold one record back and commit the ones around it. A consumer that must not commit
+a record has one move, which is to throw. The throw leaves the poll loop and the pod shuts down.
+Kubernetes starts it again, and the new pod reads the batch from the last committed offset.
 
-**Holding a batch costs the pod.** There is no way to refuse one offset and commit the rest, so a
-consumer that must hold a batch throws, and a throw out of the poll loop shuts the pod down.
-Kubernetes restarts it and the batch replays.
+The lane spends that on one condition: a Kafka produce that failed. It is the only case where the
+lane took a URL out of the frontier and put nothing back, so no copy of that URL is left anywhere.
+It is also usually brief, so the pod that comes back is likely to get the record through.
 
-Only a failed Kafka produce is worth that. It is the one case where the lane took a URL out of the
-frontier and put nothing back, and it usually clears on the next attempt.
+A crawl history read the store could not answer loses URLs the same way, and the lane commits it
+regardless. A store that cannot answer this batch cannot answer the next one either, so throwing
+would restart the pod on every batch and fetch nothing at all. The lane leaves those URLs
+unrecorded, so the mirror offers them again the next time a session refers to the same image. A
+counter records each one, which keeps the loss visible.
 
-A crawl history read that the store cannot answer is not worth it. The store answers nothing for
-the next batch either, so the pod would restart on every batch and make no progress. Those URLs are
-left unrecorded instead, and the mirror offers them again when a session refers to the same image.
-The read errors are counted, so the loss is visible.
+**Rule 21 is about URLs the lane got an answer for.** The fetch pass returns an outcome for every
+URL it is given, so an exception out of the pass is a fault in our own code rather than something a
+site did. The consumer counts it, drops the batch, and lets the offset commit. A replay would run
+the same code over the same records and meet the same fault, which stops the partition instead of
+clearing it.
 
-### What we must be able to see
+### Metrics
 
 25. Requests by outcome, and refusals by reason. No team label on these.
 26. The hops a URL took, and the time it spent in the system.
@@ -137,7 +142,7 @@ The read errors are counted, so the loss is visible.
     the low millions, so a `team_id` label on a per-request metric is unbounded both in the time
     series database and in the memory of the pod exporting it.
 
-### What we never connect to
+### Security: what we never connect to
 
 32. The lane must never connect to a private address. This covers loopback, link-local, and every
     other range that is not public. Smokescreen does this in production. `httpStaticLookup` does it
