@@ -78,6 +78,49 @@ describe('PropertyValue', () => {
         expect(loadPropertyValuesSpy.mock.calls.length).toBe(callCountAfterLoad)
     })
 
+    it('shows a retry action in the picker when loading values fails', async () => {
+        // The picker's blocking-on-miss request can 5xx on a slow property, so the dropdown must
+        // offer a way forward instead of a stuck spinner with no recovery.
+        let failing = true
+        useMocks({
+            get: {
+                '/api/event/values': () =>
+                    failing
+                        ? [503, { detail: 'Service Unavailable' }]
+                        : { results: [{ name: 'Chrome' }], refreshing: false },
+            },
+        })
+
+        const onSet = jest.fn()
+        render(
+            <Provider>
+                <PropertyValue
+                    propertyKey="$browser"
+                    type={PropertyFilterType.Event}
+                    operator={PropertyOperator.Exact}
+                    onSet={onSet}
+                    value={[]}
+                />
+            </Provider>
+        )
+
+        userEvent.click(screen.getByRole('textbox'))
+
+        const retryButton = await screen.findByText('Retry', {}, { timeout: 3000 })
+        expect(screen.getByText('Could not load values')).toBeInTheDocument()
+
+        // Retry re-fetches; once the endpoint recovers the values render
+        failing = false
+        userEvent.click(retryButton)
+
+        await waitFor(
+            () => {
+                expect(screen.getByText('Chrome')).toBeInTheDocument()
+            },
+            { timeout: 3000 }
+        )
+    })
+
     it('renders with showInlineValidationErrors prop', () => {
         const onSet = jest.fn()
         render(

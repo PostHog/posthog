@@ -631,8 +631,15 @@ export const propertyDefinitionsModel = kea<propertyDefinitionsModelType>([
                     return
                 }
                 cache.abortController = null
+                // End the background refresh poll so a property that keeps failing does not
+                // re-toast every 2 seconds.
+                if (cache.pollingTimeouts?.[propertyKey]) {
+                    clearTimeout(cache.pollingTimeouts[propertyKey])
+                    delete cache.pollingTimeouts[propertyKey]
+                }
                 actions.setOptionsError(propertyKey)
-                lemonToast.error('Failed to load property values')
+                // Name the property and let identical messages dedupe, so one failing key shows one toast.
+                lemonToast.error(`Could not load values for ${propertyKey}`)
             }
         },
 

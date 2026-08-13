@@ -641,5 +641,55 @@ describe('the property definitions model', () => {
             expect(capturedUrls).toHaveLength(2)
             expect(capturedUrls[1]).toContain('refresh=force_cache')
         })
+
+        it('cancels a scheduled poll when a later load for the same property fails', async () => {
+            // A refreshing response arms a 2s poll. If the property then keeps failing, that poll
+            // must be cancelled so it does not re-fire and re-toast on every tick.
+            const POLL_TIMER_ID = 12345
+            const clearTimeoutSpy = jest.spyOn(global, 'clearTimeout')
+            const originalSetTimeout = global.setTimeout.bind(global)
+            jest.spyOn(global, 'setTimeout').mockImplementation(((
+                fn: TimerHandler,
+                delay?: number,
+                ...args: unknown[]
+            ) => {
+                if (delay === 2000) {
+                    return POLL_TIMER_ID as unknown as ReturnType<typeof setTimeout>
+                }
+                return originalSetTimeout(fn, delay, ...args)
+            }) as typeof setTimeout)
+
+            let failing = false
+            useMocks({
+                get: {
+                    '/api/event/values': () =>
+                        failing ? [503, { detail: 'Service Unavailable' }] : [200, { results: [], refreshing: true }],
+                },
+            })
+
+            await expectLogic(logic, () => {
+                logic.actions.loadPropertyValues({
+                    endpoint: undefined,
+                    type: PropertyDefinitionType.Event,
+                    newInput: undefined,
+                    propertyKey: 'browser',
+                })
+            }).toFinishAllListeners()
+
+            failing = true
+            await expectLogic(logic, () => {
+                logic.actions.loadPropertyValues({
+                    endpoint: undefined,
+                    type: PropertyDefinitionType.Event,
+                    newInput: undefined,
+                    propertyKey: 'browser',
+                })
+            })
+                .toDispatchActions(['setOptionsError'])
+                .toFinishAllListeners()
+
+            expect(clearTimeoutSpy).toHaveBeenCalledWith(POLL_TIMER_ID)
+            jest.restoreAllMocks()
+        })
     })
 })

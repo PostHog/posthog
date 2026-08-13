@@ -416,7 +416,17 @@ export function PropertyValue({
           : null
     const refreshDisabledReason =
         propertyOptions?.status === 'loading' ? 'Loading values…' : isRefreshing ? 'Refreshing values…' : undefined
-    const titleNode = suggestionsLabel ? (
+    const hasLoadError = propertyOptions?.status === 'error'
+    const titleNode = hasLoadError ? (
+        <span className="flex justify-between items-center gap-4 text-danger">
+            <span className="flex items-center gap-1.5">
+                <IconErrorOutline className="text-lg shrink-0" /> Could not load values
+            </span>
+            <LemonButton size="xsmall" icon={<IconRefresh />} onClick={() => load(currentSearchInput.current)}>
+                Retry
+            </LemonButton>
+        </span>
+    ) : suggestionsLabel ? (
         <span className="flex justify-between items-center gap-4">
             {suggestionsLabel}
             <LemonButton
