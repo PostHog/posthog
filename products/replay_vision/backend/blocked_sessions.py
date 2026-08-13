@@ -169,6 +169,10 @@ def block_arrivals_since(*, scanner_id: str, team: Team, query: RecordingsQuery,
     only that gap, so it reads seconds of arrivals rather than the watermark's full trailing window.
     """
     session_ids = _scan(scanner_id, team, query, ingested_after=since)
+    if session_ids is None:
+        # Incomplete, and distinct from "found nothing". The candidate query has already skipped its
+        # in-query blocklist, so there is no safe way to filter this batch: fail the tick and retry.
+        raise BlockedSetUnavailable(f"blocked top-up scan for {scanner_id} reached its row limit")
     if not session_ids:
         return
     sessions_key = _SESSIONS_KEY.format(scanner_id=scanner_id)

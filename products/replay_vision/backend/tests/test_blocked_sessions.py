@@ -207,6 +207,19 @@ class TestRefreshBlockedSessions:
             )
         mock_scan.assert_not_called()
 
+    def test_saturated_topup_raises_rather_than_passing_the_batch(self, team) -> None:
+        # An incomplete scan is not an empty one. By this point the candidate query has already
+        # skipped its in-query blocklist, so silently continuing would dispatch excluded sessions.
+        saturated = [[f"sess-{i}"] for i in range(_SCAN_LIMIT)]
+        with patch.object(blocked_sessions, "_execute_candidate_query", return_value=saturated):
+            with pytest.raises(blocked_sessions.BlockedSetUnavailable):
+                blocked_sessions.block_arrivals_since(
+                    scanner_id="scanner-1",
+                    team=team,
+                    query=_negative_query(),
+                    since=dt.datetime.now(dt.UTC) - dt.timedelta(minutes=1),
+                )
+
     def test_scan_failure_falls_back_to_legacy(self, team) -> None:
         with patch.object(blocked_sessions, "_execute_candidate_query", side_effect=RuntimeError("clickhouse down")):
             assert (
