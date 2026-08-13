@@ -9259,50 +9259,6 @@
             "readOnlyHint": true
         }
     },
-    "session-recording-summaries-list": {
-        "description": "List stored AI-generated session summaries for the project, one row per session (latest summary kept). Use to discover which sessions have already been summarized and to filter for sessions with specific problems — `has_exceptions=true`, `outcome=failure`, or a `session_ids` narrowing (e.g. the IDs returned by `query-session-recordings-list`). Returns lightweight rows without the full summary JSON — use `session-recording-summary-get` for the per-segment / per-action detail. This reads persisted summaries only; it does not trigger generation, so a session with no stored summary simply won't appear. Note: this reads the legacy session-summary store, which is being retired — for new summaries the forward path is Replay Vision summarizer scanners (`vision-observations-list` / `vision-scanners-observations-list`).",
-        "category": "Session replays",
-        "feature": "replay",
-        "summary": "List session summaries",
-        "title": "List session summaries",
-        "required_scopes": ["session_recording:read"],
-        "annotations": {
-            "destructiveHint": false,
-            "idempotentHint": true,
-            "openWorldHint": true,
-            "readOnlyHint": true
-        }
-    },
-    "session-recording-summarize": {
-        "description": "DEPRECATED — prefer Replay Vision. This is the legacy session-summary path; it still works but is being retired (removal planned, months out), so do not reach for it by default. To summarize or understand a session without watching the whole recording, use Replay Vision's scanner tools (the `vision-*` MCP tools, e.g. `vision-observations-list` to read an existing summary and `vision-scanners-scan-session` to generate one) and follow their own instructions instead. Only fall back to this tool when Replay Vision is unavailable for the org, or a user explicitly asks for the legacy summarizer.\n\nIf you do use it: generates an AI summary of one or more session recordings — user journey segments, key actions, segment and overall outcomes, and sentiment (frustration score, rage clicks, confusion signals). Accepts up to 300 session IDs and an optional `focus_area` to steer the summary (e.g. \"checkout flow\"). Returns a dict keyed by session ID; failed entries carry an `error` (e.g. `no_events_or_too_short`, `summary_failed`) and an `error_message`, and a bad session ID fails only its own entry, not the batch. WARNING: first-time summaries call an AI model and are very slow — around 5 minutes; previously generated summaries are cached and return instantly, so warn the user about the wait before calling.\n\nDEEP LINKS: key actions include `session_id` and `milliseconds_since_start`. Build links as `{posthog_base_url}/replay/{session_id}?t={milliseconds_since_start / 1000}` (the `?t=` parameter is in seconds). Example: 45000ms in session abc123 → `/replay/abc123?t=45`. Always include these links for key actions and frustration signals.",
-        "category": "Session replays",
-        "feature": "replay",
-        "summary": "Legacy AI session summaries (streaming) — prefer Replay Vision summarizer scanners.",
-        "title": "Summarize session recording",
-        "required_scopes": ["session_recording:read"],
-        "requires_ai_consent": true,
-        "feature_flag": "replay-video-based-summarization",
-        "annotations": {
-            "destructiveHint": false,
-            "idempotentHint": true,
-            "openWorldHint": true,
-            "readOnlyHint": true
-        }
-    },
-    "session-recording-summary-get": {
-        "description": "Get the latest stored AI summary for a single session by `session_id` (any `$session_id` from an event). Returns the full summary JSON — segments with a named timeline, per-action abandonment / confusion / exception flags, segment outcomes, the headline `session_outcome`, and optional sentiment — plus `exception_event_ids`, the `extra_summary_context` used at generation time, and `run_metadata` (LLM model, whether visual confirmation was applied). 404 if no summary has been generated for the session yet. This reads the legacy session-summary store, which is being retired — to create a new summary, use a Replay Vision summarizer scanner via `vision-scanners-scan-session` rather than this read endpoint.",
-        "category": "Session replays",
-        "feature": "replay",
-        "summary": "Get session summary",
-        "title": "Get session summary",
-        "required_scopes": ["session_recording:read"],
-        "annotations": {
-            "destructiveHint": false,
-            "idempotentHint": true,
-            "openWorldHint": true,
-            "readOnlyHint": true
-        }
-    },
     "signals-scout-config-create": {
         "description": "DEPRECATED: renamed to scout-config-create. This alias forwards to the same endpoint and will be removed. Call scout-config-create directly with the same arguments.",
         "category": "Signals",
