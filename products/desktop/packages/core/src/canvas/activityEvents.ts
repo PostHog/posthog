@@ -14,6 +14,8 @@ export const ACTIVITY_EVENTS = [
   "artifact_created",
   "artifact_revised",
   "canvas_created",
+  "comment_added",
+  "comment_state_changed",
   "pr_created",
   "pr_merged",
   "pr_closed",
@@ -53,6 +55,8 @@ export interface ArtifactPayload {
   name: string;
   artifactType: string;
   version: number;
+  /** Names the run whose artifact tab can open this; null on rows that predate it. */
+  runId: string | null;
 }
 
 export interface CanvasCreatedPayload {
@@ -72,6 +76,20 @@ export interface MessageForwardedPayload {
   runId: string;
 }
 
+/** Identity only: the thread body, quote, and replies are fetched when the row opens. */
+export interface CommentEventPayload {
+  commentId: string;
+  rootCommentId: string;
+  scope: string;
+  itemId: string | null;
+  /** Display name of the commented artifact; null on the task's own scope. */
+  targetName: string | null;
+}
+
+export interface CommentStateChangedPayload extends CommentEventPayload {
+  state: "resolved" | "open";
+}
+
 export type ActivityEvent =
   | { kind: "run_started"; payload: RunStartedPayload }
   | { kind: "run_failed"; payload: RunFailedPayload }
@@ -80,6 +98,8 @@ export type ActivityEvent =
   | { kind: "artifact_created"; payload: ArtifactPayload }
   | { kind: "artifact_revised"; payload: ArtifactPayload }
   | { kind: "canvas_created"; payload: CanvasCreatedPayload }
+  | { kind: "comment_added"; payload: CommentEventPayload }
+  | { kind: "comment_state_changed"; payload: CommentStateChangedPayload }
   | { kind: "pr_created"; payload: PrPayload }
   | { kind: "pr_merged"; payload: PrPayload }
   | { kind: "pr_closed"; payload: PrPayload }
@@ -112,6 +132,7 @@ function artifactPayload(payload: Record<string, unknown>): ArtifactPayload {
     name: str(payload.name, "Artifact"),
     artifactType: str(payload.artifact_type),
     version: num(payload.version, 1),
+    runId: optionalStr(payload.run_id),
   };
 }
 
@@ -191,6 +212,26 @@ export function parseActivityEvent(message: {
           url: optionalStr(payload.canvas_url),
         },
       };
+    case "comment_added":
+    case "comment_state_changed": {
+      const rootCommentId = str(payload.root_comment_id);
+      // A row with no thread to open or fetch cannot be drawn.
+      if (!rootCommentId) return null;
+      const base = {
+        commentId: str(payload.comment_id),
+        rootCommentId,
+        scope: str(payload.scope),
+        itemId: optionalStr(payload.item_id),
+        targetName: optionalStr(payload.target_name),
+      };
+      if (event === "comment_added") {
+        return { kind: event, payload: base };
+      }
+      const state = payload.state;
+      return state === "resolved" || state === "open"
+        ? { kind: event, payload: { ...base, state } }
+        : null;
+    }
     case "pr_created":
     case "pr_merged":
     case "pr_closed": {
