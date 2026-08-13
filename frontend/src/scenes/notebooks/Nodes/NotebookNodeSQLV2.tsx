@@ -13,6 +13,7 @@ import { DataVisualizationNode, HogQLQueryResponse, NodeKind } from '~/queries/s
 import { ChartDisplayType } from '~/types'
 
 import { NotebookNodeAttributeProperties, NotebookNodeProps, NotebookNodeType } from '../types'
+import { NotebookCellOutputFrame } from './components/NotebookCellOutputFrame'
 import { NotebookDataframeTable } from './components/NotebookDataframeTable'
 import { getCellLabel } from './components/NotebookNodeTitle'
 import { NotebookRunDownstreamBanner } from './components/NotebookRunDownstreamBanner'
@@ -238,16 +239,16 @@ const Component = ({
     return (
         <div data-attr="notebook-node-sql-v2" className="flex h-full min-h-0 flex-col">
             <div
-                className="flex min-h-0 flex-1 flex-col gap-2"
+                className="flex min-h-0 flex-1 flex-col overflow-hidden"
                 onMouseDown={(event) => event.stopPropagation()}
                 onDragStart={(event) => event.stopPropagation()}
             >
                 {isStale ? (
-                    <div className="shrink-0" onClick={(event) => event.stopPropagation()}>
+                    <div className="shrink-0 pb-2" onClick={(event) => event.stopPropagation()}>
                         <NotebookStaleCellBanner />
                     </div>
                 ) : staleDownstreamCount > 0 && !isChainRunning ? (
-                    <div className="shrink-0" onClick={(event) => event.stopPropagation()}>
+                    <div className="shrink-0 pb-2" onClick={(event) => event.stopPropagation()}>
                         <NotebookRunDownstreamBanner
                             count={staleDownstreamCount}
                             onRun={() => runStaleChain(notebookLogic.values.content ?? null, nodeId)}
@@ -259,10 +260,12 @@ const Component = ({
                     <div className="shrink-0 px-2 pt-1 text-xs text-muted">Starting compute sandbox…</div>
                 ) : null}
                 {runError ? (
-                    <div className="p-2 text-xs font-mono text-danger whitespace-pre-wrap">{runError}</div>
+                    <NotebookCellOutputFrame>
+                        <div className="p-2 text-xs font-mono text-danger whitespace-pre-wrap">{runError}</div>
+                    </NotebookCellOutputFrame>
                 ) : dataframeResult && cachedResults ? (
-                    <>
-                        <div className="shrink-0 px-2 pt-1" onClick={(event) => event.stopPropagation()}>
+                    <NotebookCellOutputFrame
+                        header={
                             <LemonTabs
                                 size="small"
                                 activeKey={activeTab}
@@ -275,38 +278,37 @@ const Component = ({
                                             : attributes.height
                                     updateAttributes({ outputTab: tab, height })
                                 }}
-                                barClassName="mb-0"
+                                barClassName="mb-0 border-b-0"
                                 tabs={[
                                     { key: OutputTab.Results, label: 'Results' },
                                     { key: OutputTab.Visualization, label: 'Visualization' },
                                 ]}
                             />
-                        </div>
+                        }
+                    >
                         {activeTab === OutputTab.Results ? (
-                            <div className="min-h-0 flex-1 overflow-y-auto">
-                                <NotebookDataframeTable
-                                    result={dataframeResult}
-                                    loading={isRunning || pageLoading}
-                                    page={page}
-                                    pageSize={pageSize}
-                                    hasMore={hasMorePages}
-                                    // Wide text columns (long strings, JSON blobs) shouldn't make every
-                                    // row tall; clamp to one line here and let the user open a cell.
-                                    truncateCells
-                                    // Serialize page fetches: no new page while one is in flight, a run
-                                    // is replacing this result, or another cell's operation is running.
-                                    paginationDisabledReason={
-                                        pageLoading
-                                            ? 'Fetching page…'
-                                            : isRunning
-                                              ? 'Query is running'
-                                              : (operationBlockReason ?? undefined)
-                                    }
-                                    onNextPage={() => setPage(page + 1)}
-                                    onPreviousPage={() => setPage(page - 1)}
-                                    onPageSizeChange={setPageSize}
-                                />
-                            </div>
+                            <NotebookDataframeTable
+                                result={dataframeResult}
+                                loading={isRunning || pageLoading}
+                                page={page}
+                                pageSize={pageSize}
+                                hasMore={hasMorePages}
+                                // Wide text columns (long strings, JSON blobs) shouldn't make every
+                                // row tall; clamp to one line here and let the user open a cell.
+                                truncateCells
+                                // Serialize page fetches: no new page while one is in flight, a run
+                                // is replacing this result, or another cell's operation is running.
+                                paginationDisabledReason={
+                                    pageLoading
+                                        ? 'Fetching page…'
+                                        : isRunning
+                                          ? 'Query is running'
+                                          : (operationBlockReason ?? undefined)
+                                }
+                                onNextPage={() => setPage(page + 1)}
+                                onPreviousPage={() => setPage(page - 1)}
+                                onPageSizeChange={setPageSize}
+                            />
                         ) : (
                             <div
                                 className="px-2 pb-2 flex min-h-0 flex-1 flex-col overflow-hidden"
@@ -330,7 +332,7 @@ const Component = ({
                                 />
                             </div>
                         )}
-                    </>
+                    </NotebookCellOutputFrame>
                 ) : (
                     <div className="text-xs text-muted font-mono p-2">Run the query to see execution results.</div>
                 )}
