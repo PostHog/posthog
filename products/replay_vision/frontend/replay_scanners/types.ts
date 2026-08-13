@@ -30,6 +30,7 @@ export const OBSERVATION_TRIGGER_TAG: Record<
     schedule: { label: 'Schedule', type: 'default' },
     on_demand: { label: 'On demand', type: 'highlight' },
     retry: { label: 'Retry', type: 'completion' },
+    backfill: { label: 'Backfill', type: 'caution' },
 }
 
 // Typed against the generated retrieve params so a renamed or dropped backend filter fails the build.
@@ -38,6 +39,8 @@ export const OBSERVATION_LIST_FILTER_KEYS: readonly (keyof VisionObservationsRet
     'triggered_by',
     'verdict',
     'tags',
+    'min_score',
+    'max_score',
     'session_id',
     'recording_subject',
     'labeled',
@@ -242,27 +245,55 @@ const MODEL_NAMES: Record<ScannerModelEnumApi, string> = {
     [ScannerModelEnumApi.Gemini36Flash]: 'Gemini 3.6 Flash',
 }
 
-export const MODEL_OPTIONS: { value: ScannerModelEnumApi; label: string }[] = Object.values(ScannerModelEnumApi).map(
-    (value) => ({
+// Tier-name arms of the replay-vision-model-tier-naming-experiment flag: capability tiers instead
+// of provider model names, keyed by the flag's variant key. Every surface that shows a model must
+// resolve the variant the same way so a user never sees mixed naming schemes for one scanner.
+export type ModelNamingVariant = 'test' | 'lite-standard-pro'
+
+const MODEL_TIER_NAMES: Record<ModelNamingVariant, Record<ScannerModelEnumApi, string>> = {
+    test: {
+        [ScannerModelEnumApi.Gemini35FlashLite]: 'Basic',
+        [ScannerModelEnumApi.Gemini3FlashPreview]: 'Pro',
+        [ScannerModelEnumApi.Gemini36Flash]: 'Ultra',
+    },
+    'lite-standard-pro': {
+        [ScannerModelEnumApi.Gemini35FlashLite]: 'Lite',
+        [ScannerModelEnumApi.Gemini3FlashPreview]: 'Standard',
+        [ScannerModelEnumApi.Gemini36Flash]: 'Pro',
+    },
+}
+
+// Narrows a raw flag value to a naming variant. Control, booleans, and variant keys this build
+// doesn't know yet all resolve to null (provider model names), so a flag/frontend version skew
+// degrades to the control experience instead of mislabeling an arm.
+export function modelNamingVariant(flagValue: unknown): ModelNamingVariant | null {
+    return typeof flagValue === 'string' && flagValue in MODEL_TIER_NAMES ? (flagValue as ModelNamingVariant) : null
+}
+
+export function getModelOptions(
+    namingVariant: ModelNamingVariant | null
+): { value: ScannerModelEnumApi; label: string }[] {
+    return Object.values(ScannerModelEnumApi).map((value) => ({
         value,
-        label: `${MODEL_NAMES[value]} · ${formatCreditCount(OBSERVATION_CREDITS_BY_MODEL[value])}/observation`,
-    })
-)
+        label: `${modelName(value, namingVariant)} · ${formatCreditCount(OBSERVATION_CREDITS_BY_MODEL[value])}/observation`,
+    }))
+}
 
 // Falls back to the raw id for retired models frozen in old observation snapshots.
-export function modelLabel(model: string | null | undefined): string {
+export function modelLabel(model: string | null | undefined, namingVariant: ModelNamingVariant | null = null): string {
     if (!model) {
         return '—'
     }
-    return MODEL_OPTIONS.find((opt) => opt.value === model)?.label ?? model
+    return getModelOptions(namingVariant).find((opt) => opt.value === model)?.label ?? model
 }
 
 /** Plain model name without the price suffix, for surfaces that show the price separately. */
-export function modelName(model: string | null | undefined): string {
+export function modelName(model: string | null | undefined, namingVariant: ModelNamingVariant | null = null): string {
     if (!model) {
         return '—'
     }
-    return MODEL_NAMES[model as ScannerModelEnumApi] ?? model
+    const names = namingVariant ? MODEL_TIER_NAMES[namingVariant] : MODEL_NAMES
+    return names[model as ScannerModelEnumApi] ?? model
 }
 
 export function scannerTypeLabel(scannerType: ScannerType | null | undefined): string {
@@ -372,7 +403,7 @@ export type BaseReplayScanner = Omit<
     ReplayScannerApi,
     'scanner_type' | 'scanner_config' | 'query' | 'created_by' | 'user_access_level'
 > &
-    Required<Pick<ReplayScannerApi, 'sampling_rate' | 'enabled' | 'emits_signals' | 'provider'>> & {
+    Required<Pick<ReplayScannerApi, 'sampling_rate' | 'enabled' | 'emits_signals' | 'provider' | 'credit_limit'>> & {
         query: RecordingsQuery | null
         created_by: ScannerCreatedBy | null
         sampling_mode: SamplingMode
@@ -400,6 +431,13 @@ export interface ScorerScanner extends BaseReplayScanner {
 }
 
 export type ReplayScanner = MonitorScanner | SummarizerScanner | ClassifierScanner | ScorerScanner
+
+// The editor form's values: the API scanner plus UI-only state that is stripped before every API write.
+// `credit_limit_enabled` keeps "limit toggle on, amount still empty" representable so it can block the save.
+export type ScannerFormValues = ReplayScanner & { credit_limit_enabled?: boolean }
+
+// Mirrors the API's int4 bound on credit_limit (visionScannersCreateBodyCreditLimitMax in generated/api.zod.ts).
+export const MAX_CREDIT_LIMIT = 2147483647
 
 /** Narrow a snapshot's untyped scanner_config at one boundary; pair with the snapshot's scanner_type to pick the variant. */
 export function configFromSnapshot(snapshot: { scanner_config?: unknown } | null | undefined): ScannerConfig | null {

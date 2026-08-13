@@ -69,7 +69,6 @@ pub async fn event(
                 state.overflow_limiter.clone(),
                 state.ai_events_overflow_limiter.clone(),
                 state.ingestion_warning_emitter.clone(),
-                &state.ai_routing,
                 events,
                 &context,
             )

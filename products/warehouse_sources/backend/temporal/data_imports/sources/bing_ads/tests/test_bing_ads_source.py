@@ -306,6 +306,13 @@ class TestBingAdsSource:
                 "Bing Ads OAuth application credentials not configured",
                 "Bing Ads OAuth application credentials not configured",
             ),
+            # A column not valid for a report type comes back as a coded WebFault; retrying re-sends the
+            # same bad field list forever, so it must be non-retryable.
+            (
+                "InvalidReportColumn",
+                "Failed to generate keyword_performance_report report: WebFault: Server raised fault: "
+                "'Invalid client data...' (InvalidReportColumn: ...)",
+            ),
         ],
     )
     def test_get_non_retryable_errors_pattern_recognised(self, pattern, raised_message):

@@ -895,6 +895,14 @@ class TestSnowflakeSourceNonRetryableErrors:
         is_non_retryable = any(pattern in error_msg for pattern in non_retryable.keys())
         assert is_non_retryable, f"Encrypted-key passphrase error should be non-retryable: {error_msg}"
 
+    def test_unencrypted_key_with_passphrase_is_non_retryable(self, source):
+        # A passphrase supplied for an unencrypted key (cryptography TypeError) — the inverse of the
+        # encrypted-key cases above. Fails to parse before reaching Snowflake, so retrying can't help.
+        error_msg = "Password was given but private key is not encrypted."
+        non_retryable = source.get_non_retryable_errors()
+        is_non_retryable = any(pattern in error_msg for pattern in non_retryable.keys())
+        assert is_non_retryable, f"Unencrypted-key-with-passphrase error should be non-retryable: {error_msg}"
+
     @pytest.mark.parametrize(
         "error_msg",
         [
@@ -984,6 +992,22 @@ class TestSnowflakeValidateCredentials:
 
         assert ok is False
         assert message is not None and "passphrase" in message
+        mock_capture.assert_not_called()
+
+    def test_unencrypted_key_with_passphrase_returns_friendly_message_without_capture(self, source):
+        # A passphrase supplied for an unencrypted key — a TypeError raised while parsing, so it's a
+        # user config error that should surface an actionable message, not be captured.
+        error = TypeError("Password was given but private key is not encrypted.")
+        with (
+            patch.object(source, "get_schemas", side_effect=error),
+            patch(
+                "products.warehouse_sources.backend.temporal.data_imports.sources.snowflake.source.capture_exception"
+            ) as mock_capture,
+        ):
+            ok, message = source.validate_credentials(_make_config("keypair"), team_id=1)
+
+        assert ok is False
+        assert message is not None and "not encrypted" in message
         mock_capture.assert_not_called()
 
     def test_mfa_enrollment_required_returns_friendly_message_without_capture(self, source):

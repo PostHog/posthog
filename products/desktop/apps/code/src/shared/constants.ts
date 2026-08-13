@@ -5,7 +5,7 @@ export const SELF_DRIVING_SETUP_TASK_FLAG =
   "posthog-code-self-driving-setup-task";
 export const SYNC_CLOUD_TASKS_FLAG = "posthog-code-sync-cloud-tasks";
 export const DISCOVERY_RUN_FLAG = "posthog-code-discovery-run";
-export const BRANCH_PREFIX = "posthog-code/";
+export const BRANCH_PREFIX = "posthog/";
 export const APP_WINDOW_ARG = "--posthog-app-window";
 export const ARTIFACT_PREVIEW_ARG = "--posthog-artifact-preview";
 export const ARTIFACT_OPEN_EXTERNAL_CHANNEL = "posthog-artifact-open-external";

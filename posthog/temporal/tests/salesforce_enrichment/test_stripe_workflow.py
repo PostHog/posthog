@@ -19,6 +19,7 @@ from posthog.temporal.salesforce_enrichment.stripe_workflow import (
     prepare_stripe_update_record,
 )
 
+from ee.billing.salesforce_enrichment.enrichment import BulkUpdateResult
 from ee.billing.salesforce_enrichment.stripe_signals import StripeSignals
 
 WORKFLOW_MODULE = "posthog.temporal.salesforce_enrichment.stripe_workflow"
@@ -139,7 +140,7 @@ class TestWorkflowParseInputs(SimpleTestCase):
 class TestEnrichStripePageActivity(SimpleTestCase):
     @pytest.mark.asyncio
     @patch(f"{WORKFLOW_MODULE}.Heartbeater")
-    @patch(f"{WORKFLOW_MODULE}.bulk_update_salesforce_accounts", return_value=(2, 0))
+    @patch(f"{WORKFLOW_MODULE}.bulk_update_salesforce_accounts", return_value=BulkUpdateResult(succeeded=2, failed=0))
     @patch(f"{WORKFLOW_MODULE}.get_salesforce_client")
     @patch(f"{WORKFLOW_MODULE}.fetch_stripe_signals")
     @patch(f"{WORKFLOW_MODULE}.close_old_connections")
@@ -181,7 +182,7 @@ class TestEnrichStripePageActivity(SimpleTestCase):
 
     @pytest.mark.asyncio
     @patch(f"{WORKFLOW_MODULE}.Heartbeater")
-    @patch(f"{WORKFLOW_MODULE}.bulk_update_salesforce_accounts", return_value=(1, 0))
+    @patch(f"{WORKFLOW_MODULE}.bulk_update_salesforce_accounts", return_value=BulkUpdateResult(succeeded=1, failed=0))
     @patch(f"{WORKFLOW_MODULE}.get_salesforce_client")
     @patch(f"{WORKFLOW_MODULE}.fetch_stripe_signals")
     @patch(f"{WORKFLOW_MODULE}.close_old_connections")
@@ -253,7 +254,7 @@ class TestEnrichStripePageActivity(SimpleTestCase):
 
     @pytest.mark.asyncio
     @patch(f"{WORKFLOW_MODULE}.Heartbeater")
-    @patch(f"{WORKFLOW_MODULE}.bulk_update_salesforce_accounts", return_value=(1, 1))
+    @patch(f"{WORKFLOW_MODULE}.bulk_update_salesforce_accounts", return_value=BulkUpdateResult(succeeded=1, failed=1))
     @patch(f"{WORKFLOW_MODULE}.get_salesforce_client")
     @patch(f"{WORKFLOW_MODULE}.fetch_stripe_signals")
     @patch(f"{WORKFLOW_MODULE}.close_old_connections")
@@ -289,7 +290,7 @@ class TestEnrichStripePageActivity(SimpleTestCase):
 
     @pytest.mark.asyncio
     @patch(f"{WORKFLOW_MODULE}.Heartbeater")
-    @patch(f"{WORKFLOW_MODULE}.bulk_update_salesforce_accounts", return_value=(250, 0))
+    @patch(f"{WORKFLOW_MODULE}.bulk_update_salesforce_accounts", return_value=BulkUpdateResult(succeeded=250, failed=0))
     @patch(f"{WORKFLOW_MODULE}.get_salesforce_client")
     @patch(f"{WORKFLOW_MODULE}.fetch_stripe_signals")
     @patch(f"{WORKFLOW_MODULE}.close_old_connections")

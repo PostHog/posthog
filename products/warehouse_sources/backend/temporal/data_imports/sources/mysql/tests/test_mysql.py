@@ -21,8 +21,10 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.mysql.mysq
     _MAX_CONNECT_ATTEMPTS,
     _SSH_HANDSHAKE_EOF_ERROR,
     STATEMENT_TIMEOUT_SECONDS,
+    UNAVOIDABLE_FILESORT_LOST_CONNECTION_ERROR,
     MySQLColumn,
     MySQLImplementation,
+    MySQLUnavoidableFilesortError,
     _build_query,
     _is_bad_plan_error,
     _is_transient_cant_create_thread,
@@ -874,6 +876,35 @@ class TestStreamingReopensDroppedConnection:
         assert ss_cursor.execute.called
 
 
+class TestUnavoidableFilesortFallback:
+    """A bad-plan 2013 that the FORCE INDEX fallback can't dodge — no usable index on the
+    incremental field — is deterministic, so it must fail non-retryably instead of looping."""
+
+    def test_lost_connection_with_no_usable_index_is_non_retryable(self, build_pipeline_mocks, mocker):
+        _, _, ss_cursor = build_pipeline_mocks
+        # The streaming query dies with a bad-plan 2013 before any row streams...
+        ss_cursor.execute.side_effect = pymysql.err.OperationalError(
+            2013, "Lost connection to MySQL server during query"
+        )
+        # ...and the incremental field has no index to force, so the sort can't be avoided.
+        mocker.patch.object(MySQLImplementation, "find_index_for_cursor", return_value=None)
+
+        source = MySQLImplementation().build_pipeline(
+            _make_config(),
+            _make_inputs(
+                should_use_incremental_field=True,
+                incremental_field="created_at",
+                incremental_field_type=IncrementalFieldType.DateTime,
+            ),
+        )
+        with pytest.raises(MySQLUnavoidableFilesortError):
+            list(source.items())  # type: ignore[arg-type]  # MySQL source is always sync
+
+        # The raised marker is classified non-retryable, so the schema is paused, not looped.
+        non_retryable = MySQLSource().get_non_retryable_errors()
+        assert any(pattern in UNAVOIDABLE_FILESORT_LOST_CONNECTION_ERROR for pattern in non_retryable.keys())
+
+
 class TestIsBadPlanError:
     def test_matches_error_2013(self):
         assert _is_bad_plan_error(pymysql.err.OperationalError(2013, "Lost connection to MySQL server during query"))
@@ -883,6 +914,16 @@ class TestIsBadPlanError:
         # field) seen from the other side — the FORCE INDEX fallback resolves it.
         assert _is_bad_plan_error(
             pymysql.err.OperationalError(1038, "Out of sort memory, consider increasing server sort buffer size")
+        )
+
+    def test_matches_error_3024_query_execution_time_exceeded(self):
+        # The server's own max_execution_time cap killing the query is a third
+        # symptom of the same full-scan-and-filesort plan — the FORCE INDEX
+        # fallback resolves it too.
+        assert _is_bad_plan_error(
+            pymysql.err.OperationalError(
+                3024, "Query execution was interrupted, maximum statement execution time exceeded"
+            )
         )
 
     @pytest.mark.parametrize(
@@ -2061,6 +2102,24 @@ class TestMySQLSourceNonRetryableErrors:
         non_retryable = source.get_non_retryable_errors()
         is_non_retryable = any(pattern in error_msg for pattern in non_retryable.keys())
         assert is_non_retryable, f"Out-of-sort-memory error should be non-retryable: {error_msg}"
+
+    @pytest.mark.parametrize(
+        "error_msg",
+        [
+            # Raw pymysql str(error) form (single-quoted tuple repr).
+            str(
+                pymysql.err.OperationalError(
+                    3024, "Query execution was interrupted, maximum statement execution time exceeded"
+                )
+            ),
+            # Temporal-wrapped form (double-quoted).
+            'OperationalError: (3024, "Query execution was interrupted, maximum statement execution time exceeded")',
+        ],
+    )
+    def test_query_execution_time_exceeded_is_non_retryable(self, source, error_msg):
+        non_retryable = source.get_non_retryable_errors()
+        is_non_retryable = any(pattern in error_msg for pattern in non_retryable.keys())
+        assert is_non_retryable, f"Query-execution-time-exceeded error should be non-retryable: {error_msg}"
 
     @pytest.mark.parametrize(
         "error_msg",

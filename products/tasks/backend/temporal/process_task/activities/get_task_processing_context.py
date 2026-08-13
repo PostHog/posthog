@@ -35,7 +35,7 @@ from products.tasks.backend.logic.services.sandbox_config import (
     MAX_SANDBOX_TTL_SECONDS,
 )
 from products.tasks.backend.models import SandboxCustomImage, SandboxEnvironment, Task, TaskRun
-from products.tasks.backend.temporal.constants import resolve_inactivity_timeout
+from products.tasks.backend.temporal.constants import resolve_inactivity_timeout, resolve_max_run_duration
 from products.tasks.backend.temporal.observability import emit_agent_log, log_with_activity_context
 from products.tasks.backend.temporal.process_task.utils import (
     format_allowed_domains_for_log,
@@ -209,11 +209,27 @@ class TaskProcessingContext:
 
     def inactivity_timeout(self) -> timedelta:
         """Idle time before the workflow times the run out; longer for user-driven runs."""
-        is_user_origin = not self.origin_product or self.origin_product in (
+        return resolve_inactivity_timeout(
+            is_user_origin=self._is_user_origin(), origin_product=self.origin_product, state=self.state
+        )
+
+    def _is_user_origin(self) -> bool:
+        return not self.origin_product or self.origin_product in (
             Task.OriginProduct.USER_CREATED.value,
             Task.OriginProduct.IMAGE_BUILDER.value,
         )
-        return resolve_inactivity_timeout(is_user_origin=is_user_origin, state=self.state)
+
+    def max_run_duration(self) -> timedelta | None:
+        """Hard wall-clock cap on total run time, or None when the run is exempt.
+
+        Unlike the inactivity timeout, this is not reset by heartbeats, so it stops a
+        wedged-but-heartbeating agent that would otherwise run forever. User-driven
+        sessions can legitimately run for hours, so they are uncapped. Autonomous runs
+        get the cap as a safety net unless the setting disables it deployment-wide.
+        """
+        if self.mode == "interactive" or self._is_user_origin():
+            return None
+        return resolve_max_run_duration()
 
     def sandbox_resource_overrides(self) -> dict[str, float | int]:
         """Per-task SandboxConfig overrides (compute + TTL), clamped to server-owned bounds.

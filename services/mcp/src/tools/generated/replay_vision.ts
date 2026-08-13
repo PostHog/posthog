@@ -338,9 +338,12 @@ const visionObservationsRetrieve = (): ToolBase<
             method: 'GET',
             path: `/api/projects/${encodeURIComponent(String(projectId))}/vision/observations/${encodeURIComponent(String(params.id))}/`,
             query: {
+                backfill_id: params.backfill_id,
                 date_from: params.date_from,
                 date_to: params.date_to,
                 labeled: params.labeled,
+                max_score: params.max_score,
+                min_score: params.min_score,
                 order_by: params.order_by,
                 recording_subject: params.recording_subject,
                 session_id: params.session_id,
@@ -436,6 +439,9 @@ const visionScannersCreate = (): ToolBase<typeof VisionScannersCreateSchema, Sch
         if (params.sampling_mode !== undefined) {
             body['sampling_mode'] = params.sampling_mode
         }
+        if (params.credit_limit !== undefined) {
+            body['credit_limit'] = params.credit_limit
+        }
         if (params.provider !== undefined) {
             body['provider'] = params.provider
         }
@@ -447,6 +453,9 @@ const visionScannersCreate = (): ToolBase<typeof VisionScannersCreateSchema, Sch
         }
         if (params.emits_signals !== undefined) {
             body['emits_signals'] = params.emits_signals
+        }
+        if (params.experiment_targeting !== undefined) {
+            body['experiment_targeting'] = params.experiment_targeting
         }
         const result = await context.api.request<Schemas.ReplayScanner>({
             method: 'POST',
@@ -597,6 +606,7 @@ const visionScannersList = (): ToolBase<
                 created_by: params.created_by,
                 emits_signals: params.emits_signals,
                 enabled: params.enabled,
+                experiment_id: params.experiment_id,
                 limit: params.limit,
                 offset: params.offset,
                 order_by: params.order_by,
@@ -624,9 +634,12 @@ const visionScannersObservationsGet = (): ToolBase<
             method: 'GET',
             path: `/api/projects/${encodeURIComponent(String(projectId))}/vision/scanners/${encodeURIComponent(String(params.scanner_id))}/observations/${encodeURIComponent(String(params.id))}/`,
             query: {
+                backfill_id: params.backfill_id,
                 date_from: params.date_from,
                 date_to: params.date_to,
                 labeled: params.labeled,
+                max_score: params.max_score,
+                min_score: params.min_score,
                 order_by: params.order_by,
                 recording_subject: params.recording_subject,
                 session_id: params.session_id,
@@ -659,10 +672,13 @@ const visionScannersObservationsList = (): ToolBase<
             method: 'GET',
             path: `/api/projects/${encodeURIComponent(String(projectId))}/vision/scanners/${encodeURIComponent(String(params.scanner_id))}/observations/`,
             query: {
+                backfill_id: params.backfill_id,
                 date_from: params.date_from,
                 date_to: params.date_to,
                 labeled: params.labeled,
                 limit: params.limit,
+                max_score: params.max_score,
+                min_score: params.min_score,
                 offset: params.offset,
                 order_by: params.order_by,
                 recording_subject: params.recording_subject,
@@ -707,9 +723,12 @@ const visionScannersObservationsStats = (): ToolBase<
             method: 'GET',
             path: `/api/projects/${encodeURIComponent(String(projectId))}/vision/scanners/${encodeURIComponent(String(params.scanner_id))}/observations/stats/`,
             query: {
+                backfill_id: params.backfill_id,
                 date_from: params.date_from,
                 date_to: params.date_to,
                 labeled: params.labeled,
+                max_score: params.max_score,
+                min_score: params.min_score,
                 recent_days: params.recent_days,
                 recording_subject: params.recording_subject,
                 session_id: params.session_id,
@@ -864,6 +883,9 @@ const visionScannersUpdate = (): ToolBase<typeof VisionScannersUpdateSchema, Sch
         if (params.sampling_mode !== undefined) {
             body['sampling_mode'] = params.sampling_mode
         }
+        if (params.credit_limit !== undefined) {
+            body['credit_limit'] = params.credit_limit
+        }
         if (params.provider !== undefined) {
             body['provider'] = params.provider
         }
@@ -875,6 +897,9 @@ const visionScannersUpdate = (): ToolBase<typeof VisionScannersUpdateSchema, Sch
         }
         if (params.emits_signals !== undefined) {
             body['emits_signals'] = params.emits_signals
+        }
+        if (params.experiment_targeting !== undefined) {
+            body['experiment_targeting'] = params.experiment_targeting
         }
         const result = await context.api.request<Schemas.ReplayScanner>({
             method: 'PATCH',

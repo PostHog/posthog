@@ -127,6 +127,60 @@ describe('workflowLogic external edits', () => {
         expect(logic.values.isSyncingExternalEdit).toBe(false)
     })
 
+    // The server emits resource_edited during our own PATCH/reload, and the SSE echo can land
+    // before the HTTP response does. Reacting to it against the stale baseline flashed the
+    // conflict banner at the user on every staged auto-save - but plain dropping would lose a
+    // genuine concurrent edit arriving in the same window.
+    it('defers events during our own flight, then reconciles genuine edits against the fresh baseline', async () => {
+        logic.actions.setAutoSaveEnabled(false)
+        logic.actions.setWorkflowValue('name', 'My local edit')
+        expect(logic.values.hasUnsavedChanges).toBe(true)
+
+        logic.actions.loadWorkflow()
+        expect(logic.values.originalWorkflowLoading).toBe(true)
+        resourceEditedLogic.actions.resourceEdited(makeEvent({ updated_at: NEWER }))
+
+        // No banner while our own flight is up.
+        expect(logic.values.externallyEdited).toBe(false)
+
+        // Once the flight settles, the parked event replays. The loaded baseline is still older
+        // than the event, so the (now clean) editor silently syncs with a fresh load - the event
+        // is reconciled, not dropped.
+        await expectLogic(logic).toDispatchActions([
+            'loadWorkflowSuccess',
+            'replayDeferredResourceEdited',
+            'setSyncingExternalEdit',
+            'loadWorkflowSuccess',
+        ])
+        expect(logic.values.externallyEdited).toBe(false)
+        expect(getCalls).toBe(3)
+    })
+
+    it('ignores the echo of our own staged draft save', async () => {
+        // A staged save doesn't bump the live updated_at; the emit broadcasts the draft stamp
+        // instead. That echo must not read as an external edit, or every auto-save on an active
+        // workflow would flash the conflict banner (or trigger a reload loop).
+        const DRAFT_AT = '2026-05-15T00:00:00.000Z'
+        useMocks({
+            get: {
+                '/api/environments/:team_id/hog_flows/:id/': () => {
+                    getCalls += 1
+                    return [200, makeWorkflow({ draft: { edges: [] }, draft_updated_at: DRAFT_AT })]
+                },
+                '/api/projects/:team_id/hog_function_templates/': { results: [], count: 0 },
+            },
+        })
+        logic.actions.loadWorkflow()
+        await expectLogic(logic).toDispatchActions(['loadWorkflowSuccess'])
+        const baselineGets = getCalls
+
+        resourceEditedLogic.actions.resourceEdited(makeEvent({ updated_at: DRAFT_AT }))
+        await new Promise((resolve) => setTimeout(resolve, 0))
+
+        expect(getCalls).toBe(baselineGets)
+        expect(logic.values.externallyEdited).toBe(false)
+    })
+
     it('clears the banner and reloads when the user chooses Reload', async () => {
         logic.actions.setAutoSaveEnabled(false)
         logic.actions.setWorkflowValue('name', 'My local edit')

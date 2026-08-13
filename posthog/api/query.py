@@ -162,6 +162,7 @@ def _process_query_request(
 # API token must hold the product scope, not just query:read, to run them through
 # the generic endpoint.
 _QUERY_KIND_SCOPES: dict[str, list[str]] = {
+    "AccountsTableQuery": ["query:read", "account:read"],
     "MetricsQuery": ["metrics:read"],
     # Both scopes listed: this result replaces the view's default query:read
     # rather than adding to it, and a token must hold every listed scope.
@@ -169,6 +170,20 @@ _QUERY_KIND_SCOPES: dict[str, list[str]] = {
     "MCPToolCallsAndErrorsQuery": ["query:read", "mcp_analytics:read"],
     "MCPToolCallBreakdownQuery": ["query:read", "mcp_analytics:read"],
 }
+
+
+def _required_scopes_for_query_payload(query: object) -> list[str] | None:
+    current_query = query
+    while isinstance(current_query, dict):
+        kind = current_query.get("kind")
+        # The experiment_exposure recordings filter reads experiment data, so it needs
+        # experiment:read on top of query:read — keyed on query content, not kind alone.
+        if kind == "RecordingsQuery" and current_query.get("experiment_exposure"):
+            return ["query:read", "experiment:read"]
+        if isinstance(kind, str) and kind in _QUERY_KIND_SCOPES:
+            return _QUERY_KIND_SCOPES[kind]
+        current_query = current_query.get("source")
+    return None
 
 
 class QueryViewSet(QueryCoalescingMixin, TeamAndOrgViewSetMixin, PydanticModelMixin, viewsets.ViewSet):
@@ -184,8 +199,7 @@ class QueryViewSet(QueryCoalescingMixin, TeamAndOrgViewSetMixin, PydanticModelMi
         if getattr(view, "action", None) != "create":
             return None
         query = request.data.get("query") if isinstance(request.data, dict) else None
-        kind = query.get("kind") if isinstance(query, dict) else None
-        return _QUERY_KIND_SCOPES.get(kind) if isinstance(kind, str) else None
+        return _required_scopes_for_query_payload(query)
 
     def get_throttles(self):
         if self.action == "draft_sql":

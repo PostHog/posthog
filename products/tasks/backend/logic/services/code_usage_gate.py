@@ -12,6 +12,7 @@ from posthog.models import OAuthAccessToken
 from posthog.temporal.oauth import create_oauth_access_token_for_user
 from posthog.utils import get_instance_region
 
+from products.tasks.backend.logic.services.compute_quota import COMPUTE_QUOTA_DENIAL_CODE
 from products.tasks.backend.metrics import observe_code_usage_gate_check
 from products.tasks.backend.presentation.serializers import TaskRunErrorResponseSerializer
 
@@ -134,6 +135,19 @@ def rate_limit_error_payload(usage: CodeUsageStatus) -> dict[str, Any]:
     if usage.reset_at is not None:
         payload["reset_at"] = usage.reset_at
     return payload
+
+
+def compute_quota_limit_response() -> Response:
+    return Response(
+        TaskRunErrorResponseSerializer(
+            {
+                "type": "billing_limit",
+                "code": COMPUTE_QUOTA_DENIAL_CODE,
+                "error": "Your organization reached its PostHog Desktop usage limit.",
+            }
+        ).data,
+        status=status.HTTP_429_TOO_MANY_REQUESTS,
+    )
 
 
 def usage_limit_response(user, team_id: int) -> Response | None:

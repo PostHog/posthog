@@ -1,5 +1,9 @@
 import { DEFAULT_GATEWAY_MODEL } from "@posthog/agent/gateway-models";
 import { getIsOnline } from "@posthog/core/connectivity/connectivityStore";
+import {
+  AGENT_SESSION_NOTIFIER,
+  type AgentSessionNotifier,
+} from "@posthog/core/notification/agentSessionNotifications";
 import { CloudArtifactService } from "@posthog/core/sessions/cloudArtifactService";
 import {
   combineQueuedCloudPrompts,
@@ -27,7 +31,6 @@ import {
   type FeatureFlags,
 } from "@posthog/ui/features/feature-flags/identifiers";
 import { useAddDirectoryDialogStore } from "@posthog/ui/features/folder-picker/addDirectoryDialogStore";
-import { NotificationBus } from "@posthog/ui/features/notifications/notifications";
 import { SpeechNotifier } from "@posthog/ui/features/notifications/speechNotifier";
 import { useSessionAdapterStore } from "@posthog/ui/features/sessions/sessionAdapterStore";
 import {
@@ -96,17 +99,9 @@ function buildSessionServiceDeps(): SessionServiceDeps {
       );
     },
     buildPermissionToolMetadata,
-    notifyPermissionRequest: (taskTitle, taskId) =>
-      resolveService(NotificationBus).notifyPermissionRequest(
-        taskTitle,
-        taskId,
-      ),
-    notifyPromptComplete: (taskTitle, stopReason, taskId, durationMs) =>
-      resolveService(NotificationBus).notifyPromptComplete(
-        taskTitle,
-        stopReason,
-        taskId,
-        durationMs,
+    notifyAgentSession: (notification) =>
+      resolveService<AgentSessionNotifier>(AGENT_SESSION_NOTIFIER).notify(
+        notification,
       ),
     enqueueSpeech: (request) => resolveService(SpeechNotifier).speak(request),
     getIsOnline,
@@ -157,6 +152,15 @@ function buildSessionServiceDeps(): SessionServiceDeps {
       getCloudPromptTransport,
       resolveLocalSkillCommandPrompt: (prompt) =>
         resolveLocalSkillPrompt(prompt, () => trpc.skills.list.query()),
+      uploadRunOutput: (client, taskId, runId, name, content, contentType) =>
+        cloudArtifactService.uploadRunOutput(
+          client,
+          taskId,
+          runId,
+          name,
+          content,
+          contentType,
+        ),
       uploadRunAttachments: (client, taskId, runId, filePaths, skillBundles) =>
         cloudArtifactService.uploadRunAttachments(
           client,

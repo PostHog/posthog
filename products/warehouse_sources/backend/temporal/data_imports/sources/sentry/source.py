@@ -21,6 +21,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common.sch
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.typings import SourceInputs, SourceResponse
 from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.sentry import SentrySourceConfig
 from products.warehouse_sources.backend.temporal.data_imports.sources.sentry.sentry import (
+    STATS_SUMMARY_REJECTED_MESSAGE,
     SentryResumeConfig,
     _normalize_organization_slug,
     sentry_source,
@@ -122,7 +123,20 @@ class SentrySource(ResumableSource[SentrySourceConfig, SentryResumeConfig]):
             + ", ".join(REQUIRED_SENTRY_SCOPES)
             + ".",
             "404 Client Error": "Sentry organization not found. Verify your organization slug.",
+            # Raised as `SentryStatsSummaryRejectedError` for any stats-summary 400 other than the
+            # skipped no-projects case (see sentry.py). Deterministic for the request we build, so
+            # stop retrying; the message is defined at the raise site so it stays credential-safe.
+            STATS_SUMMARY_REJECTED_MESSAGE: None,
         }
+
+    def get_retryable_errors(self) -> set[str]:
+        # `_request_with_retry` (sentry.py) already retries a dropped connection, read timeout, or
+        # persistent 429/5xx before re-raising once that budget is exhausted. urllib3 wraps all of
+        # those as "... Max retries exceeded with url: ..." regardless of the underlying cause, so
+        # match that stable prefix rather than the per-request URL or nested error detail. Temporal
+        # then retries the whole activity, so the failure is transient and self-recovering. Mirrors
+        # Close's equivalent case.
+        return {"Max retries exceeded with url"}
 
     def get_schemas(
         self,

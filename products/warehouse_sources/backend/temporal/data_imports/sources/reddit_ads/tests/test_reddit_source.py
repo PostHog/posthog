@@ -273,6 +273,7 @@ class TestRedditAdsSource:
             ("campaign_placement_report", False),
             ("campaign_community_report", False),
             ("campaign_os_type_report", False),
+            ("campaign_keyword_report", False),
         ],
     )
     def test_expensive_breakdown_reports_are_not_selected_by_default(self, endpoint, should_sync_default):

@@ -170,6 +170,11 @@ export const buildKeaFormDefaultFromSourceDetails = (
         if (field.type === 'select') {
             const hasOptionFields = !!field.options.filter((n) => (n.fields?.length ?? 0) > 0).length
 
+            if (field.multiple) {
+                obj[field.name] = field.defaultValue ? [field.defaultValue] : []
+                return
+            }
+
             if (hasOptionFields) {
                 obj[field.name] = {}
                 obj[field.name]['selection'] = field.defaultValue
@@ -823,6 +828,7 @@ export interface sourceWizardLogicActions {
             | 'Cloudability'
             | 'Cloudbeds'
             | 'Cloudflare'
+            | 'Cloudinary'
             | 'Cloudsmith'
             | 'Cloudzero'
             | 'Clover'
@@ -889,9 +895,11 @@ export interface sourceWizardLogicActions {
             | 'Debugbear'
             | 'Decagon'
             | 'Deel'
+            | 'DeelFlows'
             | 'Deepgram'
             | 'Deepsource'
             | 'DenoDeploy'
+            | 'Depot'
             | 'Deputy'
             | 'Descope'
             | 'Develocity'
@@ -909,6 +917,7 @@ export interface sourceWizardLogicActions {
             | 'Docusign'
             | 'DodoPayments'
             | 'DoIt'
+            | 'Dokploy'
             | 'Dolibarr'
             | 'Donorbox'
             | 'Doorloop'
@@ -994,6 +1003,7 @@ export interface sourceWizardLogicActions {
             | 'Formbricks'
             | 'Fortnox'
             | 'Fourthwall'
+            | 'Framer'
             | 'Fred'
             | 'FreeAgent'
             | 'Freightview'
@@ -1137,6 +1147,7 @@ export interface sourceWizardLogicActions {
             | 'Imagga'
             | 'ImfData'
             | 'Impact'
+            | 'ImpactPartner'
             | 'Imperva'
             | 'IncidentIo'
             | 'Infisical'
@@ -1315,6 +1326,7 @@ export interface sourceWizardLogicActions {
             | 'Motherduck'
             | 'Motion'
             | 'Moxie'
+            | 'MSG91'
             | 'MSSQL'
             | 'Mux'
             | 'Mycase'
@@ -1444,7 +1456,8 @@ export interface sourceWizardLogicActions {
             | 'Piwik'
             | 'Plaid'
             | 'Plain'
-            | 'PlanetScale'
+            | 'PlanetScaleMySQL'
+            | 'PlanetScalePostgres'
             | 'Planhat'
             | 'PlanningCenter'
             | 'PlatformSh'
@@ -1493,6 +1506,7 @@ export interface sourceWizardLogicActions {
             | 'Railz'
             | 'Raisely'
             | 'Raken'
+            | 'RakutenAdvertising'
             | 'Ramp'
             | 'Rapid7Insightvm'
             | 'Raygun'
@@ -1555,6 +1569,7 @@ export interface sourceWizardLogicActions {
             | 'ScaleAI'
             | 'Scaleway'
             | 'Scalr'
+            | 'Schematic'
             | 'SearchAds360'
             | 'SecEdgar'
             | 'Secoda'
@@ -1746,6 +1761,7 @@ export interface sourceWizardLogicActions {
             | 'UnComtrade'
             | 'Unleash'
             | 'Unstructured'
+            | 'Uploadcare'
             | 'UpPromote'
             | 'Upstash'
             | 'Uptick'
@@ -1784,6 +1800,7 @@ export interface sourceWizardLogicActions {
             | 'WeightsAndBiases'
             | 'WhatsappBusinessManagement'
             | 'WhenIWork'
+            | 'WHMCS'
             | 'WhoGho'
             | 'Whop'
             | 'WikipediaPageviews'
@@ -1830,6 +1847,7 @@ export interface sourceWizardLogicActions {
             | 'Zenloop'
             | 'Zep'
             | 'Zero'
+            | 'Zitadel'
             | 'Zluri'
             | 'ZohoAnalytics'
             | 'ZohoBigin'
@@ -3920,8 +3938,14 @@ export const getErrorsForFields = (
             const hasOptionFields = !!field.options.filter((n) => (n.fields?.length ?? 0) > 0).length
 
             if (!hasOptionFields) {
-                if (field.required && !valueObj[field.name]) {
-                    errorsObj[field.name] = `Please select a ${field.label.toLowerCase()}`
+                // An empty array is truthy, so a multiple select needs its own emptiness
+                // check or `required` passes with nothing selected.
+                const selected = valueObj[field.name]
+                const selectionMissing = Array.isArray(selected) ? selected.length === 0 : !selected
+                if (field.required && selectionMissing) {
+                    errorsObj[field.name] = Array.isArray(selected)
+                        ? `Please select at least one of your ${field.label.toLowerCase()}`
+                        : `${field.label} is required`
                 }
             } else {
                 errorsObj[field.name] = {}
@@ -3949,7 +3973,7 @@ export const getErrorsForFields = (
         if ('required' in field && field.required && valueMissing) {
             errorsObj[field.name] = Array.isArray(fieldValue)
                 ? `Please enter at least one of your ${field.label.toLowerCase()}`
-                : `Please enter a ${field.label.toLowerCase()}`
+                : `${field.label} is required`
         }
     }
 

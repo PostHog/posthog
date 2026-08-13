@@ -1489,7 +1489,9 @@ class InformationSchemaMetricsTable(InformationSchemaTable):
     fields: dict[str, FieldOrTable] = {
         "id": _string_field("id", description="Stable UUID of the metric (cross-reference for the REST API)."),
         "name": _string_field(
-            "name", description="Identifier-safe handle uniquely naming this metric within the project."
+            "name",
+            description="Identifier-safe handle uniquely naming this metric among the project's live metrics. "
+            "Not permanent: a metric can be renamed, and deleting one frees its name for reuse.",
         ),
         "display_name": _string_field("display_name", nullable=True, description="Human-friendly label."),
         "description": _string_field("description", description="What the metric means and how to interpret it."),
