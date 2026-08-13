@@ -7,17 +7,16 @@ from unittest.mock import AsyncMock, MagicMock, patch
 from asgiref.sync import sync_to_async
 from temporalio.testing import ActivityEnvironment
 
-from posthog.temporal.signup_enrichment.workflow import (
+from products.growth.backend.enrichment.fields import EnrichmentFields
+from products.growth.backend.temporal.signup_enrichment.workflow import (
     MAX_ENRICH_ATTEMPTS,
     SignupEnrichmentInputs,
     enrich_signup_organization_activity,
 )
 
-from products.growth.backend.enrichment.fields import EnrichmentFields
-
 pytestmark = pytest.mark.asyncio
 
-_MODULE = "posthog.temporal.signup_enrichment.workflow"
+_MODULE = "products.growth.backend.temporal.signup_enrichment.workflow"
 _INPUTS = SignupEnrichmentInputs(organization_id="org-1", distinct_id="d1", domain="stripe.com")
 
 
