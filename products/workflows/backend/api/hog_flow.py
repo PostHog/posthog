@@ -2530,6 +2530,15 @@ class HogFlowRevisionRestoreRequestSerializer(serializers.Serializer):
             "a draft is open returns 409."
         ),
     )
+    expected_draft_updated_at = serializers.DateTimeField(
+        required=False,
+        allow_null=True,
+        help_text=(
+            "The draft_updated_at of the staged draft this overwrite was confirmed against. If a draft "
+            "exists with a different stamp (it was staged or edited since the confirmation was shown), "
+            "the restore returns 409 instead of overwriting it. Omit to overwrite unconditionally."
+        ),
+    )
 
 
 class CommaSeparatedListFilter(BaseInFilter, CharFilter):
@@ -2820,11 +2829,16 @@ class HogFlowViewSet(
         # Realtime "edited elsewhere" signal so an open builder (or another tab) can refresh instead of
         # clobbering edits made via a different channel (UI/MCP/API). Fires for every channel; the
         # frontend dedupes its own echo by comparing updated_at. Transient — no inbox notification.
+        # Draft writes don't touch the live updated_at, so broadcast the newer of the two stamps;
+        # otherwise an open builder never hears about content staged from another channel.
+        edited_at = instance.updated_at
+        if instance.draft_updated_at and instance.draft_updated_at > edited_at:
+            edited_at = instance.draft_updated_at
         publish_resource_edited(
             team=self.team,
             resource_type="HogFlow",
             resource_id=str(instance.id),
-            updated_at=instance.updated_at.isoformat(),
+            updated_at=edited_at.isoformat(),
             actor_user_id=getattr(self.request.user, "id", None),
             ac_resource_type=self.scope_object,
         )
@@ -2902,6 +2916,11 @@ class HogFlowViewSet(
             # PATCHes (the lifecycle tools) and metadata-only edits apply straight to the live row.
             if serializer.instance.status == HogFlow.State.ACTIVE and has_non_status:
                 route_to_draft = bool(keys & set(DRAFT_CONTENT_FIELDS))
+        elif serializer.instance.status == HogFlow.State.ACTIVE and self.request.data.get("stage_draft"):
+            # The web builder opts into the same draft routing per request ("stage_draft" rides the
+            # raw body like "base_updated_at"). Callers that don't send it keep deploy-on-save, so
+            # existing raw-API automation is unaffected.
+            route_to_draft = bool(set(self.request.data.keys()) & set(DRAFT_CONTENT_FIELDS))
 
         instance_id = serializer.instance.id
 
@@ -2944,6 +2963,16 @@ class HogFlowViewSet(
                     if k not in DRAFT_CONTENT_FIELDS and k != "billable_action_types"
                 }
                 if remaining:
+                    # The draft-stamp guard above doesn't protect this live write: a concurrent
+                    # live-metadata edit bumps updated_at but not draft_updated_at, so a staged save
+                    # would silently overwrite it. Clients that write metadata alongside a staged
+                    # draft send the live stamp they loaded as a second fence.
+                    base_live_raw = self.request.data.get("base_live_updated_at")
+                    base_live = parse_datetime(base_live_raw) if base_live_raw else None
+                    if base_live is not None and timezone.is_naive(base_live):
+                        base_live = timezone.make_aware(base_live)
+                    if base_live and before_update.updated_at and before_update.updated_at > base_live:
+                        raise StaleWorkflowUpdateError()
                     serializer.validated_data.clear()
                     serializer.validated_data.update(remaining)
                     serializer.save()
@@ -3455,7 +3484,12 @@ class HogFlowViewSet(
             locked.draft = None
             locked.draft_updated_at = None
             locked.draft_encrypted_inputs = None
-            locked.save(update_fields=["draft", "draft_updated_at", "draft_encrypted_inputs"])
+            # updated_at (auto_now) is deliberately bumped: without a fresh live stamp the
+            # resource_edited broadcast carries the old updated_at — older than the draft stamp
+            # concurrent editors loaded, so they'd ignore the discard, and their next draft save
+            # would pass the staleness guard (which falls back to the live stamp once the draft is
+            # gone) and silently resurrect the discarded draft.
+            locked.save(update_fields=["draft", "draft_updated_at", "draft_encrypted_inputs", "updated_at"])
 
         log_activity_from_viewset(self, locked, activity="draft_discarded", name=locked.name, previous=before_update)
         self._emit_resource_edited(locked)
@@ -3513,6 +3547,16 @@ class HogFlowViewSet(
                 raise exceptions.NotFound("No such revision for this workflow.")
             if locked.draft and not param_serializer.validated_data["overwrite"]:
                 raise DraftExistsError()
+            # Overwrite fencing: the client confirms against the draft stamp it saw. A draft staged
+            # or edited between the confirmation dialog and this call carries a different stamp, and
+            # overwriting it would lose unpublished content that no revision snapshots.
+            expected_draft_updated_at = param_serializer.validated_data.get("expected_draft_updated_at")
+            if (
+                locked.draft
+                and expected_draft_updated_at is not None
+                and locked.draft_updated_at != expected_draft_updated_at
+            ):
+                raise StaleWorkflowUpdateError()
             # nosemgrep: idor-lookup-without-team (re-fetch of already-authorized instance for activity logging)
             before_update = HogFlow.objects.get(pk=instance.pk)
             locked.draft = dict(revision.content)

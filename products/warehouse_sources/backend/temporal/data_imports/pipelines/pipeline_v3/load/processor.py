@@ -38,8 +38,12 @@ from products.warehouse_sources.backend.temporal.data_imports.pipelines.common.l
     supports_partial_data_loading,
 )
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.core.arrow_utils import (
+    SchemaColumnTypeChangedException,
     evolve_pyarrow_schema,
     pyarrow_schema_from_arrow_exportable,
+)
+from products.warehouse_sources.backend.temporal.data_imports.pipelines.core.auto_widen_resync import (
+    maybe_schedule_auto_widen_resync,
 )
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.core.consts import PARTITION_KEY
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.core.delta.scd2 import Scd2DeltaWriter
@@ -381,6 +385,7 @@ def _run_post_load_for_already_processed_batch(export_signal: ExportSignalMessag
             table_schema_dict=table_schema_dict,
             resource_name=export_signal.resource_name,
             logger=logger,
+            cdc_write_mode=export_signal.cdc_write_mode,
         )
 
         logger.debug("post_load_operations_complete_for_already_processed_batch")
@@ -817,7 +822,17 @@ def _process_message_reported(
         )
 
         if existing_delta_table is not None:
-            pa_table = evolve_pyarrow_schema(pa_table, existing_delta_table.schema())
+            try:
+                pa_table = evolve_pyarrow_schema(pa_table, existing_delta_table.schema())
+            except SchemaColumnTypeChangedException as e:
+                # A safe numeric widening is mechanically recoverable: stamp reset_pipeline so the
+                # next scheduled sync resets and re-syncs the table, and reword the failure so
+                # latest_error stops telling the customer to reset manually. Unsafe transitions
+                # (and everything with the flag off) re-raise unchanged.
+                amended_message = maybe_schedule_auto_widen_resync(schema=schema, job=job, error=e)
+                if amended_message is not None:
+                    e.args = (amended_message,)
+                raise
 
         if verify_ownership is not None:
             verify_ownership()

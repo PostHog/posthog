@@ -123,6 +123,7 @@ from posthog.schema_enums import (
     Goal as Goal,
     GoogleAdsDefaultSources as GoogleAdsDefaultSources,
     GradientScaleMode as GradientScaleMode,
+    GroupMathType as GroupMathType,
     HeatmapSortOrder as HeatmapSortOrder,
     HedgehogActorAccessoryOption as HedgehogActorAccessoryOption,
     HedgehogActorColorOption as HedgehogActorColorOption,
@@ -2630,14 +2631,6 @@ class SessionRecordingExternalReference(BaseModel):
     issue_id: str
     metadata: dict[str, str] | None = None
     title: str
-
-
-class SummaryOutcome(BaseModel):
-    model_config = ConfigDict(
-        extra="forbid",
-    )
-    description: str | None = None
-    success: bool | None = None
 
 
 class SessionReplayBlock(BaseModel):
@@ -6809,7 +6802,6 @@ class SessionRecordingType(BaseModel):
     start_time: str = Field(..., description="When the recording starts in ISO format.")
     start_url: str | None = None
     summary: str | None = None
-    summary_outcome: SummaryOutcome | None = None
     viewed: bool = Field(..., description="Whether this recording has been viewed by you already.")
     viewers: list[str] = Field(..., description="user ids of other users who have viewed this recording")
 
@@ -9619,9 +9611,9 @@ class AssistantStickinessActionsNode(BaseModel):
         | FunnelMathType
         | PropertyMathType
         | CountPerActorMathType
+        | GroupMathType
         | ExperimentMetricMathType
         | CalendarHeatmapMathType
-        | Literal["unique_group"]
         | Literal["hogql"]
         | None
     ) = None
@@ -9680,9 +9672,9 @@ class AssistantStickinessEventsNode(BaseModel):
         | FunnelMathType
         | PropertyMathType
         | CountPerActorMathType
+        | GroupMathType
         | ExperimentMetricMathType
         | CalendarHeatmapMathType
-        | Literal["unique_group"]
         | Literal["hogql"]
         | None
     ) = None
@@ -9849,9 +9841,9 @@ class AssistantTrendsActionsNode(BaseModel):
         | FunnelMathType
         | PropertyMathType
         | CountPerActorMathType
+        | GroupMathType
         | ExperimentMetricMathType
         | CalendarHeatmapMathType
-        | Literal["unique_group"]
         | Literal["hogql"]
         | None
     ) = None
@@ -9912,9 +9904,9 @@ class AssistantTrendsEventsNode(BaseModel):
         | FunnelMathType
         | PropertyMathType
         | CountPerActorMathType
+        | GroupMathType
         | ExperimentMetricMathType
         | CalendarHeatmapMathType
-        | Literal["unique_group"]
         | Literal["hogql"]
         | None
     ) = None
@@ -9974,9 +9966,9 @@ class AssistantTrendsGroupNode(BaseModel):
         | FunnelMathType
         | PropertyMathType
         | CountPerActorMathType
+        | GroupMathType
         | ExperimentMetricMathType
         | CalendarHeatmapMathType
-        | Literal["unique_group"]
         | Literal["hogql"]
         | None
     ) = Field(
@@ -14764,9 +14756,9 @@ class ConversionGoalFilter1(BaseModel):
         | FunnelMathType
         | PropertyMathType
         | CountPerActorMathType
+        | GroupMathType
         | ExperimentMetricMathType
         | CalendarHeatmapMathType
-        | Literal["unique_group"]
         | Literal["hogql"]
         | None
     ) = None
@@ -14827,9 +14819,9 @@ class ConversionGoalFilter2(BaseModel):
         | FunnelMathType
         | PropertyMathType
         | CountPerActorMathType
+        | GroupMathType
         | ExperimentMetricMathType
         | CalendarHeatmapMathType
-        | Literal["unique_group"]
         | Literal["hogql"]
         | None
     ) = None
@@ -14892,9 +14884,9 @@ class ConversionGoalFilter3(BaseModel):
         | FunnelMathType
         | PropertyMathType
         | CountPerActorMathType
+        | GroupMathType
         | ExperimentMetricMathType
         | CalendarHeatmapMathType
-        | Literal["unique_group"]
         | Literal["hogql"]
         | None
     ) = None
@@ -15905,9 +15897,9 @@ class DataWarehouseNode(BaseModel):
         | FunnelMathType
         | PropertyMathType
         | CountPerActorMathType
+        | GroupMathType
         | ExperimentMetricMathType
         | CalendarHeatmapMathType
-        | Literal["unique_group"]
         | Literal["hogql"]
         | None
     ) = None
@@ -16278,9 +16270,9 @@ class EntityNode(BaseModel):
         | FunnelMathType
         | PropertyMathType
         | CountPerActorMathType
+        | GroupMathType
         | ExperimentMetricMathType
         | CalendarHeatmapMathType
-        | Literal["unique_group"]
         | Literal["hogql"]
         | None
     ) = None
@@ -16579,9 +16571,9 @@ class EventsNode(BaseModel):
         | FunnelMathType
         | PropertyMathType
         | CountPerActorMathType
+        | GroupMathType
         | ExperimentMetricMathType
         | CalendarHeatmapMathType
-        | Literal["unique_group"]
         | Literal["hogql"]
         | None
     ) = None
@@ -16757,9 +16749,9 @@ class ExperimentDataWarehouseNode(BaseModel):
         | FunnelMathType
         | PropertyMathType
         | CountPerActorMathType
+        | GroupMathType
         | ExperimentMetricMathType
         | CalendarHeatmapMathType
-        | Literal["unique_group"]
         | Literal["hogql"]
         | None
     ) = None
@@ -16884,9 +16876,9 @@ class FunnelExclusionActionsNode(BaseModel):
         | FunnelMathType
         | PropertyMathType
         | CountPerActorMathType
+        | GroupMathType
         | ExperimentMetricMathType
         | CalendarHeatmapMathType
-        | Literal["unique_group"]
         | Literal["hogql"]
         | None
     ) = None
@@ -16924,9 +16916,9 @@ class FunnelExclusionEventsNode(BaseModel):
         | FunnelMathType
         | PropertyMathType
         | CountPerActorMathType
+        | GroupMathType
         | ExperimentMetricMathType
         | CalendarHeatmapMathType
-        | Literal["unique_group"]
         | Literal["hogql"]
         | None
     ) = None
@@ -16965,9 +16957,9 @@ class FunnelsDataWarehouseNode(BaseModel):
         | FunnelMathType
         | PropertyMathType
         | CountPerActorMathType
+        | GroupMathType
         | ExperimentMetricMathType
         | CalendarHeatmapMathType
-        | Literal["unique_group"]
         | Literal["hogql"]
         | None
     ) = None
@@ -17333,9 +17325,9 @@ class LifecycleDataWarehouseNode(BaseModel):
         | FunnelMathType
         | PropertyMathType
         | CountPerActorMathType
+        | GroupMathType
         | ExperimentMetricMathType
         | CalendarHeatmapMathType
-        | Literal["unique_group"]
         | Literal["hogql"]
         | None
     ) = None
@@ -24407,9 +24399,9 @@ class ActionsNode(BaseModel):
         | FunnelMathType
         | PropertyMathType
         | CountPerActorMathType
+        | GroupMathType
         | ExperimentMetricMathType
         | CalendarHeatmapMathType
-        | Literal["unique_group"]
         | Literal["hogql"]
         | None
     ) = None
@@ -27100,9 +27092,9 @@ class GroupNode(BaseModel):
         | FunnelMathType
         | PropertyMathType
         | CountPerActorMathType
+        | GroupMathType
         | ExperimentMetricMathType
         | CalendarHeatmapMathType
-        | Literal["unique_group"]
         | Literal["hogql"]
         | None
     ) = None
@@ -28041,9 +28033,20 @@ class DatabaseSchemaQuery(BaseModel):
         default=None,
         description="Optional direct external data source id for schema introspection",
     )
+    includeFields: bool | None = Field(
+        default=None,
+        description=("When false, skip serializing each table's fields (`fields` comes back empty). Defaults to true."),
+    )
     kind: Literal["DatabaseSchemaQuery"] = "DatabaseSchemaQuery"
     modifiers: HogQLQueryModifiers | None = Field(default=None, description="Modifiers used when performing the query")
     response: DatabaseSchemaQueryResponse | None = None
+    tables: list[str] | None = Field(
+        default=None,
+        description=(
+            "Only serialize these tables (keys as returned in the response, e.g."
+            " `events` or `zendesk.groups`). Omit for all tables."
+        ),
+    )
     tags: QueryLogTags | None = None
     version: float | None = Field(default=None, description="version of the node, used for schema migrations")
 
