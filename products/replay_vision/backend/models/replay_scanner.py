@@ -156,6 +156,16 @@ class ReplayScanner(UUIDModel):
         blank=True,
         help_text="Watermark for the periodic full-events-lookback catch-up sweep; null until the first regular sweep initializes it.",
     )
+    sweep_read_bytes_by_hour = models.JSONField(
+        null=True,
+        blank=True,
+        help_text="ClickHouse read bytes per hour bucket (ISO hour -> bytes), maintained by the read-metering workflow; drives the sweep throttle.",
+    )
+    sweep_throttle_factor_override = models.PositiveSmallIntegerField(
+        null=True,
+        blank=True,
+        help_text="Manual cadence-stretch multiplier; overrides the computed read-budget throttle. 1 disables throttling; null means automatic.",
+    )
 
     # Shape: ScannerExperimentTargetingSerializer. Stored because the compiled `query` speaks flag
     # keys, so the experiment association isn't recoverable from it. Not version-tracked; scanning

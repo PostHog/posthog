@@ -5801,6 +5801,10 @@ export interface DatabaseSchemaQuery extends DataNode<DatabaseSchemaQueryRespons
     kind: NodeKind.DatabaseSchemaQuery
     /** Optional direct external data source id for schema introspection */
     connectionId?: string
+    /** Only serialize these tables (keys as returned in the response, e.g. `events` or `zendesk.groups`). Omit for all tables. */
+    tables?: string[]
+    /** When false, skip serializing each table's fields (`fields` comes back empty). Defaults to true. */
+    includeFields?: boolean
 }
 
 export type DatabaseSerializedFieldType =

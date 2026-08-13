@@ -73,6 +73,16 @@ fn validate_args(args: &TrafficArgs) -> Result<()> {
             args.probers
         );
     }
+    if args.property_keys_per_person < args.concurrency as u64 {
+        // Workers cannot share a key without racing the journal, so each
+        // holds at least one and a smaller budget would quietly deliver
+        // `concurrency` keys per person instead of what was asked for.
+        bail!(
+            "property_keys_per_person ({}) must be at least concurrency ({})",
+            args.property_keys_per_person,
+            args.concurrency
+        );
+    }
     if args.team_ids.is_empty() {
         bail!("team_ids must not be empty");
     }
@@ -273,7 +283,11 @@ pub async fn run(args: TrafficArgs) -> Result<()> {
                 let collector = collector.clone();
                 let state = state.clone();
                 let (duration, concurrency) = (args.epoch, args.concurrency);
-                let prefix = format!("traffic_e{epoch}_");
+                let plan = blast::PropertyPlan::new(
+                    format!("traffic_e{epoch}_"),
+                    args.property_keys_per_person,
+                    concurrency,
+                );
                 let stop = shutdown.clone();
                 tokio::spawn(async move {
                     blast::run_traffic(
@@ -283,7 +297,7 @@ pub async fn run(args: TrafficArgs) -> Result<()> {
                         duration,
                         concurrency,
                         Some(lane_rate),
-                        &prefix,
+                        &plan,
                         &collector,
                         &state,
                         stop,
@@ -804,6 +818,7 @@ async fn shutdown_signal() {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::cli::DEFAULT_KEYS_PER_PERSON;
 
     /// Needs the CI gate's etcd; run explicitly with `--ignored`.
     #[tokio::test]
@@ -854,6 +869,7 @@ mod tests {
             persons_db_url: "postgres://unused".to_string(),
             pg_target_table: "personhog_person_tmp".to_string(),
             pool_size: 200,
+            property_keys_per_person: DEFAULT_KEYS_PER_PERSON,
             epoch: Duration::from_secs(300),
             rate_min: 50.0,
             rate_max: 500.0,
@@ -910,6 +926,12 @@ mod tests {
             },
             TrafficArgs {
                 probers: 0,
+                ..valid.clone()
+            },
+            // Fewer keys than workers cannot be honoured: each worker
+            // needs its own, so the person would collect `concurrency`.
+            TrafficArgs {
+                property_keys_per_person: valid.concurrency as u64 - 1,
                 ..valid.clone()
             },
             TrafficArgs {

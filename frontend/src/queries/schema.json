@@ -19189,6 +19189,10 @@
                     "description": "Optional direct external data source id for schema introspection",
                     "type": "string"
                 },
+                "includeFields": {
+                    "description": "When false, skip serializing each table's fields (`fields` comes back empty). Defaults to true.",
+                    "type": "boolean"
+                },
                 "kind": {
                     "const": "DatabaseSchemaQuery",
                     "type": "string"
@@ -19199,6 +19203,13 @@
                 },
                 "response": {
                     "$ref": "#/definitions/DatabaseSchemaQueryResponse"
+                },
+                "tables": {
+                    "description": "Only serialize these tables (keys as returned in the response, e.g. `events` or `zendesk.groups`). Omit for all tables.",
+                    "items": {
+                        "type": "string"
+                    },
+                    "type": "array"
                 },
                 "tags": {
                     "$ref": "#/definitions/QueryLogTags"
