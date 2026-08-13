@@ -21,9 +21,6 @@ export interface LegalDocumentDTOApi {
     company_name: string
     representative_email: string
     status: string
-    /** True once the signed PDF is in object storage. A signed row can still have
-this False for a short window while the archive job runs, so the UI knows
-to hold the download link back until the file lands. */
     signed_pdf_stored: boolean
     created_by: LegalDocumentCreatorApi | null
     created_at: string
