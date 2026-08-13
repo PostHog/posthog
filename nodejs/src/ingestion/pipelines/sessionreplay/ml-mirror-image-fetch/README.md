@@ -204,6 +204,11 @@ seconds. A consumer that sleeps for 10 minutes is evicted, and its partition is 
 consumer that will sleep just as long. The retry server therefore sets the value itself, as the
 period of its topic plus one minute, rather than leaving it to the deployment.
 
+That figure holds only because a batch carries one record. A batch of several is held one record at
+a time, and a tier can hold records written hours apart, so each would wait its own period inside
+one batch. The server refuses to start with any other batch size, and refuses to start against any
+topic other than the three the publisher writes to.
+
 **A sleeping consumer must keep reporting itself healthy.** It calls
 `KafkaConsumer.reportDeliberateWait()`, which moves the loop clock as well as the heartbeat clock.
 That is separate from `heartbeat()` on purpose: two lanes drive `heartbeat()` from a timer, and a

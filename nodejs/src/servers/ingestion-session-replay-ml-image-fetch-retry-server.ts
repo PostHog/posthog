@@ -1,5 +1,10 @@
 import { initializePrometheusLabels } from '~/common/api/router'
-import { KAFKA_SESSION_REPLAY_IMAGE_FETCH } from '~/common/config/kafka-topics'
+import {
+    KAFKA_SESSION_REPLAY_IMAGE_FETCH,
+    KAFKA_SESSION_REPLAY_IMAGE_FETCH_RETRY_1H,
+    KAFKA_SESSION_REPLAY_IMAGE_FETCH_RETRY_1M,
+    KAFKA_SESSION_REPLAY_IMAGE_FETCH_RETRY_10M,
+} from '~/common/config/kafka-topics'
 import { KafkaConsumer, KafkaConsumerConfig } from '~/common/kafka/consumer/consumer-v1'
 import { KafkaProducerRegistry } from '~/common/outputs/kafka-producer-registry'
 import { logger } from '~/common/utils/logger'
@@ -33,6 +38,13 @@ const MAX_POLL_INTERVAL_MS = 86_400_000
  * trigger assumes more consumers drain a topic faster, which is false here, because these records
  * are waiting on purpose.
  */
+/** The topics the publisher writes to. A pod drains one of these and nothing else. */
+const DELAY_TOPICS = [
+    KAFKA_SESSION_REPLAY_IMAGE_FETCH_RETRY_1M,
+    KAFKA_SESSION_REPLAY_IMAGE_FETCH_RETRY_10M,
+    KAFKA_SESSION_REPLAY_IMAGE_FETCH_RETRY_1H,
+]
+
 export class IngestionSessionReplayMlImageFetchRetryServer implements NodeServer {
     readonly lifecycle: ServerLifecycle
     private config: IngestionSessionReplayMlMirrorServerConfig
@@ -59,8 +71,24 @@ export class IngestionSessionReplayMlImageFetchRetryServer implements NodeServer
 
         const topic = this.config.SESSION_RECORDING_ML_IMAGE_FETCH_RETRY_TOPIC
         const delayMs = this.config.SESSION_RECORDING_ML_IMAGE_FETCH_RETRY_DELAY_MS
-        if (!topic) {
-            throw new Error('SESSION_RECORDING_ML_IMAGE_FETCH_RETRY_TOPIC must name the delay topic this pod drains')
+        const batchSize = this.config.SESSION_RECORDING_ML_IMAGE_FETCH_RETRY_BATCH_SIZE
+        // A typo here reads as an empty topic name, and librdkafka would subscribe to it and sit
+        // idle while the tier filled. Naming the three the publisher writes to also stops a pod
+        // draining the frontier itself, which has no period and would publish every record straight
+        // back to it.
+        if (!DELAY_TOPICS.includes(topic)) {
+            throw new Error(
+                `SESSION_RECORDING_ML_IMAGE_FETCH_RETRY_TOPIC must name one of ${DELAY_TOPICS.join(', ')}, got "${topic}"`
+            )
+        }
+        // The whole batch is held one record at a time, so the poll interval below has to cover
+        // every record in it. A tier can hold records written hours apart, and each of those waits
+        // its own period. The deployment sets this to 1 and there is no reason to raise it: the work
+        // is one publish, and a record whose wait is spent waits for nothing.
+        if (batchSize !== 1) {
+            throw new Error(
+                `SESSION_RECORDING_ML_IMAGE_FETCH_RETRY_BATCH_SIZE must be 1, because one batch is held record by record, got ${batchSize}`
+            )
         }
 
         this.producerRegistry = await createProducerRegistry(this.config.KAFKA_CLIENT_RACK).build(this.config)
@@ -73,7 +101,7 @@ export class IngestionSessionReplayMlImageFetchRetryServer implements NodeServer
             // Stored per record by the consumer rather than for the whole batch, so a record it
             // abandoned mid-wait is read again instead of being committed and lost. Requirement 21.
             autoOffsetStore: false,
-            fetchBatchSize: this.config.SESSION_RECORDING_ML_IMAGE_FETCH_RETRY_BATCH_SIZE,
+            fetchBatchSize: batchSize,
         }
         // Set here rather than left to the deployment. This consumer sleeps for the period of its
         // topic inside one batch, and the shared default of 300s would evict the 10m and 1h tiers
