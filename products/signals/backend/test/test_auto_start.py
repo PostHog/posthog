@@ -28,6 +28,7 @@ from products.signals.backend.auto_start import (
     maybe_autostart_implementation_task,
     start_implementation_pr_from_slack,
 )
+from products.signals.backend.facade import api as signals_facade
 from products.signals.backend.models import (
     SignalReport,
     SignalReportArtefact,
@@ -775,7 +776,8 @@ def test_start_implementation_pr_from_slack(organization, team, repo_selection, 
         return SimpleNamespace(task_id=task.id, team_id=team.id, latest_run=SimpleNamespace(id=run.id))
 
     with patch.object(tasks_facade, "create_and_run_task", side_effect=_fake_create_and_run_task) as mock_create:
-        result = start_implementation_pr_from_slack(team_id=team.id, report_id=str(report.id), user_id=user.id)
+        # Through the facade, which is how the Slack app reaches this.
+        result = signals_facade.start_report_pr_from_slack(team.id, str(report.id), user_id=user.id)
 
     assert result.outcome == expected_outcome
     assert mock_create.call_count == (1 if expected_outcome == "started" else 0)
@@ -832,3 +834,81 @@ def test_start_implementation_pr_from_slack_refuses_ineligible_clicks(organizati
 
     assert result.outcome == expected_outcome
     mock_create.assert_not_called()
+
+
+@pytest.mark.django_db
+def test_create_implementation_task_refuses_a_report_closed_under_the_lock(organization, team):
+    # `require_open_report` closes the window between a caller's own status check and this lock: a
+    # dismiss committing in that gap would otherwise get a PR opened against a closed report, after
+    # the receiver that closes PRs on dismissal has already run. Auto-start passes the flag off, and
+    # this pins that difference so the guard can't quietly start applying to it.
+    Task = apps.get_model("tasks", "Task")
+    TaskRun = apps.get_model("tasks", "TaskRun")
+    user = _create_org_member_with_github("locker@example.com", organization, "Locker")
+    report = SignalReport.objects.create(
+        team=team, status=SignalReport.Status.SUPPRESSED, title="t", summary="s", signal_count=0, total_weight=0.0
+    )
+
+    def _fake_create_and_run_task(**kwargs):
+        task = Task.objects.create(
+            team=team,
+            title=kwargs["title"],
+            description=kwargs["description"],
+            created_by=user,
+            origin_product=Task.OriginProduct.SIGNAL_REPORT,
+        )
+        run = TaskRun.objects.create(task=task, team=team)
+        return SimpleNamespace(task_id=task.id, team_id=team.id, latest_run=SimpleNamespace(id=run.id))
+
+    kwargs = {
+        "team_id": team.id,
+        "report_id": str(report.id),
+        "title": "t",
+        "description": "d",
+        "user_id": user.id,
+        "repository": "owner/repo",
+        "base_branch": None,
+    }
+    with patch.object(tasks_facade, "create_and_run_task", side_effect=_fake_create_and_run_task) as mock_create:
+        refused = _create_implementation_task_if_absent(**kwargs, require_open_report=True)
+        assert refused is None
+        assert mock_create.call_count == 0
+
+        assert _create_implementation_task_if_absent(**kwargs) is not None
+        assert mock_create.call_count == 1
+
+
+@pytest.mark.django_db
+def test_start_implementation_pr_from_slack_refuses_when_task_creation_is_rejected(organization, team):
+    # Task creation raises ValueError when the repository has no usable GitHub integration left. The
+    # click has to answer with a refusal; letting it escape returns a 500 to the Slack webhook, which
+    # tells the person nothing and leaves them re-clicking a button that fails the same way.
+    user = _create_org_member_with_github("clicker@example.com", organization, "Clicker")
+    report = SignalReport.objects.create(
+        team=team, status=SignalReport.Status.READY, title="Stale pricing", summary="s"
+    )
+    SignalReportArtefact.objects.create(
+        team=team,
+        report=report,
+        type=SignalReportArtefact.ArtefactType.ACTIONABILITY_JUDGMENT,
+        content=ActionabilityAssessment(
+            explanation="One clear fix.",
+            actionability=ActionabilityChoice.IMMEDIATELY_ACTIONABLE,
+            already_addressed=False,
+        ).model_dump_json(),
+    )
+    SignalReportArtefact.objects.create(
+        team=team,
+        report=report,
+        type=SignalReportArtefact.ArtefactType.REPO_SELECTION,
+        content=json.dumps({"repository": "owner/repo", "reason": "owns the code"}),
+    )
+
+    with patch.object(
+        tasks_facade,
+        "create_and_run_task",
+        side_effect=ValueError(f"Team {team.id} does not have a GitHub integration"),
+    ):
+        result = start_implementation_pr_from_slack(team_id=team.id, report_id=str(report.id), user_id=user.id)
+
+    assert result.outcome == "failed"
