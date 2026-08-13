@@ -1542,9 +1542,6 @@ export interface eventUsageLogicActions {
         integration: string
         kind: string
     }
-    reportPersonalIntegrationConnectClicked: (kind: string) => {
-        kind: string
-    }
     reportInviteMembersButtonClicked: () => {
         value: true
     }
@@ -1704,6 +1701,9 @@ export interface eventUsageLogicActions {
     }
     reportPersonSplit: (merge_count: number) => {
         merge_count: number
+    }
+    reportPersonalIntegrationConnectClicked: (kind: string) => {
+        kind: string
     }
     reportPersonsJoinModeUpdated: (mode: string) => {
         mode: string
