@@ -20,7 +20,7 @@ function message(writtenAtMs: number, overrides: Partial<Message> = {}): Message
     }
 }
 
-function build(overrides: { isStopping?: () => boolean; produce?: () => Promise<void> } = {}): {
+function build(overrides: { isStopping?: () => boolean; produce?: () => Promise<void>; delayMs?: number } = {}): {
     consumer: RetryDelayConsumer
     published: string[]
     stored: number[]
@@ -37,7 +37,7 @@ function build(overrides: { isStopping?: () => boolean; produce?: () => Promise<
     } as unknown as KafkaProducerWrapper
     const consumer = new RetryDelayConsumer(producer, {
         frontierTopic: FRONTIER,
-        delayMs: DELAY_MS,
+        delayMs: overrides.delayMs ?? DELAY_MS,
         heartbeat: () => beats++,
         heartbeatIntervalMs: 1,
         storeOffset: (m) => stored.push(m.offset),
@@ -65,6 +65,18 @@ describe('RetryDelayConsumer', () => {
 
         expect(published).toEqual([FRONTIER])
         expect(beats()).toBeGreaterThan(0)
+    })
+
+    it('waits no longer than the period of its topic, whatever the record timestamp says', async () => {
+        // The timestamp comes from whichever pod wrote the record. A clock ahead of this one would
+        // otherwise hold the record for longer than the tier it is in.
+        const { consumer, published } = build({ delayMs: 50 })
+
+        const startedAt = Date.now()
+        await consumer.handleBatch([message(Date.now() + 60 * 60 * 1000, { offset: 1 })])
+
+        expect(published).toEqual([FRONTIER])
+        expect(Date.now() - startedAt).toBeLessThan(DELAY_MS)
     })
 
     it('abandons a record when the pod is shutting down before the wait starts', async () => {

@@ -88,7 +88,10 @@ export class RetryDelayConsumer {
      */
     private remainingWaitMs(message: Message): number {
         const writtenAtMs = message.timestamp !== undefined && message.timestamp > 0 ? message.timestamp : Date.now()
-        return writtenAtMs + this.options.delayMs - Date.now()
+        // Clamped to the period, because the timestamp comes from whichever pod wrote the record.
+        // A clock ahead of this one would otherwise hold the record for longer than its tier, and
+        // the tier period is the whole reason a record can be held here at all.
+        return Math.min(this.options.delayMs, writtenAtMs + this.options.delayMs - Date.now())
     }
 
     /** False when the pod started shutting down during the wait, so the caller abandons the record. */
