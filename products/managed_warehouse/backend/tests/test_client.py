@@ -9,6 +9,7 @@ from posthog.schema import HogQLQuery, HogQLVariable
 
 from products.managed_warehouse.backend.client import (
     _SEARCH_PATH_SCHEMAS,
+    _configure_self_managed_s3_secrets,
     compile_hogql_to_ducklake_sql,
     execute_ducklake_query,
 )
@@ -147,6 +148,89 @@ class TestDuckLakeModelRedirect:
         assert "s3(" not in postgres_sql.lower()
         assert duckgres_data_imports_schema(team.pk) in postgres_sql
         assert duckgres_data_imports_table_name(schema) in postgres_sql
+
+    def test_self_managed_parquet_resolves_to_native_reader(self) -> None:
+        from posthog.models import Organization, Team
+
+        from products.warehouse_sources.backend.facade.models import DataWarehouseCredential, DataWarehouseTable
+
+        org = Organization.objects.create(name="ducklake-self-managed")
+        team = Team.objects.create(organization=org)
+        credential = DataWarehouseCredential.objects.create(
+            team=team,
+            access_key="access-key",
+            access_secret="access-secret",
+        )
+        DataWarehouseTable.objects.create(
+            name="self_managed_orders",
+            format="Parquet",
+            team=team,
+            credential=credential,
+            url_pattern="https://my-bucket.s3.amazonaws.com/data/*.parquet",
+            columns={
+                "id": {"hogql": "IntegerDatabaseField", "clickhouse": "Int64", "schema_valid": True},
+            },
+        )
+
+        postgres_sql, values, _hogql = compile_hogql_to_ducklake_sql(
+            team.pk,
+            HogQLQuery(query="SELECT id FROM self_managed_orders"),
+        )
+
+        assert "s3(" not in postgres_sql.lower()
+        assert "read_parquet(" in postgres_sql.lower()
+        assert "s3://my-bucket/data/*.parquet" in values.values()
+        assert "access-key" not in postgres_sql
+        assert "access-secret" not in postgres_sql
+        assert "access-key" not in values.values()
+        assert "access-secret" not in values.values()
+
+
+class TestSelfManagedS3Secrets:
+    def test_credentials_are_bound_to_a_path_scoped_secret(self) -> None:
+        from posthog.models import Organization, Team
+
+        from products.warehouse_sources.backend.facade.models import DataWarehouseCredential, DataWarehouseTable
+
+        org = Organization.objects.create(name="ducklake-self-managed-secret")
+        team = Team.objects.create(organization=org)
+        credential = DataWarehouseCredential.objects.create(
+            team=team,
+            access_key="access-key",
+            access_secret="access-secret",
+        )
+        table = DataWarehouseTable.objects.create(
+            name="self_managed_orders",
+            format="Parquet",
+            team=team,
+            credential=credential,
+            url_pattern="http://objectstorage:19000/my-bucket/data/*.parquet",
+            columns={"id": "Int64"},
+        )
+        cursor = mock.MagicMock()
+        connection = mock.MagicMock()
+        connection.cursor.return_value.__enter__ = mock.Mock(return_value=cursor)
+        connection.cursor.return_value.__exit__ = mock.Mock(return_value=False)
+
+        _configure_self_managed_s3_secrets(connection, team.pk)
+
+        statement, values = cursor.execute.call_args.args
+        rendered_statement = statement.as_string()
+        assert rendered_statement.startswith(f'CREATE OR REPLACE TEMPORARY SECRET "self_managed_{table.id.hex}"')
+        assert "KEY_ID %s" in rendered_statement
+        assert "SECRET %s" in rendered_statement
+        assert "SCOPE %s" in rendered_statement
+        assert "access-key" not in rendered_statement
+        assert "access-secret" not in rendered_statement
+        assert values == [
+            "access-key",
+            "access-secret",
+            "us-east-1",
+            "objectstorage:19000",
+            False,
+            "path",
+            "s3://my-bucket/data/",
+        ]
 
 
 class TestDuckgresShadowCompilation:
