@@ -12756,6 +12756,10 @@ export type ExternalDataSchemasLogsRetrieveParams = {
     search?: string
 }
 
+export type ExternalDataSchemasReloadCreate400 = {
+    message?: string
+}
+
 export type ExternalDataSourcesListParams = {
     /**
      * Number of results to return per page.
