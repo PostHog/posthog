@@ -454,7 +454,11 @@ def _check_key(select: ast.SelectQuery, config: IncrementalConfig, blockers: lis
 
 def _check_unique_key(select: ast.SelectQuery, config: IncrementalConfig, blockers: list[str]) -> None:
     outputs = _output_names(select)
-    missing = [column for column in config.unique_key if column not in outputs]
+    # An unexpanded star (no database to resolve against) passes every source column through, so a
+    # name that is not spelled out can still be in the output. The runtime upsert fails loudly if
+    # it genuinely is not.
+    has_star = any(isinstance(item, ast.Field) and item.chain and str(item.chain[-1]) == "*" for item in select.select)
+    missing = [column for column in config.unique_key if column not in outputs and not has_star]
     if missing:
         blockers.append(
             f"Unique key {'columns' if len(missing) > 1 else 'column'} "

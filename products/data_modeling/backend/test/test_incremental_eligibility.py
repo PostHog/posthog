@@ -392,13 +392,14 @@ class TestStarExpansion:
 
         assert result.eligible, result.blockers
 
-    def test_without_a_database_a_config_on_a_star_query_still_blocks(self) -> None:
+    def test_without_a_database_a_config_on_a_star_query_passes_the_key_check(self) -> None:
+        # The star passes the key through, and the window filter resolves it by name the same way
+        # at run time - so blocking here would reject a config the runtime can actually serve.
         result = check_incremental_eligibility(
             "SELECT * FROM events", IncrementalConfig(incremental_key="timestamp", unique_key=("uuid",))
         )
 
-        assert not result.eligible
-        assert any("not one of this query's output columns" in blocker for blocker in result.blockers)
+        assert result.eligible, result.blockers
 
     def test_grouping_columns_survive_resolution_for_the_coverage_check(self) -> None:
         # The resolver rewrites `GROUP BY event` into an Alias node; if that form is not
