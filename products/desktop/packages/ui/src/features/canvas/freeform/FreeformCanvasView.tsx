@@ -38,6 +38,10 @@ import {
   EmptyHeader,
   EmptyMedia,
   EmptyTitle,
+  Tooltip as QuillTooltip,
+  TooltipContent,
+  TooltipProvider,
+  TooltipTrigger,
 } from "@posthog/quill";
 import { CANVAS_COMPONENT_PATH } from "@posthog/shared";
 import { ANALYTICS_EVENTS } from "@posthog/shared/analytics-events";
@@ -81,7 +85,7 @@ import {
   Text,
   Tooltip,
 } from "@radix-ui/themes";
-import { useQuery, useQueryClient } from "@tanstack/react-query";
+import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { Link } from "@tanstack/react-router";
 import { AnimatePresence, motion } from "framer-motion";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
@@ -558,18 +562,37 @@ export function FreeformCanvasView({
     }),
     [channelId, dashboardId, pinnedArtifact?.buildId],
   );
+  const { mutate: reportRuntimeError } = useMutation(
+    trpc.dashboards.reportError.mutationOptions(),
+  );
   const onError = useCallback(
     (message: string) => {
       if (message !== lastRuntimeErrorRef.current) {
         lastRuntimeErrorRef.current = message;
+        const errorType = canvasErrorType(message);
         track(ANALYTICS_EVENTS.CANVAS_RUNTIME_ERROR, {
           ...canvasTrackProps,
-          error_type: canvasErrorType(message),
+          error_type: errorType,
         });
+        // File the error in the authoring task's thread so its agent hears
+        // about it — the class name only; the full message stays client-side.
+        if (canvasTrackProps.build_id) {
+          reportRuntimeError({
+            id: dashboardId,
+            buildId: canvasTrackProps.build_id,
+            errorType,
+          });
+        }
       }
       setRuntimeError(threadId, message);
     },
-    [threadId, setRuntimeError, canvasTrackProps],
+    [
+      threadId,
+      setRuntimeError,
+      canvasTrackProps,
+      dashboardId,
+      reportRuntimeError,
+    ],
   );
   const onRendered = useCallback(() => {
     // "rendered" is as good as "ready" as proof the pinned artifact URL loaded.
@@ -811,10 +834,23 @@ export function FreeformCanvasView({
                 ) : (
                   runtimeError && (
                     <>
-                      <Flex align="center" gap="1" className="text-red-11">
-                        <WarningIcon size={14} />
-                        <Text size="1">Runtime error</Text>
-                      </Flex>
+                      <TooltipProvider delay={0}>
+                        <QuillTooltip>
+                          <TooltipTrigger
+                            render={
+                              <div className="flex items-center gap-1 text-red-11">
+                                <WarningIcon size={14} />
+                                <Text size="1">Runtime error</Text>
+                              </div>
+                            }
+                          />
+                          <TooltipContent>
+                            <span className="block max-w-sm whitespace-pre-wrap break-words">
+                              {runtimeError}
+                            </span>
+                          </TooltipContent>
+                        </QuillTooltip>
+                      </TooltipProvider>
                       <Button
                         size="sm"
                         variant="outline"
