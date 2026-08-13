@@ -67,6 +67,8 @@ import type {
     ProjectSecretAPIKeyApi,
     ProjectSecretApiKeysListParams,
     PropertyDefinitionsListParams,
+    PropertyUsageMetricsRequestApi,
+    PropertyUsageMetricsResponseApi,
     RevokeOtherSessionsResponseApi,
     SCIMTokenResponseApi,
     SharingConfigurationApi,
@@ -2215,6 +2217,27 @@ export const propertyDefinitionsSeenTogetherRetrieve = async (
     return apiMutator<void>(getPropertyDefinitionsSeenTogetherRetrieveUrl(projectId), {
         ...options,
         method: 'GET',
+    })
+}
+
+export const getPropertyDefinitionsUsageMetricsCreateUrl = (projectId: string) => {
+    return `/api/projects/${projectId}/property_definitions/usage_metrics/`
+}
+
+/**
+ * Returns how many query executions referenced each property in the last 30 days, including cached insight views. Batched: send up to 100 properties at once. Counts are cached for 24 hours.
+ * @summary 30-day query usage for a set of properties
+ */
+export const propertyDefinitionsUsageMetricsCreate = async (
+    projectId: string,
+    propertyUsageMetricsRequestApi: PropertyUsageMetricsRequestApi,
+    options?: RequestInit
+): Promise<PropertyUsageMetricsResponseApi> => {
+    return apiMutator<PropertyUsageMetricsResponseApi>(getPropertyDefinitionsUsageMetricsCreateUrl(projectId), {
+        ...options,
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', ...options?.headers },
+        body: JSON.stringify(propertyUsageMetricsRequestApi),
     })
 }
 

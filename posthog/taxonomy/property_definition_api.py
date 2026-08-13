@@ -31,7 +31,7 @@ from posthog.event_usage import report_user_action
 from posthog.filters import TermSearchFilterBackend, term_search_filter_sql
 from posthog.helpers.impersonation import is_impersonated
 from posthog.hogql_queries.utils.event_usage import PROPERTY_USAGE_APP_SOURCE, property_usage_instance_id
-from posthog.models import EventProperty, PropertyDefinition, User
+from posthog.models import EventProperty, PropertyDefinition, Team, User
 from posthog.models.activity_logging.activity_log import Detail, log_activity
 from posthog.models.utils import UUIDT
 from posthog.settings import EE_AVAILABLE
@@ -114,6 +114,36 @@ def _usage_metrics_cache_key(team_id: int, key: _PropertyUsageKey) -> str:
     # Property names can contain characters that are invalid in cache keys; hash them.
     digest = hashlib.sha256(f"{key.type}:{key.name}".encode()).hexdigest()[:32]
     return f"property_definition:usage_30d:{team_id}:{digest}"
+
+
+def _fetch_property_usage(team: Team, keys: list[_PropertyUsageKey]) -> dict[_PropertyUsageKey, int]:
+    tag_queries(product=Product.PRODUCT_ANALYTICS, feature=Feature.PROPERTY_DEFINITION_SCENE)
+    instance_ids = {property_usage_instance_id(key.type, key.name): key for key in keys}
+    rows = sync_execute(
+        """
+        SELECT instance_id, sum(count)
+        FROM app_metrics2
+        WHERE team_id = %(team_id)s
+          AND app_source = %(app_source)s
+          AND metric_name = %(metric_name)s
+          AND timestamp >= toDateTime64(%(after)s, 6)
+          AND instance_id IN %(instance_ids)s
+        GROUP BY instance_id
+        """,
+        {
+            "team_id": team.pk,
+            "app_source": PROPERTY_USAGE_APP_SOURCE,
+            "metric_name": "viewed",
+            "after": relative_date_parse("30d", team.timezone_info).strftime("%Y-%m-%dT%H:%M:%S"),
+            "instance_ids": list(instance_ids),
+        },
+    )
+    counts = dict.fromkeys(keys, 0)
+    for instance_id, total in rows or []:
+        key = instance_ids.get(instance_id)
+        if key is not None:
+            counts[key] = int(total)
+    return counts
 
 
 class PropertyUsageEntrySerializer(serializers.Serializer):
@@ -1097,7 +1127,7 @@ class PropertyDefinitionViewSet(
                 missing.append(key)
 
         if missing:
-            counts.update(self._fetch_property_usage(missing))
+            counts.update(_fetch_property_usage(self.team, missing))
             cache.set_many(
                 {cache_keys[key]: counts[key] for key in missing},
                 timeout=USAGE_METRICS_CACHE_TTL_SECONDS,
@@ -1105,35 +1135,6 @@ class PropertyDefinitionViewSet(
 
         results = [{"type": key.type, "name": key.name, "query_usage_30_day": counts.get(key, 0)} for key in keys]
         return response.Response({"results": results})
-
-    def _fetch_property_usage(self, keys: list[_PropertyUsageKey]) -> dict[_PropertyUsageKey, int]:
-        tag_queries(product=Product.PRODUCT_ANALYTICS, feature=Feature.PROPERTY_DEFINITION_SCENE)
-        instance_ids = {property_usage_instance_id(key.type, key.name): key for key in keys}
-        rows = sync_execute(
-            """
-            SELECT instance_id, sum(count)
-            FROM app_metrics2
-            WHERE team_id = %(team_id)s
-              AND app_source = %(app_source)s
-              AND metric_name = %(metric_name)s
-              AND timestamp >= toDateTime64(%(after)s, 6)
-              AND instance_id IN %(instance_ids)s
-            GROUP BY instance_id
-            """,
-            {
-                "team_id": self.team_id,
-                "app_source": PROPERTY_USAGE_APP_SOURCE,
-                "metric_name": "viewed",
-                "after": relative_date_parse("30d", self.team.timezone_info).strftime("%Y-%m-%dT%H:%M:%S"),
-                "instance_ids": list(instance_ids),
-            },
-        )
-        counts = dict.fromkeys(keys, 0)
-        for instance_id, total in rows or []:
-            key = instance_ids.get(instance_id)
-            if key is not None:
-                counts[key] = int(total)
-        return counts
 
     def destroy(self, request: request.Request, *args: Any, **kwargs: Any) -> response.Response:
         instance: PropertyDefinition = self.get_object()
