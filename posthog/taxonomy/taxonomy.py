@@ -275,12 +275,6 @@ CORE_FILTER_DEFINITIONS_BY_GROUP: dict[str, dict[str, CoreFilterDefinition]] = {
             "examples": ["Unauthorized inline script", "Trying to load resources from unauthorized domain"],
             "primary_property": "$csp_violated_directive",
         },
-        "$browser_crash_report": {
-            "label": "Browser crash report",
-            "description": "A report from the browser that a page crashed. Chrome delivers these through the Reporting API, usually on a later visit to the site.",
-            "examples": ["Tab ran out of memory", "Page was killed for being unresponsive"],
-            "primary_property": "$browser_crash_reason",
-        },
         "Application opened": {
             "label": "Application opened",
             "description": "When a user opens the mobile app either for the first time or from the foreground.",
@@ -3088,43 +3082,6 @@ CORE_FILTER_DEFINITIONS_BY_GROUP: dict[str, dict[str, CoreFilterDefinition]] = {
             "label": "CSP Policy version",
             "description": "The version of the CSP policy. Must be provided in the report URL.",
             "examples": ["1.0"],
-        },
-        "$browser_crash_reason": {
-            "label": "Crash reason",
-            "description": "Why the browser says the page crashed. 'oom' means the page ran out of memory, 'unresponsive' means it was killed for hanging, 'unknown' means the browser gave no reason.",
-            "examples": ["oom", "unresponsive", "unknown"],
-        },
-        "$browser_crash_id": {
-            "label": "Crash ID",
-            "description": "Identifier the browser assigned to the crash, when available.",
-        },
-        "$browser_crash_is_top_level": {
-            "label": "Crash in top-level frame",
-            "description": "Whether the crashed page was a top-level document rather than an embedded frame.",
-            "type": "Boolean",
-        },
-        "$browser_crash_visibility_state": {
-            "label": "Crash visibility state",
-            "description": "Whether the page was visible or hidden when it crashed.",
-            "examples": ["visible", "hidden"],
-        },
-        "$browser_crash_age_ms": {
-            "label": "Crash report age",
-            "description": "Milliseconds between the crash and the browser delivering the report. The event timestamp is already adjusted by this value.",
-            "type": "Numeric",
-        },
-        "$browser_crash_document_url": {
-            "label": "Crashed page URL",
-            "description": "URL of the page that crashed.",
-            "examples": ["https://example.com/dashboard"],
-        },
-        "$browser_crash_user_agent": {
-            "label": "Crash user agent",
-            "description": "User agent of the browser that reported the crash.",
-        },
-        "$browser_crash_raw_report": {
-            "label": "Raw crash report",
-            "description": "The raw crash report as received from the browser.",
         },
         "$virt_is_bot": {
             "label": "Is bot",
