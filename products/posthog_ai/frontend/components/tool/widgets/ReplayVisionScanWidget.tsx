@@ -29,7 +29,7 @@ const SKIP_MESSAGES: Record<string, string> = {
 }
 
 export function ReplayVisionScanWidget({ scanId, sessionIds, skipped }: ReplayVisionScanWidgetProps): JSX.Element {
-    const { latestPerSession, pendingCount } = useValues(replayVisionScanWidgetLogic({ scanId, sessionIds }))
+    const { gaveUp, latestPerSession, pendingCount } = useValues(replayVisionScanWidgetLogic({ scanId, sessionIds }))
     const skippedByReason = Object.entries(
         skipped.reduce<Record<string, number>>((counts, entry) => {
             counts[entry.reason] = (counts[entry.reason] ?? 0) + 1
@@ -41,9 +41,13 @@ export function ReplayVisionScanWidget({ scanId, sessionIds, skipped }: ReplayVi
         <div className="overflow-hidden rounded border bg-surface-primary">
             <div className="flex items-center justify-between gap-2 border-b px-3 py-2">
                 <span className="text-sm font-semibold">
-                    {pendingCount > 0 ? `Watching ${pendingCount} of ${sessionIds.length} recordings` : 'Scan complete'}
+                    {pendingCount === 0
+                        ? 'Scan complete'
+                        : gaveUp
+                          ? `${pendingCount} recording${pendingCount === 1 ? '' : 's'} still running`
+                          : `Watching ${pendingCount} of ${sessionIds.length} recordings`}
                 </span>
-                {pendingCount > 0 && <Spinner />}
+                {pendingCount > 0 && !gaveUp && <Spinner />}
             </div>
 
             {skippedByReason.length > 0 && (
@@ -61,7 +65,13 @@ export function ReplayVisionScanWidget({ scanId, sessionIds, skipped }: ReplayVi
                 {latestPerSession.map((observation) => (
                     <ObservationRow key={observation.id} observation={observation} />
                 ))}
-                {latestPerSession.length === 0 && pendingCount > 0 && (
+                {pendingCount > 0 && gaveUp && (
+                    <p className="m-0 px-3 py-3 text-sm text-secondary">
+                        These are taking longer than usual. Their results will appear on the recordings when they
+                        finish.
+                    </p>
+                )}
+                {latestPerSession.length === 0 && pendingCount > 0 && !gaveUp && (
                     <p className="m-0 px-3 py-3 text-sm text-secondary">Starting the scans...</p>
                 )}
             </div>

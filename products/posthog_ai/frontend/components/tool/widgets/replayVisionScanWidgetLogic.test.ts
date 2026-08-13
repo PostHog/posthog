@@ -82,6 +82,25 @@ describe('replayVisionScanWidgetLogic', () => {
         await expectLogic(logic).toFinishAllListeners().toMatchValues({ pendingCount: 1 })
     })
 
+    it('says so when it stops before every recording settled', async () => {
+        // Polling stops after repeated failures. Without a visible give-up the widget keeps a spinner
+        // on a recording it is no longer waiting for.
+        useMocks({
+            get: {
+                '/api/projects/:team_id/vision/scanners/:scanner_id/observations/': () => [500, {}],
+            },
+        })
+        logic = replayVisionScanWidgetLogic({ scanId: SCAN_ID, sessionIds: ['a'] })
+        logic.mount()
+
+        for (let attempt = 0; attempt < 5; attempt++) {
+            logic.actions.loadObservations()
+            await expectLogic(logic).toFinishAllListeners()
+        }
+
+        await expectLogic(logic).toMatchValues({ gaveUp: true, pendingCount: 1 })
+    })
+
     it("asks the server for only this scan's sessions", async () => {
         // The scanner is shared across everyone asking the same question. Filtering client-side after a
         // page limit can return a page holding none of these sessions, so the filter has to be server-side.
