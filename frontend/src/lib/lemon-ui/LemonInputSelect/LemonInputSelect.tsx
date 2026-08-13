@@ -397,6 +397,14 @@ export function LemonInputSelect<T = string>({
         }
     }, [showPopover])
 
+    // Close the popover when the control becomes disabled mid-interaction (e.g. a save kicked off
+    // by selecting an option) — an open popover's options would otherwise stay clickable.
+    useEffect(() => {
+        if (disabled) {
+            setShowPopover(false)
+        }
+    }, [disabled])
+
     const setInputValue = (newValue: string): void => {
         if (newValue) {
             setFrozenOptions(null)

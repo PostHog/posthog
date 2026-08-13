@@ -121,22 +121,27 @@ class TestSlackIntegration:
         assert channels[3]["name"] == "d_private_channel"
 
     @patch("posthog.models.integration.WebClient")
-    def test_list_users_excludes_bots_deleted_and_guests(self, mock_webclient_class):
+    def test_list_users_excludes_ineligible_members(self, mock_webclient_class):
         mock_client = MagicMock()
         mock_webclient_class.return_value = mock_client
 
         mock_client.users_list.return_value = {
             "members": [
-                {"id": "U1", "name": "member"},
+                {"id": "U1", "name": "member", "team_id": "T_HOME"},
                 {"id": "U2", "name": "deleted", "deleted": True},
                 {"id": "U3", "name": "bot", "is_bot": True},
                 {"id": "USLACKBOT", "name": "slackbot"},
                 # Guests are often external people; scout output must not be DM-able to them.
                 {"id": "U4", "name": "guest", "is_restricted": True},
                 {"id": "U5", "name": "single-channel-guest", "is_ultra_restricted": True},
+                # Members outside the connected workspace would be saveable in the picker but
+                # rejected by the delivery-time get_user_by_id recheck, so filter them here too.
+                {"id": "U6", "name": "connect-external", "team_id": "T_OTHER"},
+                {"id": "U7", "name": "stranger", "team_id": "T_HOME", "is_stranger": True},
             ],
             "response_metadata": {"next_cursor": ""},
         }
+        self.integration.integration_id = "T_HOME"
 
         slack = SlackIntegration(self.integration)
 
@@ -167,6 +172,19 @@ class TestSlackIntegration:
 
         result = slack.get_user_by_id(member["id"])
         assert (result is not None) is expected_found
+
+    # user_not_visible must resolve to "no such recipient" like user_not_found — raising instead
+    # would make scout delivery retry a lookup that can never succeed.
+    @parameterized.expand([("user_not_found",), ("user_not_visible",)])
+    @patch("posthog.models.integration.WebClient")
+    def test_get_user_by_id_terminal_lookup_errors_return_none(self, error_code, mock_webclient_class):
+        mock_client = MagicMock()
+        mock_webclient_class.return_value = mock_client
+        mock_client.users_info.side_effect = SlackApiError("lookup failed", {"error": error_code})
+
+        slack = SlackIntegration(self.integration)
+
+        assert slack.get_user_by_id("U123") is None
 
     @patch("posthog.models.integration.WebClient")
     def test_list_channels_without_access(self, mock_webclient_class):

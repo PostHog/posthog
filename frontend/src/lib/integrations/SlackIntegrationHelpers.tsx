@@ -166,6 +166,9 @@ export function SlackUserPicker({
     // Gates the empty-val recovery reload, mirroring SlackChannelPicker: LemonInputSelect clears its
     // input on blur/select, which must not re-trigger a full search round-trip every focus cycle.
     const hasActiveSearchRef = useRef(false)
+    // The refresh action must keep the active query: LemonInputSelect filters options by the
+    // visible text, so an unfiltered reload under it would hide a searched-for member.
+    const activeSearchRef = useRef('')
     // One direct lookup per unresolved saved id, ever — resolution merges into slackUsers, and an
     // id Slack doesn't know must not be re-probed on every render.
     const requestedIdsRef = useRef(new Set<string>())
@@ -234,9 +237,11 @@ export function SlackUserPicker({
                     if (val) {
                         loadAllSlackUsers(false, val)
                         hasActiveSearchRef.current = true
+                        activeSearchRef.current = val
                     } else if (hasActiveSearchRef.current) {
                         loadAllSlackUsers()
                         hasActiveSearchRef.current = false
+                        activeSearchRef.current = ''
                     }
                 }}
                 value={selectedValues}
@@ -247,7 +252,7 @@ export function SlackUserPicker({
                 placeholder={atLimit ? undefined : 'Select people...'}
                 action={{
                     children: <span className="Link">Refresh members</span>,
-                    onClick: () => loadAllSlackUsers(true),
+                    onClick: () => loadAllSlackUsers(true, activeSearchRef.current),
                     // Also held while a load is in flight, so mashing the action can't stack
                     // concurrent full member enumerations against Slack.
                     disabledReason: allSlackUsersLoading ? 'Refreshing members…' : usersRefreshButtonDisabledReason,

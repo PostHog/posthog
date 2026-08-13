@@ -58,7 +58,12 @@ export function ScoutSlackDestination({
 
     const selectChannel = (channel: string | null): void => {
         if (!channel || !selectedIntegration) {
-            onChange({})
+            // An empty picker still emits clears (e.g. Backspace in its input), so only a picker
+            // whose own target is saved may clear — otherwise viewing the alternate mode while the
+            // other target is live would wipe that target.
+            if (hasChannel) {
+                onChange({})
+            }
             return
         }
         onChange({
@@ -68,10 +73,13 @@ export function ScoutSlackDestination({
 
     const selectUsers = (users: string[]): void => {
         if (!selectedIntegration) {
-            onChange({})
             return
         }
         if (!users.length) {
+            if (!hasUsers) {
+                // Same guard as selectChannel: an empty DM picker's clear must not wipe a saved channel.
+                return
+            }
             // Removing the last recipient empties the saved destination; without pinning the mode
             // the toggle would fall back to its channel default and swap the picker mid-edit.
             setPendingMode('dm')
