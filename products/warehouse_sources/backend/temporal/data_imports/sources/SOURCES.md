@@ -393,6 +393,7 @@ the row lists both.
 | lever                            | HTTP                        | requests                                                        | ✅                          |
 | lingo_dev                        | HTTP                        | requests + `rest_source.RESTClient`                             | ✅                          |
 | linkedin_ads                     | HTTP (vendor SDK, RESTli)   | linkedin-api (RestliClient)                                     | ⚠️                          |
+| linkedin_pages                   | HTTP                        | requests                                                        | ✅                          |
 | linkrunner                       | HTTP                        | requests                                                        | ✅                          |
 | linode                           | HTTP                        | requests                                                        | ✅                          |
 | llama_cloud                      | HTTP                        | requests                                                        | ✅                          |
@@ -1112,7 +1113,6 @@ doesn't conflict with concurrent PRs.
 - lexware_office
 - liana
 - lingo_dev
-- linkedin_pages
 - linnworks
 - llama_cloud
 - lodgify
