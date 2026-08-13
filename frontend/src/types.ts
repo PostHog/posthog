@@ -682,6 +682,12 @@ export interface ListOrganizationMembersParams {
     limit?: number
     updated_after?: string
     search?: string
+    /** Only members whose email is on this domain. */
+    email_domain?: string
+    /** Only members whose email is outside the organization's verified domains. */
+    outside_verified_domains?: boolean
+    /** Comma-separated membership levels to return, e.g. `1,8`. */
+    levels?: string
 }
 
 export interface APIErrorType {
