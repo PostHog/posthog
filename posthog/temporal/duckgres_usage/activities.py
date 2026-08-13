@@ -18,12 +18,11 @@ Two custody rules hold across the split:
   leaves our record *ahead* of duckgres — the benign "duckgres behind" direction
   that self-heals (re-acks) on the next pull.
 
-Each pull cross-checks our recorded watermark against duckgres's own cursor
-(`watermark_low`). If duckgres is *ahead* of our record it has deleted buckets we
-have no record of processing — a possible hole in billable usage — so we persist
-what we got, alert, and withhold the ack until it's reconciled. An unparseable
-row is treated the same way: persist the good rows, alert, withhold the ack so
-duckgres keeps the source data until the upstream cause is fixed.
+Everything that can be wrong with a pull is an *anomaly* (`anomalies.py`): one
+table where each kind carries its detection, its alert, and one policy bit —
+`recoverable` (a re-pull can still capture the data → withhold the ack) or not
+(permanently bad → drop, alert, ack proceeds). The ack decision is derived from
+that table, never hand-assembled here.
 """
 
 import datetime as dt
@@ -39,6 +38,7 @@ from posthog.exceptions_capture import capture_exception
 from posthog.sync import database_sync_to_async
 from posthog.temporal.common.heartbeat import Heartbeater
 from posthog.temporal.duckgres_usage.acking import day_boundary_ack
+from posthog.temporal.duckgres_usage.anomalies import detect_anomalies
 from posthog.temporal.duckgres_usage.client import UsageResponse, ack_usage, fetch_usage, is_configured
 from posthog.temporal.duckgres_usage.mirror import count_out_of_window_rows, replace_window
 from posthog.temporal.duckgres_usage.team_resolution import ResolvedTeams, resolve_billing_teams
@@ -47,80 +47,6 @@ from posthog.temporal.duckgres_usage.types import PollDuckgresUsageInputs, PollD
 from products.managed_warehouse.backend.facade.models import DuckgresUsageCursor
 
 logger = structlog.get_logger(__name__)
-
-
-class DuckgresWatermarkHole(Exception):
-    """Duckgres's cursor is ahead of our last recorded ack — it deleted buckets
-    past what we have any record of processing, so billable usage may be lost."""
-
-
-class DuckgresRowParseError(Exception):
-    """One or more duckgres usage rows could not be parsed and were dropped."""
-
-
-class DuckgresRowsOutsideWindow(Exception):
-    """Duckgres served rows dated outside the ack window (at or below its own
-    cursor). They were dropped, not persisted, so the ack is withheld — acking
-    could delete their source buckets and permanently under-bill."""
-
-
-class DuckgresUsageOrphanedOrg(Exception):
-    """An org's managed-warehouse usage had no billable team to attribute it to
-    (every project deleted, or only demo/internal projects left), so it was
-    dropped — an orphan org, agreed with billing. Captured loudly so a paying
-    org draining into "unbillable" gets noticed, but unlike the anomalies above
-    the ack ALWAYS proceeds — re-pulling can't help a warehouse with no billable
-    projects; the data is unattributable, not withheld."""
-
-
-class DuckgresMalformedOrgRows(Exception):
-    """Duckgres served usage rows whose org_id is not a PostHog org UUID — a broken
-    contract (the dev seed's org named 'local' is a live example). The rows are
-    dropped and the ack DELIBERATELY proceeds: a bucket's org_id never changes, so
-    withholding would freeze the ack forever on permanently-bad data. Loud so the
-    upstream contract break gets fixed; never loop-breaking."""
-
-
-class DuckgresDuplicateRows(Exception):
-    """Duckgres emitted the same billing key more than once with an *identical* row (a
-    contract violation — its API serves one row per key per day). Harmless: we kept one
-    of each and dropped the rest, and the ack still proceeds. The dup itself is a bug."""
-
-
-class DuckgresConflictingRows(Exception):
-    """Duckgres emitted the same billing key with *different* measures — a partial and a
-    corrected total, say. We can't tell which is right, so we keep the larger and withhold
-    the ack, leaving duckgres to hold the source for reconciliation instead of deleting it."""
-
-
-class DuckgresForeignTeamRows(Exception):
-    """Duckgres stamped a usage row for one org with a live team that belongs to a
-    *different* org — a duckgres/provisioning bug (it should stamp the org's own team).
-    The rows are dropped and the ack proceeds: the org, not the stamped team, is the
-    billing authority, so we never charge the wrong org, and a mis-stamped bucket won't
-    fix itself on a re-pull. Loud so the upstream bug gets found; never loop-breaking."""
-
-
-class DuckgresInvalidValueRows(Exception):
-    """Duckgres served rows carrying an impossible measure — NaN, infinity, or a
-    negative amount. They were dropped so they can't corrupt the mirror, and the ack
-    DELIBERATELY proceeds: an impossible value never becomes valid on a re-pull, so
-    withholding would freeze the ack forever. Loud so the upstream computation bug is
-    found; the worst case is a best-effort under-bill we can correct later."""
-
-
-class DuckgresMissingUsage(Exception):
-    """The usage response carried no usage array at all (the key was absent or not a
-    list), which we cannot read as "the window truly had no usage". We persisted
-    nothing (an empty family never wipes the mirror) and WITHHOLD the ack so duckgres
-    keeps the source buckets until a well-formed response lands."""
-
-
-class DuckgresMalformedStorage(Exception):
-    """The storage key was present but not a list — a malformed container we cannot
-    read as "no storage". (An ABSENT storage key is fine; servers without the storage
-    metric omit it.) We persisted nothing for storage and WITHHOLD the ack, since the
-    shared ack would otherwise delete storage buckets we never captured."""
 
 
 @activity.defn(name="poll-duckgres-usage")
@@ -139,16 +65,8 @@ async def poll_duckgres_usage(inputs: PollDuckgresUsageInputs) -> PollDuckgresUs
         resolution = await database_sync_to_async(resolve_billing_teams)(response.rows, response.storage_rows)
 
         recorded = await database_sync_to_async(_read_recorded_watermark)()
-        hole = recorded is not None and response.watermark_low > recorded
-        parse_failure = response.unparsed_row_count > 0
         out_of_window = count_out_of_window_rows(response)
-        conflict = resolution.conflicting_row_count > 0
-        # A missing usage array (or a malformed storage container) withholds the ack —
-        # we can't confirm what the window held. An impossible value does NOT — it's
-        # dropped and can never recover, so withholding would only freeze the ack.
-        usage_missing = response.usage_missing
-        storage_malformed = response.storage_malformed
-        invalid_value = response.invalid_value_row_count > 0
+        anomalies = detect_anomalies(response, resolution, recorded, out_of_window)
         if recorded is not None and response.watermark_low < recorded:
             # Duckgres re-serves data we already acked past; replace semantics
             # absorb it idempotently. Worth noting, not halting.
@@ -159,22 +77,12 @@ async def poll_duckgres_usage(inputs: PollDuckgresUsageInputs) -> PollDuckgresUs
             )
 
         ack_at = day_boundary_ack(watermark_low=response.watermark_low, watermark_high=response.watermark_high)
-        # Withhold the ack on any anomaly that means this pull didn't fully capture the
-        # window — a hole, an unparseable row, a row dropped for being outside the
-        # window, a same-key value conflict we couldn't trust, or a missing usage array
-        # — since acking would let duckgres delete data we don't hold. An impossible
-        # value (invalid_value) is NOT one of these: it's permanently bad, so it's
-        # dropped and the ack proceeds.
-        should_ack = (
-            ack_at is not None
-            and not hole
-            and not parse_failure
-            and out_of_window == 0
-            and not conflict
-            and not usage_missing
-            and not storage_malformed
-        )
+        # A recoverable anomaly means this pull didn't fully capture the window and a
+        # re-pull still can — so the ack is withheld (acking would let duckgres delete
+        # data we don't hold). Non-recoverable anomalies alerted but never gate.
+        should_ack = ack_at is not None and not any(a.recoverable for a in anomalies)
         ack_watermark = ack_at.isoformat() if (should_ack and ack_at is not None) else None
+        watermark_hole = any(a.kind == "watermark_hole" for a in anomalies)
 
         # One transaction: persist the mirror rows and — record-before-ack — the
         # watermark the workflow will ack next. Record max(recorded, ack_at): in
@@ -186,90 +94,10 @@ async def poll_duckgres_usage(inputs: PollDuckgresUsageInputs) -> PollDuckgresUs
             watermark_to_record = max(watermark_to_record, recorded)
         rows_written = await database_sync_to_async(_persist)(response, resolution, watermark_to_record)
 
-        if hole:
-            capture_exception(
-                DuckgresWatermarkHole(
-                    f"duckgres watermark_low {response.watermark_low.isoformat()} is ahead of last acked "
-                    f"{recorded.isoformat() if recorded else None}; persisted this window but withheld the ack"
-                )
-            )
-        if parse_failure:
-            capture_exception(
-                DuckgresRowParseError(
-                    f"dropped {response.unparsed_row_count} unparseable duckgres usage row(s) and withheld "
-                    f"the ack; sample: {response.unparsed_row_sample}"
-                )
-            )
-        if out_of_window:
-            capture_exception(
-                DuckgresRowsOutsideWindow(
-                    f"dropped {out_of_window} duckgres row(s) dated outside the ack window "
-                    f"(watermark_low {response.watermark_low.isoformat()}) and withheld the ack"
-                )
-            )
-        if resolution.orphaned_org_ids:
-            # Loud on purpose, but never gates the ack: an orphan org has no
-            # billable team, so it's unbillable by definition, and withholding
-            # would just make duckgres accumulate and re-serve the same rows forever.
-            capture_exception(
-                DuckgresUsageOrphanedOrg(
-                    f"managed-warehouse usage for {len(resolution.orphaned_org_ids)} orphan org(s) with no "
-                    f"billable team to attribute it to (rows dropped, ack proceeds): "
-                    f"{sorted(resolution.orphaned_org_ids)}"
-                )
-            )
-        if resolution.malformed_org_row_count:
-            capture_exception(
-                DuckgresMalformedOrgRows(
-                    f"dropped {resolution.malformed_org_row_count} duckgres usage row(s) with a non-UUID "
-                    f"org_id (sample: {list(resolution.malformed_org_id_sample)}); ack proceeds — "
-                    "a bucket's org_id never changes, so these can never become billable"
-                )
-            )
-        if resolution.foreign_team_row_count:
-            capture_exception(
-                DuckgresForeignTeamRows(
-                    f"dropped {resolution.foreign_team_row_count} duckgres usage row(s) whose live team "
-                    f"belongs to a different org (sample team ids: {list(resolution.foreign_team_sample)}); "
-                    "ack proceeds — the org is the billing authority, so we never charge the wrong org"
-                )
-            )
-        if resolution.duplicate_row_count:
-            capture_exception(
-                DuckgresDuplicateRows(
-                    f"duckgres emitted {resolution.duplicate_row_count} exact-duplicate usage row(s) for the "
-                    "same billing key; kept one of each and dropped the rest"
-                )
-            )
-        if conflict:
-            capture_exception(
-                DuckgresConflictingRows(
-                    f"duckgres emitted {resolution.conflicting_row_count} usage row(s) sharing a billing key "
-                    "but with different measures; kept the larger and withheld the ack for reconciliation"
-                )
-            )
-        if invalid_value:
-            capture_exception(
-                DuckgresInvalidValueRows(
-                    f"dropped {response.invalid_value_row_count} duckgres usage row(s) with an impossible "
-                    f"measure (NaN, infinity, or negative); sample: {response.invalid_value_row_sample}; "
-                    "ack proceeds — an impossible value can never become valid on a re-pull"
-                )
-            )
-        if usage_missing:
-            capture_exception(
-                DuckgresMissingUsage(
-                    "duckgres usage response carried no usage array (key absent or not a list); persisted "
-                    "nothing and withheld the ack until a well-formed response lands"
-                )
-            )
-        if storage_malformed:
-            capture_exception(
-                DuckgresMalformedStorage(
-                    "duckgres usage response carried a malformed storage value (present but not a list); "
-                    "persisted no storage and withheld the ack until a well-formed response lands"
-                )
-            )
+        # Every anomaly is loud — one capture per kind, with its policy already
+        # applied to the ack decision above. See anomalies.py for the whole table.
+        for anomaly in anomalies:
+            capture_exception(anomaly.to_exception())
 
         await logger.ainfo(
             "duckgres_usage_polled",
@@ -279,22 +107,17 @@ async def poll_duckgres_usage(inputs: PollDuckgresUsageInputs) -> PollDuckgresUs
             watermark_low=response.watermark_low.isoformat(),
             watermark_high=response.watermark_high.isoformat(),
             ack_watermark=ack_watermark,
-            watermark_hole=hole,
+            anomalies=[a.kind for a in anomalies],
             unparsed_row_count=response.unparsed_row_count,
             out_of_window_dropped=out_of_window,
             orphaned_org_ids=sorted(resolution.orphaned_org_ids),
-            malformed_org_row_count=resolution.malformed_org_row_count,
-            foreign_team_row_count=resolution.foreign_team_row_count,
-            invalid_value_row_count=response.invalid_value_row_count,
-            usage_missing=usage_missing,
-            storage_malformed=storage_malformed,
         )
         return PollDuckgresUsageResult(
             rows_written=rows_written,
             watermark_low=response.watermark_low.isoformat(),
             watermark_high=response.watermark_high.isoformat(),
             ack_watermark=ack_watermark,
-            watermark_hole=hole,
+            watermark_hole=watermark_hole,
             unparsed_row_count=response.unparsed_row_count,
             out_of_window_dropped=out_of_window,
             orphaned_org_ids=sorted(resolution.orphaned_org_ids),
