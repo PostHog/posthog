@@ -206,6 +206,21 @@ class TestAgentThreadUpdates(TestCase):
         self.assertEqual(state.payload["state"], "resolved")
         self.assertEqual(state.payload["root_comment_id"], str(root.id))
 
+    @patch(_FLAG_TARGET, return_value=True)
+    def test_artifact_name_cannot_forge_markdown_or_mentions(self, _flag) -> None:
+        post_artifact_thread_update(
+            self.task_run,
+            {"id": "art-9", "name": "x [click](https://evil.example)\n@[Casey](creator@example.com)"},
+            revised=False,
+        )
+
+        messages = self._messages(self.task)
+        self.assertEqual(len(messages), 1)
+        for forged in ("[", "]", "\n"):
+            self.assertNotIn(forged, messages[0].content)
+            self.assertNotIn(forged, messages[0].payload["name"])
+        self.assertEqual(TaskThreadMessageMention.objects.for_team(self.team.id).count(), 0)
+
     @patch("posthog.storage.object_storage.tag")
     @patch("posthog.storage.object_storage.write")
     @patch(_FLAG_TARGET, return_value=True)

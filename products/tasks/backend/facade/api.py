@@ -7216,7 +7216,10 @@ def _announce_agent_artifact_uploads(run: TaskRun, new_entries: list[dict], mani
 def post_artifact_thread_update(run: TaskRun, artifact: dict, *, revised: bool) -> None:
     try:
         artifact_id = str(artifact.get("id") or "")
-        name = str(artifact.get("name") or "")[:255]
+        # The name is caller-controlled and lands in rendered markdown content and the
+        # mention scanner, like the branch in the commits-pushed row: strip the characters
+        # that would forge a [label](url) link or an @[name](email) mention.
+        name = re.sub(r"[\[\]\n]", " ", str(artifact.get("name") or "")).strip()[:255]
         if not artifact_id or not name:
             return
         raw_version = artifact.get("current_version")
