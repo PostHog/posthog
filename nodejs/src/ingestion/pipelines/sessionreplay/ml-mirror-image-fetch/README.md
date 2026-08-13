@@ -220,8 +220,8 @@ period of its topic plus one minute, rather than leaving it to the deployment.
 
 That figure holds only because a batch carries one record. A batch of several is held one record at
 a time, and a delay topic can hold records written hours apart, so each would wait its own period
-inside one batch. The server refuses to start with any other batch size, and refuses to start against any
-topic other than the three the publisher writes to.
+inside one batch. The server refuses to start with any other batch size, and refuses to start
+against any topic other than the three the publisher writes to.
 
 **A sleeping consumer must keep reporting itself healthy.** It calls
 `KafkaConsumer.reportDeliberateWait()`, which moves the loop clock as well as the heartbeat clock.
