@@ -1168,7 +1168,7 @@ class TestCanvasErrorReports(CanvasAPIBaseTest):
             patcher.start()
             self.addCleanup(patcher.stop)
 
-    def _authored_canvas(self) -> tuple[str, str, Task]:
+    def _authored_canvas(self, *, agent_requests: bool = False) -> tuple[str, str, Task]:
         task = Task.objects.create(
             team=self.team,
             channel=self.channel,
@@ -1178,7 +1178,18 @@ class TestCanvasErrorReports(CanvasAPIBaseTest):
             origin_product=Task.OriginProduct.USER_CREATED,
         )
         canvas_id = self._create_canvas()
-        assert self._publish(canvas_id).status_code == status.HTTP_200_OK
+        project = self._project()
+        if agent_requests:
+            project["capabilities"] = {
+                "posthog": {
+                    "insights": [],
+                    "inlineQueries": False,
+                    "captureEvents": [],
+                    "agentRequests": True,
+                },
+                "network": {"origins": []},
+            }
+        assert self._publish(canvas_id, project).status_code == status.HTTP_200_OK
         build_id = str(CanvasBuild.objects.unscoped().get(canvas_id=canvas_id).id)
         Canvas.objects.unscoped().filter(id=canvas_id).update(generation_task_id=task.id)
         return canvas_id, build_id, task
@@ -1194,6 +1205,13 @@ class TestCanvasErrorReports(CanvasAPIBaseTest):
         return self.client.post(
             f"/api/projects/{self.team.id}/canvases/{canvas_id}/request_fix/",
             {"build_id": build_id, **payload},
+            format="json",
+        )
+
+    def _request_agent(self, canvas_id: str, prompt: str):
+        return self.client.post(
+            f"/api/projects/{self.team.id}/canvases/{canvas_id}/request_agent/",
+            {"prompt": prompt},
             format="json",
         )
 
@@ -1265,6 +1283,45 @@ class TestCanvasErrorReports(CanvasAPIBaseTest):
         assert dispatch.call_count == 1
         assert dispatch.call_args.kwargs["run_id"] == str(run.id)
         assert dispatch.call_args.kwargs["skip_user_check"] is True
+
+    def test_request_agent_starts_creator_run_with_exact_prompt(self):
+        canvas_id, _, task = self._authored_canvas(agent_requests=True)
+        prompt = "Make the status card blue."
+
+        with (
+            patch("products.tasks.backend.temporal.client.execute_task_processing_workflow"),
+            self.captureOnCommitCallbacks(execute=True),
+        ):
+            response = self._request_agent(canvas_id, prompt)
+
+        assert response.status_code == status.HTTP_202_ACCEPTED, response.json()
+        assert response.json() == {"request_outcome": "new_run", "task_id": str(task.id)}
+        agent_prompt = TaskRun.objects.get(task=task).state["pending_user_message"]
+        assert prompt in agent_prompt
+        assert "canvas-draft-create" in agent_prompt
+        update = TaskThreadMessage.objects.for_team(self.team.id).get(content="Run requested from the canvas")
+        assert update.author_id == self.user.id
+
+    def test_request_agent_reports_non_creator_request_without_starting_run(self):
+        canvas_id, _, task = self._authored_canvas(agent_requests=True)
+        teammate = User.objects.create_and_join(self.organization, "viewer@example.com", None)
+        self.client.force_login(teammate)
+
+        response = self._request_agent(canvas_id, "Summarize the board.")
+
+        assert response.status_code == status.HTTP_202_ACCEPTED, response.json()
+        assert response.json()["request_outcome"] == "reported"
+        assert not TaskRun.objects.filter(task=task).exists()
+        update = TaskThreadMessage.objects.for_team(self.team.id).get(content__contains="Summarize the board.")
+        assert update.author_id == teammate.id
+        assert "Summarize the board." in update.content
+
+    def test_request_agent_requires_declared_capability(self):
+        canvas_id, _, _ = self._authored_canvas()
+
+        response = self._request_agent(canvas_id, "Change the canvas.")
+
+        assert response.status_code == status.HTTP_403_FORBIDDEN
 
     def test_request_fix_prompt_never_carries_unsafe_error_type(self):
         # The requester's error_type flows into the agent prompt; a hostile

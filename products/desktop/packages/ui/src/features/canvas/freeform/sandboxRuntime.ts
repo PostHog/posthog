@@ -267,6 +267,9 @@ export function buildSandboxDocument(
         }
         return call("capture", { event, properties: properties ?? {}, distinctId });
       },
+      agent: {
+        request: (prompt) => call("agentRequest", { prompt }),
+      },
       // Brokered by the host: PostHog-only https URLs, rate-limited, and
       // ignored while the canvas is unfocused (no auto-opens on load).
       openExternal: (url) => post({ type: "open-external", url }),

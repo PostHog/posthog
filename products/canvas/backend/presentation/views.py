@@ -25,6 +25,8 @@ from posthog.temporal.oauth import SANDBOX_OAUTH_APP_CLIENT_IDS
 from products.canvas.backend import build_service, error_reports
 from products.canvas.backend.models import Canvas, CanvasBuild, CanvasSourceVersion
 from products.canvas.backend.presentation.serializers import (
+    CanvasAgentRequestResultSerializer,
+    CanvasAgentRequestSerializer,
     CanvasBuildActionSerializer,
     CanvasBuildSerializer,
     CanvasBuildsResponseSerializer,
@@ -121,6 +123,7 @@ class CanvasViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
         "build_action",
         "report_error",
         "request_fix",
+        "request_agent",
     ]
 
     _CREATOR_ONLY_ACTIONS = {
@@ -564,6 +567,7 @@ class CanvasViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
             insight_capability_count=len(posthog_capabilities.get("insights") or []),
             capture_event_capability_count=len(posthog_capabilities.get("captureEvents") or []),
             inline_queries_capability=bool(posthog_capabilities.get("inlineQueries")),
+            agent_requests_capability=bool(posthog_capabilities.get("agentRequests")),
             is_sandbox_publish=task_id is not None,
         )
 
@@ -972,6 +976,79 @@ class CanvasViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
         )
         return Response(
             {"dispatch_outcome": outcome, "task_id": str(task_id)},
+            status=status.HTTP_202_ACCEPTED,
+        )
+
+    @extend_schema(
+        operation_id="canvases_request_agent_create",
+        request=CanvasAgentRequestSerializer,
+        responses={
+            202: CanvasAgentRequestResultSerializer,
+            403: OpenApiResponse(description="Agent requests are not declared or the caller is a sandbox."),
+            409: OpenApiResponse(description="The canvas has no authoring task."),
+            429: OpenApiResponse(description="The team's compute quota is exhausted; retry later."),
+        },
+    )
+    @action(methods=["POST"], detail=True)
+    def request_agent(self, request: Request, *args: Any, **kwargs: Any) -> Response:
+        """Route a viewer-approved change request to the canvas's authoring task."""
+        canvas = self.get_object()
+        if self._is_sandbox_authenticated(request):
+            return Response(
+                {"detail": "Agent requests must be approved by a viewer."},
+                status=status.HTTP_403_FORBIDDEN,
+            )
+        capabilities = canvas.current_source_version.capabilities if canvas.current_source_version else None
+        if not bool(((capabilities or {}).get("posthog") or {}).get("agentRequests")):
+            return Response(
+                {"detail": "This canvas has not declared agent requests."},
+                status=status.HTTP_403_FORBIDDEN,
+            )
+        payload = CanvasAgentRequestSerializer(data=request.data)
+        payload.is_valid(raise_exception=True)
+        task_id = error_reports.authoring_task_id(canvas, canvas.published_build)
+        if task_id is None:
+            return Response(
+                {"detail": "This canvas has no authoring task to receive the request."},
+                status=status.HTTP_409_CONFLICT,
+            )
+        user = self._request_user()
+        outcome = tasks_facade.request_canvas_change(
+            task_id,
+            self.team_id,
+            prompt=error_reports.build_agent_request_prompt(canvas, payload.validated_data["prompt"]),
+            viewer_prompt=payload.validated_data["prompt"],
+            acting_user_id=user.id if user else None,
+        )
+        if outcome == "not_found":
+            return Response(
+                {"detail": "The authoring task for this canvas no longer exists."},
+                status=status.HTTP_409_CONFLICT,
+            )
+        if outcome == "quota_exhausted":
+            return Response(
+                {"detail": "The team's compute quota is exhausted; retry later."},
+                status=status.HTTP_429_TOO_MANY_REQUESTS,
+            )
+        self._log_canvas_activity(
+            canvas,
+            "agent_requested",
+            Detail(
+                name=canvas.name,
+                trigger=Trigger(
+                    job_type="canvas_agent_request",
+                    job_id=str(task_id),
+                    payload={"request_outcome": outcome},
+                ),
+            ),
+        )
+        self._report_canvas_action(
+            "canvas agent requested",
+            canvas,
+            request_outcome=outcome,
+        )
+        return Response(
+            {"request_outcome": outcome, "task_id": str(task_id)},
             status=status.HTTP_202_ACCEPTED,
         )
 

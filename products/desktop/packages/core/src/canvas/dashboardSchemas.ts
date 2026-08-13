@@ -146,3 +146,8 @@ export const reportCanvasErrorInput = z.object({
   buildId: z.string().min(1),
   errorType: z.string().min(1).max(64),
 });
+
+export const requestCanvasAgentInput = z.object({
+  id: z.string().min(1),
+  prompt: z.string().min(1).max(10_000),
+});

@@ -27,6 +27,7 @@ class CapabilityWidening:
     insights_added: list[str]
     capture_events_added: list[str]
     inline_queries_enabled: bool
+    agent_requests_enabled: bool
     network_origins_added: list[str]
 
     @property
@@ -35,6 +36,7 @@ class CapabilityWidening:
             self.insights_added
             or self.capture_events_added
             or self.inline_queries_enabled
+            or self.agent_requests_enabled
             or self.network_origins_added
         )
 
@@ -54,5 +56,6 @@ def capability_widening(before: dict | None, after: dict | None) -> CapabilityWi
             set(after_ph.get("captureEvents") or []) - set(before_ph.get("captureEvents") or [])
         ),
         inline_queries_enabled=bool(after_ph.get("inlineQueries")) and not bool(before_ph.get("inlineQueries")),
+        agent_requests_enabled=bool(after_ph.get("agentRequests")) and not bool(before_ph.get("agentRequests")),
         network_origins_added=sorted(set(_network_origins(after)) - set(_network_origins(before))),
     )

@@ -11,7 +11,12 @@ import { BuiltCanvas } from "./BuiltCanvas";
 
 describe("BuiltCanvas", () => {
   const capabilities = {
-    posthog: { insights: [], inlineQueries: false, captureEvents: [] },
+    posthog: {
+      insights: [],
+      inlineQueries: false,
+      captureEvents: [],
+      agentRequests: false,
+    },
     network: { origins: [] },
   };
   const initialIsDarkMode = useThemeStore.getState().isDarkMode;

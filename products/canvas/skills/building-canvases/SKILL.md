@@ -51,16 +51,21 @@ user-visible requirement you cannot infer.
    skill (saved insights loaded via the `ph` SDK — never fetch or your own PostHog client), and
    **declare every `ph` call in `project.capabilities`** (insight short ids in
    `capabilities.posthog.insights`, captured events in `captureEvents`, `inlineQueries: true` for
-   ad-hoc queries) — the host enforces these at runtime and validation rejects undeclared calls.
-3. Validate with `canvas-validate-create` as often as needed and fix every error-severity
-   diagnostic.
-4. Save the project — which tool depends on whether the canvas is already live:
-   - **First version** (`current_version_id` is null): publish the complete project with
-     `canvas-publish-create`, passing `expected_current_version_id: null`.
-   - **Already live** (`current_version_id` is set): stage the complete project as a draft with
-     `canvas-draft-create` — the user previews the draft and promotes it to live. Publish or
-     promote yourself only when the user explicitly asked to make the change live.
-     Follow the `validating-and-publishing-canvases` skill for diagnostics and conflict recovery.
+   ad-hoc queries, and `agentRequests: true` for `ph.agent.request`) — the host enforces these at
+   runtime and validation rejects undeclared calls.
+
+Use `await ph.agent.request(prompt)` only from a direct click or form submission. The host shows
+the exact prompt and asks the viewer to accept before spending compute. The agent stages the change
+as a draft for the canvas creator to review. Do not call it during render, mount, or polling. 3. Validate with `canvas-validate-create` as often as needed and fix every error-severity
+diagnostic. 4. Save the project — which tool depends on whether the canvas is already live:
+
+- **First version** (`current_version_id` is null): publish the complete project with
+  `canvas-publish-create`, passing `expected_current_version_id: null`.
+- **Already live** (`current_version_id` is set): stage the complete project as a draft with
+  `canvas-draft-create` — the user previews the draft and promotes it to live. Publish or
+  promote yourself only when the user explicitly asked to make the change live.
+  Follow the `validating-and-publishing-canvases` skill for diagnostics and conflict recovery.
+
 5. **Wait for the build** — drafts and publishes alike queue one. Poll `canvas-builds-retrieve`
    (every few seconds, up to ~2 minutes) until your build is `ready` or `failed`. On `failed`,
    read the build's error diagnostics, fix the project, and save again — do not finish the

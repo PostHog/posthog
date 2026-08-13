@@ -13,6 +13,7 @@ const capabilities: CanvasCapabilities = {
   posthog: {
     insights: ["allowed-insight"],
     inlineQueries: false,
+    agentRequests: false,
     captureEvents: ["allowed-event"],
   },
   network: { origins: [] },
@@ -23,6 +24,7 @@ describe("assertCanvasCapability", () => {
     ["query", { hogql: "select 1" }],
     ["loadInsight", { shortId: "other-insight" }],
     ["capture", { event: "other-event" }],
+    ["agentRequest", { prompt: "Change it" }],
   ])("rejects undeclared %s access", (method, payload) => {
     expect(() => assertCanvasCapability(capabilities, method, payload)).toThrow(
       "not allowed",
@@ -35,6 +37,19 @@ describe("assertCanvasCapability", () => {
   ])("allows declared %s access", (method, payload) => {
     expect(() =>
       assertCanvasCapability(capabilities, method, payload),
+    ).not.toThrow();
+  });
+
+  it("allows agent requests only when the manifest declares them", () => {
+    expect(() =>
+      assertCanvasCapability(
+        {
+          ...capabilities,
+          posthog: { ...capabilities.posthog, agentRequests: true },
+        },
+        "agentRequest",
+        { prompt: "Change it" },
+      ),
     ).not.toThrow();
   });
 
