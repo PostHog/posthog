@@ -182,9 +182,14 @@ GROUP BY team_id, document_id
 # fleet-wide) against tens of MB for one day's emissions.
 #
 # Rows come back raw, with no argMax dedupe: this scan never builds the wide aggregation states the
-# report query needs, and a retraction stays its own row instead of collapsing into the vector it
-# supersedes. Readers take the latest row per (team_id, signal_id) at or before their cutoff, because
-# a caller-supplied document_id is only unique within a team.
+# report query needs, and both versions of a re-emitted signal are kept when both survive to be read.
+# Readers take the latest row per (team_id, signal_id) at or before their cutoff, because a
+# caller-supplied document_id is only unique within a team.
+#
+# "When both survive" is the honest limit: the source replaces on (team, day, product, document_type,
+# rendering, document_id) and a retraction re-emits under that same key, so a merge before this scan
+# leaves only the retraction. argMax would not save it — the merge removes the row, it does not hide
+# it. The asset docstring records what that costs and why closing it is out of scope here.
 #
 # Index reality is the report query's, minus the GROUP BY: no team_id sort-key prefix and no
 # inserted_at in the sort key, so this full-scans the TTL-bounded table with PREWHERE filtering the

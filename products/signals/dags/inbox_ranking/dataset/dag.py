@@ -558,6 +558,16 @@ def inbox_signal_embeddings(context: dagster.AssetExecutionContext) -> None:
     Writing the day's emissions down also outlives the source table's 3-month TTL, which is measured
     from signal event time. That makes this dag the durable store for signal vectors: whatever is not
     captured before a signal ages out is unrecoverable.
+
+    The log is best-effort, and deliberately so. The source is a ReplacingMergeTree versioned by
+    inserted_at, and a retraction re-emits the signal under the same sort key, so a merge between the
+    two writes keeps only the retraction. A signal whose report is deleted in the same window it was
+    inserted therefore reaches no partition in its live form, and no query shape recovers it, since
+    the merge has already dropped the row. The reverse gap is the TTL: a retraction inherits the
+    original event timestamp, so retracting a signal more than three months old writes a row that is
+    already expired and may never be scanned. Absence of an is_deleted row is not proof a signal is
+    live. Closing either gap needs an append-only source or a changed emission contract, both out of
+    this asset's scope.
     """
     if skip_unconfigured(context):
         return
@@ -615,8 +625,9 @@ def inbox_signal_embeddings(context: dagster.AssetExecutionContext) -> None:
         columns["signal_timestamp"].append(ensure_utc(timestamp))
         columns["embedding_inserted_at"].append(ensure_utc(inserted_at))
         # A retracted signal is re-emitted with its original text, unlike a report tombstone, so its
-        # vector is real content that we have been told to stop showing. Partitions written while it
-        # was live keep it; this one records the retraction without carrying the content forward.
+        # vector is real content that we have been told to stop showing. A partition written while it
+        # was live keeps it; this one records the retraction without carrying the content forward.
+        # Whether such a partition exists depends on merge timing — see the docstring's best-effort note.
         columns["embedding_small"].append(None if is_deleted else list(embedding))
         columns["embedding_rendering"].append(SIGNAL_DOCUMENT_RENDERING)
         columns["weight"].append(weight)
