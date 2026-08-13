@@ -21,6 +21,7 @@ import { AnyPropertyFilter, FilterLogicalOperator } from '~/types'
 import { FilterRow } from './components/FilterRow'
 import { OperatorValueSelectProps } from './components/OperatorValueSelect'
 import { propertyFilterLogic } from './propertyFilterLogic'
+import { PropertyFilterInternalProps } from './types'
 
 export interface PropertyFiltersProps {
     endpoint?: string | null
@@ -65,6 +66,7 @@ export interface PropertyFiltersProps {
      * (`TAXONOMIC_FILTER_MENU_REBUILD`).
      */
     triggerVariant?: 'button' | 'input'
+    staticValueOptions?: PropertyFilterInternalProps['staticValueOptions']
 }
 
 export function PropertyFilters({
@@ -104,6 +106,7 @@ export function PropertyFilters({
     operatorAllowlist,
     hogQLGlobals,
     triggerVariant = 'button',
+    staticValueOptions,
 }: PropertyFiltersProps): JSX.Element {
     const logicProps = { propertyFilters, onChange, pageKey, sendAllKeyUpdates }
     const { filters, filtersWithNew, filterIds, filterIdsWithNew } = useValues(propertyFilterLogic(logicProps))
@@ -175,6 +178,7 @@ export function PropertyFilters({
                                             operatorAllowlist={operatorAllowlist}
                                             hogQLGlobals={hogQLGlobals}
                                             triggerVariant={triggerVariant}
+                                            staticValueOptions={staticValueOptions}
                                         />
                                     )}
                                     errorMessage={errorMessages && errorMessages[index]}

@@ -20,6 +20,7 @@ export const visionActionsCreateBodySynthesisConfigOnePromptGuideMax = 500
 export const visionActionsCreateBodyAlertConfigOneFrequencyDefault = `on_breach`
 export const visionActionsCreateBodyAlertConfigOneMetricDefault = `count`
 export const visionActionsCreateBodyAlertConfigOneDirectionDefault = `above`
+export const visionActionsCreateBodyAlertConfigOneIncludeReasoningDefault = false
 
 export const VisionActionsCreateBody = /* @__PURE__ */ zod
     .object({
@@ -146,6 +147,12 @@ export const VisionActionsCreateBody = /* @__PURE__ */ zod
                     .describe(
                         "Rolling lookback window for on_breach conditions, ending at each check. Defaults to 1 day. every_match ignores it (each check covers what's new since the previous one).\n\n\* `1` - 1 day\n\* `3` - 3 days\n\* `7` - 7 days\n\* `14` - 14 days\n\* `30` - 30 days"
                     ),
+                include_reasoning: zod
+                    .boolean()
+                    .default(visionActionsCreateBodyAlertConfigOneIncludeReasoningDefault)
+                    .describe(
+                        "When true, each example line in the alert message includes the scanner's full reasoning for that observation, not just its verdict\/score\/tags. Useful when piping the message somewhere else to read or act on. Defaults to false."
+                    ),
             })
             .describe(
                 "The alert condition for mode='alert', applied after `selection` targeting. 'every_match'\nnotifies about each new match since the previous check; 'on_breach' compares a metric to a\nthreshold over a rolling window and notifies on the transition into breach."
@@ -199,6 +206,7 @@ export const visionActionsPartialUpdateBodySynthesisConfigOnePromptGuideMax = 50
 export const visionActionsPartialUpdateBodyAlertConfigOneFrequencyDefault = `on_breach`
 export const visionActionsPartialUpdateBodyAlertConfigOneMetricDefault = `count`
 export const visionActionsPartialUpdateBodyAlertConfigOneDirectionDefault = `above`
+export const visionActionsPartialUpdateBodyAlertConfigOneIncludeReasoningDefault = false
 
 export const VisionActionsPartialUpdateBody = /* @__PURE__ */ zod
     .object({
@@ -326,6 +334,12 @@ export const VisionActionsPartialUpdateBody = /* @__PURE__ */ zod
                     .optional()
                     .describe(
                         "Rolling lookback window for on_breach conditions, ending at each check. Defaults to 1 day. every_match ignores it (each check covers what's new since the previous one).\n\n\* `1` - 1 day\n\* `3` - 3 days\n\* `7` - 7 days\n\* `14` - 14 days\n\* `30` - 30 days"
+                    ),
+                include_reasoning: zod
+                    .boolean()
+                    .default(visionActionsPartialUpdateBodyAlertConfigOneIncludeReasoningDefault)
+                    .describe(
+                        "When true, each example line in the alert message includes the scanner's full reasoning for that observation, not just its verdict\/score\/tags. Useful when piping the message somewhere else to read or act on. Defaults to false."
                     ),
             })
             .describe(
@@ -686,6 +700,44 @@ export const VisionScannersObserveCreateBody = /* @__PURE__ */ zod
     .describe('Body of POST \/vision\/scanners\/{id}\/observe\/.')
 
 /**
+ * Create a backfill: freeze the scanner config, enumerate the exact candidate set, start the tick schedule.
+ *
+ * The enumeration reruns here rather than trusting the client-confirmed estimate: the count is
+ * billing-relevant, so the authoritative value is computed server-side at creation time. New
+ * settled sessions between estimate and confirm can nudge total_count slightly.
+ */
+export const VisionScannersBackfillsCreateBody = /* @__PURE__ */ zod.object({
+    window_start: zod.iso
+        .datetime({ offset: true })
+        .describe('Inclusive lower bound of the historical window to scan.'),
+    window_end: zod.iso
+        .datetime({ offset: true })
+        .describe('Exclusive upper bound of the window; clamped server-side to now.'),
+})
+
+/**
+ * Stop an active backfill; already-dispatched observations finish, nothing new dispatches.
+ */
+export const VisionScannersBackfillsCancelCreateBody = /* @__PURE__ */ zod.looseObject({})
+
+/**
+ * Restart a backfill that paused when the monthly quota ran out.
+ */
+export const VisionScannersBackfillsResumeCreateBody = /* @__PURE__ */ zod.looseObject({})
+
+/**
+ * Exactly enumerate what a backfill over the given window would dispatch and cost.
+ */
+export const VisionScannersBackfillsEstimateCreateBody = /* @__PURE__ */ zod.object({
+    window_start: zod.iso
+        .datetime({ offset: true })
+        .describe('Inclusive lower bound of the historical window to scan.'),
+    window_end: zod.iso
+        .datetime({ offset: true })
+        .describe('Exclusive upper bound of the window; clamped server-side to now.'),
+})
+
+/**
  * Set or update the observation's shared label: whether the scanner scored the session correctly, plus optional feedback on what it got wrong. One label per observation, shared across the team; these labels feed prompt improvement. Requires editor access to the scanner.
  */
 export const visionScannersObservationsLabelCreateBodyFeedbackDefault = ``
@@ -717,7 +769,7 @@ export const VisionScannersPromptSuggestionsApplyCreateBody = /* @__PURE__ */ zo
 })
 
 /**
- * Test this suggestion before applying it: re-run the scanner with the suggested prompt against already-rated sessions in the background and compare each fresh output with the stored one. Results land on the suggestion's `evaluation` field. Poll `current` while status is running. `session_limit` controls how many rated sessions are re-run (thumbs-down prioritized, up to `evaluation_session_cap`). Each successful re-run charges credits like a normal observation of the same model. The request is refused with 402 when the planned credits exceed what is left of the monthly limit. Monitor and classifier scanners get a kept/fixed/regressed classification, while scorer and summarizer scanners show the raw before and after output. Requires session recording edit access.
+ * Test this suggestion before applying it: re-run the scanner with the suggested prompt against already-rated sessions in the background and compare each fresh output with the stored one. Results land on the suggestion's `evaluation` field. Poll `current` while status is running. `session_limit` controls how many rated sessions are re-run (thumbs-down prioritized, up to `evaluation_session_cap`). Each successful re-run charges credits like a normal observation of the same model. The request is refused with 402 when the planned credits exceed what is left for the current billing period, either the org's limit or this scanner's own. Monitor and classifier scanners get a kept/fixed/regressed classification, while scorer and summarizer scanners show the raw before and after output. Requires session recording edit access.
  */
 export const visionScannersPromptSuggestionsEvaluateCreateBodySessionLimitDefault = 10
 export const visionScannersPromptSuggestionsEvaluateCreateBodySessionLimitMax = 100

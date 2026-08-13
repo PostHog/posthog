@@ -307,26 +307,12 @@ class SignalSourceConfigViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
                 {"source_product": "A configuration for this source product and type already exists for this team."}
             )
 
-        if instance.source_type == SignalSourceConfig.SourceType.SESSION_ANALYSIS_CLUSTER and instance.enabled:
-            self._trigger_session_analysis_setup()
-
         if (
             instance.source_product == SignalSourceConfig.SourceProduct.ERROR_TRACKING
             and instance.source_type == SignalSourceConfig.SourceType.ISSUE_CREATED
             and instance.enabled
         ):
             self._trigger_error_tracking_backfill()
-
-    def _trigger_session_analysis_setup(self) -> None:
-        """Upsert the per-team summarization schedule now instead of waiting for the
-        reconciler's next tick. Reconciler remains the safety net."""
-        from posthog.temporal.session_replay.summarization_sweep.schedule import a_upsert_team_schedule
-
-        try:
-            async_to_sync(a_upsert_team_schedule)(self.team_id)
-            logger.info(f"Upserted session analysis schedule for team {self.team_id}")
-        except Exception:
-            logger.exception(f"Failed to upsert session analysis schedule for team {self.team_id}")
 
     def _trigger_error_tracking_backfill(self) -> None:
         """Fire-and-forget backfill of recent error tracking issues as signals."""
@@ -367,9 +353,7 @@ class SignalSourceConfigViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
             )
 
         if instance.enabled and not was_enabled:
-            if instance.source_type == SignalSourceConfig.SourceType.SESSION_ANALYSIS_CLUSTER:
-                self._trigger_session_analysis_setup()
-            else:
+            if instance.source_type != SignalSourceConfig.SourceType.SESSION_ANALYSIS_CLUSTER:
                 self._trigger_data_import_sync(instance)
 
     # Maps source_product to ExternalDataSourceType value for data import sources
@@ -2285,6 +2269,18 @@ class SignalReportViewSet(
             if billing_path == SignalReportRefund.BillingPath.CREDITED:
                 refund_id = str(refund.id)
                 transaction.on_commit(lambda: sync_signals_refund_credit.delay(refund_id))
+
+        # A refund suppresses the report, which is a judgement the authoring scout should hear, so it
+        # forwards on the same channel as any other dismissal. `refund.reason` rather than the
+        # `refunded` code the artefact records, because `pr_incorrect` tells a scout the PR missed
+        # what its report promised while `refunded` only says money moved. Outside the atomic block
+        # because forwarding writes rows of its own and must not be able to roll back the refund it
+        # reports; a report left RESOLVED by a merged PR is dropped by the forwarding path itself.
+        self._forward_dismissal_note(
+            reports=[report],
+            dismissal_reason=refund.reason,
+            dismissal_note=note,
+        )
 
         report_user_action(
             user,

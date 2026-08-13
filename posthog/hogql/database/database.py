@@ -466,8 +466,8 @@ def _construct_database_root_node(*, include_posthog_tables: bool) -> TableNode:
 
 
 @cache
-def _system_table_access_scopes() -> Mapping[str, APIScopeObject]:
-    """Table name -> access scope for the access-controlled Postgres system tables.
+def _scoped_system_tables() -> Mapping[str, PostgresTable]:
+    """Table name -> the access-controlled Postgres system table itself.
 
     Cached for the process lifetime — this result directly gates table visibility in access-control
     decisions, so every entry here MUST remain process-static. Do NOT make a system table's
@@ -478,7 +478,7 @@ def _system_table_access_scopes() -> Mapping[str, APIScopeObject]:
     """
     return MappingProxyType(
         {
-            name: table_node.table.access_scope
+            name: table_node.table
             for name, table_node in SystemTables().children.items()
             if isinstance(table_node.table, PostgresTable) and table_node.table.access_scope is not None
         }
@@ -489,7 +489,7 @@ def _system_table_access_scopes() -> Mapping[str, APIScopeObject]:
 def _system_table_required_features() -> Mapping[str, str]:
     """Table name -> required AvailableFeature for system tables behind a billing entitlement.
 
-    Same process-static invariant as _system_table_access_scopes: the entitlement a table *requires*
+    Same process-static invariant as _scoped_system_tables: the entitlement a table *requires*
     is a static property of the table. What varies per organization is whether that entitlement is
     *available*, which is resolved uncached in _unentitled_system_tables. Returned read-only so a
     caller can't mutate the shared cached mapping.
@@ -535,7 +535,7 @@ def _compute_system_table_access_decision(
     from posthog.rbac.user_access_control import NO_ACCESS_LEVEL, UserAccessControl  # noqa: PLC0415
     from posthog.shared_link_user import SharedLinkUser  # noqa: PLC0415
 
-    scoped_tables = _system_table_access_scopes()
+    scoped_tables = _scoped_system_tables()
     # Applies to every principal below, admins included - an entitlement the organization does not
     # have cannot be granted by a role.
     unentitled = _unentitled_system_tables(team)
@@ -544,7 +544,7 @@ def _compute_system_table_access_decision(
     if user is None or isinstance(user, SyntheticUser | SharedLinkUser):
         readable_scopes = user.readable_system_table_access_scopes() if user is not None else set()
         return None, unentitled | {
-            name for name, access_scope in scoped_tables.items() if access_scope not in readable_scopes
+            name for name, table in scoped_tables.items() if table.access_scope not in readable_scopes
         }
 
     user_access_control = user_access_control or UserAccessControl(user=user, team=team)
@@ -553,11 +553,21 @@ def _compute_system_table_access_decision(
     if org_membership and org_membership.level >= OrganizationMembership.Level.ADMIN:
         return user_access_control, unentitled
 
+    # Resources the user holds object-level grants on despite having no resource-level access. REST
+    # serves those routes and narrows the rows to the grants; the printer guard does the same, so the
+    # table stays queryable here instead of disappearing (see build_access_control_guard).
+    allowlisted_scopes = user_access_control.allowlisted_resource_ids_by_scope
+
     denied: set[str] = set(unentitled)
-    for name, access_scope in scoped_tables.items():
+    for name, table in scoped_tables.items():
+        access_scope = cast(APIScopeObject, table.access_scope)
         access_level = user_access_control.access_level_for_resource(access_scope)
         if access_level and access_level != NO_ACCESS_LEVEL:
             continue  # User has access, keep it
+        # Keep the table only when the guard can actually narrow its rows to the grant, so a table
+        # whose ids don't key those grants (resource_level_access_only) still fails closed.
+        if access_scope in allowlisted_scopes and table.access_control_id is not None:
+            continue
         denied.add(name)
 
     return user_access_control, denied
@@ -662,6 +672,11 @@ class Database(BaseModel):
         `get_all_table_names()` — the latter verifies each warehouse entry by
         calling `get_table()`, which would recurse back into this helper when
         a warehouse table fails to resolve.
+
+        A qualified name states which schema the author meant, so candidates
+        outside it are dropped no matter how well the leaf scores. When no such
+        schema exists, the schema itself is the likely typo, so the closest
+        known schema is searched instead.
         """
         import difflib
 
@@ -677,6 +692,14 @@ class Database(BaseModel):
         # catalog without being available on the source we actually queried.
         lowered = name.casefold()
         candidates = {c for c in candidates if c.casefold() != lowered}
+        prefix, dot, _ = name.rpartition(".")
+        if dot:
+            schema = prefix.casefold()
+            if not any(c.casefold().startswith(f"{schema}.") for c in candidates):
+                known = sorted({c.rpartition(".")[0].casefold() for c in candidates if "." in c})
+                nearest = difflib.get_close_matches(schema, known, n=1, cutoff=0.89)
+                schema = nearest[0] if nearest else schema
+            candidates = {c for c in candidates if c.casefold().startswith(f"{schema}.")}
         if not candidates:
             return []
         return difflib.get_close_matches(name, sorted(candidates), n=limit, cutoff=0.7)
@@ -905,6 +928,7 @@ class Database(BaseModel):
         context: HogQLContext,
         include_only: set[str] | None = None,
         include_hidden_posthog_tables: bool = False,
+        include_fields: bool = True,
     ) -> dict[str, DatabaseSchemaTable]:
         from django.db.models import Prefetch  # noqa: PLC0415
 
@@ -945,13 +969,15 @@ class Database(BaseModel):
             if include_only and table_name not in include_only:
                 continue
 
-            field_input: dict[str, Any] = {}
-            table = self.get_table(table_name)
-            if isinstance(table, Table):
-                field_input = _schema_field_input(table)
+            fields_dict: dict[str, DatabaseSchemaField] = {}
+            if include_fields:
+                field_input: dict[str, Any] = {}
+                table = self.get_table(table_name)
+                if isinstance(table, Table):
+                    field_input = _schema_field_input(table)
 
-            fields = serialize_fields(field_input, context, table_name.split("."), table_type="posthog")
-            fields_dict = {field.name: field for field in fields}
+                fields = serialize_fields(field_input, context, table_name.split("."), table_type="posthog")
+                fields_dict = {field.name: field for field in fields}
             tables[table_name] = DatabaseSchemaPostHogTable(fields=fields_dict, id=table_name, name=table_name)
 
         # System tables
@@ -960,13 +986,15 @@ class Database(BaseModel):
             if include_only and table_key not in include_only:
                 continue
 
-            system_field_input: dict[str, Any] = {}
-            table = self.get_table(table_key)
-            if isinstance(table, Table):
-                system_field_input = _schema_field_input(table)
+            fields_dict = {}
+            if include_fields:
+                system_field_input: dict[str, Any] = {}
+                table = self.get_table(table_key)
+                if isinstance(table, Table):
+                    system_field_input = _schema_field_input(table)
 
-            fields = serialize_fields(system_field_input, context, table_key.split("."), table_type="posthog")
-            fields_dict = {field.name: field for field in fields}
+                fields = serialize_fields(system_field_input, context, table_key.split("."), table_type="posthog")
+                fields_dict = {field.name: field for field in fields}
             tables[table_key] = DatabaseSchemaSystemTable(fields=fields_dict, id=table_key, name=table_key)
 
         # Data Warehouse Tables and Views - Fetch all related data in one go
@@ -1058,15 +1086,17 @@ class Database(BaseModel):
                     continue
 
                 try:
-                    field_input = {}
-                    table = self.get_table(table_key)
-                    if isinstance(table, Table):
-                        field_input = table.fields
+                    fields_dict = {}
+                    if include_fields:
+                        field_input = {}
+                        table = self.get_table(table_key)
+                        if isinstance(table, Table):
+                            field_input = table.fields
 
-                    fields = serialize_fields(
-                        field_input, context, table_key.split("."), warehouse_table.columns, table_type="external"
-                    )
-                    fields_dict = {field.name: field for field in fields}
+                        fields = serialize_fields(
+                            field_input, context, table_key.split("."), warehouse_table.columns, table_type="external"
+                        )
+                        fields_dict = {field.name: field for field in fields}
 
                     # The table is also queryable by its raw underscore name, which is registered
                     # separately from the dotted `table_key`. Surface it so search matches either form.
@@ -1139,9 +1169,12 @@ class Database(BaseModel):
                         # Not built for this connection (unusable columns, or access-denied).
                         continue
 
-                    fields = serialize_fields(table.fields, context, table_key.split("."), table_type="external")
+                    dual_fields_dict: dict[str, DatabaseSchemaField] = {}
+                    if include_fields:
+                        fields = serialize_fields(table.fields, context, table_key.split("."), table_type="external")
+                        dual_fields_dict = {field.name: field for field in fields}
                     tables[table_key] = DatabaseSchemaDataWarehouseTable(
-                        fields={field.name: field for field in fields},
+                        fields=dual_fields_dict,
                         id=str(schema_row.id),
                         name=table_key,
                         schema=DatabaseSchemaSchema(
@@ -1176,8 +1209,10 @@ class Database(BaseModel):
             except QueryError:
                 continue
 
-            fields = serialize_fields(view.fields, context, view_name.split("."), table_type="external")
-            fields_dict = {field.name: field for field in fields}
+            fields_dict = {}
+            if include_fields:
+                fields = serialize_fields(view.fields, context, view_name.split("."), table_type="external")
+                fields_dict = {field.name: field for field in fields}
 
             if isinstance(view, RevenueAnalyticsBaseView):
                 tables[view_name] = DatabaseSchemaManagedViewTable(

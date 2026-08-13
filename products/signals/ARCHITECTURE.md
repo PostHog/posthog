@@ -22,7 +22,7 @@ If you add or remove a Signals workflow/activity from `backend/temporal/__init__
 Several additional Signals workflows also exist but are not part of the main report pipeline:
 
 - `backfill-error-tracking` (`backend/temporal/backfill_error_tracking.py`) — backfills recent error tracking issues as signals
-- `emit-eval-signal` (`backend/temporal/emit_eval_signal.py`) — converts LLMA evaluation results into Signals inputs on the Signals worker queue
+- `emit-eval-signal` (`backend/temporal/emit_eval_signal.py`) — legacy per-result evaluation path retained for existing Temporal histories and stored configs
 - `run-signals-scout-coordinator` (`backend/temporal/agentic/scout_coordinator.py`) — periodic tick (every `COORDINATOR_INTERVAL_MINUTES = 30`) that fans out scheduled `signals-scout-*` scout runs per (team, skill). Spec'd separately below.
 - `RunSignalsScoutWorkflow` (`backend/temporal/agentic/scout_scheduler.py`) — child workflow per planned run; thin wrapper around the harness activity. Spec'd separately below.
 
@@ -530,7 +530,7 @@ Per-team configuration for which signal sources are enabled.
 
 **Behavioral notes:**
 
-- `llm_analytics` signals go through the standard enabled-row check like every other source. Per-result `evaluation` signals are additionally filtered by the per-evaluation `evaluation_ids` allowlist in the row's `config`, enforced upstream in the eval workflows; `evaluation_report` signals are gated by their own `(llm_analytics, evaluation_report)` row (the inbox "AI observability" toggle).
+- AI observability exposes eval-report signals in the Inbox UI. These signals are gated by the `(llm_analytics, evaluation_report)` row controlled by the AI observability toggle. The legacy per-result backend path remains registered but is no longer exposed or counted by the frontend.
 - For session replay configs, serializer validation enforces that `config.recording_filters` is a JSON object when present.
 - The serializer exposes a computed `status` field:
   - `session_analysis_cluster` derives status from the Temporal clustering workflow
@@ -992,6 +992,14 @@ That said, **not all “LLM-ish” behavior in Signals goes through `call_llm()`
 - **Repository selection** runs via the sandbox agent flow, not `call_llm()`
 - **Agentic report research** runs via `MultiTurnSession` in `report_generation/research.py`, not `call_llm()`
 
+The sandbox-backed paths (repo selection, report research, scout runs, and the coding runs autonomy auto-starts) all
+land in the `posthog-sandbox-self-driving` Modal app rather than the default one, because their tasks carry
+`origin_product=signal_report` / `signals_scout` (see `SELF_DRIVING_ORIGIN_PRODUCTS` in
+`products/tasks/backend/logic/services/sandbox.py`). The app is resolved inside the Tasks provisioning activity, so
+nothing in Signals selects it. Same image, resources, and egress policy as any other run — the split only separates
+the fleet's Modal cost from user-driven runs. Egress is still governed by the `SandboxEnvironment` each caller
+upserts (`temporal/agentic/__init__.py`).
+
 ### `call_llm()` (`backend/temporal/llm.py`)
 
 A generic helper that abstracts the retry / validate / append-errors pattern used by direct LLM calls. It takes a system prompt, user prompt, validation function, and options like `thinking`, `temperature`, and retries.
@@ -1132,9 +1140,9 @@ Report ↔ task relationships are recorded as `task_run` artefacts (see `SignalR
 
 Auto-start dedup is separate from this freeform log: `maybe_autostart_implementation_task()` (`backend/auto_start.py`) gates on a legacy `SignalReportTask` implementation row, checked inside the report-row `select_for_update`, so concurrent evaluations can't double-start. Both the auto-start and the manual tasks-API path go through `record_implementation_task`, which dual-writes that gate row and the `implementation` `task_run` artefact — the transitional arrangement until the backfill lets the gate move to artefacts (see `SignalReportTask`).
 
-### Eval-signal summarization (`backend/temporal/emit_eval_signal.py`)
+### Legacy eval-signal flow (`backend/temporal/emit_eval_signal.py`)
 
-Separate from report generation, the `emit-eval-signal` workflow uses `call_llm()` with extended thinking to turn an LLMA evaluation result into a signal-sized description plus significance score. Low-significance eval results are dropped before calling `emit_signal()`.
+The frontend no longer exposes per-evaluation signal enablement. This backend workflow remains registered for existing Temporal histories and stored `(llm_analytics, evaluation)` configs until the legacy path is removed. Completed evaluation reports are the supported evaluation-based AI observability signal source.
 
 ### Resetting self-driving state for local re-testing
 
@@ -1345,7 +1353,6 @@ products/signals/
 │   │       ├── run_signals_scout.py       # One-shot scout run; bypasses the coordinator
 │   │       ├── select_repo.py
 │   │       ├── signal_pipeline_status.py
-│   │       ├── summarize_single_session.py
 │   │       └── sync_signals_scout_skills.py  # Force a canonical SKILL.md sync to LLMSkill rows
 │   ├── report_generation/
 │   │   ├── AGENTS.md                # Documentation for the agentic report generation flow
@@ -1397,7 +1404,7 @@ products/signals/
 │       ├── buffer.py                # BufferSignalsWorkflow + object-storage flush/backpressure activities
 │       ├── clickhouse.py            # Retry wrapper for HogQL / ClickHouse activity queries
 │       ├── deletion.py              # SignalReportDeletionWorkflow
-│       ├── emit_eval_signal.py      # EmitEvalSignalWorkflow — eval result → signal
+│       ├── emit_eval_signal.py      # Legacy per-result evaluation signal workflow
 │       ├── emitter.py               # SignalEmitterWorkflow — per-signal backpressure bridge
 │       ├── grouping.py              # Legacy v1 workflow + active shared grouping implementation
 │       ├── grouping_v2.py           # Active grouping v2 workflow + pause/unpause support

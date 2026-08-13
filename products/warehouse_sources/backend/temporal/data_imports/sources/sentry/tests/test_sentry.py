@@ -7,11 +7,13 @@ from unittest.mock import Mock, patch
 from parameterized import parameterized
 from requests.exceptions import HTTPError, JSONDecodeError
 
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.base import error_message_matches
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
 from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.sentry import SentrySourceConfig
 from products.warehouse_sources.backend.temporal.data_imports.sources.sentry.sentry import (
     SentryPaginator,
     SentryResumeConfig,
+    SentryStatsSummaryRejectedError,
     _custom_endpoint_rows,
     _normalize_api_base_url,
     _normalize_organization_slug,
@@ -374,6 +376,19 @@ class TestSentrySourceValidation:
         config = SentrySource().parse_config({"auth_token": "token", "organization_slug": "https://acme.sentry.io/"})
 
         assert config.organization_slug == "acme"
+
+    def test_retryable_errors_match_exhausted_connection_retries(self) -> None:
+        # `_request_with_retry` (sentry.py) already retries a dropped connection or read timeout;
+        # once that budget is exhausted, urllib3 re-raises with this stable "Max retries exceeded"
+        # wording regardless of cause. Without a matching entry here, a transient Sentry-side blip
+        # would be reported to error tracking as a bug instead of logged as a benign retry.
+        error_msg = (
+            "HTTPSConnectionPool(host='sentry.io', port=443): Max retries exceeded with "
+            'url: /api/0/organizations/acme/projects/?limit=100 (Caused by ReadTimeoutError("HTTPS'
+            "ConnectionPool(host='sentry.io', port=443): Read timed out. (read timeout=30)\"))"
+        )
+
+        assert any(pattern in error_msg for pattern in SentrySource().get_retryable_errors())
 
     @patch("products.warehouse_sources.backend.temporal.data_imports.sources.sentry.sentry.rest_api_resource")
     def test_sentry_source_builds_response(self, mock_rest_api_resource) -> None:
@@ -1524,7 +1539,10 @@ class TestSentryCustomIteratorEndpoints:
         assert list(cast(Any, resp.items())) == []
 
     @patch("products.warehouse_sources.backend.temporal.data_imports.sources.sentry.sentry._request_with_retry")
-    def test_stats_summary_propagates_other_400_errors(self, mock_request) -> None:
+    def test_stats_summary_other_400_is_classified_non_retryable(self, mock_request) -> None:
+        # Any stats-summary 400 that isn't the skipped no-projects case is deterministic, so it must
+        # fail fast with a credential-safe message the source classifies non-retryable — not burn
+        # retries on the raw HTTPError (whose URL embeds the org slug).
         mock_request.return_value = _response({"detail": 'Invalid field: "bogus"'}, status_code=400)
 
         resp = sentry_source(
@@ -1536,8 +1554,12 @@ class TestSentryCustomIteratorEndpoints:
             job_id="job-id",
         )
 
-        with pytest.raises(HTTPError):
+        with pytest.raises(SentryStatsSummaryRejectedError) as exc_info:
             list(cast(Any, resp.items()))
+
+        message = str(exc_info.value)
+        assert "acme" not in message and "sentry.io" not in message
+        assert error_message_matches(message, SentrySource().get_non_retryable_errors())
 
     @patch("products.warehouse_sources.backend.temporal.data_imports.sources.sentry.sentry._request_with_retry")
     def test_trace_item_attributes_stamps_dataset_and_skips_unavailable_ones(self, mock_request) -> None:

@@ -10,6 +10,11 @@ Presentation imports it from here rather than reaching the internal ``access`` /
 """
 
 from products.tasks.backend.access import has_loops_access, has_tasks_access
-from products.tasks.backend.logic.services.code_usage_gate import usage_limit_response
+from products.tasks.backend.logic.services.code_usage_gate import compute_quota_limit_response, usage_limit_response
 
-__all__ = ["has_loops_access", "has_tasks_access", "usage_limit_response"]
+__all__ = [
+    "compute_quota_limit_response",
+    "has_loops_access",
+    "has_tasks_access",
+    "usage_limit_response",
+]
