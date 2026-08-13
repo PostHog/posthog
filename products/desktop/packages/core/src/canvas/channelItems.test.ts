@@ -103,9 +103,6 @@ describe("buildChannelItems", () => {
     expect(item.title).toBe("Untitled task");
   });
 
-  // `ts` used to come off `updated_at`, which only moves when the task row itself is written.
-  // A session that ran all week therefore sorted where it was filed, and "recent activity"
-  // came out identical to "date created".
   it("ranks a session by its activity, not by when its row was last written", () => {
     const items = build({
       feedTasks: [
@@ -220,9 +217,6 @@ describe("buildChannelItems", () => {
     ]);
   });
 
-  // Unread reads the same activity timestamp the sort does, so a run that streamed since you
-  // looked (moving last_activity_at, not updated_at) shows unread. Keying it off updated_at
-  // left an active session sorted to the top yet unmarked.
   it("marks a session unread from activity its row write time didn't capture", () => {
     const [item] = build({
       feedTasks: [

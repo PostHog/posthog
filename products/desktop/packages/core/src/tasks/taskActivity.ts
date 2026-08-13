@@ -14,15 +14,16 @@ export interface TaskActivityInput {
 }
 
 /**
- * When something last happened in the session, as an ISO string.
- *
- * `last_activity_at` is the backend's answer and the one to trust: it moves on a thread
- * message and on a run starting, streaming, or finishing. `updated_at` is the fallback for a
- * response that predates the field, and it only moves when the task row itself is written —
- * which is why a list ordered by it comes out in creation order.
+ * The session's activity time as an ISO string. Prefers `last_activity_at` (the backend's
+ * answer, which moves on a thread message or a run starting, streaming, or finishing) and falls
+ * back to `updated_at` only for responses that predate the field. Ordering by that fallback
+ * comes out in creation order, because `updated_at` moves only when the row itself is written.
  */
 export function taskActivityAt(
-  task: Pick<TaskActivityInput, "created_at" | "updated_at" | "last_activity_at">,
+  task: Pick<
+    TaskActivityInput,
+    "created_at" | "updated_at" | "last_activity_at"
+  >,
 ): string {
   return task.last_activity_at || task.updated_at || task.created_at;
 }

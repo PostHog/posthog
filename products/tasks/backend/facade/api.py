@@ -4355,9 +4355,9 @@ async def select_repository_for_message(team_id: int, user_id: int, message: str
 
 
 #: Orderings the task list accepts, keyed by the value clients send. Both fall back to `-id` so a
-#: page boundary can't drop or repeat a row when two tasks share a timestamp. `last_activity_at` is
-#: nullable only on rows written outside the ORM, and Postgres sorts those first under `DESC` —
-#: which is where a row with no known activity belongs anyway.
+#: page boundary can't drop or repeat a row when two tasks share a timestamp. A null
+#: `last_activity_at` (rows written outside the ORM) sorts first under `DESC`, which is where a row
+#: with no known activity belongs.
 TASK_LIST_ORDERINGS: dict[str, tuple[str, ...]] = {
     "-last_activity_at": ("-last_activity_at", "-id"),
     "-created_at": ("-created_at", "-id"),

@@ -20,10 +20,7 @@ export interface ChannelItemModel {
   kind: "task" | "canvas";
   id: string;
   title: string;
-  /**
-   * When something last happened in it, for the activity-first sort — a session's
-   * `last_activity_at`, or a canvas's `updatedAt`.
-   */
+  /** Activity time for the activity-first sort: a session's `last_activity_at`, or a canvas's `updatedAt`. */
   ts: number;
   /** When it was first made, for the created-first sort. */
   createdAt: number;

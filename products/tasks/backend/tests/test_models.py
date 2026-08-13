@@ -521,8 +521,6 @@ class TestTaskActivityClock(TestCase):
         return task
 
     def test_thread_message_moves_the_clock_without_touching_updated_at(self):
-        # The two answer different questions: a message is activity in the task, not an edit
-        # to the task row, and conflating them is what made "recent activity" sort by creation.
         task = self._task()
 
         with team_scope(self.team.id):
@@ -544,8 +542,6 @@ class TestTaskActivityClock(TestCase):
         ]
     )
     def test_run_write_moves_the_clock_only_when_the_run_did_something(self, _name, update_fields, expected_move):
-        # A write to a run's bookkeeping is not activity — bumping on it would float idle
-        # sessions back to the top of the list with nothing new in them to read.
         task = self._task()
         run = TaskRun.objects.create(task=task, team=self.team, status=TaskRun.Status.QUEUED)
         Task.objects.filter(id=task.id).update(last_activity_at=STALE_ACTIVITY_AT)
@@ -557,8 +553,6 @@ class TestTaskActivityClock(TestCase):
         self.assertEqual(task.last_activity_at > STALE_ACTIVITY_AT, expected_move)
 
     def test_the_clock_never_runs_backwards(self):
-        # Retried Temporal activities and slow writers replay old timestamps; a clock that
-        # accepted them would drop a live session back down the list.
         task = self._task()
         latest = django_timezone.now()
         Task.objects.filter(id=task.id).update(last_activity_at=latest)

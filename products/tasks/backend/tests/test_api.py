@@ -2114,9 +2114,6 @@ class TestTaskAPI(BaseTaskAPITest):
         ]
     )
     def test_list_tasks_ordering(self, _name, query, expected_titles):
-        # The page is cut server-side, so a surface showing the newest few can only surface a
-        # long-running session if the server orders by activity — sorting the page it got back
-        # never reaches the session that fell off it.
         old = self.create_task("Still running")
         Task.objects.filter(id=old.id).update(
             created_at=django_timezone.now() - timedelta(days=3),

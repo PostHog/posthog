@@ -29,9 +29,9 @@ def backfill_last_activity_at(apps, schema_editor):
     """Seed the activity clock from what existing rows already know about themselves.
 
     The task's own ``updated_at`` and its newest run's ``updated_at`` are the closest thing
-    history carries to "when something last happened here" — a run's timestamp moves while it
-    streams, the task's does not. Postgres ``GREATEST`` ignores NULLs, so a task with no runs
-    falls back to its own ``updated_at``.
+    history carries to "when something last happened here", since a run's timestamp moves while
+    it streams and the task's does not. Postgres ``GREATEST`` ignores NULLs, so a task with no
+    runs falls back to its own ``updated_at``.
     """
     last_id = "00000000-0000-0000-0000-000000000000"
     batches = 0

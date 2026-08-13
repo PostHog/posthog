@@ -309,12 +309,10 @@ class Task(DeletedMetaFields, models.Model):
 
     created_at = models.DateTimeField(default=django_timezone.now)
     updated_at = models.DateTimeField(auto_now=True)
-    # When something last happened *in* the task: a thread message either way, or a run
-    # starting, streaming, or finishing. `updated_at` answers a different question — when
-    # the task row itself was last written — and a session can run for hours without any
-    # write landing on this row, which is why sorting a session list by it reads as
-    # created-order. Nullable only for rows written outside the ORM; every path that
-    # creates a task through Django stamps it.
+    # Distinct from `updated_at` (the row's last write): this moves when something happens
+    # in the task, so a run can stream for hours without touching `updated_at` yet still sort
+    # to the top. Nullable only for rows written outside the ORM; the Django default stamps
+    # every other path.
     last_activity_at = models.DateTimeField(default=django_timezone.now, null=True, blank=True)
     ci_prompt = models.TextField(
         blank=True,
@@ -1323,7 +1321,6 @@ def bump_task_activity(*, team_id: int, task_id: uuid.UUID | str, at: datetime) 
 
 @receiver(post_save, sender=TaskThreadMessage)
 def bump_task_activity_on_thread_message(sender, instance: "TaskThreadMessage", created: bool, **kwargs) -> None:
-    """A message in the thread is activity on the task, whoever wrote it."""
     if created:
         bump_task_activity(team_id=instance.team_id, task_id=instance.task_id, at=instance.created_at)
 
@@ -3202,21 +3199,17 @@ def delete_task_session_object(sender: type[TaskSession], instance: TaskSession,
     transaction.on_commit(delete_object)
 
 
-# Run fields whose write means the agent did something a reader would call activity.
-# Everything else a run carries (branch, model, the sandbox session it is attached to) is
-# bookkeeping, and bumping the task for it would put a session back at the top of the list
-# with nothing new in it to read.
+# A write to one of these means the agent did something a reader would call activity. Writes to
+# anything else a run carries (branch, model, its sandbox session) are bookkeeping, and bumping
+# on them would float an idle session to the top with nothing new to read.
 RUN_ACTIVITY_FIELDS = frozenset({"status", "stage", "output", "artifacts", "completed_at", "error_message"})
 
 
 @receiver(post_save, sender=TaskRun)
 def bump_task_activity_on_run(sender, instance: TaskRun, created: bool, update_fields=None, **kwargs) -> None:
-    """Keep the task's activity clock following its runs — the signal a live session gives off.
-
-    A signal rather than calls at each transition: runs are written from the API, the webhook
-    handlers, the sandbox relay, and several Temporal activities, and a session that looks idle
-    in the list because one of those paths forgot to bump is the bug this exists to fix.
-    """
+    # A signal rather than calls at each transition because runs are written from the API, the
+    # webhook handlers, the sandbox relay, and several Temporal activities, and one path forgetting
+    # to bump would silently leave a live session reading as idle.
     if not created and update_fields is not None and not (RUN_ACTIVITY_FIELDS & set(update_fields)):
         return
     bump_task_activity(team_id=instance.team_id, task_id=instance.task_id, at=django_timezone.now())
