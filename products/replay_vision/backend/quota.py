@@ -241,7 +241,7 @@ def compute_scanner_budgets(
     scanner's limit. In-flight observations and running prompt evaluations are reserved live from their
     frozen snapshot model, exactly as the org snapshot does, because a sweep tick admits many
     observations concurrently against one read. Receipts written before `scanner_id` existed were
-    backfilled from their observation rows (0069); only receipts whose observation was deleted
+    backfilled from their observation rows (0070); only receipts whose observation was deleted
     before the backfill remain unattributed.
 
     Uncapped scanners skip the aggregates entirely and report zero usage: gates read `blocked`,

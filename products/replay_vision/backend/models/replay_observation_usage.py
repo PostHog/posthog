@@ -48,7 +48,7 @@ class ReplayObservationUsage(UUIDModel):
             models.Index(fields=["created_at", "team_id"], name="rlou_created_team_idx"),
             # Drives the per-scanner credit limit aggregate over the current billing period. Partial
             # because the aggregate only ever looks up concrete scanner ids; rows left null (their
-            # observation was deleted before the 0069 backfill, or they are pre-stack evaluation
+            # observation was deleted before the 0070 backfill, or they are pre-stack evaluation
             # receipts with synthetic observation ids) are never queried.
             models.Index(
                 fields=["scanner_id", "observation_created_at"],

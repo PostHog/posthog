@@ -390,7 +390,7 @@ class TestBackfillUsageScannerId(_VisionQuotaTestCase):
             observation_created_at=timezone.now(),
         )
 
-        migration = importlib.import_module("products.replay_vision.backend.migrations.0069_backfill_usage_scanner_id")
+        migration = importlib.import_module("products.replay_vision.backend.migrations.0070_backfill_usage_scanner_id")
         with connection.schema_editor(atomic=False) as schema_editor:
             migration.backfill_scanner_id(django_apps, schema_editor)
 
@@ -415,7 +415,7 @@ class TestBackfillUsageScannerId(_VisionQuotaTestCase):
             observation_created_at=timezone.now(),
         )
 
-        migration = importlib.import_module("products.replay_vision.backend.migrations.0069_backfill_usage_scanner_id")
+        migration = importlib.import_module("products.replay_vision.backend.migrations.0070_backfill_usage_scanner_id")
         # BATCH_SIZE=1 forces one keyset iteration per receipt, exercising the pagination loop.
         with patch.object(migration, "BATCH_SIZE", 1):
             with connection.schema_editor(atomic=False) as schema_editor:

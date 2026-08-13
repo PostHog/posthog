@@ -9,7 +9,7 @@ class Migration(migrations.Migration):
     atomic = False
 
     dependencies = [
-        ("replay_vision", "0066_scanner_credit_limit"),
+        ("replay_vision", "0067_scanner_credit_limit"),
     ]
 
     operations = [

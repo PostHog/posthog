@@ -8,7 +8,7 @@ class Migration(migrations.Migration):
     # own migration so 0066's NOT VALID add commits and releases its ACCESS EXCLUSIVE lock first,
     # rather than holding it across the validation scan.
     dependencies = [
-        ("replay_vision", "0067_scanner_usage_scanner_id_index"),
+        ("replay_vision", "0068_scanner_usage_scanner_id_index"),
     ]
 
     operations = [
