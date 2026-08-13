@@ -1,6 +1,6 @@
 {
   "db_name": "PostgreSQL",
-  "query": "\n            SELECT op_id, op_type, team_id::bigint as \"team_id!\", step, attempt,\n                   request as \"request: Value\", outcome as \"outcome: Value\",\n                   created_at, completed_at\n            FROM lifecycle_op\n            WHERE op_id = $1\n            ",
+  "query": "\n            SELECT op_id, op_type, team_id::bigint as \"team_id!\", step, attempt,\n                   request as \"request: Value\", outcome as \"outcome: Value\",\n                   created_at, completed_at,\n                   (lease_expires_at IS NOT NULL AND lease_expires_at >= now())\n                       as \"lease_live!\"\n            FROM lifecycle_op\n            WHERE op_id = $1\n            ",
   "describe": {
     "columns": [
       {
@@ -47,6 +47,11 @@
         "ordinal": 8,
         "name": "completed_at",
         "type_info": "Timestamptz"
+      },
+      {
+        "ordinal": 9,
+        "name": "lease_live!",
+        "type_info": "Bool"
       }
     ],
     "parameters": {
@@ -63,8 +68,9 @@
       false,
       true,
       false,
-      true
+      true,
+      null
     ]
   },
-  "hash": "781b6c270dbdb936f7dc64fd7a007b130117f50235c066ee72705f5f3f5a8694"
+  "hash": "eb0d1e16eed55534b6f443fc08952770230df349729b248934f125bbc38e7bcd"
 }
