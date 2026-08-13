@@ -501,7 +501,7 @@ export function ChannelSidebar({ channelId }: { channelId: string }) {
 
   // Label comes from the shared space-page table, so a sidebar row and the
   // header breadcrumb for the same page can never disagree. No icon: this is a
-  // four-row list of words, and glyphs here only compete with the status dots
+  // short list of words, and glyphs here only compete with the status dots
   // in the sessions list below for the eye's attention.
   const sectionRow = (
     page: ChannelPageKey,
@@ -562,15 +562,6 @@ export function ChannelSidebar({ channelId }: { channelId: string }) {
                 params: { channelId },
               }),
           )}
-        {sectionRow(
-          "artifacts",
-          `${base}/artifacts`,
-          () =>
-            void navigate({
-              to: "/website/$channelId/artifacts",
-              params: { channelId },
-            }),
-        )}
       </div>
 
       {/* Relative so the FAB and the drag-selection band can float over the

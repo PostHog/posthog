@@ -5,7 +5,6 @@ import { channelGlyph } from "@posthog/ui/features/canvas/components/channelGlyp
 import { closeSettings } from "@posthog/ui/features/settings/hooks/useOpenSettings";
 import {
   navigateToChannel,
-  navigateToChannelArtifacts,
   navigateToChannelTask,
   navigateToTaskDetail,
 } from "@posthog/ui/router/navigationBridge";
@@ -115,13 +114,6 @@ export function useSearchSections({
             result.channel_id
           ) {
             navigateToChannel(result.channel_id);
-          } else if (
-            bluebirdEnabled &&
-            result.kind === "artifact" &&
-            result.channel_id &&
-            result.metadata.living === true
-          ) {
-            navigateToChannelArtifacts(result.channel_id);
           } else if (task) {
             // PR matches intentionally open their containing task. Cmd+K is a
             // navigator for Desktop context, not an external-link launcher.

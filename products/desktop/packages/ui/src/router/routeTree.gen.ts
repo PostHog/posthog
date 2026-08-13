@@ -38,7 +38,6 @@ import { Route as WebsiteChannelIdLoopsRouteImport } from './routes/website/$cha
 import { Route as WebsiteChannelIdHistoryRouteImport } from './routes/website/$channelId/history'
 import { Route as WebsiteChannelIdContextRouteImport } from './routes/website/$channelId/context'
 import { Route as WebsiteChannelIdCanvasesRouteImport } from './routes/website/$channelId/canvases'
-import { Route as WebsiteChannelIdArtifactsRouteImport } from './routes/website/$channelId/artifacts'
 import { Route as CodeTasksTaskIdRouteImport } from './routes/code/tasks/$taskId'
 import { Route as CodeLoopsNewRouteImport } from './routes/code/loops/new'
 import { Route as CodeLoopsLoopIdRouteImport } from './routes/code/loops/$loopId'
@@ -224,12 +223,6 @@ const WebsiteChannelIdCanvasesRoute =
   WebsiteChannelIdCanvasesRouteImport.update({
     id: '/$channelId/canvases',
     path: '/$channelId/canvases',
-    getParentRoute: () => WebsiteRoute,
-  } as any)
-const WebsiteChannelIdArtifactsRoute =
-  WebsiteChannelIdArtifactsRouteImport.update({
-    id: '/$channelId/artifacts',
-    path: '/$channelId/artifacts',
     getParentRoute: () => WebsiteRoute,
   } as any)
 const CodeTasksTaskIdRoute = CodeTasksTaskIdRouteImport.update({
@@ -484,7 +477,6 @@ export interface FileRoutesByFullPath {
   '/code/loops/$loopId': typeof CodeLoopsLoopIdRouteWithChildren
   '/code/loops/new': typeof CodeLoopsNewRoute
   '/code/tasks/$taskId': typeof CodeTasksTaskIdRoute
-  '/website/$channelId/artifacts': typeof WebsiteChannelIdArtifactsRoute
   '/website/$channelId/canvases': typeof WebsiteChannelIdCanvasesRoute
   '/website/$channelId/context': typeof WebsiteChannelIdContextRoute
   '/website/$channelId/history': typeof WebsiteChannelIdHistoryRoute
@@ -546,7 +538,6 @@ export interface FileRoutesByTo {
   '/code/inbox/agents': typeof CodeInboxAgentsRoute
   '/code/loops/new': typeof CodeLoopsNewRoute
   '/code/tasks/$taskId': typeof CodeTasksTaskIdRoute
-  '/website/$channelId/artifacts': typeof WebsiteChannelIdArtifactsRoute
   '/website/$channelId/canvases': typeof WebsiteChannelIdCanvasesRoute
   '/website/$channelId/context': typeof WebsiteChannelIdContextRoute
   '/website/$channelId/history': typeof WebsiteChannelIdHistoryRoute
@@ -617,7 +608,6 @@ export interface FileRoutesById {
   '/code/loops/$loopId': typeof CodeLoopsLoopIdRouteWithChildren
   '/code/loops/new': typeof CodeLoopsNewRoute
   '/code/tasks/$taskId': typeof CodeTasksTaskIdRoute
-  '/website/$channelId/artifacts': typeof WebsiteChannelIdArtifactsRoute
   '/website/$channelId/canvases': typeof WebsiteChannelIdCanvasesRoute
   '/website/$channelId/context': typeof WebsiteChannelIdContextRoute
   '/website/$channelId/history': typeof WebsiteChannelIdHistoryRoute
@@ -691,7 +681,6 @@ export interface FileRouteTypes {
     | '/code/loops/$loopId'
     | '/code/loops/new'
     | '/code/tasks/$taskId'
-    | '/website/$channelId/artifacts'
     | '/website/$channelId/canvases'
     | '/website/$channelId/context'
     | '/website/$channelId/history'
@@ -753,7 +742,6 @@ export interface FileRouteTypes {
     | '/code/inbox/agents'
     | '/code/loops/new'
     | '/code/tasks/$taskId'
-    | '/website/$channelId/artifacts'
     | '/website/$channelId/canvases'
     | '/website/$channelId/context'
     | '/website/$channelId/history'
@@ -823,7 +811,6 @@ export interface FileRouteTypes {
     | '/code/loops/$loopId'
     | '/code/loops/new'
     | '/code/tasks/$taskId'
-    | '/website/$channelId/artifacts'
     | '/website/$channelId/canvases'
     | '/website/$channelId/context'
     | '/website/$channelId/history'
@@ -1090,13 +1077,6 @@ declare module '@tanstack/react-router' {
       path: '/$channelId/canvases'
       fullPath: '/website/$channelId/canvases'
       preLoaderRoute: typeof WebsiteChannelIdCanvasesRouteImport
-      parentRoute: typeof WebsiteRoute
-    }
-    '/website/$channelId/artifacts': {
-      id: '/website/$channelId/artifacts'
-      path: '/$channelId/artifacts'
-      fullPath: '/website/$channelId/artifacts'
-      preLoaderRoute: typeof WebsiteChannelIdArtifactsRouteImport
       parentRoute: typeof WebsiteRoute
     }
     '/code/tasks/$taskId': {
@@ -1389,7 +1369,6 @@ interface WebsiteRouteChildren {
   WebsiteNewRoute: typeof WebsiteNewRoute
   WebsiteSkillsRoute: typeof WebsiteSkillsRoute
   WebsiteIndexRoute: typeof WebsiteIndexRoute
-  WebsiteChannelIdArtifactsRoute: typeof WebsiteChannelIdArtifactsRoute
   WebsiteChannelIdCanvasesRoute: typeof WebsiteChannelIdCanvasesRoute
   WebsiteChannelIdContextRoute: typeof WebsiteChannelIdContextRoute
   WebsiteChannelIdHistoryRoute: typeof WebsiteChannelIdHistoryRoute
@@ -1407,7 +1386,6 @@ const WebsiteRouteChildren: WebsiteRouteChildren = {
   WebsiteNewRoute: WebsiteNewRoute,
   WebsiteSkillsRoute: WebsiteSkillsRoute,
   WebsiteIndexRoute: WebsiteIndexRoute,
-  WebsiteChannelIdArtifactsRoute: WebsiteChannelIdArtifactsRoute,
   WebsiteChannelIdCanvasesRoute: WebsiteChannelIdCanvasesRoute,
   WebsiteChannelIdContextRoute: WebsiteChannelIdContextRoute,
   WebsiteChannelIdHistoryRoute: WebsiteChannelIdHistoryRoute,
