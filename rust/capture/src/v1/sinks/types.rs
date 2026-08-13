@@ -63,21 +63,24 @@ impl Destination {
     ///
     /// Everything else keeps its key even when person processing is off,
     /// because its consumers rely on per-distinct-id ordering: historical
-    /// backfills, the dlq, admin custom redirects, and the AI main topic.
-    /// Matches the lanes legacy `route()` resolves through `person_ordering`.
+    /// backfills, the dlq, and admin custom redirects. Matches the lanes
+    /// legacy `route()` resolves through `person_ordering`.
+    ///
+    /// Both AI lanes sit on the true side. An AI event whose person
+    /// processing is off is a hot key by construction, and the AI consumer
+    /// only reads persons, so it takes keyless records at any time.
     ///
     /// Exhaustive on purpose: a new destination has to state which side it is
     /// on rather than silently inheriting "keeps its key".
     pub fn absorbs_hot_keys(&self) -> bool {
         match self {
-            Self::AnalyticsMain | Self::Overflow | Self::AiEventsOverflow => true,
+            Self::AnalyticsMain | Self::Overflow | Self::AiEvents | Self::AiEventsOverflow => true,
             Self::AnalyticsHistorical
             | Self::Dlq
             | Self::Custom(_)
             | Self::ExceptionErrorTracking
             | Self::HeatmapMain
-            | Self::ClientIngestionWarning
-            | Self::AiEvents => false,
+            | Self::ClientIngestionWarning => false,
             // Never published, so it never reaches a partition key.
             Self::Drop => false,
         }

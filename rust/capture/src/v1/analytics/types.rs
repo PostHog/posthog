@@ -218,14 +218,15 @@ pub struct WrappedEvent {
     pub details: Option<&'static str>,
     pub destination: Destination,
     pub force_disable_person_processing: bool,
-    /// Set when the overflow limiter decided this key is bursting and should
-    /// be spread across the overflow topic's partitions. Deliberately separate
-    /// from `force_disable_person_processing`: spreading a hot key is a
-    /// partitioning decision, while disabling person processing is a
-    /// customer-visible instruction to skip identity resolution, and the
-    /// overflow limiter only means the former. Consumed by `ordering()`,
-    /// which realizes it only on lanes whose consumers do not write persons —
-    /// elsewhere the key holds until person processing is off.
+    /// Set when something decided this record may publish without a partition
+    /// key. The overflow limiter is one such source, on a key it judged to be
+    /// bursting; deployment config is another. Deliberately separate from
+    /// `force_disable_person_processing`: spreading a key is a partitioning
+    /// decision, while disabling person processing is a customer-visible
+    /// instruction to skip identity resolution, and neither implies the
+    /// other. Consumed by `ordering()`, which realizes it only on lanes whose
+    /// consumers do not write persons — elsewhere the key holds until person
+    /// processing is off.
     pub spread_partitions: bool,
     /// Set by the gateway-provenance step when a valid signature was verified;
     /// read by the quota shim to exempt the event from the llm_events limiter.
@@ -1113,11 +1114,12 @@ mod tests {
         Stamps { person_off: true, ..Stamps::on(Destination::AiEventsOverflow) },
         OrderingGuarantee::None
     )]
-    // Lanes whose consumers need the key regardless: person processing being
-    // off must not spread them, matching v0's route().
+    // The AI main lane spreads once person processing is off, like the AI
+    // overflow lane above and matching v0's resolve(). Its consumer only
+    // reads persons, so a keyless record contends nothing.
     #[case::ai_main_person_off(
         Stamps { person_off: true, ..Stamps::on(Destination::AiEvents) },
-        OrderingGuarantee::PerDistinctId
+        OrderingGuarantee::None
     )]
     #[case::historical_person_off(
         Stamps { person_off: true, ..Stamps::on(Destination::AnalyticsHistorical) },

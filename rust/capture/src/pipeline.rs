@@ -95,11 +95,11 @@ pub struct AiLaneRouting {
     /// set. Unset means the AI lane never routes to overflow, force_overflow
     /// and stamped reasons included.
     pub overflow_armed: bool,
-    /// Whether an AI event keeps its partition key on the main lane. Unlike
-    /// the analytics overflow lane, this is not tied to person processing:
-    /// the key can be dropped while person processing stays on, so events
-    /// spread across the AI topic's partitions and still carry person
-    /// properties.
+    /// Whether an AI event keeps its partition key on the main lane while
+    /// person processing is on. Turning it off spreads a hot token across the
+    /// AI topic's partitions without disabling person processing, so those
+    /// events still carry person properties downstream — which no other way
+    /// of spreading an AI burst does.
     pub preserve_main_locality: bool,
     /// The same, for the AI overflow lane. A force-limited key ignores this
     /// and publishes keyless either way — breaking up a hot key is what that
@@ -126,12 +126,14 @@ fn keyed(preserve: bool) -> OrderingGuarantee {
     }
 }
 
-/// Key policy for the AI overflow lane. Person processing being off still
-/// nulls the key on its own, as on the analytics overflow lane — a key whose
-/// person processing was already disabled must not get its partition back.
-/// The config knob decides the remaining case, where person processing is on.
-fn ai_overflow_ordering(ai: AiLaneRouting, person_processing_disabled: bool) -> OrderingGuarantee {
-    keyed(ai.preserve_overflow_locality && !person_processing_disabled)
+/// Key policy for an AI lane. Both lanes answer the same way: person
+/// processing being off nulls the key on its own — an event whose identity
+/// resolution is already disabled is a hot key by construction, and the AI
+/// consumer only reads persons, so it takes keyless records at any time. The
+/// deployment setting decides the remaining case, where person processing is
+/// on.
+fn ai_ordering(preserve_locality: bool, person_processing_disabled: bool) -> OrderingGuarantee {
+    keyed(preserve_locality && !person_processing_disabled)
 }
 
 /// Decide an event's address from its metadata. DLQ and custom-topic
@@ -219,7 +221,10 @@ pub fn resolve(
                 AddressDecision::lane(
                     Pipeline::Ai,
                     Lane::Overflow,
-                    ai_overflow_ordering(ai, metadata.person_processing_disabled()),
+                    ai_ordering(
+                        ai.preserve_overflow_locality,
+                        metadata.person_processing_disabled(),
+                    ),
                 )
             } else if ai_events_overflow_armed {
                 match &metadata.overflow_reason {
@@ -231,18 +236,31 @@ pub fn resolve(
                     Some(OverflowReason::RateLimited { .. }) => AddressDecision::lane(
                         Pipeline::Ai,
                         Lane::Overflow,
-                        ai_overflow_ordering(ai, metadata.person_processing_disabled()),
+                        ai_ordering(
+                            ai.preserve_overflow_locality,
+                            metadata.person_processing_disabled(),
+                        ),
                     ),
                     // ReplayLimited cannot be stamped on the AI lane either;
                     // treated as unstamped, as above.
                     Some(OverflowReason::ReplayLimited) | None => AddressDecision::lane(
                         Pipeline::Ai,
                         Lane::Main,
-                        keyed(ai.preserve_main_locality),
+                        ai_ordering(
+                            ai.preserve_main_locality,
+                            metadata.person_processing_disabled(),
+                        ),
                     ),
                 }
             } else {
-                AddressDecision::lane(Pipeline::Ai, Lane::Main, keyed(ai.preserve_main_locality))
+                AddressDecision::lane(
+                    Pipeline::Ai,
+                    Lane::Main,
+                    ai_ordering(
+                        ai.preserve_main_locality,
+                        metadata.person_processing_disabled(),
+                    ),
+                )
             }
         }
         // Single-lane pipelines: capture has no overflow topic for warnings,
@@ -559,9 +577,12 @@ mod tests {
     }
 
     #[test]
-    fn ai_events_default_route_keeps_event_key() {
-        // skip_person_processing must not null the key on the AI default
-        // route: v1 only nulls keys for Main/Overflow-shaped destinations.
+    fn ai_events_default_route_spreads_once_person_processing_is_off() {
+        // An AI event with identity resolution already disabled is a hot key
+        // by construction, and the AI consumer only reads persons, so the
+        // main lane drops the key without waiting for the deployment setting.
+        // v1's `Destination::absorbs_hot_keys` puts the AI lanes on the same
+        // side, so the two stacks agree.
         let mut m = meta(DataType::AiEvents);
         m.skip_person_processing = true;
         for armed in [false, true] {
@@ -569,11 +590,30 @@ mod tests {
                 resolve(&m, routing(armed)).unwrap(),
                 AddressDecision {
                     address: lane(Pipeline::Ai, Lane::Main),
-                    ordering: OrderingGuarantee::PerDistinctId,
+                    ordering: OrderingGuarantee::None,
                 },
                 "armed={armed}"
             );
         }
+
+        // With person processing on, the deployment setting decides.
+        let m = meta(DataType::AiEvents);
+        assert_eq!(
+            resolve(&m, routing(false)).unwrap().ordering,
+            OrderingGuarantee::PerDistinctId
+        );
+        assert_eq!(
+            resolve(
+                &m,
+                AiLaneRouting {
+                    preserve_main_locality: false,
+                    ..AiLaneRouting::default()
+                }
+            )
+            .unwrap()
+            .ordering,
+            OrderingGuarantee::None
+        );
     }
 
     #[test]

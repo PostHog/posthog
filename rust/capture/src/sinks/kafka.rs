@@ -2457,13 +2457,16 @@ mod tests {
             let records = producer.get_records();
             assert_eq!(records.len(), 1);
             assert_eq!(records[0].topic, AI_EVENTS_TOPIC);
-            assert_eq!(records[0].key.as_deref(), Some("test_token:test_user"));
+            // ForceLimited implies person processing off, which spreads the
+            // key on its own — the unarmed valve only pins the topic here.
+            assert_eq!(records[0].key, None);
         }
 
         #[tokio::test]
-        async fn ai_events_skip_person_keeps_key() {
-            // skip_person_processing sets the header but must not null the
-            // key: v1's sink only nulls keys for Main/Overflow destinations.
+        async fn ai_events_skip_person_spreads() {
+            // skip_person_processing nulls the key on the AI main lane: the
+            // event is a hot key by construction and the AI consumer only
+            // reads persons.
             assert_routing(
                 EventInput {
                     data_type: DataType::AiEvents,
@@ -2476,7 +2479,7 @@ mod tests {
                 },
                 ExpectedRouting {
                     topic: AI_EVENTS_TOPIC,
-                    has_key: true,
+                    has_key: false,
                     force_disable_person_processing: Some(true),
                     ..Default::default()
                 },
