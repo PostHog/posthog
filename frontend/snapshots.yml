@@ -6298,18 +6298,6 @@ snapshots:
         hash: v1.k794b7964.f3c8bc6697db692d759f57d5f1cba413b909e22923e87c65d0c223e613144076.sfVPBgq0NjbXJfcc8nye_vNXKKoaNiKVdX2kKdYWjug
     scenes-app-hogfunctions-destination--runs-with-data--light:
         hash: v1.k794b7964.7ebd6b1de8b3532192340ab4748697c7175fbb3e36227394abac3397e7fb36d5.g74q_2eAZTmStVOVUVR9w1MEZmTHfWR6PBmaj1xImiM
-    scenes-app-hogfunctions-invocationssparkline--minute-buckets--dark:
-        hash: v1.k794b7964.053d79267cb46ed2a3d6c71431df199ef9b9c07dd03212d0b81d596dc29267f5.BF--8w3swJC7PqM5rqBuwxCmiyVcJJzjYrQHnO-1O_k
-    scenes-app-hogfunctions-invocationssparkline--minute-buckets--light:
-        hash: v1.k794b7964.47d04f4f3e449e531332289932b8ee142b8385a4a9917b2d305dc405ea28fe2b.Y7vt-ONbD4vvpuHBery2NCcUn7qwBg5YzMoXP7ycUl0
-    scenes-app-hogfunctions-invocationssparkline--no-invocations--dark:
-        hash: v1.k794b7964.a4648bab6988b7e05cc061c41cd763d01830f968b95a288ea9e13a06f672ac7c.uygJuT2clcLQRpDWTl4MlO_b95awvXal2cfIWLyGzVc
-    scenes-app-hogfunctions-invocationssparkline--no-invocations--light:
-        hash: v1.k794b7964.338b36ebc6ee8998ad46f63fba8eb24380e98ca9c13b134ce2b63a9e2bd9febe.btvfHLBBn0y46nlWyNLL77WuPxgZWmyj4Bnk1UIDEiQ
-    scenes-app-hogfunctions-invocationssparkline--week-of-hourly-buckets--dark:
-        hash: v1.k794b7964.363a57807bd4cfb1a9dbb9cba8f3a9dec0412dc70bcf1caf5dd765023f13bf04.j3XxN6_uDSBmFiN0dRgvWHXKvRQlhtttOPEsXVs0aw4
-    scenes-app-hogfunctions-invocationssparkline--week-of-hourly-buckets--light:
-        hash: v1.k794b7964.461dff5273fd97c22966bb47423c06682fe4942471176f541e67abcce60b22eb.iwOhWf-MugRRIXF10rZcN0o2rQpokdbqPjVFPjHm2fs
     scenes-app-hogfunctions-invocationssparkline--with-activity--dark:
         hash: v1.k794b7964.280a3bc355fbb852d9fa1d263e5b64b78075ab6c6736a681179d889b12509511.PXK7NUJxJ9CwB10xyOU3hwZ008ZQxMZnSz5_qfwYbRc
     scenes-app-hogfunctions-invocationssparkline--with-activity--light:

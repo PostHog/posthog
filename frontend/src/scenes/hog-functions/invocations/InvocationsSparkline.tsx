@@ -48,22 +48,16 @@ export function InvocationsSparkline({
     const theme = useChartTheme()
     const config = useChartConfig<TimeSeriesBarChartConfig>(
         () => ({
-            // The runs table below renders timestamps in local time, so the axis should agree. The interval
-            // is left to quill, which reads it off consecutive labels — the span disagrees with the
-            // logic's bucket tier, and it is the interval that picks the tick mode.
             xAxis: { tickFormatter: createXAxisTickCallback({ allDays: dates, timezone: dayjs.tz.guess() }) },
         }),
         [dates]
     )
 
-    // Wired directly rather than through `useDateRangeZoom`, which gates on the insight drag-to-zoom
-    // rollout flag: here the drag is the primary way to narrow the runs list, not an opt-in extra.
     const onDateRangeZoom = useCallback(
         ({ startIndex, endIndex }: DateRangeZoomData): void => {
             const from = dates[startIndex]
-            // `+1` so the selection end aligns with the *next* bucket boundary,
-            // mirroring how the logs sparkline emits ranges. If we hit past
-            // the end of the buckets, leave dateTo undefined (= "up to now").
+            // +1 ends the range at the next bucket boundary; past the last bucket leaves dateTo
+            // undefined, which the runs list reads as "up to now".
             const to = dates[endIndex + 1]
             if (from) {
                 onDateRangeChange(from, to)
@@ -88,7 +82,7 @@ export function InvocationsSparkline({
                 </LemonButton>
             </div>
             {!collapsed && (
-                // Quill charts fill a *flex* parent (their root is flex-1), so the sized container must be a flex column.
+                // Quill's chart root is flex-1, so the sized container has to be a flex column for h-24 to apply.
                 <div className="relative h-24 flex flex-col">
                     {hasAnyData ? (
                         <TimeSeriesBarChart
