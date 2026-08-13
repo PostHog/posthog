@@ -11,6 +11,7 @@ a per-recipient sent marker to store.
 """
 
 from collections.abc import Callable, Mapping
+from urllib.parse import urlencode
 from uuid import UUID
 
 from django.conf import settings
@@ -334,6 +335,14 @@ def _author_name(comment: Comment) -> str:
     return f"{author.first_name} {author.last_name}".strip() or author.email or "Someone"
 
 
+def _bridge_url(*, comment: Comment, task: Task) -> str:
+    params = {"comment": str(comment.source_comment_id or comment.id)}
+    if comment.scope in _LOCATIONS and comment.item_id:
+        params["scope"] = comment.scope
+        params["item"] = comment.item_id
+    return f"{settings.SITE_URL}/code/task/{task.id}?{urlencode(params)}"
+
+
 def _message(
     *,
     kind: str,
@@ -342,7 +351,7 @@ def _message(
     organization_id: str | UUID | None,
     slack_user_id_by_email: Callable[[str], str | None] | None = None,
 ) -> tuple[str, list[dict]]:
-    url = f"{settings.SITE_URL}/project/{task.team_id}/tasks/{task.id}"
+    url = _bridge_url(comment=comment, task=task)
     title = task.title or "a task"
     author = _author_name(comment)
     template = _HEADINGS.get(kind, _HEADINGS[TaskCommentActivity.Kind.MENTION])
