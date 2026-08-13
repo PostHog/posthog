@@ -7288,6 +7288,131 @@ def post_canvas_created_thread_update(
         logger.exception("Failed to post canvas-created thread update", extra={"task_id": str(task_id)})
 
 
+def post_canvas_error_thread_update(
+    task_id: str | UUID,
+    team_id: int,
+    *,
+    canvas_id: str,
+    canvas_name: str,
+    build_id: str,
+    source_version_id: str | None,
+    error_type: str,
+    origin: str,
+    error_codes: list[str] | None = None,
+) -> str:
+    """File a canvas failure report (``event="canvas_error_reported"``) in the authoring task's thread.
+
+    ``error_type``/``error_codes`` must already be validated identifiers — the canvas
+    backend owns that sanitization because everything here lands in agent-visible text.
+    The task id is resolved server-side from the canvas record, never caller-named, so
+    a teammate can't plant reports in an unrelated task's thread. Dedupes per
+    ``(build_id, error_type)`` under the task row lock, mirroring ``pr_created``.
+    Returns ``filed`` / ``duplicate`` / ``skipped``; never raises.
+    """
+    try:
+        task = Task.objects.select_related("created_by").filter(id=task_id, team_id=team_id).first()
+        if task is None or not _agent_thread_updates_enabled(task.created_by):
+            return "skipped"
+        with transaction.atomic():
+            Task.objects.select_for_update().filter(id=task.id).first()
+            if (
+                TaskThreadMessage.objects.for_team(task.team_id)
+                .filter(
+                    task_id=task.id,
+                    event="canvas_error_reported",
+                    payload__build_id=build_id,
+                    payload__error_type=error_type,
+                )
+                .exists()
+            ):
+                return "duplicate"
+            name = re.sub(r"[\[\]\n]", " ", canvas_name).strip() or "Canvas"
+            if origin == "build":
+                codes = ", ".join(error_codes or []) or "unknown"
+                content = f'Canvas "{name}" build failed ({codes})'
+            else:
+                content = f'Canvas "{name}" hit a runtime error ({error_type}) in a rendering session'
+            _create_agent_thread_message(
+                task,
+                content,
+                event="canvas_error_reported",
+                payload={
+                    "canvas_id": canvas_id,
+                    "canvas_name": name,
+                    "build_id": build_id,
+                    "source_version_id": source_version_id,
+                    "error_type": error_type,
+                    "origin": origin,
+                    "error_codes": error_codes or [],
+                },
+            )
+        return "filed"
+    except Exception:
+        logger.exception("Failed to post canvas-error thread update", extra={"task_id": str(task_id)})
+        return "skipped"
+
+
+def request_canvas_fix(task_id: str | UUID, team_id: int, *, prompt: str, acting_user_id: int | None) -> str:
+    """Wake a task's agent to fix a canvas: signal the live run, else seed a fresh run with ``prompt``.
+
+    The fresh-run path mirrors ``run_task_automation``: create the run inside a
+    transaction and dispatch its processing workflow on commit with
+    ``skip_user_check`` (the run is server-originated; ``acting_user_id`` is
+    attribution, not authorization — callers gate access to the canvas).
+    Returns ``signaled`` / ``new_run`` / ``not_found`` / ``quota_exhausted``.
+    """
+    from products.tasks.backend.exceptions import (
+        ComputeBillingLimitError,  # noqa: PLC0415 — keep temporalio off the api import path
+    )
+    from products.tasks.backend.logic.services.compute_quota import is_compute_quota_exhausted  # noqa: PLC0415
+
+    task = Task.objects.select_related("team", "created_by").filter(id=task_id, team_id=team_id).first()
+    if task is None:
+        return "not_found"
+    if is_compute_quota_exhausted(task):
+        return "quota_exhausted"
+    run = task.latest_run
+    if run is not None and not run.is_terminal:
+        try:
+            if signal_task_run_user_message(
+                run.id, task.id, team_id, content=prompt, artifact_ids=[], actor_user_id=acting_user_id
+            ):
+                return "signaled"
+        except ComputeBillingLimitError:
+            return "quota_exhausted"
+        # The workflow is gone despite the non-terminal row (evicted or stale); fall
+        # through to a fresh run rather than reporting a dead end.
+    with transaction.atomic():
+        task_run = task.create_run(mode="background", extra_state={"pending_user_message": prompt})
+        dispatch_team_id = task.team_id
+        dispatch_user_id = task.created_by_id
+        dispatch_task_id = str(task.id)
+        dispatch_run_id = str(task_run.id)
+        transaction.on_commit(
+            lambda: _dispatch_canvas_fix_run(
+                team_id=dispatch_team_id,
+                user_id=dispatch_user_id,
+                task_id=dispatch_task_id,
+                run_id=dispatch_run_id,
+            )
+        )
+    return "new_run"
+
+
+def _dispatch_canvas_fix_run(*, team_id: int, user_id: int | None, task_id: str, run_id: str) -> None:
+    from products.tasks.backend.temporal.client import (  # noqa: PLC0415 — keep temporalio off the api import path
+        execute_task_processing_workflow,
+    )
+
+    execute_task_processing_workflow(
+        task_id=task_id,
+        run_id=run_id,
+        team_id=team_id,
+        user_id=user_id,
+        skip_user_check=True,
+    )
+
+
 _GITHUB_PR_PATH_PATTERN = re.compile(r"/([^/]+)/([^/]+)/pull/(\d+)/?", re.IGNORECASE)
 
 # Characters that could break out of a markdown [label](url) token or smuggle

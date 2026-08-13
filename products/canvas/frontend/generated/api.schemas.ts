@@ -638,6 +638,88 @@ export interface CanvasPublishCurrentVersionApi {
 }
 
 /**
+ * Payload for reporting a runtime error observed while rendering a canvas build.
+ */
+export interface CanvasReportErrorApi {
+    /** Id of the build that was rendering when the error occurred. */
+    build_id: string
+    /**
+     * Error class name only, for example TypeError. Values that are not a plain class-name identifier are recorded as 'unknown'. Full error messages and stack traces must stay client-side.
+     * @maxLength 64
+     */
+    error_type: string
+}
+
+/**
+ * * `filed` - filed
+ * * `duplicate` - duplicate
+ * * `no_authoring_task` - no_authoring_task
+ * * `skipped` - skipped
+ */
+export type ReportOutcomeEnumApi = (typeof ReportOutcomeEnumApi)[keyof typeof ReportOutcomeEnumApi]
+
+export const ReportOutcomeEnumApi = {
+    Filed: 'filed',
+    Duplicate: 'duplicate',
+    NoAuthoringTask: 'no_authoring_task',
+    Skipped: 'skipped',
+} as const
+
+/**
+ * Outcome of filing a canvas error report.
+ */
+export interface CanvasErrorReportResultApi {
+    /** Whether a new report was filed in the authoring task's thread. */
+    filed: boolean
+    /** filed: a new report row was written. duplicate: this build and error type were already reported. no_authoring_task: the canvas has no linked task to notify. skipped: thread updates are unavailable.
+     *
+     * * `filed` - filed
+     * * `duplicate` - duplicate
+     * * `no_authoring_task` - no_authoring_task
+     * * `skipped` - skipped */
+    report_outcome: ReportOutcomeEnumApi
+}
+
+/**
+ * Payload for asking the canvas's authoring agent to fix a failing build or runtime error.
+ */
+export interface CanvasRequestFixApi {
+    /** Id of the failing or erroring build the fix should address. */
+    build_id: string
+    /**
+     * Error class from the runtime report, when fixing a runtime error. Omit for a failed build; its diagnostics are read server-side.
+     * @maxLength 64
+     */
+    error_type?: string
+}
+
+/**
+ * * `signaled` - signaled
+ * * `new_run` - new_run
+ */
+export type DispatchOutcomeEnumApi = (typeof DispatchOutcomeEnumApi)[keyof typeof DispatchOutcomeEnumApi]
+
+export const DispatchOutcomeEnumApi = {
+    Signaled: 'signaled',
+    NewRun: 'new_run',
+} as const
+
+/**
+ * Outcome of dispatching a canvas fix to the authoring agent.
+ */
+export interface CanvasFixRequestResultApi {
+    /** Whether the authoring agent was woken to work on the fix. */
+    dispatched: boolean
+    /** signaled: the task's live run received the request. new_run: a fresh agent run was started.
+     *
+     * * `signaled` - signaled
+     * * `new_run` - new_run */
+    dispatch_outcome: DispatchOutcomeEnumApi
+    /** The authoring task the fix was routed to. */
+    task_id: string
+}
+
+/**
  * Payload for reverting the canvas's head to an existing source version.
  */
 export interface CanvasRevertApi {
