@@ -662,6 +662,14 @@ export const signupLogic = kea<signupLogicType>([
         },
         setSignupPanelEmailValue: ({ name, value }) => {
             if (name.toString() === 'email' && typeof value === 'string') {
+                // "There is already an account with this email address" describes the address that was
+                // submitted, so it has to clear once a different one is typed. Manual errors count towards
+                // signupPanelEmailHasErrors, which gates the submit listener, so a stale one makes Continue
+                // do nothing for the rest of the page's life. kea-forms only drops a manual error when the
+                // field is touched, which the email input never is: its LemonField renders through a render
+                // prop, and that path forwards onChange but not onBlur.
+                actions.setSignupPanelEmailManualErrors({})
+                actions.setError(null)
                 actions.setEmailNormalized(false)
                 actions.normalizeEmailWithDelay(value)
             }

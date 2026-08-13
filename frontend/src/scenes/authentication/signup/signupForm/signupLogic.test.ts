@@ -56,6 +56,40 @@ describe('signupLogic — email error surfacing', () => {
             'There is already an account with this email address.'
         )
     })
+
+    it('clears the account-exists error once a different email is typed, so the form submits again', async () => {
+        useMocks({
+            post: {
+                '/api/signup/precheck': () => [
+                    409,
+                    {
+                        email_exists: true,
+                        code: 'account_exists',
+                        detail: 'There is already an account with this email address.',
+                    },
+                ],
+            },
+        })
+        logic.actions.setSignupPanelEmailValue('email', 'taken@example.com')
+        logic.actions.submitSignupPanelEmail()
+        await expectLogic(logic).toFinishAllListeners()
+        expect(logic.values.panel).toBe(0)
+        expect(logic.values.signupPanelEmailManualErrors.email).toBe(
+            'There is already an account with this email address.'
+        )
+
+        useMocks({
+            post: {
+                '/api/signup/precheck': () => [200, { email_exists: false, pending_invite: null }],
+            },
+        })
+        logic.actions.setSignupPanelEmailValue('email', 'fresh@example.com')
+        expect(logic.values.signupPanelEmailHasErrors).toBe(false)
+
+        logic.actions.submitSignupPanelEmail()
+        await expectLogic(logic).toFinishAllListeners()
+        expect(logic.values.panel).toBe(1)
+    })
 })
 
 describe('signupLogic — pending invite banner', () => {
