@@ -1617,6 +1617,21 @@ describe('CdpHogflowSubscriptionMatcherConsumer', () => {
             const newState = parseJSON((update.params[2][0] as Buffer).toString('utf-8')) as any
             expect(newState.state.currentAction.rekeyWake).toBe(true)
         })
+
+        it('scopes the watcher re-key so a first mapping only fills an empty anchor', async () => {
+            // The watcher path needs the same null-anchor scope the parked-job path has: a first mapping
+            // (version 0) may fill an empty watcher anchor but must not overwrite one a merge already set,
+            // so the re-key UPDATE gates the version-0 fill on `person_id IS NULL` and threads the move
+            // version through so the DB can tell a first mapping from a repoint.
+            await matcher.processMoveBatch([
+                { teamId: 1, distinctId: 'anon-did', newPersonId: 'first-person-uuid', version: 0 },
+            ])
+
+            const rekey = matcher.calls.find((c) => c.sql.startsWith('UPDATE conversion_watchers'))
+            expect(rekey).toBeDefined()
+            expect(rekey!.sql).toContain('w.person_id IS NULL')
+            expect(rekey!.params[3]).toEqual([0])
+        })
     })
 
     // The full combination matrix lives here (mocked pg, ~ms each) rather than in the E2E suite:

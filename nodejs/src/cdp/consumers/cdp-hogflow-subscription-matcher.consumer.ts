@@ -874,11 +874,13 @@ export class CdpHogflowSubscriptionMatcherConsumer<
         const teamIds: number[] = []
         const distinctIds: string[] = []
         const personIds: string[] = []
+        const versions: number[] = []
         for (const [key, survivor] of survivorByKey) {
             const [teamId, ...distinctIdParts] = key.split(':')
             teamIds.push(Number(teamId))
             distinctIds.push(distinctIdParts.join(':'))
             personIds.push(survivor.personId)
+            versions.push(survivor.version)
         }
 
         try {
@@ -886,10 +888,14 @@ export class CdpHogflowSubscriptionMatcherConsumer<
                 `UPDATE conversion_watchers w
                  SET person_id = u.person_id
                  FROM (
-                     SELECT unnest($1::int[]) AS team_id, unnest($2::text[]) AS distinct_id, unnest($3::text[]) AS person_id
+                     SELECT unnest($1::int[]) AS team_id, unnest($2::text[]) AS distinct_id, unnest($3::text[]) AS person_id, unnest($4::int[]) AS version
                  ) u
-                 WHERE w.team_id = u.team_id AND w.distinct_id = u.distinct_id AND w.person_id IS DISTINCT FROM u.person_id`,
-                [teamIds, distinctIds, personIds]
+                 WHERE w.team_id = u.team_id AND w.distinct_id = u.distinct_id AND w.person_id IS DISTINCT FROM u.person_id
+                   -- A first mapping (version 0) only says "this distinct_id now has a person"; it may fill
+                   -- an empty anchor but must not overwrite one a merge already set, mirroring the
+                   -- onlyNullAnchor scope applyMoves uses. Repoints (version > 0) may repoint any anchor.
+                   AND (u.version > 0 OR w.person_id IS NULL)`,
+                [teamIds, distinctIds, personIds, versions]
             )
             counterHogflowMatcherWatchersRekeyed.inc(result.rowCount ?? 0)
         } catch (err) {
