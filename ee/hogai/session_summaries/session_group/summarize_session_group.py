@@ -1,4 +1,3 @@
-from dataclasses import dataclass
 from datetime import datetime
 from pathlib import Path
 from typing import Any
@@ -6,6 +5,7 @@ from typing import Any
 import structlog
 from rest_framework import exceptions
 
+from posthog.dataclasses import frozen
 from posthog.models import Team
 from posthog.session_recordings.queries.session_replay_events import SessionReplayEvents
 
@@ -113,7 +113,7 @@ def generate_session_group_patterns_combination_prompt(
     )
 
 
-@dataclass(frozen=True, kw_only=True, slots=True)
+@frozen
 class SessionRecordingPartition:
     found_session_ids: list[str]
     missing_session_ids: list[str]
@@ -132,7 +132,7 @@ def partition_sessions_by_recording_existence(session_ids: list[str], team: Team
     return SessionRecordingPartition(found_session_ids=found, missing_session_ids=missing)
 
 
-@dataclass(frozen=True, kw_only=True, slots=True)
+@frozen
 class SessionsTimestampRange:
     min_timestamp: datetime
     max_timestamp: datetime

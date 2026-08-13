@@ -4,7 +4,6 @@ import json
 import uuid
 import asyncio
 from collections.abc import AsyncGenerator
-from dataclasses import dataclass
 from datetime import datetime
 from typing import Any, cast
 
@@ -31,6 +30,7 @@ from posthog.api.shared import UserBasicSerializer
 from posthog.api.streaming import sse_streaming_response
 from posthog.clickhouse.query_tagging import Product, tag_queries
 from posthog.cloud_utils import is_cloud
+from posthog.dataclasses import frozen
 from posthog.event_usage import EventSource, get_event_source
 from posthog.helpers.impersonation import is_impersonated
 from posthog.models import OrganizationMembership, Team, User
@@ -182,7 +182,7 @@ class SessionSummariesConfigSerializer(serializers.ModelSerializer):
         return cleaned
 
 
-@dataclass(frozen=True, kw_only=True, slots=True)
+@frozen
 class ValidatedSummaryInput:
     session_ids: list[str]
     min_timestamp: datetime
