@@ -1,3 +1,4 @@
+import { formatRelativeTimeLong } from "@posthog/shared";
 import { z } from "zod";
 
 export const runArtifactSchema = z.object({
@@ -38,6 +39,54 @@ export function parseRunArtifacts(
 /** Names a version by its position in a newest-first group. */
 export function runArtifactVersionLabel(index: number, total: number): string {
   return index === 0 ? "Latest" : `Version ${total - index}`;
+}
+
+/** Compact one-based version label: v1 is the oldest upload, v{total} the newest. */
+export function runArtifactVersionShortLabel(
+  index: number,
+  total: number,
+): string {
+  return `v${total - index}`;
+}
+
+export interface RunArtifactUploader {
+  id?: number;
+  first_name?: string | null;
+}
+
+/** Who uploaded a version: the current user's name (or "You"), a teammate, or the agent. */
+export function runArtifactUploaderLabel(
+  artifact: { uploaded_by?: "agent" | "user"; uploaded_by_user_id?: number },
+  currentUser: RunArtifactUploader | undefined,
+): string {
+  if (artifact.uploaded_by !== "user") return "Agent";
+  if (
+    currentUser?.id !== undefined &&
+    artifact.uploaded_by_user_id === currentUser.id
+  ) {
+    return currentUser.first_name?.trim() || "You";
+  }
+  return "Teammate";
+}
+
+/** A version's picker line: "v{n} · <uploader> · <uploaded time>". */
+export function runArtifactVersionMetaLabel(
+  artifact: {
+    uploaded_by?: "agent" | "user";
+    uploaded_by_user_id?: number;
+    uploaded_at?: string;
+  },
+  index: number,
+  total: number,
+  currentUser: RunArtifactUploader | undefined,
+): string {
+  return [
+    runArtifactVersionShortLabel(index, total),
+    runArtifactUploaderLabel(artifact, currentUser),
+    artifact.uploaded_at ? formatRelativeTimeLong(artifact.uploaded_at) : null,
+  ]
+    .filter(Boolean)
+    .join(" · ");
 }
 
 /**

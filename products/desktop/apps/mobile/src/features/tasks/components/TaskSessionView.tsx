@@ -34,7 +34,6 @@ import { CloudMessageAttachment } from "./CloudMessageAttachment";
 import { PlanApprovalCard } from "./PlanApprovalCard";
 import { PlanStatusBar } from "./PlanStatusBar";
 import { QuestionCard } from "./QuestionCard";
-import { TaskArtifacts } from "./TaskArtifacts";
 import { TerminalStatusBanner } from "./TerminalStatusBanner";
 
 interface PermissionResponseArgs {
@@ -57,8 +56,6 @@ interface OptimisticUserMessage {
 interface TaskSessionViewProps {
   events: SessionEvent[];
   taskId?: string;
-  // Latest run id, used to list the run's generated output artifacts.
-  runId?: string;
   pendingPermissions?: Record<string, CloudPendingPermissionRequest>;
   isConnecting?: boolean;
   isThinking?: boolean;
@@ -807,7 +804,6 @@ function ConnectingIndicator() {
 export function TaskSessionView({
   events,
   taskId,
-  runId,
   pendingPermissions,
   isConnecting,
   isThinking,
@@ -965,6 +961,8 @@ export function TaskSessionView({
               content={item.content}
               onOpenTask={onOpenTask}
               timestamp={item.ts}
+              turnId={item.id}
+              taskId={taskId}
             />
           );
         case "thought":
@@ -1018,29 +1016,22 @@ export function TaskSessionView({
       onSendPermissionResponse,
       pendingPermissions,
       renderAttachment,
+      taskId,
     ],
   );
 
   // Memoized so a live session's frequent re-renders (streaming, timers) don't
-  // reconcile the banner + artifacts subtree on every tick.
+  // reconcile the banner subtree on every tick.
   const listHeader = useMemo(
-    () => (
-      <>
-        {terminalStatus ? (
-          <TerminalStatusBanner
-            terminalStatus={terminalStatus}
-            lastError={lastError}
-            onRetry={onRetry}
-          />
-        ) : null}
-        <TaskArtifacts
-          taskId={taskId}
-          runId={runId}
-          enabled={!!terminalStatus}
+    () =>
+      terminalStatus ? (
+        <TerminalStatusBanner
+          terminalStatus={terminalStatus}
+          lastError={lastError}
+          onRetry={onRetry}
         />
-      </>
-    ),
-    [terminalStatus, lastError, onRetry, taskId, runId],
+      ) : null,
+    [terminalStatus, lastError, onRetry],
   );
 
   return (
