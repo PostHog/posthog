@@ -288,7 +288,9 @@ class EarlyAccessFeatureSerializer(UserAccessControlSerializerMixin, serializers
         user_data = UserBasicSerializer(request.user).data if request.user else None
         serialized_previous = MinimalEarlyAccessFeatureSerializer(instance).data
 
-        if instance.stage != stage:
+        # A PATCH that omits stage (e.g. an inline assignee edit) leaves stage as None here; guard so
+        # it doesn't read as a move to a null stage and enqueue a spurious stage-change task.
+        if stage is not None and instance.stage != stage:
             send_events_for_early_access_feature_stage_change.delay(str(instance.id), instance.stage, stage)
 
         # The branches below each mutate the linked flag's enrollment filters, so they require

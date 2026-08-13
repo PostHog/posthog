@@ -24,8 +24,10 @@ import {
   formatGatewayModelName,
   type GatewayModel,
   isAnthropicModel,
+  isBasetenModel,
   isCloudflareModel,
   isCloudflareModelId,
+  isDeepseekModelId,
   isModalModel,
   isModalModelId,
   pickAllowedModel,
@@ -143,6 +145,7 @@ export abstract class BaseAcpAgent implements Agent {
     currentModelOverride?: string,
     gatewayUrl?: string,
     gatewayAuthToken?: string,
+    projectId?: number,
   ): Promise<{
     currentModelId: string;
     options: SessionConfigSelectOption[];
@@ -150,17 +153,20 @@ export abstract class BaseAcpAgent implements Agent {
     // Authenticated so the gateway can mark plan-restricted models —
     // anonymous fetches see everything allowed.
     this.gatewayModels = await fetchGatewayModels(
-      gatewayUrl ? { gatewayUrl, authToken: gatewayAuthToken } : undefined,
+      gatewayUrl
+        ? { gatewayUrl, authToken: gatewayAuthToken, projectId }
+        : undefined,
     );
 
     const adapterModels = this.gatewayModels
-      // Cloudflare models are servable on the Claude adapter too — the gateway translates the
-      // `@cf/` path onto its Anthropic-Messages surface — so include them alongside Anthropic models.
+      // The gateway translates its inference-provider models onto the Anthropic Messages surface,
+      // so the Claude adapter can drive them alongside native Anthropic models.
       .filter(
         (model) =>
           isAnthropicModel(model) ||
           isCloudflareModel(model) ||
-          isModalModel(model),
+          isModalModel(model) ||
+          isBasetenModel(model),
       );
 
     const options = adapterModels
@@ -181,7 +187,8 @@ export abstract class BaseAcpAgent implements Agent {
       modelId.startsWith("claude-") ||
       modelId.startsWith("anthropic/") ||
       isCloudflareModelId(modelId) ||
-      isModalModelId(modelId);
+      isModalModelId(modelId) ||
+      isDeepseekModelId(modelId);
 
     let currentModelId = currentModelOverride ?? DEFAULT_GATEWAY_MODEL;
 

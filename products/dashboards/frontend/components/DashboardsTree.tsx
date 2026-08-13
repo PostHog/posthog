@@ -46,14 +46,12 @@ function collectExpandablePaths(nodes: FolderTreeNode[], acc: string[] = []): st
 // familiar dashboards table on the right scoped to everything at or below the selected folder (root = all).
 // Expansion is controlled: the tree opens collapsed except for the root (so you see the top-level folders),
 // and clicking a folder expands it — both the chevron and a folder-row click mirror the toggle into the
-// expandedFolders reducer so collapsing sticks and the open/close animation plays. The table's Folder column
-// reads the same entryByRef the scoping uses, so the displayed folder always matches where the dashboard is.
+// expandedFolders reducer so collapsing sticks and the open/close animation plays.
 export function DashboardsTree(): JSX.Element {
     const {
         folderTree,
         currentFolder,
         currentSubtreeDashboards,
-        entryByRef,
         expandedFolders,
         folderEntryByPath,
         folderDashboardCounts,
@@ -202,11 +200,7 @@ export function DashboardsTree(): JSX.Element {
                 </div>
             </div>
             <div className="min-w-0" data-attr="dashboards-tree-content">
-                <DashboardsTable
-                    dashboards={currentSubtreeDashboards}
-                    dashboardsLoading={dashboardsLoading}
-                    dashboardFsEntry={(id) => entryByRef[String(id)]}
-                />
+                <DashboardsTable dashboards={currentSubtreeDashboards} dashboardsLoading={dashboardsLoading} />
             </div>
         </div>
     )

@@ -248,14 +248,12 @@ interface SettingsStore {
   mcpAppsDisabledServers: string[];
   downloadUpdatesAutomatically: boolean;
   dismissibleUpdateBanners: boolean;
-  lastSeenChangelogVersion: string | null;
   setHedgehogMode: (enabled: boolean) => void;
   setSlotMachineMode: (enabled: boolean) => void;
   setBrainrotMode: (enabled: boolean) => void;
   setMcpAppsDisabledServers: (servers: string[]) => void;
   setDownloadUpdatesAutomatically: (enabled: boolean) => void;
   setDismissibleUpdateBanners: (enabled: boolean) => void;
-  setLastSeenChangelogVersion: (version: string | null) => void;
 
   // Onboarding hints
   hints: Record<string, HintState>;
@@ -476,7 +474,6 @@ export const useSettingsStore = create<SettingsStore>()(
       mcpAppsDisabledServers: [],
       downloadUpdatesAutomatically: true,
       dismissibleUpdateBanners: false,
-      lastSeenChangelogVersion: null,
       setHedgehogMode: (enabled) => set({ hedgehogMode: enabled }),
       setSlotMachineMode: (enabled) => set({ slotMachineMode: enabled }),
       setBrainrotMode: (enabled) => set({ brainrotMode: enabled }),
@@ -484,8 +481,6 @@ export const useSettingsStore = create<SettingsStore>()(
         set({ downloadUpdatesAutomatically: enabled }),
       setDismissibleUpdateBanners: (enabled) =>
         set({ dismissibleUpdateBanners: enabled }),
-      setLastSeenChangelogVersion: (version) =>
-        set({ lastSeenChangelogVersion: version }),
       setMcpAppsDisabledServers: (servers) =>
         set({ mcpAppsDisabledServers: servers }),
 
@@ -611,7 +606,6 @@ export const useSettingsStore = create<SettingsStore>()(
         mcpAppsDisabledServers: state.mcpAppsDisabledServers,
         downloadUpdatesAutomatically: state.downloadUpdatesAutomatically,
         dismissibleUpdateBanners: state.dismissibleUpdateBanners,
-        lastSeenChangelogVersion: state.lastSeenChangelogVersion,
 
         // Onboarding hints
         hints: state.hints,

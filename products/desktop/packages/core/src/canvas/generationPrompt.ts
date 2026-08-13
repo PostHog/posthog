@@ -73,18 +73,30 @@ Do not list or inspect other canvases to choose a target.`;
   const templateHint = templateId ? TEMPLATE_HINTS[templateId] : undefined;
   const templateLine = templateHint ? `\n${templateHint}\n` : "";
 
-  const instructions = `${header}
-
-Invoke the \`building-canvases\` skill now and follow its workflow (and the companion canvas
-skills it routes to) to implement, validate, and publish this canvas.
-
-${targetBlock}
-${templateLine}${starterLine}
-Read the canvas's current source and \`current_version_id\` with the
+  // Edits target a canvas people already see live, so they stage a draft the
+  // user promotes; only a first build publishes straight to the head.
+  const saveBlock = isEdit
+    ? `Read the canvas's current source and \`current_version_id\` with the
+\`canvas-source-retrieve\` tool before editing. The canvas is live, so stage the COMPLETE
+source project as a DRAFT with \`canvas-draft-create\`, wait for its build, and finish by
+reporting that the draft is ready — the user previews it and promotes it to live. Do not
+publish or promote it yourself unless the user explicitly asked to make the change live.
+The canvas lives in PostHog, not on disk — saving happens through those tools. Do not write
+local files and do not reply with the code.`
+    : `Read the canvas's current source and \`current_version_id\` with the
 \`canvas-source-retrieve\` tool before editing, and publish the COMPLETE
 source project with \`canvas-publish-create\`, passing that version id as
 \`expected_current_version_id\`. The canvas lives in PostHog, not on disk — publishing through
-that tool is what saves it. Do not write local files and do not reply with the code.
+that tool is what saves it. Do not write local files and do not reply with the code.`;
+
+  const instructions = `${header}
+
+Invoke the \`building-canvases\` skill now and follow its workflow (and the companion canvas
+skills it routes to) to implement, validate, and save this canvas.
+
+${targetBlock}
+${templateLine}${starterLine}
+${saveBlock}
 
 Verify event/property names via the PostHog MCP tools before using them, and operate only on
 this project.`;

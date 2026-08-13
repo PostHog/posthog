@@ -31,6 +31,7 @@ foyer = "0.22.3"
 metrics = { workspace = true }
 prost = { workspace = true }
 rdkafka = { workspace = true }
+serde = { workspace = true }
 serde_json = { workspace = true }
 sqlx = { workspace = true }
 tokio = { workspace = true }
@@ -47,6 +48,7 @@ uuid = { workspace = true }
 test-support = []
 
 [dev-dependencies]
+personhog-coordination = { path = "../personhog-coordination", features = ["test-support"] }
 health = { path = "../common/health" }
 personhog-leader = { path = ".", features = ["test-support"] }
 tokio = { workspace = true, features = ["test-util"] }

@@ -49,12 +49,6 @@ DEFAULT_USER_COST_LIMITS: dict[str, "UserCostLimit"] = {
         sustained_limit_usd=100.0,
         sustained_window_seconds=2592000,  # 30 days
     ),
-    "posthog_code": UserCostLimit(
-        burst_limit_usd=500.0,
-        burst_window_seconds=86400,
-        sustained_limit_usd=3000.0,
-        sustained_window_seconds=2592000,
-    ),
     "background_agents": UserCostLimit(
         burst_limit_usd=500.0,
         burst_window_seconds=604800,
@@ -81,21 +75,6 @@ DEFAULT_USER_COST_LIMITS: dict[str, "UserCostLimit"] = {
         sustained_window_seconds=2592000,
     ),
 }
-
-FREE_PLAN_COST_LIMIT = UserCostLimit(
-    burst_limit_usd=20.0,
-    burst_window_seconds=86400,
-    sustained_limit_usd=20.0,
-    sustained_window_seconds=2592000,
-)
-
-ORG_BILLED_USER_COST_LIMIT = UserCostLimit(
-    burst_limit_usd=float("inf"),
-    burst_window_seconds=86400,
-    sustained_limit_usd=float("inf"),
-    sustained_window_seconds=2592000,
-)
-
 
 _COST_LIMIT_KEY_ALIASES: dict[str, str] = {
     "array": "posthog_code",
@@ -222,9 +201,11 @@ class Settings(BaseSettings):
     user_cost_limits: dict[str, UserCostLimit] = DEFAULT_USER_COST_LIMITS
     user_cost_limits_disabled: bool = False
 
-    # TODO: flip on when Code migrates all users to usage-based billing
-    posthog_code_model_gate_enabled: bool = False
-    posthog_code_free_tier_models: list[str] = ["@cf/zai-org/glm-5.2"]
+    posthog_code_free_tier_models: list[str] = [
+        "@cf/zai-org/glm-5.2",
+        "deepseek-ai/deepseek-v4-flash-0731",
+        "moonshotai/kimi-k3",
+    ]
 
     default_fallback_cost_usd: float = 0.01
 

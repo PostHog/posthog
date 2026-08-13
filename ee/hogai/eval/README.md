@@ -38,7 +38,8 @@ Sandboxes run locally under Docker by default; `--provider modal` runs them remo
 Every suite runs concurrently, with one global semaphore bounding live sandboxes, so selecting more suites raises throughput without raising peak load.
 
 - [`products/posthog_ai/eval_harness/README.md`](../../../products/posthog_ai/eval_harness/README.md) covers the flags, the provider prerequisites, and how to add a suite.
-- [`products/posthog_ai/evals/AGENTS.md`](../../../products/posthog_ai/evals/AGENTS.md) is the Hedgebox dataset reference every eval case is written against.
+- [`products/posthog_ai/evals/AGENTS.md`](../../../products/posthog_ai/evals/AGENTS.md) is the Hedgebox dataset reference, for eval cases that run against a seeded project.
+- [`AGENTS.md`](./AGENTS.md) covers cases that carry their own data inline instead — where that data may come from, and why anonymizing a real conversation does not make it publishable.
 - [`products/posthog_ai/eval_harness/harness/README.md`](../../../products/posthog_ai/eval_harness/harness/README.md) explains how the harness itself works.
 
 ## Offline evals

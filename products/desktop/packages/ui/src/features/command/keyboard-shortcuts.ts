@@ -13,6 +13,7 @@ export const SHORTCUTS = {
   GO_BACK_ALT: "mod+left",
   GO_FORWARD_ALT: "mod+right",
   TOGGLE_LEFT_SIDEBAR: "mod+b",
+  TOGGLE_ACTIVITY_PANEL: "mod+alt+b",
   TOGGLE_REVIEW_PANEL: "mod+shift+b",
   PREV_TASK: "mod+shift+[,ctrl+shift+tab",
   NEXT_TASK: "mod+shift+],ctrl+tab",
@@ -25,6 +26,7 @@ export const SHORTCUTS = {
   // takes slot 1 instead.
   SWITCH_STARRED_CHANNEL:
     "mod+1,mod+2,mod+3,mod+4,mod+5,mod+6,mod+7,mod+8,mod+9",
+  FOCUS_SPACE_SEARCH: "mod+shift+s",
   TOGGLE_FOCUS: "mod+r",
   PASTE_AS_FILE: "mod+shift+v",
   INBOX: "mod+i",
@@ -145,6 +147,14 @@ export const KEYBOARD_SHORTCUTS: KeyboardShortcut[] = [
     availability: "channels-layout",
   },
   {
+    id: "focus-space-search",
+    keys: SHORTCUTS.FOCUS_SPACE_SEARCH,
+    description: "Search spaces",
+    category: "navigation",
+    context: "Spaces",
+    availability: "channels-layout",
+  },
+  {
     id: "prev-task",
     keys: "mod+shift+[",
     description: "Previous task",
@@ -196,6 +206,14 @@ export const KEYBOARD_SHORTCUTS: KeyboardShortcut[] = [
     keys: SHORTCUTS.TOGGLE_LEFT_SIDEBAR,
     description: "Toggle left sidebar",
     category: "navigation",
+  },
+  {
+    id: "toggle-activity-panel",
+    keys: SHORTCUTS.TOGGLE_ACTIVITY_PANEL,
+    description: "Toggle activity panel",
+    category: "panels",
+    context: "Spaces",
+    availability: "channels-layout",
   },
   {
     id: "toggle-review-panel",

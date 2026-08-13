@@ -14,7 +14,6 @@ from posthog.tasks.auth_token_cache_verification import verify_and_fix_auth_toke
 from posthog.tasks.calculate_cohort import finalize_cohort_backfill_runs
 from posthog.tasks.email import (
     EXTERNAL_DATA_DIGEST_DAY_BOUNDARY_HOUR_UTC,
-    send_error_tracking_weekly_digest,
     send_hog_functions_daily_digest,
     send_matview_failure_digest,
 )
@@ -119,11 +118,13 @@ from products.tasks.backend.facade.tasks import (
     refresh_stale_sandbox_custom_images_task,
     sweep_loop_task_retention_task,
 )
+from products.warehouse_sources.backend.facade.tasks import sweep_stopped_schema_syncs
 from products.web_analytics.backend.achievements.tasks import sweep_web_analytics_achievement_team_tracks
 from products.web_analytics.backend.tasks.heatmap_screenshot import (
     reap_stale_prewarm_heatmaps,
     report_stuck_heatmap_screenshots,
 )
+from products.workflows.backend.tasks.ses_account_reputation import poll_ses_account_reputation
 
 TWENTY_FOUR_HOURS = 24 * 60 * 60
 
@@ -304,10 +305,10 @@ def setup_periodic_tasks(sender: Celery, **kwargs: Any) -> None:
     # agent-server release), at most once per new digest.
     add_periodic_task_with_expiry(
         sender,
-        crontab(minute="*/10"),
+        crontab(minute="*/2"),
         refresh_dev_stack_image_task.s(),
         name="refresh prebaked dev-stack VM image on base change",
-        expires_seconds=10 * 60,
+        expires_seconds=2 * 60,
     )
 
     # Re-enqueue signals PR refunds whose billing credit sync hasn't landed - hourly at minute 25
@@ -346,6 +347,15 @@ def setup_periodic_tasks(sender: Celery, **kwargs: Any) -> None:
         crontab(minute="*/10"),
         reconcile_loop_trigger_schedules_task.s(),
         name="reconcile loop trigger schedules",
+    )
+
+    # AWS SES account reputation → gauges for team-facing alerting (charts alerts/specs/ses.yaml)
+    add_periodic_task_with_expiry(
+        sender,
+        crontab(minute="*/10"),
+        poll_ses_account_reputation.s(),
+        name="poll SES account reputation",
+        expires_seconds=10 * 60,
     )
 
     # Flags cache sync - hourly
@@ -539,13 +549,6 @@ def setup_periodic_tasks(sender: Celery, **kwargs: Any) -> None:
         name="send HogFunctions daily digest",
     )
 
-    # Send Error Tracking weekly digest at 8:30 AM UTC on Monday
-    sender.add_periodic_task(
-        crontab(hour="8", minute="30", day_of_week="mon"),
-        send_error_tracking_weekly_digest.s(),
-        name="send Error Tracking weekly digest",
-    )
-
     # Send materialized view failure digest daily at morning local time per region
     cloud_deployment = (settings.CLOUD_DEPLOYMENT or "").upper()
     if cloud_deployment == "EU":
@@ -567,6 +570,14 @@ def setup_periodic_tasks(sender: Celery, **kwargs: Any) -> None:
         crontab(hour=str(EXTERNAL_DATA_DIGEST_DAY_BOUNDARY_HOUR_UTC), minute="15"),
         send_external_data_failure_digest_catchup.s(),
         name="send external data failure digest catch-up",
+    )
+
+    # Backstop for the write-time teardown dispatch: Running import jobs whose schema
+    # stopped syncing (disabled or deleted) get the same teardown on the next tick.
+    sender.add_periodic_task(
+        crontab(hour="*", minute="25"),
+        sweep_stopped_schema_syncs.s(),
+        name="sweep stopped schema syncs",
     )
 
     # Background net for tables created while nobody visits the warehouse status page. Each

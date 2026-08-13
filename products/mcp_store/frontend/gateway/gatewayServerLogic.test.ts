@@ -1,10 +1,11 @@
-import { MOCK_DEFAULT_BASIC_USER } from '~/lib/api.mock'
+import { MOCK_DEFAULT_BASIC_USER, MOCK_DEFAULT_USER } from '~/lib/api.mock'
 
 import { router } from 'kea-router'
 
 import { lemonToast } from '@posthog/lemon-ui'
 
 import { urls } from 'scenes/urls'
+import { userLogic } from 'scenes/userLogic'
 
 import { initKeaTests } from '~/test/init'
 import { expectLogic } from '~/test/keaTestUtils'
@@ -26,6 +27,7 @@ import type {
     MCPGatewayServerApi,
     MCPServiceAccountApi,
     ResolvedToolPolicyApi,
+    UserBasicApi,
 } from '../generated/api.schemas'
 import { gatewayServerLogic } from './gatewayServerLogic'
 import { mcpGatewayLogic } from './mcpGatewayLogic'
@@ -101,6 +103,46 @@ function gatewayServer(overrides: Partial<MCPGatewayServerApi> = {}): MCPGateway
     }
 }
 
+const YOU: UserBasicApi = {
+    id: MOCK_DEFAULT_USER.id,
+    uuid: MOCK_DEFAULT_USER.uuid,
+    email: MOCK_DEFAULT_USER.email,
+    hedgehog_config: null,
+}
+
+const TEAMMATE: UserBasicApi = {
+    id: MOCK_DEFAULT_USER.id + 1,
+    uuid: 'teammate-uuid',
+    first_name: 'Ada',
+    last_name: 'Lovelace',
+    email: 'ada@example.com',
+    hedgehog_config: null,
+}
+
+function serviceAccount(id: string = 'scout-id', sharedBy: UserBasicApi[] = []): MCPServiceAccountApi {
+    return {
+        id,
+        name: `Agent ${id}`,
+        description: '',
+        handle: `svc-${id}`,
+        agent_key: 'scout',
+        status: 'active',
+        server_ids: sharedBy.map(() => 'server-id'),
+        servers: sharedBy.map((user) => ({
+            id: 'server-id',
+            shared_by: user,
+            name: 'Test server',
+            description: '',
+            icon_key: '',
+            icon_domain: '',
+            connection_state: 'ready' as const,
+        })),
+        last_active_at: null,
+        created_at: '2026-01-01T00:00:00Z',
+        updated_at: '2026-01-01T00:00:00Z',
+    }
+}
+
 function toolPolicy(toolName: string, overrides: Partial<ResolvedToolPolicyApi> = {}): ResolvedToolPolicyApi {
     return {
         tool_name: toolName,
@@ -114,22 +156,6 @@ function toolPolicy(toolName: string, overrides: Partial<ResolvedToolPolicyApi> 
         rule_name: '',
         rule_description: '',
         ...overrides,
-    }
-}
-
-function serviceAccount(): MCPServiceAccountApi {
-    return {
-        id: 'scout-id',
-        name: 'Scout',
-        description: 'Product analyst',
-        handle: 'posthog-scout',
-        agent_key: 'scout',
-        status: 'active',
-        server_ids: [],
-        servers: [],
-        last_active_at: null,
-        created_at: '2026-01-01T00:00:00Z',
-        updated_at: '2026-01-01T00:00:00Z',
     }
 }
 
@@ -192,6 +218,31 @@ describe('gatewayServerLogic', () => {
         logic.unmount()
         parentLogic.unmount()
         jest.restoreAllMocks()
+    })
+
+    it('attributes each agent grant to the member backing it', () => {
+        parentLogic.actions.loadServiceAccountsSuccess([
+            serviceAccount('yours-only', [YOU]),
+            serviceAccount('teammate-only', [TEAMMATE]),
+            serviceAccount('both', [YOU, TEAMMATE]),
+            serviceAccount('unshared', []),
+        ])
+
+        expect(logic.values.agentSharesByAccountId).toEqual({
+            'yours-only': { sharedByYou: true, sharedByOthers: [] },
+            'teammate-only': { sharedByYou: false, sharedByOthers: [TEAMMATE] },
+            both: { sharedByYou: true, sharedByOthers: [TEAMMATE] },
+            unshared: { sharedByYou: false, sharedByOthers: [] },
+        })
+    })
+
+    it('attributes no grant while the current user is still loading', () => {
+        userLogic.actions.loadUserSuccess(null)
+        parentLogic.actions.loadServiceAccountsSuccess([serviceAccount('both', [YOU, TEAMMATE])])
+
+        expect(logic.values.agentSharesByAccountId).toEqual({
+            both: { sharedByYou: false, sharedByOthers: [] },
+        })
     })
 
     it('uses the policy mutation response while keeping the loader in flight', async () => {

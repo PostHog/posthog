@@ -83,16 +83,6 @@ python manage.py reingest_signal_report --team-id 1 <report-uuid> [<report-uuid>
 
 For a full-team wipe + reingest, use `reingest_team_signals --team-id 1` (add `--delete` for delete-only).
 
-## Session summary (video-based)
-
-Test the SummarizeSingleSessionWorkflow with full video validation:
-
-```bash
-python manage.py summarize_single_session <session_id> [--team-id N] [--user-id N]
-```
-
-Uses first team/user if omitted. Runs `execute_summarize_session` with video-based summarization.
-
 ## Repository selection (agentic)
 
 Test the repo selection flow in isolation:

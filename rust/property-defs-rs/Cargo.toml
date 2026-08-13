@@ -15,7 +15,6 @@ sqlx = { workspace = true }
 futures = { workspace = true }
 lifecycle = { path = "../common/lifecycle" }
 axum = { workspace = true }
-serve-metrics = { path = "../common/serve_metrics" }
 metrics = { workspace = true }
 chrono = { workspace = true }
 quick_cache = { workspace = true }
