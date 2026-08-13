@@ -91,6 +91,7 @@ export function TaxonomicPropertyFilter({
     endpointFilters,
     hogQLGlobals,
     triggerVariant = 'button',
+    staticValueOptions,
 }: PropertyFilterInternalProps): JSX.Element {
     const generatedKey = useId()
     const pageKey = pageKeyInput || `filter-${generatedKey}`
@@ -216,6 +217,7 @@ export function TaxonomicPropertyFilter({
                       })}`
                     : filter?.key && activeTaxonomicGroup?.valuesEndpoint?.(filter.key)
             }
+            staticValues={typeof filter?.key === 'string' ? (staticValueOptions?.(filter.key) ?? null) : null}
             eventNames={eventNames}
             addRelativeDateTimeOptions={allowRelativeDateOptions}
             onChange={(newOperator, newValue) => {
