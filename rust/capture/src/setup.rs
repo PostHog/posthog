@@ -298,6 +298,10 @@ pub async fn build_components(
     // governor state (per-`token:distinct_id` budgets) is what must stay
     // isolated, so analytics volume can never push a key's AI events into
     // AI overflow and AI volume never burns the analytics budget.
+    //
+    // The locality argument is inert on this lane: the AI lanes take their
+    // key policy from `pipeline::AiLaneRouting` at routing time, not from the
+    // stamped reason, so nothing reads what this limiter would stamp here.
     let ai_events_overflow_limiter: Option<Arc<OverflowLimiter>> =
         if config.overflow_enabled && ai_events_overflow_enabled {
             let limiter = OverflowLimiter::new(

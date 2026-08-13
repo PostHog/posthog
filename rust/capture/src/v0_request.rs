@@ -294,9 +294,9 @@ pub enum OverflowReason {
     /// `skip_person_processing = true` alongside for pipeline-level readers.
     ForceLimited,
     /// Per-key rate exceeded the configured governor quota. Routed to the
-    /// overflow topic. `preserve_locality` mirrors the
-    /// `overflow_preserve_partition_locality` config and determines whether
-    /// the original partition key is preserved on the overflow topic.
+    /// overflow topic. `preserve_locality` comes from the limiter that
+    /// stamped it — each lane carries its own setting — and determines
+    /// whether the original partition key is preserved on the overflow topic.
     RateLimited { preserve_locality: bool },
     /// Session-level replay overflow signalled by the redis-backed limiter.
     /// Routed to the replay overflow topic, keyed on session_id.

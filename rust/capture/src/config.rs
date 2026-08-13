@@ -210,6 +210,10 @@ pub struct Config {
     #[envconfig(default = "false")]
     pub overflow_enabled: bool,
 
+    /// Whether a rate-limited analytics event keeps its partition key when it
+    /// reroutes to overflow. The analytics overflow consumer updates persons
+    /// keyed on distinct id, so spreading one hot key across partitions trades
+    /// a hot partition for contended person-row updates.
     #[envconfig(default = "false")]
     pub overflow_preserve_partition_locality: bool,
 
@@ -423,6 +427,27 @@ pub struct KafkaConfig {
     /// here instead of the analytics overflow topic. Refused at boot in import
     /// mode because imports must never overflow.
     pub capture_analytics_ai_events_overflow_topic: Option<String>,
+    /// Whether an AI event keeps its partition key on the AI main topic
+    /// (env: `AI_MAIN_PRESERVE_PARTITION_LOCALITY`). Unset it to spread a hot
+    /// token across the topic's partitions without diverting to overflow and
+    /// without turning person processing off — unlike the overflow lanes,
+    /// this lane's key policy is independent of person processing.
+    #[envconfig(default = "true")]
+    pub ai_main_preserve_partition_locality: bool,
+    /// The same choice for the AI overflow topic
+    /// (env: `AI_OVERFLOW_PRESERVE_PARTITION_LOCALITY`). Separate from the
+    /// analytics lane's `overflow_preserve_partition_locality` because the
+    /// tradeoff differs: the analytics overflow consumer updates persons
+    /// keyed on distinct id, so spreading one key there trades a hot
+    /// partition for contended person-row updates, while the AI consumer only
+    /// reads persons and pays no such cost.
+    ///
+    /// Both AI knobs live on the kafka config because [`pipeline::resolve`]
+    /// is the single place the AI lane's key policy is decided, and the sink
+    /// is what calls it. A force-limited key is keyless regardless: that
+    /// reason exists to break up a hot key.
+    #[envconfig(default = "true")]
+    pub ai_overflow_preserve_partition_locality: bool,
     #[envconfig(default = "false")]
     pub kafka_tls: bool,
     #[envconfig(default = "")]
@@ -522,6 +547,30 @@ mod tests {
         assert_eq!(
             config.kafka.capture_analytics_ai_events_overflow_topic,
             None
+        );
+    }
+
+    /// The AI lanes' locality knobs are independent of the analytics one and
+    /// of each other, and start from the opposite default: a deployment that
+    /// sets only `OVERFLOW_PRESERVE_PARTITION_LOCALITY` must not drag the AI
+    /// lanes along with it in either direction.
+    #[test]
+    fn ai_locality_knobs_are_independent_of_analytics() {
+        let config: Config =
+            envconfig::Envconfig::init_from_hashmap(&required_config_env()).unwrap();
+        assert!(!config.overflow_preserve_partition_locality);
+        assert!(config.kafka.ai_main_preserve_partition_locality);
+        assert!(config.kafka.ai_overflow_preserve_partition_locality);
+
+        let mut env = required_config_env();
+        env.insert("OVERFLOW_PRESERVE_PARTITION_LOCALITY".into(), "true".into());
+        env.insert("AI_MAIN_PRESERVE_PARTITION_LOCALITY".into(), "false".into());
+        let config: Config = envconfig::Envconfig::init_from_hashmap(&env).unwrap();
+        assert!(config.overflow_preserve_partition_locality);
+        assert!(!config.kafka.ai_main_preserve_partition_locality);
+        assert!(
+            config.kafka.ai_overflow_preserve_partition_locality,
+            "the AI main knob must not drag the AI overflow lane with it"
         );
     }
 

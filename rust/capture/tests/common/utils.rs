@@ -90,6 +90,8 @@ pub static DEFAULT_CONFIG: Lazy<Config> = Lazy::new(|| Config {
         outputs_completeness_check_enabled: true,
         capture_analytics_ai_events_topic: "events_plugin_ingestion_ai".to_string(),
         capture_analytics_ai_events_overflow_topic: None,
+        ai_main_preserve_partition_locality: true,
+        ai_overflow_preserve_partition_locality: true,
         kafka_traces_topic: "ingestion_traces".to_string(),
         kafka_metrics_topic: "ingestion_metrics".to_string(),
         kafka_tls: false,

@@ -186,6 +186,27 @@ pub struct KafkaSinkBase<P: KafkaProducer> {
     producer: Arc<P>,
     topics: Arc<OutputRegistry>,
     replay_envelope_compression: EnvelopeCompression,
+    /// Key policy for the AI lanes, handed to [`pipeline::resolve`] on every
+    /// record. Which topics exist comes from `topics`; how they key comes
+    /// from config.
+    ai_lane_keys: AiLaneKeys,
+}
+
+/// The configured half of [`pipeline::AiLaneRouting`] — the valve is derived
+/// from the registry, so only the key policy is carried here.
+#[derive(Debug, Clone, Copy)]
+struct AiLaneKeys {
+    preserve_main_locality: bool,
+    preserve_overflow_locality: bool,
+}
+
+impl Default for AiLaneKeys {
+    fn default() -> Self {
+        Self {
+            preserve_main_locality: true,
+            preserve_overflow_locality: true,
+        }
+    }
 }
 
 impl<P: KafkaProducer> Clone for KafkaSinkBase<P> {
@@ -194,6 +215,7 @@ impl<P: KafkaProducer> Clone for KafkaSinkBase<P> {
             producer: Arc::clone(&self.producer),
             topics: Arc::clone(&self.topics),
             replay_envelope_compression: self.replay_envelope_compression,
+            ai_lane_keys: self.ai_lane_keys,
         }
     }
 }
@@ -380,6 +402,10 @@ impl KafkaSink {
             producer: Arc::new(rd_producer),
             topics,
             replay_envelope_compression: config.kafka_replay_envelope_compression,
+            ai_lane_keys: AiLaneKeys {
+                preserve_main_locality: config.ai_main_preserve_partition_locality,
+                preserve_overflow_locality: config.ai_overflow_preserve_partition_locality,
+            },
         })
     }
 }
@@ -393,6 +419,7 @@ impl<P: KafkaProducer> KafkaSinkBase<P> {
             producer: Arc::new(producer),
             topics: Arc::new(topics),
             replay_envelope_compression: EnvelopeCompression::None,
+            ai_lane_keys: AiLaneKeys::default(),
         }
     }
 
@@ -406,7 +433,19 @@ impl<P: KafkaProducer> KafkaSinkBase<P> {
             producer: Arc::new(producer),
             topics: Arc::new(topics),
             replay_envelope_compression,
+            ai_lane_keys: AiLaneKeys::default(),
         }
+    }
+
+    /// Publish the AI lanes without a partition key, so a hot token spreads
+    /// across the topic. Used by tests; production reads config.
+    #[cfg(test)]
+    pub fn without_ai_locality(mut self) -> Self {
+        self.ai_lane_keys = AiLaneKeys {
+            preserve_main_locality: false,
+            preserve_overflow_locality: false,
+        };
+        self
     }
 
     /// CPU-bound prep work: serialize payload + build headers + pick topic/key.
@@ -476,7 +515,14 @@ impl<P: KafkaProducer> KafkaSinkBase<P> {
         // and applies the address-implied side effects in the same match —
         // the dlq output's contract includes the dlq header set, and both
         // admin redirects count their reroutes.
-        let decision = pipeline::resolve(&metadata, self.topics.ai_events_overflow_armed())?;
+        let decision = pipeline::resolve(
+            &metadata,
+            pipeline::AiLaneRouting {
+                overflow_armed: self.topics.ai_events_overflow_armed(),
+                preserve_main_locality: self.ai_lane_keys.preserve_main_locality,
+                preserve_overflow_locality: self.ai_lane_keys.preserve_overflow_locality,
+            },
+        )?;
         let target = match decision.address {
             Address::Dlq => {
                 dlq_reroute_effects(&mut headers, "event_restriction");
@@ -840,6 +886,8 @@ mod tests {
             outputs_completeness_check_enabled: true,
             capture_analytics_ai_events_topic: "events_plugin_ingestion_ai".to_string(),
             capture_analytics_ai_events_overflow_topic: None,
+            ai_main_preserve_partition_locality: true,
+            ai_overflow_preserve_partition_locality: true,
             kafka_traces_topic: "traces_ingestion".to_string(),
             kafka_metrics_topic: "metrics_ingestion".to_string(),
             kafka_tls: false,
@@ -2335,12 +2383,13 @@ mod tests {
             .await;
         }
 
-        /// Stamped overflow reasons on the AI lane, where — unlike the
-        /// analytics lane — a burst without locality preservation spreads
-        /// while person processing is on: the AI consumer reads persons
-        /// without writing them, so keyless person-on records contend
-        /// nothing downstream. `ForceLimited` implies the person-processing
-        /// header on its own, flag or no flag.
+        /// Stamped overflow reasons on the AI lane. The stamped
+        /// `preserve_locality` is the analytics lane's carrier and is ignored
+        /// here — this lane keys from its deployment setting, which the sink
+        /// fixture leaves at preserving — so a rate-limited burst keeps its
+        /// key either way. `ForceLimited` still spreads, since breaking up a
+        /// hot key is what that reason is for, and it implies the
+        /// person-processing header on its own, flag or no flag.
         #[rstest]
         #[case::force_limited(OverflowReason::ForceLimited, false, Some(true))]
         #[case::rate_limited_preserving(
@@ -2350,11 +2399,11 @@ mod tests {
             true,
             None
         )]
-        #[case::rate_limited_spreading(
+        #[case::rate_limited_stamp_is_not_consulted(
             OverflowReason::RateLimited {
                 preserve_locality: false
             },
-            false,
+            true,
             None
         )]
         #[tokio::test]
@@ -2433,6 +2482,57 @@ mod tests {
                 },
             )
             .await;
+        }
+
+        /// With locality off, the AI main lane publishes keyless so a hot
+        /// token spreads across the topic — and person processing stays on,
+        /// which is what separates this from every other way to spread an AI
+        /// burst. Events keep their person properties downstream.
+        #[tokio::test]
+        async fn ai_main_spreads_without_touching_person_processing() {
+            let producer = MockKafkaProducer::new();
+            let sink =
+                KafkaSinkBase::with_producer(producer.clone(), test_topics()).without_ai_locality();
+
+            sink.send(create_test_event(&EventInput {
+                data_type: DataType::AiEvents,
+                ..Default::default()
+            }))
+            .await
+            .unwrap();
+
+            let records = producer.get_records();
+            assert_eq!(records.len(), 1);
+            assert_eq!(records[0].topic, AI_EVENTS_TOPIC);
+            assert_eq!(records[0].key, None, "the main lane must publish keyless");
+            assert_eq!(
+                records[0].headers.force_disable_person_processing, None,
+                "spreading the main lane must not disable person processing"
+            );
+        }
+
+        /// The overflow lane answers to the same deployment setting, so a
+        /// rate-limited burst spreads there too.
+        #[tokio::test]
+        async fn ai_overflow_spreads_when_locality_is_off() {
+            let producer = MockKafkaProducer::new();
+            let sink =
+                KafkaSinkBase::with_producer(producer.clone(), test_topics()).without_ai_locality();
+
+            sink.send(create_test_event(&EventInput {
+                data_type: DataType::AiEvents,
+                overflow_reason: Some(OverflowReason::RateLimited {
+                    preserve_locality: true,
+                }),
+                ..Default::default()
+            }))
+            .await
+            .unwrap();
+
+            let records = producer.get_records();
+            assert_eq!(records.len(), 1);
+            assert_eq!(records[0].topic, AI_EVENTS_OVERFLOW_TOPIC);
+            assert_eq!(records[0].key, None);
         }
 
         #[tokio::test]
