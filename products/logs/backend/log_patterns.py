@@ -46,7 +46,15 @@ _HOST_SUFFIXES = (
     "xyz",
 )
 _HOST_LABEL = r"[a-zA-Z0-9](?:[a-zA-Z0-9-]*[a-zA-Z0-9])?"
-_HOST_PATTERN = rf"\b(?:{_HOST_LABEL}\.)+(?:{'|'.join(_HOST_SUFFIXES)})\b"
+# The repeat is bounded to hold down backtracking, not to enforce a DNS limit. Under an
+# unbounded repeat, a dotted run that ends in a non-suffix ("a.a.a.<...>.invalid") makes the
+# engine retry the whole suffix alternation at every label boundary, from every start position
+# the run offers, so the cost grows with the square of the run's length. Every sampled row is
+# masked, and only LOGS_PATTERNS_BODY_TRUNCATE bounds how long a run can get, so a body built
+# out of single-character labels turns into real CPU. A dotted run with more labels than this
+# masks its tail and keeps its head literal, which no real hostname is long enough to reach.
+_HOST_MAX_LABELS_BEFORE_SUFFIX = 8
+_HOST_PATTERN = rf"\b(?:{_HOST_LABEL}\.){{1,{_HOST_MAX_LABELS_BEFORE_SUFFIX}}}(?:{'|'.join(_HOST_SUFFIXES)})\b"
 
 _MASKING_INSTRUCTIONS = [
     # Timestamp must precede the number catch-all: \b never matches between a digit and

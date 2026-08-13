@@ -190,6 +190,16 @@ class TestMinePatterns(TestCase):
 
         assert "<host>" not in patterns[0].pattern
 
+    def test_a_dotted_run_longer_than_any_hostname_keeps_its_head_literal(self) -> None:
+        # The label repeat is capped because an uncapped one retries the suffix alternation at
+        # every boundary of a long dotted run, at a cost that grows with the square of its
+        # length. Masking only the tail is the visible price of that cap, so a crafted run of
+        # single-character labels must leave its head in the template.
+        patterns = mine_patterns([_sample("upstream " + "a." * 40 + "example.com refused")])
+
+        assert "<host>" in patterns[0].pattern
+        assert "a.a.a." in patterns[0].pattern
+
     def test_error_count_includes_only_error_and_fatal(self) -> None:
         samples = [
             _sample("db connection dropped", severity="error"),
@@ -408,9 +418,13 @@ _label_st = st.text("abcdefghijklmnopqrstuvwxyz0123456789", min_size=1, max_size
 _non_suffix_label_st = _label_st.filter(lambda label: label not in _HOST_SUFFIXES)
 
 
+# Up to five labels before the suffix, past the deepest names that show up in real logs
+# ("pod.ns.svc.cluster.local", "a.b.c.example.co.uk"). The mask caps how many labels it will
+# consume, and this range is deliberately not derived from that cap: tightening the cap below
+# what real hostnames need has to fail the collapse property, not narrow the strategy with it.
 @st.composite
 def _fqdn_st(draw: st.DrawFn) -> str:
-    labels = draw(st.lists(_non_suffix_label_st, min_size=1, max_size=3))
+    labels = draw(st.lists(_non_suffix_label_st, min_size=1, max_size=5))
     return ".".join([*labels, draw(st.sampled_from(_HOST_SUFFIXES))])
 
 
