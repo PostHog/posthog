@@ -1,6 +1,6 @@
 import enum
 from typing import TYPE_CHECKING, cast
-from urllib.parse import urlparse
+from urllib.parse import parse_qsl, urlparse
 
 from django.conf import settings
 from django.contrib.auth.signals import user_logged_out
@@ -111,6 +111,15 @@ class OAuthApplication(ModelActivityMixin, AbstractApplication):  # type: ignore
     # First-party apps skip the OAuth consent screen and can use direct token exchange
     is_first_party: models.BooleanField = models.BooleanField(
         default=False, help_text="True if this is a first-party PostHog application that skips OAuth consent"
+    )
+
+    # Wildcard redirect hosts widen the set of origins that can receive an authorization code.
+    # Keep the capability explicit and default-deny rather than relying on the global toolkit
+    # setting, which would grant it to every application.
+    allow_redirect_uri_wildcards: models.BooleanField = models.BooleanField(
+        default=False,
+        db_default=False,
+        help_text="Allow wildcard hostname redirect URIs for this first-party application only.",
     )
 
     auth_brand: models.CharField = models.CharField(
@@ -384,13 +393,18 @@ class OAuthApplication(ModelActivityMixin, AbstractApplication):  # type: ignore
         if self.jwks_uri and not self.requires_client_authentication:
             raise ValidationError("jwks_uri is only meaningful for a confidential client")
 
+    @property
+    def allows_redirect_uri_wildcards(self) -> bool:
+        """Whether this application's redirect URI registrations may use wildcard hosts."""
+        return self.allow_redirect_uri_wildcards or oauth2_settings.ALLOW_URI_WILDCARDS
+
     def _validate_redirect_uris(self):
         validator = AllowedURIValidator(
             {scheme.lower() for scheme in self.get_allowed_schemes()},
             name="redirect uri",
             allow_path=True,
             allow_query=True,
-            allow_hostname_wildcard=oauth2_settings.ALLOW_URI_WILDCARDS,
+            allow_hostname_wildcard=self.allows_redirect_uri_wildcards,
         )
         for uri in self.redirect_uris.split():
             parsed_uri = urlparse(uri)
@@ -419,6 +433,33 @@ class OAuthApplication(ModelActivityMixin, AbstractApplication):  # type: ignore
                         "redirect_uris": f"Redirect URI {uri} must use https (http is only allowed for loopback addresses)"
                     }
                 )
+
+    def redirect_uri_allowed(self, uri: str) -> bool:
+        """Match a redirect URI, allowing wildcard hosts only for opted-in applications."""
+        parsed_uri = urlparse(uri)
+        requested_query = set(parse_qsl(parsed_uri.query))
+        for allowed_uri in self.redirect_uris.split():
+            parsed_allowed_uri = urlparse(allowed_uri)
+            if parsed_allowed_uri.scheme != parsed_uri.scheme:
+                continue
+
+            allowed_host = parsed_allowed_uri.hostname
+            requested_host = parsed_uri.hostname
+            if self.allows_redirect_uri_wildcards and allowed_host and allowed_host.startswith("*"):
+                if not requested_host or not requested_host.endswith(allowed_host[1:]):
+                    continue
+            elif allowed_host != requested_host:
+                continue
+
+            allowed_is_loopback = parsed_allowed_uri.scheme == "http" and allowed_host in {"127.0.0.1", "::1"}
+            if not allowed_is_loopback and parsed_allowed_uri.port != parsed_uri.port:
+                continue
+            if parsed_allowed_uri.path != parsed_uri.path:
+                continue
+            if not set(parse_qsl(parsed_allowed_uri.query)).issubset(requested_query):
+                continue
+            return True
+        return False
 
     def _validate_optional_scopes(self):
         if not self.optional_scopes:
@@ -450,6 +491,11 @@ class OAuthApplication(ModelActivityMixin, AbstractApplication):  # type: ignore
         )
         if not self.redirect_uris.split() and self.authorization_grant_type in code_grant_types:
             raise ValidationError(f"redirect_uris cannot be empty with grant_type {self.authorization_grant_type}")
+
+        if self.allow_redirect_uri_wildcards and not self.is_first_party:
+            raise ValidationError(
+                {"allow_redirect_uri_wildcards": "Wildcard redirect URIs are restricted to first-party applications."}
+            )
 
         allowed_origins = self.allowed_origins.split()
         if allowed_origins:

@@ -103,6 +103,7 @@ See [Client Types](#client-types) section for detailed explanation.
 - **HTTPS required** for non-localhost URIs
 - **HTTP allowed** only for localhost/loopback addresses (127.0.0.1)
 - No fragments (#) allowed
+- Wildcard hostnames are disabled by default. PostHog staff can enable them only for a first-party application; the scheme, port, path, and query parameters still match exactly.
 - Examples:
 
   ```text

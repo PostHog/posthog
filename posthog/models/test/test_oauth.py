@@ -124,6 +124,38 @@ class TestOAuthModels(TestCase):
                 algorithm="RS256",
             )
 
+    def test_wildcard_redirect_uri_requires_application_opt_in(self):
+        with self.assertRaises(ValidationError) as ctx:
+            self._make_app(
+                "Wildcard Disabled",
+                "wildcard_disabled_client",
+                redirect_uris="https://*.hosthog.dev/callback",
+            )
+        self.assertIn("redirect_uris", ctx.exception.message_dict)
+
+    def test_wildcard_redirect_uri_opt_in_requires_first_party_application(self):
+        with self.assertRaises(ValidationError) as ctx:
+            self._make_app(
+                "Wildcard Third Party",
+                "wildcard_third_party_client",
+                allow_redirect_uri_wildcards=True,
+            )
+        self.assertIn("allow_redirect_uri_wildcards", ctx.exception.message_dict)
+
+    def test_first_party_wildcard_redirect_uri_matches_only_its_subdomains(self):
+        app = self._make_app(
+            "Wildcard First Party",
+            "wildcard_first_party_client",
+            is_first_party=True,
+            allow_redirect_uri_wildcards=True,
+            redirect_uris="https://*.hosthog.dev/callback",
+        )
+
+        self.assertTrue(app.redirect_uri_allowed("https://preview.hosthog.dev/callback"))
+        self.assertFalse(app.redirect_uri_allowed("https://hosthog.dev/callback"))
+        self.assertFalse(app.redirect_uri_allowed("https://preview.hosthog.dev/other"))
+        self.assertFalse(app.redirect_uri_allowed("https://preview.hosthog.dev.evil.example/callback"))
+
     @override_settings(DEBUG=True)
     def test_can_create_application_with_http_redirect_url_when_debug_is_true(self):
         OAuthApplication.objects.create(
