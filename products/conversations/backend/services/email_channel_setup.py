@@ -18,7 +18,8 @@ _GOOGLE_DKIM_DOMAIN = "google.com"
 _GOOGLE_CONFIRMATION_HOST = "mail-settings.google.com"
 _GOOGLE_CONFIRMATION_PATH_RE = re.compile(r"^/mail/vf-[A-Za-z0-9_-]+")
 _GOOGLE_FORWARDING_SUBJECT_RE = re.compile(
-    r"^(?:\(#\d+\)\s*)?Gmail Forwarding Confirmation\s*-\s*Receive Mail from\s+(?P<source>[^\s<>]+@[^\s<>]+)\s*$",
+    r"^(?:(?:\(#\d+\)\s*)?Gmail|\([^\r\n]{1,100}) Forwarding Confirmation\s*-\s*Receive Mail from\s+"
+    r"(?P<source>[^\s<>()]+@[^\s<>()]+)\)?\s*$",
     re.IGNORECASE,
 )
 _HTTPS_URL_RE = re.compile(r"https://[^\s<>\"']+", re.IGNORECASE)

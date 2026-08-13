@@ -1,3 +1,4 @@
+import json
 from datetime import timedelta
 
 from posthog.test.base import BaseTest
@@ -116,6 +117,25 @@ class TestCustomerEmailIngestion(BaseTest):
         assert not EmailThread.objects.for_team(self.team.id).exists()
         assert not Ticket.objects.filter(team=self.team).exists()
         assert not EmailOutboxMessage.objects.filter(team=self.team).exists()
+
+    def test_pending_channel_accepts_live_mailgun_confirmation_shape(self) -> None:
+        setup = self._start_google_setup()
+        payload = self._valid_google_confirmation()
+        payload["subject"] = "(PostHog Forwarding Confirmation - Receive Mail from csm@example.com"
+        payload["message-headers"] = json.dumps(
+            [
+                ["X-Mailgun-Spf", payload.pop("X-Mailgun-Spf")],
+                ["X-Mailgun-Dkim-Check-Result", payload.pop("X-Mailgun-Dkim-Check-Result")],
+                ["DKIM-Signature", payload.pop("DKIM-Signature")],
+            ]
+        )
+
+        response = self._post_email(message_id="<live-forwarding-confirmation@gmail.com>", **payload)
+
+        assert response.status_code == 200
+        setup.refresh_from_db()
+        assert setup.confirmation_action == "https://mail-settings.google.com/mail/vf-expected"
+        assert setup.confirmation_received_at is not None
 
     @parameterized.expand(
         [

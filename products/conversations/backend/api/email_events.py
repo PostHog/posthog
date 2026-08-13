@@ -254,7 +254,7 @@ def _sender_authenticated(request: HttpRequest, sender_email: str) -> bool:
     An attacker signing with evil.com's key but forging From: teammate@posthog.com
     would still get DKIM Pass.
     """
-    spf_passed = request.POST.get("X-Mailgun-Spf", "").lower() == "pass"
+    spf_passed = any(value.strip().lower() == "pass" for value in _message_header_values(request, "X-Mailgun-Spf"))
     if not spf_passed:
         return False
     envelope_sender = request.POST.get("sender", "")
@@ -387,7 +387,9 @@ def _parse_inbound_email(request: HttpRequest, config: EmailChannel) -> ParsedIn
         body_plain=request.POST.get("body-plain", "")[:MAX_EMAIL_BODY_LENGTH],
         stripped_text=stripped_text[:MAX_EMAIL_BODY_LENGTH],
         sender_authenticated=_sender_authenticated(request, sender_email),
-        dkim_passed=request.POST.get("X-Mailgun-Dkim-Check-Result", "").lower() == "pass",
+        dkim_passed=any(
+            value.strip().lower() == "pass" for value in _message_header_values(request, "X-Mailgun-Dkim-Check-Result")
+        ),
         dkim_signing_domains=_dkim_signing_domains(request),
         capture_address=request.POST.get("recipient", "").strip().lower(),
         attachments=tuple(attachments),
