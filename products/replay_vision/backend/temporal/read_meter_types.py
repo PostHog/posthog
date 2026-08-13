@@ -40,4 +40,7 @@ def sweep_throttle_factor(spend_bytes: int, override: int | None) -> int:
     """Cadence-stretch multiplier: 1 means sweep normally, N means sweep every N schedule intervals."""
     if override is not None:
         return max(1, min(override, SWEEP_THROTTLE_MAX_FACTOR))
-    return max(1, min(round(spend_bytes / SWEEP_READ_BUDGET_BYTES_24H), SWEEP_THROTTLE_MAX_FACTOR))
+    # Rounds up, so any spend past the budget stretches the cadence. Rounding to nearest would leave a
+    # scanner between one and one and a half budgets running at full rate despite being over.
+    factor = -(-spend_bytes // SWEEP_READ_BUDGET_BYTES_24H)
+    return max(1, min(factor, SWEEP_THROTTLE_MAX_FACTOR))

@@ -21,6 +21,9 @@ class TestThrottleMath:
         [
             ("under_budget", SWEEP_READ_BUDGET_BYTES_24H // 2, None, 1),
             ("at_budget", SWEEP_READ_BUDGET_BYTES_24H, None, 1),
+            # Just over the budget still has to throttle; nearest-rounding used to let this run free.
+            ("just_over_budget", SWEEP_READ_BUDGET_BYTES_24H + 1, None, 2),
+            ("well_under_one_and_a_half", int(SWEEP_READ_BUDGET_BYTES_24H * 1.25), None, 2),
             ("ten_times_budget", SWEEP_READ_BUDGET_BYTES_24H * 10, None, 10),
             ("capped_at_max", SWEEP_READ_BUDGET_BYTES_24H * 100, None, 12),
             ("override_wins_over_spend", SWEEP_READ_BUDGET_BYTES_24H * 100, 1, 1),
