@@ -1,7 +1,6 @@
 from typing import Any, cast
 from uuid import UUID
 
-from django.conf import settings
 from django.core.exceptions import ValidationError as DjangoValidationError
 from django.db.models import Q, QuerySet
 from django.utils import timezone
@@ -48,6 +47,7 @@ from products.canvas.backend.presentation.serializers import (
     CanvasValidateRequestSerializer,
     CanvasValidateResponseSerializer,
     CanvasVersionSerializer,
+    canvas_url,
 )
 from products.canvas.backend.source import apply_source_edits, has_errors, validate_source_project
 from products.tasks.backend.facade import api as tasks_facade
@@ -897,7 +897,7 @@ class CanvasViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
             self.team_id,
             acting_user_id=user.id if user else None,
             canvas_name=canvas.name or "Canvas",
-            canvas_url=f"{settings.SITE_URL}/code/canvas/{canvas.channel_id}/{canvas.id}",
+            canvas_url=canvas_url(canvas),
         )
 
     @staticmethod
