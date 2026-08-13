@@ -1,16 +1,27 @@
-"""Triggers for the single-turn `ReviewPRWorkflow`.
+"""Triggers for the review and resolution workflows.
 
-Two entry points drive the **same** workflow:
-- `execute_review_pr_workflow` — **blocking** (`execute_workflow`), returns the `ReviewReport` id.
-  Used by the `run_review` management command so the CLI eval loop stays intact: run, see the
-  outcome, read the report (stage progress streams in the worker log via `workflow.logger`).
-- `start_review_pr_workflow` — **non-blocking** (`start_workflow`), returns the workflow id. Used by
-  the production triggers (the label endpoint and the inbox TaskRun-completion receiver), which fire
-  and forget (the review runs in the worker; the report id is created when the run's fetch activity
-  executes).
+Four entry points across two workflows. Each workflow pairs a **blocking** CLI trigger
+(`execute_*`, via `execute_workflow`) with a **non-blocking** production trigger (`start_*`, via
+`start_workflow`); the blocking form returns the `ReviewReport` id, the non-blocking form returns
+the workflow id and fires and forget (the run happens in the worker).
+
+`ReviewPRWorkflow` — the single-turn review:
+- `execute_review_pr_workflow` — used by the `run_review` management command so the CLI eval loop
+  stays intact: run, see the outcome, read the report (stage progress streams in the worker log via
+  `workflow.logger`).
+- `start_review_pr_workflow` — used by the production triggers (the label endpoint and the inbox
+  TaskRun-completion receiver); the report id is created when the run's fetch activity executes.
+
+`ResolvePRWorkflow` — triaging and settling a PR's unresolved review threads:
+- `execute_resolution_workflow` — the CLI entry (`run_resolution`), mirroring
+  `execute_review_pr_workflow`. Returns the `ReviewReport` id if any.
+- `start_resolution_workflow` — used by the production triggers (the `resolve` endpoint and the UI
+  resolve-only run). A published review chains into resolution as a child-workflow start inside
+  `ReviewPRWorkflow`, not through these entry points.
 
 The review target is either a PR (`pr_url`) or a pushed branch with no PR yet
-(`repository` + `head_branch`) — exactly one, validated in `_build_inputs`.
+(`repository` + `head_branch`) — exactly one, validated in `_build_inputs`. Resolution always
+targets a PR (`pr_url`), validated in `_build_resolution_inputs`.
 """
 
 import asyncio
@@ -29,7 +40,9 @@ from posthog.temporal.common.client import sync_connect
 from products.review_hog.backend.reviewer.tools.github_meta import PRParser
 from products.review_hog.backend.temporal.types import (
     TRIGGER_MANUAL,
+    ResolvePRWorkflowInputs,
     ReviewPRWorkflowInputs,
+    resolve_pr_workflow_id,
     review_branch_workflow_id,
     review_pr_workflow_id,
 )
@@ -52,6 +65,7 @@ def _build_inputs(
     pr_url: str | None,
     repository: str | None,
     head_branch: str | None,
+    resolve_comments: bool | None = None,
 ) -> tuple[ReviewPRWorkflowInputs, str]:
     """Validate the review target, the team, and build the workflow inputs + deterministic id.
 
@@ -86,6 +100,7 @@ def _build_inputs(
         trigger_source=trigger_source,
         signal_report_id=signal_report_id,
         head_branch=head_branch,
+        resolve_comments=resolve_comments,
     )
     return inputs, workflow_id
 
@@ -101,6 +116,7 @@ def execute_review_pr_workflow(
     signal_report_id: str | None = None,
     repository: str | None = None,
     head_branch: str | None = None,
+    resolve_comments: bool | None = None,
 ) -> str:
     """Start `ReviewPRWorkflow`, block until it completes, and return the `ReviewReport` id.
 
@@ -119,6 +135,7 @@ def execute_review_pr_workflow(
         pr_url=pr_url,
         repository=repository,
         head_branch=head_branch,
+        resolve_comments=resolve_comments,
     )
 
     # `sync_connect` is @async_to_sync, so call it from sync code (outside any running loop); the
@@ -151,6 +168,7 @@ def start_review_pr_workflow(
     signal_report_id: str | None = None,
     repository: str | None = None,
     head_branch: str | None = None,
+    resolve_comments: bool | None = None,
 ) -> str:
     """Start `ReviewPRWorkflow` without blocking and return the workflow id.
 
@@ -174,6 +192,7 @@ def start_review_pr_workflow(
         pr_url=pr_url,
         repository=repository,
         head_branch=head_branch,
+        resolve_comments=resolve_comments,
     )
 
     client = sync_connect()
@@ -182,6 +201,93 @@ def start_review_pr_workflow(
     start_workflow = cast(Callable[..., Any], async_to_sync(client.start_workflow))
     start_workflow(
         "review-pr",
+        inputs,
+        id=workflow_id,
+        task_queue=settings.VIDEO_EXPORT_TASK_QUEUE,
+        id_reuse_policy=WorkflowIDReusePolicy.ALLOW_DUPLICATE,
+        id_conflict_policy=WorkflowIDConflictPolicy.USE_EXISTING,
+        retry_policy=_PARENT_RETRY,
+    )
+    return workflow_id
+
+
+def _build_resolution_inputs(
+    *,
+    pr_url: str,
+    team_id: int,
+    user_id: int,
+    acting_user_id: int | None,
+    trigger_source: str,
+) -> tuple[ResolvePRWorkflowInputs, str]:
+    """Parse the PR target, check the team, and build the resolution inputs + deterministic id."""
+    Team.objects.get(id=team_id)  # fail fast if the team doesn't exist
+    pr_info = PRParser().parse_github_pr_url(pr_url)
+    owner, repo, pr_number = str(pr_info["owner"]), str(pr_info["repo"]), int(pr_info["pr_number"])
+    inputs = ResolvePRWorkflowInputs(
+        team_id=team_id,
+        user_id=user_id,
+        owner=owner,
+        repo=repo,
+        pr_number=pr_number,
+        pr_url=pr_url,
+        acting_user_id=acting_user_id,
+        trigger_source=trigger_source,
+    )
+    workflow_id = resolve_pr_workflow_id(team_id=team_id, owner=owner, repo=repo, pr_number=pr_number)
+    return inputs, workflow_id
+
+
+def execute_resolution_workflow(
+    *,
+    pr_url: str,
+    team_id: int,
+    user_id: int,
+    acting_user_id: int | None = None,
+    trigger_source: str = TRIGGER_MANUAL,
+) -> str | None:
+    """Start `ResolvePRWorkflow`, block until it completes, and return the `ReviewReport` id (if any).
+
+    The CLI entry (`run_resolution`), mirroring `execute_review_pr_workflow`. Unlike a review there
+    is no publish flag — the resolution stage's whole job is writing back (replies, resolves, and
+    commits to the PR branch), so triggering it IS the consent.
+    """
+    inputs, workflow_id = _build_resolution_inputs(
+        pr_url=pr_url, team_id=team_id, user_id=user_id, acting_user_id=acting_user_id, trigger_source=trigger_source
+    )
+    client = sync_connect()
+    logger.info(f"Running ResolvePRWorkflow {workflow_id} on {settings.VIDEO_EXPORT_TASK_QUEUE}")
+    return asyncio.run(
+        client.execute_workflow(
+            "resolve-pr",
+            inputs,
+            id=workflow_id,
+            task_queue=settings.VIDEO_EXPORT_TASK_QUEUE,
+            # One resolution run per PR at a time: a re-trigger while one is in flight joins it; a
+            # new run may start once the prior finished (per-thread watermarks make it incremental).
+            id_reuse_policy=WorkflowIDReusePolicy.ALLOW_DUPLICATE,
+            id_conflict_policy=WorkflowIDConflictPolicy.USE_EXISTING,
+            retry_policy=_PARENT_RETRY,
+        )
+    )
+
+
+def start_resolution_workflow(
+    *,
+    pr_url: str,
+    team_id: int,
+    user_id: int,
+    acting_user_id: int | None = None,
+    trigger_source: str = TRIGGER_MANUAL,
+) -> str:
+    """Start `ResolvePRWorkflow` without blocking and return the workflow id (the production triggers)."""
+    inputs, workflow_id = _build_resolution_inputs(
+        pr_url=pr_url, team_id=team_id, user_id=user_id, acting_user_id=acting_user_id, trigger_source=trigger_source
+    )
+    client = sync_connect()
+    logger.info(f"Starting ResolvePRWorkflow {workflow_id} on {settings.VIDEO_EXPORT_TASK_QUEUE}")
+    start_workflow = cast(Callable[..., Any], async_to_sync(client.start_workflow))
+    start_workflow(
+        "resolve-pr",
         inputs,
         id=workflow_id,
         task_queue=settings.VIDEO_EXPORT_TASK_QUEUE,

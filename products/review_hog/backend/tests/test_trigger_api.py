@@ -25,7 +25,7 @@ class TestReviewHogTriggerApi(APIBaseTest):
         OrganizationMembership.objects.create(organization=self.organization, user=self.run_user)
         # Apply dynamic IDs via settings overrides
         self._settings_ctx = self.settings(
-            REVIEWHOG_TEAM_ID=self.trigger_team.id,
+            REVIEWHOG_TEAM_IDS=[self.trigger_team.id],
             REVIEWHOG_RUN_USER_ID=self.run_user.id,
         )
         self._settings_ctx.enable()
@@ -103,7 +103,7 @@ class TestReviewHogTriggerApi(APIBaseTest):
         self.assertEqual(resp.status_code, status.HTTP_202_ACCEPTED, resp.content)
         mock_start.assert_called_once()
 
-    @override_settings(REVIEWHOG_TEAM_ID=None)
+    @override_settings(REVIEWHOG_TEAM_IDS=[])
     @patch(_START, return_value="wf-1")
     def test_unconfigured_team_returns_503(self, mock_start):
         resp = self.client.post(
@@ -138,7 +138,7 @@ class TestReviewHogTriggerApi(APIBaseTest):
             sensitive_config={},
             created_by=self.user,
         )
-        with override_settings(REVIEWHOG_TEAM_ID=self.team.id):
+        with override_settings(REVIEWHOG_TEAM_IDS=[self.team.id]):
             resp = self.client.post(
                 TRIGGER_URL,
                 {"repo": "PostHog/posthog", "pr_number": 1},
@@ -168,7 +168,7 @@ class TestReviewHogTriggerApi(APIBaseTest):
             sensitive_config={},
             created_by=departed,
         )
-        with override_settings(REVIEWHOG_TEAM_ID=self.team.id):
+        with override_settings(REVIEWHOG_TEAM_IDS=[self.team.id]):
             resp = self.client.post(
                 TRIGGER_URL,
                 {"repo": "PostHog/posthog", "pr_number": 1},
