@@ -161,7 +161,7 @@ class BoundedResolver(Resolver):
         self.initial_view_name = initial_view_name
         # views whose bodies are currently being visited; seeded with the current view name so
         # it counts as "visited" for cycle detection
-        self.resolving_views: set[str] = {initial_view_name} if initial_view_name else set()
+        self.resolving_views = {initial_view_name} if initial_view_name else set()
         # set by visit_join_expr, consumed by the body visit it triggers (cycle detection needs
         # the name during resolution, before the id map below is populated)
         self._pending_view_name: str | None = None

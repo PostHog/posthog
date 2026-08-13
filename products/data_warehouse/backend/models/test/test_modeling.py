@@ -141,6 +141,18 @@ class TestModelPath(BaseTest):
         with pytest.raises(QueryError, match="Unknown table"):
             get_parents_from_model_query(self.team, "test_model", "select * from some_random_view")
 
+    def test_view_is_not_suggested_as_the_fix_for_its_own_body(self):
+        DataWarehouseSavedQuery.objects.create(
+            team=self.team,
+            name="customer_orders_v2",
+            query={"query": "select id from customer_orders"},
+        )
+
+        with pytest.raises(QueryError) as e:
+            get_parents_from_model_query(self.team, "customer_orders_v2", "select id from customer_orders")
+
+        assert str(e.value) == "Unknown table `customer_orders`."
+
     def test_create_from_static_query(self):
         """Test creation of a model path from a query that returns a static set of rows."""
         query = "SELECT 1 AS a, 2 AS b, NOW() AS c"

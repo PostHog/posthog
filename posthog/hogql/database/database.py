@@ -649,7 +649,7 @@ class Database(BaseModel):
 
         return self.tables.get_child(table_name)
 
-    def get_table(self, table_name: str | list[str]) -> Table:
+    def get_table(self, table_name: str | list[str], *, invalid_suggestions: set[str] | None = None) -> Table:
         try:
             return cast(Table, self.get_table_node(table_name).get())
         except ResolutionError as e:
@@ -657,11 +657,13 @@ class Database(BaseModel):
                 table_name = ".".join(table_name)
             if self.is_table_access_denied(table_name):
                 raise TableAccessDeniedError(table_name) from e
-            suggestions = self._suggest_table_names(table_name)
+            suggestions = self._suggest_table_names(table_name, invalid_suggestions=invalid_suggestions)
             suffix = f" Did you mean: {', '.join(suggestions)}?" if suggestions else ""
             raise QueryError(f"Unknown table `{table_name}`.{suffix}") from e
 
-    def _suggest_table_names(self, name: str, *, limit: int = 3) -> list[str]:
+    def _suggest_table_names(
+        self, name: str, *, limit: int = 3, invalid_suggestions: set[str] | None = None
+    ) -> list[str]:
         """Return up to `limit` close matches for a mistyped table name.
 
         Uses a relatively strict cutoff so common exact-text assertions on
@@ -677,6 +679,10 @@ class Database(BaseModel):
         outside it are dropped no matter how well the leaf scores. When no such
         schema exists, the schema itself is the likely typo, so the closest
         known schema is searched instead.
+
+        `invalid_suggestions` names views the caller is resolving right now.
+        Offering one as the fix for a table missing from its own body would tell
+        the author to make that view select from itself.
         """
         import difflib
 
@@ -692,6 +698,9 @@ class Database(BaseModel):
         # catalog without being available on the source we actually queried.
         lowered = name.casefold()
         candidates = {c for c in candidates if c.casefold() != lowered}
+        if invalid_suggestions:
+            excluded = {n.casefold() for n in invalid_suggestions}
+            candidates = {c for c in candidates if c.casefold() not in excluded}
         prefix, dot, _ = name.rpartition(".")
         if dot:
             schema = prefix.casefold()

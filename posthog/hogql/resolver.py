@@ -365,6 +365,9 @@ class Resolver(CloningVisitor):
         self.scopes: list[ast.SelectQueryType] = scopes or []
         self.ctes: dict[str, ast.CTE] = {}
         self.current_view_depth: int = 0
+        # Views whose bodies are currently being resolved. Only BoundedResolver populates this
+        # today; the base resolver keeps it so the raise seam below can pass it either way.
+        self.resolving_views: set[str] = set()
         self.context = context
         self.dialect = dialect
         self.database = context.database
@@ -1338,7 +1341,9 @@ class Resolver(CloningVisitor):
                 return node
 
             try:
-                database_table = cast(Database, self.database).get_table(table_name_chain)
+                database_table = cast(Database, self.database).get_table(
+                    table_name_chain, invalid_suggestions=self.resolving_views
+                )
             except QueryError:
                 # Direct Postgres/DuckDB sources expose introspected table-valued functions
                 # (range, generate_series, unnest, …) via connection metadata. If the lookup
