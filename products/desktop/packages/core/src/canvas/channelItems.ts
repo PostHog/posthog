@@ -9,7 +9,7 @@ import type {
   UserBasic,
 } from "@posthog/shared/domain-types";
 import { isTaskUnread, type TaskTimestamp } from "../sidebar/buildSidebarData";
-import { taskActivityTimestamp } from "../tasks/taskActivity";
+import { taskActivityAt, taskActivityTimestamp } from "../tasks/taskActivity";
 import type { DashboardRecord } from "./dashboardSchemas";
 
 /** Where a session runs. `worktree` is a local checkout, so it reads as local. */
@@ -172,7 +172,7 @@ export function buildChannelItems({
             source: sourceOf(task),
             needsInput: sessionFacts.needsInputTaskIds.has(task.id),
             unread: isTaskUnread(
-              task.updated_at,
+              taskActivityAt(task),
               sessionFacts.viewedTimestamps[task.id],
             ),
             authorUser: task.created_by ?? null,

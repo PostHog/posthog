@@ -79,10 +79,8 @@ export interface Task {
   created_at: string;
   updated_at: string;
   /**
-   * When something last happened *in* the session: a thread message either way, or a run
-   * starting, streaming, or finishing. `updated_at` says when the task row was last written,
-   * which a session can leave untouched while it runs for hours — so this is the timestamp a
-   * "recent activity" order has to read. Empty on responses that predate the field.
+   * When something last happened in the session, as opposed to `updated_at` (when the row was
+   * last written). The timestamp a "recent activity" sort reads. Empty on older responses.
    */
   last_activity_at?: string;
   created_by?: UserBasic | null;

@@ -164,13 +164,8 @@ export interface DeriveTaskDataContext {
 }
 
 /**
- * When a task last moved: the timestamp the backend reports, or local activity where that has
- * run ahead of it (the renderer sees a session change before the next poll reports it).
- *
- * Callers pass the task's activity timestamp (`taskActivityAt`) when they mean "when did
- * something happen here", and `updated_at` when they mean "when was the row last written" —
- * the two answer different questions, and a session can run for hours without the second
- * moving.
+ * When a task last moved: the activity time the caller passes (the backend's, via
+ * `taskActivityAt`), or local renderer activity where that has run ahead of the next poll.
  */
 export function taskLastActivityAt(
   activityAt: string,
@@ -225,9 +220,10 @@ export function deriveTaskData(
   ctx: DeriveTaskDataContext,
 ): TaskData {
   const { session, workspace, timestamp } = ctx;
-  const lastActivityAt = taskLastActivityAt(taskActivityAt(task), timestamp);
+  const activityAt = taskActivityAt(task);
+  const lastActivityAt = taskLastActivityAt(activityAt, timestamp);
   const createdAt = new Date(task.created_at).getTime();
-  const isUnread = isTaskUnread(task.updated_at, timestamp);
+  const isUnread = isTaskUnread(activityAt, timestamp);
 
   const cloudPrUrl =
     readPrUrls(task.latest_run?.output)[0] ??

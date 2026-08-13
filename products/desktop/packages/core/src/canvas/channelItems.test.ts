@@ -220,6 +220,29 @@ describe("buildChannelItems", () => {
     ]);
   });
 
+  // Unread reads the same activity timestamp the sort does, so a run that streamed since you
+  // looked (moving last_activity_at, not updated_at) shows unread. Keying it off updated_at
+  // left an active session sorted to the top yet unmarked.
+  it("marks a session unread from activity its row write time didn't capture", () => {
+    const [item] = build({
+      feedTasks: [
+        task({
+          id: "streamed",
+          updated_at: new Date(1_000).toISOString(),
+          last_activity_at: new Date(3_000).toISOString(),
+        }),
+      ],
+      sessionFacts: {
+        needsInputTaskIds: NONE,
+        viewedTimestamps: {
+          streamed: { lastViewedAt: 2_000, lastActivityAt: null },
+        },
+        workspaceModeByTaskId: new Map(),
+      },
+    });
+    expect(item.unread).toBe(true);
+  });
+
   it("returns everything when the owner is unknown", () => {
     const items = build({
       dashboards: [canvas({ createdBy: "Grace Hopper" })],
