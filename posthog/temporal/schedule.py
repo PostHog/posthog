@@ -84,6 +84,7 @@ from products.business_knowledge.backend.temporal.schedule import create_busines
 from products.conversations.backend.temporal.channel_summary.schedule import create_channel_summary_coordinator_schedule
 from products.conversations.backend.temporal.schedule import create_support_reply_coordinator_schedule
 from products.customer_analytics.backend.facade.temporal import create_calendar_sync_coordinator_schedule
+from products.data_quality.backend.facade.temporal import create_cleanup_data_quality_check_runs_schedule
 from products.engineering_analytics.backend.facade.temporal import (
     create_ci_signals_coordinator_schedule,
     create_github_job_logs_coordinator_schedule,
@@ -882,6 +883,7 @@ schedules = [
     create_github_job_logs_coordinator_schedule,
     create_review_hog_finding_outcomes_schedule,
     create_ci_signals_coordinator_schedule,
+    create_cleanup_data_quality_check_runs_schedule,
 ]
 
 if settings.CLOUD_DEPLOYMENT:
