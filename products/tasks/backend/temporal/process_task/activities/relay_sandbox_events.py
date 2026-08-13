@@ -124,7 +124,7 @@ async def _relay_sandbox_events(input: RelaySandboxEventsInput, *, finalize_stre
     origin_product = task_run.task.origin_product
     is_user_origin = not origin_product or origin_product == TaskModel.OriginProduct.USER_CREATED.value
     inactivity_timeout_seconds = resolve_inactivity_timeout(
-        is_user_origin=is_user_origin, state=task_run.state
+        is_user_origin=is_user_origin, origin_product=origin_product, state=task_run.state
     ).total_seconds()
 
     stream_key = get_task_run_stream_key(input.run_id)

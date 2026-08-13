@@ -160,8 +160,6 @@ export enum Scene {
     HealthAlerts = 'HealthAlerts',
     SdkHealth = 'SdkHealth',
     SessionAttributionExplorer = 'SessionAttributionExplorer',
-    SessionGroupSummariesTable = 'SessionGroupSummariesTable',
-    SessionGroupSummary = 'SessionGroupSummary',
     SessionSummaries = 'SessionSummaries',
     SessionProfile = 'SessionProfile',
     Settings = 'Settings',

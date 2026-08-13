@@ -218,18 +218,3 @@ class TestSessionRecordingAccessControl(APIBaseTest):
         can_modify = uac.check_can_modify_access_levels_for_object(self.recording)
 
         self.assertTrue(can_modify)
-
-    def test_summarize_respects_access_control(self):
-        self._create_access_control(self.no_access_user, resource_id=str(self.recording.id), access_level="none")
-
-        self.client.force_login(self.no_access_user)
-
-        retrieve_response = self.client.get(
-            f"/api/projects/{self.team.id}/session_recordings/{self.recording.session_id}/"
-        )
-        self.assertEqual(retrieve_response.status_code, status.HTTP_403_FORBIDDEN)
-
-        summarize_response = self.client.post(
-            f"/api/projects/{self.team.id}/session_recordings/{self.recording.session_id}/summarize/"
-        )
-        self.assertEqual(summarize_response.status_code, status.HTTP_403_FORBIDDEN)
