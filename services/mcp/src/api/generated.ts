@@ -18288,7 +18288,7 @@ export namespace Schemas {
          */
       watermark?: string | null;
       /**
-         * Fingerprint of the query and config the stored rows were built from. When it stops matching, the next run rebuilds the whole table.
+         * Fingerprint of the query, incremental key, and unique key the stored rows were built from. When it stops matching, the next run rebuilds the whole table. Lookback is not part of it: changing lookback never forces a rebuild.
          * @nullable
          */
       definition_fingerprint?: string | null;

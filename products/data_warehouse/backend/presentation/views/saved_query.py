@@ -401,8 +401,9 @@ class IncrementalStateSerializer(serializers.Serializer):
     definition_fingerprint = serializers.CharField(
         allow_null=True,
         required=False,
-        help_text="Fingerprint of the query and config the stored rows were built from. When it stops "
-        "matching, the next run rebuilds the whole table.",
+        help_text="Fingerprint of the query, incremental key, and unique key the stored rows were "
+        "built from. When it stops matching, the next run rebuilds the whole table. Lookback is "
+        "not part of it: changing lookback never forces a rebuild.",
     )
     last_full_refresh_at = serializers.CharField(
         allow_null=True, required=False, help_text="When the table was last rebuilt from scratch."

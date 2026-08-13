@@ -205,12 +205,18 @@ export function MaterializationStatusPanel({ viewId, kind = 'view' }: Materializ
         AccessControlLevel.Editor
     )
     const savedIncremental = savedQuery?.incremental
-    const refreshModeChanged = savedIncremental?.enabled
+    // Key or unique-key edits change what the stored rows mean, so the next run rebuilds (via the
+    // definition fingerprint). A lookback-only change is operational and does not.
+    const structuralChange = savedIncremental?.enabled
         ? !incrementalDraft.enabled ||
           incrementalDraft.incrementalKey !== savedIncremental.incremental_key ||
-          [...incrementalDraft.uniqueKey].sort().join(',') !== [...savedIncremental.unique_key].sort().join(',') ||
-          incrementalDraft.lookbackSeconds !== (savedIncremental.lookback_seconds ?? 0)
+          [...incrementalDraft.uniqueKey].sort().join(',') !== [...savedIncremental.unique_key].sort().join(',')
         : incrementalDraft.enabled
+    const lookbackChanged =
+        !!savedIncremental?.enabled &&
+        incrementalDraft.enabled &&
+        incrementalDraft.lookbackSeconds !== (savedIncremental.lookback_seconds ?? 0)
+    const refreshModeChanged = structuralChange || lookbackChanged
 
     if (!savedQuery) {
         return (
@@ -423,9 +429,11 @@ export function MaterializationStatusPanel({ viewId, kind = 'view' }: Materializ
                                                     Save refresh mode
                                                 </LemonButton>
                                                 <div className="text-xs text-secondary mt-1">
-                                                    {incrementalDraft.enabled
-                                                        ? 'Changing these settings rebuilds the whole table on the next run. After that, runs update only new rows.'
-                                                        : 'Every run will rebuild the whole table.'}
+                                                    {!incrementalDraft.enabled
+                                                        ? 'Every run will rebuild the whole table.'
+                                                        : structuralChange
+                                                          ? 'Changing these settings rebuilds the whole table on the next run. After that, runs update only new rows.'
+                                                          : 'The new lookback applies from the next run.'}
                                                 </div>
                                             </div>
                                         )}

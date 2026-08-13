@@ -40,11 +40,16 @@ class IncrementalConfig:
     lookback_seconds: int = DEFAULT_LOOKBACK_SECONDS
 
     def canonical(self) -> dict[str, Any]:
-        """Fingerprint input. Order-insensitive for unique_key, since reordering it changes nothing."""
+        """Fingerprint input. Order-insensitive for unique_key, since reordering it changes nothing.
+
+        Deliberately excludes lookback_seconds: it is operational, not definitional. It changes how
+        far future runs re-read, not what the stored rows mean, and rows arriving later than any
+        lookback are best-effort by design. Widening it does not repair past gaps either way; the
+        explicit rebuild action does.
+        """
         return {
             "incremental_key": self.incremental_key,
             "unique_key": sorted(self.unique_key),
-            "lookback_seconds": self.lookback_seconds,
         }
 
 
