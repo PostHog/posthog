@@ -133,6 +133,8 @@ def _repo_overview() -> contracts.RepoOverview:
         merged_pr_count_prev=40,
         median_open_to_merge_seconds=3600.0,
         median_open_to_merge_seconds_prev=4000.0,
+        median_ready_to_merge_seconds=3000.0,
+        median_ready_to_merge_seconds_prev=3500.0,
         billable_minutes=100.0,
         billable_minutes_prev=90.0,
         estimated_cost_usd=12.5,
@@ -149,6 +151,8 @@ def _repo_overview() -> contracts.RepoOverview:
         success_rate_series_granularity="day",
         open_to_merge_series=[],
         open_to_merge_series_granularity="day",
+        ready_to_merge_series=[],
+        ready_to_merge_series_granularity="day",
     )
 
 
