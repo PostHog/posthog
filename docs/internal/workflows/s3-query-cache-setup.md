@@ -23,8 +23,8 @@ One flat rule: expire every object after `CACHED_RESULTS_TTL_DAYS` (7) days. The
 
 ## Settings
 
-| Setting | Default | Meaning |
-| --- | --- | --- |
-| `QUERY_CACHE_S3_BUCKET` | `OBJECT_STORAGE_BUCKET` | Bucket for cache blobs (`posthog-query-cache-<region>-<env>` in cloud) |
-| `OBJECT_STORAGE_S3_QUERY_CACHE_FOLDER` | `query_cache` | Key prefix inside the bucket |
-| `QUERY_CACHE_S3_MIN_SIZE_BYTES` | `1048576` | Minimum serialized size for S3 routing |
+| Setting                                | Default                 | Meaning                                                                |
+| -------------------------------------- | ----------------------- | ---------------------------------------------------------------------- |
+| `QUERY_CACHE_S3_BUCKET`                | `OBJECT_STORAGE_BUCKET` | Bucket for cache blobs (`posthog-query-cache-<region>-<env>` in cloud) |
+| `OBJECT_STORAGE_S3_QUERY_CACHE_FOLDER` | `query_cache`           | Key prefix inside the bucket                                           |
+| `QUERY_CACHE_S3_MIN_SIZE_BYTES`        | `1048576`               | Minimum serialized size for S3 routing                                 |
