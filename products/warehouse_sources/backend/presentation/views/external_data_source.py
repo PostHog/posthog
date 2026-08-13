@@ -221,6 +221,17 @@ def _classify_refresh_schemas_error(source: AnySource | None, error: Exception) 
     return REFRESH_SCHEMAS_FALLBACK_ERROR_MESSAGE, False
 
 
+def _credentials_validation_failed(source: AnySource, team_id: int, error: Exception) -> tuple[bool, str | None]:
+    """Fallback result for an *unexpected* exception raised by a source's credential probe.
+
+    Sources are expected to catch their own errors and return ``(False, message)``. One that raises
+    instead would 500 the create/update request and show someone mid-onboarding an opaque server
+    error, so capture it for us and hand back an actionable message — the same treatment schema
+    discovery already gives an unexpected error just below the credential check."""
+    capture_exception(error, {"source_type": str(source.source_type), "team_id": team_id})
+    return False, INVALID_CREDENTIALS_FALLBACK_MESSAGE
+
+
 def get_sensitive_field_names(fields: list[FieldType]) -> set[str]:
     """Extract field names that contain sensitive data from a source config's fields."""
     sensitive: set[str] = set()
@@ -1200,29 +1211,32 @@ class ExternalDataSourceSerializers(UserAccessControlSerializerMixin, serializer
 
         if job_inputs_were_submitted:
             effective_api_version = source.resolve_api_version(instance.api_version)
-            if isinstance(source, (PostgresSource, MySQLSource)):
-                credentials_valid, credentials_error = source.validate_credentials_for_access_method(
-                    cast(Any, source_config),
-                    instance.team_id,
-                    instance.access_method,
-                    api_version=effective_api_version,
-                )
-            elif isinstance(source, CustomSource):
-                # Pass the source being updated so an integration-backed OAuth2 source can only validate
-                # with the integration bound to it — not another source's, whose token the probe would
-                # otherwise mint and send to the submitted manifest host. owner_user_id additionally gates
-                # an as-yet-unbound integration to its creator.
-                credentials_valid, credentials_error = source.validate_credentials(
-                    source_config,
-                    instance.team_id,
-                    source_id=str(instance.pk),
-                    owner_user_id=self.context["request"].user.id,
-                    api_version=effective_api_version,
-                )
-            else:
-                credentials_valid, credentials_error = source.validate_credentials(
-                    source_config, instance.team_id, api_version=effective_api_version
-                )
+            try:
+                if isinstance(source, (PostgresSource, MySQLSource)):
+                    credentials_valid, credentials_error = source.validate_credentials_for_access_method(
+                        cast(Any, source_config),
+                        instance.team_id,
+                        instance.access_method,
+                        api_version=effective_api_version,
+                    )
+                elif isinstance(source, CustomSource):
+                    # Pass the source being updated so an integration-backed OAuth2 source can only validate
+                    # with the integration bound to it — not another source's, whose token the probe would
+                    # otherwise mint and send to the submitted manifest host. owner_user_id additionally gates
+                    # an as-yet-unbound integration to its creator.
+                    credentials_valid, credentials_error = source.validate_credentials(
+                        source_config,
+                        instance.team_id,
+                        source_id=str(instance.pk),
+                        owner_user_id=self.context["request"].user.id,
+                        api_version=effective_api_version,
+                    )
+                else:
+                    credentials_valid, credentials_error = source.validate_credentials(
+                        source_config, instance.team_id, api_version=effective_api_version
+                    )
+            except Exception as e:
+                credentials_valid, credentials_error = _credentials_validation_failed(source, instance.team_id, e)
             if not credentials_valid:
                 raise ValidationError(credentials_error or INVALID_CREDENTIALS_FALLBACK_MESSAGE)
             if instance.is_direct_query:
@@ -3095,19 +3109,22 @@ class ExternalDataSourceViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixi
         source_config: Config = source.parse_config(request.data)
 
         access_method = request.data.get("access_method", ExternalDataSource.AccessMethod.WAREHOUSE)
-        if isinstance(source, (PostgresSource, MySQLSource)):
-            credentials_valid, credentials_error = source.validate_credentials_for_access_method(
-                cast(Any, source_config), self.team_id, access_method
-            )
-        elif isinstance(source, CustomSource):
-            # Schema discovery for an as-yet-uncreated source: an integration-backed manifest may only use
-            # an unbound integration owned by the requester, or the probe could send another source's token
-            # to the submitted host.
-            credentials_valid, credentials_error = source.validate_credentials(
-                source_config, self.team_id, owner_user_id=self.request.user.id
-            )
-        else:
-            credentials_valid, credentials_error = source.validate_credentials(source_config, self.team_id)
+        try:
+            if isinstance(source, (PostgresSource, MySQLSource)):
+                credentials_valid, credentials_error = source.validate_credentials_for_access_method(
+                    cast(Any, source_config), self.team_id, access_method
+                )
+            elif isinstance(source, CustomSource):
+                # Schema discovery for an as-yet-uncreated source: an integration-backed manifest may only use
+                # an unbound integration owned by the requester, or the probe could send another source's token
+                # to the submitted host.
+                credentials_valid, credentials_error = source.validate_credentials(
+                    source_config, self.team_id, owner_user_id=self.request.user.id
+                )
+            else:
+                credentials_valid, credentials_error = source.validate_credentials(source_config, self.team_id)
+        except Exception as e:
+            credentials_valid, credentials_error = _credentials_validation_failed(source, self.team_id, e)
         if not credentials_valid:
             return Response(
                 status=status.HTTP_400_BAD_REQUEST,
@@ -3567,18 +3584,21 @@ class ExternalDataSourceViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixi
             )
         source_config: Config = source.parse_config(payload)
 
-        if isinstance(source, (PostgresSource, MySQLSource)):
-            credentials_valid, credentials_error = source.validate_credentials_for_access_method(
-                cast(Any, source_config), self.team_id, access_method
-            )
-        elif isinstance(source, CustomSource):
-            # Create-time validation for an integration-backed manifest may only use an unbound integration
-            # owned by the requester, so the probe can't send another source's token to the submitted host.
-            credentials_valid, credentials_error = source.validate_credentials(
-                source_config, self.team_id, owner_user_id=self.request.user.id
-            )
-        else:
-            credentials_valid, credentials_error = source.validate_credentials(source_config, self.team_id)
+        try:
+            if isinstance(source, (PostgresSource, MySQLSource)):
+                credentials_valid, credentials_error = source.validate_credentials_for_access_method(
+                    cast(Any, source_config), self.team_id, access_method
+                )
+            elif isinstance(source, CustomSource):
+                # Create-time validation for an integration-backed manifest may only use an unbound integration
+                # owned by the requester, so the probe can't send another source's token to the submitted host.
+                credentials_valid, credentials_error = source.validate_credentials(
+                    source_config, self.team_id, owner_user_id=self.request.user.id
+                )
+            else:
+                credentials_valid, credentials_error = source.validate_credentials(source_config, self.team_id)
+        except Exception as e:
+            credentials_valid, credentials_error = _credentials_validation_failed(source, self.team_id, e)
         if not credentials_valid:
             return (
                 Response(
