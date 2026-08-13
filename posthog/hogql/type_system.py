@@ -164,6 +164,11 @@ DATETIME_RUNTIME_TYPE = RuntimeType(family="datetime")
 # Families least_common_runtime_type() already unifies with boolean (bool literals read as 0/1).
 _BOOLEAN_COMPATIBLE_FAMILIES: frozenset[RuntimeTypeFamily] = frozenset({"boolean", "integer", "float", "decimal"})
 
+# JSON is what a property access falls back to when no property-definition metadata is available,
+# and it also covers native JSON/Dynamic columns. Either way the family says nothing about the type
+# ClickHouse ends up with, so a mismatch against it is never trustworthy enough to raise on.
+_UNTRUSTWORTHY_BRANCH_FAMILIES: frozenset[RuntimeTypeFamily] = frozenset({"json"})
+
 
 _INTEGER_RE = re.compile(r"^(U?Int)(8|16|32|64|128|256)$", re.IGNORECASE)
 _FLOAT_RE = re.compile(r"^Float(32|64)$", re.IGNORECASE)
@@ -730,6 +735,25 @@ def least_common_supertype(types: Sequence[ast.ConstantType], dialect: HogQLDial
     return constant_type_from_runtime_type(least_common_runtime_type(runtime_types, dialect=dialect))
 
 
+def _branch_type_is_untrustworthy(branch_type: ast.ConstantType, expr: Optional[ast.Expr]) -> bool:
+    """Whether a branch's inferred type is too weak a signal to raise a user-facing error over.
+
+    A property access (`properties.blocked`) is typed from property-definition metadata, which the
+    resolver frequently does not have loaded - it then falls back to the JSON type of the parent
+    `properties` column, regardless of what the property actually holds. The printer resolves the
+    physical read separately, so `coalesce(properties.blocked, false)` reaches ClickHouse with two
+    compatible branches even though inference reports JSON and Boolean.
+
+    Every property access is skipped, not only the metadata-missing fallback: a loaded property
+    definition types the property from the values seen so far, which is still a guess about what a
+    given row holds, so it is no safer to raise on than the JSON fallback."""
+    if runtime_type_from_constant_type(branch_type).family in _UNTRUSTWORTHY_BRANCH_FAMILIES:
+        return True
+    while isinstance(expr, ast.Alias):
+        expr = expr.expr
+    return expr is not None and isinstance(expr.type, ast.PropertyType)
+
+
 def _branch_supertype_or_raise(
     branch_types: list[ast.ConstantType],
     branch_args: Sequence[Optional[ast.Expr]],
@@ -744,7 +768,9 @@ def _branch_supertype_or_raise(
     rather than raising on every family combination with no explicit unification rule: many
     generated queries elsewhere in the codebase mix families (e.g. DateTime with a String
     placeholder, JSON with a String default) that silently degrade to UnknownType today and work
-    fine against ClickHouse, so raising there would be a false positive."""
+    fine against ClickHouse, so raising there would be a false positive. Branches whose inferred
+    type is a guess rather than a fact are skipped for the same reason - see
+    _branch_type_is_untrustworthy."""
     result = least_common_supertype(branch_types, dialect=dialect)
     if not isinstance(result, ast.UnknownType) or result.unanalyzable:
         return result
@@ -754,6 +780,8 @@ def _branch_supertype_or_raise(
         if not isinstance(branch_type, ast.UnknownType)
     ]
     if len(known) < 2:
+        return result
+    if any(_branch_type_is_untrustworthy(branch_type, expr) for branch_type, expr in known):
         return result
     families = {runtime_type_from_constant_type(branch_type).family for branch_type, _ in known}
     if "boolean" not in families or not (families - _BOOLEAN_COMPATIBLE_FAMILIES):
