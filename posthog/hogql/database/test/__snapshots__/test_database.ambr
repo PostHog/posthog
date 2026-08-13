@@ -387,10 +387,10 @@
          "posthog_externaldatasourcerevenueanalyticsconfig"."include_invoiceless_charges"
   FROM "posthog_externaldatasource"
   LEFT OUTER JOIN "posthog_externaldatasourcerevenueanalyticsconfig" ON ("posthog_externaldatasource"."id" = "posthog_externaldatasourcerevenueanalyticsconfig"."external_data_source_id")
-  WHERE ("posthog_externaldatasource"."source_type" IN ('Stripe')
-         AND "posthog_externaldatasource"."team_id" = 99999
+  WHERE ("posthog_externaldatasource"."team_id" = 99999
          AND NOT ("posthog_externaldatasource"."deleted"
-                  AND "posthog_externaldatasource"."deleted" IS NOT NULL))
+                  AND "posthog_externaldatasource"."deleted" IS NOT NULL)
+         AND "posthog_externaldatasource"."source_type" IN ('Stripe'))
   '''
 # ---
 # name: TestDatabase.test_database_with_warehouse_tables_and_saved_queries_n_plus_1.3
@@ -751,10 +751,10 @@
          "posthog_externaldatasourcerevenueanalyticsconfig"."include_invoiceless_charges"
   FROM "posthog_externaldatasource"
   LEFT OUTER JOIN "posthog_externaldatasourcerevenueanalyticsconfig" ON ("posthog_externaldatasource"."id" = "posthog_externaldatasourcerevenueanalyticsconfig"."external_data_source_id")
-  WHERE ("posthog_externaldatasource"."source_type" IN ('Stripe')
-         AND "posthog_externaldatasource"."team_id" = 99999
+  WHERE ("posthog_externaldatasource"."team_id" = 99999
          AND NOT ("posthog_externaldatasource"."deleted"
-                  AND "posthog_externaldatasource"."deleted" IS NOT NULL))
+                  AND "posthog_externaldatasource"."deleted" IS NOT NULL)
+         AND "posthog_externaldatasource"."source_type" IN ('Stripe'))
   '''
 # ---
 # name: TestDatabase.test_serialize_database_no_person_on_events
