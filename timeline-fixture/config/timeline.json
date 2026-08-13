@@ -1,0 +1,6 @@
+{
+  "title": "Timeline fixture",
+  "showFileCounts": true,
+  "showDiffBadges": true,
+  "groups": ["feature", "docs", "cleanup"]
+}
