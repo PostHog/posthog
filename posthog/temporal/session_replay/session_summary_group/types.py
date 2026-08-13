@@ -51,6 +51,8 @@ class SessionGroupSummaryInputs:
     local_reads_prod: bool = False
     video_based: bool = False
     trigger_session_id: str | None = None
+    # Sessions the caller dropped before starting the run, so run_metadata covers the whole request
+    pre_run_failed_sessions: list[FailedSessionInfo] = dataclasses.field(default_factory=list)
 
 
 @dataclasses.dataclass(frozen=True, kw_only=True)
