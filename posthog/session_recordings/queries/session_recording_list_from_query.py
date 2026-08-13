@@ -303,7 +303,9 @@ class SessionRecordingListFromQuery(SessionRecordingsListingBaseQuery):
         while join.next_join is not None:
             join = join.next_join
         join.next_join = ast.JoinExpr(
-            join_type="INNER JOIN",
+            # GLOBAL: the subquery scans events over the whole experiment window; without it,
+            # every shard of the sharded replay table re-evaluates that scan independently.
+            join_type="GLOBAL INNER JOIN",
             table=exposed_distinct_ids_select(
                 self._team,
                 experiment_id=self._query.experiment_exposure.experiment_id,
