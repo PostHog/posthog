@@ -82,6 +82,25 @@ describe('replayVisionScanWidgetLogic', () => {
         await expectLogic(logic).toFinishAllListeners().toMatchValues({ pendingCount: 1 })
     })
 
+    it('reads nothing back when the scan started nothing', async () => {
+        // Every session skipped means no session filter, which the API reads as "no filter" and would
+        // answer with the shared scanner's whole history under a "Scan complete" header.
+        let requested = false
+        useMocks({
+            get: {
+                '/api/projects/:team_id/vision/scanners/:scanner_id/observations/': () => {
+                    requested = true
+                    return [200, { results: [observation('someone-elses-session', 'succeeded')] }]
+                },
+            },
+        })
+        logic = replayVisionScanWidgetLogic({ scanId: SCAN_ID, sessionIds: [] })
+        logic.mount()
+        await expectLogic(logic).toFinishAllListeners().toMatchValues({ observations: [], pendingCount: 0 })
+
+        expect(requested).toBe(false)
+    })
+
     it('says so when it stops before every recording settled', async () => {
         // Polling stops after repeated failures. Without a visible give-up the widget keeps a spinner
         // on a recording it is no longer waiting for.

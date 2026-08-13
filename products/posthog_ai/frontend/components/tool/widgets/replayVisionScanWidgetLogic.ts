@@ -92,7 +92,9 @@ export const replayVisionScanWidgetLogic = kea<replayVisionScanWidgetLogicType>(
             {
                 loadObservations: async () => {
                     const teamId = teamLogic.values.currentTeamId
-                    if (!teamId) {
+                    // An empty `session_id` reads as "no filter", which would return the shared scanner's
+                    // whole history. Nothing started, so there is nothing to read back.
+                    if (!teamId || !props.sessionIds.length) {
                         return []
                     }
                     // Filter server-side. The scanner is shared, so asking for the newest N rows can come
