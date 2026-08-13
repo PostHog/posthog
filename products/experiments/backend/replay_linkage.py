@@ -14,6 +14,8 @@ person's other distinct ids do appear on recordings. Expanding the exposed perso
 
 from datetime import UTC, datetime
 
+from django.contrib.auth.models import AnonymousUser
+
 from rest_framework.exceptions import ValidationError
 
 from posthog.schema import IntervalType
@@ -36,7 +38,9 @@ from products.experiments.backend.hogql_queries.exposure_query_logic import get_
 from products.experiments.backend.models.experiment import Experiment
 
 
-def validate_experiment_exposure_access(team: Team, user: User | None, experiment_id: int) -> bool:
+def validate_experiment_exposure_access(
+    team: Team, user: User | AnonymousUser | SyntheticUser | None, experiment_id: int
+) -> bool:
     """Refuse the ``experiment_exposure`` filter for viewers denied the experiment it names.
 
     The filter reveals experiment data through replay surfaces (which recordings belong to
@@ -52,7 +56,7 @@ def validate_experiment_exposure_access(team: Team, user: User | None, experimen
 
     Returns True, or raises UserAccessControlError (the query-runner access contract).
     """
-    if user is None or user.is_anonymous or isinstance(user, SyntheticUser):
+    if user is None or not isinstance(user, User):
         return True
     experiment = Experiment.objects.filter(id=experiment_id, team=team, deleted=False).first()
     if experiment is None:
